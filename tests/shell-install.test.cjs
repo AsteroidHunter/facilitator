@@ -318,7 +318,7 @@ test('help and unknown installer arguments do not create or edit files', async (
     const error = await exec('bash', [path.join(f.repo, 'install.sh'), '--bogus'], { cwd: f.repo, env: f.env })
       .then(() => null, failure => failure);
     assert.ok(error);
-    assert.match(error.stderr, /^\n⚠ Unknown option or argument: --bogus\.\n  usage: \.\/install\.sh\n$/);
+    assert.match(error.stderr, /^\n⚠ Unknown option or argument: --bogus\.\n  usage: \.\/install\.sh \[--dev\]\n$/);
     assert.equal(await fs.readFile(rc, 'utf8'), 'export EXISTING=1\n');
     await assert.rejects(fs.lstat(path.join(f.repo, '.venv')), { code: 'ENOENT' });
     await assert.rejects(fs.lstat(path.join(f.home, '.local/share/facilitator/bin/facilitator')), { code: 'ENOENT' });

@@ -94,7 +94,7 @@ async function openBoard({ standalone = false, offers = false } = {}) {
 async function barShape(page) {
   return page.evaluate(() => {
     const install = document.getElementById("installbtn");
-    const edit = document.getElementById("editbtn");
+    const bell = document.getElementById("chimebtn");
     const seen = el => {
       const box = el.getBoundingClientRect();
       const style = getComputedStyle(el);
@@ -107,7 +107,7 @@ async function barShape(page) {
         text: el.textContent,
       };
     };
-    return { install: seen(install), edit: seen(edit) };
+    return { install: seen(install), bell: seen(bell) };
   });
 }
 
@@ -254,22 +254,22 @@ test("no offer, no control: the bar is as it was", async () => {
   await page.close();
 });
 
-test("an offer puts the soft-tint control in the bar, level with the pen mark", async () => {
+test("an offer puts the soft-tint control in the bar, level with the bell mark", async () => {
   const { page, problems } = await openBoard();
   await page.evaluate(sendOffer);
   const shape = await barShape(page);
   assert.equal(shape.install.shown, true, "the offer left the bar unchanged");
   assert.equal(shape.install.text, "Install app");
-  // the control is a soft-tint button with no border, and the pen beside it is
-  // a plain mark with neither box nor border
+  // the control is a soft-tint button with no border, and the bell beside it
+  // stands in a glass circle with no border of its own
   assert.notEqual(shape.install.background, "rgba(0, 0, 0, 0)");
   assert.equal(shape.install.radius, "4px");
   assert.equal(shape.install.border, "none");
-  assert.equal(shape.edit.background, "rgba(0, 0, 0, 0)");
-  assert.equal(shape.edit.border, "none");
+  assert.notEqual(shape.bell.background, "rgba(0, 0, 0, 0)", "the bell's circle has no glass face");
+  assert.equal(shape.bell.border, "none");
   // one row: their middles line up
-  assert.ok(Math.abs(shape.install.middle - shape.edit.middle) <= 1,
-    `the control sits at ${shape.install.middle} and the pen at ${shape.edit.middle}`);
+  assert.ok(Math.abs(shape.install.middle - shape.bell.middle) <= 1,
+    `the control sits at ${shape.install.middle} and the bell at ${shape.bell.middle}`);
 
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "mac-install-button.png") });
   assert.deepEqual(problems, []);

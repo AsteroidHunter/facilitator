@@ -14,6 +14,12 @@
 /vapid-key.pem
 /bridge-auth.json
 /bridge-auth.lock
+# a write cut off midway leaves one of these holding the password hash
+/.bridge-auth-*
+
+# a lane whose folder is this checkout keeps its panel and navigator notes here
+/facilitator-internal/
+/facilitator-wiki/
 
 # machine-local lane config: names real project directories
 /run.config.json
@@ -34,6 +40,7 @@
 
 # probe tooling deps, if ever installed beside probe3.js
 /node_modules/
+/tests/node_modules/
 /package.json
 /package-lock.json
 

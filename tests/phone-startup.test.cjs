@@ -143,6 +143,9 @@ const FIXTURE_BOXES = [
     "so the card has real height to settle at."),
   fixtureBox("p1", "Another lane's card", "pastureland", "Its own lane's answer."),
 ];
+// the page builds the card on show and the cards next to it in its lane, and
+// the fixture has one card in each of two lanes, so one box is built
+const BUILT_BOXES = 1;
 
 async function startFixture() {
   const control = {
@@ -717,6 +720,7 @@ test("the globe turns again and the board arrives when the connection comes back
     const after = await page.evaluate(() => ({
       lift: window.__liftAt - window.__loadAt,
       cards: document.getElementById("cards").childElementCount,
+      board: lastState.boxes.length,
       shown: !!document.querySelector("#cards .box.sel"),
       blank: document.getElementById("pane").classList.contains("blank"),
       emptyShown: getComputedStyle(document.getElementById("empty")).display !== "none",
@@ -724,7 +728,8 @@ test("the globe turns again and the board arrives when the connection comes back
       frames: startupFrames,
     }));
     assert.ok(after.lift >= 1000, "the curtain came down inside the minimum hold: " + after.lift);
-    assert.equal(after.cards, FIXTURE_BOXES.length, "the board was not drawn");
+    assert.equal(after.cards, BUILT_BOXES, "the board was not drawn");
+    assert.equal(after.board, FIXTURE_BOXES.length, "the page did not hold the whole board");
     assert.equal(after.shown, true, "no card was on show when the curtain came down");
     assert.equal(after.blank, false, "the curtain came down onto a blank card");
     assert.equal(after.emptyShown, false, "the curtain came down onto the empty line");
@@ -752,7 +757,7 @@ test("a slow first answer is waited for, and released the moment it settles", as
       cards: document.getElementById("cards").childElementCount,
     }));
     assert.ok(after.lift > 2500, "the curtain came down before the answer did");
-    assert.equal(after.cards, FIXTURE_BOXES.length);
+    assert.equal(after.cards, BUILT_BOXES);
     assert.deepEqual(problems, []);
   } finally {
     await browser.close();
@@ -808,7 +813,7 @@ test("a connection lost after the start never brings the curtain back", async ()
     assert.equal(after.curtain, false, "the startup curtain came back after a later drop");
     assert.equal(after.bar, null, "a bar stands under the tabs");
     assert.equal(after.down, false, "the white screen covered an app in use");
-    assert.equal(after.cards, FIXTURE_BOXES.length, "the board it had read was taken away");
+    assert.equal(after.cards, BUILT_BOXES, "the board it had read was taken away");
     await shot(page, "later-drop");
     assert.deepEqual(problems, []);
   } finally {
@@ -918,7 +923,7 @@ test("a missing squid costs the launch image and nothing else", async () => {
       cards: document.getElementById("cards").childElementCount,
     }));
     assert.equal(out.links, 0, "a launch image was registered from a file that is not there");
-    assert.equal(out.cards, FIXTURE_BOXES.length, "a missing squid stopped the board being drawn");
+    assert.equal(out.cards, BUILT_BOXES, "a missing squid stopped the board being drawn");
     assert.deepEqual(problems, [], "a missing squid was reported as a page problem");
   } finally {
     await browser.close();
@@ -953,7 +958,7 @@ test("a normal browser tab shows no curtain at all", async () => {
     }));
     assert.equal(out.standalone, false, "a plain tab reported itself installed");
     assert.equal(out.curtain, false, "a plain tab was left holding the curtain");
-    assert.equal(out.cards, FIXTURE_BOXES.length);
+    assert.equal(out.cards, BUILT_BOXES);
     assert.equal(out.shown, true);
     // This tab reports what iPadOS reports, a Macintosh with a touch screen, so
     // it is an Apple home screen target and the launch image IS painted here.
@@ -983,17 +988,17 @@ test("the curtain sits outside the page the menus scale, and the menus still wor
     assert.equal(held.insidePage, false, "the curtain is inside the page, which is scaled while a menu is out");
     assert.equal(held.parent, "BODY");
     await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 20000 });
-    // the drawer still opens on the page the curtain was over
+    // the card list still opens on the page the curtain was over
     await page.evaluate(() => openDrawer());
     await new Promise(resolve => setTimeout(resolve, 800));
     const open = await page.evaluate(() => ({
-      shift: getComputedStyle(document.getElementById("drawer")).transform,
-      scale: getComputedStyle(document.getElementById("page")).transform,
+      shift: getComputedStyle(document.getElementById("tickets")).transform,
+      down: new DOMMatrix(getComputedStyle(document.getElementById("pane")).transform).m42,
       rows: document.querySelectorAll("#tiklist .trow").length,
-      visible: getComputedStyle(document.getElementById("drawer")).visibility,
+      visible: getComputedStyle(document.getElementById("tickets")).visibility,
     }));
     assert.equal(open.visible, "visible", "the drawer did not open after the curtain went");
-    assert.notEqual(open.scale, "none", "the page did not draw back for the drawer");
+    assert.ok(open.down > 100, "the card did not go down for the list");
     assert.ok(open.rows > 0, "the drawer's list was empty after a live reading");
     await page.evaluate(() => closeDrawer());
     await new Promise(resolve => setTimeout(resolve, 800));
@@ -1065,7 +1070,8 @@ test("a picture on a card nobody is looking at holds nothing up", async () => {
   fixture.holdImage = true;
   fixture.boxes = [
     fixtureBox("f1", "The card on show", "facilitator", "Plain words, and no picture."),
-    fixtureBox("p1", "A card behind it", "pastureland",
+    // in the same lane, so it is next to the card on show and is built
+    fixtureBox("p1", "A card behind it", "facilitator",
       "![a shot nobody is looking at](/uploads/slow.png)"),
   ];
   const { browser, page, problems } = await openInstalled(fixture);
@@ -1105,7 +1111,7 @@ test("a layout that will not hold still keeps the curtain up, and lifts when it 
     await page.evaluate(() => document.getElementById("restless").remove());
     await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 20000 });
     assert.equal(await page.evaluate(() => document.getElementById("cards").childElementCount),
-      FIXTURE_BOXES.length);
+      BUILT_BOXES);
     assert.deepEqual(problems, []);
   } finally {
     await browser.close();
@@ -1307,7 +1313,7 @@ test("a reading that would not draw never releases the curtain, and is asked for
       stated: document.body.classList.contains("stated"),
       drewBoard, still: startupStill, lastRev, frames: startupFrames,
     }));
-    assert.equal(done.cards, FIXTURE_BOXES.length, "the board never drew");
+    assert.equal(done.cards, BUILT_BOXES, "the board never drew");
     assert.equal(done.shown, true, "no card was on show when the curtain came down");
     assert.equal(done.blank, false);
     assert.deepEqual([done.stated, done.drewBoard, done.still], [true, true, true]);
@@ -1330,7 +1336,7 @@ test("a pass that throws after the start never brings the curtain back", async (
       cards: document.getElementById("cards").childElementCount,
       title: document.querySelector("#cards .box.sel .title")?.textContent,
     }));
-    assert.equal(before.cards, FIXTURE_BOXES.length);
+    assert.equal(before.cards, BUILT_BOXES);
 
     // a new reading arrives and its pass throws twice
     await page.evaluate(() => { window.__faultApply = 2; });
@@ -1347,7 +1353,7 @@ test("a pass that throws after the start never brings the curtain back", async (
       lastRev,
     }));
     assert.equal(during.curtain, false, "a later pass that threw brought the startup curtain back");
-    assert.equal(during.cards, FIXTURE_BOXES.length, "the board already on screen was taken away");
+    assert.equal(during.cards, BUILT_BOXES, "the board already on screen was taken away");
     assert.equal(during.stated, true);
     assert.equal(during.lastRev, null, "the revision of a reading that would not draw was held");
 
@@ -1361,7 +1367,7 @@ test("a pass that throws after the start never brings the curtain back", async (
     }));
     assert.equal(after.curtain, false, "the curtain came back on the recovery");
     assert.equal(after.lastRev, 8, "the newer revision was not held once it had drawn");
-    assert.equal(after.cards, FIXTURE_BOXES.length);
+    assert.equal(after.cards, BUILT_BOXES);
   } finally {
     await browser.close();
     mHtml = original;

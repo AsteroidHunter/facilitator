@@ -1,7 +1,7 @@
 // The row of buttons along the foot of the phone page: four glass buttons in
 // the band iOS gives a paired keyboard's bar, from left to right the card
 // list's ticket (a circle), the open project's capsule (the long oval), a new
-// card's plus (a short oval) and the settings' gear (a circle). Held here two
+// card's plus (a short oval) and the settings' squid (a circle). Held here two
 // ways: m.html read as text, and the page itself at an iPhone 13 mini's size
 // (375 by 812, device scale 3, touch) on an invented board of five projects,
 // driven by taps and held presses. Nothing reads the real board, and port 8877
@@ -83,7 +83,7 @@ const shade = page => page.evaluate(() => {
 });
 
 // ---- the markup and the sheet -----------------------------------------------------------
-test("the row holds four glass buttons in the owner's order, each drawn as inline svg", () => {
+test("the row holds four glass buttons in the owner's order, three drawn as inline svg and the settings circle as the logo png", () => {
   const dock = /<nav id="dock"[^>]*>([\s\S]*?)<\/nav>/.exec(PHONE);
   assert.ok(dock, "the row of buttons is not in the page");
   const buttons = [...dock[1].matchAll(/<button id="(\w+)" class="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g)];
@@ -91,6 +91,11 @@ test("the row holds four glass buttons in the owner's order, each drawn as inlin
   for (const [, id, cls, inside] of buttons){
     assert.match(cls, /\bqn-glass\b/, `${id} does not wear the board's glass`);
     assert.match(cls, /\bdockbtn\b/);
+    if (id === "setbtn"){
+      assert.match(inside, /^<span class="squidmark" aria-hidden="true"><img src="\/m-splash-squid\.png"[^>]*><\/span>$/, "setbtn is not the logo png in its cropping box");
+      assert.doesNotMatch(inside, /<svg|url\(/, "setbtn also carries a drawn mark");
+      continue;
+    }
     assert.match(inside, /<svg[^>]*aria-hidden="true"/, `${id} carries no inline mark`);
     assert.doesNotMatch(inside, /<img|url\(/, `${id} fetches its mark`);
   }
@@ -122,19 +127,56 @@ test("the row's shape: two circles at the ends, the long capsule, the short plus
         radius: cs.borderTopLeftRadius, glass: cs.backdropFilter || cs.webkitBackdropFilter };
     }));
     const [ticket, capsule, plus, gear] = shape;
+    // at rest the page stands in half of --sink of each side from the screen's
+    // edge and is laid out at 1 - sink of its full size
+    const sink = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink")));
+    assert.ok(sink > 0 && sink < 0.05, `the page's rest step is not a small share (${sink})`);
+    const rest = 1 - sink, stepX = IPHONE_13_MINI.width * sink / 2, stepY = IPHONE_13_MINI.height * sink / 2;
+    const near = (actual, expected, what) => assert.ok(Math.abs(actual - expected) < 0.1, `${what}: ${actual} is not ${expected}`);
     for (const b of shape){
-      assert.equal(b.height, 48, `${b.id} is not the bar's 48px`);
-      assert.equal(b.bottom, IPHONE_13_MINI.height - 10, `${b.id} is not 10px off the bottom edge`);
-      assert.equal(b.radius, "24px", `${b.id} is not round at its ends`);
+      near(b.height, 48 * rest, `${b.id} is not the bar's 48px at rest`);
+      near(IPHONE_13_MINI.height - b.bottom, stepY + 10 * rest, `${b.id} is not 10px off the bottom edge at rest`);
+      near(parseFloat(b.radius), 24 * rest, `${b.id} is not round at its ends`);
       assert.match(b.glass, /blur\(15px\)/, `${b.id} is not the board's glass`);
     }
-    assert.equal(ticket.left, 16, "the row does not start 16px in");
-    assert.equal(gear.right, IPHONE_13_MINI.width - 16, "the row does not end 16px in");
-    assert.equal(ticket.width, 48, "the ticket is not a circle");
-    assert.equal(gear.width, 48, "the gear is not a circle");
-    assert.ok(plus.width > 48 && plus.width < capsule.width, "the plus is not an oval shorter than the capsule");
+    near(ticket.left, stepX + 16 * rest, "the row does not start 16px in at rest");
+    near(IPHONE_13_MINI.width - gear.right, stepX + 16 * rest, "the row does not end 16px in at rest");
+    near(ticket.width, 48 * rest, "the ticket is not a circle");
+    near(gear.width, 48 * rest, "the gear is not a circle");
+    assert.ok(plus.width > 48 * rest && plus.width < capsule.width, "the plus is not an oval shorter than the capsule");
     assert.ok(capsule.width / capsule.height > 2.5, "the capsule is not the long oval");
     assert.ok(plus.width / plus.height < 2, "the plus is as long as the capsule");
+    assert.deepEqual(problems, []);
+  } finally { await page.close(); }
+});
+
+test("the settings circle holds the logo's own squid png, cut to the squid, 30 units tall", async () => {
+  const { page, problems } = await openPhone();
+  try {
+    const button = await page.$eval("#setbtn", el => ({
+      tag: el.tagName, type: el.getAttribute("type"), title: el.title, label: el.getAttribute("aria-label"),
+      classes: el.className, marks: el.querySelectorAll("svg").length, hidden: el.querySelector(".squidmark").getAttribute("aria-hidden"),
+      images: el.querySelectorAll("img").length,
+    }));
+    assert.deepEqual(button, { tag: "BUTTON", type: "button", title: "Settings", label: "Settings",
+      classes: "dockbtn round qn-glass", marks: 0, hidden: "true", images: 1 });
+    await page.waitForFunction(() => document.querySelector("#setbtn img").complete);
+    const mark = await page.evaluate(() => {
+      const img = document.querySelector("#setbtn img"), box = document.querySelector("#setbtn .squidmark").getBoundingClientRect();
+      return { src: new URL(img.src).pathname, natural: [img.naturalWidth, img.naturalHeight], w: box.width, h: box.height };
+    });
+    assert.equal(mark.src, "/m-splash-squid.png", "the mark is not the logo's own png");
+    assert.deepEqual(mark.natural, [1247, 1261], "the logo png did not load");
+    assert.ok(mark.h > 28 && mark.h <= 30, "the squid is not 30 units tall at the row's rest size: " + mark.h);
+    assert.ok(Math.abs(mark.w / mark.h - 917 / 1126) < 0.02, "the cut is not the squid's own proportions");
+    // drawn at the row's rest size, and still inside its circle
+    const fit = await page.evaluate(() => {
+      const b = document.getElementById("setbtn").getBoundingClientRect(), s = document.querySelector("#setbtn .squidmark").getBoundingClientRect();
+      return { inside: s.left > b.left && s.right < b.right && s.top > b.top && s.bottom < b.bottom,
+        dx: (s.left + s.right) / 2 - (b.left + b.right) / 2, dy: (s.top + s.bottom) / 2 - (b.top + b.bottom) / 2 };
+    });
+    assert.equal(fit.inside, true, "the mark is not inside its circle");
+    assert.ok(Math.abs(fit.dx) < 0.5 && Math.abs(fit.dy) < 0.5, `the mark is not centred in its circle (${fit.dx}, ${fit.dy})`);
     assert.deepEqual(problems, []);
   } finally { await page.close(); }
 });
@@ -166,15 +208,16 @@ test("the ticket opens the card list, the gear the settings, and the plus makes 
     await page.tap("#tikbtn");
     await settle(800);
     assert.equal((await state(page)).drawer, true, "the ticket did not open the card list");
-    await page.touchscreen.tap(IPHONE_13_MINI.width - 20, 300);   // the shade shuts it
+    // the card is down, below the box; a tap on the card shuts the list
+    await page.touchscreen.tap(IPHONE_13_MINI.width / 2, IPHONE_13_MINI.height * 0.8);
     await settle(800);
-    assert.equal((await state(page)).drawer, false);
+    assert.equal((await state(page)).drawer, false, "a tap on the card did not shut the list");
     await page.tap("#setbtn");
     await settle(800);
     assert.equal((await state(page)).settings, true, "the gear did not open the settings");
-    await page.touchscreen.tap(20, 300);
+    await page.touchscreen.tap(20, 300);   // the shade shuts them
     await settle(800);
-    assert.equal((await state(page)).settings, false);
+    assert.equal((await state(page)).settings, false, "a tap on the shade did not put the settings away");
 
     const created = page.waitForResponse(r => new URL(r.url()).pathname === "/create");
     await page.tap("#tikadd");
@@ -392,8 +435,20 @@ test("a finger on the composer fades the row before the focus comes, and a touch
     await page.touchscreen.touchEnd();
     await settle(900);
     assert.deepEqual(await row(), { away: false, typing: false }, "a touch that brought no focus left the row out of sight");
-    // the touch on the reading area is not a touch on the typing row
-    const reading = await middle(page, "article.box.sel .reply");
+    // the touch on the reading area is not a touch on the typing row. The point is taken on the part of
+    // the answer that shows above the composer: a long answer's own middle can lie under the composer.
+    const reading = await page.$eval("article.box.sel .reply", reply => {
+      const r = reply.getBoundingClientRect();
+      const card = reply.closest("article.box").getBoundingClientRect();
+      const compose = reply.closest("article.box").querySelector(".compose").getBoundingClientRect();
+      const top = Math.max(r.top, card.top), bottom = Math.min(r.bottom, compose.top);
+      return { x: r.left + r.width / 2, y: (top + bottom) / 2 };
+    });
+    const hit = await page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return { onAnswer: !!el?.closest(".reply"), onComposer: !!el?.closest(".compose") };
+    }, reading);
+    assert.deepEqual(hit, { onAnswer: true, onComposer: false }, "the touch point for the answer is not on the answer");
     await page.touchscreen.touchStart(reading.x, reading.y);
     await settle(60);
     assert.equal((await row()).away, false, "a touch on the answer faded the row");

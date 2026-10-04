@@ -578,3 +578,167 @@ test("v5 response gesture fields pass validation, are bounded, and are refused b
   }
   assert.equal((await reportsSince()).filter(r => r.kind === "incident").length, 0);
 });
+
+// ---- what the phone says about its notifications ----------------------------
+// Three kinds, each of fixed words, flags and bounded numbers. A report with a
+// field that is not listed or a value that is not allowed refuses the whole
+// batch, so no address, key or text can be written down by sending one.
+const { loadWorker, startPage } = require("./push-record-fixture.cjs");
+
+const shownReport = (over = {}) => ({ kind: "pushreceived", outcome: "shown", ms: 41, status: 200, ago: 3, n: 7,
+  worker: "facilitator-m-7", ...over });
+const skippedReport = (over = {}) => ({ kind: "pushreceived", outcome: "skipped", reason: "timeout", ms: 6000,
+  status: 0, ago: 3, n: 8, worker: "facilitator-m-7", ...over });
+const checkReport = (over = {}) => ({ kind: "notifycheck", source: "start", perm: "granted", reg: true, sub: "no", ...over });
+const lostReport = (over = {}) => ({ kind: "notifylost", source: "return", reg: true, ...over });
+const phone = list => ({ page: "phone", client: "phone", window: WINDOW, reports: list });
+
+test("notification reports are stored as the fixed fields they are, with the time worked out from how long ago", async () => {
+  await reportsSince();
+  const asked = Date.now();
+  const sent = await send(phone([
+    shownReport(), skippedReport(), skippedReport({ reason: "check-failed", status: 503, n: 9 }),
+    skippedReport({ reason: "not-signed-in", status: 200, n: 10 }), skippedReport({ reason: "show-failed", n: 11 }),
+    skippedReport({ reason: "other", n: 12 }), checkReport(), lostReport(),
+  ]));
+  assert.deepEqual(sent, { status: 200, body: { ok: true, written: 8, dropped: 0 } });
+  const fresh = await reportsSince();
+  assert.deepEqual(fresh.map(line => line.kind), [...Array(6).fill("pushreceived"), "notifycheck", "notifylost"]);
+  const allowed = new Set(["ts", "level", "kind", "box", "page", "client", "window", "outcome", "reason", "ms",
+    "status", "n", "worker", "at", "source", "perm", "reg", "sub"]);
+  for (const line of fresh) {
+    for (const name of Object.keys(line)) assert.ok(allowed.has(name), `a ${line.kind} line carries ${name}`);
+    assert.equal(line.page, "phone");
+    assert.equal(line.client, "phone");
+    assert.equal(line.window, WINDOW);
+    assert.equal(line.level, "info");
+  }
+  const [shown, timedOut] = fresh;
+  assert.deepEqual({ ...shown, ts: undefined, at: undefined }, {
+    ts: undefined, level: "info", kind: "pushreceived", page: "phone", client: "phone", window: WINDOW,
+    outcome: "shown", ms: 41, status: 200, n: 7, worker: "facilitator-m-7", at: undefined,
+  });
+  assert.match(shown.at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+  const age = asked - Date.parse(shown.at);
+  assert.ok(age > 2000 && age < 8000, `the time was not three seconds before the report: ${age} ms`);
+  assert.deepEqual([timedOut.outcome, timedOut.reason, timedOut.ms, timedOut.status], ["skipped", "timeout", 6000, 0]);
+  assert.deepEqual([fresh[6].source, fresh[6].perm, fresh[6].reg, fresh[6].sub], ["start", "granted", true, "no"]);
+  assert.deepEqual([fresh[7].source, fresh[7].reg], ["return", true]);
+});
+
+test("a notification report with anything else in it is refused whole, and nothing is stored", async () => {
+  const before = (await reports()).length;
+  const secret = "https://push.example.test/send/very-secret-address";
+  for (const [bad, error] of [
+    [shownReport({ title: "Private card title" }), "bad notification report"],
+    [shownReport({ endpoint: secret }), "bad notification report"],
+    [shownReport({ box: "m12" }), "bad notification report"],
+    [shownReport({ message: "text" }), "bad notification report"],
+    [shownReport({ reason: "timeout" }), "bad notification report"],
+    [skippedReport({ reason: undefined }), "bad notification report"],
+    [skippedReport({ reason: "the title was Private" }), "bad notification report"],
+    [skippedReport({ reason: secret }), "bad notification report"],
+    [shownReport({ outcome: "delivered" }), "bad notification report"],
+    [shownReport({ outcome: undefined }), "bad notification report"],
+    [shownReport({ ms: -1 }), "bad notification report"],
+    [shownReport({ ms: 600001 }), "bad notification report"],
+    [shownReport({ ms: 1.5 }), "bad notification report"],
+    [shownReport({ ms: "41" }), "bad notification report"],
+    [shownReport({ ms: true }), "bad notification report"],
+    [shownReport({ status: 600 }), "bad notification report"],
+    [shownReport({ ago: 7776001 }), "bad notification report"],
+    [shownReport({ n: 1e12 + 1 }), "bad notification report"],
+    [shownReport({ n: null }), "bad notification report"],
+    [shownReport({ worker: secret }), "bad notification report"],
+    [shownReport({ worker: "Facilitator-M-7" }), "bad notification report"],
+    [shownReport({ worker: "x".repeat(65) }), "bad notification report"],
+    [shownReport({ worker: undefined }), "bad notification report"],
+    [checkReport({ perm: "maybe" }), "bad notification report"],
+    [checkReport({ perm: secret }), "bad notification report"],
+    [checkReport({ sub: secret }), "bad notification report"],
+    [checkReport({ sub: true }), "bad notification report"],
+    [checkReport({ reg: "yes" }), "bad notification report"],
+    [checkReport({ source: "boot" }), "bad notification report"],
+    [checkReport({ endpoint: secret }), "bad notification report"],
+    [checkReport({ keys: { p256dh: "x", auth: "y" } }), "bad notification report"],
+    [checkReport({ sub: undefined }), "bad notification report"],
+    [lostReport({ perm: "granted" }), "bad notification report"],
+    [lostReport({ reg: 1 }), "bad notification report"],
+    [lostReport({ source: undefined }), "bad notification report"],
+    [{ kind: "notifybogus", source: "start" }, "bad report batch"],
+    [{ kind: "pushrecieved", outcome: "shown" }, "bad report batch"],
+  ]) {
+    const refused = await send(phone([bad]));
+    assert.equal(refused.status, 400, JSON.stringify(bad).slice(0, 80));
+    assert.equal(refused.body.error, error);
+  }
+  // one good report beside one bad one stores neither
+  assert.equal((await send(phone([checkReport(), checkReport({ perm: secret })]))).status, 400);
+  // only the phone page speaks of notifications
+  for (const page of ["board", "page"]) {
+    assert.equal((await send({ page, reports: [checkReport()] })).status, 400, page);
+  }
+  assert.equal((await reports()).length, before, "a refused batch wrote something");
+});
+
+test("what the worker and the page really send is what the route takes, line for line", async () => {
+  await reportsSince();
+  const harness = await loadWorker();
+  const posted = [];
+  harness.board.log = async body => {
+    const answer = await send(body);
+    posted.push(answer);
+    return { ok: answer.status === 200, status: answer.status };
+  };
+  harness.board.auth = async () => ({ ok: false, status: 503, json: async () => ({}) });
+  await harness.push({ box: "m12", title: "Private card title" });
+  harness.board.auth = async () => ({ ok: true, status: 200, json: async () => ({ authenticated: false }) });
+  await harness.push();
+  harness.board.auth = async () => { throw new TypeError("Load failed"); };
+  await harness.push();
+  harness.board.auth = async () => ({ ok: true, status: 200, json: async () => ({ authenticated: true }) });
+  await harness.push({ box: "m12", title: "Private card title" });
+  assert.deepEqual(posted.map(answer => answer.status), [200], "the board refused what the worker sent");
+  assert.deepEqual(harness.idb.rows(), []);
+
+  const fresh = await reportsSince();
+  assert.deepEqual(fresh.map(line => [line.outcome, line.reason]),
+    [["skipped", "check-failed"], ["skipped", "not-signed-in"], ["skipped", "check-failed"], ["shown", undefined]]);
+  assert.deepEqual(fresh.map(line => line.n), [1, 2, 3, 4]);
+  assert.ok(!JSON.stringify(fresh).includes("Private card title"), "a title reached the client file");
+
+  for (const options of [{ subscription: "yes" }, { subscription: "no" }, { worker: "none" }, { permission: "unsupported" }]) {
+    const page = startPage(options);
+    await page.settle();
+    const answer = await send({ page: "phone", client: "phone", window: WINDOW, reports: page.reports });
+    assert.equal(answer.status, 200, JSON.stringify(options));
+    assert.equal(answer.body.written, page.reports.length);
+  }
+  const pageLines = await reportsSince();
+  assert.deepEqual(pageLines.map(line => line.kind), [
+    "notifycheck", "notifycheck", "notifylost", "notifycheck", "notifylost", "notifycheck"]);
+  assert.ok(!JSON.stringify(pageLines).includes("secret"), "an address reached the client file");
+});
+
+test("notification reports have their own caps: sixty pushes a minute, ten of the rest", async () => {
+  await reportsSince();
+  const all = await reports();
+  const kept = kind => all.filter(line => line.kind === kind).length;
+  const room = kind => (kind === "pushreceived" ? 60 : 10) - kept(kind);
+  const pushed = room("pushreceived");
+  let written = 0, dropped = 0;
+  for (let from = 0; from < pushed + 5; from += 20) {
+    const count = Math.min(20, pushed + 5 - from);
+    const sent = await send(phone(Array.from({ length: count }, () => shownReport())));
+    assert.equal(sent.status, 200);
+    written += sent.body.written;
+    dropped += sent.body.dropped;
+  }
+  assert.deepEqual([written, dropped], [pushed, 5], "the push record's cap did not hold at sixty");
+
+  const checks = room("notifycheck");
+  const sent = await send(phone(Array.from({ length: checks + 2 }, () => checkReport())));
+  assert.deepEqual(sent.body, { ok: true, written: checks, dropped: 2 });
+  const notices = (await reportsSince()).filter(line => line.kind === "dropped");
+  assert.deepEqual(notices.map(line => [line.report, line.dropped]), [["pushreceived", 5], ["notifycheck", 2]]);
+});

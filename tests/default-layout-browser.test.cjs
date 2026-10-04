@@ -24,7 +24,7 @@ const THREE = ["clockbox", "tickets", "main"];
 // the default places and sizes in stage pixels, the stage being 1440 by 900
 const DEFAULT_RECTS = {
   clockbox:{ x:28.8, y:40.32, w:218.88, h:103.68 },
-  tickets:{ x:51.84, y:190.08, w:357.12, h:587.52 },
+  tickets:{ x:51.84, y:190.08, w:357.12, h:506.88 },
   main:{ x:466.56, y:74.88, w:506.88, h:748.8 },
 };
 // the same arrangement written out as a saved layout, with the other boxes put away
@@ -32,7 +32,7 @@ const SAVED_SAME_AS_DEFAULT = {
   "pos.facilitator.clockbox":JSON.stringify({ x:28.8, y:40.32 }),
   "size.facilitator.clockbox":JSON.stringify({ w:218.88, h:103.68 }),
   "pos.facilitator.tickets":JSON.stringify({ x:51.84, y:190.08 }),
-  "size.facilitator.tickets":JSON.stringify({ w:357.12, h:587.52 }),
+  "size.facilitator.tickets":JSON.stringify({ w:357.12, h:506.88 }),
   "pos.facilitator.main":JSON.stringify({ x:466.56, y:74.88 }),
   "size.facilitator.main":JSON.stringify({ w:506.88, h:748.8 }),
   "hide.facilitator.magic1":"1", "hide.facilitator.magic2":"1", "hide.facilitator.magic3":"1",

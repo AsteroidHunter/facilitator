@@ -9,7 +9,7 @@
 // way back from a section, a way to put the whole page away (the red one of the
 // three window buttons at its top left, Escape, a click outside it), every on and
 // off setting a switch, no purple, every setting still writing what it always wrote,
-// the colour picker gone from the bar and the pen a plain mark like the gear. On
+// the colour picker gone from the bar and the bell a plain mark like the gear. On
 // the phone the drawer keeps its own size, white, edge and corners, and holds the
 // list of sections, each one opening inside it with a way back; Notifications is
 // the Editor's switch and really subscribes and unsubscribes the phone, and the
@@ -242,29 +242,60 @@ after(async () => {
 
 // ---- the bar ------------------------------------------------------------------------
 
-test("the bar has no colour picker and the pen is a plain mark like the gear", async () => {
+test("the bar has no colour picker and the bell stands in a glass circle like the gear's", async () => {
   const { page, problems } = await open("/", WIDE);
   try {
     const bar = await page.evaluate(() => {
       const dress = el => {
         const style = getComputedStyle(el);
-        const svg = el.querySelector("svg").getBoundingClientRect();
+        const svg = el.querySelector("svg, .squidmark").getBoundingClientRect();
         return { background: style.backgroundColor, border: style.borderTopStyle, shadow: style.boxShadow,
                  color: style.color, mark: Math.round(svg.width) + "x" + Math.round(svg.height),
                  inBar: !!el.closest(".bar") };
       };
       const pick = document.getElementById("bgpick");
-      return { pen: dress(document.getElementById("editbtn")), gear: dress(document.getElementById("setbtn")),
-               pickInBar: !!document.querySelector(".bar #bgpick"), pickInPage: !!pick.closest(".sp-page") };
+      return { bell: dress(document.getElementById("chimebtn")), gear: dress(document.getElementById("setbtn")),
+               pickInBar: !!document.querySelector(".bar #bgpick"), pickInPage: !!pick.closest(".sp-page"),
+               pencil: !!document.getElementById("editbtn") };
     });
     assert.equal(bar.pickInBar, false, "the colour picker is still on the bar");
     assert.equal(bar.pickInPage, true, "the colour picker is not in the settings page");
-    assert.equal(bar.pen.inBar, true, "the pen left the bar");
-    assert.equal(bar.pen.background, "rgba(0, 0, 0, 0)", "the pen still sits on a tinted box");
-    assert.equal(bar.pen.border, "none", "the pen still has a border");
-    assert.equal(bar.pen.shadow, "none", "the pen still has a shadow");
-    assert.equal(bar.pen.mark, bar.gear.mark, "the pen mark is not the gear's size");
-    assert.equal(bar.pen.color, bar.gear.color, "the pen mark is not the gear's colour");
+    assert.equal(bar.pencil, false, "the pencil is still on the bar");
+    assert.equal(bar.bell.inBar, true, "the bell left the bar");
+    assert.notEqual(bar.bell.background, "rgba(0, 0, 0, 0)", "the bell's circle has no glass face");
+    assert.equal(bar.bell.background, bar.gear.background, "the bell's face is not the gear's");
+    assert.equal(bar.bell.border, "none", "the bell has a border");
+    assert.notEqual(bar.bell.shadow, "none", "the bell's circle has no edge or shadow");
+    assert.equal(bar.bell.shadow, bar.gear.shadow, "the bell's edge is not the gear's");
+    assert.equal(bar.bell.mark, "15x15", "the speaker mark is not the bar's 15px size");
+    assert.equal(bar.gear.mark, "16x20", "the squid is not drawn at its 20px height");
+    assert.equal(bar.bell.color, bar.gear.color, "the bell mark is not the gear's colour");
+    assert.deepEqual(problems, []);
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("the settings button on the bar is the logo's own squid png, cut to the squid, 20px tall", async () => {
+  const { page, problems } = await open("/", WIDE);
+  try {
+    const button = await page.$eval("#setbtn", el => ({
+      tag: el.tagName, type: el.getAttribute("type"), title: el.title, label: el.getAttribute("aria-label"),
+      haspopup: el.getAttribute("aria-haspopup"), expanded: el.getAttribute("aria-expanded"),
+      marks: el.querySelectorAll("svg").length, hidden: el.querySelector(".squidmark").getAttribute("aria-hidden"),
+      images: el.querySelectorAll("img").length,
+    }));
+    assert.deepEqual(button, { tag: "BUTTON", type: "button", title: "settings", label: "settings",
+      haspopup: "dialog", expanded: "false", marks: 0, hidden: "true", images: 1 });
+    await page.waitForFunction(() => document.querySelector("#setbtn img").complete);
+    const mark = await page.evaluate(() => {
+      const img = document.querySelector("#setbtn img"), box = document.querySelector("#setbtn .squidmark").getBoundingClientRect();
+      return { src: new URL(img.src).pathname, natural: [img.naturalWidth, img.naturalHeight], w: box.width, h: box.height };
+    });
+    assert.equal(mark.src, "/m-splash-squid.png", "the mark is not the logo's own png");
+    assert.deepEqual(mark.natural, [1247, 1261], "the logo png did not load");
+    assert.ok(Math.abs(mark.h - 20) < 0.5, "the squid is not 20px tall: " + mark.h);
+    assert.ok(Math.abs(mark.w - 20 * 917 / 1126) < 0.5, "the cut is not the squid's own proportions: " + mark.w);
     assert.deepEqual(problems, []);
   } finally {
     await closePage(page);

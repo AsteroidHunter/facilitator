@@ -60,16 +60,12 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "ArrowUp" || e.key === "ArrowDown")
       ? (e.key === "ArrowUp" ? -1 : 1) : null,
   },
-  // command+shift+comma and +period match the physical keys: e.key reads "<" and ">" on a US layout but "," and "." on iOS
+  // control+shift+comma matches the physical key: e.key reads "<" on a US layout but "," on iOS.
+  // the settings drawer has no key
   {
     action: "cardsDrawer", mini: false,
-    match: e => e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey &&
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
       !e.repeat && !e.isComposing && e.code === "Comma" ? true : null,
-  },
-  {
-    action: "settingsDrawer", mini: false,
-    match: e => e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey &&
-      !e.repeat && !e.isComposing && e.code === "Period" ? true : null,
   },
   {
     action: "history", mini: false,
@@ -1851,10 +1847,11 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
   if (el.answ && el.answId === meta.id) return;
   if (!el.answ){
     el.answ = answeredPanel(room);
-    // every message here has been answered by the reply under it, which is the
-    // board's one proof that the agent read it: the panel says so, quietly,
-    // under its foot (the delivery marks, below)
-    setMark(el.answ, SENT_TAGS.read);
+    // every message here has been answered by the reply under it, so the panel
+    // carries no word of its own; it keeps the room a word would stand in, so
+    // the reply sits where it did when the panel said Read (the delivery marks,
+    // below)
+    el.answ.classList.add("kept");
     // on a large card the panel rides at the head of the answer's own
     // scroller, whose scroll a cut back must leave where the reader has it
     el.answ.answView = el.replyview || null;
@@ -1906,10 +1903,11 @@ function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 //              to come, or the answer itself. it looks as delivered does, Read
 // the panel carries one quiet mark under its foot, the way a chat marks the
 // newest message that has got anywhere: Delivered or Read for the newest
-// message in it that the board has saved, and nothing while none is. the
-// panel over an answer always reads Read, since the answer under it is the
-// board's proof. a message with no stage (a board too old to say) is drawn as
-// it always was and marks nothing
+// message in it that the board has saved, and nothing while none is. once the
+// reply to those messages lands the word is dropped: it fades out as the page
+// turns (fadeMark) and the panel over the reply carries none, so a card drawn
+// with its reply already there shows no word at all. a message with no stage
+// (a board too old to say) is drawn as it always was and marks nothing
 const SENT_TAGS = { sent: "Delivered", delivered: "Read", read: "Read" };
 function sentUndelivered(m){ return m.stage === "local"; }
 // a send on its way to the board, drawn faded from the press: el is the card's
@@ -2098,6 +2096,17 @@ function showMark(panel, tag, comes){
     if (roomMoves && panel.isConnected && panel.answRoom) panel.answRoom();
   }, MARK_IN_MS + 20);
 }
+// the reply to the panel's messages has landed, and the word under it fades out
+// over the sheet's --answ-gone and stays gone. the room it stood in is kept
+// (the sheet's .kept), so nothing below the panel moves. it is the picture of
+// the panel that the page turn carries up which is faded, since the panel
+// itself is already gone from the page, and the picture is gone before the
+// word could come back
+function fadeMark(panel){
+  panel.classList.add("kept");
+  delete panel.dataset.tag;
+  if (panel.dataset.mark) panel.classList.add("markgone");
+}
 // the panel's one mark, and whether every message in it is still unsaved by the
 // board. live is a panel that was standing before this reading
 function sentMarks(panel, shown, live){
@@ -2202,7 +2211,7 @@ function sentBand(el, band){
 // reader did goes at once
 function cardsMoving(){
   return typeof document !== "undefined" && typeof document.querySelector === "function" &&
-    !!document.querySelector(".answered.motion, .answered.markin, .answered.markout, .turnsheet");
+    !!document.querySelector(".answered.motion, .answered.markin, .answered.markout, .answered.markgone, .turnsheet");
 }
 
 // ---- the page turn -----------------------------------------------------------------------
@@ -2423,20 +2432,17 @@ function turnGo(el, turn){
   // stands just under it, and all of it comes up on the one transform
   const fresh = turnParts(el).after.filter(node => node && node.getBoundingClientRect().height)
     .map(node => turnPicture(el, node, turn, lift));
-  // its panel stands exactly behind the sent panel, whose own mark turns on the
-  // way up, so its mark is held out and the two words are never drawn together
-  for (const copy of fresh)
-    for (const one of copy.querySelectorAll(".answered")) one.classList.add("markout");
   turn.page.prepend(...fresh);
   void turn.page.offsetWidth;   // the sheet stands as the reader left it before it moves
   turn.page.classList.add("gliding");
   turn.page.style.transform = "translate3d(0, " + (-lift) + "px, 0)";
-  // the sent panel is on its way to being the panel over the answer, which reads
-  // Read: its mark turns on the way up, and a panel still faded takes its full
-  // grey and ink with it, so the swap when the sheet goes is not one
+  // the sent panel is on its way to being the panel over the answer, which
+  // carries no word: its mark fades out on the way up, and a panel still faded
+  // takes its full grey and ink with it, so the swap when the sheet goes is not
+  // one
   const rising = turn.page.querySelector(".answered.sent");
   if (rising){
-    setMark(rising, SENT_TAGS.read, true);
+    fadeMark(rising);
     for (const one of [rising, ...rising.querySelectorAll(".undelivered")]) one.classList.remove("undelivered");
   }
   clearTimeout(turn.timer);
@@ -3169,33 +3175,94 @@ async function histStep(id, dir){   // +1 steps older, -1 steps back toward live
 // ---- the list's spinner ----------------------------------------------------------------
 // while a row works its age is noise; the slot carries a terminal spinner
 // instead. one interval serves every green row and only lives while one
-// exists; each rebuild stamps the current frame itself, so the ticker and the
-// poll-driven re-renders never fight over the text. ages return on the next
-// quiet poll.
+// exists. each card turns on its own phase: its frame is the whole number of
+// 180 ms steps between the card's last message or reply (its ts, which every
+// reading carries) and the clock at the timer's last tick, so cards whose
+// last word came at different times are out of step, and the same card shows
+// the same frame after a reload and on either page. a ticket and its own
+// card read the same card and the same tick, so they always match. a new
+// message or reply on a working card moves its ts, and so its spinner by a
+// step, once. a card with no ts falls back to counting ticks from when the
+// page first drew it working, kept across renders and polls and forgotten
+// once the card stops working. rows are drawn with their frame already in
+// place, so the ticker and the poll-driven re-renders never fight over the
+// text. ages return on the next quiet poll.
 // the card's own spinner (cardSpinner below) turns on the same clock: the
 // interval also lives while a card shows one, since a phone draws no rows while
 // its drawer is shut.
 const SPIN_FRAMES = ["|","/","-","\\"];   // the classic terminal spinner, bolder than braille dots
-let spinFrame = 0, spinTimer = null;
+const SPIN_STEP_MS = 180;
+let spinTick = 0, spinTimer = null, spinNow = 0;
+const spinStarts = new Map();   // card id -> the tick it was first drawn working (no ts)
+const spinTs = new Map();       // card id -> the ts its last reading carried
+function spinNote(b){
+  if (b && b.id && typeof b.ts === "number" && b.ts > 0) spinTs.set(b.id, b.ts);
+}
+// the clock every frame is read from: the one the last tick took, so a row and
+// a card drawn between ticks still agree, and the present while no timer runs
+function spinClock(){ return spinTimer != null && spinNow ? spinNow : Date.now(); }
+function spinGlyph(id, b){
+  spinNote(b);
+  let ts = spinTs.get(id);
+  if (ts === undefined && typeof lastState !== "undefined" && lastState && lastState.boxes){
+    const known = lastState.boxes.find(x => x.id === id);
+    if (known && typeof known.ts === "number" && known.ts > 0) ts = known.ts;
+  }
+  const n = SPIN_FRAMES.length;
+  if (ts > 0){
+    const step = Math.floor((spinClock() - ts * 1000) / SPIN_STEP_MS);
+    return SPIN_FRAMES[((step % n) + n) % n];
+  }
+  if (!spinStarts.has(id)) spinStarts.set(id, spinTick);
+  return SPIN_FRAMES[(spinTick - spinStarts.get(id)) % n];
+}
+function spinCardId(el){
+  const box = el.closest("article.box");
+  return box && box.id ? box.id.slice(4) : "";
+}
+// forget every card that no longer works, then (when asked) stamp the frame of
+// each one that does. a card the board still reports green counts as working
+// even while no row or card on the page shows it
+function spinRefresh(stamp){
+  const rows = document.querySelectorAll("#tiklist .trow.working");
+  const cards = document.querySelectorAll(".cardspin.on");
+  const live = new Set();
+  for (const r of rows) live.add(r.dataset.id);
+  for (const c of cards) live.add(spinCardId(c));
+  if (typeof lastState !== "undefined" && lastState && lastState.boxes){
+    for (const b of lastState.boxes) if (ticketGreen(b)) live.add(b.id);
+  }
+  for (const id of [...spinStarts.keys()]) if (!live.has(id)) spinStarts.delete(id);
+  for (const id of [...spinTs.keys()]) if (!live.has(id)) spinTs.delete(id);
+  if (!stamp) return;
+  for (const r of rows){
+    const age = r.querySelector(".tage");
+    if (age && r.dataset.id) age.textContent = spinGlyph(r.dataset.id);
+  }
+  for (const c of cards){
+    const id = spinCardId(c);
+    if (id) c.dataset.f = spinGlyph(id);
+  }
+}
 function syncSpinner(){
   const has = document.querySelector("#tiklist .trow.working, .cardspin.on");
   if (has && spinTimer == null){
+    spinNow = Date.now();
     spinTimer = setInterval(() => {
-      const ages = document.querySelectorAll("#tiklist .trow.working .tage");
-      const cards = document.querySelectorAll(".cardspin.on");
-      if (!ages.length && !cards.length){ clearInterval(spinTimer); spinTimer = null; return; }
-      spinFrame = (spinFrame + 1) % SPIN_FRAMES.length;
-      for (const a of ages) a.textContent = SPIN_FRAMES[spinFrame];
-      for (const c of cards) c.dataset.f = SPIN_FRAMES[spinFrame];
-    }, 180);
+      if (!document.querySelector("#tiklist .trow.working .tage, .cardspin.on")){ clearInterval(spinTimer); spinTimer = null; return; }
+      spinTick++;
+      spinNow = Date.now();
+      spinRefresh(true);
+    }, SPIN_STEP_MS);
   } else if (!has && spinTimer != null){
     clearInterval(spinTimer); spinTimer = null;
   }
+  spinRefresh(true);
 }
 
 // ---- the card's own spinner ------------------------------------------------------------
 // the list's green ticket has a twin in the card's top bar, in the sun's place:
-// the same four frames on the same clock, drawn by the shared sheet
+// the same four frames on the same clock and from the same start, drawn by the shared sheet
 // (card-tokens.css, .cardspin) from the frame written in data-f. it is always
 // in the bar and only its strength changes, so it fades in, as the sun's mark
 // fades out, when the card turns green and out when the reply comes back, and
@@ -3203,19 +3270,24 @@ function syncSpinner(){
 // it, even where its ticket still pulses under a claim the agent holds.
 function cardSpinning(b){
   const s = cardState(b);
-  return s !== "done" && s !== "parked" && ticketGreen(b);
+  const on = s !== "done" && s !== "parked" && ticketGreen(b);
+  if (on) spinNote(b);   // the card's ts is what its frame is counted from
+  return on;
 }
 function makeCardSpinner(){
   const spin = h("span", "cardspin");
   spin.setAttribute("role", "img");
   spin.setAttribute("aria-label", "working");
   spin.setAttribute("aria-hidden", "true");
-  spin.dataset.f = SPIN_FRAMES[spinFrame];
+  spin.dataset.f = SPIN_FRAMES[0];
   return spin;
 }
 function setCardSpinner(spin, on){
   if (!spin || spin.classList.contains("on") === on) return;
-  if (on) spin.dataset.f = SPIN_FRAMES[spinFrame];
+  if (on){
+    const id = spinCardId(spin);
+    spin.dataset.f = id ? spinGlyph(id) : SPIN_FRAMES[0];
+  }
   spin.classList.toggle("on", on);
   spin.setAttribute("aria-hidden", on ? "false" : "true");
 }

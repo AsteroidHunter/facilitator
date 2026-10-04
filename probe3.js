@@ -1,7 +1,7 @@
 // READ-ONLY page health probe + create/delete round-trip (no messages sent)
 const fs = require("fs");
 const path = require("path");
-const puppeteer = require("puppeteer-core");
+const puppeteer = require(require.resolve("puppeteer-core", { paths: [__dirname, path.join(__dirname, "tests")] }));
 
 // the board's port is the one run.config.json beside this file names, which
 // `facilitator run` moves when something else holds it; 8877 when it names none

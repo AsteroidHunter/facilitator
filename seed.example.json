@@ -1,32 +1,4 @@
 {
-  "title": "Example project board",
-  "items": [
-    {
-      "id": "0",
-      "bucket": "meta",
-      "owner": "facilitator",
-      "title": "Board notes: drop meta thoughts here"
-    },
-    {
-      "id": "1.1",
-      "bucket": "must",
-      "owner": "example",
-      "title": "Fix the login timeout",
-      "context": "Sessions expire after five minutes and users get logged out mid-task. Decide the right lifetime, then ship it."
-    },
-    {
-      "id": "2.1",
-      "bucket": "could",
-      "owner": "example",
-      "title": "Dark mode",
-      "context": "Requested twice. A settled palette exists; the toggle and its persistence are the open work."
-    },
-    {
-      "id": "3.1",
-      "bucket": "later",
-      "owner": "example",
-      "title": "Export to PDF",
-      "context": "Nice to have once the report layout stops changing."
-    }
-  ]
+  "title": "Facilitator",
+  "items": []
 }

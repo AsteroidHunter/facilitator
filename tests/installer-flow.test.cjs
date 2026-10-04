@@ -264,7 +264,7 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
         + "Setup builds a private Python environment in .venv with uv, installs\n"
         + "the pinned packages, and writes run.config.json and seed.json from\n"
         + "their examples when they are missing. Your own Python is not changed.\n"
-        + "When node is here it also installs the packages the tests need.\n\n"
+        + "The packages only the tests need are left out; ./install.sh --dev adds them.\n\n"
         + "No Python this setup can use was found (it needs 3.9 or newer).\n"
         + "uv will provide one for the private environment.\n"
         + "uv is not installed. Installing it with Homebrew.\n"), `${python}: ${text}`);
@@ -309,17 +309,45 @@ test("the python3 macOS ships runs the setup, and the app password is set on .ve
   });
 });
 
-test("with no uv and no Homebrew, uv's own installer runs, told to leave the shell profile alone", async () => {
-  await using({ python: "missing", uv: "curl" }, async f => {
-    const { code, text } = await f.piped();
-    assert.equal(code, 0, text);
-    assert.match(text, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
-    const calls = await f.calls();
-    assert.ok(calls.includes("curl -LsSf https://astral.sh/uv/install.sh"), calls.join(" | "));
-    assert.ok(calls.includes("uv installer ran with INSTALLER_NO_MODIFY_PATH=1"), calls.join(" | "));
-    assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+const PROBE_SHA256 = require("node:crypto").createHash("sha256").update("x").digest("hex");
+
+// both ways uv gets installed: by install.sh when no python3 can run the
+// setup, and by the command when one can
+for (const python of ["missing", "system"]) {
+  test(`with no uv and no Homebrew, uv's own installer runs, told to leave the shell profile alone (${python} python3)`, async () => {
+    await using({ python, uv: "curl" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 0, text);
+      assert.match(text, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
+      const calls = await f.calls();
+      assert.ok(calls.some(line => /^curl --proto =https --tlsv1\.2 -LsSf https:\/\/astral\.sh\/uv\/0\.12\.22\/install\.sh/.test(line)), calls.join(" | "));
+      assert.ok(!calls.some(line => /astral\.sh\/uv\/install\.sh/.test(line)), "the unpinned address was fetched");
+      assert.ok(calls.includes("uv installer ran with INSTALLER_NO_MODIFY_PATH=1"), calls.join(" | "));
+      assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+    });
   });
-});
+
+  test(`the uv installer is given a working sha256sum to check its own downloads with (${python} python3)`, async () => {
+    await using({ python, uv: "curl" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 0, text);
+      const calls = await f.calls();
+      assert.ok(calls.includes(`uv installer checks with ${PROBE_SHA256}`), calls.join(" | "));
+    });
+  });
+
+  test(`a uv installer that is not the expected one is refused and never run (${python} python3)`, async () => {
+    await using({ python, uv: "curl-tampered" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 1, text);
+      assert.match(text, /⚠ The uv installer from astral\.sh is not the one this checkout expects\.\n  Nothing was run\./);
+      const calls = await f.calls();
+      assert.ok(!calls.includes("a changed uv installer ran"), "the changed installer ran");
+      assert.equal(await f.has(path.join(f.home, ".local", "bin", "uv")), false);
+      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    });
+  });
+}
 
 test("a uv older than 0.9.0 cannot install Python 3.14, so the run stops in one line before .venv is made", async () => {
   const LINE = "⚠ uv 0.8.19 is too old to install Python 3.14: upgrade it to 0.9.0 or newer "
@@ -363,8 +391,9 @@ test("the help text describes the new flow, and the script has no Claude limits 
   await using({}, async f => {
     const { code, text } = await f.terminal([], ["--help"]);
     assert.equal(code, 0, text);
-    assert.ok(text.includes("usage: ./install.sh\n\nCheck for Claude Code or Codex and Chrome, set up a private Python\n"), text);
+    assert.ok(text.includes("usage: ./install.sh [--dev]\n\nCheck for Claude Code or Codex and Chrome, set up a private Python\n"), text);
     assert.match(text, /phone client \(Tailscale and\nan app password\)/);
+    assert.match(text, /--dev also installs the packages only the tests need/);
     assert.doesNotMatch(text, /limits/i);
     assert.deepEqual(await f.calls(), []);
     await assertNothingChanged(f);
@@ -373,4 +402,44 @@ test("the help text describes the new flow, and the script has no Claude limits 
   assert.ok(!source.includes(String.fromCharCode(8212)), "an em dash");
   assert.doesNotMatch(source, /Claude limits|claude-statusline|statusline/i);
   for (const url of Object.values(URLS)) assert.ok(source.includes(url), url);
+});
+
+test("a normal run leaves the test packages out, even with node and npm here", async () => {
+  await using({ node: true }, async f => {
+    const { code, text } = await f.piped();
+    assert.equal(code, 0, text);
+    const calls = await f.calls();
+    assert.ok(!calls.some(line => line.startsWith("npm")), "npm ran: " + calls.join(" | "));
+    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules")), false);
+    assert.equal(await f.has(path.join(f.repo, "node_modules")), false);
+    assert.equal(await f.has(path.join(f.repo, "package.json")), false);
+    assert.doesNotMatch(text, /npm|puppeteer|Test packages/);
+  });
+});
+
+test("--dev adds the test packages from the lockfile in tests/, after the board's own", async () => {
+  await using({ node: true }, async f => {
+    const { code, text } = await f.piped(["--dev"]);
+    assert.equal(code, 0, text);
+    assert.match(text, /✓ Packages synced\.\n[^]*Installing the test packages from tests\/package-lock\.json\.\n✓ Test packages installed\.\n✓ Board installed\./);
+    const calls = await f.calls();
+    assert.ok(calls.includes("npm ci --ignore-scripts --no-audit --no-fund"), calls.join(" | "));
+    assert.ok(calls.includes(`npm ran in ${path.join(f.repo, "tests")}`), calls.join(" | "));
+    assert.equal(calls.filter(line => line.startsWith("npm ") && !line.startsWith("npm ran")).length, 1, calls.join(" | "));
+    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules", "puppeteer-core", "package.json")), true);
+    assert.equal(await f.has(path.join(f.repo, "node_modules")), false, "the packages went into the checkout's root");
+    assert.equal(await f.has(path.join(f.repo, "package.json")), false);
+    assert.ok(text.includes(CLOSING), text);
+  });
+});
+
+test("--dev without node stops with the reason before the environment is made", async () => {
+  await using({}, async f => {
+    const { code, text } = await f.piped(["--dev"]);
+    assert.equal(code, 1, text);
+    assert.ok(text.includes("⚠ --dev needs node and npm, and they were not found.\n  Install Node.js, then run ./install.sh --dev again.\n"), text);
+    assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules")), false);
+    assert.ok(!text.includes("Facilitator is installed"), text);
+  });
 });

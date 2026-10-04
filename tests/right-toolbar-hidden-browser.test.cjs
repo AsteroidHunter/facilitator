@@ -1,6 +1,7 @@
 // The right toolbar and its Notes drawer are hidden in this version: nothing of them is
-// in the page, the right margin matches the other three sides, the gear sits in the top
-// right corner as the house sits in the top left, and a stored choice opens nothing.
+// in the page, the right margin matches the other three sides, the gear's circle sits in
+// the top right corner as the house's sits in the top left, and a stored choice opens
+// nothing.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { launch } = require("./resp-harness.cjs");
@@ -30,7 +31,6 @@ async function settled(page) {
 const look = page => page.evaluate(() => {
   const $ = s => document.querySelector(s);
   const R = el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom }; };
-  const glyph = sel => R($(sel).querySelector("svg"));
   return {
     absent: ["#toolbar", "#tool-notes", "#railpanel", "#railnotes"].filter(s => $(s)),
     toolButtons: document.querySelectorAll(".tool").length,
@@ -38,10 +38,12 @@ const look = page => page.evaluate(() => {
     rail: document.documentElement.dataset.rail || "",
     wide: innerWidth, tall: innerHeight,
     frame: R($("#appframe")), bar: R($(".bar")),
-    house: glyph("#homeico"), gear: glyph("#setbtn"),
-    pen: R($("#editbtn")), gearBox: R($("#setbtn")),
+    house: R($("#homeico")), gear: R($("#setbtn")),
+    houseMark: R($("#homeico svg")), gearMark: R($("#setbtn .squidmark")),
+    bell: R($("#chimebtn")),
   };
 });
+const middle = r => [r.x + r.w / 2, r.y + r.h / 2];
 
 function expectHidden(g, label) {
   assert.deepEqual(g.absent, [], label + ": no toolbar, notes button or drawer in the page");
@@ -51,9 +53,18 @@ function expectHidden(g, label) {
   near(g.frame.x, g.wide - g.frame.right, label + ": the right margin equals the left");
   near(g.frame.x, g.bar.y, label + ": the margin equals the top");
   near(g.frame.x, g.tall - g.frame.bottom, label + ": the margin equals the bottom");
-  near(g.wide - g.gear.right, g.house.x, label + ": the gear mirrors the house");
+  // the house's and the squid's circles stand over the pane's own left and
+  // right edges, the pane's margin under the window's top, each mark centred
+  near(g.wide - g.gear.right, g.house.x, label + ": the gear's circle mirrors the house's");
+  near(g.house.x, g.frame.x, label + ": the house's circle stands over the pane's left edge");
+  near(g.gear.right, g.frame.right, label + ": the gear's circle stands over the pane's right edge");
   near(g.gear.y, g.house.y, label + ": the gear and the house share a top inset");
-  near(g.pen.x + g.pen.w + 14, g.gearBox.x, label + ": the pen sits 14px left of the gear");
+  near(g.house.y, g.frame.x, label + ": the circles stand the pane's margin under the window's top");
+  for (const [mark, box, name] of [[g.houseMark, g.house, "house"], [g.gearMark, g.gear, "gear"]]) {
+    near(middle(mark)[0], middle(box)[0], label + `: the ${name}'s mark is centred across its circle`);
+    near(middle(mark)[1], middle(box)[1], label + `: the ${name}'s mark is centred down its circle`);
+  }
+  near(g.bell.x + g.bell.w + 8, g.gear.x, label + ": the bell's circle sits 8px left of the gear's");
 }
 
 test("the page has no toolbar or Notes drawer on a project tab or on the home page", async () => {

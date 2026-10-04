@@ -1,4 +1,4 @@
-// Opening either side drawer lets go of whatever is being typed in, so the
+// Opening either drawer lets go of whatever is being typed in, so the
 // phone's on-screen keyboard collapses instead of standing over the menu that
 // was just pulled out.
 //
@@ -111,7 +111,7 @@ function caretState(page) {
       value: row.value,
       from: row.selectionStart,
       to: row.selectionEnd,
-      drawerOpen: document.getElementById("drawer").classList.contains("open"),
+      drawerOpen: document.getElementById("tickets").classList.contains("open"),
       settingsOpen: document.getElementById("settings").classList.contains("open"),
       dragging: document.body.classList.contains("menudrag"),
       menuOut: document.body.classList.contains("menuout"),
@@ -160,8 +160,9 @@ function mouseStep(page, kind, x, y) {
   }, { kind, x, y });
 }
 
+// how far the menu travels from off the page to where it rests, which is what a finger is measured against
 function menuWidth(page, which) {
-  return page.evaluate(id => document.getElementById(id).getBoundingClientRect().width, which);
+  return page.evaluate(name => menuTravel(name === "settings" ? settings : tickets), which);
 }
 
 async function shot(page, name) {
@@ -354,7 +355,7 @@ test("an edge pull lets the row go as the drawer starts to travel, before it lan
   const { page, problems, sends } = await openPhone(id, { formatted: true });
   try {
     const before = await typeInRow(page, "mid thought when the list is wanted", 4, 11);
-    const width = await menuWidth(page, "drawer");
+    const width = await menuWidth(page, "tickets");
 
     // a finger lands on the left edge and has asked for nothing yet
     await touchStep(page, "touchstart", 6, 500);
@@ -432,7 +433,7 @@ test("the mouse a desktop browser opens this page with pulls it open the same wa
   const { page, problems, sends } = await openPhone(id, { formatted: false });
   try {
     const before = await typeInRow(page, "typed before the pull", 3, 9);
-    const width = await menuWidth(page, "drawer");
+    const width = await menuWidth(page, "tickets");
 
     await mouseStep(page, "mousedown", 6, 500);
     await mouseStep(page, "mousemove", 6 + Math.round(width * 0.7), 500);
@@ -461,7 +462,7 @@ test("a pull let go before the middle keeps the caret away, since the menu was o
   const { page, problems, sends } = await openPhone(id, { formatted: false });
   try {
     const before = await typeInRow(page, "a draft and a change of mind", 2, 8);
-    const width = await menuWidth(page, "drawer");
+    const width = await menuWidth(page, "tickets");
 
     await touchStep(page, "touchstart", 6, 500);
     await touchStep(page, "touchmove", 6 + Math.round(width * 0.2), 500);
@@ -591,7 +592,7 @@ test("opening the drawer while naming a card hands the name over and lets the ti
       editing: editing(),
       titleFocused: document.activeElement === els[selectedId].titleEl,
       contentEditable: els[selectedId].titleEl.isContentEditable,
-      drawerOpen: document.getElementById("drawer").classList.contains("open"),
+      drawerOpen: document.getElementById("tickets").classList.contains("open"),
       text: els[selectedId].titleEl.textContent,
     }));
     assert.equal(after.drawerOpen, true, "the drawer did not open");

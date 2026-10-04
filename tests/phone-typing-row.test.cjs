@@ -14,6 +14,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -21,7 +22,9 @@ const CHROME = process.env.CHROME_PATH ||
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const KEYBOARD = 336;
 const ACCESSORY = 54;
-const MOVE = 36;              // the plus's width plus the gap after it: how far the text's left edge travels
+// the page is laid out at REST of full size, so the plus and the gap are that share of 28 and 8
+const PLUS = 28 * REST;
+const MOVE = 36 * REST;       // the plus's width plus the gap after it: how far the text's left edge travels
 const KB_ANIM_MS = 220;
 
 let browser;
@@ -189,7 +192,7 @@ for (const editor of [false, true]) {
       const rest = await page.evaluate(rowShape);
       assert.equal(rest.cls, "-");
       assert.equal(rest.opacity, 1);
-      assert.equal(rest.plusWidth, 28);
+      assert.ok(Math.abs(rest.plusWidth - PLUS) <= 0.1, `the plus is ${rest.plusWidth} wide, not ${PLUS}`);
       assert.equal(rest.plusEvents, "auto");
 
       await startSampling(page);
@@ -282,7 +285,7 @@ for (const editor of [false, true]) {
       const end = await page.evaluate(rowShape);
       assert.equal(end.cls, "-");
       assert.equal(end.opacity, 1);
-      assert.equal(end.plusWidth, 28);
+      assert.ok(Math.abs(end.plusWidth - PLUS) <= 0.1, `the plus is ${end.plusWidth} wide after the return, not ${PLUS}`);
       assert.equal(end.plusEvents, "auto");
       assert.ok(Math.abs(end.fieldWidth - rest.fieldWidth) <= 0.1, "the box did not return to its resting width");
       assert.ok(Math.abs(end.textLeft - rest.textLeft) <= 0.5);
@@ -399,7 +402,7 @@ for (const editor of [false, true]) {
         const end = await page.evaluate(rowShape);
         assert.equal(end.cls, "-");
         assert.equal(end.opacity, 1);
-        assert.equal(end.plusWidth, 28);
+        assert.ok(Math.abs(end.plusWidth - PLUS) <= 0.1, `the plus is ${end.plusWidth} wide after the return, not ${PLUS}`);
         assert.equal(end.plusEvents, "auto");
         assert.ok(Math.abs(end.fieldWidth - rest.fieldWidth) <= 0.1, "the box did not return to its resting width");
         assert.ok(Math.abs(end.textLeft - rest.textLeft) <= 0.5);

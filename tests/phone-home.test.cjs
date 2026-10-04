@@ -20,6 +20,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
 const { boardState } = require("./phone-board-fixture.cjs");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const read = name => fs.readFileSync(path.join(ROOT, name), "utf8");
@@ -67,7 +68,8 @@ const between = (text, from, to) => {
 test("the house heads the phone's project list, a row of the list with the board's own mark", () => {
   // no tab row across the top any more: the card is the first thing in the page
   assert.doesNotMatch(PHONE, /id="tabrow"|id="tabbar"/, "the old tab row is still in the page");
-  assert.match(between(PHONE, '<div id="page">', "</main>"), /^<div id="page">\s*<main id="pane"/);
+  // the card is the first thing in the page, with only the card list, in the window it is seen through, laid under it
+  assert.match(between(PHONE, '<div id="page">', "</main>"), /^<div id="page">\s*(<!--[^>]*-->\s*)?<div id="tikwin"><aside id="tickets"[\s\S]*<\/aside><\/div>\s*<main id="pane"/);
   // the capsule in the row of buttons opens the list
   const dock = between(PHONE, '<nav id="dock"', "</nav>");
   assert.match(dock, /<button id="projbtn"[^>]*aria-controls="projmenu"/, "the capsule does not open the list");
@@ -88,7 +90,7 @@ test("the house heads the phone's project list, a row of the list with the board
   const rules = rulesOf(PHONE);
   // the house is a row of the list in every way: nothing of its own in the sheet
   assert.deepEqual(declsFor(rules, "#homeico"), {}, "the house sets something of its own");
-  assert.equal(declsFor(rules, ".projrow")["min-height"], "44px");
+  assert.equal(declsFor(rules, ".projrow")["min-height"], "calc(44 * var(--u))");
 });
 
 test("the home page takes the card's place, holds the heading and the panels and keeps the card as it was", () => {
@@ -113,9 +115,13 @@ test("the home page takes the card's place, holds the heading and the panels and
   // app's margin and the panel's side, with its hairline, reach past the strip
   const edge = Number(/const EDGE = (\d+);\s+\/\/ how far in from an edge a pull may begin/.exec(PHONE)[1]);
   const inset = parseFloat(/--app-inset:([\d.]+)px/.exec(read("card-tokens.css"))[1]);
-  const side = parseFloat(declsFor(rules, "#home .tk-panel")["padding-left"]);
-  assert.equal(declsFor(rules, "#home .tk-panel")["padding-right"], side + "px");
-  assert.ok(inset + side >= edge, `the lane starts ${inset + side}px in, inside the ${edge}px pull strip`);
+  // a page length is written in page pixels, which the page lays out at 1 - sink of a
+  // real pixel; the page itself stands in from the screen's edge by half of sink of its width
+  const sink = parseFloat(/--sink:([\d.]+);/.exec(PHONE)[1]);
+  const side = parseFloat(/^calc\(([\d.]+) \* var\(--u\)\)$/.exec(declsFor(rules, "#home .tk-panel")["padding-left"])[1]);
+  assert.equal(declsFor(rules, "#home .tk-panel")["padding-right"], `calc(${side} * var(--u))`);
+  const lane = (1 - sink) * (inset + side) + IPHONE_13_MINI.width * sink / 2;
+  assert.ok(lane >= edge, `the lane starts ${lane}px in, inside the ${edge}px pull strip`);
   // no new colour in any rule of the house or the home page: the palette is
   // the board's through its variables, and the one literal allowed is the
   // opaque end of a fade, which is a mask and never drawn
@@ -145,9 +151,11 @@ test("while home is up no project is checked, the capsule reads Home, the card i
   assert.match(paint, /const name = homeOpen \? "Home" : labelOf\(st, activeOwner\);/);
   // shown is read, but a card under the home page is not shown
   assert.match(between(PHONE, "function select(id, opts){", "\n}\n"), /\n  if \(chosen && !homeOpen\) markSeen\(id\);\n/);
-  // a card picked in the drawer, a card just made and a notification's card
-  // are each shown on their board
-  assert.match(between(PHONE, 'r.addEventListener("click", e => {', "});"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(b\.id\); closeDrawer\(\);/);
+  // a card picked in the list, a card just made and a notification's card
+  // are each shown on their board; the list stays open under a pick
+  const pick = between(PHONE, 'r.addEventListener("click", e => {', "});");
+  assert.match(pick, /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(b\.id\);\n/);
+  assert.doesNotMatch(pick, /closeDrawer/, "a pick in the list shut it");
   assert.match(between(PHONE, "if (pendingFocus && els[pendingFocus]){", "\n  }\n"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(id\);/);
   assert.match(between(PHONE, "function goToBox(id){", "\n}\n"), /^function goToBox\(id\)\{\n  if \(homeOpen\) setHome\(false\);/);
   // the keys: only the diagnostic save answers on home
@@ -206,7 +214,7 @@ function daysEnding(n) {
   return Array.from({ length: n }, (_, k) => ({ date: day(n - 1 - k), total: k % 3 ? 1e6 * k : 0 }));
 }
 function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 }, index = "" } = {}) {
-  const block = between(PHONE, "// ---- the home page ----", "// ---- the drawer's list");
+  const block = between(PHONE, "// ---- the home page ----", "// ---- the card list, the desktop's ticket box");
   const doc = { listeners: {}, hidden: false };
   doc.createElement = tag => new El(tag, doc);
   doc.body = new El("body", doc);
@@ -358,18 +366,25 @@ test("the heading's version and mark are the board page's own, kept a day and no
   assert.equal(first.byId.homeversion.textContent, version);
   assert.equal(first.byId.homemark.style.backgroundImage, `url("${mark}")`);
   assert.ok(first.byId.homemark.classList.contains("on"));
-  const kept = JSON.parse(first.store.get("homebrand"));
+  const kept = JSON.parse(first.store.get("homebrand.squid"));
   assert.deepEqual([kept.version, kept.mark], [version, mark]);
 
+  // A still-fresh mark from the former cache must not keep the terminal frame.
+  const legacy = phoneHome({ index: BOARD, stored: { homebrand: JSON.stringify({ ...kept, mark: "old-framed-mark", at: Date.now() }) } });
+  for (const fn of legacy.doc.listeners.DOMContentLoaded) fn();
+  assert.equal(legacy.byId.homemark.classList.contains("on"), false);
+  await legacy.idle.find(fn => fn.name === "brandAsk")();
+  assert.equal(legacy.byId.homemark.style.backgroundImage, `url("${mark}")`);
+
   // kept and fresh: drawn at once and not asked for again
-  const again = phoneHome({ index: BOARD, stored: { homebrand: JSON.stringify({ ...kept, at: Date.now() - 3600e3 }) } });
+  const again = phoneHome({ index: BOARD, stored: { "homebrand.squid": JSON.stringify({ ...kept, at: Date.now() - 3600e3 }) } });
   for (const fn of again.doc.listeners.DOMContentLoaded) fn();
   assert.equal(again.byId.homeversion.textContent, version);
   assert.ok(again.byId.homemark.classList.contains("on"));
   assert.equal(again.idle.filter(fn => fn.name === "brandAsk").length, 0, "a day's keep is not asked for again");
 
   // kept a day ago: drawn at once and asked for again when idle
-  const old = phoneHome({ index: BOARD, stored: { homebrand: JSON.stringify({ ...kept, at: Date.now() - 25 * 3600e3 }) } });
+  const old = phoneHome({ index: BOARD, stored: { "homebrand.squid": JSON.stringify({ ...kept, at: Date.now() - 25 * 3600e3 }) } });
   for (const fn of old.doc.listeners.DOMContentLoaded) fn();
   assert.equal(old.byId.homeversion.textContent, version);
   assert.equal(old.idle.filter(fn => fn.name === "brandAsk").length, 1);
@@ -379,7 +394,7 @@ test("the heading's version and mark are the board page's own, kept a day and no
   for (const fn of bare.doc.listeners.DOMContentLoaded) fn();
   await bare.idle.find(fn => fn.name === "brandAsk")();
   assert.equal(bare.byId.homeversion.textContent, "");
-  assert.equal(bare.store.has("homebrand"), false);
+  assert.equal(bare.store.has("homebrand.squid"), false);
 });
 
 // ---- a fixture server with a bridge password and invented logs -------------------------
@@ -547,8 +562,10 @@ test("on the phone the house in the project list opens home, the pill and the ti
                home: getComputedStyle(document.getElementById("home")).display };
     });
     assert.ok(board.rows >= 2, "the fixture has projects");
-    assert.equal(board.capsule.height, 48, "the capsule is not the bar's 48px");
-    assert.equal(board.capsule.bottom, IPHONE_13_MINI.height - 10, "the capsule is not 10px off the bottom edge");
+    const sink = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink")));
+    assert.ok(Math.abs(board.capsule.height - 48 * (1 - sink)) < 0.1, "the capsule is not the bar's 48px at rest");
+    assert.ok(Math.abs(IPHONE_13_MINI.height - board.capsule.bottom - (IPHONE_13_MINI.height * sink / 2 + 10 * (1 - sink))) < 0.1,
+      "the capsule is not 10px off the bottom edge at rest");
     assert.notEqual(board.name, "Home");
     assert.equal(board.open, false);
     assert.equal(board.first, "homeico", "the house does not head the list");
@@ -630,9 +647,10 @@ test("on the phone the house in the project list opens home, the pill and the ti
     const stackBottom = home.limitsBottom ?? home.panel.bottom;
     assert.ok(Math.abs((home.brand.top - home.page.top) - (home.page.bottom - stackBottom)) <= 5,
               JSON.stringify({ page: home.page, brand: home.brand, stackBottom }));
-    // the chart is drawn to the view's height, 200 here, never stretched, and
-    // scrolls sideways, opening on the latest weeks, clear of the menus' strips
-    assert.equal(home.view.bottom - home.view.top, 200);
+    // the chart is drawn to the view's height, 200 here at the page's size, never
+    // stretched, and scrolls sideways, opening on the latest weeks, clear of the menus' strips
+    assert.ok(Math.abs(home.view.bottom - home.view.top - 200 * REST) < 0.1,
+      `the chart's view is ${home.view.bottom - home.view.top} high, not ${200 * REST}`);
     assert.equal(home.chartWidth, home.expected.width);
     assert.ok(home.chartWidth > home.lane.right - home.lane.left, "the year is wider than the screen, so it scrolls");
     assert.ok(home.atLatest, "the heatmap opens on its latest weeks");

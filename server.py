@@ -229,7 +229,10 @@ Endpoints:
                                signed with a VAPID token openssl produces; the
                                phone's worker uses that event identity directly.
                                Progress notes never push. A subscription the
-                               push service reports gone (404, 410) is dropped
+                               push service reports gone (404, 410) is dropped.
+                               Each subscribe, unsubscribe, drop and skipped
+                               session writes one log line with a short hash of
+                               the endpoint and the number now stored
   POST /push/unsubscribe    -> JSON {endpoint}; remove this phone's subscription
   GET  /navfiles?lane=L&kind=K&rel=D -> the navigator's listing. Always the two
                                folders lane L owns (its internal folder and its
@@ -315,7 +318,11 @@ Endpoints:
                                text values the browsers kept them under. They
                                live in settings.json beside state.json, so
                                every address the board is opened at shows the
-                               same board
+                               same board. When run.config.json names a
+                               background_default, a #rrggbb colour, it is
+                               written after them as
+                               globalThis.BOARD_BGCOLOR_DEFAULT, the colour a
+                               page uses until a bgcolor is saved
   GET  /settings            -> {rev, values}: the same settings, for a page
                                whose /state says settingsRev has moved
   POST /settings[?seed=1]   -> body = {"<key>": "<value>" or null, ...}: sets
@@ -406,6 +413,19 @@ Endpoints:
                                (never coordinates) and the no-scroll reason.
                                All versions share four writes per minute across
                                incident reasons.
+                               Six more kinds come from the phone alone, each
+                               with fixed fields and nothing else: pushreceived
+                               (its worker's record of one push, shown or
+                               skipped and why), notifycheck (permission and
+                               whether a subscription exists, at open and on
+                               return), notifylost (permission granted, no
+                               subscription), and three that follow one tap on
+                               a notification by one tap id: notifytap (what
+                               the worker did with the tap), notifyarrive (the
+                               card reaching the page and what stood over it)
+                               and notifyresult (whether the card was shown
+                               once drawn). A field outside the list or a
+                               value outside its words is a 400.
                                Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the quick chat panel and the
@@ -583,7 +603,8 @@ State persists to state.json next to this file; every send/reply also appends
 to transcript.jsonl so the discussion survives anything. The desktop pages'
 settings and the Spotify sign-in persist to settings.json beside it. A first-ever start
 (no state.json) seeds the board title and boxes from seed.json if present;
-see seed.example.json. Real discussion content never ships in this code.
+the shipped seed.example.json holds a title and no boxes, so a new install
+opens with no project. Real discussion content never ships in this code.
 """
 
 from __future__ import annotations
@@ -642,6 +663,18 @@ LOG_KEEP = 30                     # files of one kind kept; older ones are delet
 # run somewhere else, which is what a rotation test needs.
 LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR")
                or (HERE.parent / "facilitator-internal" / "logs"))
+
+
+def _private_opener(path, flags):
+    """An opener for open(): the file is readable by this account alone. The
+    creation mode is cut by the umask and does not touch a file that already
+    exists, so the mode is also set on the open file itself."""
+    fd = os.open(path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        pass   # a volume that keeps no modes still takes the write
+    return fd
 
 
 def _configured_level() -> str:
@@ -726,6 +759,23 @@ def _compose_format_default() -> bool:
     return isinstance(cfg, dict) and cfg.get("compose_format_default") is True
 
 
+def _background_default() -> str:
+    """The colour a board's pages use until a background colour has been saved
+    with the board's settings, read from run.config.json (machine-local,
+    gitignored) under `background_default`. Only a string of the form #rrggbb
+    counts, kept in lower case; a missing key, a missing file or anything else
+    is empty, which leaves the pages' own paper colour as it is. A saved
+    colour always wins over this."""
+    try:
+        cfg = json.loads((HERE / "run.config.json").read_text())
+    except Exception:
+        return ""
+    value = cfg.get("background_default") if isinstance(cfg, dict) else None
+    if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+        return value.lower()
+    return ""
+
+
 class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
     """A file per day per kind, capped by size and pruned by count.
 
@@ -742,6 +792,10 @@ class DatedRotatingHandler(logging.handlers.RotatingFileHandler):
         folder.mkdir(parents=True, exist_ok=True)
         super().__init__(str(self._file()), maxBytes=LOG_MAX_BYTES,
                          backupCount=0, encoding="utf-8", delay=delay)
+
+    def _open(self):
+        return open(self.baseFilename, self.mode, encoding=self.encoding,
+                    errors=self.errors, opener=_private_opener)
 
     def _file(self) -> Path:
         """<stem>-<day><suffix>, and <stem>-<day>.1<suffix> for a second roll
@@ -845,6 +899,7 @@ LOG_LEVEL = _configured_level()
 IMAGE_PANEL_LANE = _image_panel_lane()
 SPOTIFY_CLIENT_ID = _spotify_client_id()
 COMPOSE_FORMAT_DEFAULT = _compose_format_default()
+BACKGROUND_DEFAULT = _background_default()
 LOGGER = logging.getLogger("facilitator")
 LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
 LOGGER.propagate = False
@@ -966,7 +1021,9 @@ def _log_file() -> Path:
 # counters die on reload, so a page throwing during boot and reloading in a
 # cycle has fresh counters every time and only the server's cap is a cap.
 CLIENT_PAGES = ("board", "phone", "page")
-CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident")
+CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident",
+                "pushreceived", "notifycheck", "notifylost",
+                "notifytap", "notifyarrive", "notifyresult")
 # the kind of window a page is open in, and its id for one page load: the same
 # page in the Chrome window, the Electron app and the Tauri app is otherwise
 # indistinguishable. Only these names and 16 hex characters are ever kept
@@ -976,6 +1033,9 @@ CLIENT_MAX_BODY = 16 * 1024   # bytes in one batch
 CLIENT_MAX_REPORTS = 20       # reports in one batch
 CLIENT_MAX_CHARS = 500        # characters of any one string a report carries
 CLIENT_PER_MINUTE = 10        # writes per key per minute; the rest are dropped and counted
+# a phone that was out of reach sends everything its worker kept at once, and
+# the worker keeps 50, so that kind may write more than the rest in a minute
+CLIENT_KIND_PER_MINUTE = {"pushreceived": 60}
 CLIENT_WINDOW = 60.0          # the minute that cap is measured over
 CLIENT_KEYS_KEPT = 512        # keys the cap remembers before the stale ones are swept
 # what a report may carry at all; anything else a page sends is dropped here
@@ -1126,6 +1186,90 @@ def _incident_valid(page: str, report: dict) -> bool:
         return len(marks) == 1 and marks[0].get("reason") == report["reason"] and marks[0]["at"] == 0
     return entries[-1]["event"] == "mark" and entries[-1].get("reason") == report["reason"]
 
+
+# What the phone says about its notifications: a push reaching its worker and
+# whether it was shown, what the page finds when it opens or comes back, and
+# what became of each tap on a notification (the worker's own line, the card
+# reaching the page, and where the card stood once drawn). Every field is a
+# fixed word, a flag or a bounded number, or a card id or tap id of a fixed
+# form, so no report can carry an address, a key, a token or any text; a report
+# with a field not listed, or a value not allowed, refuses the whole batch.
+NOTICE_FIELDS = {
+    "pushreceived": ("outcome", "reason", "ms", "status", "ago", "n", "worker"),
+    "notifycheck": ("source", "perm", "reg", "sub"),
+    "notifylost": ("source", "reg"),
+    "notifytap": ("box", "tap", "windows", "route", "focus", "opened", "ms", "age"),
+    "notifyarrive": ("tap", "box", "via", "reading", "found", "visible", "menu", "home", "hist"),
+    "notifyresult": ("tap", "box", "shown", "covered", "pending"),
+}
+NOTICE_CHOICES = {
+    "outcome": ("shown", "skipped"),
+    "reason": ("check-failed", "timeout", "not-signed-in", "show-failed", "other"),
+    "source": ("start", "return"),
+    "perm": ("granted", "denied", "default", "unsupported"),
+    "sub": ("yes", "no", "error"),
+    "route": ("message", "open", "failed"),
+    "focus": ("ok", "rejected", "none"),
+    "opened": ("client", "null", "rejected"),
+    "via": ("message", "url"),
+    "reading": ("yes", "no"), "found": ("yes", "no"), "visible": ("yes", "no"),
+    "home": ("yes", "no"), "hist": ("yes", "no"), "shown": ("yes", "no"), "pending": ("yes", "no"),
+    "menu": ("cards", "settings", "projects", "none"),
+    "covered": ("cards", "settings", "projects", "none"),
+}
+NOTICE_NUMBERS = {"ms": 600000, "status": 599, "ago": 7776000, "n": 1000000000000,
+                  "windows": 1000, "age": 7776000}
+# a tap's id is eight hex characters made by the worker; a page opened with no
+# id, by an older worker, says "none"
+NOTICE_TAP = re.compile(r"(?:[a-f0-9]{8}|none)", re.ASCII)
+
+
+def _notice_valid(page: str, report: dict) -> bool:
+    """Exactly the fields the kind allows, each of an allowed value. A push
+    that was shown has no reason and one that was skipped must have one. A
+    tap that asked for a window says how that went and no other tap does; the
+    age of the notification is left out when the worker could not tell."""
+    allowed = NOTICE_FIELDS[report["kind"]]
+    wanted = {"kind", *allowed}
+    if report["kind"] == "pushreceived":
+        if report.get("outcome") == "shown":
+            wanted.discard("reason")
+        elif report.get("outcome") != "skipped":
+            return False
+    if report["kind"] == "notifytap":
+        if report.get("route") != "open":
+            wanted.discard("opened")
+        if "age" not in report:
+            wanted.discard("age")
+    if page != "phone" or set(report) != wanted:
+        return False
+    for name, value in report.items():
+        if name == "kind":
+            continue
+        if name in NOTICE_CHOICES:
+            if not isinstance(value, str) or value not in NOTICE_CHOICES[name]:
+                return False
+        elif name in NOTICE_NUMBERS:
+            if not _incident_integer(value, 0, NOTICE_NUMBERS[name]):
+                return False
+        elif name == "reg":
+            if type(value) is not bool:
+                return False
+        elif name == "worker":
+            if not isinstance(value, str) or not INCIDENT_BUILD.fullmatch(value):
+                return False
+        elif name == "tap":
+            if (not isinstance(value, str) or not NOTICE_TAP.fullmatch(value)
+                    or (value == "none" and report["kind"] == "notifytap")):
+                return False
+        elif name == "box":
+            if not _incident_box(value):
+                return False
+        else:
+            return False
+    return True
+
+
 CLIENT_LOGGER = logging.getLogger("facilitator.client")
 CLIENT_LOGGER.setLevel(logging.INFO)
 CLIENT_LOGGER.propagate = False
@@ -1160,6 +1304,15 @@ def _client_fields(report: dict) -> dict:
     if report["kind"] == "incident":
         names = ("v", "reason", "marked", "lost", "suppressed", "events")
         return {k: report[k] for k in (*names, "build", "worker", "session") if k in report}
+    if report["kind"] in NOTICE_FIELDS:
+        # a card's id is the line's own box, written beside the kind
+        out = {k: report[k] for k in NOTICE_FIELDS[report["kind"]] if k in report and k not in ("ago", "box")}
+        if "ago" in report:
+            # the worker says how long ago the push came; the line says when
+            then = time.time() - report["ago"]
+            out["at"] = (time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(then))
+                         + f".{int(then * 1000) % 1000:03d}Z")
+        return out
     out = {}
     for name in CLIENT_FIELDS:
         value = report.get(name)
@@ -1204,7 +1357,8 @@ def _client_batch(page: str, reports: list, who: dict) -> tuple:
             window = _client_seen.get(key)
             if window is None or now - window[0] >= CLIENT_WINDOW:
                 window = _client_seen[key] = [now, 0, 0]
-            limit = INCIDENT_PER_MINUTE if report["kind"] == "incident" else CLIENT_PER_MINUTE
+            limit = (INCIDENT_PER_MINUTE if report["kind"] == "incident"
+                     else CLIENT_KIND_PER_MINUTE.get(report["kind"], CLIENT_PER_MINUTE))
             if window[1] >= limit:
                 window[2] += 1
                 count, _ = lost.get(key, (0, None))
@@ -1770,7 +1924,8 @@ def _lane_worktrees(lane: str) -> dict:
 
 def _seed_state() -> dict:
     """First-ever start: board title and boxes come from seed.json if present
-    (see seed.example.json); otherwise the board starts empty."""
+    (the item shape is under "Seeding a board" in RUNBOOK.md); otherwise the
+    board starts empty."""
     seed = json.loads(SEED_PATH.read_text()) if SEED_PATH.exists() else {}
     return {
         "title": seed.get("title", "facilitator"),
@@ -2031,7 +2186,7 @@ def _ensure_reply_schema_boundary() -> None:
             "schema": TRANSCRIPT_REPLY_SCHEMA,
             "version": REPLY_VARIANTS_VERSION,
         }
-        with TRANSCRIPT_PATH.open("a") as transcript:
+        with open(TRANSCRIPT_PATH, "a", opener=_private_opener) as transcript:
             # A crash or manual repair may have left a truncated final JSON
             # object with no newline. Separate it before the schema event so
             # the durable boundary is independently parseable and all later
@@ -2351,7 +2506,7 @@ def _commit_side_effects() -> None:
             # event then appends none of the batch instead of a prefix of it.
             encoded = "".join(json.dumps(event) + "\n"
                               for event, _kind, _box, _chars, _fields in due)
-            with TRANSCRIPT_PATH.open("a") as f:
+            with open(TRANSCRIPT_PATH, "a", opener=_private_opener) as f:
                 f.write(encoded)
         except Exception as e:
             _side_effect_failure("transcriptfail", rows=len(due),
@@ -2442,7 +2597,7 @@ def _save() -> None:
     payload = json.dumps(_state, indent=1)
     tmp = STATE_PATH.with_suffix(".tmp")
     try:
-        with tmp.open("w") as f:
+        with open(tmp, "w", opener=_private_opener) as f:
             f.write(payload)
             f.flush()
             _durable_fsync(f.fileno())
@@ -3050,8 +3205,8 @@ def _push_key_file() -> Path:
     with _push_lock:
         if not PUSH_KEY_PATH.is_file():
             pem = _openssl(["ecparam", "-genkey", "-name", "prime256v1", "-noout"])
-            PUSH_KEY_PATH.write_bytes(pem)
-            os.chmod(PUSH_KEY_PATH, 0o600)
+            with open(PUSH_KEY_PATH, "wb", opener=_private_opener) as key_file:
+                key_file.write(pem)
     return PUSH_KEY_PATH
 
 
@@ -3235,6 +3390,14 @@ def _push_bridge_available() -> tuple[bool, str]:
     return True, ""
 
 
+def _push_rec(endpoint: str) -> str:
+    """A short stable name for one stored subscription, so a phone's link can be
+    followed through the log over days. It is a hash of the endpoint and the
+    endpoint itself is never written; the same endpoint always gives the same
+    name, a new subscription a new one."""
+    return hashlib.sha256(endpoint.encode("utf-8", "replace")).hexdigest()[:8]
+
+
 def _push_turn(bid: str) -> None:
     """Every subscribed phone is told once that a card turned to the reader's turn.
     Runs on its own thread: it reads the subscriptions under the lock, checks
@@ -3247,11 +3410,14 @@ def _push_turn(bid: str) -> None:
         payload = json.dumps({"box": bid, "title": (box or {}).get("title") or "facilitator"},
                              separators=(",", ":")).encode()
     gone = []
+    gone_status = {}
     worked = None
     for sub in subs:
         # A sign-out or password change invalidates delivery as well as HTTP
         # access. Pre-upgrade subscriptions have no session and are skipped.
         if _BRIDGE_AUTH is None or not _BRIDGE_AUTH.has_session_digest(sub.get("session")):
+            _info("pushsession", bid, rec=_push_rec(sub.get("endpoint", "")),
+                  reason="no live session", count=len(subs))
             continue
         # Probe immediately before every service call. A bridge can go down
         # while an earlier phone's push service is answering, and that must
@@ -3263,26 +3429,34 @@ def _push_turn(bid: str) -> None:
         # the host, never the endpoint: the endpoint is the phone's own address
         # and identifies the device, so it is on the keep-out list
         host = urlparse(sub.get("endpoint", "")).netloc
+        rec = _push_rec(sub.get("endpoint", ""))
         try:
             code, said = _push_one(sub, payload)
         except Exception as e:   # a signing failure: reported, never fatal
-            _error("pushfail", bid, host=host, reason=str(e))
+            _error("pushfail", bid, host=host, rec=rec, reason=str(e))
             continue
         reason = said[:PUSH_REASON_CHARS] if code else ("unreachable " + said).strip()
-        _info("push", bid, host=host, status=code or None, reason=reason or None)
+        _info("push", bid, host=host, rec=rec, status=code or None, reason=reason or None)
         if 200 <= code < 300:
             worked = host
         if code in (404, 410):
             gone.append(sub["endpoint"])
+            gone_status[sub["endpoint"]] = code
     if gone or worked:
         with _lock:
             if worked:
                 # what the next start line reads, so a board coming back up can
                 # say when a phone was last actually reached
                 _state["push_last_ok"] = {"ts": time.time(), "host": worked}
+            dropped = []
             if gone:
-                _state["push_subs"] = [s for s in _state.get("push_subs", []) if s.get("endpoint") not in gone]
+                held = _state.get("push_subs", [])
+                dropped = [s["endpoint"] for s in held if s.get("endpoint") in gone]
+                _state["push_subs"] = [s for s in held if s.get("endpoint") not in gone]
             _save()
+            for endpoint in dropped:
+                _info("pushgone", bid, rec=_push_rec(endpoint), status=gone_status[endpoint],
+                      count=len(_state["push_subs"]))
 
 
 # ---- operations: a receipt kept beside the effect ----------------------------
@@ -4182,7 +4356,11 @@ def _get_laneimg(q: Query, _):
     except OSError:
         inside = False   # unreadable or a symlink loop: same as missing
     if inside and p.is_file() and p.suffix.lower() in IMG_TYPES:
-        return 200, p.read_bytes(), IMG_TYPES[p.suffix.lower()]
+        # the headers /uploads and /navimg use: an SVG here can carry script, and
+        # opened by itself it would run in the board's origin without them
+        return Response(p.read_bytes(), media_type=IMG_TYPES[p.suffix.lower()],
+                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                                 "Content-Security-Policy": "sandbox"})
     return 404, {"error": "not found"}
 
 
@@ -4581,6 +4759,41 @@ def _sweep_upload_parts() -> None:
         pass
 
 
+# The files the board keeps about its owner's work, by name, for the sweep
+# below. server.py, the pages and run.config.json are not among them.
+PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.jsonl", "settings.json",
+                 "settings.json.tmp", "settings.json.bad-*", "vapid-key.pem", "bridge-auth.json",
+                 "tokens-cache.json", "tokens-cache.json.tmp", "claude-limits.json",
+                 "claude-limits.json.tmp", "server.lock")
+PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
+
+
+def _tighten_private_files() -> None:
+    """Files an earlier board, or an earlier version of this one, left readable
+    by other accounts on the machine lose the group and other permissions.
+    Only regular files under the board's own names are touched: never a link,
+    a folder, or anything else that happens to sit in the same place."""
+    places = ((HERE, PRIVATE_FILES), (LOG_DIR, PRIVATE_LOGS),
+              (INTERNAL_UPLOADS, ("*",)), (HERE / "uploads", ("*",)))
+    narrowed = 0
+    for folder, patterns in places:
+        for pattern in patterns:
+            try:
+                found = list(folder.glob(pattern))
+            except OSError:
+                continue
+            for path in found:
+                try:
+                    seen = path.lstat()
+                    if stat.S_ISREG(seen.st_mode) and seen.st_mode & 0o077:
+                        os.chmod(path, stat.S_IMODE(seen.st_mode) & ~0o077)
+                        narrowed += 1
+                except OSError:
+                    pass
+    if narrowed:
+        _info("private", files=narrowed)
+
+
 def _post_clientlog(q: Query, raw: bytes):
     # what a page noticed and has no other way to say: a thrown error, a
     # rejected promise, a fetch or a render that failed, a timer that ran
@@ -4602,6 +4815,8 @@ def _post_clientlog(q: Query, raw: bytes):
         return 400, {"error": "too many reports in one batch"}
     if any(r["kind"] == "incident" and not _incident_valid(page, r) for r in reports):
         return 400, {"error": "bad incident history"}
+    if any(r["kind"] in NOTICE_FIELDS and not _notice_valid(page, r) for r in reports):
+        return 400, {"error": "bad notification report"}
     try:
         written, dropped = _client_batch(page, reports, who)
     except OSError:
@@ -5557,10 +5772,16 @@ def _post_push_subscribe(q: Query, text: str):
            "ts": time.time()}
     rec["session"] = _BRIDGE_AUTH.current_session_digest() if _BRIDGE_AUTH else ""
     with _lock:
-        subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
+        held = _state.get("push_subs", [])
+        subs = [s for s in held if s.get("endpoint") != endpoint]
+        replaced = len(subs) != len(held)
         subs.append(rec)
         _state["push_subs"] = subs
         _save()
+        # whether this is a new link or the same one posted again, never the
+        # endpoint or the keys; session says whether a live sign-in was named
+        _info("pushsub", action="replaced" if replaced else "new", rec=_push_rec(endpoint),
+              session=bool(rec["session"]), count=len(subs))
         return 200, {"ok": True, "count": len(subs)}
 
 
@@ -5573,9 +5794,11 @@ def _post_push_unsubscribe(q: Query, text: str):
     if not isinstance(endpoint, str) or len(endpoint) > 2048:
         return 400, {"error": "bad subscription"}
     with _lock:
-        subs = [s for s in _state.get("push_subs", []) if s.get("endpoint") != endpoint]
+        held = _state.get("push_subs", [])
+        subs = [s for s in held if s.get("endpoint") != endpoint]
         _state["push_subs"] = subs
         _save()
+        _info("pushunsub", rec=_push_rec(endpoint), removed=len(subs) != len(held), count=len(subs))
         return 200, {"ok": True}
 
 
@@ -5664,7 +5887,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|home\.chart"
+    r"|bgcolor|tocw|composeformat|chimemuted|home\.chart"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096
@@ -5749,6 +5972,8 @@ def _get_board_settings_js(q: Query, _):
         return 404, {"error": "not found"}
     with _settings_lock:
         lead = "globalThis.BOARD_SETTINGS=" + json.dumps(_settings_answer(_settings_file())) + ";"
+    if BACKGROUND_DEFAULT:
+        lead += "globalThis.BOARD_BGCOLOR_DEFAULT=" + json.dumps(BACKGROUND_DEFAULT) + ";"
     return 200, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8"
 
 
@@ -6673,6 +6898,133 @@ def build_app():
     return Transport(app)
 
 
+# -- other websites ---------------------------------------------------------------------
+# The board's own port answers a page on this Mac and a caller that is not a
+# browser at all, which is every agent: curl and onboard.py send no Origin and
+# no fetch metadata. It refuses what a page on another website sent, and what
+# arrived under a name another website pointed at this machine. The phone's
+# socket and what Tailscale Serve forwards are the bridge gate's, and pass
+# through here untouched.
+
+SITE_HOST = re.compile(r"(?:127\.0\.0\.1|localhost)(?::([0-9]{1,5}))?")
+# the one thing another site may do to the board is open its page: that is how
+# the Spotify sign-in comes back. The page is read and nothing is changed by it
+NAVIGATION_PAGES = frozenset({"/", "/m"})
+# a page opened straight from a link says document; the same opening, handed
+# on by the board's own service worker, says empty. Mode stays navigate in both,
+# which no script's fetch can produce
+NAVIGATION_DESTS = frozenset({"document", "empty"})
+SITE_REFUSAL_WINDOW = 5.0      # seconds: one refusal line per reason and route per window
+SITE_REFUSALS_KEPT = 64
+SITE_REFUSAL_ROUTE_CHARS = 80
+SITE_REFUSAL_FILE_ROUTES = ("/uploads/",)
+
+
+def _foreign_site(scope: dict) -> str | None:
+    """Why this request is not the board's own page or a caller with no
+    browser in it, or None when it is one of those. Only the board's own
+    port is asked: a request on the phone's port, or one carrying a Serve
+    forwarding header, is decided by the bridge gate and is not looked at here.
+
+    A name some other site pointed at this Mac has the wrong Host. A page
+    on another site, or on another port of this machine, names itself in
+    Origin when it writes and in Sec-Fetch-Site whatever it does, and neither
+    of those can be left out or changed by the page. A caller with no
+    browser sends neither, which is what lets agents through."""
+    headers: dict[bytes, bytes] = {}
+    hosts = 0
+    for name, value in scope.get("headers") or ():
+        name = name.lower()
+        hosts += name == b"host"
+        headers[name] = value
+    if (scope.get("server") or (None, None))[1] == BRIDGE_PORT \
+            or b"x-forwarded-for" in headers or b"tailscale-headers-info" in headers:
+        return None
+    host = headers.get(b"host", b"").decode("latin-1").strip().lower()
+    if hosts > 1:
+        return "host is not this board's"
+    if host:
+        named = SITE_HOST.fullmatch(host)
+        if named is None or (named.group(1) is not None and int(named.group(1)) != PORT):
+            return "host is not this board's"
+    fetch = {key: headers.get(b"sec-fetch-" + key.encode(), b"").decode("latin-1").strip().lower()
+             for key in ("site", "mode", "dest")}
+    if (scope.get("method") in ("GET", "HEAD") and scope.get("path") in NAVIGATION_PAGES
+            and fetch["mode"] == "navigate" and fetch["dest"] in NAVIGATION_DESTS):
+        return None
+    origin = headers.get(b"origin")
+    if origin is not None and origin.decode("latin-1").strip().lower() != "http://" + host:
+        return "origin is not this board's"
+    if fetch["site"] not in ("", "same-origin", "none"):
+        return "asked for by another site"
+    return None
+
+
+class SiteGuard:
+    """The outermost layer: answers a request from another website with a 403
+    before anything under it, the bridge gate included, has seen it."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+        self._noted: dict[str, list] = {}   # reason and route -> [when its window opened, refusals folded into it]
+
+    def _note(self, scope: dict, reason: str) -> None:
+        """One line per reason and route per window, with a count of the ones
+        left out, so a page that asks every second writes a line every five.
+        Nothing the request carried goes in it, and a failure here never
+        changes the answer."""
+        try:
+            path = scope.get("path", "")
+            route = next((p + "*" for p in SITE_REFUSAL_FILE_ROUTES if path.startswith(p)),
+                         path[:SITE_REFUSAL_ROUTE_CHARS])
+            now, name, table = time.monotonic(), f"{reason} {route}", self._noted
+            if name not in table and len(table) >= SITE_REFUSALS_KEPT:
+                for stale in [k for k, w in table.items() if now - w[0] >= SITE_REFUSAL_WINDOW]:
+                    del table[stale]
+            key = name if name in table or len(table) < SITE_REFUSALS_KEPT else ""
+            window = table.get(key)
+            if window is not None and now - window[0] < SITE_REFUSAL_WINDOW:
+                window[1] += 1
+                return
+            table[key] = [now, 0]
+            _info("refusal", route=route, code=403, reason=reason,
+                  folded=(window[1] if window else 0) or None)
+        except Exception:
+            pass
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        send = _unframeable(send)
+        reason = _foreign_site(scope)
+        if reason is None:
+            await self.app(scope, receive, send)
+            return
+        self._note(scope, reason)
+        await Response(json.dumps({"error": "request from another site refused"}).encode(),
+                       status_code=403, media_type="application/json",
+                       headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
+
+
+def _unframeable(send):
+    """Every answer, the bridge gate's and the phone's port's included, says
+    it may not be shown in a frame. A policy an answer already carries (an
+    upload's sandbox, the gate's own) is left exactly as it is, and the older
+    header covers it."""
+    async def framed(message) -> None:
+        if message["type"] == "http.response.start":
+            held = list(message.get("headers") or ())
+            named = {name.lower() for name, _ in held}
+            if b"x-frame-options" not in named:
+                held.append((b"x-frame-options", b"DENY"))
+            if b"content-security-policy" not in named:
+                held.append((b"content-security-policy", b"frame-ancestors 'none'"))
+            message = {**message, "headers": held}
+        await send(message)
+    return framed
+
+
 # -- the wire ---------------------------------------------------------------------------
 
 class BoardProtocol(H11Protocol):
@@ -6906,7 +7258,7 @@ def _require_bridge_components():
 def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
-    app = bridge_gate(build_app(), BRIDGE_PORT, _info)
+    app = SiteGuard(bridge_gate(build_app(), BRIDGE_PORT, _info))
     config = uvicorn.Config(
         app, host="127.0.0.1", port=PORT,
         log_config=None, access_log=False, server_header=False,
@@ -6982,6 +7334,7 @@ def main() -> None:
     try:
         INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
         _sweep_upload_parts()
+        _tighten_private_files()
         _load()
         with _lock:
             _state["busy"] = {ow: None for ow in OWNERS}  # a restart never resumes mid-claim

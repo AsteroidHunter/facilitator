@@ -68,12 +68,17 @@
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
-  /* the pen is a mark like the gear beside it: 15px, the sub ink, no box, the
-     accent under a pointer and while the layout is being edited */
-  #editbtn{display:flex; align-items:center; padding:2px; border:none; background:none;
+  /* the speaker is a mark like the house at the other end of the bar: 15px, the
+     same reach across its box and the same line, the sub ink, the full ink
+     under a pointer, in a glass circle of its own (the bar's glass, below). a
+     slash across it, with a clear gap round the slash, means the reply chime is
+     off */
+  #chimebtn{display:flex; align-items:center; padding:2px;
     color:var(--sub); cursor:pointer; transition:color .2s; flex:none;
     margin-left:auto}   /* holds the right edge now the status row is gone */
-  #editbtn:hover, body.editmode #editbtn{color:var(--accent)}
+  #chimebtn:hover{color:var(--ink)}
+  #chimebtn .chime-slash, #chimebtn .chime-gap{display:none}
+  #chimebtn[aria-pressed="false"] :is(.chime-slash, .chime-gap){display:inline}
   /* the install control, in the soft tint the edit button used to wear: the same
      face, size, colours, corner and padding, and no margin of its own, since the
      button before it already holds the right edge. It is hidden except while
@@ -85,99 +90,58 @@
      the board's own choices, opened off the bar by one mark onto a page that
      covers the whole window (the settings page in card-tokens.css). the swatch
      is the background colour's control, which sits on that page */
-  #setbtn{display:flex; align-items:center; padding:2px; border:none; flex:none;
-    background:none; color:var(--sub); cursor:pointer; transition:color .2s;
-    /* the button's own 2px of padding pulled out, so the mark sits as far from
-       the right edge as the house sits from the left */
-    margin-right:-2px}
-  #setbtn:hover, body.setopen #setbtn{color:var(--accent)}
+  /* the settings mark is the logo itself, the squid png the phone's launch image
+     uses, cut to the squid's own bounds (917 by 1126 of its 1247 by 1261, from
+     165 across and 69 down) so no empty margin shows; the percentages are of the
+     box's width, so the same cut holds at any size */
+  .squidmark{display:block; height:20px; aspect-ratio:917 / 1126; overflow:hidden; flex:none}
+  .squidmark img{display:block; width:135.99%; max-width:none; height:auto; margin:-7.52% 0 0 -17.99%}
+  /* the squid stands in a glass circle at the bar's right end (the bar's
+     glass), mirroring the house at its left end */
+  #setbtn{display:flex; align-items:center; padding:2px; flex:none;
+    color:var(--sub); cursor:pointer; transition:color .2s}
 
   /* ---- the app's enclosure ----------------------------------------------- */
-  /* every outer edge of the app carries the cards' own 7px curve, so the shell
-     is rounded on the same terms as the things standing inside it. the bar is
-     the lid and rounds its top two corners; #appframe is the boundary, one
-     closed rectangle in the board's line ink, one hairline on all four sides
-     and the same 7px on all four corners.
-     the boundary begins where the bar ends, so the bar is not inside it: the
-     lid stands on top of the box rather than in it. the bar's lower corners
-     stay square, and the boundary's top line, which is the same line, is the
-     one that turns into the box's top corners.
-     the boundary is one element, not a border on each piece, so a side line is
-     a single unbroken stroke from its top corner to its bottom one. it carries
-     no fill and takes no pointer, so nothing beneath it moves or stops
-     answering.
-     --edge is the weight every edge line is drawn at: a card's border and the
-     bar's own bottom, so the boundary reads as the same ink rather than a
-     second, fainter one.
-     the air is the same on all four sides. #stage keeps its own top at --bar-h,
-     which this does not touch, so every region on the canvas stays on the exact
-     pixel it was placed on.
-     20260827, the seated tab's open bottom. the boundary's top line falls on one
-     pixel row, the row the bar's own bottom border used to hold, and that row is
-     the one a seated tab's paper covers: a tab is 38 tall, seated 1px low, and
-     its bottom edge lands exactly on it. that overlap is the whole trick of a
-     seated tab. it only reads as an open mouth if the tab's paper is painted
-     after the line, and the tab is painted inside the bar, so the line has to
-     be painted inside the bar too, before #tabbar.
-     the boundary itself cannot live in there. the page in focus is overflow
-     hidden and everything on the canvas is fixed, so the body's own box is only
-     as tall as the bar, and any absolutely positioned thing inside the bar is
-     cut off at the bar's bottom edge. that is why the boundary is fixed and
-     stands outside the bar. it is also why it cannot simply be moved behind the
-     bar and left at that: the bar is 84% paper over a 10px blur, and a line
-     lying behind it comes back a washed grey smear or nothing at all, both of
-     which were rendered and looked at before this was written.
-     so the boundary is fixed, whole and closed, and sits just under the bar,
-     where its top row is hidden; and the bar restates that one row itself, in
-     the ::before below, as full ink over its own blur and before its tabs. one
-     element owns the shape, one row of it is redrawn where the shape passes
-     through frosted glass, and the tabs cover both. */
+  /* the workspace stands on a pane of the board's glass (.qn-glass in
+     card-tokens.css, worn by #appframe), one rounded rectangle under everything
+     on the canvas, and the bar over it holds the controls in glass pieces of
+     their own (the bar's glass, below). nothing joins the two: the bar has no
+     face, no line and no corners of its own, and the project names do not open
+     into the pane.
+     the pane keeps the rectangle the workspace outline had, to the pixel, since
+     the stage fits itself into it (frameLimits) and the home page and the new
+     project page measure from it: --app-inset in from the window's sides and
+     foot, and its top on the bar's own 1px bottom row. its border is still the
+     edge's width, gone clear, so the inner box the stage is fitted to is the
+     box it always was.
+     the face is the glass's, with its white at .35 rather than the .77 the
+     bar's pieces wear, so a coloured board still shows through the whole
+     workspace, lightened, rather than only round its edge; on a white board
+     the two are the same white. the edge is drawn the way the phone's bottom
+     row draws its buttons (see the bar's glass): the grey ring on all four
+     sides is the top rim too, under the glass's bottom rim, inner glow and
+     soft outer shadow. it is drawn without the glass's backdrop blur: one
+     standing backdrop filter the size of the window makes chrome compose every
+     frame of the window itself (see the picture zoom), and behind the pane there
+     is only the flat paper, which a blur would leave exactly as it was.
+     it sits under every layer of the page and takes no pointer, so nothing on
+     the canvas moves or stops answering. #stage keeps its own top at --bar-h,
+     so every region stays on the pixel it was placed on */
   body.focus .bar{
     margin:var(--app-inset) var(--app-inset) 0;
-    border-radius:7px 7px 0 0;
-    /* the bar keeps the 1px so that nothing in it moves, and gives up the ink.
-       drawn by the bar, that line runs the bar's full width and shoots 7px past
-       each of the boundary's top corners, leaving a stub hanging in the air over
-       the arc. the boundary's own top line stops where its corners turn.
-       the width stays a full 1px on purpose while the edge is thinner: the
-       border here is only room, and room that shrank with the edge would move
-       every tab and label in the bar by a fraction. the boundary's line is laid
-       on the bottom of this row instead, at the edge's drawn width */
+    /* the bar keeps its 1px bottom row, clear, so the row the pane's top is
+       laid on does not move */
     border-bottom-color:transparent; border-bottom-width:1px;
-  }
-  /* the bar's restatement of the boundary's top row. same box as #appframe to
-     the pixel, so the two are the same rectangle and cannot drift: the same
-     sides, the same 7px, and therefore the same arcs. the clip keeps only the
-     top row of it, the row inside the bar, so no arc is ever painted twice and
-     no edge of this box is ever visible as an edge. absolute, so it measures
-     from the bar's padding box, which is exactly the boundary's own left and
-     right; first in the bar, so every tab paints over it */
-  body.focus .bar::before{
-    content:""; position:absolute; pointer-events:none;
-    top:calc(var(--bar-h) - 1px - var(--edge-drawn)); left:0; right:0; height:8px;
-    border:var(--edge) solid var(--line); border-bottom:none;
-    border-radius:7px 7px 0 0;
-    clip-path:inset(0 0 7px 0);
+    background:none; backdrop-filter:none; -webkit-backdrop-filter:none;
   }
   #appframe{display:none}
   body.focus #appframe{
     display:block; position:fixed;
-    /* the top line is laid on the very pixel the bar's own bottom border
-       occupies, so the two are one line and not two: the tab still meets that
-       line the way it was fitted to, and the box still has a real top edge for
-       its corners to turn into. the bar's row is 1px and the line is the edge's
-       drawn width, so the line takes the bottom of the row, where the tab's
-       foot and its notches land */
     top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
     left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
-    /* one closed rounded rectangle, all four sides and all four corners: a
-       corner needs both of its edges to turn into, and rounding a box with no
-       top left the arcs hooking into nothing */
-    border:var(--edge) solid var(--line);
-    border-radius:7px;
-    /* under the bar, not over it. over it, this top line was painted across the
-       seated tab's mouth and shut it: that was the bar seen under the tab */
-    pointer-events:none; z-index:9;
+    border:var(--edge) solid transparent; border-radius:12px;
+    backdrop-filter:none; -webkit-backdrop-filter:none; --qn-tint:.35;
+    pointer-events:none; z-index:-1;
   }
 
   /* ---- layout ----------------------------------------------------------- */
@@ -436,7 +400,7 @@
     --chips-x:calc(var(--ox) + var(--cw)*0.044);   --chips-w:calc(var(--cw)*0.216);
     --chips-y:0.2112; --chips-h:0.0512;
     --tik-x:calc(var(--ox) + var(--cw)*0.036);     --tik-w:calc(var(--cw)*0.248);
-    --tik-y:0.2112;  --tik-h:0.6528;
+    --tik-y:0.2112;  --tik-h:0.5632;
     --tik-row:0.056; --tik-on-w:calc(var(--cw)*0.272);
     /* 10% narrower than drawn, nudged right by half the difference so the box
        keeps its centre exactly where it was (was x 0.068, w 0.216) */
@@ -1698,13 +1662,14 @@
   /* the bar's glass goes down for the same length, for a different reason. one
      backdrop-filter left standing anywhere on the page is enough to make chrome
      keep the whole frame to itself rather than hand it to the mac's own
-     compositor, so while this blur stands every frame of the zoom draws the
+     compositor, so while these blurs stand every frame of the zoom draws the
      full screen picture in the browser. the cost belongs to the page, not to
-     the bar, and any single filter is enough to buy it. it can go because the
-     bar's face is mostly opaque paper and the veil is over it for the whole
-     gesture, so there is nothing behind it left to blur that anyone can see.
-     the .bar rule itself is untouched, so the resting look is the resting look */
-  body.p3zoom .bar{backdrop-filter:none; -webkit-backdrop-filter:none}
+     the bar, and any single filter is enough to buy it. they can go because
+     behind the bar's pieces there is only the flat paper and the veil is over
+     them for the whole gesture, so there is nothing behind them left to blur
+     that anyone can see. the bar's own rules are untouched, so the resting look
+     is the resting look */
+  body.p3zoom .bar .qn-glass, body.focus.p3zoom #tabbar .projectlens{backdrop-filter:none; -webkit-backdrop-filter:none}
   /* ---- the file navigator, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
@@ -2060,7 +2025,7 @@
      is edited is the file and not a picture of it */
   :is(#magic3, #magic4) .md-fm-raw{height:auto; font-size:11.5px; line-height:1.8}
   /* a box taken off this tab is absent from the board, and stays absent while
-     the layout pencil is on: the pencil arranges only the boxes that are on
+     edit mode is on: edit mode arranges only the boxes that are on
      screen, so a removed box shows no faint ghost and carries no control. */
   body.focus:not(.layout-ready) #stage{visibility:hidden}
   body.focus .region-off{visibility:hidden; pointer-events:none}
@@ -2744,7 +2709,6 @@
   body[data-resp-mode="portrait"] #magic4,
   body[data-resp-mode="portrait"] #goalbox,
   body[data-resp-mode="portrait"] #respnav,
-  body[data-resp-mode="portrait"] #editbtn,
   /* the page switcher would float over the full-width card's composer here; it
      stays a landscape control (page switching is still there in the wider modes
      and in the phone app) */
@@ -2880,22 +2844,24 @@
      every resize, and transitioning that would set the whole app sliding */
   body.focus #stage{transition:opacity .18s ease, visibility .18s ease}
   body.focus.pageblank #stage{visibility:hidden; opacity:0; pointer-events:none}
-  body.focus.pageblank #editbtn{visibility:hidden}   /* the board's own arranging goes with the board */
   /* in-app project tabs: the board filtered to one project per tab; labels
-     come from the lane directories at runtime, never from this file. Real tab
-     shapes seated on the bar's bottom edge; the active one opens into the page.
-     Pulling one out is the drag itself: grab a tab and tug it downward. */
-  /* fixed bar height in focus mode: every one-line element centers on the
-     same 23px line, and the tabs seat on the bottom edge with their label
-     lifted onto that exact line (7px pad + 16px line puts its center at 23) */
-  body.focus .bar{height:40px; padding-top:0; padding-bottom:0}
+     come from the lane directories at runtime, never from this file. the names
+     sit on one glass oval in the bar, the open one under a smaller glass seat
+     (the bar's glass, below). Pulling one out is the drag itself: grab a name
+     and tug it downward. */
+  /* fixed bar height in focus mode, 40px and its 1px bottom row. the glass
+     pieces are 32px and stand at the top of it, --app-inset under the window's
+     top as the pane is in from the window's sides, on one centre line; the 7px
+     of padding under them leaves 7px of paper between their foot and the
+     pane's top edge, 7.5px on a 2x screen, where the pane's line sits half a
+     pixel lower. the pieces stand 8px apart, the phone's own gap, and the bar has
+     no side padding, so the house and the squid stand over the pane's own
+     left and right edges */
+  body.focus .bar{height:40px; padding:0 0 7px; gap:8px}
   body.focus #toc, body.focus #tocgrip{top:41px}
   body.focus #offline{top:41px}
   #tabbar{display:none}
-  body.focus #tabbar{
-    display:flex; align-items:flex-end; align-self:flex-end; gap:4px;
-    height:38px; margin-right:10px;
-  }
+  body.focus #tabbar{display:flex; align-items:center; gap:8px; height:32px; flex:none}
   /* seated tabs per the 20260809 mockup: the active one's bottom opens into
      the canvas. 20260827: the top two corners now take the cards' own 7px, so
      a seated tab is rounded on the same terms as the shell around it and the
@@ -3011,14 +2977,9 @@
     z-index:2; box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* the others glide aside on the board's one 220ms curve, never teleport */
   .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  /* the plus: opens a fresh project tab. A thin rule and clear air keep it
-     from ever reading as part of the last tab */
-  .tabsep{flex:none; align-self:center; width:1px; height:20px;
-    background:var(--line-strong); margin:0 6px 0 8px}
-  .ptabplus{flex:none; align-self:center; width:24px; height:24px; padding:0;
-    font:500 15px/1 var(--mono); color:var(--ink); background:none;
-    border:none; cursor:pointer; transition:opacity .2s; opacity:.75}
-  .ptabplus:hover{opacity:1}
+  /* the plus: opens a fresh project tab. it is a glass circle of its own after
+     the oval of names (the bar's glass, below), so it never reads as one of
+     them */
   /* the not-yet-named tab while its folder is being chosen: upright, in the
      board's own bold (the weight an unread tab takes) */
   .ptab.draft{color:var(--ink); background:var(--seat); border-color:var(--line);
@@ -3035,7 +2996,7 @@
      about the cure: a mark has to be visible to be found, so every tab the
      pointer crossed grew one, and a menu charges a second click for a single
      word. the dwell buys the same safety with time instead of ink.
-     20260824: the pencil is for boxes and for nothing else */
+     20260824: edit mode is for boxes and for nothing else */
   /* the band is new room, not the tab's own padding: the label keeps its 16px
      of air on both sides while the band is open, so the name never shifts
      inside its tab and only the tabs after it move, which is the movement that
@@ -3091,6 +3052,101 @@
   #projnote{display:none; flex:none; font:12px var(--mono); color:var(--must);
     background:var(--must-bg); border-radius:4px; padding:3px 10px}
   #projnote.show{display:inline-block}
+
+  /* ---- the bar's glass ---------------------------------------------------- */
+  /* the bar's controls are drawn as the phone's bottom row draws its buttons
+     (#dock in m.html): each is a piece of the board's glass (.qn-glass), with
+     the row's edge, its press and nothing behind it but the paper. the house,
+     the speaker, the plus and the squid are 32px circles, the row's 48px at two
+     thirds, so each mark keeps the share of its circle it has on the phone (the
+     squid's 20px in 32 is the phone's 30 in 48, and the 15px house and speaker
+     are the phone's 22px ticket in 48). the project names sit on one oval of
+     the same height, and the open project's name under a smaller oval of the
+     same glass, the seat, which slides along the oval to the project chosen.
+     the rest of this sheet loads before the glass's, so every rule here is
+     scoped by the page to outrank the glass's own corner.
+     the glass's numbers are registered here as the phone registers them, so a
+     press eases the face, its highlights and its shadows together */
+  @property --qn-tint{syntax:"<number>"; inherits:true; initial-value:.77}
+  @property --qn-edge{syntax:"<number>"; inherits:true; initial-value:2}
+  /* the top rim is one line, as on the phone's row: the glass's white
+     highlight on the first row and its faint dark band two rows deep are left
+     out, so the grey ring is the top edge as it is the sides', and the rest of
+     the stack, the bottom rim, the inner glow and the outer shadow, is the
+     glass's own. the workspace's pane wears the same edge */
+  body.focus :is(.bar .qn-glass, #appframe){
+    box-shadow:
+      inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+      inset 0 0 0 1px var(--qn-ring),
+      inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+      inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+      0 1px 2px -1px rgba(0,0,0,.18),
+      0 1px 3px rgba(0,0,0,.07),
+      0 8px 20px rgba(0,0,0,.06)}
+  /* the circles: the mark centred, in the sub ink and the full ink under a
+     pointer as the bare marks were, and the house in the full ink while home
+     is up */
+  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus){
+    flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;
+    margin:0; padding:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
+    transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus):hover,
+  body.focus.home #homeico{color:var(--ink)}
+  body.focus :is(#homeico, #chimebtn, #tabbar .ptabplus) svg{display:block; flex:none}
+  /* the speaker still holds the right edge, and "Install app" stays between it
+     and the squid as it was */
+  body.focus .bar #chimebtn{margin-left:auto}
+  /* the glass's own press, the phone's: a little larger and a whiter face,
+     held long enough that a quick click still shows it (glassPress, in the
+     script). it rises over .3s and falls back over .5s, both eased. keep the
+     circles' ID specificity here, or their idle .5s transition wins during
+     the press too and a quick click barely grows before it lets go */
+  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+    transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
+  /* Bare names share only a layout wrapper. The one lens paints above their
+     pixels but takes no input: the buttons keep their clicks and drags. */
+  body.focus #tabbar .taboval{position:relative; flex:none; display:flex; align-items:center;
+    height:32px}
+  body.focus #tabbar .ptab{position:relative; z-index:1; top:0;
+    display:flex; align-items:center; height:32px; padding:0 14px;
+    border:none; border-radius:16px; background:none;
+    transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
+  body.focus #tabbar .ptab.closed{display:none}
+  body.focus #tabbar .ptab::before, body.focus #tabbar .ptab::after{content:none}
+  body.focus #tabbar :is(.ptab.on, .ptab.draft, .ptab.dragging){background:none; border:none; box-shadow:none}
+  body.focus #tabbar .ptab.dragging{z-index:2}
+  body.focus #tabbar .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
+  body.focus #tabbar .ptab.armed{padding-right:26px}
+  body.focus #tabbar .ptabx{top:4px; height:24px}
+  /* One continuous capsule, including its backdrop capture. A mostly clear
+     face keeps the refracted letters readable, including while pressed. */
+  body.focus #tabbar .projectlens{position:absolute; left:0; top:0; height:32px;
+    box-sizing:border-box; border-radius:16px; z-index:3; pointer-events:none;
+    background:linear-gradient(145deg, rgba(255,255,255,.15), rgba(255,255,255,.02) 65%);
+    box-shadow:inset 0 0 0 1px #c7c7cc, inset 0 -1px 0 rgba(255,255,255,.8),
+      inset 0 1px 2px rgba(255,255,255,.55), 0 1px 3px rgba(0,0,0,.09), 0 6px 14px rgba(0,0,0,.05);
+    backdrop-filter:var(--lens-filter); -webkit-backdrop-filter:var(--lens-filter)}
+  /* The outer seat moves and sizes the lens. Only the inner lens grows on
+     press: its map stays in local coordinates, separate from the slide.
+     Fade the lens itself, never an ancestor that would cut off its backdrop. */
+  body.focus #tabbar .tabseat{position:absolute; left:0; top:0; height:32px; width:0;
+    z-index:3; pointer-events:none;
+    transition:transform .28s var(--gentle), width .28s var(--gentle),
+      translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  body.focus #tabbar .tabseat.still{transition:translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  body.focus #tabbar .seatlens{width:100%;
+    transition:transform .5s var(--gentle), background-color .5s var(--gentle), opacity .18s var(--gentle)}
+  body.focus #tabbar .tabseat.gone .seatlens{opacity:0}
+  body.focus #tabbar .tabseat.pressed .seatlens{transform:scale(1.1); background-color:rgba(255,255,255,.06);
+    transition:transform .38s cubic-bezier(.2,.8,.2,1), background-color .38s ease-out, opacity .18s var(--gentle)}
+  body.focus #tabbar :is(.tabseat.carried, .tabheld){z-index:4}
+  /* the plus: its own circle after the oval, its two bars the house's line,
+     in the ink at three quarters as the typed plus was, and full under a
+     pointer */
+  body.focus #tabbar .ptabplus{color:color-mix(in srgb, var(--ink) 75%, transparent)}
+  body.focus #tabbar .ptabplus:hover{color:var(--ink)}
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
      white well listing the open folders, the current one bold, then the
@@ -3127,14 +3183,12 @@
   /* the brand line is one lockup: the mark stands immediately left of the word,
      centred on the word's own line, and the word keeps the vertical place it
      holds without it. Nothing on this server hands out a file from the repo
-     folder, so the mark rides in the page as a data URI, a 128px copy of the
-     logo shown at 32px tall. This art has a glow, so it is smoothed rather
-     than drawn pixelated, and its width follows its own shape. 32px is the
-     word's own ink height and never more, or the line box grows and the word
-     moves down with it. */
+     folder, so the mark rides in the page as a data URI: the README's exact
+     transparent squid PNG. The box keeps its original width and 32px height,
+     the word's own ink height, so neither the word nor the line box moves. */
   #npbrand{font:700 40px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink);
     display:flex; align-items:center; gap:6px}
-  #npmark{flex:none; width:auto; height:32px}
+  #npmark{flex:none; width:calc(32px * 128 / 101); height:32px; object-fit:contain}
   /* The copy keeps the word's original line box, so the mark stays centered
      against Facilitator. The version sits in the existing gap below it and
      does not move the landing or its folder well. */
@@ -3239,17 +3293,11 @@
   body.focus .box.sel :is(textarea, .cffield .cm-scroller).dropping{background:var(--accent-soft)}
   /* home: the house at the head of the bar opens the home page, a blank page
      above every project holding the token panel and nothing else (its own
-     sheet, home-widgets.css). the house stands where a tab would and measures
-     what the greyed mark did, its larger hit area drawn outside its box. while
-     home is up the house is the one marked, no project tab is seated, the
-     board fades out the way a blank page's does, and any project tab brings
-     its board back */
+     sheet, home-widgets.css). the house is a glass circle at the bar's left
+     end (the bar's glass). while home is up the house is the one marked, in
+     the full ink, no project's name is under the seat, the board fades out the
+     way a blank page's does, and any project's name brings its board back */
   #homeico{display:none}
-  body.focus #homeico{display:flex; align-items:center; position:relative;
-    padding:0; border:none; background:none; color:var(--sub); cursor:pointer;
-    transition:color .18s}
-  body.focus #homeico::after{content:""; position:absolute; inset:-6px}
-  body.focus #homeico:hover, body.focus.home #homeico{color:var(--ink)}
   /* the right half of the page's frame (the rectangle drawn under the bar, inset
      --app-inset on each side) holds the token box and the limits box as one
      unit. #homepair is a column as tall as the frame and 35% of its width,
@@ -3323,9 +3371,8 @@
   @keyframes homefade{from{opacity:0}}
   body.focus.home :is(#newproj, #homepair, #homeline){animation:homefade .18s ease both}
   body.focus.home :is(#npbrand, #nppanel, #npstart){animation:none}
-  body.focus.home #editbtn{visibility:hidden}
-  /* on-canvas edit mode: the bar's pencil toggles it; boxes then drag with no
-     keys held and wear small squares that snap-resize them */
+  /* on-canvas edit mode: boxes drag with no keys held and wear small squares
+     that snap-resize them. Nothing on the bar turns it on now (setEditMode) */
   body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4, #goalbox),
   body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4,
     #goalbox) *{cursor:move}
@@ -3335,7 +3382,7 @@
   .rhandle{position:absolute; width:9px; height:9px; background:#fff;
     border:1px solid var(--accent); border-radius:2px; pointer-events:auto;
     box-shadow:0 1px 3px rgba(60,45,20,.25)}
-  /* the region cross, one per box while the pencil is on: a plain black cross,
+  /* the region cross, one per box while edit mode is on: a plain black cross,
      no chip behind it. it sits just outside the top right corner, clear of the
      resize squares and of whatever the box itself is holding */
   .rkill{position:absolute; width:16px; height:16px;
@@ -3474,13 +3521,13 @@
 <body class="focus">
 
 <div class="bar">
-  <button id="homeico" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
+  <button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
-  <button id="editbtn" type="button" title="edit layout" aria-label="edit layout" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
+  <button id="chimebtn" class="qn-glass" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
   <button id="installbtn" type="button" hidden>Install app</button>
-  <button id="setbtn" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
+  <button id="setbtn" class="qn-glass" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
 </div>
 
 <!-- the settings, one group to a section: the page in card-logic.js builds the
@@ -3502,7 +3549,7 @@
   </div>
 </div>
 
-<div id="appframe" aria-hidden="true"></div>
+<div id="appframe" class="qn-glass" aria-hidden="true"></div>
 
 <div id="offline"></div>
 <nav id="toc"></nav>
@@ -3571,7 +3618,7 @@
      opens the system folder chooser. -->
 <div id="newproj">
   <div id="nphome">
-    <div id="npbrand"><img id="npmark" src="data:image/png;base64,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" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.2.259</span></span></div>
+    <div id="npbrand"><img id="npmark" src="data:image/png;base64,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" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.2.259</span></span></div>
     <div id="nppanel">
       <div id="nphead">Active Folders</div>
       <div id="nprows"></div>
@@ -3821,7 +3868,7 @@ function deselect(){
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
 }
 
-let tabDrag = null;   // one grip, two gestures: sideways reorders the bar, a downward tug tears the tab out
+let tabDrag = null;   // horizontal intent is latched at press; a downward tug still tears out
 let tabGlide = null;  // the settle timer after a drop; the bar may not repaint under it
 // the tabs the reader has closed: the reader's view of the bar, never anything about the lanes
 // themselves. it rides in the board's own tab record beside the order, so the
@@ -3868,7 +3915,13 @@ function seedSeenOnce(st){
 }
 function renderTabs(st){
   if (!FOCUS || !st) return;
-  if (tabDrag?.mode === "reorder" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
+  if (tabDrag?.mode === "reorder" || tabDrag?.mode === "select" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
+  // a board with no project to show opens on the home page, where one is added.
+  // asked once per load, so leaving home by the plus is not undone on the next paint
+  if (!homeChecked){
+    homeChecked = true;
+    if (!LOCKED && !draft && !homeOpen && !allRowsOf(st).length) setHome(true);
+  }
   // a tab closed while the reader was on it, or closed in another window: the board
   // steps to the first tab still in the bar. it may never sit on a lane the bar
   // is not showing. setTab repaints on its own, and the paint below is the same
@@ -3899,6 +3952,12 @@ function renderTabs(st){
     disarmTab();
     bar.dataset.sig = sig;
     bar.textContent = "";
+    // The bare names keep one layout wrapper. Reuse the lens across rebuilds
+    // so a poll never restarts its motion.
+    const oval = h("span", "taboval");
+    oval.appendChild(tabSeat.el);
+    bar.appendChild(oval);
+    seatWatch.disconnect();
     for (const ow of owners){
       const t = h("button", "ptab");
       t.dataset.owner = ow;
@@ -3914,32 +3973,31 @@ function renderTabs(st){
         t.addEventListener("mouseenter", () => tabDwell(t));
         t.addEventListener("mouseleave", () => { if (tabArm?.el === t) disarmTab(); });
         t.addEventListener("mousedown", e => {
-          if (tabGlide) return;   // a drop still settling holds the bar
-          tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
+          if (e.button !== 0 || tabGlide) return;
+          beginTabDrag(t, ow, e);
         });
       }
+      // a press on the open project's name is a press on the seat under it
+      t.addEventListener("pointerdown", e => { if (e.button === 0 && t.classList.contains("on")) seatPress.press(); });
       t.addEventListener("click", () => {
-        if (tabDrag?.pulled || tabDrag?.mode === "reorder") return;   // a pull or a slide is not a tab switch
+        if (tabDrag?.pulled || ["reorder", "select", "selected"].includes(tabDrag?.mode)) return;   // the drag owns its release
         // the open project's own tab lets go of the selected card on screen,
         // which stays there browsed; any other tab switches to its lane
         if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing) unselectShown();
         else setTab(ow);
       });
-      bar.appendChild(t);
+      oval.appendChild(t);
+      seatWatch.observe(t, { box: "border-box" });
     }
     if (draft){
       const t = h("button", "ptab draft");
       t.appendChild(h("span", "plabel", "New Project"));
-      bar.appendChild(t);
+      oval.appendChild(t);
+      seatWatch.observe(t, { box: "border-box" });
     }
-    if (!LOCKED){
-      // the plus sits past a thin rule and clear air, never inside the last tab
-      bar.appendChild(h("span", "tabsep"));
-      const plus = h("button", "ptabplus", "+");
-      plus.title = "new project tab";
-      plus.addEventListener("click", plusClick);
-      bar.appendChild(plus);
-    }
+    // the plus is a glass circle of its own after the oval, never one of the
+    // names, and like the seat it is kept from one rebuild to the next
+    if (!LOCKED) bar.appendChild(tabPlus);
   }
   // closing a tab is a class flip and never a rebuild, so the crosses learn
   // here and not where they were built: the tab that is suddenly the only one
@@ -3963,7 +4021,164 @@ function renderTabs(st){
     const want = labelOf(st, t.dataset.owner);
     if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
   }
+  seatSoon();
 }
+// ---- the seat ----------------------------------------------------------------
+// SVG displacement operates on the live backdrop in Chrome. The map is local
+// to one capsule; translating it reuses the map, resizing it changes the map.
+// See Filter Effects 1, feDisplacementMap, and GoogleChromeLabs' liquid glass
+// reference. The center samples inward at 1.075x; a smooth inward bevel bends
+// the edge more, without requesting pixels outside the captured rectangle.
+function lensOffset(x, y, width, height = 32){
+  const cx = width / 2, cy = height / 2, radius = Math.min(cx, cy);
+  const axis = Math.max(radius, Math.min(width - radius, x));
+  const nx = x - axis, ny = y - cy, length = Math.hypot(nx, ny);
+  const depth = radius - length;
+  const rim = depth > 0 && depth < 6 ? 2.4 * Math.sin(Math.PI * depth / 6) : 0;
+  return [(cx - x) * (1 - 1 / 1.075) - (length ? nx / length * rim : 0),
+          (cy - y) * (1 - 1 / 1.075) - (length ? ny / length * rim : 0)];
+}
+const lensMaps = new Map();
+function lensMap(width){
+  const w = Math.max(1, Math.round(width)), height = 32;
+  if (lensMaps.has(w)) return lensMaps.get(w);
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = height;
+  const ctx = canvas.getContext("2d"), pixels = ctx.createImageData(w, height);
+  const scale = Math.max(16, w * .08 + 6);
+  for (let y = 0; y < height; y++) for (let x = 0; x < w; x++){
+    const [dx, dy] = lensOffset(x + .5, y + .5, w, height), i = (y * w + x) * 4;
+    pixels.data[i] = Math.round(255 * (.5 + dx / scale));
+    pixels.data[i + 1] = Math.round(255 * (.5 + dy / scale));
+    pixels.data[i + 2] = 128; pixels.data[i + 3] = 255;
+  }
+  ctx.putImageData(pixels, 0, 0);
+  const map = { url: canvas.toDataURL(), scale };
+  if (lensMaps.size >= 64) lensMaps.delete(lensMaps.keys().next().value);
+  lensMaps.set(w, map);
+  return map;
+}
+const lensSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+lensSvg.setAttribute("width", "0"); lensSvg.setAttribute("height", "0");
+lensSvg.setAttribute("aria-hidden", "true");
+lensSvg.style.position = "absolute";
+document.body.appendChild(lensSvg);
+let lensId = 0;
+function resizeLens(el, width){
+  if (!width) return;
+  const map = lensMap(width), lens = el.lens;
+  lens.image.setAttribute("width", width);
+  if (lens.map !== map){
+    lens.image.setAttribute("href", map.url);
+    lens.displace.setAttribute("scale", map.scale);
+    lens.map = map;
+  }
+}
+const lensWatch = new ResizeObserver(entries => {
+  for (const entry of entries) resizeLens(entry.target, entry.contentRect.width);
+});
+function makeLens(cls){
+  const el = h("span", "projectlens " + cls), id = "project-lens-" + (++lensId);
+  el.setAttribute("aria-hidden", "true");
+  const filter = document.createElementNS(lensSvg.namespaceURI, "filter");
+  filter.id = id;
+  filter.setAttribute("x", "0"); filter.setAttribute("y", "0");
+  filter.setAttribute("width", "100%"); filter.setAttribute("height", "100%");
+  filter.setAttribute("filterUnits", "objectBoundingBox");
+  filter.setAttribute("primitiveUnits", "userSpaceOnUse");
+  filter.setAttribute("color-interpolation-filters", "sRGB");
+  filter.innerHTML = '<feImage x="0" y="0" height="32" preserveAspectRatio="none" result="map"/>' +
+    '<feDisplacementMap in="SourceGraphic" in2="map" xChannelSelector="R" yChannelSelector="G"/>';
+  lensSvg.appendChild(filter);
+  el.lens = { filter, image: filter.firstElementChild, displace: filter.lastElementChild };
+  el.style.setProperty("--lens-filter", "url(#" + id + ")");
+  lensWatch.observe(el);
+  return el;
+}
+function removeLens(el){
+  lensWatch.unobserve(el); el.lens.filter.remove(); el.remove();
+}
+const tabSeat = { el: h("span", "tabseat still gone"), face: makeLens("seatlens"), owner: null, x: null, w: null, drawn: false };
+tabSeat.el.setAttribute("aria-hidden", "true");
+tabSeat.el.appendChild(tabSeat.face);
+function placeSeat(){
+  const seat = tabSeat, el = seat.el, oval = el.parentNode;
+  if (!oval || tabDrag?.mode === "reorder" || tabDrag?.mode === "select" || tabGlide) return;
+  const on = oval.querySelector(".ptab.on, .ptab.draft");
+  const r = on && on.getBoundingClientRect();
+  if (!r || !r.width){ el.classList.add("gone"); seat.owner = null; seat.returning = false; return; }
+  const o = oval.getBoundingClientRect(), x = r.left - o.left, w = r.width;
+  const owner = on.classList.contains("draft") ? DRAFT : on.dataset.owner;
+  const slide = seat.returning || (seat.owner !== null && owner !== seat.owner);
+  seat.returning = false;
+  if (!slide && owner === seat.owner && x === seat.x && w === seat.w) return;
+  el.classList.toggle("still", !slide);
+  el.style.transform = "translateX(" + x + "px)";
+  el.style.width = w + "px";
+  if (!seat.drawn){
+    seat.drawn = true;
+    el.style.transition = "none"; seat.face.style.transition = "none";
+    requestAnimationFrame(() => {
+      seat.face.style.transition = "";
+      if (!tabDrag && !tabGlide) el.style.transition = "";
+    });
+  }
+  el.classList.remove("gone");
+  seat.owner = owner; seat.x = x; seat.w = w;
+}
+// the bar is painted in the middle of the board's own repaint, and a measure
+// taken there would make the browser work out every style the repaint has
+// half written, which starts transitions the repaint never meant (the stage's
+// own fade among them). so a repaint only asks for the seat, and it is placed
+// at the start of the next frame, once the repaint is whole
+let seatFrame = 0;
+function seatSoon(){
+  if (!seatFrame) seatFrame = requestAnimationFrame(() => { seatFrame = 0; placeSeat(); });
+}
+// a name that changes size moves the seat's name or the names before it. the
+// whole box is watched, since the close band is padding. the watch is answered
+// after the layout it reports, so it places the seat at once
+const seatWatch = new ResizeObserver(() => placeSeat());
+const tabPlus = h("button", "ptabplus qn-glass");
+tabPlus.type = "button";
+tabPlus.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+tabPlus.title = "new project tab";
+tabPlus.setAttribute("aria-label", "new project tab");
+tabPlus.addEventListener("click", () => plusClick());
+// ---- the press on the bar's glass --------------------------------------------
+// the phone's row press (glassPress in m.html): a piece of the bar's glass
+// takes .pressed while the pointer holds it, for at least GLASS_PRESS_MIN so a
+// quick click still shows it, and the stylesheet eases it in and out. the end
+// of a press is heard wherever the pointer lets go, and a page put away with a
+// button still held drops every press, so nothing comes back grown
+const GLASS_PRESS_MIN = 120;
+const glassPresses = [];
+function glassPress(el){
+  let since = 0, timer = 0;
+  const glass = {
+    press(){ clearTimeout(timer); since = performance.now(); el.classList.add("pressed"); },
+    release(){
+      if (!el.classList.contains("pressed")) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => el.classList.remove("pressed"), Math.max(0, since + GLASS_PRESS_MIN - performance.now()));
+    },
+    drop(){ clearTimeout(timer); el.classList.remove("pressed"); },
+  };
+  glassPresses.push(glass);
+  return glass;
+}
+const seatPress = glassPress(tabSeat.el);
+for (const btn of [document.getElementById("homeico"), document.getElementById("chimebtn"),
+                   document.getElementById("setbtn"), tabPlus]){
+  const glass = glassPress(btn);
+  btn.addEventListener("pointerdown", e => { if (e.button === 0) glass.press(); });
+  for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
+}
+for (const type of ["pointerup", "pointercancel"])
+  addEventListener(type, () => { for (const glass of glassPresses) glass.release(); }, { passive: true });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") for (const glass of glassPresses) glass.drop();
+});
 // the cross, built with every tab and held out of the layout entirely: it is
 // absolutely placed, so an unarmed tab measures the same to the thousandth of a
 // pixel as it did before any of this existed, and hidden it paints nothing. the
@@ -4035,69 +4250,157 @@ function reopenTab(ow){
   setTab(ow);   // this ends the choosing tab and lands on the card left here
   if (lastState) renderTabs(lastState);
 }
-// the first clear direction locks the gesture for the whole drag: mostly
-// sideways slides the tab along the bar, mostly downward tears it out, and
-// once locked the other mode cannot fire. tearing works like a browser tab:
-// past the threshold the tab dims, and on release the project's own window
-// opens where the cursor let go
+// Horizontal intent is captured before a hover timer can change the cross.
+// The first clear direction then chooses that intent or the existing tear-out.
+function beginTabDrag(el, ow, e){
+  tabDrag = { ow, el, x: e.clientX, y: e.clientY, mode: null, pulled: false,
+    horizontal: el.classList.contains("armed") ? "reorder" : "select" };
+  if (tabArm) clearTimeout(tabArm.timer);
+}
+function shutTabBands(){
+  const all = [...document.querySelectorAll("#tabbar .ptab")];
+  for (const el of all){ el.style.transition = "none"; el.classList.remove("armed"); }
+  document.getElementById("tabbar").getBoundingClientRect();
+  for (const el of all) el.style.transition = "";
+}
+function startTabSelection(){
+  const t = tabDrag, oval = t.el.parentNode;
+  shutTabBands();
+  const r = t.el.getBoundingClientRect();
+  if (!r.width || !t.el.isConnected){ tabDrag = null; return; }
+  placeSeat();
+  t.mode = "select";
+  t.tabs = [...oval.querySelectorAll(".ptab:not(.draft)")].filter(el => el.getBoundingClientRect().width);
+  t.rects = t.tabs.map(el => el.getBoundingClientRect());
+  t.left = r.left - oval.getBoundingClientRect().left;
+  t.source = r;
+  const el = tabSeat.el;
+  el.classList.add("still", "carried"); el.classList.remove("gone");
+  el.style.transition = "none";
+  el.style.translate = "";
+  el.style.width = r.width + "px";
+  el.style.transform = "translateX(" + t.left + "px)";
+}
+function moveTabSelection(e){
+  const t = tabDrag, first = t.rects[0], last = t.rects[t.rects.length - 1];
+  const source = t.source;
+  const dx = Math.max(first.left - source.left, Math.min(last.right - source.right, e.clientX - t.x));
+  tabSeat.el.style.transform = "translateX(" + (t.left + dx) + "px)";
+}
+function finishTabSelection(e){
+  const t = tabDrag;
+  if (t?.mode !== "select") return;
+  const index = e ? t.rects.findIndex(r => e.clientX >= r.left && e.clientX < r.right &&
+    e.clientY >= r.top && e.clientY <= r.bottom) : -1;
+  const owner = index < 0 ? null : t.tabs[index].dataset.owner;
+  // Keep a completed gesture until its synthetic click has passed, but allow
+  // the release's one setTab/apply to repaint the bar normally.
+  t.mode = "selected";
+  const el = tabSeat.el;
+  el.getBoundingClientRect();   // commit the dragged position before settling
+  el.style.transition = ""; el.classList.remove("carried", "still");
+  tabSeat.x = null; tabSeat.returning = true;
+  if (owner && validActiveOwnerIds.has(owner) && !tabClosed(owner) &&
+      (owner !== activeOwner || homeOpen || draft)) setTab(owner);
+  if (lastState) renderTabs(lastState);
+  placeSeat();
+}
 addEventListener("mousemove", e => {
   if (!tabDrag) return;
-  if (!e.buttons){   // the release landed outside the window; the grip is stale
+  if (tabDrag.mode === "selected"){ if (!e.buttons) tabDrag = null; return; }
+  if (!e.buttons){
     if (tabDrag.mode === "reorder") dropReorder();
+    else if (tabDrag.mode === "select") finishTabSelection(null);
+    else tabDrag.el.classList.remove("tearing");
     tabDrag = null;
     return;
   }
   const dx = e.clientX - tabDrag.x, dy = e.clientY - tabDrag.y;
   if (!tabDrag.mode){
-    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;   // under the lock threshold a click stays a click
-    // a gesture is not a rest: the bar is about to be measured and moved, and a
-    // band opening or shutting under the drag would move the rects it measures
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
     disarmTab();
-    if (Math.abs(dx) > Math.abs(dy)) startReorder();
-    else tabDrag.mode = "tear";
+    if (Math.abs(dx) > Math.abs(dy)){
+      if (tabDrag.horizontal === "reorder") startReorder();
+      else startTabSelection();
+    } else tabDrag.mode = "tear";
   }
+  if (!tabDrag) return;
   if (tabDrag.mode === "reorder") moveReorder(e);
+  else if (tabDrag.mode === "select") moveTabSelection(e);
   else if (!tabDrag.pulled && dy > 40){
     tabDrag.pulled = true;
     tabDrag.el.classList.add("tearing");
   }
 });
 addEventListener("mouseup", e => {
+  const grip = tabDrag;
+  if (!grip) return;
+  const hoverOwner = e.target?.closest?.("#tabbar .ptab")?.dataset.owner;
   if (tabDrag?.mode === "reorder") dropReorder();
+  else if (tabDrag?.mode === "select") finishTabSelection(e);
   else if (tabDrag?.pulled){
     tabDrag.el.classList.remove("tearing");
     open(location.pathname + "?project=" + tabDrag.ow, "_blank",
          "popup=yes,width=1100,height=850,left=" + Math.max(0, e.screenX - 200) + ",top=" + Math.max(0, e.screenY - 20));
   }
-  setTimeout(() => { tabDrag = null; }, 0);
+  setTimeout(() => {
+    if (tabDrag !== grip) return;
+    tabDrag = null;
+    // A click cancels the old dwell clock. Resting here afterwards starts a
+    // fresh one, even when the pointer has not left and re-entered the name.
+    const over = [...document.querySelectorAll("#tabbar .ptab")].find(t => t.dataset.owner === hoverOwner);
+    if (over?.matches(":hover")) tabDwell(over);
+  }, 0);
 });
+function cancelTabSelection(){
+  if (tabDrag?.mode !== "select") return;
+  finishTabSelection(null);
+}
+addEventListener("blur", cancelTabSelection);
+addEventListener("pointercancel", cancelTabSelection);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") cancelTabSelection();
+});
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && tabDrag?.mode === "select"){
+    cancelTabSelection(); e.preventDefault(); e.stopImmediatePropagation();
+  }
+}, true);
 
 // the sideways lock: the resting spots are measured once, the held tab lifts,
 // and every swap reads against those fixed midpoints
 function startReorder(){
   const t = tabDrag;
-  // a dwell band still opening or shutting would put a moving number in the
-  // ruler, and the whole drag is measured once and then trusted. so every tab
-  // is snapped to its resting width before anything is read: the band is gone
-  // this instant rather than 180ms from now, and the transitions come back
-  // before the drag's own animations need them
-  const all = [...document.querySelectorAll("#tabbar .ptab")];
-  for (const el of all){ el.style.transition = "none"; el.classList.remove("armed"); }
-  document.getElementById("tabbar").getBoundingClientRect();   // the shut is real now
+  shutTabBands();
   // the strip is what the bar is actually showing: a closed tab is in the bar's
   // markup but takes no room, so it would put a zero-width rect in the middle of
   // the measured line and every midpoint after it would read wrong
   t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")]
     .filter(el => el.getBoundingClientRect().width);
-  for (const el of all) el.style.transition = "";
   t.idx = t.tabs.indexOf(t.el);
   if (t.idx < 0){ tabDrag = null; return; }   // the bar rebuilt under the grip; the drag dies quietly
+  placeSeat();   // the band that just shut may have moved the seat's name
   t.mode = "reorder";
   t.rects = t.tabs.map(el => el.getBoundingClientRect());
-  t.gap = 4;   // the bar's own flex gap
+  t.gap = parseFloat(getComputedStyle(t.el.parentNode).columnGap) || 0;   // the oval's own flex gap
   t.slot = t.idx;
   t.el.classList.add("dragging");
   for (const el of t.tabs) if (el !== t.el) el.classList.add("gliding");
+  // the seat stays with the open project's name: it rides the pointer with the
+  // held name when that is the open one, and glides aside with it otherwise,
+  // on the names' own curve. a held name that is not the open one wears a seat
+  // of its own while it is carried
+  t.on = t.tabs.findIndex(el => el.classList.contains("on"));
+  if (t.on === t.idx){
+    tabSeat.el.style.transition = "none";
+    tabSeat.el.classList.add("carried");
+  } else {
+    const o = t.el.parentNode.getBoundingClientRect();
+    t.held = makeLens("tabheld");
+    t.held.style.left = (t.rects[t.idx].left - o.left) + "px";
+    t.held.style.width = t.rects[t.idx].width + "px";
+    t.el.parentNode.appendChild(t.held);
+  }
 }
 function moveReorder(e){
   const t = tabDrag, r = t.rects, i = t.idx;
@@ -4107,6 +4410,8 @@ function moveReorder(e){
   const dx = Math.max(r[0].left - r[i].left,
              Math.min(r[r.length - 1].right - r[i].right, raw));
   t.el.style.transform = "translate(" + dx + "px, -2px)";
+  if (t.held) t.held.style.transform = t.el.style.transform;
+  else tabSeat.el.style.translate = dx + "px -2px";
   // the claim follows the pointer, never the pinned tab: a clamped center
   // cannot pass an edge midpoint when the held tab is at least as wide as
   // the edge tab, which walled off the first and last slots. counting the
@@ -4123,6 +4428,7 @@ function moveReorder(e){
     if (j === i) continue;
     const move = j < i ? (j >= slot ? shift : 0) : (j <= slot ? -shift : 0);
     t.tabs[j].style.transform = move ? "translateX(" + move + "px)" : "";
+    if (j === t.on) tabSeat.el.style.translate = move ? move + "px 0px" : "";
   }
 }
 // the drop: the held tab glides the last stretch down into its slot, the
@@ -4145,13 +4451,30 @@ function dropReorder(){
   writeTabs({ order, closed: tabRecord(lastState).closed });
   t.el.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
   t.el.style.transform = "translate(" + (left - r[i].left) + "px, 0)";
+  // the held name's seat glides down into the slot with it
+  if (t.held){
+    t.held.style.transition = t.el.style.transition;
+    t.held.style.transform = t.el.style.transform;
+  } else {
+    tabSeat.el.style.transition = "translate 220ms cubic-bezier(0.25, 1, 0.5, 1)";
+    tabSeat.el.style.translate = (left - r[i].left) + "px 0px";
+  }
   tabGlide = setTimeout(() => {   // a timer, not transitionend: a zero-length glide fires no event
     tabGlide = null;
     t.el.classList.remove("dragging");
     t.el.style.transition = ""; t.el.style.transform = "";
     for (const el of t.tabs){ el.classList.remove("gliding"); el.style.transform = ""; }
+    if (t.held) removeLens(t.held);
+    // the seat is set down where it now stands, on its name's new place
+    tabSeat.el.style.transition = "none";
+    tabSeat.el.style.translate = "";
+    tabSeat.el.classList.remove("carried");
+    tabSeat.x = null;
     document.getElementById("tabbar").dataset.sig = "";
     if (lastState) renderTabs(lastState);
+    placeSeat();   // in the same frame as the translate it replaces
+    tabSeat.el.getBoundingClientRect();
+    tabSeat.el.style.transition = "";
   }, 240);
 }
 
@@ -4308,6 +4631,7 @@ const HOME_EVERY = 5 * 60 * 1000;
 const LIMITS_EVERY = 60 * 1000;
 const LIMITS_TICK = 15 * 1000;
 let homeOpen = false;
+let homeChecked = false;
 let homePanel = null;
 let homeLimits = null;
 let homeTimer = null;
@@ -6969,7 +7293,6 @@ let p3For = null;    // the tab the panel is currently drawn for
 let p3Ext = null;    // the extension that answered last time, tried first next time
 let p3Src = null;    // and which of the two places it came from, for the same reason
 let p3Size = -1;     // bytes of what is on screen, which is how a redrawn plot is spotted
-let p3Url = null;    // the object url the img is holding, revoked when it is replaced
 let p3Look = 0;      // polls counted, so the lane folder gets looked at now and then
                      // even while the pre-restart path is the one holding the panel up
 
@@ -6991,7 +7314,6 @@ function panelClear(host){
   p3Ext = null; p3Src = null; p3Size = -1;
   host._p3.img.hidden = true;
   host._p3.img.removeAttribute("src");
-  if (p3Url){ URL.revokeObjectURL(p3Url); p3Url = null; }
   host._p3.stub.hidden = false;
   host.classList.remove("filled");
 }
@@ -7000,7 +7322,6 @@ function panelClear(host){
 // left looking exactly as it did before the panel existed
 function panelOff(host){
   if (!host || host.dataset.p3 !== "1") return;
-  if (p3Url){ URL.revokeObjectURL(p3Url); p3Url = null; }
   p3For = null; p3Ext = null; p3Src = null; p3Size = -1;
   host._p3 = null;
   delete host.dataset.p3;
@@ -7053,12 +7374,10 @@ async function panelPoll(){
     p3Ext = cand.ext; p3Src = cand.src;
     // swapped only when the bytes differ or the picture came from somewhere
     // else, so a panel that has not changed is never rebuilt and never blinks
+    // from its own address, which the server sandboxes; a blob: copy is this origin's
     if (blob.size !== p3Size || moved){
       p3Size = blob.size;
-      const url = URL.createObjectURL(blob);
-      host._p3.img.src = url;
-      if (p3Url) URL.revokeObjectURL(p3Url);
-      p3Url = url;
+      host._p3.img.src = cand.url + "?v=" + Date.now();
     }
     host._p3.img.hidden = false;
     host._p3.stub.hidden = true;
@@ -9407,7 +9726,7 @@ function relAge(ts){
   return "replied " + Math.floor(sec / 86400) + "d ago";
 }
 
-// shortAge and the list's spinner (syncSpinner, SPIN_FRAMES, spinFrame) are
+// shortAge and the list's spinner (syncSpinner, SPIN_FRAMES, spinGlyph) are
 // shared with the phone page in card-logic.js
 // one section of the sheet: its own rows, its own scroll kept across a rebuild,
 // and the row-glide of survivors. drawn only when its own group's signature
@@ -9452,7 +9771,7 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const ttl = h("div", "ttl", b.title);
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
-    meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
+    meta.appendChild(h("span", "tage", busy ? spinGlyph(b.id, b) : s === "done" ? "done" : shortAge(b.agentTs)));
     // the tag is the lane's live truth, never a stored per-card value
     const ag = state.agents?.[b.owner];
     meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
@@ -9546,6 +9865,112 @@ function age(ts){
   return Math.floor(s / 86400) + "d";
 }
 
+// ---- the reply chime ---------------------------------------------------------
+// One soft two-note bell when a card turns to the reader's turn. The board's
+// readings show that as a card's turnTs moving, the same event a phone is told
+// about, so no card already waiting at load counts. The first reply rings at
+// once and any reply in the next two minutes is silent, so a burst gives one
+// chime. While this window is in front a reply on the project on screen is
+// silent too, since it is in view; every other project rings, and with the
+// window behind or hidden every project does. Chrome plays sound only after a
+// click or key press, and a chime that cannot play is dropped, never held for
+// later. The speaker on the bar mutes it. The choice is one of the board's
+// settings, kept in settings.json like the background colour
+const CHIME_MUTED_KEY = "chimemuted";
+const CHIME_LAST_KEY = "chimelast";   // when a window of this browser last rang, so two windows do not both ring
+const CHIME_GAP_MS = 2 * 60 * 1000;
+const CHIME_VOLUME = 0.6;
+let chimeCtx = null;
+let chimeRang = 0;
+let chimeTurns = new Map();   // card id -> the newest turnTs read for it
+let chimeClock = 0;           // the board's clock at the newest reading
+let chimeFirst = true;        // the first reading only sets the baseline
+
+// the chosen sound: C5 then G5, pure sine, a soft 45 ms start, 0.91 s in all
+function chimeBellRoundA(ctx, when, volume) {
+  const out = ctx.createGain();
+  out.gain.value = volume;
+  out.connect(ctx.destination);
+  const gap = 0.23, len = 0.66;
+  [[523.25, 0], [783.99, gap]].forEach(function (n) {
+    const start = when + n[1];
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = n[0];
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(0.24, start + 0.045);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + len);
+    g.gain.linearRampToValueAtTime(0, start + len + 0.02);
+    osc.connect(g); g.connect(out);
+    osc.start(start); osc.stop(start + len + 0.03);
+  });
+  return gap + len + 0.02;
+}
+
+function chimeMuted(){ return settingsStore.getItem(CHIME_MUTED_KEY) === "1"; }
+// the speaker as the store has it: read again on every reading, so a window that
+// did not take the click shows the new state within a second
+function chimeShowSpeaker(){
+  const btn = document.getElementById("chimebtn");
+  const on = String(!chimeMuted());
+  if (btn.getAttribute("aria-pressed") === on) return;
+  btn.setAttribute("aria-pressed", on);
+  btn.title = on === "true" ? "Reply chime on. Click to mute." : "Reply chime muted. Click to unmute.";
+}
+document.getElementById("chimebtn").addEventListener("click", () => {
+  if (chimeMuted()) settingsStore.removeItem(CHIME_MUTED_KEY);
+  else settingsStore.setItem(CHIME_MUTED_KEY, "1");
+  chimeShowSpeaker();
+});
+chimeShowSpeaker();
+
+function chimeEnsure(){
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!chimeCtx && AC) chimeCtx = new AC();
+    if (chimeCtx && chimeCtx.state !== "running") Promise.resolve(chimeCtx.resume()).catch(() => {});
+  } catch (err) {}
+}
+for (const type of ["pointerdown", "click", "keydown"])
+  addEventListener(type, () => { if (!chimeCtx || chimeCtx.state !== "running") chimeEnsure(); }, true);
+
+function chimeRing(){
+  const t = Date.now();
+  let last = chimeRang;
+  try { last = Math.max(last, Number(localStorage.getItem(CHIME_LAST_KEY)) || 0); } catch (err) {}
+  if (last <= t && t - last < CHIME_GAP_MS) return;
+  chimeEnsure();
+  if (!chimeCtx || chimeCtx.state !== "running") return;
+  try { chimeBellRoundA(chimeCtx, chimeCtx.currentTime + 0.03, CHIME_VOLUME); } catch (err) { return; }
+  chimeRang = t;
+  try { localStorage.setItem(CHIME_LAST_KEY, String(t)); } catch (err) {}
+}
+
+// whether any of these replies is one to ring for
+function chimeWanted(turned){
+  const front = document.visibilityState === "visible" && document.hasFocus();
+  const shown = homeOpen || activeOwner === DRAFT ? null : activeOwner;   // home and an unfinished tab show no project
+  return turned.some(b => !front || (b.owner || "facilitator") !== shown);
+}
+
+// every reading goes through here. A card seen before turned when its turnTs
+// rose; a card new to the page turned when its turnTs is later than the board's
+// clock at the reading before. The newest value is kept, so a reading that
+// arrives late with older numbers changes nothing
+function chimeWatch(state){
+  chimeShowSpeaker();
+  const turned = [], next = new Map();
+  for (const b of state.boxes || []){
+    const ts = Number(b.turnTs) || 0, was = chimeTurns.get(b.id);
+    if (!chimeFirst && ts > (was === undefined ? (chimeClock || Infinity) : was)) turned.push(b);
+    next.set(b.id, Math.max(ts, was || 0));
+  }
+  chimeTurns = next;
+  chimeClock = Math.max(chimeClock, Number(state.now) || 0);
+  chimeFirst = false;
+  if (turned.length && !chimeMuted() && chimeWanted(turned)) chimeRing();
+}
+
 // The caret installs this callback below. If a data update actually moves or
 // restyles the focused editor, hand that change to the same event-driven queue.
 function focusedCaretContext(){
@@ -9597,6 +10022,11 @@ async function poll(){
   noteDoing("render");
   try {
     if (!validateActiveOwner(state)) return;
+    // the reply chime reads the same reading, on its own try so a card that will
+    // not draw cannot silence it and it cannot stop the draw
+    try { chimeWatch(state); } catch (e) {
+      if (typeof reportProblem === "function") reportProblem("error", e);
+    }
     // the read marks and the bar's arrangement are the board's, so they ride
     // in on the state: taken in here, ahead of anything that draws from them,
     // and this browser's old copies handed over once on the first load
@@ -9827,7 +10257,7 @@ document.getElementById("ndown").addEventListener("click", () => nav(0, 1));
 
 {
   const pick = document.getElementById("bgpick");
-  const saved = settingsStore.getItem("bgcolor");
+  const saved = settingsStore.getItem("bgcolor") || globalThis.BOARD_BGCOLOR_DEFAULT;
   if (saved){ document.body.style.setProperty("--paper", saved); pick.value = saved; }
   pick.addEventListener("input", () => {
     document.body.style.setProperty("--paper", pick.value);
@@ -10422,7 +10852,7 @@ function applySavedLayout(){
   if (!ownerReady) return;
   // a box that belongs to the file navigator is put on this tab or taken off it
   // first, so everything below only ever sees the boxes this tab really has.
-  // the edit handles are pinned to the boxes that were there when the pencil
+  // the edit handles are pinned to the boxes that were there when edit mode
   // went on, so a box that just arrived or left gets them rebuilt
   if (fileNavBoxes() && editMode) buildHandles();
   const src = layoutSource();
@@ -10497,10 +10927,11 @@ addEventListener("pointerup", () => {
   dragging = null;
 });
 
-// the pencil: on-canvas edit mode. while it is on, a plain drag moves a
-// region and the small squares on its edges resize it; everything snaps to
-// the same star grid and saves under the same keys as the option gestures,
-// which keep working in both modes
+// on-canvas edit mode. while it is on, a plain drag moves a region and the
+// small squares on its edges resize it; everything snaps to the same star grid
+// and saves under the same keys as the option gestures, which keep working in
+// both modes. the bar has no control for it any more, so only a direct call to
+// setEditMode(true) turns it on
 let editMode = false;
 let editPending = null;    // pointerdown seen; becomes a drag only after real movement
 let sizing = null;
@@ -10511,7 +10942,7 @@ document.getElementById("stage").appendChild(handleLayer);
 let handleItems = [];
 let killItems = [];
 let handleRaf = 0;
-// the cross on each box while the pencil is on. hiding is per tab and never
+// the cross on each box while edit mode is on. hiding is per tab and never
 // inherited from another tab, so putting a box away here leaves every other tab
 // exactly as it was
 function toggleRegionHidden(id){
@@ -10534,7 +10965,6 @@ function setEditMode(on){
   if (on && !onBoardPage()) return;   // no board on this page, nothing to arrange
   editMode = on;
   document.body.classList.toggle("editmode", on);
-  document.getElementById("editbtn").setAttribute("aria-pressed", on ? "true" : "false");
   if (on){
     buildHandles();
     trackHandles();
@@ -10547,7 +10977,6 @@ function setEditMode(on){
     sizing = null;
   }
 }
-document.getElementById("editbtn").addEventListener("click", () => setEditMode(!editMode));
 
 // ---- settings --------------------------------------------------------------
 // the board's own choices for this browser, on one page over the whole window,
@@ -10618,7 +11047,7 @@ function trackHandles(){
   for (const it of handleItems){
     const r = it.el.getBoundingClientRect();
     // a removed box is off the board in edit mode as well, so it wears no
-    // resize handles: the pencil only arranges the boxes that are on screen.
+    // resize handles: edit mode only arranges the boxes that are on screen.
     if (it.el.classList.contains("region-off")){ it.hd.style.display = "none"; continue; }
     if (!r.width && !r.height){ it.hd.style.display = "none"; continue; }
     it.hd.style.display = "";

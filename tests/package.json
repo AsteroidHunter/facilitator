@@ -1,0 +1,9 @@
+{
+  "name": "facilitator-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The packages the tests need. Not part of the board; ./install.sh --dev installs them.",
+  "dependencies": {
+    "puppeteer-core": "25.5.0"
+  }
+}
