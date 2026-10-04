@@ -1,6 +1,6 @@
 // The Mac board's top bar in the phone's glass: the house, the speaker, the plus
 // and the squid as glass circles drawn as the phone's bottom row draws its
-// buttons, every project's name on one glass oval with a glass seat under the
+// buttons, bare project names with one refracting lens above the
 // open one that slides to the project chosen, and the workspace on a glass pane
 // that keeps the old outline's rectangle with clear paper between it and the
 // bar. Driven on a throwaway board at 1512 by 982; nothing reads the real board.
@@ -36,11 +36,11 @@ const seatStill = async page => {
 
 // where the seat's two ends are drawn, and the open name it should sit under
 const seat = page => page.evaluate(() => {
-  const [l, r] = [...document.querySelectorAll("#tabbar .seathalf > i")].map(i => i.getBoundingClientRect());
+  const l = document.querySelector("#tabbar .seatlens").getBoundingClientRect(), r = l;
   const on = document.querySelector("#tabbar .ptab.on");
   const o = on && on.getBoundingClientRect();
   return { left: l.left, right: r.right, top: l.top, bottom: l.bottom,
-    opacity: Number(getComputedStyle(document.querySelector("#tabbar .tabseat")).opacity),
+    opacity: Number(getComputedStyle(document.querySelector("#tabbar .seatlens")).opacity),
     on: o && { left: o.left, right: o.right, top: o.top, bottom: o.bottom, owner: on.dataset.owner } };
 });
 function onName(s, label) {
@@ -55,6 +55,140 @@ async function show(page, owner) {
   await page.click(`#tabbar .ptab[data-owner="${owner}"]`);
   await page.waitForFunction(o => activeOwner === o, {}, owner);
 }
+
+async function tabBox(page, owner) {
+  return page.$eval(`#tabbar .ptab[data-owner="${owner}"]`, el => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, width: r.width };
+  });
+}
+
+test("an unarmed drag leaves names stationary and switches once, only on release", async () => {
+  const { context, page } = await fx.openBoard(null, VIEW);
+  try {
+    await show(page, garden); await seatStill(page);
+    const from = await tabBox(page, garden), to = await tabBox(page, ledger);
+    const before = await page.$$eval("#tabbar .ptab", tabs => tabs.map(t => t.getBoundingClientRect().left));
+    await page.evaluate(() => {
+      window.lensSwitches = [];
+      const original = setTab;
+      setTab = ow => { window.lensSwitches.push(ow); return original(ow); };
+    });
+    await page.mouse.move(from.x, from.y); await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 12 });
+    assert.equal(await page.evaluate(() => tabDrag.mode), "select");
+    assert.equal(await page.evaluate(() => activeOwner), garden);
+    assert.deepEqual(await page.evaluate(() => window.lensSwitches), []);
+    assert.deepEqual(await page.$$eval("#tabbar .ptab", tabs => tabs.map(t => t.getBoundingClientRect().left)), before);
+    await page.mouse.up(); await seatStill(page);
+    assert.equal(await page.evaluate(() => activeOwner), ledger);
+    assert.deepEqual(await page.evaluate(() => window.lensSwitches), [ledger]);
+    onName(await seat(page), "selection drag released");
+  } finally { await context.close(); }
+});
+
+test("the cross visible at press latches reorder, while a pending dwell cannot change a selection drag", async () => {
+  const { context, page } = await fx.openBoard(null, VIEW);
+  try {
+    await show(page, garden); await seatStill(page);
+    let from = await tabBox(page, garden), to = await tabBox(page, ledger);
+    await page.mouse.move(from.x, from.y);
+    await page.waitForFunction(ow => document.querySelector(`#tabbar .ptab[data-owner="${ow}"]`).classList.contains("armed"), {}, garden);
+    await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 8 });
+    assert.equal(await page.evaluate(() => tabDrag.mode), "reorder");
+    await page.mouse.up();
+    await page.waitForFunction(() => !tabGlide); await seatStill(page);
+    assert.equal(await page.evaluate(() => activeOwner), garden);
+    const afterOrder = await page.$$eval("#tabbar .ptab:not(.closed)", tabs => tabs.map(t => t.dataset.owner));
+    assert.ok(afterOrder.indexOf(garden) > afterOrder.indexOf(ledger));
+    await page.mouse.move(20, 100); from = await tabBox(page, garden); to = await tabBox(page, orchard);
+    await page.mouse.move(from.x, from.y); await page.mouse.down();
+    // Hold past the dwell time without giving up the mouse-down's intent.
+    await page.evaluate(() => new Promise(r => setTimeout(r, TAB_DWELL + 100)));
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    assert.equal(await page.evaluate(() => tabDrag.mode), "select");
+    await page.keyboard.press("Escape"); await page.mouse.up(); await seatStill(page);
+    assert.equal(await page.evaluate(() => activeOwner), garden);
+  } finally { await context.close(); }
+});
+
+test("the inner lens takes the PWA capsule press and settles without losing its slide position", async () => {
+  const { context, page } = await fx.openBoard(null, VIEW);
+  try {
+    await show(page, garden); await seatStill(page);
+    const r = await tabBox(page, garden);
+    await page.mouse.move(r.x, r.y); await page.mouse.down(); await seatStill(page);
+    const held = await page.$eval("#tabbar .seatlens", el => {
+      const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+      return { transform: cs.transform, height: r.height, width: r.width, center: r.left + r.width / 2 };
+    });
+    assert.equal(held.transform, "matrix(1.1, 0, 0, 1.1, 0, 0)");
+    near(held.height, 35.2, "pressed height"); near(held.center, r.x, "press shifted center");
+    await page.mouse.up(); await seatStill(page); onName(await seat(page), "after press");
+  } finally { await context.close(); }
+});
+
+test("reduced motion keeps drag selection functional and lands without a settling animation", async () => {
+  const { context, page } = await fx.openBoard(null, VIEW);
+  try {
+    await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+    await show(page, garden); await seatStill(page);
+    const from = await tabBox(page, garden), to = await tabBox(page, ledger);
+    await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y);
+    assert.equal(await page.evaluate(() => activeOwner), garden);
+    await page.mouse.up(); await frame(page);
+    await page.waitForFunction(() => !tabSeat.el.classList.contains("pressed"));
+    assert.equal(await page.evaluate(() => activeOwner), ledger);
+    assert.equal(await page.$eval("#tabbar .tabseat", el => el.getAnimations({ subtree: true }).length), 0);
+    onName(await seat(page), "reduced motion release");
+  } finally { await context.close(); }
+});
+
+// Compare rendered ink with only displacement switched off. Tint, rim, text
+// and geometry stay identical, so a filter string alone cannot pass this check.
+async function displacedInk(page, clip) {
+  await frame(page);
+  const on = Buffer.from(await page.screenshot({ clip })).toString("base64");
+  await page.$eval("#tabbar .seatlens", el => {
+    el.dataset.filter = el.style.getPropertyValue("--lens-filter");
+    el.style.setProperty("--lens-filter", "none");
+  });
+  await frame(page);
+  const off = Buffer.from(await page.screenshot({ clip })).toString("base64");
+  await page.$eval("#tabbar .seatlens", el => el.style.setProperty("--lens-filter", el.dataset.filter));
+  return page.evaluate(async ({ on, off }) => {
+    const ink = async data => {
+      const image = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: "image/png" }));
+      const canvas = document.createElement("canvas"); canvas.width = image.width; canvas.height = image.height;
+      const ctx = canvas.getContext("2d"); ctx.drawImage(image, 0, 0); image.close();
+      return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    };
+    const a = await ink(on), b = await ink(off); let changed = 0;
+    for (let i = 0; i < a.length; i += 4) if ((a[i] < 160) !== (b[i] < 160)) changed++;
+    return changed;
+  }, { on, off });
+}
+
+test("rendered letter pixels change through both the lens center and an edge crossing a name", async () => {
+  const { context, page } = await fx.openBoard(null, VIEW);
+  try {
+    await show(page, garden); await seatStill(page);
+    const rect = await page.$eval("#tabbar .seatlens", el => {
+      const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
+    });
+    assert.ok(await displacedInk(page, { x: rect.x + 16, y: rect.y + 8, width: rect.width - 32, height: 16 }) > 8,
+      "center displacement did not change the rendered ink");
+    const clip = await page.evaluate(() => {
+      const label = document.querySelector("#tabbar .ptab.on .plabel").getBoundingClientRect();
+      const oval = tabSeat.el.parentNode.getBoundingClientRect();
+      const x = label.left + label.width / 2;
+      tabSeat.el.style.transition = "none"; tabSeat.el.style.transform = `translateX(${x - oval.left}px)`;
+      return { x: x + 1, y: oval.top + 8, width: 12, height: 16 };
+    });
+    await frame(page);
+    assert.ok(await displacedInk(page, clip) > 3, "the moving edge did not refract the rendered ink");
+  } finally { await context.close(); }
+});
 
 test("the house, the speaker, the plus and the squid are glass circles drawn as the phone's row draws them", async () => {
   const { context, page } = await fx.openBoard(null, VIEW);
@@ -105,18 +239,20 @@ test("a press on a circle grows it and whitens its face, and lets go after the p
   } finally { await context.close(); }
 });
 
-test("every name sits on one oval and the seat slides to the project chosen by transforms alone", async () => {
+test("names sit directly on the page and one 32px lens slides and resizes to the selected name", async () => {
   const { context, page } = await fx.openBoard(null, VIEW);
   try {
     const oval = await page.evaluate(() => {
       const o = document.querySelector("#tabbar .taboval"), r = o.getBoundingClientRect();
-      return { glass: o.classList.contains("qn-glass"), h: r.height, radius: getComputedStyle(o).borderRadius,
+      return { glass: o.classList.contains("qn-glass"), h: r.height, face: getComputedStyle(o).backgroundColor,
+        shadow: getComputedStyle(o).boxShadow, backdrop: getComputedStyle(o).backdropFilter,
         names: [...o.querySelectorAll(".ptab")].map(t => t.dataset.owner), order: rowsOf(lastState),
         plusAfter: o.nextElementSibling && o.nextElementSibling.classList.contains("ptabplus") };
     });
-    assert.equal(oval.glass, true, "the oval is not on the glass");
+    assert.equal(oval.glass, false, "the long glass surface remains");
     assert.equal(oval.h, 32, "the oval is not the circles' height");
-    assert.equal(oval.radius, "16px", "the oval's ends are not round");
+    assert.equal(oval.face, "rgba(0, 0, 0, 0)");
+    assert.equal(oval.shadow, "none"); assert.equal(oval.backdrop, "none");
     assert.deepEqual(oval.names, oval.order, "the oval does not hold the board's names in its order");
     assert.equal(oval.plusAfter, true, "the plus is not its own circle right after the oval");
 
@@ -124,18 +260,17 @@ test("every name sits on one oval and the seat slides to the project chosen by t
     await seatStill(page);
     onName(await seat(page), "on the first project");
 
-    // the slide: only transforms move, and the halves keep their length
+    // One lens changes position and width; its local map follows the width.
     await page.click(`#tabbar .ptab[data-owner="${ledger}"]`);
     await frame(page);
     const moving = await page.evaluate(() => {
       const s = document.querySelector("#tabbar .tabseat");
       return { props: s.getAnimations({ subtree: true }).map(a => a.transitionProperty),
-        widths: [...s.querySelectorAll(".seathalf > i")].map(i => getComputedStyle(i).width),
-        max: s.style.getPropertyValue("--smax") };
+        lenses: s.querySelectorAll(".projectlens").length, halves: s.querySelectorAll(".seathalf").length };
     });
     assert.ok(moving.props.length > 0, "the seat did not move");
-    assert.deepEqual([...new Set(moving.props)], ["transform"], "something other than a transform moved: " + moving.props);
-    assert.deepEqual(moving.widths, [moving.max, moving.max], "the seat's halves changed their length");
+    assert.ok(moving.props.every(p => ["transform", "width", "background-color"].includes(p)), moving.props.join(","));
+    assert.equal(moving.lenses, 1); assert.equal(moving.halves, 0);
     await seatStill(page);
     const landed = await seat(page);
     assert.equal(landed.on.owner, ledger);
@@ -156,13 +291,13 @@ test("home fades the seat out where it stands and the next project gets it back 
     await seatStill(page);
     await page.click("#homeico");
     await page.waitForFunction(() => document.body.classList.contains("home"));
-    await page.waitForFunction(() => Number(getComputedStyle(document.querySelector("#tabbar .tabseat")).opacity) === 0);
+    await page.waitForFunction(() => Number(getComputedStyle(document.querySelector("#tabbar .seatlens")).opacity) === 0);
     assert.equal(await page.$eval("#homeico", el => getComputedStyle(el).color),
       await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--ink").trim()).then(hex => {
         const n = parseInt(hex.slice(1), 16); return `rgb(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255})`; }),
       "the house is not in the ink while home is up");
     await show(page, garden);
-    await page.waitForFunction(() => Number(getComputedStyle(document.querySelector("#tabbar .tabseat")).opacity) === 1);
+    await page.waitForFunction(() => Number(getComputedStyle(document.querySelector("#tabbar .seatlens")).opacity) === 1);
     await seatStill(page);
     onName(await seat(page), "back from home");
   } finally { await context.close(); }
