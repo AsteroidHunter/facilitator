@@ -69,10 +69,11 @@
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
   /* the speaker is a mark like the house at the other end of the bar: 15px, the
-     same reach across its box and the same line, the sub ink, no box, the full
-     ink under a pointer. a slash across it, with a clear gap round the slash,
-     means the reply chime is off */
-  #chimebtn{display:flex; align-items:center; padding:2px; border:none; background:none;
+     same reach across its box and the same line, the sub ink, the full ink
+     under a pointer, in a glass circle of its own (the bar's glass, below). a
+     slash across it, with a clear gap round the slash, means the reply chime is
+     off */
+  #chimebtn{display:flex; align-items:center; padding:2px;
     color:var(--sub); cursor:pointer; transition:color .2s; flex:none;
     margin-left:auto}   /* holds the right edge now the status row is gone */
   #chimebtn:hover{color:var(--ink)}
@@ -95,99 +96,52 @@
      box's width, so the same cut holds at any size */
   .squidmark{display:block; height:20px; aspect-ratio:917 / 1126; overflow:hidden; flex:none}
   .squidmark img{display:block; width:135.99%; max-width:none; height:auto; margin:-7.52% 0 0 -17.99%}
-  #setbtn{display:flex; align-items:center; padding:2px; border:none; flex:none;
-    background:none; color:var(--sub); cursor:pointer; transition:color .2s;
-    /* the button's own 2px of padding pulled out, so the mark sits as far from
-       the right edge as the house sits from the left */
-    margin-right:-2px}
-  #setbtn:hover, body.setopen #setbtn{color:var(--accent)}
+  /* the squid stands in a glass circle at the bar's right end (the bar's
+     glass), mirroring the house at its left end */
+  #setbtn{display:flex; align-items:center; padding:2px; flex:none;
+    color:var(--sub); cursor:pointer; transition:color .2s}
 
   /* ---- the app's enclosure ----------------------------------------------- */
-  /* every outer edge of the app carries the cards' own 7px curve, so the shell
-     is rounded on the same terms as the things standing inside it. the bar is
-     the lid and rounds its top two corners; #appframe is the boundary, one
-     closed rectangle in the board's line ink, one hairline on all four sides
-     and the same 7px on all four corners.
-     the boundary begins where the bar ends, so the bar is not inside it: the
-     lid stands on top of the box rather than in it. the bar's lower corners
-     stay square, and the boundary's top line, which is the same line, is the
-     one that turns into the box's top corners.
-     the boundary is one element, not a border on each piece, so a side line is
-     a single unbroken stroke from its top corner to its bottom one. it carries
-     no fill and takes no pointer, so nothing beneath it moves or stops
-     answering.
-     --edge is the weight every edge line is drawn at: a card's border and the
-     bar's own bottom, so the boundary reads as the same ink rather than a
-     second, fainter one.
-     the air is the same on all four sides. #stage keeps its own top at --bar-h,
-     which this does not touch, so every region on the canvas stays on the exact
-     pixel it was placed on.
-     20260827, the seated tab's open bottom. the boundary's top line falls on one
-     pixel row, the row the bar's own bottom border used to hold, and that row is
-     the one a seated tab's paper covers: a tab is 38 tall, seated 1px low, and
-     its bottom edge lands exactly on it. that overlap is the whole trick of a
-     seated tab. it only reads as an open mouth if the tab's paper is painted
-     after the line, and the tab is painted inside the bar, so the line has to
-     be painted inside the bar too, before #tabbar.
-     the boundary itself cannot live in there. the page in focus is overflow
-     hidden and everything on the canvas is fixed, so the body's own box is only
-     as tall as the bar, and any absolutely positioned thing inside the bar is
-     cut off at the bar's bottom edge. that is why the boundary is fixed and
-     stands outside the bar. it is also why it cannot simply be moved behind the
-     bar and left at that: the bar is 84% paper over a 10px blur, and a line
-     lying behind it comes back a washed grey smear or nothing at all, both of
-     which were rendered and looked at before this was written.
-     so the boundary is fixed, whole and closed, and sits just under the bar,
-     where its top row is hidden; and the bar restates that one row itself, in
-     the ::before below, as full ink over its own blur and before its tabs. one
-     element owns the shape, one row of it is redrawn where the shape passes
-     through frosted glass, and the tabs cover both. */
+  /* the workspace stands on a pane of the board's glass (.qn-glass in
+     card-tokens.css, worn by #appframe), one rounded rectangle under everything
+     on the canvas, and the bar over it holds the controls in glass pieces of
+     their own (the bar's glass, below). nothing joins the two: the bar has no
+     face, no line and no corners of its own, and the project names do not open
+     into the pane.
+     the pane keeps the rectangle the workspace outline had, to the pixel, since
+     the stage fits itself into it (frameLimits) and the home page and the new
+     project page measure from it: --app-inset in from the window's sides and
+     foot, and its top on the bar's own 1px bottom row. its border is still the
+     edge's width, gone clear, so the inner box the stage is fitted to is the
+     box it always was.
+     the face is the glass's, with its white at .35 rather than the .77 the
+     bar's pieces wear, so a coloured board still shows through the whole
+     workspace, lightened, rather than only round its edge; on a white board
+     the two are the same white. the edge is drawn the way the phone's bottom
+     row draws its buttons (see the bar's glass): the grey ring on all four
+     sides is the top rim too, under the glass's bottom rim, inner glow and
+     soft outer shadow. it is drawn without the glass's backdrop blur: one
+     standing backdrop filter the size of the window makes chrome compose every
+     frame of the window itself (see the picture zoom), and behind the pane there
+     is only the flat paper, which a blur would leave exactly as it was.
+     it sits under every layer of the page and takes no pointer, so nothing on
+     the canvas moves or stops answering. #stage keeps its own top at --bar-h,
+     so every region stays on the pixel it was placed on */
   body.focus .bar{
     margin:var(--app-inset) var(--app-inset) 0;
-    border-radius:7px 7px 0 0;
-    /* the bar keeps the 1px so that nothing in it moves, and gives up the ink.
-       drawn by the bar, that line runs the bar's full width and shoots 7px past
-       each of the boundary's top corners, leaving a stub hanging in the air over
-       the arc. the boundary's own top line stops where its corners turn.
-       the width stays a full 1px on purpose while the edge is thinner: the
-       border here is only room, and room that shrank with the edge would move
-       every tab and label in the bar by a fraction. the boundary's line is laid
-       on the bottom of this row instead, at the edge's drawn width */
+    /* the bar keeps its 1px bottom row, clear, so the row the pane's top is
+       laid on does not move */
     border-bottom-color:transparent; border-bottom-width:1px;
-  }
-  /* the bar's restatement of the boundary's top row. same box as #appframe to
-     the pixel, so the two are the same rectangle and cannot drift: the same
-     sides, the same 7px, and therefore the same arcs. the clip keeps only the
-     top row of it, the row inside the bar, so no arc is ever painted twice and
-     no edge of this box is ever visible as an edge. absolute, so it measures
-     from the bar's padding box, which is exactly the boundary's own left and
-     right; first in the bar, so every tab paints over it */
-  body.focus .bar::before{
-    content:""; position:absolute; pointer-events:none;
-    top:calc(var(--bar-h) - 1px - var(--edge-drawn)); left:0; right:0; height:8px;
-    border:var(--edge) solid var(--line); border-bottom:none;
-    border-radius:7px 7px 0 0;
-    clip-path:inset(0 0 7px 0);
+    background:none; backdrop-filter:none; -webkit-backdrop-filter:none;
   }
   #appframe{display:none}
   body.focus #appframe{
     display:block; position:fixed;
-    /* the top line is laid on the very pixel the bar's own bottom border
-       occupies, so the two are one line and not two: the tab still meets that
-       line the way it was fitted to, and the box still has a real top edge for
-       its corners to turn into. the bar's row is 1px and the line is the edge's
-       drawn width, so the line takes the bottom of the row, where the tab's
-       foot and its notches land */
     top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
     left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
-    /* one closed rounded rectangle, all four sides and all four corners: a
-       corner needs both of its edges to turn into, and rounding a box with no
-       top left the arcs hooking into nothing */
-    border:var(--edge) solid var(--line);
-    border-radius:7px;
-    /* under the bar, not over it. over it, this top line was painted across the
-       seated tab's mouth and shut it: that was the bar seen under the tab */
-    pointer-events:none; z-index:9;
+    border:var(--edge) solid transparent; border-radius:12px;
+    backdrop-filter:none; -webkit-backdrop-filter:none; --qn-tint:.35;
+    pointer-events:none; z-index:-1;
   }
 
   /* ---- layout ----------------------------------------------------------- */
@@ -1708,13 +1662,14 @@
   /* the bar's glass goes down for the same length, for a different reason. one
      backdrop-filter left standing anywhere on the page is enough to make chrome
      keep the whole frame to itself rather than hand it to the mac's own
-     compositor, so while this blur stands every frame of the zoom draws the
+     compositor, so while these blurs stand every frame of the zoom draws the
      full screen picture in the browser. the cost belongs to the page, not to
-     the bar, and any single filter is enough to buy it. it can go because the
-     bar's face is mostly opaque paper and the veil is over it for the whole
-     gesture, so there is nothing behind it left to blur that anyone can see.
-     the .bar rule itself is untouched, so the resting look is the resting look */
-  body.p3zoom .bar{backdrop-filter:none; -webkit-backdrop-filter:none}
+     the bar, and any single filter is enough to buy it. they can go because
+     behind the bar's pieces there is only the flat paper and the veil is over
+     them for the whole gesture, so there is nothing behind them left to blur
+     that anyone can see. the bar's own rules are untouched, so the resting look
+     is the resting look */
+  body.p3zoom .bar .qn-glass{backdrop-filter:none; -webkit-backdrop-filter:none}
   /* ---- the file navigator, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
@@ -2890,20 +2845,23 @@
   body.focus #stage{transition:opacity .18s ease, visibility .18s ease}
   body.focus.pageblank #stage{visibility:hidden; opacity:0; pointer-events:none}
   /* in-app project tabs: the board filtered to one project per tab; labels
-     come from the lane directories at runtime, never from this file. Real tab
-     shapes seated on the bar's bottom edge; the active one opens into the page.
-     Pulling one out is the drag itself: grab a tab and tug it downward. */
-  /* fixed bar height in focus mode: every one-line element centers on the
-     same 23px line, and the tabs seat on the bottom edge with their label
-     lifted onto that exact line (7px pad + 16px line puts its center at 23) */
-  body.focus .bar{height:40px; padding-top:0; padding-bottom:0}
+     come from the lane directories at runtime, never from this file. the names
+     sit on one glass oval in the bar, the open one under a smaller glass seat
+     (the bar's glass, below). Pulling one out is the drag itself: grab a name
+     and tug it downward. */
+  /* fixed bar height in focus mode, 40px and its 1px bottom row. the glass
+     pieces are 32px and stand at the top of it, --app-inset under the window's
+     top as the pane is in from the window's sides, on one centre line; the 7px
+     of padding under them leaves 7px of paper between their foot and the
+     pane's top edge, 7.5px on a 2x screen, where the pane's line sits half a
+     pixel lower. the pieces stand 8px apart, the phone's own gap, and the bar has
+     no side padding, so the house and the squid stand over the pane's own
+     left and right edges */
+  body.focus .bar{height:40px; padding:0 0 7px; gap:8px}
   body.focus #toc, body.focus #tocgrip{top:41px}
   body.focus #offline{top:41px}
   #tabbar{display:none}
-  body.focus #tabbar{
-    display:flex; align-items:flex-end; align-self:flex-end; gap:4px;
-    height:38px; margin-right:10px;
-  }
+  body.focus #tabbar{display:flex; align-items:center; gap:8px; height:32px; flex:none}
   /* seated tabs per the 20260809 mockup: the active one's bottom opens into
      the canvas. 20260827: the top two corners now take the cards' own 7px, so
      a seated tab is rounded on the same terms as the shell around it and the
@@ -3019,14 +2977,9 @@
     z-index:2; box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* the others glide aside on the board's one 220ms curve, never teleport */
   .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  /* the plus: opens a fresh project tab. A thin rule and clear air keep it
-     from ever reading as part of the last tab */
-  .tabsep{flex:none; align-self:center; width:1px; height:20px;
-    background:var(--line-strong); margin:0 6px 0 8px}
-  .ptabplus{flex:none; align-self:center; width:24px; height:24px; padding:0;
-    font:500 15px/1 var(--mono); color:var(--ink); background:none;
-    border:none; cursor:pointer; transition:opacity .2s; opacity:.75}
-  .ptabplus:hover{opacity:1}
+  /* the plus: opens a fresh project tab. it is a glass circle of its own after
+     the oval of names (the bar's glass, below), so it never reads as one of
+     them */
   /* the not-yet-named tab while its folder is being chosen: upright, in the
      board's own bold (the weight an unread tab takes) */
   .ptab.draft{color:var(--ink); background:var(--seat); border-color:var(--line);
@@ -3099,6 +3052,131 @@
   #projnote{display:none; flex:none; font:12px var(--mono); color:var(--must);
     background:var(--must-bg); border-radius:4px; padding:3px 10px}
   #projnote.show{display:inline-block}
+
+  /* ---- the bar's glass ---------------------------------------------------- */
+  /* the bar's controls are drawn as the phone's bottom row draws its buttons
+     (#dock in m.html): each is a piece of the board's glass (.qn-glass), with
+     the row's edge, its press and nothing behind it but the paper. the house,
+     the speaker, the plus and the squid are 32px circles, the row's 48px at two
+     thirds, so each mark keeps the share of its circle it has on the phone (the
+     squid's 20px in 32 is the phone's 30 in 48, and the 15px house and speaker
+     are the phone's 22px ticket in 48). the project names sit on one oval of
+     the same height, and the open project's name under a smaller oval of the
+     same glass, the seat, which slides along the oval to the project chosen.
+     the rest of this sheet loads before the glass's, so every rule here is
+     scoped by the page to outrank the glass's own corner.
+     the glass's numbers are registered here as the phone registers them, so a
+     press eases the face, its highlights and its shadows together */
+  @property --qn-tint{syntax:"<number>"; inherits:true; initial-value:.77}
+  @property --qn-edge{syntax:"<number>"; inherits:true; initial-value:2}
+  /* the top rim is one line, as on the phone's row: the glass's white
+     highlight on the first row and its faint dark band two rows deep are left
+     out, so the grey ring is the top edge as it is the sides', and the rest of
+     the stack, the bottom rim, the inner glow and the outer shadow, is the
+     glass's own. the workspace's pane wears the same edge */
+  body.focus :is(.bar .qn-glass, #appframe){
+    box-shadow:
+      inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+      inset 0 0 0 1px var(--qn-ring),
+      inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+      inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+      0 1px 2px -1px rgba(0,0,0,.18),
+      0 1px 3px rgba(0,0,0,.07),
+      0 8px 20px rgba(0,0,0,.06)}
+  /* the circles: the mark centred, in the sub ink and the full ink under a
+     pointer as the bare marks were, and the house in the full ink while home
+     is up */
+  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus){
+    flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;
+    margin:0; padding:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
+    transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus):hover,
+  body.focus.home #homeico{color:var(--ink)}
+  body.focus :is(#homeico, #chimebtn, #tabbar .ptabplus) svg{display:block; flex:none}
+  /* the speaker still holds the right edge, and "Install app" stays between it
+     and the squid as it was */
+  body.focus .bar #chimebtn{margin-left:auto}
+  /* the glass's own press, the phone's: a little larger and a whiter face,
+     held long enough that a quick click still shows it (glassPress, in the
+     script). it rises over .3s and falls back over .5s, both eased */
+  body.focus .bar .qn-glass.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+    transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
+  /* the oval: every open project's name in the board's order, 3px of glass
+     round the seat. it holds its names in one line and is as long as they
+     are, as the tab strip was, so a window too narrow for them pushes what
+     stands after it out of the window as the tabs did. it clips what it holds
+     to its own round shape, so the seat's shadow stays inside it */
+  body.focus #tabbar .taboval{position:relative; flex:none; display:flex; align-items:center;
+    height:32px; padding:0 3px; border-radius:16px; overflow:clip}
+  /* a name is the seat's shape and size, its label centred on the oval's
+     line, with no fill, border or notch of its own: the seat is the one mark of
+     the open project. these rules stay inside the bar, since the ticket list's
+     names and the file navigator's tabs wear the same .ptab */
+  body.focus #tabbar .ptab{position:relative; z-index:1; top:0;
+    display:flex; align-items:center; height:26px; padding:0 14px;
+    border:none; border-radius:13px; background:none;
+    transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
+  body.focus #tabbar .ptab.closed{display:none}
+  body.focus #tabbar .ptab::before, body.focus #tabbar .ptab::after{content:none}
+  body.focus #tabbar :is(.ptab.on, .ptab.draft, .ptab.dragging){background:none; border:none; box-shadow:none}
+  body.focus #tabbar .ptab.dragging{z-index:2}
+  body.focus #tabbar .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
+  /* the close band keeps its measures: 12px more room on the right, the
+     cross's 24px box 3px in from the name's end, its ink 7px clear of the
+     label and 11px clear of the end. its box is the name's line, so the ink
+     stands on the word's middle */
+  body.focus #tabbar .ptab.armed{padding-right:26px}
+  body.focus #tabbar .ptabx{top:1px; height:24px}
+  /* the seat: a glass oval 3px inside the oval all round, as long as the open
+     project's name. it is drawn as two halves, each a long oval of the same
+     glass cut off at the seat's middle, one standing on the seat's left end
+     and the other, turned round, on its right end. a change of project moves
+     the two ends to the new name, the halves by transforms alone on the
+     board's own curve, so the seat slides and grows or shrinks on the way
+     with its round ends drawn true the whole time. the script writes the
+     seat's start (--sx), its length (--sw), where the halves meet (--sm, the
+     middle set on a whole device pixel, since two cut edges meeting inside one
+     pixel leave it part lit) and the halves' length (--smax, longer than any
+     name), and says still when it is only to follow its name.
+     the glass's highlight sweep is drawn over the first 120px of each half, so
+     it meets itself at the middle. it has no blur of its own: behind it is
+     only the oval's face. while home is up it fades out where it stands */
+  body.focus #tabbar .tabseat{position:absolute; inset:0; z-index:0; pointer-events:none;
+    --sx:0px; --sw:0px; --sm:0px; --smax:480px;
+    transition:opacity .18s var(--gentle), translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  body.focus #tabbar .tabseat.gone{opacity:0}
+  body.focus #tabbar .seatbody{position:absolute; inset:0;
+    transform-origin:calc(var(--sx) + var(--sw) / 2) 50%;
+    transition:scale .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+  body.focus #tabbar .seathalf{position:absolute; left:0; top:-30px; bottom:-30px; overflow:hidden;
+    width:calc(var(--smax) / 2 + 40px); transition:transform .28s var(--gentle)}
+  body.focus #tabbar .seathalf.l{transform:translateX(calc(var(--sm) - var(--smax) / 2 - 40px))}
+  body.focus #tabbar .seathalf.r{transform:translateX(var(--sm))}
+  body.focus #tabbar :is(.seathalf > i, .tabheld){position:absolute; left:0; height:26px;
+    border-radius:13px; --qn-tint:inherit; --qn-edge:inherit;
+    backdrop-filter:none; -webkit-backdrop-filter:none;
+    background-size:auto, auto, auto, auto, auto, 120px 100%;
+    background-repeat:repeat, repeat, repeat, repeat, repeat, no-repeat}
+  body.focus #tabbar .seathalf > i{top:33px; width:var(--smax); transition:transform .28s var(--gentle)}
+  body.focus #tabbar .seathalf.l > i{transform:translateX(calc(var(--smax) / 2 + 40px - var(--sm) + var(--sx)))}
+  body.focus #tabbar .seathalf.r > i{transform:translateX(calc(var(--sx) + var(--sw) - var(--smax) - var(--sm))) scaleX(-1)}
+  body.focus #tabbar .tabseat.still :is(.seathalf, .seathalf > i){transition:none}
+  /* pressing the open project's name presses the seat as a circle is pressed */
+  body.focus #tabbar .tabseat.pressed .seatbody{scale:1.06; --qn-tint:.95; --qn-edge:3;
+    transition:scale .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
+  /* a name carried along the oval wears a seat over the names it passes: the
+     open one's own seat when that is the name carried, which rises over the
+     other names while it is, and otherwise a seat of its own for as long as
+     it is held, while the open one's seat glides aside with its name */
+  body.focus #tabbar .tabseat.carried{z-index:2}
+  body.focus #tabbar .tabheld{top:3px; z-index:1; pointer-events:none}
+  /* the plus: its own circle after the oval, its two bars the house's line,
+     in the ink at three quarters as the typed plus was, and full under a
+     pointer */
+  body.focus #tabbar .ptabplus{color:color-mix(in srgb, var(--ink) 75%, transparent)}
+  body.focus #tabbar .ptabplus:hover{color:var(--ink)}
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
      white well listing the open folders, the current one bold, then the
@@ -3247,17 +3325,11 @@
   body.focus .box.sel :is(textarea, .cffield .cm-scroller).dropping{background:var(--accent-soft)}
   /* home: the house at the head of the bar opens the home page, a blank page
      above every project holding the token panel and nothing else (its own
-     sheet, home-widgets.css). the house stands where a tab would and measures
-     what the greyed mark did, its larger hit area drawn outside its box. while
-     home is up the house is the one marked, no project tab is seated, the
-     board fades out the way a blank page's does, and any project tab brings
-     its board back */
+     sheet, home-widgets.css). the house is a glass circle at the bar's left
+     end (the bar's glass). while home is up the house is the one marked, in
+     the full ink, no project's name is under the seat, the board fades out the
+     way a blank page's does, and any project's name brings its board back */
   #homeico{display:none}
-  body.focus #homeico{display:flex; align-items:center; position:relative;
-    padding:0; border:none; background:none; color:var(--sub); cursor:pointer;
-    transition:color .18s}
-  body.focus #homeico::after{content:""; position:absolute; inset:-6px}
-  body.focus #homeico:hover, body.focus.home #homeico{color:var(--ink)}
   /* the right half of the page's frame (the rectangle drawn under the bar, inset
      --app-inset on each side) holds the token box and the limits box as one
      unit. #homepair is a column as tall as the frame and 35% of its width,
@@ -3481,13 +3553,13 @@
 <body class="focus">
 
 <div class="bar">
-  <button id="homeico" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
+  <button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
   <span id="tabbar"></span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
-  <button id="chimebtn" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
+  <button id="chimebtn" class="qn-glass" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
   <button id="installbtn" type="button" hidden>Install app</button>
-  <button id="setbtn" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
+  <button id="setbtn" class="qn-glass" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
 </div>
 
 <!-- the settings, one group to a section: the page in card-logic.js builds the
@@ -3509,7 +3581,7 @@
   </div>
 </div>
 
-<div id="appframe" aria-hidden="true"></div>
+<div id="appframe" class="qn-glass" aria-hidden="true"></div>
 
 <div id="offline"></div>
 <nav id="toc"></nav>
@@ -3912,6 +3984,13 @@ function renderTabs(st){
     disarmTab();
     bar.dataset.sig = sig;
     bar.textContent = "";
+    // the names stand on one glass oval. the seat is the one piece a rebuild
+    // keeps: it goes into the new oval where it stood in the old one, so a
+    // repaint never sets it sliding
+    const oval = h("span", "taboval qn-glass");
+    oval.appendChild(tabSeat.el);
+    bar.appendChild(oval);
+    seatWatch.disconnect();
     for (const ow of owners){
       const t = h("button", "ptab");
       t.dataset.owner = ow;
@@ -3931,6 +4010,8 @@ function renderTabs(st){
           tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
         });
       }
+      // a press on the open project's name is a press on the seat under it
+      t.addEventListener("pointerdown", e => { if (e.button === 0 && t.classList.contains("on")) seatPress.press(); });
       t.addEventListener("click", () => {
         if (tabDrag?.pulled || tabDrag?.mode === "reorder") return;   // a pull or a slide is not a tab switch
         // the open project's own tab lets go of the selected card on screen,
@@ -3938,21 +4019,18 @@ function renderTabs(st){
         if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing) unselectShown();
         else setTab(ow);
       });
-      bar.appendChild(t);
+      oval.appendChild(t);
+      seatWatch.observe(t, { box: "border-box" });
     }
     if (draft){
       const t = h("button", "ptab draft");
       t.appendChild(h("span", "plabel", "New Project"));
-      bar.appendChild(t);
+      oval.appendChild(t);
+      seatWatch.observe(t, { box: "border-box" });
     }
-    if (!LOCKED){
-      // the plus sits past a thin rule and clear air, never inside the last tab
-      bar.appendChild(h("span", "tabsep"));
-      const plus = h("button", "ptabplus", "+");
-      plus.title = "new project tab";
-      plus.addEventListener("click", plusClick);
-      bar.appendChild(plus);
-    }
+    // the plus is a glass circle of its own after the oval, never one of the
+    // names, and like the seat it is kept from one rebuild to the next
+    if (!LOCKED) bar.appendChild(tabPlus);
   }
   // closing a tab is a class flip and never a rebuild, so the crosses learn
   // here and not where they were built: the tab that is suddenly the only one
@@ -3976,7 +4054,112 @@ function renderTabs(st){
     const want = labelOf(st, t.dataset.owner);
     if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
   }
+  seatSoon();
 }
+// ---- the seat ----------------------------------------------------------------
+// the glass oval under the open project's name. placeSeat measures the open
+// name (or the new project's draft name) inside the oval and writes where the
+// seat starts and how long it is; the stylesheet draws the rest. a change of
+// project slides it there on the board's curve; anything else that moves the
+// name under it (a rename, a name closed or opened before it, the close band,
+// the fonts arriving) only carries it along, with no motion, and a repaint
+// that changes nothing writes nothing, so a poll never replays the slide. with
+// no name open, as while home is up, it fades out where it stands, and it
+// comes back on the next open name without sliding in from anywhere. a live
+// drag carries it itself (startReorder below)
+const tabSeat = { el: null, owner: null, x: null, w: null, max: 480, drawn: false };
+tabSeat.el = h("span", "tabseat still gone");
+tabSeat.el.setAttribute("aria-hidden", "true");
+tabSeat.el.innerHTML = '<span class="seatbody"><span class="seathalf l"><i class="qn-glass"></i></span><span class="seathalf r"><i class="qn-glass"></i></span></span>';
+function placeSeat(){
+  const seat = tabSeat, el = seat.el, oval = el.parentNode;
+  if (!oval || tabDrag?.mode === "reorder" || tabGlide) return;
+  const on = oval.querySelector(".ptab.on, .ptab.draft");
+  const r = on && on.getBoundingClientRect();
+  if (!r || !r.width){
+    el.classList.add("gone");
+    seat.owner = null;
+    return;
+  }
+  const o = oval.getBoundingClientRect();
+  const x = r.left - o.left, w = r.width;
+  const owner = on.classList.contains("draft") ? DRAFT : on.dataset.owner;
+  const slide = seat.owner !== null && owner !== seat.owner;
+  if (!slide && owner === seat.owner && x === seat.x && w === seat.w) return;
+  // the halves are longer than any name by a margin; a longer name lengthens
+  // them first, in place, since a slide is drawn true only at one length
+  const grow = w > seat.max - 40;
+  if (grow) seat.max = Math.ceil(w) + 240;
+  el.classList.toggle("still", !slide || grow);
+  const px = devicePixelRatio || 1;
+  el.style.setProperty("--smax", seat.max + "px");
+  el.style.setProperty("--sx", x + "px");
+  el.style.setProperty("--sw", w + "px");
+  el.style.setProperty("--sm", Math.round((x + w / 2) * px) / px + "px");
+  // the first time it is drawn it is simply there, as the bar is: a fade
+  // running while the page is still opening holds the opening's own frames
+  // back. the next frame gives the seat its motion back
+  if (!seat.drawn){
+    seat.drawn = true;
+    el.style.transition = "none";
+    requestAnimationFrame(() => { if (!el.classList.contains("carried")) el.style.transition = ""; });
+  }
+  el.classList.remove("gone");
+  seat.owner = owner; seat.x = x; seat.w = w;
+}
+// the bar is painted in the middle of the board's own repaint, and a measure
+// taken there would make the browser work out every style the repaint has
+// half written, which starts transitions the repaint never meant (the stage's
+// own fade among them). so a repaint only asks for the seat, and it is placed
+// at the start of the next frame, once the repaint is whole
+let seatFrame = 0;
+function seatSoon(){
+  if (!seatFrame) seatFrame = requestAnimationFrame(() => { seatFrame = 0; placeSeat(); });
+}
+// a name that changes size moves the seat's name or the names before it. the
+// whole box is watched, since the close band is padding. the watch is answered
+// after the layout it reports, so it places the seat at once
+const seatWatch = new ResizeObserver(() => placeSeat());
+const tabPlus = h("button", "ptabplus qn-glass");
+tabPlus.type = "button";
+tabPlus.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+tabPlus.title = "new project tab";
+tabPlus.setAttribute("aria-label", "new project tab");
+tabPlus.addEventListener("click", () => plusClick());
+// ---- the press on the bar's glass --------------------------------------------
+// the phone's row press (glassPress in m.html): a piece of the bar's glass
+// takes .pressed while the pointer holds it, for at least GLASS_PRESS_MIN so a
+// quick click still shows it, and the stylesheet eases it in and out. the end
+// of a press is heard wherever the pointer lets go, and a page put away with a
+// button still held drops every press, so nothing comes back grown
+const GLASS_PRESS_MIN = 120;
+const glassPresses = [];
+function glassPress(el){
+  let since = 0, timer = 0;
+  const glass = {
+    press(){ clearTimeout(timer); since = performance.now(); el.classList.add("pressed"); },
+    release(){
+      if (!el.classList.contains("pressed")) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => el.classList.remove("pressed"), Math.max(0, since + GLASS_PRESS_MIN - performance.now()));
+    },
+    drop(){ clearTimeout(timer); el.classList.remove("pressed"); },
+  };
+  glassPresses.push(glass);
+  return glass;
+}
+const seatPress = glassPress(tabSeat.el);
+for (const btn of [document.getElementById("homeico"), document.getElementById("chimebtn"),
+                   document.getElementById("setbtn"), tabPlus]){
+  const glass = glassPress(btn);
+  btn.addEventListener("pointerdown", e => { if (e.button === 0) glass.press(); });
+  for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
+}
+for (const type of ["pointerup", "pointercancel"])
+  addEventListener(type, () => { for (const glass of glassPresses) glass.release(); }, { passive: true });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") for (const glass of glassPresses) glass.drop();
+});
 // the cross, built with every tab and held out of the layout entirely: it is
 // absolutely placed, so an unarmed tab measures the same to the thousandth of a
 // pixel as it did before any of this existed, and hidden it paints nothing. the
@@ -4105,12 +4288,28 @@ function startReorder(){
   for (const el of all) el.style.transition = "";
   t.idx = t.tabs.indexOf(t.el);
   if (t.idx < 0){ tabDrag = null; return; }   // the bar rebuilt under the grip; the drag dies quietly
+  placeSeat();   // the band that just shut may have moved the seat's name
   t.mode = "reorder";
   t.rects = t.tabs.map(el => el.getBoundingClientRect());
-  t.gap = 4;   // the bar's own flex gap
+  t.gap = parseFloat(getComputedStyle(t.el.parentNode).columnGap) || 0;   // the oval's own flex gap
   t.slot = t.idx;
   t.el.classList.add("dragging");
   for (const el of t.tabs) if (el !== t.el) el.classList.add("gliding");
+  // the seat stays with the open project's name: it rides the pointer with the
+  // held name when that is the open one, and glides aside with it otherwise,
+  // on the names' own curve. a held name that is not the open one wears a seat
+  // of its own while it is carried
+  t.on = t.tabs.findIndex(el => el.classList.contains("on"));
+  if (t.on === t.idx){
+    tabSeat.el.style.transition = "none";
+    tabSeat.el.classList.add("carried");
+  } else {
+    const o = t.el.parentNode.getBoundingClientRect();
+    t.held = h("i", "tabheld qn-glass");
+    t.held.style.left = (t.rects[t.idx].left - o.left) + "px";
+    t.held.style.width = t.rects[t.idx].width + "px";
+    t.el.parentNode.appendChild(t.held);
+  }
 }
 function moveReorder(e){
   const t = tabDrag, r = t.rects, i = t.idx;
@@ -4120,6 +4319,8 @@ function moveReorder(e){
   const dx = Math.max(r[0].left - r[i].left,
              Math.min(r[r.length - 1].right - r[i].right, raw));
   t.el.style.transform = "translate(" + dx + "px, -2px)";
+  if (t.held) t.held.style.transform = t.el.style.transform;
+  else tabSeat.el.style.translate = dx + "px -2px";
   // the claim follows the pointer, never the pinned tab: a clamped center
   // cannot pass an edge midpoint when the held tab is at least as wide as
   // the edge tab, which walled off the first and last slots. counting the
@@ -4136,6 +4337,7 @@ function moveReorder(e){
     if (j === i) continue;
     const move = j < i ? (j >= slot ? shift : 0) : (j <= slot ? -shift : 0);
     t.tabs[j].style.transform = move ? "translateX(" + move + "px)" : "";
+    if (j === t.on) tabSeat.el.style.translate = move ? move + "px 0px" : "";
   }
 }
 // the drop: the held tab glides the last stretch down into its slot, the
@@ -4158,13 +4360,30 @@ function dropReorder(){
   writeTabs({ order, closed: tabRecord(lastState).closed });
   t.el.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
   t.el.style.transform = "translate(" + (left - r[i].left) + "px, 0)";
+  // the held name's seat glides down into the slot with it
+  if (t.held){
+    t.held.style.transition = t.el.style.transition;
+    t.held.style.transform = t.el.style.transform;
+  } else {
+    tabSeat.el.style.transition = "translate 220ms cubic-bezier(0.25, 1, 0.5, 1)";
+    tabSeat.el.style.translate = (left - r[i].left) + "px 0px";
+  }
   tabGlide = setTimeout(() => {   // a timer, not transitionend: a zero-length glide fires no event
     tabGlide = null;
     t.el.classList.remove("dragging");
     t.el.style.transition = ""; t.el.style.transform = "";
     for (const el of t.tabs){ el.classList.remove("gliding"); el.style.transform = ""; }
+    if (t.held) t.held.remove();
+    // the seat is set down where it now stands, on its name's new place
+    tabSeat.el.style.transition = "none";
+    tabSeat.el.style.translate = "";
+    tabSeat.el.classList.remove("carried");
+    tabSeat.x = null;
     document.getElementById("tabbar").dataset.sig = "";
     if (lastState) renderTabs(lastState);
+    placeSeat();   // in the same frame as the translate it replaces
+    tabSeat.el.getBoundingClientRect();
+    tabSeat.el.style.transition = "";
   }, 240);
 }
 

@@ -143,7 +143,7 @@ async function beside(page) {
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
 
-test("the pencil is gone, the edit code is kept, and the speaker is a plain mark beside the gear", async () => {
+test("the pencil is gone, the edit code is kept, and the speaker is a glass circle beside the squid's", async () => {
   const { context, page, problems } = await open();
   try {
     const bar = await page.evaluate(() => {
@@ -151,7 +151,9 @@ test("the pencil is gone, the edit code is kept, and the speaker is a plain mark
         const cs = getComputedStyle(el), box = el.getBoundingClientRect();
         const svg = el.querySelector("svg, .squidmark").getBoundingClientRect();
         return { color: cs.color, background: cs.backgroundColor, border: cs.borderTopStyle, shadow: cs.boxShadow,
+          radius: cs.borderRadius, glass: el.classList.contains("qn-glass"),
           padding: cs.padding, mark: Math.round(svg.width) + "x" + Math.round(svg.height),
+          markMid: [svg.left + svg.width / 2, svg.top + svg.height / 2], boxMid: [box.left + box.width / 2, box.top + box.height / 2],
           w: box.width, h: box.height, mid: box.top + box.height / 2, left: box.left, right: box.right,
           inBar: !!el.closest(".bar") };
       };
@@ -178,15 +180,26 @@ test("the pencil is gone, the edit code is kept, and the speaker is a plain mark
     assert.equal(bar.pencil, null, "the pencil is still on the bar");
     assert.equal(bar.speaker.inBar, true);
     assert.equal(bar.speaker.color, bar.gear.color, "the speaker is not the gear's ink");
-    assert.equal(bar.speaker.background, "rgba(0, 0, 0, 0)");
+    // the speaker and the squid each stand in a 32px circle of the same glass
+    for (const [name, b] of [["speaker", bar.speaker], ["squid", bar.gear]]) {
+      assert.equal(b.glass, true, `the ${name} is not on the glass`);
+      assert.equal(b.w, 32, `the ${name}'s circle is not 32px across`);
+      assert.equal(b.h, 32, `the ${name}'s circle is not 32px tall`);
+      assert.equal(b.radius, "50%", `the ${name}'s box is not a circle`);
+      assert.ok(Math.abs(b.markMid[0] - b.boxMid[0]) <= 0.5 && Math.abs(b.markMid[1] - b.boxMid[1]) <= 0.5,
+        `the ${name}'s mark is not centred in its circle: ${JSON.stringify([b.markMid, b.boxMid])}`);
+    }
+    assert.notEqual(bar.speaker.background, "rgba(0, 0, 0, 0)", "the speaker's circle has no face");
+    assert.equal(bar.speaker.background, bar.gear.background, "the speaker's face is not the squid's");
     assert.equal(bar.speaker.border, "none");
-    assert.equal(bar.speaker.shadow, "none");
+    assert.notEqual(bar.speaker.shadow, "none", "the speaker's circle has no edge or shadow");
+    assert.equal(bar.speaker.shadow, bar.gear.shadow, "the speaker's edge is not the squid's");
     assert.equal(bar.speaker.padding, bar.gear.padding);
     assert.equal(bar.speaker.mark, "15x15");
     // the squid beside it is drawn larger (20px), so the speaker keeps the bar's 15px
-    // mark and its own button size rather than the squid's
+    // mark rather than the squid's
     assert.ok(Math.abs(bar.speaker.mid - bar.gear.mid) <= 0.5, "the speaker and the gear are on one line");
-    assert.ok(Math.abs(bar.speaker.right + 14 - bar.gear.left) <= 0.6, "the speaker sits 14px left of the gear");
+    assert.ok(Math.abs(bar.speaker.right + 8 - bar.gear.left) <= 0.6, "the speaker's circle sits 8px left of the squid's");
     // the settings mark is the squid in its own colours now, so the speaker is held
     // to the line style the gear was drawn in: a 24 box, no fill, ink, the house's 2 stroke, round ends
     assert.deepEqual(bar.speakerStyle, ["0 0 24 24", "none", "currentColor", "2", "round", "round"],
