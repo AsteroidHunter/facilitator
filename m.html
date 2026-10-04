@@ -936,7 +936,11 @@
   /* the marks the page draws, sized in --u like everything else. their markup
      carries real-pixel sizes, which these rules override */
   #dock .round svg, #tikadd svg{width:calc(22 * var(--u)); height:calc(22 * var(--u))}
-  #dock #setbtn svg{width:calc(30 * var(--u)); height:calc(30 * var(--u))}
+  /* the settings mark is the logo itself, the squid png the launch image uses,
+     cut to the squid's own bounds (917 by 1126 of its 1247 by 1261, from 165
+     across and 69 down); the percentages are of the box's width */
+  #dock .squidmark{display:block; height:calc(30 * var(--u)); aspect-ratio:917 / 1126; overflow:hidden; flex:none}
+  #dock .squidmark img{display:block; width:135.99%; max-width:none; height:auto; margin:-7.52% 0 0 -17.99%}
   #dock #projbtn .updown{width:calc(12 * var(--u)); height:calc(12 * var(--u))}
   .projrow svg{width:calc(15 * var(--u)); height:calc(15 * var(--u))}
   .projrow .pcheck{width:calc(16 * var(--u)); height:calc(16 * var(--u))}
@@ -1379,7 +1383,7 @@
     <button id="tikbtn" class="dockbtn round qn-glass" type="button" title="Cards" aria-label="Cards"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5h12a2 2 0 0 1 2 2v2.5a2.5 2.5 0 0 0 0 5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.5a2.5 2.5 0 0 0 0-5V7a2 2 0 0 1 2-2Z"/></svg></button>
     <button id="projbtn" class="dockbtn qn-glass" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><svg class="updown" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"/></svg></button>
     <button id="tikadd" class="dockbtn qn-glass" type="button" title="new card" aria-label="new card"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-    <button id="setbtn" class="dockbtn round qn-glass" type="button" title="Settings" aria-label="Settings"><svg width="22" height="22" viewBox="-3 -1 22 22" shape-rendering="crispEdges" aria-hidden="true"><path fill="#f89d0f" d="M13 0h2v1h-2zM12 1h4v1h-4zM11 2h5v1h-5zM10 3h6v1h-6zM9 4h5v1h-5zM8 5h6v1h-6zM7 6h7v1h-7zM7 7h6v1h-6zM6 8h6v2h-6zM0 9h2v2h-2zM14 9h2v2h-2zM5 10h6v1h-6zM2 11h2v1h-2zM6 11h5v1h-5zM12 11h2v1h-2zM3 12h10v1h-10zM0 13h2v1h-2zM5 13h6v1h-6zM14 13h2v1h-2zM1 14h5v1h-5zM7 14h2v1h-2zM10 14h5v1h-5zM6 15h4v1h-4zM2 16h5v1h-5zM9 16h5v1h-5zM1 17h2v1h-2zM5 17h1v1h-1zM10 17h1v1h-1zM13 17h2v1h-2zM4 18h2v1h-2zM10 18h2v1h-2zM5 19h1v1h-1zM10 19h1v1h-1z"/><path fill="#0c0b0a" d="M6 10h1v1h-1zM9 10h1v1h-1z"/></svg></button>
+    <button id="setbtn" class="dockbtn round qn-glass" type="button" title="Settings" aria-label="Settings"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
   </nav>
 </div>
 <div id="scrim"></div>

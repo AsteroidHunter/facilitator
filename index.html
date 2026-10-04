@@ -89,7 +89,12 @@
      the board's own choices, opened off the bar by one mark onto a page that
      covers the whole window (the settings page in card-tokens.css). the swatch
      is the background colour's control, which sits on that page */
-  #setbtn svg{width:22px; height:22px}
+  /* the settings mark is the logo itself, the squid png the phone's launch image
+     uses, cut to the squid's own bounds (917 by 1126 of its 1247 by 1261, from
+     165 across and 69 down) so no empty margin shows; the percentages are of the
+     box's width, so the same cut holds at any size */
+  .squidmark{display:block; height:22px; aspect-ratio:917 / 1126; overflow:hidden; flex:none}
+  .squidmark img{display:block; width:135.99%; max-width:none; height:auto; margin:-7.52% 0 0 -17.99%}
   #setbtn{display:flex; align-items:center; padding:2px; border:none; flex:none;
     background:none; color:var(--sub); cursor:pointer; transition:color .2s;
     /* the button's own 2px of padding pulled out, so the mark sits as far from
@@ -3482,7 +3487,7 @@
   <span class="name" id="boardname">facilitator</span>
   <button id="chimebtn" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
   <button id="installbtn" type="button" hidden>Install app</button>
-  <button id="setbtn" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="-1 0 15 15" shape-rendering="crispEdges" aria-hidden="true"><path fill="#f89d0f" d="M10 0h2v1h-2zM9 1h4v1h-4zM8 2h5v1h-5zM7 3h5v1h-5zM6 4h6v1h-6zM6 5h5v1h-5zM5 6h5v2h-5zM0 7h1v1h-1zM12 7h1v1h-1zM1 8h1v1h-1zM4 8h5v1h-5zM11 8h1v1h-1zM2 9h9v1h-9zM0 10h1v1h-1zM4 10h5v1h-5zM12 10h1v1h-1zM1 11h5v1h-5zM7 11h5v1h-5zM5 12h1v1h-1zM7 12h1v1h-1zM1 13h4v1h-4zM8 13h4v1h-4zM4 14h1v1h-1zM8 14h1v1h-1z"/><path fill="#0c0b0a" d="M5 8h1v1h-1zM7 8h1v1h-1z"/></svg></button>
+  <button id="setbtn" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
 </div>
 
 <!-- the settings, one group to a section: the page in card-logic.js builds the

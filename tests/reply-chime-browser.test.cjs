@@ -149,7 +149,7 @@ test("the pencil is gone, the edit code is kept, and the speaker is a plain mark
     const bar = await page.evaluate(() => {
       const dress = el => {
         const cs = getComputedStyle(el), box = el.getBoundingClientRect();
-        const svg = el.querySelector("svg").getBoundingClientRect();
+        const svg = el.querySelector("svg, .squidmark").getBoundingClientRect();
         return { color: cs.color, background: cs.backgroundColor, border: cs.borderTopStyle, shadow: cs.boxShadow,
           padding: cs.padding, mark: Math.round(svg.width) + "x" + Math.round(svg.height),
           w: box.width, h: box.height, mid: box.top + box.height / 2, left: box.left, right: box.right,
@@ -168,7 +168,7 @@ test("the pencil is gone, the edit code is kept, and the speaker is a plain mark
         xPaths: document.querySelectorAll("#chimebtn .chime-slash").length,
         bodyPaths: document.querySelectorAll("#chimebtn svg > path").length,
         leftovers: document.querySelectorAll("#chimebtn mask .chime-gap").length,
-        speakerStyle: style(document.getElementById("chimebtn")), gearStyle: style(document.getElementById("setbtn")),
+        speakerStyle: style(document.getElementById("chimebtn")),
         ink: { l: ink.x, t: ink.y, r: ink.x + ink.width, b: ink.y + ink.height },
         label: document.getElementById("chimebtn").getAttribute("aria-label"),
         title: document.getElementById("chimebtn").title,
