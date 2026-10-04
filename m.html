@@ -123,7 +123,9 @@
      follows its containing block. */
   :root{--root-h:100%}
   @media (display-mode:standalone){ :root{--root-h:100vh} }
-  html{height:var(--root-h); -webkit-text-size-adjust:100%}
+  /* page gestures may pan in either direction, but never zoom; the root also
+     constrains touches inside the drawers and their separate scrollers */
+  html{height:var(--root-h); -webkit-text-size-adjust:100%; touch-action:pan-x pan-y}
   body{
     --paper:#FFFFFF;
     margin:0; background:var(--paper); color:var(--ink);

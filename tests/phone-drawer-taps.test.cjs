@@ -114,6 +114,6 @@ test("a ticket picked from home still selects immediately and a second tap close
   assert.equal(f.opened(), false);
 });
 
-test("ticket touch handling permits pan and pinch while leaving double taps to the row", () => {
+test("ticket rows allow pans and clicks while ancestors constrain page zoom", () => {
   assert.match(html, /\.trow\{[^}]*touch-action:manipulation;/);
 });
