@@ -239,8 +239,9 @@ test("a tab dragged along the bar is written back to the board", async () => {
       tabs.map(t => { const r = t.getBoundingClientRect(); return { owner: t.dataset.owner, x: r.x, y: r.y, w: r.width, h: r.height }; }));
     const [first, second] = boxes;
     await page.mouse.move(first.x + first.w / 2, first.y + first.h / 2);
+    await page.waitForFunction(ow => document.querySelector(`#tabbar .ptab[data-owner="${ow}"]`).classList.contains("armed"), {}, first.owner);
     await page.mouse.down();
-    // sideways past the neighbour's midpoint: the desktop's own reorder gesture
+    // The visible cross at press latches the desktop's reorder gesture.
     for (let step = 1; step <= 8; step++) {
       await page.mouse.move(first.x + first.w / 2 + (second.x + second.w - first.x - first.w / 2) * step / 8,
                             first.y + first.h / 2);

@@ -1669,7 +1669,7 @@
      them for the whole gesture, so there is nothing behind them left to blur
      that anyone can see. the bar's own rules are untouched, so the resting look
      is the resting look */
-  body.p3zoom .bar .qn-glass{backdrop-filter:none; -webkit-backdrop-filter:none}
+  body.p3zoom .bar .qn-glass, body.focus.p3zoom #tabbar .projectlens{backdrop-filter:none; -webkit-backdrop-filter:none}
   /* ---- the file navigator, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
@@ -3105,75 +3105,43 @@
      the press too and a quick click barely grows before it lets go */
   body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
-  /* the oval: every open project's name in the board's order, 3px of glass
-     round the seat. it holds its names in one line and is as long as they
-     are, as the tab strip was, so a window too narrow for them pushes what
-     stands after it out of the window as the tabs did. it clips what it holds
-     to its own round shape, so the seat's shadow stays inside it */
+  /* Bare names share only a layout wrapper. The one lens paints above their
+     pixels but takes no input: the buttons keep their clicks and drags. */
   body.focus #tabbar .taboval{position:relative; flex:none; display:flex; align-items:center;
-    height:32px; padding:0 3px; border-radius:16px; overflow:clip}
-  /* a name is the seat's shape and size, its label centred on the oval's
-     line, with no fill, border or notch of its own: the seat is the one mark of
-     the open project. these rules stay inside the bar, since the ticket list's
-     names and the file navigator's tabs wear the same .ptab */
+    height:32px}
   body.focus #tabbar .ptab{position:relative; z-index:1; top:0;
-    display:flex; align-items:center; height:26px; padding:0 14px;
-    border:none; border-radius:13px; background:none;
+    display:flex; align-items:center; height:32px; padding:0 14px;
+    border:none; border-radius:16px; background:none;
     transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
   body.focus #tabbar .ptab.closed{display:none}
   body.focus #tabbar .ptab::before, body.focus #tabbar .ptab::after{content:none}
   body.focus #tabbar :is(.ptab.on, .ptab.draft, .ptab.dragging){background:none; border:none; box-shadow:none}
   body.focus #tabbar .ptab.dragging{z-index:2}
   body.focus #tabbar .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
-  /* the close band keeps its measures: 12px more room on the right, the
-     cross's 24px box 3px in from the name's end, its ink 7px clear of the
-     label and 11px clear of the end. its box is the name's line, so the ink
-     stands on the word's middle */
   body.focus #tabbar .ptab.armed{padding-right:26px}
-  body.focus #tabbar .ptabx{top:1px; height:24px}
-  /* the seat: a glass oval 3px inside the oval all round, as long as the open
-     project's name. it is drawn as two halves, each a long oval of the same
-     glass cut off at the seat's middle, one standing on the seat's left end
-     and the other, turned round, on its right end. a change of project moves
-     the two ends to the new name, the halves by transforms alone on the
-     board's own curve, so the seat slides and grows or shrinks on the way
-     with its round ends drawn true the whole time. the script writes the
-     seat's start (--sx), its length (--sw), where the halves meet (--sm, the
-     middle set on a whole device pixel, since two cut edges meeting inside one
-     pixel leave it part lit) and the halves' length (--smax, longer than any
-     name), and says still when it is only to follow its name.
-     the glass's highlight sweep is drawn over the first 120px of each half, so
-     it meets itself at the middle. it has no blur of its own: behind it is
-     only the oval's face. while home is up it fades out where it stands */
-  body.focus #tabbar .tabseat{position:absolute; inset:0; z-index:0; pointer-events:none;
-    --sx:0px; --sw:0px; --sm:0px; --smax:480px;
-    transition:opacity .18s var(--gentle), translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  body.focus #tabbar .tabseat.gone{opacity:0}
-  body.focus #tabbar .seatbody{position:absolute; inset:0;
-    transform-origin:calc(var(--sx) + var(--sw) / 2) 50%;
-    transition:scale .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
-  body.focus #tabbar .seathalf{position:absolute; left:0; top:-30px; bottom:-30px; overflow:hidden;
-    width:calc(var(--smax) / 2 + 40px); transition:transform .28s var(--gentle)}
-  body.focus #tabbar .seathalf.l{transform:translateX(calc(var(--sm) - var(--smax) / 2 - 40px))}
-  body.focus #tabbar .seathalf.r{transform:translateX(var(--sm))}
-  body.focus #tabbar :is(.seathalf > i, .tabheld){position:absolute; left:0; height:26px;
-    border-radius:13px; --qn-tint:inherit; --qn-edge:inherit;
-    backdrop-filter:none; -webkit-backdrop-filter:none;
-    background-size:auto, auto, auto, auto, auto, 120px 100%;
-    background-repeat:repeat, repeat, repeat, repeat, repeat, no-repeat}
-  body.focus #tabbar .seathalf > i{top:33px; width:var(--smax); transition:transform .28s var(--gentle)}
-  body.focus #tabbar .seathalf.l > i{transform:translateX(calc(var(--smax) / 2 + 40px - var(--sm) + var(--sx)))}
-  body.focus #tabbar .seathalf.r > i{transform:translateX(calc(var(--sx) + var(--sw) - var(--smax) - var(--sm))) scaleX(-1)}
-  body.focus #tabbar .tabseat.still :is(.seathalf, .seathalf > i){transition:none}
-  /* pressing the open project's name presses the seat as a circle is pressed */
-  body.focus #tabbar .tabseat.pressed .seatbody{scale:1.06; --qn-tint:.95; --qn-edge:3;
-    transition:scale .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
-  /* a name carried along the oval wears a seat over the names it passes: the
-     open one's own seat when that is the name carried, which rises over the
-     other names while it is, and otherwise a seat of its own for as long as
-     it is held, while the open one's seat glides aside with its name */
-  body.focus #tabbar .tabseat.carried{z-index:2}
-  body.focus #tabbar .tabheld{top:3px; z-index:1; pointer-events:none}
+  body.focus #tabbar .ptabx{top:4px; height:24px}
+  /* One continuous capsule, including its backdrop capture. A mostly clear
+     face keeps the refracted letters readable, including while pressed. */
+  body.focus #tabbar .projectlens{position:absolute; left:0; top:0; height:32px;
+    box-sizing:border-box; border-radius:16px; z-index:3; pointer-events:none;
+    background:linear-gradient(145deg, rgba(255,255,255,.15), rgba(255,255,255,.02) 65%);
+    box-shadow:inset 0 0 0 1px #c7c7cc, inset 0 -1px 0 rgba(255,255,255,.8),
+      inset 0 1px 2px rgba(255,255,255,.55), 0 1px 3px rgba(0,0,0,.09), 0 6px 14px rgba(0,0,0,.05);
+    backdrop-filter:var(--lens-filter); -webkit-backdrop-filter:var(--lens-filter)}
+  /* The outer seat moves and sizes the lens. Only the inner lens grows on
+     press: its map stays in local coordinates, separate from the slide.
+     Fade the lens itself, never an ancestor that would cut off its backdrop. */
+  body.focus #tabbar .tabseat{position:absolute; left:0; top:0; height:32px; width:0;
+    z-index:3; pointer-events:none;
+    transition:transform .28s var(--gentle), width .28s var(--gentle),
+      translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  body.focus #tabbar .tabseat.still{transition:translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  body.focus #tabbar .seatlens{width:100%;
+    transition:transform .5s var(--gentle), background-color .5s var(--gentle), opacity .18s var(--gentle)}
+  body.focus #tabbar .tabseat.gone .seatlens{opacity:0}
+  body.focus #tabbar .tabseat.pressed .seatlens{transform:scale(1.1); background-color:rgba(255,255,255,.06);
+    transition:transform .38s cubic-bezier(.2,.8,.2,1), background-color .38s ease-out, opacity .18s var(--gentle)}
+  body.focus #tabbar :is(.tabseat.carried, .tabheld){z-index:4}
   /* the plus: its own circle after the oval, its two bars the house's line,
      in the ink at three quarters as the typed plus was, and full under a
      pointer */
@@ -3900,7 +3868,7 @@ function deselect(){
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
 }
 
-let tabDrag = null;   // one grip, two gestures: sideways reorders the bar, a downward tug tears the tab out
+let tabDrag = null;   // horizontal intent is latched at press; a downward tug still tears out
 let tabGlide = null;  // the settle timer after a drop; the bar may not repaint under it
 // the tabs the reader has closed: the reader's view of the bar, never anything about the lanes
 // themselves. it rides in the board's own tab record beside the order, so the
@@ -3947,7 +3915,7 @@ function seedSeenOnce(st){
 }
 function renderTabs(st){
   if (!FOCUS || !st) return;
-  if (tabDrag?.mode === "reorder" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
+  if (tabDrag?.mode === "reorder" || tabDrag?.mode === "select" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
   // a board with no project to show opens on the home page, where one is added.
   // asked once per load, so leaving home by the plus is not undone on the next paint
   if (!homeChecked){
@@ -3984,10 +3952,9 @@ function renderTabs(st){
     disarmTab();
     bar.dataset.sig = sig;
     bar.textContent = "";
-    // the names stand on one glass oval. the seat is the one piece a rebuild
-    // keeps: it goes into the new oval where it stood in the old one, so a
-    // repaint never sets it sliding
-    const oval = h("span", "taboval qn-glass");
+    // The bare names keep one layout wrapper. Reuse the lens across rebuilds
+    // so a poll never restarts its motion.
+    const oval = h("span", "taboval");
     oval.appendChild(tabSeat.el);
     bar.appendChild(oval);
     seatWatch.disconnect();
@@ -4006,14 +3973,14 @@ function renderTabs(st){
         t.addEventListener("mouseenter", () => tabDwell(t));
         t.addEventListener("mouseleave", () => { if (tabArm?.el === t) disarmTab(); });
         t.addEventListener("mousedown", e => {
-          if (tabGlide) return;   // a drop still settling holds the bar
-          tabDrag = { ow, x: e.clientX, y: e.clientY, mode: null, pulled: false, el: t };
+          if (e.button !== 0 || tabGlide) return;
+          beginTabDrag(t, ow, e);
         });
       }
       // a press on the open project's name is a press on the seat under it
       t.addEventListener("pointerdown", e => { if (e.button === 0 && t.classList.contains("on")) seatPress.press(); });
       t.addEventListener("click", () => {
-        if (tabDrag?.pulled || tabDrag?.mode === "reorder") return;   // a pull or a slide is not a tab switch
+        if (tabDrag?.pulled || ["reorder", "select", "selected"].includes(tabDrag?.mode)) return;   // the drag owns its release
         // the open project's own tab lets go of the selected card on screen,
         // which stays there browsed; any other tab switches to its lane
         if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing) unselectShown();
@@ -4057,52 +4024,104 @@ function renderTabs(st){
   seatSoon();
 }
 // ---- the seat ----------------------------------------------------------------
-// the glass oval under the open project's name. placeSeat measures the open
-// name (or the new project's draft name) inside the oval and writes where the
-// seat starts and how long it is; the stylesheet draws the rest. a change of
-// project slides it there on the board's curve; anything else that moves the
-// name under it (a rename, a name closed or opened before it, the close band,
-// the fonts arriving) only carries it along, with no motion, and a repaint
-// that changes nothing writes nothing, so a poll never replays the slide. with
-// no name open, as while home is up, it fades out where it stands, and it
-// comes back on the next open name without sliding in from anywhere. a live
-// drag carries it itself (startReorder below)
-const tabSeat = { el: null, owner: null, x: null, w: null, max: 480, drawn: false };
-tabSeat.el = h("span", "tabseat still gone");
+// SVG displacement operates on the live backdrop in Chrome. The map is local
+// to one capsule; translating it reuses the map, resizing it changes the map.
+// See Filter Effects 1, feDisplacementMap, and GoogleChromeLabs' liquid glass
+// reference. The center samples inward at 1.075x; a smooth inward bevel bends
+// the edge more, without requesting pixels outside the captured rectangle.
+function lensOffset(x, y, width, height = 32){
+  const cx = width / 2, cy = height / 2, radius = Math.min(cx, cy);
+  const axis = Math.max(radius, Math.min(width - radius, x));
+  const nx = x - axis, ny = y - cy, length = Math.hypot(nx, ny);
+  const depth = radius - length;
+  const rim = depth > 0 && depth < 6 ? 2.4 * Math.sin(Math.PI * depth / 6) : 0;
+  return [(cx - x) * (1 - 1 / 1.075) - (length ? nx / length * rim : 0),
+          (cy - y) * (1 - 1 / 1.075) - (length ? ny / length * rim : 0)];
+}
+const lensMaps = new Map();
+function lensMap(width){
+  const w = Math.max(1, Math.round(width)), height = 32;
+  if (lensMaps.has(w)) return lensMaps.get(w);
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = height;
+  const ctx = canvas.getContext("2d"), pixels = ctx.createImageData(w, height);
+  const scale = Math.max(16, w * .08 + 6);
+  for (let y = 0; y < height; y++) for (let x = 0; x < w; x++){
+    const [dx, dy] = lensOffset(x + .5, y + .5, w, height), i = (y * w + x) * 4;
+    pixels.data[i] = Math.round(255 * (.5 + dx / scale));
+    pixels.data[i + 1] = Math.round(255 * (.5 + dy / scale));
+    pixels.data[i + 2] = 128; pixels.data[i + 3] = 255;
+  }
+  ctx.putImageData(pixels, 0, 0);
+  const map = { url: canvas.toDataURL(), scale };
+  if (lensMaps.size >= 64) lensMaps.delete(lensMaps.keys().next().value);
+  lensMaps.set(w, map);
+  return map;
+}
+const lensSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+lensSvg.setAttribute("width", "0"); lensSvg.setAttribute("height", "0");
+lensSvg.setAttribute("aria-hidden", "true");
+lensSvg.style.position = "absolute";
+document.body.appendChild(lensSvg);
+let lensId = 0;
+function resizeLens(el, width){
+  if (!width) return;
+  const map = lensMap(width), lens = el.lens;
+  lens.image.setAttribute("width", width);
+  if (lens.map !== map){
+    lens.image.setAttribute("href", map.url);
+    lens.displace.setAttribute("scale", map.scale);
+    lens.map = map;
+  }
+}
+const lensWatch = new ResizeObserver(entries => {
+  for (const entry of entries) resizeLens(entry.target, entry.contentRect.width);
+});
+function makeLens(cls){
+  const el = h("span", "projectlens " + cls), id = "project-lens-" + (++lensId);
+  el.setAttribute("aria-hidden", "true");
+  const filter = document.createElementNS(lensSvg.namespaceURI, "filter");
+  filter.id = id;
+  filter.setAttribute("x", "0"); filter.setAttribute("y", "0");
+  filter.setAttribute("width", "100%"); filter.setAttribute("height", "100%");
+  filter.setAttribute("filterUnits", "objectBoundingBox");
+  filter.setAttribute("primitiveUnits", "userSpaceOnUse");
+  filter.setAttribute("color-interpolation-filters", "sRGB");
+  filter.innerHTML = '<feImage x="0" y="0" height="32" preserveAspectRatio="none" result="map"/>' +
+    '<feDisplacementMap in="SourceGraphic" in2="map" xChannelSelector="R" yChannelSelector="G"/>';
+  lensSvg.appendChild(filter);
+  el.lens = { filter, image: filter.firstElementChild, displace: filter.lastElementChild };
+  el.style.setProperty("--lens-filter", "url(#" + id + ")");
+  lensWatch.observe(el);
+  return el;
+}
+function removeLens(el){
+  lensWatch.unobserve(el); el.lens.filter.remove(); el.remove();
+}
+const tabSeat = { el: h("span", "tabseat still gone"), face: makeLens("seatlens"), owner: null, x: null, w: null, drawn: false };
 tabSeat.el.setAttribute("aria-hidden", "true");
-tabSeat.el.innerHTML = '<span class="seatbody"><span class="seathalf l"><i class="qn-glass"></i></span><span class="seathalf r"><i class="qn-glass"></i></span></span>';
+tabSeat.el.appendChild(tabSeat.face);
 function placeSeat(){
   const seat = tabSeat, el = seat.el, oval = el.parentNode;
-  if (!oval || tabDrag?.mode === "reorder" || tabGlide) return;
+  if (!oval || tabDrag?.mode === "reorder" || tabDrag?.mode === "select" || tabGlide) return;
   const on = oval.querySelector(".ptab.on, .ptab.draft");
   const r = on && on.getBoundingClientRect();
-  if (!r || !r.width){
-    el.classList.add("gone");
-    seat.owner = null;
-    return;
-  }
-  const o = oval.getBoundingClientRect();
-  const x = r.left - o.left, w = r.width;
+  if (!r || !r.width){ el.classList.add("gone"); seat.owner = null; seat.returning = false; return; }
+  const o = oval.getBoundingClientRect(), x = r.left - o.left, w = r.width;
   const owner = on.classList.contains("draft") ? DRAFT : on.dataset.owner;
-  const slide = seat.owner !== null && owner !== seat.owner;
+  const slide = seat.returning || (seat.owner !== null && owner !== seat.owner);
+  seat.returning = false;
   if (!slide && owner === seat.owner && x === seat.x && w === seat.w) return;
-  // the halves are longer than any name by a margin; a longer name lengthens
-  // them first, in place, since a slide is drawn true only at one length
-  const grow = w > seat.max - 40;
-  if (grow) seat.max = Math.ceil(w) + 240;
-  el.classList.toggle("still", !slide || grow);
-  const px = devicePixelRatio || 1;
-  el.style.setProperty("--smax", seat.max + "px");
-  el.style.setProperty("--sx", x + "px");
-  el.style.setProperty("--sw", w + "px");
-  el.style.setProperty("--sm", Math.round((x + w / 2) * px) / px + "px");
-  // the first time it is drawn it is simply there, as the bar is: a fade
-  // running while the page is still opening holds the opening's own frames
-  // back. the next frame gives the seat its motion back
+  el.classList.toggle("still", !slide);
+  el.style.transform = "translateX(" + x + "px)";
+  el.style.width = w + "px";
   if (!seat.drawn){
     seat.drawn = true;
-    el.style.transition = "none";
-    requestAnimationFrame(() => { if (!el.classList.contains("carried")) el.style.transition = ""; });
+    el.style.transition = "none"; seat.face.style.transition = "none";
+    requestAnimationFrame(() => {
+      seat.face.style.transition = "";
+      if (!tabDrag && !tabGlide) el.style.transition = "";
+    });
   }
   el.classList.remove("gone");
   seat.owner = owner; seat.x = x; seat.w = w;
@@ -4231,61 +4250,133 @@ function reopenTab(ow){
   setTab(ow);   // this ends the choosing tab and lands on the card left here
   if (lastState) renderTabs(lastState);
 }
-// the first clear direction locks the gesture for the whole drag: mostly
-// sideways slides the tab along the bar, mostly downward tears it out, and
-// once locked the other mode cannot fire. tearing works like a browser tab:
-// past the threshold the tab dims, and on release the project's own window
-// opens where the cursor let go
+// Horizontal intent is captured before a hover timer can change the cross.
+// The first clear direction then chooses that intent or the existing tear-out.
+function beginTabDrag(el, ow, e){
+  tabDrag = { ow, el, x: e.clientX, y: e.clientY, mode: null, pulled: false,
+    horizontal: el.classList.contains("armed") ? "reorder" : "select" };
+  if (tabArm) clearTimeout(tabArm.timer);
+}
+function shutTabBands(){
+  const all = [...document.querySelectorAll("#tabbar .ptab")];
+  for (const el of all){ el.style.transition = "none"; el.classList.remove("armed"); }
+  document.getElementById("tabbar").getBoundingClientRect();
+  for (const el of all) el.style.transition = "";
+}
+function startTabSelection(){
+  const t = tabDrag, oval = t.el.parentNode;
+  shutTabBands();
+  const r = t.el.getBoundingClientRect();
+  if (!r.width || !t.el.isConnected){ tabDrag = null; return; }
+  placeSeat();
+  t.mode = "select";
+  t.tabs = [...oval.querySelectorAll(".ptab:not(.draft)")].filter(el => el.getBoundingClientRect().width);
+  t.rects = t.tabs.map(el => el.getBoundingClientRect());
+  t.left = r.left - oval.getBoundingClientRect().left;
+  t.source = r;
+  const el = tabSeat.el;
+  el.classList.add("still", "carried"); el.classList.remove("gone");
+  el.style.transition = "none";
+  el.style.translate = "";
+  el.style.width = r.width + "px";
+  el.style.transform = "translateX(" + t.left + "px)";
+}
+function moveTabSelection(e){
+  const t = tabDrag, first = t.rects[0], last = t.rects[t.rects.length - 1];
+  const source = t.source;
+  const dx = Math.max(first.left - source.left, Math.min(last.right - source.right, e.clientX - t.x));
+  tabSeat.el.style.transform = "translateX(" + (t.left + dx) + "px)";
+}
+function finishTabSelection(e){
+  const t = tabDrag;
+  if (t?.mode !== "select") return;
+  const index = e ? t.rects.findIndex(r => e.clientX >= r.left && e.clientX < r.right &&
+    e.clientY >= r.top && e.clientY <= r.bottom) : -1;
+  const owner = index < 0 ? null : t.tabs[index].dataset.owner;
+  // Keep a completed gesture until its synthetic click has passed, but allow
+  // the release's one setTab/apply to repaint the bar normally.
+  t.mode = "selected";
+  const el = tabSeat.el;
+  el.getBoundingClientRect();   // commit the dragged position before settling
+  el.style.transition = ""; el.classList.remove("carried", "still");
+  tabSeat.x = null; tabSeat.returning = true;
+  if (owner && validActiveOwnerIds.has(owner) && !tabClosed(owner) &&
+      (owner !== activeOwner || homeOpen || draft)) setTab(owner);
+  if (lastState) renderTabs(lastState);
+  placeSeat();
+}
 addEventListener("mousemove", e => {
   if (!tabDrag) return;
-  if (!e.buttons){   // the release landed outside the window; the grip is stale
+  if (tabDrag.mode === "selected"){ if (!e.buttons) tabDrag = null; return; }
+  if (!e.buttons){
     if (tabDrag.mode === "reorder") dropReorder();
+    else if (tabDrag.mode === "select") finishTabSelection(null);
+    else tabDrag.el.classList.remove("tearing");
     tabDrag = null;
     return;
   }
   const dx = e.clientX - tabDrag.x, dy = e.clientY - tabDrag.y;
   if (!tabDrag.mode){
-    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;   // under the lock threshold a click stays a click
-    // a gesture is not a rest: the bar is about to be measured and moved, and a
-    // band opening or shutting under the drag would move the rects it measures
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
     disarmTab();
-    if (Math.abs(dx) > Math.abs(dy)) startReorder();
-    else tabDrag.mode = "tear";
+    if (Math.abs(dx) > Math.abs(dy)){
+      if (tabDrag.horizontal === "reorder") startReorder();
+      else startTabSelection();
+    } else tabDrag.mode = "tear";
   }
+  if (!tabDrag) return;
   if (tabDrag.mode === "reorder") moveReorder(e);
+  else if (tabDrag.mode === "select") moveTabSelection(e);
   else if (!tabDrag.pulled && dy > 40){
     tabDrag.pulled = true;
     tabDrag.el.classList.add("tearing");
   }
 });
 addEventListener("mouseup", e => {
+  const grip = tabDrag;
+  if (!grip) return;
+  const hoverOwner = e.target?.closest?.("#tabbar .ptab")?.dataset.owner;
   if (tabDrag?.mode === "reorder") dropReorder();
+  else if (tabDrag?.mode === "select") finishTabSelection(e);
   else if (tabDrag?.pulled){
     tabDrag.el.classList.remove("tearing");
     open(location.pathname + "?project=" + tabDrag.ow, "_blank",
          "popup=yes,width=1100,height=850,left=" + Math.max(0, e.screenX - 200) + ",top=" + Math.max(0, e.screenY - 20));
   }
-  setTimeout(() => { tabDrag = null; }, 0);
+  setTimeout(() => {
+    if (tabDrag !== grip) return;
+    tabDrag = null;
+    // A click cancels the old dwell clock. Resting here afterwards starts a
+    // fresh one, even when the pointer has not left and re-entered the name.
+    const over = [...document.querySelectorAll("#tabbar .ptab")].find(t => t.dataset.owner === hoverOwner);
+    if (over?.matches(":hover")) tabDwell(over);
+  }, 0);
 });
+function cancelTabSelection(){
+  if (tabDrag?.mode !== "select") return;
+  finishTabSelection(null);
+}
+addEventListener("blur", cancelTabSelection);
+addEventListener("pointercancel", cancelTabSelection);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") cancelTabSelection();
+});
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && tabDrag?.mode === "select"){
+    cancelTabSelection(); e.preventDefault(); e.stopImmediatePropagation();
+  }
+}, true);
 
 // the sideways lock: the resting spots are measured once, the held tab lifts,
 // and every swap reads against those fixed midpoints
 function startReorder(){
   const t = tabDrag;
-  // a dwell band still opening or shutting would put a moving number in the
-  // ruler, and the whole drag is measured once and then trusted. so every tab
-  // is snapped to its resting width before anything is read: the band is gone
-  // this instant rather than 180ms from now, and the transitions come back
-  // before the drag's own animations need them
-  const all = [...document.querySelectorAll("#tabbar .ptab")];
-  for (const el of all){ el.style.transition = "none"; el.classList.remove("armed"); }
-  document.getElementById("tabbar").getBoundingClientRect();   // the shut is real now
+  shutTabBands();
   // the strip is what the bar is actually showing: a closed tab is in the bar's
   // markup but takes no room, so it would put a zero-width rect in the middle of
   // the measured line and every midpoint after it would read wrong
   t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")]
     .filter(el => el.getBoundingClientRect().width);
-  for (const el of all) el.style.transition = "";
   t.idx = t.tabs.indexOf(t.el);
   if (t.idx < 0){ tabDrag = null; return; }   // the bar rebuilt under the grip; the drag dies quietly
   placeSeat();   // the band that just shut may have moved the seat's name
@@ -4305,7 +4396,7 @@ function startReorder(){
     tabSeat.el.classList.add("carried");
   } else {
     const o = t.el.parentNode.getBoundingClientRect();
-    t.held = h("i", "tabheld qn-glass");
+    t.held = makeLens("tabheld");
     t.held.style.left = (t.rects[t.idx].left - o.left) + "px";
     t.held.style.width = t.rects[t.idx].width + "px";
     t.el.parentNode.appendChild(t.held);
@@ -4373,7 +4464,7 @@ function dropReorder(){
     t.el.classList.remove("dragging");
     t.el.style.transition = ""; t.el.style.transform = "";
     for (const el of t.tabs){ el.classList.remove("gliding"); el.style.transform = ""; }
-    if (t.held) t.held.remove();
+    if (t.held) removeLens(t.held);
     // the seat is set down where it now stands, on its name's new place
     tabSeat.el.style.transition = "none";
     tabSeat.el.style.translate = "";
