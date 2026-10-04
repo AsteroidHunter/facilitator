@@ -1,25 +1,12 @@
 {
   "port": 8877,
   "log_level": "info",
+  "app_fullscreen": true,
+  "background_default": "#ffffff",
   "image_panel_lane": "",
   "spotify_client_id": "",
-  "navigator_lanes": ["example"],
+  "navigator_lanes": [],
   "compose_format_default": false,
-  "lanes": [
-    {
-      "owner": "facilitator",
-      "tmux": "my-facilitator-session",
-      "dir": "~/projects/myproject/facilitator",
-      "instruction": "Attach your board listener: run the RUNBOOK listen loop with owner=facilitator and answer claims per doctrine. Server is already running.",
-      "prompt": "You are the facilitator agent. Read RUNBOOK.md in this directory, then run the listen loop with owner=facilitator and answer box claims per the doctrine. The server is already running; never start a second one."
-    },
-    {
-      "owner": "example",
-      "tmux": "my-project-session",
-      "dir": "~/projects/myproject",
-      "instruction": "Attach to the facilitator board: read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=example and answer claims per doctrine. Server is already running.",
-      "prompt": "You are the second agent on the discussion board. Read the facilitator repo's RUNBOOK.md, then run the listen loop with owner=example and answer box claims per the doctrine. The server is already running; never start a second one."
-    }
-  ],
+  "lanes": [],
   "push_contact": "mailto:you@example.com"
 }

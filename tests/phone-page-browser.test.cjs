@@ -75,6 +75,11 @@ async function settle(ms = 250) {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// layout units are sixty-fourths of a pixel, and the flexible capsule takes up every neighbour's rounding
+function near(actual, expected, what) {
+  assert.ok(Math.abs(actual - expected) < 0.1, `${what}: ${actual} is not ${expected}`);
+}
+
 before(async () => {
   await mkdir(SHOTS, { recursive: true });
   fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-phone-"));
@@ -165,9 +170,10 @@ test("the card fills the phone from a thin top margin down to the row of buttons
         dock: { left: dock.left, right: innerWidth - dock.right, bottom: innerHeight - dock.bottom, height: dock.height },
         buttons: [...document.querySelectorAll("#dock .dockbtn")].map(b => {
           const r = b.getBoundingClientRect();
-          return [b.id, Math.round(r.width), Math.round(r.height), getComputedStyle(b).borderRadius, b.classList.contains("qn-glass")];
+          return [b.id, r.width, r.height, parseFloat(getComputedStyle(b).borderTopLeftRadius), b.classList.contains("qn-glass")];
         }),
         width: innerWidth, height: innerHeight,
+        sink: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink")),
         visible: [...document.querySelectorAll("article.box")].filter(b => getComputedStyle(b).display !== "none").length,
         nothingElse: !document.querySelector("#magic1, #magic2, #magic3, #qchat, #clockbox, #tabbar"),
       };
@@ -176,18 +182,32 @@ test("the card fills the phone from a thin top margin down to the row of buttons
     assert.ok(shape.projects.every(label => label.trim().length > 0), "a project without a label");
     assert.equal(shape.activeProject, "facilitator");
     assert.ok(shape.capsule.trim().length > 0, "the capsule names no project");
-    assert.ok(shape.top >= 4 && shape.top <= 12, `the card starts at the top with a thin margin (${shape.top})`);
-    assert.ok(shape.left >= 4 && shape.left <= 12, `thin left margin (${shape.left})`);
-    assert.ok(shape.right >= 4 && shape.right <= 12, `thin right margin (${shape.right})`);
+    // at rest the page stands in from each screen edge by half of --sink of that
+    // side and is laid out --rest of its full size, so each length below is its
+    // full-size figure times rest, on top of the step in
+    assert.ok(shape.sink > 0 && shape.sink < 0.05, `the page's rest step is not a small share (${shape.sink})`);
+    const rest = 1 - shape.sink, stepX = shape.width * shape.sink / 2, stepY = shape.height * shape.sink / 2;
+    near(shape.top, stepY + 6 * rest, "the card starts at the top with a thin margin");
+    near(shape.left, stepX + 6 * rest, "thin left margin");
+    near(shape.right, stepX + 6 * rest, "thin right margin");
     // the card stands on the band iOS gives a paired keyboard's bar, and the
     // row of buttons is laid where that bar's pill is: 48 tall, 10 off the
     // bottom edge, 16 in from each side
-    assert.equal(shape.bottom, 68, `the card does not stand on the row's band (${shape.bottom})`);
-    assert.deepEqual(shape.dock, { left: 16, right: 16, bottom: 10, height: 48 });
+    near(shape.bottom, stepY + 68 * rest, "the card does not stand on the row's band");
+    near(shape.dock.left, stepX + 16 * rest, "the row does not start 16 in");
+    near(shape.dock.right, stepX + 16 * rest, "the row does not end 16 in");
+    near(shape.dock.bottom, stepY + 10 * rest, "the row is not 10 off the bottom");
+    near(shape.dock.height, 48 * rest, "the row is not 48 tall");
     // four glass buttons: a circle, the long capsule, a short one, a circle
-    const capsule = shape.width - 32 - 48 - 72 - 48 - 3 * 8;
-    assert.deepEqual(shape.buttons, [["tikbtn", 48, 48, "24px", true], ["projbtn", capsule, 48, "24px", true],
-      ["tikadd", 72, 48, "24px", true], ["setbtn", 48, 48, "24px", true]]);
+    const capsule = shape.width - 2 * stepX - rest * (32 + 48 + 72 + 48 + 3 * 8);
+    const buttons = [["tikbtn", 48], ["projbtn", null], ["tikadd", 72], ["setbtn", 48]];
+    assert.deepEqual(shape.buttons.map(b => b[0]), buttons.map(b => b[0]));
+    shape.buttons.forEach(([id, width, height, radius, glass], i) => {
+      near(width, buttons[i][1] === null ? capsule : buttons[i][1] * rest, `${id} width`);
+      near(height, 48 * rest, `${id} height`);
+      near(radius, 24 * rest, `${id} radius`);
+      assert.equal(glass, true, `${id} is not glass`);
+    });
     assert.equal(shape.visible, 1, "exactly one card is shown");
     assert.ok(shape.nothingElse, "nothing but the card, the row of buttons and the drawers");
 
@@ -226,7 +246,7 @@ test("the card fills the phone from a thin top margin down to the row of buttons
     assert.equal(prose.pendIsCardmd, true, "sent messages do not go through the shared renderer");
     assert.equal(prose.pendBold, "second");
     assert.equal(prose.title, "Phone page renders the shared markdown");
-    assert.equal(prose.replyFont, "17px");
+    near(parseFloat(prose.replyFont), 17 * rest, "the reply's type is not laid out at rest's share of 17px");
     assert.match(prose.titleFamily, /Inter/);
     await page.screenshot({ path: path.join(SHOTS, "test-phone-card.png") });
 
@@ -348,7 +368,7 @@ test("a full reading requested before create cannot erase the card being named",
       focused: document.activeElement === els[id]?.titleEl,
       title: els[id]?.titleEl.textContent || "",
       createOps: ops.filter(op => op.kind === "create").length,
-      drawerOpen: document.getElementById("drawer").classList.contains("open"),
+      drawerOpen: document.getElementById("tickets").classList.contains("open"),
     }), result.id), {
       present: true, selected: true, editing: true, focused: true,
       title: "Naming during delayed reading", createOps: 0, drawerOpen: false,
@@ -545,16 +565,19 @@ test("a pull from the left edge brings in the card list with the desktop's three
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
-    assert.equal(await page.evaluate(() => document.getElementById("drawer").classList.contains("open")), false);
+    assert.equal(await page.evaluate(() => document.getElementById("tickets").classList.contains("open")), false);
+    const restTop = await page.evaluate(() => document.getElementById("pane").getBoundingClientRect().top);
     await page.touchscreen.touchStart(6, 500);
     for (let x = 30; x <= 300; x += 30) await page.touchscreen.touchMove(x, 500);
     await page.touchscreen.touchEnd();
-    await settle(400);
+    await settle(800);
     const drawer = await page.evaluate(() => {
-      const rect = document.getElementById("drawer").getBoundingClientRect();
+      const rect = document.getElementById("tickets").getBoundingClientRect();
+      const pane = document.getElementById("pane").getBoundingClientRect();
       return {
-        open: document.getElementById("drawer").classList.contains("open"),
-        left: rect.left,
+        open: document.getElementById("tickets").classList.contains("open"),
+        left: rect.left, right: rect.right, width: rect.width, paneLeft: pane.left, paneRight: pane.right,
+        paneTop: pane.top, boxBottom: rect.bottom, height: innerHeight,
         labels: [...document.querySelectorAll("#tikhead .tvb")].map(b => b.textContent),
         // the sheet draws all three sections; the shown one is the doing pane
         rows: [...document.querySelectorAll('.tikpane[data-view="todo"] .trow')].map(r => ({
@@ -563,7 +586,14 @@ test("a pull from the left edge brings in the card list with the desktop's three
       };
     });
     assert.equal(drawer.open, true, "the pull did not open the drawer");
-    assert.equal(drawer.left, 0);
+    // the box has come in to the middle of the card's column at nine tenths of its width, and the card has
+    // gone down 55% of the screen with the foot of the box clear of the card's top edge
+    const column = drawer.paneRight - drawer.paneLeft;
+    assert.ok(Math.abs(drawer.width - 0.9 * column) < 1, `the box is not nine tenths of the card's width (${drawer.width} of ${column})`);
+    assert.ok(Math.abs((drawer.left - drawer.paneLeft) - (drawer.paneRight - drawer.right)) < 1,
+      "the box did not come in to the middle of the card's column");
+    assert.ok(Math.abs(drawer.paneTop - restTop - drawer.height * 0.55) < 2, "the card did not go down 55% of the screen");
+    assert.ok(drawer.boxBottom <= drawer.paneTop, "the box stands over the card");
     assert.deepEqual(drawer.labels, ["Doing", "Deferred", "Done"], "labels differ from the desktop list, or carry counts");
     const titles = drawer.rows.map(r => r.title);
     assert.ok(titles.includes("Working on the phone"));
@@ -589,11 +619,11 @@ test("a pull from the left edge brings in the card list with the desktop's three
     await page.evaluate(() => document.querySelector('.tikpane[data-view="done"] .trow').click());
     await settle(300);
     const picked = await page.evaluate(() => ({
-      open: document.getElementById("drawer").classList.contains("open"),
+      open: document.getElementById("tickets").classList.contains("open"),
       title: document.querySelector("article.box.sel .title").textContent,
       titleColour: getComputedStyle(document.querySelector("article.box.sel .title")).color,
     }));
-    assert.equal(picked.open, false, "picking a card left the drawer open");
+    assert.equal(picked.open, true, "picking a card shut the list");
     assert.equal(picked.title, "Done on the phone");
     assert.equal(picked.titleColour, "rgb(47, 107, 60)", "a done card's title is not the desktop's green");
     await page.screenshot({ path: path.join(SHOTS, "test-phone-done-card.png") });
@@ -786,22 +816,32 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
     await page.evaluate(() => document.querySelector("article.box.sel .histbtn.newer").click());
     await page.waitForFunction(() => document.querySelector("article.box.sel .reply").textContent === "Second reply, the live one.", { timeout: 3000 });
 
+    // the tapped card is painted parked on the tap itself, before the screen
+    // moves on, so that is watched for rather than read afterwards
+    await page.evaluate(cardId => {
+      const box = document.getElementById("box-" + cardId);
+      window.__paintedParked = false;
+      new MutationObserver(() => { if (box.classList.contains("parked")) window.__paintedParked = true; })
+        .observe(box, { attributes: true, attributeFilter: ["class"] });
+    }, id);
     const parked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
     await page.evaluate(() => document.querySelector("article.box.sel .arcbtn").click());
     assert.equal(new URL((await parked).url()).searchParams.get("v"), "1");
     // a card parked from doing leaves the screen for the doing card below it
-    // (db32309), so the parked card is read where it stands and then put back
-    // on screen to be woken
-    await page.waitForFunction(cardId => document.getElementById("box-" + cardId).classList.contains("parked"),
-      { timeout: 3000 }, id);
-    assert.notEqual(await page.evaluate(() => selectedId), id, "a parked card stayed on screen in the doing view");
+    // (db32309), and the page takes down a card that is in neither order and is
+    // not near the one on show, so the parked card is put back on screen to be
+    // woken, and is built again as the board holds it
+    await page.waitForFunction(cardId => selectedId !== cardId, { timeout: 3000 }, id);
+    assert.equal(await page.evaluate(() => window.__paintedParked), true, "the tapped card was not painted parked on the tap");
     assert.equal((await savedBox(id)).parked, true);
+    await page.evaluate(cardId => select(cardId), id);
+    await page.waitForSelector(`#box-${id}.sel`, { timeout: 3000 });
+    assert.equal(await page.evaluate(cardId => document.getElementById("box-" + cardId).classList.contains("parked"), id), true,
+      "a parked card was not built as parked");
     assert.equal(await page.evaluate(cardId => getComputedStyle(document.querySelector(`#box-${cardId} .title`)).color, id),
       "rgb(90, 100, 115)", "a parked card's title is not the desktop's later colour");
     // a deferred card's moon is switched off; the sun is what brings it back
     assert.equal(await page.evaluate(cardId => document.querySelector(`#box-${cardId} .arcbtn`).getAttribute("aria-disabled"), id), "true");
-    await page.evaluate(cardId => select(cardId), id);
-    await page.waitForSelector(`#box-${id}.sel`, { timeout: 3000 });
     const unparked = page.waitForResponse(r => new URL(r.url()).pathname === "/park");
     await page.evaluate(() => document.querySelector("article.box.sel .sunbtn").click());
     assert.equal(new URL((await unparked).url()).searchParams.get("v"), "0");
@@ -814,7 +854,7 @@ test("the defer chip parks, the history steps back, the plus makes a card to nam
     const newId = (await (await created).json()).id;
     await page.waitForFunction(cardId => document.querySelector(`#box-${cardId}.sel .title`)?.isContentEditable, { timeout: 3000 }, newId);
     const naming = await page.evaluate(() => ({
-      drawerOpen: document.getElementById("drawer").classList.contains("open"),
+      drawerOpen: document.getElementById("tickets").classList.contains("open"),
       placeholder: getComputedStyle(document.querySelector("article.box.sel .title"), "::before").content,
     }));
     assert.equal(naming.drawerOpen, false);

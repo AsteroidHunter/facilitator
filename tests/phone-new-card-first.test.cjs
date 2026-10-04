@@ -108,8 +108,10 @@ test("a card made with the plus, and a card that arrives from the board, are eac
     await page.goto(origin + "/m", { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
-    const built = await page.evaluate(() => document.getElementById("cards").children.length);
-    assert.ok(built >= 7, `only ${built} boxes were built`);
+    // the page builds only the card on show and the ones around it, so the
+    // board's size is what it holds, not what is built
+    const board = await page.evaluate(() => lastState.boxes.length);
+    assert.ok(board >= 7, `only ${board} cards were on the board`);
 
     await page.evaluate(() => openDrawer());
     const created = page.waitForResponse(r => new URL(r.url()).pathname === "/create");
@@ -118,19 +120,19 @@ test("a card made with the plus, and a card that arrives from the board, are eac
     await page.waitForFunction(id => document.querySelector(`#box-${id}.sel .title`)?.isContentEditable, { timeout: 3000 }, made);
     const afterPlus = await page.evaluate(() => {
       const cards = document.getElementById("cards");
-      return { first: cards.firstElementChild.id, count: cards.children.length };
+      return { first: cards.firstElementChild.id, board: lastState.boxes.length };
     });
     assert.equal(afterPlus.first, `box-${made}`, "the card made with the plus is not the first box");
-    assert.equal(afterPlus.count, built + 1);
+    assert.equal(afterPlus.board, board + 1);
 
     const sent = (await api("/create?owner=facilitator", "Arrived from the board")).id;
     await page.waitForFunction(id => !!document.getElementById(`box-${id}`), { timeout: 6000 }, sent);
     const afterArrival = await page.evaluate(() => {
       const cards = document.getElementById("cards");
-      return { ids: [...cards.children].slice(0, 2).map(box => box.id), count: cards.children.length };
+      return { ids: [...cards.children].slice(0, 2).map(box => box.id), board: lastState.boxes.length };
     });
     assert.deepEqual(afterArrival.ids, [`box-${sent}`, `box-${made}`], "a card that arrived is not the first box");
-    assert.equal(afterArrival.count, built + 2);
+    assert.equal(afterArrival.board, board + 2);
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

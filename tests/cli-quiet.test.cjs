@@ -153,6 +153,23 @@ test("an app_url in the config changes the window, not the address the board is 
   assert.deepEqual(opened(done.calls), [["open", "-na", "Google Chrome", "--args", "--app=http://127.0.0.1:9/"]]);
 });
 
+test("app_fullscreen true starts the window in full screen, and no other value changes the launch", async () => {
+  const full = await run(["run"], { board: "covered", config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
+  assert.deepEqual(full.said, UP, full.stderr);
+  assert.deepEqual(opened(full.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`, "--start-fullscreen"]]);
+  for (const value of [false, "true", 1, null]) {
+    const same = await run(["run"], { board: "covered", config: { port: PORT, app_fullscreen: value, lanes: [LANES[0]] } });
+    assert.deepEqual(opened(same.calls), [["open", "-na", "Google Chrome", "--args", `--app=${BOARD}`]],
+      `app_fullscreen ${JSON.stringify(value)} changed the launch`);
+  }
+});
+
+test("a dry run says when the window would be full screen", async () => {
+  const full = await run(["run", "--dry-run"], { board: "covered", config: { port: PORT, app_fullscreen: true, lanes: [LANES[0]] } });
+  assert.ok(full.said.includes(`window: would open ${BOARD} as a chromeless full-screen app window`), full.said.join("\n"));
+  assert.deepEqual(opened(full.calls), [], "a dry run opened a window");
+});
+
 test("a window that fails to open is one plain line, and is never reported as opened", async () => {
   const done = await run(["run"], {
     board: "covered", open: "Unable to find application named 'Google Chrome'", config: { port: PORT, lanes: [LANES[0]] },

@@ -393,7 +393,7 @@
     return layerExtension;
   }
 
-  const QUOTE_PAD = "9px";   // the room the quote bar keeps to the left of its words
+  const QUOTE_PAD = "calc(9 * var(--u, 1px))";   // the room the quote bar keeps to the left of its words
 
   // The editor wears the row it stands in and not CodeMirror: every face,
   // colour and measure is inherited from the element each page styles, so a
@@ -452,7 +452,7 @@
       },
       // the same bar the card's own quoted prose is drawn with
       ".cf-quote": {
-        borderLeft: "3px solid var(--line, #CACACA)",
+        borderLeft: "calc(3 * var(--u, 1px)) solid var(--line, #CACACA)",
         paddingLeft: QUOTE_PAD, color: "var(--sub, #75695A)",
       },
       // a quoted list is both, and one padding cannot be two: the bar's own

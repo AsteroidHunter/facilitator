@@ -26,6 +26,9 @@
   let freezes = 0;                 // lateness is an event, not a kind: each is its own
   let incidents = null;            // the phone's recent history, only in memory
   const queued = new Map();        // key -> the one report for that key, and its count
+  const notices = [];              // notification reports the board has not taken yet
+  let noticeBusy = false;          // one notification request at a time
+  let plainFetch = null;           // the page's fetch as it was before the reporter wrapped it
 
   function cut(text) {
     return String(text == null ? "" : text).slice(0, FIELD);
@@ -187,6 +190,10 @@
   window.startReporter = function (name) {
     if (page) return;
     page = name;
+    // the page's own fetch, taken before anything here wraps it, so a notice
+    // that cannot be sent is not also reported as a failed request
+    plainFetch = typeof window.fetch === "function" ? window.fetch.bind(window) : null;
+    addEventListener("online", sendNotices);
     client = clientOf(navigator.userAgent, navigator.maxTouchPoints);
     windowId = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     if (name === "phone") {
@@ -226,6 +233,34 @@
   // the nearest a timer can come to saying what the thread was blocked on
   window.noteDoing = function (what) {
     doing = cut(what).slice(0, 40);
+  };
+
+  // What the phone says about its notifications when it opens or comes back:
+  // fixed words and flags only, sent at once rather than at page hide, and held
+  // (up to a batch) for the next try when the board does not answer. A board
+  // that refuses the shape is not asked again with it. A notice made while one
+  // request is out goes in the next request as soon as the board has answered.
+  function sendNotices() {
+    if (!page || noticeBusy || !notices.length || !plainFetch) return;
+    noticeBusy = true;
+    const sent = notices.slice(0, BATCH);
+    let answered = false;
+    plainFetch("/clientlog", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: batchOf(sent), keepalive: true,
+    }).then(function (answer) {
+      if (answer.ok || answer.status === 400) { notices.splice(0, sent.length); answered = true; }
+    }).catch(function () {}).then(function () {
+      noticeBusy = false;
+      if (answered) sendNotices();
+    });
+  }
+
+  window.reportNotice = function (report) {
+    if (!page) return;
+    if (notices.length >= BATCH) notices.shift();
+    notices.push(report);
+    sendNotices();
   };
 
   // what a page reports itself: a render that threw, and anything else a page

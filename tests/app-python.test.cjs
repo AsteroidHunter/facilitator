@@ -108,7 +108,7 @@ async function drive(dir, body) {
 
 const VENV_CALL = `${UV} venv --clear --managed-python --python 3.14 .venv`;
 const INSTALL_CALL = `${UV} python install --no-bin 3.14`;
-const SYNC_CALL = `${UV} pip sync --python .venv/bin/python requirements.txt`;
+const SYNC_CALL = `${UV} pip sync --require-hashes --python .venv/bin/python requirements.txt`;
 const lines = res => res.calls.map(c => c.join(" "));
 
 test("the Python .venv is on is read from pyvenv.cfg, and a python3 that cannot run reads as none", async () => {

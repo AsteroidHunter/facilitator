@@ -864,3 +864,120 @@ test("index.html the small card's section keys move its own card and stop there"
   moves[0].close("c1");
   assert.deepEqual(requests, [["/close?box=c1", "POST"]], "not the small cross's close");
 });
+
+// The PWA drawer hands the same motion a section scroller, while the closed
+// drawer keeps the card route. Run the actual phone action tables and guards.
+async function drawerKeys() {
+  const f = await page("m.html", () => ({}));
+  const text = await readFile(path.join(ROOT, "m.html"), "utf8");
+  const panes = Object.fromEntries(["todo", "deferred", "done"].map(view => [view,
+    Object.assign(node(f.doc.body), { ownerDocument: f.doc, clientHeight: 300,
+      scrollHeight: 1500, scrollTop: 600, children: [node(f.doc.body)] })]));
+  const state = { view: "todo" };
+  f.doc.querySelector = selector => panes[/data-view="([^"]+)"/.exec(selector)?.[1]] || null;
+  f.doc.activeElement = f.doc.body;
+  Object.assign(f.context, { homeOpen: false, curView: () => state.view,
+    drawerOpen: () => f.open.has("listout") });
+  vm.runInContext(text.slice(text.indexOf("function drawerPane(){"), text.indexOf("// Tab walks the menu")), f.context);
+  const menu = vm.runInContext("menuShortcutActions", f.context);
+  const card = vm.runInContext("phoneShortcutActions", f.context);
+  const press = (over = {}, target = f.doc.activeElement) => {
+    const e = chord(target, over);
+    f.fire("keydown", e);
+    f.dispatch(e, f.open.has("menuout") ? menu : card);
+    return e;
+  };
+  const openDrawer = () => { f.open.add("listout"); f.open.add("menuout"); };
+  openDrawer();
+  return { ...f, panes, state, press, openDrawer };
+}
+
+test("PWA Ctrl+S scrolls only the open ticket section at the existing speed and stops on release", async () => {
+  const f = await drawerKeys();
+  assert.equal(f.press().defaultPrevented, true);
+  f.time.run(5);
+  near(f.panes.todo.scrollTop, 615);
+  near(f.panes.deferred.scrollTop, 600);
+  near(f.view.scrollTop, 1000, "card behind the list");
+  f.release("S"); f.time.run(10);
+  near(f.panes.todo.scrollTop, 615);
+  assert.equal(f.time.pending(), 0);
+});
+
+test("PWA drawer double S reverses within 300ms and held repeats never reverse or restart it", async () => {
+  for (const elapsed of [299, 300]) {
+    const f = await drawerKeys();
+    f.press(); f.time.run(1); f.release("S");
+    f.time.elapse(elapsed - 20);
+    f.press(); f.time.run(1);
+    const direction = elapsed < 300 ? -1 : 1;
+    near(f.panes.todo.scrollTop, 603 + STEP * direction);
+    f.press({ repeat: true }); f.time.run(2);
+    near(f.panes.todo.scrollTop, 603 + STEP * direction * 3);
+    f.release("Control"); f.time.run(5);
+    assert.equal(f.time.pending(), 0);
+    f.press(); f.time.run(1);
+    near(f.panes.todo.scrollTop, 606 + STEP * direction * 3, "new Control hold goes down");
+  }
+});
+
+test("PWA drawer accepts Ctrl+S from its buttons, leaves typing alone, and settings never scroll", async () => {
+  const f = await drawerKeys();
+  const button = node(f.doc.body);
+  f.doc.activeElement = button;
+  assert.equal(f.press().defaultPrevented, true);
+  f.time.run(1); f.release("Control");
+  near(f.panes.todo.scrollTop, 603);
+  f.doc.activeElement = f.a.parts.content;
+  assert.equal(f.press().defaultPrevented, false);
+  f.open.delete("listout");
+  f.doc.activeElement = button;
+  assert.equal(f.press().defaultPrevented, false);
+  f.time.run(5);
+  near(f.panes.todo.scrollTop, 603);
+  near(f.view.scrollTop, 1000);
+});
+
+test("PWA drawer motion stops when its section, project, focus, visibility or drawer changes", async () => {
+  for (const [name, leave] of Object.entries({
+    section: f => { f.state.view = "done"; },
+    project: f => { f.context.activeOwner = "p2"; },
+    focus: f => { f.doc.activeElement = node(f.doc.body); },
+    hidden: f => { f.doc.visibilityState = "hidden"; },
+    detached: f => { f.panes.todo.isConnected = false; },
+    close: f => f.open.clear(),
+    drag: f => f.open.add("menudrag"),
+    home: f => { f.context.homeOpen = true; },
+  })) {
+    const f = await drawerKeys();
+    f.press(); f.time.run(1);
+    leave(f); f.time.run(5);
+    near(f.panes.todo.scrollTop, 603, name);
+    near(f.panes.done.scrollTop, 600, name);
+    near(f.view.scrollTop, 1000, name);
+    assert.equal(f.time.pending(), 0, name);
+  }
+});
+
+test("closing the PWA drawer returns Ctrl+S and double S to the response without carrying the list's tap", async () => {
+  const f = await drawerKeys();
+  f.press(); f.time.run(1); f.release("S");
+  f.open.clear();
+  f.press(); f.time.run(1); f.release("S");
+  near(f.panes.todo.scrollTop, 603);
+  near(f.view.scrollTop, 1003);
+  f.press(); f.time.run(2); f.release("Control");
+  near(f.view.scrollTop, 997);
+  near(f.panes.todo.scrollTop, 603);
+});
+
+test("a short PWA ticket list keeps the shared edge feedback and leaves the card still", async () => {
+  const f = await drawerKeys();
+  Object.assign(f.panes.todo, { scrollHeight: 100, scrollTop: 0 });
+  assert.equal(f.press().defaultPrevented, true);
+  f.time.run(4);
+  near(f.panes.todo.scrollTop, 0);
+  near(f.view.scrollTop, 1000);
+  assert.equal(f.panes.todo.children[0].animations.length, 1);
+  assert.equal(f.time.pending(), 0);
+});

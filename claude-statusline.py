@@ -56,7 +56,10 @@ def read_stored():
 def write(windows):
     tmp = OUT.with_name(OUT.name + ".tmp")
     try:
-        tmp.write_text(json.dumps(windows, separators=(",", ":")))
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as out:
+            os.fchmod(fd, 0o600)
+            out.write(json.dumps(windows, separators=(",", ":")))
         os.replace(tmp, OUT)
     except OSError:
         try:

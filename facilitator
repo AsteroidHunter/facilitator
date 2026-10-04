@@ -8,10 +8,17 @@
       pair, run moves the board to the next free pair, writes the new port
       into run.config.json, points the phone's Tailscale link at it when that
       link was this board's own, and says so in one line. The board stays on
-      that pair until it is taken too. --attach types the attach
+      that pair until it is taken too. Once a phone password has been set
+      (facilitator password set), run also leaves the phone bridge on, with
+      the checks `facilitator bridge on` makes, and says nothing when it does
+      or when it already was; when it cannot (Tailscale not connected, say) it
+      prints one line saying the phone link is off and why, and the board is
+      up all the same. With no password set it does nothing about the bridge.
+      --attach types the attach
       instruction into the lane's existing tmux claude (send-keys), and
       --spawn additionally creates a fresh session
       for lanes with no reachable one. --force ignores the lane-covered guard.
+      --dry-run names the bridge step too.
   facilitator restart [--dry-run]
       stop this board's server and start it again on the same port. One
       process is stopped: the one holding the listening socket, read back as
@@ -23,6 +30,27 @@
       When the browser cannot be read nothing is opened and nothing is said.
       Touches no lane, no tmux session and no bridge, and never moves the
       board to another port. --dry-run says what it would do and does nothing.
+  facilitator stop [--dry-run] [--force]
+      end this board's server and close the board's own Chrome window. The
+      server is found and stopped the way restart does it: the one process
+      holding the listening socket, read back as this folder's server.py
+      first, asked to quit with SIGTERM, and both of its ports polled until
+      they are really free. Only then does Chrome come into it: a window is
+      closed only when every tab in it is the board's own page, by its window
+      id and after its tabs are read again, and a board tab sharing a window
+      with other tabs is left open and said so. Chrome is never started, and
+      when it cannot be asked one line says so. A server still there after
+      10 seconds is left alone and reported; --force then ends it outright
+      with one SIGKILL to that same process, read a third time first. Once
+      the server is gone (or was not running), and a phone password has been
+      set, the phone bridge is taken off as `facilitator bridge off` does it:
+      only this board's root handler goes, every other Serve path, port,
+      Funnel route and Service stays. It says nothing when the bridge is off
+      already or goes off, and one line when it cannot be taken off; a stop
+      that leaves the server running leaves the bridge as it is. With no
+      password set it only notes an active bridge. Touches no lane, no tmux
+      session and no saved file. --dry-run says what it would do and does
+      nothing.
   facilitator status
       one-line board state
   facilitator bridge [on|off] [--dry-run]
@@ -34,20 +62,24 @@
       proxying to a password-gated listener. A saved phone session lasts until
       sign-out. Set or reset the app password with `facilitator password set`.
       Needs HTTPS certificates switched on once for the tailnet, in the
-      Tailscale admin console; says so and stops when they are off. When run
+      Tailscale admin console; says so and stops when they are off. run and
+      stop make the same change themselves once a password is set, so this
+      command is for switching the link by hand and for the QR code. When run
       moved the board and could not move the link with it, the config keeps
       the old port as moved_from: on points that old rule at the board's
       pair, and off takes it away.
       --dry-run prints the commands instead of running them
   facilitator uninstall [--keep-attachments | --remove-attachments]
-      remove what install made: the .venv, node_modules and the generated config
-      files, owned shell command, owned agent-skill links, and any Claude Code
+      remove what install made: the .venv, tests/node_modules and the generated
+      config files, owned shell command, owned agent-skill links, and any Claude Code
       status line entry an older install added. Keeps the board's data
       (state.json, transcript.jsonl, settings.json, logs, bridge credentials
       and vapid-key.pem).
       After its banner it asks whether to keep the card
       attachments; Enter, an unclear answer or no terminal keeps them, and the
-      two flags answer without asking.
+      two flags answer without asking. The folder another copy of the board
+      beside this one also reads is asked about again and kept unless the
+      answer is a clear yes, flag or not; with no terminal it is kept.
       Never removes this folder or stops a running server.
   facilitator password set
       prompt twice for the phone bridge password; replacing it signs out every
@@ -89,6 +121,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -213,7 +246,10 @@ def bridge_log(kind, level="info", **fields):
                       + f".{int(now % 1 * 1000):03d}Z",
                 "level": level, "kind": kind}
         line.update({name: value for name, value in fields.items() if value is not None})
-        with (LOG_DIR / f"bridge-{time.strftime('%Y%m%d')}.log").open("a") as f:
+        fd = os.open(LOG_DIR / f"bridge-{time.strftime('%Y%m%d')}.log",
+                     os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a") as f:
+            os.fchmod(fd, 0o600)
             f.write(json.dumps(line) + "\n")
         for old in sorted(LOG_DIR.glob("bridge-*.log"))[:-LOG_KEEP]:
             old.unlink(missing_ok=True)
@@ -608,11 +644,16 @@ def window_url(cfg):
 
 def open_app(cfg, dry):
     url = window_url(cfg)
+    # a config without the app_fullscreen key launches exactly as it always did
+    full = cfg.get("app_fullscreen") is True
     if dry:
-        print(f"window: would open {url} as a chromeless app window")
+        kind = "a chromeless full-screen app window" if full else "a chromeless app window"
+        print(f"window: would open {url} as {kind}")
         return
-    opened = subprocess.run(["open", "-na", "Google Chrome", "--args", f"--app={url}"],
-                            capture_output=True, text=True, check=False)
+    command = ["open", "-na", "Google Chrome", "--args", f"--app={url}"]
+    if full:
+        command.append("--start-fullscreen")
+    opened = subprocess.run(command, capture_output=True, text=True, check=False)
     if opened.returncode != 0:
         said = (opened.stderr or "").strip().splitlines()
         detail = f" ({said[0]})" if said else ""
@@ -1015,7 +1056,7 @@ def port_binds(port):
     return True
 
 
-def stop_timeout_reason(owner, port, wait):
+def stop_timeout_reason(owner, port, wait, restart=True):
     """Why the restart stopped here, in terms of what was actually established
     in this moment: whether the process that was signalled is still that same
     process, whether it is still alive, and what if anything is listening now.
@@ -1029,50 +1070,55 @@ def stop_timeout_reason(owner, port, wait):
     different things 'not our server any more' can mean. The process still
     there and still ours, a different process wearing the same number, and a
     number that could not be read at all are three states, not two, and the
-    one thing they must never be called is 'the server'."""
+    one thing they must never be called is 'the server'.
+
+    restart=False words the same findings for stop, which has no replacement
+    to hold back, so the clauses about starting one are left out."""
     pid = owner[0]
     read = process_identity(pid)
     same = None if read is None else ((pid, read) == owner)
     alive = pid_alive(pid)
     pids = listener_pids(port)
+    held = "; nothing was started" if restart else ""
+    left = " and nothing was started" if restart else ""
+    lead = "nothing was started and " if restart else ""
+    because = (", because a restart waits for the old server to finish leaving"
+               if restart else "")
     if pids is None:
         return (f"port {port} could not be read {wait:.0f}s after the server was "
-                "asked to stop; nothing was started")
+                f"asked to stop{held}")
     if pids == {pid}:
         if same is True:
             return (f"the server on {port} had not let go {wait:.0f}s after "
-                    "SIGTERM and is still the same process; it was left alone "
-                    "and nothing was started")
+                    "SIGTERM and is still the same process; it was left alone"
+                    f"{left}")
         if same is False:
             return (f"port {port} is still held under the same number by a "
-                    "different process from the one that was signalled; nothing "
-                    "was started and nothing else was signalled")
+                    "different process from the one that was signalled; "
+                    f"{lead}nothing else was signalled")
         return (f"port {port} is still held under the same number and what that "
-                "process is now could not be read; nothing was started and "
+                f"process is now could not be read; {lead}"
                 "nothing else was signalled")
     if pids:
         named = ", ".join(str(p) for p in sorted(pids))
         return (f"port {port} is listened on by {named} now, which is not the "
-                "process that was signalled; nothing was started and nothing "
-                "else was signalled")
+                f"process that was signalled; {lead}nothing else was signalled")
     binds = port_binds(port)
     if not alive:
         if binds:
-            return (f"port {port} came free as the wait ran out; nothing was "
-                    "started")
+            return f"port {port} came free as the wait ran out{held}"
         return (f"nothing is listening on {port} and the process that was "
                 "signalled is no longer there, but the port still could not be "
-                f"bound {wait:.0f}s after SIGTERM; nothing was started")
+                f"bound {wait:.0f}s after SIGTERM{held}")
     # something with that number is still running; say honestly what it is
     who = ("the server" if same is True else
            "a different process with the same number" if same is False else
            "something with the same number, which could not be read")
     if binds:
         return (f"{who} let go of port {port} but was still running {wait:.0f}s "
-                "after SIGTERM; nothing was started, because a restart waits "
-                "for the old server to finish leaving")
+                f"after SIGTERM{held}{because}")
     return (f"{who} was still running {wait:.0f}s after SIGTERM and port {port} "
-            "still could not be bound; nothing was started")
+            f"still could not be bound{held}")
 
 
 def stop_server(owner, port, wait=STOP_WAIT):
@@ -1092,10 +1138,24 @@ def stop_server(owner, port, wait=STOP_WAIT):
     in principle be reused. It is small and it is real, and nothing here
     pretends otherwise.
 
-    Never a process group, never SIGKILL: the server stops gracefully on
-    SIGTERM, and a process that will not go is reported and left exactly as it
-    is, because killing something harder without being asked is how the wrong
-    thing gets killed quietly."""
+    Never a process group, and never SIGKILL from here: the server stops
+    gracefully on SIGTERM, and a process that will not go is reported and left
+    exactly as it is, because killing something harder without being asked is
+    how the wrong thing gets killed quietly. The one firm step, end_server,
+    is reached only by stop --force."""
+    refusal = signal_server(owner, port)
+    if refusal:
+        return refusal
+    if wait_for_exit(owner[0], port, wait):
+        return None
+    return stop_timeout_reason(owner, port, wait)
+
+
+def signal_server(owner, port):
+    """The checks before the signal and the one SIGTERM itself: None once it
+    is sent, a sentence when nothing was signalled. Split from the wait so a
+    caller can tell a refusal, which sent nothing, from a signal that has run
+    out its wait."""
     pid = owner[0]
     pids = listener_pids(port)
     if pids is None:
@@ -1114,13 +1174,46 @@ def stop_server(owner, port, wait=STOP_WAIT):
         pass        # gone between the last read and the signal; still wait for the socket
     except PermissionError:
         return f"not allowed to stop pid {pid}; nothing was changed"
+    return None
+
+
+def wait_for_exit(pid, port, wait):
+    """True once that process is gone and the port is really free, False when
+    the wait runs out first. Unknown is never free (see port_free)."""
     deadline = time.monotonic() + wait
     while True:
         if not pid_alive(pid) and port_free(port) is True:
-            return None
+            return True
         if time.monotonic() >= deadline:
-            return stop_timeout_reason(owner, port, wait)
+            return False
         time.sleep(POLL_EVERY)
+
+
+def end_server(owner, port, wait=STOP_WAIT):
+    """The firm step: one SIGKILL to the process that was asked politely and
+    did not go, never a process group. None once it is gone and the port is
+    free, else a sentence. Only stop --force reaches this, after the polite
+    wait has run out. The identity is read a third time first, and a process
+    that is no longer the one asked, or cannot be read, is not signalled."""
+    pid = owner[0]
+    if server_identity(pid) != owner:
+        if not pid_alive(pid) and port_free(port) is True:
+            return None     # it went by itself as the wait ran out
+        return (f"pid {pid} is no longer the process that was asked to stop, or "
+                "can no longer be read; it was not ended")
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        return f"not allowed to end pid {pid}; nothing was changed"
+    if wait_for_exit(pid, port, wait):
+        return None
+    if pid_alive(pid):
+        return (f"the server on {port} was still there {wait:.0f}s after it was "
+                "ended outright")
+    return (f"the server is gone, but port {port} could not be shown free "
+            f"{wait:.0f}s after it was ended outright")
 
 
 def board_state(port):
@@ -1290,6 +1383,151 @@ def board_page_open(cfg):
     return any(same_board_page(url, board) for url in urls)
 
 
+# --- stop: closing the board's own window ------------------------------------
+# Chrome is one process, so one window can only be closed through its own
+# scripting. The id and the pages the window must still show go in as
+# arguments, never as script text.
+CLOSE_WINDOW_SCRIPT = "\n".join([
+    'on run argv',
+    '  if (count of argv) < 2 then return "BADARGS"',
+    '  set wanted to (item 1 of argv) as integer',
+    '  set expected to rest of argv',
+    '  tell application "System Events"',
+    '    if not (exists process "Google Chrome") then return "GONE"',
+    '  end tell',
+    '  tell application "Google Chrome"',
+    '    set candidates to (every window whose id is wanted)',
+    '    if (count of candidates) is not 1 then return "GONE"',
+    '    set win to item 1 of candidates',
+    '    set seen to {}',
+    '    repeat with t in every tab of win',
+    '      set end of seen to (URL of t as text)',
+    '    end repeat',
+    '    set agreed to false',
+    '    considering case',
+    '      set agreed to (seen = expected)',
+    '    end considering',
+    '    if not agreed then return "CHANGED"',
+    '    close win',
+    '  end tell',
+    '  return "CLOSED"',
+    'end run',
+])
+
+
+def chrome_windows():
+    """Every Chrome window as (id, [tab URLs]), or None when that could not be
+    established. An empty list is a real absence: Chrome is not running, which
+    System Events is asked first so that Chrome is never started to find out.
+    A refusal (no automation permission) is None, an unknown and not an
+    absence. This only reads; nothing is activated, navigated or closed."""
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return None
+    script = "\n".join([
+        'tell application "System Events"',
+        '  if not (exists process "Google Chrome") then return "NOTRUNNING"',
+        'end tell',
+        # inside Chrome's block the bare word tab means Chrome's tab class, so
+        # the separator is made out here
+        'set sep to character id 9',
+        'set listed to {}',
+        'tell application "Google Chrome"',
+        '  repeat with w in every window',
+        '    set entry to ((id of w) as text)',
+        '    repeat with t in every tab of w',
+        '      set entry to entry & sep & (URL of t as text)',
+        '    end repeat',
+        '    set end of listed to entry',
+        '  end repeat',
+        'end tell',
+        "set AppleScript's text item delimiters to linefeed",
+        'return listed as text',
+    ])
+    try:
+        seen = subprocess.run([osascript, "-e", script],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if seen.returncode != 0:
+        return None
+    out = seen.stdout.strip()
+    if out == "NOTRUNNING":
+        return []
+    windows = []
+    for line in out.splitlines():
+        first, *urls = line.strip("\r\n").split("\t")
+        if first.strip().isdigit():
+            windows.append((int(first), [u.strip() for u in urls]))
+    return windows
+
+
+def close_chrome_window(wid, urls):
+    """Ask Chrome to close one window by its id: "CLOSED" when it did, "GONE"
+    when no such window (or no Chrome) is there any more, "CHANGED" when the
+    window no longer shows exactly those pages and was left alone, None when
+    Chrome could not be asked. The id and the pages go in as arguments."""
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return None
+    try:
+        done = subprocess.run([osascript, "-e", CLOSE_WINDOW_SCRIPT, str(wid), *urls],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    answer = done.stdout.strip()
+    return answer if answer in ("CLOSED", "GONE", "CHANGED") else None
+
+
+def board_addresses(cfg, port):
+    """Every address a window of the board that ran on this port can show: the
+    one the window was opened with, and this port on loopback."""
+    return [window_url({**cfg, "port": port}), f"http://127.0.0.1:{port}"]
+
+
+def sort_board_windows(windows, boards):
+    """(the windows whose every tab is the board's own page, how many other
+    windows hold a board tab among other tabs). A window with no tab at all is
+    not the board's: every tab of nothing matching is not a reason to close."""
+    only, mixed = [], 0
+    for wid, urls in windows:
+        hits = [any(same_board_page(url, board) for board in boards) for url in urls]
+        if hits and all(hits):
+            only.append((wid, urls))
+        elif any(hits):
+            mixed += 1
+    return only, mixed
+
+
+def close_board_windows(cfg, port):
+    """Close the windows that show nothing but the board that ran on this port
+    and return the lines to say about it: nothing when Chrome is not running
+    or shows no board page, one line for what was closed, and one for each
+    thing left for the person to do."""
+    windows = chrome_windows()
+    if windows is None:
+        return ["Could not ask Chrome; close the board window yourself."]
+    only, mixed = sort_board_windows(windows, board_addresses(cfg, port))
+    closed, refused = 0, False
+    for wid, urls in only:
+        answer = close_chrome_window(wid, urls)
+        if answer == "CLOSED":
+            closed += 1
+        elif answer is None:
+            refused = True
+    lines = []
+    if closed:
+        lines.append("Window closed." if closed == 1 else f"{closed} windows closed.")
+    if mixed:
+        lines.append("A board tab is still open in a window with other tabs; "
+                     "close it yourself.")
+    if refused:
+        lines.append("Could not ask Chrome; close the board window yourself.")
+    return lines
+
+
 def claude_pane(name):
     """Pane id of the claude running anywhere inside tmux session `name`.
     None = no such session; "" = session exists but no claude pane."""
@@ -1366,7 +1604,9 @@ def cmd_run(args):
     creates fresh ones. A real run says the board is up and nothing more, and
     those two options add one line per lane they act on; --dry-run keeps its
     longer account. A board that had to move to a free pair gets one line more
-    saying so, and the phone's link is pointed at the new pair with it."""
+    saying so, and the phone's link is pointed at the new pair with it. On a
+    checkout with a phone password the link is then left on, silently when it
+    is, and in one line when it cannot be."""
     cfg = load_config()
     check_lanes(cfg)
     dry = "--dry-run" in args
@@ -1374,16 +1614,26 @@ def cmd_run(args):
     do_spawn = "--spawn" in args
     do_attach = "--attach" in args or do_spawn
     port, moved_from = place_board(int(cfg["port"]), dry)
+    link_said = False
     if not dry:
         if moved_from is not None:
             linked, problem = repoint_bridge(moved_from, port)
             print(moved_line(moved_from, port, linked, cfg))
             if problem:
                 print(problem)
+                link_said = True
         print(f"Board up on http://127.0.0.1:{port}")
         print("Facilitator is live!")
     cfg = {**cfg, "port": port}
     open_app(cfg, dry)
+    if bridge_set_up():
+        if dry:
+            print("bridge: would leave the phone link on, as facilitator bridge on does; "
+                  "nothing changes when it already is")
+        elif not link_said:
+            said = follow_bridge("on", port)
+            if said:
+                print(said)
     st = state(port)
     for lane in cfg["lanes"]:
         ow = lane["owner"]
@@ -1491,6 +1741,114 @@ def cmd_restart(args):
         print("Reload the board (command + R).")
     elif showing is False:
         open_app(cfg, False)
+
+
+def stop_target(port):
+    """(port, owner, refusal) for a stop: the server on the configured port,
+    found and read back the way restart does it. When nothing listens there,
+    this folder's board may still be running on the pair server.lock names, and
+    it counts only when that answer names this folder and the process holding
+    the port reads back as this folder's server.py as well. Restart refuses
+    that case; stop can act on it because the same identity rule applies."""
+    owner, refusal = server_process(port)
+    if refusal or owner is not None:
+        return port, owner, refusal
+    found = board_elsewhere(port)
+    if found is None:
+        return port, None, None
+    owner, refusal = server_process(found)
+    return found, owner, refusal
+
+
+def stop_board(owner, port, force):
+    """None once the server is gone and both of its ports are free, a sentence
+    when not. The polite stop first; with force, and only after its wait has
+    run out, the one firm step."""
+    refusal = signal_server(owner, port)
+    if refusal:
+        return refusal
+    if not wait_for_exit(owner[0], port, STOP_WAIT):
+        late = stop_timeout_reason(owner, port, STOP_WAIT, restart=False)
+        if not force:
+            return (f"{late}. Nothing was closed. Try again, or use: "
+                    "facilitator stop --force")
+        refusal = end_server(owner, port)
+        if refusal:
+            return f"{refusal}. Nothing was closed"
+    # one process holds both ports, so the phone's is checked as well
+    phone = port_free(port + 1)
+    if phone is True:
+        return None
+    what = "could not be read" if phone is None else "is still held by something"
+    return (f"the board on {port} has stopped, but port {port + 1}, the one above "
+            f"it, {what}. Nothing was closed")
+
+
+def stop_dry_run(cfg, port, owner, force):
+    """What a real stop would do, read from the same places and changing
+    nothing. Chrome is read, as the window step reads it, and never driven."""
+    windows = chrome_windows()
+    only, mixed = ([], 0) if windows is None else sort_board_windows(
+        windows, board_addresses(cfg, port))
+    closing = ("close no window" if not only else "close 1 window" if len(only) == 1
+               else f"close {len(only)} windows")
+    unknown = "Chrome cannot be asked, so a window may be left open"
+    if owner is not None:
+        head = f"stop (dry run): would stop the board on port {port} (pid {owner[0]})"
+        print(f"{head}; {unknown}." if windows is None else f"{head} and {closing}.")
+    else:
+        head = f"stop (dry run): the board is not running on port {port}"
+        print(f"{head}; {unknown}." if windows is None else f"{head}; would {closing}.")
+    if mixed:
+        print("stop (dry run): a board tab in a window with other tabs would be left open.")
+    if force and owner is not None:
+        print("stop (dry run): with --force the server would be ended outright if it "
+              f"is still there after {STOP_WAIT:.0f}s.")
+    if bridge_set_up():
+        print("stop (dry run): once the server is gone, the phone link would be taken off, "
+              "as facilitator bridge off does.")
+
+
+def cmd_stop(args):
+    """End this board's server, then close the windows that show nothing but
+    the board. The server goes first: if it is refused or will not go, no
+    window is touched, and a Chrome permission prompt cannot delay the stop.
+    Nothing here touches a lane, a tmux session or a saved file. On a checkout
+    with a phone password the phone link is taken off last, once the server is
+    gone, and left alone when the stop was refused. Unknown words are refused
+    rather than ignored."""
+    extra = [a for a in args[1:] if a not in ("--dry-run", "--force")]
+    if extra:
+        sys.exit("stop takes --dry-run, --force and nothing else; got " + " ".join(extra))
+    cfg = load_config()
+    port, owner, refusal = stop_target(int(cfg["port"]))
+    if refusal:
+        sys.exit(f"stop: {refusal}")
+    if "--dry-run" in args:
+        stop_dry_run(cfg, port, owner, "--force" in args)
+        return
+
+    if owner is None:
+        print("Board was not running.")
+    else:
+        refusal = stop_board(owner, port, "--force" in args)
+        if refusal:
+            sys.exit(f"stop: {refusal}")
+        print("Board stopped.")
+    for line in close_board_windows(cfg, port):
+        print(line)
+    # last, because it can be slow, and it must never change the outcome
+    if bridge_set_up():
+        said = follow_bridge("off", port)
+        if said:
+            print(said)
+    elif owner is not None:
+        try:
+            note = bridge_note(port)
+        except Exception:
+            note = None
+        if note:
+            print(note)
 
 
 def cmd_status():
@@ -1921,7 +2279,13 @@ def cmd_bridge(args):
     if parsed is None:
         return
     requested, dry = parsed
-    port = board_port()
+    switch_bridge(requested, dry, board_port())
+
+
+def switch_bridge(requested, dry, port, quiet=False):
+    """The work of `facilitator bridge` for the board's pair at port. Quiet,
+    which run and stop use, prints neither the code and its instructions nor
+    "Bridge is off."; every check, change and exit is the same."""
     ts = find_tailscale()
     if ts is None:
         sys.exit("tailscale: not found on PATH or at " + TAILSCALE_APP)
@@ -1944,16 +2308,21 @@ def cmd_bridge(args):
             bridge_off_steps(ts, name, raw, moved)
             write_config_port(port)
             bridge_log("shareoff", port=moved)
-            print("Bridge is off.")
+            if not quiet:
+                print("Bridge is off.")
             return
         move_bridge(ts, status, name, raw, moved, port)
         write_config_port(port)
-        show_way_in(url)
+        if not quiet:
+            show_way_in(url)
         return
 
     if desired == "off":
         if not analysis["active"]:
-            print("bridge: already off; no changes would be made" if dry else "Bridge is off.")
+            if dry:
+                print("bridge: already off; no changes would be made")
+            elif not quiet:
+                print("Bridge is off.")
             return
         if not analysis["removable"]:
             bridge_conflict(analysis)
@@ -1969,7 +2338,8 @@ def cmd_bridge(args):
         if after["active"]:
             sys.exit("tailscale: the bridge is still on after Tailscale reported success; inspect `tailscale serve status`")
         bridge_log("shareoff", port=port)
-        print("Bridge is off.")
+        if not quiet:
+            print("Bridge is off.")
         return
 
     if analysis["legacy"]:
@@ -1978,7 +2348,7 @@ def cmd_bridge(args):
     if analysis["on"]:
         if dry:
             print("bridge: already on; no changes would be made")
-        else:
+        elif not quiet:
             show_way_in(url)
         return
     if analysis["active"] or analysis["enable_blocked"]:
@@ -2000,7 +2370,43 @@ def cmd_bridge(args):
     if not after["on"]:
         sys.exit("tailscale: the bridge is not safely on after Tailscale reported success; inspect `tailscale serve status`")
     bridge_log("shareon", port=port)
-    show_way_in(url)
+    if not quiet:
+        show_way_in(url)
+
+
+def bridge_set_up():
+    """True when this checkout has a phone password, which is what makes run
+    and stop look after the phone link. Nothing is made to find out: a checkout
+    with no password file, or with no phone code beside the command, is not
+    asked and no lock file appears."""
+    if not (HERE / "bridge_auth.py").is_file():
+        return False
+    try:
+        import bridge_auth
+        return bridge_auth.AUTH_FILE.exists() and bridge_auth.configured()
+    except (ImportError, OSError):
+        return False
+
+
+def follow_bridge(requested, port):
+    """What run and stop do about the phone link, through the same code and
+    checks as `facilitator bridge on` and `off`, silently. None when it went
+    through, else the one plain line saying the link is not as asked and why.
+    A stop with no Tailscale at all has no link to take away and says nothing.
+    Whatever goes wrong here is a line and never the outcome of the command."""
+    if requested == "off" and find_tailscale() is None:
+        return None
+    try:
+        switch_bridge(requested, False, port, quiet=True)
+    except SystemExit as stop:
+        reason = str(stop.code)
+    except Exception as error:
+        reason = f"{type(error).__name__} while talking to tailscale"
+    else:
+        return None
+    if requested == "on":
+        return f"The phone link is off ({reason}). Run facilitator bridge on when that is fixed."
+    return f"The phone link could not be taken off ({reason}). Run facilitator bridge off when that is fixed."
 
 
 # --- install and uninstall: the environment, the config and the test deps ---
@@ -2016,35 +2422,54 @@ APP_PYTHON = "3.14"     # the one Python .venv is built on, which the board is t
 UV_MIN = (0, 9, 0)      # the first uv that installs Python 3.14.0 rather than a release
                         # candidate; keep in step with UV_MIN in install.sh
 UV_HOME_BINS = ("~/.local/bin/uv", "~/.cargo/bin/uv")
-UV_INSTALL_URL = "https://astral.sh/uv/install.sh"
+# uv's own installer, locked to one release: it is run only when the file that
+# comes back has exactly this fingerprint. Move both together, here and in
+# install.sh, and take the fingerprint from a download of that exact address.
+UV_PIN = "0.12.22"
+UV_INSTALL_URL = f"https://astral.sh/uv/{UV_PIN}/install.sh"
+UV_INSTALL_SHA256 = "58488ae8dbd0773134c92c85e901430e33f99d975bd7f929d26aa9ab0c2f9390"
+TESTS_DIR = HERE / "tests"
 INSTALL_RECORD = HERE / ".facilitator-install.json"
-INSTALL_ARTIFACTS = (".venv", "node_modules", "package.json", "package-lock.json",
-                     "run.config.json", "seed.json")
-INSTALL_HELP = """usage: ./install.sh
+# node_modules, package.json and package-lock.json in the checkout's root are
+# what installs before --dev made; uninstall still takes them back from those
+INSTALL_ARTIFACTS = (".venv", "tests/node_modules", "node_modules", "package.json",
+                     "package-lock.json", "run.config.json", "seed.json")
+INSTALL_HELP = """usage: ./install.sh [--dev]
 
 Check that Claude Code or Codex and Chrome are here, then make this checkout
-runnable: find or install uv (0.9.0 or newer), build the private .venv on a
+runnable: find or install uv (0.9.0 or newer; when there is no Homebrew its
+own installer is fetched for one exact release and run only when it matches
+its fingerprint), build the private .venv on a
 Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
 another Python (a board running on the old one is stopped first), and sync
-requirements, write run.config.json and seed.json from
-the examples when they are missing, and install test dependencies when node is
-present. In an interactive terminal it asks about the phone client (Tailscale,
-then an app password). It ends by registering the facilitator command and the
-shared agent skill. Safe to run again; a second run changes nothing."""
+requirements, and write run.config.json and seed.json from
+the examples when they are missing. In an interactive terminal it asks about
+the phone client (Tailscale, then an app password). It ends by registering
+the facilitator command and the shared agent skill. Safe to run again; a
+second run changes nothing.
+--dev also installs the packages only the tests need, into tests/node_modules,
+from tests/package-lock.json with npm ci and without running any package's
+scripts. It needs node and npm; without --dev they are not used."""
 UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
 
-Remove what install made: the .venv, node_modules, generated config,
+Remove what install made: the .venv, tests/node_modules, generated config,
 owned command and agent-skill links, and any Claude Code status line entry
 an older install added. Keeps board data and bridge credentials. Never removes
 this folder or stops a running server.
 Card attachments are asked about after the banner and kept unless the
 answer is a clear no; with no terminal they are kept.
---keep-attachments and --remove-attachments answer without asking."""
+--keep-attachments and --remove-attachments answer without asking.
+The attachments folder beside this one is read by every other copy of the
+board in the same parent folder, so when there is one, removing it is asked
+about again and kept unless the answer is a clear yes, even with
+--remove-attachments; with no terminal it is kept."""
 # card attachments, worked out exactly as server.py works them out: new ones
 # save in the sibling internal folder, and the old in-repo uploads/ still
 # serves the ones saved before that move
 ATTACHMENT_DIRS = (HERE.parent / "facilitator-internal" / "uploads", HERE / "uploads")
+SHARED_ATTACHMENTS = ATTACHMENT_DIRS[0]
 ATTACHMENT_QUESTION = "Keep your card attachments (pictures and files you attached to cards)? [Y/n] "
+SHARED_QUESTION = "Remove it for them as well? [y/N] "
 BANNER_GLYPHS = {
     "F": ["█████", "█    ", "████ ", "█    ", "█    "],
     "A": ["█████", "█   █", "█████", "█   █", "█   █"],
@@ -2083,9 +2508,29 @@ def find_uv():
     return None
 
 
+def uv_installer_env(folder):
+    """The environment for uv's installer, or None when nothing here can check
+    a download. The installer compares each file it fetches with the
+    fingerprint it carries only when a sha256sum command exists, and macOS has
+    shasum instead, so a sha256sum that calls shasum is put in folder and
+    first on PATH."""
+    env = {**os.environ, "INSTALLER_NO_MODIFY_PATH": "1"}
+    if shutil.which("sha256sum"):
+        return env
+    shasum = shutil.which("shasum")
+    if not shasum:
+        return None
+    shim = Path(folder) / "sha256sum"
+    shim.write_text(f"#!/bin/sh\nexec {shlex.quote(shasum)} -a 256 \"$@\"\n")
+    shim.chmod(0o755)
+    env["PATH"] = folder + os.pathsep + env.get("PATH", "")
+    return env
+
+
 def install_uv():
     """Install uv and return its path, or stop. Homebrew when it is there,
-    otherwise uv's own installer into the home folder, told not to touch any
+    otherwise uv's own installer, locked to UV_PIN and run only when it has
+    the expected fingerprint, into the home folder and told not to touch any
     shell profile. uv is required; there is no fallback to a plain venv."""
     brew = shutil.which("brew")
     if brew:
@@ -2099,14 +2544,22 @@ def install_uv():
                              "Install uv yourself, then run ./install.sh again."))
         print("uv is not installed. Installing it with the astral.sh installer")
         print("into your home.")
-        script = subprocess.run(["curl", "-LsSf", UV_INSTALL_URL], capture_output=True, text=True)
-        if script.returncode != 0 or not script.stdout:
-            sys.exit(problem("Could not download the uv installer.",
-                             "Install uv yourself, then run ./install.sh again."))
-        env = {**os.environ, "INSTALLER_NO_MODIFY_PATH": "1"}
-        if subprocess.run(["sh"], input=script.stdout, text=True, env=env).returncode != 0:
-            sys.exit(problem("The uv installer did not finish.",
-                             "Install uv yourself, then run ./install.sh again."))
+        with tempfile.TemporaryDirectory() as folder:
+            env = uv_installer_env(folder)
+            if env is None:
+                sys.exit(problem("Cannot check what the uv installer downloads: neither sha256sum nor shasum is here.",
+                                 "Nothing was run. Install uv yourself, then run ./install.sh again."))
+            script = subprocess.run(["curl", "--proto", "=https", "--tlsv1.2", "-LsSf", UV_INSTALL_URL],
+                                    capture_output=True)
+            if script.returncode != 0 or not script.stdout:
+                sys.exit(problem("Could not download the uv installer.",
+                                 "Install uv yourself, then run ./install.sh again."))
+            if hashlib.sha256(script.stdout).hexdigest() != UV_INSTALL_SHA256:
+                sys.exit(problem("The uv installer from astral.sh is not the one this checkout expects.",
+                                 "Nothing was run. Install uv yourself, then run ./install.sh again."))
+            if subprocess.run(["sh"], input=script.stdout, env=env).returncode != 0:
+                sys.exit(problem("The uv installer did not finish.",
+                                 "Install uv yourself, then run ./install.sh again."))
     uv = find_uv()
     if not uv:
         sys.exit(problem("uv is installed but still not found.",
@@ -2254,8 +2707,9 @@ def build_env(uv, have, quiet):
 
 
 def ensure_env(uv, quiet=False):
-    """Make .venv stand on Python APP_PYTHON with the pinned packages in it.
-    A .venv already on it is kept; one that is missing, broken or on any other
+    """Make .venv stand on Python APP_PYTHON with the pinned packages in it,
+    each file checked against the fingerprint requirements.txt gives it, so
+    nothing unlisted or changed goes in. A .venv already on it is kept; one that is missing, broken or on any other
     Python is built again, so every checkout runs the Python the board is tested
     on. The sync runs either way because it is idempotent and is how a changed
     requirements file is picked up. quiet prints nothing unless a step fails or
@@ -2270,7 +2724,7 @@ def ensure_env(uv, quiet=False):
         stopped = build_env(uv, have, quiet)
     if not quiet:
         print("Syncing packages to requirements.txt.")
-    if run_uv([uv, "pip", "sync", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
+    if run_uv([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
         sys.exit(problem("uv could not sync requirements.txt.",
                          "See the output above, then run ./install.sh again."))
     if not quiet:
@@ -2303,22 +2757,30 @@ def ensure_config():
             print(f"Ports {DEFAULT_PORT} and {DEFAULT_PORT + 1} are in use here, so it names {port} and {port + 1}.")
 
 
-def ensure_node_deps():
-    """Install the test dependencies when node is here, and say plainly that
-    they are only for the tests. Skipped without node, since the board itself
-    does not need them."""
+def find_node_tools():
+    """The npm to use for the test packages, or None when node or npm is missing."""
     npm = shutil.which("npm")
-    if not (shutil.which("node") and npm):
-        skipped("Skipped the test packages: node was not found.")
-        print("They are needed only to run the tests.")
-        return
-    if (HERE / "node_modules" / "puppeteer-core").exists():
+    return npm if shutil.which("node") and npm else None
+
+
+def ensure_test_packages(npm):
+    """Install the packages only the tests need, exactly as tests/package-lock.json
+    names them: npm ci, which takes nothing the lockfile does not fix, and
+    without any package's install scripts. They are left alone when the version
+    tests/package.json pins is already there."""
+    pinned = json.loads((TESTS_DIR / "package.json").read_text())["dependencies"]["puppeteer-core"]
+    try:
+        have = json.loads((TESTS_DIR / "node_modules" / "puppeteer-core" / "package.json").read_text())["version"]
+    except (OSError, ValueError, KeyError):
+        have = None
+    if have == pinned:
         ok("Test packages found.")
         return
-    print("Installing puppeteer-core for the tests.")
-    if subprocess.run([npm, "install", "puppeteer-core"], cwd=str(HERE)).returncode != 0:
-        sys.exit(problem("npm could not install puppeteer-core.",
-                         "See the output above, then run ./install.sh again."))
+    print("Installing the test packages from tests/package-lock.json.")
+    if subprocess.run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+                      cwd=str(TESTS_DIR)).returncode != 0:
+        sys.exit(problem("npm could not install the test packages.",
+                         "See the output above, then run ./install.sh --dev again."))
     ok("Test packages installed.")
 
 
@@ -2329,14 +2791,20 @@ def cmd_install(args):
     if any(w in ("-h", "--help") for w in words):
         print(INSTALL_HELP)
         return
-    if words:
-        sys.exit("install takes no options; got " + " ".join(words) + "\n" + INSTALL_HELP)
+    extra = [w for w in words if w != "--dev"]
+    if extra:
+        sys.exit("install takes only --dev; got " + " ".join(extra) + "\n" + INSTALL_HELP)
+    dev = "--dev" in words
     # keep these lines in order with uv's and npm's when the output is a pipe
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
     # install.sh prints this step's intro and its blank line before it gets here
     global _after_intro
     _after_intro = True
+    npm = find_node_tools() if dev else None
+    if dev and not npm:
+        sys.exit(problem("--dev needs node and npm, and they were not found.",
+                         "Install Node.js, then run ./install.sh --dev again."))
     previous = read_install_record()
     before = {name: (HERE / name).exists() for name in INSTALL_ARTIFACTS}
     try:
@@ -2344,7 +2812,8 @@ def cmd_install(args):
         check_python()
         ensure_env(uv)
         ensure_config()
-        ensure_node_deps()
+        if dev:
+            ensure_test_packages(npm)
     except SystemExit as stop:
         if env_stopped_board and isinstance(stop.code, str):
             stop.code += ("\n  The board was stopped to rebuild .venv and is down. Once this is"
@@ -2475,6 +2944,49 @@ def keep_attachments(answer):
     return said.strip().lower() not in ("n", "no")
 
 
+def other_copies():
+    """Names of the other copies of the board in this folder's parent. Each
+    reads the same attachments folder beside it, so what is saved there is
+    theirs as much as this copy's."""
+    names = []
+    try:
+        for child in sorted(HERE.parent.iterdir()):
+            if (child.is_symlink() or not child.is_dir()
+                    or os.path.realpath(child) == os.path.realpath(HERE)):
+                continue
+            if (child / "server.py").is_file() and (child / "facilitator").is_file():
+                names.append(child.name)
+    except OSError:
+        pass
+    return names
+
+
+def keep_shared_attachments(path, copies):
+    """True unless the owner clearly says yes. The folder at path is read by
+    other copies of the board, so removing it takes their attachments too:
+    a flag does not answer for them, and no terminal keeps it."""
+    who = (f"Another copy of the board uses {path}: " if len(copies) == 1
+           else f"Other copies of the board use {path}: ") + ", ".join(copies) + "."
+    print()
+    print(who)
+    if not sys.stdin.isatty():
+        skipped(f"Keeping {path} for the other copies: there is no terminal to ask on.")
+        print("Remove it by hand when no other copy needs it.")
+        return True
+    try:
+        said = input(SHARED_QUESTION)
+    except EOFError:
+        print("")
+        said = ""
+    except KeyboardInterrupt:
+        print("")
+        sys.exit(problem("Stopped at the attachments question.", "Nothing was removed.", blank=True))
+    if said.strip().lower() in ("y", "yes"):
+        return False
+    skipped(f"Keeping {path} for the other copies.")
+    return True
+
+
 def remove_attachments(path):
     """Remove one attachment folder and nothing above it. A link is left alone
     rather than followed, and rmtree unlinks any link inside without following
@@ -2524,11 +3036,16 @@ def cmd_uninstall(args):
     print("Uninstall asks about your card attachments first, apart from the")
     print("rest of the board's data. Only a clear no removes them.")
     print()
+    copies, keep_shared = [], True
     if attachments:
         print("Your card attachments are in:")
         for path in attachments:
             print(f"  {path}")
         keep = keep_attachments(answer)
+        if SHARED_ATTACHMENTS in attachments:
+            copies = other_copies()
+        if not keep and copies:
+            keep_shared = keep_shared_attachments(SHARED_ATTACHMENTS, copies)
     else:
         print("No card attachments found.")
         keep = True
@@ -2545,6 +3062,7 @@ def cmd_uninstall(args):
         ok("facilitator command and agent skill removed")
 
     made = [(".venv", HERE / ".venv"),
+            ("tests/node_modules", TESTS_DIR / "node_modules"),
             ("node_modules", HERE / "node_modules"),
             ("package.json", HERE / "package.json"),
             ("package-lock.json", HERE / "package-lock.json"),
@@ -2565,6 +3083,8 @@ def cmd_uninstall(args):
 
     if not keep:
         for path in attachments:
+            if copies and path == SHARED_ATTACHMENTS and keep_shared:
+                continue
             remove_attachments(path)
 
     note = bridge_note(port)
@@ -2821,6 +3341,8 @@ def main():
         cmd_run(args)
     elif cmd == "restart":
         cmd_restart(args)
+    elif cmd == "stop":
+        cmd_stop(args)
     elif cmd == "status":
         cmd_status()
     elif cmd == "bridge":

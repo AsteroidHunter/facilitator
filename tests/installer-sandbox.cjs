@@ -3,6 +3,7 @@
 // fakes, then /usr/bin and /bin only, so no real Chrome lookup, uv, brew, node or
 // download can be reached. Every fake that is called writes a line to calls.log.
 const { execFile } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -67,12 +68,14 @@ async function script(file, text) {
 // check) or "apple" (python3 is the /usr/bin/python3 macOS ships, which has no
 // scrypt).
 // uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
-// back an installer that puts it in the home folder) or "absent". The fake's
+// back an installer that puts it in the home folder), "curl-tampered" (the
+// same, but what it hands back is not what the checkout expects) or "absent". The fake's
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
 // hands over to the real python, so what runs on .venv really runs. It says
-// it is uvVersion when asked.
+// it is uvVersion when asked. node: true puts a fake node and a fake npm on
+// PATH; npm ci makes tests/node_modules/puppeteer-core at the pinned version.
 async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present",
-  venvPython = "3.14.0", uvVersion = "0.11.18" } = {}) {
+  venvPython = "3.14.0", uvVersion = "0.11.18", node = false } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
@@ -83,6 +86,23 @@ async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "sy
   for (const file of COPIED) await fs.copyFile(path.join(root, file), path.join(repo, file));
   await fs.chmod(path.join(repo, "install.sh"), 0o755);
   await fs.cp(path.join(root, ".agents"), path.join(repo, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(repo, "tests"));
+  for (const name of ["package.json", "package-lock.json"]) {
+    await fs.copyFile(path.join(root, "tests", name), path.join(repo, "tests", name));
+  }
+
+  if (node) {
+    await script(path.join(tools, "node"), "#!/bin/sh\nexit 0\n");
+    await script(path.join(tools, "npm"), `#!/bin/sh
+echo "npm $*" >> "${log}"
+echo "npm ran in $PWD" >> "${log}"
+if [ "$1" = ci ]; then
+  mkdir -p node_modules/puppeteer-core
+  pinned="$(sed -n 's/.*"puppeteer-core": *"\\([^"]*\\)".*/\\1/p' package.json)"
+  printf '{"name":"puppeteer-core","version":"%s"}' "$pinned" > node_modules/puppeteer-core/package.json
+fi
+`);
+  }
 
   for (const name of agents) await script(path.join(tools, name), "#!/bin/sh\nexit 0\n");
   await script(path.join(tools, "mdfind"), `#!/bin/sh\necho "mdfind $*" >> "${log}"\n`
@@ -128,17 +148,37 @@ chmod +x "${target}"
 `);
   }
 
-  if (uv === "curl") {
-    await script(path.join(tools, "curl"), `#!/bin/sh
-echo "curl $*" >> "${log}"
-cat <<'SCRIPT'
-echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+  if (uv === "curl" || uv === "curl-tampered") {
+    // the installer the fake curl hands back, and the fingerprint this copy of
+    // the checkout is made to expect for it: "curl-tampered" serves something
+    // else under that fingerprint. The installer's own check is probed too.
+    const installer = `echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+printf x > "$HOME/probe.txt"
+echo "uv installer checks with $(sha256sum -b "$HOME/probe.txt" | awk '{printf $1}')" >> "${log}"
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/uv" <<'FAKE'
 ${fakeUv}FAKE
 chmod +x "$HOME/.local/bin/uv"
-SCRIPT
+`;
+    const served = uv === "curl" ? installer : `echo "a changed uv installer ran" >> "${log}"\n`;
+    await fs.writeFile(path.join(dir, "served-installer.sh"), served);
+    await script(path.join(tools, "curl"), `#!/bin/sh
+echo "curl $*" >> "${log}"
+out=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then out="$2"; shift; fi
+  shift
+done
+if [ -n "$out" ]; then cat "${path.join(dir, "served-installer.sh")}" > "$out"; else cat "${path.join(dir, "served-installer.sh")}"; fi
 `);
+    const sum = crypto.createHash("sha256").update(installer).digest("hex");
+    for (const [file, line, pin] of [
+      ["facilitator", /^UV_INSTALL_SHA256 = "[0-9a-f]{64}"$/m, `UV_INSTALL_SHA256 = "${sum}"`],
+      ["install.sh", /^UV_INSTALL_SHA256='[0-9a-f]{64}'$/m, `UV_INSTALL_SHA256='${sum}'`],
+    ]) {
+      const text = await fs.readFile(path.join(repo, file), "utf8");
+      if (line.test(text)) await fs.writeFile(path.join(repo, file), text.replace(line, pin));
+    }
   }
 
   const env = { HOME: home, SHELL: "/bin/zsh", TERM: "xterm-256color", LANG: "en_US.UTF-8",
@@ -149,8 +189,8 @@ SCRIPT
     clean: () => fs.rm(dir, { recursive: true, force: true }),
     has: file => fs.access(file).then(() => true, () => false),
     // no terminal: stdin and stdout are pipes
-    async piped() {
-      const done = await exec("bash", [path.join(repo, "install.sh")], { cwd: repo, env }).then(
+    async piped(args = []) {
+      const done = await exec("bash", [path.join(repo, "install.sh"), ...args], { cwd: repo, env }).then(
         ({ stdout, stderr }) => ({ code: 0, text: stdout + stderr }),
         error => ({ code: error.code, text: error.stdout + error.stderr }));
       return done;

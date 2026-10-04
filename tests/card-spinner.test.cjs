@@ -15,6 +15,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { REST } = require("./phone-rest-geometry.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -46,6 +47,7 @@ async function clearLane(owner = "facilitator") {
   if (held) await api(`/reply?box=${held}`, "Released.");
   const state = await (await fetch(origin + "/state")).json();
   for (const box of state.boxes) {
+    if (box.owner === owner && box.bg) await api(`/working?box=${box.id}&v=0`);
     if (box.owner === owner && !box.done && !box.parked) await api(`/park?box=${box.id}&v=1`);
   }
 }
@@ -229,7 +231,19 @@ function unfreeze() {
   syncSpinner();
 }
 
-async function openCard(kind, id) {
+function countIntervals() {
+  const live = new Set();
+  window.__tickers = live;
+  const set = window.setInterval.bind(window), clear = window.clearInterval.bind(window);
+  window.setInterval = (fn, ms, ...rest) => {
+    const timer = set(fn, ms, ...rest);
+    if (ms === 180) live.add(timer);
+    return timer;
+  };
+  window.clearInterval = timer => { live.delete(timer); return clear(timer); };
+}
+
+async function openCard(kind, id, init) {
   const page = await browser.newPage();
   const problems = [];
   page.on("console", message => {
@@ -241,6 +255,7 @@ async function openCard(kind, id) {
   await page.setViewport(kind === "phone" ? PHONE : DESKTOP);
   await page.evaluateOnNewDocument(() => { try { localStorage.clear(); } catch (err) {} });
   await page.evaluateOnNewDocument(installSampler);
+  if (init) await page.evaluateOnNewDocument(init);
   await page.goto(origin + (kind === "phone" ? `/m?box=${id}` : "/"), { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
   if (kind === "desktop") await page.evaluate(cardId => select(cardId), id);
@@ -355,7 +370,10 @@ test("the marks and the spinner are named once, in the sheet, and never again on
   assert.doesNotMatch(css, /--cardspin-s:\s*var\(/, "the spinner's size is tied to another size");
   for (const name of ["index.html", "m.html"]) {
     const html = await readFile(path.join(ROOT, name), "utf8");
-    assert.doesNotMatch(html, /--(bar-mark|cardspin-s|cross-t|cross-weight)\s*:/, `${name} sets one of the shared sizes itself`);
+    // the phone page may draw the shared sizes at the rest scale, from the sheet's own number, and no more
+    const own = html.replace(/--(bar-mark|cardspin-s):calc\(var\(--full-\1\) \* var\(--rest\)\);/g, "")
+      .replace(/--cross-t:calc\(var\(--bar-mark\) \* var\(--cross-weight\)\);/g, "");
+    assert.doesNotMatch(own, /--(bar-mark|cardspin-s|cross-t|cross-weight)\s*:/, `${name} sets one of the shared sizes itself`);
     assert.doesNotMatch(html, /\.cardspin\s*[{,:]/, `${name} carries a rule for the spinner of its own`);
     assert.doesNotMatch(html, /histrun/, `${name} still has the run the spinner once stood in`);
     assert.match(html, /:is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/, `${name}: the sun and the moon are not sized by the mark size`);
@@ -386,7 +404,9 @@ for (const kind of ["desktop", "phone"]) {
     const { page, problems } = await openCard(kind, id);
     await seatIs(page, id, true);
     await settle(400);
-    const near = (a, b) => Math.abs(a - b) <= 0.01;
+    // the phone lays out at rest scale, so its marks stand REST of the design size
+    const rest = kind === "phone" ? REST : 1, MARK = 10 * rest, SPIN = 11 * rest;
+    const near = (a, b) => Math.abs(a - b) <= 0.02;
     const measure = async what => {
       const bar = await page.evaluate(readBar);
       assert.equal(bar.hasRun, false, `${what}: the spinner stands in a run after the arrows`);
@@ -396,15 +416,15 @@ for (const kind of ["desktop", "phone"]) {
         assert.ok(near(width, bar.named.square) && near(height, bar.named.square),
           `${what}: a square is ${width} by ${height}, not the named ${bar.named.square}`);
       }
-      assert.equal(bar.named.mark, 10, `${what}: the named mark size is ${bar.named.mark}`);
-      assert.equal(bar.named.spinner, 11, `${what}: the named spinner size is ${bar.named.spinner}`);
-      assert.ok(near(bar.markWidth, 10) && near(bar.markHeight, 10), `${what}: the sun's mark is ${bar.markWidth} by ${bar.markHeight}`);
-      assert.ok(near(bar.moonWidth, 10) && near(bar.moonHeight, 10), `${what}: the moon is ${bar.moonWidth} by ${bar.moonHeight}`);
-      assert.ok(near(bar.crossLength, 10), `${what}: the cross is ${bar.crossLength} long`);
+      assert.ok(near(bar.named.mark, MARK), `${what}: the named mark size is ${bar.named.mark}`);
+      assert.ok(near(bar.named.spinner, SPIN), `${what}: the named spinner size is ${bar.named.spinner}`);
+      assert.ok(near(bar.markWidth, MARK) && near(bar.markHeight, MARK), `${what}: the sun's mark is ${bar.markWidth} by ${bar.markHeight}`);
+      assert.ok(near(bar.moonWidth, MARK) && near(bar.moonHeight, MARK), `${what}: the moon is ${bar.moonWidth} by ${bar.moonHeight}`);
+      assert.ok(near(bar.crossLength, MARK), `${what}: the cross is ${bar.crossLength} long`);
       assert.ok(Math.abs(bar.crossThickness / bar.crossLength - 1.2 / 9) <= 0.001,
         `${what}: the cross is ${bar.crossThickness} thick over ${bar.crossLength}, not the proportion it had`);
-      assert.ok(near(bar.spinnerWidth, 11) && near(bar.spinnerHeight, 11) && near(bar.spinnerFont, 11),
-        `${what}: the spinner is ${bar.spinnerWidth} by ${bar.spinnerHeight} in ${bar.spinnerFont}px type, not 11`);
+      assert.ok(near(bar.spinnerWidth, SPIN) && near(bar.spinnerHeight, SPIN) && near(bar.spinnerFont, SPIN),
+        `${what}: the spinner is ${bar.spinnerWidth} by ${bar.spinnerHeight} in ${bar.spinnerFont}px type, not ${SPIN}`);
       assert.ok(Math.abs(bar.seatOffset[0]) <= 0.01 && Math.abs(bar.seatOffset[1]) <= 0.01,
         `${what}: the spinner's centre is ${bar.seatOffset} off the sun's mark`);
       assert.ok(bar.inSun, `${what}: the spinner is not inside the sun's square`);
@@ -631,6 +651,161 @@ for (const kind of ["desktop", "phone"]) {
     steps.slice(1).forEach((f, i) => assert.equal(FRAMES.indexOf(f), (FRAMES.indexOf(steps[i]) + 1) % 4, `the frames skipped: ${steps.join("")}`));
     for (const [frame, age] of reads) if (age !== null) assert.equal(age, frame, "the card and its ticket show different frames");
     if (kind === "desktop") assert.ok(reads.some(r => r[1] !== null), "the green ticket's row was never read");
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+}
+
+// the frame each of two cards and their rows show, read together in one instant
+function samplePhases(a, b, count, gap) {
+  return new Promise(resolve => {
+    const out = [];
+    const row = id => {
+      const age = document.querySelector(`#tiklist .trow.working[data-id="${id}"] .tage`);
+      return age ? age.textContent : null;
+    };
+    // the frame the card's own last-message time says it should show at the
+    // clock of the timer's last tick: whole 180 ms steps, four to a turn
+    const should = id => {
+      const ts = lastState.boxes.find(x => x.id === id).ts;
+      const step = Math.floor((spinNow - ts * 1000) / 180);
+      return ["|", "/", "-", "\\"][((step % 4) + 4) % 4];
+    };
+    const timer = setInterval(() => {
+      try {
+        out.push({
+          cardA: els[a].cardSpin.dataset.f, cardB: els[b].cardSpin.dataset.f,
+          rowA: row(a), rowB: row(b),
+          shouldA: should(a), shouldB: should(b),
+        });
+      } catch (err) { clearInterval(timer); resolve([{ error: String(err) }]); return; }
+      if (out.length >= count) { clearInterval(timer); resolve(out); }
+    }, gap);
+  });
+}
+
+function sampleTimers(count, gap) {
+  return new Promise(resolve => {
+    const out = [];
+    const timer = setInterval(() => {
+      out.push(window.__tickers.size);
+      if (out.length >= count) { clearInterval(timer); resolve(out); }
+    }, gap);
+  });
+}
+
+const working = (id, on) => api(`/working?box=${id}&v=${on ? 1 : 0}`);
+
+async function workingCard(title) {
+  const id = await create(title);
+  assert.equal((await api(`/reply?box=${id}`, "Earlier answer.")).status, 200);
+  return id;
+}
+
+for (const kind of ["desktop", "phone"]) {
+  test(`${kind}: working cards with different last-message times show different frames right after a load, and a reload keeps them`, async () => {
+    await clearLane();
+    const a = await workingCard(`Phase first on the ${kind}`);
+    await settle(350);   // between one and three steps, so the two frames can never coincide
+    const b = await workingCard(`Phase second on the ${kind}`);
+    assert.equal((await working(a, true)).status, 200);
+    assert.equal((await working(b, true)).status, 200);
+    const { page, problems } = await openCard(kind, a);
+    if (kind === "phone") await page.evaluate(() => openDrawer());
+    await seatIs(page, a, true);
+    await seatIs(page, b, true);
+    const stamps = await page.evaluate(ids => ids.map(id => lastState.boxes.find(x => x.id === id).ts), [a, b]);
+    const apart = (stamps[1] - stamps[0]) * 1000;
+    assert.ok(apart > 200 && apart < 520, `the two cards' last-message times are ${apart} ms apart`);
+
+    const check = async what => {
+      const samples = await page.evaluate(samplePhases, a, b, 30, 40);
+      assert.equal(samples[0].error, undefined, `${what}: reading the frames failed: ${samples[0].error}`);
+      for (const s of samples) {
+        assert.equal(s.cardA, s.shouldA, `${what}: a card is not on the frame its last-message time gives`);
+        assert.equal(s.cardB, s.shouldB, `${what}: a card is not on the frame its last-message time gives`);
+        assert.notEqual(s.cardA, s.cardB, `${what}: cards with different last-message times show the same frame`);
+        if (s.rowA !== null) assert.equal(s.rowA, s.cardA, `${what}: a ticket and its card show different frames`);
+        if (s.rowB !== null) assert.equal(s.rowB, s.cardB, `${what}: a ticket and its card show different frames`);
+        if (kind === "desktop") assert.ok(s.rowA !== null && s.rowB !== null, `${what}: a working ticket was not in the list`);
+      }
+    };
+    await check("first load");
+
+    for (let again = 1; again <= 2; again++) {
+      await settle(500 + again * 130);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
+      if (kind === "phone") await page.evaluate(() => openDrawer());
+      await seatIs(page, a, true);
+      await seatIs(page, b, true);
+      assert.deepEqual(await page.evaluate(ids => ids.map(id => lastState.boxes.find(x => x.id === id).ts), [a, b]), stamps, "a last-message time moved");
+      await check(`reload ${again}`);
+    }
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  test(`${kind}: a card keeps the frame its last-message time gives through polls, re-renders and a new message, and lets go when it stops`, async () => {
+    await clearLane();
+    const a = await workingCard(`Phase kept on the ${kind}`);
+    await settle(350);
+    const b = await workingCard(`Phase kept beside it on the ${kind}`);
+    assert.equal((await working(a, true)).status, 200);
+    assert.equal((await working(b, true)).status, 200);
+    const { page, problems } = await openCard(kind, a);
+    if (kind === "phone") await page.evaluate(() => openDrawer());
+    await seatIs(page, a, true);
+    await seatIs(page, b, true);
+
+    const agree = async what => {
+      const samples = await page.evaluate(samplePhases, a, b, 40, 50);
+      assert.equal(samples[0].error, undefined, `${what}: reading the frames failed: ${samples[0].error}`);
+      for (const s of samples) {
+        assert.equal(s.cardA, s.shouldA, `${what}: a card left the frame its last-message time gives`);
+        assert.equal(s.cardB, s.shouldB, `${what}: a card left the frame its last-message time gives`);
+        if (s.rowA !== null) assert.equal(s.rowA, s.cardA, `${what}: a ticket and its card show different frames`);
+        if (s.rowB !== null) assert.equal(s.rowB, s.cardB, `${what}: a ticket and its card show different frames`);
+      }
+    };
+    await agree("at first");
+
+    // a new card on the board and several polls redraw the cards and the list
+    const other = await create(`Phase bystander on the ${kind}`);
+    assert.equal((await api(`/reply?box=${other}`, "Answer.")).status, 200);
+    await page.waitForFunction(id => lastState.boxes.some(x => x.id === id), { timeout: 5000 }, other);
+    await settle(1500);
+    await agree("after polls and a redraw");
+
+    // a message on a working card moves its last-message time, and its frame follows it
+    assert.equal((await api(`/send?box=${a}`, "One more thing.")).status, 200);
+    await page.waitForFunction(id => lastState.boxes.find(x => x.id === id).pending > 0, { timeout: 5000 }, a);
+    await settle(400);
+    await agree("after a new message");
+
+    assert.equal((await working(a, false)).status, 200);
+    await seatIs(page, a, false);
+    await page.waitForFunction(id => !spinTs.has(id), { timeout: 5000 }, a);
+    assert.equal(await page.evaluate(id => spinTs.has(id), b), true, "the other card lost its time");
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  test(`${kind}: one 180 ms timer turns every spinner, and none runs when nothing works`, async () => {
+    await clearLane();
+    const a = await workingCard(`Timer first on the ${kind}`);
+    const b = await workingCard(`Timer second on the ${kind}`);
+    const { page, problems } = await openCard(kind, a, countIntervals);
+    assert.equal(await page.evaluate(() => window.__tickers.size), 0, "a timer ran with nothing working");
+    assert.equal((await working(a, true)).status, 200);
+    await seatIs(page, a, true);
+    assert.equal((await working(b, true)).status, 200);
+    await seatIs(page, b, true);
+    const counts = await page.evaluate(sampleTimers, 30, 100);
+    assert.deepEqual([...new Set(counts)], [1], `timers alive while two cards worked: ${counts}`);
+    assert.equal((await working(a, false)).status, 200);
+    assert.equal((await working(b, false)).status, 200);
+    await page.waitForFunction(() => window.__tickers.size === 0, { timeout: 5000 });
     assert.deepEqual(problems, []);
     await page.close();
   });

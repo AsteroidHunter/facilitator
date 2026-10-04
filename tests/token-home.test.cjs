@@ -16,7 +16,14 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..");
-const read = name => fs.readFileSync(path.join(ROOT, name), "utf8");
+// the sheet draws each length in --u, which the board leaves at 1px, so on the board
+// calc(N * var(--u, 1px)) is N px: the tests read the sheet's lengths as plain px
+const plainPx = css => css.replace(/calc\(([\d.]+) \* var\(--u, 1px\)\)/g, "$1px")
+  .replace(/([\d.]+) \* var\(--u, 1px\)/g, "$1px");
+const read = name => {
+  const text = fs.readFileSync(path.join(ROOT, name), "utf8");
+  return name === "home-widgets.css" ? plainPx(text) : text;
+};
 const WIDGETS = read("home-widgets.js");
 const HTML = read("index.html");
 const SERVER = read("server.py");
@@ -804,7 +811,9 @@ test("the board's markup, sheet and routes carry the home page", () => {
   assert.doesNotMatch(house[0], /aria-hidden/);
   assert.match(HTML, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>/);
   assert.doesNotMatch(HTML, /#homeico\{[^}]*#C9BFAE/, "the house is no longer greyed out");
-  assert.match(HTML, /body\.focus #homeico:hover, body\.focus\.home #homeico\{color:var\(--ink\)\}/);
+  // the house's circle takes the ink under a pointer, as the bar's other circles
+  // do, and while home is up
+  assert.match(HTML, /body\.focus :is\(#homeico[^)]*\):hover,\s*body\.focus\.home #homeico\{color:var\(--ink\)\}/);
   assert.match(HTML, /body\.focus\.home #stage\{visibility:hidden; opacity:0; pointer-events:none\}/);
   assert.match(HTML, /body\.focus\.home #home\{display:block;/);
   // the widgets are fetched when home opens, never on boot

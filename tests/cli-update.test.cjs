@@ -41,7 +41,7 @@ async function freePort() {
 // says it is version when asked.
 const REAL_PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const VENV_CALL = "venv --clear --managed-python --python 3.14 .venv";
-const ENV_CALLS = ["--version", "python install --no-bin 3.14", VENV_CALL, "pip sync --python .venv/bin/python requirements.txt"];
+const ENV_CALLS = ["--version", "python install --no-bin 3.14", VENV_CALL, "pip sync --require-hashes --python .venv/bin/python requirements.txt"];
 function fakeUv({ failSync = false, version = "0.11.18" } = {}) {
   return [
     "#!/bin/sh",

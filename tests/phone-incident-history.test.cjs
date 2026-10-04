@@ -644,7 +644,7 @@ function responseScroller({ top = 400, height = 500, full = 1500 } = {}) {
 }
 // a layer over the page, found by the one selector that names it
 const layerTarget = (selector, side) => ({ closest: asked =>
-  asked === selector ? {} : asked === "#drawer, #settings" ? { dataset: { side } } : null });
+  asked === selector ? {} : asked === "#tickets, #settings" ? { dataset: { side } } : null });
 function gesture(schema = 5, shape) {
   const f = fixture();
   f.history.capability(schema);
@@ -783,7 +783,7 @@ test("taken, reply swaps, prevented pans and a replaced response are recorded wi
   // a vertical swipe over the response that the shade, the curtain or a
   // leaving menu caught instead
   for (const [start, target] of [[4000, layerTarget("#scrim")], [5000, layerTarget("#loading")],
-    [6000, layerTarget("#drawer:not(.open), #settings:not(.open)", "right")]])
+    [6000, layerTarget("#tickets:not(.open), #settings:not(.open)", "right")]])
     await swipe(start, () => { g.down(200, 600, target); g.move(200, 560, { target }); g.up(); });
   await swipe(7000, () => { g.down(200, 300, layerTarget("#scrim")); g.move(260, 302); g.up(); });   // sideways: not taken
   const report = await g.inspect(30000);

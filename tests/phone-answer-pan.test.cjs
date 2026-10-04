@@ -41,22 +41,25 @@ function world() {
   const boxes = { m1: box("m1"), m2: box("m2") };
   const cards = { addEventListener: on("#cards"), clientWidth: 360 };
   const panel = side => ({ dataset: { side } });
-  const drawer = panel("left"), settings = panel("right");
+  const tickets = panel("left"), settings = panel("right");
   const document = {
     addEventListener: on("document"), body, activeElement: body,
     getElementById: id => id === "cards" ? cards : id === "pane" ? { classList: classList() } : null,
     querySelectorAll: selector => selector === ".box.cardswipe"
       ? Object.values(boxes).filter(b => b.classList.contains("cardswipe")) : [],
   };
+  const els = { m1: { box: boxes.m1 }, m2: { box: boxes.m2 } };
   const context = vm.createContext({
-    document, drawer, settings, innerWidth: 390, selectedId: "m1", hist: null,
-    els: { m1: { box: boxes.m1 }, m2: { box: boxes.m2 } },
+    document, tickets, settings, innerWidth: 390, selectedId: "m1", hist: null,
+    els,
+    // the page builds the card coming in when it is not built yet
+    ensureCard: id => els[id] || null,
     addEventListener: on("window"), performance: { now: () => 0 },
     setTimeout: (fn, ms) => { timers.push(fn); return timers.length; }, clearTimeout() {},
     matchMedia: () => ({ matches: false }),
     menuOut: () => null, dismissEditor() {}, closeProjects() {}, tracePhone() {}, traceFrameOpportunity() {},
     phoneEnterRole: () => "other",
-    menuWidth: () => 300, menuSign: p => p === settings ? -1 : 1,
+    menuTravel: () => 300, menuSign: p => p === settings ? -1 : 1,
     paintMenu: (p, at) => calls.push(["paint", p.dataset.side, Math.round(at * 100) / 100]),
     runMenu: (p, v) => calls.push(["run", p.dataset.side, v]),
     cardStepTarget: dir => ({ id: dir > 0 ? "m2" : "m1" }),
@@ -67,6 +70,8 @@ function world() {
     wearEditor: id => calls.push(["wear", id, boxes[id].classList.contains("cardswipe")]),
     // card-logic.js's own function: the card coming in is handed its reading head
     openAtHead: el => calls.push(["head", el.box.id]),
+    // a card taken down and built again is handed its answer's scroll back
+    seatScroll() {},
     MutationObserver: class { observe() {} disconnect() {} },
   });
   for (const source of [DRAWER, RECORDER, SWIPE]) vm.runInContext(source, context);
