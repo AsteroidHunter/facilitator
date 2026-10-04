@@ -811,7 +811,9 @@ test("the board's markup, sheet and routes carry the home page", () => {
   assert.doesNotMatch(house[0], /aria-hidden/);
   assert.match(HTML, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>/);
   assert.doesNotMatch(HTML, /#homeico\{[^}]*#C9BFAE/, "the house is no longer greyed out");
-  assert.match(HTML, /body\.focus #homeico:hover, body\.focus\.home #homeico\{color:var\(--ink\)\}/);
+  // the house's circle takes the ink under a pointer, as the bar's other circles
+  // do, and while home is up
+  assert.match(HTML, /body\.focus :is\(#homeico[^)]*\):hover,\s*body\.focus\.home #homeico\{color:var\(--ink\)\}/);
   assert.match(HTML, /body\.focus\.home #stage\{visibility:hidden; opacity:0; pointer-events:none\}/);
   assert.match(HTML, /body\.focus\.home #home\{display:block;/);
   // the widgets are fetched when home opens, never on boot

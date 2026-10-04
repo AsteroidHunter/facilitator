@@ -260,12 +260,12 @@ test("an offer puts the soft-tint control in the bar, level with the bell mark",
   const shape = await barShape(page);
   assert.equal(shape.install.shown, true, "the offer left the bar unchanged");
   assert.equal(shape.install.text, "Install app");
-  // the control is a soft-tint button with no border, and the bell beside it is
-  // a plain mark with neither box nor border
+  // the control is a soft-tint button with no border, and the bell beside it
+  // stands in a glass circle with no border of its own
   assert.notEqual(shape.install.background, "rgba(0, 0, 0, 0)");
   assert.equal(shape.install.radius, "4px");
   assert.equal(shape.install.border, "none");
-  assert.equal(shape.bell.background, "rgba(0, 0, 0, 0)");
+  assert.notEqual(shape.bell.background, "rgba(0, 0, 0, 0)", "the bell's circle has no glass face");
   assert.equal(shape.bell.border, "none");
   // one row: their middles line up
   assert.ok(Math.abs(shape.install.middle - shape.bell.middle) <= 1,

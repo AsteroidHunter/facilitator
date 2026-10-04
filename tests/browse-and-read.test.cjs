@@ -574,7 +574,7 @@ test("a press on the ticket list's empty area lets go of the card; a press on a 
 
 test("a click on the open project's tab unselects the card on screen; another tab, or home, switches", () => {
   const d = loaded();
-  const click = between(HTML.desktop, '      t.addEventListener("click", () => {', "\n      bar.appendChild(t);");
+  const click = between(HTML.desktop, '      t.addEventListener("click", () => {', "\n      oval.appendChild(t);");
   let handler = null;
   d.sandbox.tabDrag = null;
   const wire = vm.runInContext(`(function(t, ow){\n${click}\n})`, d.sandbox);

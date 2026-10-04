@@ -242,7 +242,7 @@ after(async () => {
 
 // ---- the bar ------------------------------------------------------------------------
 
-test("the bar has no colour picker and the bell is a plain mark like the gear", async () => {
+test("the bar has no colour picker and the bell stands in a glass circle like the gear's", async () => {
   const { page, problems } = await open("/", WIDE);
   try {
     const bar = await page.evaluate(() => {
@@ -262,9 +262,11 @@ test("the bar has no colour picker and the bell is a plain mark like the gear", 
     assert.equal(bar.pickInPage, true, "the colour picker is not in the settings page");
     assert.equal(bar.pencil, false, "the pencil is still on the bar");
     assert.equal(bar.bell.inBar, true, "the bell left the bar");
-    assert.equal(bar.bell.background, "rgba(0, 0, 0, 0)", "the bell still sits on a tinted box");
-    assert.equal(bar.bell.border, "none", "the bell still has a border");
-    assert.equal(bar.bell.shadow, "none", "the bell still has a shadow");
+    assert.notEqual(bar.bell.background, "rgba(0, 0, 0, 0)", "the bell's circle has no glass face");
+    assert.equal(bar.bell.background, bar.gear.background, "the bell's face is not the gear's");
+    assert.equal(bar.bell.border, "none", "the bell has a border");
+    assert.notEqual(bar.bell.shadow, "none", "the bell's circle has no edge or shadow");
+    assert.equal(bar.bell.shadow, bar.gear.shadow, "the bell's edge is not the gear's");
     assert.equal(bar.bell.mark, "15x15", "the speaker mark is not the bar's 15px size");
     assert.equal(bar.gear.mark, "16x20", "the squid is not drawn at its 20px height");
     assert.equal(bar.bell.color, bar.gear.color, "the bell mark is not the gear's colour");
