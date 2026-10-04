@@ -822,7 +822,7 @@ test("the board's markup, sheet and routes carry the home page", () => {
   // every project tab leaves home, the plus does too, no tab is seated while it
   // is up, and the board's keys are off
   const setTab = HTML.slice(HTML.indexOf("function setTab("), HTML.indexOf("\n}\n", HTML.indexOf("function setTab(")));
-  assert.match(setTab, /if \(LOCKED && owner !== LOCKED\) return;\n  const entering = entrance && !draft && \(homeOpen \|\| owner !== activeOwner\);\n  if \(homeOpen\) setHome\(false\);/);
+  assert.match(setTab, /if \(LOCKED && owner !== LOCKED\) return;\n  if \(homeOpen\) setHome\(false\);/);
   const plus = HTML.slice(HTML.indexOf("function plusClick("), HTML.indexOf("\n}\n", HTML.indexOf("function plusClick(")));
   assert.match(plus, /if \(homeOpen\) setHome\(false\);\n  draft = /);
   assert.match(HTML, /t\.classList\.toggle\("on", t\.dataset\.owner === activeOwner && !homeOpen\);/);

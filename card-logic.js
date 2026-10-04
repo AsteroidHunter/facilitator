@@ -3832,15 +3832,3 @@ function settingsOverlay(host, source, opts){
   });
   return { open: openOverlay, close, isOpen: () => open, page, root: veil };
 }
-
-// Replay the existing Home entrance after a project has already been selected.
-// No outgoing animation or deferred selection: the CSS owns this one entrance.
-function projectEntrance(elements){
-  for (const el of elements){
-    if (!el) continue;
-    el.classList.remove("project-enter");
-    if (document.hidden || (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches)) continue;
-    void el.offsetWidth;
-    el.classList.add("project-enter");
-  }
-}

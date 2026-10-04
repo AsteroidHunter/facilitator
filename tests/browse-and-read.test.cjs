@@ -205,7 +205,7 @@ function desktop() {
     snapCard: noop, renderTabs: noop, rowsOf: () => ["lane"],
     // what setTab asks of the rest of the board
     ownerReady: true, validActiveOwnerIds: new Set(["lane", "other"]), LOCKED: null, endDraft: noop,
-    projectEntrance: noop, applySavedLayout: noop, panelPoll: noop, chatPoll: noop, fileNavPoll: noop, apply: noop,
+    applySavedLayout: noop, panelPoll: noop, chatPoll: noop, fileNavPoll: noop, apply: noop,
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -221,7 +221,7 @@ function desktop() {
     between(html, "function setBrowsing(on){", "\nfunction updatePwd("),
     between(html, "function nav(dx, dy, opts){", "\n// keep a valid selection"),
     between(html, "function applySelection(state){", "\nfunction statusOf("),
-    block(html, "function setTab(owner, entrance = false){"),
+    block(html, "function setTab(owner){"),
     block(html, "function deselect(){"),
     between(html, "function boardResponseCard(){", "\n// the grid compass") +
       between(html, "const boardShortcutTyping = cardShortcutEditing;", "\naddEventListener(\"keydown\", e => {\n  if (!FOCUS) return;"),

@@ -143,8 +143,8 @@ test("while home is up no project is checked, the capsule reads Home, the card i
   assert.match(between(PHONE, 'projMenu.addEventListener("click", e => {', "});"),
     /if \(row === house\) closeProjects\(\);\n\s+else chooseRow\(row\);/);
   assert.doesNotMatch(choose, /house/);
-  assert.match(choose, /if \(ow === activeOwner && !homeOpen [^\n]*\{ unselectShown\(\); return; \}\n\s+const entering = homeOpen \|\| ow !== activeOwner;\n\s+if \(homeOpen\) setHome\(false\);[^\n]*\n\s+setTab\(ow, entering\);/);
-  assert.doesNotMatch(between(PHONE, "function setTab(owner, entrance = false){", "\n}\n"), /setHome/);
+  assert.match(choose, /if \(ow === activeOwner && !homeOpen [^\n]*\{ unselectShown\(\); return; \}\n\s+if \(homeOpen\) setHome\(false\);[^\n]*\n\s+setTab\(ow\);/);
+  assert.doesNotMatch(between(PHONE, "function setTab(owner){", "\n}\n"), /setHome/);
   const paint = between(PHONE, "function renderTabs(st){", "\n}\n");
   assert.doesNotMatch(paint, /setHome/);
   assert.match(paint, /on = ow === activeOwner && !homeOpen/);
