@@ -1669,7 +1669,7 @@
      them for the whole gesture, so there is nothing behind them left to blur
      that anyone can see. the bar's own rules are untouched, so the resting look
      is the resting look */
-  body.p3zoom .bar .qn-glass, body.focus.p3zoom #tabbar .projectlens{backdrop-filter:none; -webkit-backdrop-filter:none}
+  body.p3zoom .bar .qn-glass, body.focus.p3zoom #tabrow .projectlens{backdrop-filter:none; -webkit-backdrop-filter:none}
   /* ---- the file navigator, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
@@ -2860,7 +2860,8 @@
   body.focus .bar{height:40px; padding:0 0 7px; gap:8px}
   body.focus #toc, body.focus #tocgrip{top:41px}
   body.focus #offline{top:41px}
-  #tabbar{display:none}
+  #tabrow, #tabbar{display:none}
+  body.focus #tabrow{position:relative; display:flex; align-items:center; gap:8px; height:32px; flex:none}
   body.focus #tabbar{display:flex; align-items:center; gap:8px; height:32px; flex:none}
   /* seated tabs per the 20260809 mockup: the active one's bottom opens into
      the canvas. 20260827: the top two corners now take the cards' own 7px, so
@@ -3103,8 +3104,11 @@
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#chimebtn, #setbtn, #tabbar .ptabplus).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
+  /* Home is a plain focusable button. The shared selection lens supplies its
+     glass only while Home is selected, just as it does for a project name. */
+  body.focus #homeico{background:none; border:none; box-shadow:none}
   /* Bare names share only a layout wrapper. The one lens paints above their
      pixels but takes no input: the buttons keep their clicks and drags. */
   body.focus #tabbar .taboval{position:relative; flex:none; display:flex; align-items:center;
@@ -3123,33 +3127,33 @@
   /* Use the controls' actual glass material. The native backdrop is visible
      only around the rim: the opaque, matching face inside replaces its pixels
      before clean enlarged text is painted, so the original ink cannot ghost. */
-  body.focus #tabbar .projectlens{position:absolute; left:0; top:0; height:32px;
+  body.focus #tabrow .projectlens{position:absolute; left:0; top:0; height:32px;
     box-sizing:border-box; border-radius:16px; z-index:3; pointer-events:none;
     backdrop-filter:var(--lens-filter); -webkit-backdrop-filter:var(--lens-filter)}
-  body.focus #tabbar .lensclear{position:absolute; inset:0; border-radius:inherit;
+  body.focus #tabrow .lensclear{position:absolute; inset:0; border-radius:inherit;
     --qn-tint:inherit; --qn-edge:inherit; --qn-ring:inherit;
     background-color:color-mix(in srgb, var(--paper), #fff calc(var(--qn-tint) * 100%));
     background-image:inherit; box-shadow:inherit;
     backdrop-filter:none; -webkit-backdrop-filter:none;
     mask:var(--lens-center-mask);
     pointer-events:none; overflow:hidden}
-  body.focus #tabbar .lensglyph{position:absolute; left:0; top:0; margin:0; padding:0;
+  body.focus #tabrow .lensglyph{position:absolute; left:0; top:0; margin:0; padding:0;
     border:0; transform-origin:0 0; pointer-events:none}
-  body.focus #tabbar .lenscross{background:none}
+  body.focus #tabrow .lenscross{background:none}
   /* The outer seat moves and sizes the lens. Only the inner lens grows on
      press: its map stays in local coordinates, separate from the slide.
      Fade the lens itself, never an ancestor that would cut off its backdrop. */
-  body.focus #tabbar .tabseat{position:absolute; left:0; top:0; height:32px; width:0;
+  body.focus #tabrow .tabseat{position:absolute; left:0; top:0; height:32px; width:0;
     z-index:3; pointer-events:none;
     transition:transform .28s var(--gentle), width .28s var(--gentle),
       translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  body.focus #tabbar .tabseat.still{transition:translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  body.focus #tabbar .seatlens{width:100%;
+  body.focus #tabrow .tabseat.still{transition:translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  body.focus #tabrow .seatlens{width:100%;
     transition:transform .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .18s var(--gentle)}
-  body.focus #tabbar .tabseat.gone .seatlens{opacity:0}
-  body.focus #tabbar .tabseat.pressed .seatlens{transform:scale(1.1); --qn-edge:3.5;
+  body.focus #tabrow .tabseat.gone .seatlens{opacity:0}
+  body.focus #tabrow .tabseat.pressed .seatlens{transform:scale(1.1); --qn-edge:3.5;
     transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle)}
-  body.focus #tabbar :is(.tabseat.carried, .tabheld){z-index:4}
+  body.focus #tabrow :is(.tabseat.carried, .tabheld){z-index:4}
   /* the plus: its own circle after the oval, its two bars the house's line,
      in the ink at three quarters as the typed plus was, and full under a
      pointer */
@@ -3529,8 +3533,10 @@
 <body class="focus">
 
 <div class="bar">
-  <button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
+  <span id="tabrow">
+  <button id="homeico" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
   <span id="tabbar"></span>
+  </span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
   <button id="chimebtn" class="qn-glass" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
@@ -3963,7 +3969,6 @@ function renderTabs(st){
     // The bare names keep one layout wrapper. Reuse the lens across rebuilds
     // so a poll never restarts its motion.
     const oval = h("span", "taboval");
-    oval.appendChild(tabSeat.el);
     bar.appendChild(oval);
     seatWatch.disconnect();
     for (const ow of owners){
@@ -4155,17 +4160,30 @@ let lensFrame = 0;
 function queueLensPaint(){
   if (!lensFrame) lensFrame = requestAnimationFrame(paintLenses);
 }
+// Preserve the house's existing vector artwork. This visual copy has no
+// identity, listeners or focus target; the original Home button owns input.
+function lensIconCopy(source){
+  const icon = source.cloneNode(true);
+  for (const node of [icon, ...icon.querySelectorAll("*")]){
+    node.removeAttribute("id"); node.removeAttribute("tabindex");
+    for (const name of node.getAttributeNames()) if (/^on/i.test(name)) node.removeAttribute(name);
+  }
+  icon.setAttribute("aria-hidden", "true"); icon.setAttribute("focusable", "false");
+  icon.style.display = "block";
+  return icon;
+}
 function paintLenses(){
   if (lensFrame) cancelAnimationFrame(lensFrame);
   lensFrame = 0;
-  const bar = document.getElementById("tabbar");
+  const bar = document.getElementById("tabrow");
   if (!bar || document.visibilityState === "hidden") return;
   // Read every source before writing any copy. Only plain visual spans are
   // made; the real tab and close buttons remain the sole interactive objects.
-  const sources = [...bar.querySelectorAll(".ptab:not(.closed) .plabel, .ptab:not(.closed) .ptabx")].map(el => {
+  const sources = [...bar.querySelectorAll("#homeico svg, .ptab:not(.closed) .plabel, .ptab:not(.closed) .ptabx")].map(el => {
     const rect = el.getBoundingClientRect(), style = getComputedStyle(el);
-    const tab = el.closest(".ptab"), opacity = Number(style.opacity) * Number(getComputedStyle(tab).opacity);
-    return { el, rect, style, opacity, cross: el.classList.contains("ptabx") };
+    const control = el.closest(".ptab") || el.closest("#homeico");
+    const opacity = Number(style.opacity) * Number(getComputedStyle(control).opacity);
+    return { el, rect, style, opacity, cross: el.classList.contains("ptabx"), icon:el.tagName.toLowerCase() === "svg" };
   }).filter(s => s.rect.width && s.rect.height && s.style.visibility !== "hidden");
   const lenses = [...liveLenses].filter(el => el.isConnected).map(el => ({ el, rect: el.getBoundingClientRect(), width: parseFloat(getComputedStyle(el).width) }));
   for (const { el, rect, width } of lenses){
@@ -4177,9 +4195,13 @@ function paintLenses(){
       // Copy all visible names, including those beyond this lens: the mask is
       // the only crop, so glyph overhangs enter the rim without popping in.
       let copy = lens.copies.get(s.el);
-      if (!copy){ copy = h("span", "lensglyph" + (s.cross ? " lenscross" : "")); lens.clear.appendChild(copy); lens.copies.set(s.el, copy); }
+      if (!copy){
+        copy = h("span", "lensglyph" + (s.cross ? " lenscross" : ""));
+        if (s.icon) copy.appendChild(lensIconCopy(s.el));
+        lens.clear.appendChild(copy); lens.copies.set(s.el, copy);
+      }
       kept.add(s.el);
-      if (!s.cross && copy.textContent !== s.el.textContent) copy.textContent = s.el.textContent;
+      if (!s.cross && !s.icon && copy.textContent !== s.el.textContent) copy.textContent = s.el.textContent;
       for (const key of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch", "lineHeight", "letterSpacing", "fontFeatureSettings", "fontVariationSettings", "whiteSpace", "textTransform", "color"])
         if (copy.style[key] !== s.style[key]) copy.style[key] = s.style[key];
       const values = { opacity:String(s.opacity), width:s.rect.width + "px", height:s.rect.height + "px",
@@ -4196,7 +4218,7 @@ function paintLenses(){
 const lensChanges = new MutationObserver(records => {
   if (records.some(r => !r.target.closest?.(".lensclear"))) queueLensPaint();
 });
-const lensBar = document.getElementById("tabbar");
+const lensBar = document.getElementById("tabrow");
 lensChanges.observe(lensBar, { subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:["class", "style"] });
 // Pseudo-class color changes do not produce DOM mutations. Mirror them too,
 // including an immediately applied hover under reduced motion.
@@ -4233,18 +4255,20 @@ function makeLens(cls){
 function removeLens(el){
   liveLenses.delete(el); lensWatch.unobserve(el); el.lens.filter.remove(); el.remove();
 }
+const HOME_SEAT = Symbol("home");
 const tabSeat = { el: h("span", "tabseat still gone"), face: makeLens("seatlens"), owner: null, x: null, w: null, drawn: false };
 tabSeat.el.setAttribute("aria-hidden", "true");
 tabSeat.el.appendChild(tabSeat.face);
+document.getElementById("tabrow").appendChild(tabSeat.el);
 function placeSeat(){
   queueLensPaint();
   const seat = tabSeat, el = seat.el, oval = el.parentNode;
   if (!oval || tabDrag?.mode === "reorder" || tabDrag?.mode === "select" || tabGlide) return;
-  const on = oval.querySelector(".ptab.on, .ptab.draft");
+  const on = homeOpen ? document.getElementById("homeico") : oval.querySelector(".ptab.on, .ptab.draft");
   const r = on && on.getBoundingClientRect();
   if (!r || !r.width){ el.classList.add("gone"); seat.owner = null; seat.returning = false; return; }
   const o = oval.getBoundingClientRect(), x = r.left - o.left, w = r.width;
-  const owner = on.classList.contains("draft") ? DRAFT : on.dataset.owner;
+  const owner = homeOpen ? HOME_SEAT : on.classList.contains("draft") ? DRAFT : on.dataset.owner;
   const slide = seat.returning || (seat.owner !== null && owner !== seat.owner);
   seat.returning = false;
   if (!slide && owner === seat.owner && x === seat.x && w === seat.w) return;
@@ -4304,8 +4328,10 @@ function glassPress(el){
   return glass;
 }
 const seatPress = glassPress(tabSeat.el);
-for (const btn of [document.getElementById("homeico"), document.getElementById("chimebtn"),
-                   document.getElementById("setbtn"), tabPlus]){
+document.getElementById("homeico").addEventListener("pointerdown", e => {
+  if (e.button === 0 && homeOpen) seatPress.press();
+});
+for (const btn of [document.getElementById("chimebtn"), document.getElementById("setbtn"), tabPlus]){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -4408,7 +4434,7 @@ function startTabSelection(){
   t.mode = "select";
   t.tabs = [...oval.querySelectorAll(".ptab:not(.draft)")].filter(el => el.getBoundingClientRect().width);
   t.rects = t.tabs.map(el => el.getBoundingClientRect());
-  t.left = r.left - oval.getBoundingClientRect().left;
+  t.left = r.left - tabSeat.el.parentNode.getBoundingClientRect().left;
   t.source = r;
   const el = tabSeat.el;
   el.classList.add("still", "carried"); el.classList.remove("gone");

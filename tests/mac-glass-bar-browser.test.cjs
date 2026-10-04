@@ -31,17 +31,17 @@ const frame = page => page.evaluate(() => new Promise(r => requestAnimationFrame
 const seatStill = async page => {
   await frame(page);
   await page.waitForFunction(() =>
-    document.querySelector("#tabbar .tabseat").getAnimations({ subtree: true }).length === 0);
+    document.querySelector("#tabrow .tabseat").getAnimations({ subtree: true }).length === 0);
 };
 
 // where the seat's two ends are drawn, and the open name it should sit under
 const seat = page => page.evaluate(() => {
-  const l = document.querySelector("#tabbar .seatlens").getBoundingClientRect(), r = l;
-  const on = document.querySelector("#tabbar .ptab.on");
+  const l = document.querySelector("#tabrow .seatlens").getBoundingClientRect(), r = l;
+  const on = homeOpen ? document.getElementById("homeico") : document.querySelector("#tabbar .ptab.on");
   const o = on && on.getBoundingClientRect();
   return { left: l.left, right: r.right, top: l.top, bottom: l.bottom,
-    opacity: Number(getComputedStyle(document.querySelector("#tabbar .seatlens")).opacity),
-    on: o && { left: o.left, right: o.right, top: o.top, bottom: o.bottom, owner: on.dataset.owner } };
+    opacity: Number(getComputedStyle(document.querySelector("#tabrow .seatlens")).opacity),
+    on: o && { left: o.left, right: o.right, top: o.top, bottom: o.bottom, owner: on.id === "homeico" ? "home" : on.dataset.owner } };
 });
 function onName(s, label) {
   assert.ok(s.on, label + ": no name is open");
@@ -118,7 +118,7 @@ test("the inner lens takes the PWA capsule press and settles without losing its 
     await show(page, garden); await seatStill(page);
     const r = await tabBox(page, garden);
     await page.mouse.move(r.x, r.y); await page.mouse.down(); await seatStill(page);
-    const held = await page.$eval("#tabbar .seatlens", el => {
+    const held = await page.$eval("#tabrow .seatlens", el => {
       const cs = getComputedStyle(el), r = el.getBoundingClientRect();
       return { transform: cs.transform, height: r.height, width: r.width, center: r.left + r.width / 2 };
     });
@@ -139,7 +139,7 @@ test("reduced motion keeps drag selection functional and lands without a settlin
     await page.mouse.up(); await frame(page);
     await page.waitForFunction(() => !tabSeat.el.classList.contains("pressed"));
     assert.equal(await page.evaluate(() => activeOwner), ledger);
-    assert.equal(await page.$eval("#tabbar .tabseat", el => el.getAnimations({ subtree: true }).length), 0);
+    assert.equal(await page.$eval("#tabrow .tabseat", el => el.getAnimations({ subtree: true }).length), 0);
     onName(await seat(page), "reduced motion release");
   } finally { await context.close(); }
 });
@@ -193,7 +193,7 @@ for (const sample of [{ dpr:1, paper:"#ffffff", weight:"500" }, { dpr:2, paper:"
       }, sample);
       await frame(page);
       const material = await page.evaluate(() => {
-        const lens = getComputedStyle(tabSeat.face), control = getComputedStyle(document.getElementById("homeico"));
+        const lens = getComputedStyle(tabSeat.face), control = getComputedStyle(document.getElementById("chimebtn"));
         const clear = getComputedStyle(tabSeat.face.lens.clear);
         return { lens: [lens.backgroundColor, lens.backgroundImage, lens.boxShadow],
           control:[control.backgroundColor, control.backgroundImage, control.boxShadow],
@@ -201,7 +201,7 @@ for (const sample of [{ dpr:1, paper:"#ffffff", weight:"500" }, { dpr:2, paper:"
       });
       assert.deepEqual(material.lens, material.control, "the selected pill replaced the established glass recipe");
       assert.equal(material.filteredCenter, "none"); assert.equal(material.copies, 0);
-      const clip = await page.$eval("#tabbar .seatlens", el => {
+      const clip = await page.$eval("#tabrow .seatlens", el => {
         const r = el.getBoundingClientRect(); return { x:r.left + 10, y:r.top + 6, width:r.width - 20, height:20 };
       });
       const actual = await shot(page, clip);
@@ -211,11 +211,11 @@ for (const sample of [{ dpr:1, paper:"#ffffff", weight:"500" }, { dpr:2, paper:"
       assert.ok(clean.ink > 50, "reference did not contain label ink");
       assert.ok(clean.inkError <= .02, `center differs from clean enlargement: ${JSON.stringify(clean)}`);
       // Original and displaced pixels must not show through the center.
-      await page.$eval("#tabbar .seatlens", el => { el.dataset.savedFilter = el.style.getPropertyValue("--lens-filter"); el.style.setProperty("--lens-filter", "none"); });
+      await page.$eval("#tabrow .seatlens", el => { el.dataset.savedFilter = el.style.getPropertyValue("--lens-filter"); el.style.setProperty("--lens-filter", "none"); });
       await frame(page); const withoutDisplacement = await shot(page, clip);
       const center = await imageDifference(page, actual, withoutDisplacement);
       assert.equal(center.changedColor, 0, "displaced/original glyphs leaked into the clean center");
-      await page.$eval("#tabbar .seatlens", el => el.style.setProperty("--lens-filter", el.dataset.savedFilter));
+      await page.$eval("#tabrow .seatlens", el => el.style.setProperty("--lens-filter", el.dataset.savedFilter));
       if (process.env.LENS_FIX_SHOTS) {
         const fs = require("node:fs/promises"), path = require("node:path");
         await fs.mkdir(process.env.LENS_FIX_SHOTS, { recursive:true });
@@ -287,10 +287,10 @@ test("clean copies stay aligned during real press, drag and width-settling frame
   } finally { await context.close(); }
 });
 
-test("the house, the speaker, the plus and the squid are glass circles drawn as the phone's row draws them", async () => {
+test("the speaker, the plus and the squid remain glass circles drawn as the phone's row draws them", async () => {
   const { context, page } = await fx.openBoard(null, VIEW);
   try {
-    const pieces = await page.evaluate(() => ["#homeico", "#chimebtn", "#tabbar .ptabplus", "#setbtn"].map(sel => {
+    const pieces = await page.evaluate(() => ["#chimebtn", "#tabbar .ptabplus", "#setbtn"].map(sel => {
       const el = document.querySelector(sel), cs = getComputedStyle(el), box = el.getBoundingClientRect();
       const mark = el.querySelector("svg, .squidmark").getBoundingClientRect();
       return { sel, glass: el.classList.contains("qn-glass"), w: box.width, h: box.height, top: box.top,
@@ -361,7 +361,7 @@ test("names sit directly on the page and one 32px lens slides and resizes to the
     await page.click(`#tabbar .ptab[data-owner="${ledger}"]`);
     await frame(page);
     const moving = await page.evaluate(() => {
-      const s = document.querySelector("#tabbar .tabseat");
+      const s = document.querySelector("#tabrow .tabseat");
       return { props: s.getAnimations({ subtree: true }).map(a => a.transitionProperty),
         lenses: s.querySelectorAll(".projectlens").length, halves: s.querySelectorAll(".seathalf").length };
     });
@@ -376,27 +376,56 @@ test("names sit directly on the page and one 32px lens slides and resizes to the
     // a repaint of the bar with nothing changed sets nothing moving
     await page.evaluate(() => renderTabs(lastState));
     await frame(page);
-    assert.equal(await page.evaluate(() => document.querySelector("#tabbar .tabseat").getAnimations({ subtree: true }).length), 0,
+    assert.equal(await page.evaluate(() => document.querySelector("#tabrow .tabseat").getAnimations({ subtree: true }).length), 0,
       "a repaint replayed the slide");
   } finally { await context.close(); }
 });
 
-test("home fades the seat out where it stands and the next project gets it back in place", async () => {
+test("Home and project button activation move the same selection lens", async () => {
   const { context, page } = await fx.openBoard(null, VIEW);
   try {
-    await show(page, orchard);
-    await seatStill(page);
-    await page.click("#homeico");
-    await page.waitForFunction(() => document.body.classList.contains("home"));
-    await page.waitForFunction(() => Number(getComputedStyle(document.querySelector("#tabbar .seatlens")).opacity) === 0);
-    assert.equal(await page.$eval("#homeico", el => getComputedStyle(el).color),
-      await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--ink").trim()).then(hex => {
-        const n = parseInt(hex.slice(1), 16); return `rgb(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255})`; }),
-      "the house is not in the ink while home is up");
-    await show(page, garden);
-    await page.waitForFunction(() => Number(getComputedStyle(document.querySelector("#tabbar .seatlens")).opacity) === 1);
-    await seatStill(page);
-    onName(await seat(page), "back from home");
+    await show(page, orchard); await seatStill(page);
+    await page.evaluate(() => { window.savedSelectionLens = tabSeat.el; });
+    await page.click("#homeico"); await page.waitForFunction(() => homeOpen); await seatStill(page);
+    const atHome = await seat(page); onName(atHome, "Home circle");
+    near(atHome.right - atHome.left, 32, "Home lens width");
+    const home = await page.evaluate(() => {
+      const button = document.getElementById("homeico"), cs = getComputedStyle(button);
+      const source = button.querySelector("svg"), copy = tabSeat.face.lens.copies.get(source)?.querySelector("svg");
+      const paths = el => [...el.querySelectorAll("path")].map(p => p.getAttribute("d"));
+      return { same:window.savedSelectionLens === tabSeat.el, lenses:document.querySelectorAll(".tabseat").length,
+        glass:button.classList.contains("qn-glass"), face:cs.backgroundColor, shadow:cs.boxShadow,
+        pressed:button.getAttribute("aria-pressed"), paths:paths(source), copy:copy && paths(copy),
+        plus:document.querySelector("#tabbar .ptabplus").classList.contains("qn-glass"),
+        duplicateHome:document.querySelectorAll("#homeico").length };
+    });
+    assert.equal(home.same, true); assert.equal(home.lenses, 1); assert.equal(home.duplicateHome, 1);
+    assert.equal(home.glass, false); assert.equal(home.face, "rgba(0, 0, 0, 0)"); assert.equal(home.shadow, "none");
+    assert.equal(home.pressed, "true"); assert.deepEqual(home.copy, home.paths); assert.equal(home.plus, true);
+    const first = await page.$eval("#tabbar .ptab:not(.closed)", t => t.dataset.owner);
+    // Home keeps board shortcuts disabled. Native focused-button activation
+    // is the supported keyboard path here; do not add a new global route.
+    await page.focus(`#tabbar .ptab[data-owner="${first}"]`); await page.keyboard.press("Enter");
+    await page.waitForFunction(ow => !homeOpen && activeOwner === ow, {}, first); await seatStill(page);
+    onName(await seat(page), "project button keyboard return");
+    await page.focus("#homeico"); await page.keyboard.press("Enter");
+    await page.waitForFunction(() => homeOpen); await seatStill(page);
+    onName(await seat(page), "keyboard Home selection");
+    assert.equal(await page.evaluate(() => window.savedSelectionLens === tabSeat.el), true);
+  } finally { await context.close(); }
+});
+
+test("pressing selected Home grows its shared lens while the bare button stays fixed", async () => {
+  const { context, page } = await fx.openBoard(null, VIEW);
+  try {
+    await page.click("#homeico"); await page.waitForFunction(() => homeOpen); await seatStill(page);
+    const point = await page.$eval("#homeico", el => { const r = el.getBoundingClientRect(); return { x:r.left + 16, y:r.top + 16 }; });
+    await page.mouse.move(point.x, point.y); await page.mouse.down(); await seatStill(page);
+    const pressed = await page.evaluate(() => ({ lens:tabSeat.face.getBoundingClientRect().width,
+      button:document.getElementById("homeico").getBoundingClientRect().width, instances:liveLenses.size }));
+    near(pressed.lens, 35.2, "pressed shared circle"); near(pressed.button, 32, "original Home target");
+    assert.equal(pressed.instances, 1); await page.mouse.up(); await seatStill(page);
+    onName(await seat(page), "settled Home");
   } finally { await context.close(); }
 });
 
@@ -422,7 +451,7 @@ test("the pane keeps the outline's rectangle, with clear paper under the bar and
       const f = document.getElementById("appframe"), cs = getComputedStyle(f), r = f.getBoundingClientRect();
       const pieces = [...document.querySelectorAll(".bar > *")].filter(el => el.getBoundingClientRect().width);
       const bar = getComputedStyle(document.querySelector(".bar"));
-      const on = document.querySelector("#tabbar .ptab.on");
+      const on = homeOpen ? document.getElementById("homeico") : document.querySelector("#tabbar .ptab.on");
       const probe = document.createElement("div");
       probe.style.width = "var(--edge-drawn)";
       document.body.appendChild(probe);

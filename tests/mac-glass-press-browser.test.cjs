@@ -12,7 +12,6 @@ before(async () => { fx = await launch(); });
 after(async () => { if (fx) await fx.stop(); });
 
 for (const [name, selector, action] of [
-  ["house", "#homeico", () => homeOpen],
   ["speaker", "#chimebtn", () => document.getElementById("chimebtn").getAttribute("aria-pressed") === "false"],
   ["plus", "#tabbar .ptabplus", () => document.body.classList.contains("choosing")],
   ["squid", "#setbtn", () => document.body.classList.contains("setopen")],

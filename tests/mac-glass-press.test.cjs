@@ -24,7 +24,7 @@ function fixture(html, isPhone = false) {
     querySelectorAll: () => buttons,
     addEventListener(type, fn) { (documentEvents[type] ||= []).push(fn); },
   };
-  const context = vm.createContext({ document, tabPlus: buttons[3], tabSeat: { el: element() },
+  const context = vm.createContext({ document, tabPlus: buttons[3], tabSeat: { el: element() }, homeOpen:false,
     performance: { now: () => now },
     setTimeout(fn, ms) { const id = next++; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout: id => timers.delete(id),
@@ -34,7 +34,8 @@ function fixture(html, isPhone = false) {
   const end = html.indexOf(isPhone ? "// ---- the capsule: a tap opens the list" : "// the cross, built with every tab", start);
   assert.ok(start >= 0 && end > start);
   vm.runInContext(html.slice(start, end), context);
-  return { buttons,
+  return { buttons: isPhone ? buttons : buttons.slice(1), home:buttons[0], seat:context.tabSeat.el,
+    homeOpen(value) { context.homeOpen = value; },
     tick(ms) {
       const until = now + ms;
       for (;;) {
@@ -91,6 +92,16 @@ test("Mac secondary clicks do not press the circle or cancel the button's own ev
     stopPropagation() { assert.fail("press handler swallowed the action"); } };
   button.fire("pointerdown", event); assert.equal(pressed(button), false);
   button.fire("pointerdown", { ...event, button: 0 }); assert.equal(pressed(button), true);
+});
+
+test("Home presses the shared lens only while Home is selected", () => {
+  const f = fixture(mac);
+  f.home.fire("pointerdown", { button:0 }); assert.equal(pressed(f.seat), false);
+  assert.equal(pressed(f.home), false, "the bare house retained a separate glass press");
+  f.homeOpen(true); f.home.fire("pointerdown", { button:2 }); assert.equal(pressed(f.seat), false);
+  f.home.fire("pointerdown", { button:0 }); assert.equal(pressed(f.seat), true);
+  f.fire("pointerup"); f.tick(119); assert.equal(pressed(f.seat), true);
+  f.tick(1); assert.equal(pressed(f.seat), false);
 });
 
 function rules(html) {
