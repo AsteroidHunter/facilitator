@@ -3100,8 +3100,10 @@
   body.focus .bar #chimebtn{margin-left:auto}
   /* the glass's own press, the phone's: a little larger and a whiter face,
      held long enough that a quick click still shows it (glassPress, in the
-     script). it rises over .3s and falls back over .5s, both eased */
-  body.focus .bar .qn-glass.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+     script). it rises over .3s and falls back over .5s, both eased. keep the
+     circles' ID specificity here, or their idle .5s transition wins during
+     the press too and a quick click barely grows before it lets go */
+  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the oval: every open project's name in the board's order, 3px of glass
      round the seat. it holds its names in one line and is as long as they
