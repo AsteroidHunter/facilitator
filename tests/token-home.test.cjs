@@ -825,7 +825,7 @@ test("the board's markup, sheet and routes carry the home page", () => {
   assert.match(setTab, /if \(LOCKED && owner !== LOCKED\) return;\n  if \(homeOpen\) setHome\(false\);/);
   const plus = HTML.slice(HTML.indexOf("function plusClick("), HTML.indexOf("\n}\n", HTML.indexOf("function plusClick(")));
   assert.match(plus, /if \(homeOpen\) setHome\(false\);\n  draft = /);
-  assert.match(HTML, /t\.classList\.toggle\("on", t\.dataset\.owner === activeOwner && !homeOpen\);/);
+  assert.match(HTML, /t\.classList\.toggle\("on", place === "project:" \+ t\.dataset\.owner\);/);
   assert.match(HTML, /function boardKeysLive\(\)\{ return [^}]*!homeOpen && onBoardPage\(\); \}/);
   // the server hands out both files and the counts
   for (const route of ["/home-widgets.js", "/home-widgets.css", "/tokens/daily"])
@@ -851,6 +851,8 @@ function homeBlock({ serve = true, stored = {} } = {}) {
   let nextTimer = 0;
   const ctx = {
     console, document: doc, localStorage: store, settingsStore: settings, FOCUS: true, editMode: false, lastState: { rev: 1 },
+    workspaceFade: null, prepareHome() {},
+    navigateWorkspace: (_key, swap) => { if (!vm.runInContext("homeOpen", ctx)) swap(); },
     setEditMode: on => { ctx.editMode = on; },
     renderTabs: st => tabs.push(st),
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },

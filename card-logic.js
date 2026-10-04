@@ -3832,3 +3832,82 @@ function settingsOverlay(host, source, opts){
   });
   return { open: openOverlay, close, isOpen: () => open, page, root: veil };
 }
+
+// Home and project navigation share one fade. Only the latest requested place
+// may commit, and only at zero opacity. Polls keep drawing the current place.
+// roots excludes the navigation controls and the app's glass/background.
+function workspaceTransition({ current, roots, enabled = () => true }){
+  const motion = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+  let pending = null, phase = "", timer = null, animations = [], elements = [], applying = false;
+  const duration = 180;
+  function stop(){
+    clearTimeout(timer); timer = null;
+    for (const animation of animations) animation.cancel();
+    animations = [];
+  }
+  function clear(){
+    stop();
+    for (const el of elements) el.classList.remove("workspace-fading");
+    elements = []; phase = "";
+  }
+  function commit(){
+    const next = pending;
+    pending = null;
+    if (!next || next.key === current()) return;
+    applying = true;
+    try { next.swap(); } finally { applying = false; }
+  }
+  function finish(){
+    try { commit(); } finally { clear(); }
+  }
+  function fade(to, done, from = elements.map(el => getComputedStyle(el).opacity)){
+    // Read the interrupted fade before cancelling it, so a quick reversal
+    // begins at the opacity already on screen rather than flashing opaque.
+    stop();
+    animations = elements.map((el, i) => el.animate([{ opacity: from[i] }, { opacity: to }],
+      { duration, easing: "ease", fill: "both" }));
+    timer = setTimeout(done, duration);
+  }
+  function reveal(){
+    phase = "in";
+    fade(1, clear);
+  }
+  function request(key, swap){
+    if (pending?.key === key) return;
+    if (phase !== "out" && key === current()) return;
+    pending = { key, swap };
+    if (document.hidden || motion?.matches || !enabled()) { finish(); return; }
+    let from;
+    if (!phase){
+      elements = roots().filter(Boolean);
+      if (!elements.length || elements.some(el => typeof el.animate !== "function")) { finish(); return; }
+      from = elements.map(el => getComputedStyle(el).opacity);
+      for (const el of elements) el.classList.add("workspace-fade-ready", "workspace-fading");
+    }
+    if (key === current()) { pending = null; reveal(); return; }
+    if (phase === "out") return;   // keep the existing deadline, replace only its destination
+    phase = "out";
+    fade(0, () => {
+      // Timers may run before the animation's compositor frame. Hold every
+      // root at zero explicitly while the synchronous selection code runs.
+      stop();
+      animations = elements.map(el => el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 1, fill: "both" }));
+      try { commit(); } catch (err) { clear(); throw err; }
+      reveal();
+    }, from);
+  }
+  function cancel(){
+    if (applying) return;   // the destination's own synchronous setters are this commit
+    pending = null; clear();
+  }
+  const hidden = () => { if (document.hidden) finish(); };
+  const reduced = () => { if (motion.matches) finish(); };
+  document.addEventListener("visibilitychange", hidden);
+  window.addEventListener("pagehide", finish);
+  motion?.addEventListener?.("change", reduced);
+  return { request, cancel, destination: () => pending?.key ?? current(),
+    destroy(){
+      cancel(); document.removeEventListener("visibilitychange", hidden);
+      window.removeEventListener("pagehide", finish); motion?.removeEventListener?.("change", reduced);
+    } };
+}

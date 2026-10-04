@@ -199,6 +199,9 @@ function desktop() {
     els, lastState: state, lastSel: {}, selectedId: null, shownId: null, browsing: false,
     FOCUS: true, activeOwner: "lane", draft: null, DRAFT: "__draft__", editMode: false, setEditMode: noop,
     miniFocused: false, p3Zoom: null,
+    workspaceFade: null, prepareHome: noop,
+    navigateWorkspace: (_key, swap) => { if (!vm.runInContext("homeOpen", sandbox)) swap(); },
+    navigateTab: owner => sandbox.setTab(owner),
     // what the board's own boardKeysLive asks, beside the home page's homeOpen
     pageWarn: null, pageMenu: null, qnOpen: false, setOpen: false, onBoardPage: () => true,
     cancelAutoNext: noop, histExit: noop, syncDesktopHistoryAvailability: noop, updatePwd: noop,

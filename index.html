@@ -3829,7 +3829,29 @@ document.addEventListener("click", () => {
     if (els[k].wtmenu) shutWtMenu(els[k].wtpick, els[k].wtmenu);
 });
 
+// Keep the selection setters synchronous for restore, poll repairs and card
+// arrivals. Reader navigation alone asks for a fade, on this page's content.
+let workspaceFade = null;
+function navigateWorkspace(key, swap){
+  workspaceFade ||= workspaceTransition({
+    current: () => homeOpen ? "home" : "project:" + activeOwner,
+    roots: () => ["stage", "newproj", "homepair", "homeline"].map(id => document.getElementById(id)),
+    enabled: () => FOCUS && !!lastState && !draft && activeOwner !== DRAFT,
+  });
+  workspaceFade.request(key, () => {
+    try { swap(); } finally { if (lastState) renderTabs(lastState); }
+  });
+  if (lastState) renderTabs(lastState);   // the navigation follows the request, the workspace follows at zero
+}
+function navigateTab(owner){
+  if (!(ownerReady && validActiveOwnerIds.has(owner) && (!LOCKED || owner === LOCKED))) return;
+  navigateWorkspace("project:" + owner, () => {
+    if (!(ownerReady && validActiveOwnerIds.has(owner) && (!LOCKED || owner === LOCKED))) return;   // the destination may have gone during the fade
+    setTab(owner);
+  });
+}
 function setTab(owner){
+  workspaceFade?.cancel();
   if (!ownerReady || !validActiveOwnerIds.has(owner)) return;
   if (LOCKED && owner !== LOCKED) return;
   if (homeOpen) setHome(false);   // a project tab leaves home for its board
@@ -3983,8 +4005,8 @@ function renderTabs(st){
         if (tabDrag?.pulled || ["reorder", "select", "selected"].includes(tabDrag?.mode)) return;   // the drag owns its release
         // the open project's own tab lets go of the selected card on screen,
         // which stays there browsed; any other tab switches to its lane
-        if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing) unselectShown();
-        else setTab(ow);
+        if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing){ if (workspaceFade) navigateTab(ow); unselectShown(); }
+        else navigateTab(ow);
       });
       oval.appendChild(t);
       seatWatch.observe(t, { box: "border-box" });
@@ -4003,8 +4025,9 @@ function renderTabs(st){
   // here and not where they were built: the tab that is suddenly the only one
   // left has to go pale on the same paint that emptied the bar around it
   const alone = rowsOf(st).length < 2;
+  const place = workspaceFade?.destination() || (homeOpen ? "home" : "project:" + activeOwner);
   for (const t of bar.querySelectorAll(".ptab:not(.draft)")){
-    t.classList.toggle("on", t.dataset.owner === activeOwner && !homeOpen);
+    t.classList.toggle("on", place === "project:" + t.dataset.owner);
     const kill = t.querySelector(".ptabx");
     if (kill){
       kill.classList.toggle("off", alone);
@@ -4247,7 +4270,8 @@ function reopenTab(ow){
     writeTabs({ order: rec.order.length ? rec.order : allRowsOf(lastState),
                 closed: rec.closed.filter(x => x !== ow) });
   }
-  setTab(ow);   // this ends the choosing tab and lands on the card left here
+  if (homeOpen) navigateTab(ow);
+  else setTab(ow);   // this ends the choosing tab and lands on the card left here
   if (lastState) renderTabs(lastState);
 }
 // Horizontal intent is captured before a hover timer can change the cross.
@@ -4301,7 +4325,8 @@ function finishTabSelection(e){
   el.style.transition = ""; el.classList.remove("carried", "still");
   tabSeat.x = null; tabSeat.returning = true;
   if (owner && validActiveOwnerIds.has(owner) && !tabClosed(owner) &&
-      (owner !== activeOwner || homeOpen || draft)) setTab(owner);
+      (owner !== activeOwner || homeOpen || draft ||
+       (workspaceFade && workspaceFade.destination() !== "project:" + owner))) navigateTab(owner);
   if (lastState) renderTabs(lastState);
   placeSeat();
 }
@@ -4494,6 +4519,7 @@ function endDraft(){
   document.body.classList.remove("choosing");
 }
 function plusClick(){
+  workspaceFade?.cancel();
   // a live server from before /project and /dirs serves no projects list in
   // /state; the flow would only 404 there, so say what is missing instead
   if (!lastState || !("projects" in lastState)){
@@ -4531,14 +4557,13 @@ function renderHome(st, onHome = !draft && homeOpen){
     row.appendChild(h("span", "npname", labelOf(st, ow)));
     row.appendChild(h("span", "nppath", (st.pwds || {})[ow] || ""));
     if (shut) row.title = "click to reopen this project";
-    if (shut || onHome) row.addEventListener("click", () => { if (shut) reopenTab(ow); else setTab(ow); });
+    if (shut || onHome) row.addEventListener("click", () => { if (shut) reopenTab(ow); else navigateTab(ow); });
     box.appendChild(row);
   }
 }
 // the house leaves an unfinished new tab behind, back on the tab it came from,
-// and fills the picker's rows for the home page. this runs before the home
-// block's own listener opens the page
-document.getElementById("homeico").addEventListener("click", () => {
+// and fills the picker's rows for the home page, at the navigation swap.
+function prepareHome(){
   if (homeOpen) return;
   if (draft){
     const back = draft.from;
@@ -4546,7 +4571,7 @@ document.getElementById("homeico").addEventListener("click", () => {
     if (validActiveOwnerIds.has(back)) activeOwner = back;
   }
   if (lastState) renderHome(lastState, true);
-});
+}
 // the start button hands folder choosing to the system: GET /pickdir opens
 // the desktop chooser and answers with the chosen path, which then creates
 // the lane the same way the old in-page browser did. the home page asks the
@@ -4701,6 +4726,7 @@ function homeWarm(){
   });
 }
 function setHome(on){
+  workspaceFade?.cancel();
   homeOpen = !!on;
   try {
     if (homeOpen) localStorage.setItem(HOME_KEY, "1");
@@ -4724,7 +4750,9 @@ function setHome(on){
   if (lastState) renderTabs(lastState);   // no project tab is seated while home is up
 }
 // the house is a place, like a tab: pressing it while home is up changes nothing
-document.getElementById("homeico").addEventListener("click", () => { if (!homeOpen) setHome(true); });
+document.getElementById("homeico").addEventListener("click", () => {
+  navigateWorkspace("home", () => { prepareHome(); setHome(true); });
+});
 // put back once the whole script has run, since leaving the board touches
 // state declared further down
 document.addEventListener("DOMContentLoaded", () => {
@@ -5309,8 +5337,8 @@ function nav(dx, dy, opts){
   if (!cur) return;
   if (dy){
     const owners = rowsOf(st);
-    const oi = Math.min(Math.max(owners.indexOf(activeOwner) + dy, 0), owners.length - 1);
-    if (owners[oi] !== activeOwner) setTab(owners[oi]);
+    const oi = Math.min(Math.max(owners.indexOf(workspaceFade?.destination().replace(/^project:/, "") || activeOwner) + dy, 0), owners.length - 1);
+    if (owners[oi]) navigateTab(owners[oi]);
   } else if (dx){
     const pool = viewPool(st);
     if (!pool.length) return;
@@ -10141,7 +10169,7 @@ const boardShortcutActions = {
     if (!lastState) return;
     const owners = LOCKED ? [LOCKED] : rowsOf(lastState);
     const ow = owners[shortcut.value];
-    if (ow){ e.preventDefault(); setTab(ow); }
+    if (ow){ e.preventDefault(); navigateTab(ow); }
   },
   // the first Escape leaves the composer, or any field; the next one unselects
   // the card, which stays on screen browsed. a key something else answered
