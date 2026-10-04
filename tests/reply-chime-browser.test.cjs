@@ -183,7 +183,7 @@ test("the pencil is gone, the edit code is kept, and the speaker is a plain mark
     assert.equal(bar.speaker.shadow, "none");
     assert.equal(bar.speaker.padding, bar.gear.padding);
     assert.equal(bar.speaker.mark, "15x15");
-    // the squid beside it is drawn larger (22px), so the speaker keeps the bar's 15px
+    // the squid beside it is drawn larger (20px), so the speaker keeps the bar's 15px
     // mark and its own button size rather than the squid's
     assert.ok(Math.abs(bar.speaker.mid - bar.gear.mid) <= 0.5, "the speaker and the gear are on one line");
     assert.ok(Math.abs(bar.speaker.right + 14 - bar.gear.left) <= 0.6, "the speaker sits 14px left of the gear");
