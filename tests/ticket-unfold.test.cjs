@@ -135,10 +135,10 @@ function pageHelpers() {
 // pass over the same section changes those rows in place
 const phonePainter = () => new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
   "spinGlyph", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
-  "select", "closeDrawer", "onFold", "unfoldTicket", "homeOpen", "setHome",
+  "select", "closeDrawer", "onFold", "unfoldTicket", "homeOpen", "setHome", "drawerOpen",
   `${functionSource(HTML.phone, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
 )(queueState, cardState, h, {}, () => "5m", () => SPIN[0], "none", testReady, appendOmniRowArt, sandbox.omniRowFace,
-  record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"), false, record("setHome"));
+  record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"), false, record("setHome"), () => false);
 
 // each surface's painter, handed one pool and the view it is drawing, answers
 // with the rows it drew
