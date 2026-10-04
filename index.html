@@ -3377,7 +3377,6 @@
      curve as the board's own dissolve, with no movement and no stagger, so the
      landing's three pieces drop their rise here and ride on their half's fade */
   @keyframes homefade{from{opacity:0}}
-  body.focus:not(.home):not(.choosing):not(.pageblank) #stage.project-enter{animation:homefade .18s ease both}
   body.focus.home :is(#newproj, #homepair, #homeline){animation:homefade .18s ease both}
   body.focus.home :is(#npbrand, #nppanel, #npstart){animation:none}
   /* on-canvas edit mode: boxes drag with no keys held and wear small squares
@@ -3838,10 +3837,9 @@ document.addEventListener("click", () => {
     if (els[k].wtmenu) shutWtMenu(els[k].wtpick, els[k].wtmenu);
 });
 
-function setTab(owner, entrance = false){
+function setTab(owner){
   if (!ownerReady || !validActiveOwnerIds.has(owner)) return;
   if (LOCKED && owner !== LOCKED) return;
-  const entering = entrance && !draft && (homeOpen || owner !== activeOwner);
   if (homeOpen) setHome(false);   // a project tab leaves home for its board
   if (draft) endDraft();   // an unfinished new tab disappears on switching away
   activeOwner = owner; localStorage.setItem("activeproj", owner);
@@ -3863,7 +3861,6 @@ function setTab(owner, entrance = false){
   // the stub line back
   fileNavPoll();
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
-  if (entering) projectEntrance([document.getElementById("stage")]);
 }
 
 // clear the selection entirely: without this, a lane with no cards kept
@@ -3995,7 +3992,7 @@ function renderTabs(st){
         // the open project's own tab lets go of the selected card on screen,
         // which stays there browsed; any other tab switches to its lane
         if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing) unselectShown();
-        else setTab(ow, true);
+        else setTab(ow);
       });
       oval.appendChild(t);
       seatWatch.observe(t, { box: "border-box" });
@@ -4386,7 +4383,7 @@ function reopenTab(ow){
     writeTabs({ order: rec.order.length ? rec.order : allRowsOf(lastState),
                 closed: rec.closed.filter(x => x !== ow) });
   }
-  setTab(ow, homeOpen);   // this ends the choosing tab and lands on the card left here
+  setTab(ow);   // this ends the choosing tab and lands on the card left here
   if (lastState) renderTabs(lastState);
 }
 // Horizontal intent is captured before a hover timer can change the cross.
@@ -4440,7 +4437,7 @@ function finishTabSelection(e){
   el.style.transition = ""; el.classList.remove("carried", "still");
   tabSeat.x = null; tabSeat.returning = true;
   if (owner && validActiveOwnerIds.has(owner) && !tabClosed(owner) &&
-      (owner !== activeOwner || homeOpen || draft)) setTab(owner, true);
+      (owner !== activeOwner || homeOpen || draft)) setTab(owner);
   if (lastState) renderTabs(lastState);
   placeSeat();
 }
@@ -4670,7 +4667,7 @@ function renderHome(st, onHome = !draft && homeOpen){
     row.appendChild(h("span", "npname", labelOf(st, ow)));
     row.appendChild(h("span", "nppath", (st.pwds || {})[ow] || ""));
     if (shut) row.title = "click to reopen this project";
-    if (shut || onHome) row.addEventListener("click", () => { if (shut) reopenTab(ow); else setTab(ow, true); });
+    if (shut || onHome) row.addEventListener("click", () => { if (shut) reopenTab(ow); else setTab(ow); });
     box.appendChild(row);
   }
 }
@@ -5449,7 +5446,7 @@ function nav(dx, dy, opts){
   if (dy){
     const owners = rowsOf(st);
     const oi = Math.min(Math.max(owners.indexOf(activeOwner) + dy, 0), owners.length - 1);
-    if (owners[oi] !== activeOwner) setTab(owners[oi], true);
+    if (owners[oi] !== activeOwner) setTab(owners[oi]);
   } else if (dx){
     const pool = viewPool(st);
     if (!pool.length) return;
@@ -10280,7 +10277,7 @@ const boardShortcutActions = {
     if (!lastState) return;
     const owners = LOCKED ? [LOCKED] : rowsOf(lastState);
     const ow = owners[shortcut.value];
-    if (ow){ e.preventDefault(); setTab(ow, true); }
+    if (ow){ e.preventDefault(); setTab(ow); }
   },
   // the first Escape leaves the composer, or any field; the next one unselects
   // the card, which stays on screen browsed. a key something else answered

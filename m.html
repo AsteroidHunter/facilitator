@@ -546,9 +546,6 @@
      does under a swipe, and the page is pulled out by the edge's drawn width
      the same way, so the panel's edge lands on the card's own and the panel
      spans the screen within the app's thin margins */
-  /* Project entrances copy the Mac Home fade; the phone's Home stays as it was. */
-  @keyframes homefade{from{opacity:0}}
-  body:not(.home) :is(#pane, #tikwin).project-enter{animation:homefade .18s ease both}
   #home{display:none}
   body.home main{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
   /* every part of the card, the history arrows too, which set their own */
@@ -3541,7 +3538,7 @@ function deselect(){
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
   reachLater();
 }
-function setTab(owner, entrance = false){
+function setTab(owner){
   if (!validOwners.has(owner)) return;
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
@@ -3551,7 +3548,6 @@ function setTab(owner, entrance = false){
     apply(lastState);
     endPhoneTrace(trace, { action: "project", part: "apply" });
   }
-  if (entrance) projectEntrance([document.getElementById("pane"), document.getElementById("tikwin")]);
 }
 // the board's tabs, in the board's order and without the ones the board has
 // closed. this page is a bridge, so its list shows exactly those; a board that
@@ -3639,9 +3635,8 @@ function chooseRow(row){
   const ow = row.dataset.owner;
   if (!ow) return;
   if (ow === activeOwner && !homeOpen && selectedId && !browsing){ unselectShown(); return; }
-  const entering = homeOpen || ow !== activeOwner;
   if (homeOpen) setHome(false);   // a project leaves home for its board
-  setTab(ow, entering);
+  setTab(ow);
 }
 // the list's own taps. the house's press opens home through its own listener
 // (the home page, below), and every row shuts the list
@@ -6164,7 +6159,7 @@ const phoneShortcutActions = {
   tab(e, shortcut){
     if (!lastState) return;
     const ow = barOwners(lastState)[shortcut.value];
-    if (ow){ e.preventDefault(); setTab(ow, ow !== activeOwner); }
+    if (ow){ e.preventDefault(); setTab(ow); }
   },
   // the first Escape leaves the reply box; the next one unselects the card,
   // which stays on screen browsed. a key something else answered first, or
