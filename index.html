@@ -3042,10 +3042,10 @@
   .ptabx.off{cursor:default}
   .ptab.armed .ptabx.off{opacity:.3}
   .ptabx.off:hover{color:var(--sub)}
-  .ptabx::before, .ptabx::after{content:""; position:absolute; left:50%; top:50%;
+  :is(.ptabx, .lenscross)::before, :is(.ptabx, .lenscross)::after{content:""; position:absolute; left:50%; top:50%;
     width:10px; height:1.4px; background:currentColor; border-radius:1px}
-  .ptabx::before{transform:translate(-50%,-50%) rotate(45deg)}
-  .ptabx::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  :is(.ptabx, .lenscross)::before{transform:translate(-50%,-50%) rotate(45deg)}
+  :is(.ptabx, .lenscross)::after{transform:translate(-50%,-50%) rotate(-45deg)}
   /* a closed tab is simply not in the bar, and it is nowhere else either: the
      plus button's folder flow is the one way back to it */
   .ptab.closed{display:none}
@@ -3060,9 +3060,9 @@
      the speaker, the plus and the squid are 32px circles, the row's 48px at two
      thirds, so each mark keeps the share of its circle it has on the phone (the
      squid's 20px in 32 is the phone's 30 in 48, and the 15px house and speaker
-     are the phone's 22px ticket in 48). the project names sit on one oval of
-     the same height, and the open project's name under a smaller oval of the
-     same glass, the seat, which slides along the oval to the project chosen.
+     are the phone's 22px ticket in 48). the project names stand on the page,
+     with a lens of the same height over the selected name. Its material uses
+     this same glass, with clean enlarged text inside and refraction at the rim.
      the rest of this sheet loads before the glass's, so every rule here is
      scoped by the page to outrank the glass's own corner.
      the glass's numbers are registered here as the phone registers them, so a
@@ -3120,14 +3120,22 @@
   body.focus #tabbar .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
   body.focus #tabbar .ptab.armed{padding-right:26px}
   body.focus #tabbar .ptabx{top:4px; height:24px}
-  /* One continuous capsule, including its backdrop capture. A mostly clear
-     face keeps the refracted letters readable, including while pressed. */
+  /* Use the controls' actual glass material. The native backdrop is visible
+     only around the rim: the opaque, matching face inside replaces its pixels
+     before clean enlarged text is painted, so the original ink cannot ghost. */
   body.focus #tabbar .projectlens{position:absolute; left:0; top:0; height:32px;
     box-sizing:border-box; border-radius:16px; z-index:3; pointer-events:none;
-    background:linear-gradient(145deg, rgba(255,255,255,.15), rgba(255,255,255,.02) 65%);
-    box-shadow:inset 0 0 0 1px #c7c7cc, inset 0 -1px 0 rgba(255,255,255,.8),
-      inset 0 1px 2px rgba(255,255,255,.55), 0 1px 3px rgba(0,0,0,.09), 0 6px 14px rgba(0,0,0,.05);
     backdrop-filter:var(--lens-filter); -webkit-backdrop-filter:var(--lens-filter)}
+  body.focus #tabbar .lensclear{position:absolute; inset:0; border-radius:inherit;
+    --qn-tint:inherit; --qn-edge:inherit; --qn-ring:inherit;
+    background-color:color-mix(in srgb, var(--paper), #fff calc(var(--qn-tint) * 100%));
+    background-image:inherit; box-shadow:inherit;
+    backdrop-filter:none; -webkit-backdrop-filter:none;
+    mask:var(--lens-center-mask);
+    pointer-events:none; overflow:hidden}
+  body.focus #tabbar .lensglyph{position:absolute; left:0; top:0; margin:0; padding:0;
+    border:0; transform-origin:0 0; pointer-events:none}
+  body.focus #tabbar .lenscross{background:none}
   /* The outer seat moves and sizes the lens. Only the inner lens grows on
      press: its map stays in local coordinates, separate from the slide.
      Fade the lens itself, never an ancestor that would cut off its backdrop. */
@@ -3137,10 +3145,10 @@
       translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
   body.focus #tabbar .tabseat.still{transition:translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
   body.focus #tabbar .seatlens{width:100%;
-    transition:transform .5s var(--gentle), background-color .5s var(--gentle), opacity .18s var(--gentle)}
+    transition:transform .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .18s var(--gentle)}
   body.focus #tabbar .tabseat.gone .seatlens{opacity:0}
-  body.focus #tabbar .tabseat.pressed .seatlens{transform:scale(1.1); background-color:rgba(255,255,255,.06);
-    transition:transform .38s cubic-bezier(.2,.8,.2,1), background-color .38s ease-out, opacity .18s var(--gentle)}
+  body.focus #tabbar .tabseat.pressed .seatlens{transform:scale(1.1); --qn-edge:3.5;
+    transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle)}
   body.focus #tabbar :is(.tabseat.carried, .tabheld){z-index:4}
   /* the plus: its own circle after the oval, its two bars the house's line,
      in the ink at three quarters as the typed plus was, and full under a
@@ -4047,39 +4055,98 @@ function renderTabs(st){
   seatSoon();
 }
 // ---- the seat ----------------------------------------------------------------
-// SVG displacement operates on the live backdrop in Chrome. The map is local
-// to one capsule; translating it reuses the map, resizing it changes the map.
-// See Filter Effects 1, feDisplacementMap, and GoogleChromeLabs' liquid glass
-// reference. The center samples inward at 1.075x; a smooth inward bevel bends
-// the edge more, without requesting pixels outside the captured rectangle.
-function lensOffset(x, y, width, height = 32){
+// Clean text in the center and true backdrop refraction at the rim. Skia's
+// displacement sampler uses nearest-neighbor source pixels, so it must never
+// supply the visible center glyphs. The copied face is opaque there; its ink
+// is ordinary text, positioned from the live labels, not a filtered bitmap.
+const LENS_ZOOM = 1.075, LENS_BEND_WIDTH = 2.5, LENS_CLEAR_DEPTH = 3.5;
+function lensDepth(x, y, width, height = 32){
+  const radius = Math.min(width, height) / 2;
+  const axis = Math.max(radius, Math.min(width - radius, x));
+  const axisY = Math.max(radius, Math.min(height - radius, y));
+  return radius - Math.hypot(x - axis, y - axisY);
+}
+function lensCenterAlpha(depth){
+  const t = Math.max(0, Math.min(1, (depth - LENS_BEND_WIDTH) / (LENS_CLEAR_DEPTH - LENS_BEND_WIDTH)));
+  return t * t * (3 - 2 * t);
+}
+function lensOffset(x, y, width, height = 32, zoom = LENS_ZOOM){
   const cx = width / 2, cy = height / 2, radius = Math.min(cx, cy);
   const axis = Math.max(radius, Math.min(width - radius, x));
-  const nx = x - axis, ny = y - cy, length = Math.hypot(nx, ny);
-  const depth = radius - length;
-  const rim = depth > 0 && depth < 6 ? 2.4 * Math.sin(Math.PI * depth / 6) : 0;
-  return [(cx - x) * (1 - 1 / 1.075) - (length ? nx / length * rim : 0),
-          (cy - y) * (1 - 1 / 1.075) - (length ? ny / length * rim : 0)];
+  const axisY = Math.max(radius, Math.min(height - radius, y));
+  const nx = x - axis, ny = y - axisY, length = Math.hypot(nx, ny), depth = radius - length;
+  const t = Math.max(0, Math.min(1, depth / LENS_BEND_WIDTH));
+  // The .7px bump has zero slope at both ends. Its maximum derivative is
+  // below one before zoom is applied, including the full press: no fold.
+  const rim = .7 * 16 * t * t * (1 - t) * (1 - t);
+  // The rim samples the already enlarged backdrop, so its source offset is
+  // divided by zoom. This composition stays monotonic as the pill presses.
+  return [(cx - x) * (1 - 1 / zoom) - (length ? nx / length * rim / zoom : 0),
+          (cy - y) * (1 - 1 / zoom) - (length ? ny / length * rim / zoom : 0)];
 }
 const lensMaps = new Map();
 function lensMap(width){
-  const w = Math.max(1, Math.round(width)), height = 32;
-  if (lensMaps.has(w)) return lensMaps.get(w);
+  const density = Math.max(1, Math.min(3, devicePixelRatio || 1)), height = 32;
+  const key = [width.toFixed(3), density].join(":");
+  if (lensMaps.has(key)) return lensMaps.get(key);
   const canvas = document.createElement("canvas");
-  canvas.width = w; canvas.height = height;
-  const ctx = canvas.getContext("2d"), pixels = ctx.createImageData(w, height);
-  const scale = Math.max(16, w * .08 + 6);
-  for (let y = 0; y < height; y++) for (let x = 0; x < w; x++){
-    const [dx, dy] = lensOffset(x + .5, y + .5, w, height), i = (y * w + x) * 4;
-    pixels.data[i] = Math.round(255 * (.5 + dx / scale));
-    pixels.data[i + 1] = Math.round(255 * (.5 + dy / scale));
-    pixels.data[i + 2] = 128; pixels.data[i + 3] = 255;
+  canvas.width = Math.ceil(width * density); canvas.height = Math.ceil(height * density);
+  const ctx = canvas.getContext("2d"), pw = canvas.width, ph = canvas.height;
+  const zoom = ctx.createImageData(pw, ph), rim = ctx.createImageData(pw, ph);
+  const span = Math.max(width, height), radius = Math.min(width, height) / 2;
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++){
+    const px = (x + .5) * width / pw, py = (y + .5) * height / ph, i = (y * pw + x) * 4;
+    const nx = px - Math.max(radius, Math.min(width - radius, px));
+    const ny = py - Math.max(radius, Math.min(height - radius, py));
+    const length = nx ? Math.hypot(nx, ny) : Math.abs(ny), depth = radius - length;
+    const t = Math.max(0, Math.min(1, depth / LENS_BEND_WIDTH));
+    const bend = length ? .7 * 16 * t * t * (1 - t) * (1 - t) / length : 0;
+    // The component transfer below makes byte 128 exactly neutral. The
+    // remaining 254 levels encode [-.5,.5], including fractional dimensions.
+    zoom.data[i] = Math.round(128 + 254 * (width / 2 - px) / span);
+    zoom.data[i + 1] = Math.round(128 + 254 * (height / 2 - py) / span);
+    rim.data[i] = Math.round(128 - 254 * nx * bend / 2);
+    rim.data[i + 1] = Math.round(128 - 254 * ny * bend / 2);
+    zoom.data[i + 2] = rim.data[i + 2] = 128;
+    zoom.data[i + 3] = rim.data[i + 3] = 255;
   }
-  ctx.putImageData(pixels, 0, 0);
-  const map = { url: canvas.toDataURL(), scale };
+  const url = pixels => { ctx.putImageData(pixels, 0, 0); return canvas.toDataURL(); };
+  const map = { zoom: url(zoom), rim: url(rim), span };
   if (lensMaps.size >= 64) lensMaps.delete(lensMaps.keys().next().value);
-  lensMaps.set(w, map);
+  lensMaps.set(key, map);
   return map;
+}
+// Native CSS gradients keep the clean center opaque during width changes;
+// a newly generated PNG mask could be transparent for a frame while decoding.
+// Overlapping caps and the middle avoid cut-edge seams. Both bounds are exact:
+// no coverage through depth 2.5, full coverage from depth 3.5 inward.
+function lensCenterMask(width){
+  const r = Math.min(width, 32) / 2, horizontal = width >= 32;
+  const ramp = Array.from({ length:9 }, (_, i) => {
+    const depth = LENS_BEND_WIDTH + i / 8;
+    return { depth, alpha: lensCenterAlpha(depth) };
+  });
+  const color = a => "rgba(0,0,0," + a + ")";
+  const cap = "radial-gradient(circle at " + r + "px " + r + "px," +
+    [...ramp].reverse().map(s => color(s.alpha) + " " + (r - s.depth) + "px").join(",") + ")";
+  const middle = "linear-gradient(to " + (horizontal ? "bottom" : "right") + "," +
+    ramp.map(s => color(s.alpha) + " " + s.depth + "px").concat(
+      [...ramp].reverse().map(s => color(s.alpha) + " calc(100% - " + s.depth + "px)")).join(",") + ")";
+  const capSize = horizontal ? (r * 2) + "px 100%" : "100% " + (r * 2) + "px";
+  const middleSize = horizontal ? "calc(100% - " + (r * 2) + "px) 100%" : "100% calc(100% - " + (r * 2) + "px)";
+  return cap + " left top/" + capSize + " no-repeat," +
+    middle + " center/" + middleSize + " no-repeat," +
+    cap + " " + (horizontal ? "right top" : "left bottom") + "/" + capSize + " no-repeat";
+}
+// Map a live label's viewport rectangle into the lens's local coordinates.
+// This includes current slide/width/reorder transforms and the current press
+// scale, rather than using an animation's final target or the active owner.
+function lensCopyGeometry(source, lens, width){
+  const sx = lens.width / width, sy = lens.height / 32, zoom = LENS_ZOOM * sy;
+  const cx = lens.left + lens.width / 2, cy = lens.top + lens.height / 2;
+  return { x: (cx + (source.left - cx) * zoom - lens.left) / sx,
+    y: (cy + (source.top - cy) * zoom - lens.top) / sy,
+    sx: zoom / sx, sy: zoom / sy, zoom };
 }
 const lensSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 lensSvg.setAttribute("width", "0"); lensSvg.setAttribute("height", "0");
@@ -4087,21 +4154,81 @@ lensSvg.setAttribute("aria-hidden", "true");
 lensSvg.style.position = "absolute";
 document.body.appendChild(lensSvg);
 let lensId = 0;
-function resizeLens(el, width){
+function resizeLens(el, width, zoom = LENS_ZOOM){
   if (!width) return;
   const map = lensMap(width), lens = el.lens;
-  lens.image.setAttribute("width", width);
+  if (lens.width !== width){
+    for (const image of lens.images) image.setAttribute("width", width);
+    lens.width = width;
+  }
   if (lens.map !== map){
-    lens.image.setAttribute("href", map.url);
-    lens.displace.setAttribute("scale", map.scale);
+    lens.images[0].setAttribute("href", map.zoom);
+    lens.images[1].setAttribute("href", map.rim);
+    const mask = lensCenterMask(width);
+    if (lens.mask !== mask){ lens.clear.style.setProperty("--lens-center-mask", mask); lens.mask = mask; }
     lens.map = map;
   }
+  // Pressing changes this scalar only; no new PNGs or DOM copies per frame.
+  const scale = map.span * (1 - 1 / zoom);
+  if (lens.scale !== scale){ lens.zoom.setAttribute("scale", scale); lens.scale = scale; }
 }
-const lensWatch = new ResizeObserver(entries => {
-  for (const entry of entries) resizeLens(entry.target, entry.contentRect.width);
+const lensWatch = new ResizeObserver(() => paintLenses());
+const liveLenses = new Set();
+let lensFrame = 0;
+function queueLensPaint(){
+  if (!lensFrame) lensFrame = requestAnimationFrame(paintLenses);
+}
+function paintLenses(){
+  if (lensFrame) cancelAnimationFrame(lensFrame);
+  lensFrame = 0;
+  const bar = document.getElementById("tabbar");
+  if (!bar || document.visibilityState === "hidden") return;
+  // Read every source before writing any copy. Only plain visual spans are
+  // made; the real tab and close buttons remain the sole interactive objects.
+  const sources = [...bar.querySelectorAll(".ptab:not(.closed) .plabel, .ptab:not(.closed) .ptabx")].map(el => {
+    const rect = el.getBoundingClientRect(), style = getComputedStyle(el);
+    const tab = el.closest(".ptab"), opacity = Number(style.opacity) * Number(getComputedStyle(tab).opacity);
+    return { el, rect, style, opacity, cross: el.classList.contains("ptabx") };
+  }).filter(s => s.rect.width && s.rect.height && s.style.visibility !== "hidden");
+  const lenses = [...liveLenses].filter(el => el.isConnected).map(el => ({ el, rect: el.getBoundingClientRect(), width: parseFloat(getComputedStyle(el).width) }));
+  for (const { el, rect, width } of lenses){
+    if (!width || !rect.width || !rect.height) continue;
+    const lens = el.lens, kept = new Set();
+    resizeLens(el, width, LENS_ZOOM * rect.height / 32);
+    for (const s of sources){
+      const g = lensCopyGeometry(s.rect, rect, width);
+      // Copy all visible names, including those beyond this lens: the mask is
+      // the only crop, so glyph overhangs enter the rim without popping in.
+      let copy = lens.copies.get(s.el);
+      if (!copy){ copy = h("span", "lensglyph" + (s.cross ? " lenscross" : "")); lens.clear.appendChild(copy); lens.copies.set(s.el, copy); }
+      kept.add(s.el);
+      if (!s.cross && copy.textContent !== s.el.textContent) copy.textContent = s.el.textContent;
+      for (const key of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch", "lineHeight", "letterSpacing", "fontFeatureSettings", "fontVariationSettings", "whiteSpace", "textTransform", "color"])
+        if (copy.style[key] !== s.style[key]) copy.style[key] = s.style[key];
+      const values = { opacity:String(s.opacity), width:s.rect.width + "px", height:s.rect.height + "px",
+        transform:"translate(" + g.x + "px," + g.y + "px) scale(" + g.sx + "," + g.sy + ")" };
+      for (const [key, value] of Object.entries(values)) if (copy.style[key] !== value) copy.style[key] = value;
+    }
+    for (const [source, copy] of lens.copies) if (!kept.has(source)){ copy.remove(); lens.copies.delete(source); }
+  }
+  // CSS owns the motion; sample its current geometry once per frame while it
+  // is running. A mutation/resize starts this again; resting pills do no work.
+  if (bar.getAnimations({ subtree: true }).some(a => a.playState === "running") ||
+      tabDrag?.mode === "select" || tabDrag?.mode === "reorder" || tabGlide) queueLensPaint();
+}
+const lensChanges = new MutationObserver(records => {
+  if (records.some(r => !r.target.closest?.(".lensclear"))) queueLensPaint();
 });
+const lensBar = document.getElementById("tabbar");
+lensChanges.observe(lensBar, { subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:["class", "style"] });
+// Pseudo-class color changes do not produce DOM mutations. Mirror them too,
+// including an immediately applied hover under reduced motion.
+for (const type of ["transitionrun", "pointerover", "pointerout"])
+  lensBar.addEventListener(type, queueLensPaint, { passive:true });
+addEventListener("resize", queueLensPaint, { passive:true });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState !== "hidden") queueLensPaint(); });
 function makeLens(cls){
-  const el = h("span", "projectlens " + cls), id = "project-lens-" + (++lensId);
+  const el = h("span", "projectlens qn-glass " + cls), id = "project-lens-" + (++lensId);
   el.setAttribute("aria-hidden", "true");
   const filter = document.createElementNS(lensSvg.namespaceURI, "filter");
   filter.id = id;
@@ -4110,21 +4237,30 @@ function makeLens(cls){
   filter.setAttribute("filterUnits", "objectBoundingBox");
   filter.setAttribute("primitiveUnits", "userSpaceOnUse");
   filter.setAttribute("color-interpolation-filters", "sRGB");
-  filter.innerHTML = '<feImage x="0" y="0" height="32" preserveAspectRatio="none" result="map"/>' +
-    '<feDisplacementMap in="SourceGraphic" in2="map" xChannelSelector="R" yChannelSelector="G"/>';
+  const neutral = name => '<feComponentTransfer in="' + name + '" result="' + name + '-neutral">' +
+    '<feFuncR type="linear" slope="' + (255 / 254) + '" intercept="' + (-1 / 254) + '"/>' +
+    '<feFuncG type="linear" slope="' + (255 / 254) + '" intercept="' + (-1 / 254) + '"/></feComponentTransfer>';
+  filter.innerHTML = '<feImage x="0" y="0" height="32" preserveAspectRatio="none" result="zoom-map"/>' + neutral("zoom-map") +
+    '<feDisplacementMap in="SourceGraphic" in2="zoom-map-neutral" xChannelSelector="R" yChannelSelector="G" result="enlarged"/>' +
+    '<feImage x="0" y="0" height="32" preserveAspectRatio="none" result="rim-map"/>' + neutral("rim-map") +
+    '<feDisplacementMap in="enlarged" in2="rim-map-neutral" scale="2" xChannelSelector="R" yChannelSelector="G"/>';
   lensSvg.appendChild(filter);
-  el.lens = { filter, image: filter.firstElementChild, displace: filter.lastElementChild };
+  const clear = h("span", "lensclear qn-glass");
+  clear.setAttribute("aria-hidden", "true"); clear.inert = true;
+  el.appendChild(clear);
+  el.lens = { filter, images: [...filter.querySelectorAll("feImage")], zoom: filter.querySelector("feDisplacementMap"), clear, copies: new Map() };
   el.style.setProperty("--lens-filter", "url(#" + id + ")");
-  lensWatch.observe(el);
+  liveLenses.add(el); lensWatch.observe(el);
   return el;
 }
 function removeLens(el){
-  lensWatch.unobserve(el); el.lens.filter.remove(); el.remove();
+  liveLenses.delete(el); lensWatch.unobserve(el); el.lens.filter.remove(); el.remove();
 }
 const tabSeat = { el: h("span", "tabseat still gone"), face: makeLens("seatlens"), owner: null, x: null, w: null, drawn: false };
 tabSeat.el.setAttribute("aria-hidden", "true");
 tabSeat.el.appendChild(tabSeat.face);
 function placeSeat(){
+  queueLensPaint();
   const seat = tabSeat, el = seat.el, oval = el.parentNode;
   if (!oval || tabDrag?.mode === "reorder" || tabDrag?.mode === "select" || tabGlide) return;
   const on = oval.querySelector(".ptab.on, .ptab.draft");

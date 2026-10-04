@@ -144,49 +144,146 @@ test("reduced motion keeps drag selection functional and lands without a settlin
   } finally { await context.close(); }
 });
 
-// Compare rendered ink with only displacement switched off. Tint, rim, text
-// and geometry stay identical, so a filter string alone cannot pass this check.
-async function displacedInk(page, clip) {
-  await frame(page);
-  const on = Buffer.from(await page.screenshot({ clip })).toString("base64");
-  await page.$eval("#tabbar .seatlens", el => {
-    el.dataset.filter = el.style.getPropertyValue("--lens-filter");
-    el.style.setProperty("--lens-filter", "none");
-  });
-  await frame(page);
-  const off = Buffer.from(await page.screenshot({ clip })).toString("base64");
-  await page.$eval("#tabbar .seatlens", el => el.style.setProperty("--lens-filter", el.dataset.filter));
+// Rendered acceptance compares to ordinary CSS-enlarged text. A damaged
+// displacement result cannot pass just because some ink pixels changed.
+const shot = async (page, clip) => Buffer.from(await page.screenshot({ clip })).toString("base64");
+async function imageDifference(page, on, off) {
   return page.evaluate(async ({ on, off }) => {
-    const ink = async data => {
+    const pixels = async data => {
       const image = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: "image/png" }));
       const canvas = document.createElement("canvas"); canvas.width = image.width; canvas.height = image.height;
       const ctx = canvas.getContext("2d"); ctx.drawImage(image, 0, 0); image.close();
       return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     };
-    const a = await ink(on), b = await ink(off); let changed = 0;
-    for (let i = 0; i < a.length; i += 4) if ((a[i] < 160) !== (b[i] < 160)) changed++;
-    return changed;
+    const a = await pixels(on), b = await pixels(off); let changedInk = 0, ink = 0, changedColor = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      const ai = a[i] < 160, bi = b[i] < 160;
+      if (ai || bi) ink++; if (ai !== bi) changedInk++;
+      if (Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2])) > 8) changedColor++;
+    }
+    return { changedInk, ink, inkError: changedInk / Math.max(1, ink), changedColor };
   }, { on, off });
 }
 
-test("rendered letter pixels change through both the lens center and an edge crossing a name", async () => {
-  const { context, page } = await fx.openBoard(null, VIEW);
+async function referenceCenter(page) {
+  return page.evaluate(() => {
+    const label = document.querySelector("#tabbar .ptab.on .plabel"), cs = getComputedStyle(label);
+    const box = tabSeat.face.getBoundingClientRect(), word = label.getBoundingClientRect();
+    const ref = document.createElement("span"); ref.id = "lens-clean-reference"; ref.className = "qn-glass";
+    ref.setAttribute("aria-hidden", "true"); ref.inert = true;
+    ref.style.cssText = `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:32px;border-radius:16px;z-index:20;pointer-events:none;backdrop-filter:none;background-color:color-mix(in srgb,var(--paper),#fff 77%)`;
+    const text = document.createElement("span"); text.textContent = label.textContent;
+    // Independent reference geometry: the original label's reserved box is
+    // centered in the pill, with ordinary CSS scaling around its own center.
+    text.style.cssText = `position:absolute;left:50%;top:50%;width:${word.width}px;height:${word.height}px;transform:translate(-50%,-50%) scale(1.075);transform-origin:50% 50%`;
+    for (const key of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch", "lineHeight", "letterSpacing", "fontFeatureSettings", "fontVariationSettings", "whiteSpace", "textTransform", "color"]) text.style[key] = cs[key];
+    ref.appendChild(text); document.getElementById("tabbar").appendChild(ref);
+  });
+}
+
+for (const sample of [{ dpr:1, paper:"#ffffff", weight:"500" }, { dpr:2, paper:"#b7c8d4", weight:"600" }]) {
+  test(`clean lens center matches enlarged text and shared glass at DPR ${sample.dpr}`, async () => {
+    const { context, page } = await fx.openBoard(null, { ...VIEW, deviceScaleFactor:sample.dpr });
+    try {
+      await show(page, "facilitator"); await page.mouse.move(20, 100); await seatStill(page);
+      await page.evaluate(({ paper, weight }) => {
+        document.body.style.setProperty("--paper", paper);
+        document.querySelector("#tabbar .ptab.on .plabel").style.fontWeight = weight;
+        disarmTab(); placeSeat(); paintLenses();
+      }, sample);
+      await frame(page);
+      const material = await page.evaluate(() => {
+        const lens = getComputedStyle(tabSeat.face), control = getComputedStyle(document.getElementById("homeico"));
+        const clear = getComputedStyle(tabSeat.face.lens.clear);
+        return { lens: [lens.backgroundColor, lens.backgroundImage, lens.boxShadow],
+          control:[control.backgroundColor, control.backgroundImage, control.boxShadow],
+          filteredCenter:clear.backdropFilter, copies:tabSeat.face.lens.clear.querySelectorAll("button,[id],[tabindex]").length };
+      });
+      assert.deepEqual(material.lens, material.control, "the selected pill replaced the established glass recipe");
+      assert.equal(material.filteredCenter, "none"); assert.equal(material.copies, 0);
+      const clip = await page.$eval("#tabbar .seatlens", el => {
+        const r = el.getBoundingClientRect(); return { x:r.left + 10, y:r.top + 6, width:r.width - 20, height:20 };
+      });
+      const actual = await shot(page, clip);
+      await referenceCenter(page); await frame(page); const reference = await shot(page, clip);
+      await page.$eval("#lens-clean-reference", el => el.remove());
+      const clean = await imageDifference(page, actual, reference);
+      assert.ok(clean.ink > 50, "reference did not contain label ink");
+      assert.ok(clean.inkError <= .02, `center differs from clean enlargement: ${JSON.stringify(clean)}`);
+      // Original and displaced pixels must not show through the center.
+      await page.$eval("#tabbar .seatlens", el => { el.dataset.savedFilter = el.style.getPropertyValue("--lens-filter"); el.style.setProperty("--lens-filter", "none"); });
+      await frame(page); const withoutDisplacement = await shot(page, clip);
+      const center = await imageDifference(page, actual, withoutDisplacement);
+      assert.equal(center.changedColor, 0, "displaced/original glyphs leaked into the clean center");
+      await page.$eval("#tabbar .seatlens", el => el.style.setProperty("--lens-filter", el.dataset.savedFilter));
+      if (process.env.LENS_FIX_SHOTS) {
+        const fs = require("node:fs/promises"), path = require("node:path");
+        await fs.mkdir(process.env.LENS_FIX_SHOTS, { recursive:true });
+        await fs.writeFile(path.join(process.env.LENS_FIX_SHOTS, `center-${sample.dpr}x.png`), Buffer.from(actual, "base64"));
+        await fs.writeFile(path.join(process.env.LENS_FIX_SHOTS, `clean-reference-${sample.dpr}x.png`), Buffer.from(reference, "base64"));
+      }
+    } finally { await context.close(); }
+  });
+}
+
+test("a moving rim refracts underlying letters independently of center enlargement", async () => {
+  const { context, page } = await fx.openBoard(null, { ...VIEW, deviceScaleFactor:2 });
+  try {
+    await show(page, "facilitator"); await page.mouse.move(20, 100); await seatStill(page);
+    let changed = 0;
+    for (const offset of [-2, -1, 0, 1, 2]) {
+      const clip = await page.evaluate(offset => {
+        const label = document.querySelector("#tabbar .ptab.on .plabel").getBoundingClientRect();
+        const oval = tabSeat.el.parentNode.getBoundingClientRect(), x = label.left + label.width / 2 + offset;
+        tabSeat.el.style.transition = "none"; tabSeat.el.style.transform = `translateX(${x - oval.left}px)`;
+        paintLenses(); return { x, y:oval.top + 8, width:8, height:16 };
+      }, offset);
+      await frame(page); const refracted = await shot(page, clip);
+      await page.evaluate(() => tabSeat.face.lens.filter.querySelectorAll("feDisplacementMap")[1].setAttribute("scale", "0"));
+      await frame(page); const enlargedOnly = await shot(page, clip);
+      changed += (await imageDifference(page, refracted, enlargedOnly)).changedColor;
+      await page.evaluate(() => tabSeat.face.lens.filter.querySelectorAll("feDisplacementMap")[1].setAttribute("scale", "2"));
+    }
+    assert.ok(changed > 3, "the nonlinear rim did not change rendered pixels; scaling alone is insufficient");
+  } finally { await context.close(); }
+});
+
+async function copyAlignment(page, count = 6) {
+  return page.evaluate(count => new Promise(resolve => {
+    const errors = [];
+    function next() {
+      // Read after this frame's rendering callbacks, without calling the
+      // production painter here: a missed synchronization frame must fail.
+      requestAnimationFrame(() => setTimeout(() => {
+        const lens = tabSeat.face.getBoundingClientRect(), zoom = 1.075 * lens.height / 32;
+        const cx = lens.left + lens.width / 2, cy = lens.top + lens.height / 2;
+        let error = 0, copies = 0;
+        for (const [source, copy] of tabSeat.face.lens.copies) {
+          const a = source.getBoundingClientRect(), b = copy.getBoundingClientRect(); copies++;
+          error = Math.max(error, Math.abs(b.left - (cx + (a.left - cx) * zoom)),
+            Math.abs(b.top - (cy + (a.top - cy) * zoom)), Math.abs(b.width - a.width * zoom), Math.abs(b.height - a.height * zoom));
+        }
+        errors.push({ error, copies });
+        if (errors.length < count) next(); else resolve(errors);
+      }, 0));
+    }
+    next();
+  }), count);
+}
+
+test("clean copies stay aligned during real press, drag and width-settling frames", async () => {
+  const { context, page } = await fx.openBoard(null, { ...VIEW, deviceScaleFactor:2 });
   try {
     await show(page, garden); await seatStill(page);
-    const rect = await page.$eval("#tabbar .seatlens", el => {
-      const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
-    });
-    assert.ok(await displacedInk(page, { x: rect.x + 16, y: rect.y + 8, width: rect.width - 32, height: 16 }) > 8,
-      "center displacement did not change the rendered ink");
-    const clip = await page.evaluate(() => {
-      const label = document.querySelector("#tabbar .ptab.on .plabel").getBoundingClientRect();
-      const oval = tabSeat.el.parentNode.getBoundingClientRect();
-      const x = label.left + label.width / 2;
-      tabSeat.el.style.transition = "none"; tabSeat.el.style.transform = `translateX(${x - oval.left}px)`;
-      return { x: x + 1, y: oval.top + 8, width: 12, height: 16 };
-    });
-    await frame(page);
-    assert.ok(await displacedInk(page, clip) > 3, "the moving edge did not refract the rendered ink");
+    const from = await tabBox(page, garden), to = await tabBox(page, ledger);
+    await page.mouse.move(from.x, from.y); await page.mouse.down();
+    const pressing = await copyAlignment(page);
+    await page.mouse.move(to.x, to.y, { steps:10 }); const dragging = await copyAlignment(page);
+    await page.mouse.up(); const settling = await copyAlignment(page, 24);
+    for (const sample of [...pressing, ...dragging, ...settling]) {
+      assert.ok(sample.copies > 0, "the clean plane went missing");
+      assert.ok(sample.error < .15, `clean text lagged the moving lens: ${sample.error}px`);
+    }
   } finally { await context.close(); }
 });
 

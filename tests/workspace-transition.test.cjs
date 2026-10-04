@@ -208,7 +208,7 @@ for (const [page, mac] of [['index.html', true], ['m.html', false]]) {
       tabSeat: { el, face: { style: {} }, owner: 'a', x: 0, w: 100, drawn: true },
       allRowsOf: () => targets, rowsOf: () => targets, tabClosed: () => false,
       labelOf: (_st, owner) => owner, laneUnread: () => false,
-      seatSoon: () => f.ctx.placeSeat(),
+      seatSoon: () => f.ctx.placeSeat(), queueLensPaint() {},
       apply: st => f.ctx.renderTabs(st),
     });
     vm.runInContext(block(f.html, 'function renderTabs(st){', '// ---- the seat ---'), f.ctx);
