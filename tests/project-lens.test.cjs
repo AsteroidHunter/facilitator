@@ -13,7 +13,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
   let id = 0, now = 0, context;
   class Element {
     constructor(cls = "", owner = null) {
-      this.classes = new Set(cls.split(" ").filter(Boolean));
+      this.tagName = "span"; this.classes = new Set(cls.split(" ").filter(Boolean));
       this.dataset = owner ? { owner } : {};
       this.style = { setProperty(k, v) { this[k] = v; } };
       this.children = []; this.attributes = {}; this.listeners = {}; this.isConnected = true;
@@ -25,6 +25,14 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
       };
     }
     setAttribute(k, v) { this.attributes[k] = String(v); }
+    removeAttribute(k) { delete this.attributes[k]; }
+    getAttributeNames() { return Object.keys(this.attributes); }
+    cloneNode(deep) {
+      const copy = new Element([...this.classes].join(" "));
+      copy.tagName = this.tagName; copy.attributes = { ...this.attributes }; copy.textContent = this.textContent;
+      if (deep) for (const child of this.children) copy.appendChild(child.cloneNode(true));
+      return copy;
+    }
     appendChild(el) { if (el.parentNode) el.remove(); this.children.push(el); el.parentNode = this; el.isConnected = true; return el; }
     remove() { if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1); this.parentNode = null; this.isConnected = false; }
     set innerHTML(value) {
@@ -36,25 +44,29 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
     get lastElementChild() { return this.children.at(-1); }
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
     querySelectorAll(selector) {
+      if (selector === "*") return this.children.flatMap(el => [el, ...el.querySelectorAll("*")]);
       if (selector === "feImage") return this.children.filter(el => el.tagName === selector);
-      if (selector.includes(".plabel")) return Object.values(tabs).filter(t => !t.classes.has("closed")).flatMap(t => t.children);
+      if (selector.includes(".plabel")) return [...(selector.includes("#homeico svg") ? [house] : []), ...Object.values(tabs).filter(t => !t.classes.has("closed")).flatMap(t => t.children)];
       return this.children.filter(el => el.classList.contains("ptab") &&
         (!selector.includes(":not(.draft)") || !el.classList.contains("draft")));
     }
     querySelector(selector) {
       if (selector === "feDisplacementMap") return this.children.find(el => el.tagName === selector);
       if ([".plabel", ".ptabx"].includes(selector)) return this.children.find(el => el.classes.has(selector.slice(1)));
-      if (selector === ".ptab.on, .ptab.draft") return this.children.find(el => el.classes.has("on") || el.classes.has("draft"));
+      if (selector === ".ptab.on, .ptab.draft") return Object.values(tabs).find(el => el.classes.has("on") || el.classes.has("draft"));
       return null;
     }
     closest(selector) {
       const name = selector.endsWith(".ptab") ? "ptab" : selector.slice(1);
-      for (let el = this; el; el = el.parentNode) if (el.classes.has(name)) return el;
+      for (let el = this; el; el = el.parentNode) if (selector === "#homeico" ? el.attributes.id === name : el.classes.has(name)) return el;
       return null;
     }
     getAnimations() { return this.animations || []; }
     matches(selector) { return selector === ":hover" && this.hovered; }
     getBoundingClientRect() {
+      if (this === row) return { left:0, top:6, width:360, height:32, right:360, bottom:38 };
+      if (this === homeButton) return { left:0, top:6, width:32, height:32, right:32, bottom:38 };
+      if (this === house) return { left:8.5, top:14.5, width:15, height:15, right:23.5, bottom:29.5 };
       if (this === oval || this === bar) return { left: 40, top: 6, width: 320, height: 32, right: 360, bottom: 38 };
       if (this.classes.has("plabel") || this.classes.has("ptabx")) {
         const r = this.parentNode.getBoundingClientRect(), cross = this.classes.has("ptabx");
@@ -78,12 +90,17 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
       }
       const move = (this.style.transform || "").match(/translate(?:X)?\(([-.\d]+)px(?:,\s*([-.\d]+)px)?/);
       const independent = (this.style.translate || "").split(" ").map(v => parseFloat(v) || 0);
-      const left = 40 + (parseFloat(this.style.left) || 0) + Number(move?.[1] || 0) + (independent[0] || 0);
+      const left = (this.parentNode?.getBoundingClientRect().left || 0) + (parseFloat(this.style.left) || 0) + Number(move?.[1] || 0) + (independent[0] || 0);
       const top = 6 + Number(move?.[2] || 0) + (independent[1] || 0);
       return { left, top, width: parseFloat(this.style.width) || 0, height: 32, right: left + (parseFloat(this.style.width) || 0), bottom: top + 32 };
     }
   }
-  const oval = new Element("taboval"), bar = new Element(), body = new Element();
+  const oval = new Element("taboval"), bar = new Element(), row = new Element(), body = new Element();
+  const homeButton = new Element(), house = new Element();
+  homeButton.tagName = "button"; homeButton.setAttribute("id", "homeico");
+  house.tagName = "svg"; house.setAttribute("width", "15"); house.setAttribute("height", "15"); house.setAttribute("viewBox", "0 0 24 24");
+  for (const d of ["M3 10.5 12 3l9 7.5", "M5.5 9.5V21h13V9.5"]) { const path = new Element(); path.tagName = "path"; path.setAttribute("d", d); house.appendChild(path); }
+  homeButton.appendChild(house); row.appendChild(homeButton); row.appendChild(bar); bar.appendChild(oval);
   const tabs = Object.fromEntries(["a", "b", "c"].map((ow, i) => {
     const tab = new Element("ptab" + (closed.includes(ow) ? " closed" : ""), ow);
     tab.baseWidth = widths[i];
@@ -102,7 +119,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
       }), toDataURL() { images.push(canvas.pixels); return "data:image/png;base64," + images.length; } };
       return canvas;
     },
-    getElementById: () => bar,
+    getElementById: id => id === "tabrow" ? row : id === "homeico" ? homeButton : bar,
     querySelectorAll: selector => oval.querySelectorAll(selector),
     addEventListener: (type, fn) => (handlers[type] ||= []).push(fn),
   };
@@ -114,7 +131,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
     h: (tag, cls) => Object.assign(new Element(cls), { tagName: tag }), ResizeObserver: class { observe() {} unobserve() {} },
     MutationObserver: class { constructor(fn) { this.fn = fn; observers.push(this); } observe() {} },
     getComputedStyle(el) {
-      const tab = el.closest(".ptab"), cross = el.classes.has("ptabx"), armed = tab?.classes.has("armed");
+      const tab = el.closest(".ptab") || el.closest("#homeico"), cross = el.classes.has("ptabx"), armed = tab?.classes.has("armed");
       return { columnGap: "0", width: el.style.width || el.parentNode?.style.width || "0px",
         opacity: cross ? (armed ? (el.classes.has("off") ? ".3" : "1") : "0") : (el.classes.has("tearing") ? ".45" : "1"),
         visibility: cross && !armed ? "hidden" : "visible", color: tab?.classes.has("on") ? "rgb(30,30,30)" : "rgb(100,100,100)",
@@ -130,6 +147,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
     tabRecord: st => st, allRowsOf: st => st.order, rowsOf: st => st.order.filter(ow => !st.closed.includes(ow)),
     writeTabs(record) { writes.push(JSON.parse(JSON.stringify(record))); Object.assign(context.lastState, record); },
     setTab(ow) { switches.push(ow); context.activeOwner = ow; context.homeOpen = false; context.draft = null; context.renderTabs(); },
+    setHome(value) { context.homeOpen = !!value; homeButton.setAttribute("aria-pressed", String(value)); context.renderTabs(); context.placeSeat(); },
     unselectShown() { context.unselected = true; },
     renderTabs() {
       if (["select", "reorder"].includes(context.tabDrag?.mode) || context.tabGlide) return;
@@ -142,7 +160,9 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
   vm.runInContext(between("const LENS_ZOOM =", "// the bar is painted in the middle"), context);
   if (!render) vm.runInContext("queueLensPaint = () => {}", context);
   const seat = vm.runInContext("tabSeat", context);
-  oval.appendChild(seat.el);
+  const homeClick = html.match(/document\.getElementById\("homeico"\)\.addEventListener\("click", \(\) => \{ if \(!homeOpen\) setHome\(true\); \}\);/);
+  assert.ok(homeClick, "the existing synchronous Home click handler changed");
+  vm.runInContext(homeClick[0], context);
   vm.runInContext(between("function tabKillMark(", "// the plus tab: a fresh tab"), context);
   const clickSource = between('      t.addEventListener("click", () => {', "\n      oval.appendChild(t);");
   const downSource = between('        t.addEventListener("mousedown", e => {', "\n      // a press on the open").replace(/\n      }\s*$/, "");
@@ -163,7 +183,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
   function move(x, y = 22, buttons = 1) { dispatch("mousemove", { clientX: x, clientY: y, buttons }); }
   function up(x, y = 22, target = tabs.a) { dispatch("mouseup", { clientX: x, clientY: y, screenX: x, screenY: y, target }); }
   const click = ow => tabs[ow].listeners.click.forEach(fn => fn());
-  return { context, seat, tabs, oval, bar, document, images, switches, writes, opens, observers, frames, dispatch, down, move, up, click, tick,
+  return { context, seat, tabs, oval, bar, row, homeButton, house, document, images, switches, writes, opens, observers, frames, dispatch, down, move, up, click, tick,
     get: source => vm.runInContext(source, context),
   };
 }
@@ -173,7 +193,7 @@ test("hidden cross drags only the lens, keeps all names and workspace still, sel
   assert.equal(f.context.tabDrag.mode, "select");
   assert.equal(f.context.activeOwner, "a"); assert.deepEqual(f.switches, []); assert.deepEqual(f.writes, []);
   assert.ok(Object.values(f.tabs).every(t => !t.style.transform));
-  assert.notEqual(f.seat.el.style.transform, "translateX(0px)");
+  assert.notEqual(f.seat.el.style.transform, "translateX(40px)");
   f.up(300, 22, f.tabs.c); f.click("c");
   assert.deepEqual(f.switches, ["c"]); assert.deepEqual(f.writes, []);
   assert.equal(f.seat.owner, "c"); f.tick(0); assert.equal(f.context.tabDrag, null);
@@ -211,7 +231,7 @@ test("reorder keeps closed projects in the stored order and out of measured slot
 
 test("a drag that releases outside the names cancels and returns the lens", () => {
   const f = fixture(); f.down(); f.move(200); f.up(200, 80); f.click("a");
-  assert.deepEqual(f.switches, []); assert.equal(f.seat.el.style.transform, "translateX(0px)");
+  assert.deepEqual(f.switches, []); assert.equal(f.seat.el.style.transform, "translateX(40px)");
 });
 
 test("Escape, blur, pointer cancel and hidden-page cancellation never select on later release/click", () => {
@@ -221,7 +241,7 @@ test("Escape, blur, pointer cancel and hidden-page cancellation never select on 
     let stopped = false;
     f.dispatch(type, { key: "Escape", preventDefault() {}, stopImmediatePropagation() { stopped = true; } });
     f.up(300); f.click("c");
-    assert.deepEqual(f.switches, [], type); assert.equal(f.seat.el.style.transform, "translateX(0px)", type);
+    assert.deepEqual(f.switches, [], type); assert.equal(f.seat.el.style.transform, "translateX(40px)", type);
     if (type === "keydown") assert.equal(stopped, true);
   }
 });
@@ -256,10 +276,10 @@ test("vertical tear-out still opens once, and a locked horizontal gesture cannot
   assert.deepEqual(s.opens, []); assert.deepEqual(s.switches, []);
 });
 
-test("selection can begin on home; cancelling restores no lens, releasing selects once", () => {
-  const f = fixture({ home: true }); assert.equal(f.seat.el.classList.contains("gone"), true);
+test("selection can begin on home; cancelling returns to its circle, releasing selects once", () => {
+  const f = fixture({ home: true }); assert.equal(f.seat.el.classList.contains("gone"), false); assert.equal(f.seat.w, 32);
   f.down(); f.move(180); assert.equal(f.context.homeOpen, true); assert.equal(f.seat.el.classList.contains("gone"), false);
-  f.up(180, 80); assert.equal(f.seat.el.classList.contains("gone"), true); assert.equal(f.seat.returning, false);
+  f.up(180, 80); assert.equal(f.seat.el.classList.contains("gone"), false); assert.equal(f.seat.returning, false); assert.equal(f.seat.w, 32); assert.equal(f.seat.x, 0);
   f.tick(0); f.down(); f.move(180); f.up(180);
   assert.deepEqual(f.switches, ["b"]); assert.equal(f.context.homeOpen, false);
 });
@@ -273,8 +293,8 @@ test("a close button stops the tab gesture and closes only that project; the fin
 });
 
 test("the lens follows a close before the selected name and keeps the label's full 32px height", () => {
-  const f = fixture(); f.context.setTab("c"); f.context.placeSeat(); assert.equal(f.seat.x, 240);
-  f.context.closeTab("b"); f.context.placeSeat(); assert.equal(f.seat.x, 100);
+  const f = fixture(); f.context.setTab("c"); f.context.placeSeat(); assert.equal(f.seat.x, 280);
+  f.context.closeTab("b"); f.context.placeSeat(); assert.equal(f.seat.x, 140);
   assert.equal(f.seat.el.getBoundingClientRect().height, 32);
   f.context.placeSeat(); assert.equal(f.seat.el.classList.contains("still"), true);
 });
@@ -388,14 +408,14 @@ test("the center uses plain inert text, with the existing glass classes and no c
   assert.equal(face.classList.contains("qn-glass"), true, "the shared glass material was replaced");
   assert.equal(clear.classList.contains("qn-glass"), true);
   assert.equal(clear.inert, true); assert.equal(clear.attributes["aria-hidden"], "true");
-  assert.equal(face.lens.copies.size, 3);
+  assert.equal(face.lens.copies.size, 4);
   for (const source of Object.values(f.tabs).map(t => t.querySelector(".plabel"))) {
     const copy = assertCopyPosition(f, source);
     assert.equal(copy.tagName, "span"); assert.equal(copy.textContent, source.textContent);
     assert.deepEqual(copy.listeners, {}); assert.equal(copy.attributes.id, undefined); assert.equal(copy.dataset.owner, undefined);
     assert.equal(copy.style.filter, undefined);
   }
-  const css = between("  body.focus #tabbar .projectlens{", "  /* The outer seat moves");
+  const css = between("  body.focus #tabrow .projectlens{", "  /* The outer seat moves");
   const surface = css.slice(0, css.indexOf("}"));
   assert.doesNotMatch(surface, /background:|box-shadow:/, "a bespoke material overrides the shared control recipe");
   assert.match(css, /background-image:inherit; box-shadow:inherit/);
@@ -447,8 +467,56 @@ test("rendering work stops at rest, ignores its own copy mutations and follows a
   const copy = [...f.seat.face.lens.copies.values()][0];
   f.observers[0].fn([{ target: copy }]); assert.equal(f.frames.size, 0, "copy mutations caused an endless paint loop");
   f.observers[0].fn([{ target: f.tabs.a.querySelector(".plabel") }]); assert.equal(f.frames.size, 1);
-  f.bar.animations = [{ playState: "running" }]; f.tick(16); assert.equal(f.frames.size, 1);
-  f.bar.animations = []; f.tick(16); assert.equal(f.frames.size, 0);
-  f.bar.listeners.pointerover[0](); assert.equal(f.frames.size, 1); f.tick(16); assert.equal(f.frames.size, 0);
+  f.row.animations = [{ playState: "running" }]; f.tick(16); assert.equal(f.frames.size, 1);
+  f.row.animations = []; f.tick(16); assert.equal(f.frames.size, 0);
+  f.row.listeners.pointerover[0](); assert.equal(f.frames.size, 1); f.tick(16); assert.equal(f.frames.size, 0);
   f.document.visibilityState = "hidden"; f.context.queueLensPaint(); f.tick(16); assert.equal(f.frames.size, 0);
+});
+
+test("Home and projects use the same lens, with a 32px circle at Home and a capsule on return", () => {
+  const f = fixture({ render:true }), element = f.seat.el, face = f.seat.face;
+  assert.equal(element.parentNode, f.row); assert.equal(f.seat.x, 40);
+  f.homeButton.listeners.click[0](); f.context.paintLenses();
+  assert.equal(f.context.homeOpen, true); assert.equal(f.seat.owner, f.get("HOME_SEAT"));
+  assert.equal(f.seat.x, 0); assert.equal(f.seat.w, 32);
+  assert.equal(face.getBoundingClientRect().width, 32); assert.equal(face.getBoundingClientRect().height, 32);
+  assert.equal(f.seat.el.classList.contains("still"), false, "Home did not get the established slide");
+  assert.equal(f.seat.el.classList.contains("gone"), false);
+  f.context.placeSeat(); assert.equal(f.seat.el, element); assert.equal(f.seat.face, face);
+  f.click("b"); f.context.placeSeat(); f.context.paintLenses();
+  assert.equal(f.context.homeOpen, false); assert.equal(f.seat.owner, "b");
+  assert.equal(f.seat.w, 140); assert.equal(f.seat.x, 140);
+  assert.equal(f.seat.el, element); assert.equal(f.seat.face, face); assert.equal(f.get("liveLenses.size"), 1);
+  assertCopyPosition(f, f.house);
+  assert.equal(f.homeButton.listeners.mousedown, undefined, "Home gained a project drag/reorder gesture");
+});
+
+test("the Home center mirrors its existing SVG as an inert vector without IDs or handlers", () => {
+  const f = fixture({ home:true, render:true }), source = f.house;
+  const copy = assertCopyPosition(f, source), icon = copy.firstElementChild;
+  assert.equal(icon.tagName, "svg"); assert.notEqual(icon, source);
+  assert.equal(icon.attributes.width, "15"); assert.equal(icon.attributes.height, "15");
+  assert.equal(icon.attributes.viewBox, source.attributes.viewBox);
+  assert.deepEqual(icon.children.map(p => p.attributes.d), source.children.map(p => p.attributes.d));
+  assert.equal(icon.attributes["aria-hidden"], "true"); assert.equal(icon.attributes.focusable, "false");
+  assert.deepEqual(icon.listeners, {}); assert.equal(f.seat.face.lens.clear.inert, true);
+  source.setAttribute("id", "source-only"); source.setAttribute("onclick", "source handler");
+  source.children[0].setAttribute("id", "source-path"); source.children[0].setAttribute("tabindex", "0");
+  const clean = f.context.lensIconCopy(source);
+  for (const node of [clean, ...clean.querySelectorAll("*")]) {
+    assert.equal(node.attributes.id, undefined); assert.equal(node.attributes.tabindex, undefined); assert.equal(node.attributes.onclick, undefined);
+  }
+  assert.equal(source.attributes.id, "source-only", "copy sanitizing changed the real artwork");
+  for (const scale of [1, 1.04, 1.1]) { f.seat.face.pressScale = scale; f.context.paintLenses(); assertCopyPosition(f, source); }
+});
+
+test("Home is bare, keeps its original artwork/accessibility, and Plus retains its glass", () => {
+  const house = html.match(/<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)<\/button>/);
+  assert.ok(house); assert.doesNotMatch(house[0], /class="qn-glass"/);
+  assert.match(house[0], /type="button".*aria-label="Home".*aria-pressed="false"/);
+  assert.match(house[1], /width="15" height="15" viewBox="0 0 24 24"/);
+  assert.match(house[1], /<path d="M3 10\.5 12 3l9 7\.5"\/><path d="M5\.5 9\.5V21h13V9\.5"\/>/);
+  assert.match(html, /body\.focus #homeico\{background:none; border:none; box-shadow:none\}/);
+  assert.match(html, /const tabPlus = h\("button", "ptabplus qn-glass"\)/);
+  assert.doesNotMatch(html, /workspaceTransition|projectEntrance|project-enter|navigateWorkspace|navigateTab/);
 });
