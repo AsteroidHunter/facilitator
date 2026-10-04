@@ -1,6 +1,7 @@
 // What the phone page's two drawers are made of, read out of m.html's source: no
 // browser. The card list is the ticket box on the page, above a card that goes
-// down 55% of the screen, the two on one fraction and moved by transform alone;
+// down 55% of the screen, the two on one fraction and moved by transform alone,
+// the box nine tenths of the space the drop opens and seen only above the card;
 // the settings are the narrow panel off the right edge. None of what moves is laid
 // out again or timed by a script, and nothing the drawers add is purple.
 const assert = require("node:assert/strict");
@@ -17,7 +18,7 @@ const MENUS = HTML.slice(HTML.indexOf("// ---- the two menus, and the one motion
   HTML.indexOf("// the list's fades, the board's own"));
 
 // the rules the drawers are drawn by
-const DRAWER_RULES = /#tickets|#tikhead|#tiklist|\.tikpane|\.tvb|#settings|#scrim|#dockbed|#pane\b/;
+const DRAWER_RULES = /#tikwin|#tickets|#tikhead|#tiklist|\.tikpane|\.tvb|#settings|#scrim|#dockbed|#pane\b/;
 
 function hue([r, g, b]) {
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -63,13 +64,30 @@ test("the card goes down 55% of the screen and the box comes in, both on the one
   assert.match(card, /transform:translate\(0, calc\(var\(--list-v\) \* var\(--list-drop, 0px\)\)\)/,
     "the card's drop is not the fraction times the drop");
   const box = rulesFor(/^#tickets$/).map(r => r.body).join(";");
-  assert.match(box, /transform:translate3d\(calc\(\(var\(--list-v\) - 1\) \* \(100% \+ var\(--pg-l\)\)\), 0, 0\)/,
-    "the box does not come in from the left on the card's fraction");
-  assert.match(box, /left:var\(--pg-l\); right:var\(--pg-r\); top:var\(--pg-t\)/, "the box is not in the card's column from the card's top");
-  assert.match(box, /z-index:0/, "the box does not lie under the card");
+  // across, its right edge comes in from the page's left edge; down, it takes back what the window goes down
+  assert.match(box, /transform:translate3d\(calc\(\(var\(--list-v\) - 1\) \* \(var\(--pg-l\) \+ 100% \* \(1 \+ var\(--list-share\)\) \/ \(2 \* var\(--list-share\)\)\)\),\s*calc\(-1 \* var\(--list-v\) \* var\(--list-drop, 0px\)\), 0\)/,
+    "the box does not come in from the left on the card's fraction, holding still up and down");
+  // nine tenths of the card's column and of the drop, in the middle of each (the
+  // window it is laid in starts a drop above the page)
+  assert.match(box, /--list-share:\.9;/, "the box is not nine tenths of the space");
+  assert.match(box, /left:calc\(var\(--pg-l\) \+ \(100% - var\(--pg-l\) - var\(--pg-r\)\) \* \(1 - var\(--list-share\)\) \/ 2\);/);
+  assert.match(box, /width:calc\(\(100% - var\(--pg-l\) - var\(--pg-r\)\) \* var\(--list-share\)\);/);
+  assert.match(box, /top:calc\(var\(--list-drop, 0px\) \+ var\(--pg-t\) \+ var\(--list-drop, 0px\) \* \(1 - var\(--list-share\)\) \/ 2\);/);
+  assert.match(box, /height:calc\(var\(--list-drop, 0px\) \* var\(--list-share\)\);/);
   assert.doesNotMatch(box, /box-shadow:\s*[^n;]|background:\s*(?!transparent)/, "the box paints something of its own");
-  // the one fraction is written on the card, the box and the bed together
-  assert.match(MENUS, /cardPane\.style\.setProperty\("--list-v", num\);\s*tickets\.style\.setProperty\("--list-v", num\);\s*dockbed\.style\.setProperty\("--bed-v", num\);/);
+  // the window the box is seen through: under the card, clipping, its foot on the card's top edge
+  const win = rulesFor(/^#tikwin$/).map(r => r.body).join(";");
+  assert.match(win, /z-index:0/, "the box does not lie under the card");
+  assert.match(win, /overflow:clip/, "the window does not clip the box");
+  assert.match(win, /pointer-events:none/, "the window takes a touch");
+  assert.match(win, /top:calc\(-1 \* var\(--list-drop, 0px\)\);[\s\S]*height:calc\(var\(--pg-t\) \+ var\(--list-drop, 0px\)\)/,
+    "the window does not end at the card's resting top");
+  assert.match(win, /transform:translate3d\(0, calc\(var\(--list-v\) \* var\(--list-drop, 0px\)\), 0\)/,
+    "the window's foot does not go down with the card");
+  const page = HTML.slice(HTML.indexOf('<div id="page">'));
+  assert.match(page, /<div id="tikwin"><aside id="tickets"/, "the box is not inside its window");
+  // the one fraction is written on the card, the box and the window together
+  assert.match(MENUS, /cardPane\.style\.setProperty\("--list-v", num\);\s*tickets\.style\.setProperty\("--list-v", num\);\s*tikwin\.style\.setProperty\("--list-v", num\);/);
   // a tap on the card that shows, and the box's own rows, leave the list out
   assert.match(MENUS, /page\.addEventListener\("click", e => \{ if \(e\.target === page && drawerOpen\(\)\) closeDrawer\(\); \}\);/);
   const row = HTML.slice(HTML.indexOf('r.addEventListener("click", e => {'), HTML.indexOf("return part;", HTML.indexOf('r.addEventListener("click", e => {')));
@@ -78,8 +96,8 @@ test("the card goes down 55% of the screen and the box comes in, both on the one
 });
 
 test("what moves for the drawers is a transform or an opacity, and no script carries a frame", () => {
-  const moving = rules.filter(r => /^(#pane|#tickets|#settings|#settings::after|#scrim|#dockbed > i|#dockbed::after|body\.menurelease #pane|body\.menurelease #tickets|body\.menurelease #settings)$/.test(r.selector));
-  assert.ok(moving.length >= 8, `the scan found too few moving rules (${moving.length})`);
+  const moving = rules.filter(r => /^(#pane|#tikwin|#tickets|#settings|#settings::after|#scrim|#dockbed > i|body\.listout #dockbed > i|body\.menurelease #pane|body\.menurelease #tikwin|body\.menurelease #tickets|body\.menurelease #settings)$/.test(r.selector));
+  assert.ok(moving.length >= 11, `the scan found too few moving rules (${moving.length})`);
   for (const { selector, body } of moving) {
     for (const [, value] of body.matchAll(/(?:^|;)\s*transition\s*:([^;]*)/g)) {
       for (const one of value.split(/,(?![^()]*\))/)) {
@@ -89,6 +107,17 @@ test("what moves for the drawers is a transform or an opacity, and no script car
     }
   }
   assert.doesNotMatch(MENUS, /requestAnimationFrame|setInterval|animate\(/, "the menus' script runs a frame loop");
+  // the row's bed casts no shadow, and its second sheet stands up for the whole slide:
+  // raised as soon as the list is out, lowered over the last of the run home
+  assert.equal(rulesFor(/#dockbed::after/).length, 0, "the row's bed draws a shadow along its edge");
+  const sheet = rulesFor(/^#dockbed > i$/).map(r => r.body).join(";");
+  assert.match(sheet, /transform:translateY\(calc\(var\(--bed-air\) \+ var\(--bed-fade\) - var\(--dock-foot\)\)\)/,
+    "the second sheet does not rest with its top on the card's foot");
+  assert.match(sheet, /transition:transform var\(--bed-ms\) ease-in calc\(var\(--drawer-ms\) - var\(--bed-ms\)\)/,
+    "the second sheet does not wait for the card to come home");
+  assert.match(rulesFor(/^body\.listout #dockbed > i$/).map(r => r.body).join(";"), /transform:none; transition:transform var\(--bed-ms\) ease-out/);
+  const bed = rulesFor(/^#dockbed::before$/).map(r => r.body).join(";");
+  assert.match(bed, /rgba\(0,0,0,1\) var\(--dock-foot\)\)/, "the paper is not whole from the buttons' tops down");
   // the script writes a fraction and nothing about size or place
   const paint = MENUS.slice(MENUS.indexOf("function paintMenu(panel, v){"), MENUS.indexOf("function dismissEditor(){"));
   assert.doesNotMatch(paint, /style\.(left|top|right|bottom|width|height)\b|style\.setProperty\("(left|top|right|bottom|width|height)"/,

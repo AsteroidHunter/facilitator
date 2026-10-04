@@ -315,32 +315,39 @@ async function assertPageStayedCentred(page, where) {
 
 // the card list at one moment: the card (#pane) and the ticket box (#tickets)
 // each read for how far it has gone, as a share of its own full run. the card's
-// run is --list-drop down, the box's is its own width and the page's left gap
-// across, so both shares are read off the pictures and not off the number the
-// script wrote
+// run is --list-drop down, the box's is its right edge's way in from the page's
+// left edge, so both shares are read off the pictures and not off the number the
+// script wrote. the box is seen through a window (#tikwin) that goes down with
+// the card while the box goes up by as much: boxY is the two together, how far
+// the box stands from its own place on the screen, and windowFoot is where the
+// window ends, which is where the box stops being seen
 async function readList(page) {
   return page.evaluate(() => {
     const surface = document.getElementById("page");
     const pane = document.getElementById("pane");
     const box = document.getElementById("tickets");
-    const bed = document.getElementById("dockbed");
-    const ps = getComputedStyle(pane), bs = getComputedStyle(box);
+    const win = document.getElementById("tikwin");
+    const sheet = document.querySelector("#dockbed > i");
+    const ps = getComputedStyle(pane), bs = getComputedStyle(box), ws = getComputedStyle(win);
     const drop = parseFloat(getComputedStyle(surface).getPropertyValue("--list-drop"));
-    const dm = new DOMMatrix(ps.transform), bm = new DOMMatrix(bs.transform);
+    const dm = new DOMMatrix(ps.transform), bm = new DOMMatrix(bs.transform), wm = new DOMMatrix(ws.transform);
     const run = box.offsetLeft + box.offsetWidth;
     const pr = pane.getBoundingClientRect(), br = box.getBoundingClientRect(), sr = surface.getBoundingClientRect();
+    const wr = win.getBoundingClientRect();
     const tabs = box.querySelector("#tikhead").getBoundingClientRect();
     return {
       open: box.classList.contains("open"),
       live: box.classList.contains("live"),
       v: Number(ps.getPropertyValue("--list-v")),
       boxV: Number(bs.getPropertyValue("--list-v")),
-      bedV: Number(getComputedStyle(bed).getPropertyValue("--bed-v")),
+      windowV: Number(ws.getPropertyValue("--list-v")),
+      // how far the bed's second sheet stands below its raised place: nothing with the list out
+      bedLift: new DOMMatrix(getComputedStyle(sheet).transform).m42,
       drop, run,
       down: dm.m42, across: dm.m41,
       cardAt: drop ? dm.m42 / drop : 0,
       boxAt: 1 + bm.m41 / run,
-      boxY: bm.m42,
+      boxY: wm.m42 + bm.m42, windowFoot: wr.bottom, windowClip: ws.overflowY, windowPointer: ws.pointerEvents,
       boxVisibility: bs.visibility,
       boxOpacity: Number(bs.opacity), cardOpacity: Number(ps.opacity),
       boxShade: bs.boxShadow, boxFill: bs.backgroundColor, boxAfter: getComputedStyle(box, "::after").content,
@@ -371,20 +378,24 @@ async function startListSamples(page, duration = 900) {
     const surface = document.getElementById("page");
     const pane = document.getElementById("pane");
     const box = document.getElementById("tickets");
+    const win = document.getElementById("tikwin");
     const until = performance.now() + ms;
     const take = () => {
       const ps = getComputedStyle(pane), bs = getComputedStyle(box);
       const drop = parseFloat(getComputedStyle(surface).getPropertyValue("--list-drop"));
       const dm = new DOMMatrix(ps.transform), bm = new DOMMatrix(bs.transform);
+      const wm = new DOMMatrix(getComputedStyle(win).transform);
       const run = box.offsetLeft + box.offsetWidth;
       const br = box.getBoundingClientRect();
       window.__listSamples.push({
         cardAt: drop ? dm.m42 / drop : 0, boxAt: 1 + bm.m41 / run,
-        across: dm.m41, boxY: bm.m42,
+        across: dm.m41, boxY: wm.m42 + bm.m42,
+        cardTop: pane.getBoundingClientRect().top, windowFoot: win.getBoundingClientRect().bottom,
         boxTop: br.top, boxFoot: br.bottom, boxLeft: br.left, boxRight: br.right,
         visibility: bs.visibility, boxOpacity: Number(bs.opacity), cardOpacity: Number(ps.opacity),
         paneTop: pane.offsetTop, paneHeight: pane.offsetHeight, paneWidth: pane.offsetWidth,
         boxOffsetW: box.offsetWidth, boxOffsetH: box.offsetHeight, boxOffsetLeft: box.offsetLeft,
+        windowOffsetH: win.offsetHeight,
         pageScale: new DOMMatrix(getComputedStyle(surface).transform).a,
         scrim: Number(getComputedStyle(document.getElementById("scrim")).opacity),
       });
@@ -407,17 +418,38 @@ async function assertListInStep(page, where) {
     apart = Math.max(apart, Math.abs(s.cardAt - s.boxAt));
     assert.ok(Math.abs(s.across) < 0.01, `the card moved sideways at frame ${i} ${where} (${s.across})`);
     assert.ok(Math.abs(s.boxY) < 0.01, `the ticket box moved up or down at frame ${i} ${where} (${s.boxY})`);
+    // the box is seen down to the card's top edge and no further, so none of it
+    // shows beside the card or under it
+    assert.ok(Math.abs(s.windowFoot - s.cardTop) < 0.6,
+      `the box is seen below the card's top edge at frame ${i} ${where} (window ends ${s.windowFoot}, card top ${s.cardTop})`);
     assert.equal(s.cardOpacity, 1, `the card was see-through at frame ${i} ${where}`);
     assert.equal(s.boxOpacity, 1, `the ticket box was see-through at frame ${i} ${where}`);
     assert.ok(Math.abs(s.pageScale - 1) < 1e-6, `the page drew back at frame ${i} ${where} (${s.pageScale})`);
     assert.equal(s.scrim, 0, `a shade came over the page at frame ${i} ${where}`);
   }
   // nothing was laid out again: every layout measure is the same in every frame
-  for (const key of ["paneTop", "paneHeight", "paneWidth", "boxOffsetW", "boxOffsetH", "boxOffsetLeft"])
+  for (const key of ["paneTop", "paneHeight", "paneWidth", "boxOffsetW", "boxOffsetH", "boxOffsetLeft", "windowOffsetH"])
     assert.equal(new Set(samples.map(s => s[key])).size, 1, `${key} changed while the card list ran ${where}`);
   const cards = samples.map(s => s.cardAt);
   const seen = samples.filter(s => s.visibility === "visible");
   return { frames: samples.length, apart, low: Math.min(...cards), high: Math.max(...cards), seen: seen.length };
+}
+
+// the box with the list out: nine tenths of the space the card's drop opens,
+// each way, in the middle of it, with paper all round. the space is the card's
+// own column across, and down from the top the card rests at to the top it has
+// come down to; the box is seen down to that top and no further
+function assertBoxInSpace(s, where) {
+  const restTop = s.cardTop - s.down;
+  const across = s.cardRight - s.cardLeft, down = s.cardTop - restTop;
+  assert.ok(Math.abs(s.boxWidth - 0.9 * across) < 0.6, `the box is not nine tenths of the card's width ${where} (${s.boxWidth} of ${across})`);
+  assert.ok(Math.abs(s.boxHeight - 0.9 * down) < 0.6, `the box is not nine tenths of the space's height ${where} (${s.boxHeight} of ${down})`);
+  const left = s.boxLeft - s.cardLeft, right = s.cardRight - s.boxRight;
+  const top = s.boxTop - restTop, foot = s.cardTop - s.boxFoot;
+  assert.ok(left > 0 && Math.abs(left - right) < 0.6, `the box is not in the middle across ${where} (${left}, ${right})`);
+  assert.ok(top > 0 && Math.abs(top - foot) < 0.6, `the box is not in the middle down ${where} (${top}, ${foot})`);
+  assert.ok(Math.abs(s.windowFoot - s.cardTop) < 0.6, `the window does not end at the card's top ${where} (${s.windowFoot}, ${s.cardTop})`);
+  assert.ok(Math.abs(s.boxY) < 0.01, `the box stands off its place ${where} (${s.boxY})`);
 }
 
 // a pull from an edge, held at a fraction of the menu's travel so the frame it
@@ -694,7 +726,11 @@ test("the card list drops the card by 55% of the screen while the ticket box com
       `the shut ticket box is not wholly beyond the page's left edge (${shut.boxRight} of ${shut.pageLeft})`);
     assert.ok(Math.abs(shut.drop - 0.55 * shut.viewportHeight) <= 1,
       `the card's drop is not 55% of the screen's height (${shut.drop} of ${shut.viewportHeight})`);
-    assert.equal(shut.bedV, 0);
+    assert.ok(shut.bedLift > 10, `the bed's second sheet is up with the list shut (${shut.bedLift})`);
+    // the window the box is seen through ends at the card's resting top, clips, and takes no touch
+    assert.ok(Math.abs(shut.windowFoot - shut.cardTop) < 0.6, `the window does not end at the card's top (${shut.windowFoot}, ${shut.cardTop})`);
+    assert.equal(shut.windowClip, "clip");
+    assert.equal(shut.windowPointer, "none", "the window over the page takes a touch");
     assert.equal(shut.pageScale, 1, "the page is not at its resting size with the list shut");
     // the list is the board's holder: nothing painted behind the names and rows,
     // no shade of its own, and no second layer over it
@@ -718,7 +754,11 @@ test("the card list drops the card by 55% of the screen while the ticket box com
     assert.ok(Math.abs(half.cardAt - half.boxAt) < 0.03,
       `the card and the box are not at the same place in their runs (${half.cardAt}, ${half.boxAt})`);
     assert.equal(half.across, 0, "the card moved sideways on the way down");
-    assert.equal(half.boxY, 0, "the box moved up or down on the way in");
+    assert.ok(Math.abs(half.boxY) < 0.01, `the box moved up or down on the way in (${half.boxY})`);
+    assert.ok(Math.abs(half.windowFoot - half.cardTop) < 0.6, "the box is seen below the card's top edge on the way in");
+    assert.ok(half.boxFoot > half.cardTop, "the box is not cut by the card's top edge part of the way in");
+    // the row's band is up for the whole slide, not only once the card has landed
+    assert.ok(Math.abs(half.bedLift) < 0.5, `the bed's second sheet was not up part of the way in (${half.bedLift})`);
     assert.equal(half.cardOpacity, 1);
     assert.equal(half.boxOpacity, 1);
     assert.equal(half.boxVisibility, "visible", "the box was not on show part of the way in");
@@ -729,21 +769,13 @@ test("the card list drops the card by 55% of the screen while the ticket box com
     assert.equal(out.open, true);
     assert.equal(out.v, 1);
     assert.equal(out.boxV, 1, "the box was not written the card's fraction");
-    assert.equal(out.bedV, 1, "the row's bed was not written the card's fraction");
+    assert.equal(out.windowV, 1, "the window was not written the card's fraction");
+    assert.ok(Math.abs(out.bedLift) < 0.5, `the bed's second sheet is not up with the list out (${out.bedLift})`);
     assert.ok(Math.abs(out.down - out.drop) < 0.5, `the card did not land its drop below its place (${out.down} of ${out.drop})`);
     assert.ok(Math.abs(out.down - 0.55 * out.viewportHeight) <= 1, "the card is not down 55% of the screen");
     assert.equal(out.across, 0);
     assert.equal(out.boxVisibility, "visible");
-    // the box lies above the card in the card's own column, from the top the
-    // card rests at, and stops short of the card's top edge
-    assert.ok(Math.abs(out.boxLeft - out.cardLeft) < 0.6, `the box's left edge is not the card's (${out.boxLeft}, ${out.cardLeft})`);
-    assert.ok(Math.abs(out.boxRight - out.cardRight) < 0.6, `the box's right edge is not the card's (${out.boxRight}, ${out.cardRight})`);
-    assert.ok(Math.abs(out.boxTop - (out.cardTop - out.down)) < 0.6,
-      `the box does not start at the top the card rested at (${out.boxTop}, ${out.cardTop - out.down})`);
-    assert.ok(out.cardTop - out.boxFoot > 8 && out.cardTop - out.boxFoot < 12,
-      `the box's foot is not just clear of the card's top edge (${out.cardTop - out.boxFoot})`);
-    assert.ok(Math.abs(out.boxHeight - (out.drop - (out.cardTop - out.boxFoot))) < 1.01);
-    assert.ok(out.boxFoot < out.viewportHeight * 0.56, `the box runs below the top 55% of the screen (${out.boxFoot})`);
+    assertBoxInSpace(out, "with the list out");
     assert.equal(out.cardPointer, "none", "the card with the list out still takes a touch");
     // no side drawer's company: no shade over the page, no page drawn back
     assert.equal(out.scrim, 0, "a shade lies over the page with the list out");
@@ -763,7 +795,7 @@ test("the card list drops the card by 55% of the screen while the ticket box com
     assert.equal(back.open, false);
     assert.equal(back.down, 0, "the card did not come back to its place");
     assert.equal(back.v, 0);
-    assert.equal(back.bedV, 0);
+    assert.ok(back.bedLift > 10, `the bed's second sheet did not settle back with the card home (${back.bedLift})`);
     assert.equal(back.boxVisibility, "hidden", "the box was left on show after it went");
     assert.ok(back.boxRight <= back.pageLeft + 0.5, "the box did not leave past the page's left edge");
     const closing = await assertListInStep(page, "while the card list closed");
@@ -838,7 +870,8 @@ test("a pull past the middle opens the card list, both parts follow the finger, 
     assert.doesNotMatch(midway.paneMoves, /transform/, "the card is on a clock while the finger holds it");
     assert.doesNotMatch(midway.boxMoves, /transform/, "the box is on a clock while the finger holds it");
     assert.equal(midway.across, 0);
-    assert.equal(midway.boxY, 0);
+    assert.ok(Math.abs(midway.boxY) < 0.01, `the box moved up or down under the finger (${midway.boxY})`);
+    assert.ok(Math.abs(midway.windowFoot - midway.cardTop) < 0.6, "the box is seen below the card's top edge under the finger");
     assert.equal(midway.cardOpacity, 1);
     assert.equal(midway.pageScale, 1);
     assert.equal(midway.scrim, 0);
@@ -969,23 +1002,29 @@ test("the box scrolls on its own, a tap on a ticket switches the card and leaves
   }
 });
 
-test("the ticket circle opens the list and shuts it again, and the row stays on its own layer above the card with its fuzzy top edge and shadow", async () => {
+test("the ticket circle opens the list and shuts it again, and the row stands on its own layer above the card on a fuzzy top edge that is higher while the list is out, with no shadow", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
+    // the depth at which a fade's mask comes to the whole of the paper, in pixels
+    const whole = mask => Number((mask.match(/rgb\(0, 0, 0\) ([\d.]+)px|rgba\(0, 0, 0, 1\) ([\d.]+)px/) || []).slice(1).find(Boolean));
     const bed = () => page.evaluate(() => {
       const el = document.getElementById("dockbed");
       const own = getComputedStyle(el), before = getComputedStyle(el, "::before"), after = getComputedStyle(el, "::after");
       const sheet = getComputedStyle(el.firstElementChild);
+      const buttons = document.querySelectorAll("#dock .dockbtn");
       return {
         z: own.zIndex, dockZ: getComputedStyle(document.getElementById("dock")).zIndex,
         paneZ: getComputedStyle(document.getElementById("pane")).zIndex,
         touch: own.pointerEvents, parent: el.parentElement.id,
         mask: before.webkitMaskImage || before.maskImage,
         sheetMask: sheet.webkitMaskImage || sheet.maskImage, sheetOpacity: Number(sheet.opacity),
-        shadow: after.backgroundImage, shadowMask: after.webkitMaskImage || after.maskImage,
-        shadowOpacity: Number(after.opacity), shadowLift: new DOMMatrix(after.transform).m42,
-        buttons: [...document.querySelectorAll("#dock .dockbtn")].length,
+        sheetMoves: sheet.transitionProperty,
+        shadow: after.content, shadowFill: after.backgroundImage,
+        bedTop: el.getBoundingClientRect().top, sheetTop: el.firstElementChild.getBoundingClientRect().top,
+        buttonsTop: Math.min(...[...buttons].map(b => b.getBoundingClientRect().top)),
+        cardFoot: document.getElementById("pane").getBoundingClientRect().bottom,
+        buttons: buttons.length,
       };
     });
     const rest = await bed();
@@ -1002,34 +1041,57 @@ test("the ticket circle opens the list and shuts it again, and the row stays on 
       assert.match(one, /rgba\(0, 0, 0, 0\.35\)/);
       assert.match(one, /rgba\(0, 0, 0, 0\.8\)/);
     }
-    assert.match(rest.shadow, /linear-gradient/, "the bed has no shadow along its edge");
-    assert.match(rest.shadowMask, /linear-gradient/, "the shadow is not eased out at its two ends");
-    assert.equal(rest.sheetOpacity, 0, "the second sheet is up with the card at rest");
-    assert.ok(Math.abs(rest.shadowOpacity - 0.3) < 0.01, `the shadow is not light at rest (${rest.shadowOpacity})`);
+    // the bed casts nothing: no band of shade along it, at rest or with the list out
+    assert.match(rest.shadow, /^(none|normal)$/, "the bed draws a shadow along its edge");
+    assert.equal(rest.shadowFill, "none");
+    // at rest the card's foot stands on the bed's edge, and the paper is whole from
+    // the buttons' tops down, so no line of a card going down shows beside them
+    assert.ok(Math.abs(rest.cardFoot - rest.bedTop) < 0.6, `the card's foot is not on the bed's edge (${rest.cardFoot}, ${rest.bedTop})`);
+    assert.ok(rest.bedTop + whole(rest.mask) <= rest.buttonsTop + 0.5,
+      `the paper is not whole at the buttons' tops (${rest.bedTop} + ${whole(rest.mask)} against ${rest.buttonsTop})`);
+    // and the second sheet rests lowered, its top edge on the card's foot
+    assert.ok(Math.abs(rest.sheetTop - rest.bedTop) < 0.6, `the second sheet is not lowered at rest (${rest.sheetTop}, ${rest.bedTop})`);
+    assert.equal(rest.sheetOpacity, 1);
+    assert.match(rest.sheetMoves, /^transform$/, "the second sheet moves on more than its transform");
 
     const circle = await page.evaluate(() => {
       const r = document.getElementById("tikbtn").getBoundingClientRect();
       return [r.left + r.width / 2, r.top + r.height / 2];
     });
+    // the band stands up while the card is still on its way down
     await page.touchscreen.tap(...circle);
-    await settle(750);
+    await settle(250);
+    const going = await readList(page);
+    const rising = await bed();
+    assert.ok(going.cardAt > 0.05 && going.cardAt < 0.95, `the card is not on its way down (${going.cardAt})`);
+    assert.ok(rest.bedTop - rising.sheetTop > 20,
+      `the band did not stand up while the card went down (${rising.sheetTop} against ${rest.bedTop})`);
+    await settle(500);
     const out = await readList(page);
     assert.equal(out.open, true, "the ticket circle did not open the list");
     assert.ok(Math.abs(out.down - out.drop) < 0.5);
-    const lowered = await bed();
-    assert.equal(lowered.sheetOpacity, 1, "the second sheet did not come up with the card down");
-    assert.ok(Math.abs(lowered.shadowOpacity - 1) < 0.01, `the shadow did not come to its full weight (${lowered.shadowOpacity})`);
-    assert.ok(lowered.shadowLift < -3, `the shadow did not rise with the second sheet (${lowered.shadowLift})`);
+    const raised = await bed();
+    // with the list out the white band and the start of its fade stand higher:
+    // the paper is whole a clear stretch above the buttons' tops, and its fade
+    // starts higher still
+    const wholeAt = raised.sheetTop + whole(raised.sheetMask);
+    assert.ok(raised.buttonsTop - wholeAt > 12, `the paper is not whole well above the buttons (${wholeAt}, buttons ${raised.buttonsTop})`);
+    assert.ok(rest.bedTop - raised.sheetTop > 20, `the fade does not start higher with the list out (${raised.sheetTop} against ${rest.bedTop})`);
+    assert.match(raised.shadow, /^(none|normal)$/, "the bed draws a shadow with the list out");
     // the circle still takes a touch with the card down, and a second touch shuts the list
     await shot(page, "list-open-bed");
     await page.touchscreen.tap(...circle);
-    await settle(750);
+    await settle(200);
+    const coming = await readList(page);
+    const stillUp = await bed();
+    assert.ok(coming.cardAt > 0.2, `the card came home too soon to look (${coming.cardAt})`);
+    assert.ok(Math.abs(stillUp.sheetTop - raised.sheetTop) < 0.6, "the band came down before the card was home");
+    await settle(550);
     const shut = await readList(page);
     assert.equal(shut.open, false, "the ticket circle did not shut the list");
     assert.equal(shut.down, 0);
     const resting = await bed();
-    assert.equal(resting.sheetOpacity, 0);
-    assert.ok(Math.abs(resting.shadowOpacity - 0.3) < 0.01);
+    assert.ok(Math.abs(resting.sheetTop - resting.bedTop) < 0.6, "the second sheet did not settle back with the card home");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();
@@ -1282,11 +1344,9 @@ test("turned on its side the card goes down 55% of the shorter screen, and the s
     const left = await readList(page);
     assert.equal(left.open, true);
     assert.ok(Math.abs(left.down - left.drop) < 0.5, `the side-on card did not land its drop (${left.down} of ${left.drop})`);
-    assert.ok(Math.abs(left.boxLeft - left.cardLeft) < 0.6 && Math.abs(left.boxRight - left.cardRight) < 0.6,
-      "the side-on box is not the card's width");
-    assert.ok(left.boxWidth > 700, `the side-on box does not follow the wider card (${left.boxWidth})`);
-    assert.ok(left.boxHeight > 100 && left.cardTop - left.boxFoot > 8,
-      `the side-on box does not fit above the card (${left.boxHeight}, clear by ${left.cardTop - left.boxFoot})`);
+    assertBoxInSpace(left, "side-on");
+    assert.ok(left.boxWidth > 650, `the side-on box does not follow the wider card (${left.boxWidth})`);
+    assert.ok(left.boxHeight > 100, `the side-on box does not fit above the card (${left.boxHeight})`);
     assert.equal(left.pageScale, 1, "the page drew back for the side-on card list");
     await assertListInStep(page, "while the side-on card list opened");
     await shot(page, "sideon-list-open");
@@ -1351,8 +1411,9 @@ test("reduced motion keeps both overlays immediate, and the settings keep the wi
     assert.equal(left.paneMs, "0s", "reduced motion left a card transition running");
     assert.equal(left.boxMs, "0s", "reduced motion left a box transition running");
     assert.equal(left.boxVisibility, "visible", "the box was not on show at once");
-    assert.ok(Math.abs(left.boxAt - 1) < 0.001 && Math.abs(left.boxLeft - left.cardLeft) < 0.6, "the box did not arrive at once");
-    assert.equal(left.bedV, 1);
+    assert.ok(Math.abs(left.boxAt - 1) < 0.001, "the box did not arrive at once");
+    assertBoxInSpace(left, "under reduced motion");
+    assert.ok(Math.abs(left.bedLift) < 0.5, `the bed's second sheet did not come up at once (${left.bedLift})`);
     assert.equal(left.pageScale, 1, "the page drew back for the card list under reduced motion");
 
     await page.evaluate(() => { closeDrawer(); showMenu(settings); });

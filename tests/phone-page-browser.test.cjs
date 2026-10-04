@@ -576,7 +576,8 @@ test("a pull from the left edge brings in the card list with the desktop's three
       const pane = document.getElementById("pane").getBoundingClientRect();
       return {
         open: document.getElementById("tickets").classList.contains("open"),
-        left: rect.left, paneLeft: pane.left, paneTop: pane.top, boxBottom: rect.bottom, height: innerHeight,
+        left: rect.left, right: rect.right, width: rect.width, paneLeft: pane.left, paneRight: pane.right,
+        paneTop: pane.top, boxBottom: rect.bottom, height: innerHeight,
         labels: [...document.querySelectorAll("#tikhead .tvb")].map(b => b.textContent),
         // the sheet draws all three sections; the shown one is the doing pane
         rows: [...document.querySelectorAll('.tikpane[data-view="todo"] .trow')].map(r => ({
@@ -585,9 +586,12 @@ test("a pull from the left edge brings in the card list with the desktop's three
       };
     });
     assert.equal(drawer.open, true, "the pull did not open the drawer");
-    // the box has come in to the card's left edge, and the card has gone down 55% of the screen with the foot
-    // of the box clear of the card's top edge
-    assert.ok(Math.abs(drawer.left - drawer.paneLeft) < 1, "the box did not come in to the card's left edge");
+    // the box has come in to the middle of the card's column at nine tenths of its width, and the card has
+    // gone down 55% of the screen with the foot of the box clear of the card's top edge
+    const column = drawer.paneRight - drawer.paneLeft;
+    assert.ok(Math.abs(drawer.width - 0.9 * column) < 1, `the box is not nine tenths of the card's width (${drawer.width} of ${column})`);
+    assert.ok(Math.abs((drawer.left - drawer.paneLeft) - (drawer.paneRight - drawer.right)) < 1,
+      "the box did not come in to the middle of the card's column");
     assert.ok(Math.abs(drawer.paneTop - restTop - drawer.height * 0.55) < 2, "the card did not go down 55% of the screen");
     assert.ok(drawer.boxBottom <= drawer.paneTop, "the box stands over the card");
     assert.deepEqual(drawer.labels, ["Doing", "Deferred", "Done"], "labels differ from the desktop list, or carry counts");
