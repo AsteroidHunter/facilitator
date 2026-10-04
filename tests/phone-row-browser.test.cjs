@@ -215,12 +215,9 @@ test("the ticket opens the card list, the gear the settings, and the plus makes 
     await page.tap("#setbtn");
     await settle(800);
     assert.equal((await state(page)).settings, true, "the gear did not open the settings");
-    // the settings fill the screen, so there is no shade to tap: a swipe to the right puts them away
-    await page.touchscreen.touchStart(100, 400);
-    for (let x = 140; x <= 380; x += 40) await page.touchscreen.touchMove(x, 402);
-    await page.touchscreen.touchEnd();
+    await page.touchscreen.tap(20, 300);   // the shade shuts them
     await settle(800);
-    assert.equal((await state(page)).settings, false, "a swipe to the right did not put the settings away");
+    assert.equal((await state(page)).settings, false, "a tap on the shade did not put the settings away");
 
     const created = page.waitForResponse(r => new URL(r.url()).pathname === "/create");
     await page.tap("#tikadd");

@@ -1100,17 +1100,15 @@ test("the project list stays where he scrolled it, across a poll and a rebuild, 
   }
 });
 
-test("the settings come in from the right as a full-page drawer, holding the header, the list of sections and the notifications control", async () => {
+test("the settings come in from the right, holding the header, the list of sections and the notifications control", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
     const shut = await readMenu(page, "#settings");
     assert.equal(shut.open, false);
-    assert.equal(shut.left, shut.viewportWidth, "the settings panel does not wait beyond the right edge");
     assert.equal(shut.right, -shut.width, "the settings panel does not wait beyond the right edge");
-    assert.equal(shut.width, shut.viewportWidth, "settings is not the full width of the screen");
-    assert.equal(shut.height, shut.viewportHeight, "settings is not the full height of the screen");
-    assert.deepEqual(shut.corners, ["12px", "0px", "0px", "12px"], "the settings panel's exposed corners are not 12 units");
+    assert.equal(shut.width, 278, "settings is not about 15% narrower than its former 328px width");
+    assert.deepEqual(shut.corners, ["12px", "0px", "0px", "12px"], "the settings panel's exposed corners are not 12px");
     assert.equal(shut.lift, 0, "settings waits off its own line");
     assert.equal(shut.top, 0, "settings waits below the top of the screen");
     assert.equal(shut.fade, "1.00", "settings waits at less than its full strength");
@@ -1172,14 +1170,11 @@ test("the settings come in from the right as a full-page drawer, holding the hea
     assert.equal(out.open, true);
     assert.equal(out.shift, 0, "settings did not land against the right edge");
     assert.equal(out.right, 0);
-    assert.equal(out.left, 0, "the open settings do not reach the screen's left edge");
-    assert.equal(out.width, out.viewportWidth, "the open settings are not the screen's full width");
     assert.equal(out.scrim, "1.00", "the shade over the page did not come up with the settings");
     assertPageDrewBack(out, 1, "with settings open");
     assert.equal(out.pageScale, 0.985, "the page did not land on the depth it was given for settings");
-    // units outside the page are real pixels
-    assert.ok(out.depthShade.includes("rgba(0, 0, 0, 0.1) -2px 0px 6px"), `settings has no close shade under its edge (${out.depthShade})`);
-    assert.ok(out.depthShade.includes("rgba(0, 0, 0, 0.2) -10px 0px 26px"), `settings has no wide shade past its edge (${out.depthShade})`);
+    assert.match(out.depthShade, /rgba\(0, 0, 0, 0\.1\) -2px 0px 6px/, "settings has no close shade under its edge");
+    assert.match(out.depthShade, /rgba\(0, 0, 0, 0\.2\) -10px 0px 26px/, "settings has no wide shade past its edge");
     assert.equal(out.depth, 1, "the shade under settings did not come up to its full weight");
     assert.equal(out.lift, 0);
     assert.equal(out.top, 0);
@@ -1257,16 +1252,12 @@ test("a pull from the right edge brings the settings in", async () => {
     assert.equal(out.open, true, "a pull past the middle did not bring the settings in");
     assert.equal(out.shift, 0);
     assertPageDrewBack(out, 1, "after a settings pull");
-    assert.equal(out.left, 0, "a settings pull did not bring the panel against the left edge");
-    // the panel is the whole screen, so nothing of the page is left to tap: the
-    // swipe back, from anywhere on it, shuts it again
-    const from = 120;
-    await page.touchscreen.touchStart(from, 500);
-    for (let step = 1; step <= 8; step++) await page.touchscreen.touchMove(from + Math.round(250 * step / 8), 500);
-    await page.touchscreen.touchEnd();
+    // and a tap on what is left of the page shuts it again, the strip the page
+    // has drawn back from included
+    await page.touchscreen.tap(0, 0);
     await settle(750);
     const shut = await readMenu(page, "#settings");
-    assert.equal(shut.open, false, "a swipe back did not shut the settings");
+    assert.equal(shut.open, false, "a tap on the strip the page left did not shut the settings");
     assert.equal(shut.shift, shut.width);
     assertPageDrewBack(shut, 0, "after settings dismissal");
     assert.deepEqual(problems, []);
@@ -1275,7 +1266,7 @@ test("a pull from the right edge brings the settings in", async () => {
   }
 });
 
-test("turned on its side the card goes down 55% of the shorter screen, and the settings take the whole of the wider one", async () => {
+test("turned on its side the card goes down 55% of the shorter screen, and the settings keep the same sideways run", async () => {
   const sideOn = { ...PHONE, width: 844, height: 390 };
   const { page, problems } = await openPhone("/m", { viewport: sideOn });
   try {
@@ -1300,7 +1291,7 @@ test("turned on its side the card goes down 55% of the shorter screen, and the s
     await assertListInStep(page, "while the side-on card list opened");
     await shot(page, "sideon-list-open");
 
-    // and the settings, over the same wider page: the whole of its width
+    // and the settings, over the same wider page
     await page.evaluate(() => closeDrawer());
     await settle(750);
     await startPageSamples(page);
@@ -1308,12 +1299,11 @@ test("turned on its side the card goes down 55% of the shorter screen, and the s
     await page.evaluate(() => showMenu(settings));
     await settle(750);
     const right = await readMenu(page, "#settings");
-    assert.equal(right.width, 844, "the side-on settings are not the screen's width");
+    assert.equal(right.width, 289, "the side-on settings did not keep the narrower cap");
     assert.equal(right.right, 0, "the side-on settings did not land against the right edge");
-    assert.equal(right.left, 0, "the side-on settings do not reach the left edge");
     assert.equal(right.top, 0, "the side-on settings did not land against the top of the screen");
-    assert.equal(right.foot, right.height, "the side-on settings do not run the whole height");
-    assert.equal(right.fade, "1.00", "the side-on settings are not at their full strength");
+    assert.equal(right.foot, right.height, "the side-on settings does not run the whole height");
+    assert.equal(right.fade, "1.00", "the side-on settings is not at its full strength");
     assert.equal(right.depth, 1, "the shade under the side-on settings did not come up");
     assertPageDrewBack(right, 1, "with the side-on settings open");
     await assertMenuHeldItsLine(page, "while the side-on settings came in");
@@ -1328,7 +1318,6 @@ test("turned on its side the card goes down 55% of the shorter screen, and the s
     const upright = await readMenu(page, "#settings");
     assert.equal(upright.viewportWidth, PHONE.width, "the page did not take the upright screen");
     assert.equal(upright.open, true, "the turn shut settings");
-    assert.equal(upright.width, PHONE.width, "the settings did not take the upright screen's width");
     assertPageDrewBack(upright, 1, "with settings open after the turn back upright");
     await shot(page, "turned-back-settings-open");
     await page.evaluate(() => hideMenu(settings));
@@ -1349,7 +1338,7 @@ test("turned on its side the card goes down 55% of the shorter screen, and the s
   }
 });
 
-test("reduced motion keeps both overlays immediate, and the settings are the whole of a wide phone's screen", async () => {
+test("reduced motion keeps both overlays immediate, and the settings keep the wide-phone cap narrower", async () => {
   const widePhone = { ...PHONE, width: 430, height: 932 };
   const { page, problems } = await openPhone("/m", { viewport: widePhone, reduced: true });
   try {
@@ -1368,7 +1357,7 @@ test("reduced motion keeps both overlays immediate, and the settings are the who
 
     await page.evaluate(() => { closeDrawer(); showMenu(settings); });
     const right = await readMenu(page, "#settings");
-    assert.equal(right.width, 430, "the wide phone's settings are not the screen's width");
+    assert.equal(right.width, 289, "the wide-phone settings panel did not keep the 15% narrower cap");
     assert.equal(right.shift, 0);
     assert.equal(right.ms, "0s", "reduced motion left a settings transition running");
     assert.equal(right.depthMs, "0s", "reduced motion left settings' shade running");

@@ -1,7 +1,7 @@
 // What the phone page's two drawers are made of, read out of m.html's source: no
 // browser. The card list is the ticket box on the page, above a card that goes
 // down 55% of the screen, the two on one fraction and moved by transform alone;
-// the settings are a full-page drawer from the right. None of what moves is laid
+// the settings are the narrow panel off the right edge. None of what moves is laid
 // out again or timed by a script, and nothing the drawers add is purple.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
@@ -95,17 +95,18 @@ test("what moves for the drawers is a transform or an opacity, and no script car
     "paintMenu writes a place or a size");
 });
 
-test("the settings are a full-page drawer from the right and the list uses no shade or page depth", () => {
+test("the settings are the narrow panel off the right edge and the list uses no shade or page depth", () => {
   const settings = rulesFor(/^#settings$/).map(r => r.body).join(";");
-  assert.match(settings, /left:0; width:100%/, "the settings are not the screen's width");
-  assert.match(settings, /top:0; bottom:0/);
+  assert.match(settings, /top:0; bottom:0; right:0; width:min\(71\.4vw, 289px\)/, "the settings are not the narrow panel on the right edge");
+  assert.doesNotMatch(settings, /left:0|width:100%/, "the settings are the screen's width");
+  assert.match(settings, /border-left:var\(--edge\) solid var\(--line\); border-radius:12px 0 0 12px/, "the settings' edge or corners changed");
   assert.match(settings, /transform:translateX\(var\(--shift\)\)/);
-  assert.match(MENUS, /function menuTravel\(panel\)\{\s*return panel === tickets \? tickets\.offsetLeft \+ tickets\.offsetWidth : panel\.offsetWidth;/);
+  const shade = rulesFor(/^#settings::after$/).map(r => r.body).join(";");
+  assert.match(shade, /box-shadow:-2px 0 6px rgba\(0,0,0,\.10\), -10px 0 26px rgba\(0,0,0,\.20\)/, "the settings' shade changed");
+  // a pull on the settings is measured against the width they are drawn at, as before the card list moved
+  assert.match(MENUS, /function menuTravel\(panel\)\{\s*return panel === tickets \? tickets\.offsetLeft \+ tickets\.offsetWidth : panel\.getBoundingClientRect\(\)\.width;/);
   // the shade and the page's depth belong to the settings alone
   assert.match(MENUS, /\} else \{\s*\/\/ the settings come out on their list[\s\S]*?--scrimv[\s\S]*?--page-scale/);
   const list = MENUS.slice(MENUS.indexOf("if (panel === tickets){"), MENUS.indexOf("} else {", MENUS.indexOf("if (panel === tickets){")));
   assert.doesNotMatch(list, /scrim|--page-scale|--panel-depth/, "the list writes the settings' shade or the page's depth");
-  // every length the settings' own rules state is in the page's units
-  for (const { selector, body } of rulesFor(/^#settings(::after)?$/))
-    assert.doesNotMatch(body.replace(/var\([^)]*0px\)/g, ""), /(?<![\d.])[1-9]\d*(\.\d+)?px/, `${selector} states a length in real pixels`);
 });

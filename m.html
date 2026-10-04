@@ -1082,16 +1082,21 @@
      grows from nothing to its full weight as they come out and back to nothing
      as they leave, and by the page drawing back from all four edges on that same
      fraction, so they read as lifting off the page and settling back onto it
-     while their own picture holds its line. they are the whole width of the
-     screen, and are taken away for as long as the run that puts them back */
+     while their own picture holds its line. they are taken away for as long as
+     the run that puts them back: no wait on the way in, and the whole run on
+     the way out, so they disappear only once they have finished leaving */
+  /* the narrow white panel off the right edge, 71.4% of the screen wide and
+     never wider than 289px. the two exposed corners are a little rounder than
+     the board's small inset panels. the two at the screen edge stay square */
   #settings{
-    position:fixed; top:0; bottom:0; left:0; width:100%; z-index:20;
+    position:fixed; top:0; bottom:0; right:0; width:min(71.4vw, 289px); z-index:20;
     background:#fff;
     display:flex; flex-direction:column;
     padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);
-    border-left:var(--edge) solid var(--line); border-radius:calc(12 * var(--u)) 0 0 calc(12 * var(--u));
+    border-left:var(--edge) solid var(--line); border-radius:12px 0 0 12px;
     --shift:100%;
     transform:translateX(var(--shift));
+    opacity:1;
     visibility:hidden; --menuwait:var(--drawer-ms);
     transition:transform var(--drawer-ms) var(--drawer-tap),
                visibility 0s linear var(--menuwait);
@@ -1109,7 +1114,7 @@
   #settings::after{
     content:""; position:absolute; top:0; bottom:0; pointer-events:none;
     left:calc(-1 * var(--edge-drawn)); right:0; border-radius:inherit;
-    box-shadow:calc(-2 * var(--u)) 0 calc(6 * var(--u)) rgba(0,0,0,.10), calc(-10 * var(--u)) 0 calc(26 * var(--u)) rgba(0,0,0,.20);
+    box-shadow:-2px 0 6px rgba(0,0,0,.10), -10px 0 26px rgba(0,0,0,.20);
     opacity:var(--panel-depth, 0);
     transition:opacity var(--drawer-ms) var(--drawer-tap);
   }
@@ -4169,9 +4174,9 @@ const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
 const menus = [tickets, settings];   // the left one first: the drag reads the side off each
 // the settings are the page card-logic.js builds, seated in this panel as its
-// list of sections and always in its narrow form, whatever the window. its back
-// mark goes from a section to the list; a swipe shuts the panel, as it does the
-// card list
+// list of sections and always in its narrow form, since the panel is never wider
+// than 289px whatever the window. its back mark goes from a section to the list;
+// the shade and a swipe shut the panel
 const settingsView = settingsPage(document.getElementById("setpage"), document.getElementById("setsrc"), {
   close: () => hideMenu(settings),
   narrow: { matches: true },
@@ -4181,10 +4186,11 @@ for (const panel of menus) panel.addEventListener("transitionend", e => {
     tracePhone("note", "drawer", { side: panel.dataset.side, phase: "end", shown: panel.classList.contains("open") });
 });
 // how far a menu's leading edge travels from off the page to where it rests: the
-// list's outer edge from the page's left edge, the settings' own width. a finger
-// is measured against it, so the edge stays under the finger
+// list's outer edge from the page's left edge, the settings' own width, read to
+// the fraction of a pixel it is drawn at. a finger is measured against it, so
+// the edge stays under the finger
 function menuTravel(panel){
-  return panel === tickets ? tickets.offsetLeft + tickets.offsetWidth : panel.offsetWidth;
+  return panel === tickets ? tickets.offsetLeft + tickets.offsetWidth : panel.getBoundingClientRect().width;
 }
 function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // direction the panel enters
 function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
@@ -4259,7 +4265,7 @@ function runMenu(panel, v, release){
   // Closing a menu leaves focus alone. Opening one shuts the project list.
   if (v > 0){ dismissEditor(); closeProjects(); }
   const cls = document.body.classList;
-  if (cls.contains("menudrag")) getComputedStyle(cardPane).getPropertyValue("--list-v");
+  if (cls.contains("menudrag")) getComputedStyle(panel).getPropertyValue("transform");
   cls.toggle("menurelease", !!release);
   cls.remove("menudrag");
   const menuTrace = tracePhone("begin", "phase", { action: "drawer", part: "menu-commit" });
