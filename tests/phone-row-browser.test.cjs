@@ -14,7 +14,6 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { boardState, startBoard } = require("./phone-board-fixture.cjs");
-const { readMark } = require("./squid-mark.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PHONE = fs.readFileSync(path.join(ROOT, "m.html"), "utf8");
@@ -84,7 +83,7 @@ const shade = page => page.evaluate(() => {
 });
 
 // ---- the markup and the sheet -----------------------------------------------------------
-test("the row holds four glass buttons in the owner's order, each drawn as inline svg", () => {
+test("the row holds four glass buttons in the owner's order, three drawn as inline svg and the settings circle as the logo png", () => {
   const dock = /<nav id="dock"[^>]*>([\s\S]*?)<\/nav>/.exec(PHONE);
   assert.ok(dock, "the row of buttons is not in the page");
   const buttons = [...dock[1].matchAll(/<button id="(\w+)" class="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g)];
@@ -92,6 +91,11 @@ test("the row holds four glass buttons in the owner's order, each drawn as inlin
   for (const [, id, cls, inside] of buttons){
     assert.match(cls, /\bqn-glass\b/, `${id} does not wear the board's glass`);
     assert.match(cls, /\bdockbtn\b/);
+    if (id === "setbtn"){
+      assert.match(inside, /^<span class="squidmark" aria-hidden="true"><img src="\/m-splash-squid\.png"[^>]*><\/span>$/, "setbtn is not the logo png in its cropping box");
+      assert.doesNotMatch(inside, /<svg|url\(/, "setbtn also carries a drawn mark");
+      continue;
+    }
     assert.match(inside, /<svg[^>]*aria-hidden="true"/, `${id} carries no inline mark`);
     assert.doesNotMatch(inside, /<img|url\(/, `${id} fetches its mark`);
   }
@@ -146,28 +150,28 @@ test("the row's shape: two circles at the ends, the long capsule, the short plus
   } finally { await page.close(); }
 });
 
-test("the settings circle holds the squid in its own colours, as tall as its 22px mark was", async () => {
+test("the settings circle holds the logo's own squid png, cut to the squid, 30 units tall", async () => {
   const { page, problems } = await openPhone();
   try {
     const button = await page.$eval("#setbtn", el => ({
       tag: el.tagName, type: el.getAttribute("type"), title: el.title, label: el.getAttribute("aria-label"),
-      classes: el.className, marks: el.querySelectorAll("svg").length, hidden: el.querySelector("svg").getAttribute("aria-hidden"),
+      classes: el.className, marks: el.querySelectorAll("svg").length, hidden: el.querySelector(".squidmark").getAttribute("aria-hidden"),
       images: el.querySelectorAll("img").length,
     }));
     assert.deepEqual(button, { tag: "BUTTON", type: "button", title: "Settings", label: "Settings",
-      classes: "dockbtn round qn-glass", marks: 1, hidden: "true", images: 0 });
-    const mark = await page.evaluate(readMark, "#setbtn");
-    assert.deepEqual([mark.w, mark.h], [22, 22], "the mark is not the 22px box the row's marks stand in");
-    assert.deepEqual(mark.fills, ["#f89d0f", "#0c0b0a"], "the squid is not its orange with black eyes");
-    assert.equal(mark.stroked, false, "the mark is still a line drawing");
-    assert.equal(mark.other, 0, "the squid has a colour besides its orange and its black");
-    assert.equal(mark.black, 2, "the squid does not have two square eyes");
-    assert.ok(mark.orange > 120, "the squid has no body");
-    assert.equal(mark.h - mark.top - mark.bottom, 20, "the squid is not as tall as the gear it replaced");
-    assert.equal(mark.left, mark.right, "the squid is not centred in its box");
+      classes: "dockbtn round qn-glass", marks: 0, hidden: "true", images: 1 });
+    await page.waitForFunction(() => document.querySelector("#setbtn img").complete);
+    const mark = await page.evaluate(() => {
+      const img = document.querySelector("#setbtn img"), box = document.querySelector("#setbtn .squidmark").getBoundingClientRect();
+      return { src: new URL(img.src).pathname, natural: [img.naturalWidth, img.naturalHeight], w: box.width, h: box.height };
+    });
+    assert.equal(mark.src, "/m-splash-squid.png", "the mark is not the logo's own png");
+    assert.deepEqual(mark.natural, [1247, 1261], "the logo png did not load");
+    assert.ok(mark.h > 28 && mark.h <= 30, "the squid is not 30 units tall at the row's rest size: " + mark.h);
+    assert.ok(Math.abs(mark.w / mark.h - 917 / 1126) < 0.02, "the cut is not the squid's own proportions");
     // drawn at the row's rest size, and still inside its circle
     const fit = await page.evaluate(() => {
-      const b = document.getElementById("setbtn").getBoundingClientRect(), s = document.querySelector("#setbtn svg").getBoundingClientRect();
+      const b = document.getElementById("setbtn").getBoundingClientRect(), s = document.querySelector("#setbtn .squidmark").getBoundingClientRect();
       return { inside: s.left > b.left && s.right < b.right && s.top > b.top && s.bottom < b.bottom,
         dx: (s.left + s.right) / 2 - (b.left + b.right) / 2, dy: (s.top + s.bottom) / 2 - (b.top + b.bottom) / 2 };
     });
