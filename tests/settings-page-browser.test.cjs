@@ -266,7 +266,7 @@ test("the bar has no colour picker and the bell is a plain mark like the gear", 
     assert.equal(bar.bell.border, "none", "the bell still has a border");
     assert.equal(bar.bell.shadow, "none", "the bell still has a shadow");
     assert.equal(bar.bell.mark, "15x15", "the speaker mark is not the bar's 15px size");
-    assert.equal(bar.gear.mark, "18x22", "the squid is not drawn at its 22px height");
+    assert.equal(bar.gear.mark, "16x20", "the squid is not drawn at its 20px height");
     assert.equal(bar.bell.color, bar.gear.color, "the bell mark is not the gear's colour");
     assert.deepEqual(problems, []);
   } finally {
@@ -274,7 +274,7 @@ test("the bar has no colour picker and the bell is a plain mark like the gear", 
   }
 });
 
-test("the settings button on the bar is the logo's own squid png, cut to the squid, 22px tall", async () => {
+test("the settings button on the bar is the logo's own squid png, cut to the squid, 20px tall", async () => {
   const { page, problems } = await open("/", WIDE);
   try {
     const button = await page.$eval("#setbtn", el => ({
@@ -292,8 +292,8 @@ test("the settings button on the bar is the logo's own squid png, cut to the squ
     });
     assert.equal(mark.src, "/m-splash-squid.png", "the mark is not the logo's own png");
     assert.deepEqual(mark.natural, [1247, 1261], "the logo png did not load");
-    assert.ok(Math.abs(mark.h - 22) < 0.5, "the squid is not 22px tall: " + mark.h);
-    assert.ok(Math.abs(mark.w - 22 * 917 / 1126) < 0.5, "the cut is not the squid's own proportions: " + mark.w);
+    assert.ok(Math.abs(mark.h - 20) < 0.5, "the squid is not 20px tall: " + mark.h);
+    assert.ok(Math.abs(mark.w - 20 * 917 / 1126) < 0.5, "the cut is not the squid's own proportions: " + mark.w);
     assert.deepEqual(problems, []);
   } finally {
     await closePage(page);
