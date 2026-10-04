@@ -108,7 +108,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
   };
   context = vm.createContext({
     console, document, Uint8ClampedArray, devicePixelRatio: 1, tabDrag: null, tabGlide: null,
-    activeOwner: "a", homeOpen: home, draft: null, selectedId: null, browsing: false, workspaceFade: null,
+    activeOwner: "a", homeOpen: home, draft: null, selectedId: null, browsing: false,
     validActiveOwnerIds: new Set(["a", "b", "c"]), DRAFT: "__new__", LOCKED: false,
     lastState: { order: ["a", "b", "c"], closed: [...closed] },
     h: (tag, cls) => Object.assign(new Element(cls), { tagName: tag }), ResizeObserver: class { observe() {} unobserve() {} },
@@ -130,7 +130,6 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
     tabRecord: st => st, allRowsOf: st => st.order, rowsOf: st => st.order.filter(ow => !st.closed.includes(ow)),
     writeTabs(record) { writes.push(JSON.parse(JSON.stringify(record))); Object.assign(context.lastState, record); },
     setTab(ow) { switches.push(ow); context.activeOwner = ow; context.homeOpen = false; context.draft = null; context.renderTabs(); },
-    navigateTab(ow) { context.setTab(ow); }, // async navigation timing is covered by workspace-transition.test.cjs
     unselectShown() { context.unselected = true; },
     renderTabs() {
       if (["select", "reorder"].includes(context.tabDrag?.mode) || context.tabGlide) return;

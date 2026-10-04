@@ -774,10 +774,3 @@
 .sp-page[data-narrow] .sp-panehead + .setrow, .sp-page[data-narrow] .sp-panehead + .setact{border-top:none}
 .sp-page[data-narrow][data-view="list"] .sp-panes{display:none}
 .sp-page[data-narrow][data-view="pane"] .sp-list{display:none}
-
-/* A workspace fade never catches the navigation controls. Existing home
-   entrance keyframes stand aside while the shared controller owns opacity.
-   Keep the phone pane's keyboard/drawer transform transitions intact. */
-.workspace-fade-ready{animation:none !important}
-.workspace-fading, .workspace-fading *{pointer-events:none !important}
-#stage.workspace-fading{transition:none !important}
