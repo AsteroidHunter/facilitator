@@ -1847,10 +1847,11 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
   if (el.answ && el.answId === meta.id) return;
   if (!el.answ){
     el.answ = answeredPanel(room);
-    // every message here has been answered by the reply under it, which is the
-    // board's one proof that the agent read it: the panel says so, quietly,
-    // under its foot (the delivery marks, below)
-    setMark(el.answ, SENT_TAGS.read);
+    // every message here has been answered by the reply under it, so the panel
+    // carries no word of its own; it keeps the room a word would stand in, so
+    // the reply sits where it did when the panel said Read (the delivery marks,
+    // below)
+    el.answ.classList.add("kept");
     // on a large card the panel rides at the head of the answer's own
     // scroller, whose scroll a cut back must leave where the reader has it
     el.answ.answView = el.replyview || null;
@@ -1902,10 +1903,11 @@ function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 //              to come, or the answer itself. it looks as delivered does, Read
 // the panel carries one quiet mark under its foot, the way a chat marks the
 // newest message that has got anywhere: Delivered or Read for the newest
-// message in it that the board has saved, and nothing while none is. the
-// panel over an answer always reads Read, since the answer under it is the
-// board's proof. a message with no stage (a board too old to say) is drawn as
-// it always was and marks nothing
+// message in it that the board has saved, and nothing while none is. once the
+// reply to those messages lands the word is dropped: it fades out as the page
+// turns (fadeMark) and the panel over the reply carries none, so a card drawn
+// with its reply already there shows no word at all. a message with no stage
+// (a board too old to say) is drawn as it always was and marks nothing
 const SENT_TAGS = { sent: "Delivered", delivered: "Read", read: "Read" };
 function sentUndelivered(m){ return m.stage === "local"; }
 // a send on its way to the board, drawn faded from the press: el is the card's
@@ -2094,6 +2096,17 @@ function showMark(panel, tag, comes){
     if (roomMoves && panel.isConnected && panel.answRoom) panel.answRoom();
   }, MARK_IN_MS + 20);
 }
+// the reply to the panel's messages has landed, and the word under it fades out
+// over the sheet's --answ-gone and stays gone. the room it stood in is kept
+// (the sheet's .kept), so nothing below the panel moves. it is the picture of
+// the panel that the page turn carries up which is faded, since the panel
+// itself is already gone from the page, and the picture is gone before the
+// word could come back
+function fadeMark(panel){
+  panel.classList.add("kept");
+  delete panel.dataset.tag;
+  if (panel.dataset.mark) panel.classList.add("markgone");
+}
 // the panel's one mark, and whether every message in it is still unsaved by the
 // board. live is a panel that was standing before this reading
 function sentMarks(panel, shown, live){
@@ -2198,7 +2211,7 @@ function sentBand(el, band){
 // reader did goes at once
 function cardsMoving(){
   return typeof document !== "undefined" && typeof document.querySelector === "function" &&
-    !!document.querySelector(".answered.motion, .answered.markin, .answered.markout, .turnsheet");
+    !!document.querySelector(".answered.motion, .answered.markin, .answered.markout, .answered.markgone, .turnsheet");
 }
 
 // ---- the page turn -----------------------------------------------------------------------
@@ -2419,20 +2432,17 @@ function turnGo(el, turn){
   // stands just under it, and all of it comes up on the one transform
   const fresh = turnParts(el).after.filter(node => node && node.getBoundingClientRect().height)
     .map(node => turnPicture(el, node, turn, lift));
-  // its panel stands exactly behind the sent panel, whose own mark turns on the
-  // way up, so its mark is held out and the two words are never drawn together
-  for (const copy of fresh)
-    for (const one of copy.querySelectorAll(".answered")) one.classList.add("markout");
   turn.page.prepend(...fresh);
   void turn.page.offsetWidth;   // the sheet stands as the reader left it before it moves
   turn.page.classList.add("gliding");
   turn.page.style.transform = "translate3d(0, " + (-lift) + "px, 0)";
-  // the sent panel is on its way to being the panel over the answer, which reads
-  // Read: its mark turns on the way up, and a panel still faded takes its full
-  // grey and ink with it, so the swap when the sheet goes is not one
+  // the sent panel is on its way to being the panel over the answer, which
+  // carries no word: its mark fades out on the way up, and a panel still faded
+  // takes its full grey and ink with it, so the swap when the sheet goes is not
+  // one
   const rising = turn.page.querySelector(".answered.sent");
   if (rising){
-    setMark(rising, SENT_TAGS.read, true);
+    fadeMark(rising);
     for (const one of [rising, ...rising.querySelectorAll(".undelivered")]) one.classList.remove("undelivered");
   }
   clearTimeout(turn.timer);
