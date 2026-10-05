@@ -232,6 +232,7 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 },
                     removeItem: k => store.delete(k) },
     renderTabs: st => tabs.push(st),
     dismissEditor: () => blurred.push(true),
+    syncMenuAvailability() {}, // exercised with the real menu controller in phone-home-drawer.test.cjs
     unselectShown: () => unselected.push(true),
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },
     clearInterval: id => { timers.delete(id); },
