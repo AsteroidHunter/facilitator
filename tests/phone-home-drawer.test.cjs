@@ -72,7 +72,7 @@ function fixture() {
     paintViewTabs() {}, poolOf: () => [], viewFilterFor: () => true,
     paintPhonePane: () => { calls.push("paint-tickets"); return false; }, syncSpinner() {}, sizeDrawerEnds() {},
     tikTravelIntent: null, tikShownView: "todo", curView: () => "todo", moveTicketSheet() {},
-    TICKET_VIEWS: ["todo", "deferred", "done"],
+    TICKET_VIEWS: ["todo", "docked", "deferred", "done"],
     stepCard: () => calls.push("step-card"), browse: () => calls.push("browse"), chooseShown: () => calls.push("choose"),
     responseScrollKey: () => calls.push("scroll-key"), listenResponseScroll() {},
   });

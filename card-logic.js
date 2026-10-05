@@ -206,14 +206,14 @@ function pickRandomCard(pool, currentId, random = Math.random){
   return open.length ? open[Math.floor(random() * open.length)].id : null;
 }
 
-// ---- the three section keys ------------------------------------------------------
+// ---- the four section keys -------------------------------------------------------
 // The chord is read off the physical key first, since shift turns e.key into
 // {, } or | and control can leave it unusual, and off the character when the
 // event names no such key. A key alone is read off the character it types, so
 // a layout whose bracket key types a letter never moves a card.
-const SECTION_KEY_CODES = new Map([["BracketLeft", "doing"], ["BracketRight", "deferred"], ["Backslash", "done"]]);
-const SECTION_KEY_CHARS = new Map([["[", "doing"], ["]", "deferred"], ["\\", "done"]]);
-const SECTION_KEY_SHIFTED = new Map([["{", "doing"], ["}", "deferred"], ["|", "done"]]);
+const SECTION_KEY_CODES = new Map([["BracketLeft", "doing"], ["BracketRight", "docked"], ["Backslash", "deferred"], ["Backspace", "done"], ["Delete", "done"]]);
+const SECTION_KEY_CHARS = new Map([["[", "doing"], ["]", "docked"], ["\\", "deferred"]]);
+const SECTION_KEY_SHIFTED = new Map([["{", "doing"], ["}", "docked"], ["|", "deferred"], ["Backspace", "done"], ["Delete", "done"]]);
 
 function sectionChordOf(e){
   return SECTION_KEY_CODES.get(e.code) || SECTION_KEY_CHARS.get(e.key) ||
@@ -224,8 +224,9 @@ function sectionKeyOf(e){ return SECTION_KEY_CHARS.get(e.key) || null; }
 // what each section's chip names in its tooltip, so the keys are written once
 const SECTION_KEY_HINTS = {
   doing: "Control + Shift + [, or [ when not typing",
-  deferred: "Control + Shift + ], or ] when not typing",
-  done: "Control + Shift + \\, or \\ when not typing",
+  docked: "Control + Shift + ], or ] when not typing",
+  deferred: "Control + Shift + \\, or \\ when not typing",
+  done: "Control + Shift + Backspace or Delete",
 };
 
 // Where the chord may come from: anywhere nothing is being typed, and the
@@ -855,7 +856,7 @@ function awaitsYou(b){
   return (s === "yours" || (s === "new" && b.ball === "you")) && !(b.pending > 0);
 }
 // ---- the chosen view, one per project ----------------------------------------
-// doing, deferred and done choose a view of one project's cards, so the choice
+// doing, docked, deferred and done choose a view of one project's cards, so the choice
 // belongs to that project and not to the page. it used to be a single variable
 // the whole page shared, which is why picking done in one project opened every
 // other project on done as well. it is kept per lane now, written the moment a
@@ -865,11 +866,14 @@ function awaitsYou(b){
 // the record is this browser's own, kept the way the open tab ("activeproj") and
 // the small card ("minibox.<lane>") already are, so a reload puts each project
 // back on the view it was left on rather than on another project's view. only
-// the three names below are ever written or believed: anything else found in
+// the four names below are ever written or believed: anything else found in
 // storage counts as no choice at all, and so does anything a lane id borrowed
 // from the record's own object (a lane may legitimately be called "constructor"):
-// every answer is checked against the three before it is given.
-const TICKET_VIEWS = ["todo", "deferred", "done"];
+// every answer is checked against the four before it is given.
+const TICKET_VIEWS = ["todo", "docked", "deferred", "done"];
+const TICKET_PAGES = [["todo", "docked"], ["deferred", "done"]];
+function ticketPageOf(view){ return view === "deferred" || view === "done" ? 1 : 0; }
+function otherTicketPage(){ return TICKET_PAGES[1 - ticketPageOf(curView())][0]; }
 const TICKET_VIEW_KEY = "tikview.";   // + the lane's own id, which is never parsed back out
 const ticketViews = {};               // lane id -> the view chosen for it
 function ticketViewOf(owner){
@@ -882,7 +886,7 @@ function ticketViewOf(owner){
   }
   return view;
 }
-// one lane's choice, refused unless it is one of the three views
+// one lane's choice, refused unless it is one of the four views
 function setTicketViewOf(owner, view){
   if (!owner || !TICKET_VIEWS.includes(view)) return false;
   ticketViews[owner] = view;
@@ -893,17 +897,27 @@ function setTicketViewOf(owner, view){
 // list reads it here, so a tab switch needs nothing carried across: the answer
 // changes with the lane on its own
 function curView(){ return ticketViewOf(activeOwner); }
-// the three buttons say which view is showing, painted from the same read the
+// the four buttons say which view is showing, painted from the same read the
 // list is drawn from and on every pass, so a button can never sit on one view
 // while the list shows another
 function paintViewTabs(){
   const view = curView();
+  const page = ticketPageOf(view);
   for (const name of TICKET_VIEWS){
     const b = document.getElementById("tv-" + name);
-    if (b) b.classList.toggle("on", name === view);
+    if (b){
+      b.classList.toggle("on", name === view);
+      b.hidden = ticketPageOf(name) !== page;
+    }
+  }
+  const arrow = document.getElementById("tik-page");
+  if (arrow){
+    arrow.classList.toggle("back", page === 1);
+    arrow.setAttribute("aria-label", page ? "show Doing and Docked" : "show Deferred and Done");
+    arrow.title = page ? "Doing and Docked" : "Deferred and Done";
   }
 }
-// doing, deferred and done are three adjacent sections of one horizontal sheet
+// doing, docked, deferred and done are four adjacent sections of one horizontal sheet
 // under the fixed, clipped well: section i rests at translateX(-i*100%). Pressing
 // a tab to the right moves the sheet left so the next section enters from the
 // right, pressing one to the left reverses it, and a two-section jump travels
@@ -951,17 +965,18 @@ function moveTicketSheet(view, animate){
   tikSheetAnim.addEventListener("finish", () => { tikSheetAnim = null; });
   tikShownView = view;
 }
-// the doing, deferred and done sections filter the lane's pool. the arrow keys
+// the doing, docked, deferred and done sections filter the lane's pool. the arrow keys
 // walk the current section's set, and each pane is drawn from its own section, so
-// the three are computed by view rather than off the one current read
+// the four are computed by view rather than off the one current read
 function viewFilterFor(b, view){
   const s = cardState(b);
   return view === "done" ? s === "done"
        : view === "deferred" ? s === "parked"
-       : (s !== "done" && s !== "parked");
+       : view === "docked" ? !!b.docked && s !== "done" && s !== "parked"
+       : (!b.docked && s !== "done" && s !== "parked");
 }
 function viewFilter(b){ return viewFilterFor(b, curView()); }
-// the one section a card stands in, read off the very filter the three sections
+// the one section a card stands in, read off the very filter the four sections
 // are drawn from, so a card's chips can never name a section its tab disagrees
 // with. done outranks parked there, so a card the board holds both ways is done
 function cardSection(b){ return TICKET_VIEWS.find(view => viewFilterFor(b, view)); }
@@ -992,12 +1007,12 @@ function poolOf(state){
     if (g(a) === 1) return waitingSince(a) - waitingSince(b);
     return (b.ts || 0) - (a.ts || 0);                    // queued and working: newest first
   };
-  // the three sections lie one after another: doing, deferred, done. doing keeps
-  // the order above; deferred runs by when each card was deferred and done by
-  // when each was marked done, most recent first, and cards with equal stamps
+  // the four sections lie one after another: doing, docked, deferred, done. doing keeps
+  // the order above; other sections run by when each card entered them, most
+  // recent first, and cards with equal stamps
   // fall back to the order above
-  const part = x => { const s = cardState(x); return s === "done" ? 2 : s === "parked" ? 1 : 0; };
-  const stamp = { 1: "parkedTs", 2: "doneTs" };
+  const part = x => { const s = cardState(x); return s === "done" ? 3 : s === "parked" ? 2 : x.docked ? 1 : 0; };
+  const stamp = { 1: "dockedTs", 2: "parkedTs", 3: "doneTs" };
   return state.boxes.filter(b =>
     b.owner === activeOwner && b.id !== "q" && (!keep || keep(b)))
     .sort((a, b) => {
@@ -2482,7 +2497,7 @@ function printReply(el){
 }
 
 // ---- sending, parking, naming ---------------------------------------------------------
-// writing to a done or parked card takes it back to doing: the done flag is
+// writing to a done, docked or parked card takes it back to doing: the done flag is
 // read before the send and flipped after the message is in, so a flip that
 // fails can never eat it
 function boxDone(id){
@@ -2532,6 +2547,7 @@ function boxDone(id){
 // Until the board has answered the value on screen, the hold belongs to the tap
 // and no reading may retire it.
 const FLAG_KINDS = {
+  dock: { kind: "dock", field: "docked", cls: "docked", word: "dock" },
   park: { kind: "park", field: "parked", cls: "parked", word: "snooze" },
   done: { kind: "done", field: "done", cls: "done", word: "done" },
 };
@@ -2589,10 +2605,13 @@ function toggleFlag(id, kind){ return setFlag(id, kind, !flagShown(id, kind)); }
 // so a second request during an unanswered one is judged against what the card
 // already shows, then use the same ordered flag requests as a tap.
 function setCardDestination(id, destination){
-  if (destination === "deferred"){
+  if (destination === "docked"){
+    if (!flagShown(id, "dock")) return setFlag(id, "dock", true);
+  } else if (destination === "deferred"){
     if (!flagShown(id, "park")) return setFlag(id, "park", true);
   } else if (destination === "doing"){
-    const parked = flagShown(id, "park"), done = flagShown(id, "done");
+    const docked = flagShown(id, "dock"), parked = flagShown(id, "park"), done = flagShown(id, "done");
+    if (docked) setFlag(id, "dock", false);
     if (parked) setFlag(id, "park", false);
     if (done) return setFlag(id, "done", false);
   }
@@ -2600,6 +2619,13 @@ function setCardDestination(id, destination){
 
 // the Doing list as both pages draw it, top to bottom, by card id
 function doingOrder(state){ return state ? viewPoolFor(state, "todo").map(b => b.id) : []; }
+
+// Capture the section before a move changes its flags or a close waits on HTTP.
+function cardDeparture(state, id){
+  const b = state?.boxes.find(x => x.id === id);
+  const section = b ? cardSection(b) : "todo";
+  return { section, order: state ? viewPoolFor(state, section).map(x => x.id) : [] };
+}
 
 // where the screen goes when a card leaves Doing: the card below it, else the
 // one above it, else nothing. order is the list from before the card left; a
@@ -2611,26 +2637,35 @@ function doingNeighbour(id, order){
   return order.slice(at + 1).find(open) ?? order.slice(0, at).reverse().find(open) ?? null;
 }
 
-// Closing a card and snoozing the card on screen use the same Doing fallback.
-// order is taken at the tap, before the repaint drops the card from the list.
-// A card that is not on screen leaves the screen alone. the hop says so to
-// select, and both pages show the card they land on browsed
-function selectNextDoing(id, order){
+// Keep the next/previous neighbour in the departed section first. When it is
+// empty, walk the following sections in Doing, Docked, Deferred, Done order,
+// wrapping only after Done. The moved card and standing boxes are never picked.
+function selectNextCard(id, order, section = "todo"){
   if (selectedId !== id) return;
-  const live = new Set(doingOrder(lastState));
-  const next = doingNeighbour(id, order.filter(x => x === id || live.has(x)));
-  if (next) select(next, { hop: true }); else deselect();
+  const live = new Set(lastState ? viewPoolFor(lastState, section).map(b => b.id) : []);
+  let next = doingNeighbour(id, order.filter(x => x === id || live.has(x)));
+  let view = section;
+  if (!next && lastState){
+    const at = TICKET_VIEWS.indexOf(section);
+    for (let n = 1; n < TICKET_VIEWS.length; n++){
+      view = TICKET_VIEWS[(at + n) % TICKET_VIEWS.length];
+      next = viewPoolFor(lastState, view).find(b => b.id !== id && !isStandingBox(b.id))?.id;
+      if (next) break;
+    }
+  }
+  if (next){ setTicketViewOf(activeOwner, view); select(next, { hop: true }); }
+  else deselect();
 }
 
-// ---- the three section chips ---------------------------------------------------
+// ---- the four section chips ---------------------------------------------------
 // every card carries a chip for each section, left to right in the tabs' own
-// order: the sun for doing, the moon for deferred, the cross for done. the chip
+// order: the sun for doing, the cloud for docked, the moon for deferred, the cross for done. the chip
 // that names the section the card already stands in is faded and switched off,
 // since pressing it could only ask for what is already true. it is marked with
 // aria-disabled rather than the disabled property so it keeps its place in the
 // keyboard's path through the card, and each chip's own click reads the mark
 // and does nothing while it stands
-const SECTION_CHIPS = { todo: "sun", deferred: "arc", done: "x" };
+const SECTION_CHIPS = { todo: "sun", docked: "dock", deferred: "arc", done: "x" };
 // a large hollow ring with eight short marks around it, drawn on the moon's 24
 // unit box at the moon's 9px. the ring and the marks share one stroke, set once
 // on the svg, so they are one weight by construction. the ring is the main
@@ -2643,6 +2678,11 @@ const SUN_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stro
   '<circle cx="12" cy="12" r="4.35"></circle>' +
   '<path d="M12 1.5L12 3.45M12 20.55L12 22.5M1.5 12L3.45 12M20.55 12L22.5 12' +
   'M4.58 4.58L5.95 5.95M18.05 18.05L19.42 19.42M4.58 19.42L5.95 18.05M18.05 5.95L19.42 4.58"></path></svg>';
+// The sun's lower right is covered by the cloud, with no extra fill colour.
+const DOCK_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" ' +
+  'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M12.8 10.7a4.35 4.35 0 1 0-5.9 3.4M8 1.5v1.7M1.5 8h1.7M3.4 3.4l1.2 1.2M12.6 3.4l-1.2 1.2M3.4 12.6l1.2-1.2"></path>' +
+  '<path d="M9 21h10a3.5 3.5 0 0 0 .7-6.9 5 5 0 0 0-9.6-1.5A4.3 4.3 0 0 0 9 21Z"></path></svg>';
 
 function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === "true"; }
 
@@ -2657,12 +2697,22 @@ function sunChip(cls, id){
   return sun;
 }
 
-// el.sun, el.arc and el.x are the card's three chips under whatever classes the
+function dockChip(cls, id){
+  const dock = h("button", cls);
+  dock.type = "button";
+  dock.title = "move to docked\n" + SECTION_KEY_HINTS.docked;
+  dock.setAttribute("aria-label", "move to docked");
+  dock.innerHTML = DOCK_ICON;
+  dock.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(dock)) setCardDestination(id, "docked"); });
+  return dock;
+}
+
+// el.sun, el.dock, el.arc and el.x are the card's four chips under whatever classes the
 // surface gives them. only a chip whose state changes is written, so a poll that
 // moves nothing leaves a hover where it is
 function paintSectionChips(el, b){
   const here = SECTION_CHIPS[cardSection(b)];
-  for (const name of ["sun", "arc", "x"]){
+  for (const name of ["sun", "dock", "arc", "x"]){
     const chip = el && el[name];
     if (!chip || chipOff(chip) === (name === here)) continue;
     if (name === here) chip.setAttribute("aria-disabled", "true");
@@ -2678,6 +2728,7 @@ function paintSectionChips(el, b){
 function wakeCard(id){
   const b = typeof lastState === "undefined" ? null : lastState?.boxes.find(x => x.id === id);
   if (b && b.parked && !flagHolds[flagKey(id, "park")] && !flagShown(id, "park")) setFlag(id, "park", false);
+  if (b && b.docked && !flagHolds[flagKey(id, "dock")] && !flagShown(id, "dock")) setFlag(id, "dock", false);
   return setCardDestination(id, "doing");
 }
 
@@ -2686,12 +2737,12 @@ function wakeCard(id){
 // deferred only ever parks, where the moon's tap could also unpark, and done
 // is the page's own close, handed in, since each surface closes its own way.
 // true means a move was asked for
-const SECTION_KEY_CHIPS = { doing: "sun", deferred: "arc", done: "x" };
+const SECTION_KEY_CHIPS = { doing: "sun", docked: "dock", deferred: "arc", done: "x" };
 function sectionKeyMove(id, section, el, close){
   const chip = el && el[SECTION_KEY_CHIPS[section]];
   if (!chip || chipOff(chip)) return false;
   if (section === "doing") wakeCard(id);
-  else if (section === "deferred") setCardDestination(id, "deferred");
+  else if (section === "docked" || section === "deferred") setCardDestination(id, section);
   else close(id);
   return true;
 }
@@ -2707,11 +2758,18 @@ function sectionKeyMove(id, section, el, close){
 // there to overtake may still be on its way to the board.
 function setFlag(id, kind, want){
   const current = typeof lastState === "undefined" ? null : lastState?.boxes.find(b => b.id === id);
-  const advance = kind === "park" && want &&
+  const section = current && cardSection(current);
+  const advance = (kind === "park" || kind === "dock") && want &&
     typeof selectedId !== "undefined" && selectedId === id &&
-    typeof curView === "function" && curView() === "todo" &&
-    current && current.owner === activeOwner && !current.done && !current.parked;
-  const order = advance ? doingOrder(lastState) : null;   // before the card is painted out of the list
+    typeof curView === "function" && curView() === section &&
+    current && current.owner === activeOwner &&
+    (section === "todo" || (kind === "park" && section === "docked"));
+  const order = advance ? cardDeparture(lastState, id).order : null;
+  // A destination replaces an earlier destination, including a request still
+  // travelling. The shared stream lets the server reject its late arrival.
+  if (want) for (const other of Object.keys(FLAG_KINDS)){
+    if (other !== kind) dropFlag(flagKey(id, other));
+  }
   const spec = flagSpec(kind);
   const key = flagKey(id, kind);
   const hold = flagHolds[key] || (flagHolds[key] = { id, kind, truth: null, boxRef: null, sending: 0 });
@@ -2725,7 +2783,7 @@ function setFlag(id, kind, want){
   paintFlag(id, spec, want, true);                                  // the card, in this same turn
   const going = hold.sending ? Promise.resolve() : sendFlag(key);   // the board, before any redraw
   flagRepaint();                                                    // the list, the tabs, the place
-  if (advance) selectNextDoing(id, order);
+  if (advance) selectNextCard(id, order, section);
   return going;
 }
 
@@ -2909,7 +2967,9 @@ function paintFlag(id, spec, want, waiting){
   if (!el || !el.box) return;
   el.box.classList.remove("peek");   // the desktop's peek; nothing on the phone wears it
   el.box.classList.toggle(spec.cls, want);
-  if (spec.cls === "parked" && want) el.box.classList.remove("done");   // the board's own rule
+  if (want) for (const other of Object.values(FLAG_KINDS)){
+    if (other !== spec) el.box.classList.remove(other.cls);
+  }
   el.box.classList.toggle("flagwait", !!waiting);
 }
 
@@ -2920,6 +2980,7 @@ function dropFlag(key){
   if (!hold) return;
   clearTimeout(hold.timer);
   if (hold.boxRef && hold.truth){
+    hold.boxRef.docked = hold.truth.docked;
     hold.boxRef.parked = hold.truth.parked;
     hold.boxRef.done = hold.truth.done;
     hold.boxRef.state = hold.truth.state;
@@ -2956,7 +3017,7 @@ function holdFlagsPass(state, asked){
     // carries no word about this card at all, and a hold may never be judged
     // by a word its reading did not bring
     const fresh = hold.boxRef !== b;
-    if (fresh) hold.truth = { parked: b.parked, done: b.done, state: b.state };
+    if (fresh) hold.truth = { docked: b.docked, parked: b.parked, done: b.done, state: b.state };
     if (fresh && !flagBusy(hold) && asked >= hold.guard){
       if (hold.truth[spec.field] === hold.want){ dropFlag(key); continue; }   // the board agrees
       // the board had this tap and something newer has changed the card since:
@@ -2966,10 +3027,22 @@ function holdFlagsPass(state, asked){
       if (Date.now() >= hold.until){ flagExpire(key); continue; }
     }
     b[spec.field] = hold.want;
-    if (spec.cls === "parked" && hold.want) b.done = false;
-    b.state = hold.want ? spec.cls : cardState({ ...b, [spec.field]: false, state: null });
+    if (hold.want) for (const other of Object.values(FLAG_KINDS)){
+      if (other !== spec) b[other.field] = false;
+    }
+    // Docked keeps the server's live state, including note/deferred/rest which
+    // the older flag-only derivation cannot reconstruct. Peel only a section
+    // mask; painting an unmasked card must not invent a different work state.
+    const live = hold.truth && !["done", "parked"].includes(hold.truth.state) ? hold.truth.state : null;
+    b.state = cardState({ ...b, state: !b.done && !b.parked ? live : null });
     hold.boxRef = b;
   }
+}
+
+// Closing participates in the same ordering as docking and deferring.
+function closeCardUrl(id){
+  for (const kind of Object.keys(FLAG_KINDS)) dropFlag(flagKey(id, kind));
+  return "/close?box=" + encodeURIComponent(id) + "&sid=" + encodeURIComponent(flagStreamOf()) + "&seq=" + (++flagTaps);
 }
 
 // what the page draws from, drawn again now. The tapped card has already

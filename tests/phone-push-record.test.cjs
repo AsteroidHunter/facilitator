@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { OK, plain, fakeIndexedDB, loadWorker } = require("./push-record-fixture.cjs");
 
-const WORKER = "facilitator-m-9";
+const WORKER = "facilitator-m-10";
 const slow = (harness, ms, answer) => async init => { harness.clock.now += ms; return answer(init); };
 const answered = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const reports = harness => harness.logged().flatMap(batch => batch.reports);

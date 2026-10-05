@@ -214,15 +214,15 @@ test("the worker keeps static assets but no page or reading of the board", async
       channel.port1.onmessage = e => resolve(e.data);
       navigator.serviceWorker.controller.postMessage({ kind: "diagnostic-worker" }, [channel.port2]);
     }));
-    assert.deepEqual(workerIdentity, { kind: "diagnostic-worker", cache: "facilitator-m-9" });
+    assert.deepEqual(workerIdentity, { kind: "diagnostic-worker", cache: "facilitator-m-10" });
     // let the page take several readings, so anything that was going to be kept
     // has had every chance to be
     await page.waitForFunction(() => lastState !== null, { timeout: 20000 });
     await new Promise(resolve => setTimeout(resolve, 3000));
     const kept = await keptPaths(page);
     const names = Object.keys(kept);
-    assert.deepEqual(names, ["facilitator-m-9"], "the worker kept more than one cache: " + names);
-    const paths = kept["facilitator-m-9"];
+    assert.deepEqual(names, ["facilitator-m-10"], "the worker kept more than one cache: " + names);
+    const paths = kept["facilitator-m-10"];
     for (const want of ["/card-logic.js", "/card-markdown.js", "/card-tokens.css",
                         "/m-splash-squid.png",
                         // the composer's typed formatting and the editor it is drawn
@@ -297,24 +297,24 @@ test("a changed page is served over the kept one, and a new cache version replac
     await writeFile(path.join(fixtureDir, "m.html"),
       pageSource.replace("<body>", "<body>\n<!-- m627-stale-check -->"));
     const workerSource = await readFile(path.join(fixtureDir, "m-sw.js"), "utf8");
-    assert.ok(workerSource.includes('const CACHE = "facilitator-m-9"'), "the cache name moved");
+    assert.ok(workerSource.includes('const CACHE = "facilitator-m-10"'), "the cache name moved");
     await writeFile(path.join(fixtureDir, "m-sw.js"),
-      workerSource.replace('const CACHE = "facilitator-m-9"', 'const CACHE = "facilitator-m-10"'));
+      workerSource.replace('const CACHE = "facilitator-m-10"', 'const CACHE = "facilitator-m-11"'));
 
     await page.reload({ waitUntil: "domcontentloaded" });
     // network first: the page that comes back is the server's, not the kept one
     const second = await page.evaluate(() => document.documentElement.outerHTML.includes("m627-stale-check"));
     assert.equal(second, true, "the kept page was served over the changed one");
     // and the new worker drops the cache the old one filled
-    await page.waitForFunction(async () => (await caches.keys()).includes("facilitator-m-10"),
+    await page.waitForFunction(async () => (await caches.keys()).includes("facilitator-m-11"),
       { timeout: 25000 });
-    await page.waitForFunction(async () => !(await caches.keys()).includes("facilitator-m-9"),
+    await page.waitForFunction(async () => !(await caches.keys()).includes("facilitator-m-10"),
       { timeout: 25000 });
     const kept = await keptPaths(page);
-    assert.deepEqual(Object.keys(kept), ["facilitator-m-10"]);
-    assert.ok(kept["facilitator-m-10"].includes("/m-splash-squid.png"),
+    assert.deepEqual(Object.keys(kept), ["facilitator-m-11"]);
+    assert.ok(kept["facilitator-m-11"].includes("/m-splash-squid.png"),
       "the new cache did not take the squid with it");
-    assert.ok(kept["facilitator-m-10"].includes("/cm-markdown.js"),
+    assert.ok(kept["facilitator-m-11"].includes("/cm-markdown.js"),
       "the new cache did not take the composer's editor with it");
     // The authenticated page is intentionally absent from the new cache.
     const keptPage = await page.evaluate(async () => {

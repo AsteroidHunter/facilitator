@@ -231,8 +231,8 @@ test("early records start before lookup and focus, and persist while focus never
   void harness.click("m101");
   await until(() => focusing && harness.idb.rows().length === 2 && early(harness).length === 2);
   assert.deepEqual(early(harness), [
-    { kind: "notifytapready", stage: "received", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-9" },
-    { kind: "notifytapready", stage: "ready", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-9",
+    { kind: "notifytapready", stage: "received", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-10" },
+    { kind: "notifytapready", stage: "ready", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-10",
       windows: 2, visibility: "hidden", focused: "no" },
   ]);
   assert.deepEqual(harness.idb.rows().map(row => row.stage), ["received", "ready"]);
@@ -286,7 +286,7 @@ test("early records keep click time and build through a worker restart and delay
   const next = await loadWorker({ idb: harness.idb, clock: { now: clicked + 86_400_000 } });
   await next.dispatch("message", { data: { kind: "push-log-flush" } });
   assert.deepEqual(early(next).map(line => [line.stage, line.at, line.worker]), [
-    ["received", clicked, "facilitator-m-9"], ["ready", clicked, "facilitator-m-9"],
+    ["received", clicked, "facilitator-m-10"], ["ready", clicked, "facilitator-m-10"],
   ]);
   assert.deepEqual(next.idb.rows(), []);
 });

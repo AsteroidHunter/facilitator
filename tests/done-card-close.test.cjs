@@ -221,10 +221,10 @@ const REOPEN_CALL = /^\/done\?box=" \+ encodeURIComponent\([\w.]+\) \+ "&v=0", \
 test("every browser close path delegates classification to close", async () => {
   for (const name of ["index.html", "page.html", "m.html"]) {
     const source = await readFile(path.join(ROOT, name), "utf8");
-    const closes = source.match(/\/close\?box=/g) || [];
+    const closes = source.match(/\/close\?box=|closeCardUrl\(/g) || [];
     assert.ok(closes.length >= 1, `${name} has no close path left to check`);
-    assert.equal((source.match(CLOSE_CALL) || []).length, closes.length,
-      `${name} has a /close call that is not one POST naming the card alone`);
+    assert.equal((source.match(CLOSE_CALL) || []).length + (source.match(/fetch\(closeCardUrl\([\w.]+\), \{ method: "POST" \}\)/g) || []).length, closes.length,
+      `${name} has a /close call that is not one POST through the authoritative close route`);
     assert.equal(source.includes("hasContent"), false,
       `${name} still classifies content from a render snapshot`);
     assert.equal(source.includes("/delete?box="), false,

@@ -197,11 +197,12 @@
     cursor:pointer; padding:0 4px; line-height:1; transition:color .2s}
   .xbtn:hover{color:var(--must)}
   /* orange archive/defer button, sits in the card head's right cluster */
-  .arcbtn, .sunbtn{flex:none; display:inline-flex; align-items:center; justify-content:center;
+  .arcbtn, .sunbtn, .dockbtn{flex:none; display:inline-flex; align-items:center; justify-content:center;
     color:#000; background:none; border:none; cursor:pointer; padding:0}
   /* the board has not answered the last click on this chip yet; the click
      that reverses it stays live, on the moon or on the sun beside it */
   .box.flagwait .arcbtn{opacity:.5}
+  .box.flagwait .dockbtn{opacity:.5}
   /* in focus the chip is no longer pinned to the card's corner and no longer
      pastel: it is an item of the card's own top bar, and its seat, its shape and
      its fill are written there with the cross it stands beside */
@@ -481,13 +482,13 @@
      --sunk-deep, are shared with the phone page and live in card-tokens.css
      with their reasons, so every rule below reads a name rather than a number */
   /* the top row's own names, for this page only. every element on the row, the
-     two arrows and the three chips, stands in a square --bar-sq, and the sun,
+     two arrows and the four chips, stands in a square --bar-sq, and the sun,
      the moon and the cross draw their marks across inside it, at --bar-mark,
      the one mark size both pages share (card-tokens.css, with --cross-t, the
      cross's thickness, and --cardspin-s, the spinner's own size).
      the gap between neighbouring squares is its own value and is never worked
      out from the square: --bar-gap-hist between the two arrows and
-     --bar-gap-chips between the sun, the moon and the cross. the arrow marks
+     --bar-gap-chips between the sun, the cloud, the moon and the cross. the arrow marks
      stand 28 apart and the chip marks 25, so squares this size leave those two
      gaps. --bar-lead is how far in the first arrow's square starts, and
      --bar-tail how far the cross's square ends short of the bar's right edge;
@@ -501,16 +502,16 @@
     --histpos-room:2px; --pathline-h:15px;
   }
   .topbar{display:none}
-  /* the bar is a grid of four columns, the history control and then the three
+  /* the bar is a grid of five columns, the history control and then the four
      chips, so the working spinner can stand in the sun's own cell and share its
      centre by construction. the first column takes the room that is left, which
      is what holds the chips against the right end */
   body.focus .box.sel .topbar{
     --hist-cell:var(--bar-sq);
     display:grid; align-items:center; flex:none; position:relative;
-    grid-template-columns:minmax(0, 1fr) repeat(3, var(--bar-sq));
+    grid-template-columns:minmax(0, 1fr) repeat(4, var(--bar-sq));
     grid-template-rows:minmax(0, 1fr);
-    grid-template-areas:"hist sun moon cross";
+    grid-template-areas:"hist sun dock moon cross";
     column-gap:var(--bar-gap-chips);
     height:var(--cardbar-h);
     /* the bar runs edge to edge: the negative side and top margins eat the
@@ -532,7 +533,7 @@
     box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
   }
   /* the reply-history control keeps its own width whether its marks are
-     showing or not, and the bar's other three columns are fixed, so the defer
+     showing or not, and the bar's other four columns are fixed, so the defer
      and close controls, the divider, and everything below the bar keep their
      exact place when an older reply first becomes available or the working
      spinner comes and goes. its two marks are the phone page's chevrons on
@@ -641,29 +642,30 @@
   body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
   body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the sun is the moon's twin on this bar: the same white seat, the same
-     rounding and the same dark mark, so the three chips stay one family and the
+     rounding and the same dark mark, so the four chips stay one family and the
      glyph alone tells them apart. the marks are sized here, by --bar-mark, and
      this wins over the width and height the svg carries as attributes: the
      sun's come from the shared card-logic.js, where the small cards size the
      same glyph by them */
-  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn{
+  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn, body.focus .box.sel .dockbtn{
     position:relative; top:auto; right:auto;
     width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
     background:var(--card); color:#000; border:none; padding:0;
     display:inline-flex; align-items:center; justify-content:center;
   }
   body.focus .box.sel .sunbtn{grid-area:sun}
+  body.focus .box.sel .dockbtn{grid-area:dock}
   body.focus .box.sel .arcbtn{grid-area:moon}
-  body.focus .box.sel :is(.arcbtn, .sunbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
-  body.focus .box.sel .arcbtn:hover, body.focus .box.sel .sunbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus .box.sel :is(.arcbtn, .sunbtn, .dockbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
+  body.focus .box.sel .arcbtn:hover, body.focus .box.sel .sunbtn:hover, body.focus .box.sel .dockbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the working spinner takes the sun's place on a green card, and fades with
      the sun's mark, by the shared sheet's rules (card-tokens.css): the bar's
      grid above names the sun's cell they put it in */
   /* the chip naming the section the card is already in: lighter, with no
      press and no pointer, and it outranks the half fade of a tap still waiting
      on the board, since off is the lasting word about it */
-  body.focus .box.sel :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
-  body.focus .box.sel :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]:hover{background:var(--card)}
+  body.focus .box.sel :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
+  body.focus .box.sel :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:hover{background:var(--card)}
   /* the path line is gone from the card: the bar above carries the name now */
   body.focus #pwdline{display:none}
 
@@ -1194,7 +1196,7 @@
   .chip.g{background:#E3FFDB}
   .chip.y{background:#FFF8DB}
   @keyframes chippop{from{opacity:0; transform:translateY(6px) scale(.7)}}
-  /* the ticket holder: three names above the list, with a divider line in the
+  /* the ticket holder: two names above the list, with a divider line in the
      strip of workspace between them. the holder paints nothing and does not
      clip, and the list stands on the paper with no box round it. 20260922,
      m807: the selected name no longer sits in a depressed pill; it is marked by
@@ -1208,11 +1210,11 @@
     background:transparent; border:none; border-radius:0; box-shadow:none;
     display:flex; flex-direction:column; overflow:visible; gap:calc(var(--line-gap) + 1px);
   }
-  /* the ticket panel's head row, holding the doing / deferred / done segments.
+  /* the ticket panel's head row, holding the Doing / Docked or Deferred / Done segments.
      the file navigator used to share this one rule with it; 20260828 it stopped,
      because the two heads no longer want the same air on their sides, and its
      own row is written out beside its own tabs further down */
-  /* no side air: the three names divide the head into equal thirds across the
+  /* no side air: the two visible names divide the head into equal halves across the
      holder's full width. the divider under them is drawn by #tikhead::after,
      --line-gap below the names' foot and across the rows' own sides */
   #tikhead{position:relative; flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 0 0; border-bottom:none}
@@ -1222,9 +1224,9 @@
     left:calc(0.7vw + var(--edge-drawn)); right:calc(0.6vw + var(--edge-drawn)); height:0;
     border-top:var(--edge) solid var(--line);
   }
-  /* the ticket tabs still reuse the project tabs for type and spacing, three
+  /* the ticket tabs still reuse the project tabs for type and spacing, two
      equal segments across the width, but they no longer draw the seated-tab
-     shape: top:0 drops the 1px lift a .ptab carries so all three names share
+     shape: top:0 drops the 1px lift a .ptab carries so both visible names share
      one baseline, and only the colour moves under a pointer. 20260922, m807:
      14px, a pixel over the .ptab's 13, on the same 16px line, and a 1px clear
      border on all four sides of every name, the selected one included, so a
@@ -1235,8 +1237,8 @@
   /* 20260922, m807: no selected pill. the selected name wears no fill, border
      or standing shadow and shows selection by weight and ink: 700 over the 500
      every name has (Plex Sans is loaded at 700 for this, see the font link up
-     top). the flex thirds come from a zero basis, so the heavier name widens no
-     third. the .ptab.on seat fill and bottom notches are struck.
+     top). the flex halves come from a zero basis, so the heavier name widens neither
+     half. the .ptab.on seat fill and bottom notches are struck.
      press feedback, for every name selected or not: while a name is held
      (:active, or .pressed which the script beside the tab clicks sets from
      pointer and keyboard events) a modest inset shade appears on it, the
@@ -1256,7 +1258,7 @@
   }
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
   /* the list: the tickets stand on the paper, with no fill, edge or shade round
-     them. it clips a horizontal sheet of three sections and shows one at a
+     them. it clips a horizontal sheet of four sections and shows one at a
      time, so a tab change travels the sheet across the list while the list and
      the names above never move. it starts just under the divider and reaches
      --list-side past the holder on both sides and --list-air past its foot, so
@@ -1269,7 +1271,7 @@
     position:relative; flex:1; min-height:0; overflow:clip;
     display:flex; flex-direction:column;
     margin:0 calc(var(--list-side)*-1) calc(var(--list-air)*-1)}
-  /* #tiksheet is doing|deferred|done laid left to right, one section wide each.
+  /* #tiksheet is doing|docked|deferred|done laid left to right, one section wide each.
      section i rests at translateX(-i*100%); the list clips all but the shown one. */
   #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
   /* each section scrolls its own rows and keeps its own scroll position; the row
@@ -2348,7 +2350,7 @@
      same pastel green the cards themselves use, so nothing new is introduced */
   #magic2 .mbox.mwait{background:var(--green-bg); border-color:var(--line)}
   #magic2 .mtitle{font:625 15px/1.25 var(--inter); color:var(--ink);
-    margin-top:8px; padding-right:71px; flex:none; cursor:text}
+    margin-top:8px; padding-right:96px; flex:none; cursor:text}
   #magic2 .mtitle[contenteditable]{outline:none}
   #magic2 .mtitle[contenteditable]:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
   /* the cross, copied off the card: round pink chip, two black bars */
@@ -2369,14 +2371,20 @@
   /* the sun, the moon's twin one seat further left: round pastel yellow chip,
      black sun. the yellow is the moon's pastel carried round to yellow at the
      same softness, and its hover deepens it the way the moon's does */
-  #magic2 .msun{position:absolute; top:9px; right:59px; z-index:4;
+  #magic2 .msun{position:absolute; top:9px; right:84px; z-index:4;
     width:16px; height:16px; border-radius:50%; background:#F7E187; color:#000;
     border:none; padding:0; cursor:pointer;
     display:inline-flex; align-items:center; justify-content:center}
+  #magic2 .mdock{position:absolute; top:9px; right:59px; z-index:4;
+    width:16px; height:16px; border-radius:50%; background:var(--card); color:#000;
+    border:none; padding:0; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center}
+  #magic2 .mdock:hover{background:var(--paper)}
+  #magic2 .mdock[aria-disabled="true"]:hover{background:var(--card)}
   #magic2 .msun:hover{background:#F4D771}
   /* the chip naming the section the card is in: lighter, no hover, no pointer.
      each hover goes back to its own rest fill, so nothing changes under it */
-  #magic2 :is(.msun, .marc, .mx)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
+  #magic2 :is(.msun, .mdock, .marc, .mx)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
   #magic2 .msun[aria-disabled="true"]:hover{background:#F7E187}
   #magic2 .marc[aria-disabled="true"]:hover{background:#F6C08A}
   #magic2 .mx[aria-disabled="true"]:hover{background:#FF9F98}
@@ -3607,7 +3615,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-deferred" class="ptab tvb">Deferred</button><button id="tv-done" class="ptab tvb">Done</button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
+<div id="tickets"><div id="tikhead"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button><button id="tv-deferred" hidden class="ptab tvb">Deferred</button><button id="tv-done" hidden class="ptab tvb">Done</button><button id="tik-page" class="qn-glass" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -6054,12 +6062,12 @@ function makeBox(b, i, state){
     x.addEventListener("click", async e => {
       e.stopPropagation();
       if (chipOff(x)) return;   // a done card: the cross has nothing left to do
-      const order = doingOrder(lastState);   // the list as it stands, before the close
+      const { order, section } = cardDeparture(lastState, b.id);   // the list as it stands, before the close
       // the server reads the current record atomically, so a handler born with
       // an empty card can never erase replies that arrived on later polls
-      await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
+      await fetch(closeCardUrl(b.id), { method: "POST" }).catch(() => {});
       // dismiss this card from the center and jump to the next ongoing chat, so no extra click is needed
-      selectNextDoing(b.id, order);
+      selectNextCard(b.id, order, section);
       poll();
     });
     topbar.appendChild(x);   // the cross is an item of the bar now, not a pinned corner
@@ -6084,10 +6092,12 @@ function makeBox(b, i, state){
     // the chip stands before the cross in the bar, the order the two corners
     // held: defer on the left of close
     topbar.insertBefore(arc, x);
-    // and the sun before the moon, so the three read doing, deferred, done
-    // left to right, the order of the three tabs
+    // and the sun before the moon, so the four read doing, docked, deferred, done
+    // left to right, the order of the four sections
     const sun = sunChip("sunbtn", b.id);
     topbar.insertBefore(sun, arc);
+    const dock = dockChip("dockbtn", b.id);
+    topbar.insertBefore(dock, arc);
     // the working spinner follows the sun, and the bar's grid seats it in the
     // sun's own cell
     topbar.insertBefore(cardSpin, arc);
@@ -6267,7 +6277,7 @@ function makeBox(b, i, state){
 
     els[b.id] = { box, reply, replyview, meta, metaNote, histctl, histPos, histUp, histDown,
                   ta, send, wstat, toc: entry, sec,
-                  titleEl, tocTitle: entry.querySelector(".ttitle"), sun, arc, x,
+                  titleEl, tocTitle: entry.querySelector(".ttitle"), sun, dock, arc, x,
                   topbar, cardSpin, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
                   historyVersion: null,
                   // answ is null until the card shows a reply the board recorded
@@ -6296,8 +6306,8 @@ function makeBox(b, i, state){
     watchReading(els[b.id]);
 
     // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> sun -> (wrap)
-    const ring = [titleEl, ta, clip, send, x, arc, sun];
-    for (const node of [ta, clip, send, x, arc, sun]){
+    const ring = [titleEl, ta, clip, send, x, arc, dock, sun];
+    for (const node of [ta, clip, send, x, arc, dock, sun]){
       node.addEventListener("keydown", e => {
         if (e.key === "Tab"){
           e.preventDefault();
@@ -6464,7 +6474,7 @@ function composerEnter(e, id){
 
 // jumpNextYellow and stampText live in card-logic.js, shared with the phone page
 
-// writing to a done or parked card takes it back to doing. /send clears parked
+// writing to a done, docked or parked card takes it back to doing. /send clears docked and parked
 // on the server for every sender. The done flag is read here before the send
 // and flipped after the message is in, so a flip that fails can never eat it
 function undone(id){
@@ -6699,6 +6709,7 @@ function apply(state){
     const cs = cardState(b);   // one state: box color, left tab, and toc all read it
     el.box.classList.toggle("done", cs === "done");
     el.box.classList.toggle("parked", cs === "parked");
+    el.box.classList.toggle("docked", cardSection(b) === "docked");
     paintSectionChips(el, b);
     setCardSpinner(el.cardSpin, cardSpinning(b));
     const s = statusOf(b);
@@ -6808,7 +6819,7 @@ function tickClock(){
 let selectedWs = null;    // workspace within the active project
 let selectedTask = null;  // task picked by clicking its dot
 let taskFilter = null;    // when set, the carousel shows that task's chats
-// the left panel's tab (doing, deferred, done) is one choice per project and
+// the left panel's tab (doing, docked, deferred, done) is one choice per project and
 // lives in card-logic.js; curView() answers with the open project's own
 
 function curWs(state){
@@ -9674,7 +9685,7 @@ function miniSectionMove(e, section){
   if (b?.bucket !== "meta") return;
   e.preventDefault(); e.stopPropagation();
   sectionKeyMove(miniId, section, miniEls[miniId], id =>
-    fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).then(() => poll()).catch(() => {}));
+    fetch(closeCardUrl(id), { method: "POST" }).then(() => poll()).catch(() => {}));
 }
 
 // capture, so the mini subset never reaches the board's own handling. the small
@@ -9688,7 +9699,7 @@ addEventListener("keydown", e => {
 function renderMiniCards(state){
   const host = document.getElementById("magic2");
   if (!host) return;
-  const cards = state.boxes.filter(b => b.owner === "facilitator" && !b.done && !b.parked);
+  const cards = state.boxes.filter(b => b.owner === "facilitator" && viewFilterFor(b, "todo"));
   let list = host.querySelector(":scope > .mlist");
   if (!list){
     host.textContent = "";           // drops the "magic box 2" placeholder text
@@ -9717,6 +9728,7 @@ function renderMiniCards(state){
       // empty. this list holds doing cards alone, so here the sun is always
       // the faded one
       const sun = sunChip("msun", b.id);
+      const dock = dockChip("mdock", b.id);
       const arc = h("button", "marc");
       arc.title = "defer to the deferred tab\n" + SECTION_KEY_HINTS.deferred;
       arc.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
@@ -9726,7 +9738,7 @@ function renderMiniCards(state){
       x.addEventListener("click", async e => {
         e.stopPropagation();
         if (chipOff(x)) return;
-        await fetch("/close?box=" + encodeURIComponent(b.id), { method: "POST" }).catch(() => {});
+        await fetch(closeCardUrl(b.id), { method: "POST" }).catch(() => {});
         poll();
       });
       const reply = h("div", "mreply cardmd");
@@ -9796,8 +9808,8 @@ function renderMiniCards(state){
       });
       // reading and typing here count for the card as they do on the large one
       readOnCompose(ta, b.id);
-      box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);
-      el = miniEls[b.id] = { box, title, reply, ta, sun, arc, x,
+      box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);
+      el = miniEls[b.id] = { box, title, reply, ta, sun, dock, arc, x,
                              answwrap, answ: null, answId: null,
                              sentwrap, sent: null, sentKey: "", sentItems: [],
                              tick: () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; } };
@@ -9952,7 +9964,7 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     r.addEventListener("click", e => { if (isTest && onFold(r, e)) unfoldTicket(b.id); else select(b.id); });
     pane.appendChild(r);
   }
-  if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
+  if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "docked" ? "no docked chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
   pane.scrollTop = keepScroll;   // a rebuild must not throw away where the reader had scrolled
   // surviving rows glide to their new spots, the 220ms rise of the sister
   // board, instead of teleporting on every re-sort
@@ -10265,9 +10277,9 @@ function boardMoveLive(){
 // the large card's close from the done keys: the cross's own request, then the
 // cross's own hop to the next doing card, once the board has answered
 async function boardCloseCard(id){
-  const order = doingOrder(lastState);
-  await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
-  selectNextDoing(id, order);
+  const { order, section } = cardDeparture(lastState, id);
+  await fetch(closeCardUrl(id), { method: "POST" }).catch(() => {});
+  selectNextCard(id, order, section);
   poll();
 }
 
@@ -10393,6 +10405,8 @@ listenResponseScroll();
     moveTicketSheet(v, true);
   };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
+  document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
+  document.getElementById("tik-page").addEventListener("click", () => setView(otherTicketPage()));
   document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
   document.getElementById("tv-done").addEventListener("click", () => setView("done"));
   // press feedback, 20260922, m807: every name, selected or not, takes .pressed

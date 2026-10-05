@@ -644,7 +644,7 @@ test("the step that carries the caret selects, a tab switch browses, and the hop
   d.seen.length = 0;
   const order = d.get("doingOrder")(d.state);
   assert.deepEqual(order, ["a", "b", "c"]);
-  d.sandbox.selectNextDoing("b", order);
+  d.sandbox.selectNextCard("b", order);
   assert.equal(d.shown(), "c");
   assert.equal(d.browsing(), true, "the hop from a browsed card selected the next one");
   assert.deepEqual(d.seen, []);
@@ -657,7 +657,7 @@ test("the step that carries the caret selects, a tab switch browses, and the hop
   d.state.boxes.find(x => x.id === "b").replies = 2;
   d.sandbox.seenSync(d.state);
   d.seen.length = 0;
-  d.sandbox.selectNextDoing("c", order);
+  d.sandbox.selectNextCard("c", order);
   assert.equal(d.shown(), "b");
   assert.equal(d.browsing(), true, "the hop from a selected card selected the next one");
   assert.ok(d.body.classList.contains("browsing"));
@@ -665,7 +665,7 @@ test("the step that carries the caret selects, a tab switch browses, and the hop
   // from the middle of the list a selected card lands on the one below it
   d.get("select")("a");
   d.seen.length = 0;
-  d.sandbox.selectNextDoing("a", order);
+  d.sandbox.selectNextCard("a", order);
   assert.equal(d.shown(), "b");
   assert.equal(d.browsing(), true);
   assert.deepEqual(d.seen, []);
@@ -899,7 +899,7 @@ test("on the board, a reply is read on the selected card and left on a browsed o
 test("every composer is wired to the read rule after its formatter, on every surface", () => {
   const desktopBox = between(HTML.desktop, "    const field = ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "    ta.addEventListener(\"keydown\", e => composerEnter(e, b.id));");
   assert.match(desktopBox, /\n    readOnCompose\(ta, b\.id, useCard\);\n/, "the large card's composer");
-  const mini = between(HTML.desktop, "      ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "      box.append(sun, arc, x, title, answwrap, reply, sentwrap, compose);");
+  const mini = between(HTML.desktop, "      ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "      box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);");
   assert.match(mini, /\n      readOnCompose\(ta, b\.id\);\n/, "the small card's composer");
   const phone = between(HTML.phone, "  const field = ComposeFormat.attach(ta, {", "  ta.addEventListener(\"keydown\", e => {");
   assert.match(phone, /\n  readOnCompose\(ta, b\.id, useCard\);\n/, "the phone's composer");

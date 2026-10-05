@@ -129,7 +129,7 @@ function assertShade(shadow, want, what) {
 const sunkAt = d => [[.22 * d, 0, 3 * d, 7 * d, 0], [.14 * d, 0, 1 * d, 2 * d, 0]];
 
 // every name's look and box, and the list's, read in one pass
-const boardTabs = page => page.evaluate(() => [...document.querySelectorAll("#tikhead .tvb")].map(t => {
+const boardTabs = page => page.evaluate(() => [...document.querySelectorAll("#tikhead .tvb:not([hidden])")].map(t => {
   const cs = getComputedStyle(t);
   const r = t.getBoundingClientRect();
   const drawn = (el, which) => {
@@ -160,7 +160,7 @@ const listBox = page => page.evaluate(() => {
 const dividerBox = page => page.evaluate(() => {
   const head = document.getElementById("tikhead");
   const hr = head.getBoundingClientRect();
-  const feet = [...document.querySelectorAll("#tikhead .tvb")].map(t => t.getBoundingClientRect().bottom);
+  const feet = [...document.querySelectorAll("#tikhead .tvb:not([hidden])")].map(t => t.getBoundingClientRect().bottom);
   const cs = getComputedStyle(head, "::after");
   const probe = document.createElement("i");
   probe.style.cssText = "position:fixed;width:1px;height:1px;background:var(--line)";
@@ -195,8 +195,8 @@ test("the board's ticket names carry no pill, read by weight, and dip on press",
     const ink = await page.evaluate(() => getComputedStyle(document.body).color);
     const before = await boardTabs(page);
     const listBefore = await listBox(page);
-    assert.deepEqual(before.map(t => t.label), ["Doing", "Deferred", "Done"]);
-    assert.deepEqual(before.map(t => t.on), [true, false, false]);
+    assert.deepEqual(before.map(t => t.label), ["Doing", "Docked"]);
+    assert.deepEqual(before.map(t => t.on), [true, false]);
     for (const t of before) {
       assert.equal(t.size, "14px", `${t.id} is not at 14px`);
       assert.equal(t.weight, t.on ? "700" : "500", `${t.id} has the wrong weight`);
@@ -228,12 +228,15 @@ test("the board's ticket names carry no pill, read by weight, and dip on press",
     assert.ok(Math.abs(divider.gap - 6) < 0.05, `the divider is ${divider.gap}px below the names, not 6`);
 
     // a click still selects, and selecting moves no name and not the list
+    await page.click("#tik-page");
+    await settle(650);
     await page.click("#tv-done");
     await settle(400);
     const after = await boardTabs(page);
-    assert.deepEqual(after.map(t => t.on), [false, false, true], "a click on Done did not select it");
+    assert.deepEqual(after.map(t => t.on), [false, true], "a click on Done did not select it");
     assert.equal(await page.evaluate(() => curView()), "done");
-    assert.deepEqual(after.map(t => t.weight), ["500", "500", "700"]);
+    assert.deepEqual(after.map(t => t.label), ["Deferred", "Done"]);
+    assert.deepEqual(after.map(t => t.weight), ["500", "700"]);
     assert.deepEqual(after.map(t => t.rect), before.map(t => t.rect), "a name moved when the selection changed");
     assert.deepEqual((await listBox(page)).rect, listBefore.rect, "the list moved when the selection changed");
     assert.deepEqual(await dividerBox(page), divider, "the divider moved when the selection changed");
@@ -266,6 +269,7 @@ test("the board's ticket names carry no pill, read by weight, and dip on press",
 
     // a quick tap still shows the dip: the press is held for at least 80ms
     const tap = await page.evaluate(async () => {
+      document.getElementById("tik-page").click();
       const t = document.getElementById("tv-todo");
       const wait = ms => new Promise(r => setTimeout(r, ms));
       t.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch" }));
@@ -306,8 +310,8 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
     const ink = await page.evaluate(() => getComputedStyle(document.body).color);
     const before = await boardTabs(page);
     const listBefore = await listBox(page);
-    assert.deepEqual(before.map(t => t.label), ["Doing", "Deferred", "Done"]);
-    assert.deepEqual(before.map(t => t.on), [true, false, false]);
+    assert.deepEqual(before.map(t => t.label), ["Doing", "Docked"]);
+    assert.deepEqual(before.map(t => t.on), [true, false]);
     for (const t of before) {
       // the list is on the page now, so its 14 units are the page's resting share of a pixel
       assert.equal(t.size, `${+(14 * REST).toFixed(2)}px`, `phone ${t.id} is not at 14 units`);
@@ -338,10 +342,13 @@ test("the phone drawer's names carry no pill and its rows sit in no well", async
     assert.equal(list.margin, `0px ${+(-20 * REST).toFixed(3)}px ${+(-7 * REST).toFixed(3)}px`);
 
     // selecting moves no name and not the list
+    await page.click("#tik-page");
+    await settle(650);
     await page.click("#tv-done");
     await settle(400);
     const after = await boardTabs(page);
-    assert.deepEqual(after.map(t => t.weight), ["500", "500", "700"]);
+    assert.deepEqual(after.map(t => t.label), ["Deferred", "Done"]);
+    assert.deepEqual(after.map(t => t.weight), ["500", "700"]);
     assert.deepEqual(after.map(t => t.rect), before.map(t => t.rect), "a phone name moved when the selection changed");
     assert.deepEqual((await listBox(page)).rect, listBefore.rect, "the phone list moved when the selection changed");
     assert.deepEqual(problems, []);

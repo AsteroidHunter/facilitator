@@ -130,6 +130,29 @@
 .topbar > .cardspin{grid-area:sun; place-self:center}
 .sunbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
 .topbar:has(> .cardspin.on) .sunbtn svg{opacity:0}
+/* A working docked card still needs its sun to return to Doing. Its spinner
+   shares the faded Docked chip's seat instead. */
+.topbar:has(> .dockbtn[aria-disabled="true"]) > .cardspin{grid-area:dock}
+.topbar:has(> .cardspin.on) .dockbtn[aria-disabled="true"] svg{opacity:0}
+.topbar:has(> .dockbtn[aria-disabled="true"]) .sunbtn svg{opacity:1}
+.dockbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
+
+/* Two ticket names at a time. The clipped triangle itself is the complete
+   hit area, with its tip on the ticket holder's edge. The head's top padding
+   is excluded so the triangle and the names share their vertical centre. */
+#tikhead .tvb[hidden]{display:none}
+#tikhead #tik-page{
+  position:absolute; right:0; left:auto;
+  top:calc(50% + 3 * var(--u)); transform:translateY(-50%);
+  width:var(--bar-mark); height:var(--bar-mark); min-width:0; min-height:0;
+  padding:0; margin:0; border:0; border-radius:0; cursor:pointer;
+  clip-path:polygon(0 0, 100% 50%, 0 100%);
+  --qn-face:rgba(30,30,30,.77); --qn-edge:.6;
+  background-color:var(--qn-face);
+}
+#tikhead #tik-page.back{left:0; right:auto; transform:translateY(-50%) scaleX(-1)}
+#tikhead #tik-page:active{--qn-edge:.35}
+#tikhead #tik-page:focus-visible{background-color:var(--ink)}
 
 /* ---- the owner's grey ---------------------------------------------------- */
 /* --bubble-fill is the grey the owner's own words stand on: the panel of the

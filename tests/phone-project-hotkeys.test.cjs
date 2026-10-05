@@ -33,9 +33,9 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
   const document = { body: element(menu ? ["menuout"] : []), addEventListener() {} };
   if (projectsOpen) document.body.classList.add("projopen");
   document.activeElement = document.body;
-  const nodes = Object.fromEntries(["pane", "tickets", "settings", "projbtn", "projmenu", "tiksheet", "tv-todo", "tv-deferred", "tv-done"]
+  const nodes = Object.fromEntries(["pane", "tickets", "settings", "projbtn", "projmenu", "tiksheet", "tv-todo", "tv-docked", "tv-deferred", "tv-done"]
     .map(id => [id, element(id === menu ? ["open"] : [])]));
-  const panes = Object.fromEntries(["todo", "deferred", "done"].map(view => [view, { rows: [] }]));
+  const panes = Object.fromEntries(["todo", "docked", "deferred", "done"].map(view => [view, { rows: [] }]));
   nodes.tiksheet.querySelector = selector => panes[/data-view="([^"]+)"/.exec(selector)[1]];
   document.getElementById = id => nodes[id];
   document.querySelectorAll = () => Object.values(panes).flatMap(p => p.rows);
@@ -115,7 +115,7 @@ test("Command+number with the ticket drawer open matches the pill's project, lis
     assert.equal(result.view, "deferred");
     assert.equal(result.selected, "b2", "restore the project's previous card");
     assert.equal(result.browsing, true);
-    assert.deepEqual(result.rows, { todo: ["b1"], deferred: ["b2"], done: ["b3"] });
+    assert.deepEqual(result.rows, { todo: ["b1"], docked: [], deferred: ["b2"], done: ["b3"] });
     assert.deepEqual(result.highlighted, ["b2"]);
     assert.deepEqual(result.read, []);
   }
@@ -139,7 +139,7 @@ test("Command+number switches to an empty project exactly as the pill does", () 
   assert.deepEqual(key.snapshot(), pill.snapshot());
   assert.equal(key.snapshot().selected, null);
   assert.equal(key.snapshot().owner, "empty");
-  assert.deepEqual(key.snapshot().rows, { todo: [], deferred: [], done: [] });
+  assert.deepEqual(key.snapshot().rows, { todo: [], docked: [], deferred: [], done: [] });
 });
 
 test("the closed drawer keeps its existing current-project and other-project shortcut behavior", () => {

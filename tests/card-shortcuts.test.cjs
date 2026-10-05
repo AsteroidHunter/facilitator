@@ -101,9 +101,9 @@ test("mini scope exposes only its established command subset", async () => {
     { action: "plainNavigate", value: -1 });
   // the section keys move the small card's own card as well
   assert.deepEqual(plain(resolve(event("}", { ctrlKey: true, shiftKey: true, code: "BracketRight" }), "mini")),
-    { action: "sectionChord", value: "deferred" });
+    { action: "sectionChord", value: "docked" });
   assert.deepEqual(plain(resolve(event("\\", { code: "Backslash" }), "mini")),
-    { action: "sectionKey", value: "done" });
+    { action: "sectionKey", value: "deferred" });
   assert.equal(resolve(event("Backspace"), "mini"), null);
   assert.equal(resolve(event("n", { ctrlKey: true }), "mini"), null);
   assert.equal(resolve(event("]", { metaKey: true, shiftKey: true }), "mini"), null);
@@ -228,12 +228,12 @@ test("dispatch calls only a supported action and leaves policy to it", async () 
 // the character shift makes of it
 const SECTION_KEYS = [
   { code: "BracketLeft", key: "[", shifted: "{", section: "doing" },
-  { code: "BracketRight", key: "]", shifted: "}", section: "deferred" },
-  { code: "Backslash", key: "\\", shifted: "|", section: "done" },
+  { code: "BracketRight", key: "]", shifted: "}", section: "docked" },
+  { code: "Backslash", key: "\\", shifted: "|", section: "deferred" },
 ];
 const CHORD = { ctrlKey: true, shiftKey: true };
 
-test("control shift with [, ] and \\ names doing, deferred and done, by physical key or by character", async () => {
+test("control shift with [, ] and \\ names doing, docked and deferred, by physical key or by character", async () => {
   const { resolve } = await shortcuts();
   for (const { code, key, shifted, section } of SECTION_KEYS) {
     const want = { action: "sectionChord", value: section };
@@ -313,8 +313,8 @@ test("dispatch hands each section key to its own action with the section", async
     assert.equal(dispatch(event(key, { code }), actions), true);
     assert.equal(dispatch(event(key, { code, repeat: true }), actions), false);
   }
-  assert.deepEqual(seen, [["chord", "doing"], ["key", "doing"], ["chord", "deferred"], ["key", "deferred"],
-                          ["chord", "done"], ["key", "done"]]);
+  assert.deepEqual(seen, [["chord", "doing"], ["key", "doing"], ["chord", "docked"], ["key", "docked"],
+                          ["chord", "deferred"], ["key", "deferred"]]);
 });
 
 // the typing rule the pages apply: the chord from the card's own composer in
@@ -365,14 +365,15 @@ test("the chord comes from the card's composer or from no field; the keys alone 
   for (const target of [t.body, t.button]) assert.equal(editing(target), false);
 });
 
-test("the three chips' tooltips carry the section keys", async () => {
+test("the four chips' tooltips carry the section keys", async () => {
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const context = vm.createContext({ Date, setTimeout, clearTimeout, setInterval, clearInterval });
   vm.runInContext(source, context, { filename: "card-logic.js" });
   const hints = vm.runInContext("SECTION_KEY_HINTS", context);
   assert.equal(hints.doing, "Control + Shift + [, or [ when not typing");
-  assert.equal(hints.deferred, "Control + Shift + ], or ] when not typing");
-  assert.equal(hints.done, "Control + Shift + \\, or \\ when not typing");
+  assert.equal(hints.docked, "Control + Shift + ], or ] when not typing");
+  assert.equal(hints.deferred, "Control + Shift + \\, or \\ when not typing");
+  assert.equal(hints.done, "Control + Shift + Backspace or Delete");
   assert.match(source, /sun\.title = "move to doing\\n" \+ SECTION_KEY_HINTS\.doing;/);
   for (const page of ["index.html", "m.html"]) {
     const html = await readFile(path.join(ROOT, page), "utf8");

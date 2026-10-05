@@ -14,7 +14,7 @@
    start; it could only make one look connected when it was not. */
 
 /* New cache name drops previously kept authenticated pages and manifests. */
-const CACHE = "facilitator-m-9";
+const CACHE = "facilitator-m-10";
 const SHELL = ["/card-markdown.js", "/card-tokens.css", "/card-logic.js",
                "/compose-format.js"];
 /* The squid the page paints the phone's own launch image from. It is kept
