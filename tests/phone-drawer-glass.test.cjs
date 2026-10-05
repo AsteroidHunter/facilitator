@@ -15,7 +15,7 @@ function between(start, end, optional = false) {
   return html.slice(a, b);
 }
 
-function fixture({ selected = "r14", count = 20, height = 300 } = {}) {
+function fixture({ selected = "r14", count = 20, height = 300, head = 10, foot = 17 } = {}) {
   const mutations = [], observers = [], resize = [], keys = [], microtasks = [], windowEvents = {};
   function node(classes = []) {
     const set = new Set(classes), styles = new Map(), events = {};
@@ -43,12 +43,17 @@ function fixture({ selected = "r14", count = 20, height = 300 } = {}) {
   let view = "todo", closes = 0;
   const pane = panes.todo;
   tickets.querySelectorAll = () => Object.values(panes);
+  const padding = (p, end) => parseFloat(p.style.getPropertyValue(`--pick-${end}`) || (end === "head" ? head : foot));
   for (const p of Object.values(panes)) {
-    p.scrollTop = 0;
+    let scroll = 0;
+    const clamp = value => Math.max(0, Math.min(value, Math.max(0, p.scrollHeight - p.clientHeight)));
+    Object.defineProperty(p, "scrollTop", {
+      get: () => (scroll = clamp(scroll)), set: value => { scroll = clamp(value); },
+    });
     Object.defineProperty(p, "scrollHeight", { get() {
-      return parseFloat(p.style.getPropertyValue("--pick-head") || 10) +
+      return padding(p, "head") +
         p.rows.reduce((sum, r) => sum + r.offsetHeight, 0) + Math.max(0, p.rows.length - 1) * 6 +
-        parseFloat(p.style.getPropertyValue("--pick-foot") || 17);
+        padding(p, "foot");
     } });
   }
   function row(id, p) {
@@ -56,7 +61,7 @@ function fixture({ selected = "r14", count = 20, height = 300 } = {}) {
     r.dataset.id = id;
     r.getBoundingClientRect = () => {
       const at = p.rows.indexOf(r);
-      const top = 100 + parseFloat(p.style.getPropertyValue("--pick-head") || 10) - p.scrollTop +
+      const top = 100 + padding(p, "head") - p.scrollTop +
         p.rows.slice(0, at).reduce((sum, one) => sum + one.offsetHeight + 6, 0) - (r.classList.contains("on") ? 1 : 0);
       return { top, bottom: top + r.offsetHeight };
     };
@@ -69,6 +74,7 @@ function fixture({ selected = "r14", count = 20, height = 300 } = {}) {
     return r;
   }
   pane.rows = Array.from({ length: count }, (_, i) => row(`r${i}`, pane));
+  tickets.querySelector = () => allRows().find(r => r.classList.contains("on"));
   const allRows = () => Object.values(panes).flatMap(p => p.rows);
   const read = [], store = new Map(), els = Object.fromEntries(pane.rows.map(r => [r.dataset.id, { box: node() }]));
   const document = { body, activeElement: body,
@@ -76,6 +82,7 @@ function fixture({ selected = "r14", count = 20, height = 300 } = {}) {
     querySelector: () => panes[view], querySelectorAll: allRows, getElementById: () => node(),
   };
   const context = vm.createContext({ document, window: { ResizeObserver: true }, tickets,
+    getComputedStyle: p => ({ paddingTop: padding(p, "head") + "px" }),
     queueMicrotask: fn => microtasks.push(fn),
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe(target, options) { observers.push({ fn: this.fn, target, options }); } },
     ResizeObserver: class { constructor(fn) { this.fn = fn; } observe(target) { resize.push({ fn: this.fn, target }); } },
@@ -86,6 +93,9 @@ function fixture({ selected = "r14", count = 20, height = 300 } = {}) {
     curView: () => view, drawerOpen: () => tickets.classList.contains("open"),
     menuOut: () => tickets.classList.contains("open") ? tickets : null,
     closeDrawer: () => { tickets.classList.remove("open"); closes++; },
+    menuAvailable: () => true,
+    runMenu: (panel, v) => panel.classList.toggle("open", v > 0),
+    traceFrameOpportunity() {},
     phoneShortcutActions: {}, tickBands() {}, phoneShortcutTyping: target => !!target.typing,
     ensureCard: id => els[id], tracePhone() {}, endPhoneTrace() {}, cancelAutoNext() {},
     syncPhoneHistory() {}, wearEditor() {}, openAtHead() {}, seatScroll() {}, renderTabs() {}, reachLater() {},
@@ -95,7 +105,7 @@ function fixture({ selected = "r14", count = 20, height = 300 } = {}) {
   run(logic);
   context.markSeen = id => read.push(id);
   context.curView = () => view;
-  for (const name of ["setBrowsing", "select", "browse", "chooseShown"])
+  for (const name of ["setBrowsing", "select", "browse", "chooseShown", "showMenu"])
     run(html.match(new RegExp(`function ${name}\\([^]*?\\n\\}`))[0]);
   run(between("function drawerPane(){", "// Tab walks the menu"));
   run(between("let drawerKeyboardUsed =", "// Keep only the start, first intended move", true));
@@ -111,6 +121,9 @@ function fixture({ selected = "r14", count = 20, height = 300 } = {}) {
   flush();
   return { context, pane, panes, tickets, read, store, run, row, flush,
     picks: () => allRows().filter(r => r.classList.contains("drawer-pick")).map(r => r.dataset.id),
+    positions: () => pane.rows.map(r => r.getBoundingClientRect().top),
+    ends: (p = pane) => [p.style.getPropertyValue("--pick-head"), p.style.getPropertyValue("--pick-foot")],
+    open() { run("showMenu(tickets)"); flush(); },
     closes: () => closes,
     key(key = "Shift", extra = {}) {
       const e = { key, code: key === "Shift" ? "ShiftLeft" : key, isTrusted: true, keyCode: 0,
@@ -140,6 +153,104 @@ test("touch scrolling never shows a keyboard pick before a hardware key", () => 
     f.key("x", extra); assert.deepEqual(f.picks(), []);
   }
   f.key(); assert.deepEqual(f.picks(), ["r5"]);
+});
+
+test("ordinary touch use has no pick space on load, scroll, resize or row changes", () => {
+  const f = fixture();
+  assert.deepEqual(f.ends(), ["", ""]);
+  assert.equal(f.pane.rows[0].getBoundingClientRect().top, 110);
+  f.center(5); f.resize(400); f.changedRows();
+  assert.deepEqual(f.ends(), ["", ""]);
+  for (const extra of [{ isTrusted: false }, { code: "" }, { code: "Unidentified" }, { isComposing: true }, { keyCode: 229 }]) {
+    f.key("x", extra); assert.deepEqual(f.ends(), ["", ""]);
+  }
+  f.scroll(f.pane.scrollHeight);
+  assert.equal(f.pane.rows.at(-1).getBoundingClientRect().bottom, 500 - 17);
+});
+
+test("hardware keys keep the normal margins while the open ticket is visible", () => {
+  const f = fixture(); f.center(14);
+  const positions = f.positions();
+  f.key(); assert.deepEqual(f.picks(), []); assert.deepEqual(f.ends(), ["", ""]);
+  assert.deepEqual(f.positions(), positions);
+  f.resize(400); f.changedRows(); assert.deepEqual(f.ends(), ["", ""]);
+});
+
+test("adding pick space preserves every ticket's position and the middle pick", () => {
+  const f = fixture({ head: 10.5, foot: 17.5 }); f.center(5);
+  const positions = f.positions(), scroll = f.pane.scrollTop;
+  f.key();
+  assert.deepEqual(f.ends(), ["124px", "124px"]);
+  assert.equal(f.pane.scrollTop, scroll + 124 - 10.5);
+  assert.deepEqual(f.positions(), positions); assert.deepEqual(f.picks(), ["r5"]);
+  for (const p of [f.panes.deferred, f.panes.done]) assert.deepEqual(f.ends(p), ["", ""]);
+  f.pane.fire("scroll"); f.changedRows(); f.key();
+  assert.deepEqual(f.positions(), positions, "refreshes must not add compensation twice");
+});
+
+test("removing pick space when the open row returns preserves ticket positions", () => {
+  const f = fixture({ head: 10.5, foot: 17.5 }); f.center(5); f.key();
+  f.pane.scrollTop += f.pane.rows[14].getBoundingClientRect().top - 399.75;
+  const positions = f.positions(), scroll = f.pane.scrollTop;
+  f.pane.fire("scroll"); f.flush();
+  assert.deepEqual(f.picks(), []); assert.deepEqual(f.ends(), ["", ""]);
+  assert.equal(f.pane.scrollTop, scroll + 10.5 - 124);
+  assert.deepEqual(f.positions(), positions);
+  f.pane.fire("scroll"); f.changedRows(); assert.deepEqual(f.positions(), positions);
+});
+
+test("resizing active end space preserves ticket positions and still centers both ends", () => {
+  const f = fixture(); f.center(5); f.key();
+  const positions = f.positions(), scroll = f.pane.scrollTop;
+  f.resize(400);
+  assert.deepEqual(f.ends(), ["174px", "174px"]);
+  assert.equal(f.pane.scrollTop, scroll + 50); assert.deepEqual(f.positions(), positions);
+  for (const [index, top] of [[0, 0], [19, f.pane.scrollHeight - f.pane.clientHeight]]) {
+    f.scroll(top);
+    const rect = f.pane.rows[index].getBoundingClientRect();
+    assert.equal((rect.top + rect.bottom) / 2, 300); assert.deepEqual(f.picks(), [`r${index}`]);
+  }
+});
+
+test("removal saves the original scroll position before shorter padding clamps it", () => {
+  const f = fixture({ selected: "r0" }); f.center(18); f.key();
+  f.pane.scrollTop = f.pane.scrollHeight - f.pane.clientHeight - 110;
+  const positions = f.positions(), scroll = f.pane.scrollTop;
+  f.run('select("r18")'); f.flush();
+  assert.deepEqual(f.ends(), ["", ""]);
+  assert.equal(f.pane.scrollTop, scroll + 10 - 124);
+  // Selection has its existing 1px lift; all other tickets stay still.
+  assert.deepEqual(f.positions().slice(1, 18), positions.slice(1, 18));
+});
+
+test("closing and section changes clear the space without changing the saved row positions", () => {
+  const f = fixture(); f.center(5); f.key();
+  const positions = f.positions();
+  f.view("done"); assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.positions(), positions);
+  f.view("todo"); assert.deepEqual(f.ends(), ["124px", "124px"]); assert.deepEqual(f.positions(), positions);
+  f.tickets.classList.remove("open"); f.flush();
+  assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.positions(), positions);
+  f.open();
+  assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.picks(), []);
+  const rect = f.pane.rows[14].getBoundingClientRect();
+  assert.ok(rect.top < 400 && rect.bottom > 100, "opening still reveals the selected ticket");
+});
+
+test("opening on the first ticket has only the normal top margin after keyboard use", () => {
+  const f = fixture({ selected: "r0" }); f.center(15); f.key();
+  f.tickets.classList.remove("open"); f.flush(); f.open();
+  assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.picks(), []);
+  assert.ok(f.pane.rows[0].getBoundingClientRect().top <= 110);
+});
+
+test("ending a pick at either scroll limit removes the blank band and clamps to normal bounds", () => {
+  for (const index of [0, 19]) {
+    const f = fixture(); f.key(); f.center(index);
+    assert.deepEqual(f.picks(), [`r${index}`]);
+    f.run(`select("r${index}")`); f.flush();
+    assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.picks(), []);
+    assert.equal(f.pane.scrollTop, index === 0 ? 0 : f.pane.scrollHeight - f.pane.clientHeight);
+  }
 });
 
 test("any visible part of the open ticket suppresses the outline at either edge", () => {
@@ -236,7 +347,7 @@ test("the first and last ticket reach the middle at the scroll limits", () => {
   }
 });
 
-test("resize and row changes recalculate empty ends, including empty and single-row lists", () => {
+test("resize and row changes recalculate active ends, while empty and single-row lists have no pick space", () => {
   const f = fixture(); f.key(); f.resize(400);
   assert.equal(f.pane.style.getPropertyValue("--pick-head"), "174px");
   f.pane.rows[0].offsetHeight = 60; f.pane.rows[19].offsetHeight = 80; f.changedRows();
@@ -246,8 +357,8 @@ test("resize and row changes recalculate empty ends, including empty and single-
   assert.equal(f.pane.style.getPropertyValue("--pick-head"), "");
   assert.equal(f.pane.style.getPropertyValue("--pick-foot"), "");
   const one = fixture({ count: 1, selected: "r0" }); one.key();
-  assert.equal(one.pane.scrollHeight, 300); assert.deepEqual(one.picks(), []);
-  one.resize(30); assert.equal(one.pane.style.getPropertyValue("--pick-head"), "0px");
+  assert.equal(one.pane.scrollHeight, 79); assert.deepEqual(one.picks(), []);
+  one.resize(30); assert.deepEqual(one.ends(), ["", ""]);
 });
 
 test("selection, removed rows, sections, Home and closing clear or replace the pick", () => {
@@ -258,7 +369,8 @@ test("selection, removed rows, sections, Home and closing clear or replace the p
   f.run('select("r14")'); f.flush(); assert.deepEqual(f.picks(), ["r6"]);
   f.view("done"); assert.deepEqual(f.picks(), []);
   f.view("todo"); assert.deepEqual(f.picks(), ["r6"]);
-  f.context.homeOpen = true; f.tickets.classList.remove("open"); f.flush(); assert.deepEqual(f.picks(), []);
+  f.context.homeOpen = true; f.tickets.classList.remove("open"); f.flush();
+  assert.deepEqual(f.picks(), []); assert.deepEqual(f.ends(), ["", ""]);
   f.context.homeOpen = false; f.tickets.classList.add("open"); f.flush(); assert.deepEqual(f.picks(), ["r6"]);
   f.tickets.classList.remove("open"); f.flush(); assert.deepEqual(f.picks(), []);
 });
@@ -321,5 +433,4 @@ test("the glass covers the ticket border box and scrolls with its original sharp
     "no blur, displacement, fade or delayed motion may affect the ticket text");
   assert.match(cssRule(html, "#tickets .trow.drawer-pick > .omni-sweep"), /border-radius:inherit; overflow:hidden/);
   assert.match(html, /padding:var\(--pick-head,/); assert.match(html, /var\(--pick-foot,/);
-  assert.match(html, /if \(pane\) sizeDrawerEnds\(pane\);/, "size padding before open scrollIntoView");
 });

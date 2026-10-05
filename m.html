@@ -4197,7 +4197,6 @@ function renderTickets(state, action = "state", shown = ticketsShown()){
     for (const name of TICKET_VIEWS){
       const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
       if (pane && paintPhonePane(pane, pool.filter(b => viewFilterFor(b, name)), name, state, touch)) spin = true;
-      if (pane) sizeDrawerEnds(pane);
     }
     if (spin) syncSpinner();
     if (began) endPhoneTrace(trace, { action, part: "tickets" });
@@ -4548,16 +4547,25 @@ for (const pane of document.querySelectorAll(".tikpane")){
 
 // The keyboard pick belongs only to this drawer, and lasts only for this load.
 let drawerKeyboardUsed = false, drawerPick = null;
-function sizeDrawerEnds(pane){
-  const rows = pane.querySelectorAll(".trow");
-  for (const [name, row] of [["--pick-head", rows[0]], ["--pick-foot", rows[rows.length - 1]]]){
-    if (!row){ pane.style.removeProperty(name); continue; }
-    const space = Math.max(0, (pane.clientHeight - row.offsetHeight) / 2) + "px";
-    if (pane.style.getPropertyValue(name) !== space) pane.style.setProperty(name, space);
+function sizeDrawerEnds(pane, active){
+  const rows = active ? pane.querySelectorAll(".trow") : [];
+  const ends = [["--pick-head", rows[0]], ["--pick-foot", rows[rows.length - 1]]]
+    .map(([name, row]) => [name, row ? Math.max(0, (pane.clientHeight - row.offsetHeight) / 2) + "px" : ""]);
+  if (ends.every(([name, space]) => pane.style.getPropertyValue(name) === space)) return;
+  // Keep the normal CSS margins outside a pick. Save the scroll position before
+  // changing either end: shortening the foot can clamp it during layout.
+  const scroll = pane.scrollTop, head = parseFloat(getComputedStyle(pane).paddingTop);
+  for (const [name, space] of ends){
+    if (space) pane.style.setProperty(name, space);
+    else pane.style.removeProperty(name);
   }
+  // An absolute target also avoids counting any native scroll anchoring twice.
+  // Native bounds apply if the pick ends with an end gap still on screen.
+  pane.scrollTop = scroll + parseFloat(getComputedStyle(pane).paddingTop) - head;
+  tickBands(pane);
 }
 function syncDrawerPick(){
-  let pick = null;
+  let pick = null, pickPane = null;
   if (drawerKeyboardUsed && drawerOpen() && !homeOpen){
     const pane = drawerPane(), rows = drawerRows();
     const open = rows.find(row => row.dataset.id === selectedId);
@@ -4572,7 +4580,7 @@ function syncDrawerPick(){
           if (rect.bottom <= top || rect.top >= bottom) continue;
           // In a gap, use the nearest ticket; at a tie, keep the upper one.
           const distance = Math.max(rect.top - middle, middle - rect.bottom, 0);
-          if (distance < nearest){ nearest = distance; pick = row; }
+          if (distance < nearest){ nearest = distance; pick = row; pickPane = pane; }
         }
       }
     }
@@ -4582,6 +4590,9 @@ function syncDrawerPick(){
     drawerPick = pick;
     drawerPick?.classList.add("drawer-pick");
   }
+  // Decide from the tickets' current positions, then preserve those positions
+  // while sizing. Hidden sections and a closed drawer never keep pick space.
+  for (const pane of tickets.querySelectorAll(".tikpane")) sizeDrawerEnds(pane, pane === pickPane);
   return drawerPick;
 }
 document.addEventListener("keydown", e => {
@@ -4595,8 +4606,8 @@ document.addEventListener("keydown", e => {
 {
   const panes = [...tickets.querySelectorAll(".tikpane")];
   const refresh = () => {
-    for (const pane of panes){ sizeDrawerEnds(pane); tickBands(pane); }
     syncDrawerPick();
+    for (const pane of panes) tickBands(pane);
   };
   for (const pane of panes){
     pane.addEventListener("scroll", syncDrawerPick, { passive: true });
