@@ -1347,6 +1347,9 @@
     padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
     border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); pointer-events:none}
   #diagnostictoast:empty{display:none}
+  body:not(.phone-developer-mode) #setsrc [data-section="diagnostics"],
+  body:not(.phone-developer-mode) #settings .sp-item[data-section="diagnostics"],
+  body:not(.phone-developer-mode) #settings-diagnostics{display:none!important}
 
   /* ---- the startup curtain ------------------------------------------------ */
   /* What an installed open shows over its own first frames. The picture, the
@@ -1762,9 +1765,14 @@ async function signOut(){
     button.disabled = false;
   }
 }
+// Developer mode belongs to this phone, not the board's shared settings.
+const PHONE_DEVELOPER_KEY = "phoneDeveloperMode";
+let phoneDeveloperMode = false, diagnosticGeneration = 0;
+try { phoneDeveloperMode = localStorage.getItem(PHONE_DEVELOPER_KEY) === "on"; } catch (_) {}
+document.body.classList.toggle("phone-developer-mode", phoneDeveloperMode);
 // the phone is where a failure is hardest to reproduce, so it reports the same
 // way the board does: thrown errors, failed fetches, failed renders
-if (typeof startReporter === "function") startReporter("phone");
+if (typeof startReporter === "function") startReporter("phone", { phoneHistory: phoneDeveloperMode });
 // A diagnostic token, not a release claim: it distinguishes this instrumented
 // page from an older installed shell without exposing a URL or local path.
 // This names the loaded HTML only; the worker reports its own cache identity.
@@ -1777,10 +1785,15 @@ function tracePhone(action, ...args){
   try { return window.phoneHistory?.[action](...args); } catch (_) {}
 }
 function traceFrameOpportunity(action){
-  if (tracePhone("version") < 3) return;
+  if (!phoneDeveloperMode || tracePhone("version") < 3) return;
+  const generation = diagnosticGeneration;
   requestAnimationFrame(() => {
+    if (!phoneDeveloperMode || generation !== diagnosticGeneration) return;
     tracePhone("note", "phase", { action, part: "frame-one" });
-    requestAnimationFrame(() => tracePhone("note", "phase", { action, part: "frame-two" }));
+    requestAnimationFrame(() => {
+      if (phoneDeveloperMode && generation === diagnosticGeneration)
+        tracePhone("note", "phase", { action, part: "frame-two" });
+    });
   });
 }
 function phoneTraceState(){
@@ -3319,7 +3332,7 @@ function createCard(){
   // pendingCreate above proves only one create can be live. Clear any record
   // left by an already-dead exceptional path before installing that one.
   createDiagnostics.clear();
-  createDiagnostics.set(op.id, {
+  if (phoneDeveloperMode) createDiagnostics.set(op.id, {
     response: tracePhone("begin", "stage", { stage: "create-response", op: op.id })
   });
   op.fresh = true;
@@ -4591,6 +4604,7 @@ document.addEventListener("keydown", e => {
 // A touch that begins on the selected response also says where the response
 // stood. Its scroll position and heights are read at touch start, at the intent
 // and at touch end and nowhere else, because each read can force a layout.
+let resetPhoneGestureDiagnostics = () => {};
 {
   // Neither number has been checked on the phone yet. A healthy pan scrolls
   // within a few frames of its intent; a finger that has come this far is a
@@ -4599,6 +4613,12 @@ document.addEventListener("keydown", e => {
   const NO_SCROLL_PX = 24;        // vertical finger travel that makes a swipe far
   const AFTER_TOUCH_MS = 1000;    // a first scroll or a new reply this soon after a touch is still its own
   let touch = null, scrollRun = null, scrollTimer = null, lastTouch = null, swapWatch = null;
+  resetPhoneGestureDiagnostics = () => {
+    if (touch) { touch.armed = false; clearTimeout(touch.timer); }
+    clearTimeout(scrollTimer);
+    swapWatch?.disconnect();
+    touch = lastTouch = scrollRun = scrollTimer = swapWatch = null;
+  };
   // where the response stands, in whole pixels; edge "none" has nothing to scroll
   const measure = scroller => {
     const top = Math.round(scroller.scrollTop), height = scroller.clientHeight;
@@ -4630,6 +4650,7 @@ document.addEventListener("keydown", e => {
     const reply = t.scroller.querySelector(":scope > .reply");
     if (!reply || typeof MutationObserver !== "function") return;
     const watch = swapWatch = new MutationObserver(() => {
+      if (swapWatch !== watch) return;
       tracePhone("note", "phase", { action: "response-scroll", part: "reply-swap", box: selectedId,
         hist: !!(hist && hist.id === selectedId), ms: performance.now() - t.start });
     });
@@ -4646,6 +4667,7 @@ document.addEventListener("keydown", e => {
     tracePhone("noScroll", t.box);
   };
   document.addEventListener("touchstart", e => {
+    if (!phoneDeveloperMode) return;
     const p = e.touches[0];
     if (!p) return;
     const target = e.target;
@@ -4749,6 +4771,7 @@ document.addEventListener("keydown", e => {
   document.addEventListener("touchend", finishTouch, { capture: true, passive: true });
   document.addEventListener("touchcancel", finishTouch, { capture: true, passive: true });
   document.addEventListener("scroll", e => {
+    if (!phoneDeveloperMode) return;
     const target = e.target;
     const t = touch?.scroller === target ? touch : null;
     if (t) {
@@ -6291,6 +6314,7 @@ function phoneSectionMove(e, section){
 const phoneShortcutTyping = cardShortcutEditing;
 const phoneShortcutActions = {
   diagnostic(e){
+    if (!phoneDeveloperMode) return;
     e.preventDefault();
     saveDiagnostic("shortcut");
   },
@@ -6470,7 +6494,8 @@ function keepTabInMenu(e){
 addEventListener("keydown", e => {
   if (homeOpen || !menuOut()) return;
   if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey){ keepTabInMenu(e); return; }
-  if (!cardShortcut(e)) return;
+  const shortcut = cardShortcut(e);
+  if (!shortcut || (shortcut.action === "diagnostic" && !phoneDeveloperMode)) return;
   dispatchCardShortcut(e, menuShortcutActions);
   e.stopImmediatePropagation();
 });
@@ -6537,8 +6562,36 @@ function keyBytes(b64url){
 ComposeFormat.preload();
 const diagnosticButton = document.getElementById("savediagnostic");
 let diagnosticRetry = false, diagnosticToastTimer = null;
+let developerTaps = 0, developerTapAt = -Infinity;
+document.getElementById("homeversion").addEventListener("click", () => {
+  const now = performance.now();
+  developerTaps = now - developerTapAt < 1000 ? developerTaps + 1 : 1;
+  developerTapAt = now;
+  if (developerTaps !== 7) return;
+  developerTaps = 0;
+  phoneDeveloperMode = !phoneDeveloperMode;
+  tracePhone("setEnabled", phoneDeveloperMode);
+  try { localStorage.setItem(PHONE_DEVELOPER_KEY, phoneDeveloperMode ? "on" : "off"); } catch (_) {}
+  document.body.classList.toggle("phone-developer-mode", phoneDeveloperMode);
+  if (!phoneDeveloperMode) {
+    diagnosticGeneration++;
+    createDiagnostics.clear();
+    resetPhoneGestureDiagnostics();
+    diagnosticRetry = false;
+    diagnosticButton.disabled = false;
+    diagnosticButton.textContent = "Save diagnostic history";
+    document.getElementById("diagnosticstatus").textContent = "";
+    clearTimeout(diagnosticToastTimer);
+    if (settingsView.section() === "diagnostics") {
+      settingsView.show("editor");
+      settingsView.reset();
+    }
+  }
+  toastNote(phoneDeveloperMode ? "Developer mode on" : "Developer mode off");
+});
 async function saveDiagnostic(source = "settings"){
-  if (diagnosticButton.disabled) return;
+  if (!phoneDeveloperMode || diagnosticButton.disabled) return;
+  const generation = diagnosticGeneration;
   diagnosticButton.disabled = true;
   const status = document.getElementById("diagnosticstatus");
   const toast = document.getElementById("diagnostictoast");
@@ -6551,6 +6604,7 @@ async function saveDiagnostic(source = "settings"){
     ? "Recording the next 20 seconds before saving" : "Saving diagnostic history");
   try {
     const answer = await tracePhone("mark", source, phoneTraceState(), diagnosticRetry);
+    if (generation !== diagnosticGeneration) return;
     const outcome = answer?.status || "failed";
     diagnosticRetry = outcome !== "saved" && outcome !== "saved-legacy";
     const messages = {
@@ -6562,9 +6616,11 @@ async function saveDiagnostic(source = "settings"){
     };
     tell(messages[outcome] || messages.failed);
   } catch (_) {
+    if (generation !== diagnosticGeneration) return;
     diagnosticRetry = true;
     tell("Could not confirm a save. Keep this page open and retry.");
   } finally {
+    if (generation !== diagnosticGeneration) return;
     diagnosticButton.disabled = false;
     diagnosticButton.textContent = diagnosticRetry ? "Retry diagnostic save" : "Save diagnostic history";
     diagnosticToastTimer = setTimeout(() => { toast.textContent = ""; }, 6000);

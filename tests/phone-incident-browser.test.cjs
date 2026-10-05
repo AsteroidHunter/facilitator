@@ -128,6 +128,7 @@ async function fixture(t, options = {}) {
     request.continue().catch(() => {});
   });
   await page.evaluateOnNewDocument(() => {
+    localStorage.setItem("phoneDeveloperMode", "on");
     window.fixtureWindowErrors = [];
     addEventListener("error", event => {
       if (event?.message) window.fixtureWindowErrors.push({ kind: "error", message: event.message });

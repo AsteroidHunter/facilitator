@@ -187,7 +187,7 @@
 
   // a page says which of the three it is, once. A second call changes nothing,
   // so a page that starts the reporter twice does not report twice
-  window.startReporter = function (name) {
+  window.startReporter = function (name, options = {}) {
     if (page) return;
     page = name;
     // the page's own fetch, taken before anything here wraps it, so a notice
@@ -198,7 +198,7 @@
     windowId = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     if (name === "phone") {
       try {
-        incidents = phoneHistory(window.fetch);
+        incidents = phoneHistory(window.fetch, options.phoneHistory !== false);
         window.phoneHistory = incidents;
       } catch (_) { incidents = null; }
     }
@@ -278,7 +278,7 @@
   // A short lead-up to an incident, not an activity stream. All normal events
   // stay in RAM. Each saved history has its own bounded /clientlog batch, so
   // neither an incident nor a failed upload can crowd out existing errors.
-  function phoneHistory(realFetch) {
+  function phoneHistory(realFetch, enabled) {
     const ENTRIES = 40, AGE = 60000, BYTES = 12 * 1024;
     const COALESCE = 250, UI_SLOW = 150, REQUEST_SLOW = 2000;
     const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
@@ -351,6 +351,7 @@
     let held = null, beaconed = null, busy = false, sending = null, inflight = Promise.resolve();
     let build = "phone-diag-unidentified", schema = 1;
     let lastFrame = null, frameEpoch = generation, watching = false, watchUntil = -Infinity, watchedRev = null;
+    let modeEpoch = 0, uploadJob = null;
     let watchFrames = () => {};   // set once the frame callback exists, below
     const cap = (n, max) => Math.min(max, Math.max(0, Math.round(n)));
     // Even a broken getter, unavailable clock, or disabled reporter must never
@@ -358,6 +359,38 @@
     const safe = (fn, fallback) => (...args) => {
       try { return fn(...args); } catch (_) { return fallback; }
     };
+    // This switch belongs only to the phone recorder. Ordinary page/error and
+    // notification reporting above never consults it. Old callers stay enabled.
+    function setEnabled(value) {
+      const next = value === true;
+      if (enabled === next) return;
+      enabled = next;
+      modeEpoch++;
+      generation++;
+      ring.length = 0;
+      for (const lane of [important, work, life, pollBuckets, observerBuckets]) lane.length = 0;
+      lost = sparseLost = suppressed = 0;
+      activeRequest = viewport = held = beaconed = null;
+      clearTimeout(viewportTimer); viewportTimer = null;
+      viewportAt = -Infinity; viewportKey = "";
+      stuck.clear(); lastAuto = -Infinity;
+      lastResume = performance.now(); due = lastResume + 100;
+      watching = false; lastFrame = null; watchUntil = -Infinity; watchedRev = null;
+      for (const current of collecting) {
+        clearTimeout(current.timer);
+        current.resolve({ status: "disabled" });
+      }
+      collecting.clear();
+      if (uploadJob) {
+        clearTimeout(uploadJob.task); clearTimeout(uploadJob.timeout);
+        uploadJob.controller?.abort();
+        uploadJob.resolve({ status: "disabled" });
+        uploadJob = null;
+      }
+      busy = false; sending = null; inflight = Promise.resolve();
+      // Keep the attempt budget across toggles; switching cannot bypass it.
+      if (enabled) note("lifecycle", { lifecycle: "start" });
+    }
     function clean(detail) {
       const out = {};
       for (const [key, value] of Object.entries(detail || {})) {
@@ -410,6 +443,7 @@
       append("viewport", sample.detail, sample.time);
     }
     function note(event, detail) {
+      if (!enabled) return;
       if (!events.has(event) || (schema < 3 && v3Events.has(event))) return;
       const fields = clean(detail), now = performance.now();
       if (event === "viewport") {
@@ -433,9 +467,10 @@
       if (event === "operation" && fields.outcome === "failed") automatic("problem");
     }
     function begin(event, detail) {
+      if (!enabled) return null;
       if (schema < 3 && v3Events.has(event)) return null;
       const token = { event, time: performance.now(), seq: seq = (seq + 1) % 1000000000,
-        generation, visible: !document.hidden, detail: clean(detail) };
+        generation, modeEpoch, visible: !document.hidden, detail: clean(detail) };
       if (schema >= 3 && event === "request" && token.detail.route === "/m/state") activeRequest = token;
       note(event, { ...detail, phase: "start", seq: token.seq });
       return token;
@@ -455,6 +490,7 @@
       while (pollBuckets.length > 12) pollBuckets.shift();
     }
     function observerSample(ms) {
+      if (!enabled) return;
       if (schema < 3) return;
       const time = performance.now(), start = Math.floor(time / 20000) * 20000;
       let bucket = observerBuckets.at(-1);
@@ -469,7 +505,7 @@
       while (observerBuckets.length > 6) observerBuckets.shift();
     }
     function end(token, detail, response) {
-      if (!token) return;
+      if (!enabled || !token || token.modeEpoch !== modeEpoch) return;
       if (activeRequest === token) activeRequest = null;
       const ms = performance.now() - token.time;
       let serverMs;
@@ -656,45 +692,57 @@
     }
     // One report goes out at a time. A report asked for while another is going
     // out follows it as soon as it finishes, so a save is never refused for that.
-    function upload(report) {
-      if (busy) return report === sending ? inflight : inflight.then(() => upload(report));
+    function upload(report, epoch = modeEpoch) {
+      if (!enabled || epoch !== modeEpoch) return Promise.resolve({ status: "disabled" });
+      if (busy) return report === sending ? inflight : inflight.then(() => upload(report, epoch));
       if (!report) return Promise.resolve({ status: "failed" });
       if (navigator.onLine === false) return Promise.resolve({ status: "offline" });
       if (!permit()) return Promise.resolve({ status: "limited" });
       busy = true; sending = report;
+      const job = { task: null, timeout: null, controller: null, resolve: null };
+      uploadJob = job;
+      const current = () => enabled && epoch === modeEpoch && uploadJob === job;
       // JSON and transport start on a later task, after the triggering work.
-      inflight = new Promise(resolve => setTimeout(async () => {
-        let timer = null;
-        try {
-          const controller = new AbortController();
-          timer = setTimeout(() => controller.abort(), SAVE_TIMEOUT);
-          let submitted = report;
-          let response = await realFetch.call(window, "/clientlog", { method: "POST",
-            headers: { "content-type": "application/json" }, body: bodyOf(report),
-            signal: controller.signal, keepalive: true });
-          // A v5 refusal steps down to v4, and a v4 refusal to v3.
-          while (response.status === 400 && submitted.v >= 4) {
-            const older = submitted.v === 5 ? compatibleV4(submitted) : compatibleV3(submitted);
-            if (!older) break;
-            // The compatibility write is a real second attempt. It cannot
-            // bypass the same four-per-minute budget as any other save.
-            if (!permit()) { resolve({ status: "limited" }); return; }
-            submitted = older;
-            response = await realFetch.call(window, "/clientlog", { method: "POST",
-              headers: { "content-type": "application/json" }, body: bodyOf(submitted),
-              signal: controller.signal, keepalive: true });
+      inflight = new Promise(resolve => {
+        job.resolve = resolve;
+        job.task = setTimeout(async () => {
+          try {
+            if (!current()) { resolve({ status: "disabled" }); return; }
+            job.controller = new AbortController();
+            job.timeout = setTimeout(() => job.controller.abort(), SAVE_TIMEOUT);
+            let submitted = report;
+            let response = await realFetch.call(window, "/clientlog", { method: "POST",
+              headers: { "content-type": "application/json" }, body: bodyOf(report),
+              signal: job.controller.signal, keepalive: true });
+            // A v5 refusal steps down to v4, and a v4 refusal to v3.
+            while (current() && response.status === 400 && submitted.v >= 4) {
+              const older = submitted.v === 5 ? compatibleV4(submitted) : compatibleV3(submitted);
+              if (!older) break;
+              // Compatibility writes share the same four-per-minute budget.
+              if (!permit()) { resolve({ status: "limited" }); return; }
+              submitted = older;
+              response = await realFetch.call(window, "/clientlog", { method: "POST",
+                headers: { "content-type": "application/json" }, body: bodyOf(submitted),
+                signal: job.controller.signal, keepalive: true });
+            }
+            if (!current()) { resolve({ status: "disabled" }); return; }
+            const answer = response.ok ? await response.json() : null;
+            if (!current()) { resolve({ status: "disabled" }); return; }
+            if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
+              if (held === report) held = null;
+              resolve({ status: submitted._enterOmitted || submitted._scrollOmitted ? "saved-legacy" : "saved" });
+            } else resolve({ status: "failed" });
+          } catch (_) { resolve({ status: current() ? "failed" : "disabled" }); }
+          finally {
+            clearTimeout(job.timeout);
+            if (uploadJob === job) { uploadJob = null; busy = false; sending = null; }
           }
-          const answer = response.ok ? await response.json() : null;
-          if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
-            if (held === report) held = null;
-            resolve({ status: submitted._enterOmitted || submitted._scrollOmitted ? "saved-legacy" : "saved" });
-          } else resolve({ status: "failed" });
-        } catch (_) { resolve({ status: "failed" }); }
-        finally { if (timer !== null) clearTimeout(timer); busy = false; sending = null; }
-      }, 0));
+        }, 0);
+      });
       return inflight;
     }
     function automatic(reason, detail) {
+      if (!enabled) return false;
       const now = performance.now();
       if (!reasons.has(reason) || document.hidden || busy || collecting.size ||
           (held && held.reason === "manual") || now - lastAuto < COOLDOWN) {
@@ -710,7 +758,7 @@
     // it. The shared cooldown and minute cap still apply, and a card that stays
     // stuck saves once per STUCK_COOLDOWN rather than once per attempt.
     function noScroll(box) {
-      if (schema < 5 || typeof box !== "string" || !boxPattern.test(box)) return false;
+      if (!enabled || schema < 5 || typeof box !== "string" || !boxPattern.test(box)) return false;
       const now = performance.now();
       for (const [card, at] of stuck) if (now - at >= STUCK_COOLDOWN) stuck.delete(card);
       if (stuck.has(box)) { suppressed = cap(suppressed + 1, 1000000000); return false; }
@@ -734,6 +782,7 @@
     // A press starts its own marker and its own 20 seconds at once, even while an
     // automatic save is still recording or sending; it goes out when it is ready.
     function mark(source, detail, retry = false) {
+      if (!enabled) return Promise.resolve({ status: "disabled" });
       if (retry && held) return upload(held);
       const report = capture("manual", { ...detail, source });
       if (schema >= 3 && !retry) return collect(report, true);
@@ -741,6 +790,7 @@
       return upload(report);
     }
     function lifecycle(value, detail = {}) {
+      if (!enabled) return;
       if (value === "visible" || value === "pageshow") beaconed = null;
       generation = cap(generation + 1, 1000000000);
       lastResume = performance.now();
@@ -756,7 +806,8 @@
     // Frames are watched only for FRAME_WATCH after a touch, a key or a new board
     // reading, so a page with nothing going on asks for none. The 100 ms timer
     // below still catches every stall.
-    const onFrame = safe(time => {
+    const onFrame = safe((time, epoch) => {
+      if (!enabled || epoch !== modeEpoch) return;
       if (!document.hidden && schema >= 3 && lastFrame !== null && frameEpoch === generation) {
         const gap = time - lastFrame;
         if (gap >= 250 && time - lastResume > gap + 100) {
@@ -767,15 +818,17 @@
       frameEpoch = generation;
       if (document.hidden || performance.now() >= watchUntil) { watching = false; lastFrame = null; return; }
       lastFrame = time;
-      requestAnimationFrame(onFrame);
+      requestAnimationFrame(time => onFrame(time, epoch));
     });
     watchFrames = safe(() => {
+      if (!enabled) return;
       watchUntil = performance.now() + FRAME_WATCH;
       if (watching || schema < 3 || document.hidden || typeof requestAnimationFrame !== "function") return;
       watching = true;
       lastFrame = performance.now();
       frameEpoch = generation;
-      requestAnimationFrame(onFrame);
+      const epoch = modeEpoch;
+      requestAnimationFrame(time => onFrame(time, epoch));
     });
     for (const type of ["touchstart", "touchmove", "touchend", "touchcancel", "pointerdown", "keydown"])
       document.addEventListener(type, watchFrames, { capture: true, passive: true });
@@ -783,12 +836,13 @@
     setInterval(safe(() => {
       const now = performance.now(), late = now - due;
       due = now + 100;
-      if (schema >= 3 && !document.hidden && late >= 500 && now - lastResume > late + 100) {
+      if (enabled && schema >= 3 && !document.hidden && late >= 500 && now - lastResume > late + 100) {
         note("timer", { late });
         if (late >= 1000) automatic("freeze");
       }
     }), 100);
     return {
+      setEnabled: safe(setEnabled),
       begin: safe(begin), end: safe(end), note: safe(note),
       identity: safe(value => { if (/^[a-z0-9._-]{1,64}$/.test(String(value))) build = String(value); }),
       worker: safe(value => { if (/^[a-z0-9._-]{1,64}$/.test(String(value))) worker = String(value); }),
@@ -820,6 +874,7 @@
         if (continuous) automatic("freeze");
       }),
       hide: safe(() => {
+        if (!enabled) return;
         drainViewport();
         for (const current of [...collecting]) {
           collecting.delete(current); clearTimeout(current.timer);
