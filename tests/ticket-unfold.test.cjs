@@ -460,10 +460,12 @@ const TOKENS = read("card-tokens.css");
 // each page's own sheet, then the shared one where the page links it
 const SHEETS = { desktop: styleOf(HTML.desktop) + "\n" + TOKENS, phone: styleOf(HTML.phone) + "\n" + TOKENS, page: styleOf(HTML.page) };
 
-test("no sheet draws on a ticket's inner layers but the fold, so an unfolded ticket wears no mark", () => {
+test("ticket inner layers carry only the fold and the phone drawer's keyboard rim", () => {
   for (const [where, css] of Object.entries(SHEETS)) {
     const layers = new Set(rulesOf(css).flatMap(r => r.sels).filter(s => /trowin::?(before|after)/.test(s)));
-    assert.deepEqual([...layers], [".trow.testc > .trowin::before"],
-      `${where}: something other than the fold draws on a ticket's inner layers`);
+    const expected = where === "phone" ? ["#tickets .trow.drawer-pick > .trowin::after", ".trow.testc > .trowin::before"]
+      : [".trow.testc > .trowin::before"];
+    assert.deepEqual([...layers], expected,
+      `${where}: an unexpected mark draws on a ticket's inner layers`);
   }
 });
