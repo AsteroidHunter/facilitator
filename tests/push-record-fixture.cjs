@@ -214,7 +214,7 @@ function startPage({ permission = "granted", worker = true, subscription = "yes"
     };
   }
   class FakeDate extends Date { static now() { return clock.now; } }
-  const context = vm.createContext({
+  const context = vm.createContext({ macHost: null,
     Date: FakeDate, Promise, JSON, Array,
     navigator,
     document: { hidden: false, addEventListener: listen(documentEvents) },

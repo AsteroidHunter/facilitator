@@ -1122,6 +1122,7 @@ function setSeenMany(marks){
     .catch(() => {});
 }
 function markSeen(id){
+  if (globalThis.macPhoneInactive) return;
   if (seenTotals[id] != null) setSeenMany({ [id]: seenTotals[id] });
 }
 // a click into a card's composer, or a key typed there, is using the card, so
@@ -1260,21 +1261,24 @@ async function uploadAttachment(file){
 }
 
 async function attach(files, ta){
-  const errors = [];
-  for (const file of files){
-    try {
-      const url = await uploadAttachment(file);
-      const start = ta.selectionStart, end = ta.selectionEnd, direction = ta.selectionDirection;
-      ta.value += (ta.value && !ta.value.endsWith("\n") ? "\n" : "") + url + "\n";
-      ta.setSelectionRange(start, end, direction);
-      const field = globalThis.ComposeFormat?.fieldOf(ta);
-      if (field) field.changed();
-      else ta.dispatchEvent(new Event("input"));
-    } catch (error){
-      errors.push((file.name || "Attachment") + ": " + (error.message || "Upload failed. Please try again."));
+  ta.attachmentPending = (ta.attachmentPending || 0) + 1;
+  try {
+    const errors = [];
+    for (const file of files){
+      try {
+        const url = await uploadAttachment(file);
+        const start = ta.selectionStart, end = ta.selectionEnd, direction = ta.selectionDirection;
+        ta.value += (ta.value && !ta.value.endsWith("\n") ? "\n" : "") + url + "\n";
+        ta.setSelectionRange(start, end, direction);
+        const field = globalThis.ComposeFormat?.fieldOf(ta);
+        if (field) field.changed();
+        else ta.dispatchEvent(new Event("input"));
+      } catch (error){
+        errors.push((file.name || "Attachment") + ": " + (error.message || "Upload failed. Please try again."));
+      }
     }
-  }
-  attachmentNotice(ta, errors.join("\n"));
+    attachmentNotice(ta, errors.join("\n"));
+  } finally { ta.attachmentPending--; }
 }
 
 function wireAttachmentTransfer(ta, pick = files => attach(files, ta)){

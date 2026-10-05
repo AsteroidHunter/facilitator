@@ -383,7 +383,6 @@ test("Escape leaves the card selected when something else answered it or holds t
     ["held down", () => d.press("Escape", { repeat: true })],
     ["with the small card holding the keys", () => { d.sandbox.miniFocused = true; d.press("Escape"); d.sandbox.miniFocused = false; }],
     ["with a picture open", () => { d.sandbox.p3Zoom = {}; d.press("Escape"); d.sandbox.p3Zoom = null; }],
-    ["with the drawer open", () => { d.body.classList.add("resp-drawer-open"); d.press("Escape"); d.body.classList.remove("resp-drawer-open"); }],
     ["with the confirmation or a menu up", () => { d.sandbox.boardKeysLive = () => false; d.press("Escape"); d.sandbox.boardKeysLive = () => true; }],
   ];
   for (const [name, run] of holders) {
@@ -563,11 +562,6 @@ test("a press on the ticket list's empty area lets go of the card; a press on a 
   d.sandbox.editMode = false;
   d.doc.fire("pointerdown", pane, { button: 2 });
   assert.equal(d.browsing(), false, "a right press on the list unselected the card");
-  // the portrait drawer is a panel over the card: its empty area is not paper
-  d.body.dataset.respMode = "portrait";
-  d.pressOn(pane);
-  assert.equal(d.browsing(), false, "a press in the portrait drawer unselected the card");
-  d.body.dataset.respMode = "";
   d.pressOn(pane);
   assert.equal(d.browsing(), true);
 });

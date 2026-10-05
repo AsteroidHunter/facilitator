@@ -1712,6 +1712,16 @@ for (const type of ["gesturestart", "gesturechange"])
 <script src="/compose-format.js"></script>
 <script src="/m-splash.js"></script>
 <script>
+// Only the Mac's own same-origin frame can enable the host adapter. A direct
+// /m visit, including every iPhone visit, keeps the ordinary phone lifecycle.
+const macHost = (() => {
+  if (parent === window || new URLSearchParams(location.search).get("mac") !== "1") return null;
+  try {
+    if (parent.location.origin !== location.origin || !parent.macPhoneHost?.accepts(window)) return null;
+    return parent.macPhoneHost;
+  } catch (_) { return null; }
+})();
+if (macHost) window.macPhoneInactive = true;
 // the turn off mark asks before it signs out. Cancel and Escape put the
 // question away and change nothing; Log Out lets it fade, then signs out. while
 // it is up, a finger on it pulls nothing under it and a key pressed in it goes
@@ -3245,7 +3255,7 @@ function landCreate(op, result){
     lastState.boxes.splice(at + 1, 0, result.card);
   }
   if (op.fresh){ pendingFocus = result.id; closeDrawer(); }
-  else { selectedId = result.id; localStorage.setItem("selbox", result.id); }
+  else if (!globalThis.macPhoneInactive) { selectedId = result.id; localStorage.setItem("selbox", result.id); }
   if (lastState && lastState.boxes.some(b => b.id === result.id)) apply(lastState);
 }
 // the words of a message the board refused, or could not be reached for, go
@@ -3591,6 +3601,7 @@ function deselect(){
   reachLater();
 }
 function setTab(owner){
+  if (macHost && parent.macPhoneProject && owner !== parent.macPhoneProject) return;
   if (!validOwners.has(owner)) return;
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
@@ -3608,6 +3619,7 @@ function setTab(owner){
 // place in the list
 function barOwners(st){
   const all = allRowsOf(st);
+  if (macHost && parent.macPhoneProject) return all.filter(ow => ow === parent.macPhoneProject);
   const open = all.filter(ow => !tabShut(st, ow));
   return open.length ? open : all;
 }
@@ -4293,10 +4305,33 @@ function syncMenuAvailability(){
 // list of sections and always in its narrow form, since the panel is never wider
 // than 289px whatever the window. its back mark goes from a section to the list;
 // the shade and a swipe shut the panel
+if (macHost) {
+  // Mac capabilities stay in the retained host; the ordinary phone has no
+  // extra section. There is no loopback sign-in or phone push subscription.
+  document.getElementById("signout").style.display = "none";
+  const notifications = document.querySelector('#setsrc [data-section="notifications"]');
+  notifications.hidden = true;
+  const group = h("div"); group.dataset.section = "mac"; group.dataset.label = "Mac";
+  const row = h("div", "setrow"), label = h("label", "setlabel", "Reply chime");
+  const sound = h("input"); sound.type = "checkbox"; sound.id = "macchime";
+  sound.setAttribute("role", "switch"); label.htmlFor = sound.id;
+  sound.checked = !parent.chimeMuted();
+  sound.addEventListener("change", () => {
+    parent.document.getElementById("chimebtn").click(); sound.checked = !parent.chimeMuted();
+  });
+  row.append(label, sound);
+  const actions = h("div", "setact"), open = h("button", "sp-btn", "Open Mac board");
+  open.type = "button"; open.addEventListener("click", () => macHost.openMac());
+  actions.append(open, h("p", "sethelp", "Open files, Spotify, layout and Mac settings. Your phone view stays here."));
+  group.append(row, actions); document.getElementById("setsrc").append(group);
+}
 const settingsView = settingsPage(document.getElementById("setpage"), document.getElementById("setsrc"), {
   close: () => hideMenu(settings),
   narrow: { matches: true },
 });
+if (macHost) {
+  document.querySelector('#setpage [data-section="notifications"]').style.display = "none";
+}
 for (const panel of menus) panel.addEventListener("transitionend", e => {
   if (e.target === panel && e.propertyName === "transform")
     tracePhone("note", "drawer", { side: panel.dataset.side, phase: "end", shown: panel.classList.contains("open") });
@@ -6543,7 +6578,7 @@ listenResponseScroll();
 
 // ---- installing, and being told when a card turns to the reader's turn -------------------------
 let swReg = null;
-if ("serviceWorker" in navigator){
+if (!macHost && "serviceWorker" in navigator){
   const identifyWorker = () => {
     const controller = navigator.serviceWorker.controller;
     if (!controller || typeof MessageChannel !== "function") return;
@@ -6663,6 +6698,7 @@ function notifyState(on, note){
   notifyNote.textContent = note || "";
 }
 async function pushRegistration(){
+  if (macHost) return null;
   if (!("serviceWorker" in navigator)) return null;
   return swReg || navigator.serviceWorker.ready.catch(() => null);
 }
@@ -6747,6 +6783,7 @@ notifySwitch.addEventListener("change", async () => {
 // The worker is then asked to send the push records it has kept.
 let noticeCheckedAt = 0;
 async function noticeCheck(source){
+  if (macHost) return;
   const now = Date.now();
   if (source === "return" && now - noticeCheckedAt < 10000) return;
   noticeCheckedAt = now;
@@ -6768,6 +6805,59 @@ async function noticeCheck(source){
 document.addEventListener("visibilitychange", () => { if (!document.hidden) noticeCheck("return"); });
 window.addEventListener("pageshow", e => { if (e.persisted) noticeCheck("return"); });
 noticeCheck("start");
+
+if (macHost) {
+  const view = parent.MacPhoneView;
+  let composing = false;
+  document.addEventListener("compositionstart", () => { composing = true; }, true);
+  document.addEventListener("compositionend", () => { composing = false; macHost.refresh(); }, true);
+  const adapter = {
+    capture: () => ({ owner: activeOwner, id: selectedId, browsing, home: homeOpen,
+      rev: lastState?.rev, view: curView(), lastSel: { ...lastSel },
+      drafts: view.readDrafts(els, shelf) }),
+    ready: state => !!lastState &&
+      (!(Number.isFinite(state.rev) && Number.isFinite(lastState.rev)) || lastState.rev >= state.rev),
+    busy: () => composing || !!pendingFocus || !!autoNext || ops.length > 0 ||
+      !!document.querySelector('.title[contenteditable="true"]') ||
+      Object.values(els).some(el => el.trayHold || el.trayItems.some(it => it.state !== "done")),
+    prepare() {
+      // The Mac composer already represents attachments as upload URLs. Keep
+      // the same uploaded files; never upload twice or drop a failed square.
+      for (const el of Object.values(els)) {
+        if (!el.trayItems.length) continue;
+        const was = el.ta.value, start = el.ta.selectionStart, end = el.ta.selectionEnd;
+        const text = trayMessage(el, was), offset = text.length - was.length;
+        el.ta.value = text;
+        el.ta.setSelectionRange(start + offset, end + offset, el.ta.selectionDirection);
+        trayTake(el); el.tick();
+      }
+    },
+    restore(state) {
+      document.getElementById("macchime").checked = !parent.chimeMuted();
+      Object.assign(lastSel, state.lastSel);
+      const locked = parent.macPhoneProject;
+      if (validOwners.has(state.owner) && (!locked || state.owner === locked)) activeOwner = state.owner;
+      localStorage.setItem("activeproj", activeOwner);
+      setTicketViewOf(activeOwner, state.view);
+      // Shelf also holds empty drafts: an empty source must clear words that
+      // the hidden destination kept from an earlier visit.
+      for (const [id, saved] of Object.entries(state.drafts)) {
+        if (els[id]) view.writeDraft(els[id], saved);
+        else shelf[id] = { ...saved, top: saved.replyTop || 0 };
+      }
+      setHome(state.home);
+      if (state.id && lastState.boxes.some(b => b.id === state.id && b.owner === activeOwner)) {
+        select(state.id, { browse: true }); setBrowsing(state.browsing);
+      } else deselect();
+      apply(lastState);
+    },
+    focus(state) {
+      if (!state.home && state.id && state.drafts[state.id]?.focus) els[state.id]?.ta.focus({ preventScroll: true });
+    },
+  };
+  macHost.connect(window, adapter);
+  addEventListener("pagehide", () => macHost.lost(window));
+}
 </script>
 </body>
 </html>

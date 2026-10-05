@@ -2648,88 +2648,15 @@
   body.focus #respnav.toright{right:10px}
   body.focus #respnav.toleft{left:10px}
 
-  /* ---- portrait phone-style view ---------------------------------------- */
-  /* When the window is portrait or too narrow, the scaled landscape board is
-     dropped for a single readable column: the selected conversation fills the
-     width and the ticket list lives in a slide-in drawer. The same DOM stays
-     mounted, so drafts, the selected card and focus are all preserved and there
-     is no navigation to /m. The regions are position:fixed; with the stage's
-     transform removed they resolve against the viewport, so overriding a few
-     rules (with !important, to beat the per-tab inline layout styles) is enough
-     to reflow them. */
-  body[data-resp-mode="portrait"] #stage{
-    transform:none !important; left:0; top:var(--bar-h);
-    width:100vw; height:calc(100vh - var(--bar-h));
-  }
-  /* the conversation is a contained card sitting INSIDE the workspace frame,
-     not a full-bleed sheet pinned under the bar. edge to edge with its top on
-     --bar-h, the card's own top border landed on the row the seated project tab
-     opens onto, so the selected tab read as holding the card and the #appframe
-     boundary was hidden behind the white sheet. it keeps its own edge and
-     7px corners now (the base focus rule) and is inset from the frame's boundary
-     by --app-inset on every side, so a strip of board paper shows between the
-     frame and the card and the seated tab opens onto that workspace paper rather
-     than onto the card. the top additionally clears the frame's top line, the
-     --app-inset + --bar-h - 2px row the boundary is drawn on, before adding the
-     same paper gap. */
-  body[data-resp-mode="portrait"] main{
-    /* the frame's own inset from the window, plus one more of the same as the
-       paper gap that seats the card inside the boundary line */
-    --port-inset:calc(var(--app-inset) * 2);
-    position:fixed !important;
-    left:var(--port-inset) !important; right:var(--port-inset) !important;
-    bottom:var(--port-inset) !important;
-    top:calc(var(--app-inset) + var(--bar-h) - 2px + var(--app-inset)) !important;
-    width:auto !important; height:auto !important; max-height:none !important;
-  }
-  /* the ticket list becomes a left drawer, off-canvas until opened. the desktop
-     holder is transparent so its labels sit bare on the workspace; a drawer over
-     the conversation needs its own opaque paper, or the conversation shows
-     through the tab strip and the list. the list reaches a little past the
-     holder on desktop, so the drawer clips it: closed, it must not leave a
-     strip on the conversation's left edge that takes its taps, and open, it
-     must not take the taps meant for the scrim. */
-  body[data-resp-mode="portrait"] #tickets{
-    position:fixed !important; left:0 !important; top:var(--bar-h) !important;
-    width:min(86vw, 380px) !important; height:calc(100vh - var(--bar-h)) !important;
-    max-width:none; border-radius:0 !important; z-index:14; overflow:clip;
-    background:var(--paper) !important;
-    transform:translateX(-100%); transition:transform .26s ease;
-    box-shadow:2px 0 18px rgba(60,45,20,.18);
-  }
-  body[data-resp-mode="portrait"].resp-drawer-open #tickets{transform:translateX(0)}
-  /* on the frame the phone view is entered the drawer is placed without sliding;
-     only a button toggle animates it */
-  body.resp-noanim #tickets{transition:none !important}
-  /* the scrim behind the open drawer, tap to close */
-  #respscrim{display:none}
-  body[data-resp-mode="portrait"].resp-drawer-open #respscrim{
-    display:block; position:fixed; inset:var(--bar-h) 0 0 0; z-index:13;
-    background:rgba(40,32,16,.28);
-  }
-  /* the drawer button, sitting in the app bar */
-  #respdrawerbtn{display:none}
-  body[data-resp-mode="portrait"] #respdrawerbtn{
-    display:flex; align-items:center; justify-content:center;
-    position:fixed; left:8px; top:6px; z-index:15;
-    width:30px; height:30px; padding:0; border-radius:7px;
-    border:var(--edge) solid var(--line); color:var(--ink); cursor:pointer;
-    background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
-  }
-  body[data-resp-mode="portrait"] #respdrawerbtn:hover{border-color:var(--ink)}
-  /* the landscape-only regions and controls are not part of the phone column */
-  body[data-resp-mode="portrait"] #clockbox,
-  body[data-resp-mode="portrait"] #chips,
-  body[data-resp-mode="portrait"] #magic1,
-  body[data-resp-mode="portrait"] #magic2,
-  body[data-resp-mode="portrait"] #magic3,
-  body[data-resp-mode="portrait"] #magic4,
-  body[data-resp-mode="portrait"] #goalbox,
-  body[data-resp-mode="portrait"] #respnav,
-  /* the page switcher would float over the full-width card's composer here; it
-     stays a landscape control (page switching is still there in the wider modes
-     and in the phone app) */
-  body[data-resp-mode="portrait"] #pagepill{display:none !important}
+  /* The phone page owns every pixel in the narrow view. Keep the Mac's layout
+     boxes measurable underneath; inert prevents hidden controls taking input. */
+  #phoneview{position:fixed; inset:0; width:100%; height:100%; border:0; z-index:100000}
+  #phoneview[hidden], #phoneviewstatus[hidden], #phoneviewreturn[hidden]{display:none}
+  #phoneviewstatus, #phoneviewreturn{position:fixed; z-index:100001; bottom:12px;
+    left:50%; transform:translateX(-50%); max-width:90vw; padding:9px 14px;
+    color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:7px}
+  #phoneviewstatus{font:13px/1.4 system-ui}
+  body.phoneview-active > :not(#phoneview):not(#phoneviewstatus):not(script){visibility:hidden !important}
   /* regions absent from the ui_3 drawing stay dormant regardless of their
      own rule bodies */
   body.focus #wsl, body.focus #qchat, body.focus #taskbox,
@@ -3688,6 +3615,7 @@
 <script src="/board-settings.js"></script>
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
+<script src="/mac-phone-view.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
 <script>
@@ -5319,9 +5247,6 @@ function seatPagePill(){
 // whole board this asks for more height than the card has and nothing moves at
 // all, so the board only ever gives up room it does not have.
 function reserveFootRoom(floor){
-  // in the portrait phone view the card's height is set by the stylesheet, not by
-  // footer-room clamping, so leave it alone
-  if (document.body.dataset.respMode === "portrait") return;
   const card = document.querySelector("main");
   if (!card) return;
   // floor and the card top are screen pixels; the card lives in the scaled
@@ -5354,8 +5279,7 @@ addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
 document.addEventListener("pointerdown", e => {
   if (e.button || editMode || homeOpen) return;
   const t = e.target;
-  const listPaper = (t.id === "tiklist" || t.id === "tiksheet" || t.classList?.contains("tikpane")) &&
-    document.body.dataset.respMode !== "portrait";
+  const listPaper = (t.id === "tiklist" || t.id === "tiksheet" || t.classList?.contains("tikpane"));
   if (t === document.getElementById("stage") || t === document.body ||
       t === document.documentElement || listPaper) unselectShown();
 }, true);
@@ -10130,7 +10054,9 @@ function chimeRing(){
 // whether any of these replies is one to ring for
 function chimeWanted(turned){
   const front = document.visibilityState === "visible" && document.hasFocus();
-  const shown = homeOpen || activeOwner === DRAFT ? null : activeOwner;   // home and an unfinished tab show no project
+  const phone = window.macPhoneHost?.current();
+  const shown = phone ? (phone.home ? null : phone.owner) :
+    (homeOpen || activeOwner === DRAFT ? null : activeOwner);
   return turned.some(b => !front || (b.owner || "facilitator") !== shown);
 }
 
@@ -10259,7 +10185,7 @@ function boardResponseCard(){
   const cls = document.body.classList;
   const el = selectedId && els[selectedId];
   if (!FOCUS || !boardKeysLive() || miniFocused || p3Zoom || !el ||
-      cls.contains("setopen") || cls.contains("resp-drawer-open") ||
+      cls.contains("setopen") ||
       el.wtmenu?.classList.contains("open")) return null;
   return { id: selectedId, owner: activeOwner, el };
 }
@@ -10270,7 +10196,7 @@ function boardResponseCard(){
 function boardMoveLive(){
   const cls = document.body.classList;
   return FOCUS && !!lastState && boardKeysLive() && !miniFocused && !p3Zoom && !draft &&
-    !cls.contains("setopen") && !cls.contains("resp-drawer-open") &&
+    !cls.contains("setopen") &&
     !(selectedId && els[selectedId]?.wtmenu?.classList.contains("open"));
 }
 
@@ -10530,6 +10456,7 @@ const STAGE_W = 1440, STAGE_H = 900, STAGE_BAR = 41;
 const FRAME_CLEAR = 16;
 let stageScale = 1, stageTx = 0, stageTy = 0;
 let respMode = "wide";
+let phoneWanted = false;
 let lastFitW = null;   // innerWidth at the last fit; a height-only resize keeps it
 // the arrangeable regions, by id, used to measure how far the visible board
 // actually reaches so the fit shrinks only as much as real content needs
@@ -10544,14 +10471,6 @@ const RIGHT_REGIONS = ["magic2", "magic3", "magic4", "goalbox"];
 // narrower layout takes over. A small hysteresis band keeps the mode from
 // flapping while the corner is dragged across the threshold.
 const WIDE_FLOOR = 0.8, MODE_HYST = 0.04;
-// portrait takes over when the window is clearly taller than it is wide (a
-// portrait monitor: height at least this factor of width) or when the width is a
-// small enough fraction of the left+middle group's own width that the board is
-// no longer usable. Both are width/aspect facts read only on a fit trigger, so
-// the height-only freeze still holds. These two numbers are a visual choice and
-// meant to be tuned against screenshots; a near-square window stays landscape.
-const PORTRAIT_ASPECT = 1.2, PORTRAIT_FLOOR = 0.5;
-
 // the far right and foot of a set of visible regions, in stage-local design
 // pixels. Hidden regions (visibility:hidden via region-off) and display:none
 // regions do not count, so a board with no right column fits without their empty
@@ -10644,51 +10563,14 @@ function fitStage(){
 
   const heightScale = Math.min(1, availH / all.bottom);
   const prev = respMode;
-  // Mode is chosen from width and aspect only, so height never selects the mode:
-  // a short but wide window stays wide (just fit smaller), and a tall narrow one
-  // becomes portrait. Combined with the rule that this runs only on a fit trigger
-  // (load, width change, fullscreen), a plain vertical drag can never switch
-  // modes. WIDE_FLOOR and PORTRAIT_FLOOR are the fractions of the content's own
-  // width the window must exceed to stay wide or to avoid portrait; each boundary
-  // has a small hysteresis band so the mode does not flap on the threshold.
-  // Portrait wins first: a window taller than it is wide (a portrait monitor) or
-  // one too narrow to keep the left+middle group readable becomes the phone-style
-  // view instead of a tiny landscape board sitting in empty bands.
-  const aspectGate = PORTRAIT_ASPECT + (prev === "portrait" ? -0.06 : 0.06);
-  const portraitW = leftMid.right * (PORTRAIT_FLOOR + (prev === "portrait" ? -MODE_HYST : MODE_HYST));
+  // The existing wide/two-pane fit remains the Mac's layout. The live phone
+  // document covers it when the same portrait thresholds are crossed.
+  const phone = MacPhoneView.portrait(innerWidth, innerHeight, leftMid.right, phoneWanted);
+  phoneWanted = phone;
+  window.macPhoneHost?.request(phone);
   const wideW = all.right * (WIDE_FLOOR + (prev === "wide" ? -MODE_HYST : MODE_HYST));
-  if (innerHeight > innerWidth * aspectGate || innerWidth < portraitW){
-    respMode = "portrait";
-  } else if (respHasRight && innerWidth < wideW){
-    respMode = "twopane";
-  } else {
-    respMode = "wide";
-  }
+  respMode = respHasRight && innerWidth < wideW ? "twopane" : "wide";
   document.body.dataset.respMode = respMode;
-
-  if (respMode === "portrait"){
-    // phone-style: drop the scaled stage entirely and let the portrait stylesheet
-    // reflow the live regions into a single readable column with a drawer. The
-    // same DOM stays mounted, so the selected card, drafts and focus are kept and
-    // there is no navigation to /m.
-    if (prev !== "portrait"){
-      // place the drawer without a slide when the view is first entered
-      document.body.classList.add("resp-noanim");
-      requestAnimationFrame(() => requestAnimationFrame(() =>
-        document.body.classList.remove("resp-noanim")));
-    }
-    stageScale = 1; stageTx = 0; stageTy = 0;
-    stage.style.transform = "none";
-    document.body.style.backgroundPosition = "0px " + STAGE_BAR + "px";
-    // on-canvas arranging makes no sense in the reflowed column
-    if (document.body.classList.contains("editmode")) setEditMode(false);
-    lastFitW = innerWidth;
-    applyRespNav();
-    seatPagePill();
-    return;
-  }
-  // leaving portrait: make sure its drawer is not left open behind the board
-  document.body.classList.remove("resp-drawer-open");
 
   let scale, tx, ty;
   if (respMode === "twopane"){
@@ -10751,40 +10633,6 @@ function applyRespNav(){
   respNav.title = pane === 0 ? "show the right side" : "back to the left side";
 }
 
-// the portrait phone view's drawer: the ticket list slides in from the left over
-// the conversation, with a scrim behind it. Both controls only do anything while
-// the portrait stylesheet is active; the button and scrim are hidden otherwise.
-const respDrawerBtn = document.createElement("button");
-respDrawerBtn.id = "respdrawerbtn";
-respDrawerBtn.type = "button";
-respDrawerBtn.setAttribute("aria-label", "show the ticket list");
-respDrawerBtn.setAttribute("aria-expanded", "false");
-respDrawerBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
-const respScrim = document.createElement("div");
-respScrim.id = "respscrim";
-function openDrawer(on){
-  document.body.classList.toggle("resp-drawer-open", on);
-  respDrawerBtn.setAttribute("aria-expanded", on ? "true" : "false");
-}
-respDrawerBtn.addEventListener("click", () =>
-  openDrawer(!document.body.classList.contains("resp-drawer-open")));
-respScrim.addEventListener("click", () => openDrawer(false));
-// the scrim lives inside #stage, the drawer's own stacking context. #stage is
-// position:fixed, so it always forms a context; a scrim left on the body could
-// never sit between the conversation and the portrait drawer (z-index:14) that
-// is trapped inside #stage, and would paint over the whole drawer instead. Kept
-// in #stage it dims only the conversation and lets the drawer take the pointer,
-// while outside-click dismissal still works because the scrim covers the rest.
-// The drawer button stays on the body, above #stage, so it is always usable.
-if (document.body){
-  (document.getElementById("stage") || document.body).appendChild(respScrim);
-  document.body.appendChild(respDrawerBtn);
-}
-// picking a ticket in the drawer closes it so the chosen conversation is shown
-document.getElementById("tiklist")?.addEventListener("click", e => {
-  if (document.body.dataset.respMode === "portrait" && e.target.closest(".trow"))
-    setTimeout(() => openDrawer(false), 0);
-});
 // The board fits on load, on entering focus, and whenever the WIDTH changes or
 // the window enters or leaves fullscreen. A height-only resize is frozen on
 // purpose: the user asked that nothing move or rescale when the window is only
@@ -10836,7 +10684,12 @@ function onViewportResize(){
   // while a fullscreen transition is settling, follow the animating size past
   // the width freeze so the FINAL height is the one the board fits to
   if (fsSettling){ fitStage(); fsSettleBumpQuiet(); return; }
-  if (lastFitW !== null && innerWidth === lastFitW) return;   // height-only: freeze
+  // A height-only drag keeps landscape geometry, but may cross the phone's
+  // aspect boundary. Its hidden landscape boxes remain measurable.
+  const phone = MacPhoneView.portrait(innerWidth, innerHeight,
+    contentBounds(LEFT_MID_REGIONS).right, phoneWanted);
+  if (phone !== phoneWanted) { phoneWanted = phone; window.macPhoneHost?.request(phone); }
+  if (lastFitW !== null && innerWidth === lastFitW) return;   // landscape height-only: freeze
   fitStage();
 }
 addEventListener("resize", onViewportResize);
@@ -11144,7 +10997,6 @@ const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize",
   sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
 function setEditMode(on){
   if (!FOCUS) return;
-  if (on && document.body.dataset.respMode === "portrait") return;   // no canvas to arrange in the phone view
   if (on && !onBoardPage()) return;   // no board on this page, nothing to arrange
   editMode = on;
   document.body.classList.toggle("editmode", on);
@@ -12149,6 +12001,45 @@ installBtn.addEventListener("click", () => {
   try { offer.prompt(); } catch (e) {}
 });
 
+// The portrait view is the phone document itself. The adapter knows state,
+// never its layout. Both pages stay mounted, including every unsaved Mac panel.
+{
+  const view = MacPhoneView;
+  const adapter = {
+    capture: () => ({ owner: activeOwner, id: selectedId, browsing, home: homeOpen,
+      rev: lastState?.rev, view: curView(), lastSel: { ...lastSel },
+      drafts: view.readDrafts(els) }),
+    ready: state => !!lastState && ownerReady &&
+      (!(Number.isFinite(state.rev) && Number.isFinite(lastState.rev)) || lastState.rev >= state.rev),
+    busy: () => !!draft || !!autoNext || !!document.querySelector('.title[contenteditable="true"]') ||
+      Object.values(els).some(el => el.ta?.attachmentPending || el.sendsOut || el.sentHeld?.length),
+    restore(state) {
+      Object.assign(lastSel, state.lastSel);
+      if (validActiveOwnerIds.has(state.owner) && (!LOCKED || LOCKED === state.owner)) setTab(state.owner);
+      setTicketViewOf(activeOwner, state.view);
+      if (state.id && els[state.id] && lastState.boxes.some(b => b.id === state.id && b.owner === activeOwner)) {
+        select(state.id, { browse: true }); setBrowsing(state.browsing);
+      } else deselect();
+      setHome(state.home);
+      for (const [id, saved] of Object.entries(state.drafts)) view.writeDraft(els[id], saved);
+      if (lastState) renderCarousel(lastState);
+    },
+    focus(state) {
+      if (!state.home && state.id && state.drafts[state.id]?.focus) els[state.id]?.ta.focus({ preventScroll: true });
+    },
+  };
+  window.macPhoneProject = LOCKED;
+  window.macPhoneHost = view.createHost({ window, adapter,
+    childConnected(child) {
+      installChromeShortcutGuard(child);
+      for (const type of ["pointerdown", "click", "keydown"])
+        child.addEventListener(type, chimeEnsure, true);
+    },
+    changed() { fitStage(); },
+  });
+  window.macPhoneHost.request(phoneWanted);
+}
+
 // ---- the Mac page's browser shortcuts ------------------------------------------
 // Find and reload stay Chrome's. The card/editor commands and native window/OS
 // controls keep their existing paths; only the listed page defaults are held.
@@ -12177,9 +12068,9 @@ function chromeShortcutBlocked(e){
   return ["s", "p", "e", ".", "+", "=", "-", "0", "[", "]", "y", ","].includes(key);
 }
 
-function installChromeShortcutGuard(){
+function installChromeShortcutGuard(targetWindow = window){
   if (!/^Mac/.test(navigator.platform) && navigator.userAgentData?.platform !== "macOS") return;
-  addEventListener("keydown", e => {
+  targetWindow.addEventListener("keydown", e => {
     if (e.defaultPrevented || !e.cancelable || !chromeShortcutBlocked(e)) return;
     // Register last in the page so earlier window capture handlers have had
     // their turn. If one stopped here, only its browser default remains.
@@ -12189,7 +12080,7 @@ function installChromeShortcutGuard(){
     const clear = () => {
       clearTimeout(timer);
       for (const node of path){
-        if (node !== window) node.removeEventListener("keydown", afterCapture, true);
+        if (node !== targetWindow) node.removeEventListener("keydown", afterCapture, true);
         node.removeEventListener("keydown", afterBubble);
       }
     };
@@ -12201,10 +12092,10 @@ function installChromeShortcutGuard(){
     // canceling only where propagation ends, never swallowing an app handler.
     const afterCapture = event => { if (event === e && e.cancelBubble) cancel(); };
     const afterBubble = event => {
-      if (event === e && (e.cancelBubble || event.currentTarget === window || !e.bubbles)) cancel();
+      if (event === e && (e.cancelBubble || event.currentTarget === targetWindow || !e.bubbles)) cancel();
     };
     for (const node of path){
-      if (node !== window) node.addEventListener("keydown", afterCapture, true);
+      if (node !== targetWindow) node.addEventListener("keydown", afterCapture, true);
       node.addEventListener("keydown", afterBubble);
     }
     // Cleanup also covers a handler that cancels and stops immediately. A

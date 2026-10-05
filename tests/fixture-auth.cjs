@@ -16,7 +16,7 @@ const ROOT = path.resolve(__dirname, '..');
 // settings store, board-settings.js, before anything else.
 function copyBridgeFiles(dir) {
   for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js',
-                      'home-widgets.css', 'home-widgets.js', 'board-settings.js'])
+                      'home-widgets.css', 'home-widgets.js', 'board-settings.js', 'mac-phone-view.js'])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
   const anchor = 'return shutil.which("codex", path=path)';
   const limits = fs.readFileSync(path.join(ROOT, 'limits.py'), 'utf8');
