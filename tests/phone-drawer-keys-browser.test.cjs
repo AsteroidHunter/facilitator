@@ -652,7 +652,7 @@ const OLD_KEYS = [
   ["KeyU", ["Control"]], ["BracketLeft", []],
 ];
 
-test("the old bindings reach the card with no drawer out, and none of them does with one out", async () => {
+test("the old bindings reach the card with no drawer out, and only list actions do with it out", async () => {
   const { page } = await openPhone(ids.doing[5]);
   try {
     await page.evaluate(() => { document.activeElement && document.activeElement.blur(); });
@@ -668,7 +668,7 @@ test("the old bindings reach the card with no drawer out, and none of them does 
     const isStep = ([code, modifiers]) => STEPS.includes(code) && modifiers.length === 2;
     await chord(page, "Comma");
     await calls(page);
-    for (const key of OLD_KEYS.filter(k => !isStep(k) && k[0] !== "KeyS")) await chord(page, key[0], key[1], 120);
+    for (const key of OLD_KEYS.filter(k => !isStep(k) && k[0] !== "KeyS" && k[0] !== "Digit1")) await chord(page, key[0], key[1], 120);
     assert.deepEqual(await calls(page), [], "a key reached the card behind the open card list");
     await chord(page, "KeyS", ["Control"], 120);
     assert.deepEqual(await calls(page), ["responseScrollKey"], "the list did not take its scroll key");

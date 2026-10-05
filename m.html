@@ -6258,6 +6258,13 @@ function phoneDrawerScrollCard(){
 const menuShortcutActions = {
   diagnostic: phoneShortcutActions.diagnostic,
   cardsDrawer: phoneShortcutActions.cardsDrawer,
+  tab(e, shortcut){
+    if (!drawerOpen() || !lastState) return;
+    const ow = barOwners(lastState)[shortcut.value];
+    // Match the pill, including a press on the current project, while the
+    // ticket list stays out. Settings keep project keys switched off.
+    if (ow){ e.preventDefault(); chooseRow({ dataset: { owner: ow } }); }
+  },
   responseScroll(e){
     if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
     // The list owns the chord even with one of its buttons focused. Its own
