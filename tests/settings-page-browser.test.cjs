@@ -1294,11 +1294,13 @@ test("phone: the turn off mark stands at the foot of the drawer, the license bes
       const style = getComputedStyle(button);
       const link = document.getElementById("setlicense"), lb = link.getBoundingClientRect(), ls = getComputedStyle(link);
       return { below: Math.round(drawer.bottom - icon.bottom),
-               right: Math.round(drawer.right - icon.right),
+               centerOffset: (lb.left + box.right - drawer.left - drawer.right) / 2,
+               gap: box.left - lb.right,
+               cssGap: getComputedStyle(document.getElementById("setfootline")).columnGap,
                icon: [icon.width, icon.height], color: style.color, fill: style.backgroundColor, border: style.borderTopStyle,
                reached: document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2)?.closest("#signout") === button,
                license: { words: link.textContent, href: link.getAttribute("href"), target: link.target, rel: link.rel,
-                          left: Math.round(lb.left + parseFloat(ls.paddingLeft) - drawer.left), sameLine: Math.round((lb.top + lb.bottom - icon.top - icon.bottom) / 2),
+                          sameLine: Math.round((lb.top + lb.bottom - icon.top - icon.bottom) / 2),
                           color: ls.color, size: ls.fontSize, family: ls.fontFamily === getComputedStyle(document.getElementById("signoutnote")).fontFamily,
                           underline: ls.textDecorationLine,
                           reached: document.elementFromPoint((lb.left + lb.right) / 2, (lb.top + lb.bottom) / 2) === link } };
@@ -1306,9 +1308,10 @@ test("phone: the turn off mark stands at the foot of the drawer, the license bes
     const list = await foot();
     assert.deepEqual(list.icon, [16, 16], "the power mark is not 16px");
     assert.equal(list.below, 16, "the mark does not stand 16px up from the drawer's foot");
-    // one line: the license's name at the left margin, the mark at the right, the same margin
-    assert.ok(Math.abs(list.right - list.license.left) <= 1, "the mark and the license's words are not the same distance from the drawer's sides: " + JSON.stringify([list.right, list.license.left]));
-    assert.ok(list.right >= 16 && list.right <= 24, "the margin of the foot's line: " + list.right);
+    // one centered pair, with the small spacing token between their padded touch areas
+    assert.ok(Math.abs(list.centerOffset) <= 1, "the license and power button are not centered together: " + list.centerOffset);
+    assert.equal(list.cssGap, "8px", "the footer does not resolve the small spacing token to 8px");
+    assert.ok(Math.abs(list.gap - 8) <= 0.1, "the controls are spread apart instead of sharing the small gap: " + list.gap);
     assert.equal(list.license.sameLine, 0, "the license is not on the mark's line");
     assert.equal(list.license.words, "Facilitator License");
     assert.equal(list.license.href, "https://github.com/AsteroidHunter/facilitator/blob/main/LICENSE.md");
