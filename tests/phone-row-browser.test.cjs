@@ -128,10 +128,10 @@ test("the settings circle holds the logo's own squid png, cut to the squid, 30 u
     await page.waitForFunction(() => document.querySelector("#setbtn img").complete);
     const mark = await page.evaluate(() => {
       const img = document.querySelector("#setbtn img"), box = document.querySelector("#setbtn .squidmark").getBoundingClientRect();
-      return { src: new URL(img.src).pathname, natural: [img.naturalWidth, img.naturalHeight], w: box.width, h: box.height };
+      return { src: img.getAttribute("src"), natural: [img.naturalWidth, img.naturalHeight], w: box.width, h: box.height };
     });
-    assert.equal(mark.src, "/m-splash-squid.png", "the mark is not the logo's own png");
-    assert.deepEqual(mark.natural, [1247, 1261], "the logo png did not load");
+    assert.match(mark.src, /^data:image\/png;base64,/, "the mark is not embedded");
+    assert.deepEqual(mark.natural, [98, 120], "the embedded logo png did not load");
     assert.ok(mark.h > 28 && mark.h <= 30, "the squid is not 30 units tall at the row's rest size: " + mark.h);
     assert.ok(Math.abs(mark.w / mark.h - 917 / 1126) < 0.02, "the cut is not the squid's own proportions");
     // drawn at the row's rest size, and still inside its circle
