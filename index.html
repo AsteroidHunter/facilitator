@@ -10802,6 +10802,13 @@ const boardShortcutActions = {
 
 addEventListener("keydown", e => {
   if (!FOCUS) return;
+  // Home shares the tab keys, but has no card for the other board commands.
+  // Keep settings and page menus in charge while they are open over Home.
+  if (homeOpen){
+    if (!pageWarn && !pageMenu && !setOpen)
+      dispatchCardShortcut(e, { tab: boardShortcutActions.tab });
+    return;
+  }
   // the board's commands belong to the board: a blank page has no cards for
   // them to walk, close or create on, and while the confirmation window is up
   // the keys are its own
