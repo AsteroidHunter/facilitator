@@ -20,7 +20,7 @@ async function revealTab(page, name) {
     const selection = () => ({ view: curView(), card: selectedId,
       target: document.getElementById("tiksheet").style.transform });
     const before = await page.evaluate(selection);
-    await clickHeaderControl(page, "tik-page");
+    await clickHeaderControl(page, name === "todo" || name === "docked" ? "tik-page-back" : "tik-page");
     await page.$eval("#tiklabels", el => Promise.all(el.getAnimations().map(a => a.finished)));
     assert.deepEqual(await page.evaluate(selection), before, "paging the names changed the list or selected card");
   }
@@ -38,7 +38,7 @@ async function headerControlPoint(page, id) {
   }, id);
   assert.ok(box.width > 0 && box.height > 0 && !box.inert, `${id} has no active click area`);
   assert.equal(box.hit, id, `${id} centre (${box.x}, ${box.y}) hits ${box.hit}`);
-  assert.equal(box.insideNames, id !== "tik-page", `${id} is on the wrong side of the clipped names viewport`);
+  assert.equal(box.insideNames, !id.startsWith("tik-page"), `${id} is on the wrong side of the clipped names viewport`);
   return box;
 }
 async function clickHeaderControl(page, id) {

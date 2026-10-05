@@ -1090,6 +1090,7 @@
   body.listout #tikwin{will-change:transform}
   #tickets{
     --line-gap:calc(6 * var(--u)); --list-share:.9;
+    --tik-inset-l:var(--edge-drawn); --tik-inset-r:var(--edge-drawn);
     position:absolute; pointer-events:auto;
     left:calc(var(--pg-l) + (100% - var(--pg-l) - var(--pg-r)) * (1 - var(--list-share)) / 2);
     width:calc((100% - var(--pg-l) - var(--pg-r)) * var(--list-share));
@@ -1110,9 +1111,9 @@
     transition:transform var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
   body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
   #tickets.live{visibility:visible; --menuwait:0s; will-change:transform}
-  /* Inherited visibility alone would expose the arrow throughout the slide. */
-  #tickets #tik-page{visibility:hidden; pointer-events:none}
-  #tickets.open.drawer-settled #tik-page{visibility:visible; pointer-events:auto}
+  /* Inherited visibility alone would expose the arrows throughout the slide. */
+  #tickets .tik-page{visibility:hidden; pointer-events:none}
+  #tickets.open.drawer-settled .tik-page{visibility:visible; pointer-events:auto}
   /* the settings cross over the page from the right edge along one straight
      sideways line, at full strength for every frame of it: nothing about them
      rises, sinks or fades. the depth is carried under them, by the shade that
@@ -1168,7 +1169,7 @@
   #tikhead::after{
     content:""; position:absolute; pointer-events:none;
     top:calc(100% + var(--line-gap));
-    left:var(--edge-drawn); right:var(--edge-drawn); height:0;
+    left:0; right:0; height:0;
     border-top:var(--edge) solid var(--line);
   }
   /* the list's tabs reuse the tabs' type and spacing, two visible equal segments,
@@ -1231,9 +1232,9 @@
   .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
     -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:calc(6 * var(--u));
     padding:calc(var(--edge-drawn) + 10 * var(--u))
-            calc(var(--list-side) + var(--edge-drawn))
+            calc(var(--list-side) + var(--tik-inset-r))
             calc(var(--list-air) + var(--edge-drawn) + 10 * var(--u))
-            calc(var(--list-side) + var(--edge-drawn));
+            calc(var(--list-side) + var(--tik-inset-l));
     scroll-padding-block:var(--listfade);
     -webkit-mask-image:linear-gradient(to bottom,
       rgba(0,0,0,0) 0,
@@ -1614,7 +1615,7 @@ for (const type of ["gesturestart", "gesturechange"])
       </div><div class="tikpair">
         <button id="tv-deferred" inert aria-hidden="true" class="ptab tvb" type="button">Deferred</button>
         <button id="tv-done" inert aria-hidden="true" class="ptab tvb" type="button">Done</button>
-      </div></div></div><button id="tik-page" class="qn-glass" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button>
+      </div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button>
     </div>
     <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
   </aside></div>
@@ -4253,7 +4254,8 @@ function setView(v){
 }
 document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
 document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
-document.getElementById("tik-page").addEventListener("click", slideTicketNames);
+document.getElementById("tik-page-back").addEventListener("click", () => slideTicketNames(0));
+document.getElementById("tik-page").addEventListener("click", () => slideTicketNames(1));
 document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
 document.getElementById("tv-done").addEventListener("click", () => setView("done"));
 // press feedback, as on the board: every name, selected or not, takes .pressed

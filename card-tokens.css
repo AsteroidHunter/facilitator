@@ -137,9 +137,10 @@
 .topbar:has(> .dockbtn[aria-disabled="true"]) .sunbtn svg{opacity:1}
 .dockbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
 
-/* Two ticket names at a time. The clipped triangle itself is the complete
-   hit area, with its tip on the ticket holder's edge. The head's top padding
-   is excluded so the triangle and the names share their vertical centre. */
+/* The head and the ticket border boxes share the pane's side insets. Each
+   triangle points at that edge from inside the box, and its clipped shape is
+   its complete hit area. Exclude the head's top padding from vertical centring. */
+#tikhead{margin:0 var(--tik-inset-r) 0 var(--tik-inset-l)}
 #tiknames{
   flex:1; min-width:0; margin:0 max(10%, var(--bar-mark)); overflow:clip;
 }
@@ -147,7 +148,7 @@
 #tiklabels .tikpair{display:flex; flex:0 0 100%; min-width:0; gap:calc(4 * var(--u))}
 #tikhead .tvb{min-width:0}
 @media (prefers-reduced-motion: reduce){#tiklabels{transition:none}}
-#tikhead #tik-page{
+#tikhead .tik-page{
   position:absolute; right:0; left:auto;
   top:calc(50% + 3 * var(--u)); transform:translateY(-50%);
   width:var(--bar-mark); height:var(--bar-mark); min-width:0; min-height:0;
@@ -157,9 +158,10 @@
   --qn-face:rgba(30,30,30,.77); --qn-edge:.6;
   background-color:var(--qn-face);
 }
-#tikhead #tik-page.back{left:0; right:auto; transform:translateY(-50%) scaleX(-1)}
-#tikhead #tik-page:active{--qn-edge:.35}
-#tikhead #tik-page:focus-visible{background-color:var(--ink)}
+#tikhead .tik-page.back{left:0; right:auto; transform:translateY(-50%) scaleX(-1)}
+#tikhead .tik-page[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
+#tikhead .tik-page:not([aria-disabled="true"]):active{--qn-edge:.35}
+#tikhead .tik-page:not([aria-disabled="true"]):focus-visible{background-color:var(--ink)}
 
 /* ---- the owner's grey ---------------------------------------------------- */
 /* --bubble-fill is the grey the owner's own words stand on: the panel of the

@@ -884,10 +884,12 @@ function chooseTicketNames(view){
   tikNamesView = view;
   tikNamesPage = ticketPageOf(view);
 }
-function slideTicketNames(){
+function slideTicketNames(page){
   paintViewTabs();
+  const arrow = document.getElementById(page ? "tik-page" : "tik-page-back");
+  if (chipOff(arrow)) return;
   cancelTicketNamesReturn();
-  tikNamesPage = 1 - tikNamesPage;
+  tikNamesPage = page;
   paintViewTabs();
   if (tikNamesPage === 1){
     const owner = activeOwner;
@@ -939,11 +941,13 @@ function paintViewTabs(){
   }
   const labels = document.getElementById("tiklabels");
   if (labels) labels.style.transform = "translateX(" + (-page * 100) + "%)";
-  const arrow = document.getElementById("tik-page");
-  if (arrow){
-    arrow.classList.toggle("back", page === 1);
-    arrow.setAttribute("aria-label", page ? "show Doing and Docked" : "show Deferred and Done");
-    arrow.title = page ? "Doing and Docked" : "Deferred and Done";
+  for (const [id, target] of [["tik-page-back", 0], ["tik-page", 1]]){
+    const arrow = document.getElementById(id);
+    if (!arrow) continue;
+    const off = page === target;
+    if (off) arrow.setAttribute("aria-disabled", "true");
+    else arrow.removeAttribute("aria-disabled");
+    arrow.tabIndex = off ? -1 : 0;
   }
 }
 // doing, docked, deferred and done are four adjacent sections of one horizontal sheet

@@ -163,7 +163,11 @@ test("touch scrolling never shows a keyboard pick before a hardware key", () => 
 test("the drawer has no end spacer CSS, sizing or scroll compensation", () => {
   assert.equal(/--pick-(?:head|foot)|sizeDrawerEnds/.test(html), false, "end spacers must be removed");
   // Keep just the original small insets that give the ticket shadows room.
-  assert.equal(cssValue(cssRule(html, ".tikpane"), "padding"),
+  // Resolve the side insets now shared with the header before comparing, so
+  // this still catches any change in the drawer's actual spacing.
+  const padding = cssValue(cssRule(html, ".tikpane"), "padding")
+    .replace(/var\((--tik-inset-[lr])\)/g, (_, name) => cssValue(cssRule(html, "#tickets"), name));
+  assert.equal(padding,
     "calc(var(--edge-drawn) + 10 * var(--u)) calc(var(--list-side) + var(--edge-drawn)) " +
     "calc(var(--list-air) + var(--edge-drawn) + 10 * var(--u)) calc(var(--list-side) + var(--edge-drawn))");
   assert.doesNotMatch(between("let drawerKeyboardUsed =", "// Keep only the start, first intended move"),
