@@ -42,6 +42,8 @@ function world() {
   const cards = { addEventListener: on("#cards"), clientWidth: 360 };
   const panel = side => ({ dataset: { side } });
   const tickets = panel("left"), settings = panel("right");
+  // This gesture fixture has no ticket panes, just like its document query below.
+  tickets.querySelectorAll = () => [];
   const document = {
     addEventListener: on("document"), body, activeElement: body,
     getElementById: id => id === "cards" ? cards : id === "pane" ? { classList: classList() } : null,
