@@ -9,6 +9,9 @@ const html = readFileSync(process.env.DRAWER_FLICK_SOURCE || path.join(__dirname
 const start = html.indexOf('{\n  const EDGE = 28;    // how far in from an edge a pull may begin');
 const finish = html.indexOf("\n// the list's fades, the board's own:", start);
 assert.ok(start > 0 && finish > start, 'drawer listener block is present');
+const policyStart = html.indexOf('function menuAvailable(panel){');
+const policyEnd = html.indexOf('\nfunction syncMenuAvailability(){', policyStart);
+assert.ok(policyStart > 0 && policyEnd > policyStart, 'menu availability policy is present');
 
 function fixture({ open = null, width = 300, mouse = false } = {}) {
   const listeners = new Map(), paints = [], runs = [], classes = new Set();
@@ -16,7 +19,7 @@ function fixture({ open = null, width = 300, mouse = false } = {}) {
   let shown = open === 'left' ? tickets : open === 'right' ? settings : null;
   let x = 0, y = 400;
   const context = vm.createContext({
-    tickets, settings, innerWidth: 390,
+    tickets, settings, innerWidth: 390, homeOpen: false,
     performance: { now: () => 10000 }, // delivery time is deliberately unrelated to event time
     document: {
       addEventListener: (type, fn, options) => listeners.set(type, { fn, options }),
@@ -33,7 +36,7 @@ function fixture({ open = null, width = 300, mouse = false } = {}) {
       classes.delete('menudrag');
     },
   });
-  vm.runInContext(html.slice(start, finish), context);
+  vm.runInContext(html.slice(policyStart, policyEnd) + '\n' + html.slice(start, finish), context);
   function fire(kind, t, px = x, py = y, extra = {}) {
     x = px; y = py;
     const type = mouse ? { start: 'mousedown', move: 'mousemove', end: 'mouseup', cancel: 'touchcancel' }[kind]
