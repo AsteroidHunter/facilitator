@@ -510,13 +510,13 @@ test("the Home center mirrors its existing SVG as an inert vector without IDs or
   for (const scale of [1, 1.04, 1.1]) { f.seat.face.pressScale = scale; f.context.paintLenses(); assertCopyPosition(f, source); }
 });
 
-test("Home is bare, keeps its original artwork/accessibility, and Plus retains its glass", () => {
+test("Home is bare, keeps its original artwork/accessibility, and Plus is also bare", () => {
   const house = html.match(/<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)<\/button>/);
   assert.ok(house); assert.doesNotMatch(house[0], /class="qn-glass"/);
   assert.match(house[0], /type="button".*aria-label="Home".*aria-pressed="false"/);
   assert.match(house[1], /width="15" height="15" viewBox="0 0 24 24"/);
   assert.match(house[1], /<path d="M3 10\.5 12 3l9 7\.5"\/><path d="M5\.5 9\.5V21h13V9\.5"\/>/);
   assert.match(html, /body\.focus #homeico\{background:none; border:none; box-shadow:none\}/);
-  assert.match(html, /const tabPlus = h\("button", "ptabplus qn-glass"\)/);
+  assert.match(html, /const tabPlus = h\("button", "ptabplus"\)/);
   assert.doesNotMatch(html, /workspaceTransition|projectEntrance|project-enter|navigateWorkspace|navigateTab/);
 });

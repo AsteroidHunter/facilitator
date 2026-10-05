@@ -2978,9 +2978,7 @@
     z-index:2; box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* the others glide aside on the board's one 220ms curve, never teleport */
   .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  /* the plus: opens a fresh project tab. it is a glass circle of its own after
-     the oval of names (the bar's glass, below), so it never reads as one of
-     them */
+  /* the bare plus opens a fresh project tab after the project names */
   /* the not-yet-named tab while its folder is being chosen: upright, in the
      board's own bold (the weight an unread tab takes) */
   .ptab.draft{color:var(--ink); background:var(--seat); border-color:var(--line);
@@ -3056,10 +3054,9 @@
 
   /* ---- the bar's glass ---------------------------------------------------- */
   /* the bar's controls are drawn as the phone's bottom row draws its buttons
-     (#dock in m.html): each is a piece of the board's glass (.qn-glass), with
-     the row's edge, its press and nothing behind it but the paper. the house,
-     the speaker, the plus and the squid are 32px circles, the row's 48px at two
-     thirds, so each mark keeps the share of its circle it has on the phone (the
+     (#dock in m.html): the speaker and squid keep the board's glass (.qn-glass),
+     while Home and plus are bare marks. All four keep 32px hit areas, the row's
+     48px at two thirds, so each mark keeps the share of its area it has on the phone (the
      squid's 20px in 32 is the phone's 30 in 48, and the 15px house and speaker
      are the phone's 22px ticket in 48). the project names stand on the page,
      with a lens of the same height over the selected name. Its material uses
@@ -3084,7 +3081,7 @@
       0 1px 2px -1px rgba(0,0,0,.18),
       0 1px 3px rgba(0,0,0,.07),
       0 8px 20px rgba(0,0,0,.06)}
-  /* the circles: the mark centred, in the sub ink and the full ink under a
+  /* the controls: the mark centred, in the sub ink and the full ink under a
      pointer as the bare marks were, and the house in the full ink while home
      is up */
   body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus){
@@ -3154,10 +3151,11 @@
   body.focus #tabrow .tabseat.pressed .seatlens{transform:scale(1.1); --qn-edge:3.5;
     transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle)}
   body.focus #tabrow :is(.tabseat.carried, .tabheld){z-index:4}
-  /* the plus: its own circle after the oval, its two bars the house's line,
+  /* the plus: a bare mark after the names, its two bars the house's line,
      in the ink at three quarters as the typed plus was, and full under a
      pointer */
-  body.focus #tabbar .ptabplus{color:color-mix(in srgb, var(--ink) 75%, transparent)}
+  body.focus #tabbar .ptabplus{background:none; border:none; box-shadow:none;
+    color:color-mix(in srgb, var(--ink) 75%, transparent)}
   body.focus #tabbar .ptabplus:hover{color:var(--ink)}
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
@@ -4008,8 +4006,8 @@ function renderTabs(st){
       oval.appendChild(t);
       seatWatch.observe(t, { box: "border-box" });
     }
-    // the plus is a glass circle of its own after the oval, never one of the
-    // names, and like the seat it is kept from one rebuild to the next
+    // the bare plus follows the names and, like the seat, is kept from one
+    // rebuild to the next
     if (!LOCKED) bar.appendChild(tabPlus);
   }
   // closing a tab is a class flip and never a rebuild, so the crosses learn
@@ -4299,7 +4297,7 @@ function seatSoon(){
 // whole box is watched, since the close band is padding. the watch is answered
 // after the layout it reports, so it places the seat at once
 const seatWatch = new ResizeObserver(() => placeSeat());
-const tabPlus = h("button", "ptabplus qn-glass");
+const tabPlus = h("button", "ptabplus");
 tabPlus.type = "button";
 tabPlus.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 tabPlus.title = "new project tab";
