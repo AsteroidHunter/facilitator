@@ -1,6 +1,6 @@
-// The Mac board's top bar in the phone's glass: the house, the speaker, the plus
-// and the squid as glass circles drawn as the phone's bottom row draws its
-// buttons, bare project names with one refracting lens above the
+// The Mac board's top bar: bare Home and plus marks, the speaker and squid
+// as glass circles drawn as the phone's bottom row draws its buttons,
+// bare project names with one refracting lens above the
 // open one that slides to the project chosen, and the workspace on a glass pane
 // that keeps the old outline's rectangle with clear paper between it and the
 // bar. Driven on a throwaway board at 1512 by 982; nothing reads the real board.
@@ -287,10 +287,10 @@ test("clean copies stay aligned during real press, drag and width-settling frame
   } finally { await context.close(); }
 });
 
-test("the speaker, the plus and the squid remain glass circles drawn as the phone's row draws them", async () => {
+test("the speaker and the squid remain glass circles drawn as the phone's row draws them", async () => {
   const { context, page } = await fx.openBoard(null, VIEW);
   try {
-    const pieces = await page.evaluate(() => ["#chimebtn", "#tabbar .ptabplus", "#setbtn"].map(sel => {
+    const pieces = await page.evaluate(() => ["#chimebtn", "#setbtn"].map(sel => {
       const el = document.querySelector(sel), cs = getComputedStyle(el), box = el.getBoundingClientRect();
       const mark = el.querySelector("svg, .squidmark").getBoundingClientRect();
       return { sel, glass: el.classList.contains("qn-glass"), w: box.width, h: box.height, top: box.top,
@@ -351,7 +351,7 @@ test("names sit directly on the page and one 32px lens slides and resizes to the
     assert.equal(oval.face, "rgba(0, 0, 0, 0)");
     assert.equal(oval.shadow, "none"); assert.equal(oval.backdrop, "none");
     assert.deepEqual(oval.names, oval.order, "the oval does not hold the board's names in its order");
-    assert.equal(oval.plusAfter, true, "the plus is not its own circle right after the oval");
+    assert.equal(oval.plusAfter, true, "the plus is not right after the names");
 
     await show(page, garden);
     await seatStill(page);
@@ -401,7 +401,7 @@ test("Home and project button activation move the same selection lens", async ()
     });
     assert.equal(home.same, true); assert.equal(home.lenses, 1); assert.equal(home.duplicateHome, 1);
     assert.equal(home.glass, false); assert.equal(home.face, "rgba(0, 0, 0, 0)"); assert.equal(home.shadow, "none");
-    assert.equal(home.pressed, "true"); assert.deepEqual(home.copy, home.paths); assert.equal(home.plus, true);
+    assert.equal(home.pressed, "true"); assert.deepEqual(home.copy, home.paths); assert.equal(home.plus, false);
     const first = await page.$eval("#tabbar .ptab:not(.closed)", t => t.dataset.owner);
     // Home keeps board shortcuts disabled. Native focused-button activation
     // is the supported keyboard path here; do not add a new global route.
