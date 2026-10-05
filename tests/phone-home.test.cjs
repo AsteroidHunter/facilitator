@@ -158,8 +158,8 @@ test("while home is up no project is checked, the capsule reads Home, the card i
   assert.match(pick, /if \(twice\) closeDrawer\(\);/, "only a second ticket tap shuts the list");
   assert.match(between(PHONE, "if (pendingFocus && els[pendingFocus]){", "\n  }\n"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(id\);/);
   assert.match(between(PHONE, "function goToBox(id){", "\n}\n"), /^function goToBox\(id\)\{\n  if \(homeOpen\) setHome\(false\);/);
-  // the keys: only the diagnostic save answers on home
-  assert.match(PHONE, /const homeShortcutActions = \{ diagnostic: phoneShortcutActions\.diagnostic \};/);
+  // Home answers diagnostics and project switching, with no card actions.
+  assert.match(PHONE, /const homeShortcutActions = \{\s*diagnostic: phoneShortcutActions\.diagnostic,\s*tab: phoneShortcutActions\.tab,\s*\};/);
   assert.match(PHONE, /dispatchCardShortcut\(e, homeOpen \? homeShortcutActions : phoneShortcutActions\);/);
   // signing out forgets it with the open tab and card
   assert.match(PHONE, /\["pendops", "selbox", "activeproj", "homeopen"\]/);

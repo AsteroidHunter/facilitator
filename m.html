@@ -6528,9 +6528,13 @@ const phoneShortcutActions = {
     createCard();
   },
   tab(e, shortcut){
-    if (!lastState) return;
+    if (!lastState || (homeOpen && menuOut())) return;
     const ow = barOwners(lastState)[shortcut.value];
-    if (ow){ e.preventDefault(); setTab(ow); }
+    if (ow){
+      e.preventDefault();
+      if (homeOpen) chooseRow({ dataset: { owner: ow } });
+      else setTab(ow);
+    }
   },
   // the first Escape leaves the reply box; the next one unselects the card,
   // which stays on screen browsed. a key something else answered first, or
@@ -6582,9 +6586,11 @@ const phoneShortcutActions = {
   },
 };
 
-// while the home page is up the board's keys are off, as on the board: there is
-// no card on screen to walk, close or move. the diagnostic save still answers
-const homeShortcutActions = { diagnostic: phoneShortcutActions.diagnostic };
+// Home shares project switching and diagnostics, but has no card to act on.
+const homeShortcutActions = {
+  diagnostic: phoneShortcutActions.diagnostic,
+  tab: phoneShortcutActions.tab,
+};
 
 // a key brings its menu out, swapping it for the one that is out, and shuts it
 // when it is the one that is out

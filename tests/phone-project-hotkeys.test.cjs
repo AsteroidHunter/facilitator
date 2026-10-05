@@ -81,7 +81,7 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
   run(between("const phoneShortcutTyping =", "// a tap anywhere on the card on screen"));
   run(between('addEventListener("keydown", e => {\n  dispatchCardShortcut(e, homeOpen', "// releases, other keys"));
   run('setTicketViewOf("beta", "deferred"); renderTickets(lastState);');
-  const snapshot = () => ({ owner: context.activeOwner, selected: context.selectedId, browsing: context.browsing,
+  const snapshot = () => ({ home: context.homeOpen, owner: context.activeOwner, selected: context.selectedId, browsing: context.browsing,
     drawer: context.drawerOpen(), projects: context.projOpen(), view: run("curView()"),
     rows: Object.fromEntries(Object.entries(panes).map(([view, p]) => [view, p.rows.map(r => r.dataset.id)])),
     highlighted: Object.values(panes).flatMap(p => p.rows.filter(r => r.classList.contains("on")).map(r => r.dataset.id)),
@@ -154,8 +154,8 @@ test("the closed drawer keeps its existing current-project and other-project sho
   assert.equal(f.snapshot().drawer, false);
 });
 
-test("settings, home, missing state and unavailable numbers do not switch projects", () => {
-  for (const opts of [{ menu: "settings" }, { home: true }, { missing: true }, { number: "9" }, { number: "0" }]) {
+test("settings, missing state and unavailable numbers do not switch projects", () => {
+  for (const opts of [{ menu: "settings" }, { menu: "settings", home: true }, { missing: true }, { number: "9" }, { number: "0" }]) {
     const f = fixture(opts);
     if (opts.home) f.context.homeOpen = true;
     if (opts.missing) f.context.lastState = null;
@@ -180,4 +180,48 @@ test("Control+Shift+M is inert and propagates while off in Home, either drawer a
       assert.deepEqual(f.snapshot().calls.at(-1), ["diagnostic", "shortcut"]);
     }
   }
+});
+
+for (const [number, owner, selected] of [["1", "alpha", "a1"], ["2", "beta", "b2"], ["3", "empty", null]]) {
+  test(`Command+${number} on phone Home opens ${owner} exactly like its pill row`, () => {
+    for (const projectsOpen of [false, true]) {
+      for (const embedded of [false, true]) {
+        const key = fixture({ menu: null, projectsOpen }), pill = fixture({ menu: null, projectsOpen });
+        for (const f of [key, pill]) {
+          f.context.homeOpen = true;
+          f.context.macHost = embedded ? {} : null;
+          f.context.parent = { macPhoneProject: null };
+        }
+        pill.pill(owner);
+        assert.equal(key.key(number).defaultPrevented, true);
+        assert.deepEqual(key.snapshot(), pill.snapshot());
+        assert.equal(key.snapshot().home, false);
+        assert.equal(key.snapshot().owner, owner);
+        assert.equal(key.snapshot().selected, selected);
+        assert.equal(key.snapshot().projects, false);
+        assert.deepEqual(key.snapshot().read, []);
+      }
+    }
+  });
+}
+
+test("phone Home leaves missing state, unavailable numbers and card commands alone", () => {
+  for (const opts of [{ missing: true }, { number: "9" }, { number: "0" },
+    { number: "t" }, { number: "ArrowLeft", metaKey: false }]) {
+    const f = fixture({ menu: null }); f.context.homeOpen = true;
+    if (opts.missing) f.context.lastState = null;
+    const before = f.snapshot();
+    assert.equal(f.key(opts.number || "2", { metaKey: opts.metaKey ?? true }).defaultPrevented, false);
+    assert.deepEqual(f.snapshot(), before);
+  }
+});
+
+test("phone Home in a locked Mac frame numbers only its allowed project", () => {
+  const f = fixture({ menu: null });
+  Object.assign(f.context, { homeOpen: true, macHost: {}, parent: { macPhoneProject: "beta" } });
+  assert.equal(f.key("2").defaultPrevented, false);
+  assert.equal(f.snapshot().home, true);
+  assert.equal(f.key("1").defaultPrevented, true);
+  assert.equal(f.snapshot().home, false);
+  assert.equal(f.snapshot().owner, "beta");
 });

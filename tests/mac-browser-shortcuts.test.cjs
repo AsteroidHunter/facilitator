@@ -22,7 +22,7 @@ function world({ platform = "MacIntel", userAgentData, board = true } = {}) {
     addEventListener: window.addEventListener.bind(window),
     setTimeout(fn) { const id = next++; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id),
     setInterval() {}, clearInterval() {},
-    FOCUS: true, boardKeysLive: () => state.live, boardResponseCard: () => true,
+    FOCUS: true, homeOpen: false, boardKeysLive: () => state.live, boardResponseCard: () => true,
     ownerReady: true, draft: false, activeOwner: "one", selectedId: "c1", lastState: {}, LOCKED: false,
     rowsOf: () => ["one", "two"], unselectShown: () => state.unselected++,
     newCard: owner => state.calls.push(["create", owner]),
@@ -240,6 +240,18 @@ test("the real create/project handlers still run and inactive-board tab defaults
   f.state.live = false;
   assert.equal(f.send(f.body, cmd("t", "KeyT")).defaultPrevented, true);
   assert.equal(f.send(f.body, cmd("T", "KeyT", { shiftKey: true })).defaultPrevented, true);
+});
+
+test("the Mac browser guard lets Home dispatch project keys and keeps card keys inactive", () => {
+  const f = world();
+  Object.assign(f.context, { homeOpen: true, pageWarn: null, pageMenu: null, setOpen: false });
+  f.state.live = false;
+  f.install();
+  assert.equal(f.send(f.body, cmd("2", "Digit2")).defaultPrevented, true);
+  assert.deepEqual(f.state.calls, [["tab", "two"]]);
+  assert.equal(f.send(f.body, cmd("t", "KeyT")).defaultPrevented, false);
+  assert.equal(f.send(f.body, cmd("`", "Backquote")).defaultPrevented, false);
+  assert.deepEqual(f.state.calls, [["tab", "two"]]);
 });
 
 test("capture stops are canceled after their handler, and canceled immediate stops clean up", () => {
