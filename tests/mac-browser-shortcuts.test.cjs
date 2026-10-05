@@ -7,7 +7,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const read = name => fs.readFileSync(path.join(__dirname, "..", name), "utf8");
-const html = read("index.html"), logic = read("card-logic.js");
+const html = process.env.MAC_ZOOM_HTML ? fs.readFileSync(process.env.MAC_ZOOM_HTML, "utf8") : read("index.html");
+const logic = read("card-logic.js");
 const guard = html.slice(html.indexOf("function chromeShortcutBlocked(e){"), html.indexOf("\n</script>", html.indexOf("function chromeShortcutBlocked(e){")));
 assert.ok(guard.includes("installChromeShortcutGuard();"));
 
@@ -107,6 +108,59 @@ function world({ platform = "MacIntel", userAgentData, board = true } = {}) {
   };
 }
 const cmd = (key, code, extra) => ({ key, code, ...extra });
+
+// Frame events have their own window at the root of the propagation path.
+// Run the shipped phone gate and the host's actual connection callback.
+function phoneFrame({ direct = false, platform = "MacIntel", userAgentData } = {}) {
+  const host = world({ platform, userAgentData, board: false });
+  host.install();
+  const window = new Node(null, "window"), document = new Node(window, "document"), body = new Node(document);
+  const callback = html.match(/    childConnected\(child\) \{([\s\S]*?)\n    \},/);
+  assert.ok(callback, "the Mac host must wire its child on connection");
+  host.context.chimeEnsure = () => {};
+  const connected = vm.runInContext(`(child) => {${callback[1]}\n}`, host.context);
+  const origin = "http://board.test", parent = direct ? window : {
+    location: { origin }, macPhoneHost: { accepts: child => child === window, connect: connected },
+  };
+  const phone = read("m.html"), start = phone.indexOf("const macHost = (() => {"),
+    end = phone.indexOf("if (macHost) window.macPhoneInactive = true;", start);
+  assert.ok(start >= 0 && end > start);
+  const context = vm.createContext({ window, document, parent, URLSearchParams,
+    location: { origin, search: "?mac=1" } });
+  vm.runInContext(phone.slice(start, end) + "if (macHost) macHost.connect(window);", context);
+  return { window, body, send: options => dispatch(body, { type: "wheel", metaKey: false, ...options }) };
+}
+
+test("embedded phone on Mac cancels Control wheel but preserves plain wheel and propagation", () => {
+  for (const platform of [{ platform: "MacIntel" }, { platform: "", userAgentData: { platform: "macOS" } }]) {
+    const f = phoneFrame(platform);
+    let reached = 0;
+    f.body.addEventListener("wheel", () => reached++);
+    for (const deltaY of [-80, 80]) {
+      const e = f.send({ ctrlKey: true, deltaY });
+      assert.equal(e.defaultPrevented, true);
+      assert.equal(e.cancelBubble, false);
+      assert.equal(f.send({ ctrlKey: false, deltaY }).defaultPrevented, false);
+    }
+    assert.equal(reached, 4);
+    assert.equal(f.send({ ctrlKey: true, cancelable: false }).defaultPrevented, false);
+    const listener = f.window.listeners.find(l => l.type === "wheel");
+    assert.equal(listener.capture, true);
+    assert.equal(listener.passive, false);
+    for (const type of ["gesturestart", "gesturechange"])
+      assert.equal(f.send({ type }).defaultPrevented, true);
+  }
+});
+
+test("a directly opened phone page gains no Mac guards, even with the frame marker", () => {
+  for (const platform of ["iPhone", "MacIntel"]) {
+    const f = phoneFrame({ direct: true, platform });
+    assert.equal(f.window.listeners.length, 0);
+    for (const ctrlKey of [false, true])
+      assert.equal(f.send({ ctrlKey }).defaultPrevented, false);
+  }
+});
+
 const BLOCKED = [
   cmd("s", "KeyS"), cmd("p", "KeyP"), cmd("π", "KeyP", { altKey: true }),
   cmd(".", "Period"), cmd("g", "KeyG"), cmd("G", "KeyG", { shiftKey: true }), cmd("e", "KeyE"),
