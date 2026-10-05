@@ -163,7 +163,7 @@ for (const [name, surface] of Object.entries(SURFACES)) {
       await surface.showTabs(p.page);
       await listsShow(p.page, "deferred", SHOWN.deferred, `${name}, as arranged`);
       await listsShow(p.page, "done", SHOWN.done, `${name}, as arranged`);
-      assert.deepEqual((await pooled(p.page, "todo")).sort(), ["1.7", "1.8", "1.9", "1.10", "1.11"], `${name}: Doing holds the two untouched cards`);
+      assert.deepEqual((await pooled(p.page, "todo")).sort(), ["1.7", "1.8"], `${name}: Doing holds the two untouched cards`);
 
       // let go of the second card deferred and defer it again: it takes the top
       await post("/park?box=1.4&v=0");
