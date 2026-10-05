@@ -24,7 +24,7 @@ class Node {
   addEventListener(type, fn, options = false) {
     const capture = options === true || !!options.capture;
     if (!this.listeners.some(l => l.type === type && l.fn === fn && l.capture === capture))
-      this.listeners.push({ type, fn, capture });
+      this.listeners.push({ type, fn, capture, passive: options.passive });
   }
   removeEventListener(type, fn, options = false) {
     const capture = options === true || !!options.capture;
@@ -43,7 +43,7 @@ function dispatch(target, over) {
     shiftKey: false, repeat: false, isComposing: false, cancelable: true, bubbles: true,
     defaultPrevented: false, cancelBubble: false, immediate: false, target, ...over,
     composedPath: () => path,
-    preventDefault() { if (this.cancelable) this.defaultPrevented = true; },
+    preventDefault() { if (this.cancelable && !this.passive) this.defaultPrevented = true; },
     stopPropagation() { this.cancelBubble = true; },
     stopImmediatePropagation() { this.immediate = this.cancelBubble = true; },
   };
@@ -53,7 +53,11 @@ function dispatch(target, over) {
     // a node not reached yet participate when that later phase is entered.
     for (const l of [...node.listeners]) {
       if (e.immediate) break;
-      if (l.type === e.type && l.capture === capture && node.listeners.includes(l)) l.fn(e);
+      if (l.type === e.type && l.capture === capture && node.listeners.includes(l)) {
+        e.passive = l.passive;
+        l.fn(e);
+        e.passive = false;
+      }
     }
   };
   for (const node of [...path].reverse()) {
@@ -67,12 +71,12 @@ function dispatch(target, over) {
   e.currentTarget = null; e.eventPhase = 0;
   return e;
 }
-function world({ platform = "MacIntel", board = true } = {}) {
+function world({ platform = "MacIntel", userAgentData, board = true } = {}) {
   const window = new Node(null, "window"), document = new Node(window, "document"), body = new Node(document);
   document.body = body; document.activeElement = body;
   const nodes = [window, document, body], timers = new Map(); let next = 1;
   const state = { live: true, unselected: 0, saved: 0, calls: [] };
-  const context = vm.createContext({ window, document, navigator: { platform }, Date,
+  const context = vm.createContext({ window, document, navigator: { platform, userAgentData }, Date,
     addEventListener: window.addEventListener.bind(window),
     setTimeout(fn) { const id = next++; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id),
     setInterval() {}, clearInterval() {},
@@ -278,4 +282,89 @@ test("composition/noncancelable keys are left alone, repeats remain blocked and 
   const other = world({ platform: "Linux x86_64", board: false }); other.install();
   assert.equal(other.send().defaultPrevented, false);
   assert.equal(other.send(other.body, { key: "F7", code: "F7", metaKey: false }).defaultPrevented, false);
+});
+
+test("zoom guard cancels Control + wheel on the board and in the file editor without stopping propagation", () => {
+  const f = world({ board: false }); f.install();
+  for (const target of [f.body, f.node(f.body, "editor")]) {
+    let reached = 0;
+    target.addEventListener("wheel", () => reached++);
+    for (const deltaY of [-80, 80]) {
+      const e = f.send(target, { type: "wheel", ctrlKey: true, metaKey: false, deltaY });
+      assert.equal(e.defaultPrevented, true);
+      assert.equal(e.cancelBubble, false);
+    }
+    assert.equal(reached, 2);
+  }
+});
+
+test("zoom guard leaves ordinary, sideways, Shift and Command wheel defaults alone", () => {
+  const f = world({ board: false }); f.install();
+  for (const target of [f.body, f.node(f.body, "editor")]) {
+    for (const extra of [{}, { deltaX: 100, deltaY: 0 }, { shiftKey: true }, { metaKey: true }]) {
+      const e = f.send(target, { type: "wheel", ctrlKey: false, metaKey: false, deltaY: 80, ...extra });
+      assert.equal(e.defaultPrevented, false);
+      assert.equal(e.cancelBubble, false);
+    }
+  }
+});
+
+test("zoom guard uses explicit non-passive window capture listeners for both Mac platform signals", () => {
+  for (const platform of [{ platform: "MacIntel" }, { platform: "", userAgentData: { platform: "macOS" } }]) {
+    const f = world({ ...platform, board: false }); f.install();
+    for (const type of ["wheel", "gesturestart", "gesturechange"]) {
+      const listeners = f.window.listeners.filter(l => l.type === type);
+      assert.equal(listeners.length, 1, type);
+      assert.equal(listeners[0].capture, true, type);
+      assert.equal(listeners[0].passive, false, type);
+    }
+    // A target that stops immediately still cannot restore browser zoom.
+    f.body.addEventListener("wheel", e => e.stopImmediatePropagation());
+    assert.equal(f.send(f.body, { type: "wheel", ctrlKey: true }).defaultPrevented, true);
+  }
+});
+
+test("zoom guard installs no wheel or gesture listeners on other platforms", () => {
+  for (const platform of ["Win32", "Linux x86_64", "iPhone", "iPad", ""]) {
+    const f = world({ platform, board: false }); f.install();
+    assert.equal(f.window.listeners.length, 0, platform);
+    for (const type of ["wheel", "gesturestart", "gesturechange"])
+      assert.equal(f.send(f.body, { type, ctrlKey: true }).defaultPrevented, false, platform);
+  }
+});
+
+test("zoom guard cancels Safari pinch defaults only on start/change and keeps other gestures untouched", () => {
+  const f = world({ board: false }); f.install();
+  for (const type of ["gesturestart", "gesturechange"]) {
+    const e = f.send(f.body, { type, ctrlKey: false });
+    assert.equal(e.defaultPrevented, true, type);
+    assert.equal(e.cancelBubble, false, type);
+  }
+  for (const type of ["gestureend", "touchstart", "touchmove", "pointerdown", "scroll"])
+    assert.equal(f.send(f.body, { type }).defaultPrevented, false, type);
+  assert.equal(f.send(f.body, { type: "wheel", ctrlKey: true, cancelable: false }).defaultPrevented, false);
+});
+
+test("zoom guard preserves the real carousel and home chart wheel handlers with Control held", () => {
+  const f = world({ board: false }), car = f.node();
+  car.scrollLeft = 0;
+  f.document.getElementById = id => { assert.equal(id, "carousel"); return car; };
+  const start = html.indexOf('  const car = document.getElementById("carousel");');
+  const end = html.indexOf('\n}\n', start);
+  assert.ok(start >= 0 && end > start);
+  vm.runInContext(html.slice(start, end), f.context);
+  const chart = read("home-widgets.js"), chartStart = chart.indexOf("  const LINE_PX ="),
+    chartEnd = chart.indexOf("  function grab(", chartStart);
+  assert.ok(chartStart >= 0 && chartEnd > chartStart);
+  vm.runInContext(chart.slice(chartStart, chartEnd), f.context);
+  const lane = f.node(), box = { scrollLeft: 0, clientWidth: 200, contains: target => target === lane };
+  lane.querySelector = () => box;
+  lane.addEventListener("wheel", e => f.context.wheel(lane, e), { passive: false });
+  f.install();
+  for (const ctrlKey of [false, true]) {
+    const event = { type: "wheel", ctrlKey, metaKey: false, deltaY: 30, deltaX: 0, deltaMode: 0 };
+    f.send(car, event); f.send(lane, event);
+  }
+  assert.equal(car.scrollLeft, 60);
+  assert.equal(box.scrollLeft, 60);
 });
