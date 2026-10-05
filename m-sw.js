@@ -14,7 +14,7 @@
    start; it could only make one look connected when it was not. */
 
 /* New cache name drops previously kept authenticated pages and manifests. */
-const CACHE = "facilitator-m-8";
+const CACHE = "facilitator-m-9";
 const SHELL = ["/card-markdown.js", "/card-tokens.css", "/card-logic.js",
                "/compose-format.js"];
 /* The squid the page paints the phone's own launch image from. It is kept
@@ -43,7 +43,7 @@ const PUSH_DEADLINE_MS = 6000;    // wait at most this long for auth before drop
    worked, or when the page opens, and are removed once the board has taken
    them. The oldest are dropped past the cap. A cache would not do: the
    activate step above deletes every cache that is not CACHE. A record with no
-   kind is a push; a tap's is "notifytap". */
+   kind is a push; a tap's is "notifytapready" or "notifytap". */
 const PUSH_LOG_DB = "facilitator-m-push-log";
 const PUSH_LOG_STORE = "pushes";
 const PUSH_LOG_KEEP = 50;
@@ -229,6 +229,19 @@ function tapReport(row) {
   return report;
 }
 
+function tapReadyReport(row) {
+  const report = {
+    kind: "notifytapready", stage: row.stage, tap: row.tap, box: row.box,
+    at: row.at, worker: row.worker,
+  };
+  if (row.stage === "ready") {
+    report.windows = pushLogWhole(row.windows, 1000);
+    report.visibility = row.visibility;
+    report.focused = row.focused;
+  }
+  return report;
+}
+
 // The oldest records go first, 20 to a request, and a request the board did not
 // take leaves its records where they are. Nothing here ever throws.
 let pushLogSending = null;
@@ -242,6 +255,7 @@ function pushLogFlush() {
         const now = Date.now();
         const reports = part.map(row => {
           if (row.kind === "notifytap") return tapReport(row);
+          if (row.kind === "notifytapready") return tapReadyReport(row);
           const report = { kind: "pushreceived", outcome: row.outcome };
           if (row.outcome === "skipped") report.reason = row.reason;
           report.ms = pushLogWhole(row.ms, 600000);
@@ -439,11 +453,32 @@ async function tapNote(notification, tap, box, began, seen) {
   } catch (error) {}
 }
 
+// Start the durable write before window lookup or focus. The event keeps it
+// alive independently of routing: neither storage nor upload holds up a tap.
+// The received stage has no window fields because lookup has not happened yet.
+async function tapReadyNote(tap, box, began, windows) {
+  try {
+    const record = {
+      kind: "notifytapready", stage: windows ? "ready" : "received", tap,
+      box: typeof box === "string" && box.length <= 32 && TAP_BOX.exec(box)?.[0] === box ? box : "",
+      at: began,
+    };
+    if (windows) {
+      const client = windows.find(client => new URL(client.url).pathname === "/m");
+      record.windows = tapWindows(windows);
+      record.visibility = client ? (client.visibilityState === "visible" ? "visible" : "hidden") : "none";
+      record.focused = client ? (client.focused ? "yes" : "no") : "none";
+    }
+    await pushLogNote(record, true);
+  } catch (error) {}
+}
+
 self.addEventListener("notificationclick", event => {
   event.notification.close();
   const box = event.notification.data && event.notification.data.box;
   const began = Date.now();
   const tap = tapId();
+  event.waitUntil(tapReadyNote(tap, box, began));
   const target = "/m" + (box ? "?box=" + encodeURIComponent(box) + "&tap=" + tap : "");
   event.waitUntil((async () => {
     // What was done, for the line the finally block keeps. "failed" stands until
@@ -456,6 +491,7 @@ self.addEventListener("notificationclick", event => {
       // target silently and prevent the URL fallback below.
       const windows = await self.clients.matchAll({ type: "window" });
       seen.windows = tapWindows(windows);
+      event.waitUntil(tapReadyNote(tap, box, began, windows));
       for (const client of windows) {
         if (new URL(client.url).pathname !== "/m") continue;
         try { await client.focus(); seen.focus = "ok"; } catch (error) { seen.focus = "rejected"; }

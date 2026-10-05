@@ -15,7 +15,7 @@ const lines = harness => harness.logged().flatMap(batch => batch.reports).filter
 
 function appWindow(posted, over = {}) {
   return {
-    url: "https://board.test/m",
+    url: "https://board.test/m", visibilityState: "hidden", focused: false,
     focus: async () => {},
     postMessage: message => posted.push(plain(message)),
     ...over,
@@ -156,7 +156,7 @@ test("a held line goes out with the pushes held before it, oldest first, in one 
   await harness.click("m101");
   const batches = harness.logged();
   assert.equal(batches.length, 1);
-  assert.deepEqual(batches[0].reports.map(report => report.kind), ["pushreceived", "notifytap"]);
+  assert.deepEqual(batches[0].reports.map(report => report.kind), ["pushreceived", "notifytapready", "notifytapready", "notifytap"]);
   assert.equal(batches[0].reports[0].reason, "check-failed");
   assert.deepEqual(harness.idb.rows(), []);
 });
@@ -165,8 +165,9 @@ test("a board that does not answer keeps the line, and the next flush sends it o
   const harness = await loadWorker({ random: DEAD });
   harness.board.log = async () => answered(503);
   await harness.click("m101");
-  const [row, ...rest] = harness.idb.rows();
-  assert.deepEqual(rest, []);
+  const rows = harness.idb.rows();
+  assert.deepEqual(rows.map(row => row.kind), ["notifytapready", "notifytapready", "notifytap"]);
+  const row = rows[2];
   assert.deepEqual([row.kind, row.box, row.tap, row.route], ["notifytap", "m101", "deadbeef", "open"]);
 
   harness.board.log = async () => answered(200);
@@ -197,4 +198,112 @@ test("a push is shown with the time it was shown, and its box and tag as before"
     title: "First card",
     options: { tag: "facilitator-m101", data: { box: "m101", shown: harness.clock.now } },
   }]);
+});
+
+const early = harness => harness.logged().flatMap(batch => batch.reports).filter(line => line.kind === "notifytapready");
+const tick = () => new Promise(resolve => setImmediate(resolve));
+async function until(check) {
+  for (let n = 0; n < 100; n++) {
+    if (check()) return;
+    await tick();
+  }
+  assert.ok(check(), "the expected independent logging work did not finish");
+}
+
+test("early records start before lookup and focus, and persist while focus never resolves", async () => {
+  const harness = await loadWorker({ random: DEAD, net: { log: async () => answered(503) } });
+  const posted = [];
+  let focusing = false;
+  const client = appWindow(posted, {
+    visibilityState: "hidden", focused: false,
+    focus: () => {
+      assert.ok(harness.idb.opens >= 2, "ready persistence had not started before focus");
+      focusing = true;
+      client.visibilityState = "visible";
+      client.focused = true;
+      return new Promise(() => {});
+    },
+  });
+  harness.windows.all = async () => {
+    assert.equal(harness.idb.opens, 1, "received persistence had not started before lookup");
+    return [appWindow([], { url: "https://board.test/" }), client, appWindow([])];
+  };
+  void harness.click("m101");
+  await until(() => focusing && harness.idb.rows().length === 2 && early(harness).length === 2);
+  assert.deepEqual(early(harness), [
+    { kind: "notifytapready", stage: "received", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-9" },
+    { kind: "notifytapready", stage: "ready", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-9",
+      windows: 2, visibility: "hidden", focused: "no" },
+  ]);
+  assert.deepEqual(harness.idb.rows().map(row => row.stage), ["received", "ready"]);
+  assert.deepEqual(posted, []);
+  assert.deepEqual(lines(harness), []);
+});
+
+test("received persists even when window lookup never resolves", async () => {
+  const harness = await loadWorker({ random: DEAD, net: { log: async () => answered(503) } });
+  harness.windows.all = () => new Promise(() => {});
+  void harness.click("m1");
+  await until(() => harness.idb.rows().length === 1 && early(harness).length === 1);
+  assert.equal(early(harness)[0].stage, "received");
+  assert.equal("windows" in early(harness)[0], false);
+  assert.deepEqual(harness.windows.opened, []);
+});
+
+test("ready starts before openWindow and persists even when opening never resolves", async () => {
+  const harness = await loadWorker({ random: DEAD, net: { log: async () => answered(503) } });
+  harness.windows.open = () => {
+    assert.ok(harness.idb.opens >= 2, "ready persistence had not started before openWindow");
+    return new Promise(() => {});
+  };
+  void harness.click("m1");
+  await until(() => harness.idb.rows().length === 2 && early(harness).length === 2);
+  const ready = early(harness)[1];
+  assert.deepEqual([ready.windows, ready.visibility, ready.focused], [0, "none", "none"]);
+  assert.deepEqual(harness.windows.opened, ["/m?box=m1&tap=deadbeef"]);
+  assert.deepEqual(lines(harness), []);
+});
+
+test("a stalled upload or store cannot hold up posting or opening", async () => {
+  for (const storageStalls of [false, true]) {
+    for (const warm of [false, true]) {
+      const idb = storageStalls ? { open: () => ({}) } : fakeIndexedDB();
+      const harness = await loadWorker({ random: DEAD, idb, net: { log: () => new Promise(() => {}) } });
+      const posted = [];
+      if (warm) harness.windows.all = async () => [appWindow(posted)];
+      void harness.click("m1");
+      await until(() => warm ? posted.length === 1 : harness.windows.opened.length === 1);
+      assert.equal(harness.closed.n, 1);
+    }
+  }
+});
+
+test("early records keep click time and build through a worker restart and delayed upload", async () => {
+  const harness = await loadWorker({ random: DEAD, net: { log: async () => answered(503) } });
+  const clicked = harness.clock.now;
+  harness.windows.all = async () => { harness.clock.now += 500; return []; };
+  await harness.click("m101");
+  const next = await loadWorker({ idb: harness.idb, clock: { now: clicked + 86_400_000 } });
+  await next.dispatch("message", { data: { kind: "push-log-flush" } });
+  assert.deepEqual(early(next).map(line => [line.stage, line.at, line.worker]), [
+    ["received", clicked, "facilitator-m-9"], ["ready", clicked, "facilitator-m-9"],
+  ]);
+  assert.deepEqual(next.idb.rows(), []);
+});
+
+test("early records contain only allowed fields and validated card ids", async () => {
+  const harness = await loadWorker({ random: DEAD });
+  const ids = ["m1", "t2", "1.2", "q", "private", "m1\n", "m1\r", "9".repeat(33), ""];
+  for (const box of ids) {
+    await harness.click(box, { title: "Secret title", body: "Secret body", data: { box, endpoint: "https://private.test", key: "Secret" } });
+  }
+  const reports = early(harness);
+  assert.equal(reports.length, ids.length * 2);
+  assert.deepEqual(reports.filter(row => row.stage === "received").map(row => row.box), ["m1", "t2", "1.2", "q", "", "", "", "", ""]);
+  for (const report of reports) {
+    assert.deepEqual(Object.keys(report).sort(), (report.stage === "received"
+      ? ["kind", "stage", "tap", "box", "at", "worker"]
+      : ["kind", "stage", "tap", "box", "at", "worker", "windows", "visibility", "focused"]).sort());
+  }
+  assert.doesNotMatch(JSON.stringify(reports), /Secret|private/);
 });
