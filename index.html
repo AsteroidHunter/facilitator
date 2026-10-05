@@ -12032,6 +12032,7 @@ installBtn.addEventListener("click", () => {
   window.macPhoneHost = view.createHost({ window, adapter,
     childConnected(child) {
       installChromeShortcutGuard(child);
+      installMacZoomGuard(child);
       for (const type of ["pointerdown", "click", "keydown"])
         child.addEventListener(type, chimeEnsure, true);
     },
@@ -12105,16 +12106,16 @@ function installChromeShortcutGuard(targetWindow = window){
 }
 installChromeShortcutGuard();
 
-function installMacZoomGuard(){
+function installMacZoomGuard(targetWindow = window){
   if (!/^Mac/.test(navigator.platform) && navigator.userAgentData?.platform !== "macOS") return;
   // Chrome reports both trackpad pinch and Control+scroll as Control+wheel.
   // Keep propagation so the carousel, chart and editor still hear the wheel.
-  addEventListener("wheel", e => {
+  targetWindow.addEventListener("wheel", e => {
     if (e.ctrlKey && e.cancelable) e.preventDefault();
   }, { capture: true, passive: false });
   // The same page can open in Safari, which sends separate pinch events.
   for (const type of ["gesturestart", "gesturechange"]){
-    addEventListener(type, e => {
+    targetWindow.addEventListener(type, e => {
       if (e.cancelable) e.preventDefault();
     }, { capture: true, passive: false });
   }
