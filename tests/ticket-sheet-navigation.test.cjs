@@ -14,7 +14,10 @@ let fx;
 const settle = ms => new Promise(r => setTimeout(r, ms));
 
 async function realClickTab(page, name) {
-  if (await page.$eval("#tv-" + name, el => el.hidden)) await page.click("#tik-page");
+  if (await page.$eval("#tv-" + name, el => el.inert)) {
+    await page.click("#tik-page");
+    await page.$eval("#tiklabels", el => Promise.all(el.getAnimations().map(a => a.finished)));
+  }
   const box = await page.evaluate(id => {
     const el = document.getElementById(id); const r = el.getBoundingClientRect();
     return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };

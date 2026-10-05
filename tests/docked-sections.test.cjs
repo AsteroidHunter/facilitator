@@ -18,7 +18,7 @@ function node() {
   };
 }
 function world() {
-  const nodes = Object.fromEntries(['tv-todo', 'tv-docked', 'tv-deferred', 'tv-done', 'tik-page', 'tiksheet'].map(k => [k, node()]));
+  const nodes = Object.fromEntries(['tv-todo', 'tv-docked', 'tv-deferred', 'tv-done', 'tik-page', 'tiklabels', 'tiksheet'].map(k => [k, node()]));
   const requests = [], store = new Map(), timers = new Map(); let timer = 0;
   const ctx = vm.createContext({ Date, console, AbortSignal: { timeout: () => undefined },
     setTimeout: fn => { timers.set(++timer, fn); return timer; }, clearTimeout: id => timers.delete(id),
@@ -55,14 +55,13 @@ test('four sections partition every card, with Done then Deferred taking precede
 
 test('header shows only the current pair and mirrors the arrow, including restored per-lane choices', () => {
   const { ctx, nodes, store } = world();
-  for (const [view, visible, back, next] of [
-    ['todo', ['todo', 'docked'], false, 'deferred'], ['docked', ['todo', 'docked'], false, 'deferred'],
-    ['deferred', ['deferred', 'done'], true, 'todo'], ['done', ['deferred', 'done'], true, 'todo'],
+  for (const [view, visible, back] of [
+    ['todo', ['todo', 'docked'], false], ['docked', ['todo', 'docked'], false],
+    ['deferred', ['deferred', 'done'], true], ['done', ['deferred', 'done'], true],
   ]) {
     ctx.setTicketViewOf('lane', view); ctx.paintViewTabs();
-    assert.deepEqual(['todo', 'docked', 'deferred', 'done'].filter(v => !nodes['tv-'+v].hidden), visible);
+    assert.deepEqual(['todo', 'docked', 'deferred', 'done'].filter(v => !nodes['tv-'+v].inert), visible);
     assert.equal(nodes['tik-page'].classList.contains('back'), back);
-    assert.equal(ctx.otherTicketPage(), next);
     assert.equal(nodes['tv-'+view].classList.contains('on'), true);
     assert.equal(nodes['tik-page'].getAttribute('aria-label'), back ? 'show Doing and Docked' : 'show Deferred and Done');
   }
@@ -73,24 +72,27 @@ test('header shows only the current pair and mirrors the arrow, including restor
 });
 
 for (const page of ['index.html', 'm.html']) {
-  test(`${page}: the real header listeners switch pairs and slide all four panes`, () => {
+  test(`${page}: the real header listeners page names without changing the list`, () => {
     const html = source(page), { ctx, nodes } = world();
     assert.deepEqual([...html.matchAll(/<div class="tikpane" data-view="([^"]+)"/g)].map(m => m[1]), ['todo', 'docked', 'deferred', 'done']);
     assert.match(html, /id="tik-page" class="qn-glass" type="button"/);
-    assert.match(html, /id="tv-deferred" hidden/); assert.match(html, /id="tv-done" hidden/);
+    assert.match(html, /id="tv-deferred" inert/); assert.match(html, /id="tv-done" inert/);
     ctx.cancelAutoNext = () => {}; ctx.dropResponseScroll = () => {}; ctx.renderTickets = () => {};
     const from = html.indexOf(page === 'm.html' ? 'function setView(v){' : '  const setView = v => {');
     const end = html.indexOf('document.getElementById("tv-done").addEventListener', from);
     const through = html.indexOf('\n', end);
     vm.runInContext(html.slice(from, through), ctx);
+    ctx.paintViewTabs(); ctx.moveTicketSheet('todo', false);
     nodes['tik-page'].listeners.click();
-    assert.equal(ctx.curView(), 'deferred');
-    assert.equal(nodes.tiksheet.style.transform, 'translateX(-200%)');
-    assert.equal(nodes['tv-todo'].hidden, true); assert.equal(nodes['tik-page'].classList.contains('back'), true);
+    assert.equal(ctx.curView(), 'todo');
+    assert.equal(nodes.tiksheet.style.transform, 'translateX(0%)');
+    assert.equal(nodes.tiklabels.style.transform, 'translateX(-100%)');
+    assert.equal(nodes['tv-todo'].inert, true); assert.equal(nodes['tik-page'].classList.contains('back'), true);
     nodes['tv-done'].listeners.click();
     assert.equal(nodes.tiksheet.style.transform, 'translateX(-300%)');
     nodes['tik-page'].listeners.click();
-    assert.equal(ctx.curView(), 'todo'); assert.equal(nodes.tiksheet.style.transform, 'translateX(0%)');
+    assert.equal(ctx.curView(), 'done'); assert.equal(nodes.tiksheet.style.transform, 'translateX(-300%)');
+    assert.equal(nodes.tiklabels.style.transform, 'translateX(0%)');
     nodes['tv-docked'].listeners.click();
     assert.equal(nodes.tiksheet.style.transform, 'translateX(-100%)');
   });
@@ -115,7 +117,7 @@ test('glass triangle has only its own hit area, mark size, edge tangent, centred
     'padding:0; margin:0; border:0', 'clip-path:polygon(0 0, 100% 50%, 0 100%)',
     'top:calc(50% + 3 * var(--u))', 'transform:translateY(-50%)', '--qn-face:rgba(30,30,30,.77)']) assert.ok(rule.includes(part), part);
   assert.match(css, /#tikhead #tik-page\.back\{left:0; right:auto; transform:translateY\(-50%\) scaleX\(-1\)\}/);
-  assert.match(css, /#tikhead \.tvb\[hidden\]\{display:none\}/);
+  assert.match(css, /#tiknames\{[^}]*overflow:clip/);
   assert.match(css, /\.qn-glass\{[^}]*background-image:var\(--qn-light\);[^}]*backdrop-filter:blur\(var\(--qn-blur\)\)/);
   assert.doesNotMatch(rule, /--accent|432BFF|purple/i);
 });

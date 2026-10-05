@@ -871,9 +871,34 @@ function awaitsYou(b){
 // from the record's own object (a lane may legitimately be called "constructor"):
 // every answer is checked against the four before it is given.
 const TICKET_VIEWS = ["todo", "docked", "deferred", "done"];
-const TICKET_PAGES = [["todo", "docked"], ["deferred", "done"]];
 function ticketPageOf(view){ return view === "deferred" || view === "done" ? 1 : 0; }
-function otherTicketPage(){ return TICKET_PAGES[1 - ticketPageOf(curView())][0]; }
+let tikNamesOwner = null, tikNamesView = null, tikNamesPage = 0, tikNamesReturn = null;
+function cancelTicketNamesReturn(){
+  clearTimeout(tikNamesReturn);
+  tikNamesReturn = null;
+}
+// A name selection commits a list. Paging the names never does.
+function chooseTicketNames(view){
+  cancelTicketNamesReturn();
+  tikNamesOwner = activeOwner;
+  tikNamesView = view;
+  tikNamesPage = ticketPageOf(view);
+}
+function slideTicketNames(){
+  paintViewTabs();
+  cancelTicketNamesReturn();
+  tikNamesPage = 1 - tikNamesPage;
+  paintViewTabs();
+  if (tikNamesPage === 1){
+    const owner = activeOwner;
+    tikNamesReturn = setTimeout(() => {
+      tikNamesReturn = null;
+      if (activeOwner !== owner) return;
+      tikNamesPage = 0;
+      paintViewTabs();
+    }, 30000);
+  }
+}
 const TICKET_VIEW_KEY = "tikview.";   // + the lane's own id, which is never parsed back out
 const ticketViews = {};               // lane id -> the view chosen for it
 function ticketViewOf(owner){
@@ -897,19 +922,23 @@ function setTicketViewOf(owner, view){
 // list reads it here, so a tab switch needs nothing carried across: the answer
 // changes with the lane on its own
 function curView(){ return ticketViewOf(activeOwner); }
-// the four buttons say which view is showing, painted from the same read the
-// list is drawn from and on every pass, so a button can never sit on one view
-// while the list shows another
+// Polls keep the independently paged names where they are. A different project
+// or list reveals its selected name; only a name click cancels an idle return
+// when the same list was already selected.
 function paintViewTabs(){
   const view = curView();
-  const page = ticketPageOf(view);
+  if (tikNamesOwner !== activeOwner || tikNamesView !== view) chooseTicketNames(view);
+  const page = tikNamesPage;
   for (const name of TICKET_VIEWS){
     const b = document.getElementById("tv-" + name);
     if (b){
       b.classList.toggle("on", name === view);
-      b.hidden = ticketPageOf(name) !== page;
+      b.inert = ticketPageOf(name) !== page;
+      b.setAttribute("aria-hidden", String(b.inert));
     }
   }
+  const labels = document.getElementById("tiklabels");
+  if (labels) labels.style.transform = "translateX(" + (-page * 100) + "%)";
   const arrow = document.getElementById("tik-page");
   if (arrow){
     arrow.classList.toggle("back", page === 1);

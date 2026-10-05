@@ -1110,6 +1110,9 @@
     transition:transform var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
   body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
   #tickets.live{visibility:visible; --menuwait:0s; will-change:transform}
+  /* Inherited visibility alone would expose the arrow throughout the slide. */
+  #tickets #tik-page{visibility:hidden; pointer-events:none}
+  #tickets.open.drawer-settled #tik-page{visibility:visible; pointer-events:auto}
   /* the settings cross over the page from the right edge along one straight
      sideways line, at full strength for every frame of it: nothing about them
      rises, sinks or fades. the depth is carried under them, by the shade that
@@ -1605,11 +1608,13 @@ for (const type of ["gesturestart", "gesturechange"])
        card's top edge -->
   <div id="tikwin"><aside id="tickets" aria-label="cards" data-side="left">
     <div id="tikhead">
-      <button id="tv-todo" class="ptab tvb on" type="button">Doing</button>
-      <button id="tv-docked" class="ptab tvb" type="button">Docked</button>
-      <button id="tv-deferred" hidden class="ptab tvb" type="button">Deferred</button>
-      <button id="tv-done" hidden class="ptab tvb" type="button">Done</button>
-      <button id="tik-page" class="qn-glass" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button>
+      <div id="tiknames"><div id="tiklabels"><div class="tikpair">
+        <button id="tv-todo" class="ptab tvb on" type="button">Doing</button>
+        <button id="tv-docked" class="ptab tvb" type="button">Docked</button>
+      </div><div class="tikpair">
+        <button id="tv-deferred" inert aria-hidden="true" class="ptab tvb" type="button">Deferred</button>
+        <button id="tv-done" inert aria-hidden="true" class="ptab tvb" type="button">Done</button>
+      </div></div></div><button id="tik-page" class="qn-glass" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button>
     </div>
     <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
   </aside></div>
@@ -4234,6 +4239,7 @@ function renderTickets(state, action = "state", shown = ticketsShown()){
 // been given a view opens on doing
 function setView(v){
   if (!setTicketViewOf(activeOwner, v)) return;
+  chooseTicketNames(v);
   lastTicketTap = null;
   dropResponseScroll();
   cancelAutoNext();
@@ -4247,7 +4253,7 @@ function setView(v){
 }
 document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
 document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
-document.getElementById("tik-page").addEventListener("click", () => setView(otherTicketPage()));
+document.getElementById("tik-page").addEventListener("click", slideTicketNames);
 document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
 document.getElementById("tv-done").addEventListener("click", () => setView("done"));
 // press feedback, as on the board: every name, selected or not, takes .pressed
@@ -4302,6 +4308,18 @@ const menus = [tickets, settings];   // the left one first: the drag reads the s
 // Every menu entry, paint and reading uses this policy. Home has no project
 // ticket list; the settings remain available in either place.
 function menuAvailable(panel){ return panel !== tickets || !homeOpen; }
+let ticketDrawerRun = 0;
+function settleTicketDrawer(){
+  const run = ticketDrawerRun;
+  // Read the actual transitions, including reversals and zero-distance runs.
+  // The window and card must finish too, since they uncover the ticket box.
+  const moving = [tickets, tikwin, cardPane].flatMap(el => el.getAnimations())
+    .filter(animation => animation.transitionProperty === "transform");
+  Promise.all(moving.map(animation => animation.finished)).then(() => {
+    if (run === ticketDrawerRun && drawerOpen() && !document.body.classList.contains("menudrag"))
+      tickets.classList.add("drawer-settled");
+  }, () => {});   // a cancelled opening never exposes its arrow
+}
 function syncMenuAvailability(){
   document.getElementById("tikbtn").setAttribute("aria-disabled", String(!menuAvailable(tickets)));
   for (const panel of menus){
@@ -4389,6 +4407,8 @@ function paintMenu(panel, v){
   if (!menuAvailable(panel)){ v = 0; panel.classList.remove("open"); }
   const num = v ? v.toFixed(4) : "0";
   if (panel === tickets){
+    ++ticketDrawerRun;
+    panel.classList.remove("drawer-settled");
     // the list is drawn as it first comes on show, so a tap or a pull opens it onto current rows
     if (v > 0 && !panel.classList.contains("live")){
       sizeList();
@@ -4438,6 +4458,7 @@ function runMenu(panel, v, release){
   const menuTrace = tracePhone("begin", "phase", { action: "drawer", part: "menu-commit" });
   panel.classList.toggle("open", v > 0);
   paintMenu(panel, v);
+  if (panel === tickets && v > 0) settleTicketDrawer();
   endPhoneTrace(menuTrace, { action: "drawer", part: "menu-commit" });
 }
 function showMenu(panel, release){
