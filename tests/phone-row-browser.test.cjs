@@ -2,7 +2,8 @@
 // the band iOS gives a paired keyboard's bar, from left to right the card
 // list's ticket (a circle), the open project's capsule (the long oval), a new
 // card's plus (a short oval) and the settings' squid (a circle). Held here two
-// ways: m.html read as text, and the page itself at an iPhone 13 mini's size
+// ways: source checks in phone-project-pill.test.cjs, and this page at an
+// iPhone 13 mini's size
 // (375 by 812, device scale 3, touch) on an invented board of five projects,
 // driven by taps and held presses. Nothing reads the real board, and port 8877
 // is never touched.
@@ -16,7 +17,6 @@ const puppeteer = require("puppeteer-core");
 const { boardState, startBoard } = require("./phone-board-fixture.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PHONE = fs.readFileSync(path.join(ROOT, "m.html"), "utf8");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const IPHONE_13_MINI = { width: 375, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const PAGE_FILES = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
@@ -80,41 +80,6 @@ const capsule = page => page.$eval("#projbtn", b => ({ width: b.getBoundingClien
 const shade = page => page.evaluate(() => {
   const cs = getComputedStyle(document.getElementById("projshade"));
   return { opacity: Number(cs.opacity), visible: cs.visibility === "visible", colour: cs.backgroundColor };
-});
-
-// ---- the markup and the sheet -----------------------------------------------------------
-test("the row holds four glass buttons in the owner's order, three drawn as inline svg and the settings circle as the logo png", () => {
-  const dock = /<nav id="dock"[^>]*>([\s\S]*?)<\/nav>/.exec(PHONE);
-  assert.ok(dock, "the row of buttons is not in the page");
-  const buttons = [...dock[1].matchAll(/<button id="(\w+)" class="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g)];
-  assert.deepEqual(buttons.map(b => b[1]), ["tikbtn", "projbtn", "tikadd", "setbtn"]);
-  for (const [, id, cls, inside] of buttons){
-    assert.match(cls, /\bqn-glass\b/, `${id} does not wear the board's glass`);
-    assert.match(cls, /\bdockbtn\b/);
-    if (id === "setbtn"){
-      assert.match(inside, /^<span class="squidmark" aria-hidden="true"><img src="\/m-splash-squid\.png"[^>]*><\/span>$/, "setbtn is not the logo png in its cropping box");
-      assert.doesNotMatch(inside, /<svg|url\(/, "setbtn also carries a drawn mark");
-      continue;
-    }
-    assert.match(inside, /<svg[^>]*aria-hidden="true"/, `${id} carries no inline mark`);
-    assert.doesNotMatch(inside, /<img|url\(/, `${id} fetches its mark`);
-  }
-  // the capsule is the name and the arrows, with no dot beside the name; the ticket
-  // is one outline with its side notches and no tear line
-  assert.deepEqual([...buttons[1][3].matchAll(/<(\w+)/g)].map(m => m[1]), ["span", "svg", "path"], "the capsule carries more than the name and the arrows");
-  assert.equal([...buttons[0][3].matchAll(/<path\b/g)].length, 1, "the ticket is more than one outline");
-  // the two ends are circles
-  assert.match(buttons[0][2], /\bround\b/);
-  assert.match(buttons[3][2], /\bround\b/);
-  // the row, the list and every rule written for them carry no purple
-  const sheet = [...PHONE.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join("\n");
-  const ours = [...sheet.matchAll(/([^{}]*(?:#dock|\.dockbtn|#projbtn|#projmenu|#projshade|\.projrow|#projsep|#projlist|#tikadd)[^{}]*)\{([^{}]*)\}/g)];
-  assert.ok(ours.length >= 10, "the row's rules were not found");
-  for (const [, sel, body] of ours)
-    assert.doesNotMatch(body, /--accent|#432BFF|purple|violet/i, `${sel.trim()} uses a purple`);
-  // nothing on the row or in the list can be long-pressed into a selection
-  assert.match(sheet, /#dock\{[^}]*-webkit-user-select:none; user-select:none; -webkit-touch-callout:none/);
-  assert.match(sheet, /#projmenu\{[^}]*-webkit-user-select:none; user-select:none; -webkit-touch-callout:none/);
 });
 
 // ---- the page --------------------------------------------------------------------------
