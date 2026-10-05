@@ -50,7 +50,7 @@ function world() {
   };
   const els = { m1: { box: boxes.m1 }, m2: { box: boxes.m2 } };
   const context = vm.createContext({
-    document, tickets, settings, innerWidth: 390, selectedId: "m1", hist: null,
+    phoneDeveloperMode: true, document, tickets, settings, innerWidth: 390, selectedId: "m1", hist: null,
     els,
     // the page builds the card coming in when it is not built yet
     ensureCard: id => els[id] || null,

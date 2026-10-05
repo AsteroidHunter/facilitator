@@ -90,6 +90,7 @@ async function open(route, viewport, opts = {}) {
       if (sessionStorage.getItem("settings-page-check")) return;
       sessionStorage.setItem("settings-page-check", "1");
       localStorage.clear();
+      if (location.pathname === "/m") localStorage.setItem("phoneDeveloperMode", "on");
     } catch (error) {}
   });
   if (opts.before) await page.evaluateOnNewDocument(opts.before);

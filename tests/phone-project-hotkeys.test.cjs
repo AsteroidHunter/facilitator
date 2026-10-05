@@ -51,6 +51,7 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
   });
   vm.runInContext(logic, context);
   Object.assign(context, {
+    phoneDeveloperMode: false, saveDiagnostic: source => calls.push(["diagnostic", source]),
     els, selectedId: selected, shownId: selected, browsing, activeOwner: "alpha", homeOpen: false, hist: null,
     lastSel: { alpha: selected, beta: "b2" }, validOwners: new Set(["alpha", "beta", "hidden", "empty"]),
     lastState: { boxes, projects: [{ id: "empty" }], tabs: { order: ["alpha", "hidden", "beta", "empty"], closed: ["hidden"] } },
@@ -161,5 +162,22 @@ test("settings, home, missing state and unavailable numbers do not switch projec
     const before = f.snapshot();
     assert.equal(f.key(opts.number || "2").defaultPrevented, false);
     assert.deepEqual(f.snapshot(), before, JSON.stringify(opts));
+  }
+});
+
+test("Control+Shift+M is inert and propagates while off in Home, either drawer and the card", () => {
+  for (const menu of [null, "tickets", "settings"]) {
+    for (const home of [false, true]) {
+      const f = fixture({ menu }); f.context.homeOpen = home;
+      const before = f.snapshot();
+      const event = f.key("M", { metaKey: false, ctrlKey: true, shiftKey: true });
+      assert.equal(event.defaultPrevented, false);
+      assert.equal(event.stopped, undefined);
+      assert.deepEqual(f.snapshot(), before);
+      f.context.phoneDeveloperMode = true;
+      const enabled = f.key("M", { metaKey: false, ctrlKey: true, shiftKey: true });
+      assert.equal(enabled.defaultPrevented, true);
+      assert.deepEqual(f.snapshot().calls.at(-1), ["diagnostic", "shortcut"]);
+    }
   }
 });
