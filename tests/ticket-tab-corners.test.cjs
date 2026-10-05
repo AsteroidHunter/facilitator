@@ -269,7 +269,7 @@ test("the board's ticket names carry no pill, read by weight, and dip on press",
 
     // a quick tap still shows the dip: the press is held for at least 80ms
     const tap = await page.evaluate(async () => {
-      document.getElementById("tik-page").click();
+      document.getElementById("tik-page-back").click();
       const t = document.getElementById("tv-todo");
       const wait = ms => new Promise(r => setTimeout(r, ms));
       t.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch" }));

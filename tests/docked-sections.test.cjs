@@ -18,7 +18,7 @@ function node() {
   };
 }
 function world() {
-  const nodes = Object.fromEntries(['tv-todo', 'tv-docked', 'tv-deferred', 'tv-done', 'tik-page', 'tiklabels', 'tiksheet'].map(k => [k, node()]));
+  const nodes = Object.fromEntries(['tv-todo', 'tv-docked', 'tv-deferred', 'tv-done', 'tik-page', 'tik-page-back', 'tiklabels', 'tiksheet'].map(k => [k, node()]));
   const requests = [], store = new Map(), timers = new Map(); let timer = 0;
   const ctx = vm.createContext({ Date, console, AbortSignal: { timeout: () => undefined },
     setTimeout: fn => { timers.set(++timer, fn); return timer; }, clearTimeout: id => timers.delete(id),
@@ -53,7 +53,7 @@ test('four sections partition every card, with Done then Deferred taking precede
   }
 });
 
-test('header shows only the current pair and mirrors the arrow, including restored per-lane choices', () => {
+test('header shows the current pair and enables its outgoing arrow, including restored per-lane choices', () => {
   const { ctx, nodes, store } = world();
   for (const [view, visible, back] of [
     ['todo', ['todo', 'docked'], false], ['docked', ['todo', 'docked'], false],
@@ -61,9 +61,11 @@ test('header shows only the current pair and mirrors the arrow, including restor
   ]) {
     ctx.setTicketViewOf('lane', view); ctx.paintViewTabs();
     assert.deepEqual(['todo', 'docked', 'deferred', 'done'].filter(v => !nodes['tv-'+v].inert), visible);
-    assert.equal(nodes['tik-page'].classList.contains('back'), back);
+    assert.equal(nodes['tik-page'].getAttribute('aria-disabled') === 'true', back);
+    assert.equal(nodes['tik-page-back'].getAttribute('aria-disabled') === 'true', !back);
     assert.equal(nodes['tv-'+view].classList.contains('on'), true);
-    assert.equal(nodes['tik-page'].getAttribute('aria-label'), back ? 'show Doing and Docked' : 'show Deferred and Done');
+    assert.equal(nodes['tik-page'].tabIndex, back ? -1 : 0);
+    assert.equal(nodes['tik-page-back'].tabIndex, back ? 0 : -1);
   }
   ctx.activeOwner = 'fresh'; ctx.paintViewTabs();
   assert.equal(ctx.curView(), 'todo');
@@ -75,7 +77,7 @@ for (const page of ['index.html', 'm.html']) {
   test(`${page}: the real header listeners page names without changing the list`, () => {
     const html = source(page), { ctx, nodes } = world();
     assert.deepEqual([...html.matchAll(/<div class="tikpane" data-view="([^"]+)"/g)].map(m => m[1]), ['todo', 'docked', 'deferred', 'done']);
-    assert.match(html, /id="tik-page" class="qn-glass" type="button"/);
+    assert.match(html, /id="tik-page" class="qn-glass tik-page" type="button"/);
     assert.match(html, /id="tv-deferred" inert/); assert.match(html, /id="tv-done" inert/);
     ctx.cancelAutoNext = () => {}; ctx.dropResponseScroll = () => {}; ctx.renderTickets = () => {};
     const from = html.indexOf(page === 'm.html' ? 'function setView(v){' : '  const setView = v => {');
@@ -87,10 +89,10 @@ for (const page of ['index.html', 'm.html']) {
     assert.equal(ctx.curView(), 'todo');
     assert.equal(nodes.tiksheet.style.transform, 'translateX(0%)');
     assert.equal(nodes.tiklabels.style.transform, 'translateX(-100%)');
-    assert.equal(nodes['tv-todo'].inert, true); assert.equal(nodes['tik-page'].classList.contains('back'), true);
+    assert.equal(nodes['tv-todo'].inert, true); assert.equal(nodes['tik-page'].getAttribute('aria-disabled'), 'true');
     nodes['tv-done'].listeners.click();
     assert.equal(nodes.tiksheet.style.transform, 'translateX(-300%)');
-    nodes['tik-page'].listeners.click();
+    nodes['tik-page-back'].listeners.click();
     assert.equal(ctx.curView(), 'done'); assert.equal(nodes.tiksheet.style.transform, 'translateX(-300%)');
     assert.equal(nodes.tiklabels.style.transform, 'translateX(0%)');
     nodes['tv-docked'].listeners.click();
@@ -112,11 +114,11 @@ test('the slide redirects from its live position and reduced motion cancels trav
 
 test('glass triangle has only its own hit area, mark size, edge tangent, centred row, and mirrored return', () => {
   const css = source('card-tokens.css');
-  const rule = /#tikhead #tik-page\{([^}]+)\}/.exec(css)?.[1]; assert.ok(rule);
+  const rule = /#tikhead \.tik-page\{([^}]+)\}/.exec(css)?.[1]; assert.ok(rule);
   for (const part of ['right:0; left:auto', 'width:var(--bar-mark); height:var(--bar-mark)',
     'padding:0; margin:0; border:0', 'clip-path:polygon(0 0, 100% 50%, 0 100%)',
     'top:calc(50% + 3 * var(--u))', 'transform:translateY(-50%)', '--qn-face:rgba(30,30,30,.77)']) assert.ok(rule.includes(part), part);
-  assert.match(css, /#tikhead #tik-page\.back\{left:0; right:auto; transform:translateY\(-50%\) scaleX\(-1\)\}/);
+  assert.match(css, /#tikhead \.tik-page\.back\{left:0; right:auto; transform:translateY\(-50%\) scaleX\(-1\)\}/);
   assert.match(css, /#tiknames\{[^}]*overflow:clip/);
   assert.match(css, /\.qn-glass\{[^}]*background-image:var\(--qn-light\);[^}]*backdrop-filter:blur\(var\(--qn-blur\)\)/);
   assert.doesNotMatch(rule, /--accent|432BFF|purple/i);

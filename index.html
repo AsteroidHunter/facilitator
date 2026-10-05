@@ -1204,6 +1204,7 @@
      --line-gap is the clear air between a pressed name and the divider */
   body.focus #tickets{
     --line-gap:6px;
+    --tik-inset-l:calc(0.7vw + var(--edge-drawn)); --tik-inset-r:calc(0.6vw + var(--edge-drawn));
     position:fixed; left:var(--tik-x); width:var(--tik-w);
     top:calc(var(--oy) + var(--ch)*var(--tik-y));
     height:calc(var(--ch)*var(--tik-h));
@@ -1221,7 +1222,7 @@
   #tikhead::after{
     content:""; position:absolute; pointer-events:none;
     top:calc(100% + var(--line-gap));
-    left:calc(0.7vw + var(--edge-drawn)); right:calc(0.6vw + var(--edge-drawn)); height:0;
+    left:0; right:0; height:0;
     border-top:var(--edge) solid var(--line);
   }
   /* the ticket tabs still reuse the project tabs for type and spacing, two
@@ -1285,9 +1286,9 @@
   .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
     display:flex; flex-direction:column; gap:calc(var(--ch)*0.007);
     padding:calc(var(--edge-drawn) + var(--ch)*0.012)
-            calc(var(--list-side) + var(--edge-drawn) + 0.6vw)
+            calc(var(--list-side) + var(--tik-inset-r))
             calc(var(--list-air) + var(--edge-drawn) + var(--ch)*0.012)
-            calc(var(--list-side) + var(--edge-drawn) + 0.7vw);
+            calc(var(--list-side) + var(--tik-inset-l));
     scroll-padding-block:var(--listfade);
     -webkit-mask-image:linear-gradient(to bottom,
       rgba(0,0,0,0) 0,
@@ -3542,7 +3543,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page" class="qn-glass" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
+<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -10333,7 +10334,8 @@ listenResponseScroll();
   };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
   document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
-  document.getElementById("tik-page").addEventListener("click", slideTicketNames);
+  document.getElementById("tik-page-back").addEventListener("click", () => slideTicketNames(0));
+  document.getElementById("tik-page").addEventListener("click", () => slideTicketNames(1));
   document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
   document.getElementById("tv-done").addEventListener("click", () => setView("done"));
   // press feedback, 20260922, m807: every name, selected or not, takes .pressed
