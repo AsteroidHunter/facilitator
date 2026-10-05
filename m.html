@@ -4222,8 +4222,8 @@ document.getElementById("tikadd").addEventListener("click", createCard);
 // again while it does, and nothing is timed by the script: a finger is followed
 // at the pace the screen delivers it, and a release hands the rest to the
 // stylesheet's transitions. the run is 550ms, on an ease in and out when begun
-// by a tap and an ease out when a drag lets go part way. a release past halfway
-// opens
+// by a tap and an ease out when a drag lets go part way. the list accepts a
+// short flick or a deliberate drag; the settings still settle at halfway
 const page = document.getElementById("page");
 const cardPane = document.getElementById("pane");
 const tickets = document.getElementById("tickets");
@@ -4367,16 +4367,33 @@ document.getElementById("tikbtn").addEventListener("click", () => { if (drawerOp
 document.getElementById("setbtn").addEventListener("click", () => showMenu(settings));
 {
   const EDGE = 28;    // how far in from an edge a pull may begin
+  const LIST_COMMIT = 0.35;     // share of travel a slow drag needs, in either direction
+  const FLICK_PX = 18, FLICK_SPEED = 0.4, FLICK_MS = 100;   // CSS px, CSS px/ms, recent ms
   let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false, travel = 1;
-  const start = (x, y) => {
+  let samples = [], direction = 0;
+  // Event time measures the finger even when the page is late answering it.
+  const time = e => Number.isFinite(e.timeStamp) ? e.timeStamp : performance.now();
+  const sample = (x, t) => {
+    const last = samples[samples.length - 1];
+    if (t < last.t) return;
+    const dir = Math.sign(x - last.x);
+    if (dir && direction && dir !== direction) samples = [last];
+    if (dir) direction = dir;
+    samples.push({ x, t });
+    // Keep one point before the window, to interpolate a sparse stream rather
+    // than treating a long pause followed by one move as an instant flick.
+    while (samples.length > 2 && samples[1].t <= t - FLICK_MS) samples.shift();
+  };
+  const start = (x, y, t) => {
     const out = menuOut();
     if (out){ panel = out; opening = false; }
     else if (x <= EDGE){ panel = tickets; opening = true; }
     else if (x >= innerWidth - EDGE){ panel = settings; opening = true; }
     else { panel = null; return; }
     live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
+    samples = [{ x, t }]; direction = 0;
   };
-  const move = (x, y) => {
+  const move = (x, y, t) => {
     if (!live) return;
     const dx = x - x0;
     if (!decided){
@@ -4390,16 +4407,35 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
       document.body.classList.add("menudrag");
       travel = menuTravel(panel) || 1;
     }
+    if (panel === tickets) sample(x, t);
     const d = menuSign(panel) * dx;
     at = Math.max(0, Math.min(1, (opening ? d : travel + d) / travel));
     paintMenu(panel, at);
   };
-  const end = () => {
+  const end = e => {
     if (!live) return;
+    if (decided && panel === tickets && e.type !== "touchcancel"){
+      // The last bit of a short flick may arrive with the release itself.
+      const point = e.changedTouches?.[0] || (e.type === "mouseup" ? e : null);
+      const last = samples[samples.length - 1];
+      if (point && point.clientX !== last.x) move(point.clientX, point.clientY, time(e));
+      else sample(last.x, time(e));   // holding still before lifting must lose its speed
+    }
     live = false;
     if (!decided) return;
-    // let go past the middle and it opens, before it and it goes back
-    runMenu(panel, at > 0.5 ? 1 : 0, true);
+    let target = at > 0.5 ? 1 : 0;   // the right drawer keeps its halfway rule
+    if (panel === tickets){
+      target = opening ? (at >= LIST_COMMIT ? 1 : 0) : (1 - at >= LIST_COMMIT ? 0 : 1);
+      const first = samples[0], last = samples[samples.length - 1];
+      const next = samples[1] || first, cutoff = last.t - FLICK_MS;
+      const x = first.t < cutoff && next.t > first.t
+        ? first.x + (next.x - first.x) * (cutoff - first.t) / (next.t - first.t) : first.x;
+      const dx = last.x - x, dt = last.t - Math.max(first.t, cutoff);
+      if (Math.abs(dx) >= FLICK_PX && dt > 0 && Math.abs(dx / dt) >= FLICK_SPEED)
+        target = dx > 0 ? 1 : 0;
+      if (e.type === "touchcancel") target = opening ? 0 : 1;
+    }
+    runMenu(panel, target, true);
   };
   // every listener here is passive, the mouse ones too. they sit on the whole
   // document, and one that may cancel a touch (on the phone a mouse listener
@@ -4408,13 +4444,13 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
   // then stands still under the finger, and a swipe made in a long stall is
   // lost. nothing here needs cancelling: the phone does not pan the answer for
   // a finger going sideways
-  document.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }, { passive: true });
-  document.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY); }, { passive: true });
+  document.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY, time(e)); }, { passive: true });
+  document.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY, time(e)); }, { passive: true });
   document.addEventListener("touchend", end, { passive: true });
   document.addEventListener("touchcancel", end, { passive: true });
   // a mouse pulls it too, for the desktop browser that opens this page
-  document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY); }, { passive: true });
-  document.addEventListener("mousemove", e => move(e.clientX, e.clientY), { passive: true });
+  document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY, time(e)); }, { passive: true });
+  document.addEventListener("mousemove", e => move(e.clientX, e.clientY, time(e)), { passive: true });
   document.addEventListener("mouseup", end, { passive: true });
 }
 

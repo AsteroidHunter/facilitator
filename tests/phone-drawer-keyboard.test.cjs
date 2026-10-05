@@ -457,7 +457,7 @@ test("the mouse a desktop browser opens this page with pulls it open the same wa
   }
 });
 
-test("a pull let go before the middle keeps the caret away, since the menu was on its way out", async () => {
+test("a slow short pull keeps the caret away, since the menu was on its way out", async () => {
   const id = await card("Pulled and let go", "A reply to answer.");
   const { page, problems, sends } = await openPhone(id, { formatted: false });
   try {
@@ -466,7 +466,7 @@ test("a pull let go before the middle keeps the caret away, since the menu was o
 
     await touchStep(page, "touchstart", 6, 500);
     await touchStep(page, "touchmove", 6 + Math.round(width * 0.2), 500);
-    await settle(60);
+    await settle(150);   // let the flick window expire: this case checks a short drag, not a flick
     assert.equal((await caretState(page)).inRow, false,
       "the row kept the caret while the drawer came out");
     await touchStep(page, "touchend", 0, 0);
