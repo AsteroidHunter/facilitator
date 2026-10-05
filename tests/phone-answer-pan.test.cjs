@@ -58,6 +58,8 @@ function world() {
     setTimeout: (fn, ms) => { timers.push(fn); return timers.length; }, clearTimeout() {},
     matchMedia: () => ({ matches: false }),
     menuOut: () => null, dismissEditor() {}, closeProjects() {}, tracePhone() {}, traceFrameOpportunity() {},
+    menuAvailable: () => true, // this fixture exercises project gestures; Home has its own controller tests
+    cancelMenuDrag: null,
     phoneEnterRole: () => "other",
     menuTravel: () => 300, menuSign: p => p === settings ? -1 : 1,
     paintMenu: (p, at) => calls.push(["paint", p.dataset.side, Math.round(at * 100) / 100]),

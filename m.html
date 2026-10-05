@@ -552,6 +552,10 @@
   body.home main{background:transparent; border-color:transparent; box-shadow:none; overflow:visible}
   /* every part of the card, the history arrows too, which set their own */
   body.home #cards, body.home #cards *, body.home #empty{visibility:hidden}
+  /* Home has no ticket menu, including the frames of a slide it interrupted. */
+  body.home #tikwin{display:none}
+  body.home #pane{transform:none; transition:margin-bottom var(--kb-anim)}
+  body.home #dockbed > i{transition:none}
   body.home #home{display:flex; flex-direction:column; position:absolute; inset:calc(-1 * var(--edge-drawn)); z-index:4;
     overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain}
   /* the stack's auto margins share out the room above and below it, and give
@@ -3988,6 +3992,7 @@ function setHome(on){
     else localStorage.removeItem(HOME_KEY);
   } catch (err){}
   document.body.classList.toggle("home", homeOpen);
+  syncMenuAvailability();
   house.classList.toggle("on", homeOpen);
   house.setAttribute("aria-pressed", String(homeOpen));
   clearInterval(homeTimer);
@@ -4138,7 +4143,7 @@ function phoneRow(b, marks, age, eng){
 }
 function ticketsShown(){
   const at = document.getElementById("tickets");
-  return !!at && (at.classList.contains("live") || at.classList.contains("open"));
+  return !!at && menuAvailable(at) && (at.classList.contains("live") || at.classList.contains("open"));
 }
 function renderTickets(state, action = "state", shown = ticketsShown()){
   const sheet = document.getElementById("tiksheet");
@@ -4231,6 +4236,20 @@ const tikwin = document.getElementById("tikwin");
 const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
 const menus = [tickets, settings];   // the left one first: the drag reads the side off each
+// Every menu entry, paint and reading uses this policy. Home has no project
+// ticket list; the settings remain available in either place.
+function menuAvailable(panel){ return panel !== tickets || !homeOpen; }
+function syncMenuAvailability(){
+  document.getElementById("tikbtn").setAttribute("aria-disabled", String(!menuAvailable(tickets)));
+  for (const panel of menus){
+    if (menuAvailable(panel)) continue;
+    cancelMenuDrag(panel);
+    lastTicketTap = null;
+    dropResponseScroll();
+    panel.classList.remove("open");
+    paintMenu(panel, 0);
+  }
+}
 // the settings are the page card-logic.js builds, seated in this panel as its
 // list of sections and always in its narrow form, since the panel is never wider
 // than 289px whatever the window. its back mark goes from a section to the list;
@@ -4251,7 +4270,7 @@ function menuTravel(panel){
   return panel === tickets ? tickets.offsetLeft + tickets.offsetWidth : panel.getBoundingClientRect().width;
 }
 function menuSign(panel){ return panel.dataset.side === "right" ? -1 : 1; }   // direction the panel enters
-function menuOut(){ return menus.find(p => p.classList.contains("open")) || null; }
+function menuOut(){ return menus.find(p => menuAvailable(p) && p.classList.contains("open")) || null; }
 // how far in the page draws with the settings the whole way out: the share of
 // its size it already gives up at rest, --sink in the sheet, read from there so
 // the two cannot differ. enough to read as a step back, and little enough that
@@ -4281,6 +4300,7 @@ addEventListener("orientationchange", sizeList);
 // the sheet, and the page's size as a plain scale, so a turn of the phone can
 // leave no stale offset or size behind
 function paintMenu(panel, v){
+  if (!menuAvailable(panel)){ v = 0; panel.classList.remove("open"); }
   const num = v ? v.toFixed(4) : "0";
   if (panel === tickets){
     // the list is drawn as it first comes on show, so a tap or a pull opens it onto current rows
@@ -4321,6 +4341,7 @@ function dismissEditor(){
 // run from where the finger left it and not a jump
 function runMenu(panel, v, release){
   lastTicketTap = null;
+  if (!menuAvailable(panel)) return;
   dropResponseScroll();
   // Closing a menu leaves focus alone. Opening one shuts the project list.
   if (v > 0){ dismissEditor(); closeProjects(); }
@@ -4334,6 +4355,7 @@ function runMenu(panel, v, release){
   endPhoneTrace(menuTrace, { action: "drawer", part: "menu-commit" });
 }
 function showMenu(panel, release){
+  if (!menuAvailable(panel)) return;
   // one menu is out at a time: the row is reachable with the list out, so the
   // gear can ask for the settings and the ticket for the list while the other is up
   const other = menuOut();
@@ -4354,7 +4376,7 @@ function hideMenu(panel, release){
 }
 function openDrawer(){ showMenu(tickets); }
 function closeDrawer(){ hideMenu(tickets); }
-function drawerOpen(){ return tickets.classList.contains("open"); }
+function drawerOpen(){ return menuAvailable(tickets) && tickets.classList.contains("open"); }
 scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu(out); });
 // a tap on the card with the list out lands on the page behind it, since the
 // card takes no touch then, and shuts the list. the card stays where it is
@@ -4365,6 +4387,7 @@ page.addEventListener("click", e => { if (e.target === page && drawerOpen()) clo
 // settings
 document.getElementById("tikbtn").addEventListener("click", () => { if (drawerOpen()) closeDrawer(); else openDrawer(); });
 document.getElementById("setbtn").addEventListener("click", () => showMenu(settings));
+let cancelMenuDrag;
 {
   const EDGE = 28;    // how far in from an edge a pull may begin
   const LIST_COMMIT = 0.35;     // share of travel a slow drag needs, in either direction
@@ -4384,12 +4407,18 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
     // than treating a long pause followed by one move as an instant flick.
     while (samples.length > 2 && samples[1].t <= t - FLICK_MS) samples.shift();
   };
+  cancelMenuDrag = target => {
+    if (panel !== target || !live) return;
+    live = false; decided = false; panel = null;
+    document.body.classList.remove("menudrag", "menurelease");
+  };
   const start = (x, y, t) => {
     const out = menuOut();
     if (out){ panel = out; opening = false; }
     else if (x <= EDGE){ panel = tickets; opening = true; }
     else if (x >= innerWidth - EDGE){ panel = settings; opening = true; }
     else { panel = null; return; }
+    if (!menuAvailable(panel)){ panel = null; live = false; return; }
     live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
     samples = [{ x, t }]; direction = 0;
   };
