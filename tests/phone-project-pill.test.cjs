@@ -100,7 +100,7 @@ test("the row holds four glass buttons in the owner's order, a name-only project
       continue;
     }
     if (id === "setbtn"){
-      assert.match(inside, /^<span class="squidmark" aria-hidden="true"><img src="\/m-splash-squid\.png"[^>]*><\/span>$/, "setbtn is not the logo png in its cropping box");
+      assert.match(inside, /^<span class="squidmark" aria-hidden="true"><img src="data:image\/png;base64,[A-Za-z0-9+/=]+"[^>]*><\/span>$/, "setbtn is not the embedded logo PNG");
       assert.doesNotMatch(inside, /<svg|url\(/, "setbtn also carries a drawn mark");
       continue;
     }
