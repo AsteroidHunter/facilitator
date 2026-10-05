@@ -149,9 +149,17 @@ async function loadWorker({ idb = fakeIndexedDB(), net = {}, clock = { now: 1_80
   if (random) context.crypto = { getRandomValues: bytes => { bytes.set(random); return bytes; } };
   vm.runInNewContext(WORKER_SOURCE, context, { filename: "m-sw.js" });
   const dispatch = async (type, event = {}) => {
-    let work;
-    handlers[type]({ ...event, waitUntil: promise => { work = promise; } });
-    await work;
+    const work = [];
+    handlers[type]({ ...event, waitUntil: promise => { work.push(promise); } });
+    // A handler can extend the event again while its routing promise is live.
+    let from = 0;
+    while (from < work.length) {
+      const batch = work.slice(from);
+      from = work.length;
+      const settled = await Promise.allSettled(batch);
+      const failed = settled.find(result => result.status === "rejected");
+      if (failed) throw failed.reason;
+    }
   };
   const push = (payload = { box: "m101", title: "First card" }) =>
     dispatch("push", { data: { json: () => payload } });

@@ -1023,7 +1023,7 @@ def _log_file() -> Path:
 CLIENT_PAGES = ("board", "phone", "page")
 CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident",
                 "pushreceived", "notifycheck", "notifylost",
-                "notifytap", "notifyarrive", "notifyresult")
+                "notifytapready", "notifytap", "notifyarrive", "notifyresult")
 # the kind of window a page is open in, and its id for one page load: the same
 # page in the Chrome window, the Electron app and the Tauri app is otherwise
 # indistinguishable. Only these names and 16 hex characters are ever kept
@@ -1198,11 +1198,15 @@ NOTICE_FIELDS = {
     "pushreceived": ("outcome", "reason", "ms", "status", "ago", "n", "worker"),
     "notifycheck": ("source", "perm", "reg", "sub"),
     "notifylost": ("source", "reg"),
+    "notifytapready": ("stage", "tap", "box", "at", "worker", "windows", "visibility", "focused"),
     "notifytap": ("box", "tap", "windows", "route", "focus", "opened", "ms", "age"),
     "notifyarrive": ("tap", "box", "via", "reading", "found", "visible", "menu", "home", "hist"),
     "notifyresult": ("tap", "box", "shown", "covered", "pending"),
 }
 NOTICE_CHOICES = {
+    "stage": ("received", "ready"),
+    "visibility": ("visible", "hidden", "none"),
+    "focused": ("yes", "no", "none"),
     "outcome": ("shown", "skipped"),
     "reason": ("check-failed", "timeout", "not-signed-in", "show-failed", "other"),
     "source": ("start", "return"),
@@ -1218,7 +1222,7 @@ NOTICE_CHOICES = {
     "covered": ("cards", "settings", "projects", "none"),
 }
 NOTICE_NUMBERS = {"ms": 600000, "status": 599, "ago": 7776000, "n": 1000000000000,
-                  "windows": 1000, "age": 7776000}
+                  "windows": 1000, "age": 7776000, "at": 10000000000000}
 # a tap's id is eight hex characters made by the worker; a page opened with no
 # id, by an older worker, says "none"
 NOTICE_TAP = re.compile(r"(?:[a-f0-9]{8}|none)", re.ASCII)
@@ -1231,6 +1235,14 @@ def _notice_valid(page: str, report: dict) -> bool:
     age of the notification is left out when the worker could not tell."""
     allowed = NOTICE_FIELDS[report["kind"]]
     wanted = {"kind", *allowed}
+    if report["kind"] == "notifytapready":
+        if report.get("stage") == "received":
+            wanted.difference_update(("windows", "visibility", "focused"))
+        elif report.get("stage") == "ready":
+            no_window = report.get("windows") == 0
+            if ((report.get("visibility") == "none") != no_window
+                    or (report.get("focused") == "none") != no_window):
+                return False
     if report["kind"] == "pushreceived":
         if report.get("outcome") == "shown":
             wanted.discard("reason")
@@ -1260,7 +1272,7 @@ def _notice_valid(page: str, report: dict) -> bool:
                 return False
         elif name == "tap":
             if (not isinstance(value, str) or not NOTICE_TAP.fullmatch(value)
-                    or (value == "none" and report["kind"] == "notifytap")):
+                    or (value == "none" and report["kind"] in ("notifytap", "notifytapready"))):
                 return False
         elif name == "box":
             if not _incident_box(value):
