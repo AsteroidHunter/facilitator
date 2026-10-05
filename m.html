@@ -377,12 +377,10 @@
   @property --qn-edge{syntax:"<number>"; inherits:true; initial-value:2}
   #dock .dockbtn.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
-  /* the open project's name, or Home, centred, cut short with an ellipsis, and
-     beside it the mark of a list */
-  #dock #projbtn{flex:1 1 auto; min-width:0; gap:calc(6 * var(--u)); padding:0 calc(16 * var(--u));
+  /* the open project's name, or Home, centred, cut short with an ellipsis */
+  #dock #projbtn{flex:1 1 auto; min-width:0; padding:0 calc(16 * var(--u));
     font:500 calc(15 * var(--u))/1.2 var(--sans)}
   #projname{flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  #projbtn .updown{color:var(--sub)}
   /* the capsule's press reaches a little further than the others', the grow
      and settle a tap on it has always shown, and lets go over the same .5s. a
      finger held on it does no more than a tap: the press is all */
@@ -1031,7 +1029,6 @@
      across and 69 down); the percentages are of the box's width */
   #dock .squidmark{display:block; height:calc(30 * var(--u)); aspect-ratio:917 / 1126; overflow:hidden; flex:none}
   #dock .squidmark img{display:block; width:135.99%; max-width:none; height:auto; margin:-7.52% 0 0 -17.99%}
-  #dock #projbtn .updown{width:calc(12 * var(--u)); height:calc(12 * var(--u))}
   .projrow svg{width:calc(15 * var(--u)); height:calc(15 * var(--u))}
   .projrow .pcheck{width:calc(16 * var(--u)); height:calc(16 * var(--u))}
   .clipbtn svg{width:calc(17 * var(--u)); height:calc(17 * var(--u))}
@@ -1579,7 +1576,7 @@
        its list, a new card, and the settings -->
   <nav id="dock" aria-label="Controls">
     <button id="tikbtn" class="dockbtn round qn-glass" type="button" title="Cards" aria-label="Cards"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5h12a2 2 0 0 1 2 2v2.5a2.5 2.5 0 0 0 0 5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.5a2.5 2.5 0 0 0 0-5V7a2 2 0 0 1 2-2Z"/></svg></button>
-    <button id="projbtn" class="dockbtn qn-glass" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><svg class="updown" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"/></svg></button>
+    <button id="projbtn" class="dockbtn qn-glass" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span></button>
     <button id="tikadd" class="dockbtn qn-glass" type="button" title="new card" aria-label="new card"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
     <button id="setbtn" class="dockbtn round qn-glass" type="button" title="Settings" aria-label="Settings"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
   </nav>
