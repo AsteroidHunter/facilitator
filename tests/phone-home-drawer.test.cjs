@@ -52,7 +52,9 @@ function fixture() {
   document.getElementById = id => nodes[id];
   document.activeElement = { blur() { calls.push("blur"); } };
   const calls = [];
+  let now = 1000;
   const context = vm.createContext({
+    performance: { now: () => now },
     document, window, innerWidth: 390, homeOpen: false, homePanel: {}, homeTimer: null, limitsTimer: null, limitsTick: null,
     HOME_KEY: "homeopen", wantBox: null, house: nodes.homeico, lastTicketTap: null, lastState: null,
     selectedId: "card", activeOwner: "project", browsing: false, els: {},
@@ -84,8 +86,14 @@ function fixture() {
   const run = source => vm.runInContext(source, context);
   return { nodes, document, window, calls, run, context, stored,
     home: () => nodes.homeico.fire("click"),
-    gesture(type, x = 0, y = 200) {
-      document.fire(type, { button: 0, clientX: x, clientY: y, touches: [{ clientX: x, clientY: y }] });
+    gesture(type, x = 0, y = 200, timeStamp) {
+      // Existing distance checks are slow drags; flick checks supply event time.
+      // Omitted timestamps also exercise the real performance.now() fallback.
+      now += 200;
+      const point = { clientX: x, clientY: y };
+      const ended = type === "touchend" || type === "touchcancel";
+      document.fire(type, { button: 0, ...point, timeStamp,
+        touches: ended ? [] : [point], changedTouches: [point] });
     },
   };
 }
@@ -114,6 +122,39 @@ for (const kind of ["touch", "mouse"]) {
   const start = kind === "touch" ? "touchstart" : "mousedown";
   const move = kind === "touch" ? "touchmove" : "mousemove";
   const end = kind === "touch" ? "touchend" : "mouseup";
+  test(`a fast ${kind} flick on Home cannot open the list`, () => {
+    const f = fixture(); f.home(); f.calls.length = 0;
+    f.gesture(start, 8, 200, 1000);
+    f.gesture(move, 38, 200, 1040);
+    f.gesture(end, 48, 200, 1050);
+    noLeft(f);
+    assert.equal(f.document.body.classList.contains("menudrag"), false);
+    assert.deepEqual(f.calls, []);
+  });
+  test(`Home cancels ${kind} flicks without leaking speed into the next project pull`, () => {
+    for (const closing of [false, true]) {
+      const f = fixture();
+      if (closing) f.nodes.tikbtn.fire("click");
+      const x = closing ? 200 : 8, sign = closing ? -1 : 1;
+      f.gesture(start, x, 200, 1000);
+      f.gesture(move, x + sign * 30, 200, 1040);
+      f.home(); noLeft(f);
+      f.run("setHome(false)");
+      f.gesture(move, x + sign * 40, 200, 1050);
+      f.gesture(end, x + sign * 50, 200, 1060);
+      noLeft(f);
+      // A fresh short drag stays closed, even within the old sample window.
+      f.gesture(start, 8, 200, 1070);
+      f.gesture(move, 18, 200, 1090);
+      f.gesture(end, 18, 200, 1100);
+      noLeft(f);
+      // A fresh intentional flick still works after cancellation.
+      f.gesture(start, 8, 200, 1110);
+      f.gesture(move, 38, 200, 1150);
+      f.gesture(end, 48, 200, 1160);
+      assert.equal(f.run("drawerOpen()"), true);
+    }
+  });
   test(`a ${kind} left-edge pull on Home never starts the drawer`, () => {
     const f = fixture(); f.home(); f.calls.length = 0;
     f.gesture(start, 0); f.gesture(move, 200);

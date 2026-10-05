@@ -71,6 +71,7 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
     apply(state) { calls.push("apply"); context.renderTickets(state); },
   });
   const run = source => vm.runInContext(source, context);
+  run(between("function menuAvailable(panel){", "function syncMenuAvailability(){"));
   run(between("function setBrowsing(on){", "// ---- the project's capsule"));
   run(between("function projOpen(){", "// the list's own taps."));
   run(between('projMenu.addEventListener("click", e => {', 'document.getElementById("projshade")'));
