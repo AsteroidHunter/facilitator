@@ -268,14 +268,58 @@ test("arrows still start at the open ticket, even with another ticket outlined",
   assert.equal(f.context.selectedId, "r13"); assert.deepEqual(f.picks(), []);
 });
 
-test("the outline reuses only the dock glass rim and travels on the row", () => {
-  const rule = html.match(/#tickets \.trow\.drawer-pick > \.trowin::after\{([^]*?)\n  \}/)?.[1];
-  assert.ok(rule, "missing row-bound glass rim");
-  assert.match(rule, /position:absolute; inset:0; border-radius:inherit/);
-  assert.match(rule, /pointer-events:none/);
-  assert.match(rule, /inset 0 0 0 1px var\(--qn-ring, #c7c7cc\)/);
-  assert.match(rule, /\.45 \* var\(--qn-edge, 2\)/); assert.match(rule, /\.35 \* var\(--qn-edge, 2\)/);
-  assert.doesNotMatch(rule, /background|backdrop-filter|transition|--accent|transform/);
+const tokens = readFileSync(path.join(__dirname, "..", "card-tokens.css"), "utf8");
+const mac = readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+const compact = value => value.replace(/\s+/g, " ").trim();
+function cssRule(source, selector) {
+  const start = source.indexOf(selector + "{");
+  assert.ok(start >= 0, `missing CSS rule ${selector}`);
+  return source.slice(start + selector.length + 1, source.indexOf("}", start));
+}
+function cssValue(block, property) {
+  const value = block.match(new RegExp(`(?:^|;)\\s*${property}:([^;]+)`))?.[1];
+  assert.ok(value, `missing CSS property ${property}`);
+  return compact(value);
+}
+const shared = cssRule(tokens, ".qn-glass, #tickets .trow.drawer-pick");
+const glass = cssRule(tokens, ".qn-glass");
+const pick = () => cssRule(html, "#tickets .trow.drawer-pick > .trowin::after");
+const resolve = value => value.replace(/var\((--qn-[\w-]+)\)/g, (_, name) => resolve(cssValue(shared, name)));
+
+test("the pick shares the Mac lens's filled face and complete surface lighting", () => {
+  assert.match(mac, /h\("span", "projectlens qn-glass " \+ cls\)/);
+  for (const property of ["background-color", "background-image"]) {
+    assert.equal(cssValue(pick(), property), cssValue(glass, property), `${property} must use the same token`);
+    assert.equal(resolve(cssValue(pick(), property)), resolve(cssValue(glass, property)));
+  }
+  assert.equal(resolve(cssValue(pick(), "background-color")), "rgba(255,255,255,.77)");
+  const lighting = resolve(cssValue(pick(), "background-image"));
+  assert.match(lighting, /feTurbulence/);
+  assert.equal((lighting.match(/radial-gradient/g) || []).length, 4);
+  assert.match(lighting, /linear-gradient\(145deg/);
+  assert.doesNotMatch(shared + pick(), /--accent|#432bff/i);
+});
+
+test("the pick's edge, inner glow and outer shadows equal the Mac lens's seven layers", () => {
+  const macShadow = cssValue(cssRule(mac, "body.focus :is(.bar .qn-glass, #appframe)"), "box-shadow");
+  assert.equal(resolve(cssValue(pick(), "box-shadow")), resolve(macShadow));
+  assert.equal(cssValue(shared, "--qn-ring"), "#c7c7cc");
+  assert.equal(cssValue(shared, "--qn-edge"), "2");
+  assert.match(pick(), /var\(--qn-depth-shadow\)/, "the cast shadow was reduced to a rim again");
+  assert.match(cssRule(html, "#tickets .trow.drawer-pick"), /overflow:visible/, "row clipping would hide the cast shadow");
+});
+
+test("the glass covers the ticket border box and scrolls with its original sharp text", () => {
+  assert.match(pick(), /position:absolute; inset:calc\(-1 \* var\(--edge-drawn\)\); border-radius:inherit/);
+  assert.match(pick(), /pointer-events:none; z-index:0/);
+  assert.match(cssRule(html, "#tickets .trow.drawer-pick"), /z-index:0/);
+  assert.match(cssRule(html, "#tickets .trow.drawer-pick > .trowin"), /border-radius:inherit/);
+  const text = cssRule(html, "#tickets .trow.drawer-pick > .trowin > *");
+  assert.match(text, /position:relative; z-index:1/, "native title, metadata and artwork must paint above the face");
+  const styling = between("  /* The Mac lens's face", "  .trow.seen .ttl").replace(/\/\*[^]*?\*\//g, "");
+  assert.doesNotMatch(styling, /(?:backdrop-)?filter:|transition:|transform:|opacity:|--accent/,
+    "no blur, displacement, fade or delayed motion may affect the ticket text");
+  assert.match(cssRule(html, "#tickets .trow.drawer-pick > .omni-sweep"), /border-radius:inherit; overflow:hidden/);
   assert.match(html, /padding:var\(--pick-head,/); assert.match(html, /var\(--pick-foot,/);
   assert.match(html, /if \(pane\) sizeDrawerEnds\(pane\);/, "size padding before open scrollIntoView");
 });
