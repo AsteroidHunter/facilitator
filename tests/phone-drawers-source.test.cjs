@@ -137,3 +137,21 @@ test("the settings are the narrow panel off the right edge and the list uses no 
   const list = MENUS.slice(MENUS.indexOf("if (panel === tickets){"), MENUS.indexOf("} else {", MENUS.indexOf("if (panel === tickets){")));
   assert.doesNotMatch(list, /scrim|--page-scale|--panel-depth/, "the list writes the settings' shade or the page's depth");
 });
+
+test("the license and power button form one centered group with the small spacing token", () => {
+  const row = rulesFor(/^#setfootline$/).map(r => r.body).join(";");
+  const declarations = Object.fromEntries(row.split(";").filter(part => part.trim()).map(part => {
+    const colon = part.indexOf(":");
+    return [part.slice(0, colon).trim(), part.slice(colon + 1).trim()];
+  }));
+  assert.equal(declarations.display, "flex");
+  assert.equal(declarations["align-self"], "stretch", "the row must span the footer to center its pair");
+  assert.equal(declarations["align-items"], "center");
+  assert.equal(declarations["justify-content"], "center", "the pair must stay together at the drawer's center");
+  assert.equal(declarations.gap, "var(--sp-s)", "use the existing small spacing token between the controls");
+  assert.match(CSS, /--sp-s\s*:\s*calc\(8 \* var\(--u\)\)/, "the small spacing token must remain eight page pixels");
+  const footer = HTML.match(/<div id="setfoot">([\s\S]*?)<\/aside>/)?.[1];
+  assert.ok(footer, "the drawer footer is missing");
+  assert.match(footer, /<div id="setfootline">\s*<a id="setlicense"[^>]*>Facilitator License<\/a>\s*<button id="signout"[\s\S]*?<\/button>\s*<\/div>/,
+    "the license and power button must share the centered row");
+});
