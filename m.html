@@ -1259,17 +1259,26 @@
     transition:border-color .3s, background-color .3s;
   }
   .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%; padding:0 var(--sp-x)}
-  /* The Mac lens's face, lighting and full edge/shadow stack, shared in the
-     glass sheet. Native text sits above the face, as the Mac's clean glyphs
-     do, without copying or filtering it. WebKit cannot render the Mac's SVG
-     backdrop displacement (webkit.org/b/245510), so retain its material with
-     no centre blur. The row carries the pane directly through every scroll. */
-  #tickets .trow.drawer-pick{overflow:visible; z-index:0}
+  /* Clear glass: only a hairline and a soft outside shadow. Enlarge the real
+     ticket, including its text and fold, without changing its layout size.
+     One animated number also cancels that scale on the glass at every frame,
+     so the pane stays still and travels directly with the scrolling row. */
+  @property --drawer-pick-scale{syntax:"<number>"; inherits:true; initial-value:1}
+  #tickets .trow{
+    --drawer-pick-scale:1; transform:scale(var(--drawer-pick-scale)); transform-origin:center;
+    transition:border-color .3s, background-color .3s, --drawer-pick-scale .14s ease-out;
+  }
+  #tickets .trow.on{transform:translateY(-1px) scale(var(--drawer-pick-scale))}
+  #tickets .trow.drawer-pick{--drawer-pick-scale:1.03; overflow:visible; z-index:0}
   #tickets .trow.drawer-pick > .trowin::after{
-    content:""; position:absolute; inset:calc(-1 * var(--edge-drawn)); border-radius:inherit;
+    /* 1.5% per side reserves the full 3% growth; the extra 5px remains clear
+       of the enlarged border box at every density and ticket width. */
+    content:""; position:absolute; inset:calc(-1.5% - 1.03 * var(--edge-drawn) - 5px);
+    border-radius:calc(5 * var(--u) * 1.03 + 5px);
     pointer-events:none; z-index:0;
-    background-color:var(--qn-face); background-image:var(--qn-light);
-    box-shadow:var(--qn-edge-shadow), var(--qn-inner-shadow), var(--qn-depth-shadow);
+    background:none; border:1px solid var(--card);
+    box-shadow:0 1px 3px color-mix(in srgb, var(--ink) 8%, transparent);
+    transform:scale(calc(1 / var(--drawer-pick-scale))); transform-origin:center;
   }
   #tickets .trow.drawer-pick > .trowin{border-radius:inherit}
   #tickets .trow.drawer-pick > .trowin > *{position:relative; z-index:1}
@@ -1278,6 +1287,9 @@
   #tickets .trow.drawer-pick.testc::after,
   #tickets .trow.drawer-pick.testc > .trowin::before{z-index:2}
   #tickets .trow.drawer-pick > .omni-sweep{border-radius:inherit; overflow:hidden}
+  @media (prefers-reduced-motion: reduce){
+    #tickets .trow{transition:border-color .3s, background-color .3s}
+  }
   .trow.seen .ttl{color:#847A6B}
   .ttl{flex:1; min-width:0; font:500 calc(15 * var(--u))/calc(1.3 * var(--ln)) var(--sans); color:var(--ink);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
@@ -4582,6 +4594,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
 
 // The keyboard pick belongs only to this drawer, and lasts only for this load.
 let drawerKeyboardUsed = false, drawerPick = null;
+function drawerRowBounds(row){
+  const rect = row.getBoundingClientRect();
+  // Pick from the original bounds even while a row grows or shrinks. Reading
+  // the live scale keeps gap ties and the open row's visibility unchanged.
+  const scale = parseFloat(getComputedStyle(row).getPropertyValue("--drawer-pick-scale")) || 1;
+  const extra = (rect.bottom - rect.top) * (1 - 1 / scale) / 2;
+  return { top: rect.top + extra, bottom: rect.bottom - extra };
+}
 function sizeDrawerEnds(pane, active){
   const rows = active ? pane.querySelectorAll(".trow") : [];
   const ends = [["--pick-head", rows[0]], ["--pick-foot", rows[rows.length - 1]]]
@@ -4607,11 +4627,11 @@ function syncDrawerPick(){
     if (pane && open && pane.clientHeight > 0){
       const top = pane.getBoundingClientRect().top + pane.clientTop;
       const bottom = top + pane.clientHeight, middle = (top + bottom) / 2;
-      const shown = open.getBoundingClientRect();
+      const shown = drawerRowBounds(open);
       if (shown.bottom <= top || shown.top >= bottom){
         let nearest = Infinity;
         for (const row of rows){
-          const rect = row.getBoundingClientRect();
+          const rect = drawerRowBounds(row);
           if (rect.bottom <= top || rect.top >= bottom) continue;
           // In a gap, use the nearest ticket; at a tie, keep the upper one.
           const distance = Math.max(rect.top - middle, middle - rect.bottom, 0);

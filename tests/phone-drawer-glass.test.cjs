@@ -63,7 +63,8 @@ function fixture({ selected = "r14", count = 20, height = 300, head = 10, foot =
       const at = p.rows.indexOf(r);
       const top = 100 + padding(p, "head") - p.scrollTop +
         p.rows.slice(0, at).reduce((sum, one) => sum + one.offsetHeight + 6, 0) - (r.classList.contains("on") ? 1 : 0);
-      return { top, bottom: top + r.offsetHeight };
+      const grow = r.offsetHeight * ((r.pickScale || 1) - 1) / 2;
+      return { top: top - grow, bottom: top + r.offsetHeight + grow };
     };
     r.scrollIntoView = () => {
       const rect = r.getBoundingClientRect();
@@ -82,7 +83,8 @@ function fixture({ selected = "r14", count = 20, height = 300, head = 10, foot =
     querySelector: () => panes[view], querySelectorAll: allRows, getElementById: () => node(),
   };
   const context = vm.createContext({ document, window: { ResizeObserver: true }, tickets,
-    getComputedStyle: p => ({ paddingTop: padding(p, "head") + "px" }),
+    getComputedStyle: p => ({ paddingTop: padding(p, "head") + "px",
+      getPropertyValue: name => name === "--drawer-pick-scale" ? String(p.pickScale || 1) : "" }),
     queueMicrotask: fn => microtasks.push(fn),
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe(target, options) { observers.push({ fn: this.fn, target, options }); } },
     ResizeObserver: class { constructor(fn) { this.fn = fn; } observe(target) { resize.push({ fn: this.fn, target }); } },
@@ -380,57 +382,136 @@ test("arrows still start at the open ticket, even with another ticket outlined",
   assert.equal(f.context.selectedId, "r13"); assert.deepEqual(f.picks(), []);
 });
 
-const tokens = readFileSync(path.join(__dirname, "..", "card-tokens.css"), "utf8");
+const tokens = readFileSync(process.env.PHONE_GLASS_TOKENS || path.join(__dirname, "..", "card-tokens.css"), "utf8");
 const mac = readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 const compact = value => value.replace(/\s+/g, " ").trim();
 function cssRule(source, selector) {
-  const start = source.indexOf(selector + "{");
-  assert.ok(start >= 0, `missing CSS rule ${selector}`);
-  return source.slice(start + selector.length + 1, source.indexOf("}", start));
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`(?:^|[}\\n])\\s*${escaped}\\{`).exec(source);
+  assert.ok(match, `missing CSS rule ${selector}`);
+  const start = match.index + match[0].length;
+  return source.slice(start, source.indexOf("}", start));
 }
 function cssValue(block, property) {
   const value = block.match(new RegExp(`(?:^|;)\\s*${property}:([^;]+)`))?.[1];
   assert.ok(value, `missing CSS property ${property}`);
   return compact(value);
 }
-const shared = cssRule(tokens, ".qn-glass, #tickets .trow.drawer-pick");
-const glass = cssRule(tokens, ".qn-glass");
 const pick = () => cssRule(html, "#tickets .trow.drawer-pick > .trowin::after");
-const resolve = value => value.replace(/var\((--qn-[\w-]+)\)/g, (_, name) => resolve(cssValue(shared, name)));
+const pickStyles = () => between("  /* Clear glass", "  .trow.seen .ttl").replace(/\/\*[^]*?\*\//g, "");
 
-test("the pick shares the Mac lens's filled face and complete surface lighting", () => {
-  assert.match(mac, /h\("span", "projectlens qn-glass " \+ cls\)/);
-  for (const property of ["background-color", "background-image"]) {
-    assert.equal(cssValue(pick(), property), cssValue(glass, property), `${property} must use the same token`);
-    assert.equal(resolve(cssValue(pick(), property)), resolve(cssValue(glass, property)));
+test("the pick is transparent, without tint, grain, blur or a colour wash", () => {
+  const pane = pick();
+  assert.equal(cssValue(pane, "background"), "none");
+  assert.doesNotMatch(pane, /background-(?:color|image)|gradient|url\(|filter:|opacity:|mix-blend-mode/);
+  assert.doesNotMatch(pickStyles(), /--qn-|--accent|#[a-f0-9]{3,8}\b|rgba?\(/i);
+  // Apart from the clear pane's edge/shadow, pick rules must not recolour any
+  // ticket state, including working, unread, queued, done and folded tickets.
+  const rest = pickStyles().replace(pane.replace(/\/\*[^]*?\*\//g, ""), "");
+  assert.doesNotMatch(rest, /(?:^|[;{])\s*(?:background(?:-[\w-]+)?|color|opacity|filter|backdrop-filter|box-shadow)\s*:/);
+  assert.doesNotMatch(tokens, /#tickets \.trow\.drawer-pick/);
+});
+
+test("the clear edge is one pixel, with only a soft outside shadow", () => {
+  assert.equal(cssValue(pick(), "border"), "1px solid var(--card)");
+  assert.equal(cssValue(pick(), "box-shadow"), "0 1px 3px color-mix(in srgb, var(--ink) 8%, transparent)");
+  assert.doesNotMatch(pick(), /inset 0|--qn-|outline:/);
+});
+
+// Evaluate the actual CSS arithmetic for several densities and row sizes.
+// This checks geometry only; no layout engine or rendered-pixel claim.
+function cssNumber(expression, { u = 1, edge = 1, percent = 0, scale = 1 } = {}) {
+  const math = expression.replace(/calc\(/g, "(").replace(/var\(--u\)/g, u)
+    .replace(/var\(--edge-drawn\)/g, edge).replace(/var\(--drawer-pick-scale\)/g, scale)
+    .replace(/([\d.]+)%/g, (_, n) => String(Number(n) * percent / 100)).replace(/px/g, "");
+  assert.match(math, /^[\d.\s()+*/-]+$/);
+  return vm.runInNewContext(math);
+}
+
+test("the pane stays centred and five pixels beyond the magnified ticket on every side", () => {
+  const pane = pick(), inset = cssValue(pane, "inset"), radius = cssValue(pane, "border-radius");
+  const counter = cssValue(pane, "transform").match(/^scale\((.*)\)$/)?.[1];
+  assert.ok(counter, "the pane must cancel the ticket's animated scale");
+  assert.equal(cssValue(pane, "transform-origin"), "center");
+  assert.equal(cssValue(pane, "position"), "absolute");
+  assert.equal(cssValue(pane, "pointer-events"), "none");
+  assert.doesNotMatch(pane, /transition:|animation:|translate|position:fixed/);
+  for (const edge of [1, .5, 2 / 3]) for (const u of [1, .985]) {
+    const rowRadius = cssNumber(cssValue(cssRule(html, ".trow"), "border-radius"), { u });
+    assert.ok(Math.abs(cssNumber(radius, { u }) - (rowRadius * 1.03 + 5)) < 1e-9);
+    for (const size of [52 * u, 120.5, 280, 390, 640]) {
+      const paddingSize = size - 2 * edge;
+      const out = cssNumber(inset, { u, edge, percent: paddingSize });
+      const paneSize = paddingSize - 2 * out;
+      assert.ok(Math.abs(paneSize - (size * 1.03 + 10)) < 1e-9, "5px on both sides, even on wide tickets");
+      for (const scale of [1, 1.005, 1.015, 1.025, 1.03]) {
+        assert.ok(Math.abs(scale * cssNumber(counter, { scale }) - 1) < 1e-9, "pane must stay still throughout growth and return");
+        assert.ok(paneSize >= size * scale + 10 - 1e-9);
+      }
+    }
   }
-  assert.equal(resolve(cssValue(pick(), "background-color")), "rgba(255,255,255,.77)");
-  const lighting = resolve(cssValue(pick(), "background-image"));
-  assert.match(lighting, /feTurbulence/);
-  assert.equal((lighting.match(/radial-gradient/g) || []).length, 4);
-  assert.match(lighting, /linear-gradient\(145deg/);
-  assert.doesNotMatch(shared + pick(), /--accent|#432bff/i);
 });
 
-test("the pick's edge, inner glow and outer shadows equal the Mac lens's seven layers", () => {
-  const macShadow = cssValue(cssRule(mac, "body.focus :is(.bar .qn-glass, #appframe)"), "box-shadow");
-  assert.equal(resolve(cssValue(pick(), "box-shadow")), resolve(macShadow));
-  assert.equal(cssValue(shared, "--qn-ring"), "#c7c7cc");
-  assert.equal(cssValue(shared, "--qn-edge"), "2");
-  assert.match(pick(), /var\(--qn-depth-shadow\)/, "the cast shadow was reduced to a rim again");
-  assert.match(cssRule(html, "#tickets .trow.drawer-pick"), /overflow:visible/, "row clipping would hide the cast shadow");
-});
-
-test("the glass covers the ticket border box and scrolls with its original sharp text", () => {
-  assert.match(pick(), /position:absolute; inset:calc\(-1 \* var\(--edge-drawn\)\); border-radius:inherit/);
-  assert.match(pick(), /pointer-events:none; z-index:0/);
-  assert.match(cssRule(html, "#tickets .trow.drawer-pick"), /z-index:0/);
-  assert.match(cssRule(html, "#tickets .trow.drawer-pick > .trowin"), /border-radius:inherit/);
-  const text = cssRule(html, "#tickets .trow.drawer-pick > .trowin > *");
-  assert.match(text, /position:relative; z-index:1/, "native title, metadata and artwork must paint above the face");
-  const styling = between("  /* The Mac lens's face", "  .trow.seen .ttl").replace(/\/\*[^]*?\*\//g, "");
-  assert.doesNotMatch(styling, /(?:backdrop-)?filter:|transition:|transform:|opacity:|--accent/,
-    "no blur, displacement, fade or delayed motion may affect the ticket text");
+test("only the picked ticket grows by three percent, without reflow or moving neighbours", () => {
+  const row = cssRule(html, "#tickets .trow"), picked = cssRule(html, "#tickets .trow.drawer-pick");
+  assert.equal(cssValue(row, "--drawer-pick-scale"), "1");
+  assert.equal(cssValue(row, "transform"), "scale(var(--drawer-pick-scale))");
+  assert.equal(cssValue(row, "transform-origin"), "center");
+  assert.equal(cssValue(picked, "--drawer-pick-scale"), "1.03");
+  assert.equal(cssValue(picked, "overflow"), "visible");
+  assert.doesNotMatch(picked, /(?:height|width|margin|padding|top|left|translate|font-size)\s*:/);
+  const tween = cssValue(row, "transition");
+  assert.match(tween, /--drawer-pick-scale \.14s ease-out/);
+  assert.doesNotMatch(tween, /(?:^|,)\s*(?:all|transform|top|left)\b/);
+  const registration = cssRule(html, "@property --drawer-pick-scale");
+  assert.match(registration, /syntax:"<number>"; inherits:true; initial-value:1/);
+  const reduced = between("  @media (prefers-reduced-motion: reduce){\n    #tickets .trow", "  .trow.seen .ttl");
+  assert.doesNotMatch(cssValue(cssRule(reduced, "#tickets .trow"), "transition"), /--drawer-pick-scale/);
+  assert.match(cssRule(html, ".trow.on"), /transform:translateY\(-1px\); z-index:1/);
+  assert.equal(cssValue(cssRule(html, "#tickets .trow.on"), "transform"), "translateY(-1px) scale(var(--drawer-pick-scale))",
+    "apply the original lift after scaling so it stays exactly one pixel");
   assert.match(cssRule(html, "#tickets .trow.drawer-pick > .omni-sweep"), /border-radius:inherit; overflow:hidden/);
-  assert.match(html, /padding:var\(--pick-head,/); assert.match(html, /var\(--pick-foot,/);
+  const f = fixture(); f.center(5); const before = f.positions(); f.key();
+  assert.deepEqual(f.positions(), before); assert.deepEqual(f.picks(), ["r5"]);
+});
+
+test("magnification cannot change the nearest ticket in a gap, including during return", () => {
+  const f = fixture(); f.key(); f.center(5);
+  const upper = f.pane.rows[5], lower = f.pane.rows[6];
+  const bottom = upper.getBoundingClientRect().bottom;
+  // Just past the halfway point of the 6px gap. An enlarged upper ticket's
+  // visual edge would incorrectly keep that ticket picked.
+  f.pane.scrollTop += bottom + 3.1 - 250;
+  for (const scale of [1.03, 1.02, 1.01, 1]) {
+    upper.pickScale = scale;
+    f.pane.fire("scroll"); f.flush();
+    assert.deepEqual(f.picks(), ["r6"]);
+  }
+  f.pane.scrollTop -= .2;
+  for (const scale of [1.03, 1.02, 1.01, 1]) {
+    lower.pickScale = scale;
+    f.pane.fire("scroll"); f.flush();
+    assert.deepEqual(f.picks(), ["r5"]);
+  }
+});
+
+test("a previously picked open row keeps the same visibility boundary while shrinking", () => {
+  const f = fixture(); f.key();
+  const row = f.pane.rows[14];
+  f.pane.scrollTop += row.getBoundingClientRect().top - 400.1;
+  row.pickScale = 1.03;
+  f.pane.fire("scroll"); f.flush();
+  assert.equal(f.picks().length, 1, "the visual enlargement must not count as the open ticket reappearing");
+  f.pane.scrollTop += .2;
+  f.pane.fire("scroll"); f.flush();
+  assert.deepEqual(f.picks(), [], "the original subpixel visibility rule still applies");
+});
+
+test("the Mac material remains byte-for-byte identical after removing the phone selector", () => {
+  const { createHash } = require("node:crypto");
+  const start = tokens.search(/\.qn-glass(?:, #tickets \.trow\.drawer-pick)?\{/);
+  const material = tokens.slice(start, tokens.indexOf("/* the one warning", start)).replace(", #tickets .trow.drawer-pick", "");
+  assert.equal(createHash("sha256").update(material).digest("hex"),
+    "7de1f01af29c6aa0cdacf17a7f0cb92e53a322b8e59561bef5fcdc372cc540dc");
+  assert.match(mac, /h\("span", "projectlens qn-glass " \+ cls\)/);
 });
