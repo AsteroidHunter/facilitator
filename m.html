@@ -1225,9 +1225,9 @@
      scroll-padding keeps a row that is scrolled into view clear of both ramps */
   .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
     -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:calc(6 * var(--u));
-    padding:calc(var(--edge-drawn) + 10 * var(--u))
+    padding:var(--pick-head, calc(var(--edge-drawn) + 10 * var(--u)))
             calc(var(--list-side) + var(--edge-drawn))
-            calc(var(--list-air) + var(--edge-drawn) + 10 * var(--u))
+            var(--pick-foot, calc(var(--list-air) + var(--edge-drawn) + 10 * var(--u)))
             calc(var(--list-side) + var(--edge-drawn));
     scroll-padding-block:var(--listfade);
     -webkit-mask-image:linear-gradient(to bottom,
@@ -1257,6 +1257,18 @@
     transition:border-color .3s, background-color .3s;
   }
   .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%; padding:0 var(--sp-x)}
+  /* Only the dock pills' thin glass rim, with a clear centre. The row carries
+     it while scrolling; no travelling overlay or change to the selected lift.
+     The inner's after leaves the ready-to-test fold's pseudo-elements alone. */
+  #tickets .trow.drawer-pick > .trowin::after{
+    content:""; position:absolute; inset:0; border-radius:inherit;
+    pointer-events:none; z-index:4;
+    box-shadow:
+      inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge, 2))),
+      inset 0 0 0 1px var(--qn-ring, #c7c7cc),
+      inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge, 2)));
+  }
+  #tickets .trow.drawer-pick > .trowin{border-radius:inherit}
   .trow.seen .ttl{color:#847A6B}
   .ttl{flex:1; min-width:0; font:500 calc(15 * var(--u))/calc(1.3 * var(--ln)) var(--sans); color:var(--ink);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
@@ -4159,6 +4171,7 @@ function renderTickets(state, action = "state", shown = ticketsShown()){
     for (const name of TICKET_VIEWS){
       const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
       if (pane && paintPhonePane(pane, pool.filter(b => viewFilterFor(b, name)), name, state, touch)) spin = true;
+      if (pane) sizeDrawerEnds(pane);
     }
     if (spin) syncSpinner();
     if (began) endPhoneTrace(trace, { action, part: "tickets" });
@@ -4503,6 +4516,74 @@ for (const pane of document.querySelectorAll(".tikpane")){
   new MutationObserver(read).observe(pane, { childList: true });
   if (window.ResizeObserver) new ResizeObserver(read).observe(pane);
   read();
+}
+
+// The keyboard pick belongs only to this drawer, and lasts only for this load.
+let drawerKeyboardUsed = false, drawerPick = null;
+function sizeDrawerEnds(pane){
+  const rows = pane.querySelectorAll(".trow");
+  for (const [name, row] of [["--pick-head", rows[0]], ["--pick-foot", rows[rows.length - 1]]]){
+    if (!row){ pane.style.removeProperty(name); continue; }
+    const space = Math.max(0, (pane.clientHeight - row.offsetHeight) / 2) + "px";
+    if (pane.style.getPropertyValue(name) !== space) pane.style.setProperty(name, space);
+  }
+}
+function syncDrawerPick(){
+  let pick = null;
+  if (drawerKeyboardUsed && drawerOpen() && !homeOpen){
+    const pane = drawerPane(), rows = drawerRows();
+    const open = rows.find(row => row.dataset.id === selectedId);
+    if (pane && open && pane.clientHeight > 0){
+      const top = pane.getBoundingClientRect().top + pane.clientTop;
+      const bottom = top + pane.clientHeight, middle = (top + bottom) / 2;
+      const shown = open.getBoundingClientRect();
+      if (shown.bottom <= top || shown.top >= bottom){
+        let nearest = Infinity;
+        for (const row of rows){
+          const rect = row.getBoundingClientRect();
+          if (rect.bottom <= top || rect.top >= bottom) continue;
+          // In a gap, use the nearest ticket; at a tie, keep the upper one.
+          const distance = Math.max(rect.top - middle, middle - rect.bottom, 0);
+          if (distance < nearest){ nearest = distance; pick = row; }
+        }
+      }
+    }
+  }
+  if (drawerPick !== pick){
+    drawerPick?.classList.remove("drawer-pick");
+    drawerPick = pick;
+    drawerPick?.classList.add("drawer-pick");
+  }
+  return drawerPick;
+}
+document.addEventListener("keydown", e => {
+  // Software typing/IME events have no physical code (or report keyCode 229).
+  if (!e.isTrusted || e.isComposing || e.keyCode === 229 || !e.code || e.code === "Unidentified") return;
+  // Let the first key finish its normal action before enabling the marker:
+  // a first Enter must not open a pick the reader has never seen.
+  if (!drawerKeyboardUsed) queueMicrotask(() => { drawerKeyboardUsed = true; syncDrawerPick(); });
+  else syncDrawerPick();
+}, true);
+{
+  const panes = [...tickets.querySelectorAll(".tikpane")];
+  const refresh = () => {
+    for (const pane of panes){ sizeDrawerEnds(pane); tickBands(pane); }
+    syncDrawerPick();
+  };
+  for (const pane of panes){
+    pane.addEventListener("scroll", syncDrawerPick, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(refresh).observe(pane);
+  }
+  // Selection, project/section changes, row arrivals/removals and drawer
+  // open/close all settle before painting. Ignore our own marker class.
+  new MutationObserver(changes => {
+    if (changes.some(change => change.type === "childList" && panes.includes(change.target) ||
+        change.type === "attributes" && (change.target === tickets ||
+          /(?:^|\s)on(?:\s|$)/.test(change.oldValue || "") !== change.target.classList.contains("on")))) refresh();
+  }).observe(tickets, { childList: true, subtree: true, attributes: true,
+    attributeFilter: ["class"], attributeOldValue: true });
+  addEventListener("resize", refresh);
+  refresh();
 }
 
 // Keep only the start, first intended move, and end of a gesture. Coordinates
@@ -6363,6 +6444,14 @@ const menuShortcutActions = {
   },
   enter(e){
     if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
+    const pick = syncDrawerPick();
+    if (pick){
+      e.preventDefault();
+      select(pick.dataset.id);
+      closeDrawer();
+      syncDrawerPick();
+      return;
+    }
     if (e.target.closest?.("button, a, select, summary, [role], [tabindex]")) return;
     e.preventDefault();
     if (drawerRows().some(r => r.classList.contains("on"))) chooseShown();
