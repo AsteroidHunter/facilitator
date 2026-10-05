@@ -54,8 +54,8 @@ test("the phone drawer's tab names are capitalized like the board's", async () =
   assert.deepEqual(labels(phone), labels(board), "the phone's names differ from the board's");
   // only the doing name starts selected
   assert.match(phone, /<button id="tv-todo" class="ptab tvb on"/);
-  assert.match(phone, /<button id="tv-deferred" hidden class="ptab tvb"/);
-  assert.match(phone, /<button id="tv-done" hidden class="ptab tvb"/);
+  assert.match(phone, /<button id="tv-deferred" inert aria-hidden="true" class="ptab tvb"/);
+  assert.match(phone, /<button id="tv-done" inert aria-hidden="true" class="ptab tvb"/);
 });
 
 test("the phone drawer's selected tab wears no pill and reads by weight", async () => {

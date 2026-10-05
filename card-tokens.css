@@ -140,11 +140,18 @@
 /* Two ticket names at a time. The clipped triangle itself is the complete
    hit area, with its tip on the ticket holder's edge. The head's top padding
    is excluded so the triangle and the names share their vertical centre. */
-#tikhead .tvb[hidden]{display:none}
+#tiknames{
+  flex:1; min-width:0; margin:0 max(10%, var(--bar-mark)); overflow:clip;
+}
+#tiklabels{display:flex; transition:transform .24s var(--gentle)}
+#tiklabels .tikpair{display:flex; flex:0 0 100%; min-width:0; gap:calc(4 * var(--u))}
+#tikhead .tvb{min-width:0}
+@media (prefers-reduced-motion: reduce){#tiklabels{transition:none}}
 #tikhead #tik-page{
   position:absolute; right:0; left:auto;
   top:calc(50% + 3 * var(--u)); transform:translateY(-50%);
   width:var(--bar-mark); height:var(--bar-mark); min-width:0; min-height:0;
+  box-sizing:border-box; -webkit-appearance:none; appearance:none;
   padding:0; margin:0; border:0; border-radius:0; cursor:pointer;
   clip-path:polygon(0 0, 100% 50%, 0 100%);
   --qn-face:rgba(30,30,30,.77); --qn-edge:.6;

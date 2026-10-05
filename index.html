@@ -1214,8 +1214,8 @@
      the file navigator used to share this one rule with it; 20260828 it stopped,
      because the two heads no longer want the same air on their sides, and its
      own row is written out beside its own tabs further down */
-  /* no side air: the two visible names divide the head into equal halves across the
-     holder's full width. the divider under them is drawn by #tikhead::after,
+  /* The names share the middle 80 percent, clipped by the shared #tiknames rule.
+     The divider under them is drawn by #tikhead::after,
      --line-gap below the names' foot and across the rows' own sides */
   #tikhead{position:relative; flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 0 0; border-bottom:none}
   #tikhead::after{
@@ -3542,7 +3542,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button><button id="tv-deferred" hidden class="ptab tvb">Deferred</button><button id="tv-done" hidden class="ptab tvb">Done</button><button id="tik-page" class="qn-glass" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
+<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page" class="qn-glass" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -10321,6 +10321,7 @@ listenResponseScroll();
   // has never been given a view opens on doing
   const setView = v => {
     if (!setTicketViewOf(activeOwner, v)) return;
+    chooseTicketNames(v);
     cancelAutoNext();
     paintViewTabs();
     // the render keeps the sheet where it is (tikTravelIntent), then the travel
@@ -10332,7 +10333,7 @@ listenResponseScroll();
   };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
   document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
-  document.getElementById("tik-page").addEventListener("click", () => setView(otherTicketPage()));
+  document.getElementById("tik-page").addEventListener("click", slideTicketNames);
   document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
   document.getElementById("tv-done").addEventListener("click", () => setView("done"));
   // press feedback, 20260922, m807: every name, selected or not, takes .pressed

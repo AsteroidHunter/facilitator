@@ -129,7 +129,7 @@ function assertShade(shadow, want, what) {
 const sunkAt = d => [[.22 * d, 0, 3 * d, 7 * d, 0], [.14 * d, 0, 1 * d, 2 * d, 0]];
 
 // every name's look and box, and the list's, read in one pass
-const boardTabs = page => page.evaluate(() => [...document.querySelectorAll("#tikhead .tvb:not([hidden])")].map(t => {
+const boardTabs = page => page.evaluate(() => [...document.querySelectorAll("#tikhead .tvb:not([inert])")].map(t => {
   const cs = getComputedStyle(t);
   const r = t.getBoundingClientRect();
   const drawn = (el, which) => {
@@ -160,7 +160,7 @@ const listBox = page => page.evaluate(() => {
 const dividerBox = page => page.evaluate(() => {
   const head = document.getElementById("tikhead");
   const hr = head.getBoundingClientRect();
-  const feet = [...document.querySelectorAll("#tikhead .tvb:not([hidden])")].map(t => t.getBoundingClientRect().bottom);
+  const feet = [...document.querySelectorAll("#tikhead .tvb:not([inert])")].map(t => t.getBoundingClientRect().bottom);
   const cs = getComputedStyle(head, "::after");
   const probe = document.createElement("i");
   probe.style.cssText = "position:fixed;width:1px;height:1px;background:var(--line)";

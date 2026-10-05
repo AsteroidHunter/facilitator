@@ -36,6 +36,7 @@ function element(id) {
       return e;
     },
     getBoundingClientRect: () => ({ width: 289 }),
+    getAnimations: () => [],
     querySelector: () => null, querySelectorAll: () => [], closest: () => null,
   };
 }
