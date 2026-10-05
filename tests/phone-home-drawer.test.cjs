@@ -71,7 +71,7 @@ function fixture() {
     unselectShown: () => calls.push("unselect"),
     homeShow: () => calls.push("home-show"), renderTabs() {}, brandStart() {}, homeWarm() {},
     paintViewTabs() {}, poolOf: () => [], viewFilterFor: () => true,
-    paintPhonePane: () => { calls.push("paint-tickets"); return false; }, syncSpinner() {}, sizeDrawerEnds() {},
+    paintPhonePane: () => { calls.push("paint-tickets"); return false; }, syncSpinner() {},
     tikTravelIntent: null, tikShownView: "todo", curView: () => "todo", moveTicketSheet() {},
     TICKET_VIEWS: ["todo", "docked", "deferred", "done"],
     stepCard: () => calls.push("step-card"), browse: () => calls.push("browse"), chooseShown: () => calls.push("choose"),

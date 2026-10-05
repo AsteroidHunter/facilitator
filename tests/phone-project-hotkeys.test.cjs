@@ -58,7 +58,7 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
     tickets: nodes.tickets, settings: nodes.settings, projBtn: nodes.projbtn, projMenu: nodes.projmenu,
     ensureCard: id => els[id], markSeen: id => read.push(id),
     tracePhone() {}, endPhoneTrace() {}, cancelAutoNext() {}, syncPhoneHistory() {}, wearEditor() {},
-    openAtHead() {}, seatScroll() {}, renderTabs() {}, reachLater() {}, endProjCarry() {}, syncSpinner() {}, sizeDrawerEnds() {},
+    openAtHead() {}, seatScroll() {}, renderTabs() {}, reachLater() {}, endProjCarry() {}, syncSpinner() {},
     menuOut: () => menu ? nodes[menu] : null,
     drawerOpen: () => nodes.tickets.classList.contains("open"),
     setHome: on => { context.homeOpen = on; },

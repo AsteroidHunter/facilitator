@@ -136,9 +136,12 @@ function fixture({ selected = "r14", count = 20, height = 300, head = 10, foot =
       flush(); return e;
     },
     scroll(top) { pane.scrollTop = top; pane.fire("scroll"); flush(); },
-    center(index) {
+    // Put a content coordinate under the moving line. This inverse is also
+    // useful at row gaps; expectations below do not call the production helper.
+    aim(index, offset = pane.rows[index].offsetHeight / 2) {
       const r = pane.rows[index], rect = r.getBoundingClientRect();
-      this.scroll(pane.scrollTop + (rect.top + rect.bottom) / 2 - (100 + pane.clientHeight / 2));
+      const contentY = rect.top + pane.scrollTop - 100 + offset;
+      this.scroll(contentY * Math.max(0, pane.scrollHeight - pane.clientHeight) / pane.scrollHeight);
     },
     resize(h) { pane.clientHeight = h; for (const r of resize) if (r.target === pane) r.fn(); flush(); },
     view(v) {
@@ -150,108 +153,96 @@ function fixture({ selected = "r14", count = 20, height = 300, head = 10, foot =
 }
 
 test("touch scrolling never shows a keyboard pick before a hardware key", () => {
-  const f = fixture(); f.center(5); assert.deepEqual(f.picks(), []);
+  const f = fixture(); f.aim(5); assert.deepEqual(f.picks(), []);
   for (const extra of [{ isTrusted: false }, { code: "" }, { code: "Unidentified" }, { isComposing: true }, { keyCode: 229 }]) {
     f.key("x", extra); assert.deepEqual(f.picks(), []);
   }
   f.key(); assert.deepEqual(f.picks(), ["r5"]);
 });
 
-test("ordinary touch use has no pick space on load, scroll, resize or row changes", () => {
-  const f = fixture();
-  assert.deepEqual(f.ends(), ["", ""]);
-  assert.equal(f.pane.rows[0].getBoundingClientRect().top, 110);
-  f.center(5); f.resize(400); f.changedRows();
-  assert.deepEqual(f.ends(), ["", ""]);
-  for (const extra of [{ isTrusted: false }, { code: "" }, { code: "Unidentified" }, { isComposing: true }, { keyCode: 229 }]) {
-    f.key("x", extra); assert.deepEqual(f.ends(), ["", ""]);
-  }
-  f.scroll(f.pane.scrollHeight);
-  assert.equal(f.pane.rows.at(-1).getBoundingClientRect().bottom, 500 - 17);
+test("the drawer has no end spacer CSS, sizing or scroll compensation", () => {
+  assert.equal(/--pick-(?:head|foot)|sizeDrawerEnds/.test(html), false, "end spacers must be removed");
+  // Keep just the original small insets that give the ticket shadows room.
+  assert.equal(cssValue(cssRule(html, ".tikpane"), "padding"),
+    "calc(var(--edge-drawn) + 10 * var(--u)) calc(var(--list-side) + var(--edge-drawn)) " +
+    "calc(var(--list-air) + var(--edge-drawn) + 10 * var(--u)) calc(var(--list-side) + var(--edge-drawn))");
+  assert.doesNotMatch(between("let drawerKeyboardUsed =", "// Keep only the start, first intended move"),
+    /scrollTop\s*[-+*/]?=|padding|style\.(?:setProperty|removeProperty)/);
 });
 
-test("hardware keys keep the normal margins while the open ticket is visible", () => {
-  const f = fixture(); f.center(14);
-  const positions = f.positions();
-  f.key(); assert.deepEqual(f.picks(), []); assert.deepEqual(f.ends(), ["", ""]);
-  assert.deepEqual(f.positions(), positions);
-  f.resize(400); f.changedRows(); assert.deepEqual(f.ends(), ["", ""]);
-});
+for (const keyboard of [false, true]) for (const selected of [0, 19]) for (const at of [0, 19]) {
+  test(`${keyboard ? "keyboard" : "touch"}, selected r${selected}, at r${at}: no end space or scroll movement`, () => {
+    const f = fixture({ selected: `r${selected}` });
+    f.scroll(at === 0 ? 0 : f.pane.scrollHeight);
+    const positions = f.positions(), scroll = f.pane.scrollTop, height = f.pane.scrollHeight;
+    if (keyboard) f.key();
+    for (let repeat = 0; repeat < 3; repeat++) {
+      f.pane.fire("scroll"); f.changedRows(); f.resize(300);
+      assert.deepEqual(f.ends(), ["", ""]);
+      assert.equal(f.pane.scrollHeight, height);
+      assert.equal(f.pane.scrollTop, scroll);
+      assert.deepEqual(f.positions(), positions);
+      assert.deepEqual(f.picks(), keyboard && selected !== at ? [`r${at}`] : []);
+    }
+    const rect = f.pane.rows[at].getBoundingClientRect();
+    const lift = selected === at ? 1 : 0;
+    assert.equal(at === 0 ? rect.top : rect.bottom, at === 0 ? 110 - lift : 383 - lift);
+  });
+}
 
-test("adding pick space preserves every ticket's position and the middle pick", () => {
-  const f = fixture({ head: 10.5, foot: 17.5 }); f.center(5);
-  const positions = f.positions(), scroll = f.pane.scrollTop;
+test("enabling and ending a pick never changes fractional insets or ticket positions", () => {
+  const f = fixture({ head: 10.5, foot: 17.5 }); f.aim(5);
+  const positions = f.positions(), scroll = f.pane.scrollTop, height = f.pane.scrollHeight;
   f.key();
-  assert.deepEqual(f.ends(), ["124px", "124px"]);
-  assert.equal(f.pane.scrollTop, scroll + 124 - 10.5);
-  assert.deepEqual(f.positions(), positions); assert.deepEqual(f.picks(), ["r5"]);
-  for (const p of [f.panes.deferred, f.panes.done]) assert.deepEqual(f.ends(p), ["", ""]);
-  f.pane.fire("scroll"); f.changedRows(); f.key();
-  assert.deepEqual(f.positions(), positions, "refreshes must not add compensation twice");
-});
-
-test("removing pick space when the open row returns preserves ticket positions", () => {
-  const f = fixture({ head: 10.5, foot: 17.5 }); f.center(5); f.key();
+  assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.picks(), ["r5"]);
+  assert.equal(f.pane.scrollTop, scroll); assert.equal(f.pane.scrollHeight, height);
+  assert.deepEqual(f.positions(), positions);
+  // The open ticket returns a fraction inside the bottom edge.
   f.pane.scrollTop += f.pane.rows[14].getBoundingClientRect().top - 399.75;
-  const positions = f.positions(), scroll = f.pane.scrollTop;
+  const beforeReturn = f.positions(), returnScroll = f.pane.scrollTop;
   f.pane.fire("scroll"); f.flush();
   assert.deepEqual(f.picks(), []); assert.deepEqual(f.ends(), ["", ""]);
-  assert.equal(f.pane.scrollTop, scroll + 10.5 - 124);
-  assert.deepEqual(f.positions(), positions);
-  f.pane.fire("scroll"); f.changedRows(); assert.deepEqual(f.positions(), positions);
+  assert.equal(f.pane.scrollTop, returnScroll); assert.deepEqual(f.positions(), beforeReturn);
 });
 
-test("resizing active end space preserves ticket positions and still centers both ends", () => {
-  const f = fixture(); f.center(5); f.key();
+test("resize and row changes leave both ends fixed while updating the pick", () => {
+  const f = fixture({ selected: "r10" }); f.aim(5); f.key();
   const positions = f.positions(), scroll = f.pane.scrollTop;
   f.resize(400);
-  assert.deepEqual(f.ends(), ["174px", "174px"]);
-  assert.equal(f.pane.scrollTop, scroll + 50); assert.deepEqual(f.positions(), positions);
+  assert.deepEqual(f.ends(), ["", ""]);
+  assert.equal(f.pane.scrollTop, scroll); assert.deepEqual(f.positions(), positions);
+  f.pane.rows[0].offsetHeight = 60; f.pane.rows[19].offsetHeight = 80; f.changedRows();
+  assert.deepEqual(f.ends(), ["", ""]);
   for (const [index, top] of [[0, 0], [19, f.pane.scrollHeight - f.pane.clientHeight]]) {
-    f.scroll(top);
-    const rect = f.pane.rows[index].getBoundingClientRect();
-    assert.equal((rect.top + rect.bottom) / 2, 300); assert.deepEqual(f.picks(), [`r${index}`]);
+    f.scroll(top); assert.deepEqual(f.picks(), [`r${index}`]);
   }
 });
 
-test("removal saves the original scroll position before shorter padding clamps it", () => {
-  const f = fixture({ selected: "r0" }); f.center(18); f.key();
-  f.pane.scrollTop = f.pane.scrollHeight - f.pane.clientHeight - 110;
+test("closing, sections and Home preserve the scroll position without adding end space", () => {
+  const f = fixture(); f.aim(5); f.key();
   const positions = f.positions(), scroll = f.pane.scrollTop;
-  f.run('select("r18")'); f.flush();
-  assert.deepEqual(f.ends(), ["", ""]);
-  assert.equal(f.pane.scrollTop, scroll + 10 - 124);
-  // Selection has its existing 1px lift; all other tickets stay still.
-  assert.deepEqual(f.positions().slice(1, 18), positions.slice(1, 18));
-});
-
-test("closing and section changes clear the space without changing the saved row positions", () => {
-  const f = fixture(); f.center(5); f.key();
-  const positions = f.positions();
-  f.view("done"); assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.positions(), positions);
-  f.view("todo"); assert.deepEqual(f.ends(), ["124px", "124px"]); assert.deepEqual(f.positions(), positions);
-  f.tickets.classList.remove("open"); f.flush();
-  assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.positions(), positions);
-  f.open();
-  assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.picks(), []);
+  for (const action of [() => f.view("done"), () => f.view("todo"),
+    () => { f.context.homeOpen = true; }, () => { f.context.homeOpen = false; },
+    () => f.tickets.classList.remove("open"), () => f.tickets.classList.add("open")]) {
+    action(); f.run("syncDrawerPick()"); f.flush();
+    for (const pane of Object.values(f.panes)) assert.deepEqual(f.ends(pane), ["", ""]);
+    assert.equal(f.pane.scrollTop, scroll); assert.deepEqual(f.positions(), positions);
+  }
+  f.open(); assert.deepEqual(f.picks(), []); assert.deepEqual(f.ends(), ["", ""]);
   const rect = f.pane.rows[14].getBoundingClientRect();
   assert.ok(rect.top < 400 && rect.bottom > 100, "opening still reveals the selected ticket");
 });
 
-test("opening on the first ticket has only the normal top margin after keyboard use", () => {
-  const f = fixture({ selected: "r0" }); f.center(15); f.key();
-  f.tickets.classList.remove("open"); f.flush(); f.open();
-  assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.picks(), []);
-  assert.ok(f.pane.rows[0].getBoundingClientRect().top <= 110);
-});
-
-test("ending a pick at either scroll limit removes the blank band and clamps to normal bounds", () => {
+test("selecting and reopening either end ticket leaves no spacer band", () => {
   for (const index of [0, 19]) {
-    const f = fixture(); f.key(); f.center(index);
+    const f = fixture(); f.key(); f.scroll(index === 0 ? 0 : f.pane.scrollHeight);
     assert.deepEqual(f.picks(), [`r${index}`]);
+    const scroll = f.pane.scrollTop, height = f.pane.scrollHeight;
     f.run(`select("r${index}")`); f.flush();
     assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.picks(), []);
-    assert.equal(f.pane.scrollTop, index === 0 ? 0 : f.pane.scrollHeight - f.pane.clientHeight);
+    assert.equal(f.pane.scrollTop, scroll); assert.equal(f.pane.scrollHeight, height);
+    f.tickets.classList.remove("open"); f.flush(); f.open();
+    assert.deepEqual(f.ends(), ["", ""]); assert.deepEqual(f.picks(), []);
   }
 });
 
@@ -268,25 +259,70 @@ test("any visible part of the open ticket suppresses the outline at either edge"
   f.scroll(f.pane.scrollTop + .25); assert.equal(f.picks().length, 1);
 });
 
-test("the middle pick follows both scroll directions and vanishes when the open row returns", () => {
-  const f = fixture(); f.key();
-  for (const index of [5, 4, 3, 6, 18, 19]) {
-    f.center(index); assert.deepEqual(f.picks(), [`r${index}`]);
+test("the pick line moves continuously from visible top to bottom with scroll progress", () => {
+  const f = fixture();
+  for (const top of [0, 100, 137.5]) for (const height of [300, 415.25]) {
+    const pane = { clientHeight: height, scrollHeight: height + 880, scrollTop: 0 };
+    let previous = top;
+    for (let i = 0; i <= 1000; i++) {
+      pane.scrollTop = 880 * i / 1000;
+      const line = f.context.drawerPickLine(pane, top);
+      assert.ok(Math.abs(line - (top + height * i / 1000)) < 1e-9);
+      assert.ok(line >= previous); previous = line;
+    }
+    pane.scrollTop = -40; assert.equal(f.context.drawerPickLine(pane, top), top);
+    pane.scrollTop = 920; assert.equal(f.context.drawerPickLine(pane, top), top + height);
   }
-  f.center(14); assert.deepEqual(f.picks(), []);
 });
 
-test("the ticket under the centre wins, including unequal rows and a gap", () => {
-  const f = fixture(); f.key(); f.pane.rows[5].offsetHeight = 120;
-  f.center(5); f.scroll(f.pane.scrollTop + 50);
-  assert.deepEqual(f.picks(), ["r5"], "centre remains inside the tall ticket");
-  const bottom = f.pane.rows[5].getBoundingClientRect().bottom;
-  f.scroll(f.pane.scrollTop + bottom + 2 - 250); assert.deepEqual(f.picks(), ["r5"]);
-  f.scroll(f.pane.scrollTop + 2); assert.deepEqual(f.picks(), ["r6"]);
+test("a list that cannot scroll uses the middle, including empty and single-row lists", () => {
+  const f = fixture();
+  for (const scrollHeight of [0, 52, 300]) {
+    assert.equal(f.context.drawerPickLine({ scrollHeight, clientHeight: 300, scrollTop: 0 }, 100), 250);
+  }
+  for (const count of [0, 1, 4]) {
+    const short = fixture({ count, selected: "r0" }); short.key(); short.resize(400); short.changedRows();
+    assert.deepEqual(short.ends(), ["", ""]); assert.deepEqual(short.picks(), []);
+    assert.equal(short.pane.scrollTop, 0);
+  }
+});
+
+test("the scroll rule picks every ticket in both directions, with the open row still suppressing it", () => {
+  // Use opposite open tickets so every row can also be checked with the open
+  // row out of view. Include every intermediate scroll step, not just aims.
+  for (const selected of ["r0", "r19"]) {
+    const f = fixture({ selected }); f.key();
+    const seen = new Set(), max = f.pane.scrollHeight - f.pane.clientHeight;
+    for (const direction of [1, -1]) for (let step = 0; step <= 400; step++) {
+      const scroll = max * (direction === 1 ? step : 400 - step) / 400;
+      f.scroll(scroll);
+      const open = f.pane.rows.find(r => r.dataset.id === selected).getBoundingClientRect();
+      if (open.bottom > 100 && open.top < 400) { assert.deepEqual(f.picks(), []); continue; }
+      // Convert the specified visible line to a content coordinate and find
+      // the closest row independently of the production geometry loop.
+      const contentY = scroll * f.pane.scrollHeight / max;
+      const index = Math.max(0, Math.min(19, Math.floor((contentY - 10 + 3) / 58)));
+      assert.deepEqual(f.picks(), [`r${index}`]); seen.add(index);
+      assert.deepEqual(f.ends(), ["", ""]);
+    }
+    for (let index = selected === "r0" ? 6 : 0; index < (selected === "r0" ? 20 : 14); index++)
+      assert.ok(seen.has(index), `r${index} must be reachable with ${selected} open`);
+  }
+});
+
+test("the moving line handles unequal rows, gaps and ties without magnification bias", () => {
+  const f = fixture(); f.key(); f.pane.rows[5].offsetHeight = 120; f.changedRows();
+  f.aim(5, 110); assert.deepEqual(f.picks(), ["r5"], "line is still inside the tall ticket");
+  f.aim(5, 122); assert.deepEqual(f.picks(), ["r5"]);
+  f.aim(5, 124); assert.deepEqual(f.picks(), ["r6"]);
+  // Exact integer geometry avoids a floating point approximation of the tie.
+  const tie = fixture({ selected: "r19", head: 6, foot: 0, count: 20, height: 290 }); tie.key();
+  tie.scroll(219.75); // content y = 293: r4 ends at 290 and r5 starts at 296
+  assert.deepEqual(tie.picks(), ["r4"]);
 });
 
 test("Enter opens the outlined card, reads it and closes the drawer without focusing a field", () => {
-  const f = fixture(); f.center(5); f.key();
+  const f = fixture(); f.aim(5); f.key();
   assert.deepEqual(f.picks(), ["r5"]);
   assert.equal(f.key("Enter").defaultPrevented, true);
   assert.equal(f.context.selectedId, "r5"); assert.equal(f.context.shownId, "r5");
@@ -297,13 +333,13 @@ test("Enter opens the outlined card, reads it and closes the drawer without focu
 });
 
 test("an outline also makes Enter choose its ticket when a drawer button has focus", () => {
-  const f = fixture(); f.center(4); f.key();
+  const f = fixture(); f.aim(4); f.key();
   f.key("Enter", { target: { closest: () => ({}) } });
   assert.equal(f.context.selectedId, "r4"); assert.equal(f.closes(), 1);
 });
 
 test("Enter before any outline keeps the old action even after touch scrolling", () => {
-  const f = fixture(); f.center(5); assert.deepEqual(f.picks(), []);
+  const f = fixture(); f.aim(5); assert.deepEqual(f.picks(), []);
   f.key("Enter"); assert.equal(f.context.selectedId, "r14"); assert.equal(f.closes(), 1);
   assert.deepEqual(f.read, ["r14"]);
 });
@@ -311,19 +347,19 @@ test("Enter before any outline keeps the old action even after touch scrolling",
 test("a hardware key outside the drawer enables later finger scrolling only for this load", () => {
   const f = fixture(); f.tickets.classList.remove("open"); f.flush(); f.key();
   assert.deepEqual(f.picks(), []);
-  f.tickets.classList.add("open"); f.flush(); f.center(5); assert.deepEqual(f.picks(), ["r5"]);
-  const reload = fixture(); reload.center(5); assert.deepEqual(reload.picks(), []);
+  f.tickets.classList.add("open"); f.flush(); f.aim(5); assert.deepEqual(f.picks(), ["r5"]);
+  const reload = fixture(); reload.aim(5); assert.deepEqual(reload.picks(), []);
 });
 
 test("editing, composition and modified Enter keep their existing key guards", () => {
   for (const extra of [{ target: { typing: true } }, { isComposing: true }, { shiftKey: true }, { ctrlKey: true }, { altKey: true }]) {
-    const f = fixture(); f.key(); f.center(5); f.key("Enter", extra);
+    const f = fixture(); f.key(); f.aim(5); f.key("Enter", extra);
     assert.equal(f.context.selectedId, "r14"); assert.equal(f.closes(), 0);
   }
 });
 
 test("Enter without an outline keeps the visible selection and native control behavior", () => {
-  const f = fixture(); f.center(14);
+  const f = fixture(); f.aim(14);
   assert.equal(f.key("Enter", { target: { closest: () => ({}) } }).defaultPrevented, false);
   assert.equal(f.closes(), 0);
   f.key("Enter"); assert.equal(f.context.selectedId, "r14");
@@ -338,33 +374,19 @@ test("empty sections and sections without the open ticket keep the old Enter pat
   }
 });
 
-test("the first and last ticket reach the middle at the scroll limits", () => {
-  const f = fixture(); f.key();
-  assert.equal(f.pane.style.getPropertyValue("--pick-head"), "124px");
-  assert.equal(f.pane.style.getPropertyValue("--pick-foot"), "124px");
-  for (const [index, top] of [[0, 0], [19, f.pane.scrollHeight - f.pane.clientHeight]]) {
-    f.scroll(top);
-    const rect = f.pane.rows[index].getBoundingClientRect();
-    assert.equal((rect.top + rect.bottom) / 2, 250); assert.deepEqual(f.picks(), [`r${index}`]);
+test("Enter opens the first ticket at the top and the last ticket at the bottom without spacers", () => {
+  for (const [index, selected] of [[0, "r19"], [19, "r0"]]) {
+    const f = fixture({ selected }); f.key(); f.scroll(index === 0 ? 0 : f.pane.scrollHeight);
+    assert.deepEqual(f.picks(), [`r${index}`]); assert.deepEqual(f.ends(), ["", ""]);
+    assert.equal(f.key("Enter").defaultPrevented, true);
+    assert.equal(f.context.selectedId, `r${index}`); assert.equal(f.context.shownId, `r${index}`);
+    assert.deepEqual(f.read, [`r${index}`]); assert.equal(f.closes(), 1);
+    assert.deepEqual(f.picks(), []); assert.deepEqual(f.ends(), ["", ""]);
   }
 });
 
-test("resize and row changes recalculate active ends, while empty and single-row lists have no pick space", () => {
-  const f = fixture(); f.key(); f.resize(400);
-  assert.equal(f.pane.style.getPropertyValue("--pick-head"), "174px");
-  f.pane.rows[0].offsetHeight = 60; f.pane.rows[19].offsetHeight = 80; f.changedRows();
-  assert.equal(f.pane.style.getPropertyValue("--pick-head"), "170px");
-  assert.equal(f.pane.style.getPropertyValue("--pick-foot"), "160px");
-  f.pane.rows = []; f.changedRows(); assert.deepEqual(f.picks(), []);
-  assert.equal(f.pane.style.getPropertyValue("--pick-head"), "");
-  assert.equal(f.pane.style.getPropertyValue("--pick-foot"), "");
-  const one = fixture({ count: 1, selected: "r0" }); one.key();
-  assert.equal(one.pane.scrollHeight, 79); assert.deepEqual(one.picks(), []);
-  one.resize(30); assert.deepEqual(one.ends(), ["", ""]);
-});
-
 test("selection, removed rows, sections, Home and closing clear or replace the pick", () => {
-  const f = fixture(); f.key(); f.center(5);
+  const f = fixture(); f.key(); f.aim(5);
   const removed = f.pane.rows.splice(5, 1)[0]; f.changedRows();
   assert.equal(removed.classList.contains("drawer-pick"), false); assert.deepEqual(f.picks(), ["r6"]);
   f.run('select("r6")'); f.flush(); assert.deepEqual(f.picks(), []);
@@ -378,7 +400,7 @@ test("selection, removed rows, sections, Home and closing clear or replace the p
 });
 
 test("arrows still start at the open ticket, even with another ticket outlined", () => {
-  const f = fixture(); f.key(); f.center(5); f.key("ArrowUp");
+  const f = fixture(); f.key(); f.aim(5); f.key("ArrowUp");
   assert.equal(f.context.selectedId, "r13"); assert.deepEqual(f.picks(), []);
 });
 
@@ -471,23 +493,22 @@ test("only the picked ticket grows by three percent, without reflow or moving ne
   assert.equal(cssValue(cssRule(html, "#tickets .trow.on"), "transform"), "translateY(-1px) scale(var(--drawer-pick-scale))",
     "apply the original lift after scaling so it stays exactly one pixel");
   assert.match(cssRule(html, "#tickets .trow.drawer-pick > .omni-sweep"), /border-radius:inherit; overflow:hidden/);
-  const f = fixture(); f.center(5); const before = f.positions(); f.key();
+  const f = fixture(); f.aim(5); const before = f.positions(); f.key();
   assert.deepEqual(f.positions(), before); assert.deepEqual(f.picks(), ["r5"]);
 });
 
 test("magnification cannot change the nearest ticket in a gap, including during return", () => {
-  const f = fixture(); f.key(); f.center(5);
+  const f = fixture(); f.key(); f.aim(5);
   const upper = f.pane.rows[5], lower = f.pane.rows[6];
-  const bottom = upper.getBoundingClientRect().bottom;
   // Just past the halfway point of the 6px gap. An enlarged upper ticket's
   // visual edge would incorrectly keep that ticket picked.
-  f.pane.scrollTop += bottom + 3.1 - 250;
+  f.aim(5, 55.1);
   for (const scale of [1.03, 1.02, 1.01, 1]) {
     upper.pickScale = scale;
     f.pane.fire("scroll"); f.flush();
     assert.deepEqual(f.picks(), ["r6"]);
   }
-  f.pane.scrollTop -= .2;
+  f.aim(5, 54.9);
   for (const scale of [1.03, 1.02, 1.01, 1]) {
     lower.pickScale = scale;
     f.pane.fire("scroll"); f.flush();
