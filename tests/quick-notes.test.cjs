@@ -801,7 +801,7 @@ describe("the quick note", { skip: "feature hidden for v0" }, () => {
     assert.ok(m, "no " + name + " in the block");
     return m[1].trim();
   };
-  const glassSheet = () => cleanCss(between(TOKENS, ".qn-glass, #tickets .trow.drawer-pick{", ".qn-glass.failed"));
+  const glassSheet = () => cleanCss(between(TOKENS, ".qn-glass{", ".qn-glass.failed"));
   // the tuning properties at the values the board ships them at. every white in
   // the lighting is the player's own value times --qn-edge, so it is read at an
   // edge of one, which is the player's own strength, to be set against the player

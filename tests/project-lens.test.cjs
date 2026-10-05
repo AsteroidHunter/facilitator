@@ -20,7 +20,7 @@ test("shared glass tokens preserve the established Mac material and tuning", () 
     assert.ok(match, property);
     return match[1].replace(/\s+/g, " ").trim();
   };
-  const shared = block(tokens, ".qn-glass, #tickets .trow.drawer-pick"), face = block(tokens, ".qn-glass");
+  const shared = block(tokens, ".qn-glass"), face = block(tokens.slice(tokens.indexOf(".qn-glass{") + 1), ".qn-glass");
   const player = block(html, "\n  #magic1.filled");
   const resolve = (text, overrides) => text.replace(/var\((--qn-[\w-]+)\)/g,
     (_, name) => resolve(overrides[name] ?? value(shared, name), overrides));
