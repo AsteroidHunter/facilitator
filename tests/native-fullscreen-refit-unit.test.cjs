@@ -9,7 +9,7 @@ const { test } = require("node:test");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const HTML = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+const HTML = fs.readFileSync(path.join(process.env.MAC_PHONE_SOURCE_ROOT || path.join(__dirname, ".."), "index.html"), "utf8");
 
 // Pull out exactly the block we ship, by stable anchors. If the anchors move the
 // extraction fails loudly, which is the right signal to update this test.
@@ -26,6 +26,13 @@ function extractSettleSource() {
 // Build a runnable copy of the real block with mocked globals and fake timers.
 function buildMachine() {
   const preamble = `
+    ${fs.readFileSync(path.join(__dirname, "..", "mac-phone-view.js"), "utf8")}
+    const MacPhoneView = globalThis.MacPhoneView;
+    let phoneWanted = false;
+    const phoneRequests = [];
+    const window = { macPhoneHost: { request: on => phoneRequests.push(on) } };
+    const LEFT_MID_REGIONS = [];
+    function contentBounds(){ return { right: 1000 }; }
     let FOCUS = true;
     let innerWidth = 1512, innerHeight = 744, lastFitW = 1512;
     const fitCalls = [];
@@ -50,6 +57,7 @@ function buildMachine() {
     ctl.setLastFitW = v => { lastFitW = v; };
     ctl.setFocus = v => { FOCUS = v; };
     ctl.calls = () => fitCalls.slice();
+    ctl.phoneRequests = () => phoneRequests.slice();
     ctl.lastCall = () => fitCalls[fitCalls.length - 1];
     ctl.hasHandlers = () => !!capturedResize && !!capturedChange;
   `;
@@ -123,4 +131,18 @@ test("the hard cap disarms the settle even if size changes keep bumping the quie
   // once the cap has disarmed, a plain same-width resize must be frozen again
   m.setSize(1512, 744); m.setLastFitW(1512); m.fireResize();
   assert.equal(m.calls().length, afterCap, "after the hard cap the settle is disarmed and the freeze holds");
+});
+
+
+test("height-only portrait crossings switch the real phone host while ordinary landscape remains frozen", () => {
+  const m = buildMachine();
+  m.setSize(1000, 900); m.setLastFitW(1000);
+  m.setSize(1000, 1261); m.fireResize();
+  assert.deepEqual(m.phoneRequests(), [true]);
+  m.setSize(1000, 1200); m.fireResize();
+  assert.deepEqual(m.phoneRequests(), [true], "hysteresis holds the phone view");
+  m.setSize(1000, 1140); m.fireResize();
+  assert.deepEqual(m.phoneRequests(), [true, false]);
+  m.setSize(1000, 1000); m.fireResize();
+  assert.equal(m.calls().length, 0, "a normal height drag does not alter the landscape fit");
 });

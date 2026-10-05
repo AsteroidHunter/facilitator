@@ -53,7 +53,7 @@ function fixture() {
   document.activeElement = { blur() { calls.push("blur"); } };
   const calls = [];
   let now = 1000;
-  const context = vm.createContext({
+  const context = vm.createContext({ macHost: null,
     performance: { now: () => now },
     document, window, innerWidth: 390, homeOpen: false, homePanel: {}, homeTimer: null, limitsTimer: null, limitsTick: null,
     HOME_KEY: "homeopen", wantBox: null, house: nodes.homeico, lastTicketTap: null, lastState: null,

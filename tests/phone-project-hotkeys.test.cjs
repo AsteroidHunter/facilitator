@@ -45,7 +45,7 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
     { id: "b3", owner: "beta", done: true }, { id: "h1", owner: "hidden" },
   ].map(b => ({ bucket: "meta", replies: 0, ...b }));
   const els = Object.fromEntries(boxes.map(b => [b.id, { box: element(b.id === selected ? ["sel"] : []) }]));
-  const context = vm.createContext({ Date, setTimeout, clearTimeout, document,
+  const context = vm.createContext({ macHost: null, Date, setTimeout, clearTimeout, document,
     localStorage: { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key) },
     addEventListener(type, fn) { if (type === "keydown") listeners.push(fn); },
   });

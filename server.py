@@ -180,6 +180,9 @@ Endpoints:
                                heatmap and line chart, the pill that switches
                                them, and their sheet, fetched by the board the
                                first time its home page opens
+  GET  /mac-phone-view.js   -> the Mac's retained phone-view host and draft handoff;
+                               /m on the local board port allows only same-origin
+                               framing, while the root and bridge remain unframeable
   GET  /manifest.json, /sw.js -> what makes the board page installable as a Mac
                                app: its web app manifest, whose name the
                                installed app's bundle and dock icon are taken
@@ -6879,6 +6882,7 @@ ROUTES = [
     Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/mac-phone-view.js", _static("mac-phone-view.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/compose-format.js", _endpoint(_get_compose_format), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.js", _static("home-widgets.js", "application/javascript; charset=utf-8"), methods=["GET"]),
@@ -7059,7 +7063,7 @@ class SiteGuard:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        send = _unframeable(send)
+        send = _unframeable(send, scope)
         reason = _foreign_site(scope)
         if reason is None:
             await self.app(scope, receive, send)
@@ -7070,19 +7074,24 @@ class SiteGuard:
                        headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
 
 
-def _unframeable(send):
-    """Every answer, the bridge gate's and the phone's port's included, says
-    it may not be shown in a frame. A policy an answer already carries (an
-    upload's sandbox, the gate's own) is left exactly as it is, and the older
-    header covers it."""
+def _unframeable(send, scope=None):
+    """Only the local board's phone document may be framed by its own origin.
+    Root stays unframeable, so another site cannot wrap the parent in a frame.
+    The phone bridge and every preexisting policy retain their protections."""
+    headers = {name.lower(): value for name, value in (scope or {}).get("headers", ())}
+    local_phone = bool(scope and scope.get("path") == "/m"
+                       and (scope.get("server") or (None, None))[1] != BRIDGE_PORT
+                       and b"x-forwarded-for" not in headers
+                       and b"tailscale-headers-info" not in headers
+                       and _foreign_site(scope) is None)
     async def framed(message) -> None:
         if message["type"] == "http.response.start":
             held = list(message.get("headers") or ())
             named = {name.lower() for name, _ in held}
             if b"x-frame-options" not in named:
-                held.append((b"x-frame-options", b"DENY"))
+                held.append((b"x-frame-options", b"SAMEORIGIN" if local_phone and message.get("status") == 200 else b"DENY"))
             if b"content-security-policy" not in named:
-                held.append((b"content-security-policy", b"frame-ancestors 'none'"))
+                held.append((b"content-security-policy", b"frame-ancestors 'self'" if local_phone and message.get("status") == 200 else b"frame-ancestors 'none'"))
             message = {**message, "headers": held}
         await send(message)
     return framed
