@@ -38,7 +38,7 @@ function declsOnId(rules, id) {
   const subject = new RegExp(`(^|[ >+~])#${id}(:[\\w-]+)?$`);
   return rules.filter(r => r.selectors.some(s => subject.test(s))).flatMap(r => r.decls);
 }
-const labels = html => ["todo", "deferred", "done"].map(v => {
+const labels = html => ["todo", "docked", "deferred", "done"].map(v => {
   const m = new RegExp(`<button id="tv-${v}"[^>]*>([^<]*)</button>`).exec(html);
   assert.ok(m, `the tv-${v} button is on the page`);
   return m[1];
@@ -50,12 +50,12 @@ const DIP = "inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60
 
 test("the phone drawer's tab names are capitalized like the board's", async () => {
   const [phone, board] = await Promise.all([read("m.html"), read("index.html")]);
-  assert.deepEqual(labels(phone), ["Doing", "Deferred", "Done"]);
+  assert.deepEqual(labels(phone), ["Doing", "Docked", "Deferred", "Done"]);
   assert.deepEqual(labels(phone), labels(board), "the phone's names differ from the board's");
   // only the doing name starts selected
   assert.match(phone, /<button id="tv-todo" class="ptab tvb on"/);
-  assert.match(phone, /<button id="tv-deferred" class="ptab tvb"/);
-  assert.match(phone, /<button id="tv-done" class="ptab tvb"/);
+  assert.match(phone, /<button id="tv-deferred" hidden class="ptab tvb"/);
+  assert.match(phone, /<button id="tv-done" hidden class="ptab tvb"/);
 });
 
 test("the phone drawer's selected tab wears no pill and reads by weight", async () => {
@@ -76,7 +76,7 @@ test("the phone drawer's selected tab wears no pill and reads by weight", async 
     assert.ok(!/^(border|box-shadow|outline)/.test(k), `the selected name still sets ${k}`);
   // no rule anywhere in the page puts a pill back behind the selected name
   for (const r of rules) {
-    const hit = r.selectors.filter(s => /#tikhead .tvb.on$|^#tv-(todo|deferred|done)(\.on)?$/.test(s));
+    const hit = r.selectors.filter(s => /#tikhead .tvb.on$|^#tv-(todo|docked|deferred|done)(\.on)?$/.test(s));
     if (!hit.length) continue;
     for (const [k, v] of r.decls) {
       assert.ok(!/^box-shadow$|^outline/.test(k), `${hit} sets ${k}: ${v}`);
@@ -113,7 +113,7 @@ test("a press dips a phone tab for at least 80ms, by finger and by key", async (
       return { add: c => set.add(c), remove: c => set.delete(c), contains: c => set.has(c) };
     }
   }
-  const names = ["tv-todo", "tv-deferred", "tv-done"].map(id => new Name(id));
+  const names = ["tv-todo", "tv-docked", "tv-deferred", "tv-done"].map(id => new Name(id));
   let now = 0;
   let timers = [];
   const context = {
@@ -190,7 +190,7 @@ test("the phone card list lists tickets with no embedded well around them", asyn
 test("the board is unchanged: capitalized names, no pill, and its list on the paper with faded edges", async () => {
   const board = await read("index.html");
   const rules = rulesOf(board);
-  assert.deepEqual(labels(board), ["Doing", "Deferred", "Done"]);
+  assert.deepEqual(labels(board), ["Doing", "Docked", "Deferred", "Done"]);
   const name = declsFor(rules, "#tikhead .tvb");
   const on = declsFor(rules, "#tikhead .tvb.on");
   assert.equal(name.border, "1px solid transparent");

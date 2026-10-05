@@ -61,7 +61,7 @@ Endpoints:
                                in the middle. Only the literal "mini" is stored
                                (as the message's via field), so any other value
                                and any older caller land exactly as before.
-                               Sending to a parked card also brings it back to
+                               Sending to a docked or parked card brings it back to
                                Doing in the same saved update. op is an
                                operation id the caller minted before its first
                                try, 8 to 64 letters, digits, - or _: the result
@@ -74,8 +74,8 @@ Endpoints:
                                finds it rather than landing twice. A send with
                                no op lands as it always did and is never
                                deduplicated
-  POST /done?box=ID&v=1|0   -> mark a box done / not done
-  POST /close?box=ID        -> atomically close from the authoritative card:
+  POST /done?box=ID&v=1|0[&sid=S&seq=N] -> mark a box done / not done
+  POST /close?box=ID[&sid=S&seq=N] -> atomically close from the authoritative card:
                                a card with a reply, reply count, or pending
                                message is marked done; only a truly empty meta
                                card is removed
@@ -98,7 +98,14 @@ Endpoints:
                                The pages send v=0 when the reader unfolds the
                                ticket.
                                It adds no reply, consumes no claim and moves no card
-  POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
+  POST /dock?box=ID&v=1|0[&after=T&sid=S&seq=N] -> move a card to Docked / Doing
+  POST /park?box=ID&v=1|0[&after=T&sid=S&seq=N] -> defer a card / bring it back.
+                               Docked keeps the card's working or reply color.
+                               Dock, park, done and close share an optional
+                               per-page sid/seq order; an older command cannot
+                               replace a newer one from that page. Dock and park
+                               refuse a move decided before an owner message
+                               newer than after, when that basis is supplied
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
   POST /title?box=ID        -> body = replacement title (agent keeps titles brief;
                                auto-names are just the chopped first message)
@@ -1954,7 +1961,7 @@ def _seed_state() -> dict:
                 "reply": it.get("context", ""),
                 "reply_full": it.get("context", ""),
                 "reply_short": it.get("context", ""),
-                "pending": [], "done": False, "replies": 0,
+                "pending": [], "done": False, "docked": False, "replies": 0,
                 "owner": it.get("owner", "facilitator"),
             }
             for it in seed.get("items", [])
@@ -2213,14 +2220,14 @@ def _ensure_reply_schema_boundary() -> None:
 
 
 def _backfill_rest_stamps() -> None:
-    """Give each parked or done card that has no parked_ts or done_ts the time of
-    the latest park or done event the transcript holds for it, and its own ts
+    """Give each docked, parked or done card missing its section time the time of
+    the latest matching dock, park or done event, and its own ts
     when the transcript holds none. Only a missing stamp is filled and nothing
     else on a card is touched, so a start with every stamp in place reads no
     transcript and changes nothing. Callers hold _lock or run before serving."""
     missing = [(b, flag, stamp)
                for b in _state["boxes"]
-               for flag, stamp in (("parked", "parked_ts"), ("done", "done_ts"))
+               for flag, stamp in (("docked", "docked_ts"), ("parked", "parked_ts"), ("done", "done_ts"))
                if b.get(flag) and not isinstance(b.get(stamp), (int, float))]
     if not missing:
         return
@@ -2232,7 +2239,7 @@ def _backfill_rest_stamps() -> None:
                     event = json.loads(line)
                 except (TypeError, ValueError):
                     continue
-                if not isinstance(event, dict) or event.get("kind") not in ("park", "done"):
+                if not isinstance(event, dict) or event.get("kind") not in ("dock", "park", "done"):
                     continue
                 bid, ts = event.get("box"), event.get("ts")
                 if isinstance(bid, str) and isinstance(ts, (int, float)) and not isinstance(ts, bool):
@@ -2241,7 +2248,7 @@ def _backfill_rest_stamps() -> None:
         pass
     now = time.time()
     for b, flag, stamp in missing:
-        kind = "park" if flag == "parked" else "done"
+        kind = {"docked": "dock", "parked": "park", "done": "done"}[flag]
         b[stamp] = latest.get((b["id"], kind)) or b.get("ts") or now
 
 
@@ -2273,6 +2280,9 @@ def _migrate() -> None:
          if b["id"].startswith("m") and b["id"][1:].isdigit()] or [0]))
     for b in _state["boxes"]:
         b.setdefault("owner", "facilitator")
+        # Docked is a separate section flag; older cards begin in Doing and
+        # old pages still read their usual working/queued/reply machine state.
+        b.setdefault("docked", False)
     if not isinstance(_state.get("busy"), dict):  # scalar claim slots -> per-owner maps
         _state["busy"] = {ow: None for ow in OWNERS}
         _state["claimed"] = {ow: [] for ow in OWNERS}
@@ -2695,11 +2705,11 @@ def _box_has_content(box: dict) -> bool:
 
 
 def _stamp_rest(box: dict, now: float) -> None:
-    """Keep parked_ts and done_ts in step with the parked and done flags: a stamp
+    """Keep docked_ts, parked_ts and done_ts in step with their flags: a stamp
     is written the moment its flag turns on, kept while the flag stays on, and
-    dropped when it turns off. The Deferred and Done tabs list by these times.
+    dropped when it turns off. Docked, Deferred and Done list by these times.
     Callers hold _lock, change the flags first and save after."""
-    for flag, stamp in (("parked", "parked_ts"), ("done", "done_ts")):
+    for flag, stamp in (("docked", "docked_ts"), ("parked", "parked_ts"), ("done", "done_ts")):
         if box.get(flag):
             box.setdefault(stamp, now)
         else:
@@ -2708,6 +2718,7 @@ def _stamp_rest(box: dict, now: float) -> None:
 
 def _mark_box_done(box: dict) -> str:
     box["done"] = True
+    box["docked"] = False
     box["parked"] = False
     box["testing"] = False   # a closed card is not awaiting a test
     _stamp_rest(box, time.time())
@@ -2831,7 +2842,8 @@ def _shown(b: dict) -> str:
     """The one value a card's color and sort come from: the masks first (the
     owner's shelf, then the lane's held claim), then the machine state. deferred
     wears working's green, rest wears queued grey, and note stays explicit for
-    the page to paint with working's green."""
+    the page to paint with working's green. Docked adds no mask: it keeps these
+    colors, and an older page that ignores the flag still puts it in Doing."""
     s = ("done" if b["done"] else "parked" if b.get("parked", False)
          else "working" if _state["busy"].get(b.get("owner", "facilitator")) == b["id"]
          else b["state"])
@@ -3590,6 +3602,7 @@ def _phone_box(b: dict) -> dict:
         "replyFull": b.get("reply_full", b.get("reply", "")),
         "done": b["done"], "replies": b["replies"], "olderReplies": _older_replies(b),
         "ball": b.get("ball", "you"),
+        "docked": b.get("docked", False), "dockedTs": b.get("docked_ts", 0),
         "parked": b.get("parked", False), "ts": b.get("ts", 0), "owner": ow,
         "parkedTs": b.get("parked_ts", 0), "doneTs": b.get("done_ts", 0),
         "pending": len(b["pending"]),
@@ -3786,9 +3799,11 @@ def _ui_state() -> dict:
                 # is no answer to this
                 "olderReplies": _older_replies(b),
                 "ball": b.get("ball", "you"),
+                "docked": b.get("docked", False),
                 "parked": b.get("parked", False),
-                # when the card was deferred and when it was marked done, which
-                # is what the Deferred and Done tabs list by; 0 while it is not
+                # Each resting section lists by when the card entered it;
+                # its time is 0 while the card is outside that section.
+                "dockedTs": b.get("docked_ts", 0),
                 "parkedTs": b.get("parked_ts", 0),
                 "doneTs": b.get("done_ts", 0),
                 "ts": b.get("ts", 0),
@@ -4931,6 +4946,7 @@ def _post_send(q: Query, text: str):
         if op:
             msg["op"] = op
         box["pending"].append(msg)
+        box["docked"] = False
         box["parked"] = False
         _stamp_rest(box, msg["ts"])
         # fresh feedback lowers the ready-to-test marker: the reader has answered,
@@ -5124,12 +5140,19 @@ def _post_note(q: Query, text: str):
 
 def _post_done(q: Query, text: str):
     bid = q.one("box")
+    try:
+        order = _park_order_read(q)
+    except ValueError:
+        return 400, {"error": "bad done order"}
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
+        if _section_order_stale(box, order):
+            return 200, {"ok": False, "stale": "superseded", **_section_fields(box)}
         box["done"] = q.one("v", "1") == "1"
         if box["done"]:
+            box["docked"] = False
             box["parked"] = False
             box["testing"] = False   # a done card is not awaiting a test
         _stamp_rest(box, time.time())
@@ -5207,7 +5230,10 @@ def _post_testing(q: Query, text: str):
         return 200, {"ok": True, "testing": want}
 
 
-# ---- the order of each page's own park commands -------------------------------
+# ---- the order of each page's own section commands ----------------------------
+# Dock, park, done and close share a stream so a late request cannot undo a
+# newer move to a different section. The _park names are retained for callers
+# and tests that inspect the original ordering guard.
 # A page can stop waiting for an answer; it cannot recall the request. An abort
 # there drops the answer, not the bytes already on their way here. So a snooze
 # the phone gave up on can still arrive after the unsnooze that replaced it,
@@ -5256,7 +5282,7 @@ _PARK_ID_CHARS = frozenset(
 
 
 def _park_order_read(q: Query):
-    """The stream and place a park names itself by, or None from a caller that
+    """The stream and place a section move names itself by, or None from a caller that
     names none. A pair half given or malformed raises instead: that is a broken
     caller rather than an older one, and saying so is better than guessing."""
     sid, seq = q.one("sid", ""), q.one("seq", "")
@@ -5283,24 +5309,45 @@ def _park_order_keep(bid: str, sid: str, place: int, now: float) -> None:
         del _PARK_ORDER[min(_PARK_ORDER, key=lambda k: _PARK_ORDER[k]["at"])]
 
 
-def _post_park(q: Query, text: str):
+def _section_fields(box: dict) -> dict:
+    """The authoritative sections and times, including in a refused command."""
+    return {"docked": box.get("docked", False), "parked": box.get("parked", False),
+            "done": box["done"], "dockedTs": box.get("docked_ts", 0),
+            "parkedTs": box.get("parked_ts", 0), "doneTs": box.get("done_ts", 0),
+            "rev": _state.get("rev", 0)}
+
+
+def _section_order_stale(box: dict, order) -> bool:
+    """Judge and remember a move in its page's stream. Caller holds _lock."""
+    if order is None:
+        return False
+    sid, place = order
+    prior = _PARK_ORDER.get((box["id"], sid))
+    if prior is not None and place <= prior["seq"]:
+        return True
+    # A message refusal still consumes the position: this page already sent it.
+    _park_order_keep(box["id"], sid, place, time.time())
+    return False
+
+
+def _post_shelf(q: Query, flag: str, event: str):
     bid = q.one("box")
     want = q.one("v", "1") == "1"
     try:
         order = _park_order_read(q)
     except ValueError:
-        return 400, {"error": "bad park order"}
-    # What a snooze was decided on: the board's own clock at the moment the moon
-    # was tapped, which the page can name because every reading carries the
-    # board's time. A snooze that crossed one of the reader's messages on the way here
+        return 400, {"error": f"bad {event} order"}
+    # What docking or deferring was decided on: the board's own clock at the
+    # tap, which the page can name because every reading carries the
+    # board's time. A move that crossed one of the reader's messages on the way here
     # was decided before that message existed, and a card the reader has just written to
     # is not a card the reader is snoozing, so the board keeps what it has and says so
     # rather than burying the message under a defer.
     #
     # The guard is deliberately the narrowest one that answers that: only a
-    # park, only against the reader's own queued messages, and only when a basis is
-    # given. An unpark, an older page that sends no basis, an agent's progress
-    # note and a park of a done card all behave exactly as they always did, and
+    # move into Docked or Deferred, only against the reader's own queued messages,
+    # and only when a basis is given. Undock/unpark, an older page that sends no
+    # basis and an agent's progress note all behave exactly as they always did, and
     # a basis that will not read as a number is no basis at all.
     try:
         basis = float(q.one("after", "") or 0)
@@ -5311,35 +5358,32 @@ def _post_park(q: Query, text: str):
         if box is None:
             return 400, {"error": "bad box"}
         # the card as it stands, for any answer that keeps it that way
-        kept = {"parked": box.get("parked", False), "done": box["done"],
-                "rev": _state.get("rev", 0)}
-        if order is not None:
-            sid, place = order
-            prior = _PARK_ORDER.get((bid, sid))
-            if prior is not None and place <= prior["seq"]:
-                # this same page has already sent a later command for this card
-                # and that one has been judged: this is its own undone value
-                # arriving late, and applying it would undo the undoing. Another
-                # page's commands are not consulted and cannot rescue it
-                return 200, {"ok": False, "stale": "superseded", **kept}
-            # this stream has reached here, so everything it sent before this is
-            # old, whether or not this one goes on to be applied
-            _park_order_keep(bid, sid, place, time.time())
+        kept = _section_fields(box)
+        if _section_order_stale(box, order):
+            return 200, {"ok": False, "stale": "superseded", **kept}
         if want and basis:
             newest = max((m.get("ts", 0) for m in box["pending"]), default=0)
             if newest > basis:
                 # nothing was written and nothing is being retried: the page is
                 # told plainly which state the card is actually in
                 return 200, {"ok": False, "stale": "message", **kept}
-        box["parked"] = want
-        if box["parked"]:
+        box[flag] = want
+        if want:
             box["done"] = False
+            box["parked" if flag == "docked" else "docked"] = False
         _stamp_rest(box, time.time())
-        _log("park" if box["parked"] else "unpark", bid, "")
+        _log(event if want else "un" + event, bid, "")
         _save()
         _notify()
-        return 200, {"ok": True, "parked": box["parked"], "done": box["done"],
-                     "rev": _state["rev"]}
+        return 200, {"ok": True, **_section_fields(box)}
+
+
+def _post_park(q: Query, text: str):
+    return _post_shelf(q, "parked", "park")
+
+
+def _post_dock(q: Query, text: str):
+    return _post_shelf(q, "docked", "dock")
 
 
 def _post_worktree(q: Query, text: str):
@@ -5445,7 +5489,7 @@ def _create_box_record(owner: str, title: str) -> dict:
     made = {
         "id": bid_new, "bucket": "meta", "title": title, "reply": "",
         "reply_full": "", "reply_short": "",
-        "pending": [], "done": False, "parked": False, "replies": 0,
+        "pending": [], "done": False, "docked": False, "parked": False, "replies": 0,
         "full_replies": 0, "reply_kind": "",
         "state": "new", "hb": 0,
         "ball": "me", "ts": time.time(), "owner": owner,
@@ -5572,10 +5616,16 @@ def _post_project(q: Query, text: str):
 
 def _post_close(q: Query, text: str):
     bid = q.one("box")
+    try:
+        order = _park_order_read(q)
+    except ValueError:
+        return 400, {"error": "bad close order"}
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
+        if _section_order_stale(box, order):
+            return 200, {"ok": False, "stale": "superseded", **_section_fields(box)}
         action = _close_box(box)
         _save()
         _notify()
@@ -6865,6 +6915,7 @@ ROUTES = [
     Route("/ping", _state_endpoint(_post_ping, "text"), methods=["POST"]),
     Route("/testing", _state_endpoint(_post_testing, "text"), methods=["POST"]),
     Route("/park", _state_endpoint(_post_park, "text"), methods=["POST"]),
+    Route("/dock", _state_endpoint(_post_dock, "text"), methods=["POST"]),
     Route("/worktree", _state_endpoint(_post_worktree, "text"), methods=["POST"]),
     Route("/context", _state_endpoint(_post_context, "text"), methods=["POST"]),
     Route("/title", _state_endpoint(_post_title, "text"), methods=["POST"]),

@@ -233,7 +233,7 @@
   body.obstructed, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100%)}
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
-  /* ---- the tab's type and seat, which the card list's three names wear ------ */
+  /* ---- the tab's type and seat, which the card list's visible names wear ------ */
   /* the desktop bar's seated tab at phone size. the project tabs that used to
      cross the top of this page wore it too; they are the project list now (the
      row of buttons, below), and the list's Doing, Deferred and Done keep it */
@@ -600,24 +600,24 @@
   /* the card's own top bar: the reply history on the left, the sun, the defer
      chip and the close cross on the right, over the hairline the desktop bar wears.
      the top row's own names, for this page only. every element on the row, the
-     two arrows and the three chips, stands in a square --bar-sq, a seat sized
-     for a finger, and the sun, the moon and the cross draw their marks across
+     two arrows and the four chips, stands in a square --bar-sq, a seat sized
+     for a finger, and the sun, the cloud, the moon and the cross draw their marks across
      inside it at --bar-mark, the one mark size both pages share
      (card-tokens.css, with --cross-t, the cross's thickness, and --cardspin-s,
      the spinner's own size). --bar-gap is the gap between neighbouring
      squares, its own value and never worked out from the square, and
      --bar-tail how far the cross's square ends short of the bar's right edge */
   :root, #page{--bar-sq:calc(28 * var(--u)); --bar-gap:calc(9 * var(--u)); --bar-tail:calc(6 * var(--u))}
-  /* the bar is a grid of four columns, the history control and then the three
+  /* the bar is a grid of five columns, the history control and then the four
      chips, so the working spinner can stand in the sun's own cell and share its
      centre by construction. the first column takes the room that is left,
      which is what holds the chips against the right end */
   .topbar{
     --hist-cell:var(--bar-sq);
     display:grid; align-items:center; flex:none; position:relative;
-    grid-template-columns:minmax(0, 1fr) repeat(3, var(--bar-sq));
+    grid-template-columns:minmax(0, 1fr) repeat(4, var(--bar-sq));
     grid-template-rows:minmax(0, 1fr);
-    grid-template-areas:"hist sun moon cross";
+    grid-template-areas:"hist sun dock moon cross";
     column-gap:var(--bar-gap);
     height:var(--cardbar-h); padding:0 var(--bar-tail) 0 calc(var(--pad-x)*2/3);
     background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
@@ -637,31 +637,33 @@
   .histbtn.newer svg{transform:rotate(180deg)}
   .histpos{margin-left:calc(4 * var(--u))}
   .histpos:empty{display:none}
-  /* the three chips wear the desktop's mark, --bar-mark, on a seat of --bar-sq,
+  /* the four chips wear the desktop's mark, --bar-mark, on a seat of --bar-sq,
      the seat being what a finger needs; the mark, the ink and the press are the
-     desktop's. each chip has its own column of the bar's grid, sun then moon
+     desktop's. each chip has its own column of the bar's grid, sun, cloud, moon
      then cross. the marks are sized by the rule below, which wins over the
      width and height the svg carries as attributes: the sun's come from the
      shared card-logic.js, where the small cards size the same glyph by them,
      and the moon's are not written at all */
-  .sunbtn, .arcbtn, .xbtn{
+  .sunbtn, .dockbtn, .arcbtn, .xbtn{
     width:var(--bar-sq); height:var(--bar-sq); padding:0; border:none; border-radius:var(--sq);
     background:var(--card); color:#000; position:relative; cursor:pointer;
     display:inline-flex; align-items:center; justify-content:center;
   }
   .sunbtn{grid-area:sun}
+  .dockbtn{grid-area:dock}
   .arcbtn{grid-area:moon}
   .xbtn{grid-area:cross}
-  :is(.arcbtn, .sunbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
-  .sunbtn:active, .arcbtn:active, .xbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  :is(.arcbtn, .sunbtn, .dockbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
+  .sunbtn:active, .dockbtn:active, .arcbtn:active, .xbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the board has not answered the last tap on this chip: the mark is lighter
      until it has. the seat, the press and the tap are all untouched, because a
      tap still on its way has to stay reversible by another tap */
   .box.flagwait .arcbtn{opacity:.5}
+  .box.flagwait .dockbtn{opacity:.5}
   /* the chip naming the section the card is already in: lighter, with no
      press, and it outranks the half fade above, since off is the lasting word */
-  .box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
-  .box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}
+  .box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
+  .box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}
   .xbtn::before, .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
     width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
@@ -1157,7 +1159,7 @@
   #settings.live::after{will-change:opacity}
   #settings.live{visibility:visible; --menuwait:0s}
   /* the board's ticket holder, as index.html draws it, at the phone's size: the
-     three names over a divider drawn --line-gap below their foot, and the list
+     two names over a divider drawn --line-gap below their foot, and the list
      under it */
   #tikhead{position:relative; flex:none; display:flex; align-items:flex-end; gap:calc(4 * var(--u)); padding:calc(6 * var(--u)) 0 0; border-bottom:none}
   #tikhead::after{
@@ -1166,9 +1168,9 @@
     left:var(--edge-drawn); right:var(--edge-drawn); height:0;
     border-top:var(--edge) solid var(--line);
   }
-  /* the list's tabs reuse the tabs' type and spacing, three equal segments,
+  /* the list's tabs reuse the tabs' type and spacing, two visible equal segments,
      but they no longer draw the seated-tab shape:
-     top:0 drops the lift a .ptab carries so all three names share one baseline.
+     top:0 drops the lift a .ptab carries so both visible names share one baseline.
      like the board, the names read Doing, Deferred and Done at a pixel over the
      .ptab's 13, and every name carries a clear edge on all four sides, the
      selected one included, so a name measures the same selected or not and the
@@ -1178,7 +1180,7 @@
   /* no selected pill, as on the board: the selected name wears no fill, border
      or standing shade and shows selection by weight and ink alone, 700 over the
      500 every name has (Plex Sans is asked for at 700 for this, see the font
-     sheets below). the thirds come from a zero basis, so the heavier name
+     sheets below). the halves come from a zero basis, so the heavier name
      widens none. the .ptab.on seat fill and notches are struck.
      a press dips any name, selected or not: while it is held (:active, or
      .pressed, which the script beside the tab taps sets from pointer and key
@@ -1200,7 +1202,7 @@
      now, so the names head the list */
   .tiknote{font:italic calc(12.5 * var(--u)) var(--sans); color:#7A2E1B; padding:calc(8 * var(--u)) calc(12 * var(--u))}
   /* the list: the tickets stand on the paper, with no fill, edge or shade round
-     them. it clips a horizontal sheet of three sections and shows one at a
+     them. it clips a horizontal sheet of four sections and shows one at a
      time, so a tab change travels the sheet across the list while the list and
      the names above never move. it starts just under the divider and reaches
      --list-side past the holder on both sides and --list-air past its foot, so
@@ -1212,7 +1214,7 @@
     position:relative; flex:1; min-height:0; overflow:clip;
     display:flex; flex-direction:column;
     margin:0 calc(var(--list-side) * -1) calc(var(--list-air) * -1)}
-  /* doing|deferred|done laid left to right, one section wide each; section i rests
+  /* doing|docked|deferred|done laid left to right, one section wide each; section i rests
      at translateX(-i*100%) and the list clips all but the shown one */
   #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
   /* each section scrolls its own rows and keeps its own scroll position; the row
@@ -1585,17 +1587,19 @@ for (const type of ["gesturestart", "gesturechange"])
 </script>
 
 <div id="page">
-  <!-- the card list, the board's ticket box at this size: the three names over
+  <!-- the card list, the board's ticket box at this size: two names over
        the list. it lies on the page above the card, in the space the card
        leaves when it is pulled down, seen through a window that ends at the
        card's top edge -->
   <div id="tikwin"><aside id="tickets" aria-label="cards" data-side="left">
     <div id="tikhead">
       <button id="tv-todo" class="ptab tvb on" type="button">Doing</button>
-      <button id="tv-deferred" class="ptab tvb" type="button">Deferred</button>
-      <button id="tv-done" class="ptab tvb" type="button">Done</button>
+      <button id="tv-docked" class="ptab tvb" type="button">Docked</button>
+      <button id="tv-deferred" hidden class="ptab tvb" type="button">Deferred</button>
+      <button id="tv-done" hidden class="ptab tvb" type="button">Done</button>
+      <button id="tik-page" class="qn-glass" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button>
     </div>
-    <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
+    <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
   </aside></div>
   <main id="pane" class="blank">
     <div id="empty">no cards on this tab yet</div>
@@ -1844,7 +1848,7 @@ let shownId = null;             // the card the page is actually showing, so a s
 let browsing = false;           // the card on screen is only browsed to, not selected: see setBrowsing
 let activeOwner = localStorage.getItem("activeproj") || "facilitator";
 let validOwners = new Set();
-// the drawer's tab (doing, deferred, done) is one choice per project and lives
+// the drawer's tab (doing, docked, deferred, done) is one choice per project and lives
 // in card-logic.js; curView() answers with the open project's own
 const lastSel = {};             // owner -> the card that was open when that tab was left
 let pendingFocus = null;        // a card just made: name it as soon as it is drawn
@@ -1968,9 +1972,10 @@ function makeBox(b){
   const x = h("button", "xbtn");
   x.type = "button"; x.title = "done (an empty card is removed instead)\n" + SECTION_KEY_HINTS.done; x.setAttribute("aria-label", "close");
   x.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(x)) closeCard(b.id); });
-  // the sun on the moon's left, so the three read in the order of the tabs
+  // the sun on the moon's left, so all four read in the order of the sections
   const sun = sunChip("sunbtn", b.id);
-  topbar.append(histctl, sun, arc, x);
+  const dock = dockChip("dockbtn", b.id);
+  topbar.append(histctl, sun, dock, arc, x);
   // the working spinner follows the sun, and the bar's grid seats it in the
   // sun's own cell; apply() turns it on with the ticket's own green
   const cardSpin = makeCardSpinner();
@@ -2170,7 +2175,7 @@ function makeBox(b){
     trayAdd(b.id, files);
   });
 
-  const card = els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x, pendwrap, bottombar,
+  const card = els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, dock, arc, x, pendwrap, bottombar,
                 cardSpin, histUp, histDown, histPos, clip, clipfile, field,
                 // the tray's files, in the order they were picked, and a send
                 // pressed while some were still uploading (trayAdd below)
@@ -2271,6 +2276,7 @@ function drawCard(el, b, state){
   const cs = cardState(b);
   el.box.classList.toggle("done", cs === "done");
   el.box.classList.toggle("parked", cs === "parked");
+  el.box.classList.toggle("docked", cardSection(b) === "docked");
   paintSectionChips(el, b);
   setCardSpinner(el.cardSpin, cardSpinning(b));
   syncPhoneHistory(b);
@@ -2854,9 +2860,9 @@ turnAgain = () => { if (lastState) apply(lastState); };
 // card is closed and the next one still open takes the screen, so the screen is
 // never left holding a card that has just gone
 async function closeCard(id){
-  const order = doingOrder(lastState);
-  await fetch("/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
-  selectNextDoing(id, order);
+  const { order, section } = cardDeparture(lastState, id);
+  await fetch(closeCardUrl(id), { method: "POST" }).catch(() => {});
+  selectNextCard(id, order, section);
   poll();
 }
 function undone(id){
@@ -4116,7 +4122,7 @@ function paintPhonePane(pane, pool, view, state, touch){
   }
   if (!pool.length && !kept.none){
     shift();
-    kept.none = h("div", "tempty", view === "done" ? "no done chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here");
+    kept.none = h("div", "tempty", view === "done" ? "no done chats yet" : view === "docked" ? "no docked chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here");
     pane.appendChild(kept.none);
   }
   if (keep != null) pane.scrollTop = keep;
@@ -4217,6 +4223,8 @@ function setView(v){
   moveTicketSheet(v, true);
 }
 document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
+document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
+document.getElementById("tik-page").addEventListener("click", () => setView(otherTicketPage()));
 document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
 document.getElementById("tv-done").addEventListener("click", () => setView("done"));
 // press feedback, as on the board: every name, selected or not, takes .pressed

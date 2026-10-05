@@ -105,6 +105,7 @@ const flush = async () => { for (let i = 0; i < 6; i++) await new Promise(resolv
 // one card in each section, and the one a board can hold both ways
 const CARDS = {
   doing: { id: "m1", state: "yours", done: false, parked: false },
+  docked: { id: "m6", state: "yours", done: false, parked: false, docked: true },
   deferred: { id: "m2", state: "parked", done: false, parked: true },
   done: { id: "m3", state: "done", done: true, parked: false },
   both: { id: "m4", state: "done", done: true, parked: true },
@@ -123,22 +124,23 @@ function asked(request) {
   return { path: url.pathname, box: url.searchParams.get("box"), v: url.searchParams.get("v"), method: request.method };
 }
 function offOf(chips) {
-  return Object.fromEntries(["sun", "arc", "x"].map(name => [name, chips[name].getAttribute("aria-disabled") === "true"]));
+  return Object.fromEntries(["sun", "dock", "arc", "x"].map(name => [name, chips[name].getAttribute("aria-disabled") === "true"]));
 }
 const EXPECTED_OFF = {
-  doing: { sun: true, arc: false, x: false },
-  deferred: { sun: false, arc: true, x: false },
-  done: { sun: false, arc: false, x: true },
-  both: { sun: false, arc: false, x: true },
+  doing: { sun: true, dock: false, arc: false, x: false },
+  docked: { sun: false, dock: true, arc: false, x: false },
+  deferred: { sun: false, dock: false, arc: true, x: false },
+  done: { sun: false, dock: false, arc: false, x: true },
+  both: { sun: false, dock: false, arc: false, x: true },
 };
 
 // ---- the three surfaces, each built from its own page's lines ------------------------
 async function desktopLarge() {
   const html = await readFile(path.join(ROOT, "index.html"), "utf8");
-  const build = between(html, '    const x = h("button", "xbtn", "×");', "    topbar.insertBefore(sun, arc);");
+  const build = between(html, '    const x = h("button", "xbtn", "×");', "    topbar.insertBefore(dock, arc);");
   const paint = between(html, "    const cs = cardState(b);   // one state", "    paintSectionChips(el, b);");
   const env = await context();
-  const makeChips = vm.runInContext(`(function(b, topbar, head, box){\n${build}\nreturn { sun, arc, x };\n})`, env.ctx);
+  const makeChips = vm.runInContext(`(function(b, topbar, head, box){\n${build}\nreturn { sun, dock, arc, x };\n})`, env.ctx);
   const paintCard = vm.runInContext(`(function(el, b){\n${paint}\n})`, env.ctx);
   return {
     name: "desktop large card", html, env,
@@ -151,7 +153,7 @@ async function desktopLarge() {
       paintCard(el, b);
       return el;
     },
-    order: el => el.topbar.children.filter(node => [el.sun, el.arc, el.x].includes(node)),
+    order: el => el.topbar.children.filter(node => [el.sun, el.dock, el.arc, el.x].includes(node)),
   };
 }
 
@@ -160,7 +162,7 @@ async function desktopMini() {
   const build = between(html, '      const sun = sunChip("msun", b.id);', "        poll();\n      });");
   const paint = between(html, '    el.box.classList.toggle("mwait", !!b.pending);', "    paintSectionChips(el, b);");
   const env = await context();
-  const makeChips = vm.runInContext(`(function(b){\n${build}\nreturn { sun, arc, x };\n})`, env.ctx);
+  const makeChips = vm.runInContext(`(function(b){\n${build}\nreturn { sun, dock, arc, x };\n})`, env.ctx);
   const paintCard = vm.runInContext(`(function(el, b){\n${paint}\n})`, env.ctx);
   return {
     name: "desktop small card", html, env,
@@ -181,12 +183,12 @@ async function phone() {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
   const icon = between(html, "const MOON_ICON = ", "</svg>';");
   const close = between(html, "async function closeCard(id){", "  poll();\n}");
-  const build = between(html, '  const arc = h("button", "arcbtn");', "  topbar.append(histctl, sun, arc, x);");
+  const build = between(html, '  const arc = h("button", "arcbtn");', "  topbar.append(histctl, sun, dock, arc, x);");
   const paint = between(html, '  const cs = cardState(b);\n  el.box.classList.toggle("done", cs === "done");',
     "  paintSectionChips(el, b);");
   const env = await context();
   vm.runInContext(icon + "\n" + close, env.ctx);
-  const makeChips = vm.runInContext(`(function(b, topbar, histctl){\n${build}\nreturn { sun, arc, x };\n})`, env.ctx);
+  const makeChips = vm.runInContext(`(function(b, topbar, histctl){\n${build}\nreturn { sun, dock, arc, x };\n})`, env.ctx);
   const paintCard = vm.runInContext(`(function(el, b){\n${paint}\n})`, env.ctx);
   return {
     name: "phone card", html, env,
@@ -198,17 +200,17 @@ async function phone() {
       paintCard(el, b);
       return el;
     },
-    order: el => el.topbar.children.filter(node => [el.sun, el.arc, el.x].includes(node)),
+    order: el => el.topbar.children.filter(node => [el.sun, el.dock, el.arc, el.x].includes(node)),
   };
 }
 
 // ---- the section rule ----------------------------------------------------------------
 test("a card's section is read off the tabs' own filter, done ahead of parked", async () => {
   const { ctx } = await context();
-  for (const [kind, section] of [["doing", "todo"], ["deferred", "deferred"], ["done", "done"], ["both", "done"]]) {
+  for (const [kind, section] of [["doing", "todo"], ["docked", "docked"], ["deferred", "deferred"], ["done", "done"], ["both", "done"]]) {
     const b = card(kind);
     assert.equal(ctx.cardSection(b), section, kind);
-    for (const view of ["todo", "deferred", "done"])
+    for (const view of ["todo", "docked", "deferred", "done"])
       assert.equal(ctx.viewFilterFor(b, view), view === section, `${kind} listed under ${view}`);
   }
   // a card with no state from the board is read from its flags the same way
@@ -232,8 +234,8 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
       // its moon carries no size of its own and the sun's shared one is overruled
       assert.doesNotMatch(/<svg [^>]*>/.exec(el.arc.innerHTML)?.[0] || "", /\s(width|height)=/, "the moon glyph carries a size of its own");
       const rule = name === "phone card"
-        ? /\n  :is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/
-        : /body\.focus \.box\.sel :is\(\.arcbtn, \.sunbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/;
+        ? /\n  :is\(\.arcbtn, \.sunbtn, \.dockbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/
+        : /body\.focus \.box\.sel :is\(\.arcbtn, \.sunbtn, \.dockbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/;
       assert.match(surface.html, rule);
     } else {
       assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");
@@ -271,7 +273,7 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
     assert.match(svg, /stroke-linecap="round"/, "the rays do not end round");
     assert.doesNotMatch(el.sun.innerHTML, /<(circle|path) [^>]*stroke/, "a part overrides the shared stroke");
     assert.equal((el.sun.innerHTML.match(/M/g) || []).length, 8, "the sun does not carry eight rays");
-    if (surface.order) assert.deepEqual(surface.order(el), [el.sun, el.arc, el.x], "the chips are not sun, moon, cross");
+    if (surface.order) assert.deepEqual(surface.order(el), [el.sun, el.dock, el.arc, el.x], "the chips are not sun, moon, cross");
   });
 
   test(`${name} fades the chip naming the card's own section`, async () => {
@@ -308,7 +310,7 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
 
   test(`${name}: a faded chip's click sends nothing`, async () => {
     const surface = await make();
-    for (const [kind, chip] of [["doing", "sun"], ["deferred", "arc"], ["done", "x"], ["both", "x"]]) {
+    for (const [kind, chip] of [["doing", "sun"], ["docked", "dock"], ["deferred", "arc"], ["done", "x"], ["both", "x"]]) {
       board(surface.env.ctx);
       surface.env.requests.length = 0;
       const el = surface.mount(card(kind));
@@ -343,7 +345,7 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
   // each asks the board exactly what that section's chip asks, which is
   // nothing where the chip is faded
   test(`${name}: each section key asks what its chip asks, and nothing where the chip is faded`, async () => {
-    const CHIP = { doing: "sun", deferred: "arc", done: "x" };
+    const CHIP = { doing: "sun", docked: "dock", deferred: "arc", done: "x" };
     const requestsOf = async (kind, act) => {
       const surface = await make();
       board(surface.env.ctx);
@@ -353,7 +355,7 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
       return surface.env.requests.map(asked);
     };
     for (const kind of Object.keys(CARDS)) {
-      for (const section of ["doing", "deferred", "done"]) {
+      for (const section of ["doing", "docked", "deferred", "done"]) {
         const chip = CHIP[section];
         const byChip = await requestsOf(kind, (surface, el) => el[chip].click());
         let prevented = false;
@@ -392,7 +394,7 @@ function pressSection(surface, id, el, section, prevent) {
 
 // ---- the hop to the next doing card ---------------------------------------------------
 // a key that takes the selected card out of doing lands on the same card its
-// chip lands on, through the chip's own selectNextDoing, and a key that moves a
+// chip lands on, through the chip's own selectNextCard, and a key that moves a
 // card into doing, or changes nothing, stays. every key is a real key event sent
 // through the page's own action table, cut out of the page as written
 const HOP_KEYS = {
@@ -400,14 +402,18 @@ const HOP_KEYS = {
     "control+shift+[": { key: "{", code: "BracketLeft", ctrlKey: true, shiftKey: true },
     "[": { key: "[", code: "BracketLeft" },
   },
-  deferred: {
+  docked: {
     "control+shift+]": { key: "}", code: "BracketRight", ctrlKey: true, shiftKey: true },
     "]": { key: "]", code: "BracketRight" },
   },
-  done: {
+  deferred: {
     "control+shift+\\": { key: "|", code: "Backslash", ctrlKey: true, shiftKey: true },
     "\\": { key: "\\", code: "Backslash" },
   },
+};
+HOP_KEYS.done = {
+  "control+shift+backspace": { key: "Backspace", code: "Backspace", ctrlKey: true, shiftKey: true },
+  "control+shift+delete": { key: "Delete", code: "Delete", ctrlKey: true, shiftKey: true },
 };
 // keys that move, close and step nothing: the browser and the system keep them
 const REMOVED_KEYS = {
@@ -418,7 +424,7 @@ const REMOVED_KEYS = {
   "command+shift+[": { key: "{", code: "BracketLeft", metaKey: true, shiftKey: true },
   "command+shift+]": { key: "}", code: "BracketRight", metaKey: true, shiftKey: true },
 };
-const HOP_CHIP = { doing: "sun", deferred: "arc", done: "x" };
+const HOP_CHIP = { doing: "sun", docked: "dock", deferred: "arc", done: "x" };
 // the page's own key handling: its action table and what it calls, from the
 // first line to the table's end, and the scope its listener dispatches in
 const TABLES = {
@@ -483,10 +489,10 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["phone card",
       for (const [section, keys] of Object.entries(HOP_KEYS)) {
         const chip = await byChip(make, kind, section);
         // where the chip hops: out of doing to deferred, and a done that is not already done
-        const hops = (section === "deferred" && kind === "doing") ||
-          (section === "done" && (kind === "doing" || kind === "deferred"));
+        const hops = (["docked", "deferred"].includes(section) && kind === "doing") ||
+          (section === "done" && (kind === "doing" || kind === "docked" || kind === "deferred"));
         assert.equal(chip.landed.length, hops ? 1 : 0, `${HOP_CHIP[section]} on a ${kind} card`);
-        if (hops) assert.ok(["m1", "m5"].includes(chip.landed[0]) && chip.landed[0] !== CARDS[kind].id,
+        if (hops) assert.ok(["m1", "m2", "m3", "m5"].includes(chip.landed[0]) && chip.landed[0] !== CARDS[kind].id,
           `${HOP_CHIP[section]} on a ${kind} card landed on ${chip.landed[0]}`);
         for (const [keyName, keyEvent] of Object.entries(keys)) {
           const key = await byKey(make, kind, keyEvent);
@@ -549,7 +555,7 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["phone card",
 // its keys do the same, and never move the large card's selection either
 test("desktop small card: its section keys land exactly where its chips land, which is nowhere", async () => {
   for (const kind of Object.keys(CARDS)) {
-    for (const section of ["doing", "deferred", "done"]) {
+    for (const section of ["doing", "docked", "deferred", "done"]) {
       const chip = await byChip(desktopMini, kind, section, "m9");
       for (const [keyName, keyEvent] of Object.entries(HOP_KEYS[section])) {
         const key = await byKey(desktopMini, kind, keyEvent, "m9");
@@ -570,17 +576,17 @@ test("the desktop bar lays the chips out sun, moon, cross", async () => {
   const html = await readFile(path.join(ROOT, "index.html"), "utf8");
   // each chip has its own column of the bar's grid, sun then moon then cross, and every
   // square is the one named size
-  assert.match(html, /grid-template-areas:"hist sun moon cross"/);
+  assert.match(html, /grid-template-areas:"hist sun dock moon cross"/);
   assert.match(html, /body\.focus \.box\.sel \.sunbtn\{grid-area:sun\}/);
   assert.match(html, /body\.focus \.box\.sel \.arcbtn\{grid-area:moon\}/);
   assert.match(html, /body\.focus \.box\.sel \.xbtn\{\s*grid-area:cross; position:relative;/);
   assert.match(html, /body\.focus \.box\.sel \.xbtn\{[^}]*width:var\(--bar-sq\); height:var\(--bar-sq\)/);
   assert.equal(html.match(/--bar-sq:/g).length, 1, "the top row's square is named in more than one place");
-  const chipRule = between(html, "  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn{", "}");
+  const chipRule = between(html, "  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn, body.focus .box.sel .dockbtn{", "}");
   assert.doesNotMatch(chipRule, /[\s;{]order:/);
   assert.match(chipRule, /width:var\(--bar-sq\); height:var\(--bar-sq\); border-radius:var\(--sq\)/);
   // the focus ring runs cross, moon, sun, and a shift tab out of the title lands on the sun
-  assert.match(html, /const ring = \[titleEl, ta, clip, send, x, arc, sun\];/);
+  assert.match(html, /const ring = \[titleEl, ta, clip, send, x, arc, dock, sun\];/);
   const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   assert.match(logic, /\(e\.shiftKey \? \(el\.sun \|\| el\.arc\) : el\.ta\)\.focus\(\)/);
 });
@@ -589,7 +595,7 @@ test("the small card seats the round yellow sun one seat left of the moon", asyn
   const html = await readFile(path.join(ROOT, "index.html"), "utf8");
   const right = cls => Number(new RegExp(`#magic2 \\.${cls}\\{position:absolute; top:9px; right:(\\d+)px`).exec(html)?.[1]);
   assert.ok(right("msun") > right("marc") && right("marc") > right("mx"), "the small card's chips are not sun, moon, cross");
-  assert.equal(right("msun") - right("marc"), right("marc") - right("mx"), "the sun is not one seat along");
+  assert.equal(right("msun") - right("mdock"), right("marc") - right("mx"), "the sun is not one seat along");
   const sun = between(html, "  #magic2 .msun{", "}");
   const moon = between(html, "  #magic2 .marc{", "}");
   for (const part of ["width:16px; height:16px; border-radius:50%", "color:#000", "display:inline-flex"]) {
@@ -597,21 +603,22 @@ test("the small card seats the round yellow sun one seat left of the moon", asyn
   }
   assert.match(sun, /background:#F7E187/);
   // the entry the pass paints carries all three chips, and only doing cards are listed
-  assert.match(html, /miniEls\[b\.id\] = \{ box, title, reply, ta, sun, arc, x,/);
-  const pick = vm.runInNewContext(`(state => { ${between(html, "  const cards = state.boxes.filter(", ");")} return cards; })`);
+  assert.match(html, /miniEls\[b\.id\] = \{ box, title, reply, ta, sun, dock, arc, x,/);
+  const { ctx } = await context();
+  const pick = vm.runInContext(`(state => { ${between(html, "  const cards = state.boxes.filter(", ");")} return cards; })`, ctx);
   const listed = pick({ boxes: Object.keys(CARDS).map(card) }).map(b => b.id);
   assert.deepEqual(listed, ["m1"], "the small card lists a card outside doing");
 });
 
 test("the phone bar and its entry carry the sun", async () => {
   const html = await readFile(path.join(ROOT, "m.html"), "utf8");
-  const chipRule = between(html, "  .sunbtn, .arcbtn, .xbtn{", "}");
+  const chipRule = between(html, "  .sunbtn, .dockbtn, .arcbtn, .xbtn{", "}");
   assert.match(chipRule, /width:var\(--bar-sq\); height:var\(--bar-sq\)/);
   assert.equal(html.match(/--bar-sq:/g).length, 1, "the top row's square is named in more than one place");
-  assert.match(html, /grid-template-areas:"hist sun moon cross"/);
-  assert.match(html, /\.sunbtn\{grid-area:sun\}\s*\.arcbtn\{grid-area:moon\}\s*\.xbtn\{grid-area:cross\}/);
+  assert.match(html, /grid-template-areas:"hist sun dock moon cross"/);
+  assert.match(html, /\.sunbtn\{grid-area:sun\}\s*\.dockbtn\{grid-area:dock\}\s*\.arcbtn\{grid-area:moon\}\s*\.xbtn\{grid-area:cross\}/);
   assert.doesNotMatch(chipRule, /[\s;{]order:/);
-  assert.match(html, /els\[b\.id\] = \{ box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, arc, x,/);
+  assert.match(html, /els\[b\.id\] = \{ box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, dock, arc, x,/);
 });
 
 test("a faded chip is lighter than a waiting one, keeps no hover, and is off for assistive technology", async () => {
@@ -623,11 +630,29 @@ test("a faded chip is lighter than a waiting one, keeps no hover, and is off for
   // the waiting state itself is left as it was
   assert.ok(desk.includes(".box.flagwait .arcbtn{opacity:.5}"));
   assert.ok(phonePage.includes(".box.flagwait .arcbtn{opacity:.5}"));
-  assert.ok(desk.includes('body.focus .box.sel :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
-  assert.ok(desk.includes('body.focus .box.sel :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]:hover{background:var(--card)}'));
-  assert.ok(desk.includes('#magic2 :is(.msun, .marc, .mx)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
+  assert.ok(desk.includes('body.focus .box.sel :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
+  assert.ok(desk.includes('body.focus .box.sel :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:hover{background:var(--card)}'));
+  assert.ok(desk.includes('#magic2 :is(.msun, .mdock, .marc, .mx)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
   for (const [cls, rest] of [["msun", "#F7E187"], ["marc", "#F6C08A"], ["mx", "#FF9F98"]])
     assert.ok(desk.includes(`#magic2 .${cls}[aria-disabled="true"]:hover{background:${rest}}`), `${cls} changes on hover while off`);
-  assert.ok(phonePage.includes('.box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
-  assert.ok(phonePage.includes('.box :is(.sunbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}'));
+  assert.ok(phonePage.includes('.box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}'));
+  assert.ok(phonePage.includes('.box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}'));
 });
+
+for (const [name, make] of [["desktop large card", desktopLarge], ["phone card", phone]]) {
+  test(`${name}: Done chord cancels deletion inside the composer, including an already Done card`, async () => {
+    for (const kind of ["doing", "docked", "done"]) for (const key of ["Backspace", "Delete"]) {
+      const w = await hopWorld(make, kind);
+      const actions = keyTable(w.surface);
+      const field = { closest: () => field };
+      w.el.ta = field;
+      const e = { target: field, key, code: key, ctrlKey: true, shiftKey: true,
+        metaKey: false, altKey: false, repeat: false, isComposing: false, defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+      w.ctx.dispatchCardShortcut(e, actions);
+      assert.equal(e.defaultPrevented, true, `${key} in ${kind} composer retained its text-editing default`);
+      await flush();
+      assert.deepEqual(w.surface.env.requests.map(r => asked(r).path), kind === "done" ? [] : ["/close"]);
+    }
+  });
+}

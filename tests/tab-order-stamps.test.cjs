@@ -1,12 +1,11 @@
-// When a card was deferred and when it was marked done, kept by the board.
+// When a card was docked, deferred or marked done, kept by the board.
 //
-// The Deferred tab lists cards by when each was deferred and the Done tab by
-// when each was marked done, most recent first, so the board stamps a card the
-// moment either happens (parked_ts and done_ts in state.json, parkedTs and
-// doneTs on the wire), drops the stamp when the card leaves that section, and
-// sends both on the desktop reading and on the phone's whole and lean readings.
+// Docked, Deferred and Done list cards by when they entered each section, most
+// recent first. The board stamps each move (docked_ts, parked_ts and done_ts in
+// state.json, dockedTs, parkedTs and doneTs on the wire), drops the time when
+// the card leaves that section, and sends it on desktop and phone readings.
 // Cards saved before the board stamped them are filled once at start from the
-// latest park or done row the transcript holds for the card, else from the
+// latest dock, park or done row the transcript holds for the card, else from the
 // card's own ts, and a start never touches a stamp that is already there.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -77,9 +76,11 @@ before(async () => {
   fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-tab-stamps-"));
   port = await freePortPair();
   origin = `http://127.0.0.1:${port}`;
-  const source = await readFile(path.join(ROOT, "server.py"), "utf8");
-  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
+  const source = await readFile(process.env.FACILITATOR_TEST_SERVER_SOURCE || path.join(ROOT, "server.py"), "utf8");
+  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])")
+    .replace("def _tailscale_command() -> str | None:", "def _tailscale_command() -> str | None:\n    return None  # isolated fixture");
   assert.notEqual(patched, source, "test server port was not patched");
+  assert.match(patched, /return None  # isolated fixture/);
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   copyBridgeFiles(fixtureDir);
   for (const name of ["index.html", "manifest.json", "sw.js", "card-markdown.js", "card-tokens.css", "card-logic.js",
@@ -98,11 +99,13 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
-test("a card is stamped when it is deferred and when it is marked done, on every reading", async () => {
+test("a card is stamped when it is docked, deferred or marked done, on every reading", async () => {
+  const docked = [await make("Docked one"), await make("Docked two"), await make("Docked three")];
   const deferred = [await make("Deferred one"), await make("Deferred two"), await make("Deferred three")];
   const done = [await make("Done one"), await make("Done two"), await make("Done three")];
   const open = await make("Still open");
   const before = Date.now() / 1000;
+  for (const id of docked) { await post(`/dock?box=${id}&v=1`); await pause(15); }
   for (const id of deferred) { await post(`/park?box=${id}&v=1`); await pause(15); }
   for (const id of done) { await post(`/done?box=${id}&v=1`); await pause(15); }
   const after = Date.now() / 1000;
@@ -110,11 +113,21 @@ test("a card is stamped when it is deferred and when it is marked done, on every
   for (const read of [desk, phone]) {
     const name = read === desk ? "the desktop reading" : "the phone's reading";
     const stamps = [];
+    const dockStamps = [];
+    for (const id of docked) {
+      const card = await read(id);
+      assert.equal(card.docked, true, `${name}: ${id} is docked`);
+      assert.ok(card.dockedTs >= before && card.dockedTs <= after, `${name}: ${id} has its docking time`);
+      assert.deepEqual([card.parkedTs, card.doneTs], [0, 0]);
+      dockStamps.push(card.dockedTs);
+    }
+    assert.ok(dockStamps[0] < dockStamps[1] && dockStamps[1] < dockStamps[2], `${name}: docking order is retained`);
     for (const id of deferred) {
       const card = await read(id);
       assert.equal(card.parked, true, `${name}: ${id} is deferred`);
       assert.ok(card.parkedTs >= before && card.parkedTs <= after, `${name}: ${id} parkedTs ${card.parkedTs} is not the time it was deferred`);
       assert.equal(card.doneTs, 0, `${name}: a deferred card carries a doneTs`);
+      assert.equal(card.dockedTs, 0, `${name}: a deferred card carries a dockedTs`);
       stamps.push(card.parkedTs);
     }
     assert.ok(stamps[0] < stamps[1] && stamps[1] < stamps[2], `${name}: parkedTs does not follow the order the cards were deferred in`);
@@ -124,24 +137,30 @@ test("a card is stamped when it is deferred and when it is marked done, on every
       assert.equal(card.done, true, `${name}: ${id} is done`);
       assert.ok(card.doneTs >= before && card.doneTs <= after, `${name}: ${id} doneTs ${card.doneTs} is not the time it was marked done`);
       assert.equal(card.parkedTs, 0, `${name}: a done card carries a parkedTs`);
+      assert.equal(card.dockedTs, 0, `${name}: a done card carries a dockedTs`);
       closed.push(card.doneTs);
     }
     assert.ok(closed[0] < closed[1] && closed[1] < closed[2], `${name}: doneTs does not follow the order the cards were marked done in`);
     const idle = await read(open);
-    assert.deepEqual([idle.parkedTs, idle.doneTs], [0, 0], `${name}: a card in neither section carries a stamp`);
+    assert.deepEqual([idle.dockedTs, idle.parkedTs, idle.doneTs], [0, 0, 0], `${name}: a Doing card carries a stamp`);
   }
   assert.deepEqual((await desk(deferred[1])).parkedTs, (await phone(deferred[1])).parkedTs,
     "the two readings disagree about when a card was deferred");
 
   // the stamp sits on the card in state.json too, and only on a card that is in the section
   const file = await readState();
+  for (const id of docked) assert.equal(file.boxes.find(b => b.id === id).docked_ts, (await desk(id)).dockedTs);
   for (const id of deferred) assert.equal(file.boxes.find(b => b.id === id).parked_ts, (await desk(id)).parkedTs);
   for (const id of done) assert.equal(file.boxes.find(b => b.id === id).done_ts, (await desk(id)).doneTs);
   const idle = file.boxes.find(b => b.id === open);
-  assert.ok(!("parked_ts" in idle) && !("done_ts" in idle), "a card in neither section was stamped");
+  assert.ok(!("docked_ts" in idle) && !("parked_ts" in idle) && !("done_ts" in idle), "a Doing card was stamped");
 
   // and each stamp is the time of the transcript row the same move wrote
   const rows = await readTranscript();
+  for (const id of docked) {
+    const row = rows.filter(r => r.kind === "dock" && r.box === id).pop();
+    assert.ok(Math.abs(row.ts - (await desk(id)).dockedTs) < 1, `${id}: the stamp matches the dock row`);
+  }
   for (const id of deferred) {
     const row = rows.filter(r => r.kind === "park" && r.box === id).pop();
     assert.ok(Math.abs(row.ts - (await desk(id)).parkedTs) < 1, `${id}: the stamp and the park row are far apart`);
@@ -236,7 +255,7 @@ test("the phone's lean reading carries the stamp of a card that changed", async 
 });
 
 // ---- cards saved before the board stamped them ----------------------------------------
-const STAMPS = ["parked_ts", "done_ts"];
+const STAMPS = ["docked_ts", "parked_ts", "done_ts"];
 const withoutStamps = state => {
   const copy = JSON.parse(JSON.stringify(state));
   delete copy.rev;
@@ -246,7 +265,7 @@ const withoutStamps = state => {
 const withoutRev = state => { const copy = JSON.parse(JSON.stringify(state)); delete copy.rev; return copy; };
 
 test("a board saved before the stamps is filled once from its transcript, and a start never moves a stamp", async () => {
-  const names = ["P1", "P2", "D1", "D2", "PX", "DX", "C1", "C2", "O"];
+  const names = ["P1", "P2", "D1", "D2", "PX", "DX", "C1", "C2", "O", "K1", "K2", "KX", "KC"];
   const id = {};
   for (const name of names) id[name] = await make("Backfill " + name);
 
@@ -259,10 +278,11 @@ test("a board saved before the stamps is filled once from its transcript, and a 
   const flags = {
     P1: { parked: true }, P2: { parked: true }, D1: { done: true }, D2: { done: true },
     PX: { parked: true }, DX: { done: true }, C1: { parked: true }, C2: { done: true }, O: {},
+    K1: { docked: true }, K2: { docked: true }, KX: { docked: true }, KC: { docked: true },
   };
   names.forEach((name, n) => {
     const box = old.boxes.find(b => b.id === id[name]);
-    Object.assign(box, { parked: false, done: false }, flags[name]);
+    Object.assign(box, { docked: false, parked: false, done: false }, flags[name]);
     box.ts = 900.5 + n;
     for (const key of STAMPS) delete box[key];
   });
@@ -286,6 +306,14 @@ test("a board saved before the stamps is filled once from its transcript, and a 
     { ts: 7100, kind: "park", box: id.C2, text: "" },
     { ts: "late", kind: "park", box: id.PX, text: "" },
     { kind: "done", box: id.DX, text: "" },
+    { ts: 100, kind: "dock", box: id.K1, text: "" },
+    { ts: 1200.5, kind: "dock", box: id.K1, text: "" },
+    { ts: 1300, kind: "dock", box: id.K2, text: "" },
+    { ts: 1400, kind: "undock", box: id.K2, text: "" },
+    { ts: 1500.5, kind: "dock", box: id.K2, text: "" },
+    { ts: "late", kind: "dock", box: id.KX, text: "" },
+    { ts: true, kind: "dock", box: id.KX, text: "" },
+    { ts: 1600, kind: "park", box: id.KC, text: "" },
   ];
   await appendFile(transcriptPath(), "this line is not json\n" + rows.map(r => JSON.stringify(r)).join("\n") + "\n");
   const transcriptBefore = await readFile(transcriptPath(), "utf8");
@@ -296,12 +324,13 @@ test("a board saved before the stamps is filled once from its transcript, and a 
   const want = {
     P1: ["parked_ts", 1000.25], P2: ["parked_ts", 3000.5], D1: ["done_ts", 4000], D2: ["done_ts", 6000.75],
     PX: ["parked_ts", 900.5 + 4], DX: ["done_ts", 900.5 + 5], C1: ["parked_ts", 900.5 + 6], C2: ["done_ts", 900.5 + 7],
+    K1: ["docked_ts", 1200.5], K2: ["docked_ts", 1500.5], KX: ["docked_ts", 900.5 + 11], KC: ["docked_ts", 900.5 + 12],
   };
   for (const [name, [key, time]] of Object.entries(want)) {
     const box = first.boxes.find(b => b.id === id[name]);
     assert.equal(box[key], time, `${name}: ${key}`);
-    const other = STAMPS.find(k => k !== key);
-    assert.ok(!(other in box), `${name} was given a ${other} it has no flag for`);
+    for (const other of STAMPS.filter(k => k !== key))
+      assert.ok(!(other in box), `${name} was given a ${other} it has no flag for`);
   }
   const plain = first.boxes.find(b => b.id === id.O);
   assert.ok(!STAMPS.some(k => k in plain), "a card in neither section was stamped");
@@ -309,6 +338,8 @@ test("a board saved before the stamps is filled once from its transcript, and a 
   // the stamps are what the readings send
   assert.equal((await desk(id.P2)).parkedTs, 3000.5);
   assert.equal((await phone(id.D2)).doneTs, 6000.75);
+  assert.equal((await desk(id.K1)).dockedTs, 1200.5);
+  assert.equal((await phone(id.K2)).dockedTs, 1500.5);
 
   // the fill changed nothing else in the state and wrote nothing to the transcript
   assert.deepEqual(withoutStamps(first), before, "the fill changed something other than the stamps");
@@ -317,6 +348,7 @@ test("a board saved before the stamps is filled once from its transcript, and a 
   // a second start changes nothing, even with newer rows in the transcript
   await stopServer();
   await appendFile(transcriptPath(), JSON.stringify({ ts: 9000, kind: "park", box: id.P2, text: "" }) + "\n");
+  await appendFile(transcriptPath(), JSON.stringify({ ts: 9100, kind: "dock", box: id.K2, text: "" }) + "\n");
   await startServer();
   assert.deepEqual(withoutRev(await readState()), withoutRev(first), "a second start changed the state");
 
@@ -324,11 +356,13 @@ test("a board saved before the stamps is filled once from its transcript, and a 
   await stopServer();
   const partial = await readState();
   delete partial.boxes.find(b => b.id === id.P2).parked_ts;
+  delete partial.boxes.find(b => b.id === id.K2).docked_ts;
   await writeState(partial);
   await startServer();
   const third = await readState();
   assert.equal(third.boxes.find(b => b.id === id.P2).parked_ts, 9000, "the missing stamp was not filled from the latest row");
-  for (const name of ["P1", "D1", "D2", "PX", "DX", "C1", "C2"]) {
+  assert.equal(third.boxes.find(b => b.id === id.K2).docked_ts, 9100);
+  for (const name of ["P1", "D1", "D2", "PX", "DX", "C1", "C2", "K1", "KX", "KC"]) {
     const [key, time] = want[name];
     assert.equal(third.boxes.find(b => b.id === id[name])[key], time, `${name} was refilled`);
   }
@@ -339,13 +373,16 @@ test("a board with no transcript at all falls back to each card's own ts", async
   const state = await readState();
   const parked = state.boxes.find(b => b.title === "Backfill PX");
   const closed = state.boxes.find(b => b.title === "Backfill DX");
-  for (const box of [parked, closed]) for (const key of STAMPS) delete box[key];
+  const docked = state.boxes.find(b => b.title === "Backfill KX");
+  for (const box of [parked, closed, docked]) for (const key of STAMPS) delete box[key];
   parked.ts = 111.5;
   closed.ts = 222.5;
+  docked.ts = 333.5;
   await writeState(state);
   await rm(transcriptPath(), { force: true });
   await startServer();
   const after = await readState();
   assert.equal(after.boxes.find(b => b.id === parked.id).parked_ts, 111.5);
   assert.equal(after.boxes.find(b => b.id === closed.id).done_ts, 222.5);
+  assert.equal(after.boxes.find(b => b.id === docked.id).docked_ts, 333.5);
 });

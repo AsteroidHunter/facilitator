@@ -1,6 +1,6 @@
 // The Deferred tab lists cards by when each was deferred and the Done tab by when
 // each was marked done, most recent first, on the Mac board and on the phone, while
-// Doing keeps its order. The rule is run on its own first, then both pages are
+// Doing keeps its order. The rule is covered without a browser in tab-order-logic.test.cjs. Both pages are
 // driven in a real browser against a copy of the board server: the Mac board at
 // 1512 by 982 and the phone at 390 by 844. The arrows and the phone's swipe walk the
 // same order the lists show.
@@ -11,7 +11,6 @@ const { once } = require("node:events");
 const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
-const vm = require("node:vm");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
 
@@ -20,94 +19,12 @@ const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// ---- the rule, on its own ---------------------------------------------------------
-function logicWith(state) {
-  const sandbox = {
-    console, Date, setTimeout, clearTimeout, setInterval, clearInterval,
-    document: { createElement: () => ({}), body: {} },
-    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-    AbortSignal: { timeout: () => undefined },
-    CardMarkdown: { render: text => String(text || "") },
-    fetch: () => Promise.resolve({ ok: true, status: 200, json: async () => ({}) }),
-    els: {}, lastState: state, selectedId: null, activeOwner: "lane", lastSel: {},
-    select() {}, deselect() {},
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(require("node:fs").readFileSync(path.join(ROOT, "card-logic.js"), "utf8"), sandbox, { filename: "card-logic.js" });
-  return sandbox;
-}
-const card = (id, extra) => ({ id, owner: "lane", bucket: "meta", title: "card " + id, ball: "you", state: "yours",
-  replies: 1, agentTs: 1, ts: 1, pending: 0, done: false, parked: false, parkedTs: 0, doneTs: 0, ...extra });
-const deferred = (id, parkedTs, extra) => card(id, { parked: true, state: "parked", parkedTs, ...extra });
-const finished = (id, doneTs, extra) => card(id, { done: true, state: "done", doneTs, ...extra });
-const ids = list => [...list].map(b => b.id);
-const shuffles = list => [list, [...list].reverse(), [...list.slice(3), ...list.slice(0, 3)], [...list.slice(1), list[0]]];
-
-test("Deferred runs by when each card was deferred and Done by when each was marked done, newest first", () => {
-  const boxes = [
-    // the ts and agentTs of a card say nothing about when it was deferred or closed
-    deferred("p1", 100, { ts: 90, agentTs: 40 }), deferred("p2", 300, { ts: 5, agentTs: 10 }),
-    deferred("p3", 200, { ts: 70, agentTs: 99 }), deferred("p4", 250, { ts: 1, agentTs: 0 }),
-    finished("d1", 50, { ts: 80 }), finished("d2", 500, { ts: 2 }), finished("d3", 400, { ts: 60 }),
-    finished("d4", 450, { ts: 1 }),
-    card("o1", { agentTs: 3 }), card("o2", { agentTs: 8 }),
-  ];
-  for (const order of shuffles(boxes)) {
-    const state = { boxes: order };
-    const sandbox = logicWith(state);
-    assert.deepEqual(ids(sandbox.viewPoolFor(state, "deferred")), ["p2", "p4", "p3", "p1"]);
-    assert.deepEqual(ids(sandbox.viewPoolFor(state, "done")), ["d2", "d4", "d3", "d1"]);
-    assert.deepEqual(ids(sandbox.viewPoolFor(state, "todo")), ["o1", "o2"]);
-  }
-});
-
-test("Doing keeps the order it had, with or without cards in the other two sections", () => {
-  const doing = [
-    card("late", { agentTs: 9 }),
-    card("fresh", { state: "new", ball: "me", replies: 0, agentTs: 0, ts: 50 }),
-    card("bare", { agentTs: 0, ts: 0 }),
-    card("tie-a", { agentTs: 5 }), card("tie-b", { agentTs: 5 }),
-    card("early", { agentTs: 2 }),
-    card("ts-only", { agentTs: 0, ts: 7 }),
-    card("q1", { state: "queued", ball: "me", ts: 30 }), card("q2", { state: "queued", ball: "me", ts: 40 }),
-    card("w1", { state: "working", ball: "me", ts: 10 }), card("w2", { state: "working", ball: "me", ts: 20 }),
-    card("newer", { state: "new", ball: "me", replies: 0, agentTs: 0, ts: 60 }),
-  ];
-  const order = ["newer", "fresh", "early", "tie-a", "tie-b", "ts-only", "late", "bare", "q2", "q1", "w2", "w1"];
-  const alone = { boxes: doing };
-  assert.deepEqual(ids(logicWith(alone).viewPoolFor(alone, "todo")), order);
-  const mixed = { boxes: [deferred("pa", 5), ...doing, finished("da", 6), deferred("pb", 7, { agentTs: 0, ts: 99 }), finished("db", 8)] };
-  const sandbox = logicWith(mixed);
-  assert.deepEqual(ids(sandbox.viewPoolFor(mixed, "todo")), order);
-  // the whole pool lies in three runs one after another: Doing, Deferred, Done
-  assert.deepEqual(ids(sandbox.poolOf(mixed)), [...order, "pb", "pa", "db", "da"]);
-});
-
-test("a card with no stamp yet counts as the newest, and equal stamps keep the older order", () => {
-  // a page marks a card deferred or done a moment before the board's reading names the time
-  const state = { boxes: [
-    deferred("old", 40), deferred("moved-here", 0), deferred("later", 90),
-    finished("old-done", 40), finished("closed-here", 0), finished("later-done", 90),
-  ] };
-  const sandbox = logicWith(state);
-  assert.deepEqual(ids(sandbox.viewPoolFor(state, "deferred")), ["moved-here", "later", "old"]);
-  assert.deepEqual(ids(sandbox.viewPoolFor(state, "done")), ["closed-here", "later-done", "old-done"]);
-
-  // equal stamps: a card the reader is waiting on first, the oldest turn first; done cards newest ts first
-  const tied = { boxes: [
-    deferred("t-late", 60, { agentTs: 20 }), deferred("t-early", 60, { agentTs: 4 }), deferred("t-first", 61),
-    finished("u-old", 70, { ts: 3 }), finished("u-new", 70, { ts: 9 }), finished("u-first", 71, { ts: 1 }),
-  ] };
-  const other = logicWith(tied);
-  assert.deepEqual(ids(other.viewPoolFor(tied, "deferred")), ["t-first", "t-early", "t-late"]);
-  assert.deepEqual(ids(other.viewPoolFor(tied, "done")), ["u-first", "u-new", "u-old"]);
-});
-
 // ---- both pages, in a browser -----------------------------------------------------
-const CARDS = ["1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8"];
+const CARDS = ["1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.10", "1.11"];
 const DEFERRED_IN_ORDER = ["1.2", "1.4", "1.1"];   // the order they are deferred in
 const DONE_IN_ORDER = ["1.5", "1.3", "1.6"];       // the order they are marked done in
-const SHOWN = { deferred: ["1.1", "1.4", "1.2"], done: ["1.6", "1.3", "1.5"] };
+const DOCKED_IN_ORDER = ["1.9", "1.11", "1.10"];
+const SHOWN = { docked: ["1.10", "1.11", "1.9"], deferred: ["1.1", "1.4", "1.2"], done: ["1.6", "1.3", "1.5"] };
 let browser, child, fixture, origin;
 
 const post = async (route, body = "") => {
@@ -116,7 +33,8 @@ const post = async (route, body = "") => {
 };
 
 async function arrange() {
-  for (const id of CARDS) { await post(`/park?box=${id}&v=0`); await post(`/done?box=${id}&v=0`); }
+  for (const id of CARDS) { await post(`/dock?box=${id}&v=0`); await post(`/park?box=${id}&v=0`); await post(`/done?box=${id}&v=0`); }
+  for (const id of DOCKED_IN_ORDER) { await post(`/dock?box=${id}&v=1`); await pause(25); }
   for (const id of DEFERRED_IN_ORDER) { await post(`/park?box=${id}&v=1`); await pause(25); }
   for (const id of DONE_IN_ORDER) { await post(`/done?box=${id}&v=1`); await pause(25); }
 }
@@ -245,7 +163,7 @@ for (const [name, surface] of Object.entries(SURFACES)) {
       await surface.showTabs(p.page);
       await listsShow(p.page, "deferred", SHOWN.deferred, `${name}, as arranged`);
       await listsShow(p.page, "done", SHOWN.done, `${name}, as arranged`);
-      assert.deepEqual((await pooled(p.page, "todo")).sort(), ["1.7", "1.8"], `${name}: Doing holds the two untouched cards`);
+      assert.deepEqual((await pooled(p.page, "todo")).sort(), ["1.7", "1.8", "1.9", "1.10", "1.11"], `${name}: Doing holds the two untouched cards`);
 
       // let go of the second card deferred and defer it again: it takes the top
       await post("/park?box=1.4&v=0");
@@ -276,7 +194,7 @@ for (const [name, surface] of Object.entries(SURFACES)) {
     const p = await surface.open();
     try {
       await surface.showTabs(p.page);
-      for (const view of ["deferred", "done"]) {
+      for (const view of ["docked", "deferred", "done"]) {
         await listsShow(p.page, view, SHOWN[view], `${name}, as arranged`);
         await surface.chooseView(p.page, view);
         const want = SHOWN[view];

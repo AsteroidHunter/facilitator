@@ -659,13 +659,13 @@ for (const name of ["index.html", "m.html"]) {
 // sun-section-chips' to prove; here it is who is asked, for what, and when
 const SECTIONS = [
   { code: "BracketLeft", key: "[", shifted: "{", section: "doing" },
-  { code: "BracketRight", key: "]", shifted: "}", section: "deferred" },
-  { code: "Backslash", key: "\\", shifted: "|", section: "done" },
+  { code: "BracketRight", key: "]", shifted: "}", section: "docked" },
+  { code: "Backslash", key: "\\", shifted: "|", section: "deferred" },
 ];
 const sectionChord = ({ code, shifted }, over = {}) => ({ key: shifted, code, ctrlKey: true, shiftKey: true, ...over });
 const sectionAlone = ({ code, key }, over = {}) => ({ key, code, ctrlKey: false, ...over });
 
-// hops records the shared hop to the next doing card (selectNextDoing)
+// hops records the shared hop to the next doing card (selectNextCard)
 async function sectionPage(name) {
   const moves = [], requests = [], hops = [];
   const f = await page(name, calls => ({
@@ -676,7 +676,7 @@ async function sectionPage(name) {
     nav: dir => calls.push(["nav", dir]),
     stepCard: dir => calls.push(["step", dir]),
     closeCard: id => calls.push(["closeCard", id]),
-    selectNextDoing: id => hops.push(id),
+    selectNextCard: id => hops.push(id),
     poll() {},
     fetch: (url, init) => { requests.push([url, init && init.method]); return Promise.resolve({}); },
   }));
@@ -734,7 +734,7 @@ for (const name of ["index.html", "m.html"]) {
       }
     }
     assert.deepEqual(f.moves.map(m => [m.id, m.section]),
-      [["c1", "doing"], ["c1", "deferred"], ["c1", "done"], ["c1", "doing"], ["c1", "deferred"], ["c1", "done"]]);
+      [["c1", "doing"], ["c1", "docked"], ["c1", "deferred"], ["c1", "doing"], ["c1", "docked"], ["c1", "deferred"]]);
   });
 
   test(`${name} held and composing section keys do nothing`, async () => {
@@ -793,13 +793,13 @@ for (const name of ["index.html", "m.html"]) {
 
   test(`${name} done is the page's own close, and it hops`, async () => {
     const f = await sectionPage(name);
-    f.press(sectionAlone(SECTIONS[2]), f.doc.body);
+    f.press({ key: "Backspace", code: "Backspace", ctrlKey: true, shiftKey: true }, f.doc.body);
     const [move] = f.moves;
     assert.equal(move.section, "done");
     move.close("c1");
     await settle();
     if (name === "index.html") {
-      assert.deepEqual(f.requests, [["/close?box=c1", "POST"]], "not the cross's close");
+      assert.deepEqual(f.requests.map(([url, method]) => [url.split("&sid=")[0], method]), [["/close?box=c1", "POST"]], "not the cross's close");
       assert.deepEqual(f.hops, ["c1"], "the done key did not hop");
     } else assert.deepEqual(f.calls, [["closeCard", "c1"]], "not the cross's close");
   });
@@ -860,9 +860,9 @@ test("index.html the small card's section keys move its own card and stop there"
   assert.equal(moves.length, 12);
   for (const move of moves) assert.equal(move.el, w.a.el);
   assert.deepEqual(moves.map(m => m.section),
-    ["doing", "doing", "doing", "doing", "deferred", "deferred", "deferred", "deferred", "done", "done", "done", "done"]);
+    ["doing", "doing", "doing", "doing", "docked", "docked", "docked", "docked", "deferred", "deferred", "deferred", "deferred"]);
   moves[0].close("c1");
-  assert.deepEqual(requests, [["/close?box=c1", "POST"]], "not the small cross's close");
+  assert.deepEqual(requests.map(([url, method]) => [url.split("&sid=")[0], method]), [["/close?box=c1", "POST"]], "not the small cross's close");
 });
 
 // The PWA drawer hands the same motion a section scroller, while the closed
@@ -870,7 +870,7 @@ test("index.html the small card's section keys move its own card and stop there"
 async function drawerKeys() {
   const f = await page("m.html", () => ({}));
   const text = await readFile(path.join(ROOT, "m.html"), "utf8");
-  const panes = Object.fromEntries(["todo", "deferred", "done"].map(view => [view,
+  const panes = Object.fromEntries(["todo", "docked", "deferred", "done"].map(view => [view,
     Object.assign(node(f.doc.body), { ownerDocument: f.doc, clientHeight: 300,
       scrollHeight: 1500, scrollTop: 600, children: [node(f.doc.body)] })]));
   const state = { view: "todo" };
