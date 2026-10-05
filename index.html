@@ -41,6 +41,15 @@
     background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
   }
 
+  /* Mac interface text stays still during clicks and drags. Only conversation
+     text and fields opt back in; buttons inside those areas stay unselectable.
+     Keep this here, outside the styles shared with the phone. */
+  body, button{-webkit-user-select:none; user-select:none}
+  .reply, .mreply, .answmsg, .cm-content, input, textarea,
+  [contenteditable=""], [contenteditable="true" i], [contenteditable="plaintext-only" i]{
+    -webkit-user-select:text; user-select:text;
+  }
+
   /* every selection wears the block caret's own dress: a solid black cell laid
      over the picked characters with their ink turned white, the same terminal
      block the fat caret draws at the insertion point, now continuous across the
