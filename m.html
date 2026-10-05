@@ -123,9 +123,11 @@
      follows its containing block. */
   :root{--root-h:100%}
   @media (display-mode:standalone){ :root{--root-h:100vh} }
-  /* page gestures may pan in either direction, but never zoom; the root also
-     constrains touches inside the drawers and their separate scrollers */
-  html{height:var(--root-h); -webkit-text-size-adjust:100%; touch-action:pan-x pan-y}
+  /* WebKit disables double-tap zoom for manipulation. Apply it to every
+     element: separate scrollers can reset an ancestor's touch-action.
+     Panning stays native; the gesture guard below handles pinch zoom. */
+  *{touch-action:manipulation}
+  html{height:var(--root-h); -webkit-text-size-adjust:100%}
   body{
     --paper:#FFFFFF;
     margin:0; background:var(--paper); color:var(--ink);
@@ -1507,6 +1509,16 @@
      is what the file says on its own, and the one copy of the sheet is still
      card-tokens.css -->
 <link rel="stylesheet" href="/card-tokens.css">
+<script id="page-zoom-guard">
+// manipulation permits pinching, so cancel iOS's zoom gesture defaults.
+// Capture also covers gestures over controls that stop propagation. Ordinary
+// touch and click events keep their existing scrolling and ticket-tap paths.
+function preventPagePinch(event){
+  if (event.cancelable) event.preventDefault();
+}
+for (const type of ["gesturestart", "gesturechange"])
+  document.addEventListener(type, preventPagePinch, { capture: true, passive: false });
+</script>
 </head>
 <body>
 

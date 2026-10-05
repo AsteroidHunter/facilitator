@@ -108,10 +108,13 @@ test("the project's capsule and its list's carry are the page's only listeners t
   // the capsule in the row of buttons and the project list are boxes of their
   // own over the row, and hold no answer, so a pan over the answer never waits
   // on either
-  const cancellable = [...HTML.matchAll(/passive\s*:\s*false/g)];
+  // The dedicated pinch guard cancels GestureEvents, not ordinary touches.
+  // Its registration and event behavior are tested in phone-page-zoom.test.cjs.
+  const touchSource = HTML.replace(/<script id="page-zoom-guard">[\s\S]*?<\/script>/, "");
+  const cancellable = [...touchSource.matchAll(/passive\s*:\s*false/g)];
   assert.equal(cancellable.length, 2);
   // each from the start of the line its listener is added on
-  const owners = cancellable.map(m => HTML.slice(HTML.lastIndexOf("\n", HTML.lastIndexOf("addEventListener(", m.index)), m.index));
+  const owners = cancellable.map(m => touchSource.slice(touchSource.lastIndexOf("\n", touchSource.lastIndexOf("addEventListener(", m.index)), m.index));
   assert.match(owners[0], /projBtn\.addEventListener\("touchstart"/);
   assert.match(owners[1], /projList\.addEventListener\("touchmove"/);
 });
