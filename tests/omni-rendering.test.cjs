@@ -54,7 +54,8 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
     // the light: a container with no z-index of its own, so its two layers blend
     // with the card, the warmth multiplied and the glare screened, each on the
     // card's diagonal with a sun riding it, all moved by the script's --omni-p
-    const sweep = /\.omni-sweep\{([^}]*)\}/.exec(html)[1];
+    const sweepRule = /^\s*\.omni-sweep\{([^}]*)\}/m.exec(html);
+    const sweep = sweepRule[1];
     assert.match(sweep, /position:absolute; inset:0; pointer-events:none; --omni-p:-1/);
     assert.doesNotMatch(sweep, /z-index|isolation|opacity|transform|filter/);
     const layer = which => (new RegExp(`^\\s*\\.omni-sweep::${which}\\{([^}]*)\\}`, "m").exec(html) || [])[1] || "";
@@ -69,7 +70,7 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
       : /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
     // less yellow: every colour in the light, the working shine and the glint's
     // edge is white with at most a trace of warmth, red over blue by no more than 25
-    const block = html.slice(html.indexOf(".omni-sweep{"), html.indexOf("@keyframes omni-glint"));
+    const block = html.slice(sweepRule.index, html.indexOf("@keyframes omni-glint"));
     const rows = /\.trow\.omni-ticket\.working::before\{[\s\S]*?\.trow\.omni-ticket\.working::after\{[^}]*\}/.exec(html);
     for (const [, r, g, b] of [...(block + (rows ? rows[0] : "")).matchAll(/rgba\((\d+),(\d+),(\d+),/g)]){
       assert.ok(Number(r) - Number(b) <= 25 && Math.abs(Number(r) - Number(g)) <= 15, `rgb(${r},${g},${b}) is too warm`);

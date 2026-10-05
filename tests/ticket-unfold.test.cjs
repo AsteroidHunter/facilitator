@@ -460,12 +460,23 @@ const TOKENS = read("card-tokens.css");
 // each page's own sheet, then the shared one where the page links it
 const SHEETS = { desktop: styleOf(HTML.desktop) + "\n" + TOKENS, phone: styleOf(HTML.phone) + "\n" + TOKENS, page: styleOf(HTML.page) };
 
-test("ticket inner layers carry only the fold and the phone drawer's keyboard rim", () => {
+test("ticket inner layers carry only the fold and the phone drawer's keyboard glass", () => {
   for (const [where, css] of Object.entries(SHEETS)) {
     const layers = new Set(rulesOf(css).flatMap(r => r.sels).filter(s => /trowin::?(before|after)/.test(s)));
-    const expected = where === "phone" ? ["#tickets .trow.drawer-pick > .trowin::after", ".trow.testc > .trowin::before"]
+    const expected = where === "phone" ? ["#tickets .trow.drawer-pick > .trowin::after",
+      "#tickets .trow.drawer-pick.testc > .trowin::before", ".trow.testc > .trowin::before"]
       : [".trow.testc > .trowin::before"];
     assert.deepEqual([...layers], expected,
       `${where}: an unexpected mark draws on a ticket's inner layers`);
   }
+});
+
+test("the picked phone ticket keeps both fold layers above the glass without changing their shape", () => {
+  const rules = rulesOf(styleOf(HTML.phone));
+  const fold = rules.find(r => r.sels.includes("#tickets .trow.drawer-pick.testc > .trowin::before"));
+  assert.deepEqual(fold.sels, ["#tickets .trow.drawer-pick.testc::after", "#tickets .trow.drawer-pick.testc > .trowin::before"]);
+  assert.equal(fold.body.trim(), "z-index:2");
+  const face = rules.find(r => r.sels.includes("#tickets .trow.drawer-pick > .trowin::after"));
+  assert.match(face.body, /z-index:0/);
+  assert.match(face.body, /pointer-events:none/);
 });

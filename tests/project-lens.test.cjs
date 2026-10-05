@@ -8,6 +8,39 @@ const vm = require("node:vm");
 const html = readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 const between = (a, b) => html.slice(html.indexOf(a), html.indexOf(b, html.indexOf(a)));
 
+test("shared glass tokens preserve the established Mac material and tuning", () => {
+  const tokens = readFileSync(path.join(__dirname, "..", "card-tokens.css"), "utf8");
+  const block = (source, selector) => {
+    const start = source.indexOf(selector + "{");
+    assert.ok(start >= 0, selector);
+    return source.slice(start + selector.length + 1, source.indexOf("}", start)).replace(/\/\*[^]*?\*\//g, "");
+  };
+  const value = (source, property) => {
+    const match = source.match(new RegExp(`(?:^|;)\\s*${property}:([^;]+)`));
+    assert.ok(match, property);
+    return match[1].replace(/\s+/g, " ").trim();
+  };
+  const shared = block(tokens, ".qn-glass, #tickets .trow.drawer-pick"), face = block(tokens, ".qn-glass");
+  const player = block(html, "\n  #magic1.filled");
+  const resolve = (text, overrides) => text.replace(/var\((--qn-[\w-]+)\)/g,
+    (_, name) => resolve(overrides[name] ?? value(shared, name), overrides));
+  // The original material is still written out on the player at edge strength
+  // one. Compare every layer, in order, instead of trusting the new token names.
+  for (const property of ["background-image", "box-shadow"]) {
+    const actual = resolve(value(face, property), { "--qn-edge": "1" }).replace(/calc\(([\d.]+) \* 1\)/g, "$1");
+    assert.equal(actual, value(player, property), property);
+  }
+  assert.equal(value(face, "border-radius"), value(player, "border-radius"));
+  assert.equal(resolve(value(face, "background-color"), {}), "rgba(255,255,255,.77)");
+  assert.equal(resolve(value(face, "background-color"), { "--qn-tint": ".95" }), "rgba(255,255,255,.95)");
+  for (const edge of ["2", "3", "3.5"]) {
+    const light = resolve(value(face, "background-image"), { "--qn-edge": edge });
+    assert.ok(light.includes(`calc(.60 * ${edge})`), "press lighting must resolve locally");
+  }
+  for (const property of ["backdrop-filter", "-webkit-backdrop-filter"])
+    assert.equal(resolve(value(face, property), {}), "blur(15px) saturate(180%)");
+});
+
 function fixture({ home = false, closed = [], widths = [100, 140, 80], render = false } = {}) {
   const handlers = {}, tasks = new Map(), frames = new Map(), images = [], switches = [], writes = [], opens = [], observers = [];
   let id = 0, now = 0, context;

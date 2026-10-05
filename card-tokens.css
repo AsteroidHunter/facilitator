@@ -579,11 +579,13 @@
    every value the owner may want to tune is a custom property here, so the
    mock's sliders move exactly these: --qn-blur, --qn-sat, --qn-tint and
    --qn-edge, the last scaling every white highlight in the lighting at once */
-.qn-glass{--qn-ring:#c7c7cc;
+/* The drawer and .qn-glass resolve the same material locally, so pressed
+   glass still recomputes its lighting from --qn-edge. The three shadow groups
+   also form the Mac lens's stack, which omits the top white/dark pair. */
+.qn-glass, #tickets .trow.drawer-pick{--qn-ring:#c7c7cc;
   --qn-blur:15px; --qn-sat:180%; --qn-tint:.77; --qn-edge:2;
-  border:none; border-radius:9px;
-  background-color:rgba(255,255,255,var(--qn-tint));
-  background-image:
+  --qn-face:rgba(255,255,255,var(--qn-tint));
+  --qn-light:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.075 0 0 0 .0375'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"),
     radial-gradient(13px at 0 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
     radial-gradient(13px at 100% 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
@@ -593,18 +595,29 @@
       rgba(255,255,255,calc(.28 * var(--qn-edge))) 0%,
       rgba(255,255,255,calc(.11 * var(--qn-edge))) 42%,
       rgba(255,255,255,0) 84%);
+  --qn-edge-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring);
+  --qn-inner-shadow:
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge)));
+  --qn-depth-shadow:
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06);
+}
+.qn-glass{
+  border:none; border-radius:9px;
+  background-color:var(--qn-face);
+  background-image:var(--qn-light);
   backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
   -webkit-backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(.9 * var(--qn-edge))),
-    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
-    inset 0 0 0 1px var(--qn-ring),
+    var(--qn-edge-shadow),
     inset 0 2px 0 rgba(0,0,0,.045),
-    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
-    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
-    0 1px 2px -1px rgba(0,0,0,.18),
-    0 1px 3px rgba(0,0,0,.07),
-    0 8px 20px rgba(0,0,0,.06)}
+    var(--qn-inner-shadow),
+    var(--qn-depth-shadow)}
 /* the one warning the note has: words on it that could not be saved. the rim
    turns the board's own warning red while that is so and goes back the moment
    a save lands. no words, nothing that outlives the trouble */

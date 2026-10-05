@@ -1257,18 +1257,25 @@
     transition:border-color .3s, background-color .3s;
   }
   .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%; padding:0 var(--sp-x)}
-  /* Only the dock pills' thin glass rim, with a clear centre. The row carries
-     it while scrolling; no travelling overlay or change to the selected lift.
-     The inner's after leaves the ready-to-test fold's pseudo-elements alone. */
+  /* The Mac lens's face, lighting and full edge/shadow stack, shared in the
+     glass sheet. Native text sits above the face, as the Mac's clean glyphs
+     do, without copying or filtering it. WebKit cannot render the Mac's SVG
+     backdrop displacement (webkit.org/b/245510), so retain its material with
+     no centre blur. The row carries the pane directly through every scroll. */
+  #tickets .trow.drawer-pick{overflow:visible; z-index:0}
   #tickets .trow.drawer-pick > .trowin::after{
-    content:""; position:absolute; inset:0; border-radius:inherit;
-    pointer-events:none; z-index:4;
-    box-shadow:
-      inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge, 2))),
-      inset 0 0 0 1px var(--qn-ring, #c7c7cc),
-      inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge, 2)));
+    content:""; position:absolute; inset:calc(-1 * var(--edge-drawn)); border-radius:inherit;
+    pointer-events:none; z-index:0;
+    background-color:var(--qn-face); background-image:var(--qn-light);
+    box-shadow:var(--qn-edge-shadow), var(--qn-inner-shadow), var(--qn-depth-shadow);
   }
   #tickets .trow.drawer-pick > .trowin{border-radius:inherit}
+  #tickets .trow.drawer-pick > .trowin > *{position:relative; z-index:1}
+  /* Keep the folded corner above the glass and the moving Omni light clipped
+     to its own rounded ticket even though the glass's shadow can spill out. */
+  #tickets .trow.drawer-pick.testc::after,
+  #tickets .trow.drawer-pick.testc > .trowin::before{z-index:2}
+  #tickets .trow.drawer-pick > .omni-sweep{border-radius:inherit; overflow:hidden}
   .trow.seen .ttl{color:#847A6B}
   .ttl{flex:1; min-width:0; font:500 calc(15 * var(--u))/calc(1.3 * var(--ln)) var(--sans); color:var(--ink);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
