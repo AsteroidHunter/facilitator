@@ -1,9 +1,11 @@
 // The card list's run, played the way the browser would play it: the real menu
-// script runs in a VM, and each moving part's transition is read out of the real
-// stylesheet with the values the script wrote, then sampled over time. The curve
-// is held against a reference app's jump to the latest message (its
-// createGlide), ported below. No browser, layout, server or live board; this
-// proves the curve the page asks for, not the frames a phone paints.
+// script runs in a VM, and each moving part's run is read from the keyframes the
+// script asks it for (or, where keyframes cannot be played, its transition out
+// of the real stylesheet with the values the script wrote), then sampled over
+// time. The curve is held against a reference app's jump to the latest message
+// (its createGlide), ported below. No browser, layout, server or
+// live board; this proves the curve the page asks for, not the frames a phone
+// paints.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
@@ -125,8 +127,22 @@ function glideLeft(px) {
 const DROP = Math.round(800 * 0.55);   // the card's drop on an 800px page: the furthest any part goes
 const TRAVEL = 300;                    // the list's travel across: offsetLeft 10 + offsetWidth 290
 
-function fixture({ eased = true } = {}) {
-  const log = [], nodes = {};
+// an animation as element.animate() hands it back, as far as the menu script
+// reads one; the test moves its clock and lands it
+function animation(el, keyframes, options) {
+  let settle, fail;
+  const finished = new Promise((resolve, reject) => { settle = resolve; fail = reject; });
+  finished.catch(() => {});
+  return {
+    el, keyframes, options, id: options.id, playState: "running", currentTime: 0, startTime: null, finished,
+    cancel() { if (this.playState === "running") { this.playState = "idle"; fail(new Error("cancelled")); } },
+    land() { if (this.playState === "running") { this.playState = "finished"; settle(this); } },
+  };
+}
+
+// eased: the browser plays linear() curves; keyed: it has element.animate()
+function fixture({ eased = true, keyed = true, reduced = false } = {}) {
+  const log = [], nodes = {}, played = [], frames = [];
   const body = { clientHeight: 800 };
   function element(id) {
     const classes = new Set(), props = new Map(), handlers = {};
@@ -141,7 +157,7 @@ function fixture({ eased = true } = {}) {
       style: {
         setProperty(name, value) {
           props.set(name, value);
-          log.push({ id, name, value, held: !!body.classList?.contains("listhold") });
+          log.push({ id, name, value });
         },
         getPropertyValue: name => props.get(name) || "",
       },
@@ -149,28 +165,27 @@ function fixture({ eased = true } = {}) {
       addEventListener(type, fn) { (handlers[type] ||= []).push(fn); },
       fire(type, extra = {}) { for (const fn of handlers[type] || []) fn({ type, target: el, ...extra }); },
       getBoundingClientRect: () => ({ width: 289, left: 30, right: 360, top: 300, bottom: 800 }),
-      getAnimations: () => el.animations,
+      getAnimations: () => [...el.animations, ...played.filter(a => a.el === el && a.playState === "running")],
       querySelector: () => null, querySelectorAll: () => [], closest: () => null,
     };
+    if (keyed) el.animate = (keyframes, options) => { const a = animation(el, keyframes, options); played.push(a); return a; };
     return el;
   }
-  for (const id of ["page", "pane", "tickets", "tikwin", "settings", "scrim", "setpage", "setsrc", "tikbtn", "setbtn"])
+  for (const id of ["page", "pane", "tickets", "tikwin", "settings", "scrim", "setpage", "setsrc", "tikbtn", "setbtn", "tik-page-back", "tik-page"])
     nodes[id] = element(id);
   nodes.tickets.dataset.side = "left";
   nodes.settings.dataset.side = "right";
   Object.assign(body, element("body"), { clientHeight: 800 });
   const document = element("document");
-  Object.assign(document, { body, documentElement: element("html"), activeElement: null, getElementById: id => nodes[id] });
-  // what the browser shows of the list right now; tests set it while a run plays
-  let shown = null;
+  const timeline = { currentTime: 5000 };
+  Object.assign(document, { body, documentElement: element("html"), activeElement: null, getElementById: id => nodes[id], timeline });
   const context = vm.createContext({
     document, innerWidth: 390, macHost: null, homeOpen: false, lastTicketTap: null, lastState: null,
     performance: { now: () => 0 },
     CSS: { supports: (property, value) => eased && /^linear\(/.test(value) },
-    getComputedStyle: el => ({
-      getPropertyValue: name => name === "--sink" ? ".015" : "none",
-      opacity: el === nodes.tickets && shown !== null ? String(shown) : "1",
-    }),
+    matchMedia: query => ({ matches: reduced && /prefers-reduced-motion:\s*reduce/.test(query) }),
+    requestAnimationFrame: fn => frames.push(fn),
+    getComputedStyle: () => ({ getPropertyValue: name => name === "--sink" ? ".015" : "none", opacity: "1" }),
     addEventListener() {}, settingsPage: () => ({ reset() {} }),
     tracePhone() {}, endPhoneTrace() {}, traceFrameOpportunity() {},
     editing: () => false, closeProjects() {}, dropResponseScroll() {}, renderTickets() {},
@@ -181,9 +196,12 @@ function fixture({ eased = true } = {}) {
     document.fire(type, { timeStamp: t, button: 0, ...point, target: body, touches: ended ? [] : [point], changedTouches: [point] });
   };
   return {
-    nodes, log, body, run: source => vm.runInContext(source, context),
+    nodes, log, body, played, timeline, run: source => vm.runInContext(source, context),
     tap: () => nodes.tikbtn.fire("click"),
-    show: v => { shown = v; },
+    // the browser's next frame: its requestAnimationFrame callbacks, at `ms` later
+    frame(ms = 16) { timeline.currentTime += ms; for (const fn of frames.splice(0)) fn(timeline.currentTime); },
+    // every run playing lands
+    land() { for (const a of played) a.land(); },
     fire,
     // a finger that moves at a steady `speed` px/ms from x0, one reading every 10ms,
     // and lifts where it last was
@@ -196,13 +214,41 @@ function fixture({ eased = true } = {}) {
   };
 }
 
-// the run a part plays for `property`, as the browser would take it now: its
-// transition from the stylesheet with the part's own values, and the fraction it
-// leaves from and goes to, the part's last two writes of --list-v
+// the fraction of the list's travel a keyframe value stands for: the card and
+// the window go down by the drop, the list comes in across its travel as it
+// rises by the drop inside the window, and the fades are the fraction itself
+function fractionOf(id, property, value) {
+  if (property !== "transform") return Number(value);
+  const [x, y] = String(value).match(/-?[\d.]+(?=px)/g).map(Number);
+  if (id !== "tickets") return y / DROP;
+  const v = -y / DROP;
+  assert.ok(Math.abs(x - (v - 1) * TRAVEL) < 1e-2, `the list comes in across its travel as it rises: ${value}`);
+  return v;
+}
+// the run a part plays for `property`, as the browser would take it now: the
+// keyframes the script asked the part for, with straight lines between, or else
+// its transition from the stylesheet with the part's own values; and the
+// fraction it leaves from and goes to
 function played(f, id, property) {
+  const keyed = f.played.filter(a => a.el === f.nodes[id] && a.playState === "running" && property in a.keyframes[0]).pop();
+  if (keyed) {
+    const points = keyed.keyframes.map(k => [k.offset, fractionOf(id, property, k[property])]);
+    const ms = keyed.options.duration;
+    assert.equal(keyed.options.easing, "linear", `${id} ${property} keeps straight lines between its points`);
+    const at = t => {
+      const x = Math.max(0, t) / ms;
+      if (x >= 1) return points[points.length - 1][1];
+      const i = points.findIndex(p => p[0] > x);
+      const [x0, y0] = points[i - 1], [x1, y1] = points[i];
+      return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+    };
+    return { timing: `${ms}ms through ${points.map(p => p[0].toFixed(6)).join(" ")}`, ms, from: points[0][1], to: points[points.length - 1][1], at, animation: keyed };
+  }
   const cls = f.body.classList;
-  const held = cls.contains("menudrag") || cls.contains("listhold");
-  const order = held ? [`body.menudrag #${id}`] : cls.contains("menurelease") ? [`body.menurelease #${id}`, `#${id}`] : [`#${id}`];
+  // the arrows' rules are written for the list's arrows, not by their ids
+  const sel = id.startsWith("tik-page") ? "#tickets #tikhead .tik-page" : `#${id}`;
+  const order = cls.contains("menudrag") ? [`body.menudrag ${sel}`] : cls.contains("listkeys") ? [`body.listkeys ${sel}`]
+    : cls.contains("menurelease") ? [`body.menurelease ${sel}`, sel] : [sel];
   const transition = order.map(s => rule(s).transition).find(Boolean);
   const entry = topLevel(transition).find(s => s.split(/\s+/)[0] === property);
   const fractions = f.log.filter(w => w.id === id && w.name === "--list-v").map(w => Number(w.value));
@@ -215,14 +261,18 @@ function played(f, id, property) {
   const ms = parseFloat(m[1]) * (m[2] === "s" ? 1000 : 1), ease = easing(m[3]);
   return { timing, ms, from, to, at: t => t >= ms ? to : from + (to - from) * ease(Math.max(0, t) / ms) };
 }
-const PARTS = [["pane", "transform"], ["tikwin", "transform"], ["tickets", "transform"], ["tickets", "opacity"], ["tickets", "--drawer-arrow-v"]];
+const PARTS = [["pane", "transform"], ["tikwin", "transform"], ["tickets", "transform"], ["tickets", "opacity"],
+  ["tik-page-back", "--list-v"], ["tik-page", "--list-v"]];
 // every part the list moves plays one run: one length, one curve, one start and end
 function shared(f) {
   const runs = PARTS.map(([id, property]) => ({ id, property, ...played(f, id, property) }));
   for (const r of runs.slice(1)) {
     assert.equal(r.timing, runs[0].timing, `${r.id} ${r.property} rides the card's curve`);
-    assert.equal(r.from, runs[0].from, `${r.id} leaves from the card's fraction`);
-    assert.equal(r.to, runs[0].to, `${r.id} goes where the card goes`);
+    // keyframe lengths are written to a thousandth of a pixel, and a run's fade
+    // stops a thousandth short of whole (LIST_FADE_TOP)
+    const near = r.animation && r.property === "opacity" ? 1.001e-3 : 1e-5;
+    assert.ok(Math.abs(r.from - runs[0].from) < near, `${r.id} ${r.property} leaves from the card's fraction`);
+    assert.ok(Math.abs(r.to - runs[0].to) < near, `${r.id} ${r.property} goes where the card goes`);
   }
   return runs[0];
 }
@@ -249,8 +299,9 @@ test("a tap opens and closes on the reference app's settling spring, every movin
   for (const [to, label] of [[1, "open"], [0, "close"]]) {
     f.tap();
     const run = shared(f);
-    assert.equal(run.from, 1 - to, label);
-    assert.equal(run.to, to, label);
+    assert.ok(run.animation, `${label} is played as keyframes`);
+    assert.ok(Math.abs(run.from - (1 - to)) < 1e-5, label);
+    assert.ok(Math.abs(run.to - to) < 1e-5, label);
     // held against the reference in the card's own pixels, every millisecond
     const reference = glideLeft(DROP), end = Math.max(run.ms, reference.length - 1);
     for (let t = 0; t <= end; t++) {
@@ -264,6 +315,7 @@ test("a tap opens and closes on the reference app's settling spring, every movin
     // the slowdown is the spring's: half way in 143ms, nine tenths in 336ms
     assert.ok(Math.abs(Math.abs(run.at(143) - (1 - to)) - .5) < .01, `${label} is half way at 143ms`);
     assert.ok(Math.abs(Math.abs(run.at(336) - (1 - to)) - .9) < .01, `${label} is nine tenths there at 336ms`);
+    f.land();
   }
 });
 
@@ -278,10 +330,12 @@ test("a release hands the finger's speed to the run with no jump and slows into 
     if (open) f.tap();
     const x = f.drag(x0, speed, ms);
     const run = shared(f);
+    // a run already moving keeps the stylesheet's curve (keyframes are for runs from rest)
+    assert.ok(!run.animation && /linear\(/.test(run.timing), `${label} is played on the transition's curve: ${run.timing}`);
     const finger = (open ? 1 : 0) + (x - x0) / TRAVEL;
     assert.ok(Math.abs(run.from - finger) < 1e-4, `${label} leaves from where the finger let go`);
     const to = speed > 0 ? 1 : 0;
-    assert.equal(run.to, to, label);
+    assert.ok(Math.abs(run.to - to) < 1e-5, label);
     // the first millisecond goes at the finger's speed, in the list's own pixels
     const start = rate(run, 0) * TRAVEL;
     assert.ok(Math.abs(start - speed) <= .05 * Math.abs(speed), `${label} leaves at ${start.toFixed(3)}px/ms, the finger at ${speed}`);
@@ -296,36 +350,39 @@ test("a release hands the finger's speed to the run with no jump and slows into 
   }
 });
 
-test("a tap that turns a run round holds it where it is and carries its speed", () => {
+test("a tap that turns a run round starts back from where it is and carries its speed", () => {
   const f = fixture();
   f.tap();
   const opening = shared(f);
+  const first = f.played.slice();
   // the browser is 120ms into the opening when the tap comes
   const t = 120, there = opening.at(t);
-  f.nodes.tickets.animations = [{ transitionProperty: "opacity", currentTime: t }];
-  f.show(there);
+  for (const a of first) a.currentTime = t;
   const writes = f.log.length;
   f.tap();
-  const hold = f.log.slice(writes).filter(w => w.name === "--list-v");
-  assert.deepEqual(hold.map(w => [w.id, w.held]), [
-    ["pane", true], ["tickets", true], ["tikwin", true], ["pane", false], ["tickets", false], ["tikwin", false],
-  ], "the three parts are held at the place shown, with no run, before the run back starts");
-  for (const w of hold.slice(0, 3)) assert.ok(Math.abs(Number(w.value) - there) < 1e-4, "held where it is shown");
+  // the opening is stopped where it is and the parts held there with no run,
+  // so the run back starts from that place and is not a reversal the browser
+  // would shorten, losing the speed it hands over
+  assert.ok(first.every(a => a.playState === "idle"), "the opening's keyframes are stopped");
+  const held = f.log.slice(writes).filter(w => w.name === "--list-v").slice(0, 3);
+  assert.deepEqual(held.map(w => w.id), ["pane", "tickets", "tikwin"]);
+  for (const w of held) assert.ok(Math.abs(Number(w.value) - there) * DROP <= .3, `held where it is shown: ${w.value}`);
   assert.equal(f.body.classList.contains("listhold"), false);
-  // the hold takes the parts' runs away, so the browser cancels the opening rather
-  // than shortening a reversal of it
   for (const id of ["pane", "tikwin", "tickets"]) {
     const timed = topLevel(rule(`body.listhold #${id}`).transition || "").map(s => s.split(/\s+/)[0]);
     assert.ok(!timed.some(p => p === "transform" || p === "opacity" || p === "--drawer-arrow-v"), `${id} is untimed while held`);
   }
   const closing = shared(f);
-  assert.ok(Math.abs(closing.from - there) < 1e-4);
-  assert.equal(closing.to, 0);
+  // a run already moving keeps the stylesheet's curve
+  assert.ok(!closing.animation && /linear\(/.test(closing.timing), "the turn is played on the transition's curve");
+  // the keyframes keep within a quarter of a pixel of the spring
+  assert.ok(Math.abs(closing.from - there) * DROP <= .3, `turned round ${(Math.abs(closing.from - there) * DROP).toFixed(3)}px from where it was`);
+  assert.ok(Math.abs(closing.to) < 1e-5);
   // it leaves at the speed the opening had, still going out for a moment
   const had = (opening.at(t + 2) - opening.at(t - 2)) / 4, leaves = rate(closing, 0);
   assert.ok(had > 0 && Math.abs(leaves - had) <= .1 * had, `turned round at ${leaves.toFixed(5)}/ms, the run had ${had.toFixed(5)}/ms`);
   for (let s = 0; s <= closing.ms; s++) assert.ok(closing.at(s) >= 0 && closing.at(s) <= 1, `on its track at ${s}ms`);
-  assert.equal(closing.at(closing.ms), 0);
+  assert.ok(Math.abs(closing.at(closing.ms)) < 1e-5);
 });
 
 test("reduced motion keeps its jumps: no run plays, so a second tap goes straight to its end", () => {
@@ -334,15 +391,16 @@ test("reduced motion keeps its jumps: no run plays, so a second tap goes straigh
   assert.match(CSS, /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{\s*\*,\s*\*::before,\s*\*::after\s*\{[^}]*transition:none !important/);
   for (const [, selectors, body] of CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g))
     if (/#pane|#tikwin|#tickets/.test(selectors)) assert.doesNotMatch(body, /transition[^;]*!important/, selectors);
-  // with transitions off the browser reports no run playing, so a tap made at once
-  // after another writes only its end: no hold, no place in between
-  const f = fixture();
+  // nor do keyframes, which that rule cannot reach: a tap writes only its end,
+  // and one made at once after another goes straight back
+  const f = fixture({ reduced: true });
   f.tap();
+  assert.deepEqual(f.played, [], "no keyframes play under reduced motion");
   const writes = f.log.length;
   f.tap();
   const after = f.log.slice(writes).filter(w => w.name === "--list-v");
-  assert.deepEqual(after.map(w => [w.id, w.value, w.held]), [["pane", "0", false], ["tickets", "0", false], ["tikwin", "0", false]]);
-  assert.equal(f.body.classList.contains("listhold"), false);
+  assert.deepEqual(after.map(w => [w.id, w.value]), [["pane", "0"], ["tickets", "0"], ["tikwin", "0"], ["tik-page-back", "0"], ["tik-page", "0"]]);
+  assert.deepEqual(f.played, []);
 });
 
 test("a drag still follows the finger exactly, untimed", () => {
@@ -361,7 +419,17 @@ test("a drag still follows the finger exactly, untimed", () => {
 test("a browser without linear() curves keeps the menus' own curves", () => {
   const f = fixture({ eased: false });
   f.tap();
+  assert.deepEqual(f.played, [], "no keyframes either");
   assert.equal(shared(f).timing, `${ROOT["--drawer-ms"]} ${ROOT["--drawer-tap"]}`);
   f.drag(300, -2, 60);
   assert.equal(shared(f).timing, `${ROOT["--drawer-ms"]} ${ROOT["--drawer-drag"]}`);
+});
+
+test("a browser with linear() curves but no keyframe animations plays every run on the curve", () => {
+  const f = fixture({ keyed: false });
+  f.tap();
+  const run = shared(f);
+  assert.ok(!run.animation && /linear\(/.test(run.timing), "a tap from rest is on the curve");
+  assert.equal(f.body.classList.contains("listkeys"), false, "the stylesheet keeps the parts' own runs");
+  assert.ok(Math.abs(Math.abs(run.at(143) - run.from) - .5) < .01, "half way at 143ms");
 });

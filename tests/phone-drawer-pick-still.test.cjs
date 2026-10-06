@@ -26,8 +26,10 @@ const SECTIONS = ["drawerPane", "drawerRows"].map(name => HTML.match(new RegExp(
 
 const TOP = 100, HEIGHT = 300, HEAD = 10, FOOT = 17, ROW = 52, GAP = 6;
 
-function fixture({ reduced = false, selected = "r14", count = 20 } = {}) {
-  const mutations = [], observers = [], microtasks = [], changes = [], docListeners = {};
+// keyed: the browser plays the list's run as the keyframes the script asks for;
+// otherwise as the stylesheet's transitions, as one without keyframes would
+function fixture({ reduced = false, selected = "r14", count = 20, keyed = false } = {}) {
+  const mutations = [], observers = [], microtasks = [], changes = [], docListeners = {}, runs = [];
   let body = null, tickets = null;
   const sliding = () => tickets.animations.length > 0 || body.classList.contains("menudrag");
   function element(id, classes = []) {
@@ -56,8 +58,8 @@ function fixture({ reduced = false, selected = "r14", count = 20 } = {}) {
           // drawer's slide unless its transitions are off (a finger on it, the
           // hold, or reduced motion), and turning them off ends a slide in flight
           if (el === tickets && name === "--list-v") {
-            const off = reduced || body.classList.contains("menudrag") || body.classList.contains("listhold");
-            if (off) el.animations = [];
+            const off = reduced || body.classList.contains("menudrag") || body.classList.contains("listkeys");
+            if (off) el.animations = el.animations.filter(a => a.keyframes);
             else if (Number(was) !== Number(value)) el.animations = ["transform", "opacity"].map(slide);
           }
         },
@@ -68,6 +70,19 @@ function fixture({ reduced = false, selected = "r14", count = 20 } = {}) {
       getAnimations: () => el.animations,
       getBoundingClientRect: () => ({ width: 289, left: 30, right: 360, top: 300, bottom: 800 }),
       querySelector: () => null, querySelectorAll: () => [], closest: () => null,
+    };
+    // a keyframe run plays until it lands or is cancelled, and reports neither
+    // by transitionend
+    if (keyed) el.animate = (keyframes, options) => {
+      let done, fail;
+      const finished = new Promise((resolve, reject) => { done = resolve; fail = reject; });
+      finished.catch(() => {});
+      const run = { keyframes, id: options.id, playState: "running", currentTime: 0, startTime: null, finished,
+        cancel() { if (run.playState !== "running") return; run.playState = "idle"; el.animations = el.animations.filter(a => a !== run); fail(new Error("cancelled")); },
+        land() { if (run.playState !== "running") return; run.playState = "finished"; el.animations = el.animations.filter(a => a !== run); done(run); } };
+      el.animations = [...el.animations, run];
+      runs.push(run);
+      return run;
     };
     return el;
   }
@@ -118,12 +133,15 @@ function fixture({ reduced = false, selected = "r14", count = 20 } = {}) {
     getElementById: id => nodes[id],
     querySelector: selector => selector.includes('data-view="todo"') ? pane : null,
     addEventListener(type, fn) { (docListeners[type] ||= []).push(fn); },
+    timeline: { currentTime: 1000 },
   });
   const context = vm.createContext({
     document, window: {}, innerWidth: 390, macHost: null, homeOpen: false, lastTicketTap: null, lastState: null, phoneDeveloperMode: false,
     selectedId: selected, curView: () => "todo",
     performance: { now: () => 0 },
     CSS: { supports: () => true },
+    matchMedia: () => ({ matches: reduced }),
+    requestAnimationFrame() {},
     getComputedStyle: () => ({ getPropertyValue: name => name === "--sink" ? ".015" : name === "--drawer-pick-scale" ? "1" : "none", opacity: "1" }),
     queueMicrotask: fn => microtasks.push(fn),
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { observers.push(this.fn); } },
@@ -169,111 +187,120 @@ function fixture({ reduced = false, selected = "r14", count = 20 } = {}) {
       for (let t = 10; t <= ms; t += 10) f.touch("touchmove", x0 + speed * t, t0 + t);
       f.touch("touchend", x0 + speed * ms, t0 + ms);
     },
-    // the slide lands: its transitions finish and report their end
+    // the slide lands: its transitions finish and report their end, or its
+    // keyframes finish, on every part they move
     async land() {
-      const ending = tickets.animations;
-      tickets.animations = [];
+      const ending = tickets.animations.filter(a => !a.keyframes);
+      tickets.animations = tickets.animations.filter(a => a.keyframes);
       for (const one of ending) { one.done(); tickets.fire("transitionend", { propertyName: one.transitionProperty }); }
+      for (const run of runs) run.land();
       settle();
-      await new Promise(resolve => setImmediate(resolve));
-      settle();
+      // a keyframe run reports its landing on its finished promise
+      for (let turn = 0; turn < 2; turn++) { await new Promise(resolve => setImmediate(resolve)); settle(); }
     },
   };
   return f;
 }
 
-// an open list at rest whose open ticket is scrolled out of view, so the pick is on r0
-async function openWithPick(options) {
-  const f = fixture(options);
-  f.key();
-  f.tap(); await f.land();
-  f.scroll(0);
-  assert.deepEqual(f.picks(), ["r0"], "at rest the pick sits on the ticket under the line");
-  f.changes.length = 0;
-  return f;
-}
+// every check runs twice: with the list's run played as keyframes, and as the
+// stylesheet's transitions where keyframes cannot be played
+for (const keyed of [true, false]) {
+  const path = keyed ? "keyframes: " : "transitions: ";
+  const make = (options = {}) => fixture({ keyed, ...options });
 
-for (const [label, x0, speed, ms] of [["a release", 8, .4, 500], ["a flick", 8, 1, 40]]) {
-  test(`${label} that opens the list leaves every ticket as it is until the slide lands`, async () => {
-    const f = fixture();
+  // an open list at rest whose open ticket is scrolled out of view, so the pick is on r0
+  async function openWithPick(options) {
+    const f = make(options);
     f.key();
-    assert.deepEqual(f.picks(), [], "a shut list has no pick");
-    f.drag(x0, speed, ms);
-    assert.equal(f.run("drawerOpen()"), true, "the list opened");
-    assert.equal(f.sliding(), true, "and its slide is running");
-    assert.deepEqual(f.movedWhileSliding(), [], "no ticket grew or shrank while the drawer moved");
-    assert.deepEqual(f.picks(), []);
-    await f.land();
-    assert.deepEqual(f.picks(), ["r0"], "the pick is placed once the list stands still");
-    assert.deepEqual(f.movedWhileSliding(), []);
-  });
-}
+    f.tap(); await f.land();
+    f.scroll(0);
+    assert.deepEqual(f.picks(), ["r0"], "at rest the pick sits on the ticket under the line");
+    f.changes.length = 0;
+    return f;
+  }
 
-for (const [label, close] of [
-  ["a tap", f => f.tap()],
-  ["a release", f => f.drag(200, -.4, 500)],
-  ["a flick", f => f.drag(200, -1, 40)],
-]) {
-  test(`${label} that shuts the list keeps the pick on its ticket until the list has gone`, async () => {
-    const f = await openWithPick();
-    close(f);
-    assert.equal(f.run("drawerOpen()"), false, "the list is shutting");
-    assert.equal(f.sliding(), true, "and its slide is running");
-    assert.deepEqual(f.movedWhileSliding(), [], "no ticket shrank while the drawer moved");
+  for (const [label, x0, speed, ms] of [["a release", 8, .4, 500], ["a flick", 8, 1, 40]]) {
+    test(`${path}${label} that opens the list leaves every ticket as it is until the slide lands`, async () => {
+      const f = make();
+      f.key();
+      assert.deepEqual(f.picks(), [], "a shut list has no pick");
+      f.drag(x0, speed, ms);
+      assert.equal(f.run("drawerOpen()"), true, "the list opened");
+      assert.equal(f.sliding(), true, "and its slide is running");
+      assert.deepEqual(f.movedWhileSliding(), [], "no ticket grew or shrank while the drawer moved");
+      assert.deepEqual(f.picks(), []);
+      await f.land();
+      assert.deepEqual(f.picks(), ["r0"], "the pick is placed once the list stands still");
+      assert.deepEqual(f.movedWhileSliding(), []);
+    });
+  }
+
+  for (const [label, close] of [
+    ["a tap", f => f.tap()],
+    ["a release", f => f.drag(200, -.4, 500)],
+    ["a flick", f => f.drag(200, -1, 40)],
+  ]) {
+    test(`${path}${label} that shuts the list keeps the pick on its ticket until the list has gone`, async () => {
+      const f = await openWithPick();
+      close(f);
+      assert.equal(f.run("drawerOpen()"), false, "the list is shutting");
+      assert.equal(f.sliding(), true, "and its slide is running");
+      assert.deepEqual(f.movedWhileSliding(), [], "no ticket shrank while the drawer moved");
+      assert.deepEqual(f.picks(), ["r0"]);
+      await f.land();
+      assert.deepEqual(f.picks(), [], "the pick goes once the list has gone");
+      assert.deepEqual(f.movedWhileSliding(), []);
+    });
+  }
+
+  test(path + "a first hardware key pressed while the list slides out waits for the landing", async () => {
+    const f = make();
+    f.drag(8, 1, 40);
+    assert.equal(f.sliding(), true);
+    f.key();
+    assert.deepEqual(f.movedWhileSliding(), [], "the key changes no ticket under the moving drawer");
+    await f.land();
     assert.deepEqual(f.picks(), ["r0"]);
+  });
+
+  test(path + "a tap that opens the list scrolls the open ticket into view and picks nothing, as before", async () => {
+    const f = make();
+    f.key();
+    f.tap();
+    assert.deepEqual(f.movedWhileSliding(), []);
     await f.land();
-    assert.deepEqual(f.picks(), [], "the pick goes once the list has gone");
+    assert.deepEqual(f.picks(), [], "the open ticket is in view, so there is no pick");
+    const shown = f.rows[14].getBoundingClientRect();
+    assert.ok(shown.top >= TOP && shown.bottom <= TOP + HEIGHT, "the open ticket was scrolled into view");
+  });
+
+  test(path + "at rest the pick still follows the scroll from ticket to ticket", async () => {
+    const f = await openWithPick();
+    const max = f.pane.scrollHeight - HEIGHT;
+    f.scroll(max / 4);
+    assert.equal(f.picks().length, 1);
+    assert.notDeepEqual(f.picks(), ["r0"], "a scroll at rest moves the pick on");
+    f.scroll(0);
+    assert.deepEqual(f.picks(), ["r0"]);
+  });
+
+  test(path + "Enter still finds the ticket under the line during a slide", async () => {
+    const f = make();
+    f.key();
+    f.drag(8, 1, 40);
+    assert.equal(f.sliding(), true);
+    assert.equal(f.run("syncDrawerPick(true)")?.dataset.id, "r0", "Enter's own reading is not held back");
+  });
+
+  test(path + "reduced motion runs no slide, so the pick comes and goes at once, as before", async () => {
+    const f = make({ reduced: true });
+    f.key();
+    f.drag(8, .4, 500);
+    assert.equal(f.sliding(), false, "no slide runs");
+    assert.deepEqual(f.picks(), ["r0"], "the pick is placed on the open list at once");
+    f.tap();
+    assert.equal(f.run("drawerOpen()"), false);
+    assert.deepEqual(f.picks(), [], "and taken away at once when it shuts");
     assert.deepEqual(f.movedWhileSliding(), []);
   });
 }
-
-test("a first hardware key pressed while the list slides out waits for the landing", async () => {
-  const f = fixture();
-  f.drag(8, 1, 40);
-  assert.equal(f.sliding(), true);
-  f.key();
-  assert.deepEqual(f.movedWhileSliding(), [], "the key changes no ticket under the moving drawer");
-  await f.land();
-  assert.deepEqual(f.picks(), ["r0"]);
-});
-
-test("a tap that opens the list scrolls the open ticket into view and picks nothing, as before", async () => {
-  const f = fixture();
-  f.key();
-  f.tap();
-  assert.deepEqual(f.movedWhileSliding(), []);
-  await f.land();
-  assert.deepEqual(f.picks(), [], "the open ticket is in view, so there is no pick");
-  const shown = f.rows[14].getBoundingClientRect();
-  assert.ok(shown.top >= TOP && shown.bottom <= TOP + HEIGHT, "the open ticket was scrolled into view");
-});
-
-test("at rest the pick still follows the scroll from ticket to ticket", async () => {
-  const f = await openWithPick();
-  const max = f.pane.scrollHeight - HEIGHT;
-  f.scroll(max / 4);
-  assert.equal(f.picks().length, 1);
-  assert.notDeepEqual(f.picks(), ["r0"], "a scroll at rest moves the pick on");
-  f.scroll(0);
-  assert.deepEqual(f.picks(), ["r0"]);
-});
-
-test("Enter still finds the ticket under the line during a slide", async () => {
-  const f = fixture();
-  f.key();
-  f.drag(8, 1, 40);
-  assert.equal(f.sliding(), true);
-  assert.equal(f.run("syncDrawerPick(true)")?.dataset.id, "r0", "Enter's own reading is not held back");
-});
-
-test("reduced motion runs no slide, so the pick comes and goes at once, as before", async () => {
-  const f = fixture({ reduced: true });
-  f.key();
-  f.drag(8, .4, 500);
-  assert.equal(f.sliding(), false, "no slide runs");
-  assert.deepEqual(f.picks(), ["r0"], "the pick is placed on the open list at once");
-  f.tap();
-  assert.equal(f.run("drawerOpen()"), false);
-  assert.deepEqual(f.picks(), [], "and taken away at once when it shuts");
-  assert.deepEqual(f.movedWhileSliding(), []);
-});

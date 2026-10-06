@@ -116,7 +116,16 @@ test("what moves for the drawers is a transform or an opacity, and no script car
       }
     }
   }
-  assert.doesNotMatch(MENUS, /requestAnimationFrame|setInterval|animate\(/, "the menus' script runs a frame loop");
+  // the slide is the browser's: transitions, or keyframes it is handed once.
+  // the one frame request starts a run from rest after its setup frame
+  // (playList) and asks for nothing again; nothing else asks for frames
+  assert.doesNotMatch(MENUS, /setInterval/, "the menus' script runs a timer loop");
+  const play = MENUS.slice(MENUS.indexOf("function playList(){"), MENUS.indexOf("// the one number, painted onto"));
+  assert.ok(play.length > 0, "playList is where the run from rest starts");
+  assert.doesNotMatch(MENUS.replace(play, ""), /requestAnimationFrame|animate\(/, "the menus' script runs a frame loop");
+  assert.equal((play.match(/\.animate\(/g) || []).length, 1, "the keyframes are handed over once");
+  assert.equal((play.match(/requestAnimationFrame\(\(\) =>/g) || []).length, 2);
+  assert.match(play, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => \{[^}]*\}\)\);/, "two frames' wait, then nothing more");
   // the row's bed casts no shadow, and its second sheet stands up for the whole slide:
   // raised as soon as the list is out, lowered over the last of the run home
   assert.equal(rulesFor(/#dockbed::after/).length, 0, "the row's bed draws a shadow along its edge");

@@ -66,7 +66,9 @@
        a release; writing one variable on the root for it would restyle the
        whole document. the card list's own run is the settling spring the
        script works out for it (--drawer-run-ms, --drawer-run-ease), and falls
-       back to these where that curve cannot be written */
+       back to these where that curve cannot be written. a run from rest is
+       played as keyframes instead, and body.listkeys takes these runs off the
+       list's three parts while it plays */
     --drawer-ms:.55s;
     --drawer-tap:cubic-bezier(.445,.05,.55,.95);
     --drawer-drag:cubic-bezier(.215,.61,.355,1);
@@ -522,7 +524,7 @@
     transition:margin-bottom var(--kb-anim), transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap));
   }
   body.menurelease #pane{transition:margin-bottom var(--kb-anim), transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag))}
-  body.listhold #pane, body.menudrag #pane{transition:margin-bottom var(--kb-anim)}
+  body.listkeys #pane, body.listhold #pane, body.menudrag #pane{transition:margin-bottom var(--kb-anim)}
   body.listout #pane{will-change:transform}
   body.listout #pane, body.listout #pane *{pointer-events:none !important}
   /* Card touches land on the page. Keep that surface still during a flick;
@@ -1124,11 +1126,9 @@
     transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap));
   }
   body.menurelease #tikwin{transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag))}
-  body.listhold #tikwin, body.menudrag #tikwin{transition:none}
+  body.listkeys #tikwin, body.listhold #tikwin, body.menudrag #tikwin{transition:none}
   body.listout #tikwin{will-change:transform}
-  @property --drawer-arrow-v{syntax:"<number>"; inherits:true; initial-value:0}
   #tickets{
-    --drawer-arrow-v:var(--list-v);
     /* The whole drawer fades on the same fraction and clock as its arrows. */
     opacity:var(--list-v);
     --line-gap:calc(6 * var(--u)); --list-share:.9;
@@ -1147,16 +1147,24 @@
     transform:translate3d(calc((var(--list-v) - 1) * (var(--pg-l) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
       calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0);
     visibility:hidden; --menuwait:var(--drawer-run-ms, var(--drawer-ms));
-    transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), opacity var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), --drawer-arrow-v var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), visibility 0s linear var(--menuwait);
+    transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), opacity var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), visibility 0s linear var(--menuwait);
   }
   body.menurelease #tickets{
-    transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag)), opacity var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag)), --drawer-arrow-v var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag)), visibility 0s linear var(--menuwait)}
-  body.listhold #tickets, body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
+    transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag)), opacity var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag)), visibility 0s linear var(--menuwait)}
+  body.listkeys #tickets, body.listhold #tickets, body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
   #tickets.live{visibility:visible; --menuwait:0s; will-change:transform}
-  /* One inherited fade runs on the drawer's clock, including reversals. The
-     disabled strength stays separate, so a name-page change cannot retime it. */
-  #tickets #tikhead .tik-page{opacity:var(--drawer-arrow-v); pointer-events:none}
-  #tickets #tikhead .tik-page[aria-disabled="true"]{opacity:calc(var(--drawer-arrow-v) * var(--chipoff))}
+  /* The arrows fade once more on top of the drawer's own fade, on its fraction
+     and clock, reversals included: --list-v is written on the two arrows as on
+     the drawer's parts, and runs there. It is not inherited, so a change of it
+     restyles the arrows alone; an inherited value would restyle every ticket in
+     the list each frame, and on the Simulator page-played slides dropped fewer
+     frames without it. The run is on --list-v, never on opacity, so the
+     disabled strength stays separate and a name-page change cannot retime it. */
+  #tickets #tikhead .tik-page{opacity:var(--list-v); pointer-events:none;
+    transition:--list-v var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap))}
+  body.menurelease #tickets #tikhead .tik-page{transition:--list-v var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag))}
+  body.listkeys #tickets #tikhead .tik-page, body.listhold #tickets #tikhead .tik-page, body.menudrag #tickets #tikhead .tik-page{transition:none}
+  #tickets #tikhead .tik-page[aria-disabled="true"]{opacity:calc(var(--list-v) * var(--chipoff))}
   #tickets.open.drawer-settled #tikhead .tik-page{pointer-events:auto}
   /* the settings cross over the page from the right edge along one straight
      sideways line, at full strength for every frame of it: nothing about them
@@ -4385,6 +4393,8 @@ const page = document.getElementById("page");
 const cardPane = document.getElementById("pane");
 const tickets = document.getElementById("tickets");
 const tikwin = document.getElementById("tikwin");
+// the list's two arrows, which take its fraction too (their own fade)
+const tikArrows = ["tik-page-back", "tik-page"].map(id => document.getElementById(id)).filter(Boolean);
 const settings = document.getElementById("settings");
 const scrim = document.getElementById("scrim");
 const menus = [tickets, settings];   // the left one first: the drag reads the side off each
@@ -4397,7 +4407,7 @@ function settleTicketDrawer(){
   // Read the actual transitions, including reversals and zero-distance runs.
   // The window and card must finish too, since they uncover the ticket box.
   const moving = [tickets, tikwin, cardPane].flatMap(el => el.getAnimations())
-    .filter(animation => animation.transitionProperty === "transform");
+    .filter(animation => animation.transitionProperty === "transform" || animation.id === "list-run");
   Promise.all(moving.map(animation => animation.finished)).then(() => {
     if (run === ticketDrawerRun && drawerOpen() && !document.body.classList.contains("menudrag"))
       tickets.classList.add("drawer-settled");
@@ -4411,6 +4421,7 @@ function syncMenuAvailability(){
     lastTicketTap = null;
     dropResponseScroll();
     panel.classList.remove("open");
+    if (panel === tickets) stopList();
     paintMenu(panel, 0);
   }
 }
@@ -4490,14 +4501,30 @@ addEventListener("orientationchange", sizeList);
 // its rest, so the spring is stiffened just enough to land without passing; a
 // run whose speed would carry it off the far end starts from rest instead. it
 // lands as the reference does, once the part that travels furthest is under a
-// pixel out and crawling. the stylesheet plays it as a linear() curve through
-// the spring's own positions, never a quarter of a pixel off them
+// pixel out and crawling. it is played through the spring's own positions,
+// never a quarter of a pixel off them, with straight lines between. a run from
+// rest is played as keyframes, which the phone's graphics system runs on its
+// own: a linear() curve on a transition is played by the page frame by frame
+// and stops whenever the page is busy (on the iOS Simulator a page busy for
+// 150ms held the card still for 150ms, then jumped it 190px). a run already
+// moving, after a release or a turn, keeps the stylesheet's linear() curve:
+// starting keyframes costs the graphics system a frame or two, which a run
+// from rest waits out (playList) but a moving one cannot (on the Simulator a
+// release held still for 70 to 100ms with keyframes, then jumped 70 to 96px,
+// where the curve carried on from the finger)
 const LIST_SPRING = 25 / (3 * 700), LIST_DAMPING = 1.02;   // per ms, and the damping ratio
 const LIST_CAP = 25;                                       // px/ms, the reference's top speed
 const LIST_LAND_PX = 1, LIST_LAND_SPEED = .05;            // px and px/ms: landed
 const LIST_EASE_PX = .25;                                  // px the curve may stray between its points
 const LIST_EASED = typeof CSS !== "undefined" && !!CSS.supports?.("transition-timing-function", "linear(0, 1)");
-let listRun = null;   // the run the stylesheet is playing
+const LIST_KEYED = LIST_EASED && typeof cardPane.animate === "function";
+// the most a run from rest waits for its first frame (playList), allowed for
+// wherever the run's end is counted from its start
+const LIST_SETUP_MS = 200;
+const LIST_CALM = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+let listRun = null;   // the run being played
+let listPlay = [];    // its keyframes, when it is played as keyframes: the list's own first
+const listLandings = [];   // called as keyframes land, which a transitionend says for a transition
 // a run of the fraction from `from` to `to`, leaving at `speed` (fraction per ms,
 // signed like the fraction), where a whole fraction is `px` of the furthest travel
 function listSpring(from, to, speed, px){
@@ -4534,41 +4561,106 @@ function listSpring(from, to, speed, px){
     while (lo < hi){ const mid = (lo + hi + 1) >> 1; if (fits(i, mid)) lo = mid; else hi = mid - 1; }
     stops.push(i = lo);
   }
-  return { to, ms,
+  return { from, to, ms,
     ease: ms ? "linear(" + stops.map(t => +at[t].toFixed(5) + " " + +(100 * t / ms).toFixed(3) + "%").join(", ") + ")" : "linear",
+    // [share of the run, fraction] at each point the keyframes pass through
+    points: stops.map(t => [ms ? t / ms : 1, t < ms ? from + (to - from) * at[t] : to]),
     at: t => t < ms ? to - sign * left(t) : to,
     velocity: t => t < ms ? sign * rate(t) : 0 };
+}
+// stop the list's keyframes where they are shown: its parts go to what is written on them
+function stopList(){
+  for (const a of listPlay) a.cancel();
+  listPlay = [];
+}
+// the list is under a finger or on a run (reduced motion runs none)
+function listMoving(){
+  return document.body.classList.contains("menudrag") || listPlay.some(a => a.playState === "running") ||
+    !!listRun && !listRun.keyed && !LIST_CALM?.matches && performance.now() < listRun.until;
 }
 // work out the list's run to v and write it on the three parts it moves, ahead
 // of the paint that starts it. a release leaves from the fraction the finger
 // left and at its speed. otherwise a run still playing is turned round from
 // where it is and at the speed it has, after it is held there for a moment
 // with no run, so the next starts from that place and is not a reversal the
-// browser would shorten. with nothing playing, a tap leaves from rest
+// browser would shorten. with nothing playing, a tap leaves from rest, and
+// that run is played as keyframes (playList)
 function planList(v, speed, released){
   if (!LIST_EASED) return;
-  let from = Number(tickets.style.getPropertyValue("--list-v")) || 0;
+  let from = Number(tickets.style.getPropertyValue("--list-v")) || 0, rest = !released;
   if (!released){
     speed = 0;
-    const playing = tickets.getAnimations().find(a => a.transitionProperty === "opacity");
+    const keyed = listPlay[0]?.playState === "running" ? listPlay[0] : null;
+    const playing = keyed || tickets.getAnimations().find(a => a.transitionProperty === "opacity");
     if (playing){
       if (listRun && listRun.to === v) return;   // already on its way there
-      const t = Number(playing.currentTime) || 0, seen = parseFloat(getComputedStyle(tickets).opacity);
+      rest = false;
+      // keyframes still waiting for their first frame stand at their start
+      const t = Math.max(0, Number(playing.currentTime) || 0), seen = keyed ? NaN : parseFloat(getComputedStyle(tickets).opacity);
       from = Math.max(0, Math.min(1, Number.isFinite(seen) ? seen : listRun ? listRun.at(t) : from));
       if (listRun) speed = listRun.velocity(t);
+      stopList();
       const cls = document.body.classList, num = from.toFixed(4);
       cls.add("listhold");
-      for (const el of [cardPane, tickets, tikwin]) el.style.setProperty("--list-v", num);
+      for (const el of [cardPane, tickets, tikwin, ...tikArrows]) el.style.setProperty("--list-v", num);
       getComputedStyle(tickets).getPropertyValue("opacity");
       cls.remove("listhold");
     }
   }
+  stopList();
   // the furthest any part goes: the card's drop, or the list across a screen it is never wider than
   listRun = listSpring(from, v, speed, Math.max(parseFloat(listDropAt) || 0, innerWidth || 0));
-  for (const el of [cardPane, tickets, tikwin]){
-    el.style.setProperty("--drawer-run-ms", (listRun ? listRun.ms : 0) + "ms");
+  const keyed = !!listRun && rest && LIST_KEYED && !LIST_CALM?.matches;
+  // a run played as keyframes also waits out its first frame (playList)
+  const ms = listRun ? listRun.ms + (keyed ? LIST_SETUP_MS : 0) : 0;
+  if (listRun) Object.assign(listRun, { keyed, until: performance.now() + ms });
+  document.body.classList.toggle("listkeys", keyed);
+  for (const el of [cardPane, tickets, tikwin, ...tikArrows]){
+    el.style.setProperty("--drawer-run-ms", ms + "ms");
     el.style.setProperty("--drawer-run-ease", listRun ? listRun.ease : "linear");
   }
+}
+// play a run from rest as keyframes on the three parts it moves, from the
+// fraction it leaves to the one now written on them. the list's travel across
+// and the card's drop are plain pixels at each point; the list's fade and its
+// arrows' (their --list-v) take the fraction itself. the fade stops short of
+// whole, at LIST_FADE_TOP: a list that is fading is drawn as one see-through
+// group, and a close that starts fully opaque has that group built in its
+// first moving frame, where it costs a step (on the Simulator a close's first
+// step was 89px, and 47px with the group built in the held frame below)
+const LIST_FADE_TOP = .999;
+function playList(){
+  const run = listRun;
+  if (!run || !run.keyed || run.played || !run.ms) return;
+  run.played = true;
+  const drop = parseFloat(listDropAt) || 0, travel = menuTravel(tickets);
+  const px = n => +n.toFixed(3) + "px";
+  const play = (el, frame) => el.animate(run.points.map(([offset, v]) => ({ offset, ...frame(v) })),
+    { duration: run.ms, easing: "linear", fill: "backwards", id: "list-run" });
+  listPlay = [
+    play(tickets, v => ({ transform: `translate3d(${px((v - 1) * travel)}, ${px(-v * drop)}, 0px)`, opacity: Math.min(v, LIST_FADE_TOP) })),
+    play(tikwin, v => ({ transform: `translate3d(0px, ${px(v * drop)}, 0px)` })),
+    play(cardPane, v => ({ transform: `translate(0px, ${px(v * drop)})` })),
+    ...tikArrows.map(el => play(el, v => ({ "--list-v": v }))),
+  ];
+  const playing = listPlay;
+  playing[0].finished.then(() => {
+    if (listPlay !== playing) return;
+    tracePhone("note", "drawer", { side: tickets.dataset.side, phase: "end", shown: tickets.classList.contains("open") });
+    for (const landed of listLandings) landed();
+  }, () => {});
+  // the run waits for its first frame to be drawn: that frame shows the list,
+  // or builds its fade, and a clock started before it would show the run
+  // already some way along (on the Simulator a tap's first frame took 40 to
+  // 80ms, and with no wait the card's first step averaged 104px on an open and
+  // 119px on a close). the parts stand at the run's start meanwhile
+  const now = document.timeline?.currentTime;
+  if (now == null || typeof requestAnimationFrame !== "function") return;
+  for (const a of playing) a.startTime = now + 60000;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const at = document.timeline.currentTime;
+    if (listPlay === playing && at != null) for (const a of playing) a.startTime = at;
+  }));
 }
 // the one number, painted onto what the menu moves. the list's travel is a
 // function of the fraction alone, as is the card's, so a run turned back
@@ -4591,6 +4683,7 @@ function paintMenu(panel, v){
     cardPane.style.setProperty("--list-v", num);
     tickets.style.setProperty("--list-v", num);
     tikwin.style.setProperty("--list-v", num);
+    for (const el of tikArrows) el.style.setProperty("--list-v", num);
   } else {
     // the settings come out on their list
     if (v && !panel.classList.contains("live")) settingsView.reset();
@@ -4617,9 +4710,10 @@ function dismissEditor(){
 // a run, begun by a tap or by the release of a drag. the settings' release runs
 // on the ease out, a tap on the ease in and out; the stylesheet states both for
 // every layer that moves, under body.menurelease for the release. the list's run
-// is its spring, leaving at `speed`, the finger's on a release (planList). the
-// drag's dress comes off first, after the drag's last position has been
-// settled, so what follows is a run from where the finger left it and not a jump
+// is its spring, leaving at `speed`, the finger's on a release (planList), and
+// a run from rest is played as keyframes (playList). the drag's dress comes
+// off first, after the drag's last position has been settled, so what follows
+// is a run from where the finger left it and not a jump
 function runMenu(panel, v, release, speed = 0){
   lastTicketTap = null;
   if (!menuAvailable(panel)) return;
@@ -4634,6 +4728,7 @@ function runMenu(panel, v, release, speed = 0){
   const menuTrace = tracePhone("begin", "phase", { action: "drawer", part: "menu-commit" });
   panel.classList.toggle("open", v > 0);
   paintMenu(panel, v);
+  if (panel === tickets) playList();
   if (panel === tickets && v > 0) settleTicketDrawer();
   endPhoneTrace(menuTrace, { action: "drawer", part: "menu-commit" });
 }
@@ -4751,6 +4846,7 @@ let cancelMenuDrag;
       tracePhone("note", "drawer", { side: panel.dataset.side, phase: "start" });
       document.body.classList.remove("menurelease");
       document.body.classList.add("menudrag");
+      if (panel === tickets) stopList();   // the finger has it now
       travel = menuTravel(panel) || 1;
     }
     if (vertical){ sample(y, t); return; }
@@ -4855,7 +4951,7 @@ function drawerPickLine(pane, top){
 // the list is on the move: under a finger, or on a run of its own slide
 function drawerSliding(){
   return document.body.classList.contains("menudrag") ||
-    tickets.getAnimations().some(animation => animation.transitionProperty === "transform");
+    tickets.getAnimations().some(animation => animation.transitionProperty === "transform" || animation.id === "list-run");
 }
 // While the list slides, the pick keeps the ticket it has. The drawer's own
 // open and close changes used to place it there and then, so a ticket grew or
@@ -4924,6 +5020,7 @@ document.addEventListener("keydown", e => {
   tickets.addEventListener("transitionend", e => {
     if (e.target === tickets && e.propertyName === "transform") syncDrawerPick();
   });
+  listLandings.push(() => syncDrawerPick());
   addEventListener("resize", refresh);
   refresh();
 }
@@ -5549,7 +5646,9 @@ let pollAgain = false, pollTimer = null, pollGap = POLL_MS;
 // a timed reading that falls due while a panel on the card runs, or a page turns,
 // is put off a moment and not dropped (cardsMoving in card-logic.js): a reading
 // that brings a change has to be drawn, since the revision it carries is only
-// ever handed over once
+// ever handed over once. so is one that falls due while the card list is under
+// a finger or on its run (listMoving), so drawing it does not stall the run: a
+// reading waits for the finger to lift and then at most one run
 const RUN_WAIT_MS = 250;
 function schedulePoll(ms){
   clearTimeout(pollTimer); pollTimer = null;
@@ -5559,6 +5658,7 @@ function schedulePoll(ms){
   pollTimer = setTimeout(() => {
     pollTimer = null;
     if (cardsMoving()){ schedulePoll(RUN_WAIT_MS); return; }
+    if (listMoving()){ schedulePoll(RUN_WAIT_MS); return; }
     poll();
   }, ms);
 }
