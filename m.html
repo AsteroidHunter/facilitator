@@ -6814,15 +6814,22 @@ function rememberNotifyChoice(choice){
     notifyStorageFailed = false;
   } catch (_) { notifyStorageFailed = true; }
 }
+let notifyOffTimer = 0;
 function notifyState(on, note = "", restore = false, busy = false){
   notifySwitch.checked = !!on && notifyChoice === "on";
   notifySwitch.disabled = busy || notifyStopped;
-  notifyNote.textContent = note + (notifyStorageFailed ? " This phone could not save your choice." : "");
+  // A null note leaves the line as it is, so turning on writes nothing that
+  // a quick success would then erase.
+  if (note !== null) notifyNote.textContent = note + (notifyStorageFailed ? " This phone could not save your choice." : "");
   notifyRestore.hidden = !restore || notifyStopped;
   notifyRestore.disabled = busy;
   // The unchecked switch describes delivery. This also lets the owner cancel
-  // an on choice while delivery is being repaired or waiting for a tap.
-  notifyOff.hidden = notifyChoice !== "on" || !!on || notifyStopped;
+  // an on choice while delivery is being repaired or waiting for a tap. While
+  // turning on it appears only if the work is slow, never for a quick success.
+  clearTimeout(notifyOffTimer);
+  const offShown = notifyChoice === "on" && !on && !notifyStopped;
+  notifyOff.hidden = !offShown || busy;
+  if (offShown && busy) notifyOffTimer = setTimeout(() => { notifyOff.hidden = false; }, 1500);
   notifyOff.disabled = notifyStopping;
 }
 async function pushRegistration(){
@@ -6895,7 +6902,7 @@ async function repairNotifications(mine, permission, tappedSubscription){
       notifyState(false, "Notifications are wanted, but permission is off in the phone's settings.", true);
       return;
     }
-    notifyState(false, "Restoring notifications...", false, true);
+    notifyState(false, null, false, true);
     let active = sub;
     if (!active) {
       if (!notifyKey) {
@@ -6935,7 +6942,7 @@ async function repairNotifications(mine, permission, tappedSubscription){
 }
 function startNotifyRepair(permission, tappedSubscription){
   const mine = ++notifyGeneration;
-  notifyState(false, notifyChoice === "on" ? "Restoring notifications..." : "Checking notifications...", false, true);
+  notifyState(false, null, false, true);
   const work = repairNotifications(mine, permission, tappedSubscription);
   notifyWork = work;
   work.finally(() => { if (notifyWork === work) notifyWork = null; });

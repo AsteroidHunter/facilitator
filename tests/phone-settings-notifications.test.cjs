@@ -19,7 +19,7 @@ function page({ choice = 'on', existing = false, permission = 'granted', storage
   if (choice !== null) storage.set(CHOICE, choice);
   const elements = new Map(), windowEvents = {}, documentEvents = {};
   const calls = [], closed = [], navigated = [];
-  let gesture = false, sub = null, count = 0, observer;
+  let gesture = false, sub = null, count = 0, observer, timers = [];
   const listen = events => (name, fn) => (events[name] ||= []).push(fn);
   function element(id) {
     if (!elements.has(id)) elements.set(id, { checked: false, disabled: false, hidden: true, textContent: '', events: {},
@@ -46,7 +46,8 @@ function page({ choice = 'on', existing = false, permission = 'granted', storage
     },
   } };
   const context = vm.createContext({
-    console, Promise, AbortSignal, Set, macHost: null, swReg: reg, keyBytes: key => key,
+    console, Promise, AbortSignal, Set, macHost: null,
+    setTimeout: fn => timers.push(fn), clearTimeout: id => { if (id) timers[id - 1] = null; }, swReg: reg, keyBytes: key => key,
     settings: { classList: { contains: () => true } },
     MutationObserver: class { constructor(fn) { observer = fn; } observe() {} },
     localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) },
@@ -75,6 +76,7 @@ function page({ choice = 'on', existing = false, permission = 'granted', storage
   return {
     context, calls, storage, closed, navigated, element, reg, observer: () => observer(),
     subscription: () => sub, lose: () => { sub = null; },
+    later() { const due = timers; timers = []; for (const fn of due) fn?.(); },
     run: code => vm.runInContext(code, context),
     async tap(id, checked) {
       const el = element(id);
@@ -100,7 +102,7 @@ test('a wanted missing subscription is made and posted at start, and turns on on
   assert.equal(subscribes(p).length, 1);
   assert.equal(posted(p).length, 1);
   assert.equal(p.element('notify').checked, false);
-  assert.match(p.element('notifynote').textContent, /Restoring/);
+  assert.equal(p.element('notifynote').textContent, '');
   accepted.resolve({ ok: true });
   await settle();
   assert.equal(p.element('notify').checked, true);
@@ -207,6 +209,8 @@ test('Off during subscription creation cancels the repair and removes its late l
   const creating = deferred();
   const p = page({ creating });
   await settle();
+  assert.equal(p.element('notifyoff').hidden, true, 'Off waits a moment so a quick success shows nothing');
+  p.later();
   assert.equal(p.element('notifyoff').hidden, false);
   const off = p.tap('notifyoff');
   assert.equal(p.storage.get(CHOICE), 'off');
