@@ -2653,11 +2653,14 @@ test("send morph starts at the typed field, carries one copy of the words at ful
     assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
     rect(el.sent, 140, 190, 180, 45);
     frame(400);
+    assert.ok(s.shell(), "the flight landed before the iPhone's 700ms");
+    assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
+    frame(700);
     assert.equal(shell.style.top, "190px", "flight aimed at a stale seat");
     assert.equal(shell.style.width, "180px");
     assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     assert.ok(s.shell(), "landing frame was removed before painting");
-    frame(417);
+    frame(717);
     assert.equal(s.shell(), null);
     assert.equal(el.sent.style.opacity, "");
     assert.equal(el.sent.dataset.mark, "Delivered");
@@ -2682,12 +2685,12 @@ test("send morph shifts preceding messages on its own curve without replaying th
   rect(el.sent, 150, 180, 170, 75, .5);
   motion.play();
   assert.equal(animation.keys[0].transform.trim(), "translate(0px,60px)", "viewport shift was not converted to local scale");
-  assert.equal(animation.options.duration, 400);
-  assert.equal(animation.options.easing, "cubic-bezier(.22,1,.36,1)");
+  assert.equal(animation.options.duration, 340, "the glide is not the iPhone's length");
+  assert.equal(animation.options.easing, "cubic-bezier(.24,.15,.15,1)", "the glide is not the iPhone's curve");
   assert.equal(el.sent.querySelector(".answmsg"), first);
   assert.equal(first.style.opacity, "", "an existing row was hidden");
   assert.equal(el.sent.style.opacity, "", "an existing panel was hidden");
-  frame(400); frame(417);
+  frame(700); frame(717);
   assert.equal(animation.cancelled, true);
   assert.equal(s.shell(), null);
 });
@@ -2703,13 +2706,13 @@ test("send morph lands a new row below the cut on the cut's edge, its words goin
   frame(320);
   assert.equal(s.shell().querySelector(".sentmorph-target").style.opacity, "1");
   assert.equal(s.shell().style.opacity, "", "the box fades");
-  frame(400);
+  frame(700);
   assert.equal(s.shell().style.opacity, "", "the box fades");
   assert.equal(s.shell().style.top, "241px", "the box did not land on the cut's edge");
   assert.equal(s.shell().style.height, "0px", "the box covers the foot of the cut");
   assert.match(s.shell().querySelector(".sentmorph-target").style.transform, /^translate\(0px,49px\) /,
     "the new words were left in sight above the cut");
-  frame(417);
+  frame(717);
   assert.equal(s.shell(), null);
   assert.equal(row.style.opacity, "");
 });
@@ -2728,9 +2731,9 @@ test("send morph moves the preceding answer when the first panel takes room", ()
   rect(el.reply, 20, 50, 300, 120);
   motion.play();
   assert.equal(shift.keys[0].transform.trim(), "translate(0px,20px)");
-  assert.equal(shift.options.duration, 400);
-  assert.equal(shift.options.easing, "cubic-bezier(.22,1,.36,1)");
-  frame(400); frame(417);
+  assert.equal(shift.options.duration, 340, "the answer does not make room on the iPhone's glide");
+  assert.equal(shift.options.easing, "cubic-bezier(.24,.15,.15,1)");
+  frame(700); frame(717);
   assert.equal(s.shell(), null);
 });
 
@@ -2784,13 +2787,13 @@ test("send morph keeps an earlier flight in the air through a rapid second send"
   const secondRow = el.sent.querySelectorAll(".answmsg").at(-1);
   context.sentLanded(el, item);
   assert.equal(s.body.querySelectorAll(".sentmorph").length, 2);
-  frame(400); frame(417);
+  frame(700); frame(717);
   assert.equal(firstShell.parentNode, null);
   assert.equal(el.sent.style.opacity, "");
   assert.equal(secondRow.style.opacity, "0", "first landing exposed the second row early");
   assert.equal(el.sent.classList.contains("sentflight"), true);
   assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the last flight lands");
-  frame(500); frame(517);
+  frame(800); frame(817);
   assert.equal(s.shell(), null);
   assert.equal(secondRow.style.opacity, "");
   assert.equal(el.sent.classList.contains("sentflight"), false);

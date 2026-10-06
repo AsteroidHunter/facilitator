@@ -450,11 +450,14 @@
    open, a long batch stops at --sent-cap, which each large card writes as the
    room the panel may take over the answer, and the rest scrolls inside the cut.
    a surface that writes none gives the panel a seat that scrolls instead.
-   a local send morphs from the typing field to its seat in card-logic.js, over
-   400ms on the same decelerating curve as the surrounding messages, wearing
-   the panel's own grey and corners from its first frame, its right end on the
-   panel's from the start, and carrying its words dark the whole way. A send
-   without measurable field geometry uses the small rise and fade below.
+   a local send morphs from the typing field to its seat in card-logic.js the
+   way the iPhone's Messages does, frame by frame off a recording, over 700ms:
+   squeezing in from the left before it rises, shrinking a little as it leaves
+   the row and growing back in place, its grey coming in as it rises clear,
+   while what stood before makes room on a quicker glide. It wears the panel's
+   own corners from its first frame, its right end on the panel's from the
+   start, and carries its words dark the whole way. A send without measurable
+   field geometry uses the small rise and fade below.
    Only a send changes the fold's timing; a manual fold keeps its own run. */
 .answered.sent.open .answclip{max-height:var(--sent-cap, none); overflow-y:auto; overscroll-behavior:contain}
 .answered.sent.sentflight{--answ-move:var(--answ-come); --gentle:var(--sent-ease)}
@@ -463,7 +466,8 @@
 /* A viewport shell crosses the composer's and panel's clipping boundaries.
    Its real box changes size; one copy of the words, laid out as the panel lays
    them out, rides it and shrinks from the typing size without rewrapping.
-   The face is the panel's grey, written by the script with the box. */
+   The face is the panel's grey, written by the script with the box, along
+   with how strong it is at each frame. */
 .sentmorph{position:fixed; pointer-events:none; overflow:hidden; z-index:10000; box-sizing:border-box}
 .sentmorph-face{position:absolute; inset:0; border-radius:inherit}
 .sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
