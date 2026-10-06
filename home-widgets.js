@@ -118,8 +118,8 @@
     if (text != null) node.textContent = text;
     return node;
   }
-  // A permanent footer reserves room for a spinner and a timestamp, including
-  // the first request and a failed refresh. The spinner uses the card glyph.
+  // Keep the timestamp at the panel's text edge. The card glyph follows it
+  // only while refreshing; an empty timestamp leaves the glyph at that edge.
   function statusLine(doc, box, timeClass) {
     const footer = element(doc, "div", "tk-status");
     const spinner = element(doc, "span", "cardspin tk-refresh");
@@ -127,8 +127,8 @@
     spinner.setAttribute("role", "status");
     spinner.setAttribute("aria-label", "Refreshing");
     const note = element(doc, "span", timeClass);
-    footer.appendChild(spinner);
     footer.appendChild(note);
+    footer.appendChild(spinner);
     box.appendChild(footer);
     function busy(on) {
       spinner.hidden = !on;
