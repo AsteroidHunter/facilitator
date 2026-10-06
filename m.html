@@ -4828,7 +4828,17 @@ function drawerPickLine(pane, top){
   const progress = maxScroll > 0 ? Math.max(0, Math.min(1, pane.scrollTop / maxScroll)) : .5;
   return top + pane.clientHeight * progress;
 }
-function syncDrawerPick(){
+// the list is on the move: under a finger, or on a run of its own slide
+function drawerSliding(){
+  return document.body.classList.contains("menudrag") ||
+    tickets.getAnimations().some(animation => animation.transitionProperty === "transform");
+}
+// While the list slides, the pick keeps the ticket it has. The drawer's own
+// open and close changes used to place it there and then, so a ticket grew or
+// shrank, words and all, under the moving drawer. The end of the slide places
+// it again (the transitionend below); Enter asks for it `now`, slide or not.
+function syncDrawerPick(now){
+  if (now !== true && (drawerKeyboardUsed || drawerPick) && drawerSliding()) return drawerPick;
   const timing = phoneDeveloperMode ? tracePhone("jobStart", "glass") : null;
   try {
     let pick = null;
@@ -4886,6 +4896,10 @@ document.addEventListener("keydown", e => {
           /(?:^|\s)on(?:\s|$)/.test(change.oldValue || "") !== change.target.classList.contains("on")))) refresh();
   }).observe(tickets, { childList: true, subtree: true, attributes: true,
     attributeFilter: ["class"], attributeOldValue: true });
+  // the slide has landed, open or shut: the pick goes where it now belongs
+  tickets.addEventListener("transitionend", e => {
+    if (e.target === tickets && e.propertyName === "transform") syncDrawerPick();
+  });
   addEventListener("resize", refresh);
   refresh();
 }
@@ -6766,7 +6780,7 @@ const menuShortcutActions = {
   },
   enter(e){
     if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
-    const pick = syncDrawerPick();
+    const pick = syncDrawerPick(true);
     if (pick){
       e.preventDefault();
       select(pick.dataset.id);

@@ -34,6 +34,7 @@ function fixture({ selected = "r14", count = 20, height = 300, head = 10, foot =
       addEventListener(type, fn) { (events[type] ||= []).push(fn); },
       fire(type) { for (const fn of events[type] || []) fn({ target: el }); },
       closest: () => null,
+      getAnimations: () => [],   // a drawer at rest: no slide is running
       getBoundingClientRect: () => ({ top: 100, bottom: 100 + el.clientHeight }),
       querySelectorAll: () => el.rows,
     };
@@ -82,7 +83,7 @@ function fixture({ selected = "r14", count = 20, height = 300, head = 10, foot =
     addEventListener(type, fn) { if (type === "keydown") keys.push(fn); },
     querySelector: () => panes[view], querySelectorAll: allRows, getElementById: () => node(),
   };
-  const context = vm.createContext({ document, window: { ResizeObserver: true }, tickets,
+  const context = vm.createContext({ document, window: { ResizeObserver: true }, tickets, phoneDeveloperMode: false,
     getComputedStyle: p => ({ paddingTop: padding(p, "head") + "px",
       getPropertyValue: name => name === "--drawer-pick-scale" ? String(p.pickScale || 1) : "" }),
     queueMicrotask: fn => microtasks.push(fn),

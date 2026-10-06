@@ -58,7 +58,7 @@ for (const surface of ["reply", "list"]) test(`${surface}: a real keyboard hold 
   // Use the actual phone job wrappers. Each is allowed to return or throw, and
   // must still record its end without changing that result.
   f.exec('let drawerKeyboardUsed = false, drawerPick = null;');
-  f.exec(between(html, "function syncDrawerPick(){", '\ndocument.addEventListener("keydown"'));
+  f.exec(between(html, "function drawerSliding(){", '\ndocument.addEventListener("keydown"'));
   assert.equal(f.context.syncDrawerPick(), null);
   f.exec(between(html, 'function renderTickets(state,', '\n// each button writes'));
   Object.assign(f.context, { phoneEnterAgain: null, syncSentView: () => null,
