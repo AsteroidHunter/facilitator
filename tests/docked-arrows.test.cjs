@@ -102,7 +102,8 @@ function element() {
   };
 }
 function header(page) {
-  const nodes = Object.fromEntries([...views.map(v => 'tv-' + v), 'tik-page', 'tik-page-back', 'tiklabels', 'tiksheet'].map(id => [id, element()]));
+  const nodes = Object.fromEntries([...views.map(v => 'tv-' + v), 'tik-page', 'tik-page-back', 'tiklabels', 'tiksheet', 'tickets'].map(id => [id, element()]));
+  nodes.tickets.classList.add('open', 'drawer-settled');
   for (const match of source(page).matchAll(/<button id="(tik-page(?:-back)?)"([^>]*)>/g)) {
     for (const attr of match[2].matchAll(/([\w-]+)="([^"]*)"/g)) {
       nodes[match[1]].setAttribute(attr[1], attr[2]);
@@ -112,6 +113,7 @@ function header(page) {
   const stored = new Map(), timers = new Map(), calls = []; let now = 0, serial = 0;
   const ctx = vm.createContext({
     document: { getElementById: id => nodes[id] }, window: {},
+    tickets: nodes.tickets, drawerOpen: () => nodes.tickets.classList.contains('open'),
     localStorage: { getItem: k => stored.get(k), setItem: (k, v) => stored.set(k, v) },
     setTimeout(fn, ms) { timers.set(++serial, { fn, due: now + ms }); return serial; },
     clearTimeout: id => timers.delete(id), activeOwner: 'one', selectedId: 'card', lastState: {},
@@ -333,11 +335,10 @@ function moving(el) {
   return { finish() { el.animations = []; resolve(); }, cancel() { el.animations = []; reject(new Error('cancelled')); } };
 }
 
-test('phone and narrow Mac hide both arrows by default and reveal them only after every opening layer finishes', async () => {
-  assert.equal(rule(html, '#tickets .tik-page').visibility, 'hidden');
-  assert.equal(rule(html, '#tickets .tik-page')['pointer-events'], 'none');
-  assert.equal(rule(html, '#tickets.open.drawer-settled .tik-page').visibility, 'visible');
-  assert.equal(rule(html, '#tickets.open.drawer-settled .tik-page')['pointer-events'], 'auto');
+test('phone and narrow Mac fade both arrows while keeping them unclickable until every opening layer finishes', async () => {
+  assert.notEqual(declarations(html, '#tickets .tik-page').visibility, 'hidden');
+  assert.equal(rule(html, '#tickets #tikhead .tik-page')['pointer-events'], 'none');
+  assert.equal(rule(html, '#tickets.open.drawer-settled #tikhead .tik-page')['pointer-events'], 'auto');
   for (const id of ['tik-page', 'tik-page-back']) {
     assert.match(html, new RegExp(`id="${id}" class="[^"]*\\btik-page\\b`));
   }
@@ -346,21 +347,70 @@ test('phone and narrow Mac hide both arrows by default and reveal them only afte
   runs[0].finish(); await flush(); assert.equal(f.settled(), false);
   runs[1].finish(); await flush(); assert.equal(f.settled(), false);
   runs[2].finish(); await flush(); assert.equal(f.settled(), true);
-  f.close(); assert.equal(f.settled(), false, 'closing must hide the arrow synchronously');
+  f.close(); assert.equal(f.settled(), false, 'closing must disable the arrows synchronously');
 });
 
-test('phone arrow hides at the first closing drag and returns after a fully open release without a transition', async () => {
+test('phone arrows disable at the first closing drag and enable after a fully open release without a transition', async () => {
   const f = drawer(); f.open(); await flush(); assert.equal(f.settled(), true);
   f.move(190); assert.equal(f.settled(), false);
   f.ctx.runMenu(f.nodes.tickets, 1, true); await flush(); assert.equal(f.settled(), true);
   f.ctx.homeOpen = true; f.ctx.syncMenuAvailability(); assert.equal(f.settled(), false);
 });
 
-test('a cancelled opening or an old completed opening cannot expose an arrow during a new run', async () => {
+test('a cancelled opening or an old completed opening cannot enable arrows during a new run', async () => {
   const f = drawer(), old = moving(f.nodes.tickets); f.open();
   f.close(); const fresh = moving(f.nodes.tickets); f.open();
   old.finish(); await flush(); assert.equal(f.settled(), false);
   fresh.finish(); await flush(); assert.equal(f.settled(), true);
   f.close(); const cancelled = moving(f.nodes.tickets); f.open(); cancelled.cancel();
   await flush(); assert.equal(f.settled(), false);
+});
+
+test('both arrow strengths follow the actual painted drawer fraction in either direction, ending at the sun strengths', () => {
+  const f = drawer(), holder = declarations(html, '#tickets');
+  const active = declarations(html, '#tickets #tikhead .tik-page');
+  const inactive = declarations(html, '#tickets #tikhead .tik-page[aria-disabled="true"]');
+  assert.equal(holder['--drawer-arrow-v'], 'var(--list-v)');
+  const off = rule(html, '.box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]').opacity;
+  const vars = { '--chipoff': /--chipoff:([\d.]+);/.exec(css)[1] };
+  for (const fraction of [0, .125, .25, .5, .875, 1, .875, .5, .25, .125, 0]) {
+    f.ctx.paintMenu(f.nodes.tickets, fraction);
+    vars['--list-v'] = f.nodes.tickets.style['--list-v'];
+    vars['--drawer-arrow-v'] = holder['--drawer-arrow-v'];
+    for (const id of ['tickets', 'pane', 'tikwin']) assert.equal(Number(f.nodes[id].style['--list-v']), fraction);
+    assert.equal(length(active.opacity, vars, 390), fraction);
+    assert.equal(length(inactive.opacity, vars, 390), fraction * length(off, vars, 390));
+  }
+});
+
+test('the inherited arrow fade has the drawer transform clock for taps, keys, releases and reversals, and no drag delay', () => {
+  const registered = rule(html, '@property --drawer-arrow-v');
+  assert.equal(registered.syntax, '"<number>"'); assert.equal(registered.inherits, 'true');
+  assert.equal(registered['initial-value'], '0');
+  for (const mode of ['', 'body.menurelease ']) {
+    const transition = rule(html, mode + '#tickets').transition;
+    const clock = property => transition.split(/,\s*(?![^()]*\))/).find(t => t.trim().startsWith(property + ' ')).trim().slice(property.length + 1);
+    assert.equal(clock('--drawer-arrow-v'), clock('transform'));
+    for (const id of ['tikwin', 'pane']) assert.ok(declarations(html, mode + '#' + id).transition.includes('transform ' + clock('transform')));
+  }
+  assert.doesNotMatch(rule(html, 'body.menudrag #tickets').transition, /--drawer-arrow-v|transform/);
+  for (const selector of ['#tikhead .tik-page', '#tickets #tikhead .tik-page', '#tickets #tikhead .tik-page[aria-disabled="true"]']) {
+    assert.equal(declarations(html, selector).transition, undefined, 'the arrows must not add a second fade');
+    assert.equal(declarations(css, selector).transition, undefined);
+  }
+});
+
+test('direct and keyboard-generated arrow clicks cannot page a closed, opening or dragged drawer', () => {
+  const f = header('m.html');
+  for (const open of [false, true]) {
+    f.nodes.tickets.classList.toggle('open', open);
+    f.nodes.tickets.classList.remove('drawer-settled');
+    f.click('right'); assert.equal(f.page(), 0); assert.equal(f.timers.size, 0);
+  }
+  f.nodes.tickets.classList.add('drawer-settled');
+  f.click('right'); assert.equal(f.page(), 1);
+  f.nodes.tickets.classList.remove('drawer-settled');
+  f.click('left'); assert.equal(f.page(), 1);
+  f.nodes.tickets.classList.add('drawer-settled');
+  f.click('left'); assert.equal(f.page(), 0);
 });
