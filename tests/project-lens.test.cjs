@@ -233,14 +233,14 @@ test("hidden cross drags only the lens, keeps all names and workspace still, sel
 });
 
 test("press before the hover timer fires stays a selection drag, even if held past the dwell", () => {
-  const f = fixture(); f.context.tabDwell(f.tabs.a); f.tick(2400); f.down(); f.tick(500);
+  const f = fixture(); f.context.tabDwell(f.tabs.a); f.tick(1600); f.down(); f.tick(500);
   assert.equal(f.tabs.a.classList.contains("armed"), false);
   f.tabs.a.classList.add("armed"); // even a late external change cannot change the captured intent
   f.move(180); assert.equal(f.context.tabDrag.mode, "select");
 });
 
 test("visible cross latches reorder even after the cross disappears, and writes order without selecting", () => {
-  const f = fixture(); f.context.tabDwell(f.tabs.a); f.tick(2500);
+  const f = fixture(); f.context.tabDwell(f.tabs.a); f.tick(1700);
   assert.equal(f.tabs.a.classList.contains("armed"), true);
   f.down(); f.context.disarmTab(); f.move(350); f.up(350); f.click("a");
   assert.deepEqual(f.writes[0].order, ["b", "c", "a"]); assert.deepEqual(f.switches, []);
@@ -294,7 +294,7 @@ test("removed or remotely closed release targets are not selected", () => {
 
 test("small movement stays a normal click, and a new dwell starts after release", () => {
   const f = fixture(); const start = f.down("b"); f.tabs.b.hovered = true;
-  f.move(start.clientX + 3); f.up(start.clientX + 3, 22, f.tabs.b); f.click("b"); f.tick(0); f.tick(2500);
+  f.move(start.clientX + 3); f.up(start.clientX + 3, 22, f.tabs.b); f.click("b"); f.tick(0); f.tick(1700);
   assert.deepEqual(f.switches, ["b"]); assert.equal(f.tabs.b.classList.contains("armed"), true);
 });
 
