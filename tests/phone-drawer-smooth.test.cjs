@@ -316,7 +316,7 @@ test("a reading that falls due while the list moves waits, and is read once it h
   const timers = [], reads = [];
   let moving = true;
   const context = vm.createContext({
-    document: { hidden: false },
+    document: { hidden: false, body: { classList: { contains: () => false } } },
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout() {},
     cardsMoving: () => false, listMoving: () => moving, poll: () => reads.push("read"),
   });
