@@ -4,7 +4,7 @@ const { test } = require("node:test");
 const vm = require("node:vm");
 const path = require("node:path");
 
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = process.env.PAGE_GUARD_SOURCE_ROOT || path.resolve(__dirname, "..");
 
 async function shortcuts() {
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
@@ -58,8 +58,7 @@ test("history, creation and tabs keep their modifier rules", async () => {
     { action: "history", value: 1 });
   assert.deepEqual(plain(resolve(event("ArrowDown", { ctrlKey: true, shiftKey: true }))),
     { action: "history", value: -1 });
-  assert.deepEqual(plain(resolve(event("t", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true }))),
-    { action: "create", value: true });
+  assert.equal(resolve(event("t", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true })), null);
   assert.deepEqual(plain(resolve(event("1", { metaKey: true }))),
     { action: "tab", value: 0 });
   assert.deepEqual(plain(resolve(event("9", { metaKey: true, shiftKey: true, altKey: true }))),

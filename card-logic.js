@@ -30,6 +30,161 @@ let answeredRoomChanged = null;
 // board; the phone draws the reading it already holds
 let turnAgain = null;
 
+// Browser defaults shared by the Mac board and the phone document. Install in
+// the head, before fields, drawers or other handlers can stop an event.
+function cardCommandKey(e){
+  // Option uses the physical key; other layouts keep an ASCII character,
+  // falling back to the physical key for non-ASCII or unidentified letters.
+  const raw = (e.key || "").toLowerCase();
+  const physical = /^Key[A-Z]$/.test(e.code || "") ? e.code.slice(3).toLowerCase() :
+    ({ Equal: "=", Minus: "-", Digit0: "0", BracketLeft: "[", BracketRight: "]",
+       Period: ".", Comma: ",", Slash: "/", Backspace: "backspace" })[e.code];
+  return physical && (e.altKey || raw === "dead" || raw === "unidentified" ||
+    !raw || (raw.length === 1 && !/[\x20-\x7e]/.test(raw))) ? physical : raw;
+}
+function cardCreateShortcut(e){
+  return e.metaKey && !e.ctrlKey && !e.altKey && cardCommandKey(e) === "t";
+}
+function installCardPageGuard(win = window){
+  if (win.cardPageGuardInstalled) return;
+  win.cardPageGuardInstalled = true;
+  const doc = win.document;
+  const mac = (/^Mac/.test(win.navigator.platform) || win.navigator.userAgentData?.platform === "macOS") &&
+    !win.navigator.maxTouchPoints;
+  doc.documentElement.classList.add("app-link-policy");
+  win.addEventListener("keydown", e => {
+    const key = cardCommandKey(e);
+    // These commands have no editing default to preserve. Keep propagation:
+    // the existing create action still runs in the states that allow it.
+    if (cardCreateShortcut(e) || (mac && e.metaKey && !e.shiftKey &&
+        ((e.altKey && !e.ctrlKey && key === "u") || (e.ctrlKey && !e.altKey && key === "p"))))
+      e.preventDefault();
+  }, true);
+
+  let menu = null, returnTo = null;
+  const downloads = new WeakSet();
+  function close(restore = false){
+    menu?.remove(); menu = null;
+    if (restore && returnTo?.isConnected) returnTo.focus({ preventScroll: true });
+  }
+  function linkFor(e){
+    const target = e.target?.nodeType === 3 ? e.target.parentElement : e.target;
+    return target?.closest?.("a[href], .cardmd img[src]") ||
+      (["contextmenu", "dragstart"].includes(e.type) ? target?.closest?.(".cardmd video[src], .cardmd audio[src]") : null);
+  }
+  function show(link, e){
+    close();
+    returnTo = doc.activeElement;
+    const raw = link.getAttribute("href") ?? link.getAttribute("src");
+    let url;
+    try {
+      url = new URL(raw, doc.baseURI);
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) url = null;
+    } catch (_) {}
+    menu = doc.createElement("div");
+    const shown = menu;
+    shown.className = "app-link-menu"; shown.tabIndex = -1;
+    shown.setAttribute("role", "menu");
+    shown.setAttribute("aria-label", "Link actions");
+    const status = doc.createElement("div");
+    status.className = "app-link-status";
+    status.setAttribute("role", "status");
+    const item = (label, action) => {
+      const button = doc.createElement("button");
+      button.type = "button"; button.textContent = label;
+      button.setAttribute("role", "menuitem");
+      button.disabled = !url;
+      button.addEventListener("click", async event => {
+        event.preventDefault(); event.stopPropagation();
+        if (button.disabled) return;
+        button.disabled = true;
+        try { await action(); if (menu === shown) close(true); }
+        catch (error) { status.textContent = error.message || "Could not open this link."; }
+        finally { button.disabled = false; }
+      });
+      shown.appendChild(button);
+    };
+    item("Copy link", async () => {
+      try { await win.navigator.clipboard.writeText(url.href); }
+      catch (_) { throw new Error("Could not copy the link. Please try again."); }
+    });
+    item("Open in browser", async () => {
+      if (mac && ["localhost", "127.0.0.1"].includes(win.location.hostname)) {
+        const response = await win.fetch("/open-in-browser", { method: "POST", body: url.href });
+        if (!response.ok) {
+          const result = await response.json().catch(() => null);
+          throw new Error(result?.error || "Could not open the browser. Try Copy link.");
+        }
+      } else {
+        // An explicit phone action, still inside the button's user activation.
+        // iOS chooses the external browser presentation; never replace the app.
+        win.open(url.href, "_blank", "noopener,noreferrer");
+      }
+    });
+    if (url && link.hasAttribute("download") && url.origin === win.location.origin && url.pathname.startsWith("/uploads/")) {
+      item("Download", () => {
+        const anchor = doc.createElement("a");
+        anchor.href = url.href; anchor.download = link.getAttribute("download") || "";
+        downloads.add(anchor); doc.body.appendChild(anchor);
+        anchor.click(); anchor.remove(); downloads.delete(anchor);
+      });
+    }
+    if (!url) status.textContent = "This link is not a web address.";
+    shown.appendChild(status); doc.body.appendChild(shown);
+    const rect = link.getBoundingClientRect();
+    const x = e.clientX || rect.left, y = e.clientY || rect.bottom;
+    shown.style.left = Math.max(8, Math.min(x, win.innerWidth - shown.offsetWidth - 8)) + "px";
+    shown.style.top = Math.max(8, Math.min(y, win.innerHeight - shown.offsetHeight - 8)) + "px";
+    (shown.querySelector("button:not(:disabled)") || shown).focus({ preventScroll: true });
+  }
+  function activate(e){
+    const link = linkFor(e);
+    if (!link || downloads.has(link)) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    show(link, e);
+  }
+  for (const type of ["click", "auxclick", "contextmenu", "dragstart"])
+    win.addEventListener(type, activate, true);
+  win.addEventListener("mousedown", e => {
+    if (e.button === 1 && linkFor(e)) e.preventDefault();
+  }, true);
+  win.addEventListener("pointerdown", e => {
+    if (menu && !menu.contains(e.target)) close();
+  }, true);
+  win.addEventListener("keydown", e => {
+    if (menu && menu.contains(e.target)) {
+      e.stopImmediatePropagation();
+      if (e.key === "Escape") { e.preventDefault(); close(true); }
+      else if (["Tab", "ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+        e.preventDefault();
+        const items = [...menu.querySelectorAll("button:not(:disabled)")];
+        const at = items.indexOf(doc.activeElement);
+        const step = e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey) ? -1 : 1;
+        const to = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (at + step + items.length) % items.length;
+        items[to]?.focus();
+      }
+      // Enter/Space's native button click remains available.
+      return;
+    }
+    if (e.key === "Enter" && !e.isComposing && linkFor(e)) activate(e);
+  }, true);
+  win.addEventListener("blur", () => close());
+
+  // File handlers still receive canceled events and do their own uploads.
+  // Text drops into writable fields keep their native/editor insertion. All
+  // other targets lose the navigation default, even if they stop propagation.
+  for (const type of ["dragover", "drop"]){
+    win.addEventListener(type, e => {
+      const target = e.target?.nodeType === 3 ? e.target.parentElement : e.target;
+      const field = target?.closest?.("textarea, input:not([type]), input[type='text'], input[type='search'], input[type='url'], input[type='email'], input[type='tel'], input[type='password'], input[type='number']") ||
+        (target?.isContentEditable ? target : null) ||
+        target?.closest?.(".cm-editor")?.querySelector(".cm-content[contenteditable='true']");
+      const files = [...(e.dataTransfer?.types || [])].includes("Files") || e.dataTransfer?.files?.length;
+      if (files || !field || field.disabled || field.readOnly) e.preventDefault();
+    }, true);
+  }
+}
+
 // ---- the card pages' keyboard commands ------------------------------------------
 // Recognition is shared; listeners, state guards, cancellation and effects stay
 // with each page. The order is part of the contract because some modifier
@@ -79,7 +234,7 @@ const CARD_SHORTCUT_DEFINITIONS = [
   // replacement chord.
   {
     action: "create", mini: true,
-    match: e => e.metaKey && (e.key === "t" || e.key === "T") ? true : null,
+    match: e => cardCreateShortcut(e) ? true : null,
   },
   {
     action: "tab", mini: false,

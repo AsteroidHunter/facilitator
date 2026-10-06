@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>facilitator</title>
+<script src="/card-markdown.js"></script>
+<script src="/card-logic.js"></script>
+<script>installCardPageGuard();</script>
 <!-- the board's own app manifest: what Chrome offers to install this page as,
      and what the installed app takes its name and its icon from, in the dock
      and in the box Chrome shows before it installs. The phone page has a
@@ -3615,8 +3618,6 @@
 
 
 <script src="/board-settings.js"></script>
-<script src="/card-markdown.js"></script>
-<script src="/card-logic.js"></script>
 <script src="/mac-phone-view.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
@@ -12074,19 +12075,12 @@ installBtn.addEventListener("click", () => {
 // Find and reload stay Chrome's. The card/editor commands and native window/OS
 // controls keep their existing paths; only the listed page defaults are held.
 function chromeShortcutBlocked(e){
-  if (e.isComposing || e.ctrlKey) return false;
-  const raw = (e.key || "").toLowerCase();
-  const physical = /^Key[A-Z]$/.test(e.code || "") ? e.code.slice(3).toLowerCase() :
-    ({ Equal: "=", Minus: "-", Digit0: "0", BracketLeft: "[", BracketRight: "]",
-       Period: ".", Comma: ",", Slash: "/", Backspace: "backspace" })[e.code];
-  // Option changes letters into accents/symbols on a Mac. Chrome's Option
-  // commands also use physical keys. Otherwise respect a layout's character,
-  // falling back to its code only for an unidentified or non-ASCII key.
-  const key = physical && (e.altKey || raw === "dead" || raw === "unidentified" ||
-    !raw || (raw.length === 1 && !/[\x20-\x7e]/.test(raw))) ? physical : raw;
+  if (e.isComposing) return false;
+  const key = cardCommandKey(e);
+  if (e.ctrlKey) return e.metaKey && !e.altKey && !e.shiftKey && key === "p";
   if (!e.metaKey) return !e.altKey && !e.shiftKey && ["escape", "f7", "f12"].includes(key);
-  if (e.altKey) return !e.shiftKey && ["p", "i", "j", "c", "l", "b"].includes(key);
-  if (key === "g" || key === "n") return true;   // next/previous find; new/incognito window
+  if (e.altKey) return !e.shiftKey && ["p", "i", "j", "c", "u", "l", "b"].includes(key);
+  if (key === "t" || key === "g" || key === "n") return true;   // tabs; next/previous find; new/incognito window
   if (e.shiftKey) return ["c", "j", "backspace", "/", "?", "+", "="].includes(key);
   if (key === "arrowleft" || key === "arrowright"){
     // Command+arrows remain line/caret movement in either editor and native

@@ -55,8 +55,8 @@ FILE_ROUTES = ("/uploads/", "/laneimg/")
 # a link from another site may open these; no other route may be read that way
 PAGE_OPENS = frozenset({"/m", "/"})
 # answered only to a page on the Mac itself, never through this gate, signed in
-# or not: the Spotify sign-in kept beside the board's settings
-LOCAL_ONLY = frozenset({"/spotify/session"})
+# or not: the Spotify sign-in and explicit browser-window launcher
+LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser"})
 
 
 def _client_class(headers):

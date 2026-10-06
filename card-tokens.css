@@ -832,3 +832,17 @@
 .sp-page[data-narrow] .sp-panehead + .setrow, .sp-page[data-narrow] .sp-panehead + .setact{border-top:none}
 .sp-page[data-narrow][data-view="list"] .sp-panes{display:none}
 .sp-page[data-narrow][data-view="pane"] .sp-list{display:none}
+
+/* The link menu uses the board's existing page-menu shape and ink press shade. */
+html.app-link-policy a[href], html.app-link-policy .cardmd img,
+html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-touch-callout:none}
+.app-link-menu{position:fixed; z-index:10000; min-width:150px; max-width:calc(100vw - 16px);
+  box-sizing:border-box; background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+  box-shadow:0 4px 16px rgba(60,45,20,.16); padding:4px; overflow:hidden}
+.app-link-menu button{display:block; width:100%; text-align:left; border:none; background:none;
+  font:13px var(--sans); color:var(--ink); padding:8px 10px; border-radius:5px; cursor:pointer}
+.app-link-menu button:hover, .app-link-menu button:focus-visible{
+  background:color-mix(in srgb, var(--ink) 8%, transparent); outline:none}
+.app-link-menu button:disabled{opacity:.5; cursor:default}
+.app-link-status{font:12px var(--sans); color:var(--ink); max-width:240px; padding:6px 10px}
+.app-link-status:empty{display:none}
