@@ -359,13 +359,23 @@ test("left drawer opacity returns to rest after a short drag, a cancelled pull a
 
 for (const selector of ["#tickets", "body.menurelease #tickets"]) {
   test(`${selector} keeps opacity, travel and arrow fade on the same transition clock`, () => {
-    const transitions = Object.fromEntries(drawerRule(selector).transition.split(/,(?![^()]*\))/).map(one => {
+    // split on the commas outside brackets: the clock is a var() with a var() fallback
+    const entries = [""];
+    let depth = 0;
+    for (const c of drawerRule(selector).transition) {
+      if (c === "," && !depth) { entries.push(""); continue; }
+      depth += c === "(" ? 1 : c === ")" ? -1 : 0;
+      entries[entries.length - 1] += c;
+    }
+    const transitions = Object.fromEntries(entries.map(one => {
       const [property, ...timing] = one.trim().split(/\s+/);
       return [property, timing.join(" ")];
     }));
     assert.equal(transitions.opacity, transitions.transform, "opacity must follow travel throughout a slide or reversal");
     assert.equal(transitions.opacity, transitions["--drawer-arrow-v"], "the arrows keep the same clock");
-    assert.equal(transitions.opacity, `var(--drawer-ms) var(--drawer-${selector === "#tickets" ? "tap" : "drag"})`);
+    // the run's own spring, with the menus' curve where it cannot be written
+    assert.equal(transitions.opacity, "var(--drawer-run-ms, var(--drawer-ms)) " +
+      `var(--drawer-run-ease, var(--drawer-${selector === "#tickets" ? "tap" : "drag"}))`);
   });
 }
 

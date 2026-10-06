@@ -37,7 +37,7 @@ function fixture() {
     tap: (id, extra = {}) => rows[id].row.listeners.click({ detail: 1, ...extra }),
     reopen: () => {
       // runMenu clears this on either an open or a close, including a swipe.
-      assert.match(html, /function runMenu\(panel, v, release\)\{\s*lastTicketTap = null;/);
+      assert.match(html, /function runMenu\(panel, v, release, speed = 0\)\{\s*lastTicketTap = null;/);
       vm.runInContext("lastTicketTap = null", context);
       open = true;
     },
