@@ -6364,6 +6364,34 @@ def _endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
     return endpoint
 
 
+def _post_open_in_browser(q: Query, text: str):
+    """Only an explicit action from the local page may open a Mac window."""
+    if not q.local or not q.same_origin:
+        return 403, {"error": "Open in browser needs the local Mac page."}
+    try:
+        url = urlparse(text)
+        valid = (url.scheme in ("http", "https") and url.hostname and
+                 not url.username and not url.password and
+                 not re.search(r"[\x00-\x20\x7f\\]", text))
+        url.port  # reject malformed ports too
+    except ValueError:
+        valid = False
+    if not valid:
+        return 400, {"error": "This link is not a web address."}
+    if sys.platform != "darwin":
+        return 501, {"error": "Open in browser needs macOS. Try Copy link."}
+    try:
+        # A fresh Chrome invocation forwards --new-window to the running
+        # browser. No --app flag: this requests a normal window outside the app.
+        result = subprocess.run(["/usr/bin/open", "-na", "Google Chrome", "--args",
+                                 "--new-window", text], capture_output=True, timeout=10)
+        if result.returncode:
+            return 502, {"error": "Could not open Chrome. Try Copy link."}
+    except (OSError, subprocess.TimeoutExpired):
+        return 502, {"error": "Could not open Chrome. Try Copy link."}
+    return 200, {"ok": True}
+
+
 def _state_endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
                     too_large: str = "body too large"):
     """An endpoint whose route may change the board or its lazy clocks."""
@@ -6906,6 +6934,7 @@ ROUTES = [
     Route("/navfiles", _endpoint(_get_navfiles), methods=["GET"]),
     Route("/navfile", _endpoint(_get_navfile), methods=["GET"]),
     Route("/navimg", _endpoint(_get_navimg), methods=["GET"]),
+    Route("/open-in-browser", _endpoint(_post_open_in_browser, "text", 8192), methods=["POST"]),
     Route("/upload", _post_upload, methods=["POST"]),
     Route("/upload", _get_upload_receipt, methods=["GET"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),

@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>facilitator</title>
+<script src="/card-markdown.js"></script>
+<script src="/card-logic.js"></script>
+<script>installCardPageGuard();</script>
 <!-- the phone page. the same board, drawn for a phone: one card filling the
      screen from the top down to a row of four glass buttons along the bottom
      (the card list, the open project, a new card and the settings), the card
@@ -127,6 +130,7 @@
      element: separate scrollers can reset an ancestor's touch-action.
      Panning stays native; the gesture guard below handles pinch zoom. */
   *{touch-action:manipulation}
+  html, body{overscroll-behavior:none}
   html{height:var(--root-h); -webkit-text-size-adjust:100%}
   body{
     --paper:#FFFFFF;
@@ -1732,8 +1736,6 @@ for (const type of ["gesturestart", "gesturechange"])
     document.head.appendChild(link);
   })));
 </script>
-<script src="/card-markdown.js"></script>
-<script src="/card-logic.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
 <script src="/home-widgets.js"></script>
@@ -6620,6 +6622,7 @@ const menuShortcutActions = {
     rows[to].scrollIntoView({ block: "nearest" });
   },
   escape(e){
+    e.preventDefault();
     if (phoneShortcutTyping(e.target)){ e.target.blur(); return; }
     const out = menuOut();
     if (out) hideMenu(out);

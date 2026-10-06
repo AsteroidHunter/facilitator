@@ -6,72 +6,13 @@ const { test } = require("node:test");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const read = name => fs.readFileSync(path.join(__dirname, "..", name), "utf8");
+const read = name => fs.readFileSync(path.join(process.env.PAGE_GUARD_SOURCE_ROOT || path.join(__dirname, ".."), name), "utf8");
 const html = process.env.MAC_ZOOM_HTML ? fs.readFileSync(process.env.MAC_ZOOM_HTML, "utf8") : read("index.html");
 const logic = read("card-logic.js");
 const guard = html.slice(html.indexOf("function chromeShortcutBlocked(e){"), html.indexOf("\n</script>", html.indexOf("function chromeShortcutBlocked(e){")));
 assert.ok(guard.includes("installChromeShortcutGuard();"));
 
-class Node {
-  constructor(parent, kind = "body") {
-    this.parent = parent; this.kind = kind; this.listeners = [];
-    this.isContentEditable = kind === "title";
-    this.blurs = 0;
-    Object.defineProperty(this, "onkeydown", { set: fn => {
-      if (!this.idl) { this.idl = e => this.keyHandler?.(e); this.addEventListener("keydown", this.idl); }
-      this.keyHandler = fn;
-    } });
-  }
-  addEventListener(type, fn, options = false) {
-    const capture = options === true || !!options.capture;
-    if (!this.listeners.some(l => l.type === type && l.fn === fn && l.capture === capture))
-      this.listeners.push({ type, fn, capture, passive: options.passive });
-  }
-  removeEventListener(type, fn, options = false) {
-    const capture = options === true || !!options.capture;
-    this.listeners = this.listeners.filter(l => l.type !== type || l.fn !== fn || l.capture !== capture);
-  }
-  matches() { return ["input", "textarea", "textbox", "editor"].includes(this.kind); }
-  closest() {
-    for (let n = this; n; n = n.parent) if (n.isContentEditable || n.matches()) return n;
-    return null;
-  }
-  blur() { this.blurs++; }
-}
-function dispatch(target, over) {
-  const path = []; for (let n = target; n; n = n.parent) path.push(n);
-  const e = { type: "keydown", key: "s", code: "KeyS", metaKey: true, ctrlKey: false, altKey: false,
-    shiftKey: false, repeat: false, isComposing: false, cancelable: true, bubbles: true,
-    defaultPrevented: false, cancelBubble: false, immediate: false, target, ...over,
-    composedPath: () => path,
-    preventDefault() { if (this.cancelable && !this.passive) this.defaultPrevented = true; },
-    stopPropagation() { this.cancelBubble = true; },
-    stopImmediatePropagation() { this.immediate = this.cancelBubble = true; },
-  };
-  const invoke = (node, capture, phase) => {
-    e.currentTarget = node; e.eventPhase = phase;
-    // A phase uses a snapshot, but removal takes effect at once. Additions on
-    // a node not reached yet participate when that later phase is entered.
-    for (const l of [...node.listeners]) {
-      if (e.immediate) break;
-      if (l.type === e.type && l.capture === capture && node.listeners.includes(l)) {
-        e.passive = l.passive;
-        l.fn(e);
-        e.passive = false;
-      }
-    }
-  };
-  for (const node of [...path].reverse()) {
-    if (e.cancelBubble) break;
-    invoke(node, true, node === target ? 2 : 1);
-  }
-  if (!e.cancelBubble) for (const node of path) {
-    if (e.cancelBubble || (node !== target && !e.bubbles)) break;
-    invoke(node, false, node === target ? 2 : 3);
-  }
-  e.currentTarget = null; e.eventPhase = 0;
-  return e;
-}
+const { Node, dispatch } = require("./page-event-model.cjs");
 function world({ platform = "MacIntel", userAgentData, board = true } = {}) {
   const window = new Node(null, "window"), document = new Node(window, "document"), body = new Node(document);
   document.body = body; document.activeElement = body;
@@ -162,6 +103,8 @@ test("a directly opened phone page gains no Mac guards, even with the frame mark
 });
 
 const BLOCKED = [
+  cmd("t", "KeyT"), cmd("T", "KeyT", { shiftKey: true }),
+  cmd("Dead", "KeyU", { altKey: true }), cmd("p", "KeyP", { ctrlKey: true }),
   cmd("s", "KeyS"), cmd("p", "KeyP"), cmd("π", "KeyP", { altKey: true }),
   cmd(".", "Period"), cmd("g", "KeyG"), cmd("G", "KeyG", { shiftKey: true }), cmd("e", "KeyE"),
   cmd("=", "Equal"), cmd("+", "Equal", { shiftKey: true }), cmd("-", "Minus"), cmd("0", "Digit0"),
@@ -276,9 +219,9 @@ test("Command+arrows remain editable caret movement, including decorated descend
 test("Find/reload, ordinary editing, app gaps and native/OS controls retain their default state", () => {
   const f = world({ board: false }); f.install();
   const kept = [cmd("f", "KeyF"), cmd("r", "KeyR"), cmd("R", "KeyR", { shiftKey: true }),
-    ...["c", "x", "v", "a", "z", "t", "1", "w", "q", "h", "m", "`"].map(key => ({ key })),
+    ...["c", "x", "v", "a", "z", "1", "w", "q", "h", "m", "`"].map(key => ({ key })),
     cmd("Z", "KeyZ", { shiftKey: true }), cmd("V", "KeyV", { shiftKey: true }),
-    cmd("T", "KeyT", { shiftKey: true }), cmd("W", "KeyW", { shiftKey: true }),
+    cmd("W", "KeyW", { shiftKey: true }),
     cmd("h", "KeyH", { altKey: true }), cmd("f", "KeyF", { ctrlKey: true }),
     cmd("ArrowLeft", "ArrowLeft", { shiftKey: true }), cmd("ArrowRight", "ArrowRight", { shiftKey: true }),
     cmd("Backspace", "Backspace"), cmd("Delete", "Delete"),
@@ -289,14 +232,14 @@ test("Find/reload, ordinary editing, app gaps and native/OS controls retain thei
   for (const key of kept) assert.equal(f.send(f.body, key).defaultPrevented, false, JSON.stringify(key));
 });
 
-test("the real create/project handlers are unchanged and their inactive-board gaps are not filled", () => {
+test("the real create/project handlers still run and inactive-board tab defaults are canceled", () => {
   const f = world(); f.install();
   f.send(f.body, cmd("t", "KeyT")); f.send(f.body, cmd("T", "KeyT", { shiftKey: true }));
   f.send(f.body, cmd("2", "Digit2"));
   assert.deepEqual(f.state.calls, [["create", "one"], ["create", "one"], ["tab", "two"]]);
   f.state.live = false;
-  assert.equal(f.send(f.body, cmd("t", "KeyT")).defaultPrevented, false);
-  assert.equal(f.send(f.body, cmd("T", "KeyT", { shiftKey: true })).defaultPrevented, false);
+  assert.equal(f.send(f.body, cmd("t", "KeyT")).defaultPrevented, true);
+  assert.equal(f.send(f.body, cmd("T", "KeyT", { shiftKey: true })).defaultPrevented, true);
 });
 
 test("capture stops are canceled after their handler, and canceled immediate stops clean up", () => {
