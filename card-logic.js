@@ -2142,18 +2142,22 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
 const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
 const SENT_EASE_POINTS = [.22, 1, .36, 1];
 const SENT_EASE = "cubic-bezier(.22,1,.36,1)";
-const SENT_TEXT_OUT = .35, SENT_TEXT_IN = .6;
 
-// The field becomes the bubble on one decelerating curve. The two text layouts
-// stay fixed and trade opacity on the clock, so no frame stretches a glyph or
-// shows a line halfway through wrapping to its new width.
+// The field becomes the bubble on one decelerating curve. The reference's bar
+// keeps its right end where the bubble's will be (its send arrow sits inside
+// the pill) and squeezes in from the left as it rises. Here the send square
+// stands outside the row, so the box takes the bubble's right end from its
+// first frame and only its left edge, top and height travel.
 // The reference's flying box is seen from its first frame: it is the typing
 // field's own pill, and the bubble's colour comes in over it. The row here draws
-// no box of its own, so a face fading in over the card's white stayed unseen
-// until the box had all but landed, and only the typed words were left to
-// watch, sliding up on a slant. The box wears the bubble's grey and corners
-// from its first frame instead, so what leaves the row is the bubble itself,
-// rising and narrowing into its seat.
+// no box of its own, so the box wears the bubble's grey and corners from its
+// first frame instead.
+// The reference fades its typed words out and its bubble's words in because
+// they turn white on its colour. Ours stay dark on grey, so one copy of the words
+// flies the whole way at full strength: laid out once as the bubble lays them
+// out, it starts over the typed words at the typing size and shrinks to the
+// bubble's size as it rides the squeeze, so no frame is blank, doubled, or
+// halfway through a rewrap.
 function sentEase(f){
   if (f <= 0) return 0;
   if (f >= 1) return 1;
@@ -2168,17 +2172,18 @@ function sentEase(f){
   }
   return at(y1, y2, t);
 }
+// the box at eased progress p: its right end is the seat's, the rest travels
 function sentMorphBox(from, to, p){
   const mix = key => from[key] + (to[key] - from[key]) * p;
-  return { left:mix("left"), top:mix("top"), width:mix("width"), height:mix("height") };
+  const left = mix("left"), right = to.left + to.width;
+  return { left, top:mix("top"), width:Math.max(0, right - left), height:mix("height") };
 }
-function sentBarAlpha(f){ return Math.max(0, Math.min(1, 1 - f / SENT_TEXT_OUT)); }
-function sentBubbleAlpha(f){ return Math.max(0, Math.min(1, (f - SENT_TEXT_IN) / (1 - SENT_TEXT_IN))); }
 
 // A snapshot leaves the real editor and rendered message alone. Resolved styles
 // are copied because the fixed flight lives outside the card, including outside
-// the desktop's scaled stage. Text alone scales by that stage's existing factor;
-// the shell itself interpolates real viewport geometry, never transform scale.
+// the desktop's scaled stage. Text alone scales, by that stage's existing factor
+// and in flight from the typing size to the bubble's; the shell itself
+// interpolates real viewport geometry, never transform scale.
 const SENT_SNAPSHOT_STYLE = [
   "box-sizing", "display", "position", "top", "right", "bottom", "left", "font", "font-family", "font-size", "font-weight",
   "font-style", "line-height", "letter-spacing", "color", "text-align", "text-indent",
@@ -2242,7 +2247,7 @@ function sentMotionVisible(node){
 // Arm before the page empties its composer; play in that same task after the
 // message has its seat. A combined preview differs from a transcript: only its
 // first send owns the whole bubble. Later sends fly into their own visible row;
-// a row below the cut disappears into the foot without exposing hidden words.
+// a row below the cut squeezes into the cut's edge, its words passing under it.
 function armSentMotion(el){
   if (!el || !el.ta || stillMotion() || typeof requestAnimationFrame !== "function") return null;
   const field = typeof ComposeFormat !== "undefined" && ComposeFormat.fieldOf(el.ta);
@@ -2264,6 +2269,14 @@ function armSentMotion(el){
   const sourceStyle = getComputedStyle(source);
   const corners = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"];
   const startCorners = corners.map(name => (parseFloat(sourceStyle[name]) || 0) * sourceScale.x);
+  // where the typed words start and how big they are, in viewport px
+  const typedSize = (parseFloat(sourceStyle.fontSize) || 17) * sourceScale.y;
+  const typed = {
+    left:start.left + (parseFloat(sourceStyle.paddingLeft) || 0) * sourceScale.x,
+    top:start.top + ((parseFloat(sourceStyle.paddingTop) || 0) - source.scrollTop) * sourceScale.y,
+    size:typedSize,
+    line:(parseFloat(sourceStyle.lineHeight) * sourceScale.y) || typedSize * 1.5,
+  };
   const shell = document.createElement("div");
   shell.className = "sentmorph";
   shell.setAttribute("aria-hidden", "true");
@@ -2357,6 +2370,27 @@ function armSentMotion(el){
       targetCopy.style.height = (targetRect.height / targetScale.y) + "px";
       targetCopy.style.background = "transparent";
       incoming.appendChild(targetCopy);
+      // One copy of the words from here on, at full strength the whole way: the
+      // typed copy goes in the same task, and the strength a message not yet
+      // saved is drawn at is the landed bubble's own, not the flight's.
+      outgoing.remove();
+      targetCopy.style.opacity = "1";
+      for (const pair of targetCopy.sentInk) pair.copy.style.opacity = "1";
+      incoming.style.opacity = "1";
+      // the row holding the new words, where its first line starts inside the
+      // copy, and the size and line it is set in, in viewport px
+      const ink = target === panel ? fresh[fresh.length - 1] || panel : target;
+      const inkRect = ink.getBoundingClientRect(), inkStyle = getComputedStyle(ink);
+      const lead = {
+        x:inkRect.left - targetRect.left + (parseFloat(inkStyle.paddingLeft) || 0) * targetScale.x,
+        y:inkRect.top - targetRect.top + (parseFloat(inkStyle.paddingTop) || 0) * targetScale.y,
+      };
+      const inkSize = (parseFloat(inkStyle.fontSize) || 0) * targetScale.y;
+      const grow = inkSize > 0 ? typed.size / inkSize : 1;
+      const inkLine = (parseFloat(inkStyle.lineHeight) * targetScale.y) || inkSize * 1.4;
+      // the words start on the typed words: the first line's middle on the typed
+      // line's middle, at the typing size
+      const from = { x:typed.left, y:typed.top + (typed.line - inkLine * grow) / 2 };
       const panelStyle = getComputedStyle(panel);
       const endCorners = corners.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
       // the bubble's face and corners, written before the first frame and kept
@@ -2377,25 +2411,21 @@ function armSentMotion(el){
       };
       const seat = () => {
         const rect = unglide(target.getBoundingClientRect());
-        if (target === panel) return { box:rect, hidden:false, x:0, y:0 };
+        if (target === panel) return { box:rect, x:0, y:0 };
         const cut = unglide(clip.getBoundingClientRect());
         const top = Math.max(rect.top, cut.top), bottom = Math.min(rect.bottom, cut.bottom);
         const left = Math.max(rect.left, cut.left), right = Math.min(rect.right, cut.right);
-        const hidden = bottom <= top || right <= left;
-        const height = hidden ? Math.min(cut.height, parseFloat(panelStyle.lineHeight) * targetScale.y || 20) : bottom - top;
-        return { box:{ left:hidden ? cut.left : left, top:hidden ? cut.bottom - height : top,
-          width:hidden ? cut.width : right - left, height }, hidden,
-          x:rect.left - (hidden ? cut.left : left), y:rect.top - (hidden ? cut.bottom - height : top) };
+        // a row wholly under the cut has no bubble to land in: the box squeezes
+        // into the cut's edge and the words go on under it, where the cut keeps them
+        if (bottom <= top || right <= left)
+          return { box:{ left:cut.left, top:cut.bottom, width:cut.width, height:0 },
+            x:rect.left - cut.left, y:rect.top - cut.bottom };
+        return { box:{ left, top, width:right - left, height:bottom - top },
+          x:rect.left - left, y:rect.top - top };
       };
-      previousOpacity = target.style.getPropertyValue("opacity");
-      previousPriority = target.style.getPropertyPriority("opacity");
-      target.style.setProperty("opacity", "0");
-      const t0 = performance.now();
-      const step = now => {
-        raf = 0;
-        if (done) return;
-        if (!target.isConnected || el.sent !== panel || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
-        const f = Math.max(0, Math.min(1, (now - t0) / SENT_ARRIVE_MS)), p = sentEase(f);
+      // one frame of the flight at clock fraction f
+      const put = f => {
+        const p = sentEase(f);
         const landing = seat();
         const box = sentMorphBox(start, landing.box, p);
         write(box);
@@ -2403,17 +2433,28 @@ function armSentMotion(el){
         // the final handoff matches the actual bubble, including local sends.
         const liveStyle = getComputedStyle(panel);
         face.style.background = liveStyle.backgroundColor;
-        for (const pair of targetCopy.sentInk)
-          if (pair.source.isConnected) pair.copy.style.opacity = getComputedStyle(pair.source).opacity;
         const copiedCut = targetCopy.querySelector(".answclip");
         if (copiedCut) copiedCut.style.setProperty("--answ-fill", liveStyle.getPropertyValue("--answ-fill"));
-        outgoing.style.opacity = String(sentBarAlpha(f));
-        incoming.style.opacity = String(landing.hidden ? 0 : sentBubbleAlpha(f));
-        // the bubble's words hang from the shell's right end, as the reference's
-        // do, so they never ride the sweep of its left edge
-        const right = landing.x + box.width - landing.box.width;
-        incoming.style.transform = "translate(" + right + "px," + landing.y + "px) scale(" + targetScale.x + "," + targetScale.y + ")";
-        shell.style.opacity = String(landing.hidden ? 1 - sentBubbleAlpha(f) : 1);
+        // the words ride the squeeze from the typed place to the bubble's, on the
+        // box's own curve, shrinking from the typing size to the bubble's
+        const k = grow + (1 - grow) * p;
+        const to = { x:landing.box.left + landing.x + lead.x, y:landing.box.top + landing.y + lead.y };
+        const x = from.x + (to.x - from.x) * p - lead.x * k - box.left;
+        const y = from.y + (to.y - from.y) * p - lead.y * k - box.top;
+        incoming.style.transform = "translate(" + x + "px," + y + "px) scale(" +
+          targetScale.x * k + "," + targetScale.y * k + ")";
+      };
+      previousOpacity = target.style.getPropertyValue("opacity");
+      previousPriority = target.style.getPropertyPriority("opacity");
+      target.style.setProperty("opacity", "0");
+      put(0);   // the start box and the words over the typed ones, before any frame
+      const t0 = performance.now();
+      const step = now => {
+        raf = 0;
+        if (done) return;
+        if (!target.isConnected || el.sent !== panel || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
+        const f = Math.max(0, Math.min(1, (now - t0) / SENT_ARRIVE_MS));
+        put(f);
         if (f < 1) raf = requestAnimationFrame(step);
         else raf = requestAnimationFrame(finish);
       };
