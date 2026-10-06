@@ -452,9 +452,11 @@
   /* over everything, the startup curtain included, and measured the way the
      curtain is. the face is a line icon one em tall, sitting on the text's line.
      it is shown only while the app is being opened, never over an app in use.
+     under the words it counts down to its next reading (downRetry, below).
      the phone's worker (m-sw.js) draws this same screen when a page open finds
      the board down, from a copy of the rules and the markup of this one, and
-     tests/phone-server-down-fresh-open.test.cjs compares them: change both */
+     tests/phone-server-down-fresh-open.test.cjs and
+     tests/phone-server-down-retry.test.cjs compare them: change both */
   #serverdown{
     display:none; position:fixed; left:0; right:0; top:0; height:var(--screen-h, var(--root-h)); z-index:50;
     align-items:center; justify-content:center; padding:0 24px;
@@ -462,8 +464,30 @@
     -webkit-user-select:none; user-select:none;
   }
   body.down #serverdown{display:flex}
-  #serverdown p{margin:0}
-  #serverdown svg{width:1em; height:1em; margin-right:.4em; vertical-align:-.15em}
+  /* the words and the count under them are two lines of one box, both starting
+     at its left edge with no indent, so the R of "Retrying" stands under the I
+     of "Is". the face and the spinner hang to the left of that edge, out of the
+     lines, so neither moves a letter by being there or not. the box's margin is
+     the face's width and its gap, so the words stand where they always stood */
+  #serverdown .say{position:relative; padding-left:1.4em; text-align:left}
+  #serverdown p{margin:0; position:relative}
+  #serverdown svg, #serverdown .spin{position:absolute; right:100%; top:.225em; width:1em; height:1em; margin-right:.4em}
+  /* the count is out of the flow where it stands, under the words, so the box
+     is one line tall and the words stay at the middle of the screen */
+  #serverdown .retry{position:absolute; white-space:nowrap}
+  /* the card spinner's mark, turn and fade (card-tokens.css .cardspin, and
+     Home's refresh marker), written out because this screen has no sheet */
+  #serverdown .spin{opacity:0}
+  #serverdown .spin::before{content:"|"; display:block; font:600 1em/1em var(--mono); text-align:center;
+    animation:downturn .8s steps(4) infinite}
+  @keyframes downturn{to{transform:rotate(180deg)}}
+  #serverdown .in, #serverdown .spin{transition:opacity .26s cubic-bezier(.42,.06,.38,1)}
+  #serverdown .trying .in{opacity:0}
+  #serverdown .trying .spin{opacity:1}
+  @media (prefers-reduced-motion: reduce){
+    #serverdown .spin::before{animation:none}
+    #serverdown .in, #serverdown .spin{transition:none}
+  }
 
   /* ---- the card pane ------------------------------------------------------ */
   /* the card starts at the top of the page, the app's thin margin under the
@@ -1725,7 +1749,7 @@ for (const type of ["gesturestart", "gesturechange"])
   </div>
 </div>
 <div id="diagnostictoast" role="status"></div>
-<div id="serverdown" role="alert"><p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m6.5 8 3.5 3.5m0-3.5-3.5 3.5m7.5-3.5 3.5 3.5m0-3.5-3.5 3.5"/><path d="M8.5 17c1-1.2 2.2-1.8 3.5-1.8s2.5.6 3.5 1.8"/></svg>Is the Facilitator server down?</p></div>
+<div id="serverdown" role="alert"><div class="say"><p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m6.5 8 3.5 3.5m0-3.5-3.5 3.5m7.5-3.5 3.5 3.5m0-3.5-3.5 3.5"/><path d="M8.5 17c1-1.2 2.2-1.8 3.5-1.8s2.5.6 3.5 1.8"/></svg>Is the Facilitator server down?</p><p class="retry" aria-live="off"><span class="spin" aria-hidden="true"></span>Retrying<span class="in"> in 3 seconds</span></p></div></div>
 
 <script>
   // the web font sheets, asked for without holding any paint. linked in the
@@ -5530,6 +5554,8 @@ const RUN_WAIT_MS = 250;
 function schedulePoll(ms){
   clearTimeout(pollTimer); pollTimer = null;
   if (document.hidden) return;   // a hidden page reads nothing; the resume reads at once
+  // while the white screen is up its count names the next reading (downCount)
+  if (document.body.classList.contains("down")) return;
   pollTimer = setTimeout(() => {
     pollTimer = null;
     if (cardsMoving()){ schedulePoll(RUN_WAIT_MS); return; }
@@ -5547,8 +5573,60 @@ function schedulePoll(ms){
 // opening neither shows the screen nor ends the opening. A touch, a tap, a key
 // or typing before the first reading is answered also ends the opening: a hand
 // on the app is an app in use, and the screen never comes up over it. The
-// screen goes away on any answer
+// screen goes away on any answer.
+//
+// While the screen is up, its count under the words runs the readings: each
+// try at zero is one reading, with that reading's own deadline, and nothing
+// else is scheduled (schedulePoll), so the count shown is the reading made. A
+// page put away tries nothing until it is back, and coming back tries at once
+// (resume)
 let opening = true, openedAt = Date.now();
+/* THE WHITE SCREEN'S COUNT TO ITS NEXT TRY. A copy of the function in m-sw.js
+   that the worker's own down screen runs, kept as the same text
+   (tests/phone-server-down-retry.test.cjs): change both.
+
+   Under the words the line reads "Retrying in 3 seconds", then 2, then
+   "1 second", a second apart. Just before zero the "in N seconds" fades out and
+   the spinner fades in to the left of "Retrying" (the CSS fade is FADE_MS), and
+   at zero ask() makes the try. A try that is answered resolves true and the
+   screen goes; one that is not resolves false and the count starts again, once
+   the spinner has made at least one whole turn, so a try refused at once is
+   still seen being made. now() skips what is left of a count. */
+function downRetry(line, ask){
+  const GAP_S = 3, FADE_MS = 260, TURN_MS = 800;
+  const words = line.querySelector(".in");
+  let timers = [], on = false, trying = null;
+  const at = (ms, then) => { timers.push(setTimeout(then, ms)); };
+  const clear = () => { for (const timer of timers) clearTimeout(timer); timers = []; };
+  const say = n => { words.textContent = " in " + n + (n === 1 ? " second" : " seconds"); };
+  function count(){
+    clear();
+    say(GAP_S);
+    line.classList.remove("trying");
+    for (let n = GAP_S - 1; n >= 1; n--) at((GAP_S - n) * 1000, () => say(n));
+    at(GAP_S * 1000 - FADE_MS, () => line.classList.add("trying"));
+    at(GAP_S * 1000, run);
+  }
+  async function run(){
+    clear();
+    line.classList.add("trying");
+    const mine = trying = {};
+    const began = Date.now();
+    let answered = false;
+    try { answered = await ask(); } catch (_) {}
+    if (trying !== mine) return;   // stopped, or started over, while it ran
+    trying = null;
+    if (!answered) at(Math.max(0, began + TURN_MS - Date.now()), count);
+  }
+  return {
+    start(){ if (!on){ on = true; count(); } },
+    stop(){ if (on){ on = false; trying = null; clear(); line.classList.remove("trying"); } },
+    now(){ if (on && !trying) run(); },
+  };
+}
+// a try is one reading, answered when the screen has gone with it
+const downCount = downRetry(document.querySelector("#serverdown .retry"),
+  () => document.hidden ? Promise.resolve(false) : poll().then(() => !document.body.classList.contains("down")));
 function linkOpened(){
   opening = true; openedAt = Date.now();
 }
@@ -5559,11 +5637,15 @@ function linkTouched(){
 function linkDown(asked, response){
   // an answer that refuses is still an answer: the board is there
   if (response && (response.status === 401 || response.status === 403)){ linkUp(asked); return; }
-  if (opening && asked >= openedAt) document.body.classList.add("down");
+  if (opening && asked >= openedAt && !document.body.classList.contains("down")){
+    document.body.classList.add("down");
+    downCount.start();
+  }
 }
 function linkUp(asked){
   if (asked >= openedAt) opening = false;
   document.body.classList.remove("down");
+  downCount.stop();
 }
 // one reading at a time. asked while one is out, poll answers with the reading
 // that follows it, so whoever waits on it gets a reading asked for after their
@@ -5800,10 +5882,12 @@ async function readBoard(){
 }
 // waking up: the phone was locked, the app was put away, the page was shown
 // again, the network came back. one reading at once, which reconciles every
-// pending operation, and every sleeping retry is woken
+// pending operation, and every sleeping retry is woken. with the white screen
+// up, that reading is the count's own try, made now
 function resume(){
   pollGap = POLL_MS;
-  poll();
+  if (document.body.classList.contains("down")) downCount.now();
+  else poll();
   wakeOps();
 }
 loadOps();

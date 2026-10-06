@@ -502,7 +502,16 @@ test("the server stops and starts again: an app in use is never covered, an open
     canvas.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
     const capHeight = canvas.measureText("H").actualBoundingBoxAscent;
     const box = icon.getBoundingClientRect();
-    const lineBox = line.getBoundingClientRect();
+    // the line as it is seen: the words with the face hanging at their left
+    const lineBox = screen.querySelector(".say").getBoundingClientRect();
+    const firstLeft = node => {
+      const range = document.createRange();
+      const text = [...node.childNodes].find(child => child.nodeType === Node.TEXT_NODE);
+      range.setStart(text, 0);
+      range.setEnd(text, 1);
+      return [range.toString(), range.getBoundingClientRect().left];
+    };
+    const retry = screen.querySelector(".retry");
     const middle = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
     const corner = document.elementFromPoint(4, 4);
     return {
@@ -521,6 +530,9 @@ test("the server stops and starts again: an app in use is never covered, an open
       emoji: /\p{Extended_Pictographic}/u.test(line.textContent),
       extras: screen.querySelectorAll("button,a,input,progress,textarea,img").length,
       children: [...screen.children].map(node => node.tagName),
+      letters: [firstLeft(line), firstLeft(retry)],
+      retryBelow: retry.getBoundingClientRect().top >= line.getBoundingClientRect().bottom - 0.5,
+      retryWords: retry.textContent,
     };
   });
   assert.equal(shown.words, WORDS);
@@ -536,8 +548,12 @@ test("the server stops and starts again: an app in use is never covered, an open
   assert.equal(shown.background, "rgb(255, 255, 255)", "plain white");
   assert.equal(shown.covers, true);
   assert.equal(shown.onTop, true, "it is over everything");
-  assert.equal(shown.extras, 0, "no buttons, no explanation, no spinner");
-  assert.deepEqual(shown.children, ["P"]);
+  assert.equal(shown.extras, 0, "no buttons, no links, no images");
+  assert.deepEqual(shown.children, ["DIV"]);
+  assert.match(shown.retryWords, /^Retrying in (3 seconds|2 seconds|1 second)$/);
+  assert.equal(shown.retryBelow, true, "the count is not under the words");
+  assert.deepEqual(shown.letters.map(([letter]) => letter), ["I", "R"]);
+  assert.equal(shown.letters[0][1], shown.letters[1][1], "the R of Retrying does not stand under the I of Is");
 
   await settle(1500);
   assert.equal(await isDown(page), true, "it stays while the board stays gone");
