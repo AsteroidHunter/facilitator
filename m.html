@@ -3253,6 +3253,7 @@ function failOp(op, why, by){
 function landSend(op, result){
   const el = ensureCard(op.box);
   if (!el) return;
+  if (op.followView?.()) renderTickets(lastState);
   // saved by the board now: sent, which reads Delivered, until a reading says more
   el.sentItems = [...el.sentItems, { text: op.text, stage: "sent" }];
   drawSent(el, op.box);
@@ -3355,6 +3356,7 @@ function doSend(id, opts){
     return;
   }
   tracePhone("note", "operation", { op: op.id, box: id, outcome: "minted" });
+  op.followView = captureSentView(id);
   op.advance = opts.advance !== false;
   const motion = armSentMotion(el);
   el.ta.value = "";
@@ -4222,6 +4224,10 @@ function ticketsShown(){
   return !!at && menuAvailable(at) && (at.classList.contains("live") || at.classList.contains("open"));
 }
 function renderTickets(state, action = "state", shown = ticketsShown()){
+  const intent = phoneEnterAgain, heldView = intent && phoneEnterViewKey(intent.id);
+  const followed = syncSentView(state);
+  if (followed && intent?.id === followed && intent.active && intent.view === heldView)
+    intent.view = phoneEnterViewKey(intent.id);
   const sheet = document.getElementById("tiksheet");
   paintViewTabs();
   if (!sheet) return;

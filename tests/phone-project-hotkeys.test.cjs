@@ -52,7 +52,7 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
   vm.runInContext(logic, context);
   Object.assign(context, {
     phoneDeveloperMode: false, saveDiagnostic: source => calls.push(["diagnostic", source]),
-    els, selectedId: selected, shownId: selected, browsing, activeOwner: "alpha", homeOpen: false, hist: null,
+    els, selectedId: selected, shownId: selected, browsing, activeOwner: "alpha", homeOpen: false, hist: null, phoneEnterAgain: null,
     lastSel: { alpha: selected, beta: "b2" }, validOwners: new Set(["alpha", "beta", "hidden", "empty"]),
     lastState: { boxes, projects: [{ id: "empty" }], tabs: { order: ["alpha", "hidden", "beta", "empty"], closed: ["hidden"] } },
     tickets: nodes.tickets, settings: nodes.settings, projBtn: nodes.projbtn, projMenu: nodes.projmenu,
