@@ -296,6 +296,15 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => !e.ctrlKey && !e.metaKey && !e.repeat && !e.isComposing &&
       !e.defaultPrevented ? sectionKeyOf(e) : null,
   },
+  // control+shift+' and ; step the open card list to its next or previous
+  // section. Like the comma key they match the physical key, since what the
+  // key types changes with the layout and the shift. Only the phone's list
+  // answers them
+  {
+    action: "drawerSection", mini: false,
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.repeat && !e.isComposing ? DRAWER_SECTION_STEPS.get(e.code) || null : null,
+  },
   // control+s scrolls the selected card's response while held: down, or up
   // when a tap is followed at once by a hold. A held key's repeats are
   // recognized too, so the page can keep them from the editor and the browser,
@@ -369,6 +378,10 @@ function pickRandomCard(pool, currentId, random = Math.random){
 const SECTION_KEY_CODES = new Map([["BracketLeft", "doing"], ["BracketRight", "docked"], ["Backslash", "deferred"], ["Backspace", "done"], ["Delete", "done"]]);
 const SECTION_KEY_CHARS = new Map([["[", "doing"], ["]", "docked"], ["\\", "deferred"]]);
 const SECTION_KEY_SHIFTED = new Map([["{", "doing"], ["}", "docked"], ["|", "deferred"], ["Backspace", "done"], ["Delete", "done"]]);
+
+// the card list's sections are stepped by physical keys: Quote goes to the next
+// and Semicolon to the previous
+const DRAWER_SECTION_STEPS = new Map([["Quote", 1], ["Semicolon", -1]]);
 
 function sectionChordOf(e){
   return SECTION_KEY_CODES.get(e.code) || SECTION_KEY_CHARS.get(e.key) ||
@@ -1037,6 +1050,11 @@ function awaitsYou(b){
 // every answer is checked against the four before it is given.
 const TICKET_VIEWS = ["todo", "docked", "deferred", "done"];
 function ticketPageOf(view){ return view === "deferred" || view === "done" ? 1 : 0; }
+// the section a step of 1 or -1 from view lands on, in the order the four are
+// drawn; null past either end, since the list does not wrap
+function adjacentTicketView(view, step){
+  return TICKET_VIEWS[TICKET_VIEWS.indexOf(view) + step] || null;
+}
 let tikNamesOwner = null, tikNamesView = null, tikNamesPage = 0, tikNamesReturn = null;
 function cancelTicketNamesReturn(){
   clearTimeout(tikNamesReturn);

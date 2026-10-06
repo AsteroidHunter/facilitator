@@ -6761,6 +6761,15 @@ const menuShortcutActions = {
     stepCard(shortcut.value, false);
     drawerRows().find(r => r.dataset.id === selectedId)?.scrollIntoView({ block: "nearest" });
   },
+  // control+shift+' and ; choose the next or previous section as a tap on its
+  // name does, so the up and down keys then walk that section. They stop at
+  // Doing and Done, and come from where the section chords may come from
+  drawerSection(e, shortcut){
+    if (!drawerOpen() || !sectionChordSource(e.target, selectedId && els[selectedId])) return;
+    e.preventDefault();
+    const to = adjacentTicketView(curView(), shortcut.value);
+    if (to) setView(to);
+  },
   drawerWalk(e, shortcut){
     if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
     e.preventDefault();
