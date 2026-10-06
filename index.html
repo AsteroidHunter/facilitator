@@ -4308,10 +4308,10 @@ function tabKillMark(ow){
 }
 // the dwell. one timer for the whole bar, so one tab is armed by construction
 // and moving from tab to tab can never add up: the new tab clears whatever the
-// old one had counted and starts its own two and a half seconds from zero.
-// leaving a tab throws its count away, so nothing short of two and a half
+// old one had counted and starts its own 1.7 seconds from zero.
+// leaving a tab throws its count away, so nothing short of 1.7
 // unbroken seconds on one tab opens anything
-const TAB_DWELL = 2500;
+const TAB_DWELL = 1700;
 let tabArm = null;   // { el, timer } the tab counting, or the tab already armed
 function disarmTab(){
   if (!tabArm) return;

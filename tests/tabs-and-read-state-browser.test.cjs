@@ -272,11 +272,11 @@ test("a tab closed on the board is written back to it", async () => {
   }
 });
 
-test("a tab's close cross appears after the pointer has rested on it for 2.5 seconds", async () => {
+test("a tab's close cross appears after the pointer has rested on it for 1.7 seconds", async () => {
   await setTabs(["facilitator", "pastureland"], []);
   const { page, problems, context } = await openBoard();
   try {
-    assert.equal(await page.evaluate(() => TAB_DWELL), 2500);
+    assert.equal(await page.evaluate(() => TAB_DWELL), 1700);
     const spot = await page.$eval('#tabbar .ptab[data-owner="pastureland"]', t => {
       const r = t.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
@@ -286,15 +286,15 @@ test("a tab's close cross appears after the pointer has rested on it for 2.5 sec
       x => getComputedStyle(x).visibility === "visible" && Number(getComputedStyle(x).opacity) > 0.5);
     await page.mouse.move(spot.x, spot.y);
     const start = Date.now();
-    await settle(2200);
-    assert.equal(await armed(), false, "the cross came before 2.2 seconds");
+    await settle(1400);
+    assert.equal(await armed(), false, "the cross came before 1.4 seconds");
     let at = null;
-    while (Date.now() - start < 3500) {
+    while (Date.now() - start < 2700) {
       if (await armed()) { at = Date.now() - start; break; }
       await settle(25);
     }
     assert.ok(at !== null, "the cross never came");
-    assert.ok(at >= 2450 && at <= 3000, "the cross came after " + at + "ms, not 2.5 seconds");
+    assert.ok(at >= 1650 && at <= 2200, "the cross came after " + at + "ms, not 1.7 seconds");
     await settle(300);
     assert.equal(await shown(), true, "the cross is armed but not drawn");
     assert.deepEqual(problems, []);
