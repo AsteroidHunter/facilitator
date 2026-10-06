@@ -254,7 +254,7 @@ test('token teardown disconnects resize and document listeners and ignores a lat
 
 test('panel feedback reuses the small card spinner and warm focus color, without purple', () => {
   assert.match(SOURCE, /cardspin tk-refresh/);
-  assert.match(CSS, /\.tk-refresh\[hidden\]\{display:inline-flex; visibility:hidden\}/);
+  assert.match(CSS, /\.tk-refresh\[hidden\]\{display:none\}/);
   assert.match(CSS, /\.tk-opt:focus-visible\{outline:1\.5px solid #E0592B/);
   assert.doesNotMatch(CSS, /--accent|#432BFF/i);
 });

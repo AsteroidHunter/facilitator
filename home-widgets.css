@@ -137,23 +137,25 @@
 /* Loading, empty and failure messages occupy the chart's reserved stage. */
 .tk-wait{flex:1 1 auto; display:flex; align-items:center; justify-content:center;
   min-height:0; color:var(--sub); text-align:center}
-/* The footer always occupies one line. The small card spinner retains its
-   seat when hidden, so its arrival never shifts the last-updated text. */
+/* The footer always occupies one line. The card spinner follows the timestamp
+   without moving its left edge and takes no space while idle. */
 .tk-status{flex:none; display:flex; align-items:center; gap:calc(6 * var(--u, 1px));
   min-height:14px; margin-top:calc(8 * var(--u, 1px)); color:var(--sub)}
 .tk-refresh{flex:none; display:inline-flex; width:var(--cardspin-s, 11px); height:var(--cardspin-s, 11px)}
-.tk-refresh[hidden]{display:inline-flex; visibility:hidden}
+.tk-refresh[hidden]{display:none}
 .tk-refresh.on::before{animation:tk-refresh-turn .8s steps(4) infinite}
 @keyframes tk-refresh-turn{to{transform:rotate(180deg)}}
 .tk-updated, .lm-updated{font:400 calc(11 * var(--u, 1px))/14px var(--sans); color:var(--sub); white-space:nowrap}
+.tk-updated:empty, .lm-updated:empty{display:none}
 @media (prefers-reduced-motion: reduce){ .tk-refresh.on::before{animation:none} }
 
 /* Reserve four plan rows even with no saved reading or only one provider.
+   Keep spare room above the rows, not between the last row and its timestamp.
    Replacing a loading message or changing providers never moves either box. */
 .lm-box{height:calc(184 * var(--u, 1px))}
 .lm-rows{flex:1 1 auto; min-height:0; display:grid;
   grid-template-columns:max-content minmax(0, 1fr) max-content; grid-auto-rows:16px;
-  align-items:center; align-content:center; column-gap:calc(10 * var(--u, 1px)); row-gap:calc(7 * var(--u, 1px))}
+  align-items:center; align-content:end; column-gap:calc(10 * var(--u, 1px)); row-gap:calc(7 * var(--u, 1px))}
 .lm-rows > .tk-wait{grid-column:1 / -1; grid-row:1 / span 4; height:100%}
 .lm-title{flex:none; font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink)}
 .lm-row{display:contents}
