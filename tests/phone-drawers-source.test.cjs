@@ -13,6 +13,18 @@ const HTML = readFileSync(path.join(__dirname, "..", "m.html"), "utf8");
 const CSS = [...HTML.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
 const rules = [...CSS.matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map(m => ({ selector: m[1].trim().replace(/\s+/g, " "), body: m[2] }));
 const rulesFor = pattern => rules.filter(r => pattern.test(r.selector));
+// a list's entries, split on the commas outside any brackets, so a var() with a
+// var() fallback stays one entry
+function topLevel(list) {
+  const out = [""];
+  let depth = 0;
+  for (const c of list) {
+    if (c === "," && !depth) { out.push(""); continue; }
+    depth += c === "(" ? 1 : c === ")" ? -1 : 0;
+    out[out.length - 1] += c;
+  }
+  return out;
+}
 
 const MENUS = HTML.slice(HTML.indexOf("// ---- the two menus, and the one motion they share"),
   HTML.indexOf("// the list's fades, the board's own"));
@@ -98,7 +110,7 @@ test("what moves for the drawers is a transform or an opacity, and no script car
   assert.ok(moving.length >= 11, `the scan found too few moving rules (${moving.length})`);
   for (const { selector, body } of moving) {
     for (const [, value] of body.matchAll(/(?:^|;)\s*transition\s*:([^;]*)/g)) {
-      for (const one of value.split(/,(?![^()]*\))/)) {
+      for (const one of topLevel(value)) {
         const property = one.trim().split(/\s+/)[0];
         assert.match(property, /^(transform|opacity|visibility|margin-bottom|--drawer-arrow-v)$/, `${selector} is timed on ${property}`);
       }

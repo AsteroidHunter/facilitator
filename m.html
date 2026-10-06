@@ -64,7 +64,9 @@
        start again. every moving layer states both curves in its own rules, the
        second under body.menurelease, which the script sets for a run begun by
        a release; writing one variable on the root for it would restyle the
-       whole document */
+       whole document. the card list's own run is the settling spring the
+       script works out for it (--drawer-run-ms, --drawer-run-ease), and falls
+       back to these where that curve cannot be written */
     --drawer-ms:.55s;
     --drawer-tap:cubic-bezier(.445,.05,.55,.95);
     --drawer-drag:cubic-bezier(.215,.61,.355,1);
@@ -152,8 +154,12 @@
      the card list is out, --shift how far the settings are out as a
      share of their own width, --panel-depth the weight of their shade, and
      --listfade the depth of the list's own fade, a length so the script can
-     read it in pixels at whatever size the page stands */
+     read it in pixels at whatever size the page stands. --drawer-run-ms and
+     --drawer-run-ease are the length and curve of the list's run, worked out
+     by the script for each run and written on the three parts it moves */
   @property --list-v{syntax:"<number>"; inherits:false; initial-value:0}
+  @property --drawer-run-ms{syntax:"*"; inherits:false}
+  @property --drawer-run-ease{syntax:"*"; inherits:false}
   @property --page-scale{syntax:"<number>"; inherits:false; initial-value:1}
   @property --shift{syntax:"<percentage>"; inherits:false; initial-value:100%}
   @property --panel-depth{syntax:"<number>"; inherits:true; initial-value:0}
@@ -483,15 +489,16 @@
      the two cross on one number; what is under the screen's foot and the row's
      bed is out of sight. only its picture moves, and a finger's run is not
      timed. the two transitions are the keyboard's lift and this one, each
-     rule stating both. a card with the list out takes no touch: a tap on it is
-     a tap on the page behind it, which shuts the list, and a touch of the
-     card's own controls too */
+     rule stating both; the list's run is on the curve the script writes, and
+     on the menus' own where that curve cannot be written. a card with the
+     list out takes no touch: a tap on it is a tap on the page behind it, which
+     shuts the list, and a touch of the card's own controls too */
   #pane{
     transform:translate(0, calc(var(--list-v) * var(--list-drop, 0px)));
-    transition:margin-bottom var(--kb-anim), transform var(--drawer-ms) var(--drawer-tap);
+    transition:margin-bottom var(--kb-anim), transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap));
   }
-  body.menurelease #pane{transition:margin-bottom var(--kb-anim), transform var(--drawer-ms) var(--drawer-drag)}
-  body.menudrag #pane{transition:margin-bottom var(--kb-anim)}
+  body.menurelease #pane{transition:margin-bottom var(--kb-anim), transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag))}
+  body.listhold #pane, body.menudrag #pane{transition:margin-bottom var(--kb-anim)}
   body.listout #pane{will-change:transform}
   body.listout #pane, body.listout #pane *{pointer-events:none !important}
   /* Card touches land on the page. Keep that surface still during a flick;
@@ -1090,10 +1097,10 @@
     height:calc(var(--pg-t) + var(--list-drop, 0px));
     overflow:clip; pointer-events:none;
     transform:translate3d(0, calc(var(--list-v) * var(--list-drop, 0px)), 0);
-    transition:transform var(--drawer-ms) var(--drawer-tap);
+    transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap));
   }
-  body.menurelease #tikwin{transition:transform var(--drawer-ms) var(--drawer-drag)}
-  body.menudrag #tikwin{transition:none}
+  body.menurelease #tikwin{transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag))}
+  body.listhold #tikwin, body.menudrag #tikwin{transition:none}
   body.listout #tikwin{will-change:transform}
   @property --drawer-arrow-v{syntax:"<number>"; inherits:true; initial-value:0}
   #tickets{
@@ -1115,12 +1122,12 @@
        down: what the window has gone down, taken back */
     transform:translate3d(calc((var(--list-v) - 1) * (var(--pg-l) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
       calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0);
-    visibility:hidden; --menuwait:var(--drawer-ms);
-    transition:transform var(--drawer-ms) var(--drawer-tap), opacity var(--drawer-ms) var(--drawer-tap), --drawer-arrow-v var(--drawer-ms) var(--drawer-tap), visibility 0s linear var(--menuwait);
+    visibility:hidden; --menuwait:var(--drawer-run-ms, var(--drawer-ms));
+    transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), opacity var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), --drawer-arrow-v var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), visibility 0s linear var(--menuwait);
   }
   body.menurelease #tickets{
-    transition:transform var(--drawer-ms) var(--drawer-drag), opacity var(--drawer-ms) var(--drawer-drag), --drawer-arrow-v var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
-  body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
+    transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag)), opacity var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag)), --drawer-arrow-v var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-drag)), visibility 0s linear var(--menuwait)}
+  body.listhold #tickets, body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
   #tickets.live{visibility:visible; --menuwait:0s; will-change:transform}
   /* One inherited fade runs on the drawer's clock, including reversals. The
      disabled strength stays separate, so a name-page change cannot retime it. */
@@ -4333,9 +4340,11 @@ document.getElementById("tikadd").addEventListener("click", createCard);
 // everything that moves is a transform or an opacity, so nothing is laid out
 // again while it does, and nothing is timed by the script: a finger is followed
 // at the pace the screen delivers it, and a release hands the rest to the
-// stylesheet's transitions. the run is 550ms, on an ease in and out when begun
-// by a tap and an ease out when a drag lets go part way. the list accepts a
-// short flick or a deliberate drag; the settings still settle at halfway
+// stylesheet's transitions. the settings' run is 550ms, on an ease in and out
+// when begun by a tap and an ease out when a drag lets go part way; the list's
+// is a spring that slows into place, worked out for each run (listSpring). the
+// list accepts a short flick or a deliberate drag; the settings still settle
+// at halfway
 const page = document.getElementById("page");
 const cardPane = document.getElementById("pane");
 const tickets = document.getElementById("tickets");
@@ -4434,6 +4443,97 @@ function sizeList(){
 sizeList();
 addEventListener("resize", sizeList);
 addEventListener("orientationchange", sizeList);
+// how the list runs, after a tap or a release: the slowdown of a reference
+// app's jump to the latest message (its createGlide), a weight on a
+// damped spring. its damping is held just over critical, so it slows into its
+// rest and can never pass it: no fixed clock and no bounce. the stiffness is
+// the reference's on a 700px chat, its 25px/ms over three screens. the spring
+// starts at the speed the list already has: none after a tap, the finger's
+// after a release, and the run's own when a tap turns a run round. a finger
+// faster than the spring can take in the room left would carry the list past
+// its rest, so the spring is stiffened just enough to land without passing; a
+// run whose speed would carry it off the far end starts from rest instead. it
+// lands as the reference does, once the part that travels furthest is under a
+// pixel out and crawling. the stylesheet plays it as a linear() curve through
+// the spring's own positions, never a quarter of a pixel off them
+const LIST_SPRING = 25 / (3 * 700), LIST_DAMPING = 1.02;   // per ms, and the damping ratio
+const LIST_CAP = 25;                                       // px/ms, the reference's top speed
+const LIST_LAND_PX = 1, LIST_LAND_SPEED = .05;            // px and px/ms: landed
+const LIST_EASE_PX = .25;                                  // px the curve may stray between its points
+const LIST_EASED = typeof CSS !== "undefined" && !!CSS.supports?.("transition-timing-function", "linear(0, 1)");
+let listRun = null;   // the run the stylesheet is playing
+// a run of the fraction from `from` to `to`, leaving at `speed` (fraction per ms,
+// signed like the fraction), where a whole fraction is `px` of the furthest travel
+function listSpring(from, to, speed, px){
+  const room = Math.abs(to - from), sign = Math.sign(to - from);
+  if (!(room > 0)) return null;
+  const spread = Math.sqrt(LIST_DAMPING * LIST_DAMPING - 1);
+  const spring = toward => {
+    const w = Math.max(LIST_SPRING, toward / (room * (LIST_DAMPING + spread)));
+    const fast = w * (LIST_DAMPING + spread), slow = w * (LIST_DAMPING - spread);
+    const a = (toward - slow * room) / (fast - slow), b = (fast * room - toward) / (fast - slow);
+    const left = t => a * Math.exp(-fast * t) + b * Math.exp(-slow * t);   // still to go
+    const rate = t => fast * a * Math.exp(-fast * t) + slow * b * Math.exp(-slow * t);   // toward the rest
+    let ms = 0, most = room;
+    while (ms < 5000 && !(left(ms) * px <= LIST_LAND_PX && rate(ms) * px <= LIST_LAND_SPEED)) most = Math.max(most, left(++ms));
+    return { ms, left, rate, most };
+  };
+  let run = spring(Math.min((speed || 0) * sign, LIST_CAP / px));
+  if (run.most > (sign > 0 ? to : 1 - to)) run = spring(0);
+  const { ms, left, rate } = run;
+  // the spring's place each millisecond, and the fewest of them that keep the
+  // straight lines between within LIST_EASE_PX of it. the first line is one
+  // millisecond long, so the run leaves at the speed it was handed and not at
+  // the average of a longer stretch
+  const at = [];
+  for (let t = 0; t <= ms; t++) at.push(t < ms ? 1 - left(t) / room : 1);
+  const near = LIST_EASE_PX / (px * room);
+  const fits = (i, j) => {
+    for (let k = i + 1; k < j; k++) if (Math.abs(at[i] + (at[j] - at[i]) * (k - i) / (j - i) - at[k]) > near) return false;
+    return true;
+  };
+  const stops = ms > 1 ? [0, 1] : [0];
+  for (let i = stops[stops.length - 1]; i < ms;){
+    let lo = i + 1, hi = ms;
+    while (lo < hi){ const mid = (lo + hi + 1) >> 1; if (fits(i, mid)) lo = mid; else hi = mid - 1; }
+    stops.push(i = lo);
+  }
+  return { to, ms,
+    ease: ms ? "linear(" + stops.map(t => +at[t].toFixed(5) + " " + +(100 * t / ms).toFixed(3) + "%").join(", ") + ")" : "linear",
+    at: t => t < ms ? to - sign * left(t) : to,
+    velocity: t => t < ms ? sign * rate(t) : 0 };
+}
+// work out the list's run to v and write it on the three parts it moves, ahead
+// of the paint that starts it. a release leaves from the fraction the finger
+// left and at its speed. otherwise a run still playing is turned round from
+// where it is and at the speed it has, after it is held there for a moment
+// with no run, so the next starts from that place and is not a reversal the
+// browser would shorten. with nothing playing, a tap leaves from rest
+function planList(v, speed, released){
+  if (!LIST_EASED) return;
+  let from = Number(tickets.style.getPropertyValue("--list-v")) || 0;
+  if (!released){
+    speed = 0;
+    const playing = tickets.getAnimations().find(a => a.transitionProperty === "opacity");
+    if (playing){
+      if (listRun && listRun.to === v) return;   // already on its way there
+      const t = Number(playing.currentTime) || 0, seen = parseFloat(getComputedStyle(tickets).opacity);
+      from = Math.max(0, Math.min(1, Number.isFinite(seen) ? seen : listRun ? listRun.at(t) : from));
+      if (listRun) speed = listRun.velocity(t);
+      const cls = document.body.classList, num = from.toFixed(4);
+      cls.add("listhold");
+      for (const el of [cardPane, tickets, tikwin]) el.style.setProperty("--list-v", num);
+      getComputedStyle(tickets).getPropertyValue("opacity");
+      cls.remove("listhold");
+    }
+  }
+  // the furthest any part goes: the card's drop, or the list across a screen it is never wider than
+  listRun = listSpring(from, v, speed, Math.max(parseFloat(listDropAt) || 0, innerWidth || 0));
+  for (const el of [cardPane, tickets, tikwin]){
+    el.style.setProperty("--drawer-run-ms", (listRun ? listRun.ms : 0) + "ms");
+    el.style.setProperty("--drawer-run-ease", listRun ? listRun.ease : "linear");
+  }
+}
 // the one number, painted onto what the menu moves. the list's travel is a
 // function of the fraction alone, as is the card's, so a run turned back
 // partway turns both back together and on one clock, and a shut list leaves
@@ -4478,19 +4578,21 @@ function dismissEditor(){
   at.blur();
   endPhoneTrace(trace, { action: "drawer", part: "blur" });
 }
-// a run, begun by a tap or by the release of a drag. a release runs on the ease
-// out, a tap on the ease in and out; the stylesheet states both for every layer
-// that moves, under body.menurelease for the release. the drag's dress comes off
-// first, after the drag's last position has been settled, so what follows is a
-// run from where the finger left it and not a jump
-function runMenu(panel, v, release){
+// a run, begun by a tap or by the release of a drag. the settings' release runs
+// on the ease out, a tap on the ease in and out; the stylesheet states both for
+// every layer that moves, under body.menurelease for the release. the list's run
+// is its spring, leaving at `speed`, the finger's on a release (planList). the
+// drag's dress comes off first, after the drag's last position has been
+// settled, so what follows is a run from where the finger left it and not a jump
+function runMenu(panel, v, release, speed = 0){
   lastTicketTap = null;
   if (!menuAvailable(panel)) return;
   dropResponseScroll();
   // Closing a menu leaves focus alone. Opening one shuts the project list.
   if (v > 0){ dismissEditor(); closeProjects(); }
-  const cls = document.body.classList;
-  if (cls.contains("menudrag")) getComputedStyle(panel).getPropertyValue("transform");
+  const cls = document.body.classList, dragged = cls.contains("menudrag");
+  if (dragged) getComputedStyle(panel).getPropertyValue("transform");
+  if (panel === tickets) planList(v, speed, dragged);
   cls.toggle("menurelease", !!release);
   cls.remove("menudrag");
   const menuTrace = tracePhone("begin", "phase", { action: "drawer", part: "menu-commit" });
@@ -4540,6 +4642,9 @@ let cancelMenuDrag;
   const EDGE = 28;    // how far in from an edge a pull may begin
   const LIST_COMMIT = 0.35;     // share of travel a slow drag needs, in either direction
   const FLICK_PX = 18, FLICK_SPEED = 0.4, FLICK_MS = 100;   // CSS px, CSS px/ms, recent ms
+  // the finger's speed as it lifts, over its last 50ms: a reference
+  // app's window for a speed read on the phone (its VELOCITY_WINDOW_MS)
+  const HANDOFF_MS = 50;
   let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false, travel = 1;
   let samples = [], direction = 0;
   let onCard = false, vertical = false, touchUntil = -Infinity;
@@ -4556,12 +4661,19 @@ let cancelMenuDrag;
     // than treating a long pause followed by one move as an instant flick.
     while (samples.length > 2 && samples[1].t <= t - FLICK_MS) samples.shift();
   };
-  const flick = () => {
-    const first = samples[0], last = samples[samples.length - 1];
-    const next = samples[1] || first, cutoff = last.t - FLICK_MS;
+  // how far the finger went in its last `within` ms, and over how long. where the
+  // window opens is interpolated between the readings either side of it
+  const recent = within => {
+    const last = samples[samples.length - 1], cutoff = last.t - within;
+    let i = 0;
+    while (i + 2 < samples.length && samples[i + 1].t < cutoff) i++;
+    const first = samples[i], next = samples[i + 1] || first;
     const x = first.t < cutoff && next.t > first.t
       ? first.x + (next.x - first.x) * (cutoff - first.t) / (next.t - first.t) : first.x;
-    const dx = last.x - x, dt = last.t - Math.max(first.t, cutoff);
+    return { dx: last.x - x, dt: last.t - Math.max(first.t, cutoff) };
+  };
+  const flick = () => {
+    const { dx, dt } = recent(FLICK_MS);
     return Math.abs(dx) >= FLICK_PX && dt > 0 && Math.abs(dx / dt) >= FLICK_SPEED ? Math.sign(dx) : 0;
   };
   cancelMenuDrag = target => {
@@ -4627,14 +4739,19 @@ let cancelMenuDrag;
         runMenu(tickets, 0, true);
       return;
     }
-    let target = at > 0.5 ? 1 : 0;   // the right drawer keeps its halfway rule
+    let target = at > 0.5 ? 1 : 0, speed = 0;   // the right drawer keeps its halfway rule
     if (panel === tickets){
       target = opening ? (at >= LIST_COMMIT ? 1 : 0) : (1 - at >= LIST_COMMIT ? 0 : 1);
       const direction = flick();
       if (direction) target = direction > 0 ? 1 : 0;
       if (e.type === "touchcancel") target = opening ? 0 : 1;
+      else {
+        // the list goes on at the finger's own speed, as a share of its travel
+        const { dx, dt } = recent(HANDOFF_MS);
+        if (dt > 0) speed = menuSign(panel) * dx / dt / travel;
+      }
     }
-    runMenu(panel, target, true);
+    runMenu(panel, target, true, speed);
   };
   // every listener here is passive, the mouse ones too. they sit on the whole
   // document, and one that may cancel a touch (on the phone a mouse listener

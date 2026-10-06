@@ -389,7 +389,15 @@ test('the inherited arrow fade has the drawer transform clock for taps, keys, re
   assert.equal(registered['initial-value'], '0');
   for (const mode of ['', 'body.menurelease ']) {
     const transition = rule(html, mode + '#tickets').transition;
-    const clock = property => transition.split(/,\s*(?![^()]*\))/).find(t => t.trim().startsWith(property + ' ')).trim().slice(property.length + 1);
+    // split on the commas outside brackets: the clock is a var() with a var() fallback
+    const entries = [''];
+    let depth = 0;
+    for (const c of transition) {
+      if (c === ',' && !depth) { entries.push(''); continue; }
+      depth += c === '(' ? 1 : c === ')' ? -1 : 0;
+      entries[entries.length - 1] += c;
+    }
+    const clock = property => entries.find(t => t.trim().startsWith(property + ' ')).trim().slice(property.length + 1);
     assert.equal(clock('--drawer-arrow-v'), clock('transform'));
     for (const id of ['tikwin', 'pane']) assert.ok(declarations(html, mode + '#' + id).transition.includes('transform ' + clock('transform')));
   }
