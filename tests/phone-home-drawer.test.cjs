@@ -69,7 +69,7 @@ function fixture() {
     closeProjects: () => calls.push("close-projects"),
     dropResponseScroll: () => calls.push("stop-scroll"),
     unselectShown: () => calls.push("unselect"),
-    homeShow: () => calls.push("home-show"), renderTabs() {}, brandStart() {}, homeWarm() {},
+    homeShow: () => calls.push("home-show"), renderTabs() {}, brandStart() {}, homeMake() {}, homeWarm() {}, homePause() {},
     paintViewTabs() {}, poolOf: () => [], viewFilterFor: () => true, syncSentView: () => null,
     paintPhonePane: () => { calls.push("paint-tickets"); return false; }, syncSpinner() {},
     tikTravelIntent: null, tikShownView: "todo", curView: () => "todo", moveTicketSheet() {},

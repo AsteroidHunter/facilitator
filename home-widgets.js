@@ -39,14 +39,14 @@
 //            window GET /limits has a number for, Claude 5-hour, Claude
 //            weekly, Codex 5-hour, Codex weekly, each a name, a bar and the
 //            percent used, and under them, small and faint, when the numbers
-//            were taken ("Last updated 3 min ago"). The bars are drawn in the
+//            were taken ("Last updated: 3 mins ago"). The bars are drawn in the
 //            token chart's own colours: the line's daily colour filled into a
 //            track of the heatmap's lightest tint. The last answer is kept in
 //            this browser and drawn the moment the box is made, before the
 //            route has answered; the answer that follows moves the bars and
 //            the numbers where they differ, on the same nodes, so nothing
-//            jumps and the box keeps its size. While there is no row to show
-//            it is not shown at all
+//            jumps and the box keeps its size. With no saved reading it keeps
+//            that same space for a quiet loading or empty message
 //
 // Each widget is a function of (element, days) that draws into the element
 // it is given and owns nothing outside it, so either can later sit in a shared
@@ -75,6 +75,69 @@
   const VIEWS = [["heatmap", "Heatmap"], ["line", "Line"]];
   const VIEW_KEY = "home.chart";
   const TIP = `<div class="tk-tip" hidden></div>`;
+  const TOKENS_KEY = "home.tokens";
+  // Storage can be blocked or full. A page still keeps its most recent reading
+  // in memory; reopening the page also works whenever localStorage is available.
+  const memory = new WeakMap(), noStore = {};
+  function localStore() {
+    try { return typeof localStorage !== "undefined" ? localStorage : null; }
+    catch (err) { return null; }
+  }
+  const record = value => value && typeof value === "object" && !Array.isArray(value);
+  const successful = value => record(value) && !value.error && value.ok !== false && value.success !== false;
+  function tokenAnswer(answer) {
+    return successful(answer) && Array.isArray(answer.days) && answer.days.every(day =>
+      record(day) && typeof day.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day.date) &&
+      Number.isFinite(day.total) && day.total >= 0);
+  }
+  function limitsAnswer(answer) {
+    if (!successful(answer)) return false;
+    if (Object.keys(answer).some(key => !["claude", "codex", "fetched", "now", "refreshing"].includes(key))) return false;
+    return ["claude", "codex"].every(tool => answer[tool] == null || (record(answer[tool]) &&
+      ["five_hour", "weekly"].every(span => answer[tool][span] == null ||
+        (record(answer[tool][span]) && Number.isFinite(answer[tool][span].used)))));
+  }
+  function readCache(store, key, valid) {
+    const saved = memory.get(store || noStore);
+    if (saved && saved[key]) return saved[key];
+    try {
+      const kept = store && JSON.parse(store.getItem(key));
+      if (record(kept) && valid(kept.answer) && (kept.at === null || Number.isFinite(kept.at))) return kept;
+    } catch (err) {}
+    return null;
+  }
+  function keepCache(store, key, kept) {
+    const owner = store || noStore, saved = memory.get(owner) || {};
+    saved[key] = kept;
+    memory.set(owner, saved);
+    try { if (store) store.setItem(key, JSON.stringify(kept)); } catch (err) {}
+  }
+  function element(doc, tag, cls, text) {
+    const node = doc.createElement(tag);
+    node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+  // A permanent footer reserves room for a spinner and a timestamp, including
+  // the first request and a failed refresh. The spinner uses the card glyph.
+  function statusLine(doc, box, timeClass) {
+    const footer = element(doc, "div", "tk-status");
+    const spinner = element(doc, "span", "cardspin tk-refresh");
+    spinner.setAttribute("data-f", "|");
+    spinner.setAttribute("role", "status");
+    spinner.setAttribute("aria-label", "Refreshing");
+    const note = element(doc, "span", timeClass);
+    footer.appendChild(spinner);
+    footer.appendChild(note);
+    box.appendChild(footer);
+    function busy(on) {
+      spinner.hidden = !on;
+      spinner.className = "cardspin tk-refresh" + (on ? " on" : "");
+      box.setAttribute("aria-busy", String(on));
+    }
+    busy(false);
+    return { note, busy };
+  }
 
   // ---- numbers and days ----------------------------------------------------
   // 1234 is 1.23K, 48210000 is 48.2M: three figures at most, trailing zeros off
@@ -368,11 +431,10 @@
   // already there or an empty one set down first; a view not laid out yet
   // draws at the default and is drawn again once it is (panel)
   function viewHeight(el, foot) {
-    let view = el.querySelector && el.querySelector(".tk-view");
-    if (!view) {
-      el.innerHTML = viewHtml("", "", 0) + foot + TIP;
-      view = el.querySelector && el.querySelector(".tk-view");
-    }
+    // The foot can wrap differently after a source or view changes. Measure
+    // with the incoming foot in place, not the previous drawing's foot.
+    el.innerHTML = viewHtml("", "", 0) + foot + TIP;
+    const view = el.querySelector && el.querySelector(".tk-view");
     const h = view && view.clientHeight;
     return h > 0 ? h : VIEW_H;
   }
@@ -470,8 +532,11 @@
     el.addEventListener("pointercancel", () => letGo(el));
     el.addEventListener("pointerleave", e => { if (!finger(e) && !el.tkDrag?.moved) unhover(el); });
     const doc = el.ownerDocument;
-    if (doc && doc.addEventListener)
-      doc.addEventListener("pointerdown", e => { if (finger(e)) unhover(el); }, { capture: true, passive: true });
+    if (doc && doc.addEventListener) {
+      const dismiss = e => { if (finger(e)) unhover(el); };
+      doc.addEventListener("pointerdown", dismiss, { capture: true, passive: true });
+      el.tkDispose = () => { letGo(el); if (doc.removeEventListener) doc.removeEventListener("pointerdown", dismiss, true); };
+    }
   }
   function unhover(el) {
     const tip = el.querySelector(".tk-tip");
@@ -527,15 +592,14 @@
   }
   function panel(root, opts = {}) {
     const doc = root.ownerDocument || document;
-    const store = "store" in opts ? opts.store : (typeof localStorage !== "undefined" ? localStorage : null);
+    const store = "store" in opts ? opts.store : localStore();
+    // Chart preference can be a synced settings store; data belongs only to
+    // this browser, so never put token readings in that settings store.
+    const cacheStore = "cacheStore" in opts ? opts.cacheStore : localStore();
+    const clock = opts.now || (() => Date.now());
     const load = opts.load || (() => fetch("/tokens/daily?days=" + FETCH_DAYS)
       .then(r => { if (!r.ok) throw new Error("tokens " + r.status); return r.json(); }));
-    const el = (tag, cls, text) => {
-      const n = doc.createElement(tag);
-      if (cls) n.className = cls;
-      if (text != null) n.textContent = text;
-      return n;
-    };
+    const el = (tag, cls, text) => element(doc, tag, cls, text);
     const box = el("div", "tk-panel");
     const head = el("div", "tk-head");
     const title = el("div", "tk-title");
@@ -543,7 +607,6 @@
     const pill = el("div", "tk-pill");
     pill.setAttribute("role", "group");
     pill.setAttribute("aria-label", "Chart");
-    // the seat under the chosen name, which slides to the other (home-widgets.css)
     pill.appendChild(el("span", "tk-thumb"));
     const buttons = {};
     for (const [key, label] of VIEWS) {
@@ -556,61 +619,94 @@
     }
     head.appendChild(title);
     head.appendChild(pill);
+    let view = readView(store), destroyed = false;
     const stage = el("div", "tk-stage");
-    const note = el("div", "tk-note");
+    const layers = {};
+    for (const [key] of VIEWS) {
+      // Select before the first layout measurement so restored data does not
+      // fade up from a blank frame. Later pill changes still crossfade.
+      layers[key] = el("div", "tk-layer" + (key === view ? " on" : ""));
+      layers[key].setAttribute("data-view", key);
+      stage.appendChild(layers[key]);
+    }
     box.appendChild(head);
     box.appendChild(stage);
-    box.appendChild(note);
+    const status = statusLine(doc, box, "tk-updated");
     root.textContent = "";
     root.appendChild(box);
 
-    let view = readView(store);
-    // where each chart's view stands, its own for each, so the pill never
-    // moves the other chart and a redraw never moves the one on show
     const spots = { heatmap: latest(), line: latest() };
-    let data = null;
-    let drawnAt = "";
-    const sizeOf = () => {
-      const v = stage.querySelector && stage.querySelector(".tk-view");
-      return v ? v.clientWidth + "x" + v.clientHeight : "";
-    };
+    const kept = readCache(cacheStore, TOKENS_KEY, tokenAnswer);
+    let data = kept && kept.answer, at = kept ? kept.at : null;
+    let message = "Counting tokens", drawnAt = "";
+    const sizeOf = () => stage.clientWidth + "x" + stage.clientHeight;
+    function tick() {
+      status.note.textContent = at == null ? "" : "Last updated: " + ago((clock() - at) / 1000);
+    }
     function draw() {
+      if (destroyed) return;
+      const layer = layers[view];
+      if (data && data.days.some(day => day.total > 0))
+        (view === "line" ? drawLine : drawHeatmap)(layer, data.days, spots[view]);
+      else {
+        layer.textContent = "";
+        layer.tkModel = null;
+        layer.appendChild(el("div", "tk-wait", data
+          ? "No token usage yet." : message));
+      }
       pill.dataset.on = view;
       for (const [key] of VIEWS) {
-        buttons[key].classList.toggle("on", key === view);
-        buttons[key].setAttribute("aria-pressed", String(key === view));
+        const selected = key === view;
+        buttons[key].classList.toggle("on", selected);
+        buttons[key].setAttribute("aria-pressed", String(selected));
+        layers[key].classList.toggle("on", selected);
+        layers[key].setAttribute("aria-hidden", String(!selected));
+        layers[key].inert = !selected;
       }
-      if (!data) return;
-      (view === "line" ? drawLine : drawHeatmap)(stage, data.days || [], spots[view]);
       drawnAt = sizeOf();
-      const found = data.found || {};
-      note.textContent = found.claude || found.codex ? ""
-        : "No Claude Code or Codex logs were found on this machine.";
+      tick();
     }
-    // the view's size follows the window on the board, so a chart is drawn
-    // again at the new height, where it stood
-    if (typeof ResizeObserver === "function")
-      new ResizeObserver(() => { if (data && sizeOf() && sizeOf() !== drawnAt) draw(); }).observe(stage);
+    // Each view keeps its own scrolling position. Both layers stay mounted so
+    // opacity can crossfade in either direction, including a rapid reversal.
     function show(key) {
-      if (!VIEWS.some(([k]) => k === key)) return;
+      if (destroyed || key === view || !VIEWS.some(([k]) => k === key)) return;
       view = key;
       try { if (store) store.setItem(VIEW_KEY, key); } catch (err) {}
       draw();
     }
+    let observer = null;
+    if (typeof ResizeObserver === "function") {
+      observer = new ResizeObserver(() => { if (sizeOf() !== drawnAt) draw(); });
+      observer.observe(stage);
+    }
     let asking = null;
     function refresh() {
+      if (destroyed) return Promise.resolve();
       if (asking) return asking;
-      if (!data) { stage.textContent = ""; stage.appendChild(el("div", "tk-wait", "Counting tokens")); }
+      status.busy(true);
+      if (!data) { message = "Counting tokens"; draw(); }
       asking = Promise.resolve().then(load).then(answer => {
+        if (destroyed) return;
+        if (!tokenAnswer(answer)) throw new Error("Invalid token reading");
         data = answer;
+        at = clock();
+        keepCache(cacheStore, TOKENS_KEY, { at, answer });
         draw();
-      }, () => {
-        if (!data) { stage.textContent = ""; stage.appendChild(el("div", "tk-wait", "The token counts could not be read.")); }
-      }).finally(() => { asking = null; });
+      }).catch(() => {
+        if (destroyed) return;
+        if (!data) { message = "Token usage is unavailable. We’ll try again."; draw(); }
+        tick();
+      }).finally(() => { asking = null; if (!destroyed) status.busy(false); });
       return asking;
     }
+    function destroy() {
+      destroyed = true;
+      if (observer) observer.disconnect();
+      for (const layer of Object.values(layers)) if (layer.tkDispose) layer.tkDispose();
+      status.busy(false);
+    }
     draw();
-    return { root: box, show, refresh, view: () => view };
+    return { root: box, show, refresh, tick, destroy, view: () => view };
   }
 
   // ---- the limits box ------------------------------------------------------
@@ -640,81 +736,73 @@
     }
     return rows;
   }
-  // how long ago, in the words the box uses
+  // How old the last successful reading is, updated by the page while Home
+  // is open. A failed request never moves this clock forward.
   function ago(seconds) {
     const s = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
-    if (s < 60) return "just now";
+    if (s < 60) return "now";
     const m = Math.floor(s / 60);
-    if (m < 60) return m + " min ago";
+    if (m < 60) return m + (m === 1 ? " min ago" : " mins ago");
     const h = Math.floor(m / 60);
-    return h < 24 ? h + " h ago" : Math.floor(h / 24) + " d ago";
+    if (h < 24) return h + (h === 1 ? " hour ago" : " hours ago");
+    const d = Math.floor(h / 24);
+    return d + (d === 1 ? " day ago" : " days ago");
   }
-  // the answer kept in this browser: {at, answer}, at being the browser clock's
-  // time in milliseconds when the server took the reading. nothing kept, or
-  // something unreadable, is nothing
-  function readKept(store) {
-    try {
-      const kept = JSON.parse(store.getItem(LIMITS_KEY));
-      if (kept && typeof kept === "object" && kept.answer && typeof kept.answer === "object") return kept;
-    } catch (err) {}
-    return null;
-  }
-  // the box is drawn into root, which it hides while there is nothing to show:
-  // no title and no message. a reading that cannot be had leaves the last
-  // drawing as it was
   function limits(root, opts = {}) {
     const doc = root.ownerDocument || document;
-    const store = "store" in opts ? opts.store : (typeof localStorage !== "undefined" ? localStorage : null);
+    const store = "store" in opts ? opts.store : localStore();
     const clock = opts.now || (() => Date.now());
     const later = opts.later || ((fn, ms) => setTimeout(fn, ms));
+    const cancel = opts.cancel || (id => clearTimeout(id));
     const load = opts.load || (() => fetch("/limits")
       .then(r => { if (!r.ok) throw new Error("limits " + r.status); return r.json(); }));
-    const el = (tag, cls, text) => {
-      const n = doc.createElement(tag);
-      n.className = cls;
-      if (text != null) n.textContent = text;
-      return n;
-    };
-    let drawn = null;       // {labels, rows: [{fill, bar, pct}], note}
-    let at = null;          // when the reading on show was taken, browser clock
-    function build(rows) {
-      root.textContent = "";
-      const box = el("div", "tk-panel lm-box");
-      box.appendChild(el("span", "lm-title", "Usage Limits"));
-      const parts = [];
-      for (const { label, used } of rows) {
-        const row = el("div", "lm-row");
-        const bar = el("span", "lm-bar");
-        bar.setAttribute("role", "progressbar");
-        bar.setAttribute("aria-label", label);
-        bar.setAttribute("aria-valuemin", "0");
-        bar.setAttribute("aria-valuemax", "100");
-        bar.setAttribute("aria-valuenow", String(used));
-        bar.style.background = LIMIT_TRACK;
-        const fill = el("span", "lm-fill");
-        fill.style.width = used + "%";
-        fill.style.background = LIMIT_FILL;
-        bar.appendChild(fill);
-        const pct = el("span", "lm-pct", used + "%");
-        row.appendChild(el("span", "lm-name", label));
-        row.appendChild(bar);
-        row.appendChild(pct);
-        box.appendChild(row);
-        parts.push({ fill, bar, pct });
-      }
-      const note = el("span", "lm-updated");
-      box.appendChild(note);
-      root.appendChild(box);
-      drawn = { labels: rows.map(r => r.label), rows: parts, note };
+    const el = (tag, cls, text) => element(doc, tag, cls, text);
+    const box = el("div", "tk-panel lm-box");
+    box.appendChild(el("span", "lm-title", "Usage Limits"));
+    const content = el("div", "lm-rows");
+    box.appendChild(content);
+    const status = statusLine(doc, box, "lm-updated");
+    root.textContent = "";
+    root.appendChild(box);
+    root.hidden = false;
+    const kept = readCache(store, LIMITS_KEY, limitsAnswer);
+    let data = kept && kept.answer, at = kept ? kept.at : null;
+    let drawn = null, destroyed = false, message = "Reading usage limits";
+    function tick() {
+      status.note.textContent = at == null ? "" : "Last updated: " + ago((clock() - at) / 1000);
     }
-    // when the rows are the ones already on show only what differs is changed:
-    // the fill's width, which the sheet eases to the new value, and the number
-    function draw(rows) {
-      root.hidden = !rows.length;
-      if (!rows.length) { root.textContent = ""; drawn = null; return; }
+    function draw() {
+      const rows = limitRows(data, clock() / 1000);
       const same = drawn && drawn.labels.length === rows.length && drawn.labels.every((l, i) => l === rows[i].label);
-      if (!same) build(rows);
-      else rows.forEach(({ used }, i) => {
+      if (!rows.length) {
+        content.textContent = "";
+        content.appendChild(el("div", "tk-wait", data ? "No usage limits available yet." : message));
+        drawn = null;
+      } else if (!same) {
+        content.textContent = "";
+        const parts = [];
+        for (const { label, used } of rows) {
+          const row = el("div", "lm-row");
+          const bar = el("span", "lm-bar");
+          bar.setAttribute("role", "progressbar");
+          bar.setAttribute("aria-label", label);
+          bar.setAttribute("aria-valuemin", "0");
+          bar.setAttribute("aria-valuemax", "100");
+          bar.setAttribute("aria-valuenow", String(used));
+          bar.style.background = LIMIT_TRACK;
+          const fill = el("span", "lm-fill");
+          fill.style.width = used + "%";
+          fill.style.background = LIMIT_FILL;
+          bar.appendChild(fill);
+          const pct = el("span", "lm-pct", used + "%");
+          row.appendChild(el("span", "lm-name", label));
+          row.appendChild(bar);
+          row.appendChild(pct);
+          content.appendChild(row);
+          parts.push({ fill, bar, pct });
+        }
+        drawn = { labels: rows.map(r => r.label), rows: parts };
+      } else rows.forEach(({ used }, i) => {
         const part = drawn.rows[i];
         if (part.pct.textContent === used + "%") return;
         part.fill.style.width = used + "%";
@@ -723,42 +811,48 @@
       });
       tick();
     }
-    // the faint line under the rows, counted from the server's own fetch time
-    function tick() {
-      if (!drawn) return;
-      const text = at == null ? "" : "Last updated " + ago((clock() - at) / 1000);
-      if (drawn.note.textContent !== text) drawn.note.textContent = text;
-    }
-    function keep(answer) {
-      if (!store) return;
-      try { store.setItem(LIMITS_KEY, JSON.stringify({ at, answer: { claude: answer.claude, codex: answer.codex } })); }
-      catch (err) {}
-    }
     function take(answer) {
-      if (!answer || typeof answer !== "object") return;
-      at = typeof answer.fetched === "number" && typeof answer.now === "number"
-        ? clock() - (answer.now - answer.fetched) * 1000 : null;
-      draw(limitRows(answer));
-      keep(answer);
+      if (!limitsAnswer(answer)) throw new Error("Invalid limits reading");
+      // An empty response can mean a local provider is temporarily unavailable.
+      // Retain a previous reading and its time until usable numbers return.
+      if (!limitRows(answer).length && data && limitRows(data).length) return;
+      // The route can return the old reading while a renewal runs. Without a
+      // fetched time, this answer cannot make a saved reading any fresher.
+      if (answer.refreshing && data && !Number.isFinite(answer.fetched)) return;
+      data = answer;
+      at = Number.isFinite(answer.fetched) && Number.isFinite(answer.now)
+        ? clock() - Math.max(0, answer.now - answer.fetched) * 1000 : clock();
+      keepCache(store, LIMITS_KEY, { at, answer });
+      draw();
     }
-    let asking = null, wave = 0;
+    let asking = null, wave = 0, timer = null;
+    function stopFollow() {
+      if (timer != null) { cancel(timer); timer = null; }
+    }
     function refresh(follow = 0) {
+      if (destroyed) return Promise.resolve();
       if (asking) return asking;
+      stopFollow();
       const mine = follow ? wave : ++wave;
+      status.busy(true);
+      if (!data) { message = "Reading usage limits"; draw(); }
       asking = Promise.resolve().then(load).then(answer => {
+        if (destroyed) return;
         take(answer);
-        if (answer && answer.refreshing === true && follow < FOLLOW_MAX)
-          later(() => { if (mine === wave) refresh(follow + 1); }, FOLLOW_MS);
-      }, () => {}).finally(() => { asking = null; });
+        tick();
+        if (mine === wave && answer.refreshing === true && follow < FOLLOW_MAX)
+          timer = later(() => { timer = null; if (!destroyed && mine === wave) refresh(follow + 1); }, FOLLOW_MS);
+      }).catch(() => {
+        if (destroyed) return;
+        if (!data) { message = "Usage limits are unavailable. We’ll try again."; draw(); }
+        tick();
+      }).finally(() => { asking = null; if (!destroyed && timer == null) status.busy(false); });
       return asking;
     }
-    root.hidden = true;
-    const kept = store ? readKept(store) : null;
-    if (kept) {
-      at = typeof kept.at === "number" ? kept.at : null;
-      draw(limitRows(kept.answer, clock() / 1000));
-    }
-    return { root, refresh, tick };
+    function pause() { ++wave; stopFollow(); if (!asking) status.busy(false); }
+    function destroy() { destroyed = true; pause(); status.busy(false); }
+    draw();
+    return { root, refresh, tick, pause, destroy };
   }
 
   window.TokenWidgets = {
@@ -766,6 +860,6 @@
     compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
-    viewHtml, seat, panel, limitRows, ago, limits, LIMIT_FILL, LIMIT_TRACK, LIMITS_KEY,
+    viewHtml, seat, panel, limitRows, ago, limits, LIMIT_FILL, LIMIT_TRACK, LIMITS_KEY, TOKENS_KEY,
   };
 })();

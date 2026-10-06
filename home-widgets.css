@@ -7,10 +7,11 @@
    7px corner of the things let into the board. it is a column: the heading,
    then the chart's view, then its foot. set down in a box with a height of
    its own the panel fills it and the view takes whatever the heading and the
-   foot leave; anywhere else the view is --tk-view-h tall and the panel hugs it */
+   foot leave. Its fallback height reserves the same phone space before any
+   data arrives; the board supplies --tk-panel-h from its own sized container */
 .tk-panel{
   --tk-view-h:calc(200 * var(--u, 1px));
-  box-sizing:border-box; height:100%; display:flex; flex-direction:column;
+  box-sizing:border-box; height:var(--tk-panel-h, calc(330 * var(--u, 1px))); display:flex; flex-direction:column;
   background:var(--card); border:var(--edge) solid var(--line); border-radius:calc(7 * var(--u, 1px));
   box-shadow:0 1px 3px rgba(60,45,20,.07);
   padding:calc(16 * var(--u, 1px)) calc(20 * var(--u, 1px)) calc(14 * var(--u, 1px)); color:var(--ink); font:400 calc(12 * var(--u, 1px))/16px var(--sans);
@@ -41,7 +42,7 @@
 .tk-opt:active{
   box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
   transition:color .18s, box-shadow .08s ease-in}
-.tk-opt:focus-visible{outline:1.5px solid var(--accent); outline-offset:1px}
+.tk-opt:focus-visible{outline:1.5px solid #E0592B; outline-offset:1px}
 @media (prefers-reduced-motion: reduce){ .tk-thumb{transition:none} }
 
 /* the charts are drawn to the view's height (home-widgets.js) and never
@@ -52,6 +53,12 @@
    never pages the window back. the mouse can drag it, and the chart's names
    are never picked up as text on the way */
 .tk-stage{position:relative; flex:1 1 auto; min-height:0; display:flex; flex-direction:column}
+/* Two permanent layers share the same stage. Opacity changes cannot alter
+   its height; the outgoing drawing remains visible through the crossfade. */
+.tk-layer{position:absolute; inset:0; min-height:0; display:flex; flex-direction:column;
+  opacity:0; pointer-events:none; transition:opacity .22s var(--gentle)}
+.tk-layer.on{opacity:1; pointer-events:auto}
+@media (prefers-reduced-motion: reduce){ .tk-layer{transition:none} }
 .tk-view{flex:1 1 var(--tk-view-h); height:var(--tk-view-h); min-height:0}
 .tk-lane{position:relative; width:100%; height:100%}
 .tk-scroll{height:100%; overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain}
@@ -127,37 +134,32 @@
 .tk-tip .tk-row{display:flex; align-items:center; gap:4px; margin-top:2px}
 .tk-tip .tk-row em{font-style:normal; font-weight:600; color:#FFFFFF; margin-left:auto; padding-left:14px}
 
-/* the wait takes the view's place and the foot's 26px under it, so a panel
-   that hugs its chart is its finished size from the first frame and never
-   moves; in a box of a set size it simply fills what the stage is given */
+/* Loading, empty and failure messages occupy the chart's reserved stage. */
 .tk-wait{flex:1 1 auto; display:flex; align-items:center; justify-content:center;
-  height:calc(var(--tk-view-h) + 26 * var(--u, 1px)); min-height:0; color:var(--sub)}
-.tk-note{flex:none; margin-top:calc(8 * var(--u, 1px)); color:var(--sub)}
-.tk-note:empty{display:none}
+  min-height:0; color:var(--sub); text-align:center}
+/* The footer always occupies one line. The small card spinner retains its
+   seat when hidden, so its arrival never shifts the last-updated text. */
+.tk-status{flex:none; display:flex; align-items:center; gap:calc(6 * var(--u, 1px));
+  min-height:14px; margin-top:calc(8 * var(--u, 1px)); color:var(--sub)}
+.tk-refresh{flex:none; display:inline-flex; width:var(--cardspin-s, 11px); height:var(--cardspin-s, 11px)}
+.tk-refresh[hidden]{display:inline-flex; visibility:hidden}
+.tk-refresh.on::before{animation:tk-refresh-turn .8s steps(4) infinite}
+@keyframes tk-refresh-turn{to{transform:rotate(180deg)}}
+.tk-updated, .lm-updated{font:400 calc(11 * var(--u, 1px))/14px var(--sans); color:var(--sub); white-space:nowrap}
+@media (prefers-reduced-motion: reduce){ .tk-refresh.on::before{animation:none} }
 
-/* the limits box wears the panel's own rectangle (it is a .tk-panel) and is as
-   tall as its rows. a row is the tool and window, a bar and the percent used,
-   laid on one grid so the bars start and end in the same places: the names and
-   the numbers take the width they need and the bar the rest. the bar's fill and
-   track take the token chart's colours (home-widgets.js sets them: the line's
-   daily colour and the heatmap's lightest tint). a fill that meets a new number
-   moves to it over .7s on the board's own curve, and the number's column is
-   always four characters wide, so a bar that crosses 10% or 100% never moves
-   the others' ends. over the rows, the title ("Usage Limits") takes the grid's
-   whole width and is set as the token panel's heading is (.tk-name, same face,
-   size and weight, kept as its own rule because a page may place .tk-name).
-   under the rows, the last-updated line takes the grid's whole width at the
-   left, small and faint like the foot's words */
-.lm-box{height:auto; display:grid; grid-template-columns:max-content minmax(0, 1fr) max-content;
-  align-items:center; column-gap:calc(10 * var(--u, 1px)); row-gap:calc(7 * var(--u, 1px))}
-.lm-title{grid-column:1 / -1; font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink)}
+/* Reserve four plan rows even with no saved reading or only one provider.
+   Replacing a loading message or changing providers never moves either box. */
+.lm-box{height:calc(184 * var(--u, 1px))}
+.lm-rows{flex:1 1 auto; min-height:0; display:grid;
+  grid-template-columns:max-content minmax(0, 1fr) max-content; grid-auto-rows:16px;
+  align-items:center; align-content:center; column-gap:calc(10 * var(--u, 1px)); row-gap:calc(7 * var(--u, 1px))}
+.lm-rows > .tk-wait{grid-column:1 / -1; grid-row:1 / span 4; height:100%}
+.lm-title{flex:none; font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink)}
 .lm-row{display:contents}
 .lm-name{color:var(--ink); white-space:nowrap}
 .lm-bar{display:block; box-sizing:border-box; height:calc(8 * var(--u, 1px)); border-radius:calc(4 * var(--u, 1px)); overflow:hidden;
   border:var(--edge) solid var(--line)}
 .lm-fill{display:block; height:100%; transition:width .7s var(--gentle)}
 .lm-pct{min-width:4ch; color:var(--ink); font-weight:600; text-align:right; font-variant-numeric:tabular-nums}
-.lm-updated{grid-column:1 / -1; justify-self:start; white-space:nowrap; color:var(--sub);
-  font:400 calc(11 * var(--u, 1px))/14px var(--sans)}
-.lm-updated:empty{display:none}
 @media (prefers-reduced-motion: reduce){ .lm-fill{transition:none} }
