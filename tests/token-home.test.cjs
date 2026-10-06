@@ -7,7 +7,7 @@
 // or drag and opens on the latest weeks, and one pill whose seat slides
 // between the two. then index.html's own home block is lifted out of the page
 // and driven through a small DOM: the house opens home, the widgets are
-// fetched only then, the panel asks the route for its days, and every project
+// ready before Home opens, the panel asks the route for its days, and every project
 // tab leaves it. every count below is invented; nothing renders a pixel
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
@@ -106,6 +106,7 @@ function walk(el, out = []) {
   for (const c of el.children) { out.push(c); walk(c, out); }
   return out;
 }
+const activeLayer = root => walk(root).find(n => n.classList.contains("tk-layer") && n.classList.contains("on"));
 function makeDocument() {
   const doc = { listeners: {}, hidden: false };
   doc.createElement = tag => new El(tag, doc);
@@ -494,13 +495,13 @@ test("each chart keeps its own place when the pill switches, and a refresh keeps
   const p = W.panel(root, { load: async () => data, store });
   const stage = walk(root).find(n => n.className === "tk-stage");
   const [heat, line] = walk(root).filter(n => n.dataset.view);
-  const view = () => stage.querySelector(".tk-scroll");
+  const view = () => activeLayer(stage).querySelector(".tk-scroll");
   const room = W.geometry(W.VIEW_H).width - 540;
   await p.refresh();
   assert.equal(view().scrollLeft, room, "the heatmap opens on its latest weeks");
   scrollTo(view(), 100);
   line.click();
-  assert.match(stage.innerHTML, /class="tk-line"/);
+  assert.match(activeLayer(stage).innerHTML, /class="tk-line"/);
   assert.equal(view().scrollLeft, room, "the line opens on its own latest weeks, not where the heatmap was");
   scrollTo(view(), 10);
   heat.click();
@@ -514,7 +515,7 @@ test("each chart keeps its own place when the pill switches, and a refresh keeps
   const q = W.panel(again, { load: async () => data, store });
   await q.refresh();
   assert.equal(q.view(), "line");
-  assert.equal(walk(again).find(n => n.className === "tk-stage").querySelector(".tk-scroll").scrollLeft, room);
+  assert.equal(activeLayer(again).querySelector(".tk-scroll").scrollLeft, room);
 });
 
 test("the box stands in the top right quarter, the charts fill it and scroll natively with no bar", () => {
@@ -538,10 +539,11 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   assert.match(rule(".tk-lane"), /height:100%/);
   assert.doesNotMatch(rule(".tk-view"), /align-items|overflow/, "no band around the chart and no clip over the pinned names");
   // no bar, the board's rule for every scroller, and no smooth scrolling;
-  // the only thing that moves on its own is the pill's seat
+  // the pill slides and the two chart layers crossfade
   assert.match(read("card-tokens.css"), /\*\{scrollbar-width:none\}\n\*::-webkit-scrollbar\{display:none\}/);
   assert.doesNotMatch(css, /scrollbar|\bscroll-behavior/);
-  assert.equal([...css.matchAll(/transition:[^;}]*(opacity|left|transform)/g)].length, 1);
+  assert.equal([...css.matchAll(/transition:[^;}]*(opacity|left|transform)/g)].length, 2);
+  assert.match(rule(".tk-layer"), /transition:opacity \.22s var\(--gentle\)/);
   assert.match(rule(".tk-thumb"), /transition:transform \.28s var\(--gentle\)/);
   assert.doesNotMatch(WIDGETS, /smooth|scrollTo\(|scrollBy\(|requestAnimationFrame/);
   // held and dragged with the mouse, the chart's names never picked up as text
@@ -570,12 +572,12 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   const frame = /body\.focus #appframe\{([^}]*)\}/.exec(HTML.replace(/\/\*[\s\S]*?\*\//g, ""))[1];
   assert.match(frame, /top:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);
   assert.match(frame, /left:var\(--app-inset\); right:var\(--app-inset\); bottom:var\(--app-inset\);/);
-  assert.match(HTML, /body\.focus\.home #homeplot\{height:100%\}/);
+  assert.match(HTML, /body\.focus\.home #homeplot\{height:100%; --tk-panel-h:100%\}/);
   // the panel is a column that fills a box with a height of its own, the view
   // taking what the heading and foot leave; elsewhere the view is 200 tall
   const panelRule = rule(".tk-panel");
   assert.match(panelRule, /--tk-view-h:200px/);
-  assert.match(panelRule, /box-sizing:border-box; height:100%; display:flex; flex-direction:column/);
+  assert.match(panelRule, /box-sizing:border-box; height:var\(--tk-panel-h, 330px\); display:flex; flex-direction:column/);
   assert.match(panelRule, /padding:16px 20px 14px/);
   // where a mouse or trackpad hovers the chrome around the view is cut down so
   // the view takes more of the box; a phone, which does not hover, keeps the
@@ -603,9 +605,9 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   assert.match(rule(".tk-path"), /stroke-width:1\.75px/);
   assert.match(rule(".tk-avg"), /stroke-linecap:round/);
   assert.match(rule(".tk-grid"), /stroke:#EFEBE5/);
-  // the wait holds the view's height and the foot's, so the box never moves
+  // the panel reserves its size and loading content fills the same stage
   assert.match(rule(".tk-wait"), /flex:1 1 auto;/);
-  assert.match(rule(".tk-wait"), /height:calc\(var\(--tk-view-h\) \+ 26px\)/);
+  assert.match(rule(".tk-layer"), /position:absolute; inset:0/);
 });
 
 test("counts read short and the tips name the day", () => {
@@ -717,7 +719,7 @@ test("the panel's line foot follows the tools the route's days carry", async () 
     const p = W.panel(root, { load: async () => ({ days, found: { claude: true, codex: true } }), store: makeStore({ "home.chart": "line" }) });
     await p.refresh();
     const stage = walk(root).find(n => n.className === "tk-stage");
-    return /<span class="tk-sum">(.*?)<\/span>/.exec(stage.innerHTML)[1];
+    return /<span class="tk-sum">(.*?)<\/span>/.exec(activeLayer(stage).innerHTML)[1];
   };
   assert.equal(await footText({ claude: 5, codex: 0 }), "Includes data from Claude");
   assert.equal(await footText({ claude: 0, codex: 5 }), "Includes data from Codex");
@@ -750,9 +752,9 @@ test("one pill switches the panel between the two charts and the choice is remem
   const pressed = () => opts.map(b => b.getAttribute("aria-pressed"));
   assert.deepEqual(pressed(), ["true", "false"]);
   assert.ok(opts[0].classList.contains("on") && !opts[1].classList.contains("on"));
-  assert.match(stage.innerHTML, /class="tk-heat"/);
-  assert.equal((stage.innerHTML.match(/class="tk-day"/g) || []).length, 365);
-  assert.match(stage.innerHTML, /tokens in the last year/);
+  assert.match(activeLayer(stage).innerHTML, /class="tk-heat"/);
+  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 365);
+  assert.match(activeLayer(stage).innerHTML, /tokens in the last year/);
 
   opts[1].click();
   assert.deepEqual(pressed(), ["false", "true"]);
@@ -768,8 +770,8 @@ test("one pill switches the panel between the two charts and the choice is remem
   assert.match(sheet, /@media \(prefers-reduced-motion: reduce\)\{ \.tk-thumb\{transition:none\} \}/);
   assert.match(sheet, /\.tk-opt\{position:relative; z-index:1;[^}]*background:transparent;/);
   assert.match(sheet, /\.tk-opt\.on\{color:var\(--ink\)\}/, "the name shown has no fill of its own; the seat is under it");
-  assert.match(stage.innerHTML, /class="tk-line"/);
-  assert.doesNotMatch(stage.innerHTML, /class="tk-heat"/);
+  assert.match(activeLayer(stage).innerHTML, /class="tk-line"/);
+  assert.doesNotMatch(activeLayer(stage).innerHTML, /class="tk-heat"/);
   assert.equal(store.getItem("home.chart"), "line");
   assert.equal(p.view(), "line");
 
@@ -779,7 +781,7 @@ test("one pill switches the panel between the two charts and the choice is remem
   assert.equal(again.view(), "line");
 
   opts[0].click();
-  assert.match(stage.innerHTML, /class="tk-heat"/);
+  assert.match(activeLayer(stage).innerHTML, /class="tk-heat"/);
   assert.equal(store.getItem("home.chart"), "heatmap");
   p.show("pie");
   assert.equal(p.view(), "heatmap", "an unknown chart changes nothing");
@@ -791,15 +793,14 @@ test("the panel says so when the counts cannot be read or no logs were found", a
   const failing = new El("div", doc);
   const p = W.panel(failing, { load: async () => { throw new Error("down"); }, store: null });
   await p.refresh();
-  assert.match(failing.textContent, /could not be read/);
+  assert.match(failing.textContent, /Token usage is unavailable/);
   const empty = new El("div", doc);
   const q = W.panel(empty, { load: async () => ({ days: daysEnding("2026-09-27", 371, () => 0),
                                                   found: { claude: false, codex: false } }), store: null });
   await q.refresh();
-  const note = walk(empty).find(n => n.className === "tk-note");
-  assert.match(note.textContent, /No Claude Code or Codex logs/);
-  const stage = walk(empty).find(n => n.className === "tk-stage");
-  assert.equal((stage.innerHTML.match(/fill="#EEEAE4"/g) || []).length, 365, "an empty year is still drawn");
+  assert.match(empty.textContent, /No token usage yet/);
+  assert.match(empty.textContent, /Last updated: now/);
+  assert.equal(activeLayer(empty).tkModel, null, "an empty reading uses the calm message");
 });
 
 // ---- the home page in the board --------------------------------------------------------
@@ -816,9 +817,9 @@ test("the board's markup, sheet and routes carry the home page", () => {
   assert.match(HTML, /body\.focus :is\(#homeico[^)]*\):hover,\s*body\.focus\.home #homeico\{color:var\(--ink\)\}/);
   assert.match(HTML, /body\.focus\.home #stage\{visibility:hidden; opacity:0; pointer-events:none\}/);
   assert.match(HTML, /body\.focus\.home #home\{display:block;/);
-  // the widgets are fetched when home opens, never on boot
-  assert.doesNotMatch(HTML, /<script src="\/home-widgets\.js">/);
-  assert.doesNotMatch(HTML, /<link[^>]*home-widgets\.css/);
+  // shared widget assets load before the page script can open Home
+  assert.match(HTML, /<script src="\/home-widgets\.js">/);
+  assert.match(HTML, /<link[^>]*home-widgets\.css/);
   // every project tab leaves home, the plus does too, no tab is seated while it
   // is up, and the board's keys are off
   const setTab = HTML.slice(HTML.indexOf("function setTab("), HTML.indexOf("\n}\n", HTML.indexOf("function setTab(")));
@@ -859,22 +860,26 @@ function homeBlock({ serve = true, stored = {} } = {}) {
       return { ok: true, json: async () => ({ days: daysEnding("2026-09-27", 371), found: { claude: true, codex: true } }) }; },
   };
   ctx.window = ctx;
+  ctx.addEventListener = doc.addEventListener;
   // appending the script is where a browser would fetch it: here it runs the
   // real file into the same sandbox, or fails the way a 404 does
   doc.head.append = (...nodes) => {
     for (const n of nodes) {
       doc.head.appendChild(n);
       if (n.tagName !== "SCRIPT") continue;
-      if (serve) { vm.runInContext(WIDGETS, ctx); n.onload(); } else n.onerror();
+      queueMicrotask(() => {
+        if (serve) { vm.runInContext(WIDGETS, ctx); n.onload(); } else n.onerror();
+      });
     }
   };
   vm.createContext(ctx);
+  if (serve) vm.runInContext(WIDGETS, ctx);
   vm.runInContext(HTML.slice(start, end), ctx);
   const is = name => vm.runInContext(name, ctx);
   return { ctx, doc, byId, inside, store, fetched, tabs, timers, is };
 }
 
-test("the house opens home, fetches the widgets then, and a project tab leaves it", async () => {
+test("the house opens its prepared widgets and a project tab leaves it", async () => {
   const h = homeBlock();
   h.doc.activeElement = h.inside;              // typing in the board when home opens
   h.ctx.editMode = true;                       // and arranging it
@@ -888,14 +893,12 @@ test("the house opens home, fetches the widgets then, and a project tab leaves i
   assert.equal(h.doc.activeElement, h.doc.body, "and its typing");
   assert.equal(h.tabs.length, 1, "the tabs are drawn again with none seated");
   await settle();
-  const [sheet, script] = h.doc.head.children;
-  assert.equal(sheet.href, "/home-widgets.css");
-  assert.equal(script.src, "/home-widgets.js");
+  assert.equal(h.doc.head.children.length, 0, "no delayed widget download on opening");
   assert.deepEqual(h.fetched, ["/tokens/daily?days=371"]);
   const panel = h.byId.homeplot.children[0];
   assert.equal(panel.className, "tk-panel");
   const stage = walk(panel).find(n => n.className === "tk-stage");
-  assert.equal((stage.innerHTML.match(/class="tk-day"/g) || []).length, 365);
+  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 365);
   assert.equal([...h.timers.values()].filter(t => t.ms === 5 * 60 * 1000).length, 1, "asks again every five minutes");
 
   // the house is a place: pressing it again changes nothing
@@ -914,12 +917,12 @@ test("the house opens home, fetches the widgets then, and a project tab leaves i
   // back again: the same panel asks again, and nothing is fetched twice
   h.byId.homeico.click();
   await settle();
-  assert.equal(h.doc.head.children.length, 2);
+  assert.equal(h.doc.head.children.length, 0);
   assert.equal(h.byId.homeplot.children.length, 1);
   assert.deepEqual(h.fetched, ["/tokens/daily?days=371", "/tokens/daily?days=371"]);
 });
 
-test("a reload comes back to home, and a board without the files says so", async () => {
+test("a reload comes back to home, and a failed widget download can be retried", async () => {
   const back = homeBlock({ stored: { homeopen: "1" } });
   assert.equal(back.is("homeOpen"), false);
   for (const fn of back.doc.listeners.DOMContentLoaded) fn();
@@ -930,7 +933,8 @@ test("a reload comes back to home, and a board without the files says so", async
   const old = homeBlock({ serve: false });
   old.byId.homeico.click();
   await settle();
-  assert.match(old.byId.homeplot.textContent, /needs the server restart/);
+  assert.equal(old.is("homePanel"), null);
+  assert.equal(old.is("homeLoad"), null, "connection recovery can retry the download");
   assert.deepEqual(old.fetched, []);
   assert.equal(old.doc.head.children.filter(n => n.tagName === "SCRIPT").length, 0, "the failed script is taken back out");
 });

@@ -3262,7 +3262,7 @@
      token box and as wide, so both share the line, and the pair is centred in
      the frame however tall the limits box is, following the window. the token
      box keeps its 35% of the frame's height and gives up height only when the
-     pair would not otherwise fit; the limits box is as tall as its rows. the
+     pair would not otherwise fit; the limits box reserves all four rows. the
      column takes no clicks, only the two boxes do. the panel fills the token box and its
      charts are drawn to the height left for them, scrolling sideways inside
      it (home-widgets.css) */
@@ -3280,7 +3280,7 @@
   #home{display:none}
   body.focus.home #home{display:block; flex:0 1 calc((var(--home-b) - var(--home-t)) * .35);
     min-height:0; pointer-events:auto}
-  body.focus.home #homeplot{height:100%}
+  body.focus.home #homeplot{height:100%; --tk-panel-h:100%}
   #homelimits{display:none}
   body.focus.home #homelimits:not([hidden]){display:block; flex:none; pointer-events:auto}
   /* a thin vertical line at the exact horizontal centre of the same frame, 70%
@@ -3472,6 +3472,7 @@
     100%{transform:scale(0) rotate(14deg)}}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
+<link id="homesheet" rel="stylesheet" href="/home-widgets.css">
 </head>
 <body class="focus">
 
@@ -3585,12 +3586,12 @@
 </div>
 
 <!-- the home page, opened by the house in the bar: blank but for the token
-     panel, which home-widgets.js builds into #homeplot the first time home
-     opens. like the landing above it stands outside the stage -->
+     panel, which home-widgets.js builds from the last saved reading on load.
+     Like the landing above it stands outside the stage -->
 <div id="homepair">
   <section id="home" aria-label="Home"><div id="homeplot"></div></section>
   <!-- the limits box, directly under the token box and as wide: home-widgets.js
-       draws it, and it stays hidden while it has no row -->
+       draws it at its finished size even before its first reading -->
   <section id="homelimits" aria-label="Plan limits" hidden></section>
 </div>
 <!-- the thin line down the middle of the home page's frame, between the two halves -->
@@ -3619,6 +3620,7 @@
 <script src="/mac-phone-view.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
+<script src="/home-widgets.js"></script>
 <script>
 // what this page throws, what it fails to fetch and what it fails to draw goes
 // to the board's own log; without it a failure leaves nothing behind at all
@@ -4730,8 +4732,8 @@ document.getElementById("npstart").addEventListener("click", async () => {
 // Code's status line has written since and a renewal that has finished. The
 // box keeps its last answer in this browser and draws it as soon as it is made,
 // and its "Last updated" line is counted again every few seconds while home is up.
-// It is made, and asked once, when the page loads (homeWarm), so a press of the
-// house finds it drawn.
+// Both panels are made from saved readings on load, then renewed at idle
+// (homeWarm), so a press of the house finds both drawn.
 const HOME_KEY = "homeopen";
 const HOME_EVERY = 5 * 60 * 1000;
 const LIMITS_EVERY = 60 * 1000;
@@ -4744,11 +4746,8 @@ let homeTimer = null;
 let limitsTimer = null;
 let limitsTick = null;
 let homeLoad = null;
-// the panel's code and sheet, fetched when the page has loaded and is idle, or
-// when home opens if that comes first: they are small (about 40 KB), and having
-// them in hand is what lets the limits box be drawn in the same frame as the
-// press of the house, not a round trip later. a server from before the files
-// answers 404 and the page says so instead of sitting there empty
+// The shared assets load with the page so cached panels can be built in the
+// same frame as Home opens. Retry a failed script when connectivity returns.
 function homeBundle(){
   if (window.TokenWidgets) return Promise.resolve(true);
   if (homeLoad) return homeLoad;
@@ -4768,19 +4767,25 @@ function homeBundle(){
   });
   return homeLoad;
 }
-async function homeShow(){
+function homeMake(){
+  if (!window.TokenWidgets) return false;
   const plot = document.getElementById("homeplot");
-  if (!homePanel){
-    if (!await homeBundle()){
-      if (homeOpen && !homePanel) plot.textContent = "The home page needs the server restart.";
-      return;
-    }
-    // the chart the reader picked is one of the board's settings; the limits
-    // box keeps its last reading in this browser, as a cache
-    if (!homePanel) homePanel = TokenWidgets.panel(plot, { store: settingsStore });
-    homeLimitsMake();
+  if (!homePanel) homePanel = TokenWidgets.panel(plot, { store: settingsStore });
+  homeLimitsMake();
+  return true;
+}
+function homeTick(){
+  if (homePanel) homePanel.tick();
+  if (homeLimits) homeLimits.tick();
+}
+async function homeShow(){
+  // No await on the warm path: cached content is present before the next paint.
+  if (!homeMake()){
+    if (!await homeBundle()) return;
+    homeMake();
   }
   if (!homeOpen) return;
+  homeTick();
   homePanel.refresh();
   clearInterval(homeTimer);
   homeTimer = setInterval(() => { if (!document.hidden) homePanel.refresh(); }, HOME_EVERY);
@@ -4788,24 +4793,33 @@ async function homeShow(){
     homeLimits.refresh();
     clearInterval(limitsTimer);
     limitsTimer = setInterval(() => { if (!document.hidden) homeLimits.refresh(); }, LIMITS_EVERY);
-    clearInterval(limitsTick);
-    limitsTick = setInterval(() => homeLimits.tick(), LIMITS_TICK);
   }
+  clearInterval(limitsTick);
+  limitsTick = setInterval(() => { if (!document.hidden) homeTick(); }, LIMITS_TICK);
 }
 function homeLimitsMake(){
   const spot = document.getElementById("homelimits");
   if (spot && !homeLimits && window.TokenWidgets && TokenWidgets.limits) homeLimits = TokenWidgets.limits(spot);
 }
-// on load, once the page is idle: bring in the home page's files, make the
-// limits box (which draws what this browser kept of the last answer) and ask
-// for the numbers, so they are stored and drawn before the house is pressed
-function homeWarm(){
-  homeBundle().then(ok => {
-    if (!ok) return;
-    homeLimitsMake();
-    if (homeLimits) homeLimits.refresh();
-  });
+// Prepare both cached drawings and renew them once while the page is idle.
+async function homeWarm(){
+  if (!homeMake()){
+    if (!await homeBundle()) return;
+    homeMake();
+  }
+  homePanel.refresh();
+  if (homeLimits) homeLimits.refresh();
 }
+function homePause(){
+  if (homeLimits) homeLimits.pause();
+}
+function homeWake(){
+  if (homeOpen && !document.hidden) homeShow();
+  else homePause();
+}
+window.addEventListener("online", homeWake);
+window.addEventListener("pageshow", homeWake);
+document.addEventListener("visibilitychange", homeWake);
 function setHome(on){
   homeOpen = !!on;
   try {
@@ -4820,6 +4834,7 @@ function setHome(on){
   limitsTimer = null;
   clearInterval(limitsTick);
   limitsTick = null;
+  if (!homeOpen) homePause();
   if (homeOpen){
     // the board's own arranging and typing go with the board
     if (editMode) setEditMode(false);
@@ -4835,6 +4850,7 @@ document.getElementById("homeico").addEventListener("click", () => { if (!homeOp
 // state declared further down
 document.addEventListener("DOMContentLoaded", () => {
   let wanted = false;
+  if (FOCUS) homeMake();
   try { wanted = !!localStorage.getItem(HOME_KEY); } catch (err){}
   if (FOCUS && wanted) setHome(true);
   else if (FOCUS) (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(homeWarm);

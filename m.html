@@ -542,7 +542,7 @@
   /* ---- the home page ------------------------------------------------------ */
   /* a blank page above every project holding the board's name, mark and
      version and, under them, the token panel and the limits box, the board's
-     own (home-widgets.css, fetched once the page is idle). the three stand as
+     own (home-widgets.css, loaded with the page). the three stand as
      one stack in the middle of the page, from the status bar's margin to the
      row's band, and a stack taller than that scrolls from its top. it
      takes the card's place over the row: the card stays laid out, only out of
@@ -566,10 +566,10 @@
   #homestack{flex:none; margin:auto 0}
   /* the desktop's lockup, the mark left of the word and the version under it,
      a little smaller. the mark's place is kept before it arrives so the word
-     does not move. the version hangs below the line into the gap under it,
-     which is wider than the 8px between the two boxes. the line's spare room
+     does not move. its version has room inside the cluster, leaving a clear
+     16px gap below it, twice the 8px between the boxes. the line's spare room
      above the word is taken off the top, so it is the ink that stands centred */
-  #homebrand{display:flex; align-items:center; justify-content:center; gap:calc(5 * var(--u)); margin:calc(-4 * var(--u)) 0 calc(20 * var(--u));
+  #homebrand{display:flex; align-items:center; justify-content:center; gap:calc(5 * var(--u)); margin:calc(-4 * var(--u)) 0 calc(16 * var(--u)); padding-bottom:calc(11 * var(--u));
     font:700 calc(36 * var(--u))/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
   #homemark{flex:none; width:calc(37 * var(--u)); height:calc(29 * var(--u)); background:center / contain no-repeat;
     opacity:0; transition:opacity .3s var(--gentle)}
@@ -1559,6 +1559,7 @@
      is what the file says on its own, and the one copy of the sheet is still
      card-tokens.css -->
 <link rel="stylesheet" href="/card-tokens.css">
+<link id="homesheet" rel="stylesheet" href="/home-widgets.css">
 <script id="page-zoom-guard">
 // manipulation permits pinching, so cancel iOS's zoom gesture defaults.
 // Capture also covers gestures over controls that stop propagation. Ordinary
@@ -1630,9 +1631,9 @@ for (const type of ["gesturestart", "gesturechange"])
     <div id="empty">no cards on this tab yet</div>
     <div id="cards"></div>
     <!-- the home page, opened by the house: the board's name, mark and version,
-         then the token panel, which home-widgets.js builds into #homeplot the
-         first time home opens, and under it the limits box, #homelimits,
-         hidden until it has a row -->
+         then the token panel, which home-widgets.js builds into #homeplot when
+         the page loads, and under it the limits box, #homelimits. Both reserve
+         their finished size even before their first reading -->
     <section id="home" aria-label="Home"><div id="homestack">
       <div id="homebrand"><span id="homemark" aria-hidden="true"></span><span id="homebrandcopy"><span id="homebrandname">Facilitator</span><span id="homeversion"></span></span></div>
       <div id="homeplot"></div><div id="homelimits" hidden></div>
@@ -1735,6 +1736,7 @@ for (const type of ["gesturestart", "gesturechange"])
 <script src="/card-logic.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
+<script src="/home-widgets.js"></script>
 <script src="/m-splash.js"></script>
 <script>
 // Only the Mac's own same-origin frame can enable the host adapter. A direct
@@ -3955,8 +3957,8 @@ function applySelection(state){
 // status line has written since and a renewal that has finished. The box keeps
 // its last answer in this phone and draws it as soon as it is made, and its
 // "Last updated" line is counted again every few seconds while home is up. It
-// is made, and asked once, when the page loads (homeWarm), so a tap on the
-// house finds it drawn.
+// and the token panel are made from saved readings on load, then renewed at
+// idle (homeWarm), so a tap on the house finds both drawn.
 const HOME_KEY = "homeopen";
 const HOME_EVERY = 5 * 60 * 1000;
 const LIMITS_EVERY = 60 * 1000;
@@ -3968,12 +3970,8 @@ let homeTimer = null;
 let limitsTimer = null;
 let limitsTick = null;
 let homeLoad = null;
-// the panel's code and sheet, fetched when the page has loaded and is idle, or
-// when home opens if that comes first: they are small (about 40 KB), and having
-// them in hand is what lets the limits box be drawn in the same frame as the
-// tap on the house, not a round trip later. they come from the server this
-// page came from, so one that cannot be had is a board that cannot be reached
-// right now, and a press on the house asks again
+// The shared assets load with the page so cached panels can be built in the
+// same frame as Home opens. Retry a failed script when connectivity returns.
 function homeBundle(){
   if (window.TokenWidgets) return Promise.resolve(true);
   if (homeLoad) return homeLoad;
@@ -3993,17 +3991,25 @@ function homeBundle(){
   });
   return homeLoad;
 }
-async function homeShow(){
+function homeMake(){
+  if (!window.TokenWidgets) return false;
   const plot = document.getElementById("homeplot");
-  if (!homePanel){
-    if (!await homeBundle()){
-      if (homeOpen && !homePanel) plot.textContent = "The home page could not be loaded. Tap the house to try again.";
-      return;
-    }
-    if (!homePanel) homePanel = TokenWidgets.panel(plot);
-    homeLimitsMake();
+  if (!homePanel) homePanel = TokenWidgets.panel(plot);
+  homeLimitsMake();
+  return true;
+}
+function homeTick(){
+  if (homePanel) homePanel.tick();
+  if (homeLimits) homeLimits.tick();
+}
+async function homeShow(){
+  // No await on the warm path: cached content is present before the next paint.
+  if (!homeMake()){
+    if (!await homeBundle()) return;
+    homeMake();
   }
   if (!homeOpen) return;
+  homeTick();
   homePanel.refresh();
   clearInterval(homeTimer);
   homeTimer = setInterval(() => { if (!document.hidden) homePanel.refresh(); }, HOME_EVERY);
@@ -4011,24 +4017,33 @@ async function homeShow(){
     homeLimits.refresh();
     clearInterval(limitsTimer);
     limitsTimer = setInterval(() => { if (!document.hidden) homeLimits.refresh(); }, LIMITS_EVERY);
-    clearInterval(limitsTick);
-    limitsTick = setInterval(() => homeLimits.tick(), LIMITS_TICK);
   }
+  clearInterval(limitsTick);
+  limitsTick = setInterval(() => { if (!document.hidden) homeTick(); }, LIMITS_TICK);
 }
 function homeLimitsMake(){
   const spot = document.getElementById("homelimits");
   if (spot && !homeLimits && window.TokenWidgets && TokenWidgets.limits) homeLimits = TokenWidgets.limits(spot);
 }
-// on load, once the page is idle: bring in the home page's files, make the
-// limits box (which draws what this phone kept of the last answer) and ask for
-// the numbers, so they are stored and drawn before the house is tapped
-function homeWarm(){
-  homeBundle().then(ok => {
-    if (!ok) return;
-    homeLimitsMake();
-    if (homeLimits) homeLimits.refresh();
-  });
+// Prepare both cached drawings and renew them once while the page is idle.
+async function homeWarm(){
+  if (!homeMake()){
+    if (!await homeBundle()) return;
+    homeMake();
+  }
+  homePanel.refresh();
+  if (homeLimits) homeLimits.refresh();
 }
+function homePause(){
+  if (homeLimits) homeLimits.pause();
+}
+function homeWake(){
+  if (homeOpen && !document.hidden) homeShow();
+  else homePause();
+}
+window.addEventListener("online", homeWake);
+window.addEventListener("pageshow", homeWake);
+document.addEventListener("visibilitychange", homeWake);
 // the heading's mark and version are the board page's own, read from the page
 // served at "/" (its #npmark and #npversion, the version's one source) and not
 // written again here. they are kept in this phone and asked for again after a
@@ -4079,6 +4094,7 @@ function setHome(on){
   limitsTimer = null;
   clearInterval(limitsTick);
   limitsTick = null;
+  if (!homeOpen) homePause();
   if (homeOpen){
     // the house leaves the board the way another tab does: the card on screen
     // is no longer selected, so coming back shows it browsed
@@ -4099,6 +4115,7 @@ house.addEventListener("click", () => {
 document.addEventListener("DOMContentLoaded", () => {
   let wanted = false;
   brandStart();
+  homeMake();
   try { wanted = !!localStorage.getItem(HOME_KEY); } catch (err){}
   if (wanted && !wantBox) setHome(true);
   else (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(homeWarm);
