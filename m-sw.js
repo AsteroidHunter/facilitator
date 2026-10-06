@@ -6,15 +6,17 @@
    from a copy; only when the server cannot answer it is the white "server
    down" screen (below) put in its place. Static renderer files and the splash
    picture can be kept; readings and commands always go straight to the server.
-   Every fetch the worker makes itself has a deadline, except the page open:
-   a slow page is still a page, and the browser gives up on a dead one itself.
+   Every fetch the worker makes itself has a deadline. The page open's is on
+   its first answer only: a Mac that has said nothing at all for 8 seconds gets
+   the down screen, and one that has started answering is waited for however
+   slow the rest of the page is, since a slow page is still a page.
 
    No board data is kept anywhere here. The page's startup screen waits for a
    live reading before it shows the board, so a stored copy could not shorten a
    start; it could only make one look connected when it was not. */
 
 /* New cache name drops previously kept authenticated pages and manifests. */
-const CACHE = "facilitator-m-11";
+const CACHE = "facilitator-m-12";
 const SHELL = ["/card-markdown.js", "/card-tokens.css", "/card-logic.js",
                "/compose-format.js"];
 /* The squid the page paints the phone's own launch image from. It is kept
@@ -59,14 +61,20 @@ const PUSH_LOG_DEADLINE_MS = 4000;
    network, so there is nothing else to have kept before the server goes away.
 
    An answer of 502, 503 or 504 is what a proxy in front of a stopped server
-   says; anything else, a refusal included, is the server answering. The page
-   asks for the manifest every few seconds, a small public file the board
-   serves, and reloads itself as soon as that is answered. */
+   says; anything else, a refusal included, is the server answering. A page
+   open that has had no answer at all for FIRST_ANSWER_MS gets the screen too:
+   a Mac that cannot be reached (Tailscale off, its Wi-Fi off, asleep) may
+   never fail the request, it just never answers. Under the words the screen
+   counts down to its next try, the same count m.html runs (downRetry below).
+   Each try asks for the page this screen stands in for, with the same time for
+   its answer to start, and only a page that comes back reloads the screen into
+   the app, so a broken page is never reloaded into over and over. */
 const DOWN_STATUS = [502, 503, 504];
-const DOWN_POLL_MS = 3000;
+const FIRST_ANSWER_MS = 8000;
 const DOWN_WORDS = "Is the Facilitator server down?";
 const DOWN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m6.5 8 3.5 3.5m0-3.5-3.5 3.5m7.5-3.5 3.5 3.5m0-3.5-3.5 3.5"/><path d="M8.5 17c1-1.2 2.2-1.8 3.5-1.8s2.5.6 3.5 1.8"/></svg>';
-const DOWN_MARKUP = '<div id="serverdown" role="alert"><p>' + DOWN_ICON + DOWN_WORDS + '</p></div>';
+const DOWN_RETRY = '<p class="retry" aria-live="off"><span class="spin" aria-hidden="true"></span>Retrying<span class="in"> in 3 seconds</span></p>';
+const DOWN_MARKUP = '<div id="serverdown" role="alert"><div class="say"><p>' + DOWN_ICON + DOWN_WORDS + '</p>' + DOWN_RETRY + '</div></div>';
 /* the page's first web font sheet, the one m.html asks for, so the words are in
    the same face and a copy the phone already holds is used */
 const DOWN_FONTS = "https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
@@ -78,7 +86,7 @@ const DOWN_PAGE = `<!doctype html>
 <meta name="theme-color" content="#FFFFFF">
 <title>facilitator</title>
 <style>
-  :root{--ink:#211D17; --sans:"IBM Plex Sans", -apple-system, sans-serif; --root-h:100%}
+  :root{--ink:#211D17; --sans:"IBM Plex Sans", -apple-system, sans-serif; --mono:"IBM Plex Mono", ui-monospace, monospace; --root-h:100%}
   @media (display-mode:standalone){ :root{--root-h:100vh} }
   *{box-sizing:border-box}
   html{height:var(--root-h); -webkit-text-size-adjust:100%}
@@ -95,8 +103,30 @@ const DOWN_PAGE = `<!doctype html>
     -webkit-user-select:none; user-select:none;
   }
   body.down #serverdown{display:flex}
-  #serverdown p{margin:0}
-  #serverdown svg{width:1em; height:1em; margin-right:.4em; vertical-align:-.15em}
+  /* the words and the count under them are two lines of one box, both starting
+     at its left edge with no indent, so the R of "Retrying" stands under the I
+     of "Is". the face and the spinner hang to the left of that edge, out of the
+     lines, so neither moves a letter by being there or not. the box's margin is
+     the face's width and its gap, so the words stand where they always stood */
+  #serverdown .say{position:relative; padding-left:1.4em; text-align:left}
+  #serverdown p{margin:0; position:relative}
+  #serverdown svg, #serverdown .spin{position:absolute; right:100%; top:.225em; width:1em; height:1em; margin-right:.4em}
+  /* the count is out of the flow where it stands, under the words, so the box
+     is one line tall and the words stay at the middle of the screen */
+  #serverdown .retry{position:absolute; white-space:nowrap}
+  /* the card spinner's mark, turn and fade (card-tokens.css .cardspin, and
+     Home's refresh marker), written out because this screen has no sheet */
+  #serverdown .spin{opacity:0}
+  #serverdown .spin::before{content:"|"; display:block; font:600 1em/1em var(--mono); text-align:center;
+    animation:downturn .8s steps(4) infinite}
+  @keyframes downturn{to{transform:rotate(180deg)}}
+  #serverdown .in, #serverdown .spin{transition:opacity .26s cubic-bezier(.42,.06,.38,1)}
+  #serverdown .trying .in{opacity:0}
+  #serverdown .trying .spin{opacity:1}
+  @media (prefers-reduced-motion: reduce){
+    #serverdown .spin::before{animation:none}
+    #serverdown .in, #serverdown .spin{transition:none}
+  }
 </style>
 </head>
 <body class="down">
@@ -115,28 +145,30 @@ ${DOWN_MARKUP}
     link.href = ${JSON.stringify(DOWN_FONTS)};
     document.head.appendChild(link);
   }
-  // ask the board every few seconds, and at once when the phone wakes or
-  // comes back online; the page it answers is the app, so reload into it
-  const DOWN_STATUS = ${JSON.stringify(DOWN_STATUS)};
-  let asking = false;
-  async function ask() {
-    if (asking) return;
-    asking = true;
+  // the count to each try, and at once when the phone wakes or comes back
+  // online. a try asks for this same page, as the reload would, with the same
+  // time for its answer to start; only a page that comes back is the app, so
+  // only then does the screen reload into it, still saying Retrying. the
+  // page's own words are not waited for: the reload asks for them again
+${downRetry}
+  const retry = downRetry(document.querySelector("#serverdown .retry"), async () => {
     const stop = new AbortController();
-    const timer = setTimeout(() => stop.abort(), 5000);
+    const timer = setTimeout(() => stop.abort(), ${FIRST_ANSWER_MS});
     try {
-      const answer = await fetch("/m-manifest.json", { cache: "no-store", signal: stop.signal });
-      if (!DOWN_STATUS.includes(answer.status)) location.reload();
+      const answer = await fetch(location.href, { cache: "no-store", signal: stop.signal });
+      if (!answer.ok) return false;
+      location.reload();
+      return true;
     } catch (error) {
-      // still down: try again at the next turn
+      return false;   // still down: the count starts again
     } finally {
       clearTimeout(timer);
-      asking = false;
+      stop.abort();
     }
-  }
-  setInterval(ask, ${DOWN_POLL_MS});
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) ask(); });
-  addEventListener("online", ask);
+  });
+  retry.start();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) retry.now(); });
+  addEventListener("online", () => retry.now());
 </script>
 </body>
 </html>
@@ -149,16 +181,70 @@ function downPage() {
   });
 }
 
-// The page open, asked of the server every time. A failed request or a proxy's
-// 502, 503 or 504 gets the down screen; every other answer is passed on as it came.
+// The page open, asked of the server every time. A failed request, a proxy's
+// 502, 503 or 504, or no answer at all within FIRST_ANSWER_MS gets the down
+// screen; every other answer is passed on as it came. The limit is on the answer
+// starting and is gone once it has: the body that follows is the browser's to
+// read, however slowly it comes. The request is passed on exactly as the
+// navigation made it (a signal would make it a script's fetch, which the board
+// tells apart), so a request cut off here is left to settle on its own.
 async function openPage(request) {
+  let timer = null;
+  const silence = new Promise(resolve => { timer = setTimeout(resolve, FIRST_ANSWER_MS, null); });
   let answer;
   try {
-    answer = await fetch(request);
+    answer = await Promise.race([fetch(request), silence]);
   } catch (error) {
     return downPage();
+  } finally {
+    clearTimeout(timer);
   }
+  if (answer === null) return downPage();
   return DOWN_STATUS.includes(answer.status) ? downPage() : answer;
+}
+
+/* THE WHITE SCREEN'S COUNT TO ITS NEXT TRY. Never run in the worker: the down
+   screen above carries its source, and m.html runs a copy of it, which
+   tests/phone-server-down-retry.test.cjs holds to being the same text.
+
+   Under the words the line reads "Retrying in 3 seconds", then 2, then
+   "1 second", a second apart. Just before zero the "in N seconds" fades out and
+   the spinner fades in to the left of "Retrying" (the CSS fade is FADE_MS), and
+   at zero ask() makes the try. A try that is answered resolves true and the
+   screen goes; one that is not resolves false and the count starts again, once
+   the spinner has made at least one whole turn, so a try refused at once is
+   still seen being made. now() skips what is left of a count. */
+function downRetry(line, ask){
+  const GAP_S = 3, FADE_MS = 260, TURN_MS = 800;
+  const words = line.querySelector(".in");
+  let timers = [], on = false, trying = null;
+  const at = (ms, then) => { timers.push(setTimeout(then, ms)); };
+  const clear = () => { for (const timer of timers) clearTimeout(timer); timers = []; };
+  const say = n => { words.textContent = " in " + n + (n === 1 ? " second" : " seconds"); };
+  function count(){
+    clear();
+    say(GAP_S);
+    line.classList.remove("trying");
+    for (let n = GAP_S - 1; n >= 1; n--) at((GAP_S - n) * 1000, () => say(n));
+    at(GAP_S * 1000 - FADE_MS, () => line.classList.add("trying"));
+    at(GAP_S * 1000, run);
+  }
+  async function run(){
+    clear();
+    line.classList.add("trying");
+    const mine = trying = {};
+    const began = Date.now();
+    let answered = false;
+    try { answered = await ask(); } catch (_) {}
+    if (trying !== mine) return;   // stopped, or started over, while it ran
+    trying = null;
+    if (!answered) at(Math.max(0, began + TURN_MS - Date.now()), count);
+  }
+  return {
+    start(){ if (!on){ on = true; count(); } },
+    stop(){ if (on){ on = false; trying = null; clear(); line.classList.remove("trying"); } },
+    now(){ if (on && !trying) run(); },
+  };
 }
 
 function bounded(request, ms) {

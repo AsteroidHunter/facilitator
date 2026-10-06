@@ -22,6 +22,8 @@ const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PHONE = { width: 375, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const WORDS = "Is the Facilitator server down?";
+// the words and the count under them; the count's words are there, faded or not
+const SAID = /^Is the Facilitator server down\?\nRetrying in (3 seconds|2 seconds|1 second)$/;
 
 const settle = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -30,7 +32,7 @@ const settle = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function loadWorker(fetchImpl) {
   const handlers = {};
   const context = {
-    URL, AbortSignal, Promise, Response, Headers,
+    URL, AbortSignal, Promise, Response, Headers, setTimeout, clearTimeout,
     fetch: fetchImpl,
     caches: { keys: async () => [], open: async () => ({ addAll: async () => {} }), match: async () => undefined },
     self: {
@@ -101,15 +103,16 @@ test("the worker's screen is a copy of m.html's: markup, rules, tokens, font she
   const page = await (await answerTo(handlers)).text();
   const need = (found, what) => { assert.ok(found, `m.html has no ${what}`); return found[0]; };
 
-  const markup = need(html.match(/<div id="serverdown"[\s\S]*?<\/div>/), "server down markup");
+  const markup = need(html.match(/<div id="serverdown"[\s\S]*?<\/div><\/div>/), "server down markup");
   assert.ok(page.includes(markup), "the markup, the icon and the words differ from the page's");
   assert.ok(markup.includes(WORDS));
+  assert.ok(markup.includes("Retrying"), "the count under the words is missing");
 
-  const rules = need(html.match(/ {2}#serverdown\{[\s\S]*?#serverdown svg\{[^}]*\}\n/), "server down rules");
+  const rules = need(html.match(/ {2}#serverdown\{[\s\S]*?#serverdown \.in, #serverdown \.spin\{transition:none\}\n {2}\}\n/), "server down rules");
   assert.ok(page.includes(rules), "the rules for the screen differ from the page's");
 
   for (const [name, pattern] of [
-    ["ink", /--ink:[^;]+;/], ["typeface", /--sans:[^;]+;/],
+    ["ink", /--ink:[^;]+;/], ["typeface", /--sans:[^;]+;/], ["spinner face", /--mono:[^;]+;/],
   ]) {
     assert.ok(page.includes(need(tokens.match(pattern), `${name} token`)), `the ${name} differs from card-tokens.css`);
   }
@@ -219,10 +222,21 @@ async function screenState(page) {
     const pick = (node, names) => Object.fromEntries(names.map(name => [name, getComputedStyle(node)[name]]));
     const rect = node => { const r = node.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; };
     const middle = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+    // where the first letter of a line's own words starts on the screen
+    const firstLetter = node => {
+      const text = [...node.childNodes].find(child => child.nodeType === Node.TEXT_NODE);
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, 1);
+      return { letter: range.toString(), left: range.getBoundingClientRect().left };
+    };
+    const retry = screen.querySelector(".retry");
     return {
       present: true,
       shown: getComputedStyle(screen).display !== "none",
       words: line.textContent,
+      letters: [firstLetter(line), firstLetter(retry)],
+      retryRect: rect(retry),
       onTop: !!middle.closest("#serverdown") && !!document.elementFromPoint(4, 4).closest("#serverdown"),
       children: [...screen.children].map(node => node.tagName),
       extras: screen.querySelectorAll("button,a,input,progress,textarea,img").length,
@@ -290,9 +304,11 @@ test("a fresh open with the server stopped, then behind a 502, shows the white s
   assert.equal(a.words, WORDS);
   assert.equal(a.screenStyle.backgroundColor, "rgb(255, 255, 255)", "plain white");
   assert.equal(a.onTop, true);
-  assert.deepEqual(a.children, ["P"]);
-  assert.equal(a.extras, 0, "no buttons, no explanation, no spinner");
-  assert.equal(await page.evaluate(() => document.body.innerText.trim()), WORDS);
+  assert.deepEqual(a.children, ["DIV"]);
+  assert.equal(a.extras, 0, "no buttons, no links, no images");
+  assert.match(await page.evaluate(() => document.body.innerText.trim()), SAID);
+  assert.deepEqual(a.letters.map(letter => letter.letter), ["I", "R"]);
+  assert.equal(a.letters[0].left, a.letters[1].left, "the R of Retrying does not stand under the I of Is");
 
   // (b) a proxy in front answers 502 in plain text: the same screen, not the proxy's words
   await startProxy(502, "Bad Gateway");
@@ -301,7 +317,7 @@ test("a fresh open with the server stopped, then behind a 502, shows the white s
   const b = await screenState(page);
   assert.equal(b.present, true, `the proxy's own text showed: ${b.text}`);
   assert.equal(b.words, WORDS);
-  assert.equal(await page.evaluate(() => document.body.innerText.trim()), WORDS);
+  assert.match(await page.evaluate(() => document.body.innerText.trim()), SAID);
   assert.deepEqual(b.rects, a.rects, "the same place on the screen behind the proxy and with the server stopped");
 
   // it stays while the board stays gone, and does not reload itself into the proxy's text
@@ -399,9 +415,12 @@ test("the fresh-open screen and the in-app screen are the same picture", async (
   assert.equal(freshState.present, true);
   assert.deepEqual(freshState.viewport, inAppState.viewport);
   assert.equal(freshState.plexLoaded, inAppState.plexLoaded, "the two are not in the same face");
-  for (const key of ["words", "shown", "onTop", "children", "extras", "screenStyle", "lineStyle", "iconStyle", "rects"]) {
+  for (const key of ["words", "shown", "onTop", "children", "extras", "screenStyle", "lineStyle", "iconStyle", "rects", "letters"]) {
     assert.deepEqual(freshState[key], inAppState[key], `${key} differs between the fresh-open screen and the in-app screen`);
   }
+  // each page counts on its own clock, so the count is held to its place above
+  // (letters), and left out of the picture
+  for (const page of [inApp, app]) await page.addStyleTag({ content: "#serverdown .retry{visibility:hidden}" });
   const shots = [await inApp.screenshot({ type: "png" }), await app.screenshot({ type: "png" })];
   if (!shots[0].equals(shots[1])) {
     const probe = await newContext();
