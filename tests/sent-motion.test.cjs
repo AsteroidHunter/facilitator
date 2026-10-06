@@ -21,10 +21,12 @@ function load(extra = {}) {
   return { context, run: source => vm.runInContext(source, context) };
 }
 
-test("copied send duration and curve are shared by both pages", () => {
+test("the send's lengths are shared by both pages: the iPhone's flight and glide, the sheet's arrival", () => {
   const { run } = load();
+  assert.equal(run("SENT_FLIGHT_MS"), 700);
+  assert.equal(run("SENT_GLIDE_MS"), 340);
+  assert.equal(run("SENT_GLIDE_EASE"), "cubic-bezier(.24,.15,.15,1)");
   assert.equal(run("SENT_ARRIVE_MS"), 400);
-  assert.deepEqual(Array.from(run("SENT_EASE_POINTS")), [.22, 1, .36, 1]);
   assert.match(CSS, /--answ-come:\.4s/);
   assert.match(CSS, /--sent-ease:cubic-bezier\(\.22, 1, \.36, 1\)/);
   assert.match(CSS, /--answ-rise:10px/);
@@ -42,18 +44,21 @@ test("copied send duration and curve are shared by both pages", () => {
   }
 });
 
-test("copied send easing decelerates without overshoot and keeps exact endpoints", () => {
-  const { context } = load();
-  assert.equal(typeof context.sentEase, "function");
-  assert.equal(context.sentEase(0), 0);
-  assert.equal(context.sentEase(1), 1);
-  assert.ok(Math.abs(context.sentEase(.5) - .96138) < .0001);
-  let previous = 0;
-  for (let frame = 1; frame <= 120; frame++) {
-    const current = context.sentEase(frame / 120);
-    assert.ok(current >= previous && current <= 1, "no frame may reverse or overshoot");
-    previous = current;
+test("the iPhone's track runs in time from the typing bar to the exact landing and is read between its frames", () => {
+  const { context, run } = load();
+  const track = Array.from(run("SENT_TRACK"), row => Array.from(row));
+  assert.deepEqual(track[0].slice(0, 4), [0, 0, 0, 1], "the track does not start on the typing bar at full size");
+  assert.deepEqual(track.at(-1), [run("SENT_FLIGHT_MS"), 1, 1, 1, 1], "the track does not end on the landing");
+  for (let i = 1; i < track.length; i++) {
+    assert.ok(track[i][0] > track[i - 1][0], "the track's frames are out of time order");
+    assert.ok(track[i][0] - track[i - 1][0] <= 18.4, "the track skips a frame of the recording");
   }
+  assert.equal(typeof context.sentTrack, "function");
+  assert.deepEqual({ ...context.sentTrack(-5) }, { left: 0, top: 0, size: 1, grey: track[0][4] });
+  assert.deepEqual({ ...context.sentTrack(5000) }, { left: 1, top: 1, size: 1, grey: 1 });
+  // halfway between two frames is halfway between their readings
+  const [a, b] = [track[5], track[6]], half = context.sentTrack((a[0] + b[0]) / 2);
+  assert.ok(Math.abs(half.left - (a[1] + b[1]) / 2) < 1e-9 && Math.abs(half.top - (a[2] + b[2]) / 2) < 1e-9);
 });
 
 test("delivery seat is reserved before any receipt and the mark only paints outside it", () => {

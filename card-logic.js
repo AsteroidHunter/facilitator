@@ -2158,50 +2158,112 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
 // a reading that brings messages sent somewhere else, or a first load, is no
 // arrival: it moves nothing and leaves the panel open or cut as it stands
 const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
-const SENT_EASE_POINTS = [.22, 1, .36, 1];
-const SENT_EASE = "cubic-bezier(.22,1,.36,1)";
 
-// The field becomes the bubble on one decelerating curve. The reference's bar
-// keeps its right end where the bubble's will be (its send arrow sits inside
-// the pill) and squeezes in from the left as it rises. Here the send square
-// stands outside the row, so the box takes the bubble's right end from its
-// first frame and only its left edge, top and height travel.
-// The reference's flying box is seen from its first frame: it is the typing
-// field's own pill, and the bubble's colour comes in over it. The row here draws
-// no box of its own, so the box wears the bubble's grey and corners from its
-// first frame instead.
-// The reference fades its typed words out and its bubble's words in because
-// they turn white on its colour. Ours stay dark on grey, so one copy of the words
-// flies the whole way at full strength: laid out once as the bubble lays them
-// out, it starts over the typed words at the typing size and shrinks to the
-// bubble's size as it rides the squeeze, so no frame is blank, doubled, or
-// halfway through a rewrap.
-function sentEase(f){
-  if (f <= 0) return 0;
-  if (f >= 1) return 1;
-  const [x1, y1, x2, y2] = SENT_EASE_POINTS;
-  const at = (a, b, t) => 3 * (1-t) * (1-t) * t * a + 3 * (1-t) * t*t * b + t*t*t;
-  let lo = 0, hi = 1, t = f;
-  for (let i = 0; i < 32; i++){
-    const x = at(x1, x2, t);
-    if (Math.abs(x - f) < 1e-6) break;
-    if (x < f) lo = t; else hi = t;
-    t = (lo + hi) / 2;
-  }
-  return at(y1, y2, t);
+// The field becomes the bubble the way the iPhone's Messages sends one, read
+// frame by frame off the owner's screen recording (60 frames a second).
+// Each row is one of its frames: ms from the tap, then how far the bubble's
+// left edge and its top have gone from the typing bar's (0) to the landed
+// bubble's (1), the bubble's size against its landed size, and how strong its
+// colour looks (1 is the landed bubble's). The first row is the bar before the
+// first frame; the last, at 700ms, is the landing, which every frame of the
+// recording from 698ms on is within 0.002 of. The 133ms left edge was read
+// through the bar's glass, which blurs it, so that row takes the run of the
+// frames either side.
+// - It squeezes in from the left before it rises: by 100ms the left edge is
+//   61% of the way while the top is at 8%, and the top only passes halfway
+//   once the left edge is past the landing.
+// - It shrinks to 78% as it leaves the bar and grows back to full size in
+//   place; that is what takes its left edge past the landing and back.
+// - Its top goes 3% past the landing at 450ms and settles back by 700ms.
+// - Its colour shows at a sixth while it is still in the bar, under the bar's
+//   frosted glass, and is whole at 217ms, when it has risen clear. The row here
+//   is not glass, so the box's grey comes in on those same values instead.
+// Not copied: its right end moves 12pt right, while here the box takes the
+// bubble's right end from its first frame, because the send square stands
+// outside the row; and its words turn white on its green, while ours stay dark
+// on grey, so one copy of the words flies the whole way at full strength: laid
+// out once as the bubble lays them out, it starts over the typed words at the
+// typing size, shrinks to the bubble's size as the box squeezes, and takes
+// the bubble's size row on top, so no frame is blank, doubled, or halfway
+// through a rewrap.
+const SENT_FLIGHT_MS = 700;
+const SENT_TRACK = [
+  // ms, left, top, size, grey
+  [0, 0, 0, 1, .166],
+  [16.7, .035, -.013, .968, .166],
+  [33.3, .1, -.015, .962, .177],
+  [50, .193, -.017, .946, .18],
+  [66.7, .31, -.013, .914, .177],
+  [83.3, .448, .032, .905, .189],
+  [100, .613, .084, .875, .211],
+  [116.7, .783, .158, .844, .331],
+  [133.3, .921, .231, .828, .36],
+  [150, 1.034, .314, .812, .37],
+  [166.7, 1.11, .396, .796, .39],
+  [183.3, 1.153, .473, .782, .446],
+  [200, 1.162, .547, .782, .628],
+  [216.7, 1.162, .62, .781, 1],
+  [233.3, 1.157, .686, .792, 1],
+  [250, 1.145, .748, .809, 1],
+  [266.7, 1.132, .804, .83, 1],
+  [283.3, 1.119, .846, .847, 1],
+  [300, 1.106, .891, .864, 1],
+  [316.7, 1.089, .924, .89, 1],
+  [333.3, 1.077, .953, .906, 1],
+  [348.3, 1.064, .977, .923, 1],
+  [365, 1.051, .993, .939, 1],
+  [381.7, 1.042, 1.006, .951, 1],
+  [398.3, 1.034, 1.018, .961, 1],
+  [415, 1.025, 1.024, .972, 1],
+  [431.7, 1.017, 1.026, .983, 1],
+  [448.3, 1.013, 1.03, .988, 1],
+  [465, 1.008, 1.03, .994, 1],
+  [481.7, 1.004, 1.03, .999, 1],
+  [498.3, 1.004, 1.03, .999, 1],
+  [515, 1, 1.025, 1.003, 1],
+  [531.7, 1, 1.025, 1, 1],
+  [548.3, 1, 1.018, 1, 1],
+  [565, .996, 1.018, 1.005, 1],
+  [581.7, .996, 1.017, 1.005, 1],
+  [598.3, .996, 1.013, 1.005, 1],
+  [615, .996, 1.011, 1.005, 1],
+  [631.7, .996, 1.006, 1.005, 1],
+  [648.3, .996, 1.006, 1.005, 1],
+  [665, 1, 1.006, 1, 1],
+  [681.7, 1, 1.005, 1, 1],
+  [700, 1, 1, 1, 1],
+];
+// What stood before makes room on the iPhone's own glide, which is quicker
+// than the bubble's rise: 59% of the way at 100ms, 99% by 333ms. One curve
+// fitted to its frames, within 0.015 of each.
+const SENT_GLIDE_MS = 340;
+const SENT_GLIDE_EASE = "cubic-bezier(.24,.15,.15,1)";
+
+// the track at ms from the tap, on a straight line between its frames
+function sentTrack(ms){
+  let i = 1;
+  while (i < SENT_TRACK.length - 1 && SENT_TRACK[i][0] < ms) i++;
+  const a = SENT_TRACK[i - 1], b = SENT_TRACK[i];
+  const f = Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
+  const at = n => a[n] + (b[n] - a[n]) * f;
+  return { left:at(1), top:at(2), size:at(3), grey:at(4) };
 }
-// the box at eased progress p: its right end is the seat's, the rest travels
-function sentMorphBox(from, to, p){
-  const mix = key => from[key] + (to[key] - from[key]) * p;
-  const left = mix("left"), right = to.left + to.width;
-  return { left, top:mix("top"), width:Math.max(0, right - left), height:mix("height") };
+const sentWithin = p => Math.max(0, Math.min(1, p));
+// the box at one point of the track: its right end is the seat's, its left
+// edge and top travel on their own rows, and its height, the typing box's
+// turning into the seat's as it rises, takes the size row
+function sentMorphBox(from, to, at){
+  const mix = (key, p) => from[key] + (to[key] - from[key]) * p;
+  const left = mix("left", at.left), right = to.left + to.width;
+  return { left, top:mix("top", at.top), width:Math.max(0, right - left),
+    height:mix("height", sentWithin(at.top)) * at.size };
 }
 
 // A snapshot leaves the real editor and rendered message alone. Resolved styles
 // are copied because the fixed flight lives outside the card, including outside
 // the desktop's scaled stage. Text alone scales, by that stage's existing factor
-// and in flight from the typing size to the bubble's; the shell itself
-// interpolates real viewport geometry, never transform scale.
+// and in flight from the typing size to the bubble's and by the track's size
+// row; the shell itself interpolates real viewport geometry, never transform scale.
 const SENT_SNAPSHOT_STYLE = [
   "box-sizing", "display", "position", "top", "right", "bottom", "left", "font", "font-family", "font-size", "font-weight",
   "font-style", "line-height", "letter-spacing", "color", "text-align", "text-indent",
@@ -2378,7 +2440,7 @@ function armSentMotion(el){
         const base = node === panel ? sentShift(node) : null;
         const shift = node.animate(
           [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
-          { duration:SENT_ARRIVE_MS, easing:SENT_EASE });
+          { duration:SENT_GLIDE_MS, easing:SENT_GLIDE_EASE });
         shifts.push(shift);
         if (base) glide = { base };
       }
@@ -2406,16 +2468,16 @@ function armSentMotion(el){
       const inkSize = (parseFloat(inkStyle.fontSize) || 0) * targetScale.y;
       const grow = inkSize > 0 ? typed.size / inkSize : 1;
       const inkLine = (parseFloat(inkStyle.lineHeight) * targetScale.y) || inkSize * 1.4;
-      // the words start on the typed words: the first line's middle on the typed
-      // line's middle, at the typing size
-      const from = { x:typed.left, y:typed.top + (typed.line - inkLine * grow) / 2 };
+      // the words start on the typed words: the first line's left on theirs and
+      // its middle on the typed line's middle, at the typing size, held as where
+      // they stand inside the start box
+      const from = { x:typed.left - start.left, y:typed.top + typed.line / 2 - start.top };
       const panelStyle = getComputedStyle(panel);
       const endCorners = corners.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
       // the bubble's face and corners, written before the first frame and kept
-      // for the whole flight
+      // for the whole flight; the face's strength is the track's grey
       shell.style.borderRadius = endCorners.map(n => n + "px").join(" ");
       face.style.background = panelStyle.backgroundColor;
-      face.style.opacity = "1";
       // The reference keeps a send's own rows out of the glide that send gives
       // what stood before it. A later send's row stands inside the panel that
       // glide moves, so the seat is read without this send's share of it; a
@@ -2441,24 +2503,29 @@ function armSentMotion(el){
         return { box:{ left, top, width:right - left, height:bottom - top },
           x:rect.left - left, y:rect.top - top };
       };
-      // one frame of the flight at clock fraction f
-      const put = f => {
-        const p = sentEase(f);
+      // one frame of the flight, ms from the tap
+      const put = ms => {
+        const at = sentTrack(ms);
         const landing = seat();
-        const box = sentMorphBox(start, landing.box, p);
+        const box = sentMorphBox(start, landing.box, at);
         write(box);
+        face.style.opacity = String(at.grey);
         // Delivery may firm the grey up while airborne; use the live face so
         // the final handoff matches the actual bubble, including local sends.
         const liveStyle = getComputedStyle(panel);
         face.style.background = liveStyle.backgroundColor;
         const copiedCut = targetCopy.querySelector(".answclip");
         if (copiedCut) copiedCut.style.setProperty("--answ-fill", liveStyle.getPropertyValue("--answ-fill"));
-        // the words ride the squeeze from the typed place to the bubble's, on the
-        // box's own curve, shrinking from the typing size to the bubble's
-        const k = grow + (1 - grow) * p;
-        const to = { x:landing.box.left + landing.x + lead.x, y:landing.box.top + landing.y + lead.y };
-        const x = from.x + (to.x - from.x) * p - lead.x * k - box.left;
-        const y = from.y + (to.y - from.y) * p - lead.y * k - box.top;
+        // the words ride the box: their first line's left goes from the typed
+        // words' place in it to the bubble's as the box squeezes, its middle as
+        // the box rises, and they shrink from the typing size to the bubble's
+        // as it squeezes; all of that takes the box's size row, as the iPhone's
+        // words take their bubble's
+        const squeeze = sentWithin(at.left), rise = sentWithin(at.top);
+        const k = (grow + (1 - grow) * squeeze) * at.size;
+        const to = { x:landing.x + lead.x, y:landing.y + lead.y + inkLine / 2 };
+        const x = (from.x + (to.x - from.x) * squeeze) * at.size - lead.x * k;
+        const y = (from.y + (to.y - from.y) * rise) * at.size - (lead.y + inkLine / 2) * k;
         incoming.style.transform = "translate(" + x + "px," + y + "px) scale(" +
           targetScale.x * k + "," + targetScale.y * k + ")";
       };
@@ -2471,9 +2538,9 @@ function armSentMotion(el){
         raf = 0;
         if (done) return;
         if (!target.isConnected || el.sent !== panel || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
-        const f = Math.max(0, Math.min(1, (now - t0) / SENT_ARRIVE_MS));
-        put(f);
-        if (f < 1) raf = requestAnimationFrame(step);
+        const ms = Math.max(0, Math.min(SENT_FLIGHT_MS, now - t0));
+        put(ms);
+        if (ms < SENT_FLIGHT_MS) raf = requestAnimationFrame(step);
         else raf = requestAnimationFrame(finish);
       };
       raf = requestAnimationFrame(step);
