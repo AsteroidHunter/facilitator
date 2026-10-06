@@ -62,10 +62,6 @@ Follow the current host's permission rules and the user's authorization in this 
 ## Restarts
 
 - A restart re-queues claimed-but-unanswered messages. Expect duplicate deliveries; answer "already handled, restart re-queue".
-- A dying server's final save can race a direct `state.json` edit. Always stop the server before editing state, and verify box count and ids after every restart.
-- Kill by PID and POLL until the port is actually free before launching the replacement; a fixed sleep loses the bind race and leaves the OLD server serving while the new one dies with "Address already in use" (bitten twice). Confirm the new code answers (hit a new endpoint) before trusting the restart.
-- The first start of a server that keeps the revision and the receipts (`rev` and `ops` in `state.json`) copies the old file beside it as `state.json.bak-<stamp>` before its first save. To go back to an older server: stop the board, rename that copy over `state.json`, start the old code. Nothing else about the file changed; an older server ignores the two new keys.
-- The first start after the section times were added fills `docked_ts`, `parked_ts` and `done_ts` on each docked, deferred or done card that has none, from the latest matching `dock`, `park` or `done` row for that card in `transcript.jsonl` beside `state.json`, or from the card's own `ts` when the transcript has no such row. It fills only a missing time and touches nothing else on a card, and a start with every time in place reads no transcript, so it is safe on every start. The lists keep their old order until the board is restarted onto this code.
 - A stop is graceful: open requests get three seconds to finish and a listener waiting on `/wait` is answered `{"idle": true}` at once, so the loop simply asks again.
 - `facilitator stop` ends the board and closes its window. It finds the server the way `facilitator restart` does (the one process listening on the configured port, read back as this folder's `server.py`), sends it one SIGTERM, and says `Board stopped.` only once that process is gone and both the board's port and the phone's port above it can be bound. It edits no file in the board folder; the save on the way out is the server's own. A server still there after ten seconds is left alone, nothing is closed, and the command exits 1 naming `--force`. `facilitator stop --force` reads the process a third time and, only if it is still the same one, ends it outright with one SIGKILL to that pid. That skips the graceful stop: a request in flight is cut and no stop line reaches the log, though every saved change is already on disk, since saves are atomic. After the server is gone (or when it was not running) the command closes, by window id, only a Chrome window whose every tab is the board's own page, either the address `app_url` names or the configured port on a loopback address, and reads that window again just before closing it. A board tab in a window with other tabs is left open and one line says so. It never starts Chrome, and when Chrome cannot be asked it says so in one line. On a checkout with a phone password (`facilitator password set`), the last thing it does, once the server is confirmed gone (or when it was not running, which still takes a link that points at this board off), is take the phone link off through the same code and checks as `facilitator bridge off`: only this board's own root handler goes, and every other Serve path, port, Funnel route and Service stays. It says nothing when that works or when the link was already off, and one plain line (`The phone link could not be taken off (<why>). Run facilitator bridge off when that is fixed.`) when it cannot, Tailscale not answering for one; that never changes whether the board stopped or the exit code. A stop that leaves the server running (the ten second case) leaves the link as it is and asks Tailscale nothing. A checkout with no password changes no rule: it keeps the one line saying a phone bridge is active, when one is and a server was stopped. `--dry-run` prints the plan and signals and closes nothing, and names the bridge step when a password is set. A stop that lands while `facilitator run` is still starting the server finds nothing on the port, says `Board was not running.`, and the board then comes up; restart has the same gap, so do not run them at the same time.
 
@@ -111,13 +107,7 @@ Five things never appear in any line: message or title text, keys and authentica
 
 ## Real work
 
-Real work ships from boxes: delegate bounded builds and scans when delegation is available and authorized, and report results in the ordering box. Follow the actual session's authorization for pushes and destructive operations. After work is finished and verified, stage and commit its changes when authorized. Messages: short, imperative, technical, no co-author or AI signature lines. Commit messages and code comments never name private folder paths, machines, people, or other projects.
-
-## App version
-
-The displayed `0.2.N` is this project's count of meaningful updates. When a verified feature or substantive fix lands on premain, advance N once for each distinct meaningful update; do not count its merge again. Tests, documentation, behavior-preserving refactors, pure cosmetic tuning, version-label edits, and reverted or superseded experiments do not add a count.
-
-Keep the displayed value in `index.html` at `#npversion`. The phone installation and sign-in gate derives its label from that same value, so do not add a second hardcoded version. The gate caches its HTML at server startup; a running gate picks up a changed label after the next authorized restart.
+Real work ships from boxes: delegate bounded builds and scans when delegation is available and authorized, and report results in the ordering box. Follow the actual session's authorization for pushes and destructive operations. After work is finished and verified, stage and commit its changes when authorized.
 
 ## Delegation
 
@@ -132,10 +122,6 @@ Green is verified, not trusted: registration starts a heartbeat clock, and witho
     ( while curl -s -o /dev/null -X POST "http://127.0.0.1:$PORT/ping?box=ID"; do sleep 30; done ) &
 
 and kill it when the work ends. The server also watches the other direction: an agent alive but absent from the listening call for over a minute, holding no claim and no live job, makes the bar read "working, card not marked". Do not let that be true of you.
-
-## Headless testing
-
-`probe3.js` (repo root; needs the test packages from `./install.sh --dev` and Chrome) is the page health probe: read-only apart from creating and then deleting its own probe box. It opens the board on the port `run.config.json` names. Never point a message-sending script at a live board.
 
 ## Who can reach the board
 
@@ -154,14 +140,6 @@ Two agents share one board. Every box carries an owner tag: `facilitator` (discu
 
 Each lane confirms its own claims against its own owner: `POST /ack?owner=facilitator&token=...` and `POST /ack?owner=example&token=...`. A token belongs to one lane's claim and is refused (409) anywhere else.
 
-## Showing a picture on your lane
-
-Magic box 3 holds one picture per lane, a plot above all. Write the file into your own project's internal folder, named `panel` with any image extension:
-
-    <your project folder>/<your lane id>-internal/panel.png
-
-So the `example` lane writes `~/projects/example/example-internal/panel.png`. Png, svg, jpg, gif and webp all work. The board picks it up within about four seconds, swaps itself when you rewrite the file, and falls back to its empty marks when you delete it. Nothing needs adding to the server, and no lane can read another's folder. Note that the panel is switched on for one configured tab only; every other tab still shows the plain stub.
-
 ## The ticket list
 
 On the Mac board and phone, the ticket list has four sections in this order: Doing, Docked, Deferred and Done. Doing and Docked are the two names shown first. Docked holds cards for the current sprint; Deferred holds cards for a later sprint. Pressing a name slides its list into the ticket area. A small dark glass triangle beside Docked slides to Deferred and Done. Its right tip meets the right edge of the ticket area, and its centre lines up with the names. On that page the same triangle faces left at the left edge and brings Doing and Docked back. Only the triangle takes a click or tap. The section choice stays with its project.
@@ -179,33 +157,6 @@ A card's top bar carries the working ticket's spinner, the same `|`, `/`, `-` an
 On the Mac board and on the phone the spinner stands in the sun's square, centred where the sun's mark is centred. When the card turns green the sun's mark fades out and the spinner fades in together; when the reply comes back the spinner fades out and the mark fades back to the faded look the sun has in Doing (`--chipoff`). In Doing the sun stays in the keyboard path and stays inert. On a working Docked card the spinner instead shares the cloud button's square, so the sun stays visible and can return the card to Doing. Nothing else in the bar moves. The bar is a grid on each page (`index.html` and `m.html`): the history arrows take the flexible column and the sun, cloud, moon and cross each take one square. The spinner takes the faded section button's own cell, so the two share a centre by construction, and its rule is written once, in `card-tokens.css`.
 
 Every top-row element sits in a square of `--bar-sq`, set by each page on its own bar (24px on the Mac, 28px on the phone). The sun, cloud, moon and cross marks are `--bar-mark` (10px) and the spinner is `--cardspin-s` (11px), two sizes on purpose. Both are written once in `card-tokens.css` and shared by the two pages, as are the cross's proportion `--cross-weight` and its line thickness `--cross-t`. The spaces are each a value of their own, so a change to a square does not change a gap: `--bar-gap-hist`, `--bar-gap-chips`, `--bar-lead` and `--bar-tail` on the Mac, `--bar-gap` and `--bar-tail` on the phone. The sun's svg keeps its `width` and `height` attributes in `card-logic.js` because the small cards size by them; on both pages the stylesheet overrules them with `--bar-mark`, and the moon carries none. `tests/card-spinner-source.test.cjs` checks the shared rules without a browser. `tests/card-spinner.test.cjs` checks the rendered sizes, where the spinner sits on each page, when it shows, the cross-fade and that the bar does not move.
-
-## The file navigator
-
-On a lane listed in `navigator_lanes`, magic box 3 (and the navigator-only box for
-later lanes) is a file navigator over that lane's own two folders, its internal
-folder and its wiki. It shows every file in a folder, not just Markdown:
-folders, text, code, images and anything else, dotfiles included, each with a
-type icon and a plain black label. (The icon set is easy to swap later.) Text files open in the built-in editor, with
-the live Markdown preview for `.md` and plain text for everything else; images
-preview inline with their name, size and date; anything that is not text or an
-image shows that same metadata and a note that it cannot be opened here. The
-listing is read one directory at a time, so a folder holding a large archive
-costs nothing until it is opened. The boundaries hold exactly as before: only
-the two configured folders are reachable, a path that resolves outside them is
-refused, a symlink pointing out of a folder is shown but never opened or served,
-and a special file is shown but never read. Editing writes text back with the
-same stale-write guard and never overwrites a binary or creates a new file.
-
-Once per board, the first load after the board names its navigator lanes brings back the board's own tab's navigator box if it had been put away with edit mode's cross: the `hide.facilitator.<box>` key is removed, so the box returns in the place and size it was saved with, and the `navrestore.1` key is set among the board's settings (see "The board's settings") so this never runs again. No other tab's keys are touched, and the cross hides the box again as it always did, for good. `tests/navigator-restore-browser.test.cjs` covers it.
-
-## The default layout
-
-A board with nothing saved opens every project's board on the clock, the ticket list and the card, and nothing else. They stand at fixed places and sizes on the 1440 by 900 stage and scale with it. In stage pixels, as x, y, width and height: the clock at 28.8, 40.32, 218.88 and 103.68; the ticket list at 51.84, 190.08, 357.12 and 506.88; the card at 466.56, 74.88, 506.88 and 748.8. They are the `--clock-*`, `--tik-*` and `--frame-*` values in `index.html`, and every edge sits on the board's grid so a drag from there snaps like any other.
-
-Magic boxes 1, 2, 3 and 4, the rail and the goal box are off by default (`DEFAULT_HIDDEN_REGIONS`); a lane listed in `navigator_lanes` still shows its file navigator box. A place, size, hide or show saved with the board's settings always wins over these defaults, and nothing rewrites it. Magic box 1 (the player) came to the off-by-default set later than the others, so a board that already had a layout gets one more one-time pass (`layoutvisibility.2`) that adds a `show.<project id>.magic1` key on each tab that was showing it and touches nothing else. On a tab where the player is off, that `show.` key is the only thing that brings it back; the bar has no control for it.
-
-`tests/default-layout-browser.test.cjs` checks the places and sizes at three window sizes and that a saved layout is left as it is.
 
 ## The board's settings
 
@@ -260,18 +211,6 @@ The background behind the Mac board and the typed page starts white on a fresh i
 The Mac board rings one soft two-note bell when a reply lands: a card turns to the reader's turn because an agent answered, the same event the phone is pushed for. The page sees it as a card's `turnTs` moving between two readings of `/state`, so a card already waiting when the page opens never rings. The sound is made with the Web Audio API and no sound file: a C5 then a G5, pure sine, a soft 45 ms start, 0.91 s in all, at 60% volume (`chimeBellRoundA` in `index.html`). The first reply rings at once and any reply in the next two minutes is silent, so a cluster of replies gives one chime. The two minutes run from the last chime, and a chime that could not play does not start them. While the board's window is in front (visible and focused), a reply on the project tab being shown is silent and a reply on any other project rings under the same two minute rule; with the window behind or hidden, or with home open, every project rings. Chrome plays sound only after a click or key press, so the page wakes its audio on the first one, and a chime that finds the audio asleep is skipped, never held for later. Two windows of one browser share the two minutes through `chimelast` in the browser's storage, so they do not both ring.
 
 The speaker at the right end of the bar, left of the squid, mutes it. It is a mark in the sub ink in a 32px glass circle like the squid's (see "The Mac board's top bar"), drawn in a 24 box with round line ends and the house icon's line width, reaching across its box as far as the house at the other end of the bar does: a speaker with two curved sound waves while the chime is on, and the same speaker with a slash across it, a clear gap round the slash, when it is off. A click flips it, and it carries a title, an `aria-label` and `aria-pressed`. The chime starts on. The choice is kept with the board's settings as `chimemuted` (`1` when muted), in `settings.json` like `bgcolor`, so every window on the board follows it, another open window within a reading. Chrome slows the timers of a window left hidden for more than five minutes, so a chime for that window can come up to about a minute late. There are no Mac banners, and the phone is unchanged. `tests/reply-chime-browser.test.cjs` covers it.
-
-## The right toolbar
-
-The right toolbar is hidden in this version. The Mac board has no toolbar and no Notes button: the right margin is as wide as the other three sides, the workspace uses the full window width, and nothing opens the panel. There is no button for it, no key, no `window.railTool`, and a `railtool` choice stored in a browser is ignored. The toolbar's and the notes panel's code is kept but not loaded, in `parked/right-toolbar.css`, `parked/right-toolbar.js` and `parked/right-toolbar.html` (the script that restored the open panel, and the markup). `index.html` does not load or include them, and the server does not serve them. The layout hooks the toolbar used (`--tb-w`, `--panel-w`, `--ws-r`, `--ws-mid`, `data-rail` and `workWidth()`) went back to plain insets, and the commit "Add a right toolbar with an empty Notes panel" shows what they were. To bring the toolbar back, put the three parked files back into `index.html` and restore those hooks. The settings squid's circle stands in the top right corner, with the speaker's circle 8px to its left: the squid's circle sits as far from the right edge as the house's circle sits from the left edge, each over the workspace pane's own edge. The phone page has no toolbar. `tests/right-toolbar-hidden-browser.test.cjs` covers the hidden state, and `tests/right-toolbar-browser.test.cjs` is skipped until the toolbar is shown again.
-
-## The notes panel
-
-The notes panel, the first tool in the right toolbar, is hidden in this version along with the toolbar, and its code is kept in `parked/right-toolbar.css`, `parked/right-toolbar.js` and `parked/right-toolbar.html`. Nothing in the page shows it or opens it, and the `notes.view`, `notes.sort` and `notes.dir` choices stored in a browser are ignored. The quick note is hidden too, as the next section says; its routes and `quickNoteSession` stay in the code, and the parked panel used them. The phone has no panel. `tests/notes-panel-browser.test.cjs` is skipped until the panel is shown again.
-
-## The quick note
-
-Quick notes are hidden in this version. No page has a way in: the Mac board has no corner peek and no note chip on a card, the phone page and the typed page never had one, and a `quicknote.current` choice stored in a browser opens nothing. The server answers 404 on every quick note route (`/quicknotes`, `/quicknote/new`, `/quicknote/save`, `/quicknote/attach` and `/quicknote/del`), the same answer it gives any unknown route, and `/state` carries no `quicknotes`, so neither a person nor an agent can read, make or change a note. The code is kept. `QUICK_NOTES_ON = False` in `server.py`, above the quick notes section, is the one switch; it is a line in the code and not a setting in `run.config.json`. The parser, the session and the overlay are still in `card-logic.js`, and the corner peek, the card chip and their styles are in `parked/quick-note.js` and `parked/quick-note.css`, which `index.html` does not load. The notes already stored under `quicknotes` in `state.json` are kept: while the switch is off the server does not read them out, rewrite them or drop them, and every save carries the list through as it was. A card closed in the meantime leaves a note that named it still naming it, since card ids are never reused and nothing reads the field. To bring the quick note back, set `QUICK_NOTES_ON = True`, restart the server, and put the parked script and styles back into `index.html` with the three hooks listed at the top of `parked/quick-note.js`. A change to the card numbering still has to be carried into the quick note system, as the comments at `ticketNum` in `card-logic.js` and `page.html` say. `tests/quick-notes-hidden.test.cjs` covers the hidden state and the switch, and `tests/quick-notes.test.cjs` and the quick note's corner test in `tests/right-composer.test.cjs` are skipped until the quick note is shown again.
 
 ## Seeding a board
 
