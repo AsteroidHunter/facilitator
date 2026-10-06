@@ -1,86 +1,58 @@
 // What the phone's worker keeps about each push it receives: shown, or skipped
-// and why, with how long the sign-in check took, in the worker's own database,
+// and why, with how long display took, in the worker's own database,
 // and sent to the client log when the board can be reached. The worker runs
 // against a fake IndexedDB and a fake board; nothing here starts a server.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { OK, plain, fakeIndexedDB, loadWorker } = require("./push-record-fixture.cjs");
 
-const WORKER = "facilitator-m-10";
-const slow = (harness, ms, answer) => async init => { harness.clock.now += ms; return answer(init); };
+const WORKER = "facilitator-m-11";
 const answered = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const reports = harness => harness.logged().flatMap(batch => batch.reports);
 
-test("a shown push is kept with how long the check took, then sent once and let go", async () => {
-  const harness = await loadWorker();
-  harness.board.auth = slow(harness, 40, async () => OK);
+test("a shown push is kept with its display time, then sent once and let go", async () => {
+  let harness;
+  harness = await loadWorker({ shouldShow: () => { harness.clock.now += 40; } });
   await harness.push({ box: "m101", title: "First card" });
-
-  assert.deepEqual(harness.shown, [
-    { title: "First card", options: { tag: "facilitator-m101", data: { box: "m101", shown: harness.clock.now } } },
-  ]);
+  assert.equal(harness.shown[0].title, "First card");
   assert.deepEqual(harness.logged(), [{
     page: "phone",
-    reports: [{ kind: "pushreceived", outcome: "shown", ms: 40, status: 200, ago: 0, n: 1, worker: WORKER }],
+    reports: [{ kind: "pushreceived", outcome: "shown", ms: 40, status: 0, ago: 0, n: 1, worker: WORKER }],
   }]);
-  assert.deepEqual(harness.idb.rows(), [], "a record the board took was kept");
-  assert.deepEqual(harness.order, ["show", "log"], "the log was sent before the notification was shown");
+  assert.deepEqual(harness.idb.rows(), []);
+  assert.deepEqual(harness.order, ["show", "log"]);
+  assert.ok(harness.calls.every(call => call.url !== "/auth/check"));
 });
 
-test("a failed check is kept as skipped with its status, and nothing is shown", async () => {
+test("a sign-in check that would time out never delays a received push", async () => {
   const harness = await loadWorker();
-  harness.board.auth = slow(harness, 120, async () => answered(503, {}));
-  await harness.push();
-
-  assert.deepEqual(harness.shown, []);
-  assert.deepEqual(harness.logged(), [], "the board was written to when its check had just failed");
-  const [row, ...rest] = harness.idb.rows();
-  assert.deepEqual(rest, []);
-  assert.deepEqual({ ...row, at: undefined }, {
-    id: 1, at: undefined, outcome: "skipped", reason: "check-failed", ms: 120, status: 503, worker: WORKER,
-  });
+  harness.board.auth = init => new Promise((_, reject) => init.signal.addEventListener("abort", () => {
+    harness.clock.now += 6000;
+    reject(Object.assign(new Error("gave up"), { name: "TimeoutError" }));
+  }));
+  const work = harness.push();
+  assert.deepEqual(harness.order, ["show"], "display must begin before any awaited work");
+  await work;
+  assert.equal(harness.shown.length, 1);
+  assert.ok(!harness.deadlines.includes(6000));
+  assert.deepEqual(reports(harness).map(r => [r.outcome, r.ms, r.status]), [["shown", 0, 0]]);
 });
 
-test("a check nobody answered is a failed check with no status", async () => {
-  const harness = await loadWorker();
-  harness.board.auth = async () => { throw new TypeError("Load failed"); };
-  await harness.push();
-  assert.deepEqual(harness.shown, []);
-  const [row] = harness.idb.rows();
-  assert.deepEqual([row.outcome, row.reason, row.status], ["skipped", "check-failed", 0]);
-});
-
-test("a check that runs out of time is a timeout, after the six second wait it is given", async () => {
-  for (const name of ["TimeoutError", "AbortError"]) {
+test("an unavailable or signed-out board and visible windows never suppress a push", async () => {
+  for (const auth of [
+    async () => answered(503, {}),
+    async () => { throw new TypeError("offline"); },
+    async () => answered(200, { authenticated: false }),
+    async () => ({ ok: true, json: async () => { throw new SyntaxError("bad json"); } }),
+  ]) {
     const harness = await loadWorker();
-    harness.board.auth = init => new Promise((_, reject) => init.signal.addEventListener("abort", () => {
-      harness.clock.now += 6000;
-      reject(Object.assign(new Error("gave up"), { name }));
-    }));
+    harness.board.auth = auth;
+    harness.windows.all = async () => [{ visibilityState: "visible" }];
     await harness.push();
-    assert.deepEqual(harness.deadlines, [6000], "the check was not given the deadline it has today");
-    assert.deepEqual(harness.shown, []);
-    const [row] = harness.idb.rows();
-    assert.deepEqual([row.outcome, row.reason, row.ms, row.status], ["skipped", "timeout", 6000, 0], name);
+    assert.equal(harness.shown.length, 1);
+    assert.deepEqual(harness.windows.asked, []);
+    assert.deepEqual(reports(harness).map(r => [r.outcome, r.status]), [["shown", 0]]);
   }
-});
-
-test("a signed-out answer is not-signed-in, and no title is shown", async () => {
-  const harness = await loadWorker();
-  harness.board.auth = async () => answered(200, { authenticated: false });
-  await harness.push({ box: "private", title: "Private card" });
-  assert.deepEqual(harness.shown, []);
-  const [row] = harness.idb.rows();
-  assert.deepEqual([row.outcome, row.reason, row.status], ["skipped", "not-signed-in", 200]);
-});
-
-test("an answer that cannot be read is other, and nothing is shown", async () => {
-  const harness = await loadWorker();
-  harness.board.auth = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("not json"); } });
-  await harness.push();
-  assert.deepEqual(harness.shown, []);
-  const [row] = harness.idb.rows();
-  assert.deepEqual([row.outcome, row.reason, row.status], ["skipped", "other", 200]);
 });
 
 test("a notification that could not be shown still fails the push as before, and says so", async () => {
@@ -88,15 +60,16 @@ test("a notification that could not be shown still fails the push as before, and
   await assert.rejects(harness.push(), /the phone refused it/);
   const sent = reports(harness);
   assert.equal(sent.length, 1);
-  assert.deepEqual([sent[0].outcome, sent[0].reason, sent[0].status], ["skipped", "show-failed", 200]);
+  assert.deepEqual([sent[0].outcome, sent[0].reason, sent[0].status], ["skipped", "show-failed", 0]);
 });
 
 test("records wait for the board, go out oldest first in batches it accepts, and are let go only once taken", async () => {
   const harness = await loadWorker();
-  harness.board.auth = async () => answered(503, {});
+  harness.board.log = async () => answered(503, {});
   for (let i = 0; i < 45; i++) { harness.clock.now += 1000; await harness.push(); }
   assert.equal(harness.idb.rows().length, 45);
-  assert.deepEqual(harness.logged(), []);
+  assert.equal(harness.logged().length, 45);
+  harness.calls.length = 0;
 
   // the board is back, but takes the second batch of twenty badly
   harness.board.auth = async () => OK;
@@ -125,7 +98,7 @@ test("records wait for the board, go out oldest first in batches it accepts, and
 
 test("a board that cannot be reached, or that refuses the batch, keeps every record", async () => {
   const harness = await loadWorker();
-  harness.board.auth = async () => answered(503, {});
+  harness.board.log = async () => answered(503, {});
   await harness.push();
   await harness.push();
   harness.board.auth = async () => OK;
@@ -148,11 +121,13 @@ test("the page opening asks the worker to send what it holds, and there is nothi
   await harness.dispatch("message", { data: { kind: "push-log-flush" } });
   assert.deepEqual(harness.calls, [], "the board was asked something with nothing to say");
 
-  harness.board.auth = async () => answered(200, { authenticated: false });
+  harness.board.log = async () => answered(503, {});
   await harness.push();
   assert.equal(harness.idb.rows().length, 1);
+  harness.calls.length = 0;
+  harness.board.log = async () => OK;
   await harness.dispatch("message", { data: { kind: "push-log-flush" } });
-  assert.deepEqual(reports(harness).map(report => [report.outcome, report.reason]), [["skipped", "not-signed-in"]]);
+  assert.deepEqual(reports(harness).map(report => [report.outcome, report.reason]), [["shown", undefined]]);
   assert.deepEqual(harness.idb.rows(), []);
 
   // the message that was there before still answers
@@ -164,7 +139,7 @@ test("the page opening asks the worker to send what it holds, and there is nothi
 test("a record survives the worker being stopped, and only the newest fifty are kept", async () => {
   const idb = fakeIndexedDB();
   let harness = await loadWorker({ idb });
-  harness.board.auth = async () => answered(503, {});
+  harness.board.log = async () => answered(503, {});
   for (let i = 0; i < 60; i++) await harness.push();
   assert.equal(idb.rows().length, 50);
 
@@ -183,7 +158,7 @@ test("nothing of the push is kept or sent: no title, no card, no address", async
   await harness.push(secret);
   harness.board.log = async () => ({ ok: false, status: 503 });
   await harness.push(secret);
-  harness.board.auth = async () => answered(503, {});
+  harness.board.log = async () => answered(503, {});
   await harness.push(secret);
 
   const everything = JSON.stringify([stored, harness.idb.rows(), harness.logged(), harness.calls.map(c => c.url)]);
@@ -199,12 +174,12 @@ test("nothing of the push is kept or sent: no title, no card, no address", async
   }
 });
 
-test("a phone that cannot keep records shows and skips exactly as before", async () => {
+test("a phone that cannot keep records still tries every notification", async () => {
   const cases = [
     ["a shown push", async () => OK, undefined, ["First card"]],
-    ["a signed-out answer", async () => answered(200, { authenticated: false }), undefined, []],
-    ["a failed check", async () => answered(500, {}), undefined, []],
-    ["an unreachable board", async () => { throw new TypeError("offline"); }, undefined, []],
+    ["a signed-out answer", async () => answered(200, { authenticated: false }), undefined, ["First card"]],
+    ["a failed check", async () => answered(500, {}), undefined, ["First card"]],
+    ["an unreachable board", async () => { throw new TypeError("offline"); }, undefined, ["First card"]],
   ];
   for (const options of [{ noIndexedDB: true }, { idb: Object.assign(fakeIndexedDB(), { fail: true }) }]) {
     for (const [name, auth, , titles] of cases) {

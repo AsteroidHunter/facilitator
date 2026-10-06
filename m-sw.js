@@ -14,7 +14,7 @@
    start; it could only make one look connected when it was not. */
 
 /* New cache name drops previously kept authenticated pages and manifests. */
-const CACHE = "facilitator-m-10";
+const CACHE = "facilitator-m-11";
 const SHELL = ["/card-markdown.js", "/card-tokens.css", "/card-logic.js",
                "/compose-format.js"];
 /* The squid the page paints the phone's own launch image from. It is kept
@@ -33,7 +33,6 @@ const SPLASH = "/m-splash-squid.png";
 const VENDORED = "/cm-markdown.js";
 const KEPT = [...SHELL, SPLASH, VENDORED];
 const SHELL_DEADLINE_MS = 8000;   // static files wait this long before the kept copy
-const PUSH_DEADLINE_MS = 6000;    // wait at most this long for auth before dropping a push
 
 /* A record of each push, and of each tap on a notification, kept in the
    worker's own database because the board may be out of reach when one happens
@@ -373,36 +372,17 @@ self.addEventListener("fetch", event => {
 // generic notification so the browser sees the event was handled.
 self.addEventListener("push", event => {
   event.waitUntil((async () => {
-    // A push service can hold an encrypted title for hours after sign-out.
-    // The server may have accepted it while the session was still live, so
-    // ask again at delivery time and show nothing if the answer is unavailable.
-    // Each push is also noted (shown, or skipped and why) after the decision
-    // is made, so the note can never change it.
+    // Show the words already delivered, with no network or window check first.
+    // The server stops new sends after sign-out; an already queued title can
+    // still arrive. Record the display result only after trying to show it.
     const began = Date.now();
-    let answered = 0;
-    let skip = "";
-    try {
-      const status = await bounded("/auth/check", PUSH_DEADLINE_MS);
-      answered = Number(status.status) || 0;
-      if (!status.ok) skip = "check-failed";
-      else if (!(await status.json()).authenticated) skip = "not-signed-in";
-    } catch (error) {
-      skip = /^(TimeoutError|AbortError)$/.test(error?.name) ? "timeout"
-        : answered ? "other" : "check-failed";
-    }
-    const note = { at: began, ms: Date.now() - began, status: answered };
-    if (skip) {
-      await pushLogNote({ ...note, outcome: "skipped", reason: skip }, false);
-      return;
-    }
+    const note = () => ({ at: began, ms: Date.now() - began, status: 0 });
     let title = "facilitator";
     let box = "";
     try {
       const data = event.data?.json();
-      if (data && typeof data.box === "string" && typeof data.title === "string") {
-        title = data.title || title;
-        box = data.box;
-      }
+      if (typeof data?.title === "string" && data.title.trim()) title = data.title;
+      if (typeof data?.box === "string") box = data.box;
     } catch (error) {}
     try {
       await self.registration.showNotification(title, {
@@ -410,10 +390,10 @@ self.addEventListener("push", event => {
         data: { box, shown: Date.now() },
       });
     } catch (error) {
-      await pushLogNote({ ...note, outcome: "skipped", reason: "show-failed" }, true);
+      await pushLogNote({ ...note(), outcome: "skipped", reason: "show-failed" }, true);
       throw error;
     }
-    await pushLogNote({ ...note, outcome: "shown" }, true);
+    await pushLogNote({ ...note(), outcome: "shown" }, true);
   })());
 });
 
