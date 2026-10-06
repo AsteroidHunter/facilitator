@@ -23,9 +23,10 @@ function load(extra = {}) {
 
 test("the send's lengths are shared by both pages: the iPhone's flight and glide, the sheet's arrival", () => {
   const { run } = load();
-  assert.equal(run("SENT_FLIGHT_MS"), 700);
+  assert.equal(run("SENT_FLIGHT_MS"), 750);
   assert.equal(run("SENT_GLIDE_MS"), 340);
-  assert.equal(run("SENT_GLIDE_EASE"), "cubic-bezier(.24,.15,.15,1)");
+  assert.equal(run("SENT_GLIDE_EASE"), "cubic-bezier(.24,.1,.15,1)");
+  assert.equal(run("SENT_FAINT"), .135);
   assert.equal(run("SENT_ARRIVE_MS"), 400);
   assert.match(CSS, /--answ-come:\.4s/);
   assert.match(CSS, /--sent-ease:cubic-bezier\(\.22, 1, \.36, 1\)/);
@@ -46,19 +47,26 @@ test("the send's lengths are shared by both pages: the iPhone's flight and glide
 
 test("the iPhone's track runs in time from the typing bar to the exact landing and is read between its frames", () => {
   const { context, run } = load();
+  // rows: ms, the box's left edge, its top and bottom, its right end, the size,
+  // the strength the bubble is drawn at
   const track = Array.from(run("SENT_TRACK"), row => Array.from(row));
-  assert.deepEqual(track[0].slice(0, 4), [0, 0, 0, 1], "the track does not start on the typing bar at full size");
-  assert.deepEqual(track.at(-1), [run("SENT_FLIGHT_MS"), 1, 1, 1, 1], "the track does not end on the landing");
+  assert.deepEqual(track[0].slice(0, 5), [0, 0, 0, 0, 1], "the track does not start on the typing bar at full size");
+  assert.deepEqual(track.at(-1), [run("SENT_FLIGHT_MS"), 1, 1, 1, 1, 1], "the track does not end on the landing");
   for (let i = 1; i < track.length; i++) {
     assert.ok(track[i][0] > track[i - 1][0], "the track's frames are out of time order");
-    assert.ok(track[i][0] - track[i - 1][0] <= 18.4, "the track skips a frame of the recording");
+    assert.ok(track[i][0] - track[i - 1][0] <= 18.4, "the track skips a frame of the recordings");
+    assert.ok(track[i][5] >= track[i - 1][5] && track[i][5] <= 1, "the strength drawn goes back or over whole");
   }
   assert.equal(typeof context.sentTrack, "function");
-  assert.deepEqual({ ...context.sentTrack(-5) }, { left: 0, top: 0, size: 1, grey: track[0][4] });
-  assert.deepEqual({ ...context.sentTrack(5000) }, { left: 1, top: 1, size: 1, grey: 1 });
+  assert.deepEqual({ ...context.sentTrack(-5) }, { left: 0, down: 0, right: 0, size: 1, strength: track[0][5] });
+  assert.deepEqual({ ...context.sentTrack(5000) }, { left: 1, down: 1, right: 1, size: 1, strength: 1 });
   // halfway between two frames is halfway between their readings
   const [a, b] = [track[5], track[6]], half = context.sentTrack((a[0] + b[0]) / 2);
-  assert.ok(Math.abs(half.left - (a[1] + b[1]) / 2) < 1e-9 && Math.abs(half.top - (a[2] + b[2]) / 2) < 1e-9);
+  assert.ok(Math.abs(half.left - (a[1] + b[1]) / 2) < 1e-9 && Math.abs(half.down - (a[2] + b[2]) / 2) < 1e-9);
+  // the bubble drawn from the box: shrunk by the size about its bottom-right corner
+  const drawn = context.sentMorphBox({ left: 0, top: 100, width: 300, height: 40 }, { left: 200, top: 0, width: 100, height: 50 },
+    { left: 1, down: 1, right: 1, size: 0.5 });
+  assert.deepEqual({ ...drawn.box }, { left: 250, top: 25, width: 50, height: 25 }, "the size is not held at the bottom-right corner");
 });
 
 test("delivery seat is reserved before any receipt and the mark only paints outside it", () => {
