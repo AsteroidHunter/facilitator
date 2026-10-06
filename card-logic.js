@@ -2137,6 +2137,13 @@ const SENT_TEXT_OUT = .35, SENT_TEXT_IN = .6;
 // The field becomes the bubble on one decelerating curve. The two text layouts
 // stay fixed and trade opacity on the clock, so no frame stretches a glyph or
 // shows a line halfway through wrapping to its new width.
+// The reference's flying box is seen from its first frame: it is the typing
+// field's own pill, and the bubble's colour comes in over it. The row here draws
+// no box of its own, so a face fading in over the card's white stayed unseen
+// until the box had all but landed, and only the typed words were left to
+// watch, sliding up on a slant. The box wears the bubble's grey and corners
+// from its first frame instead, so what leaves the row is the bubble itself,
+// rising and narrowing into its seat.
 function sentEase(f){
   if (f <= 0) return 0;
   if (f >= 1) return 1;
@@ -2201,6 +2208,15 @@ function sentSnapshot(node){
 function sentScale(node, rect){
   return { x:node.offsetWidth ? rect.width / node.offsetWidth : 1,
     y:node.offsetHeight ? rect.height / node.offsetHeight : 1 };
+}
+// the move a node's own transform holds now, in its local px
+function sentShift(node){
+  const value = String(getComputedStyle(node).transform || "none").trim();
+  const m = /^matrix(3d)?\(([^)]*)\)$/.exec(value);
+  if (!m) return { x:0, y:0 };
+  const v = m[2].split(",").map(Number);
+  const x = m[1] ? v[12] : v[4], y = m[1] ? v[13] : v[5];
+  return { x:Number.isFinite(x) ? x : 0, y:Number.isFinite(y) ? y : 0 };
 }
 function sentMotionVisible(node){
   if (!node || !node.isConnected) return false;
@@ -2267,7 +2283,12 @@ function armSentMotion(el){
   sourceCopy.scrollLeft = source.scrollLeft;
   let raf = 0, done = false, played = false, target = null, panel = null;
   const shifts = [];
-  const stopShifts = () => { for (const shift of shifts.splice(0)) shift.cancel(); };
+  // this send's own glide of the panel its new row stands in, while it runs
+  let glide = null;
+  const stopShifts = () => {
+    glide = null;
+    for (const shift of shifts.splice(0)) shift.cancel();
+  };
   let previousOpacity = "", previousPriority = "";
   const finish = () => {
     if (done) return;
@@ -2313,9 +2334,12 @@ function armSentMotion(el){
         const dx = (rect.left - after.left) / scale.x, dy = (rect.top - after.top) / scale.y;
         if (Math.abs(dx) <= .5 && Math.abs(dy) <= .5) continue;
         const transform = getComputedStyle(node).transform || "none";
-        shifts.push(node.animate(
+        const base = node === panel ? sentShift(node) : null;
+        const shift = node.animate(
           [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
-          { duration:SENT_ARRIVE_MS, easing:SENT_EASE }));
+          { duration:SENT_ARRIVE_MS, easing:SENT_EASE });
+        shifts.push(shift);
+        if (base) glide = { base };
       }
       const targetRect = target.getBoundingClientRect(), targetScale = sentScale(target, targetRect);
       const targetCopy = sentSnapshot(target);
@@ -2325,10 +2349,26 @@ function armSentMotion(el){
       incoming.appendChild(targetCopy);
       const panelStyle = getComputedStyle(panel);
       const endCorners = corners.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
+      // the bubble's face and corners, written before the first frame and kept
+      // for the whole flight
+      shell.style.borderRadius = endCorners.map(n => n + "px").join(" ");
+      face.style.background = panelStyle.backgroundColor;
+      face.style.opacity = "1";
+      // The reference keeps a send's own rows out of the glide that send gives
+      // what stood before it. A later send's row stands inside the panel that
+      // glide moves, so the seat is read without this send's share of it; a
+      // glide a later send starts is still followed, as the reference follows it.
+      const unglide = rect => {
+        if (!glide) return rect;
+        const now = sentShift(panel), scale = sentScale(panel, panel.getBoundingClientRect());
+        const x = (now.x - glide.base.x) * scale.x, y = (now.y - glide.base.y) * scale.y;
+        return { left:rect.left - x, right:rect.right - x, top:rect.top - y, bottom:rect.bottom - y,
+          width:rect.width, height:rect.height };
+      };
       const seat = () => {
-        const rect = target.getBoundingClientRect();
+        const rect = unglide(target.getBoundingClientRect());
         if (target === panel) return { box:rect, hidden:false, x:0, y:0 };
-        const cut = clip.getBoundingClientRect();
+        const cut = unglide(clip.getBoundingClientRect());
         const top = Math.max(rect.top, cut.top), bottom = Math.min(rect.bottom, cut.bottom);
         const left = Math.max(rect.left, cut.left), right = Math.min(rect.right, cut.right);
         const hidden = bottom <= top || right <= left;
@@ -2347,8 +2387,8 @@ function armSentMotion(el){
         if (!target.isConnected || el.sent !== panel || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
         const f = Math.max(0, Math.min(1, (now - t0) / SENT_ARRIVE_MS)), p = sentEase(f);
         const landing = seat();
-        write(sentMorphBox(start, landing.box, p));
-        shell.style.borderRadius = endCorners.map((n, i) => (startCorners[i] + (n - startCorners[i]) * p) + "px").join(" ");
+        const box = sentMorphBox(start, landing.box, p);
+        write(box);
         // Delivery may firm the grey up while airborne; use the live face so
         // the final handoff matches the actual bubble, including local sends.
         const liveStyle = getComputedStyle(panel);
@@ -2357,10 +2397,12 @@ function armSentMotion(el){
           if (pair.source.isConnected) pair.copy.style.opacity = getComputedStyle(pair.source).opacity;
         const copiedCut = targetCopy.querySelector(".answclip");
         if (copiedCut) copiedCut.style.setProperty("--answ-fill", liveStyle.getPropertyValue("--answ-fill"));
-        face.style.opacity = String(Math.min(1, f / SENT_TEXT_IN));
         outgoing.style.opacity = String(sentBarAlpha(f));
         incoming.style.opacity = String(landing.hidden ? 0 : sentBubbleAlpha(f));
-        incoming.style.transform = "translate(" + landing.x + "px," + landing.y + "px) scale(" + targetScale.x + "," + targetScale.y + ")";
+        // the bubble's words hang from the shell's right end, as the reference's
+        // do, so they never ride the sweep of its left edge
+        const right = landing.x + box.width - landing.box.width;
+        incoming.style.transform = "translate(" + right + "px," + landing.y + "px) scale(" + targetScale.x + "," + targetScale.y + ")";
         shell.style.opacity = String(landing.hidden ? 1 - sentBubbleAlpha(f) : 1);
         if (f < 1) raf = requestAnimationFrame(step);
         else raf = requestAnimationFrame(finish);
