@@ -451,7 +451,8 @@
    room the panel may take over the answer, and the rest scrolls inside the cut.
    a surface that writes none gives the panel a seat that scrolls instead.
    a local send morphs from the typing field to its seat in card-logic.js, over
-   400ms on the same decelerating curve as the surrounding messages. A send
+   400ms on the same decelerating curve as the surrounding messages, wearing
+   the panel's own grey and corners from its first frame. A send
    without measurable field geometry uses the small rise and fade below.
    Only a send changes the fold's timing; a manual fold keeps its own run. */
 .answered.sent.open .answclip{max-height:var(--sent-cap, none); overflow-y:auto; overscroll-behavior:contain}
@@ -459,7 +460,8 @@
 @keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
 .answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--sent-ease)}
 /* A viewport shell crosses the composer's and panel's clipping boundaries.
-   Its real box changes size; the two text layouts crossfade without rewrapping. */
+   Its real box changes size; the two text layouts crossfade without rewrapping.
+   The face is the panel's grey, written by the script with the box. */
 .sentmorph{position:fixed; pointer-events:none; overflow:hidden; z-index:10000; box-sizing:border-box}
 .sentmorph-face{position:absolute; inset:0; border-radius:inherit}
 .sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
