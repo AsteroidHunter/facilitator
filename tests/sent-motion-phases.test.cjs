@@ -1,84 +1,26 @@
-// The send flight's phases, frame by frame. The motion is the iPhone's Messages
-// send, measured off the owner's screen recording.
-// Its readings
-// are written out here in the recording's own pixels rather than imported, so
-// the check does not lean on the code it checks. What is ours and not the
-// iPhone's is the owner's order on the card: the box keeps the bubble's right
-// end from the first frame, and one copy of the words stays dark the whole way,
-// shrinking from the typing size to the bubble's. Boxes are synthetic viewport
-// rectangles on the phone's measures (a 390pt screen, keyboard up); no layout
-// engine and no browser runs, so nothing here claims how it looks.
+// The send flight's phases, frame by frame, held to the iPhone's Messages send
+// as the owner's two screen recordings show it: six sends, one line and two,
+// short and long, keyboard down and up. The
+// recordings' own edge readings are in tests/fixtures/iphone-send-readings.json,
+// raw, not the curves the code was fitted to, so the check does not lean on
+// the code it checks: each send is flown here on its own bar and landed boxes
+// and has to land its edges where the iPhone drew them. What is ours and not
+// the iPhone's is the owner's order on the card: one copy of the words stays
+// dark the whole way, shrinking from the typing size to the bubble's, and no
+// tail. Boxes are synthetic viewport rectangles; no layout engine and no
+// browser runs, so nothing here claims how it looks.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { test } = require("node:test");
 const path = require("node:path");
 const vm = require("node:vm");
 const LOGIC = readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8");
+const IPHONE = JSON.parse(readFileSync(path.join(__dirname, "fixtures", "iphone-send-readings.json"), "utf8"));
+const FLIGHT_MS = 750;   // every send is within 1px of its landing from 713-798ms
+const FAINT = 0.135;     // how strong the bubble looks under the bar's glass, 17-50ms
+const DRAWN = 0.686;     // how strong it is drawn on its first frame, outside the glass
+const PT = 3;            // the recordings' pixels to a point
 
-// ---- the iPhone, off the recording ---------------------------------------------
-// 1126 x 2436 pixels, 3 to a point, a frame every 1/60s while anything moves.
-// 0ms is the last frame with the typed words still in the bar.
-const BAR = { left: 241, top: 2235 };             // the typing bar's border at 0ms
-const LANDED = { left: 711.51, top: 2072.32 };    // the landed bubble, frames 53-64
-const FLIGHT_MS = 700;   // every frame from 698ms on is within 0.002 of the landing
-// [frame, ms, left px, top px, size against the landed size, colour as seen]
-const IPHONE = [
-  [6, 16.7, 257.6, 2237.1, 0.968, 0.166],
-  [7, 33.3, 287.9, 2237.4, 0.962, 0.177],
-  [8, 50.0, 331.6, 2237.7, 0.946, 0.180],
-  [9, 66.7, 387.0, 2237.1, 0.914, 0.177],
-  [10, 83.3, 451.7, 2229.9, 0.905, 0.189],
-  [11, 100.0, 529.5, 2221.3, 0.875, 0.211],
-  [12, 116.7, 609.5, 2209.3, 0.844, 0.331],
-  [13, 133.3, 661.8, 2197.4, 0.828, 0.360],   // left read through the bar's glass
-  [14, 150.0, 727.4, 2184.0, 0.812, 0.370],
-  [15, 166.7, 763.4, 2170.5, 0.796, 0.390],
-  [16, 183.3, 783.4, 2158.0, 0.782, 0.446],
-  [17, 200.0, 787.6, 2146.1, 0.782, 0.628],
-  [18, 216.7, 787.5, 2134.2, 0.781, 1.000],
-  [19, 233.3, 785.4, 2123.4, 0.792, 1.000],
-  [20, 250.0, 779.6, 2113.4, 0.809, 1.000],
-  [21, 266.7, 773.6, 2104.3, 0.830, 1.000],
-  [22, 283.3, 767.5, 2097.4, 0.847, 1.000],
-  [23, 300.0, 761.4, 2090.1, 0.864, 1.000],
-  [24, 316.7, 753.5, 2084.7, 0.890, 1.000],
-  [25, 333.3, 747.5, 2080.0, 0.906, 1.000],
-  [26, 348.3, 741.5, 2076.0, 0.923, 1.000],
-  [27, 365.0, 735.5, 2073.4, 0.939, 1.000],
-  [28, 381.7, 731.4, 2071.4, 0.951, 1.000],
-  [29, 398.3, 727.4, 2069.4, 0.961, 1.000],
-  [30, 415.0, 723.4, 2068.4, 0.972, 1.000],
-  [31, 431.7, 719.5, 2068.0, 0.983, 1.000],
-  [32, 448.3, 717.5, 2067.4, 0.988, 1.000],
-  [33, 465.0, 715.5, 2067.4, 0.994, 1.000],
-  [34, 481.7, 713.5, 2067.4, 0.999, 1.000],
-  [35, 498.3, 713.4, 2067.5, 0.999, 1.000],
-  [36, 515.0, 711.5, 2068.2, 1.003, 1.000],
-  [37, 531.7, 711.4, 2068.2, 1.000, 1.000],
-  [38, 548.3, 711.4, 2069.4, 1.000, 1.000],
-  [39, 565.0, 709.6, 2069.4, 1.005, 1.000],
-  [40, 581.7, 709.5, 2069.5, 1.005, 1.000],
-  [41, 598.3, 709.5, 2070.1, 1.005, 1.000],
-  [42, 615.0, 709.5, 2070.6, 1.005, 1.000],
-  [43, 631.7, 709.5, 2071.4, 1.005, 1.000],
-  [44, 648.3, 709.6, 2071.4, 1.005, 1.000],
-  [45, 665.0, 711.4, 2071.4, 1.000, 1.000],
-  [46, 681.7, 711.4, 2071.5, 1.000, 1.000],
-];
-// how far the earlier bubbles have moved up to make room, frames 6-31
-const IPHONE_GLIDE = [0.034, 0.133, 0.258, 0.377, 0.488, 0.592, 0.681, 0.748, 0.804, 0.854,
-  0.886, 0.912, 0.935, 0.949, 0.964, 0.973, 0.980, 0.983, 0.989, 0.991, 0.992, 0.993, 0.995, 0.998, 0.999, 1.000];
-const across = row => (row[2] - BAR.left) / (LANDED.left - BAR.left);
-const up = row => (BAR.top - row[3]) / (BAR.top - LANDED.top);
-// the iPhone between its frames, on a straight line from the bar to the landing
-function iphone(ms) {
-  const rows = [[0, 0, 0, 1], ...IPHONE.map(r => [r[1], across(r), up(r), r[4]]), [FLIGHT_MS, 1, 1, 1]];
-  let i = 1;
-  while (i < rows.length - 1 && rows[i][0] < ms) i++;
-  const a = rows[i - 1], b = rows[i], f = Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
-  const at = n => a[n] + (b[n] - a[n]) * f;
-  return { across: at(1), up: at(2), size: at(3) };
-}
 function bezier([x1, y1, x2, y2]) {
   const at = (a, b, t) => 3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
   return f => {
@@ -94,8 +36,6 @@ function bezier([x1, y1, x2, y2]) {
     return at(y1, y2, t);
   };
 }
-const mix = (a, b, p) => a + (b - a) * p;
-const within = p => Math.max(0, Math.min(1, p));
 
 // ---- the phone's measures (--rest .985, so --u is .985px) ---------------------------
 const FIELD = { left: 17.5, top: 500, width: 317.6, height: 43.3 };   // the textarea, m.html:928-933
@@ -196,7 +136,9 @@ function box(node, r) {
   node.offsetHeight = r.height;
 }
 
-function scene() {
+// a page with a typing row at `field`, its words typed as `typed` says, and rows
+// set in `words`
+function scene(field = FIELD, typed = TYPED, words = WORDS) {
   DOC.body = element("body");
   const clock = { now: 0, still: false };
   const frames = [];
@@ -225,8 +167,8 @@ function scene() {
   DOC.body.appendChild(card);
   const ta = element("textarea");
   card.appendChild(ta);
-  box(ta, FIELD);
-  Object.assign(ta, { font: TYPED.size, line: TYPED.line, padLeft: TYPED.padLeft, padTop: TYPED.padTop });
+  box(ta, field);
+  Object.assign(ta, { font: typed.size, line: typed.line, padLeft: typed.padLeft, padTop: typed.padTop });
   ta.value = "Looks good, ship it";
   const sentwrap = element("div", "sentwrap");
   card.appendChild(sentwrap);
@@ -236,11 +178,11 @@ function scene() {
   // .answmsg.undelivered)
   function row(text) {
     const r = element("div", "answmsg cardmd undelivered");
-    Object.assign(r, { font: WORDS.size, line: WORDS.line });
-    const words = element("p");
-    words.textContent = text;
-    words.ink = "0.5";
-    r.appendChild(words);
+    Object.assign(r, { font: words.size, line: words.line });
+    const block = element("p");
+    block.textContent = text;
+    block.ink = "0.5";
+    r.appendChild(block);
     return r;
   }
   // the panel the page would draw, with its rows; the page appends it, the test lays it out
@@ -265,12 +207,12 @@ function scene() {
   const shell = () => DOC.body.children.find(n => n.classes.has("sentmorph")) || null;
   // the shell's layers of words, and the one copy's place and scale
   const layers = () => shell().children.filter(n => n.classes.has("sentmorph-source") || n.classes.has("sentmorph-target"));
-  const words = () => {
+  const wordsAt = () => {
     const m = /translate\(([-\d.e]+)px,([-\d.e]+)px\) scale\(([-\d.e]+),([-\d.e]+)\)/
       .exec(shell().querySelector(".sentmorph-target").style.transform);
     return m ? { x: +m[1], y: +m[2], k: +m[3] } : { x: NaN, y: NaN, k: NaN };   // not placed yet
   };
-  return { context, clock, el, panel, row, frame, shell, layers, words };
+  return { context, clock, el, panel, row, frame, shell, layers, words: wordsAt };
 }
 const px = value => parseFloat(value);
 const near = (actual, expected, label, within = 0.05) =>
@@ -285,118 +227,136 @@ function flyFirst() {
   motion.play();
   return { ...s, motion, p, face: () => s.shell().querySelector(".sentmorph-face") };
 }
+// a recorded send flown on its own boxes: the typing row is its bar, the seat
+// its landed bubble, and the typed and landed words one size, as on the iPhone
+function flyRecorded(send) {
+  const bar = { left: send.bar.left, top: send.bar.top, width: send.bar.right - send.bar.left, height: send.bar.bottom - send.bar.top };
+  const s = scene(bar, { size: 51, line: 63, padLeft: 0, padTop: 0 }, { size: 51, line: 63 });
+  const motion = s.context.armSentMotion(s.el);
+  const p = s.panel(["recorded"]);
+  const L = send.landed;
+  box(p, { left: L.left, top: L.top, width: L.right - L.left, height: L.bottom - L.top });
+  box(p.querySelector(".answmsg"), { left: L.left + 42, top: L.top + 24, width: L.right - L.left - 84, height: 63 });
+  motion.play();
+  return s;
+}
 const edges = s => {
   const left = px(s.shell().style.left), width = px(s.shell().style.width);
-  return { left, right: left + width, top: px(s.shell().style.top), width, height: px(s.shell().style.height) };
+  const top = px(s.shell().style.top), height = px(s.shell().style.height);
+  return { left, right: left + width, top, bottom: top + height, width, height };
 };
-// how far the first send's box has gone, by the same measure as the iPhone's
-const progress = b => ({ across: (b.left - FIELD.left) / (BUBBLE.left - FIELD.left), up: (FIELD.top - b.top) / (FIELD.top - BUBBLE.top) });
-// the moments checked: before the first frame, then every iPhone frame to the landing
-const MOMENTS = [null, 0, ...IPHONE.map(r => r[1]), FLIGHT_MS];
+// the moments checked: before the first frame, then every 1/60s to the landing
+const MOMENTS = [null, 0];
+for (let i = 1; i <= 45; i++) MOMENTS.push(Math.round(i * 1000 / 6) / 10);
 
 // ---- the phases ------------------------------------------------------------------------
-test("the box squeezes in from the left before it rises, as the iPhone's bubble does", () => {
-  // the recording: by 100ms (frame 11) its left edge is 61% of the way, its top 8%
-  const f11 = IPHONE.find(r => r[0] === 11);
-  assert.ok(across(f11) > 0.6 && up(f11) < 0.1);
+test("every recorded send, flown on its own boxes, lands each edge where the iPhone drew it from 183ms on", () => {
+  // one line and two, short and long, keyboard down and up: from 183ms every
+  // edge within 3.5pt and on average within 1.2pt, and the right end within
+  // 0.5pt at every frame, the size held at the bubble's bottom-right corner
+  for (const [name, send] of Object.entries(IPHONE.sends)) {
+    const s = flyRecorded(send);
+    const sq = { L: [], R: [], T: [], B: [] };
+    for (const [ms, L, R, T, B, wordsWidth] of send.frames) {
+      if (ms > FLIGHT_MS) break;
+      s.frame(ms);
+      const got = edges(s);
+      near(got.right, R, `${name}: the right end at ${ms}ms`, 0.5 * PT);
+      if (ms < 182) continue;
+      for (const [key, want, have] of [["L", L, got.left], ["R", R, got.right], ["T", T, got.top], ["B", B, got.bottom]]) {
+        if (want === null) continue;
+        near(have, want, `${name}: the ${{ L: "left edge", R: "right end", T: "top", B: "bottom" }[key]} at ${ms}ms`, 3.5 * PT);
+        sq[key].push((have - want) ** 2);
+      }
+      if (wordsWidth !== null) near(s.words().k, wordsWidth, `${name}: the words' size at ${ms}ms`, 0.03);
+    }
+    for (const [key, list] of Object.entries(sq)) {
+      const rms = Math.sqrt(list.reduce((a, b) => a + b, 0) / list.length) / PT;
+      assert.ok(rms <= 1.2, `${name}: the ${key} edge is ${rms.toFixed(2)}pt off on average from 183ms`);
+    }
+  }
+});
+
+test("the box's left edge goes before it rises, as on the iPhone", () => {
+  // the recordings: the left edge two thirds of the way while the top has
+  // barely left the bar, at 100ms
   const s = flyFirst();
-  let squeezed = null, halfUp = null;
+  const travel = b => ({ across: (b.left - FIELD.left) / (BUBBLE.left - FIELD.left), up: (FIELD.top - b.top) / (FIELD.top - BUBBLE.top) });
+  let arrived = null, halfUp = null;
   for (let ms = 0; ms <= FLIGHT_MS; ms++) {
     s.frame(ms);
-    const p = progress(edges(s));
-    if (squeezed === null && p.across >= 1) squeezed = ms;
+    const p = travel(edges(s));
+    if (arrived === null && p.across >= 1) arrived = ms;
     if (halfUp === null && p.up >= 0.5) halfUp = ms;
-    if (Math.abs(ms - 67) < 1) {
+    if (ms === 67) {
       assert.ok(Math.abs(p.up) <= 0.02, `the top has left the row at 67ms (${p.up})`);
-      assert.ok(p.across >= 0.3, `the left edge has not squeezed in at 67ms (${p.across})`);
+      assert.ok(p.across >= 0.25, `the left edge has not squeezed in at 67ms (${p.across})`);
     }
-    if (ms === 100) {
-      assert.ok(p.across >= 0.6, `the left edge is ${p.across} of the way at 100ms`);
-      assert.ok(p.up <= 0.1, `the top is ${p.up} of the way at 100ms`);
-      assert.ok(p.across - p.up >= 0.5, "the squeeze is not well ahead of the rise at 100ms");
-    }
+    if (ms === 100) assert.ok(p.across >= 0.5 && p.up <= 0.1, `at 100ms the left edge is ${p.across} of the way and the top ${p.up}`);
   }
-  assert.ok(squeezed !== null && halfUp !== null && squeezed < halfUp,
-    `the left edge reached the bubble's (${squeezed}ms) after the top was halfway up (${halfUp}ms)`);
+  assert.ok(arrived !== null && halfUp !== null && arrived < halfUp,
+    `the left edge reached the bubble's (${arrived}ms) after the top was halfway up (${halfUp}ms)`);
 });
 
-test("the box's left edge and top follow the iPhone's frame by frame, its right end on the bubble's", () => {
+test("the box's right end goes from the typing box's to the bubble's, as the iPhone's does", () => {
+  // the iPhone's bubble starts as its bar, right end and all; where the bar's
+  // right end is not the bubble's (the first recording), it travels across
   const s = flyFirst();
-  const first = edges(s);
-  near(first.left, FIELD.left, "the start box's left edge");
-  near(first.top, FIELD.top, "the start box's top");
-  near(first.height, FIELD.height, "the start box's height");
-  near(first.right, RIGHT, "the start box's right end", 1e-6);
-  for (const row of IPHONE) {
-    const [frame, ms] = row;
+  near(edges(s).right, FIELD.left + FIELD.width, "the start box's right end (the typing box's)", 1e-6);
+  near(edges(s).width, FIELD.width, "the start box's width (the typing box's)", 1e-6);
+  let before = -Infinity;
+  for (const ms of MOMENTS.slice(1)) {
     s.frame(ms);
-    const got = edges(s), p = progress(got);
-    near(got.right, RIGHT, `the right end at ${ms}ms`, 1e-6);
-    near(p.up, up(row), `the top at ${ms}ms (frame ${frame})`, 0.002);
-    // frame 13's left edge was read through the bar's glass, which blurs it;
-    // the flight takes the run of the frames either side there
-    if (frame === 13) {
-      const [a, b] = [IPHONE.find(r => r[0] === 12), IPHONE.find(r => r[0] === 14)];
-      assert.ok(p.across > across(a) && p.across < across(b), `the left edge at ${ms}ms is off its neighbours' run`);
-    } else near(p.across, across(row), `the left edge at ${ms}ms (frame ${frame})`, 0.002);
+    const r = edges(s).right;
+    if (ms <= 283) assert.ok(r >= before - 1e-9, `the right end went back at ${ms}ms`);
+    before = r;
+    if (ms === 100) assert.ok(r > FIELD.left + FIELD.width + 1 && r < RIGHT - 1, `the right end is not on its way at 100ms (${r})`);
   }
-  s.frame(FLIGHT_MS);
-  const landed = edges(s);
-  near(landed.left, BUBBLE.left, "the landing's left", 1e-6);
-  near(landed.top, BUBBLE.top, "the landing's top", 1e-6);
-  near(landed.height, BUBBLE.height, "the landing's height", 1e-6);
+  near(edges(s).right, RIGHT, "the landing's right end", 1e-6);
 });
 
-test("the box and its words shrink as they leave the row and grow back to the bubble's size in place", () => {
-  // the iPhone's bubble and words are 78% of their landed size at 217ms
+test("the box and its words shrink to 77% as they leave the row and grow back in place", () => {
   const s = flyFirst();
-  for (const row of IPHONE) {
-    s.frame(row[1]);
-    const k = s.words().k;
-    // (frame 13's left edge, which the shrink from the typing size rides, is
-    // the blurred reading the flight does not take)
-    near(k, mix(GROW, 1, within(across(row))) * row[4], `the words' scale at ${row[1]}ms`, row[0] === 13 ? 0.004 : 0.0012);
-    near(edges(s).height, mix(FIELD.height, BUBBLE.height, within(up(row))) * row[4], `the box's height at ${row[1]}ms`, 0.06);
-  }
   s.frame(216.7);
+  near(s.words().k * WORDS.size, 0.771 * WORDS.size, "the words' size at 217ms", 0.02);
   const low = edges(s);
-  near(s.words().k * WORDS.size, 0.781 * WORDS.size, "the words' size at 217ms", 0.02);
-  assert.ok(low.width < 0.85 * BUBBLE.width, `the box is ${low.width}px wide at 217ms`);
-  assert.ok(low.height < 0.8 * BUBBLE.height, `the box is ${low.height}px tall at 217ms`);
-  // and grows back, never shrinking again until it is the bubble's size
+  assert.ok(low.width < 0.8 * BUBBLE.width && low.height < 0.8 * BUBBLE.height,
+    `the box is ${low.width} by ${low.height} at 217ms`);
   let before = s.words().k;
-  for (let ms = 217; ms <= 482; ms += 1) {
+  for (let ms = 217; ms <= 566; ms++) {
     s.frame(ms);
     const k = s.words().k;
     assert.ok(k >= before - 1e-9, `the words shrank again at ${ms}ms`);
     before = k;
   }
+  assert.ok(before > 1 && before < 1.006, `the words do not go a touch over their size at 567ms (${before})`);
   s.frame(FLIGHT_MS);
   assert.equal(s.words().k, 1, "the words did not land at the bubble's size");
   near(edges(s).width, BUBBLE.width, "the box did not land at the bubble's width", 1e-6);
+  near(edges(s).height, BUBBLE.height, "the box did not land at the bubble's height", 1e-6);
 });
 
-test("the grey comes in as the box rises and is whole once it has risen clear, as the iPhone's colour does", () => {
-  // the iPhone's colour shows at a sixth while it is in the bar, under its
-  // frosted glass, and whole from 217ms, when it has risen clear
+test("the grey is faint over the typing row and comes in as the box rises clear, as the iPhone's colour does", () => {
+  // the iPhone's bubble is drawn at 69% on its first frame and whole by 183ms,
+  // and the part still in the bar looks at 13.5% under the bar's frosted glass
   const s = flyFirst();
-  near(px(s.face().style.opacity), 0.166, "the grey before the first frame", 1e-6);
+  near(px(s.face().style.opacity), FAINT, "the grey before the first frame", 1e-9);
   assert.equal(s.face().style.background, LOCAL, "the face is not the bubble's live grey");
-  for (const row of IPHONE) {
-    s.frame(row[1]);
-    near(px(s.face().style.opacity), row[5], `the grey at ${row[1]}ms`, 0.001);
-  }
-  const s2 = flyFirst();
   let before = 0;
-  for (let ms = 0; ms <= FLIGHT_MS; ms++) {
-    s2.frame(ms);
-    const grey = px(s2.face().style.opacity);
-    // never back by more than the readings' own noise (0.180 to 0.177 at 67ms)
-    assert.ok(grey >= before - 0.005, `the grey went back at ${ms}ms`);
-    if (ms <= 183) assert.ok(grey < 0.5, `the grey is ${grey} at ${ms}ms, while the iPhone's still shows faint`);
-    if (ms >= 217) assert.equal(grey, 1, `the grey is not whole at ${ms}ms`);
+  for (const ms of MOMENTS.slice(1)) {
+    s.frame(ms);
+    const grey = px(s.face().style.opacity), b = edges(s);
+    assert.ok(grey >= before - 1e-9 && grey <= 1, `the grey went back or over at ${ms}ms (${grey})`);
+    if (b.top >= FIELD.top) near(grey, FAINT, `the grey over the row at ${ms}ms`, 1e-9);
+    if (b.bottom <= FIELD.top) assert.ok(grey >= DRAWN - 1e-9, `the grey above the row at ${ms}ms is ${grey}`);
+    if (ms >= 183.3 && b.bottom <= FIELD.top) near(grey, 1, `the grey at ${ms}ms`, 1e-9);
     before = grey;
   }
+  // a taller bubble clears its bar later, and its grey comes in later: the
+  // second recording's two lines against its one-line sends at 217ms
+  const greyAt = (send, ms) => { const r = flyRecorded(send); r.frame(ms); return px(r.shell().querySelector(".sentmorph-face").style.opacity); };
+  const two = greyAt(IPHONE.sends.s1, 216.7), one = greyAt(IPHONE.sends.s3, 216.7);
+  assert.ok(two < 0.8 && one > 0.95, `at 217ms the two-line grey is ${two} and the one-line ${one}`);
   // the grey firms up with delivery while airborne, and the face follows it
   const s3 = flyFirst();
   s3.p.fill = SAVED;
@@ -404,15 +364,13 @@ test("the grey comes in as the box rises and is whole once it has risen clear, a
   assert.equal(s3.face().style.background, SAVED);
 });
 
-test("the flight takes the iPhone's 700ms, and the bubble takes over a frame after it lands", () => {
+test("the flight takes the iPhone's 750ms, and the bubble takes over a frame after it lands", () => {
   const s = flyFirst();
-  for (const ms of [400, 417, 600]) {
+  for (const ms of [400, 717, 733]) {
     s.frame(ms);
     assert.ok(s.shell(), `the flight ended by ${ms}ms`);
     assert.equal(s.p.style.getPropertyValue("opacity"), "0", `the real bubble showed at ${ms}ms`);
   }
-  // still settling at 600ms: the iPhone's top is 1.3% past the landing then
-  near(progress(edges(s)).up, up(IPHONE.find(r => r[1] === 598.3)), "the settle at 600ms", 0.004);
   s.frame(FLIGHT_MS);
   assert.ok(s.shell(), "the landing frame was not painted before the swap");
   near(edges(s).top, BUBBLE.top, "the landing", 1e-6);
@@ -432,7 +390,7 @@ test("the flying box keeps the bubble's rounded corners at every frame", () => {
 });
 
 test("one copy of the words flies at full strength at every frame, even for a message the board has not saved", () => {
-  // the iPhone's words turn white on its green; here they stay dark on grey
+  // the iPhone's words turn white on its colour; here they stay dark on grey
   const s = flyFirst();
   for (const ms of MOMENTS) {
     if (ms !== null) s.frame(ms);
@@ -451,15 +409,14 @@ test("one copy of the words flies at full strength at every frame, even for a me
   assert.equal(s.p.style.getPropertyValue("opacity"), "");
 });
 
-test("the words start on the typed words at the typing size, ride the box, and land on the bubble's own place", () => {
+test("the words start on the typed words at the typing size, ride inside the box, and land on the bubble's own place", () => {
   const s = flyFirst();
   // where the copy draws its first line: its left, its middle, its size
   const first = () => {
     const w = s.words(), b = edges(s);
     const left = b.left + w.x + PAD.x * w.k, top = b.top + w.y + PAD.y * w.k;
-    return { left, middle: top + WORDS.line * w.k / 2, size: WORDS.size * w.k, k: w.k, box: b };
+    return { left, middle: top + WORDS.line * w.k / 2, size: WORDS.size * w.k, box: b };
   };
-  // before the first frame: the typing size, over the typed words
   const start = first();
   near(start.size, TYPED.size, "the words' size before the first frame (the typing size)", 1e-9);
   near(start.left, FIELD.left + TYPED.padLeft, "the words' left before the first frame (the typed words')");
@@ -467,14 +424,9 @@ test("the words start on the typed words at the typing size, ride the box, and l
   for (const ms of MOMENTS.slice(1)) {
     s.frame(ms);
     const got = first();
-    // the first line stays inside the box, its inset going from the typed
-    // words' to the bubble's and taking the box's size
-    const a = iphone(ms);
-    if (ms !== 133.3)   // frame 13's blurred left edge, which the flight does not take
-      near(got.left - got.box.left, mix(TYPED.padLeft, PAD.x, within(a.across)) * a.size, `the words' inset at ${ms}ms`, 0.03);
-    assert.ok(got.middle > got.box.top && got.middle < got.box.top + got.box.height, `the words left the box at ${ms}ms`);
+    assert.ok(got.left > got.box.left && got.left < got.box.right, `the words left the box sideways at ${ms}ms`);
+    assert.ok(got.middle > got.box.top && got.middle < got.box.bottom, `the words left the box at ${ms}ms`);
   }
-  // the landing: the bubble's size, exactly where the bubble draws its words
   const end = s.words();
   assert.equal(end.k, 1, "the words did not land at the bubble's size");
   near(end.x, 0, "the copy's left at landing", 1e-9);
@@ -482,8 +434,7 @@ test("the words start on the typed words at the typing size, ride the box, and l
 });
 
 test("what stood before makes room on the iPhone's glide, quicker than the bubble rises", () => {
-  // the recording's earlier bubbles are 59% of the way up at 100ms, when the
-  // new one's top is at 8%; the glide is one curve fitted to their frames
+  // the six sends' earlier messages, the middle of them at each frame
   const s = scene();
   const p = s.panel(["Looks good, ship it"]);
   box(p, BUBBLE);
@@ -496,54 +447,62 @@ test("what stood before makes room on the iPhone's glide, quicker than the bubbl
   const glide = p.animations.at(-1);
   assert.ok(glide, "the panel did not glide from where it stood");
   assert.equal(glide.options.duration, 340, "the glide is not the iPhone's length");
-  assert.equal(glide.options.easing, "cubic-bezier(.24,.15,.15,1)", "the glide is not the iPhone's curve");
-  const curve = bezier([0.24, 0.15, 0.15, 1]);
-  IPHONE_GLIDE.forEach((value, i) => {
-    const ms = IPHONE[i][1];
-    near(curve(ms / 340), value, `the glide at ${ms}ms against the iPhone's`, 0.016);
-  });
-  assert.ok(curve(100 / 340) - iphone(100).up > 0.4, "the glide is not well ahead of the rise at 100ms");
+  assert.equal(glide.options.easing, "cubic-bezier(.24,.1,.15,1)", "the glide is not the iPhone's curve");
+  const curve = bezier([0.24, 0.1, 0.15, 1]);
+  for (const [ms, value] of IPHONE.glide)
+    near(curve(ms / 340), value, `the glide at ${ms}ms against the iPhone's`, 0.017);
+  const f = flyFirst();
+  f.frame(100);
+  const up = (FIELD.top - edges(f).top) / (FIELD.top - BUBBLE.top);
+  assert.ok(curve(100 / 340) - up > 0.4, `the glide is not well ahead of the rise at 100ms (${curve(100 / 340)} against ${up})`);
 });
 
 test("a later send flies to its row's laid-out place, not to the glide its own send gives the panel", () => {
   // the new row stands inside the shared panel, which this send glides up from
-  // where it stood; the box follows the same track to the row's place
-  const s = scene();
-  const p = s.panel(["Looks good, ship it"]);
-  box(p, BUBBLE);
-  const motion = s.context.armSentMotion(s.el);
-  // the second message joins the panel: the panel grows 42px up from its foot
-  const row = s.row("One more thing");
-  p.querySelector(".answstack").appendChild(row);
-  const grown = { left: BUBBLE.left, top: BUBBLE.top - 42, width: BUBBLE.width, height: BUBBLE.height + 42 };
-  box(p, grown);
-  box(p.querySelector(".answclip"), { left: 217.4, top: grown.top + 15.76, width: 124.5, height: 63 });
-  const seat = { left: 217.4, top: grown.top + 15.76 + 42, width: 124.5, height: 21 };
-  box(row, seat);
-  box(p.querySelector(".answmsg"), { left: 217.4, top: grown.top + 15.76, width: 124.5, height: 21 });
-  motion.play();
-  const glide = p.animations.at(-1);
+  // where it stood: the flight drawn with the glide part way must be the one
+  // drawn with no glide at all, landing on the row's laid-out place
+  const make = () => {
+    const s = scene();
+    const p = s.panel(["Looks good, ship it"]);
+    box(p, BUBBLE);
+    const motion = s.context.armSentMotion(s.el);
+    const row = s.row("One more thing");
+    p.querySelector(".answstack").appendChild(row);
+    const grown = { left: BUBBLE.left, top: BUBBLE.top - 42, width: BUBBLE.width, height: BUBBLE.height + 42 };
+    box(p, grown);
+    box(p.querySelector(".answclip"), { left: 217.4, top: grown.top + 15.76, width: 124.5, height: 63 });
+    const seat = { left: 217.4, top: grown.top + 15.76 + 42, width: 124.5, height: 21 };
+    box(row, seat);
+    box(p.querySelector(".answmsg"), { left: 217.4, top: grown.top + 15.76, width: 124.5, height: 21 });
+    return { s, p, motion, seat };
+  };
+  const MS = [40, 80, 160, 300, 500];
+  // the same send with the panel never drawn moving
+  const still = make();
+  still.motion.play();
+  const unmoved = MS.map(ms => { still.s.frame(ms); return edges(still.s); });
+  const gliding = make();
+  gliding.motion.play();
+  const glide = gliding.p.animations.at(-1);
   assert.ok(glide, "the panel did not glide from where it stood");
   assert.equal(glide.keys[0].transform.trim(), "translate(0px,42px)");
-  const curve = bezier([0.24, 0.15, 0.15, 1]);
-  for (const ms of [40, 80, 160, 300]) {
+  const curve = bezier([0.24, 0.1, 0.15, 1]);
+  MS.forEach((ms, i) => {
     // the browser drawing the glide part way: the panel and all in it lower by what is left
     const left = 42 * (1 - curve(ms / 340));
-    p.shiftY = left;
-    p.transform = `matrix(1, 0, 0, 1, 0, ${left})`;
-    s.frame(ms);
-    const a = iphone(ms), got = edges(s);
-    near(got.top, mix(FIELD.top, seat.top, a.up), `the shell's top at ${ms}ms`, 0.1);
-    near(got.height, mix(FIELD.height, seat.height, within(a.up)) * a.size, `the shell's height at ${ms}ms`, 0.1);
-    near(got.left, mix(FIELD.left, seat.left, a.across), `the shell's left edge at ${ms}ms`, 0.2);
-    near(got.right, seat.left + seat.width, `the shell's right end at ${ms}ms`);
-    assert.equal(s.layers()[0].style.opacity, "1", `the words are not at full strength at ${ms}ms`);
-  }
-  p.shiftY = 0;
-  p.transform = "none";
-  s.frame(FLIGHT_MS);
-  near(px(s.shell().style.top), seat.top, "the landing");
-  near(px(s.shell().style.height), seat.height, "the landing's height");
+    gliding.p.shiftY = left;
+    gliding.p.transform = `matrix(1, 0, 0, 1, 0, ${left})`;
+    gliding.s.frame(ms);
+    const a = edges(gliding.s);
+    for (const key of ["left", "right", "top", "height"]) near(a[key], unmoved[i][key], `the shell's ${key} at ${ms}ms`, 1e-6);
+    assert.equal(gliding.s.layers()[0].style.opacity, "1", `the words are not at full strength at ${ms}ms`);
+  });
+  gliding.p.shiftY = 0;
+  gliding.p.transform = "none";
+  gliding.s.frame(FLIGHT_MS);
+  near(px(gliding.s.shell().style.top), gliding.seat.top, "the landing");
+  near(px(gliding.s.shell().style.height), gliding.seat.height, "the landing's height");
+  near(edges(gliding.s).right, gliding.seat.left + gliding.seat.width, "the landing's right end");
 });
 
 test("a message below the cut squeezes into the cut's edge, its words going on under it, with nothing fading", () => {
@@ -567,9 +526,9 @@ test("a message below the cut squeezes into the cut's edge, its words going on u
     assert.equal(s.layers().length, 1, `the words are not one copy at ${ms}ms`);
     assert.equal(s.layers()[0].style.opacity, "1", `the words fade at ${ms}ms`);
     assert.ok(!s.shell().style.opacity || s.shell().style.opacity === "1", `the box fades at ${ms}ms`);
-    near(edges(s).right, cut.left + cut.width, `the right end at ${ms}ms`);
   }
   const landed = edges(s);
+  near(landed.right, cut.left + cut.width, "the box did not land on the cut's right end");
   near(landed.top, cut.top + cut.height, "the box did not land on the cut's edge");
   near(landed.height, 0, "the box landed with a height that covers the words above the cut");
   assert.ok(s.words().y >= 0, "the new words were left in sight above the cut");
