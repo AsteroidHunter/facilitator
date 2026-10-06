@@ -414,6 +414,11 @@ const RESPONSE_BOUNCE_PX = 7;
 const RESPONSE_BOUNCE_MS = 250;
 // the motion under way, or null
 let responseScrolling = null;
+// Only the phone in developer mode supplies this optional, isolated recorder.
+let responseScrollTiming = null;
+function noteResponseScroll(phase, run, frame, computed, callback){
+  try { responseScrollTiming(phase, run, frame, computed, callback); } catch (_) {}
+}
 // the last down press, kept so a quick second press can turn it into an up
 let responseLastPress = null;
 // the bounce's running animations, so a quick second one replaces the first
@@ -421,6 +426,7 @@ let responseBouncing = [];
 
 function stopResponseScroll(){
   if (responseScrolling && responseScrolling.frame) cancelAnimationFrame(responseScrolling.frame);
+  if (responseScrollTiming && responseScrolling) noteResponseScroll("end", responseScrolling);
   responseScrolling = null;
 }
 
@@ -489,6 +495,7 @@ function responseScrollStands(was, card){
 function responseScrollFrame(at){
   const run = responseScrolling;
   if (!run) return;
+  const callback = responseScrollTiming ? performance.now() : 0;
   run.frame = 0;
   if (!responseScrollStands(run, run.find())){
     dropResponseScroll();
@@ -502,7 +509,9 @@ function responseScrollFrame(at){
   if (Math.abs(view.scrollTop - run.pos) >= 1) run.pos = view.scrollTop;
   const room = Math.max(0, view.scrollHeight - view.clientHeight);
   run.pos = Math.max(0, Math.min(room, run.pos + run.dir * RESPONSE_SCROLL_SPEED * dt / 1000));
+  const computed = responseScrollTiming ? performance.now() : 0;
   if (run.pos !== view.scrollTop) view.scrollTop = run.pos;
+  if (responseScrollTiming) noteResponseScroll("step", run, at, computed, callback);
   if ((run.dir < 0 && run.pos === 0) || (run.dir > 0 && run.pos === room)){
     // the motion stops here, so the hold that reached the end bounces once
     stopResponseScroll();
@@ -547,6 +556,7 @@ function responseScrollKey(event, find){
     ...press, find, dir, last: at, pos: view.scrollTop,
     frame: requestAnimationFrame(responseScrollFrame),
   };
+  if (responseScrollTiming) noteResponseScroll("start", responseScrolling);
   return true;
 }
 

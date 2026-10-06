@@ -1055,7 +1055,7 @@ INCIDENT_EVENTS = frozenset(("create", "select", "focus", "send", "operation", "
                             "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
 INCIDENT_EVENTS_V3 = INCIDENT_EVENTS | frozenset(("input", "scroll", "frame", "timer", "phase", "poll"))
 INCIDENT_EVENTS_V4 = INCIDENT_EVENTS_V3 | {"enter"}
-INCIDENT_SCHEMA = 5          # what /m/state offers the phone; every older version is still read
+INCIDENT_SCHEMA = 6          # what /m/state offers the phone; every older version is still read
 INCIDENT_REASONS = ("manual", "slow-ui", "slow-request", "invariant", "problem", "freeze")
 INCIDENT_REASONS_V5 = INCIDENT_REASONS + ("no-scroll",)
 INCIDENT_NUMBERS = {"ms": 600000, "seq": 1000000000, "status": 599, "serverMs": 600000,
@@ -1112,16 +1112,52 @@ def _incident_box(value) -> bool:
     return isinstance(value, str) and len(value) <= 32 and (not value or bool(INCIDENT_BOX.fullmatch(value)))
 
 
+def _incident_timing_valid(timing) -> bool:
+    """The packed keyboard trace: fixed words, bounded clocks and scroll offsets."""
+    if (not isinstance(timing, dict) or set(timing) != {"lost", "longtasks", "rows"}
+            or not _incident_integer(timing["lost"], 0, 1000000000)
+            or type(timing["longtasks"]) is not bool or not isinstance(timing["rows"], list)
+            or len(timing["rows"]) > 240):
+        return False
+    def number(value, low, high):
+        # Bounds also reject NaN and infinity; bool is not a clock reading.
+        return type(value) in (int, float) and low <= value <= high
+    previous = -120000
+    for row in timing["rows"]:
+        if (not isinstance(row, list) or len(row) < 3 or not number(row[0], previous, 20000)
+                or row[2] not in ("reply", "list")):
+            return False
+        previous = row[0]
+        kind = row[1]
+        if kind in ("start", "end"):
+            valid = len(row) == 3
+        elif kind == "step":
+            valid = (len(row) == 7 and number(row[4], 0, 1000000)
+                     and all(number(row[i], -120000, 20000) for i in (3, 5, 6)))
+        elif kind == "frame":
+            valid = len(row) == 4 and number(row[3], -120000, 20000)
+        elif kind in ("job-start", "job-end"):
+            valid = len(row) == 4 and row[3] in ("board", "json", "list", "reply", "glass")
+        elif kind == "longtask":
+            valid = len(row) == 4 and number(row[3], 0, 600000)
+        else:
+            valid = False
+        if not valid:
+            return False
+    return len(json.dumps(timing, separators=(",", ":"))) <= 6144
+
+
 def _incident_valid(page: str, report: dict) -> bool:
-    """No free text and no nested data except the bounded event list. Reject
+    """No free text; only bounded events and the packed keyboard timing rows. Reject
     unknown fields and bad types before any part of a batch reaches a log."""
     version = report.get("v")
     fields = {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
-    if version in (2, 3, 4, 5): fields.add("build")
-    if version in (3, 4, 5): fields.update(("worker", "session"))
-    reasons = INCIDENT_REASONS_V5 if version == 5 else INCIDENT_REASONS
+    if version in (2, 3, 4, 5, 6): fields.add("build")
+    if version in (3, 4, 5, 6): fields.update(("worker", "session"))
+    if version == 6: fields.add("timing")
+    reasons = INCIDENT_REASONS_V5 if version in (5, 6) else INCIDENT_REASONS
     if (page != "phone" or set(report) != fields
-            or type(version) is not int or version not in (1, 2, 3, 4, 5)
+            or type(version) is not int or version not in (1, 2, 3, 4, 5, 6)
             or (version >= 2 and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
             or (version >= 3 and (not isinstance(report["worker"], str) or not INCIDENT_BUILD.fullmatch(report["worker"])
                                   or not isinstance(report["session"], str) or not INCIDENT_SESSION.fullmatch(report["session"])))
@@ -1129,6 +1165,8 @@ def _incident_valid(page: str, report: dict) -> bool:
             or not _incident_integer(report["marked"], 0, 10000000000000)
             or not _incident_integer(report["lost"], 0, 1000000000)
             or not _incident_integer(report["suppressed"], 0, 1000000000)):
+        return False
+    if version == 6 and not _incident_timing_valid(report["timing"]):
         return False
     entries = report["events"]
     if not isinstance(entries, list) or not 1 <= len(entries) <= (128 if version >= 3 else 40):
@@ -1325,7 +1363,7 @@ def _client_fields(report: dict) -> dict:
     A page cannot write whatever it likes into a file on this machine."""
     if report["kind"] == "incident":
         names = ("v", "reason", "marked", "lost", "suppressed", "events")
-        return {k: report[k] for k in (*names, "build", "worker", "session") if k in report}
+        return {k: report[k] for k in (*names, "build", "worker", "session", "timing") if k in report}
     if report["kind"] in NOTICE_FIELDS:
         # a card's id is the line's own box, written beside the kind
         out = {k: report[k] for k in NOTICE_FIELDS[report["kind"]] if k in report and k not in ("ago", "box")}

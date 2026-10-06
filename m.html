@@ -1832,7 +1832,7 @@ if (typeof startReporter === "function") startReporter("phone", { phoneHistory: 
 // A diagnostic token, not a release claim: it distinguishes this instrumented
 // page from an older installed shell without exposing a URL or local path.
 // This names the loaded HTML only; the worker reports its own cache identity.
-const PHONE_DIAGNOSTIC_BUILD = "phone-scroll-diag-20260922-1";
+const PHONE_DIAGNOSTIC_BUILD = "phone-scroll-timing-20261006-1";
 tracePhone("identity", PHONE_DIAGNOSTIC_BUILD);
 // the marker a freeze report carries; it goes nowhere if the reporter is absent
 if (typeof noteDoing !== "function") window.noteDoing = () => {};
@@ -1840,6 +1840,12 @@ if (typeof noteDoing !== "function") window.noteDoing = () => {};
 function tracePhone(action, ...args){
   try { return window.phoneHistory?.[action](...args); } catch (_) {}
 }
+// The shared engine passes its existing position, never another layout read.
+function phoneKeyboardTiming(phase, run, frame, computed, callback){
+  tracePhone("keyboardScroll", phase, run.find === phoneDrawerScrollCard ? "list" : "reply",
+    run.pos, frame, computed, callback);
+}
+responseScrollTiming = phoneDeveloperMode ? phoneKeyboardTiming : null;
 function traceFrameOpportunity(action){
   if (!phoneDeveloperMode || tracePhone("version") < 3) return;
   const generation = diagnosticGeneration;
@@ -2273,67 +2279,70 @@ function ensureCard(id){
 // the pass over one built card that every reading makes: its answer, its
 // panels, its colour and its spinner, drawn from the board's record b
 function drawCard(el, b, state){
-  const rawReply = replyFull(b);
-  // a new answer on the card on show turns the page, as it does on the desktop
-  // (card-logic.js): the sheet over the page the reader was on is laid before
-  // anything of the new one is drawn, and turnGo below glides it. while the
-  // reader is busy with the card the new answer is held back, and this pass
-  // leaves the answer and both panels exactly as they stand
-  const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
-  const held = turn === TURN_HELD;
-  if (!held && el.reply.dataset.raw !== rawReply){
-    el.reply.dataset.raw = rawReply;
-    delete histCache[b.id];
-    if (hist && hist.id === b.id) histExit(b.id);
-    else{
-      el.reply.innerHTML = fmt(rawReply);
-      if (!turn) headOnSwap(el, b);
+  const timing = phoneDeveloperMode ? tracePhone("jobStart", "reply") : null;
+  try {
+    const rawReply = replyFull(b);
+    // a new answer on the card on show turns the page, as it does on the desktop
+    // (card-logic.js): the sheet over the page the reader was on is laid before
+    // anything of the new one is drawn, and turnGo below glides it. while the
+    // reader is busy with the card the new answer is held back, and this pass
+    // leaves the answer and both panels exactly as they stand
+    const turn = el.reply.dataset.raw !== rawReply ? turnBegin(el, b) : null;
+    const held = turn === TURN_HELD;
+    if (!held && el.reply.dataset.raw !== rawReply){
+      el.reply.dataset.raw = rawReply;
+      delete histCache[b.id];
+      if (hist && hist.id === b.id) histExit(b.id);
+      else{
+        el.reply.innerHTML = fmt(rawReply);
+        if (!turn) headOnSwap(el, b);
+      }
     }
-  }
-  // a reply landing on the selected card while the window is in front is read
-  // as it lands, unless the card list is out over it. a browsed card is not
-  // read
-  readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());
-  // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
-  // sweep in flight writes it itself
-  if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))
-    el.titleEl.textContent = omniCardTitle(b.title);
-  syncOmniCard(el, b);
-  // the message a send has just drawn is not the poll's to take away. a state
-  // fetched before the server had that message knows nothing about it, and the
-  // pass over the panel would read the shorter list as the run being answered
-  // and clear the panel in view. el.sendGuard is the moment the send landed,
-  // and stands at the end of time while one is still in flight
-  const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
-  if (!held && !stale) syncSentPhone(el, b);
-  // and the panel over the answer: the reply the card is showing, and the
-  // messages the board recorded that reply was given. while an older page is
-  // on show the stepper owns that panel, so the poll leaves it alone and
-  // histExit is what hands it back to the live reply. the pass compares the
-  // reply's own name, so a poll carrying the same reply again touches no dom
-  // at all and nothing near the typing row moves
-  if (!held){
-    el.liveMeta = liveAnswered(b);
-    if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
-  }
-  // the new page stands under the sheet: the glide and the print
-  turnGo(el, turn);
-  const cs = cardState(b);
-  el.box.classList.toggle("done", cs === "done");
-  el.box.classList.toggle("parked", cs === "parked");
-  el.box.classList.toggle("docked", cardSection(b) === "docked");
-  paintSectionChips(el, b);
-  setCardSpinner(el.cardSpin, cardSpinning(b));
-  syncPhoneHistory(b);
-  // a note about a send that failed or was held stays until the card can
-  // take another; any other note is the poll's to clear. a held send clears
-  // as soon as there is room again
-  // a tap on the moon the board refused or never answered leaves its own
-  // note, which says what the card is NOT: no reading may take that away,
-  // only the next tap on the same chip
-  if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0 &&
-      el.meta.dataset.flagnote !== "1") el.meta.textContent = "";
-  if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
+    // a reply landing on the selected card while the window is in front is read
+    // as it lands, unless the card list is out over it. a browsed card is not
+    // read
+    readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());
+    // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
+    // sweep in flight writes it itself
+    if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))
+      el.titleEl.textContent = omniCardTitle(b.title);
+    syncOmniCard(el, b);
+    // the message a send has just drawn is not the poll's to take away. a state
+    // fetched before the server had that message knows nothing about it, and the
+    // pass over the panel would read the shorter list as the run being answered
+    // and clear the panel in view. el.sendGuard is the moment the send landed,
+    // and stands at the end of time while one is still in flight
+    const stale = (state.fetchedAt || 0) < (el.sendGuard || 0);
+    if (!held && !stale) syncSentPhone(el, b);
+    // and the panel over the answer: the reply the card is showing, and the
+    // messages the board recorded that reply was given. while an older page is
+    // on show the stepper owns that panel, so the poll leaves it alone and
+    // histExit is what hands it back to the live reply. the pass compares the
+    // reply's own name, so a poll carrying the same reply again touches no dom
+    // at all and nothing near the typing row moves
+    if (!held){
+      el.liveMeta = liveAnswered(b);
+      if (!(hist && hist.id === b.id)) syncAnswered(el, el.liveMeta);
+    }
+    // the new page stands under the sheet: the glide and the print
+    turnGo(el, turn);
+    const cs = cardState(b);
+    el.box.classList.toggle("done", cs === "done");
+    el.box.classList.toggle("parked", cs === "parked");
+    el.box.classList.toggle("docked", cardSection(b) === "docked");
+    paintSectionChips(el, b);
+    setCardSpinner(el.cardSpin, cardSpinning(b));
+    syncPhoneHistory(b);
+    // a note about a send that failed or was held stays until the card can
+    // take another; any other note is the poll's to clear. a held send clears
+    // as soon as there is room again
+    // a tap on the moon the board refused or never answered leaves its own
+    // note, which says what the card is NOT: no reading may take that away,
+    // only the next tap on the same chip
+    if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0 &&
+        el.meta.dataset.flagnote !== "1") el.meta.textContent = "";
+    if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
+  } finally { if (timing) tracePhone("jobEnd", timing); }
 }
 // a card taken down, because the board no longer holds it (gone) or because the
 // reader has moved well away from it. what makeBox hung on it goes with it; the
@@ -4249,31 +4258,34 @@ function ticketsShown(){
   return !!at && menuAvailable(at) && (at.classList.contains("live") || at.classList.contains("open"));
 }
 function renderTickets(state, action = "state", shown = ticketsShown()){
-  const intent = phoneEnterAgain, heldView = intent && phoneEnterViewKey(intent.id);
-  const followed = syncSentView(state);
-  if (followed && intent?.id === followed && intent.active && intent.view === heldView)
-    intent.view = phoneEnterViewKey(intent.id);
-  const sheet = document.getElementById("tiksheet");
-  paintViewTabs();
-  if (!sheet) return;
-  if (shown){
-    let trace = null, began = false, spin = false;
-    const touch = () => {
-      if (began) return;
-      began = true;
-      trace = tracePhone("begin", "phase", { action, part: "tickets" });
-    };
-    const pool = poolOf(state);
-    for (const name of TICKET_VIEWS){
-      const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
-      if (pane && paintPhonePane(pane, pool.filter(b => viewFilterFor(b, name)), name, state, touch)) spin = true;
+  const timing = phoneDeveloperMode ? tracePhone("jobStart", "list") : null;
+  try {
+    const intent = phoneEnterAgain, heldView = intent && phoneEnterViewKey(intent.id);
+    const followed = syncSentView(state);
+    if (followed && intent?.id === followed && intent.active && intent.view === heldView)
+      intent.view = phoneEnterViewKey(intent.id);
+    const sheet = document.getElementById("tiksheet");
+    paintViewTabs();
+    if (!sheet) return;
+    if (shown){
+      let trace = null, began = false, spin = false;
+      const touch = () => {
+        if (began) return;
+        began = true;
+        trace = tracePhone("begin", "phase", { action, part: "tickets" });
+      };
+      const pool = poolOf(state);
+      for (const name of TICKET_VIEWS){
+        const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
+        if (pane && paintPhonePane(pane, pool.filter(b => viewFilterFor(b, name)), name, state, touch)) spin = true;
+      }
+      if (spin) syncSpinner();
+      if (began) endPhoneTrace(trace, { action, part: "tickets" });
     }
-    if (spin) syncSpinner();
-    if (began) endPhoneTrace(trace, { action, part: "tickets" });
-  }
-  // keep the sheet on the current section without motion on a poll or first draw;
-  // a tab tap owns its own travel
-  if (tikTravelIntent == null && tikShownView !== curView()) moveTicketSheet(curView(), false);
+    // keep the sheet on the current section without motion on a poll or first draw;
+    // a tab tap owns its own travel
+    if (tikTravelIntent == null && tikShownView !== curView()) moveTicketSheet(curView(), false);
+  } finally { if (timing) tracePhone("jobEnd", timing); }
 }
 // each button writes the view of the project being looked at, and nothing else:
 // another project keeps whatever view was chosen for it, and one that has never
@@ -4817,33 +4829,36 @@ function drawerPickLine(pane, top){
   return top + pane.clientHeight * progress;
 }
 function syncDrawerPick(){
-  let pick = null;
-  if (drawerKeyboardUsed && drawerOpen() && !homeOpen){
-    const pane = drawerPane(), rows = drawerRows();
-    const open = rows.find(row => row.dataset.id === selectedId);
-    if (pane && open && pane.clientHeight > 0){
-      const top = pane.getBoundingClientRect().top + pane.clientTop;
-      const bottom = top + pane.clientHeight;
-      const shown = drawerRowBounds(open);
-      if (shown.bottom <= top || shown.top >= bottom){
-        const line = drawerPickLine(pane, top);
-        let nearest = Infinity;
-        for (const row of rows){
-          const rect = drawerRowBounds(row);
-          if (rect.bottom <= top || rect.top >= bottom) continue;
-          // In a gap, use the nearest ticket; at a tie, keep the upper one.
-          const distance = Math.max(rect.top - line, line - rect.bottom, 0);
-          if (distance < nearest){ nearest = distance; pick = row; }
+  const timing = phoneDeveloperMode ? tracePhone("jobStart", "glass") : null;
+  try {
+    let pick = null;
+    if (drawerKeyboardUsed && drawerOpen() && !homeOpen){
+      const pane = drawerPane(), rows = drawerRows();
+      const open = rows.find(row => row.dataset.id === selectedId);
+      if (pane && open && pane.clientHeight > 0){
+        const top = pane.getBoundingClientRect().top + pane.clientTop;
+        const bottom = top + pane.clientHeight;
+        const shown = drawerRowBounds(open);
+        if (shown.bottom <= top || shown.top >= bottom){
+          const line = drawerPickLine(pane, top);
+          let nearest = Infinity;
+          for (const row of rows){
+            const rect = drawerRowBounds(row);
+            if (rect.bottom <= top || rect.top >= bottom) continue;
+            // In a gap, use the nearest ticket; at a tie, keep the upper one.
+            const distance = Math.max(rect.top - line, line - rect.bottom, 0);
+            if (distance < nearest){ nearest = distance; pick = row; }
+          }
         }
       }
     }
-  }
-  if (drawerPick !== pick){
-    drawerPick?.classList.remove("drawer-pick");
-    drawerPick = pick;
-    drawerPick?.classList.add("drawer-pick");
-  }
-  return drawerPick;
+    if (drawerPick !== pick){
+      drawerPick?.classList.remove("drawer-pick");
+      drawerPick = pick;
+      drawerPick?.classList.add("drawer-pick");
+    }
+    return drawerPick;
+  } finally { if (timing) tracePhone("jobEnd", timing); }
 }
 document.addEventListener("keydown", e => {
   // Software typing/IME events have no physical code (or report keyCode 229).
@@ -5652,7 +5667,10 @@ async function readBoard(){
     response = r;
     if (!r.ok) throw new Error("status " + r.status);
     const jsonTrace = tracePhone("begin", "phase", { action: "state", part: "json" });
-    data = JSON.parse(await readingText(r, abort));
+    const text = await readingText(r, abort);
+    const timing = phoneDeveloperMode ? tracePhone("jobStart", "json") : null;
+    try { data = JSON.parse(text); }
+    finally { if (timing) tracePhone("jobEnd", timing); }
     const declaredSize = r.headers.get("Content-Length");
     const size = declaredSize === null ? NaN : Number(declaredSize);
     endPhoneTrace(jsonTrace, { action: "state", part: "json", changed: !!data.changed,
@@ -5667,99 +5685,102 @@ async function readBoard(){
   endPhoneTrace(trace, { status: response?.status || 0, rev: data?.rev,
     ...(data ? {} : { outcome: "retry" }) }, response);
   if (data){
-    pollFails = 0; pollGap = POLL_MS;
-    linkUp(asked);
-    startupAnswered();   // a reading got through: the startup globe turns again
-    if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
-      pollAgain = true;
-      if (!opsStarted){ opsStarted = true; wakeOps(); }
-      return;
-    }
-    if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev >= createRevFloor){
-      createRevFloor = null;
-    }
-    noteDoing("render");
+    const timing = phoneDeveloperMode ? tracePhone("jobStart", "board") : null;
     try {
-      if (data.ops){
-        const reconcileTrace = tracePhone("begin", "phase", { action: "state", part: "reconcile" });
-        reconcileOps(data.ops);
-        endPhoneTrace(reconcileTrace, { action: "state", part: "reconcile" });
-      }
-      const served = data.changed ? mergeReading(servedCards, data) : null;
-      if (data.changed && !served){
-        // a lean reading that does not fit the cards held, which the board's
-        // own check should make impossible: none of it is drawn, it is written
-        // down, and the whole board is asked for at once
-        servedCards = null;
-        lastRev = null;
+      pollFails = 0; pollGap = POLL_MS;
+      linkUp(asked);
+      startupAnswered();   // a reading got through: the startup globe turns again
+      if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
         pollAgain = true;
-        throw new Error("a reading of the changed cards did not fit the cards held");
+        if (!opsStarted){ opsStarted = true; wakeOps(); }
+        return;
       }
-      if (data.changed){
-        const state = { ...data, ...(data.live || {}), boxes: served.boxes, fetchedAt: asked };
-        delete state.live; delete state.ops;
-        // and the reading's own bookkeeping, which is no part of the board
-        delete state.epoch; delete state.delta; delete state.gone; delete state.after; delete state.ids; delete state.count;
-        validateOwners(state);
-        // A REVISION IS ONLY HELD ONCE IT HAS BEEN DRAWN.
-        //
-        // The reading is put in place before the pass over the cards, because
-        // that pass reads it back through lastState. But a pass that throws has
-        // drawn a part of a board and left the rest, and holding its revision
-        // afterwards is the page telling the server it has that reading: the
-        // next reading answers "nothing new", the pass is never tried again,
-        // and a card that would not draw stays not drawn for as long as the
-        // board sits still. So a throw puts the held reading back to the last
-        // one that did draw and drops the revision, which is this file's own
-        // way of saying take the whole board again (the else below writes the
-        // same thing for the same reason). The next ordinary poll then asks for
-        // everything and draws it, with nothing to reset by hand.
-        // a card this page is holding a tap for is shown the way it was left,
-        // and this reading's own word for it is kept aside to go back to
-        holdFlags(state);
-        const heldState = lastState;
-        lastState = state;
-        lastRev = data.rev;
-        if (wantBox){
-          const want = wantBox;
-          const b = state.boxes.find(x => x.id === want);
-          if (b && validOwners.has(b.owner)){ wantBox = null; activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
+      if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev >= createRevFloor){
+        createRevFloor = null;
+      }
+      noteDoing("render");
+      try {
+        if (data.ops){
+          const reconcileTrace = tracePhone("begin", "phase", { action: "state", part: "reconcile" });
+          reconcileOps(data.ops);
+          endPhoneTrace(reconcileTrace, { action: "state", part: "reconcile" });
         }
-        try {
-          const applyTrace = tracePhone("begin", "phase", { action: "state", part: "apply" });
-          apply(state);
-          endPhoneTrace(applyTrace, { action: "state", part: "apply", changed: true });
-          servedCards = served;
-          drewBoard = true;   // a whole reading reached the screen
-        } catch (e) {
-          lastState = heldState;
-          lastRev = null;
+        const served = data.changed ? mergeReading(servedCards, data) : null;
+        if (data.changed && !served){
+          // a lean reading that does not fit the cards held, which the board's
+          // own check should make impossible: none of it is drawn, it is written
+          // down, and the whole board is asked for at once
           servedCards = null;
-          throw e;            // reported by the one handler below, as before
+          lastRev = null;
+          pollAgain = true;
+          throw new Error("a reading of the changed cards did not fit the cards held");
         }
-      } else if (lastState){
-        const rendering = tracePhone("begin", "render", { rev: lastRev });
-        Object.assign(lastState, data.live || {});
-        lastState.fetchedAt = asked;
-        // the board's own clock comes on every answer, changed or not, and a tap
-        // names the moment it happened by it
-        if (typeof data.now === "number") lastState.now = data.now;
-        renderTickets(lastState);   // who is listening moves without the revision moving
-        syncSelectedHistory();
-        endPhoneTrace(rendering, { rev: lastRev }, null, true);
-      } else {
-        lastRev = null;   // nothing held to be unchanged from: the next reading takes the whole board
+        if (data.changed){
+          const state = { ...data, ...(data.live || {}), boxes: served.boxes, fetchedAt: asked };
+          delete state.live; delete state.ops;
+          // and the reading's own bookkeeping, which is no part of the board
+          delete state.epoch; delete state.delta; delete state.gone; delete state.after; delete state.ids; delete state.count;
+          validateOwners(state);
+          // A REVISION IS ONLY HELD ONCE IT HAS BEEN DRAWN.
+          //
+          // The reading is put in place before the pass over the cards, because
+          // that pass reads it back through lastState. But a pass that throws has
+          // drawn a part of a board and left the rest, and holding its revision
+          // afterwards is the page telling the server it has that reading: the
+          // next reading answers "nothing new", the pass is never tried again,
+          // and a card that would not draw stays not drawn for as long as the
+          // board sits still. So a throw puts the held reading back to the last
+          // one that did draw and drops the revision, which is this file's own
+          // way of saying take the whole board again (the else below writes the
+          // same thing for the same reason). The next ordinary poll then asks for
+          // everything and draws it, with nothing to reset by hand.
+          // a card this page is holding a tap for is shown the way it was left,
+          // and this reading's own word for it is kept aside to go back to
+          holdFlags(state);
+          const heldState = lastState;
+          lastState = state;
+          lastRev = data.rev;
+          if (wantBox){
+            const want = wantBox;
+            const b = state.boxes.find(x => x.id === want);
+            if (b && validOwners.has(b.owner)){ wantBox = null; activeOwner = b.owner; localStorage.setItem("activeproj", b.owner); selectedId = want; }
+          }
+          try {
+            const applyTrace = tracePhone("begin", "phase", { action: "state", part: "apply" });
+            apply(state);
+            endPhoneTrace(applyTrace, { action: "state", part: "apply", changed: true });
+            servedCards = served;
+            drewBoard = true;   // a whole reading reached the screen
+          } catch (e) {
+            lastState = heldState;
+            lastRev = null;
+            servedCards = null;
+            throw e;            // reported by the one handler below, as before
+          }
+        } else if (lastState){
+          const rendering = tracePhone("begin", "render", { rev: lastRev });
+          Object.assign(lastState, data.live || {});
+          lastState.fetchedAt = asked;
+          // the board's own clock comes on every answer, changed or not, and a tap
+          // names the moment it happened by it
+          if (typeof data.now === "number") lastState.now = data.now;
+          renderTickets(lastState);   // who is listening moves without the revision moving
+          syncSelectedHistory();
+          endPhoneTrace(rendering, { rev: lastRev }, null, true);
+        } else {
+          lastRev = null;   // nothing held to be unchanged from: the next reading takes the whole board
+        }
+      } catch (e) {
+        if (typeof reportProblem === "function") reportProblem("render", e);
       }
-    } catch (e) {
-      if (typeof reportProblem === "function") reportProblem("render", e);
-    }
-    // a live board is on the page: the curtain waits for it to stop moving and
-    // then goes. holding a reading is not the same as having drawn one, so this
-    // asks the flag the pass itself sets rather than asking whether a reading
-    // exists. a pass that threw leaves it false and the curtain stays, with the
-    // globe still turning and still black: the board answered, so this is not a
-    // connection to report, it is a page that has not finished
-    if (drewBoard) void startupRendered();
+      // a live board is on the page: the curtain waits for it to stop moving and
+      // then goes. holding a reading is not the same as having drawn one, so this
+      // asks the flag the pass itself sets rather than asking whether a reading
+      // exists. a pass that threw leaves it false and the curtain stays, with the
+      // globe still turning and still black: the board answered, so this is not a
+      // connection to report, it is a page that has not finished
+      if (drewBoard) void startupRendered();
+    } finally { if (timing) tracePhone("jobEnd", timing); }
   }
   if (!opsStarted){ opsStarted = true; wakeOps(); }
 }
@@ -6848,6 +6869,7 @@ document.getElementById("homeversion").addEventListener("click", () => {
   developerTaps = 0;
   phoneDeveloperMode = !phoneDeveloperMode;
   tracePhone("setEnabled", phoneDeveloperMode);
+  responseScrollTiming = phoneDeveloperMode ? phoneKeyboardTiming : null;
   try { localStorage.setItem(PHONE_DEVELOPER_KEY, phoneDeveloperMode ? "on" : "off"); } catch (_) {}
   document.body.classList.toggle("phone-developer-mode", phoneDeveloperMode);
   if (!phoneDeveloperMode) {

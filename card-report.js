@@ -283,6 +283,11 @@
     const COALESCE = 250, UI_SLOW = 150, REQUEST_SLOW = 2000;
     const COOLDOWN = 30000, SAVES_PER_MINUTE = 4, SAVE_TIMEOUT = 4000;
     const POST_MS = 20000, SPARSE_AGE = 120000, FRAME_WATCH = 5000;
+    const TIMING_ENTRIES = 240, TIMING_BYTES = 6144;
+    const timingRows = [], scrollWindows = [];
+    const timingJobs = new Set(["board", "json", "list", "reply", "glass"]);
+    let timingLost = 0, timingSerial = 0, activeScroll = null, longObserver = null;
+    let longTasksSupported = false;
     const STUCK_COOLDOWN = 120000;   // one no-scroll save per card in this long
     const events = new Set(["create", "select", "focus", "send", "operation", "request",
       "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark",
@@ -368,6 +373,9 @@
       modeEpoch++;
       generation++;
       ring.length = 0;
+      timingRows.length = scrollWindows.length = 0;
+      timingLost = 0; activeScroll = null;
+      configureLongTasks();
       for (const lane of [important, work, life, pollBuckets, observerBuckets]) lane.length = 0;
       lost = sparseLost = suppressed = 0;
       activeRequest = viewport = held = beaconed = null;
@@ -390,6 +398,91 @@
       busy = false; sending = null; inflight = Promise.resolve();
       // Keep the attempt budget across toggles; switching cannot bypass it.
       if (enabled) note("lifecycle", { lifecycle: "start" });
+    }
+    // Compact rows have only fixed words and numbers. The first value is the
+    // clock time; capture changes all clock columns to ms from the save marker.
+    // No DOM or content enters this lane. It cannot crowd out sparse gestures.
+    // start/end: [clock, kind, surface]; step: [set, kind, surface, computed,
+    // position, offered, callback]; frame: [callback, kind, surface, offered];
+    // job-start/job-end: [clock, kind, surface, job]; longtask: [start, kind,
+    // surface, duration]. Clock values keep tenths of a millisecond on save.
+    const tenth = n => Math.round(n * 10) / 10;
+    function timingRow(row) {
+      Object.defineProperty(row, "serial", { value: ++timingSerial });
+      timingRows.push(row);
+      if (timingRows.length > TIMING_ENTRIES) {
+        timingRows.shift(); timingLost = cap(timingLost + 1, 1000000000);
+      }
+    }
+    function keyboardScroll(phase, surface, top, frame, computed, callback) {
+      if (!enabled || document.hidden || !["reply", "list"].includes(surface)) return;
+      const now = performance.now();
+      if (phase === "start") {
+        activeScroll = { surface, start: now, end: Infinity, step: now, frame: now, offered: now };
+        scrollWindows.push(activeScroll);
+        if (scrollWindows.length > 8) scrollWindows.shift();
+        timingRow([now, "start", surface]);
+        watchFrames();
+      } else if (activeScroll && phase === "end") {
+        timingRow([now, "end", activeScroll.surface]);
+        activeScroll.end = now; activeScroll = null;
+      } else if (activeScroll && phase === "step" && [top, frame, computed, callback].every(Number.isFinite)) {
+        timingRow([now, "step", surface, computed, Math.min(1000000, Math.max(0, Math.round(top * 100) / 100)), frame, callback]);
+        const gap = now - activeScroll.step;
+        activeScroll.step = now;
+        if (gap >= 100) automatic("slow-ui");
+      }
+    }
+    function jobStart(name) {
+      if (!enabled || !activeScroll || !timingJobs.has(name)) return null;
+      const token = { name, surface: activeScroll.surface, epoch: modeEpoch, generation };
+      timingRow([performance.now(), "job-start", token.surface, name]);
+      return token;
+    }
+    function jobEnd(token) {
+      if (!enabled || !token || token.epoch !== modeEpoch || token.generation !== generation) return;
+      timingRow([performance.now(), "job-end", token.surface, token.name]);
+    }
+    function configureLongTasks() {
+      try {
+        longObserver?.disconnect(); longObserver = null;
+        longTasksSupported = typeof PerformanceObserver === "function" &&
+          !!PerformanceObserver.supportedEntryTypes?.includes("longtask");
+        if (!enabled || !longTasksSupported) return;
+        const epoch = modeEpoch;
+        longObserver = new PerformanceObserver(safe(list => {
+          if (!enabled || epoch !== modeEpoch) return;
+          for (const entry of list.getEntries().slice(-TIMING_ENTRIES)) {
+            const start = entry.startTime, duration = entry.duration;
+            if (!Number.isFinite(start) || !Number.isFinite(duration) || start < 0 || duration < 0) continue;
+            const span = scrollWindows.find(w => start < w.end && start + duration > w.start);
+            if (span) timingRow([start, "longtask", span.surface, tenth(Math.min(600000, duration))]);
+          }
+        }));
+        // No attribution, script names or URLs are read, and no buffered old tasks.
+        longObserver.observe({ type: "longtask", buffered: false });
+      } catch (_) {
+        try { longObserver?.disconnect(); } catch (_) {}
+        longObserver = null; longTasksSupported = false;
+      }
+    }
+    function timingSnapshot(markAt, after = 0) {
+      const relative = n => tenth(Math.max(-SPARSE_AGE, Math.min(POST_MS, n - markAt)));
+      return timingRows.filter(row => row[0] >= markAt - SPARSE_AGE && row.serial > after && row[0] <= markAt + POST_MS)
+        .map(row => {
+          const out = row.slice(); out[0] = relative(row[0]);
+          if (row[1] === "step") for (const i of [3, 5, 6]) out[i] = relative(row[i]);
+          if (row[1] === "frame") out[3] = relative(row[3]);
+          return out;
+        }).sort((a, b) => a[0] - b[0]);
+    }
+    function fitTiming(timing) {
+      while (timing.rows.length > TIMING_ENTRIES || JSON.stringify(timing).length > TIMING_BYTES) {
+        // Keep the captured gap through a busy recovery, plus its latest sample.
+        const post = timing.rows.findIndex((row, i) => row[0] > 0 && i < timing.rows.length - 1);
+        timing.rows.splice(post < 0 ? 0 : post, 1);
+        timing.lost = cap(timing.lost + 1, 1000000000);
+      }
     }
     function clean(detail) {
       const out = {};
@@ -550,6 +643,7 @@
         lost, suppressed, events: recent.map(({ time, ...e }) => ({ ...e, at: -cap(now - time, AGE) })) };
       if (schema >= 2) report.build = build;
       Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
+      Object.defineProperty(report, "_timingOmitted", { value: timingRows.length > 0 });
       return report;
     }
     function captureSparse(reason, markAt, marked, fallbackMark = null) {
@@ -578,9 +672,15 @@
         box: [...recent].reverse().find(e => e.box)?.box || "", lost: sparseLost, suppressed,
         build, worker, session, events: recent.map(({ time, ...e }) =>
           ({ ...e, at: Math.max(-SPARSE_AGE, Math.min(POST_MS, Math.round(time - markAt))) })) };
+      if (schema >= 6) {
+        report.timing = { lost: timingLost, longtasks: longTasksSupported, rows: timingSnapshot(markAt) };
+        fitTiming(report.timing);
+      }
+      Object.defineProperty(report, "_timingSerial", { value: timingSerial });
       Object.defineProperty(report, "_markAt", { value: markAt });
       Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
       Object.defineProperty(report, "_scrollOmitted", { value: scrollOmitted });
+      Object.defineProperty(report, "_timingOmitted", { value: schema < 6 && timingRows.length > 0 });
       // Reserve room for recovery before a busy page can fill the post window.
       fitReport(report, BYTES - 2048, 112);
       return report;
@@ -604,6 +704,12 @@
         ({ ...e, at: Math.max(0, Math.min(POST_MS, Math.round(time - markAt))) }))]
         .sort((a, b) => a.at - b.at);
       const report = { ...initial, worker, lost: Math.max(initial.lost, sparseLost), events };
+      if (initial.timing) {
+        report.timing = { ...initial.timing, lost: Math.max(initial.timing.lost, timingLost),
+          rows: [...initial.timing.rows, ...timingSnapshot(markAt, initial._timingSerial)].sort((a, b) => a[0] - b[0]) };
+        fitTiming(report.timing);
+      }
+      Object.defineProperty(report, "_timingOmitted", { value: !!initial._timingOmitted });
       Object.defineProperty(report, "_markAt", { value: markAt });
       Object.defineProperty(report, "_enterOmitted", { value: enterOmitted });
       Object.defineProperty(report, "_scrollOmitted", { value: scrollOmitted });
@@ -639,6 +745,14 @@
       // retained retry, after any worker identity added during recovery.
       return fitReport(report, BYTES, report.v >= 3 ? 128 : 40);
     }
+    function compatibleV5(report) {
+      const { timing, ...older } = report;
+      older.v = 5;
+      Object.defineProperty(older, "_timingOmitted", { value: !!timing?.rows.length || !!report._timingOmitted });
+      Object.defineProperty(older, "_enterOmitted", { value: !!report._enterOmitted });
+      Object.defineProperty(older, "_scrollOmitted", { value: !!report._scrollOmitted });
+      return older;
+    }
     function compatibleV3(report) {
       // A receiver can be rolled back after its last /m/state. Its strict v3
       // validator rejects the new event, so keep the ordinary incident and
@@ -652,6 +766,7 @@
           Object.fromEntries(Object.entries(e).filter(([key]) => !newer.has(key)))) };
       Object.defineProperty(compatible, "_enterOmitted", { value: omitted || !!report._enterOmitted });
       Object.defineProperty(compatible, "_scrollOmitted", { value: !!report._scrollOmitted });
+      Object.defineProperty(compatible, "_timingOmitted", { value: !!report._timingOmitted });
       return compatible;
     }
     // Events as a schema 3 or 4 receiver reads them: the gesture parts it has
@@ -681,6 +796,7 @@
       const compatible = { ...report, v: 4, events: kept };
       Object.defineProperty(compatible, "_enterOmitted", { value: !!report._enterOmitted });
       Object.defineProperty(compatible, "_scrollOmitted", { value: omitted || !!report._scrollOmitted });
+      Object.defineProperty(compatible, "_timingOmitted", { value: !!report._timingOmitted });
       return compatible;
     }
     function permit() {
@@ -714,9 +830,10 @@
             let response = await realFetch.call(window, "/clientlog", { method: "POST",
               headers: { "content-type": "application/json" }, body: bodyOf(report),
               signal: job.controller.signal, keepalive: true });
-            // A v5 refusal steps down to v4, and a v4 refusal to v3.
+            // A refusal steps down one schema at a time, within the same budget.
             while (current() && response.status === 400 && submitted.v >= 4) {
-              const older = submitted.v === 5 ? compatibleV4(submitted) : compatibleV3(submitted);
+              const older = submitted.v === 6 ? compatibleV5(submitted)
+                : submitted.v === 5 ? compatibleV4(submitted) : compatibleV3(submitted);
               if (!older) break;
               // Compatibility writes share the same four-per-minute budget.
               if (!permit()) { resolve({ status: "limited" }); return; }
@@ -730,7 +847,7 @@
             if (!current()) { resolve({ status: "disabled" }); return; }
             if (answer?.ok === true && answer.written === 1 && answer.dropped === 0) {
               if (held === report) held = null;
-              resolve({ status: submitted._enterOmitted || submitted._scrollOmitted ? "saved-legacy" : "saved" });
+              resolve({ status: submitted._enterOmitted || submitted._scrollOmitted || submitted._timingOmitted ? "saved-legacy" : "saved" });
             } else resolve({ status: "failed" });
           } catch (_) { resolve({ status: current() ? "failed" : "disabled" }); }
           finally {
@@ -792,6 +909,11 @@
     function lifecycle(value, detail = {}) {
       if (!enabled) return;
       if (value === "visible" || value === "pageshow") beaconed = null;
+      if (activeScroll && ["hidden", "visible", "pagehide", "pageshow"].includes(value)) {
+        activeScroll.end = performance.now();
+        timingRow([activeScroll.end, "end", activeScroll.surface]);
+        activeScroll = null;
+      }
       generation = cap(generation + 1, 1000000000);
       lastResume = performance.now();
       if (schema >= 3 || value !== "pagehide")
@@ -803,11 +925,18 @@
     note("lifecycle", { lifecycle: "start" });
     // Neither callback proves that pixels were presented. Together they show
     // whether script callbacks and frame opportunities stopped around an input.
-    // Frames are watched only for FRAME_WATCH after a touch, a key or a new board
-    // reading, so a page with nothing going on asks for none. The 100 ms timer
+    // Outside a keyboard hold, frames are watched only for FRAME_WATCH after a
+    // touch, a key or a new board reading, so an idle page asks for none. The 100 ms timer
     // below still catches every stall.
     const onFrame = safe((time, epoch) => {
       if (!enabled || epoch !== modeEpoch) return;
+      if (!document.hidden && activeScroll) {
+        const now = performance.now();
+        timingRow([now, "frame", activeScroll.surface, time]);
+        const gap = Math.max(now - activeScroll.frame, time - activeScroll.offered);
+        activeScroll.frame = now; activeScroll.offered = time;
+        if (gap >= 100) automatic("slow-ui");
+      }
       if (!document.hidden && schema >= 3 && lastFrame !== null && frameEpoch === generation) {
         const gap = time - lastFrame;
         if (gap >= 250 && time - lastResume > gap + 100) {
@@ -816,14 +945,14 @@
         }
       }
       frameEpoch = generation;
-      if (document.hidden || performance.now() >= watchUntil) { watching = false; lastFrame = null; return; }
+      if (document.hidden || (!activeScroll && performance.now() >= watchUntil)) { watching = false; lastFrame = null; return; }
       lastFrame = time;
       requestAnimationFrame(time => onFrame(time, epoch));
     });
     watchFrames = safe(() => {
       if (!enabled) return;
       watchUntil = performance.now() + FRAME_WATCH;
-      if (watching || schema < 3 || document.hidden || typeof requestAnimationFrame !== "function") return;
+      if (watching || (schema < 3 && !activeScroll) || document.hidden || typeof requestAnimationFrame !== "function") return;
       watching = true;
       lastFrame = performance.now();
       frameEpoch = generation;
@@ -841,8 +970,10 @@
         if (late >= 1000) automatic("freeze");
       }
     }), 100);
+    configureLongTasks();
     return {
       setEnabled: safe(setEnabled),
+      keyboardScroll: safe(keyboardScroll), jobStart: safe(jobStart), jobEnd: safe(jobEnd),
       begin: safe(begin), end: safe(end), note: safe(note),
       identity: safe(value => { if (/^[a-z0-9._-]{1,64}$/.test(String(value))) build = String(value); }),
       worker: safe(value => { if (/^[a-z0-9._-]{1,64}$/.test(String(value))) worker = String(value); }),
@@ -852,7 +983,7 @@
       // page omits the capability, so that page must return to strict v1 too.
       capability: safe(value => {
         const offered = Number(value);
-        schema = offered >= 5 ? 5 : offered >= 4 ? 4 : offered >= 3 ? 3 : offered >= 2 ? 2 : 1;
+        schema = offered >= 6 ? 6 : offered >= 5 ? 5 : offered >= 4 ? 4 : offered >= 3 ? 3 : offered >= 2 ? 2 : 1;
       }),
       mark: safe(mark, Promise.resolve({ status: "failed" })),
       noScroll: safe(noScroll, false),
