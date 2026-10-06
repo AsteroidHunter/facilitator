@@ -3356,11 +3356,13 @@ function doSend(id, opts){
   }
   tracePhone("note", "operation", { op: op.id, box: id, outcome: "minted" });
   op.advance = opts.advance !== false;
+  const motion = armSentMotion(el);
   el.ta.value = "";
   trayTake(el);       // the files that went leave the tray with the words
   el.tick();          // the square goes with the words, and the row falls back to one line
   // an arrival: the panel comes in, or the message comes into it, cut to its preview
   drawSent(el, id, true);
+  motion?.play();
   if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
   runOps(laneOf(op));
   endPhoneTrace(trace, { op: op.id, box: id }, null, true);

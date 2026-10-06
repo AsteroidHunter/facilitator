@@ -1931,7 +1931,249 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
 // preview on the fold's own run, so what has just been sent always stands cut.
 // a reading that brings messages sent somewhere else, or a first load, is no
 // arrival: it moves nothing and leaves the panel open or cut as it stands
-const SENT_ARRIVE_MS = 260;   // the sheet's --answ-come
+const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
+const SENT_EASE_POINTS = [.22, 1, .36, 1];
+const SENT_EASE = "cubic-bezier(.22,1,.36,1)";
+const SENT_TEXT_OUT = .35, SENT_TEXT_IN = .6;
+
+// The field becomes the bubble on one decelerating curve. The two text layouts
+// stay fixed and trade opacity on the clock, so no frame stretches a glyph or
+// shows a line halfway through wrapping to its new width.
+function sentEase(f){
+  if (f <= 0) return 0;
+  if (f >= 1) return 1;
+  const [x1, y1, x2, y2] = SENT_EASE_POINTS;
+  const at = (a, b, t) => 3 * (1-t) * (1-t) * t * a + 3 * (1-t) * t*t * b + t*t*t;
+  let lo = 0, hi = 1, t = f;
+  for (let i = 0; i < 32; i++){
+    const x = at(x1, x2, t);
+    if (Math.abs(x - f) < 1e-6) break;
+    if (x < f) lo = t; else hi = t;
+    t = (lo + hi) / 2;
+  }
+  return at(y1, y2, t);
+}
+function sentMorphBox(from, to, p){
+  const mix = key => from[key] + (to[key] - from[key]) * p;
+  return { left:mix("left"), top:mix("top"), width:mix("width"), height:mix("height") };
+}
+function sentBarAlpha(f){ return Math.max(0, Math.min(1, 1 - f / SENT_TEXT_OUT)); }
+function sentBubbleAlpha(f){ return Math.max(0, Math.min(1, (f - SENT_TEXT_IN) / (1 - SENT_TEXT_IN))); }
+
+// A snapshot leaves the real editor and rendered message alone. Resolved styles
+// are copied because the fixed flight lives outside the card, including outside
+// the desktop's scaled stage. Text alone scales by that stage's existing factor;
+// the shell itself interpolates real viewport geometry, never transform scale.
+const SENT_SNAPSHOT_STYLE = [
+  "box-sizing", "display", "position", "top", "right", "bottom", "left", "font", "font-family", "font-size", "font-weight",
+  "font-style", "line-height", "letter-spacing", "color", "text-align", "text-indent",
+  "text-decoration", "white-space", "overflow-wrap", "word-break", "tab-size",
+  "padding", "margin", "border", "border-radius", "background", "box-shadow",
+  "width", "height", "min-width", "max-width", "min-height", "max-height",
+  "overflow", "opacity", "vertical-align", "list-style", "gap", "align-items",
+  "justify-content", "flex-direction", "flex", "object-fit", "object-position",
+  "--answ-fill", "--answ-fade", "--answ-shade", "--answ-stop", "--answ-peek",
+  "--answ-round", "--answ-strip", "--answ-line", "--u"
+];
+function sentSnapshot(node){
+  const plain = node.tagName === "TEXTAREA";
+  const copy = plain ? document.createElement("div") : node.cloneNode(true);
+  if (plain) copy.textContent = node.value;
+  const originals = [node, ...(plain ? [] : node.querySelectorAll("*"))];
+  const copies = [copy, ...copy.querySelectorAll("*")];
+  originals.forEach((source, i) => {
+    const dest = copies[i], style = getComputedStyle(source);
+    for (const name of SENT_SNAPSHOT_STYLE) dest.style.setProperty(name, style.getPropertyValue(name));
+    dest.removeAttribute("id");
+    dest.removeAttribute("contenteditable");
+    dest.removeAttribute("data-mark");
+    dest.classList.remove("arrive", "motion", "sentflight", "markin", "markout", "markgone");
+    dest.style.setProperty("animation", "none", "important");
+    dest.style.setProperty("transition", "none", "important");
+    dest.style.setProperty("caret-color", "transparent");
+  });
+  for (const decor of copy.querySelectorAll(".cm-cursorLayer, .cm-selectionLayer, .answmark")) decor.remove();
+  Object.assign(copy.style, { position:"relative", left:"0", top:"0", margin:"0",
+    minWidth:"0", maxWidth:"none", minHeight:"0", transform:"none", pointerEvents:"none" });
+  copy.sentInk = originals.map((source, i) => ({ source, copy:copies[i] }))
+    .filter(pair => pair.source.parentElement && pair.source.parentElement.classList.contains("answmsg"));
+  if (plain) copy.style.whiteSpace = "pre-wrap";
+  return copy;
+}
+function sentScale(node, rect){
+  return { x:node.offsetWidth ? rect.width / node.offsetWidth : 1,
+    y:node.offsetHeight ? rect.height / node.offsetHeight : 1 };
+}
+function sentMotionVisible(node){
+  if (!node || !node.isConnected) return false;
+  const rect = node.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0)) return false;
+  for (let at = node; at && at !== document.body; at = at.parentElement){
+    const style = getComputedStyle(at);
+    if (style.visibility === "hidden" || style.display === "none") return false;
+  }
+  return true;
+}
+
+// Arm before the page empties its composer; play in that same task after the
+// message has its seat. A combined preview differs from a transcript: only its
+// first send owns the whole bubble. Later sends fly into their own visible row;
+// a row below the cut disappears into the foot without exposing hidden words.
+function armSentMotion(el){
+  if (!el || !el.ta || stillMotion() || typeof requestAnimationFrame !== "function") return null;
+  const field = typeof ComposeFormat !== "undefined" && ComposeFormat.fieldOf(el.ta);
+  const source = field && field.formatted() && field.view ? field.view.scrollDOM : el.ta;
+  if (!sentMotionVisible(source)) return null;
+  const beforePanel = el.sent;
+  const before = beforePanel && sentMotionVisible(beforePanel) ? beforePanel.getBoundingClientRect() : null;
+  // These are siblings inside the answer's scroller, never their common parent:
+  // the page's line snap may move either when the new foot takes its space.
+  const neighbors = [el.answwrap, el.reply].filter(node => sentMotionVisible(node));
+  const beforeNeighbors = neighbors.map(node => ({ node, rect:node.getBoundingClientRect() }));
+  // Read the previous shifts before replacing them. Existing shells keep
+  // flying toward their live seats, so a quick second send never teleports
+  // the first bubble out of its unfinished flight.
+  const flights = el.sentMotions || (el.sentMotions = new Set());
+  for (const flight of flights) flight.stopShifts();
+  const rows = new Set(beforePanel ? beforePanel.querySelectorAll(".answmsg") : []);
+  const start = source.getBoundingClientRect(), sourceScale = sentScale(source, start);
+  const sourceStyle = getComputedStyle(source);
+  const corners = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"];
+  const startCorners = corners.map(name => (parseFloat(sourceStyle[name]) || 0) * sourceScale.x);
+  const shell = document.createElement("div");
+  shell.className = "sentmorph";
+  shell.setAttribute("aria-hidden", "true");
+  const base = getComputedStyle(el.box || source).getPropertyValue("--card").trim() || "#fff";
+  shell.style.background = base;
+  const face = document.createElement("div");
+  face.className = "sentmorph-face";
+  face.style.opacity = "0";
+  const outgoing = document.createElement("div");
+  outgoing.className = "sentmorph-source";
+  const sourceCopy = sentSnapshot(source);
+  sourceCopy.style.opacity = "1"; // the phone may be blinking its caret layer off at the press
+  sourceCopy.style.width = (start.width / sourceScale.x) + "px";
+  sourceCopy.style.height = (start.height / sourceScale.y) + "px";
+  outgoing.style.transform = "scale(" + sourceScale.x + "," + sourceScale.y + ")";
+  outgoing.appendChild(sourceCopy);
+  const incoming = document.createElement("div");
+  incoming.className = "sentmorph-target";
+  shell.append(face, outgoing, incoming);
+  const write = box => {
+    for (const key of ["left", "top", "width", "height"]) shell.style[key] = box[key] + "px";
+  };
+  write(start);
+  shell.style.borderRadius = startCorners.map(n => n + "px").join(" ");
+  document.body.appendChild(shell);
+  sourceCopy.scrollTop = source.scrollTop;
+  sourceCopy.scrollLeft = source.scrollLeft;
+  let raf = 0, done = false, played = false, target = null, panel = null;
+  const shifts = [];
+  const stopShifts = () => { for (const shift of shifts.splice(0)) shift.cancel(); };
+  let previousOpacity = "", previousPriority = "";
+  const finish = () => {
+    if (done) return;
+    done = true;
+    if (raf) cancelAnimationFrame(raf);
+    stopShifts();
+    if (target){
+      if (previousOpacity) target.style.setProperty("opacity", previousOpacity, previousPriority);
+      else target.style.removeProperty("opacity");
+    }
+    shell.remove();
+    flights.delete(motion);
+    const landedPanel = panel || el.sent;
+    const stillFlying = [...flights].some(flight => flight.panel === landedPanel);
+    if (landedPanel && !stillFlying){
+      landedPanel.classList.remove("sentflight");
+      // An ACK can land during the flight. Its reserved seat never moves, and
+      // the word takes its own gentle entrance once the bubble is visible.
+      setMark(landedPanel, landedPanel.dataset.tag || "", true);
+    }
+    if (el.sentMotion === motion) el.sentMotion = [...flights].at(-1) || null;
+    if (!stillFlying && el.sentRoom && el.sent && el.sent.isConnected) el.sentRoom();
+  };
+  const motion = {
+    cancel:finish, stopShifts, panel:null,
+    play(){
+      if (done || played) return;
+      played = true;
+      panel = motion.panel = el.sent;
+      if (!panel || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
+      const fresh = [...panel.querySelectorAll(".answmsg")].filter(row => !rows.has(row));
+      target = beforePanel === panel ? fresh[fresh.length - 1] : panel;
+      if (!target){ finish(); return; }
+      panel.classList.add("sentflight");
+      const clip = panel.querySelector(".answclip");
+      // The normal open-panel fold already moves the surrounding content. A
+      // closed panel's insert instead glides from its measured pre-send top.
+      const following = beforeNeighbors.slice();
+      if (beforePanel === panel && before && !panel.classList.contains("motion")) following.push({ node:panel, rect:before });
+      for (const { node, rect } of following){
+        if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
+        const after = node.getBoundingClientRect(), scale = sentScale(node, after);
+        const dx = (rect.left - after.left) / scale.x, dy = (rect.top - after.top) / scale.y;
+        if (Math.abs(dx) <= .5 && Math.abs(dy) <= .5) continue;
+        const transform = getComputedStyle(node).transform || "none";
+        shifts.push(node.animate(
+          [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
+          { duration:SENT_ARRIVE_MS, easing:SENT_EASE }));
+      }
+      const targetRect = target.getBoundingClientRect(), targetScale = sentScale(target, targetRect);
+      const targetCopy = sentSnapshot(target);
+      targetCopy.style.width = (targetRect.width / targetScale.x) + "px";
+      targetCopy.style.height = (targetRect.height / targetScale.y) + "px";
+      targetCopy.style.background = "transparent";
+      incoming.appendChild(targetCopy);
+      const panelStyle = getComputedStyle(panel);
+      const endCorners = corners.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
+      const seat = () => {
+        const rect = target.getBoundingClientRect();
+        if (target === panel) return { box:rect, hidden:false, x:0, y:0 };
+        const cut = clip.getBoundingClientRect();
+        const top = Math.max(rect.top, cut.top), bottom = Math.min(rect.bottom, cut.bottom);
+        const left = Math.max(rect.left, cut.left), right = Math.min(rect.right, cut.right);
+        const hidden = bottom <= top || right <= left;
+        const height = hidden ? Math.min(cut.height, parseFloat(panelStyle.lineHeight) * targetScale.y || 20) : bottom - top;
+        return { box:{ left:hidden ? cut.left : left, top:hidden ? cut.bottom - height : top,
+          width:hidden ? cut.width : right - left, height }, hidden,
+          x:rect.left - (hidden ? cut.left : left), y:rect.top - (hidden ? cut.bottom - height : top) };
+      };
+      previousOpacity = target.style.getPropertyValue("opacity");
+      previousPriority = target.style.getPropertyPriority("opacity");
+      target.style.setProperty("opacity", "0");
+      const t0 = performance.now();
+      const step = now => {
+        raf = 0;
+        if (done) return;
+        if (!target.isConnected || el.sent !== panel || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
+        const f = Math.max(0, Math.min(1, (now - t0) / SENT_ARRIVE_MS)), p = sentEase(f);
+        const landing = seat();
+        write(sentMorphBox(start, landing.box, p));
+        shell.style.borderRadius = endCorners.map((n, i) => (startCorners[i] + (n - startCorners[i]) * p) + "px").join(" ");
+        // Delivery may firm the grey up while airborne; use the live face so
+        // the final handoff matches the actual bubble, including local sends.
+        const liveStyle = getComputedStyle(panel);
+        face.style.background = liveStyle.backgroundColor;
+        for (const pair of targetCopy.sentInk)
+          if (pair.source.isConnected) pair.copy.style.opacity = getComputedStyle(pair.source).opacity;
+        const copiedCut = targetCopy.querySelector(".answclip");
+        if (copiedCut) copiedCut.style.setProperty("--answ-fill", liveStyle.getPropertyValue("--answ-fill"));
+        face.style.opacity = String(Math.min(1, f / SENT_TEXT_IN));
+        outgoing.style.opacity = String(sentBarAlpha(f));
+        incoming.style.opacity = String(landing.hidden ? 0 : sentBubbleAlpha(f));
+        incoming.style.transform = "translate(" + landing.x + "px," + landing.y + "px) scale(" + targetScale.x + "," + targetScale.y + ")";
+        shell.style.opacity = String(landing.hidden ? 1 - sentBubbleAlpha(f) : 1);
+        if (f < 1) raf = requestAnimationFrame(step);
+        else raf = requestAnimationFrame(finish);
+      };
+      raf = requestAnimationFrame(step);
+    }
+  };
+  flights.add(motion);
+  el.sentMotion = motion;
+  return motion;
+}
 function sentBatch(texts){ return (texts || []).map(text => ({ text })); }
 
 // ---- the delivery marks ------------------------------------------------------------------
@@ -2109,7 +2351,7 @@ function sentFrom(b){
   return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "" })));
 }
 // the mark's own motion, which the sheet draws (card-tokens.css): a word comes
-// in over the fold's run (--answ-move), and one giving way to another goes out
+// in over the send's run (--answ-come), and one giving way to another goes out
 // over half of it first. data-tag is where the board's record has the panel,
 // data-mark the word on show, and they part only for the length of a change.
 // a panel drawn with its mark, or a reader who asked for no motion, is given the
@@ -2117,11 +2359,12 @@ function sentFrom(b){
 // a change that lands while another is going is not started again: the swap
 // under way reads the record when it lands. clocks end it, since a page that
 // runs no transitions never says so
-const MARK_OUT_MS = 165;   // half the sheet's --answ-move
-const MARK_IN_MS = 330;    // the sheet's --answ-move
+const MARK_OUT_MS = 200;   // half the sheet's --answ-come
+const MARK_IN_MS = 400;    // the sheet's --answ-come
 function setMark(panel, tag, live){
   if (tag) panel.dataset.tag = tag;
   else delete panel.dataset.tag;
+  if (panel.classList.contains("sentflight")) return;
   if (panel.classList.contains("markout")) return;
   const shown = panel.dataset.mark || "";
   if (tag === shown) return;
@@ -2134,15 +2377,15 @@ function setMark(panel, tag, live){
   }, MARK_OUT_MS);
 }
 function showMark(panel, tag, comes){
-  const roomMoves = !panel.dataset.mark !== !tag;
+  const roomMoves = !panel.classList.contains("sent") && (!panel.dataset.mark !== !tag);
   const run = panel.markRun = (panel.markRun || 0) + 1;
   panel.classList.remove("markin");
   if (tag) panel.dataset.mark = tag;
   else delete panel.dataset.mark;
   if (!comes) return;
   if (tag) panel.classList.add("markin");
-  // the room under the foot opens or closes on the same run, and whoever wants
-  // to know about the room is told once it has stopped
+  // Sent panels already reserve this space. Only a mark on another panel can
+  // change its room; tell that panel's card once the run has stopped.
   setTimeout(() => {
     if (panel.markRun === run) panel.classList.remove("markin");
     if (roomMoves && panel.isConnected && panel.answRoom) panel.answRoom();
@@ -2201,12 +2444,13 @@ function syncSent(el, batch, arrive){
     stackAnswered(panel, shown);
     sentMarks(panel, shown);
     fitAnswered(panel);
-    if (arrive) arriveSent(panel);
+    if (arrive && !el.sentMotion) arriveSent(panel);
     if (room) room();
     return;
   }
   sentMarks(panel, shown, true);
   const had = panel.querySelector(".answstack").children.length;
+  if (arrive && el.sentMotion) panel.classList.add("sentflight");
   if (arrive && panel.classList.contains("open")){
     // the run tells the room itself once it has landed
     openAnswered(panel, false, () => stackAnswered(panel, shown));
@@ -2215,7 +2459,7 @@ function syncSent(el, batch, arrive){
     fitAnswered(panel);
     if (room) room();
   }
-  if (arrive) [...panel.querySelector(".answstack").children].slice(had).forEach(arriveSent);
+  if (arrive && !el.sentMotion) [...panel.querySelector(".answstack").children].slice(had).forEach(arriveSent);
 }
 
 // the arrival's dress, taken off again by the clock rather than by the end of
@@ -2227,7 +2471,9 @@ function arriveSent(node){
 }
 
 function dropSent(el){
-  if (!el || !el.sent) return;
+  if (!el) return;
+  for (const motion of [...(el.sentMotions || [])]) motion.cancel();
+  if (!el.sent) return;
   el.sent.answRun = (el.sent.answRun || 0) + 1;   // a run still going lands on nothing
   if (el.sent.answWatch) el.sent.answWatch.disconnect();
   el.sent.remove();
@@ -2263,7 +2509,7 @@ function sentBand(el, band){
 // reader did goes at once
 function cardsMoving(){
   return typeof document !== "undefined" && typeof document.querySelector === "function" &&
-    !!document.querySelector(".answered.motion, .answered.markin, .answered.markout, .answered.markgone, .turnsheet");
+    !!document.querySelector(".answered.motion, .answered.sentflight, .answered.markin, .answered.markout, .answered.markgone, .turnsheet");
 }
 
 // ---- the page turn -----------------------------------------------------------------------
@@ -2369,7 +2615,7 @@ function turnHolding(el, id){
   if (el.ta && now - (el.ta.typedAt || 0) < TYPE_QUIET_MS) return true;
   if (typeof boxHasSelection === "function" && boxHasSelection(el.replyview || el.reply)) return true;
   // and a sent panel part way through its own run is let finish it
-  if (el.sent && el.sent.classList.contains("motion")) return true;
+  if (el.sent && (el.sent.classList.contains("motion") || el.sent.classList.contains("sentflight"))) return true;
   return false;
 }
 

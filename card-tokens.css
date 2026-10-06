@@ -344,7 +344,8 @@
   padding:var(--answ-pad-y) var(--answ-pad-x);
   background:var(--answ-fill); border-radius:var(--answ-round);
   font:var(--answ-font); color:var(--ink); text-align:left;
-  --answ-move:.33s; --answ-come:.26s; --answ-rise:6px; --answ-gone:.4s;
+  --answ-move:.33s; --answ-come:.4s; --answ-rise:10px; --answ-gone:.4s;
+  --sent-ease:cubic-bezier(.22, 1, .36, 1);
   --answ-fill:var(--bubble-fill); --answ-tag:calc(17 * var(--u));
 }
 /* the cut. a batch longer than the preview shows its first lines and dissolves
@@ -449,14 +450,20 @@
    open, a long batch stops at --sent-cap, which each large card writes as the
    room the panel may take over the answer, and the rest scrolls inside the cut.
    a surface that writes none gives the panel a seat that scrolls instead.
-   a send lands the panel cut to its preview, and it comes in the way the words
-   leave the row they were typed in: a short rise out of it and a fade, over
-   --answ-come on the card's gentle curve. a message sent into a panel already
-   standing comes in the same way on its own. both are strength and a
-   transform, so an arrival lays nothing out and draws nothing again */
+   a local send morphs from the typing field to its seat in card-logic.js, over
+   400ms on the same decelerating curve as the surrounding messages. A send
+   without measurable field geometry uses the small rise and fade below.
+   Only a send changes the fold's timing; a manual fold keeps its own run. */
 .answered.sent.open .answclip{max-height:var(--sent-cap, none); overflow-y:auto; overscroll-behavior:contain}
+.answered.sent.sentflight{--answ-move:var(--answ-come); --gentle:var(--sent-ease)}
 @keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
-.answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--gentle)}
+.answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--sent-ease)}
+/* A viewport shell crosses the composer's and panel's clipping boundaries.
+   Its real box changes size; the two text layouts crossfade without rewrapping. */
+.sentmorph{position:fixed; pointer-events:none; overflow:hidden; z-index:10000; box-sizing:border-box}
+.sentmorph-face{position:absolute; inset:0; border-radius:inherit}
+.sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
+.sentmorph-target{opacity:0}
 
 /* ---- the delivery marks -------------------------------------------------- */
 /* where a sent message stands (card-logic.js names the stages). a message the
@@ -471,9 +478,10 @@
    right, in the card's quiet mono, stepped in by the corner's own radius so it
    sits under the straight edge. the panel keeps room for it under itself, so
    nothing stands on it.
-   the panel takes its delivery on the fold's own run: the grey firms up with the
-   words, the room for the mark opens under the foot on the same curve, and the
-   mark comes in with a short rise and a fade. a mark giving way to the next one
+   a sent panel reserves the mark's room from the first frame, even while the
+   message is local, so receiving Delivered changes no geometry. The grey
+   firms up with the words, and the mark rises and fades on the send's curve.
+   a mark giving way to the next one
    fades out over half of that and the next comes in, so the two words are never
    on screen together (card-logic.js swaps the word between the two and says
    which is on show in data-mark; data-tag is where the board's record has it).
@@ -487,7 +495,7 @@
    none. the room under the foot is kept either way (kept), so the reply under
    the panel stands where it stood with the word and nothing moves when it goes */
 @property --answ-fill{syntax:"<color>"; inherits:true; initial-value:transparent}
-@keyframes markin{from{opacity:0; transform:translate3d(0, calc(var(--answ-rise) / 2), 0)}}
+@keyframes markin{from{opacity:0; transform:translate3d(0, 3px, 0)}}
 .answered{transition:margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle)}
 .answered.undelivered{--answ-fill:color-mix(in srgb, var(--bubble-fill) 50%, var(--card, #fff))}
 .answmsg > *{transition:opacity var(--answ-move) var(--gentle)}
@@ -517,14 +525,19 @@
 .answcross{width:calc(16 * var(--u)); height:calc(16 * var(--u)); background:rgba(33,29,23,.72)}
 .answretry::after, .answcross::after{content:""; position:absolute; inset:calc(-6 * var(--u)) calc(-3 * var(--u))}
 .answered[data-mark], .answered.kept{margin-bottom:var(--answ-tag)}
+.answered.sent{margin-bottom:var(--answ-tag)}
 .answered[data-mark]::after{
   content:attr(data-mark); position:absolute; top:100%; right:var(--answ-round);
   padding-top:calc(3 * var(--u)); font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub);
   white-space:nowrap; pointer-events:none;
 }
-.answered.markin::after{animation:markin var(--answ-move) var(--gentle) backwards}
-.answered.markout::after{opacity:0; transition:opacity calc(var(--answ-move) / 2) var(--gentle)}
+.answered.markin::after{animation:markin var(--answ-come) var(--sent-ease) backwards}
+.answered.markout::after{opacity:0; transition:opacity calc(var(--answ-come) / 2) var(--sent-ease)}
 .answered.markgone::after{opacity:0; transition:opacity var(--answ-gone) var(--gentle)}
+@media (prefers-reduced-motion: reduce){
+  .answered.arrive, .answmsg.arrive, .answered.markin::after{animation:none !important}
+  .answered.markout::after, .answered.markgone::after{transition:none !important}
+}
 
 /* ---- the page turn and the print ----------------------------------------- */
 /* the answer to the sent panel's messages lands on the card on show and the card
