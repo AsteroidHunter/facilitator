@@ -490,6 +490,9 @@
   body.menudrag #pane{transition:margin-bottom var(--kb-anim)}
   body.listout #pane{will-change:transform}
   body.listout #pane, body.listout #pane *{pointer-events:none !important}
+  /* Card touches land on the page. Keep that surface still during a flick;
+     the ticket panes end touch-action lookup at their own scroll containers. */
+  body.listout #page{touch-action:none}
   /* a card only browsed to sits level with the page: the drop shadow is the
      selected card's, and the hairline edge stays */
   body.browsing main{box-shadow:none}
@@ -1088,7 +1091,9 @@
   body.menurelease #tikwin{transition:transform var(--drawer-ms) var(--drawer-drag)}
   body.menudrag #tikwin{transition:none}
   body.listout #tikwin{will-change:transform}
+  @property --drawer-arrow-v{syntax:"<number>"; inherits:true; initial-value:0}
   #tickets{
+    --drawer-arrow-v:var(--list-v);
     --line-gap:calc(6 * var(--u)); --list-share:.9;
     --tik-inset-l:var(--edge-drawn); --tik-inset-r:var(--edge-drawn);
     position:absolute; pointer-events:auto;
@@ -1105,15 +1110,17 @@
     transform:translate3d(calc((var(--list-v) - 1) * (var(--pg-l) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
       calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0);
     visibility:hidden; --menuwait:var(--drawer-ms);
-    transition:transform var(--drawer-ms) var(--drawer-tap), visibility 0s linear var(--menuwait);
+    transition:transform var(--drawer-ms) var(--drawer-tap), --drawer-arrow-v var(--drawer-ms) var(--drawer-tap), visibility 0s linear var(--menuwait);
   }
   body.menurelease #tickets{
-    transition:transform var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
+    transition:transform var(--drawer-ms) var(--drawer-drag), --drawer-arrow-v var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
   body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
   #tickets.live{visibility:visible; --menuwait:0s; will-change:transform}
-  /* Inherited visibility alone would expose the arrows throughout the slide. */
-  #tickets .tik-page{visibility:hidden; pointer-events:none}
-  #tickets.open.drawer-settled .tik-page{visibility:visible; pointer-events:auto}
+  /* One inherited fade runs on the drawer's clock, including reversals. The
+     disabled strength stays separate, so a name-page change cannot retime it. */
+  #tickets #tikhead .tik-page{opacity:var(--drawer-arrow-v); pointer-events:none}
+  #tickets #tikhead .tik-page[aria-disabled="true"]{opacity:calc(var(--drawer-arrow-v) * var(--chipoff))}
+  #tickets.open.drawer-settled #tikhead .tik-page{pointer-events:auto}
   /* the settings cross over the page from the right edge along one straight
      sideways line, at full strength for every frame of it: nothing about them
      rises, sinks or fades. the depth is carried under them, by the shade that
@@ -4254,8 +4261,11 @@ function setView(v){
 }
 document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
 document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
-document.getElementById("tik-page-back").addEventListener("click", () => slideTicketNames(0));
-document.getElementById("tik-page").addEventListener("click", () => slideTicketNames(1));
+function pageTicketNames(side){
+  if (drawerOpen() && tickets.classList.contains("drawer-settled")) slideTicketNames(side);
+}
+document.getElementById("tik-page-back").addEventListener("click", () => pageTicketNames(0));
+document.getElementById("tik-page").addEventListener("click", () => pageTicketNames(1));
 document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
 document.getElementById("tv-done").addEventListener("click", () => setView("done"));
 // press feedback, as on the board: every name, selected or not, takes .pressed
@@ -4320,7 +4330,7 @@ function settleTicketDrawer(){
   Promise.all(moving.map(animation => animation.finished)).then(() => {
     if (run === ticketDrawerRun && drawerOpen() && !document.body.classList.contains("menudrag"))
       tickets.classList.add("drawer-settled");
-  }, () => {});   // a cancelled opening never exposes its arrow
+  }, () => {});   // a cancelled opening never enables its arrows
 }
 function syncMenuAvailability(){
   document.getElementById("tikbtn").setAttribute("aria-disabled", String(!menuAvailable(tickets)));
@@ -4490,7 +4500,10 @@ scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu
 // a tap on the card with the list out lands on the page behind it, since the
 // card takes no touch then, and shuts the list. the card stays where it is
 // shown, with the ticket it was switched to
-page.addEventListener("click", e => { if (e.target === page && drawerOpen()) closeDrawer(); });
+let suppressCardDrawerClick = false;
+page.addEventListener("click", e => {
+  if (e.target === page && drawerOpen() && !suppressCardDrawerClick) closeDrawer();
+});
 // the two circles at the ends of the row bring the same two menus a pull from
 // that side does: the ticket the card list, and again to shut it, the gear the
 // settings
@@ -4503,6 +4516,7 @@ let cancelMenuDrag;
   const FLICK_PX = 18, FLICK_SPEED = 0.4, FLICK_MS = 100;   // CSS px, CSS px/ms, recent ms
   let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false, travel = 1;
   let samples = [], direction = 0;
+  let onCard = false, vertical = false, touchUntil = -Infinity;
   // Event time measures the finger even when the page is late answering it.
   const time = e => Number.isFinite(e.timeStamp) ? e.timeStamp : performance.now();
   const sample = (x, t) => {
@@ -4516,18 +4530,32 @@ let cancelMenuDrag;
     // than treating a long pause followed by one move as an instant flick.
     while (samples.length > 2 && samples[1].t <= t - FLICK_MS) samples.shift();
   };
+  const flick = () => {
+    const first = samples[0], last = samples[samples.length - 1];
+    const next = samples[1] || first, cutoff = last.t - FLICK_MS;
+    const x = first.t < cutoff && next.t > first.t
+      ? first.x + (next.x - first.x) * (cutoff - first.t) / (next.t - first.t) : first.x;
+    const dx = last.x - x, dt = last.t - Math.max(first.t, cutoff);
+    return Math.abs(dx) >= FLICK_PX && dt > 0 && Math.abs(dx / dt) >= FLICK_SPEED ? Math.sign(dx) : 0;
+  };
   cancelMenuDrag = target => {
     if (panel !== target || !live) return;
     live = false; decided = false; panel = null;
     document.body.classList.remove("menudrag", "menurelease");
   };
-  const start = (x, y, t) => {
+  const start = (x, y, t, target) => {
+    suppressCardDrawerClick = false;
+    onCard = false; vertical = false;
     const out = menuOut();
     if (out){ panel = out; opening = false; }
     else if (x <= EDGE){ panel = tickets; opening = true; }
     else if (x >= innerWidth - EDGE){ panel = settings; opening = true; }
     else { panel = null; return; }
     if (!menuAvailable(panel)){ panel = null; live = false; return; }
+    if (out === tickets && target === page){
+      const rect = cardPane.getBoundingClientRect();
+      onCard = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    }
     live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
     samples = [{ x, t }]; direction = 0;
   };
@@ -4536,8 +4564,14 @@ let cancelMenuDrag;
     const dx = x - x0;
     if (!decided){
       if (Math.abs(dx) < 6 && Math.abs(y - y0) < 6) return;
-      if (Math.abs(y - y0) > Math.abs(dx)){ live = false; return; }   // a scroll, not a pull
+      if (Math.abs(y - y0) > Math.abs(dx)){
+        if (!onCard){ live = false; return; }   // a scroll, not a pull
+        vertical = true;
+        samples = [{ x: y0, t: samples[0].t }]; direction = 0;
+      }
       decided = true;
+      if (onCard) suppressCardDrawerClick = true;
+      if (vertical){ sample(y, t); return; }
       // Dismiss during a recognized opening pull, before the panel travels.
       if (opening){ dismissEditor(); closeProjects(); }
       tracePhone("note", "drawer", { side: panel.dataset.side, phase: "start" });
@@ -4545,6 +4579,7 @@ let cancelMenuDrag;
       document.body.classList.add("menudrag");
       travel = menuTravel(panel) || 1;
     }
+    if (vertical){ sample(y, t); return; }
     if (panel === tickets) sample(x, t);
     const d = menuSign(panel) * dx;
     at = Math.max(0, Math.min(1, (opening ? d : travel + d) / travel));
@@ -4556,21 +4591,21 @@ let cancelMenuDrag;
       // The last bit of a short flick may arrive with the release itself.
       const point = e.changedTouches?.[0] || (e.type === "mouseup" ? e : null);
       const last = samples[samples.length - 1];
-      if (point && point.clientX !== last.x) move(point.clientX, point.clientY, time(e));
+      if (point && (vertical ? point.clientY : point.clientX) !== last.x) move(point.clientX, point.clientY, time(e));
       else sample(last.x, time(e));   // holding still before lifting must lose its speed
     }
     live = false;
     if (!decided) return;
+    if (vertical){
+      if (e.type !== "touchcancel" && menuOut() === tickets && menuAvailable(tickets) && flick() < 0)
+        runMenu(tickets, 0, true);
+      return;
+    }
     let target = at > 0.5 ? 1 : 0;   // the right drawer keeps its halfway rule
     if (panel === tickets){
       target = opening ? (at >= LIST_COMMIT ? 1 : 0) : (1 - at >= LIST_COMMIT ? 0 : 1);
-      const first = samples[0], last = samples[samples.length - 1];
-      const next = samples[1] || first, cutoff = last.t - FLICK_MS;
-      const x = first.t < cutoff && next.t > first.t
-        ? first.x + (next.x - first.x) * (cutoff - first.t) / (next.t - first.t) : first.x;
-      const dx = last.x - x, dt = last.t - Math.max(first.t, cutoff);
-      if (Math.abs(dx) >= FLICK_PX && dt > 0 && Math.abs(dx / dt) >= FLICK_SPEED)
-        target = dx > 0 ? 1 : 0;
+      const direction = flick();
+      if (direction) target = direction > 0 ? 1 : 0;
       if (e.type === "touchcancel") target = opening ? 0 : 1;
     }
     runMenu(panel, target, true);
@@ -4580,16 +4615,22 @@ let cancelMenuDrag;
   // counts too) makes the phone hold every pan under it, the answer's scroll
   // included, until the page has answered the touch. on a busy page the answer
   // then stands still under the finger, and a swipe made in a long stall is
-  // lost. nothing here needs cancelling: the phone does not pan the answer for
-  // a finger going sideways
-  document.addEventListener("touchstart", e => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY, time(e)); }, { passive: true });
+  // lost. sideways pulls do not pan the answer, and card touches with the list
+  // open land on the page, whose touch-action keeps it still.
+  document.addEventListener("touchstart", e => {
+    touchUntil = Infinity;
+    const t = e.touches[0]; if (t) start(t.clientX, t.clientY, time(e), e.target);
+  }, { passive: true });
   document.addEventListener("touchmove", e => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY, time(e)); }, { passive: true });
-  document.addEventListener("touchend", end, { passive: true });
-  document.addEventListener("touchcancel", end, { passive: true });
+  const touchEnd = e => { touchUntil = time(e) + 700; end(e); };
+  document.addEventListener("touchend", touchEnd, { passive: true });
+  document.addEventListener("touchcancel", touchEnd, { passive: true });
   // a mouse pulls it too, for the desktop browser that opens this page
-  document.addEventListener("mousedown", e => { if (e.button === 0) start(e.clientX, e.clientY, time(e)); }, { passive: true });
-  document.addEventListener("mousemove", e => move(e.clientX, e.clientY, time(e)), { passive: true });
-  document.addEventListener("mouseup", end, { passive: true });
+  // Ignore compatibility mouse events after touch, so a drag's generated click
+  // cannot become a fresh card tap.
+  document.addEventListener("mousedown", e => { if (e.button === 0 && time(e) > touchUntil) start(e.clientX, e.clientY, time(e), e.target); }, { passive: true });
+  document.addEventListener("mousemove", e => { if (time(e) > touchUntil) move(e.clientX, e.clientY, time(e)); }, { passive: true });
+  document.addEventListener("mouseup", e => { if (time(e) > touchUntil) end(e); }, { passive: true });
 }
 
 // the list's fades, the board's own: for each section of the list, how far it

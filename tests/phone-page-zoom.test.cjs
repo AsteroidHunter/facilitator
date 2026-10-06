@@ -18,8 +18,9 @@ const actions = rules.flatMap(rule => [...rule.body.matchAll(/(?:^|;)\s*touch-ac
 
 // A local universal declaration gives each scroller its own value, including
 // its blank area and future dynamic children. Check it is unconditional (at
-// stylesheet depth zero), then reject any conflicting declaration, regardless
-// of specificity or a media condition. This does not emulate browser layout.
+// stylesheet depth zero), then reject conflicting declarations except the
+// page surface under an open list. Its card flick must not start native panning;
+// nested ticket scrollers retain their own policy. This is not browser layout.
 function universalAction() {
   const css = inlineCSS.replace(/\/\*[\s\S]*?\*\//g, "");
   const match = /(?:^|\})\s*\*\s*\{\s*touch-action\s*:\s*([^;}]+)\s*;?\s*\}/.exec(css);
@@ -27,7 +28,8 @@ function universalAction() {
   const before = css.slice(0, match.index + match[0].indexOf("*"));
   assert.equal([...before].reduce((n, c) => n + (c === "{" ? 1 : c === "}" ? -1 : 0), 0), 0,
     "the universal policy must apply outside media queries");
-  for (const action of actions) assert.equal(action.value, "manipulation", action.selector);
+  for (const action of actions)
+    assert.equal(action.value, action.selector === "body.listout #page" ? "none" : "manipulation", action.selector);
   return match[1].trim();
 }
 
@@ -40,10 +42,19 @@ const surfaces = new Set([
     .flatMap(r => r.selector.split(",").map(s => s.trim())),
 ]);
 for (const surface of surfaces) {
-  test(`PWA touch-action is manipulation on ${surface}, without ancestor inheritance`, () => {
+  test(`PWA default touch-action is manipulation on ${surface}, without ancestor inheritance`, () => {
     assert.equal(universalAction(), "manipulation", surface);
   });
 }
+
+test("only the page under an open list blocks native panning and the covered reply cannot receive touches", () => {
+  assert.deepEqual(actions.filter(action => action.value !== "manipulation"),
+    [{ selector: "body.listout #page", value: "none" }]);
+  const blocked = rules.find(rule => rule.selector === "body.listout #pane, body.listout #pane *");
+  assert.match(blocked.body, /pointer-events:none !important/);
+  assert.ok(rules.some(rule => rule.selector === ".tikpane" && /overflow-y:auto/.test(rule.body)),
+    "ticket list panning ends at its native scroll container before reaching the page");
+});
 
 function gestureWorld() {
   const script = HTML.match(/<script id="page-zoom-guard">([\s\S]*?)<\/script>/);

@@ -80,6 +80,7 @@ for (const page of ['index.html', 'm.html']) {
     assert.match(html, /id="tik-page" class="qn-glass tik-page" type="button"/);
     assert.match(html, /id="tv-deferred" inert/); assert.match(html, /id="tv-done" inert/);
     ctx.cancelAutoNext = () => {}; ctx.dropResponseScroll = () => {}; ctx.renderTickets = () => {};
+    ctx.tickets = node(); ctx.tickets.classList.add('drawer-settled'); ctx.drawerOpen = () => true;
     const from = html.indexOf(page === 'm.html' ? 'function setView(v){' : '  const setView = v => {');
     const end = html.indexOf('document.getElementById("tv-done").addEventListener', from);
     const through = html.indexOf('\n', end);

@@ -90,7 +90,7 @@ test("the card goes down 55% of the screen and the box comes in, both on the one
   assert.match(MENUS, /cardPane\.style\.setProperty\("--list-v", num\);\s*tickets\.style\.setProperty\("--list-v", num\);\s*tikwin\.style\.setProperty\("--list-v", num\);/);
   // A tap on the card below closes the list. Row taps are exercised by the
   // behavioral checks in phone-drawer-taps.test.cjs.
-  assert.match(MENUS, /page\.addEventListener\("click", e => \{ if \(e\.target === page && drawerOpen\(\)\) closeDrawer\(\); \}\);/);
+  assert.match(MENUS, /page\.addEventListener\("click", e => \{\s*if \(e\.target === page && drawerOpen\(\) && !suppressCardDrawerClick\) closeDrawer\(\);\s*\}\);/);
 });
 
 test("what moves for the drawers is a transform or an opacity, and no script carries a frame", () => {
@@ -100,7 +100,7 @@ test("what moves for the drawers is a transform or an opacity, and no script car
     for (const [, value] of body.matchAll(/(?:^|;)\s*transition\s*:([^;]*)/g)) {
       for (const one of value.split(/,(?![^()]*\))/)) {
         const property = one.trim().split(/\s+/)[0];
-        assert.match(property, /^(transform|opacity|visibility|margin-bottom)$/, `${selector} is timed on ${property}`);
+        assert.match(property, /^(transform|opacity|visibility|margin-bottom|--drawer-arrow-v)$/, `${selector} is timed on ${property}`);
       }
     }
   }
