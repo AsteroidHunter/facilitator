@@ -58,7 +58,7 @@ function fixture() {
     performance: { now: () => now },
     document, window, innerWidth: 390, homeOpen: false, homePanel: {}, homeTimer: null, limitsTimer: null, limitsTick: null,
     HOME_KEY: "homeopen", wantBox: null, house: nodes.homeico, lastTicketTap: null, lastState: null,
-    selectedId: "card", activeOwner: "project", browsing: false, els: {}, phoneEnterAgain: null,
+    selectedId: "card", activeOwner: "project", browsing: false, els: {}, phoneEnterAgain: null, phoneDeveloperMode: false,
     localStorage: { setItem: (key, value) => stored.set(key, value), getItem: key => stored.get(key), removeItem: key => stored.delete(key) },
     addEventListener: window.addEventListener.bind(window),
     getComputedStyle: () => ({ getPropertyValue: name => name === "--sink" ? ".015" : "none" }),
