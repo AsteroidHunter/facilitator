@@ -6413,6 +6413,7 @@ async function doSend(id, opts){
   const text = el.ta.value.trim();
   if (!text) return;
   const reopen = boxDone(id);   // before the send; the poll below clears the flag
+  const followView = captureSentView(id);
   // the words leave the row at the press and stand in the sent panel; one that
   // does not get through stays there under its mark, and the cross gives them back
   const motion = armSentMotion(el);
@@ -6430,6 +6431,7 @@ async function doSend(id, opts){
   const sentItem = sentLaunch(el, text, "/send?box=" + encodeURIComponent(id));
   motion?.play();
   sentItem.landed = () => {
+    if (followView()) renderCarousel(lastState);
     if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
     if (reopen) undone(id);   // the message is in; the flip rides behind it
     poll();
@@ -9915,6 +9917,10 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     pane.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
 }
 function renderCarousel(state){
+  const intent = enterAgain, heldView = intent && enterViewKey(intent.id);
+  const followed = syncSentView(state);
+  if (followed && intent?.id === followed && intent.active && intent.view === heldView)
+    intent.view = enterViewKey(intent.id);
   const sheet = document.getElementById("tiksheet");
   const chips = document.getElementById("chips");
   const w = curWs(state);

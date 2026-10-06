@@ -903,6 +903,7 @@ function slideTicketNames(page){
 }
 const TICKET_VIEW_KEY = "tikview.";   // + the lane's own id, which is never parsed back out
 const ticketViews = {};               // lane id -> the view chosen for it
+let ticketViewRevision = 0;           // an explicit list choice cancels a send's pending follow
 function ticketViewOf(owner){
   if (!owner) return TICKET_VIEWS[0];
   let view = ticketViews[owner];
@@ -916,6 +917,7 @@ function ticketViewOf(owner){
 // one lane's choice, refused unless it is one of the four views
 function setTicketViewOf(owner, view){
   if (!owner || !TICKET_VIEWS.includes(view)) return false;
+  ticketViewRevision++;
   ticketViews[owner] = view;
   try { localStorage.setItem(TICKET_VIEW_KEY + owner, view); } catch (err) {}
   return true;
@@ -1015,6 +1017,47 @@ function viewFilter(b){ return viewFilterFor(b, curView()); }
 function cardSection(b){ return TICKET_VIEWS.find(view => viewFilterFor(b, view)); }
 function viewPoolFor(state, view){ return poolOf(state).filter(b => viewFilterFor(b, view)); }
 function viewPool(state){ return viewPoolFor(state, curView()); }
+
+// A reply returns a docked card to Doing. Keep the open card and its list
+// together, but only after delivery AND a reading that shows the move. Until
+// then the old list still contains the card. A different card, project or
+// chosen list cancels the follow; merely paging the names does not.
+let sentViewFollow = null;
+function captureSentView(id){
+  const b = lastState?.boxes.find(x => x.id === id);
+  const owner = activeOwner, revision = ticketViewRevision;
+  const eligible = selectedId === id && b?.owner === owner &&
+    curView() === "docked" && cardSection(b) === "docked";
+  // This callback is transient, including on a phone operation: JSON storage
+  // omits functions, so a receipt after a reload cannot revive a view change.
+  return () => {
+    if (eligible && selectedId === id && activeOwner === owner &&
+        ticketViewRevision === revision){
+      sentViewFollow = { id, owner, revision };
+      // A reading can beat its send's acknowledgement. Ask the page to draw
+      // that already-known move now instead of waiting for another poll.
+      const current = lastState?.boxes.find(x => x.id === id);
+      return !!current && cardSection(current) === "todo";
+    }
+    return false;
+  };
+}
+function syncSentView(state){
+  const follow = sentViewFollow;
+  if (!follow) return null;
+  const b = state.boxes.find(x => x.id === follow.id);
+  if (selectedId !== follow.id || activeOwner !== follow.owner ||
+      ticketViewRevision !== follow.revision || !b || b.owner !== follow.owner){
+    sentViewFollow = null;
+    return null;
+  }
+  const section = cardSection(b);
+  if (section === "docked") return null;
+  sentViewFollow = null;
+  if (section !== "todo") return null;
+  setTicketViewOf(follow.owner, section);
+  return follow.id;
+}
 
 // when a card became the reader's turn. agentTs is written as the turn goes back
 // to the reader; a card the agent never answered ages by its own ts; one with
