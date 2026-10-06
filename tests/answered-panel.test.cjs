@@ -2625,7 +2625,7 @@ function rect(node, left, top, width, height, scale = 1) {
   node.offsetWidth = width / scale; node.offsetHeight = height / scale;
 }
 
-test("send morph starts at the typed field, crossfades fixed text, tracks its seat and hands off a frame after landing", () => {
+test("send morph starts at the typed field, carries one copy of the words at full strength, tracks its seat and hands off a frame after landing", () => {
   for (const formatted of [false, true]) {
     const s = motionScene(formatted), { context, el, source, frame } = s;
     const motion = context.armSentMotion(el);
@@ -2641,12 +2641,13 @@ test("send morph starts at the typed field, crossfades fixed text, tracks its se
     assert.equal(el.sent.style.opacity, "0", "real bubble must hold its layout while hidden");
     frame(0);
     assert.equal(shell.style.top, "300px");
-    assert.equal(shell.querySelector(".sentmorph-source").style.opacity, "1");
+    assert.equal(shell.style.width, "300px", "the start box does not end where the bubble ends");
+    assert.equal(!!shell.querySelector(".sentmorph-source"), false, "the typed words fly as a second copy");
+    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     frame(140);
-    assert.equal(shell.querySelector(".sentmorph-source").style.opacity, "0");
-    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "0");
+    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     frame(240);
-    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "0");
+    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     context.sentLanded(el, item);
     assert.equal(el.sent.dataset.tag, "Delivered");
     assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
@@ -2691,7 +2692,7 @@ test("send morph shifts preceding messages on its own curve without replaying th
   assert.equal(s.shell(), null);
 });
 
-test("send morph respects a clipped preview and never paints a hidden new row at its foot", () => {
+test("send morph lands a new row below the cut on the cut's edge, its words going on under it, with nothing fading", () => {
   const s = motionScene(), { context, el, frame } = s;
   s.insert("Invented first message.");
   const motion = context.armSentMotion(el);
@@ -2700,10 +2701,14 @@ test("send morph respects a clipped preview and never paints a hidden new row at
   rect(row, 160, 290, 150, 21);
   motion.play();
   frame(320);
-  assert.equal(s.shell().querySelector(".sentmorph-target").style.opacity, "0");
-  assert.ok(Math.abs(Number(s.shell().style.opacity) - .5) < .00001);
+  assert.equal(s.shell().querySelector(".sentmorph-target").style.opacity, "1");
+  assert.equal(s.shell().style.opacity, "", "the box fades");
   frame(400);
-  assert.equal(s.shell().style.opacity, "0");
+  assert.equal(s.shell().style.opacity, "", "the box fades");
+  assert.equal(s.shell().style.top, "241px", "the box did not land on the cut's edge");
+  assert.equal(s.shell().style.height, "0px", "the box covers the foot of the cut");
+  assert.match(s.shell().querySelector(".sentmorph-target").style.transform, /^translate\(0px,49px\) /,
+    "the new words were left in sight above the cut");
   frame(417);
   assert.equal(s.shell(), null);
   assert.equal(row.style.opacity, "");
