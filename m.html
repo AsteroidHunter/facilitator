@@ -1680,8 +1680,12 @@ for (const type of ["gesturestart", "gesturechange"])
       <div data-section="notifications" data-label="Notifications">
         <div class="setrow">
           <label class="setlabel" for="notify"><span>Notifications</span>
-            <small id="notifynote" class="sethelp"></small></label>
-          <input type="checkbox" role="switch" id="notify">
+            <small id="notifynote" class="sethelp" role="status" aria-live="polite"></small></label>
+          <input type="checkbox" role="switch" id="notify" aria-describedby="notifynote">
+        </div>
+        <div class="setact">
+          <button id="notifyrestore" class="sp-btn" type="button" hidden>Restore notifications</button>
+          <button id="notifyoff" class="sp-btn" type="button" hidden>Turn notifications off</button>
         </div>
       </div>
       <div data-section="diagnostics" data-label="Diagnostics">
@@ -1791,14 +1795,7 @@ async function signOut(){
   button.disabled = true;
   note.textContent = "";
   try {
-    try {
-      const registration = await navigator.serviceWorker?.getRegistration("/m");
-      const subscription = await registration?.pushManager?.getSubscription();
-      if (subscription) {
-        await fetch("/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint: subscription.endpoint }) });
-        await subscription.unsubscribe();
-      }
-    } catch (_) {} // the session gate also stops push when this session ends
+    await stopNotifications(true);
     const response = await fetch("/auth/logout", { method: "POST", cache: "no-store" });
     if (!response.ok) throw new Error("sign out failed");
     try {
@@ -6788,94 +6785,210 @@ async function saveDiagnostic(source = "settings"){
   }
 }
 diagnosticButton.addEventListener("click", () => saveDiagnostic());
-// the Notifications switch is on while this phone is subscribed: push allowed
-// for the page and a subscription held by its worker. on asks and subscribes;
-// off takes the subscription away at both ends, so nothing more can arrive
+// the Notifications switch keeps choice and delivery separate. Only a link
+// accepted by the board turns the switch on. Repairs never change an off choice.
 const notifySwitch = document.getElementById("notify");
 const notifyNote = document.getElementById("notifynote");
-function notifyState(on, note){
-  notifySwitch.checked = !!on;
-  notifyNote.textContent = note || "";
+const notifyRestore = document.getElementById("notifyrestore");
+const notifyOff = document.getElementById("notifyoff");
+const NOTIFY_CHOICE = "phoneNotifications";
+const NOTIFY_ENDPOINT = "phoneNotificationEndpoint";
+const NOTIFY_KNOWN = "phoneNotificationsSet";
+let notifyChoice = null, notifyEndpoint = "", notifyKnown = false, notifyStorageFailed = false;
+try {
+  notifyChoice = localStorage.getItem(NOTIFY_CHOICE);
+  notifyEndpoint = localStorage.getItem(NOTIFY_ENDPOINT) || "";
+  notifyKnown = localStorage.getItem(NOTIFY_KNOWN) === "yes";
+} catch (_) {}
+let notifyGeneration = 0, notifyStopped = false, notifyStopping = false;
+let notifyWork = null, notifyReg = null, notifyKey = null, notifyMissing = false;
+function rememberNotifyChoice(choice){
+  notifyChoice = choice;
+  notifyKnown = true;
+  try {
+    if (choice === null) localStorage.removeItem(NOTIFY_CHOICE);
+    else localStorage.setItem(NOTIFY_CHOICE, choice);
+    // A sign-out must not look like an old installation on the next sign-in
+    // if the browser refused to remove its subscription.
+    localStorage.setItem(NOTIFY_KNOWN, "yes");
+    notifyStorageFailed = false;
+  } catch (_) { notifyStorageFailed = true; }
+}
+function notifyState(on, note = "", restore = false, busy = false){
+  notifySwitch.checked = !!on && notifyChoice === "on";
+  notifySwitch.disabled = busy || notifyStopped;
+  notifyNote.textContent = note + (notifyStorageFailed ? " This phone could not save your choice." : "");
+  notifyRestore.hidden = !restore || notifyStopped;
+  notifyRestore.disabled = busy;
+  // The unchecked switch describes delivery. This also lets the owner cancel
+  // an on choice while delivery is being repaired or waiting for a tap.
+  notifyOff.hidden = notifyChoice !== "on" || !!on || notifyStopped;
+  notifyOff.disabled = notifyStopping;
 }
 async function pushRegistration(){
-  if (macHost) return null;
-  if (!("serviceWorker" in navigator)) return null;
+  if (macHost || !("serviceWorker" in navigator)) return null;
   return swReg || navigator.serviceWorker.ready.catch(() => null);
 }
-async function sendSubscription(sub){
-  const r = await fetch("/push/subscribe", { method: "POST", body: JSON.stringify(sub.toJSON()) });
-  if (!r.ok) throw new Error("subscribe " + r.status);
+async function notifyRequest(url, body){
+  const r = await fetch(url, { method: "POST", body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
+  if (!r.ok) throw new Error("notification request failed");
 }
-// what the phone holds now, asked of its worker without waiting for one that
-// never registered
+async function sendSubscription(sub){
+  await notifyRequest("/push/subscribe", sub.toJSON());
+}
 async function pushSubscription(){
   if (!("PushManager" in window) || !("serviceWorker" in navigator)) return null;
+  const reg = swReg || await navigator.serviceWorker.getRegistration("/m");
+  return (await reg?.pushManager.getSubscription()) || null;
+}
+async function removeNotifySubscription(sub, endpoint = notifyEndpoint){
+  // Removal from the phone is independent of whether the Mac answers.
+  const addresses = new Set([sub?.endpoint, endpoint].filter(Boolean));
+  const board = Promise.all([...addresses].map(address =>
+    notifyRequest("/push/unsubscribe", { endpoint: address }).catch(() => false)));
+  let removed = true;
+  try { if (sub) removed = await sub.unsubscribe(); } catch (_) { removed = false; }
+  const results = await board;
+  return removed && results.every(result => result !== false);
+}
+function forgetNotifyEndpoint(){
+  notifyEndpoint = "";
+  try { localStorage.removeItem(NOTIFY_ENDPOINT); } catch (_) {}
+}
+async function repairNotifications(mine, permission, tappedSubscription){
+  const live = () => mine === notifyGeneration && !notifyStopped && !notifyStopping;
   try {
-    const reg = swReg || await navigator.serviceWorker.getRegistration("/m");
-    return (await reg?.pushManager.getSubscription()) || null;
-  } catch (_) { return null; }
-}
-async function notifyOn(){
-  return "Notification" in window && Notification.permission === "granted" && !!(await pushSubscription());
-}
-async function askNotifications(){
-  if (!("PushManager" in window) || !("Notification" in window)){
-    notifyState(false, "Add this page to the home screen first, then ask again from there");
-    return;
+    // Take ownership of a tap's subscribe result even if Off or Log Out was
+    // pressed while the browser was making it, so a late link is removed.
+    const tapped = tappedSubscription ? await tappedSubscription : null;
+    if (!live()) { if (tapped) await removeNotifySubscription(tapped); return; }
+    if (!("PushManager" in window) || !("Notification" in window)) {
+      if (live()) notifyState(false, "Add this page to the home screen first, then ask again from there");
+      return;
+    }
+    if (permission) await permission;
+    if (!live()) return;
+    const reg = await pushRegistration();
+    if (!live()) return;
+    notifyReg = reg;
+    if (!reg) { notifyState(false, "Notifications need the page served over https"); return; }
+    const sub = tapped || await reg.pushManager.getSubscription();
+    if (!live()) {
+      if (sub) await removeNotifySubscription(sub);
+      return;
+    }
+    notifyMissing = !sub;
+    // Older pages had no preference. Keep a link already enabled; permission
+    // alone cannot distinguish a lost link from an intentional off tap.
+    if (!notifyKnown && notifyChoice !== "on" && notifyChoice !== "off" && sub && Notification.permission === "granted")
+      rememberNotifyChoice("on");
+    if (notifyChoice !== "on") {
+      if ((notifyChoice === "off" || notifyKnown) && (sub || notifyEndpoint)) {
+        const removed = await removeNotifySubscription(sub);
+        if (!live()) return;
+        if (removed) forgetNotifyEndpoint();
+        notifyState(false, removed ? "" : "Notifications are off. Removal will retry when you return.");
+      } else notifyState(false);
+      return;
+    }
+    if (Notification.permission !== "granted") {
+      notifyState(false, "Notifications are wanted, but permission is off in the phone's settings.", true);
+      return;
+    }
+    notifyState(false, "Restoring notifications...", false, true);
+    let active = sub;
+    if (!active) {
+      if (!notifyKey) {
+        const r = await fetch("/push/key", { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) throw new Error("notification key unavailable");
+        notifyKey = keyBytes((await r.json()).key);
+      }
+      if (!live()) return;
+      active = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: notifyKey });
+    }
+    if (!live()) { await removeNotifySubscription(active); return; }
+    notifyMissing = false;
+    await sendSubscription(active);
+    if (!live()) { await removeNotifySubscription(active); return; }
+    // Only this phone's known old address is removed, after the new one is
+    // accepted. Other phones sharing the sign-in are left alone.
+    if (notifyEndpoint && notifyEndpoint !== active.endpoint)
+      await notifyRequest("/push/unsubscribe", { endpoint: notifyEndpoint });
+    if (!live()) { await removeNotifySubscription(active); return; }
+    notifyEndpoint = active.endpoint;
+    try { localStorage.setItem(NOTIFY_ENDPOINT, notifyEndpoint); } catch (_) {}
+    const held = await reg.pushManager.getSubscription();
+    if (!live()) { await removeNotifySubscription(active); return; }
+    notifyMissing = !held;
+    if (Notification.permission !== "granted" || held?.endpoint !== active.endpoint) {
+      notifyState(false, "Notifications need restoring. Tap Restore notifications to try again.", true);
+      return;
+    }
+    notifyState(true);
+  } catch (_) {
+    // Keep even a newly created link for the next attempt. A lost HTTP answer
+    // does not mean that the board failed to save it.
+    if (live()) notifyState(false, notifyChoice === "on"
+      ? "Notifications are wanted but are not ready. Tap Restore notifications to try again."
+      : "Could not check notifications. The saved choice has not changed.", notifyChoice === "on");
   }
-  const reg = await pushRegistration();
-  if (!reg){ notifyState(false, "Notifications need the page served over https"); return; }
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted"){ notifyState(false, "Notifications are off in the phone's settings for this page"); return; }
-  let sub = null;
+}
+function startNotifyRepair(permission, tappedSubscription){
+  const mine = ++notifyGeneration;
+  notifyState(false, notifyChoice === "on" ? "Restoring notifications..." : "Checking notifications...", false, true);
+  const work = repairNotifications(mine, permission, tappedSubscription);
+  notifyWork = work;
+  work.finally(() => { if (notifyWork === work) notifyWork = null; });
+  return work;
+}
+function checkNotifications(){
+  if (macHost || notifyStopped || notifyStopping) return Promise.resolve();
+  return notifyWork || startNotifyRepair();
+}
+function askNotifications(){
+  if (macHost || notifyStopped || notifyStopping || notifyWork) return notifyWork;
+  rememberNotifyChoice("on");
+  let permission, subscription;
   try {
-    const key = (await (await fetch("/push/key")).json()).key;
-    sub = await reg.pushManager.getSubscription();
-    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
-    await sendSubscription(sub);
-    notifyState(true, "");
-  } catch (err) {
-    // a subscription the board never took is let go, so off is what it says
-    try { await sub?.unsubscribe(); } catch (_) {}
-    notifyState(false, "Could not subscribe: " + (err && err.message ? err.message : err));
-  }
+    // Both browser calls stay on the tap's stack. A failed silent repair has
+    // already loaded the registration and key for the Restore button.
+    if ("Notification" in window && Notification.permission !== "granted")
+      permission = Notification.requestPermission();
+    else if (notifyMissing && notifyReg && notifyKey)
+      subscription = notifyReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: notifyKey });
+  } catch (_) { permission = Promise.reject(new Error("notification permission refused")); }
+  return startNotifyRepair(permission, subscription);
 }
-async function stopNotifications(){
-  const sub = await pushSubscription();
-  if (sub){
-    try { await fetch("/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) }); } catch (_) {}
-    try { await sub.unsubscribe(); } catch (_) {}
-  }
-  notifyState(await notifyOn(), "");
+async function stopNotifications(forget = false){
+  if (forget) notifyStopped = true;
+  ++notifyGeneration;
+  notifyStopping = true;
+  rememberNotifyChoice(forget ? null : "off");
+  notifyState(false, "Turning notifications off...", false, true);
+  // A repair already talking to the browser or board must finish its cleanup
+  // before the final removal and logout, so it cannot turn delivery back on.
+  await notifyWork;
+  let removed = false;
+  try { removed = await removeNotifySubscription(await pushSubscription()); }
+  catch (_) { await removeNotifySubscription(null); }
+  if (forget || removed) forgetNotifyEndpoint();
+  notifyStopping = false;
+  notifyState(false, removed || forget ? "" : "Notifications are off. Removal will retry when you return.");
 }
-notifySwitch.addEventListener("change", async () => {
-  notifySwitch.disabled = true;
-  try { await (notifySwitch.checked ? askNotifications() : stopNotifications()); }
-  finally { notifySwitch.disabled = false; }
-});
-// it reads what the phone holds each time the panel comes out, so a permission
-// taken away in the phone's own settings shows as off
+notifySwitch.addEventListener("change", () => notifySwitch.checked ? askNotifications() : stopNotifications());
+notifyRestore.addEventListener("click", askNotifications);
+notifyOff.addEventListener("click", () => stopNotifications());
 {
   let shown = false;
-  new MutationObserver(async () => {
+  new MutationObserver(() => {
     const was = shown;
     shown = settings.classList.contains("live");
-    if (!shown || was || notifySwitch.disabled) return;
-    const on = await notifyOn();
-    if (!notifySwitch.disabled) notifySwitch.checked = on;
+    if (shown && !was) checkNotifications();
   }).observe(settings, { attributes: true, attributeFilter: ["class"] });
 }
-// a phone already subscribed says so, and hands the server its subscription
-// again so a board whose state was reset learns it back
-(async () => {
-  if (!("PushManager" in window)) return;
-  const reg = await pushRegistration();
-  if (!reg) return;
-  try {
-    const sub = await reg.pushManager.getSubscription();
-    if (sub && Notification.permission === "granted"){ await sendSubscription(sub); notifyState(true, ""); }
-  } catch (err) {}
-})();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkNotifications(); });
+window.addEventListener("pageshow", e => { if (e.persisted) checkNotifications(); });
+checkNotifications();
 // each time the app starts or comes back, the log is told what the phone holds
 // for notifications: the permission, whether the worker is registered and
 // whether it holds a subscription, as words and never the address. Permission

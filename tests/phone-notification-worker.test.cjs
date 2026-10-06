@@ -4,7 +4,7 @@ const { test } = require("node:test");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const SOURCE = path.resolve(__dirname, "..", "m-sw.js");
+const SOURCE = process.env.PHONE_WORKER_SOURCE || path.resolve(__dirname, "..", "m-sw.js");
 
 async function worker({ clients = [], uncontrolled = [], authenticated = true, authOffline = false } = {}) {
   const handlers = {};
@@ -67,11 +67,11 @@ test("a missing or malformed payload safely shows the generic board notification
   }
 });
 
-test("a queued push cannot reveal a title after sign-out or while offline", async () => {
+test("a delivered title is shown even after sign-out or while offline", async () => {
   for (const options of [{authenticated:false}, {authOffline:true}]) {
     const harness = await worker(options);
     await harness.dispatch("push", { data: { json: () => ({box:"private",title:"Private card"}) } });
-    assert.deepEqual(harness.shown, []);
+    assert.equal(harness.shown[0].title, "Private card");
   }
 });
 
@@ -124,4 +124,17 @@ test("an uncontrolled loading page cannot silently consume the notification targ
   assert.deepEqual(lost, []);
   assert.equal(harness.opened.length, 1);
   assert.match(harness.opened[0], /^\/m\?box=m303&tap=[0-9a-f]{8}$/);
+});
+
+// Titles are read independently from the optional routing id.
+test("empty and invalid titles fall back, while a title without a card id is kept", async () => {
+  for (const title of ["", "  ", null, 42, undefined]) {
+    const harness = await worker();
+    await harness.dispatch("push", { data: { json: () => ({ box: "m3", title }) } });
+    assert.equal(harness.shown[0].title, "facilitator");
+    assert.equal(harness.shown[0].options.data.box, "m3");
+  }
+  const harness = await worker();
+  await harness.dispatch("push", { data: { json: () => ({ title: "Delivered words" }) } });
+  assert.equal(harness.shown[0].title, "Delivered words");
 });

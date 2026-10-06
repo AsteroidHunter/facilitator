@@ -7,7 +7,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..");
-const WORKER_SOURCE = readFileSync(path.join(ROOT, "m-sw.js"), "utf8");
+const WORKER_SOURCE = readFileSync(process.env.PHONE_WORKER_SOURCE || path.join(ROOT, "m-sw.js"), "utf8");
 const PAGE_SOURCE = readFileSync(path.join(ROOT, "m.html"), "utf8");
 const plain = value => JSON.parse(JSON.stringify(value));
 const later = fn => setImmediate(fn);

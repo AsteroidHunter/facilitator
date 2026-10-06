@@ -149,15 +149,17 @@ test("the tap id is eight hex characters from the browser's random bytes, or fro
 
 test("a held line goes out with the pushes held before it, oldest first, in one batch", async () => {
   const harness = await loadWorker({ random: DEAD });
-  harness.board.auth = async () => answered(503);
+  harness.board.log = async () => answered(503);
   await harness.push();
-  assert.deepEqual(harness.logged(), [], "the board was written to when its check had just failed");
+  assert.equal(harness.logged().length, 1);
+  harness.calls.length = 0;
+  harness.board.log = async () => answered(200);
   assert.equal(harness.idb.rows().length, 1);
   await harness.click("m101");
   const batches = harness.logged();
   assert.equal(batches.length, 1);
   assert.deepEqual(batches[0].reports.map(report => report.kind), ["pushreceived", "notifytapready", "notifytapready", "notifytap"]);
-  assert.equal(batches[0].reports[0].reason, "check-failed");
+  assert.equal(batches[0].reports[0].outcome, "shown");
   assert.deepEqual(harness.idb.rows(), []);
 });
 
@@ -231,8 +233,8 @@ test("early records start before lookup and focus, and persist while focus never
   void harness.click("m101");
   await until(() => focusing && harness.idb.rows().length === 2 && early(harness).length === 2);
   assert.deepEqual(early(harness), [
-    { kind: "notifytapready", stage: "received", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-10" },
-    { kind: "notifytapready", stage: "ready", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-10",
+    { kind: "notifytapready", stage: "received", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-11" },
+    { kind: "notifytapready", stage: "ready", tap: "deadbeef", box: "m101", at: harness.clock.now, worker: "facilitator-m-11",
       windows: 2, visibility: "hidden", focused: "no" },
   ]);
   assert.deepEqual(harness.idb.rows().map(row => row.stage), ["received", "ready"]);
@@ -286,7 +288,7 @@ test("early records keep click time and build through a worker restart and delay
   const next = await loadWorker({ idb: harness.idb, clock: { now: clicked + 86_400_000 } });
   await next.dispatch("message", { data: { kind: "push-log-flush" } });
   assert.deepEqual(early(next).map(line => [line.stage, line.at, line.worker]), [
-    ["received", clicked, "facilitator-m-10"], ["ready", clicked, "facilitator-m-10"],
+    ["received", clicked, "facilitator-m-11"], ["ready", clicked, "facilitator-m-11"],
   ]);
   assert.deepEqual(next.idb.rows(), []);
 });
