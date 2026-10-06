@@ -311,7 +311,7 @@ test('the triangle has a native-free mark-sized box on Mac and inherits the same
 });
 
 function drawer() {
-  const nodes = Object.fromEntries(['page', 'pane', 'tickets', 'tikwin', 'settings', 'scrim', 'tikbtn', 'setbtn', 'setpage', 'setsrc'].map(id => [id, element()]));
+  const nodes = Object.fromEntries(['page', 'pane', 'tickets', 'tikwin', 'settings', 'scrim', 'tikbtn', 'setbtn', 'setpage', 'setsrc', 'tik-page', 'tik-page-back'].map(id => [id, element()]));
   nodes.tickets.dataset.side = 'left'; nodes.settings.dataset.side = 'right';
   const document = element(); document.body = element(); document.documentElement = element();
   document.getElementById = id => nodes[id];
@@ -367,26 +367,29 @@ test('a cancelled opening or an old completed opening cannot enable arrows durin
 });
 
 test('both arrow strengths follow the actual painted drawer fraction in either direction, ending at the sun strengths', () => {
-  const f = drawer(), holder = declarations(html, '#tickets');
+  const f = drawer();
   const active = declarations(html, '#tickets #tikhead .tik-page');
   const inactive = declarations(html, '#tickets #tikhead .tik-page[aria-disabled="true"]');
-  assert.equal(holder['--drawer-arrow-v'], 'var(--list-v)');
+  // the arrows' strength is their own fraction, written with the drawer's;
+  // the list hands them nothing to inherit
+  assert.equal(declarations(html, '#tickets')['--drawer-arrow-v'], undefined);
   const off = rule(html, '.box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]').opacity;
   const vars = { '--chipoff': /--chipoff:([\d.]+);/.exec(css)[1] };
   for (const fraction of [0, .125, .25, .5, .875, 1, .875, .5, .25, .125, 0]) {
     f.ctx.paintMenu(f.nodes.tickets, fraction);
-    vars['--list-v'] = f.nodes.tickets.style['--list-v'];
-    vars['--drawer-arrow-v'] = holder['--drawer-arrow-v'];
-    for (const id of ['tickets', 'pane', 'tikwin']) assert.equal(Number(f.nodes[id].style['--list-v']), fraction);
+    vars['--list-v'] = f.nodes['tik-page'].style['--list-v'];
+    for (const id of ['tickets', 'pane', 'tikwin', 'tik-page', 'tik-page-back']) assert.equal(Number(f.nodes[id].style['--list-v']), fraction);
     assert.equal(length(active.opacity, vars, 390), fraction);
     assert.equal(length(inactive.opacity, vars, 390), fraction * length(off, vars, 390));
   }
 });
 
-test('the inherited arrow fade has the drawer transform clock for taps, keys, releases and reversals, and no drag delay', () => {
-  const registered = rule(html, '@property --drawer-arrow-v');
-  assert.equal(registered.syntax, '"<number>"'); assert.equal(registered.inherits, 'true');
+test("the arrows' own fade has the drawer transform clock for taps, keys, releases and reversals, and no drag delay", () => {
+  // their fraction is registered and not inherited, so a change restyles the arrows alone
+  const registered = rule(html, '@property --list-v');
+  assert.equal(registered.syntax, '"<number>"'); assert.equal(registered.inherits, 'false');
   assert.equal(registered['initial-value'], '0');
+  assert.doesNotMatch(html, /--drawer-arrow-v/);
   for (const mode of ['', 'body.menurelease ']) {
     const transition = rule(html, mode + '#tickets').transition;
     // split on the commas outside brackets: the clock is a var() with a var() fallback
@@ -398,12 +401,14 @@ test('the inherited arrow fade has the drawer transform clock for taps, keys, re
       entries[entries.length - 1] += c;
     }
     const clock = property => entries.find(t => t.trim().startsWith(property + ' ')).trim().slice(property.length + 1);
-    assert.equal(clock('--drawer-arrow-v'), clock('transform'));
+    assert.equal(declarations(html, mode + '#tickets #tikhead .tik-page').transition, '--list-v ' + clock('transform'));
     for (const id of ['tikwin', 'pane']) assert.ok(declarations(html, mode + '#' + id).transition.includes('transform ' + clock('transform')));
   }
-  assert.doesNotMatch(rule(html, 'body.menudrag #tickets').transition, /--drawer-arrow-v|transform/);
+  assert.doesNotMatch(rule(html, 'body.menudrag #tickets').transition, /transform/);
+  assert.equal(declarations(html, 'body.menudrag #tickets #tikhead .tik-page').transition, 'none');
+  // one fade of their own, on their fraction: nothing times their opacity
   for (const selector of ['#tikhead .tik-page', '#tickets #tikhead .tik-page', '#tickets #tikhead .tik-page[aria-disabled="true"]']) {
-    assert.equal(declarations(html, selector).transition, undefined, 'the arrows must not add a second fade');
+    assert.doesNotMatch(declarations(html, selector).transition || '', /opacity/, 'the arrows must not add a second fade');
     assert.equal(declarations(css, selector).transition, undefined);
   }
 });

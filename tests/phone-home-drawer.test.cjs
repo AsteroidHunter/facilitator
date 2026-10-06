@@ -372,7 +372,9 @@ for (const selector of ["#tickets", "body.menurelease #tickets"]) {
       return [property, timing.join(" ")];
     }));
     assert.equal(transitions.opacity, transitions.transform, "opacity must follow travel throughout a slide or reversal");
-    assert.equal(transitions.opacity, transitions["--drawer-arrow-v"], "the arrows keep the same clock");
+    // the arrows run their own fraction (--list-v, not inherited) on that clock
+    const arrows = drawerRule(selector.replace("#tickets", "#tickets #tikhead .tik-page")).transition;
+    assert.equal(arrows, "--list-v " + transitions.opacity, "the arrows keep the same clock");
     // the run's own spring, with the menus' curve where it cannot be written
     assert.equal(transitions.opacity, "var(--drawer-run-ms, var(--drawer-ms)) " +
       `var(--drawer-run-ease, var(--drawer-${selector === "#tickets" ? "tap" : "drag"}))`);

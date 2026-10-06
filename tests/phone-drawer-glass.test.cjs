@@ -98,6 +98,7 @@ function fixture({ selected = "r14", count = 20, height = 300, head = 10, foot =
     closeDrawer: () => { tickets.classList.remove("open"); closes++; },
     menuAvailable: () => true,
     runMenu: (panel, v) => panel.classList.toggle("open", v > 0),
+    listLandings: [],
     traceFrameOpportunity() {},
     phoneShortcutActions: {}, tickBands() {}, phoneShortcutTyping: target => !!target.typing,
     ensureCard: id => els[id], tracePhone() {}, endPhoneTrace() {}, cancelAutoNext() {},
