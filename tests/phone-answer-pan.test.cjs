@@ -44,6 +44,7 @@ function world() {
   const tickets = panel("left"), settings = panel("right");
   // This gesture fixture has no ticket panes, just like its document query below.
   tickets.querySelectorAll = () => [];
+  tickets.addEventListener = () => {};   // the pick's end-of-slide listener; no slide runs here
   const document = {
     addEventListener: on("document"), body, activeElement: body,
     getElementById: id => id === "cards" ? cards : id === "pane" ? { classList: classList() } : null,
