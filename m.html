@@ -1098,6 +1098,8 @@
   @property --drawer-arrow-v{syntax:"<number>"; inherits:true; initial-value:0}
   #tickets{
     --drawer-arrow-v:var(--list-v);
+    /* The whole drawer fades on the same fraction and clock as its arrows. */
+    opacity:var(--list-v);
     --line-gap:calc(6 * var(--u)); --list-share:.9;
     --tik-inset-l:var(--edge-drawn); --tik-inset-r:var(--edge-drawn);
     position:absolute; pointer-events:auto;
@@ -1114,10 +1116,10 @@
     transform:translate3d(calc((var(--list-v) - 1) * (var(--pg-l) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
       calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0);
     visibility:hidden; --menuwait:var(--drawer-ms);
-    transition:transform var(--drawer-ms) var(--drawer-tap), --drawer-arrow-v var(--drawer-ms) var(--drawer-tap), visibility 0s linear var(--menuwait);
+    transition:transform var(--drawer-ms) var(--drawer-tap), opacity var(--drawer-ms) var(--drawer-tap), --drawer-arrow-v var(--drawer-ms) var(--drawer-tap), visibility 0s linear var(--menuwait);
   }
   body.menurelease #tickets{
-    transition:transform var(--drawer-ms) var(--drawer-drag), --drawer-arrow-v var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
+    transition:transform var(--drawer-ms) var(--drawer-drag), opacity var(--drawer-ms) var(--drawer-drag), --drawer-arrow-v var(--drawer-ms) var(--drawer-drag), visibility 0s linear var(--menuwait)}
   body.menudrag #tickets{transition:visibility 0s linear var(--menuwait)}
   #tickets.live{visibility:visible; --menuwait:0s; will-change:transform}
   /* One inherited fade runs on the drawer's clock, including reversals. The

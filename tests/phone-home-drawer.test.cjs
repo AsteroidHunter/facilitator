@@ -266,3 +266,111 @@ test("project ticket taps, pulls, thresholds and settings swaps retain their beh
     assert.equal(f.run("drawerOpen()"), distance > 150);
   }
 });
+
+// Read fade targets from the real CSS and fractions from the real handlers.
+// This checks drag values and transition wiring, not rendered animation frames.
+const drawerCSS = between("<style>", "</style>").replace(/\/\*[\s\S]*?\*\//g, "");
+function drawerRule(selector) {
+  const declarations = {};
+  for (const [, selectors, body] of drawerCSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!selectors.split(",").some(s => s.trim() === selector)) continue;
+    for (const part of body.split(";")) {
+      const colon = part.indexOf(":");
+      if (colon >= 0) declarations[part.slice(0, colon).trim()] = part.slice(colon + 1).trim();
+    }
+  }
+  return declarations;
+}
+function drawerFade(f) {
+  const box = drawerRule("#tickets");
+  const values = { ...box, "--list-v": f.nodes.tickets.style.getPropertyValue("--list-v") ||
+    drawerRule("@property --list-v")["initial-value"] };
+  const resolve = value => value.replace(/var\((--[\w-]+)\)/g, (_, name) => resolve(values[name]));
+  return {
+    drawer: Number(resolve(box.opacity || "1")),
+    arrow: Number(resolve(drawerRule("#tickets #tikhead .tik-page").opacity)),
+  };
+}
+function assertDrawerFade(f, expected) {
+  const fade = drawerFade(f);
+  assert.equal(fade.drawer, expected, "the whole drawer follows its open fraction");
+  assert.equal(fade.drawer, fade.arrow, "the drawer and arrows share the fade fraction");
+}
+
+test("the left drawer rests at zero opacity and tap opens and closes target one and zero", () => {
+  const f = fixture();
+  assertDrawerFade(f, 0);
+  f.nodes.tikbtn.fire("click");
+  assertDrawerFade(f, 1);
+  assert.equal(f.run("drawerOpen()"), true);
+  f.nodes.tikbtn.fire("click");
+  assertDrawerFade(f, 0);
+  assert.equal(f.run("drawerOpen()"), false);
+});
+
+for (const kind of ["touch", "mouse"]) {
+  const start = kind === "touch" ? "touchstart" : "mousedown";
+  const move = kind === "touch" ? "touchmove" : "mousemove";
+  const end = kind === "touch" ? "touchend" : "mouseup";
+  test(`left drawer opacity follows a ${kind} drag in both directions, including reversals and bounds`, () => {
+    for (const closing of [false, true]) {
+      const f = fixture();
+      if (closing) f.nodes.tikbtn.fire("click");
+      const x = closing ? 300 : 0, sign = closing ? -1 : 1;
+      f.gesture(start, x);
+      for (const distance of [30, 75, 180, 120, 300, 330, -30]) {
+        f.gesture(move, x + sign * distance);
+        const fraction = Math.max(0, Math.min(1, distance / 300));
+        assertDrawerFade(f, closing ? 1 - fraction : fraction);
+        assert.equal(f.document.body.classList.contains("menudrag"), true);
+      }
+    }
+  });
+  test(`a ${kind} flick hands left drawer opacity from the finger to the open or closed target`, () => {
+    for (const closing of [false, true]) {
+      const f = fixture();
+      if (closing) f.nodes.tikbtn.fire("click");
+      const x = closing ? 200 : 8, sign = closing ? -1 : 1;
+      f.gesture(start, x, 200, 1000);
+      f.gesture(move, x + sign * 30, 200, 1040);
+      assertDrawerFade(f, closing ? .9 : .1);
+      f.gesture(end, x + sign * 30, 200, 1050);
+      assertDrawerFade(f, closing ? 0 : 1);
+      assert.equal(f.document.body.classList.contains("menudrag"), false);
+      assert.equal(f.document.body.classList.contains("menurelease"), true);
+    }
+  });
+}
+
+test("left drawer opacity returns to rest after a short drag, a cancelled pull and Home", () => {
+  for (const end of ["touchend", "touchcancel"]) {
+    const f = fixture();
+    f.gesture("touchstart", 0, 200, 1000);
+    f.gesture("touchmove", 30, 200, 1500);
+    assertDrawerFade(f, .1);
+    f.gesture(end, 30, 200, 1700);
+    assertDrawerFade(f, 0);
+    f.nodes.tikbtn.fire("click");
+    assertDrawerFade(f, 1);
+    f.home();
+    assertDrawerFade(f, 0);
+  }
+});
+
+for (const selector of ["#tickets", "body.menurelease #tickets"]) {
+  test(`${selector} keeps opacity, travel and arrow fade on the same transition clock`, () => {
+    const transitions = Object.fromEntries(drawerRule(selector).transition.split(/,(?![^()]*\))/).map(one => {
+      const [property, ...timing] = one.trim().split(/\s+/);
+      return [property, timing.join(" ")];
+    }));
+    assert.equal(transitions.opacity, transitions.transform, "opacity must follow travel throughout a slide or reversal");
+    assert.equal(transitions.opacity, transitions["--drawer-arrow-v"], "the arrows keep the same clock");
+    assert.equal(transitions.opacity, `var(--drawer-ms) var(--drawer-${selector === "#tickets" ? "tap" : "drag"})`);
+  });
+}
+
+test("left drawer fades follow the finger directly and reduced motion still removes transitions", () => {
+  assert.equal(drawerRule("body.menudrag #tickets").transition, "visibility 0s linear var(--menuwait)");
+  assert.match(drawerCSS, /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{\s*\*,\s*\*::before,\s*\*::after\s*\{[^}]*transition:none !important/);
+  assert.equal(drawerRule("#settings").opacity, "1", "the right drawer stays fully opaque");
+});
