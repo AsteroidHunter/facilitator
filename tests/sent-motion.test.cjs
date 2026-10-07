@@ -54,44 +54,40 @@ test("the send's lengths are shared by both pages: the flight, the iPhone's glid
   }
 });
 
-test("the track runs in time from the typing box to the exact landing, and the box closes in from the left", () => {
+test("the track runs in time from the typing box's place to the exact landing, and the box keeps the seat's size the whole way", () => {
   const { context, run } = load();
   assert.equal(typeof context.sentTrack, "function");
-  assert.deepEqual({ ...context.sentTrack(-5) }, { left: 0, right: 0, down: 0, squeeze: 0, strength: .686 },
+  assert.deepEqual({ ...context.sentTrack(-5) }, { left: 0, down: 0, strength: .686 },
     "the track does not start on the typing box");
-  assert.deepEqual({ ...context.sentTrack(run("SENT_FLIGHT_MS")) }, { left: 1, right: 1, down: 1, squeeze: 0, strength: 1 },
+  assert.deepEqual({ ...context.sentTrack(run("SENT_FLIGHT_MS")) }, { left: 1, down: 1, strength: 1 },
     "the track does not end on the landing");
-  assert.deepEqual({ ...context.sentTrack(5000) }, { left: 1, right: 1, down: 1, squeeze: 0, strength: 1 });
-  assert.ok(!("stretch" in context.sentTrack(100)), "the track still stretches the box taller");
+  assert.deepEqual({ ...context.sentTrack(5000) }, { left: 1, down: 1, strength: 1 });
+  // nothing in the track widens, narrows, stretches or squeezes the box
+  for (const key of ["right", "squeeze", "stretch", "size"])
+    assert.ok(!(key in context.sentTrack(100)), `the track still carries a ${key}`);
+  for (const name of ["SENT_SQUEEZE", "SENT_SQUEEZE_PEAK_MS", "SENT_STRETCH", "SENT_STRETCH_PEAK_MS"])
+    assert.equal(run(`typeof ${name}`), "undefined", `${name} is still there`);
   let before = context.sentTrack(0);
-  const peakMs = run("SENT_SQUEEZE_PEAK_MS");
-  assert.equal(peakMs, 330, "the squeeze does not peak where the flight's compress always has");
   for (let ms = 1; ms <= run("SENT_FLIGHT_MS"); ms++) {
     const at = context.sentTrack(ms);
-    for (const key of ["left", "right", "down", "strength"])
+    for (const key of ["left", "down", "strength"])
       assert.ok(at[key] >= before[key] - 1e-12 && at[key] <= 1, `the track's ${key} goes back or over whole at ${ms}ms`);
-    // the squeeze goes out to its full reach at the peak, then only closes
-    assert.ok(at.squeeze >= 0 && at.squeeze <= 1, `the squeeze is out of range at ${ms}ms (${at.squeeze})`);
-    if (ms <= peakMs) assert.ok(at.squeeze >= before.squeeze - 1e-12, `the squeeze closes before its peak at ${ms}ms`);
-    else assert.ok(at.squeeze <= before.squeeze + 1e-12, `the squeeze goes out again at ${ms}ms`);
     before = at;
   }
-  assert.equal(context.sentTrack(peakMs).squeeze, 1, "the squeeze does not reach its full reach at its peak");
-  // the box drawn from the track: its right end, top and foot are the
-  // frame's, and its left edge trails the frame's by the squeeze, up to a
-  // fifth of the bubble's width
+  // the box drawn from the track: the seat's own width and height at every
+  // point of it, and only its left and top move, from the typing box's to the
+  // seat's, whatever size the typing box is
   const from = { left: 0, top: 100, width: 300, height: 40 }, to = { left: 200, top: 0, width: 100, height: 50 };
-  const out = (squeeze, limit) => context.sentMorphBox(from, to, { left: 1, down: 1, right: 1, squeeze }, limit);
-  assert.deepEqual({ ...out(1).box }, { left: 178, top: 0, width: 122, height: 50 }, "the squeeze is not a fifth of the bubble's width out from its left");
-  assert.deepEqual({ ...out(.5).box }, { left: 189, top: 0, width: 111, height: 50 }, "half the squeeze is not half the reach");
-  assert.deepEqual({ ...out(0).box }, { left: 200, top: 0, width: 100, height: 50 }, "the box does not close onto the bubble");
-  // it stops at the limit, the card's own padding, and never reaches past it
-  assert.deepEqual({ ...out(1, 190).box }, { left: 190, top: 0, width: 110, height: 50 }, "the squeeze goes past the card's padding");
-  assert.deepEqual({ ...out(1, 250).box }, { left: 200, top: 0, width: 100, height: 50 }, "a limit right of the bubble's left makes the box narrower than the bubble");
-  // never taller than the frame it rises in, nor drawn from another top
-  const half = context.sentMorphBox(from, to, { left: .5, down: .5, right: .5, squeeze: 1 });
-  assert.equal(half.box.height, half.frame.bottom - half.frame.top, "the box is taller than the frame it rises in");
-  assert.equal(half.box.top, half.frame.top, "the box is not drawn from the frame's top");
+  const out = (left, down) => ({ ...context.sentMorphBox(from, to, { left, down, strength: 1 }) });
+  assert.deepEqual(out(0, 0), { left: 0, top: 100, width: 100, height: 50 }, "the box does not start at the typing box's corner at the seat's size");
+  assert.deepEqual(out(.5, .25), { left: 100, top: 75, width: 100, height: 50 }, "the box does not move by the track alone");
+  assert.deepEqual(out(1, 0), { left: 200, top: 100, width: 100, height: 50 }, "the box changes size crossing");
+  assert.deepEqual(out(0, 1), { left: 0, top: 0, width: 100, height: 50 }, "the box changes size rising");
+  assert.deepEqual(out(1, 1), { left: 200, top: 0, width: 100, height: 50 }, "the box does not land on the seat");
+  // the seat read live is the one it follows: a seat that grows or moves while
+  // the box is in the air is met at its new size
+  assert.deepEqual({ ...context.sentMorphBox(from, { ...to, width: 120, height: 70 }, { left: 1, down: 1, strength: 1 }) },
+    { left: 200, top: 0, width: 120, height: 70 }, "the box does not follow the seat's size");
 });
 
 test("delivery seat is reserved before any receipt and the mark only paints outside it", () => {

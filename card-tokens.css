@@ -478,12 +478,11 @@
    open, a long batch stops at --sent-cap, which each large card writes as the
    room the panel may take over the answer, and the rest scrolls inside the cut.
    a surface that writes none gives the panel a seat that scrolls instead.
-   a local send morphs from the typing field to a bubble of its own in
-   card-logic.js over 650ms: the typing box moves sideways, its left edge
-   setting off on the first frame, then up, and ends with an accordion-like
-   compress from side to side onto the bubble's width, its right end anchored
-   on the bubble's, with nothing shrinking and growing back and its right end,
-   top and foot never passing their landing. Its grey is faint over the row
+   a local send flies from the typing field to a bubble of its own in
+   card-logic.js over 650ms: a box the bubble's own width and height, the
+   whole way, moves sideways, its left edge setting off on the first frame,
+   then up, with nothing widening, narrowing, stretching, or shrinking and
+   growing back, and no edge passing its landing. Its grey is faint over the row
    and comes in as it rises clear,
    while the bubbles that stood before make room on a quicker glide. It wears
    the panel's own corners from its first frame and carries its words dark the
@@ -496,8 +495,9 @@
 @keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
 .answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--sent-ease)}
 /* A viewport shell crosses the composer's and panel's clipping boundaries.
-   Its real box changes size; one copy of the words, laid out as the panel lays
-   them out, rides it and shrinks from the typing size without rewrapping.
+   Its real box moves and keeps the bubble's size; one copy of the words, laid
+   out as the panel lays them out, rides it and shrinks from the typing size
+   without rewrapping.
    The face is the panel's grey, written by the script with the box, along
    with how strong it is at each frame. It is handed a layer of its own, so
    its moving box is drawn by itself: a box drawn into the page's own layer

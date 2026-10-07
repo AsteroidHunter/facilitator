@@ -19,7 +19,7 @@ function load(extra = {}) {
   return context;
 }
 
-// ---- 1. the send motion: sideways, then up, then an accordion-like compress -------------
+// ---- 1. the send motion: sideways, then up, in a box the bubble's own size throughout -----
 // the phone's one-line example: the typing box, and the bubble the send lands on
 const FROM = { left: 17.5, top: 500, width: 317.6, height: 43.3 };
 const TO = { left: 199.7, top: 422.1, width: 160, height: 52.5 };
@@ -27,92 +27,76 @@ function flight() {
   const c = load();
   const out = [], length = c.read("SENT_FLIGHT_MS");
   assert.ok(length > 0, "the flight has no length");
-  for (let ms = 0; ms <= length; ms++) {
-    const at = c.sentTrack(ms);
-    const { frame, box } = c.sentMorphBox(FROM, TO, at);
-    out.push({ ms, at, frame, box });
-  }
+  for (let ms = 0; ms <= length; ms++) out.push({ ms, box: c.sentMorphBox(FROM, TO, c.sentTrack(ms)) });
   return out;
 }
 
 test("a send moves sideways and up with no zoom in and out: nothing shrinks and grows back, the right end, top and foot pass no landing", () => {
-  for (const { ms, frame, box } of flight()) {
-    // the box drawn is a real box and never scaled down about a corner: the
-    // frame's right end, and its left edge at or left of the frame's, which
-    // is the compress and not a change of scale
-    assert.ok(Math.abs(box.left + box.width - frame.right) < 1e-9, `the box is drawn at another right end than it travels at ${ms}ms`);
-    assert.ok(box.left <= frame.left + 1e-9 && box.width >= frame.right - frame.left - 1e-9, `the box is narrower than it travels at ${ms}ms`);
-    // the left edge trails the words, so it may be left of the bubble's, but it
-    // is never left of the typing box's and never right of the bubble's
-    assert.ok(box.left >= FROM.left - 1e-9 && box.left <= TO.left + 1e-9, `the left edge is out of its run at ${ms}ms (${box.left})`);
-    const right = box.left + box.width;
-    assert.ok(right >= FROM.left + FROM.width - 1e-9 && right <= TO.left + TO.width + 1e-9, `the right end passed its landing at ${ms}ms (${right})`);
-    assert.ok(box.top >= TO.top - 1e-9, `the top rose past its landing at ${ms}ms (${box.top})`);
+  let before = null;
+  for (const { ms, box } of flight()) {
+    // the left edge only goes from the typing box's to the bubble's, the top
+    // only up to the bubble's, and neither goes back
+    assert.ok(box.left >= FROM.left - 1e-9 && box.left <= TO.left + 1e-9, "the left edge is out of its run at " + ms + "ms (" + box.left + ")");
+    assert.ok(box.top >= TO.top - 1e-9 && box.top <= FROM.top + 1e-9, "the top is out of its run at " + ms + "ms (" + box.top + ")");
+    assert.ok(box.left + box.width <= TO.left + TO.width + 1e-9, "the right end passed its landing at " + ms + "ms");
+    assert.ok(box.top + box.height >= TO.top + TO.height - 1e-9, "the foot passed its landing at " + ms + "ms");
+    if (before) {
+      assert.ok(box.left >= before.left - 1e-9, "the left edge went back at " + ms + "ms");
+      assert.ok(box.top <= before.top + 1e-9, "the top came back down at " + ms + "ms");
+    }
+    before = box;
   }
 });
 
-test("a send ends with an accordion-like compress from side to side: the box stands wider than the bubble as it arrives, then closes in onto its width", () => {
+test("a send keeps the bubble's own width and height for the whole flight: nothing widens, narrows, stretches or squeezes", () => {
   const frames = flight();
-  const right = f => f.box.left + f.box.width;
-  // the right end is the bubble's from the moment the sideways move lands
-  const landedSide = frames.find(f => Math.abs(right(f) - (TO.left + TO.width)) < 1e-9);
-  assert.ok(landedSide, "the right end never lands on the bubble's");
-  for (const f of frames.filter(f => f.ms >= landedSide.ms))
-    assert.ok(Math.abs(right(f) - (TO.left + TO.width)) < 1e-9, `the right end left the bubble's at ${f.ms}ms (${right(f)})`);
-  // widest at the peak, a fifth over the bubble, with time left to close
-  const widest = frames.filter(f => f.ms >= landedSide.ms).reduce((a, b) => b.box.width > a.box.width ? b : a);
-  const peak = load().read("SENT_SQUEEZE_PEAK_MS");
-  assert.ok(Math.abs(widest.ms - peak) <= 2, `the box is widest at ${widest.ms}ms, not at the peak (${peak}ms)`);
-  assert.ok(widest.box.width >= 1.15 * TO.width && widest.box.width <= 1.3 * TO.width,
-    `the box is not a little wider than the bubble at its widest (${(widest.box.width / TO.width).toFixed(3)})`);
-  // from there it only closes: the width shrinks and the left edge comes in,
-  // for at least 300ms, and settles on the bubble
-  const closing = frames.filter(f => f.ms >= widest.ms);
-  assert.ok(closing.length >= 300, `the compress after its widest is too short (${closing.length}ms)`);
-  for (let i = 1; i < closing.length; i++) {
-    assert.ok(closing[i].box.width <= closing[i - 1].box.width + 1e-9, `the box widened again while closing at ${closing[i].ms}ms`);
-    assert.ok(closing[i].box.left >= closing[i - 1].box.left - 1e-9, `the left edge went back while closing at ${closing[i].ms}ms`);
-  }
-  // nothing here is vertical: the box is never taller than the bubble, and its
-  // height is the frame's own on the way up, never stretched under the top
-  for (const { ms, box, frame } of frames) {
-    assert.ok(box.height <= Math.max(FROM.height, TO.height) + 1e-9, `the box is taller than the bubble at ${ms}ms (${box.height})`);
-    assert.ok(Math.abs(box.height - (frame.bottom - frame.top)) < 1e-9, `the box is stretched under its top at ${ms}ms`);
+  for (const { ms, box } of frames) {
+    assert.ok(Math.abs(box.width - TO.width) < 1e-9, "the box is " + box.width + " wide at " + ms + "ms, the bubble " + TO.width);
+    assert.ok(Math.abs(box.height - TO.height) < 1e-9, "the box is " + box.height + " tall at " + ms + "ms, the bubble " + TO.height);
   }
   const end = frames.at(-1).box;
-  assert.ok(Math.abs(end.width - TO.width) < 1e-9 && Math.abs(end.left - TO.left) < 1e-9 &&
-    Math.abs(end.height - TO.height) < 1e-9 && Math.abs(end.top - TO.top) < 1e-9, "the box does not close exactly onto the bubble");
+  for (const key of Object.keys(TO)) assert.ok(Math.abs(end[key] - TO[key]) < 1e-9, "the box does not land on the bubble's " + key + " (" + end[key] + ")");
 });
 
-test("the compress stays inside the card's own padding: where the bubble is as wide as the typing row it reaches that far left and no further", () => {
-  // the iPhone simulator's one-line send: the card 9.5 to 380.5 across, the
-  // typing row 52.8 to 335.2 (a "+" stands left of it), the bubble 68.7 to
-  // 359.8. The bubble's right end is 20.7 in from the card's right edge, so
-  // the box may reach 20.7 in from the card's left edge: 30.2
-  const CARD = { left: 9.5, top: 11.8, width: 371, height: 614.3 };
-  const ROW = { left: 52.8, top: 560.1, width: 282.4, height: 66 };
-  const BUBBLE = { left: 68.7, top: 484.1, width: 291.1, height: 73.5 };
-  const padding = CARD.left + (CARD.left + CARD.width - (BUBBLE.left + BUBBLE.width));
-  const p = page();
-  p.set(p.el.box, CARD);
-  p.set(p.el.ta, ROW);
-  p.seat(p.arm(), BUBBLE);
-  let leftmost = Infinity, widest = 0, before = null;
-  for (const ms of [1000 / 60, ...Array.from({ length: 634 }, (_, i) => 17 + i)]) {
-    p.frame(ms);
-    const b = p.box();
-    assert.ok(b.left >= padding - 1e-6, `the box reaches past the card's padding at ${ms}ms (${b.left} against ${padding})`);
-    assert.ok(b.left + b.width <= BUBBLE.left + BUBBLE.width + 1e-6, `the right end passed the bubble's at ${ms}ms`);
-    assert.ok(b.height <= Math.max(ROW.height, BUBBLE.height) + 1e-6, `the box is taller than the bubble at ${ms}ms (${b.height})`);
-    if (ms >= 330) assert.ok(before === null || b.width <= before + 1e-6, `the box widened again after its peak at ${ms}ms`);
-    if (ms >= 330) before = b.width;
-    leftmost = Math.min(leftmost, b.left);
-    widest = Math.max(widest, ms >= 260 ? b.width : 0);
+test("on the page's own frames the flying box is the bubble's size from the start to the landing, whatever the typing row's size", () => {
+  // the box is read off the shell on every frame the page draws, from the
+  // press: the iPhone simulator's one-line send (the typing row 52.8 to
+  // 335.2, the bubble 68.7 to 359.8), a typing row wider than its bubble as on
+  // the Mac, a long message whose typing row is taller than its bubble, and a
+  // short one
+  const CASES = {
+    "the phone's one line": { row: { left: 52.8, top: 560.1, width: 282.4, height: 66 }, bubble: { left: 68.7, top: 484.1, width: 291.1, height: 73.5 } },
+    "a row wider than its bubble": { row: { left: 20, top: 500, width: 370, height: 40 }, bubble: { left: 100, top: 430, width: 300, height: 60 } },
+    "a row taller than its bubble": { row: { left: 52.8, top: 484.1, width: 282.4, height: 142 }, bubble: { left: 68.7, top: 432.7, width: 291.1, height: 124.8 } },
+    "a short message": { row: { left: 52.8, top: 560.1, width: 282.4, height: 66 }, bubble: { left: 304.9, top: 505, width: 54.9, height: 52.5 } },
+  };
+  for (const [name, { row, bubble }] of Object.entries(CASES)) {
+    const p = page();
+    p.set(p.el.ta, row);
+    p.seat(p.arm(), bubble);
+    // before the first frame, and then every frame to the landing
+    const readings = [{ ms: 0, box: p.box() }];
+    for (const ms of [1000 / 60, ...Array.from({ length: 634 }, (_, i) => 17 + i)]) {
+      p.frame(ms);
+      readings.push({ ms, box: p.box() });
+    }
+    let before = null;
+    for (const { ms, box } of readings) {
+      assert.ok(Math.abs(box.width - bubble.width) <= 1e-6, name + ": the box is " + box.width + " wide at " + ms.toFixed(1) + "ms, the bubble " + bubble.width);
+      assert.ok(Math.abs(box.height - bubble.height) <= 1e-6, name + ": the box is " + box.height + " tall at " + ms.toFixed(1) + "ms, the bubble " + bubble.height);
+      // only its place moves, one way, from the typing row's corner to the bubble's
+      assert.ok(box.left >= Math.min(row.left, bubble.left) - 1e-6 && box.left <= Math.max(row.left, bubble.left) + 1e-6, name + ": the left edge left its run at " + ms.toFixed(1) + "ms");
+      assert.ok(box.top >= Math.min(row.top, bubble.top) - 1e-6 && box.top <= Math.max(row.top, bubble.top) + 1e-6, name + ": the top left its run at " + ms.toFixed(1) + "ms");
+      if (before) {
+        assert.ok(box.left >= before.left - 1e-6, name + ": the left edge went back at " + ms.toFixed(1) + "ms");
+        assert.ok(box.top <= before.top + 1e-6, name + ": the top came back down at " + ms.toFixed(1) + "ms");
+      }
+      before = box;
+    }
+    const start = readings[0].box, end = readings.at(-1).box;
+    assert.ok(Math.abs(start.left - row.left) < 1e-6 && Math.abs(start.top - row.top) < 1e-6, name + ": the box does not start at the typing row's corner (" + start.left + ", " + start.top + ")");
+    for (const [key, want] of Object.entries(bubble)) assert.ok(Math.abs(end[key] - want) < 1e-6, name + ": the box did not land on the bubble's " + key + " (" + end[key] + ")");
   }
-  assert.ok(Math.abs(leftmost - padding) < 0.01, `the box never reaches the card's padding (${leftmost} against ${padding})`);
-  assert.ok(widest > BUBBLE.width + 30, `the box is hardly wider than the bubble at its widest (${widest})`);
-  const end = p.box();
-  for (const [key, want] of Object.entries(BUBBLE)) assert.ok(Math.abs(end[key] - want) < 1e-6, `the box did not land on the bubble's ${key} (${end[key]})`);
 });
 
 // ---- a stand-in page for a flight -------------------------------------------------------
@@ -410,7 +394,7 @@ test("the first frame drawn after a send already has the box on its way, on time
     s.fly();
     const start = s.box();
     s.frame(first);
-    const got = s.box(), want = s.context.sentMorphBox(FROM, TO, s.context.sentTrack(1000 / 60)).box;
+    const got = s.box(), want = s.context.sentMorphBox(FROM, TO, s.context.sentTrack(1000 / 60));
     assert.ok((got.left - start.left) / (TO.left - FROM.left) >= 0.1,
       `the box stands on the row on the first frame drawn at ${first.toFixed(1)}ms (left ${got.left})`);
     for (const key of ["left", "top", "width", "height"])
