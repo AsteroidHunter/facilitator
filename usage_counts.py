@@ -1,8 +1,6 @@
 """The daily usage counts: once a day the board sends one small message of
 counts about the day before to the Facilitator project in PostHog, unless the
 board's "Share daily usage counts" setting (Settings, Improvements) is off.
-README.md, "Usage counts", lists every field, and a field added here goes into
-that list in the same change.
 
 What is counted comes out of what the board already keeps, and nothing else:
 
