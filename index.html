@@ -117,9 +117,10 @@
   /* the workspace stands on a pane of the board's glass (.qn-glass in
      card-tokens.css, worn by #appframe), one rounded rectangle under everything
      on the canvas, and the bar over it holds the controls in glass pieces of
-     their own (the bar's glass, below). nothing joins the two: the bar has no
-     face, no line and no corners of its own, and the project names do not open
-     into the pane.
+     their own (the bar's glass, below). the bar has no face, no line and no
+     corners of its own; the one thing joining the two is the open project's
+     lens, whose sides run down into the pane's top edge (the joint, below the
+     seat's rules), drawn over the pane rather than cut into it.
      the pane keeps the rectangle the workspace outline had, to the pixel, since
      the stage fits itself into it (frameLimits) and the home page and the new
      project page measure from it: --app-inset in from the window's sides and
@@ -3099,6 +3100,28 @@
   body.focus #tabrow .tabseat.pressed .seatlens{transform:scale(1.1); --qn-edge:3.5;
     transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle)}
   body.focus #tabrow :is(.tabseat.carried, .tabheld){z-index:4}
+  /* the joint: the open project's lens joined to the workspace's pane, as the
+     seated tab's open bottom once was (the seat's joint, in the script). one
+     svg over the bar and the pane's top edge, taking no pointer. it stands
+     beside the bar rather than in it, fixed, at the bar's own level and after
+     it: fixed inside the sticky bar it was cut off at the body's foot, which
+     is the bar's foot (seen in WebKit), and the joint reaches past it into the
+     pane. it paints
+     over the lens's foot and the pane's top line where the two are joined: a
+     face that is the lens's own clean face (.lensclear: the glass's white over
+     the paper) going over into the white of the pane's lit top edge and
+     fading into the pane under its line, and the glass's 1px ring, a 2px
+     stroke kept to its inner half by the face. a name carried in a reorder
+     keeps its own lens over the joint (the script cuts it out). no blur,
+     filter or mask: the outline is drawn afresh only while it moves */
+  #seatjoin{display:none}
+  body.focus #seatjoin{display:block; position:fixed; left:0; top:0; width:100%;
+    height:calc(var(--app-inset) + var(--bar-h) + 12px); overflow:visible;
+    pointer-events:none; z-index:10}
+  #seatjoin .ring{fill:none; stroke-width:2px; stroke-linejoin:round}
+  #seatjoin .jl{stop-color:color-mix(in srgb, var(--paper), #fff calc(var(--qn-tint) * 100%))}
+  #seatjoin .jp{stop-color:color-mix(in srgb, var(--paper), #fff 93%)}
+  #seatjoin .jp.gone{stop-opacity:0}
   /* the plus: a bare mark after the names, its two bars the house's line,
      in the ink at three quarters as the typed plus was, and full under a
      pointer */
@@ -4140,6 +4163,7 @@ function paintLenses(){
     return { el, rect, style, opacity, cross: el.classList.contains("ptabx"), icon:el.tagName.toLowerCase() === "svg" };
   }).filter(s => s.rect.width && s.rect.height && s.style.visibility !== "hidden");
   const lenses = [...liveLenses].filter(el => el.isConnected).map(el => ({ el, rect: el.getBoundingClientRect(), width: parseFloat(getComputedStyle(el).width) }));
+  const joint = jointMeasure();
   for (const { el, rect, width } of lenses){
     if (!width || !rect.width || !rect.height) continue;
     const lens = el.lens, kept = new Set();
@@ -4164,10 +4188,12 @@ function paintLenses(){
     }
     for (const [source, copy] of lens.copies) if (!kept.has(source)){ copy.remove(); lens.copies.delete(source); }
   }
+  jointPaint(joint, jointClock());
   // CSS owns the motion; sample its current geometry once per frame while it
   // is running. A mutation/resize starts this again; resting pills do no work.
+  // The joint runs on its own clock and asks for frames until it rests.
   if (bar.getAnimations({ subtree: true }).some(a => a.playState === "running") ||
-      tabDrag?.mode === "select" || tabDrag?.mode === "reorder" || tabGlide) queueLensPaint();
+      tabDrag?.mode === "select" || tabDrag?.mode === "reorder" || tabGlide || jointBusy()) queueLensPaint();
 }
 const lensChanges = new MutationObserver(records => {
   if (records.some(r => !r.target.closest?.(".lensclear"))) queueLensPaint();
@@ -4223,10 +4249,16 @@ function placeSeat(){
   if (!r || !r.width){ el.classList.add("gone"); seat.owner = null; seat.returning = false; return; }
   const o = oval.getBoundingClientRect(), x = r.left - o.left, w = r.width;
   const owner = homeOpen ? HOME_SEAT : on.classList.contains("draft") ? DRAFT : on.dataset.owner;
-  const slide = seat.returning || (seat.owner !== null && owner !== seat.owner);
+  const returning = seat.returning;
+  const slide = returning || (seat.owner !== null && owner !== seat.owner);
   seat.returning = false;
   if (!slide && owner === seat.owner && x === seat.x && w === seat.w) return;
   el.classList.toggle("still", !slide);
+  // a lens leaving its joint holds a moment while the joint parts, then
+  // slides (jointHold); a drag's own release slides at once
+  const hold = slide && !returning ? jointHold() : 0;
+  el.style.transitionDelay = hold ? hold + "ms" : "";
+  if (slide) tabJoint.leave = true;
   el.style.transform = "translateX(" + x + "px)";
   el.style.width = w + "px";
   if (!seat.drawn){
@@ -4239,6 +4271,313 @@ function placeSeat(){
   }
   el.classList.remove("gone");
   seat.owner = owner; seat.x = x; seat.w = w;
+}
+// ---- the seat's joint ---------------------------------------------------------
+// the open project's lens and the workspace's pane read as one piece of glass,
+// as the seated tab's open bottom once did: the lens's sides run straight down
+// into the pane and flare out into its top edge. Home's circle is never joined.
+// the joint is drawn over the two by an svg of its own (#seatjoin): a face and
+// the glass's 1px ring along one outline, found row by row from a field, the
+// way the sent bubbles' merge finds theirs (sentGooPath in card-logic.js): the
+// distance to the lens's capsule, run on down into the pane, and to the pane's
+// top edge, a bulge on each where they face, and a polynomial smooth minimum.
+// the join is the merge's: on the merge's own curve (MERGE_EASE), the lens's
+// foot and the pane's top bow toward each other, touch in the middle, a neck
+// forms and widens, and the sides straighten into the tab. the split is the
+// same shapes in reverse, quicker to start: the neck narrows to a thread and
+// parts, and what is left on the lens and on the pane draws back into each.
+// the pane's side stays where the neck stood while the lens moves: the neck
+// leans after the lens, and a lens pulled JOINT_TEAR px off breaks the thread
+// at once. choosing another project holds the lens up to JOINT_HOLD_MS while
+// the joint starts to part (jointHold, in placeSeat), the lens slides, and once
+// it has landed and the old joint has gone the new one forms. reduced motion
+// shows the joint, or none, where the lens stands, with nothing moving
+const JOINT_JOIN_MS = 700, JOINT_SPLIT_MS = 560, JOINT_HOLD_MS = 150;
+const JOINT_TEAR = 24, JOINT_LEAN = 8;
+// the face covers the lens's rim this deep, the depth at which its clean face
+// is whole (LENS_CLEAR_DEPTH) and a little more, and fades into the pane below
+// its line over JOINT_FADE px
+const JOINT_RIM = 4, JOINT_FADE = 2.5;
+const JOINT_JOIN = sentCurve(MERGE_EASE), JOINT_SPLIT = sentCurve([.25, .1, .25, 1]);
+const jointMotion = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+const jointStill = () => !!jointMotion?.matches;
+const jointClock = () => typeof performance === "object" ? performance.now() : Date.now();
+function jointSmin(a, b, k){
+  if (!(k > 0)) return Math.min(a, b);
+  const h = Math.max(k - Math.abs(a - b), 0) / k;
+  return Math.min(a, b) - h * h * k / 4;
+}
+// a bulge across, highest in its middle and gone at its ends, flat at both
+function jointHump(u){
+  const a = Math.abs(u);
+  return a >= 1 ? 0 : 1 - sentSmooth(a);
+}
+// the shape at the join's own time tau, 0 apart and 1 joined: how far each
+// side bulges toward the other, the union's reach, the bulges' half width and
+// how far the lens's capsule runs on down
+function jointShape(tau, lens, paneTop){
+  const r = (lens.bottom - lens.top) / 2, half = (lens.right - lens.left) / 2;
+  // the bulges are whole by the time they touch: nothing travels here, so a
+  // drop that crept for longer than the merge's would only read as a wait
+  const swell = sentSmooth(tau / .2) * (1 - sentSmooth((tau - .6) / .35));
+  const widen = sentSmooth((tau - .25) / .45), settle = sentSmooth((tau - .6) / .4);
+  return { bulge: 3.2 * swell,
+    reach: 6 * sentSmooth((tau - .1) / .2) + 22 * sentSmooth((tau - .2) / .4) * (1 - settle) + 4 * settle,
+    half: 10 + Math.max(0, half * .35 - 10) * widen,
+    run: (paneTop + 2 + r - lens.bottom) * sentSmooth((tau - .5) / .45) };
+}
+// one moment: the lens and the pane as they stand (viewport px, the pane's box
+// on its ring's outer edge), where the neck meets the pane and how far it leans
+function jointMoment(tau, lens, pane, foot, lean){
+  return { ...jointShape(tau, lens, pane.top), tau, lens, r: (lens.bottom - lens.top) / 2,
+    pane, paneTop: pane.top, foot, lean };
+}
+// how far a point stands outside the joined shape: below nothing, inside
+function jointField(x, y, g){
+  const L = g.lens, cy = L.top + g.r, cx = (L.left + L.right) / 2;
+  const lx = g.lean ? x + g.lean * sentSmooth((y - L.bottom) / (g.paneTop - L.bottom)) : x;
+  const lens = sentBoxDistance(lx, y, { left: L.left, top: L.top, right: L.right, bottom: L.bottom + g.run }, g.r)
+    - (g.bulge ? g.bulge * jointHump((lx - cx) / g.half) * sentSmooth((y - cy) / g.r) : 0);
+  const pane = sentBoxDistance(x, y, g.pane, g.pane.corner)
+    - (g.bulge ? g.bulge * jointHump((x - g.foot) / g.half) : 0);
+  return jointSmin(lens, pane, g.reach);
+}
+// the join's time at which the two first touch, under a lens 32 high over the
+// Mac's 8px of paper, and the split's progress at which they part again
+const JOINT_TOUCH = (() => {
+  const lens = { left: 0, top: 0, right: 120, bottom: 32 }, pane = { left: -200, top: 40, right: 320, bottom: 400, corner: 12 };
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 30; i++){
+    const m = (lo + hi) / 2;
+    if (jointField(60, 36, jointMoment(m, lens, pane, 60, 0)) < 0) hi = m; else lo = m;
+  }
+  return hi;
+})();
+function jointInverse(curve, y){
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 30; i++){ const m = (lo + hi) / 2; if (curve(m) < y) lo = m; else hi = m; }
+  return (lo + hi) / 2;
+}
+const JOINT_PINCH = jointInverse(JOINT_SPLIT, 1 - JOINT_TOUCH);
+// the outline of one moment, row by row from the lens's middle to the pane's
+// top edge: the spans inside the shape on each row, threaded into loops. a
+// loop that starts on the first row is the lens's; one that reaches the last
+// row runs on into the pane. the face is each loop with the lens's clean
+// middle taken out (the lens draws that itself) and, under a loop that runs
+// into the pane, the pane's line covered and faded out below. the ring is the
+// loops' sides, closed round a loop's tip where it ends in the open
+function jointOutline(g){
+  const L = g.lens, top = L.top + g.r, yP = g.paneTop, cx = (L.left + L.right) / 2;
+  const pad = g.reach + JOINT_LEAN + 12;
+  const left = Math.min(L.left, g.foot - g.half) - pad, right = Math.max(L.right, g.foot + g.half) + pad;
+  const ys = [];
+  for (let y = top; y < yP - 1; y += .5) ys.push(y);
+  for (const d of [1, .75, .5, .375, .25, .125, .0625]) if (yP - d > top) ys.push(yP - d);
+  // the spans on one row where the field is under level, each end found to a
+  // hundredth of a pixel. the neck's middle is sampled too, so a thread
+  // thinner than the coarse step is never lost
+  const spans = (y, level) => {
+    const lean = g.lean * sentSmooth((y - L.bottom) / (yP - L.bottom));
+    const xs = [cx, g.foot, cx - lean];
+    for (let x = left; x < right; x += 3) xs.push(x);
+    xs.push(right);
+    xs.sort((a, b) => a - b);
+    const out = [], under = x => jointField(x, y, g) < level;
+    let from = null, px = xs[0], pin = under(px);
+    if (pin) from = px;
+    for (let i = 1; i < xs.length; i++){
+      const x = xs[i], inn = under(x);
+      if (inn !== pin){
+        let a = px, b = x;
+        for (let n = 0; n < 9; n++){ const m = (a + b) / 2; if (under(m) === pin) a = m; else b = m; }
+        const edge = (a + b) / 2;
+        if (inn) from = edge; else { out.push([from, edge]); from = null; }
+      }
+      px = x; pin = inn;
+    }
+    if (from !== null) out.push([from, right]);
+    return out;
+  };
+  const loops = [];
+  let open = [];
+  ys.forEach((y, i) => {
+    const row = spans(y, 0), next = [];
+    for (const s of row){
+      const meets = (a, b) => a[0] < b[1] && b[0] < a[1];
+      const above = open.filter(o => meets(o.last, s));
+      let loop = above.length === 1 && row.filter(t => meets(above[0].last, t)).length === 1 ? above[0] : null;
+      if (!loop){
+        // a new piece, or pieces running together or parting: a loop of its
+        // own from here, starting on the row above so no seam shows
+        for (const o of above) o.ran = true;
+        loop = { rows: above.length ? [[ys[i - 1], s[0], s[1]]] : [], top: i === 0 ? "lens" : above.length ? "ran" : "tip" };
+        loops.push(loop);
+      }
+      loop.rows.push([y, s[0], s[1]]); loop.last = s; next.push(loop);
+    }
+    for (const o of open) if (!next.includes(o)) o.bottom = o.ran ? "ran" : "tip";
+    open = next;
+  });
+  for (const o of open) o.bottom = "pane";
+  const P = (x, y) => x.toFixed(2) + " " + y.toFixed(2);
+  // a straight side kept to its two ends, as sentGooPath keeps it
+  const line = pts => "M" + pts.filter((p, i) => i === 0 || i === pts.length - 1 ||
+    !(Math.abs(pts[i - 1][0] - p[0]) < 1e-3 && Math.abs(pts[i + 1][0] - p[0]) < 1e-3)).map(([x, y]) => P(x, y)).join("L");
+  const ri = g.r - JOINT_RIM, last = ys[ys.length - 1];
+  let face = "", ring = "";
+  for (const loop of loops){
+    const down = loop.rows.map(([y, l]) => [l, y]), side = loop.rows.map(([y, , r]) => [r, y]);
+    face += line(down.concat(side.slice().reverse()));
+    // round the lens's clean middle and back, so the face is one band
+    if (loop.top === "lens" && ri > 0)
+      face += "L" + P(L.right - JOINT_RIM, top) + "A" + ri + " " + ri + " 0 0 1 " + P(L.right - g.r, top + ri) +
+        "H" + (L.left + g.r).toFixed(2) + "A" + ri + " " + ri + " 0 0 1 " + P(L.left + JOINT_RIM, top);
+    face += "Z";
+    const headOpen = loop.top !== "tip", footOpen = loop.bottom !== "tip";
+    if (headOpen && footOpen) ring += line(down) + line(side);
+    else if (headOpen) ring += line(down.concat(side.slice().reverse()));
+    else if (footOpen) ring += line(down.slice().reverse().concat(side));
+    else ring += line(down.concat(side.slice().reverse())) + "Z";
+  }
+  // the pane's line, covered where the joint stands on it, and faded below
+  if (loops.some(o => o.bottom === "pane"))
+    for (const [a, b] of spans(yP, -.15))
+      face += "M" + P(a, last) + "V" + (yP + JOINT_FADE).toFixed(2) + "H" + b.toFixed(2) + "V" + last.toFixed(2) + "Z";
+  return { face, ring, loops, top, bottom: yP + JOINT_FADE };
+}
+const JOINT_NS = "http://www.w3.org/2000/svg";
+const tabJoint = (() => {
+  const make = (tag, attrs, parent) => {
+    const el = document.createElementNS(JOINT_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    if (parent) parent.appendChild(el);
+    return el;
+  };
+  const svg = make("svg", { id: "seatjoin", "aria-hidden": "true", focusable: "false", opacity: "0" });
+  const defs = make("defs", {}, svg);
+  const shade = make("linearGradient", { id: "seatjoinshade", gradientUnits: "userSpaceOnUse", x1: "0", x2: "0" }, defs);
+  const stops = ["jl", "jl", "jp", "jp", "jp gone"].map(cls => make("stop", { class: cls }, shade));
+  const clip = make("clipPath", { id: "seatjoinclip" }, defs);
+  // all but a name carried in a reorder, whose own lens stays on top
+  const keep = make("clipPath", { id: "seatjoinkeep" }, defs);
+  const kept = make("path", { "clip-rule": "evenodd" }, keep);
+  const group = make("g", {}, svg);
+  const face = make("path", { id: "seatjoinface", class: "face", fill: "url(#seatjoinshade)" }, group);
+  make("use", { href: "#seatjoinface" }, clip);
+  const ring = make("path", { class: "ring", "clip-path": "url(#seatjoinclip)" }, group);
+  return { svg, shade, stops, group, kept, face, ring, tau: 0, run: null, foot: null, at: null, drawn: false, ok: false, key: "", outline: null, holdUntil: 0, leave: false };
+})();
+// beside the bar, after it (see #seatjoin in the sheet)
+document.getElementById("tabrow").closest(".bar").after(tabJoint.svg);
+// the lens and the pane as the page stands, read with the lenses' own reads
+function jointMeasure(){
+  const frame = document.getElementById("appframe");
+  const box = frame && frame.getBoundingClientRect(), lens = tabSeat.face.getBoundingClientRect();
+  if (!box || !box.width || !lens.width) return null;
+  const style = getComputedStyle(frame), dpr = devicePixelRatio || 1;
+  // the pane's clear border is drawn a whole device pixel wide or more
+  const edge = parseFloat(style.borderTopWidth) || 0, drawn = edge ? Math.max(1, Math.floor(edge * dpr + 1e-6)) / dpr : 0;
+  const ring = (getComputedStyle(tabSeat.face).getPropertyValue?.("--qn-ring") || "").trim() || "#c7c7cc";
+  const carried = tabDrag?.held?.isConnected ? tabDrag.held.getBoundingClientRect() : null;
+  return { lens: { left: lens.left, top: lens.top, right: lens.right, bottom: lens.bottom }, ring,
+    held: carried && carried.width ? { left: carried.left, top: carried.top, right: carried.right, bottom: carried.bottom } : null,
+    pane: { left: box.left + drawn, top: box.top + drawn, right: box.right - drawn, bottom: box.bottom - drawn,
+      corner: Math.max(0, (parseFloat(style.borderTopLeftRadius) || 0) - drawn) } };
+}
+// the seat stands on a project's name and nothing is carrying it there
+function jointWanted(){
+  const seat = tabSeat;
+  if (!seat.drawn || seat.owner === null || seat.owner === HOME_SEAT || seat.el.classList.contains("gone")) return false;
+  return tabDrag?.mode !== "select" && !seatSliding();
+}
+function seatSliding(){
+  return tabSeat.el.getAnimations().some(a => a.playState === "running" && ["transform", "width"].includes(a.transitionProperty));
+}
+function jointBusy(){
+  const j = tabJoint;
+  return !!j.run || (j.drawn && j.ok && (jointWanted() ? j.tau < 1 : j.tau > 0));
+}
+// how long a lens leaving its joint holds before it slides: the whole hold
+// from a joint at rest, less from one already part way, what is left of a
+// hold still running, and none for a lens already on its way
+function jointHold(){
+  const j = tabJoint, now = jointClock();
+  if (jointStill() || !(j.tau > 0)) return 0;
+  if (j.holdUntil > now) return Math.round(j.holdUntil - now);
+  if (seatSliding()) return 0;
+  j.holdUntil = now + Math.round(JOINT_HOLD_MS * j.tau);
+  return Math.round(j.holdUntil - now);
+}
+function jointSplitStep(dt, cx){
+  const j = tabJoint;
+  if (j.run?.kind !== "split") j.run = { kind: "split", p: jointInverse(JOINT_SPLIT, 1 - j.tau), foot: j.foot ?? cx };
+  // a thread broken by the pull snaps back twice as fast
+  const pull = Math.abs(cx - j.run.foot), rate = pull >= JOINT_TEAR ? 2 : 1;
+  j.run.p = Math.min(1, Math.max(j.run.p + rate * dt / JOINT_SPLIT_MS, JOINT_PINCH * Math.min(1, pull / JOINT_TEAR)));
+  j.tau = 1 - JOINT_SPLIT(j.run.p);
+  if (j.run.p >= 1){ j.tau = 0; j.run = null; }
+}
+// one step of the joint's clock, and the outline drawn where it now stands
+function jointPaint(m, now){
+  const j = tabJoint, seat = tabSeat;
+  const ok = !!m && m.pane.top > m.lens.bottom && m.pane.top - m.lens.bottom < 32 &&
+    m.lens.right - m.lens.left >= m.lens.bottom - m.lens.top && !seat.el.classList.contains("gone");
+  const want = ok && jointWanted(), dt = j.at === null ? 0 : Math.max(0, now - j.at);
+  j.at = now; j.ok = ok;
+  const cx = ok ? (m.lens.left + m.lens.right) / 2 : null;
+  // a lens sent to another name parts from where it was joined, whether or not
+  // its slide has shown yet; one sent back where it stood joins again there
+  if (j.leave){
+    j.leave = false;
+    if (ok && j.drawn && !jointStill() && j.tau > 0 && j.run?.kind !== "split")
+      j.run = { kind: "split", p: jointInverse(JOINT_SPLIT, 1 - j.tau), foot: j.foot ?? cx };
+  }
+  if (!ok || !j.drawn || jointStill()){
+    j.run = null; j.tau = want ? 1 : 0; j.foot = cx;
+    if (ok && seat.drawn) j.drawn = true;
+  } else if (want && !(j.run?.kind === "split" && j.tau > 0 && Math.abs(cx - j.run.foot) > 1)){
+    if (j.tau < 1){
+      if (j.run?.kind !== "join") j.run = { kind: "join", q: jointInverse(JOINT_JOIN, j.tau) };
+      j.run.q = Math.min(1, j.run.q + dt / JOINT_JOIN_MS);
+      j.tau = JOINT_JOIN(j.run.q);
+      if (j.run.q >= 1){ j.tau = 1; j.run = null; }
+    } else j.run = null;
+    j.foot = cx;
+  } else if (j.tau > 0) jointSplitStep(dt, cx);   // a joint left behind goes before the next one forms
+  else j.run = null;
+  // a hold is let go once the slide it held has run
+  if (seat.el.style.transitionDelay && !seatSliding()) seat.el.style.transitionDelay = "";
+  if (!jointBusy()) j.at = null;
+  if (!ok || !(j.tau > 0)){
+    if (j.key){ j.face.setAttribute("d", ""); j.ring.setAttribute("d", ""); j.svg.setAttribute("opacity", "0"); j.key = ""; j.outline = null; }
+    return;
+  }
+  const foot = j.run?.kind === "split" ? j.run.foot : cx;
+  const lean = Math.max(-JOINT_LEAN, Math.min(JOINT_LEAN, cx - foot)) * sentSmooth((j.tau - .05) / .2);
+  const H = m.held;
+  const key = [j.tau, m.lens.left, m.lens.top, m.lens.right, m.lens.bottom, m.pane.top, m.pane.left, m.pane.right, foot, lean, m.ring,
+    H ? [H.left, H.top, H.right, H.bottom].join(" ") : ""].join(",");
+  if (key === j.key) return;
+  j.key = key;
+  const out = j.outline = jointOutline(jointMoment(j.tau, m.lens, m.pane, foot, lean));
+  j.face.setAttribute("d", out.face);
+  j.ring.setAttribute("d", out.ring);
+  j.ring.setAttribute("stroke", m.ring);
+  // a name carried in a reorder over the open one keeps its own lens on top:
+  // its capsule is cut out of the joint for as long as it is carried
+  if (H){
+    const r = (H.bottom - H.top) / 2, f = v => v.toFixed(2);
+    j.kept.setAttribute("d", "M-1 -1H" + f(m.pane.right + 64) + "V" + f(out.bottom + 8) + "H-1Z" +
+      "M" + f(H.left + r) + " " + f(H.top) + "H" + f(H.right - r) + "A" + f(r) + " " + f(r) + " 0 0 1 " + f(H.right - r) + " " + f(H.bottom) +
+      "H" + f(H.left + r) + "A" + f(r) + " " + f(r) + " 0 0 1 " + f(H.left + r) + " " + f(H.top) + "Z");
+    j.group.setAttribute("clip-path", "url(#seatjoinkeep)");
+  } else j.group.removeAttribute("clip-path");
+  // the lens's clean face down to its foot, the pane's lit edge from its line
+  const span = out.bottom - out.top, at = y => Math.max(0, Math.min(1, (y - out.top) / span)).toFixed(4);
+  j.shade.setAttribute("y1", out.top.toFixed(2)); j.shade.setAttribute("y2", out.bottom.toFixed(2));
+  [out.top, m.lens.bottom, m.pane.top, m.pane.top + 1, out.bottom].forEach((y, i) => j.stops[i].setAttribute("offset", at(y)));
+  // the joint comes in while its bulges are still slight, and goes the same way
+  j.svg.setAttribute("opacity", sentSmooth(j.tau / .12).toFixed(3));
 }
 // the bar is painted in the middle of the board's own repaint, and a measure
 // taken there would make the browser work out every style the repaint has
