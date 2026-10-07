@@ -329,6 +329,32 @@ test("as two bubbles join, the shorter message moves left at a gentler pace and 
   assert.equal(c.sentMergeShape(spec, travel).ew, 1, "the words have not landed when the joined bubble starts to come up");
 });
 
+// ---- 5. no Open and Download under an attachment ----------------------------------------
+test("an attachment shows its name with no Open and Download links: a document's name opens it, a player stays a player", () => {
+  // every message and answer is drawn by the shared renderer, sent bubbles and
+  // the Mac's chat included, so this is what all of them show
+  const markdown = require(path.join(ROOT, "card-markdown.js"));
+  const files = {
+    pdf: "/uploads/1791398534302337000-Meeting%20report.pdf", doc: "/uploads/1791398534302337001-Notes.docx",
+    audio: "/uploads/1791398534302337002-Voice%20memo.wav", video: "/uploads/1791398534302337003-Clip.mp4",
+  };
+  for (const [kind, file] of Object.entries(files)) {
+    const html = markdown.render("Here it is:\n\n" + file);
+    assert.doesNotMatch(html, />\s*Open\s*</, `${kind}: an Open link stands under it`);
+    assert.doesNotMatch(html, />\s*Download\s*</, `${kind}: a Download link stands under it`);
+    assert.doesNotMatch(html, /attachment-links|download=1|\sdownload[\s>]/, `${kind}: download markup is drawn`);
+    const name = /class="attachment-name"[^>]*>([^<]+)</.exec(html);
+    assert.ok(name, `${kind}: the file's name is not shown`);
+    assert.doesNotMatch(name[1], /^\d{13}/, `${kind}: the name carries the upload's stamp`);
+    if (kind === "pdf" || kind === "doc")
+      assert.match(html, new RegExp('<a class="attachment-name" href="' + file.replace(/[.]/g, "\\.") + '" target="_blank" rel="noopener">'),
+        `${kind}: the document's name is not its link`);
+    else assert.match(html, new RegExp("<" + kind + " controls"), `${kind}: the player is gone`);
+  }
+  // an image is still drawn as a picture
+  assert.match(markdown.render("/uploads/1791398534302337004-plot.png"), /<img class="shot"/);
+});
+
 // ---- 6. the send flight on the Mac: no pause as it flies out, no lag ---------------------
 test("the first frame drawn after a send already has the box on its way, on time or late", () => {
   for (const first of [1000 / 60, 500]) {

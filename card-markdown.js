@@ -113,15 +113,16 @@
     if (info?.kind === "image" || (!info && imageSyntax)) return '<img class="shot" src="' + href + '" alt="' + escapeAttribute(alt) + '">';
     const label = escapeHTML(name.replace(/^\d{13,19}-/, ""));
     if (!info) return '<a href="' + href + '" target="_blank" rel="noopener">' + label + '</a>';
-    const download = new URL(target, "http://facilitator.invalid");
-    download.searchParams.set("download", "1");
-    const links = '<span class="attachment-links"><a href="' + href + '" target="_blank" rel="noopener">Open</a> ' +
-      '<a href="' + escapeAttribute(download.pathname + download.search) + '" download>Download</a></span>';
-    const media = info.kind === "audio" || info.kind === "video"
-      ? '<' + info.kind + ' controls preload="metadata"' + (info.kind === "video" ? ' playsinline' : '') +
-        ' src="' + href + '"></' + info.kind + '>' : '';
+    // No Open and Download links under the name: the owner found them not
+    // needed. A player is the way into audio and video; a document's own name
+    // is its link, as any other uploaded file's is.
+    if (info.kind !== "audio" && info.kind !== "video")
+      return '<span class="attachment attachment-' + info.kind + '"><a class="attachment-name" href="' + href +
+        '" target="_blank" rel="noopener">' + label + '</a></span>';
+    const media = '<' + info.kind + ' controls preload="metadata"' + (info.kind === "video" ? ' playsinline' : '') +
+      ' src="' + href + '"></' + info.kind + '>';
     return '<span class="attachment attachment-' + info.kind + '">' + media +
-      '<span class="attachment-name">' + label + '</span>' + links + '</span>';
+      '<span class="attachment-name">' + label + '</span></span>';
   }
 
   // Build all bracket and parenthesis relationships once per inline run. A
