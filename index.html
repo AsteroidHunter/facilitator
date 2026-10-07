@@ -5852,9 +5852,9 @@ function statusOf(b){
 // messages sent and not answered yet, at the card's foot, are one panel, built,
 // cut, opened and filled in card-logic.js for this page and the phone alike, and
 // so is the page turn that takes the one up to the other when an answer lands.
-// what the desktop tells them: either panel taking or giving back its room
-// re-snaps the answer's lines against it (the sent panel's own word is sentRoom,
-// below, since its band is the card's own), and a new answer held back while the
+// what the desktop tells them: the panel over the answer taking or giving back
+// its room re-snaps the answer's lines against it (the sent panel's own word is
+// sentRoom, below, which only writes its band again), and a new answer held back while the
 // reader was busy is shown by asking the board again
 answeredRoomChanged = snapCard;
 turnAgain = () => poll();
@@ -5869,10 +5869,10 @@ function historyChevronSVG(){
 
 // the sent panel's room on one card: the band the answer is cut to is written
 // again, since a run holds it still (sentBand) and a run that lands changes no
-// size the band's watch would see, and the answer's lines are snapped against it
+// size the band's watch would see. the answer is not snapped again: the snap
+// leaves the sent bubbles' seat out, so nothing they do moves the answer
 function sentRoom(el){
   if (el.bandWrite) el.bandWrite();
-  snapCard();
 }
 
 // true when a live selection touches el. intersectsNode catches a cross-boundary
@@ -5906,10 +5906,12 @@ function boxHasSelection(el){
 // rounding spends at most half a pixel of the clear air over the box, and the
 // snap reads the same rounded number, so the answer's last line keeps its phase
 // to the pixel
-function boxBand(reply, wrap){
+// skip is a depth at the wrapper's head left out of the band: the seat of the
+// sent bubbles, which the snap below does not count
+function boxBand(reply, wrap, skip = 0){
   const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
   const b = reply.getBoundingClientRect().bottom -
-            (wrap.getBoundingClientRect().top - clear);
+            (wrap.getBoundingClientRect().top + skip - clear);
   return Math.max(0, Math.round(b));
 }
 
@@ -6041,22 +6043,25 @@ for (const pane of document.querySelectorAll(".tikpane")){
 // this walks the one card on screen, which is also the only one whose numbers
 // mean anything.
 // the mock has four moments to run at, because nothing else on its page can
-// change. here the answer's room also changes when the reader switches cards, when a new
-// reply lands, and when the sent panel arrives, takes a message or leaves, so
-// those call it too. a panel that is open or running does not let it run:
-// re-snapping mid fold would slide the answer's lines under the reader while the
-// panel moves, and a panel cut back returns to the height it was snapped against
+// change. here the answer's room also changes when the reader switches cards and
+// when a new reply lands, so those call it too. the sent bubbles at the foot are
+// left out of the room altogether, so nothing they do calls it. the panel over
+// the answer open or running does not let it run: re-snapping mid fold would
+// slide the answer's lines under the reader while the panel moves, and a panel
+// cut back returns to the height it was snapped against
 function snapCard(){
   if (!FOCUS) return;
   const el = els[selectedId];
   if (!el || !el.box.classList.contains("sel")) return;
-  // the sent bubbles at the foot are read the old box's way: one open, moving
-  // or merging leaves the answer's phase alone, and says so itself once its
-  // run has landed
-  if (sentPanels(el).some(sent => sent.classList.contains("open") || sent.classList.contains("motion") ||
-      sent.classList.contains("coalesce"))) return;
-  // and the panel of answered messages above the answer, on the same rule the
-  // box below is read by: while it stands open, or moves, the answer keeps the
+  // the sent bubbles at the foot are not counted at all: the answer is snapped
+  // against the bar under them as though their seat stood empty, so a send, a
+  // merge or a bubble opened never moves it (the owner's word:
+  // the answer is a thing of its own, and nothing the
+  // bubbles do is a reason for it to move). the fade at its foot still ends
+  // on the bubbles' top edge (--boxband), which is a mask and moves no ink
+  const seat = el.sentwrap ? el.sentwrap.getBoundingClientRect().height : 0;
+  // the panel of answered messages above the answer: while it stands open, or
+  // moves, the answer keeps the
   // phase it was snapped to with the panel cut, so opening moves the answer
   // down by the panel's growth on the panel's own curve and nothing more, and
   // cutting it back always brings the answer back to the same line. the panel
@@ -6093,7 +6098,7 @@ function snapCard(){
   // does not have; the run-out at the foot is the scroll's own and no part
   // of it either. subtracting both leaves the whole number of lines the ramp needs
   const answH = (answ && el.answwrap) ? el.answwrap.getBoundingClientRect().height : 0;
-  const room = rect.height - boxBand(view, el.pendwrap) - answH - parseFloat(vcs.paddingTop || 0);
+  const room = rect.height - boxBand(view, el.pendwrap, seat) - answH - parseFloat(vcs.paddingTop || 0);
   const rem = room % line;
   // the remainder is spent as air at the head of the answer, and on a card with
   // nothing standing over the answer it goes to the NEARER whole line, so the
@@ -6124,7 +6129,7 @@ function snapCard(){
       const firstRange = document.createRange();
       firstRange.selectNodeContents(first);
       const firstLine = [...firstRange.getClientRects()].find(x => x.height > 2);
-      const pendingTop = el.pendwrap.getBoundingClientRect().top;
+      const pendingTop = el.pendwrap.getBoundingClientRect().top + seat;
       const lines = [];
       const walker = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()){
