@@ -89,10 +89,14 @@ test("that block leaves the 32px button the same room above and below, at least 
   }
 });
 
-test("that block's right padding leaves room for the button, so a long line stays clear of it", () => {
-  const right = px(rule(PLAIN, BLOCK_RIGHT)["padding-right"], 1);
+test("that block's right border, where the code stops scrolling, is clear of the button, so a long line never runs under it", () => {
+  const border = rule(PLAIN, BLOCK_RIGHT)["border-right"];
+  assert.match(border, /^calc\(46 \* var\(--u\)\) solid #EFF1F4$/, "drawn in the block's own grey");
+  assert.equal(rule(PLAIN, ".cardmd .codeblock").background, "#EFF1F4");
+  assert.doesNotMatch(JSON.stringify(rule(PLAIN, BLOCK_RIGHT)), /padding-right/, "padding does not clip a scroller's code");
+  const edge = px(border.split(" solid")[0], 1);
   const buttonReach = px(rule(PLAIN, ".cardmd .codeblockwrap .copybtn").right, 1) + BUTTON_SIDE;
-  assert.ok(right >= buttonReach + 8, `padding ${right}, button reaches ${buttonReach} in from the edge`);
+  assert.ok(edge >= buttonReach + 4, `the code stops ${edge} in from the edge, the button reaches ${buttonReach}`);
 });
 
 test("with a language the label is shown, and the button's centre is the label's centre", () => {
@@ -122,7 +126,7 @@ test("the board keeps no code block rules of its own, so it draws the shared she
 test("the /page view repeats the shared numbers, one pixel a unit", () => {
   assert.equal(rule(PAGE, BLOCK)["padding-top"], "12px");
   assert.equal(rule(PAGE, BLOCK)["padding-bottom"], "12px");
-  assert.equal(rule(PAGE, BLOCK_RIGHT)["padding-right"], "52px");
+  assert.equal(rule(PAGE, BLOCK_RIGHT)["border-right"], "46px solid #EFF1F4");
   assert.equal(rule(PAGE, LANG_BLOCK)["padding-top"], "40px");
   assert.equal(rule(PAGE, LANG_LABEL).top, "14.65px");
   assert.equal(rule(PAGE, LANG_BUTTON).top, "22px");
