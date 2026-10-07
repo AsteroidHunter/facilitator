@@ -2142,21 +2142,23 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
 
 // ---- the messages waiting for a reply -------------------------------------------------
 // what has been sent on a card and not answered yet stands at the card's foot,
-// over the row the reader types in, in the very panel the answer's messages
-// stand in at its head: built by answeredPanel, filled by stackAnswered, cut to
-// its preview by fitAnswered and opened and cut back by openAnswered, so the two
-// cannot drift apart. what a page gives it is a seat of its own (el.sentwrap)
-// and, on a large card, who to tell once it has taken or given back room
-// (el.sentRoom). the board keeps a sent message on the card until the answer to
-// it lands, and in that same reading it takes the message off here and hands it
-// to the panel over the new answer, which is the page turn further down.
+// over the row the reader types in, as bubbles of the very panel the answer's
+// messages stand in at its head: each built by answeredPanel, filled by
+// stackAnswered, cut to its preview by fitAnswered and opened and cut back by
+// openAnswered, so the two cannot drift apart. what a page gives them is a seat
+// of their own (el.sentwrap) and, on a large card, who to tell once they have
+// taken or given back room (el.sentRoom). the board keeps a sent message on the
+// card until the answer to it lands, and in that same reading it takes the
+// message off here and hands it to the panel over the new answer, which is the
+// page turn further down.
 //
-// a send the reader has just made on this page is an arrival (arrive): the panel
-// comes up out of the row the words were typed in, or the new message comes
-// into the panel already standing, and a panel standing open is cut back to its
-// preview on the fold's own run, so what has just been sent always stands cut.
-// a reading that brings messages sent somewhere else, or a first load, is no
-// arrival: it moves nothing and leaves the panel open or cut as it stands
+// a send the reader has just made on this page is an arrival (arrive): the new
+// message comes up out of the row the words were typed in into a bubble of its
+// own, under any bubble already standing, and a bubble standing open is cut back
+// to its preview on the fold's own run, so what has just been sent always stands
+// cut. a reading that brings messages sent somewhere else, or a first load, is
+// no arrival: it moves nothing and leaves a bubble open or cut as it stands.
+// which bubbles become one, and how, is further down (sentCoalesce)
 const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
 
 // The field becomes the bubble the way the iPhone's Messages sends one, read
@@ -2288,7 +2290,9 @@ const SENT_SNAPSHOT_STYLE = [
   "--answ-fill", "--answ-fade", "--answ-shade", "--answ-stop", "--answ-peek",
   "--answ-round", "--answ-strip", "--answ-line", "--u"
 ];
-function sentSnapshot(node){
+// badges: a bubble pictured for its merge keeps the badges in its rows, which
+// stay on screen the whole way; the flight's copy has none
+function sentSnapshot(node, badges){
   const plain = node.tagName === "TEXTAREA";
   const copy = plain ? document.createElement("div") : node.cloneNode(true);
   if (plain) copy.textContent = node.value;
@@ -2300,12 +2304,13 @@ function sentSnapshot(node){
     dest.removeAttribute("id");
     dest.removeAttribute("contenteditable");
     dest.removeAttribute("data-mark");
-    dest.classList.remove("arrive", "motion", "sentflight", "markin", "markout", "markgone");
+    dest.classList.remove("arrive", "motion", "sentflight", "markin", "markout", "markmove", "markgone", "coalesce");
     dest.style.setProperty("animation", "none", "important");
     dest.style.setProperty("transition", "none", "important");
     dest.style.setProperty("caret-color", "transparent");
   });
-  for (const decor of copy.querySelectorAll(".cm-cursorLayer, .cm-selectionLayer, .answmark")) decor.remove();
+  for (const decor of copy.querySelectorAll(badges ? ".cm-cursorLayer, .cm-selectionLayer" :
+    ".cm-cursorLayer, .cm-selectionLayer, .answmark")) decor.remove();
   Object.assign(copy.style, { position:"relative", left:"0", top:"0", margin:"0",
     minWidth:"0", maxWidth:"none", minHeight:"0", transform:"none", pointerEvents:"none" });
   copy.sentInk = originals.map((source, i) => ({ source, copy:copies[i] }))
@@ -2316,15 +2321,6 @@ function sentSnapshot(node){
 function sentScale(node, rect){
   return { x:node.offsetWidth ? rect.width / node.offsetWidth : 1,
     y:node.offsetHeight ? rect.height / node.offsetHeight : 1 };
-}
-// the move a node's own transform holds now, in its local px
-function sentShift(node){
-  const value = String(getComputedStyle(node).transform || "none").trim();
-  const m = /^matrix(3d)?\(([^)]*)\)$/.exec(value);
-  if (!m) return { x:0, y:0 };
-  const v = m[2].split(",").map(Number);
-  const x = m[1] ? v[12] : v[4], y = m[1] ? v[13] : v[5];
-  return { x:Number.isFinite(x) ? x : 0, y:Number.isFinite(y) ? y : 0 };
 }
 function sentMotionVisible(node){
   if (!node || !node.isConnected) return false;
@@ -2338,26 +2334,27 @@ function sentMotionVisible(node){
 }
 
 // Arm before the page empties its composer; play in that same task after the
-// message has its seat. A combined preview differs from a transcript: only its
-// first send owns the whole bubble. Later sends fly into their own visible row;
-// a row below the cut squeezes into the cut's edge, its words passing under it.
+// message has its seat. Every send flies into a bubble of its own, the way the
+// first one always has, under the bubbles already standing; they make room on
+// the iPhone's glide, and the bubbles come together later, once the rule says
+// they may (sentCoalesce, below).
 function armSentMotion(el){
   if (!el || !el.ta || stillMotion() || typeof requestAnimationFrame !== "function") return null;
   const field = typeof ComposeFormat !== "undefined" && ComposeFormat.fieldOf(el.ta);
   const source = field && field.formatted() && field.view ? field.view.scrollDOM : el.ta;
   if (!sentMotionVisible(source)) return null;
-  const beforePanel = el.sent;
-  const before = beforePanel && sentMotionVisible(beforePanel) ? beforePanel.getBoundingClientRect() : null;
+  const standing = sentPanels(el);
   // These are siblings inside the answer's scroller, never their common parent:
   // the page's line snap may move either when the new foot takes its space.
-  const neighbors = [el.answwrap, el.reply].filter(node => sentMotionVisible(node));
-  const beforeNeighbors = neighbors.map(node => ({ node, rect:node.getBoundingClientRect() }));
+  // The bubbles already standing are pushed up by the new one in their seat.
+  const beforeNeighbors = [el.answwrap, el.reply, ...standing].filter(node => sentMotionVisible(node))
+    .map(node => ({ node, rect:node.getBoundingClientRect() }));
   // Read the previous shifts before replacing them. Existing shells keep
   // flying toward their live seats, so a quick second send never teleports
   // the first bubble out of its unfinished flight.
   const flights = el.sentMotions || (el.sentMotions = new Set());
   for (const flight of flights) flight.stopShifts();
-  const rows = new Set(beforePanel ? beforePanel.querySelectorAll(".answmsg") : []);
+  const rows = new Set(standing.flatMap(sentRows));
   const start = source.getBoundingClientRect(), sourceScale = sentScale(source, start);
   const sourceStyle = getComputedStyle(source);
   const corners = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"];
@@ -2399,10 +2396,7 @@ function armSentMotion(el){
   sourceCopy.scrollLeft = source.scrollLeft;
   let raf = 0, done = false, played = false, target = null, panel = null;
   const shifts = [];
-  // this send's own glide of the panel its new row stands in, while it runs
-  let glide = null;
   const stopShifts = () => {
-    glide = null;
     for (const shift of shifts.splice(0)) shift.cancel();
   };
   let previousOpacity = "", previousPriority = "";
@@ -2422,40 +2416,40 @@ function armSentMotion(el){
     if (landedPanel && !stillFlying){
       landedPanel.classList.remove("sentflight");
       // An ACK can land during the flight. Its reserved seat never moves, and
-      // the word takes its own gentle entrance once the bubble is visible.
+      // the word takes its own gentle entrance once the bubble is visible,
+      // unless the bubble is waiting to join the one above it, whose word
+      // moves down to it first (sentMove).
       setMark(landedPanel, landedPanel.dataset.tag || "", true);
     }
     if (el.sentMotion === motion) el.sentMotion = [...flights].at(-1) || null;
     if (!stillFlying && el.sentRoom && el.sent && el.sent.isConnected) el.sentRoom();
+    sentCoalesce(el);
   };
   const motion = {
     cancel:finish, stopShifts, panel:null,
     play(){
       if (done || played) return;
       played = true;
-      panel = motion.panel = el.sent;
-      if (!panel || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
-      const fresh = [...panel.querySelectorAll(".answmsg")].filter(row => !rows.has(row));
-      target = beforePanel === panel ? fresh[fresh.length - 1] : panel;
-      if (!target){ finish(); return; }
+      // the bubble the new words stand in, which was not standing before
+      const bubbles = sentPanels(el);
+      const fresh = bubbles.flatMap(sentRows).filter(row => !rows.has(row));
+      const row = fresh[fresh.length - 1] || null;
+      panel = motion.panel = row ? bubbles.find(one => sentRows(one).includes(row)) || null : null;
+      if (!panel || standing.includes(panel) || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
+      target = panel;
       panel.classList.add("sentflight");
-      const clip = panel.querySelector(".answclip");
-      // The normal open-panel fold already moves the surrounding content. A
-      // closed panel's insert instead glides from its measured pre-send top.
-      const following = beforeNeighbors.slice();
-      if (beforePanel === panel && before && !panel.classList.contains("motion")) following.push({ node:panel, rect:before });
-      for (const { node, rect } of following){
+      // What stood before glides from where it stood: the answer's pieces where
+      // the new bubble takes their room, and every bubble it pushes up.
+      for (const { node, rect } of beforeNeighbors){
         if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
         const after = node.getBoundingClientRect(), scale = sentScale(node, after);
         const dx = (rect.left - after.left) / scale.x, dy = (rect.top - after.top) / scale.y;
         if (Math.abs(dx) <= .5 && Math.abs(dy) <= .5) continue;
         const transform = getComputedStyle(node).transform || "none";
-        const base = node === panel ? sentShift(node) : null;
         const shift = node.animate(
           [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
           { duration:SENT_GLIDE_MS, easing:SENT_GLIDE_EASE });
         shifts.push(shift);
-        if (base) glide = { base };
       }
       const targetRect = target.getBoundingClientRect(), targetScale = sentScale(target, targetRect);
       const targetCopy = sentSnapshot(target);
@@ -2472,7 +2466,7 @@ function armSentMotion(el){
       incoming.style.opacity = "1";
       // the row holding the new words, where its first line starts inside the
       // copy, and the size and line it is set in, in viewport px
-      const ink = target === panel ? fresh[fresh.length - 1] || panel : target;
+      const ink = row;
       const inkRect = ink.getBoundingClientRect(), inkStyle = getComputedStyle(ink);
       const lead = {
         x:inkRect.left - targetRect.left + (parseFloat(inkStyle.paddingLeft) || 0) * targetScale.x,
@@ -2494,31 +2488,9 @@ function armSentMotion(el){
       // the typing row's top, where the iPhone's bar glass ends, read as it
       // stands, since the emptied row may close up under the flight
       const rowTop = () => sentMotionVisible(source) ? source.getBoundingClientRect().top : start.top;
-      // The reference keeps a send's own rows out of the glide that send gives
-      // what stood before it. A later send's row stands inside the panel that
-      // glide moves, so the seat is read without this send's share of it; a
-      // glide a later send starts is still followed, as the reference follows it.
-      const unglide = rect => {
-        if (!glide) return rect;
-        const now = sentShift(panel), scale = sentScale(panel, panel.getBoundingClientRect());
-        const x = (now.x - glide.base.x) * scale.x, y = (now.y - glide.base.y) * scale.y;
-        return { left:rect.left - x, right:rect.right - x, top:rect.top - y, bottom:rect.bottom - y,
-          width:rect.width, height:rect.height };
-      };
-      const seat = () => {
-        const rect = unglide(target.getBoundingClientRect());
-        if (target === panel) return { box:rect, x:0, y:0 };
-        const cut = unglide(clip.getBoundingClientRect());
-        const top = Math.max(rect.top, cut.top), bottom = Math.min(rect.bottom, cut.bottom);
-        const left = Math.max(rect.left, cut.left), right = Math.min(rect.right, cut.right);
-        // a row wholly under the cut has no bubble to land in: the box squeezes
-        // into the cut's edge and the words go on under it, where the cut keeps them
-        if (bottom <= top || right <= left)
-          return { box:{ left:cut.left, top:cut.bottom, width:cut.width, height:0 },
-            x:rect.left - cut.left, y:rect.top - cut.bottom };
-        return { box:{ left, top, width:right - left, height:bottom - top },
-          x:rect.left - left, y:rect.top - top };
-      };
+      // the seat is the new bubble as it stands, read every frame: a later
+      // send pushes it up on that send's glide, and the flight follows it there
+      const seat = () => ({ box:target.getBoundingClientRect(), x:0, y:0 });
       // one frame of the flight, ms from the tap
       const put = ms => {
         const at = sentTrack(ms);
@@ -2559,7 +2531,7 @@ function armSentMotion(el){
       const step = now => {
         raf = 0;
         if (done) return;
-        if (!target.isConnected || el.sent !== panel || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
+        if (!target.isConnected || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
         const ms = Math.max(0, Math.min(SENT_FLIGHT_MS, now - t0));
         put(ms);
         if (ms < SENT_FLIGHT_MS) raf = requestAnimationFrame(step);
@@ -2759,10 +2731,13 @@ function sentFrom(b){
 // runs no transitions never says so
 const MARK_OUT_MS = 200;   // half the sheet's --answ-come
 const MARK_IN_MS = 400;    // the sheet's --answ-come
+// a sent bubble waiting to join the one above it is held (markHeld): its record
+// is kept, and its word is the merge's to move (sentMove)
 function setMark(panel, tag, live){
   if (tag) panel.dataset.tag = tag;
   else delete panel.dataset.tag;
   if (panel.classList.contains("sentflight")) return;
+  if (panel.markHeld) return;
   if (panel.classList.contains("markout")) return;
   const shown = panel.dataset.mark || "";
   if (tag === shown) return;
@@ -2771,7 +2746,8 @@ function setMark(panel, tag, live){
   panel.classList.add("markout");
   setTimeout(() => {
     panel.classList.remove("markout");
-    showMark(panel, panel.dataset.tag || "", true);
+    showMark(panel, panel.markHeld ? "" : panel.dataset.tag || "", true);
+    if (panel.sentAgain) panel.sentAgain();
   }, MARK_OUT_MS);
 }
 function showMark(panel, tag, comes){
@@ -2800,11 +2776,16 @@ function fadeMark(panel){
   delete panel.dataset.tag;
   if (panel.dataset.mark) panel.classList.add("markgone");
 }
+// the word a bubble carries: Delivered or Read for the newest message in it
+// that the board has saved, and nothing while none is
+function sentTagOf(shown){
+  const got = [...shown].reverse().find(m => SENT_TAGS[m.stage]);
+  return got ? SENT_TAGS[got.stage] : "";
+}
 // the panel's one mark, and whether every message in it is still unsaved by the
 // board. live is a panel that was standing before this reading
 function sentMarks(panel, shown, live){
-  const got = [...shown].reverse().find(m => SENT_TAGS[m.stage]);
-  const tag = got ? SENT_TAGS[got.stage] : "";
+  const tag = sentTagOf(shown);
   setMark(panel, tag, live);
   panel.classList.toggle("undelivered", shown.every(sentUndelivered));
   panel.setAttribute("aria-label", "your messages waiting for a reply" + (tag ? ", " + tag.toLowerCase() : ""));
@@ -2820,44 +2801,156 @@ function sentBadgePress(el, e){
   sentMarkAct(el, row.dataset.op, button.dataset.act);
 }
 
+// ---- one bubble for each send, and the bubbles coming together ------------------------
+// the seat at the card's foot holds what has been sent as bubbles, oldest first,
+// each a panel of its own (answeredPanel, the sheet's .answered.sent) with its
+// own cut, arrow and mark. a message this page has just sent comes into a
+// bubble of its own under the others, the one the flight above lands on. two
+// bubbles side by side become one only when they stand in the same place, read
+// off the newest message in each: both not delivered yet, both Delivered, or
+// both Read (the owner's rule). while
+// they differ they stay two, each under its own word. once they match, the word
+// under the earlier bubble fades out and comes in under the later one, and only
+// then do the two run together like two drops of water (sentMove, sentMerge).
+// a bubble once joined stays one, whatever its messages do next, and carries
+// the one word sentTagOf gives it. what a reading brings that this page did
+// not send is no arrival and moves nothing: it joins the bubble before it at
+// once when it stands where that bubble stands, and has a bubble of its own
+// when it does not; a first draw gives every run of messages standing in one
+// place one bubble. a reader who asked for no motion, or a seat not on screen,
+// has the two become one at once, with nothing moving, when the rule says so.
+// el.sent is the newest bubble, the one at the foot
+
+// the bubbles standing in a card's seat, oldest first, and the rows of one
+function sentPanels(el){
+  if (!el || !el.sentwrap) return [];
+  return [...el.sentwrap.children].filter(node => node.classList && node.classList.contains("answered"));
+}
+function sentRows(panel){
+  const stack = panel.querySelector(".answstack");
+  return stack ? [...stack.children] : [];
+}
+// where a message stands, the owner's three places: not delivered yet, and the
+// two words a mark says. a board too old to say leaves it nowhere, which is a
+// place of its own
+function sentState(m){ return m.stage === "local" ? "local" : SENT_TAGS[m.stage] || ""; }
+// and where a bubble stands: where its newest message does
+function sentStands(shown){ return shown && shown.length ? sentState(shown[shown.length - 1]) : null; }
+
+// the messages shown, shared out into bubbles. before is the messages of each
+// bubble standing, oldest first; own is the message this page has just sent,
+// or null for a reading. what stood keeps its bubble, matched by its words in
+// order; a new message that lands between two messages of one bubble joins it;
+// own starts a bubble of its own; any other new message joins the bubble
+// before it when it stands where the message before it stands, and starts one
+// of its own when it does not. answers each group's id, which names the
+// standing bubble it is when it is under before.length
+function sentGroups(before, shown, own){
+  const old = [];
+  before.forEach((msgs, id) => { for (const m of msgs) old.push({ text:answeredText(m), id }); });
+  const now = shown.map(answeredText);
+  // the longest run of words the two lists share, in order
+  const n = old.length, k = now.length;
+  const table = Array.from({ length:n + 1 }, () => new Array(k + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = k - 1; j >= 0; j--)
+      table[i][j] = old[i].text === now[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+  const matched = new Array(k).fill(-1);
+  for (let i = 0, j = 0; i < n && j < k;){
+    if (old[i].text === now[j]){ matched[j] = old[i].id; i++; j++; }
+    else if (table[i + 1][j] >= table[i][j + 1]) i++;
+    else j++;
+  }
+  const groups = [], ids = [];
+  let fresh = before.length;
+  shown.forEach((m, j) => {
+    let id = matched[j];
+    if (id < 0){
+      const prev = j ? ids[j - 1] : null;
+      const next = matched.slice(j + 1).find(one => one >= 0);
+      if (prev !== null && prev === next) id = prev;
+      else if (m !== own && prev !== null && sentState(m) === sentState(shown[j - 1])) id = prev;
+      else id = fresh++;
+    }
+    ids.push(id);
+    if (!groups.length || groups[groups.length - 1].id !== id) groups.push({ id, msgs:[] });
+    groups[groups.length - 1].msgs.push(m);
+  });
+  return groups;
+}
+
+// a new bubble: the answered panel, telling its room, and asking for the next
+// merge whenever its own run or its word has stopped moving
+function sentBubble(el, room){
+  const panel = answeredPanel(() => { if (room) room(); sentCoalesce(el); });
+  panel.classList.add("sent");
+  panel.addEventListener("click", e => sentBadgePress(el, e));
+  panel.sentMsgs = [];
+  panel.sentAgain = () => sentCoalesce(el);
+  return panel;
+}
+function sentDropPanel(panel){
+  panel.answRun = (panel.answRun || 0) + 1;   // a run still going lands on nothing
+  if (panel.answWatch) panel.answWatch.disconnect();
+  panel.remove();
+}
+
 // the messages this page sent that did not get through (el.sentHeld) stand in
-// the panel after what the board has, since a reading of the board knows
+// the seat after what the board has, since a reading of the board knows
 // nothing of them
 function syncSent(el, batch, arrive){
   if (!el || !el.sentwrap) return;
   const shown = (batch || []).concat(el.sentHeld || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
   if (!shown.length){ dropSent(el); return; }
-  // what the panel is drawn from: the words, and the state, the badge and the
+  // what the seat is drawn from: the words, and the state, the badge and the
   // stage of each. a pass bringing the same again touches no dom
   const key = JSON.stringify(shown.map(m => [answeredText(m), m.op || "", m.state || "", m.badge || "", m.stage || ""]));
   if (el.sent && el.sentKey === key) return;
   el.sentKey = key;
   const room = el.sentRoom || null;
-  let panel = el.sent;
-  if (!panel){
-    panel = el.sent = answeredPanel(room);
-    panel.classList.add("sent");
-    panel.addEventListener("click", e => sentBadgePress(el, e));
-    el.sentwrap.appendChild(panel);
-    stackAnswered(panel, shown);
-    sentMarks(panel, shown);
+  // a merge in the middle of its motion lands first: this pass draws over it
+  if (el.sentMerge && el.sentMerge.stage === "merge") sentMergeLand(el);
+  const own = arrive ? (batch || []).filter(m => !ANSWERED_BLANK.test(answeredText(m))).at(-1) || null : null;
+  const standing = sentPanels(el);
+  const groups = sentGroups(standing.map(panel => panel.sentMsgs || []), shown, own);
+  const drawn = [];
+  let fresh = null;   // the bubble this page's send comes into
+  groups.forEach((group, i) => {
+    let panel = group.id < standing.length ? standing[group.id] : null;
+    const born = !panel;
+    if (born){
+      panel = sentBubble(el, room);
+      const later = groups.slice(i + 1).find(one => one.id < standing.length);
+      if (later) el.sentwrap.insertBefore(panel, standing[later.id]);
+      else el.sentwrap.appendChild(panel);
+      if (own && group.msgs.includes(own)){
+        fresh = panel;
+        // the flight shows the bubble; its word waits for the landing
+        if (el.sentMotion) panel.classList.add("sentflight");
+      }
+    }
+    panel.sentMsgs = group.msgs;
+    drawn.push({ panel, born });
+  });
+  for (const panel of standing) if (!drawn.some(one => one.panel === panel)) sentDropPanel(panel);
+  el.sent = drawn[drawn.length - 1].panel;
+  const merging = el.sentMerge;
+  drawn.forEach(({ panel, born }, i) => {
+    stackAnswered(panel, panel.sentMsgs);
+    // a bubble standing where the one above it stands waits to join it, and its
+    // word with it; a merge under way holds both its bubbles' words itself
+    if (!merging || (panel !== merging.a && panel !== merging.b))
+      panel.markHeld = i > 0 && sentStands(drawn[i - 1].panel.sentMsgs) === sentStands(panel.sentMsgs);
+    sentMarks(panel, panel.sentMsgs, !born);
     fitAnswered(panel);
-    if (arrive && !el.sentMotion) arriveSent(panel);
-    if (room) room();
-    return;
-  }
-  sentMarks(panel, shown, true);
-  const had = panel.querySelector(".answstack").children.length;
-  if (arrive && el.sentMotion) panel.classList.add("sentflight");
-  if (arrive && panel.classList.contains("open")){
-    // the run tells the room itself once it has landed
-    openAnswered(panel, false, () => stackAnswered(panel, shown));
-  } else {
-    stackAnswered(panel, shown);
-    fitAnswered(panel);
-    if (room) room();
-  }
-  if (arrive && !el.sentMotion) [...panel.querySelector(".answstack").children].slice(had).forEach(arriveSent);
+  });
+  if (fresh && !el.sentMotion) arriveSent(fresh);
+  // a send cuts back a bubble standing open on the fold's own run, so what has
+  // just been sent always stands under bubbles cut to their preview; the run
+  // tells the room itself once it has landed
+  if (own) for (const { panel } of drawn) if (panel !== fresh && panel.classList.contains("open")) openAnswered(panel, false);
+  if (room) room();
+  sentCoalesce(el);
 }
 
 // the arrival's dress, taken off again by the clock rather than by the end of
@@ -2871,13 +2964,468 @@ function arriveSent(node){
 function dropSent(el){
   if (!el) return;
   for (const motion of [...(el.sentMotions || [])]) motion.cancel();
-  if (!el.sent) return;
-  el.sent.answRun = (el.sent.answRun || 0) + 1;   // a run still going lands on nothing
-  if (el.sent.answWatch) el.sent.answWatch.disconnect();
-  el.sent.remove();
+  sentMergeStop(el);
+  const panels = sentPanels(el);
+  if (!el.sent && !panels.length) return;
+  for (const panel of panels) sentDropPanel(panel);
   el.sent = null;
   el.sentKey = "";
   if (el.sentRoom) el.sentRoom();
+}
+
+// ---- the merge ---------------------------------------------------------------------------
+// the order is the owner's: the later bubble has landed and stands where the
+// earlier one stands; the word under the earlier one fades out (MERGE_OUT_MS,
+// gentler than a word giving way to the next), the word comes in under the
+// later one on the mark's own run (MERGE_IN_MS), it is seen standing there a
+// moment (MERGE_HOLD_MS), and then the two run together (MERGE_MS). the
+// lengths are chosen to read calmly rather than copied from anything: the
+// iPhone's send is 750ms and its earlier messages glide in 340ms, and the
+// merge is longer than either, since what it shows is a change of shape the
+// eye has to follow, not a thing arriving: the drops touch about a quarter of
+// a second in, the neck takes a tenth more, and the rest is the bubbles
+// travelling and the joint settling. from the moment the later bubble matches
+// to the moment it is one, 1.8s.
+// the drops: the earlier bubble's foot and the later one's head each bulge
+// toward the other, the bulges meet in the middle of the side they share,
+// a neck forms there and widens to the whole side while the gap closes, the
+// narrower one flows out to the wider's width, and the joint settles into one
+// rounded bubble with nothing over or under it. the outline is drawn on every
+// frame as one clip path over a plain grey face (sentGooPath), the smooth union
+// of the two rounded boxes, so it is exactly the two boxes on the first frame
+// and exactly the joined bubble on the last. no blur, filter or mask: a blur
+// and threshold is what costs a phone's frames. the words ride on copies of
+// the two bubbles (sentSnapshot) to their places in the joined one, which is
+// already laid out, hidden, under them, and a copy of the joined bubble comes
+// up over the last fifth, so a merge that ends past its preview's cut
+// dissolves the new words into the cut and brings its arrow in rather than
+// switching to it
+const MERGE_OUT_MS = 300;
+const MERGE_IN_MS = 400;    // MARK_IN_MS, the sheet's --answ-come
+const MERGE_HOLD_MS = 100;
+const MERGE_MS = 1000;
+// how far the bubbles have come together: slow to start, as two drops creep
+// together before they touch, and long to settle, with nothing past the end.
+// they travel over the first four fifths, and the joint settles over the last
+const MERGE_EASE = [.6, 0, .3, 1];
+const MERGE_TRAVEL = .8;
+const MERGE_CURVE = sentCurve(MERGE_EASE);
+
+// a flight, a fold or a word going out is let finish first; whoever ends it
+// asks again
+function sentBusy(panel){
+  return panel.classList.contains("sentflight") || panel.classList.contains("motion") ||
+    panel.classList.contains("markout");
+}
+// the next two bubbles that may become one, if any, and if nothing else is
+// moving them: the move of the word and then the merge, or both at once with
+// nothing moving where motion cannot be shown
+function sentCoalesce(el){
+  if (!el || !el.sentwrap || el.sentMerge) return;
+  const panels = sentPanels(el);
+  for (let i = 1; i < panels.length; i++){
+    const a = panels[i - 1], b = panels[i];
+    // a bubble with nothing known to stand in is no one's to join
+    const stands = sentStands(a.sentMsgs);
+    if (stands === null || stands !== sentStands(b.sentMsgs)) continue;
+    if (stillMotion() || typeof requestAnimationFrame !== "function" || !sentMotionVisible(a) || !sentMotionVisible(b)){
+      // at once, with nothing moving: only a flight or a fold still going is waited for
+      if ([a, b].some(one => one.classList.contains("sentflight") || one.classList.contains("motion"))) return;
+      sentJoin(el, a, b);
+      if (el.sentRoom) el.sentRoom();
+      sentCoalesce(el);
+      return;
+    }
+    if (sentBusy(a) || sentBusy(b)) return;
+    sentMove(el, a, b);
+    return;
+  }
+}
+
+// the later bubble's messages go into the earlier one, and the later one goes.
+// the joined bubble's word is set at once: its move has already been shown
+function sentJoin(el, a, b){
+  const msgs = a.sentMsgs.concat(b.sentMsgs);
+  a.sentMsgs = msgs;
+  sentDropPanel(b);
+  stackAnswered(a, msgs);
+  a.classList.remove("markout", "markmove");
+  a.markHeld = false;
+  sentMarks(a, msgs, false);
+  const panels = sentPanels(el), i = panels.indexOf(a);
+  a.markHeld = i > 0 && sentStands(panels[i - 1].sentMsgs) === sentStands(msgs);
+  fitAnswered(a);
+  el.sent = panels[panels.length - 1];
+}
+
+// the word moves first. both bubbles take the grey the joined one is drawn in
+// on the panel's own run, the earlier one's word fades out (and the later
+// one's too, when it says something else), the joined bubble's word comes in
+// under the later one, and after a moment the two run together, if they still
+// stand in one place and nothing else has taken them
+function sentMove(el, a, b){
+  const run = el.sentMerge = { a, b, stage:"move", timers:[], shifts:[] };
+  a.markHeld = b.markHeld = true;
+  a.classList.add("coalesce");
+  const msgs = a.sentMsgs.concat(b.sentMsgs);
+  const tag = sentTagOf(msgs);
+  const faded = msgs.every(sentUndelivered);
+  for (const one of [a, b]) one.classList.toggle("undelivered", faded);
+  const later = (ms, fn) => run.timers.push(setTimeout(() => { if (el.sentMerge === run) fn(); }, ms));
+  const going = [a, b].filter(one => one.dataset.mark && (one === a || one.dataset.mark !== tag));
+  const comes = !!tag && b.dataset.mark !== tag;
+  for (const one of going){
+    one.classList.remove("markin");
+    one.classList.add("markout", "markmove");
+  }
+  const inAt = going.length ? MERGE_OUT_MS : 0;
+  later(inAt, () => {
+    for (const one of going){
+      one.classList.remove("markout", "markmove");
+      showMark(one, "", false);
+    }
+    if (comes) showMark(b, tag, true);
+  });
+  later(inAt + (comes ? MERGE_IN_MS : 0) + MERGE_HOLD_MS, () => {
+    const panels = sentPanels(el);
+    if (panels.indexOf(b) !== panels.indexOf(a) + 1 || panels.indexOf(a) < 0 ||
+        sentStands(a.sentMsgs) !== sentStands(b.sentMsgs) || sentBusy(a) || sentBusy(b)){
+      sentMoveBack(el);
+      return;
+    }
+    if (stillMotion() || !sentMotionVisible(a) || !sentMotionVisible(b)){
+      sentMergeStop(el);
+      sentJoin(el, a, b);
+      if (el.sentRoom) el.sentRoom();
+      sentCoalesce(el);
+      return;
+    }
+    sentMerge(el, run);
+  });
+}
+// a move whose bubbles no longer match, or that something else has taken: each
+// keeps its own word again, and the next merge is looked for
+function sentMoveBack(el){
+  const run = el.sentMerge;
+  if (!run) return;
+  sentMergeStop(el);
+  const panels = sentPanels(el);
+  for (const one of [run.a, run.b]){
+    if (!one.isConnected) continue;
+    const i = panels.indexOf(one);
+    one.markHeld = i > 0 && sentStands(panels[i - 1].sentMsgs) === sentStands(one.sentMsgs);
+    sentMarks(one, one.sentMsgs, true);
+  }
+  sentCoalesce(el);
+}
+// whatever stage a merge is at, it stops now: a move's clocks are let go, and a
+// merge in motion lands where it is going
+function sentMergeStop(el){
+  const run = el && el.sentMerge;
+  if (!run) return;
+  if (run.stage === "merge"){ sentMergeLand(el); return; }
+  el.sentMerge = null;
+  for (const timer of run.timers) clearTimeout(timer);
+  for (const one of [run.a, run.b]) one.classList.remove("coalesce", "markout", "markmove");
+}
+
+// the merge itself. the joined bubble is laid out at once, where it will
+// stand, and hidden; a layer inside it carries the motion: the grey face, the
+// copies of the two bubbles' words, a copy of the word under them and a copy of
+// the joined bubble, all in the joined bubble's own px, so the layer moves with
+// it if anything moves it. the room the two give up above them is held by the
+// seat's own ground, which comes down with the earlier bubble's head, and the
+// bubbles and the answer the merge moves glide there on the merge's own curve
+function sentMerge(el, run){
+  const { a, b } = run;
+  run.stage = "merge";
+  const A = a.getBoundingClientRect(), B = b.getBoundingClientRect();
+  const aRow = sentRows(a)[0], bRow = sentRows(b)[0];
+  const aFrom = aRow.getBoundingClientRect(), bFrom = bRow.getBoundingClientRect();
+  const look = getComputedStyle(a);
+  const fill = look.backgroundColor;
+  const ground = look.getPropertyValue("--card").trim() || "#fff";
+  const corner = parseFloat(look.borderTopLeftRadius) || 0;
+  const word = b.dataset.mark || "";
+  const seatFrom = el.sentwrap.getBoundingClientRect();
+  const around = [el.answwrap, el.reply, ...sentPanels(el).filter(one => one !== a && one !== b)]
+    .filter(node => sentMotionVisible(node)).map(node => ({ node, rect:node.getBoundingClientRect() }));
+  const aCopy = sentSnapshot(a, true), bCopy = sentSnapshot(b, true);
+  const count = a.sentMsgs.length;
+  sentJoin(el, a, b);
+  const M = a.getBoundingClientRect(), s = sentScale(a, M);
+  const rows = sentRows(a);
+  const aTo = rows[0].getBoundingClientRect();
+  const joint = rows[count] || null;
+  const bTo = joint ? joint.getBoundingClientRect() : null;
+  const jointPad = joint ? parseFloat(getComputedStyle(joint).paddingTop) || 0 : 0;
+  const cut = a.querySelector(".answclip").getBoundingClientRect();
+  const seatTo = el.sentwrap.getBoundingClientRect();
+  const mCopy = sentSnapshot(a, true);
+  // the joined bubble's own px
+  const x = v => (v - M.left) / s.x, y = v => (v - M.top) / s.y;
+  const W = M.width / s.x, H = M.height / s.y, r = corner;
+  const U0 = { left:x(A.left), top:y(A.top), right:x(A.right), bottom:y(A.bottom) };
+  const L0 = { left:x(B.left), top:y(B.top), right:x(B.right), bottom:y(B.bottom) };
+  // the later words' first line in the joined bubble, and whether the cut hides it
+  const textTo = bTo ? y(bTo.top) + jointPad : H;
+  const hidden = !bTo || bTo.top + jointPad * s.y >= cut.bottom - 1;
+  // the two boxes end as the joined bubble's head and foot, overlapping by a
+  // corner each way so the joint is gone: the head down to the blank line
+  // between the two bubbles' words, the foot up from it
+  const joinAt = Math.max(r, Math.min(H - r, hidden ? H - r : y(bTo.top)));
+  const U1 = { left:0, top:0, right:W, bottom:Math.min(H, joinAt + r) };
+  const L1 = { left:0, top:Math.max(0, joinAt - r), right:W, bottom:H };
+  const aStart = { x:U0.left, y:U0.top };
+  const aEnd = { x:x(aTo.left) - (aFrom.left - A.left) / s.x, y:y(aTo.top) - (aFrom.top - A.top) / s.y };
+  // words the cut will hide stay where they stood and fade as the earlier
+  // drop comes down over them, rather than travelling to a place under the cut
+  const bStart = { x:L0.left, y:L0.top };
+  const bEnd = bTo && !hidden ? { x:x(bTo.left) - (bFrom.left - B.left) / s.x, y:textTo - (bFrom.top - B.top) / s.y } : bStart;
+  // the layer
+  const layer = document.createElement("div");
+  layer.className = "sentgoo";
+  layer.setAttribute("aria-hidden", "true");
+  layer.style.width = W + "px";
+  layer.style.height = H + "px";
+  layer.style.visibility = "visible";
+  const ext = { left:Math.min(U0.left, L0.left, 0) - 4, top:Math.min(U0.top, 0) - 4,
+    right:Math.max(U0.right, L0.right, W) + 4, bottom:Math.max(L0.bottom, H) + 4 };
+  const face = document.createElement("div");
+  face.className = "sentgoo-face";
+  Object.assign(face.style, { left:ext.left + "px", top:ext.top + "px", width:(ext.right - ext.left) + "px",
+    height:(ext.bottom - ext.top) + "px", background:fill });
+  const holder = (copy, clear) => {
+    const wrap = document.createElement("div");
+    wrap.className = "sentgoo-words";
+    if (clear) copy.style.background = "transparent";
+    wrap.appendChild(copy);
+    return wrap;
+  };
+  const aWords = holder(aCopy, true), bWords = holder(bCopy, true), joined = holder(mCopy, false);
+  joined.style.opacity = "0";
+  layer.append(face, aWords, bWords);
+  let mark = null;
+  if (word){
+    mark = document.createElement("div");
+    mark.className = "sentgoo-mark";
+    mark.textContent = word;
+    layer.appendChild(mark);
+  }
+  layer.appendChild(joined);
+  // the seat's ground over the room above, which the seat no longer covers
+  const rise = (seatFrom.top - seatTo.top) / s.y;
+  const floor = document.createElement("div");
+  floor.className = "sentgoo-ground";
+  floor.style.background = ground;
+  run.seatPosition = el.sentwrap.style.position;
+  if (getComputedStyle(el.sentwrap).position === "static") el.sentwrap.style.position = "relative";
+  el.sentwrap.prepend(floor);
+  run.visibility = a.style.visibility;
+  a.style.visibility = "hidden";
+  a.classList.add("coalesce");
+  a.appendChild(layer);
+  Object.assign(run, { layer, floor });
+  const spec = { U0, L0, U1, L1, r };
+  const mix = (p, q, f) => p + (q - p) * f;
+  const put = t => {
+    const { U, L, k, bow, ey, ew } = sentMergeShape(spec, t);
+    face.style.clipPath = 'path("' + sentGooPath(U, L, r, k, bow, ext) + '")';
+    aWords.style.transform = "translate(" + mix(aStart.x, aEnd.x, ew) + "px," + mix(aStart.y, aEnd.y, ey) + "px)";
+    bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, ey) + "px)";
+    // later words the joined bubble's cut hides go before the earlier foot reaches them
+    if (hidden) bWords.style.opacity = String(1 - sentSmooth((t - .05) / .3));
+    if (mark) mark.style.top = L.bottom + "px";
+    joined.style.opacity = String(sentSmooth((t - MERGE_TRAVEL) / (1 - MERGE_TRAVEL)));
+    const left = Math.min(0, rise * (1 - ey));
+    floor.style.top = left + "px";
+    floor.style.height = -left + "px";
+  };
+  // the bubbles and the answer the merge moves glide on its own curve
+  for (const { node, rect } of around){
+    if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
+    const after = node.getBoundingClientRect(), scale = sentScale(node, after);
+    const dx = (rect.left - after.left) / scale.x, dy = (rect.top - after.top) / scale.y;
+    if (Math.abs(dx) <= .5 && Math.abs(dy) <= .5) continue;
+    const transform = getComputedStyle(node).transform || "none";
+    run.shifts.push(node.animate(
+      [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
+      { duration:MERGE_MS * MERGE_TRAVEL, easing:"cubic-bezier(" + MERGE_EASE.join(",") + ")" }));
+  }
+  put(0);   // the two bubbles as they stood, before any frame
+  const t0 = performance.now();
+  const step = now => {
+    run.raf = 0;
+    if (el.sentMerge !== run) return;
+    if (!a.isConnected || !sentMotionVisible(el.sentwrap) || stillMotion()){ sentMergeLand(el); sentCoalesce(el); return; }
+    const t = Math.max(0, Math.min(1, (now - t0) / MERGE_MS));
+    put(t);
+    // the joined bubble takes over on the frame after the last one is drawn
+    run.raf = requestAnimationFrame(t < 1 ? step : () => { sentMergeLand(el); sentCoalesce(el); });
+  };
+  run.raf = requestAnimationFrame(step);
+}
+// the merge has landed, or is cut short: the layer and the ground go, and the
+// joined bubble stands where they were drawn, with the word its record has now
+function sentMergeLand(el){
+  const run = el.sentMerge;
+  if (!run || run.stage !== "merge") return;
+  el.sentMerge = null;
+  for (const timer of run.timers) clearTimeout(timer);
+  if (run.raf) cancelAnimationFrame(run.raf);
+  for (const shift of run.shifts) shift.cancel();
+  if (run.layer) run.layer.remove();
+  if (run.floor) run.floor.remove();
+  if (run.seatPosition !== undefined) el.sentwrap.style.position = run.seatPosition;
+  const panel = run.a;
+  panel.style.visibility = run.visibility || "";
+  panel.classList.remove("coalesce");
+  setMark(panel, panel.dataset.tag || "", true);
+  if (el.sentRoom && panel.isConnected) el.sentRoom();
+}
+
+// the two drops at one moment t (0 to 1) of their merge: the earlier box U and
+// the later box L, travelling from where they stood (U0, L0) to the joined
+// bubble's head and foot (U1, L1), how far the sides they share bulge toward
+// each other (bow) and how far their union reaches across (k). the bubbles
+// travel over the first MERGE_TRAVEL and the joint settles over the rest, so
+// the joined bubble's copy comes up over words that have already landed. the
+// bulging and the reach follow how near the two faces have come rather than
+// the clock, so whatever the distance the drops swell toward each other, touch
+// in the middle of the side they share a little after they set off, and the
+// neck widens from there; the reach lets go over the last half, and the
+// joint settles into one rounded bubble. ey is the travel down, ew across
+function sentMergeShape({ U0, L0, U1, L1, r }, t){
+  const ey = MERGE_CURVE(Math.min(1, t / MERGE_TRAVEL)), ew = sentSmooth((t - .2) / .45);
+  const mix = (p, q, f) => p + (q - p) * f;
+  const box = (from, to) => ({ left:mix(from.left, to.left, ew), right:mix(from.right, to.right, ew),
+    top:mix(from.top, to.top, ey), bottom:mix(from.bottom, to.bottom, ey) });
+  const gap = Math.max(0, L0.top - U0.bottom);
+  // the share of the travel at which the two faces would meet with no help
+  const travel = (U1.bottom - U0.bottom) + (L0.top - L1.top);
+  const meet = travel > 0 ? Math.min(1, gap / travel) : 0;
+  const near = meet > 0 ? ey / meet : 1;
+  const bulge = Math.max(4, .3 * gap), reach = Math.max(1.5 * r, 1.65 * gap);
+  const bow = bulge * sentSmooth(near / .8) * (1 - sentSmooth((near - 1) / 1.2));
+  const k = reach * sentSmooth((near - .45) / .5) * (1 - sentSmooth((t - .4) / .45));
+  return { U:box(U0, U1), L:box(L0, L1), k, bow, ey, ew };
+}
+
+// a css cubic-bezier as a function of its x, found by halving
+function sentCurve([x1, y1, x2, y2]){
+  const at = (p, q, t) => 3 * (1 - t) * (1 - t) * t * p + 3 * (1 - t) * t * t * q + t * t * t;
+  return f => {
+    if (f <= 0) return 0;
+    if (f >= 1) return 1;
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 30; i++){
+      const t = (lo + hi) / 2;
+      if (at(x1, x2, t) < f) lo = t; else hi = t;
+    }
+    return at(y1, y2, (lo + hi) / 2);
+  };
+}
+function sentSmooth(p){
+  const t = Math.max(0, Math.min(1, p));
+  return t * t * (3 - 2 * t);
+}
+// how far a point stands outside a rounded box: below nothing, inside
+function sentBoxDistance(x, y, b, r){
+  const hx = (b.right - b.left) / 2, hy = (b.bottom - b.top) / 2;
+  if (!(hx > 0 && hy > 0)) return Infinity;
+  const c = Math.min(r, hx, hy);
+  const qx = Math.abs(x - b.left - hx) - hx + c, qy = Math.abs(y - b.top - hy) - hy + c;
+  const ox = Math.max(qx, 0), oy = Math.max(qy, 0);
+  return Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0) - c;
+}
+// where a row crosses one rounded box, or null
+function sentBoxRow(b, r, y){
+  if (y < b.top || y > b.bottom) return null;
+  const c = Math.min(r, (b.right - b.left) / 2, (b.bottom - b.top) / 2);
+  const d = y < b.top + c ? b.top + c - y : y > b.bottom - c ? y - b.bottom + c : 0;
+  const inset = c - Math.sqrt(Math.max(0, c * c - d * d));
+  return [b.left + inset, b.right - inset];
+}
+// one rounded box as path data, clockwise
+function sentBoxPath(b, r, px, py){
+  const w = b.right - b.left, h = b.bottom - b.top;
+  if (!(w > 0 && h > 0)) return "";
+  const c = Math.min(r, w / 2, h / 2), arc = "A" + c + " " + c + " 0 0 1 ";
+  return "M" + px(b.left + c) + " " + py(b.top) + "H" + px(b.right - c) + arc + px(b.right) + " " + py(b.top + c) +
+    "V" + py(b.bottom - c) + arc + px(b.right - c) + " " + py(b.bottom) + "H" + px(b.left + c) +
+    arc + px(b.left) + " " + py(b.bottom - c) + "V" + py(b.top + c) + arc + px(b.left + c) + " " + py(b.top) + "Z";
+}
+// the two bubbles' outline at one moment of the merge, as path data in the
+// face's own px (ext is the face's box): U the earlier, L the later, r their
+// corner, k the reach of their smooth union and bow how far the sides they
+// share bulge toward each other. with neither, it is the two boxes as they
+// are. with them, the outline is found row by row, half a pixel apart, where
+// the two can touch, and is the boxes' own above and below that band; the
+// union is never let out past the two boxes' outer sides, so the joint
+// fills in but never swells past the column's edge
+function sentGooPath(U, L, r, k, bow, ext){
+  const px = v => (v - ext.left).toFixed(2), py = v => (v - ext.top).toFixed(2);
+  if (k < .01 && bow < .01) return sentBoxPath(U, r, px, py) + sentBoxPath(L, r, px, py);
+  const right = Math.max(U.right, L.right), left = Math.min(U.left, L.left);
+  const shared = Math.max(U.left, L.left), middle = (shared + right) / 2, span = Math.max(1, (right - shared) / 2);
+  const uMid = (U.top + U.bottom) / 2, uHalf = Math.max(1, (U.bottom - U.top) / 2);
+  const lMid = (L.top + L.bottom) / 2, lHalf = Math.max(1, (L.bottom - L.top) / 2);
+  // the reach is the joint's alone: whole within three quarters of a corner of
+  // the two faces, and gone a corner and three quarters away, so a narrower
+  // bubble's far corners keep their own round while it flows out to the
+  // wider's width
+  const faceTop = Math.min(U.bottom, L.top), faceFoot = Math.max(U.bottom, L.top);
+  const reachAt = fy => k * (1 - sentSmooth((Math.max(0, faceTop - fy, fy - faceFoot) - .75 * r) / r));
+  const field = (fx, fy) => {
+    const u = (fx - middle) / span, swell = u * u < 1 ? bow * (1 - u * u) * (1 - u * u) : 0;
+    const du = sentBoxDistance(fx, fy, U, r) - (swell ? swell * Math.max(0, Math.min(1, (fy - uMid) / uHalf)) : 0);
+    const dl = sentBoxDistance(fx, fy, L, r) - (swell ? swell * Math.max(0, Math.min(1, (lMid - fy) / lHalf)) : 0);
+    let d = Math.min(du, dl);
+    const kk = reachAt(fy);
+    if (kk > 0){
+      const h = Math.max(kk - Math.abs(du - dl), 0) / kk;
+      d -= h * h * kk / 4;
+    }
+    return Math.max(d, fx - right, left - fx);
+  };
+  const top = Math.min(U.top, L.top), bottom = Math.max(U.bottom, L.bottom);
+  const near = r + k / 2 + bow + 2;
+  const from = Math.min(U.bottom, L.top) - near, to = Math.max(U.bottom, L.top) + near;
+  const loops = [];
+  let loop = null;
+  for (let fy = top + .01; ; fy = Math.min(fy + .5, bottom - .01)){
+    let across = null;
+    if (fy < from) across = sentBoxRow(U, r, fy);
+    else if (fy > to) across = sentBoxRow(L, r, fy);
+    else {
+      let inside = null, low = Infinity;
+      for (let i = 0; i <= 12; i++){
+        const fx = i < 10 ? left + (right - left) * (i + .5) / 10 : i === 10 ? middle : i === 11 ? (U.left + U.right) / 2 : (L.left + L.right) / 2;
+        const f = field(fx, fy);
+        if (f < low){ low = f; inside = fx; }
+      }
+      if (low < 0){
+        let out = left - 1, inn = inside;
+        for (let i = 0; i < 16; i++){ const m = (out + inn) / 2; if (field(m, fy) < 0) inn = m; else out = m; }
+        let inn2 = inside, out2 = right + 1;
+        for (let i = 0; i < 16; i++){ const m = (inn2 + out2) / 2; if (field(m, fy) < 0) inn2 = m; else out2 = m; }
+        across = [inn, inn2];
+      }
+    }
+    if (across){
+      if (!loop) loops.push(loop = []);
+      loop.push([fy, across[0], across[1]]);
+    } else loop = null;
+    if (fy >= bottom - .01) break;
+  }
+  // each loop down its left side and back up its right, a straight side kept
+  // to its two ends
+  return loops.map(rows => {
+    const points = rows.map(([fy, l]) => [l, fy]).concat(rows.slice().reverse().map(([fy, , rr]) => [rr, fy]));
+    const kept = points.filter((p, i) => i === 0 || i === points.length - 1 ||
+      !(Math.abs(points[i - 1][0] - p[0]) < 1e-3 && Math.abs(points[i + 1][0] - p[0]) < 1e-3));
+    return "M" + kept.map(([fx, fy]) => px(fx) + " " + py(fy)).join("L") + "Z";
+  }).join("");
 }
 
 // the band the answer is cut to while the sent panel at the foot runs. the panel
@@ -2889,10 +3437,11 @@ function dropSent(el){
 // fades and its run-out are not drawn and laid out again on every frame of the
 // run. band is what the page measured; what comes back is what it should write
 function sentBand(el, band){
-  const span = el && el.sent && el.sent.answSpan;
+  const panel = sentPanels(el).find(one => one.answSpan);
+  const span = panel && panel.answSpan;
   if (!span) return band;
   if (span.band == null){
-    const now = el.sent.querySelector(".answclip").getBoundingClientRect().height;
+    const now = panel.querySelector(".answclip").getBoundingClientRect().height;
     span.band = Math.max(0, Math.round(band - (now - Math.min(span.from, span.to))));
   }
   return span.band;
@@ -2907,7 +3456,7 @@ function sentBand(el, band){
 // reader did goes at once
 function cardsMoving(){
   return typeof document !== "undefined" && typeof document.querySelector === "function" &&
-    !!document.querySelector(".answered.motion, .answered.sentflight, .answered.markin, .answered.markout, .answered.markgone, .turnsheet");
+    !!document.querySelector(".answered.motion, .answered.sentflight, .answered.coalesce, .answered.markin, .answered.markout, .answered.markgone, .turnsheet");
 }
 
 // ---- the page turn -----------------------------------------------------------------------
@@ -3012,8 +3561,9 @@ function turnHolding(el, id){
   if (now - (el.readAt || 0) < READ_QUIET_MS) return true;
   if (el.ta && now - (el.ta.typedAt || 0) < TYPE_QUIET_MS) return true;
   if (typeof boxHasSelection === "function" && boxHasSelection(el.replyview || el.reply)) return true;
-  // and a sent panel part way through its own run is let finish it
-  if (el.sent && (el.sent.classList.contains("motion") || el.sent.classList.contains("sentflight"))) return true;
+  // and a sent bubble part way through its own run, its flight or a merge is let finish it
+  if (el.sentMerge) return true;
+  if (sentPanels(el).some(one => one.classList.contains("motion") || one.classList.contains("sentflight"))) return true;
   return false;
 }
 
@@ -3081,10 +3631,12 @@ function turnPicture(el, node, turn, shift){
 // to the foot of the sent panel's seat either way
 function turnSheet(el, turn){
   const parts = turnParts(el);
-  // a sent panel caught open, or part way through a run, is cut to its preview
-  // where it stands, since what glides up is what stands at the head of the new page
-  const sent = el.sent;
-  if (sent.classList.contains("open") || sent.classList.contains("motion")){
+  // a sent bubble caught open, or part way through a run, is cut to its preview
+  // where it stands, since what glides up is what stands at the head of the
+  // new page, and a merge still going lands
+  sentMergeStop(el);
+  for (const sent of sentPanels(el)){
+    if (!sent.classList.contains("open") && !sent.classList.contains("motion")) continue;
     sent.answRun = (sent.answRun || 0) + 1;
     settleAnswered(sent);
     sent.querySelector(".answclip").scrollTop = 0;
@@ -3132,12 +3684,13 @@ function turnGo(el, turn){
   void turn.page.offsetWidth;   // the sheet stands as the reader left it before it moves
   turn.page.classList.add("gliding");
   turn.page.style.transform = "translate3d(0, " + (-lift) + "px, 0)";
-  // the sent panel is on its way to being the panel over the answer, which
-  // carries no word: its mark fades out on the way up, and a panel still faded
-  // takes its full grey and ink with it, so the swap when the sheet goes is not
-  // one
-  const rising = turn.page.querySelector(".answered.sent");
-  if (rising){
+  // the sent bubbles are on their way to being the panel over the answer, which
+  // carries no word: their marks fade out on the way up, and a bubble still
+  // faded takes its full grey and ink with it. the seat's picture also gives
+  // way to the new page's panel behind it over the second half of the glide
+  // (the sheet's turnhand), since the sent preview is a line deeper than the
+  // panel's over the answer, so the swap when the sheet goes is not one
+  for (const rising of turn.page.querySelectorAll(".answered.sent")){
     fadeMark(rising);
     for (const one of [rising, ...rising.querySelectorAll(".undelivered")]) one.classList.remove("undelivered");
   }

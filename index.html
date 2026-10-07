@@ -5713,10 +5713,11 @@ function snapCard(){
   if (!FOCUS) return;
   const el = els[selectedId];
   if (!el || !el.box.classList.contains("sel")) return;
-  // the sent panel at the foot is read the old box's way: open, or moving, it
-  // leaves the answer's phase alone, and says so itself once its run has landed
-  const sent = el.sent;
-  if (sent && (sent.classList.contains("open") || sent.classList.contains("motion"))) return;
+  // the sent bubbles at the foot are read the old box's way: one open, moving
+  // or merging leaves the answer's phase alone, and says so itself once its
+  // run has landed
+  if (sentPanels(el).some(sent => sent.classList.contains("open") || sent.classList.contains("motion") ||
+      sent.classList.contains("coalesce"))) return;
   // and the panel of answered messages above the answer, on the same rule the
   // box below is read by: while it stands open, or moves, the answer keeps the
   // phase it was snapped to with the panel cut, so opening moves the answer
@@ -6467,9 +6468,9 @@ async function doSend(id, opts){
   // The empty arrow remains tappable while its first delivery is in flight.
   const send = el.send;
   send.disabled = !opts.enterIntent || opts.enterIntent.source !== "arrow";
-  // the message comes into the sent panel at the press, faded and cut to its
-  // preview: the first send brings the panel in, and every send after it comes
-  // into the panel already standing, cutting it back if it stood open. it is
+  // the message comes into a bubble of its own at the press, faded and cut to
+  // its preview, under any bubble already standing, which is cut back if it
+  // stood open; the two join once they stand in one place (sentCoalesce). it is
   // faded until the board has saved it, which is what would be lost if the
   // page closed now. it goes under an operation id of its own, so the arrow on
   // a failed one sends it again without it ever landing twice

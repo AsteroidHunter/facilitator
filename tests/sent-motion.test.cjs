@@ -15,6 +15,15 @@ function rule(selector) {
   assert.ok(start >= 0, "missing CSS rule: " + selector);
   return code.slice(start + selector.length + 1, code.indexOf("}", start));
 }
+// every rule a selector opens, joined: the sent panel has one for its preview
+// and one for the room its mark stands in
+function rulesOf(selector) {
+  const out = [];
+  for (let at = code.indexOf("\n" + selector + "{"); at >= 0; at = code.indexOf("\n" + selector + "{", at + 1))
+    out.push(code.slice(at + selector.length + 2, code.indexOf("}", at)));
+  assert.ok(out.length, "missing CSS rule: " + selector);
+  return out.join(";");
+}
 function load(extra = {}) {
   const context = vm.createContext({ console, ...extra });
   vm.runInContext(LOGIC, context);
@@ -72,7 +81,7 @@ test("the iPhone's track runs in time from the typing bar to the exact landing a
 test("delivery seat is reserved before any receipt and the mark only paints outside it", () => {
   // The same margin exists on a local panel, a Delivered panel and a Read
   // panel. The receipt selectors cannot introduce another height or margin.
-  assert.match(rule(".answered.sent"), /margin-bottom:var\(--answ-tag\)/);
+  assert.match(rulesOf(".answered.sent"), /margin-bottom:var\(--answ-tag\)/);
   assert.match(rule(".answered[data-mark], .answered.kept"), /margin-bottom:var\(--answ-tag\)/);
   assert.match(rule(".answered[data-mark]::after"), /position:absolute; top:100%/);
   for (const selector of [".answered.markin::after", ".answered.markout::after", ".answered.markgone::after"])

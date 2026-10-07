@@ -433,19 +433,32 @@ test("the words start on the typed words at the typing size, ride inside the box
   near(end.y, 0, "the copy's top at landing", 1e-9);
 });
 
-test("what stood before makes room on the iPhone's glide, quicker than the bubble rises", () => {
-  // the six sends' earlier messages, the middle of them at each frame
+// a later send: a bubble standing where the first send landed, armed over, and
+// the later message's own bubble taking the seat's foot (BUBBLE, its row where
+// the first send's row stands), which pushes the one standing up by its own
+// height and the mark's room between them (17u)
+const ROOM = 17 * 0.985;
+function flyLater(standing = ["Looks good, ship it"]) {
   const s = scene();
-  const p = s.panel(["Looks good, ship it"]);
+  const p = s.panel(standing);
   box(p, BUBBLE);
   const motion = s.context.armSentMotion(s.el);
-  p.querySelector(".answstack").appendChild(s.row("One more thing"));
-  box(p, { left: BUBBLE.left, top: BUBBLE.top - 42, width: BUBBLE.width, height: BUBBLE.height + 42 });
-  box(p.querySelector(".answclip"), { left: 217.4, top: BUBBLE.top - 42 + 15.76, width: 124.5, height: 63 });
-  box(p.querySelectorAll(".answmsg").at(-1), { left: 217.4, top: BUBBLE.top + 15.76, width: 124.5, height: 21 });
+  const q = s.panel(["One more thing"]);
+  box(q, BUBBLE);
+  box(q.querySelector(".answmsg"), { left: BUBBLE.left + PAD.x, top: BUBBLE.top + PAD.y, width: BUBBLE.width - 2 * PAD.x, height: 21 });
+  box(p, { ...BUBBLE, top: BUBBLE.top - BUBBLE.height - ROOM });
   motion.play();
+  return { ...s, motion, p, q };
+}
+
+test("the bubbles that stood before make room on the iPhone's glide, quicker than the new bubble rises", () => {
+  // the six sends' earlier messages, the middle of them at each frame
+  const { p, q } = flyLater();
   const glide = p.animations.at(-1);
-  assert.ok(glide, "the panel did not glide from where it stood");
+  assert.ok(glide, "the bubble standing did not glide from where it stood");
+  near(+/translate\(0px,([-\d.e]+)px\)/.exec(glide.keys[0].transform)[1], BUBBLE.height + ROOM,
+    "the bubble standing did not glide from where it stood", 1e-9);
+  assert.equal(q.animations.length, 0, "the new bubble glided as well as flying");
   assert.equal(glide.options.duration, 340, "the glide is not the iPhone's length");
   assert.equal(glide.options.easing, "cubic-bezier(.24,.1,.15,1)", "the glide is not the iPhone's curve");
   const curve = bezier([0.24, 0.1, 0.15, 1]);
@@ -457,84 +470,48 @@ test("what stood before makes room on the iPhone's glide, quicker than the bubbl
   assert.ok(curve(100 / 340) - up > 0.4, `the glide is not well ahead of the rise at 100ms (${curve(100 / 340)} against ${up})`);
 });
 
-test("a later send flies to its row's laid-out place, not to the glide its own send gives the panel", () => {
-  // the new row stands inside the shared panel, which this send glides up from
-  // where it stood: the flight drawn with the glide part way must be the one
-  // drawn with no glide at all, landing on the row's laid-out place
-  const make = () => {
-    const s = scene();
-    const p = s.panel(["Looks good, ship it"]);
-    box(p, BUBBLE);
-    const motion = s.context.armSentMotion(s.el);
-    const row = s.row("One more thing");
-    p.querySelector(".answstack").appendChild(row);
-    const grown = { left: BUBBLE.left, top: BUBBLE.top - 42, width: BUBBLE.width, height: BUBBLE.height + 42 };
-    box(p, grown);
-    box(p.querySelector(".answclip"), { left: 217.4, top: grown.top + 15.76, width: 124.5, height: 63 });
-    const seat = { left: 217.4, top: grown.top + 15.76 + 42, width: 124.5, height: 21 };
-    box(row, seat);
-    box(p.querySelector(".answmsg"), { left: 217.4, top: grown.top + 15.76, width: 124.5, height: 21 });
-    return { s, p, motion, seat };
-  };
-  const MS = [40, 80, 160, 300, 500];
-  // the same send with the panel never drawn moving
-  const still = make();
-  still.motion.play();
-  const unmoved = MS.map(ms => { still.s.frame(ms); return edges(still.s); });
-  const gliding = make();
-  gliding.motion.play();
-  const glide = gliding.p.animations.at(-1);
-  assert.ok(glide, "the panel did not glide from where it stood");
-  assert.equal(glide.keys[0].transform.trim(), "translate(0px,42px)");
-  const curve = bezier([0.24, 0.1, 0.15, 1]);
-  MS.forEach((ms, i) => {
-    // the browser drawing the glide part way: the panel and all in it lower by what is left
-    const left = 42 * (1 - curve(ms / 340));
-    gliding.p.shiftY = left;
-    gliding.p.transform = `matrix(1, 0, 0, 1, 0, ${left})`;
-    gliding.s.frame(ms);
-    const a = edges(gliding.s);
-    for (const key of ["left", "right", "top", "height"]) near(a[key], unmoved[i][key], `the shell's ${key} at ${ms}ms`, 1e-6);
-    assert.equal(gliding.s.layers()[0].style.opacity, "1", `the words are not at full strength at ${ms}ms`);
-  });
-  gliding.p.shiftY = 0;
-  gliding.p.transform = "none";
-  gliding.s.frame(FLIGHT_MS);
-  near(px(gliding.s.shell().style.top), gliding.seat.top, "the landing");
-  near(px(gliding.s.shell().style.height), gliding.seat.height, "the landing's height");
-  near(edges(gliding.s).right, gliding.seat.left + gliding.seat.width, "the landing's right end");
+test("a later send flies into a bubble of its own the way the first send flies, frame for frame", () => {
+  // the owner liked the first send's flight: a later one is that flight to the
+  // letter, its only change the seat, which is now the later message's own
+  // bubble under the one standing rather than a row inside it
+  const first = flyFirst(), later = flyLater();
+  for (const ms of MOMENTS) {
+    if (ms !== null) { first.frame(ms); later.frame(ms); }
+    const at = ms === null ? "before the first frame" : `at ${ms}ms`;
+    const a = edges(first), b = edges(later);
+    for (const key of ["left", "right", "top", "bottom"]) near(b[key], a[key], `the later shell's ${key} ${at}`, 1e-9);
+    const wa = first.words(), wb = later.words();
+    for (const key of ["x", "y", "k"]) near(wb[key], wa[key], `the later words' ${key} ${at}`, 1e-9);
+    assert.equal(later.shell().querySelector(".sentmorph-face").style.opacity,
+      first.shell().querySelector(".sentmorph-face").style.opacity, `the later grey ${at}`);
+  }
+  // it lands whole on the new bubble, and the one standing is never hidden
+  near(edges(later).height, BUBBLE.height, "the later send did not land whole");
+  assert.equal(later.q.style.getPropertyValue("opacity"), "0", "the new bubble showed under its flight");
+  assert.equal(later.p.style.getPropertyValue("opacity"), "", "the bubble standing was hidden");
+  later.frame(FLIGHT_MS + 17);
+  assert.equal(later.shell(), null);
+  assert.equal(later.q.style.getPropertyValue("opacity"), "");
 });
 
-test("a message below the cut squeezes into the cut's edge, its words going on under it, with nothing fading", () => {
-  // the panel keeps a batch past its preview under the cut. The box lands on the
-  // cut's edge with no height, so it covers nothing of the words above the cut
-  // and nothing has to fade out; the new words travel to their own place, under it
-  const s = scene();
-  const p = s.panel(["Looks good, ship it", "And one more"]);
-  box(p, { left: BUBBLE.left, top: BUBBLE.top - 52, width: BUBBLE.width, height: BUBBLE.height + 52 });
-  const clip = p.querySelector(".answclip");
-  const cut = { left: 217.4, top: BUBBLE.top - 36, width: 124.5, height: 56.9 };
-  box(clip, cut);
-  const motion = s.context.armSentMotion(s.el);
-  const row = s.row("A third, under the cut");
-  p.querySelector(".answstack").appendChild(row);
-  const under = { left: 217.4, top: cut.top + 83.4, width: 124.5, height: 31.3 };
-  box(row, under);
-  motion.play();
+test("nothing lands on a bubble standing cut: a later send flies whole to its own bubble, nothing fading", () => {
+  // the old shared panel squeezed a row below its cut into the cut's edge; now
+  // the bubble standing, cut or not, is only ever moved, and its rows are left alone
+  const { p, q, frame, layers, shell } = flyLater(["Looks good, ship it", "And one more", "And a third"]);
+  const rows = p.querySelectorAll(".answmsg");
   for (const ms of MOMENTS.slice(1)) {
-    s.frame(ms);
-    assert.equal(s.layers().length, 1, `the words are not one copy at ${ms}ms`);
-    assert.equal(s.layers()[0].style.opacity, "1", `the words fade at ${ms}ms`);
-    assert.ok(!s.shell().style.opacity || s.shell().style.opacity === "1", `the box fades at ${ms}ms`);
+    frame(ms);
+    assert.equal(layers().length, 1, `the words are not one copy at ${ms}ms`);
+    assert.equal(layers()[0].style.opacity, "1", `the words fade at ${ms}ms`);
+    assert.ok(!shell().style.opacity || shell().style.opacity === "1", `the box fades at ${ms}ms`);
+    for (const row of rows) assert.equal(row.style.getPropertyValue("opacity"), "", `a row standing was hidden at ${ms}ms`);
   }
-  const landed = edges(s);
-  near(landed.right, cut.left + cut.width, "the box did not land on the cut's right end");
-  near(landed.top, cut.top + cut.height, "the box did not land on the cut's edge");
-  near(landed.height, 0, "the box landed with a height that covers the words above the cut");
-  assert.ok(s.words().y >= 0, "the new words were left in sight above the cut");
-  s.frame(FLIGHT_MS + 17);
-  assert.equal(s.shell(), null);
-  assert.equal(row.style.getPropertyValue("opacity"), "");
+  const landed = { top: px(shell().style.top), height: px(shell().style.height) };
+  near(landed.top, BUBBLE.top, "the box did not land on the new bubble");
+  near(landed.height, BUBBLE.height, "the box did not land whole");
+  frame(FLIGHT_MS + 17);
+  assert.equal(shell(), null);
+  assert.equal(q.style.getPropertyValue("opacity"), "");
 });
 
 test("a reader who asked for no motion gets no flight", () => {

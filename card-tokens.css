@@ -364,7 +364,7 @@
    blank, a paragraph break or the air between two messages, or when a batch
    that fits ends on a blank tail. without it the cut is the surface's own
    preview */
-.answclip{position:relative; max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-shade:0}
+.answclip{position:relative; max-height:var(--answ-stop, var(--sent-peek, var(--answ-peek))); overflow:hidden; --answ-shade:0}
 .answered.more:not(.open) .answclip{--answ-shade:1}
 .answclip::after{
   content:""; position:absolute; left:0; right:0; bottom:0; height:var(--answ-fade);
@@ -443,23 +443,30 @@
 
 /* ---- the messages waiting for a reply ------------------------------------ */
 /* the same panel at the foot of the card, over the row the reader types in,
-   holding what has been sent and not answered yet. it is the panel above to the
-   letter: the same grey, the same cut to a preview with the same dissolve and
-   arrow, the same run to open it and cut it back. what is its own is its seat,
-   which each page gives it, how far it may open, and how it comes in.
+   holding what has been sent and not answered yet, as one or more bubbles in
+   one seat. each bubble is the panel above to the letter: the same grey, the
+   same cut to a preview with the same dissolve and arrow, the same run to open
+   it and cut it back. what is its own is its seat, which each page gives it,
+   how far it may open, how deep its preview is, and how it comes in.
+   its preview is one line deeper than the panel's over the answer (--sent-peek,
+   the surface's own --answ-peek and one --answ-line more: 21px on the phone,
+   20px on the large card, 17px on the small one), so that two short messages
+   in one bubble, a blank line between them, still read whole once they have
+   come together; a longer pair is cut and dissolves as ever.
    open, a long batch stops at --sent-cap, which each large card writes as the
    room the panel may take over the answer, and the rest scrolls inside the cut.
    a surface that writes none gives the panel a seat that scrolls instead.
-   a local send morphs from the typing field to its seat in card-logic.js the
-   way the iPhone's Messages does, frame by frame off two recordings, over
-   750ms: the typing box travels to the seat, its left edge before its top,
-   drawn shrunk a little about its bottom-right corner as it leaves the row
-   and growing back in place, its grey faint over the row and coming in as it
-   rises clear, while what stood before makes room on a quicker glide. It
-   wears the panel's own corners from its first frame and carries its words
-   dark the whole way. A send without measurable field geometry uses the
-   small rise and fade below.
+   a local send morphs from the typing field to a bubble of its own in
+   card-logic.js the way the iPhone's Messages does, frame by frame off two
+   recordings, over 750ms: the typing box travels to the seat, its left edge
+   before its top, drawn shrunk a little about its bottom-right corner as it
+   leaves the row and growing back in place, its grey faint over the row and
+   coming in as it rises clear, while the bubbles that stood before make room
+   on a quicker glide. It wears the panel's own corners from its first frame
+   and carries its words dark the whole way. A send without measurable field
+   geometry uses the small rise and fade below.
    Only a send changes the fold's timing; a manual fold keeps its own run. */
+.answered.sent{--sent-peek:calc(var(--answ-peek) + var(--answ-line))}
 .answered.sent.open .answclip{max-height:var(--sent-cap, none); overflow-y:auto; overscroll-behavior:contain}
 .answered.sent.sentflight{--answ-move:var(--answ-come); --gentle:var(--sent-ease)}
 @keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
@@ -472,6 +479,21 @@
 .sentmorph{position:fixed; pointer-events:none; overflow:hidden; z-index:10000; box-sizing:border-box}
 .sentmorph-face{position:absolute; inset:0; border-radius:inherit}
 .sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
+/* two bubbles running together (card-logic.js: sentMerge). the joined bubble
+   is laid out and hidden, and this layer inside it draws the merge in its own
+   px: a grey face cut each frame by a clip path to the two drops' outline,
+   copies of the two bubbles' words riding on transforms, the word that stands
+   under them, and a copy of the joined bubble that comes up at the end. the
+   ground is the seat's own colour over the room the two give up above them,
+   under every bubble in the seat. nothing here blurs, filters or masks */
+.sentgoo{position:absolute; left:0; top:0; pointer-events:none}
+.sentgoo > *{position:absolute; left:0; top:0; transform-origin:0 0}
+.sentgoo-words{will-change:transform, opacity}
+/* the word under the bubbles, drawn as the mark under a panel is drawn
+   (.answered[data-mark]::after, below), and placed by the script */
+.sentgoo > .sentgoo-mark{left:auto; right:var(--answ-round); padding-top:calc(3 * var(--u));
+  font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub); white-space:nowrap}
+.sentgoo-ground{position:absolute; left:0; right:0; pointer-events:none}
 
 /* ---- the delivery marks -------------------------------------------------- */
 /* where a sent message stands (card-logic.js names the stages). a message the
@@ -496,6 +518,10 @@
    the grey is a registered colour so that it can run at all. a page that
    builds the panel already marked draws it as it is: nothing here moves until
    the mark changes on a panel that is standing.
+   each sent bubble carries its own word while two bubbles stand in different
+   places. once the later one stands where the earlier one does, the earlier
+   one's word fades out and the joined bubble's word comes in under the later
+   one, and only then do the two run together.
    once the reply to the messages lands, the word has nothing left to say: it
    fades out on its own, over --answ-gone and on the same curve, with nothing
    but its strength changing (markgone), and stays gone. the panel over a reply
@@ -541,6 +567,10 @@
 }
 .answered.markin::after{animation:markin var(--answ-come) var(--sent-ease) backwards}
 .answered.markout::after{opacity:0; transition:opacity calc(var(--answ-come) / 2) var(--sent-ease)}
+/* the word moving down to the later of two bubbles about to join (card-logic.js:
+   sentMove) goes out more gently than a word giving way to the next: 300ms,
+   on the card's even curve, before it comes in under the later bubble */
+.answered.markout.markmove::after{transition:opacity calc(var(--answ-come) * .75) var(--gentle)}
 .answered.markgone::after{opacity:0; transition:opacity var(--answ-gone) var(--gentle)}
 @media (prefers-reduced-motion: reduce){
   .answered.arrive, .answmsg.arrive, .answered.markin::after{animation:none !important}
@@ -570,6 +600,12 @@
   height:var(--titleair, 0px); background:linear-gradient(to bottom, var(--card), transparent)}
 .turnpage{position:absolute; left:0; right:0; top:0; bottom:0; will-change:transform}
 .turnpage.gliding{transition:transform var(--turn-glide) var(--gentle)}
+/* the seat's picture gives way to the new page's panel behind it over the
+   second half of the glide. the sent preview is a line deeper than the panel
+   over the answer, and the two stand on one head, so what is seen to change is
+   only what differs at their foot, and the sheet going takes nothing away */
+@keyframes turnhand{45%{opacity:1} to{opacity:0}}
+.turnpage.gliding > .sentwrap{animation:turnhand var(--turn-glide) var(--gentle) both}
 @keyframes cardprint{from{opacity:0; transform:translate3d(0, var(--print-rise), 0)}}
 .printing > *{animation:cardprint var(--print-move) var(--gentle) backwards}
 .printing > :nth-child(2){animation-delay:50ms}

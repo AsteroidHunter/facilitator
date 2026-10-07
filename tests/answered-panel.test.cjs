@@ -903,8 +903,13 @@ test("the sheet draws one grey panel with no frame, a blank line between message
   assert.match(panel, /margin-left:auto/, "the panel does not hug the right end of its column");
   assert.match(panel, /font:var\(--answ-font\)/);
   assert.ok(!/border:|box-shadow|outline/.test(panel), "the panel wears a frame or a shade");
-  assert.match(rule(TOKENS, ".answclip"), /max-height:var\(--answ-stop, var\(--answ-peek\)\); overflow:hidden/,
-    "the cut does not take the script's stop before the surface's preview");
+  assert.match(rule(TOKENS, ".answclip"), /max-height:var\(--answ-stop, var\(--sent-peek, var\(--answ-peek\)\)\); overflow:hidden/,
+    "the cut does not take the script's stop before the sent panel's preview and the surface's own");
+  // the sent panel's preview is one line deeper than the panel over the answer,
+  // on every surface, so two one-line messages in one bubble read whole
+  assert.ok(rules(TOKENS, ".answered.sent").some(one => /--sent-peek:calc\(var\(--answ-peek\) \+ var\(--answ-line\)\)/.test(one)),
+    "the sent panel's preview is not a line deeper than the surface's");
+  assert.ok(!/--sent-peek/.test(DESKTOP + PHONE), "a page sets the sent preview of its own");
   assert.match(rule(TOKENS, ".answered.open .answclip"), /max-height:none/);
   // the dissolve: a strip of the panel's own grey, the surface's own depth,
   // laid over the foot of the cut and whole only while a long batch stands cut
@@ -1021,7 +1026,7 @@ function fullCard(id) {
 }
 const SENT = ["Invented first sent message.", "Invented second sent message with **emphasis**."];
 
-test("a send lands its message in the same panel at the card's foot, cut to its preview", () => {
+test("a send lands its message in a bubble of its own at the card's foot, cut to its preview", () => {
   const { context, counts, pending, ring } = sandbox();
   const el = fullCard("c1");
   el.sentRoom = context.roomSpy;
@@ -1053,22 +1058,27 @@ test("a send lands its message in the same panel at the card's foot, cut to its 
   context.syncSent(el, context.sentBatch(SENT.slice(0, 1)));
   assert.ok(all(panel).every((node, i) => node === kids[i]), "a pass with the same list redrew the panel");
   assert.equal(counts.rooms, 1);
-  // a second send: the message already there is kept as it stands, and only
-  // the new one comes in
+  // a second send, while the first stands Delivered and the new one is still
+  // on its way: the bubble standing is kept as it stands, and the new message
+  // comes in under it, in a bubble of its own, the way the first came in
+  context.syncSent(el, [{ text: SENT[0], stage: "sent" }]);
   const first = panel.querySelector(".answmsg");
-  context.syncSent(el, context.sentBatch(SENT), true);
-  const now = panel.querySelector(".answstack").children;
-  assert.equal(now.length, 2);
-  assert.equal(now[0], first, "a send drew the message above it again");
-  assert.equal(now[0].classList.contains("arrive"), false, "the message already there came in again");
-  assert.equal(now[1].classList.contains("arrive"), true, "the new message did not come in");
+  context.syncSent(el, [{ text: SENT[0], stage: "sent" }, { text: SENT[1], stage: "local" }], true);
+  assert.deepEqual(panel.querySelector(".answstack").children, [first], "a send drew into the bubble above it");
+  assert.equal(first.classList.contains("arrive"), false, "the message already there came in again");
+  const bubbles = context.sentPanels(el);
+  assert.equal(bubbles.length, 2, "the new message has no bubble of its own");
+  assert.equal(bubbles[0], panel, "the bubble standing moved in the seat");
+  assert.equal(el.sent, bubbles[1], "the newest bubble is not the one at the foot");
+  assert.equal(bubbles[1].classList.contains("arrive"), true, "the new bubble did not come in");
+  assert.deepEqual(blocks(bubbles[1]).map(one => one.html), [markdown.render(SENT[1])]);
   assert.equal(panel.classList.contains("open"), false, "a send left the panel open");
-  // the answer lands, the board's list empties, and the panel goes with it
-  const watch = FakeResizeObserver.made[0];
+  // the answer lands, the board's list empties, and every bubble goes with it
+  const watches = FakeResizeObserver.made.slice(0, 2);
   context.syncSent(el, context.sentBatch([]));
   assert.equal(el.sent, null, "the panel outlived the list it was drawn from");
   assert.equal(el.sentwrap.children.length, 0);
-  assert.equal(watch.live, false, "the panel's size watch outlived the panel");
+  assert.ok(watches.every(watch => !watch.live), "a bubble's size watch outlived the bubble");
 });
 
 test("the sent panel opens on the same arrow and run, and a send cuts it back on that run", () => {
@@ -1087,16 +1097,24 @@ test("the sent panel opens on the same arrow and run, and a send cuts it back on
   landRun(panel);
   clip.style.heights.length = 0;
   const rooms = counts.rooms;
-  // a send while it stands open: the message goes in and the panel is cut back
-  // to its preview on the fold's own run, from where it stood
+  // a send while it stands open: the message comes in under it in a bubble of
+  // its own, and the open one is cut back to its preview on the fold's own run,
+  // from where it stood
   context.syncSent(el, context.sentBatch([...texts, "Invented message sent while it stood open."]), true);
   assert.equal(panel.classList.contains("open"), false, "a send left the panel standing open");
   assert.equal(panel.classList.contains("motion"), true, "the send cut the panel back without the fold's run");
   assert.deepEqual(clip.style.heights, ["240px", "58px"], "the cut back did not run from where the panel stood");
-  assert.equal(blocks(panel).length, 4, "the message did not go into the panel it cut back");
-  assert.equal(counts.rooms, rooms, "the card was told on the run's first frame");
+  assert.equal(blocks(panel).length, 3, "the message went into the panel it cut back");
+  assert.equal(context.sentPanels(el).length, 2, "the message has no bubble of its own");
+  // the card is told the new bubble took its room; the run still going on the
+  // other is what the desktop's snap waits out (snapCard, read below)
+  assert.equal(counts.rooms, rooms + 1, "the card was not told the new bubble took its room");
   landRun(panel);
-  assert.equal(counts.rooms, rooms + 1, "the card was not told once the panel had landed");
+  assert.ok(counts.rooms >= rooms + 2, "the card was not told once the panel had landed");
+  // the two stand in one place (a board too old to say), and with the seat not
+  // laid out they become one at once once the run has landed
+  assert.equal(context.sentPanels(el).length, 1, "two bubbles standing in one place stayed apart");
+  assert.equal(blocks(panel).length, 4);
   // a reading that brings a message sent somewhere else is no arrival: a panel
   // the reader opened stays open
   panel.fire("click", { target: panel });
@@ -1552,25 +1570,37 @@ test("the sent panel reads the board's own record: faded until the board has it,
   assert.equal(panel.querySelector(".answmark"), null, "a message still on its way carries a mark");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply");
   // the board saved it: full ink, and Delivered under the panel. a message sent
-  // after it waits faded on its own, and the panel's grey is back
+  // after it, from somewhere else, that the board has not saved stands faded in
+  // a bubble of its own, since the two stand in different places
   const first = panel.querySelector(".answmsg");
   const rooms = counts.rooms;
   context.syncSent(el, [{ text: "Invented one.", stage: "sent" }, { text: "Invented two.", stage: "local" }]);
   assert.equal(panel.querySelector(".answmsg"), first, "a change of stage drew the message again");
   assert.equal(panel.classList.contains("undelivered"), false, "the panel stayed faded with a message saved");
-  assert.deepEqual(stagesOf(panel), [false, true], "the message not yet saved is not faded on its own");
+  assert.deepEqual(stagesOf(panel), [false]);
   assert.equal(panel.dataset.tag, "Delivered");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, delivered");
+  const later = context.sentPanels(el)[1];
+  assert.ok(later && later !== panel, "a message standing somewhere else joined the Delivered bubble");
+  assert.deepEqual(stagesOf(later), [true], "the message not yet saved is not faded on its own");
+  assert.equal(later.dataset.tag, undefined, "a message not yet saved carries a word");
   assert.ok(counts.rooms > rooms, "the card was not told the mark took its room");
   // an agent picked it up, its listener confirmed the claim: Read, at full ink
   context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
   assert.equal(panel.dataset.tag, "Read", "a message an agent picked up was not called read");
   assert.deepEqual(stagesOf(panel), [false]);
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, read");
-  // the mark names the newest message that has got anywhere
+  assert.equal(context.sentPanels(el).length, 1, "the bubble whose message went stayed");
+  // each bubble names where its newest message stands: Read over Delivered
+  // stays two bubbles, each with its own word
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "sent" }]);
-  assert.equal(panel.dataset.tag, "Delivered", "a later message only saved was called read");
+  const [readOne, savedTwo] = context.sentPanels(el);
+  assert.equal(readOne.dataset.tag, "Read", "the earlier message lost its Read");
+  assert.equal(savedTwo && savedTwo.dataset.tag, "Delivered", "a later message only saved was called read");
+  // once both are read they are one bubble saying Read
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "delivered" }]);
+  assert.equal(context.sentPanels(el).length, 1, "two bubbles both read stayed apart");
+  assert.equal(el.sent, panel);
   assert.equal(panel.dataset.tag, "Read");
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "read" }]);
   assert.equal(panel.dataset.tag, "Read");
@@ -1886,19 +1916,22 @@ test("a send is faded from the press, Delivered once the board answers, and take
   assert.deepEqual([...el.sentItems.map(m => m.stage)], ["sent", "sent"]);
   assert.equal(el.sendsOut, 0);
   assert.equal((el.sentHeld || []).length, 0);
-  // a send the board did not take stays in the panel, held out of the board's readings
+  // a send the board did not take stays in the seat, held out of the board's
+  // readings: in a bubble of its own, since it stands nowhere the Delivered
+  // bubble stands
   const lost = context.sentLaunch(el, "Invented three.");
-  assert.equal(el.sent.querySelectorAll(".answmsg").length, 3);
+  assert.equal(el.sentwrap.querySelectorAll(".answmsg").length, 3);
+  assert.equal(context.sentPanels(el).length, 2, "a send not yet saved joined a Delivered bubble");
   context.sentFailed(el, lost, false);
   assert.equal(lost.stage, "local", "a send the board did not take was called sent");
   assert.deepEqual([...el.sentItems.map(m => m.text)], ["Invented one.", "Invented two."]);
   assert.deepEqual([...el.sentHeld.map(m => m.text)], ["Invented three."]);
-  assert.equal(el.sent.querySelectorAll(".answmsg").length, 3, "a send the board did not take left the panel");
+  assert.equal(el.sentwrap.querySelectorAll(".answmsg").length, 3, "a send the board did not take left the seat");
   assert.equal(el.sendsOut, 0);
   assert.ok(Number.isFinite(el.sendGuard));
   // the board's reading replaces its own list and the held send is still drawn
   context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
-  assert.deepEqual(el.sent.querySelectorAll(".answmsg").map(row => row.dataset.text), ["Invented one.", "Invented three."],
+  assert.deepEqual(el.sentwrap.querySelectorAll(".answmsg").map(row => row.dataset.text), ["Invented one.", "Invented three."],
     "the board's reading took the held send away");
   // the only message failed: the panel stays, holding it
   const alone = fullCard("c2");
@@ -2670,51 +2703,60 @@ test("send morph starts at the typed field, carries one copy of the words at ful
   }
 });
 
-test("send morph shifts preceding messages on its own curve without replaying their entrance", () => {
+test("send morph shifts the bubbles standing on its own curve without replaying their entrance", () => {
   const s = motionScene(), { context, el, frame } = s;
   s.insert("Invented older message.");
-  const first = el.sent.querySelector(".answmsg");
+  const older = el.sent, first = older.querySelector(".answmsg");
   let animation;
-  el.sent.animate = (keys, options) => {
+  older.animate = (keys, options) => {
     animation = { keys, options, cancelled: false, cancel() { this.cancelled = true; } };
     return animation;
   };
-  rect(el.sent, 150, 210, 170, 45, .5);
+  rect(older, 150, 210, 170, 45, .5);
   const motion = context.armSentMotion(el);
   s.insert("Invented newer message.");
-  rect(el.sent, 150, 180, 170, 75, .5);
+  assert.notEqual(el.sent, older, "the later send went into the bubble standing");
+  // the new bubble under it pushes the one standing up
+  rect(older, 150, 180, 170, 45, .5);
   motion.play();
   assert.equal(animation.keys[0].transform.trim(), "translate(0px,60px)", "viewport shift was not converted to local scale");
   assert.equal(animation.options.duration, 340, "the glide is not the iPhone's length");
   assert.equal(animation.options.easing, "cubic-bezier(.24,.1,.15,1)", "the glide is not the iPhone's curve");
-  assert.equal(el.sent.querySelector(".answmsg"), first);
+  assert.equal(older.querySelector(".answmsg"), first);
   assert.equal(first.style.opacity, "", "an existing row was hidden");
-  assert.equal(el.sent.style.opacity, "", "an existing panel was hidden");
+  assert.equal(older.style.opacity, "", "an existing bubble was hidden");
+  assert.equal(el.sent.style.opacity, "0", "the new bubble showed under its own flight");
   frame(750); frame(767);
   assert.equal(animation.cancelled, true);
   assert.equal(s.shell(), null);
 });
 
-test("send morph lands a new row below the cut on the cut's edge, its words going on under it, with nothing fading", () => {
+test("send morph lands a later send whole on a bubble of its own, never on a row of the bubble standing", () => {
+  // the flight is the first send's to the letter, only its seat is new: the
+  // later message's own bubble under the one standing
   const s = motionScene(), { context, el, frame } = s;
   s.insert("Invented first message.");
+  const older = el.sent, oldRow = older.querySelector(".answmsg");
   const motion = context.armSentMotion(el);
-  s.insert("Invented message below the cut.");
-  const row = el.sent.querySelectorAll(".answmsg").at(-1);
-  rect(row, 160, 290, 150, 21);
+  s.insert("Invented second message.");
+  const fresh = el.sent;
+  assert.notEqual(fresh, older, "the later send has no bubble of its own");
+  assert.equal(older.querySelectorAll(".answmsg").length, 1, "the later send went into the bubble standing");
+  rect(fresh, 150, 262, 170, 45);
   motion.play();
   frame(320);
   assert.equal(s.shell().querySelector(".sentmorph-target").style.opacity, "1");
   assert.equal(s.shell().style.opacity, "", "the box fades");
+  assert.equal(oldRow.style.opacity, "", "a row of the bubble standing was hidden");
   frame(750);
-  assert.equal(s.shell().style.opacity, "", "the box fades");
-  assert.equal(s.shell().style.top, "241px", "the box did not land on the cut's edge");
-  assert.equal(s.shell().style.height, "0px", "the box covers the foot of the cut");
-  assert.match(s.shell().querySelector(".sentmorph-target").style.transform, /^translate\(0px,49px\) /,
-    "the new words were left in sight above the cut");
+  assert.equal(s.shell().style.top, "262px", "the box did not land on the new bubble");
+  assert.equal(s.shell().style.height, "45px", "the box did not land whole");
+  assert.equal(s.shell().querySelector(".sentmorph-target").style.transform, "translate(0px,0px) scale(1,1)",
+    "the words did not land on the new bubble's own place");
   frame(767);
   assert.equal(s.shell(), null);
-  assert.equal(row.style.opacity, "");
+  assert.equal(fresh.style.opacity, "");
+  assert.equal(older.style.opacity, "");
 });
 
 test("send morph moves the preceding answer when the first panel takes room", () => {
@@ -2779,24 +2821,233 @@ test("send morph keeps an earlier flight in the air through a rapid second send"
   s.insert("Invented first flight."); first.play(); frame(100);
   const firstShell = s.shell(), top = firstShell.style.top;
   context.performance.now = () => 100;
+  const firstBubble = el.sent;
   const second = context.armSentMotion(el);
   assert.equal(firstShell.parentNode, s.body, "second send removed an unfinished flight");
   assert.equal(firstShell.style.top, top, "second send teleported the first bubble");
-  assert.equal(el.sent.style.opacity, "0", "second send exposed the first bubble at its destination");
+  assert.equal(firstBubble.style.opacity, "0", "second send exposed the first bubble at its destination");
   const item = s.insert("Invented second flight."); second.play();
-  const secondRow = el.sent.querySelectorAll(".answmsg").at(-1);
+  const secondBubble = el.sent;
+  assert.notEqual(secondBubble, firstBubble, "the second send has no bubble of its own");
+  // the second is Delivered while the first is still on its way: two places,
+  // two bubbles, and each word waits for its own bubble's landing
   context.sentLanded(el, item);
   assert.equal(s.body.querySelectorAll(".sentmorph").length, 2);
   frame(750); frame(767);
   assert.equal(firstShell.parentNode, null);
-  assert.equal(el.sent.style.opacity, "");
-  assert.equal(secondRow.style.opacity, "0", "first landing exposed the second row early");
-  assert.equal(el.sent.classList.contains("sentflight"), true);
-  assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the last flight lands");
+  assert.equal(firstBubble.style.opacity, "");
+  assert.equal(secondBubble.style.opacity, "0", "first landing exposed the second bubble early");
+  assert.equal(secondBubble.classList.contains("sentflight"), true);
+  assert.equal(secondBubble.dataset.mark, undefined, "receipt must wait until its own flight lands");
   frame(850); frame(867);
   assert.equal(s.shell(), null);
-  assert.equal(secondRow.style.opacity, "");
-  assert.equal(el.sent.classList.contains("sentflight"), false);
-  assert.equal(el.sent.dataset.mark, "Delivered");
+  assert.equal(secondBubble.style.opacity, "");
+  assert.equal(secondBubble.classList.contains("sentflight"), false);
+  assert.equal(secondBubble.dataset.mark, "Delivered");
+  assert.equal(context.sentPanels(el).length, 2, "a Delivered bubble joined one still on its way");
   assert.equal(el.sentMotions.size, 0);
+});
+
+// ---- one bubble for each send, and the merge ------------------------------------------
+// the owner's rule: a new message goes as
+// a bubble of its own and joins the one above it only once the two stand in the
+// same place, not delivered, Delivered or Read, the word under the earlier one
+// moving to the new one first. the seat is laid out by hand, one bubble over the
+// next, so the merge runs on its own clocks and frames; a seat left unlaid is one
+// not on screen, where the two become one at once
+const W = ["Invented first.", "Invented second.", "Invented third."];
+const at = (text, stage) => ({ text, stage });
+function seatScene() {
+  const s = motionScene();
+  const bubbles = () => s.context.sentPanels(s.el);
+  const lay = () => {
+    let top = 300;
+    for (const panel of bubbles()) {
+      panel.isConnected = true;
+      rect(panel, 150, top, 170, 45);
+      for (const row of panel.querySelector(".answstack").children) { row.isConnected = true; rect(row, 168, top + 12, 134, 21); }
+      rect(panel.querySelector(".answclip"), 168, top + 12, 134, 21);
+      top += 62;
+    }
+    s.el.sentwrap.isConnected = true;
+    rect(s.el.sentwrap, 0, 300, 390, Math.max(1, top - 300));
+    // and the card on show, its answer laid out over the seat
+    s.el.replyview.rect = { top: 100, bottom: 700 };
+  };
+  const draw = (list, arrive) => { s.context.syncSent(s.el, list, arrive); lay(); };
+  // the merge's own lengths, read off the script
+  const merge = Object.fromEntries(["OUT_MS", "IN_MS", "HOLD_MS", "MS"].map(k => [k, s.run("MERGE_" + k)]));
+  return { ...s, bubbles, lay, draw, merge };
+}
+const marks = panels => [...panels].map(panel => panel.dataset.mark || "");
+
+test("a second message stands in a bubble of its own, and joins only once it stands where the first stands, its word moving down first", () => {
+  const s = seatScene(), { context, el, ringFor, frame, bubbles, draw } = s;
+  draw([at(W[0], "sent")]);
+  const [first] = bubbles();
+  assert.deepEqual(marks(bubbles()), ["Delivered"]);
+  // sent, not yet saved by the board: its own bubble, faded, under the Delivered one
+  draw([at(W[0], "sent"), at(W[1], "local")], true);
+  assert.equal(bubbles().length, 2, "the second message went into the first bubble");
+  const second = bubbles()[1];
+  assert.equal(bubbles()[0], first);
+  assert.equal(second.classList.contains("undelivered"), true);
+  assert.deepEqual(marks(bubbles()), ["Delivered", ""]);
+  assert.equal(el.sentMerge || null, null, "bubbles standing in two places began to merge");
+  // the board has it: the two stand in one place. the word under the first goes
+  // out, gently, while nothing new stands under the second
+  draw([at(W[0], "sent"), at(W[1], "sent")]);
+  assert.equal(el.sentMerge.stage, "move", "two bubbles both Delivered did not begin to merge");
+  assert.equal(bubbles().length, 2, "the bubbles joined before the word moved");
+  assert.ok(first.classList.contains("markout") && first.classList.contains("markmove"), "the first word does not go out gently");
+  assert.equal(second.dataset.mark, undefined, "a word stood under the second while the first was still going");
+  assert.ok(first.classList.contains("coalesce"), "the refresh does not wait out the merge");
+  assert.equal(context.turnHolding(el, "motion"), true, "a page turn would cut the merge short");
+  // then it comes in under the second, on the mark's own run
+  ringFor(s.merge.OUT_MS);
+  assert.deepEqual(marks(bubbles()), ["", "Delivered"], "the word did not move down to the later bubble");
+  assert.ok(second.classList.contains("markin"), "the word did not come in under the later bubble");
+  assert.equal(bubbles().length, 2, "the bubbles joined before the word had come in");
+  // and only then the two run together
+  ringFor(s.merge.OUT_MS + s.merge.IN_MS + s.merge.HOLD_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  assert.equal(bubbles().length, 1, "the two did not become one");
+  assert.equal(bubbles()[0], first, "the joined bubble is not the first one");
+  assert.deepEqual(first.querySelector(".answstack").children.map(row => row.dataset.text), [W[0], W[1]]);
+  const layer = first.querySelector(".sentgoo");
+  assert.ok(layer, "the merge has no layer to draw in");
+  assert.equal(first.style.visibility, "hidden", "the joined bubble showed before the merge was drawn");
+  assert.equal(layer.style.visibility, "visible");
+  assert.equal(layer.querySelector(".sentgoo-mark").textContent, "Delivered", "the word under the drops is not the moved one");
+  // the first frame drawn is the two bubbles as they stood, two shapes with their own corners
+  const face = layer.querySelector(".sentgoo-face");
+  assert.equal((face.style.clipPath.match(/M/g) || []).length, 2);
+  assert.equal((face.style.clipPath.match(/A/g) || []).length, 8);
+  frame(500);
+  assert.ok(first.querySelector(".sentgoo"), "the merge landed half way");
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.equal(el.sentMerge, null);
+  assert.equal(first.querySelector(".sentgoo"), null, "the merge's layer stayed");
+  assert.equal(el.sentwrap.querySelector(".sentgoo-ground"), null, "the seat's ground stayed");
+  assert.equal(first.style.visibility, "", "the joined bubble stayed hidden");
+  assert.equal(first.classList.contains("coalesce"), false);
+  assert.deepEqual(marks(bubbles()), ["Delivered"], "the joined bubble lost its word");
+  assert.equal(context.turnHolding(el, "motion"), false);
+});
+
+test("two bubbles standing in different places never merge, each keeping its own word, and join the moment they match", () => {
+  const s = seatScene(), { context, el, pending, bubbles, draw } = s;
+  draw([at(W[0], "delivered")]);
+  draw([at(W[0], "delivered"), at(W[1], "local")], true);
+  // Read over not delivered, then Read over Delivered: two bubbles, two words
+  for (const stage of ["local", "sent"]) {
+    draw([at(W[0], "delivered"), at(W[1], stage)]);
+    assert.equal(bubbles().length, 2, `Read and ${stage} joined`);
+    assert.equal(el.sentMerge || null, null, `Read and ${stage} began to merge`);
+    assert.ok(!bubbles().some(one => one.classList.contains("markmove")), "a word moved between bubbles that differ");
+    // every clock let go changes nothing
+    for (const timer of pending()) timer.fn();
+    assert.equal(bubbles().length, 2);
+  }
+  assert.deepEqual(marks(bubbles()), ["Read", "Delivered"]);
+  // not delivered under Delivered stays two as well
+  const t = seatScene();
+  t.draw([at(W[0], "sent")]);
+  t.draw([at(W[0], "sent"), at(W[1], "local")], true);
+  t.draw([at(W[0], "sent"), at(W[1], "local")].map(m => ({ ...m, state: "pending" })));
+  for (const timer of t.pending()) timer.fn();
+  assert.equal(t.bubbles().length, 2, "Delivered and not delivered joined");
+  // both Read: the word moves, and the merge follows
+  draw([at(W[0], "delivered"), at(W[1], "read")]);
+  assert.equal(el.sentMerge.stage, "move", "two bubbles both Read did not begin to merge");
+  const [first, second] = bubbles();
+  assert.ok(first.classList.contains("markout") && second.classList.contains("markout"),
+    "Read under the first and Delivered under the second do not both go out");
+  s.ringFor(s.merge.OUT_MS);
+  assert.deepEqual(marks(bubbles()), ["", "Read"]);
+});
+
+test("a move whose bubbles stop matching before the merge gives each its own word back and merges nothing", () => {
+  const s = seatScene(), { context, el, ringFor, bubbles, draw } = s;
+  draw([at(W[0], "sent")]);
+  draw([at(W[0], "sent"), at(W[1], "local")], true);
+  draw([at(W[0], "sent"), at(W[1], "sent")]);
+  assert.equal(el.sentMerge.stage, "move");
+  ringFor(s.merge.OUT_MS);
+  // an agent picks up the second before the merge: Delivered over Read
+  draw([at(W[0], "sent"), at(W[1], "delivered")]);
+  ringFor(s.merge.OUT_MS + s.merge.IN_MS + s.merge.HOLD_MS);
+  assert.equal(el.sentMerge, null);
+  assert.equal(bubbles().length, 2, "bubbles that no longer match were merged");
+  assert.deepEqual([...bubbles()].map(one => one.dataset.tag), ["Delivered", "Read"]);
+  assert.equal(bubbles()[0].dataset.mark, "Delivered", "the first bubble's word did not come back");
+  assert.ok(!bubbles().some(one => one.classList.contains("coalesce")));
+});
+
+test("a reader who asked for no motion sees the two become one the moment they match, with nothing moving", () => {
+  const s = seatScene(), { context, el, pending, bubbles, draw } = s;
+  context.stillness = true;
+  draw([at(W[0], "sent")]);
+  draw([at(W[0], "sent"), at(W[1], "local")], true);
+  assert.equal(bubbles().length, 2, "a message not yet saved joined a Delivered bubble");
+  draw([at(W[0], "sent"), at(W[1], "sent")]);
+  assert.equal(bubbles().length, 1, "the two stayed apart against the rule");
+  const [one] = bubbles();
+  assert.deepEqual(one.querySelector(".answstack").children.map(row => row.dataset.text), [W[0], W[1]]);
+  assert.equal(one.dataset.mark, "Delivered");
+  assert.equal(el.sentMerge || null, null, "a merge ran against the setting");
+  assert.equal(one.querySelector(".sentgoo"), null, "a merge was drawn against the setting");
+  for (const name of ["markout", "markmove", "markin", "coalesce"])
+    assert.equal(one.classList.contains(name), false, `the joined bubble wears ${name}`);
+  assert.ok(!pending().some(t => [s.merge.OUT_MS, s.merge.OUT_MS + s.merge.IN_MS + s.merge.HOLD_MS].includes(t.ms)),
+    "a merge's clock stands behind a merge that did not run");
+});
+
+test("a bubble once joined stays one, whatever its messages do next", () => {
+  const { context } = sandbox();
+  const el = fullCard("c1");
+  context.syncSent(el, [at(W[0], "local")], true);
+  context.syncSent(el, [at(W[0], "local"), at(W[1], "local")], true);
+  // the seat is not on screen, so the two not yet delivered become one at once
+  assert.equal(context.sentPanels(el).length, 1);
+  // the first lands, the second not yet: the bubble stays one, saying Delivered
+  context.syncSent(el, [at(W[0], "sent"), at(W[1], "local")]);
+  assert.equal(context.sentPanels(el).length, 1, "a joined bubble came apart");
+  assert.equal(el.sent.dataset.tag, "Delivered");
+  assert.deepEqual(stagesOf(el.sent), [false, true]);
+  // a third, Delivered: the bubble stands where its newest message stands, not
+  // yet delivered, so the third stands apart until the second lands
+  context.syncSent(el, [at(W[0], "sent"), at(W[1], "local"), at(W[2], "sent")]);
+  assert.equal(context.sentPanels(el).length, 2);
+  context.syncSent(el, [at(W[0], "sent"), at(W[1], "sent"), at(W[2], "sent")]);
+  assert.equal(context.sentPanels(el).length, 1);
+});
+
+test("a merge in motion lands at once when the seat is drawn again or taken away, and leaves nothing behind", () => {
+  const start = () => {
+    const s = seatScene();
+    s.draw([at(W[0], "sent")]);
+    s.draw([at(W[0], "sent"), at(W[1], "local")], true);
+    s.draw([at(W[0], "sent"), at(W[1], "sent")]);
+    s.ringFor(s.merge.OUT_MS);
+    s.ringFor(s.merge.OUT_MS + s.merge.IN_MS + s.merge.HOLD_MS);
+    s.frame(300);
+    assert.equal(s.el.sentMerge.stage, "merge");
+    return s;
+  };
+  // a third message sent mid merge: the merge lands, and the third stands on its own
+  const s = start();
+  const [joined] = s.bubbles();
+  s.draw([at(W[0], "sent"), at(W[1], "sent"), at(W[2], "local")], true);
+  assert.equal(s.el.sentMerge, null);
+  assert.equal(joined.querySelector(".sentgoo"), null, "the merge's layer stayed under a new pass");
+  assert.equal(joined.style.visibility, "");
+  assert.equal(s.bubbles().length, 2);
+  assert.deepEqual(joined.querySelector(".answstack").children.map(row => row.dataset.text), [W[0], W[1]]);
+  // the answer lands mid merge: everything goes
+  const t = start();
+  t.context.dropSent(t.el);
+  assert.equal(t.el.sentMerge, null);
+  assert.equal(t.el.sentwrap.children.length, 0, "the merge left its layer or ground in the seat");
 });
