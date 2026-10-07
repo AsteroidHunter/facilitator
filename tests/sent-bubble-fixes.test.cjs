@@ -260,6 +260,33 @@ test("the Mac board's snap fits the answer the same whatever stands in the bubbl
   assert.deepEqual(written, [written[0], written[0], written[0]], `the answer was snapped to another place for each seat: ${written.join(", ")}`);
 });
 
+// ---- 4. the fade over the answer does not jump once a bubble stands open ----------------
+test("the answer's fade follows a bubble opening and cut back on every frame, so nothing changes once it stops", () => {
+  // a bubble opening from 58px to 240px and cut back again, as openAnswered
+  // leaves it for the length of each run (answSpan), and the band the page
+  // measures to its top edge on each frame: the band written on the frame the
+  // run lands must already be the one the open (or cut) bubble stands at
+  const c = load({ requestAnimationFrame: () => 0 });
+  const clip = { height: 58, getBoundingClientRect() { return { height: this.height }; } };
+  const panel = { classList: { contains: k => k === "answered" }, answSpan: null, querySelector: () => clip };
+  const el = { sentwrap: { children: [panel] } };
+  const run = (from, to, steps) => {
+    panel.answSpan = { from, to, band: null };
+    const written = [];
+    for (const h of steps){ clip.height = h; written.push(c.sentBand(el, 60 + h)); }
+    panel.answSpan = null;
+    const landed = c.sentBand(el, 60 + to);
+    return { written, landed };
+  };
+  const open = run(58, 240, [58, 100, 160, 210, 240]);
+  assert.deepEqual(open.written, [118, 160, 220, 270, 300], "the band did not follow the bubble opening");
+  assert.equal(open.landed, open.written.at(-1), "the band jumped once the bubble stood open");
+  const cut = run(240, 58, [240, 180, 110, 70, 58]);
+  assert.equal(cut.written[0], 300, "the band left the bubble's top edge as the cut back set off");
+  assert.deepEqual(cut.written, [300, 240, 170, 130, 118], "the band did not follow the bubble coming down");
+  assert.equal(cut.landed, cut.written.at(-1));
+});
+
 // ---- 6. the send flight on the Mac: no pause as it flies out, no lag ---------------------
 test("the first frame drawn after a send already has the box on its way, on time or late", () => {
   for (const first of [1000 / 60, 500]) {

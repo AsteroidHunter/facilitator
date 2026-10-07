@@ -851,7 +851,7 @@
      stands in, so the two panels are one width with one right edge, and the
      small step under it is the step the old box left before the row. the seat
      is the card's white, like the whole of the foot, so it covers the answer
-     the panel rises over while the answer's band holds still for the run.
+     under the panel, the answer's band ending on its top edge.
      open, a long batch stops so the whole panel stands in the old box's room,
      under two fifths of the screen above the keyboard, and scrolls inside */
   .sentwrap{
@@ -1976,8 +1976,9 @@ function watchBand(el){
   // that reads --boxband reads the number it always read.
   // it is written only when it changes, so a fire that finds the band where it
   // was leaves the card's style alone.
-  // while the sent panel runs, the band is held at one end of the run rather
-  // than following it (sentBand in card-logic.js), so a run writes it once
+  // while a sent bubble opens or is cut back the band follows it (sentBand in
+  // card-logic.js), so the fade rides the bubble's top edge and does not jump
+  // once it stops
   let lastBand = null;
   const write = () => {
     const band = sentBand(el, boxBand(el.replyview, el.pendwrap));
@@ -2281,8 +2282,8 @@ function makeBox(b){
                 // agent; what it has not confirmed yet is this phone's own and
                 // is drawn after it (drawSent)
                 sentwrap, sent: null, sentKey: "", sentItems: [] };
-  // the sent panel's room: the band it holds still for a run is written again
-  // once the run has landed, which no size the band's watch sees changes
+  // the sent panel's room: the band is written again, for a change in the seat
+  // the band's watch would not see
   card.sentRoom = () => card.bandWrite && card.bandWrite();
   // how far the answer is scrolled, read where it can be: a card that is not
   // on show has no layout and reads zero, but it keeps its place for when it is
