@@ -35,36 +35,84 @@ function flight() {
   return out;
 }
 
-test("a send moves sideways and up with no zoom in and out: nothing shrinks and grows back, no edge passes its landing", () => {
+test("a send moves sideways and up with no zoom in and out: nothing shrinks and grows back, the right end, top and foot pass no landing", () => {
   for (const { ms, frame, box } of flight()) {
-    // the box drawn is the travelling box itself, never scaled down about a corner
-    assert.ok(Math.abs(box.width - (frame.right - frame.left)) < 1e-9, `the box is drawn at another size than it travels at ${ms}ms`);
-    assert.ok(box.left >= FROM.left - 1e-9 && box.left <= TO.left + 1e-9, `the left edge passed its landing at ${ms}ms (${box.left})`);
+    // the box drawn is a real box and never scaled down about a corner: the
+    // frame's right end, and its left edge at or left of the frame's, which
+    // is the compress and not a change of scale
+    assert.ok(Math.abs(box.left + box.width - frame.right) < 1e-9, `the box is drawn at another right end than it travels at ${ms}ms`);
+    assert.ok(box.left <= frame.left + 1e-9 && box.width >= frame.right - frame.left - 1e-9, `the box is narrower than it travels at ${ms}ms`);
+    // the left edge trails the words, so it may be left of the bubble's, but it
+    // is never left of the typing box's and never right of the bubble's
+    assert.ok(box.left >= FROM.left - 1e-9 && box.left <= TO.left + 1e-9, `the left edge is out of its run at ${ms}ms (${box.left})`);
     const right = box.left + box.width;
     assert.ok(right >= FROM.left + FROM.width - 1e-9 && right <= TO.left + TO.width + 1e-9, `the right end passed its landing at ${ms}ms (${right})`);
     assert.ok(box.top >= TO.top - 1e-9, `the top rose past its landing at ${ms}ms (${box.top})`);
   }
 });
 
-test("a send ends with an accordion-like compress: taller as it rises, then closing down onto the bubble under its landed top", () => {
+test("a send ends with an accordion-like compress from side to side: the box stands wider than the bubble as it arrives, then closes in onto its width", () => {
   const frames = flight();
-  let foot = Infinity, tallest = 0;
-  for (const { ms, box } of frames) {
-    const bottom = box.top + box.height;
-    assert.ok(bottom <= foot + 1e-9 || ms === 0, `the box's foot went down at ${ms}ms`);
-    foot = bottom;
-    tallest = Math.max(tallest, box.height / TO.height);
+  const right = f => f.box.left + f.box.width;
+  // the right end is the bubble's from the moment the sideways move lands
+  const landedSide = frames.find(f => Math.abs(right(f) - (TO.left + TO.width)) < 1e-9);
+  assert.ok(landedSide, "the right end never lands on the bubble's");
+  for (const f of frames.filter(f => f.ms >= landedSide.ms))
+    assert.ok(Math.abs(right(f) - (TO.left + TO.width)) < 1e-9, `the right end left the bubble's at ${f.ms}ms (${right(f)})`);
+  // widest at the peak, a fifth over the bubble, with time left to close
+  const widest = frames.filter(f => f.ms >= landedSide.ms).reduce((a, b) => b.box.width > a.box.width ? b : a);
+  const peak = load().read("SENT_SQUEEZE_PEAK_MS");
+  assert.ok(Math.abs(widest.ms - peak) <= 2, `the box is widest at ${widest.ms}ms, not at the peak (${peak}ms)`);
+  assert.ok(widest.box.width >= 1.15 * TO.width && widest.box.width <= 1.3 * TO.width,
+    `the box is not a little wider than the bubble at its widest (${(widest.box.width / TO.width).toFixed(3)})`);
+  // from there it only closes: the width shrinks and the left edge comes in,
+  // for at least 300ms, and settles on the bubble
+  const closing = frames.filter(f => f.ms >= widest.ms);
+  assert.ok(closing.length >= 300, `the compress after its widest is too short (${closing.length}ms)`);
+  for (let i = 1; i < closing.length; i++) {
+    assert.ok(closing[i].box.width <= closing[i - 1].box.width + 1e-9, `the box widened again while closing at ${closing[i].ms}ms`);
+    assert.ok(closing[i].box.left >= closing[i - 1].box.left - 1e-9, `the left edge went back while closing at ${closing[i].ms}ms`);
   }
-  assert.ok(tallest >= 1.15, `the box never stands taller than the bubble to close down from (${tallest.toFixed(3)})`);
-  const landed = frames.find(f => Math.abs(f.box.top - TO.top) < 1e-9);
-  assert.ok(landed, "the top never lands");
-  const closing = frames.filter(f => f.ms >= landed.ms);
-  assert.ok(closing.length >= 150, `the compress after the top lands is too short (${closing.length}ms)`);
-  assert.ok(landed.box.height >= 1.1 * TO.height, `the box has nothing left to close when its top lands (${landed.box.height})`);
-  for (let i = 1; i < closing.length; i++)
-    assert.ok(closing[i].box.height <= closing[i - 1].box.height + 1e-9, `the box grew again while closing at ${closing[i].ms}ms`);
+  // nothing here is vertical: the box is never taller than the bubble, and its
+  // height is the frame's own on the way up, never stretched under the top
+  for (const { ms, box, frame } of frames) {
+    assert.ok(box.height <= Math.max(FROM.height, TO.height) + 1e-9, `the box is taller than the bubble at ${ms}ms (${box.height})`);
+    assert.ok(Math.abs(box.height - (frame.bottom - frame.top)) < 1e-9, `the box is stretched under its top at ${ms}ms`);
+  }
   const end = frames.at(-1).box;
-  assert.ok(Math.abs(end.height - TO.height) < 1e-9 && Math.abs(end.top - TO.top) < 1e-9, "the box does not close exactly onto the bubble");
+  assert.ok(Math.abs(end.width - TO.width) < 1e-9 && Math.abs(end.left - TO.left) < 1e-9 &&
+    Math.abs(end.height - TO.height) < 1e-9 && Math.abs(end.top - TO.top) < 1e-9, "the box does not close exactly onto the bubble");
+});
+
+test("the compress stays inside the card's own padding: where the bubble is as wide as the typing row it reaches that far left and no further", () => {
+  // the iPhone simulator's one-line send: the card 9.5 to 380.5 across, the
+  // typing row 52.8 to 335.2 (a "+" stands left of it), the bubble 68.7 to
+  // 359.8. The bubble's right end is 20.7 in from the card's right edge, so
+  // the box may reach 20.7 in from the card's left edge: 30.2
+  const CARD = { left: 9.5, top: 11.8, width: 371, height: 614.3 };
+  const ROW = { left: 52.8, top: 560.1, width: 282.4, height: 66 };
+  const BUBBLE = { left: 68.7, top: 484.1, width: 291.1, height: 73.5 };
+  const padding = CARD.left + (CARD.left + CARD.width - (BUBBLE.left + BUBBLE.width));
+  const p = page();
+  p.set(p.el.box, CARD);
+  p.set(p.el.ta, ROW);
+  p.seat(p.arm(), BUBBLE);
+  let leftmost = Infinity, widest = 0, before = null;
+  for (const ms of [1000 / 60, ...Array.from({ length: 634 }, (_, i) => 17 + i)]) {
+    p.frame(ms);
+    const b = p.box();
+    assert.ok(b.left >= padding - 1e-6, `the box reaches past the card's padding at ${ms}ms (${b.left} against ${padding})`);
+    assert.ok(b.left + b.width <= BUBBLE.left + BUBBLE.width + 1e-6, `the right end passed the bubble's at ${ms}ms`);
+    assert.ok(b.height <= Math.max(ROW.height, BUBBLE.height) + 1e-6, `the box is taller than the bubble at ${ms}ms (${b.height})`);
+    if (ms >= 330) assert.ok(before === null || b.width <= before + 1e-6, `the box widened again after its peak at ${ms}ms`);
+    if (ms >= 330) before = b.width;
+    leftmost = Math.min(leftmost, b.left);
+    widest = Math.max(widest, ms >= 260 ? b.width : 0);
+  }
+  assert.ok(Math.abs(leftmost - padding) < 0.01, `the box never reaches the card's padding (${leftmost} against ${padding})`);
+  assert.ok(widest > BUBBLE.width + 30, `the box is hardly wider than the bubble at its widest (${widest})`);
+  const end = p.box();
+  for (const [key, want] of Object.entries(BUBBLE)) assert.ok(Math.abs(end[key] - want) < 1e-6, `the box did not land on the bubble's ${key} (${end[key]})`);
 });
 
 // ---- a stand-in page for a flight -------------------------------------------------------
@@ -155,14 +203,14 @@ function page() {
   // arm, put the new bubble in the seat, lay it out at TO, and play
   const arm = () => context.armSentMotion(el);
   const fly = () => seat(arm());
-  function seat(motion) {
+  function seat(motion, landing = TO) {
     const p = element("div", "answered sent");
     const clip = element("div", "answclip"), stack = element("div", "answstack"), row = element("div", "answmsg");
     p.appendChild(clip); clip.appendChild(stack); stack.appendChild(row);
     sentwrap.appendChild(p);
     el.sent = p;
-    set(p, TO);
-    set(row, { left: TO.left + 18, top: TO.top + 16, width: TO.width - 36, height: 21 });
+    set(p, landing);
+    set(row, { left: landing.left + 18, top: landing.top + 16, width: landing.width - 36, height: 21 });
     motion.play();
     return p;
   }

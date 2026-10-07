@@ -2167,17 +2167,22 @@ const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
 // before shrank the box
 // to 77% and grew it back past whole, and rose past its landing and came back;
 // the owner found that zoom in and out bouncy, so nothing here shrinks and
-// grows back and no edge goes past its landing.
+// grows back, and the right end, the top and the foot never go past their
+// landing. The compress is from side to side, not top to bottom.
 // - Sideways: the box's left edge, and its right end with it, sets off on the
 //   first frame and is in by 260ms. The iPhone's first 50ms barely move, which
 //   it hides under its frosted bar; drawn in the open here, that read as a
 //   pause as the message flew out.
 // - Up: the top and bottom rise together, slow to start so the sideways move
 //   leads, the top on its landing by 430ms and still from there.
-// - The compress: as it rises the box grows taller under its top, up to a
-//   fifth over the height it is heading for, and closes back down onto the
-//   bubble by 650ms, its foot coming up under the words like an accordion's
-//   bellows. The foot only ever moves up.
+// - The compress: from side to side. The box's right end is on the bubble's
+//   by 260ms and stays there. Its left edge trails the words as it arrives,
+//   out to a fifth of the bubble's width left of them (no further than the
+//   card's own padding) at 330ms, and closes in on them until the box is
+//   exactly the bubble at 650ms, like an accordion's bellows pushed shut. The
+//   box is never taller than the frame it rises in, and once it has stretched
+//   its width only ever shrinks. The words are not squeezed or moved by it;
+//   the box closes in on them.
 // - The grey: drawn at 69% strength when the box appears and whole by 183ms,
 //   faint (13.5%) for the share of the box still over the typing row, as the
 //   iPhone's bubble looks under its bar's glass; read off the recordings and
@@ -2193,8 +2198,8 @@ const SENT_SIDE_MS = 260;
 const SENT_SIDE = [.3, .6, .4, 1];
 const SENT_UP_MS = 430;
 const SENT_UP = [.45, 0, .25, 1];
-const SENT_STRETCH = .22;
-const SENT_STRETCH_PEAK_MS = 330;
+const SENT_SQUEEZE = .22;
+const SENT_SQUEEZE_PEAK_MS = 330;
 // the strength the bubble is drawn at, ms from the tap
 const SENT_STRENGTH = [[0, .686], [16.7, .686], [33.3, .694], [50, .713], [66.7, .729], [83.3, .755], [100, .778],
   [116.7, .816], [133.3, .864], [150, .906], [166.7, .955], [183.3, 1]];
@@ -2206,22 +2211,26 @@ const SENT_GLIDE_EASE = "cubic-bezier(.24,.1,.15,1)";
 
 const sentSideCurve = sentCurve(SENT_SIDE), sentUpCurve = sentCurve(SENT_UP);
 // the track at ms from the tap: how far the sides have come in and the box
-// has risen (0 the typing box, 1 the seat), how much taller than its height it
-// stands, and the strength it is drawn at
+// has risen (0 the typing box, 1 the seat), how far out the box's left edge
+// trails the words (0 not at all, 1 as far as it goes), and the strength it is
+// drawn at
 function sentTrack(ms){
   const side = sentSideCurve(ms / SENT_SIDE_MS), down = sentUpCurve(ms / SENT_UP_MS);
-  const stretch = SENT_STRETCH * (ms <= SENT_STRETCH_PEAK_MS ? sentSmooth(ms / SENT_STRETCH_PEAK_MS) :
-    1 - sentSmooth((ms - SENT_STRETCH_PEAK_MS) / (SENT_FLIGHT_MS - SENT_STRETCH_PEAK_MS)));
+  const squeeze = ms <= SENT_SQUEEZE_PEAK_MS ? sentSmooth(ms / SENT_SQUEEZE_PEAK_MS) :
+    1 - sentSmooth((ms - SENT_SQUEEZE_PEAK_MS) / (SENT_FLIGHT_MS - SENT_SQUEEZE_PEAK_MS));
   let i = 1;
   while (i < SENT_STRENGTH.length - 1 && SENT_STRENGTH[i][0] < ms) i++;
   const a = SENT_STRENGTH[i - 1], b = SENT_STRENGTH[i];
   const strength = a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
-  return { left:side, right:side, down, stretch, strength };
+  return { left:side, right:side, down, squeeze, strength };
 }
 const sentWithin = p => Math.max(0, Math.min(1, p));
 // the travelling box at one point of the track: its sides and its rise, and
-// the box drawn from it, as tall as the stretch makes it under its top
-function sentMorphBox(from, to, at){
+// the box drawn from it, which reaches left of the frame's left edge by the
+// squeeze: up to a fifth of the bubble's width, and no further left than
+// limit (the card's own padding), and never narrower than the frame. Its right
+// end, top and foot are the frame's, so it is never taller than the frame
+function sentMorphBox(from, to, at, limit = -Infinity){
   const mix = (a, b, p) => a + (b - a) * p;
   const frame = {
     left:mix(from.left, to.left, at.left),
@@ -2229,9 +2238,11 @@ function sentMorphBox(from, to, at){
     top:mix(from.top, to.top, at.down),
     bottom:mix(from.top + from.height, to.top + to.height, at.down),
   };
-  const width = Math.max(0, frame.right - frame.left);
-  const height = Math.max(0, frame.bottom - frame.top) * (1 + at.stretch);
-  return { frame, box:{ left:frame.left, top:frame.top, width, height } };
+  const reach = Math.min(SENT_SQUEEZE * to.width, Math.max(0, to.left - limit));
+  const left = Math.min(frame.left, Math.max(limit, frame.left - at.squeeze * reach));
+  const width = Math.max(0, frame.right - left);
+  const height = Math.max(0, frame.bottom - frame.top);
+  return { frame, box:{ left, top:frame.top, width, height } };
 }
 
 // A snapshot leaves the real editor and rendered message alone. Resolved styles
@@ -2412,6 +2423,11 @@ function armSentMotion(el){
         shifts.push(shift);
       }
       const targetRect = target.getBoundingClientRect(), targetScale = sentScale(target, targetRect);
+      // how far left the compress may reach: as far from the card's left edge
+      // as the bubble's right end is from its right, so the box never leaves
+      // the card's own padding. A card with no measured box sets no limit
+      const cardRect = el.box ? el.box.getBoundingClientRect() : null;
+      const limit = cardRect && cardRect.width > 0 ? cardRect.left + Math.max(0, cardRect.right - targetRect.right) : -Infinity;
       const targetCopy = sentSnapshot(target);
       targetCopy.style.width = (targetRect.width / targetScale.x) + "px";
       targetCopy.style.height = (targetRect.height / targetScale.y) + "px";
@@ -2463,7 +2479,7 @@ function armSentMotion(el){
         // the final handoff matches the actual bubble, including local sends.
         const liveStyle = getComputedStyle(panel);
         const fill = liveStyle.backgroundColor, cutFill = liveStyle.getPropertyValue("--answ-fill");
-        const { frame, box } = sentMorphBox(start, landing, at);
+        const { frame, box } = sentMorphBox(start, landing, at, limit);
         write(box);
         // faint for the share of the box still over the typing row, the
         // track's strength for the share risen above the row's top
@@ -2474,12 +2490,13 @@ function armSentMotion(el){
         // the words ride the travelling box: their first line's left goes from
         // the typed words' place in it to the bubble's as its left edge
         // travels, its middle as it rises, and they shrink from the typing size
-        // to the bubble's as its left edge travels. they ride its top, so the
-        // compress closes up under them
-        const squeeze = sentWithin(at.left), rise = sentWithin(at.down);
-        const k = grow + (1 - grow) * squeeze;
+        // to the bubble's as its left edge travels. they ride the frame, not
+        // the drawn box, so the compress closes in on them from the left and
+        // they are never squeezed
+        const across = sentWithin(at.left), rise = sentWithin(at.down);
+        const k = grow + (1 - grow) * across;
         const to = { x:lead.x, y:lead.y + inkLine / 2 };
-        const lineLeft = frame.left + from.x + (to.x - from.x) * squeeze;
+        const lineLeft = frame.left + from.x + (to.x - from.x) * across;
         const lineMiddle = frame.top + from.y + (to.y - from.y) * rise;
         const x = lineLeft - lead.x * k - box.left;
         const y = lineMiddle - (lead.y + inkLine / 2) * k - box.top;

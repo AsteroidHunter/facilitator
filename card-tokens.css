@@ -458,10 +458,11 @@
    a surface that writes none gives the panel a seat that scrolls instead.
    a local send morphs from the typing field to a bubble of its own in
    card-logic.js over 650ms: the typing box moves sideways, its left edge
-   setting off on the first frame, then up, growing a little taller as it
-   rises, and ends with an accordion-like compress back onto the bubble's
-   height, with nothing shrinking and growing back and no edge passing its
-   landing. Its grey is faint over the row and comes in as it rises clear,
+   setting off on the first frame, then up, and ends with an accordion-like
+   compress from side to side onto the bubble's width, its right end anchored
+   on the bubble's, with nothing shrinking and growing back and its right end,
+   top and foot never passing their landing. Its grey is faint over the row
+   and comes in as it rises clear,
    while the bubbles that stood before make room on a quicker glide. It wears
    the panel's own corners from its first frame and carries its words dark the
    whole way. A send without measurable field geometry uses the small rise and
