@@ -19,10 +19,21 @@ function load(extra = {}) {
   return context;
 }
 
-// ---- 1. the send motion: sideways, then up, in a box the bubble's own size throughout -----
+// ---- 1. the send motion: sideways, then up, compressing from the typing box into the bubble -----
 // the phone's one-line example: the typing box, and the bubble the send lands on
 const FROM = { left: 17.5, top: 500, width: 317.6, height: 43.3 };
 const TO = { left: 199.7, top: 422.1, width: 160, height: 52.5 };
+// the compress in the owner's reference recording (the reference app's
+// send): 400ms on cubic-bezier(.22, 1, .36, 1)
+function compress(ms) {
+  const at = (a, b, t) => 3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
+  const f = ms / 400;
+  if (f <= 0) return 0;
+  if (f >= 1) return 1;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 60; i++) { const t = (lo + hi) / 2; if (at(.22, .36, t) < f) lo = t; else hi = t; }
+  return at(1, 1, (lo + hi) / 2);
+}
 function flight() {
   const c = load();
   const out = [], length = c.read("SENT_FLIGHT_MS");
@@ -48,22 +59,37 @@ test("a send moves sideways and up with no zoom in and out: nothing shrinks and 
   }
 });
 
-test("a send keeps the bubble's own width and height for the whole flight: nothing widens, narrows, stretches or squeezes", () => {
+test("a send compresses from the typing box's width and height into the bubble's on the reference recording's curve, once", () => {
   const frames = flight();
+  let before = null;
   for (const { ms, box } of frames) {
-    assert.ok(Math.abs(box.width - TO.width) < 1e-9, "the box is " + box.width + " wide at " + ms + "ms, the bubble " + TO.width);
-    assert.ok(Math.abs(box.height - TO.height) < 1e-9, "the box is " + box.height + " tall at " + ms + "ms, the bubble " + TO.height);
+    const p = compress(ms);
+    assert.ok(Math.abs(box.width - (FROM.width + (TO.width - FROM.width) * p)) < 1e-5, "the box is " + box.width + " wide at " + ms + "ms, off the recording's curve");
+    assert.ok(Math.abs(box.height - (FROM.height + (TO.height - FROM.height) * p)) < 1e-5, "the box is " + box.height + " tall at " + ms + "ms, off the recording's curve");
+    // never past the bubble's size or back: the typing box is wider and
+    // shorter than the bubble, so the box only narrows and only grows taller
+    assert.ok(box.width >= TO.width - 1e-9 && box.height <= TO.height + 1e-9, "the box passed the bubble's size at " + ms + "ms");
+    if (before) {
+      assert.ok(box.width <= before.width + 1e-9, "the box widened again at " + ms + "ms");
+      assert.ok(box.height >= before.height - 1e-9, "the box grew shorter again at " + ms + "ms");
+    }
+    before = box;
   }
+  // half way at 53ms, as in the recording, and whole by 400ms
+  const at = ms => frames[ms].box.width;
+  assert.ok(Math.abs((FROM.width - at(53)) / (FROM.width - TO.width) - .5) < .01, "the compress is not half way at 53ms");
+  assert.ok(Math.abs(at(400) - TO.width) < 1e-9, "the compress is not whole at 400ms");
+  for (const key of Object.keys(FROM)) assert.ok(Math.abs(frames[0].box[key] - FROM[key]) < 1e-9, "the box does not start as the typing box (" + key + " " + frames[0].box[key] + ")");
   const end = frames.at(-1).box;
   for (const key of Object.keys(TO)) assert.ok(Math.abs(end[key] - TO[key]) < 1e-9, "the box does not land on the bubble's " + key + " (" + end[key] + ")");
 });
 
-test("on the page's own frames the flying box is the bubble's size from the start to the landing, whatever the typing row's size", () => {
+test("on the page's own frames the flying box starts as the typing row and compresses into the bubble, every edge one way, whatever the row's size", () => {
   // the box is read off the shell on every frame the page draws, from the
   // press: the iPhone simulator's one-line send (the typing row 52.8 to
-  // 335.2, the bubble 68.7 to 359.8), a typing row wider than its bubble as on
-  // the Mac, a long message whose typing row is taller than its bubble, and a
-  // short one
+  // 335.2, the bubble 68.7 to 359.8: the row is narrower and shorter), a
+  // typing row wider than its bubble as on the Mac, a long message whose
+  // typing row is taller than its bubble, and a short one
   const CASES = {
     "the phone's one line": { row: { left: 52.8, top: 560.1, width: 282.4, height: 66 }, bubble: { left: 68.7, top: 484.1, width: 291.1, height: 73.5 } },
     "a row wider than its bubble": { row: { left: 20, top: 500, width: 370, height: 40 }, bubble: { left: 100, top: 430, width: 300, height: 60 } },
@@ -80,21 +106,27 @@ test("on the page's own frames the flying box is the bubble's size from the star
       p.frame(ms);
       readings.push({ ms, box: p.box() });
     }
+    const R0 = row.left + row.width, R1 = bubble.left + bubble.width;
+    const between = (v, a, b) => v >= Math.min(a, b) - 1e-6 && v <= Math.max(a, b) + 1e-6;
     let before = null;
     for (const { ms, box } of readings) {
-      assert.ok(Math.abs(box.width - bubble.width) <= 1e-6, name + ": the box is " + box.width + " wide at " + ms.toFixed(1) + "ms, the bubble " + bubble.width);
-      assert.ok(Math.abs(box.height - bubble.height) <= 1e-6, name + ": the box is " + box.height + " tall at " + ms.toFixed(1) + "ms, the bubble " + bubble.height);
-      // only its place moves, one way, from the typing row's corner to the bubble's
-      assert.ok(box.left >= Math.min(row.left, bubble.left) - 1e-6 && box.left <= Math.max(row.left, bubble.left) + 1e-6, name + ": the left edge left its run at " + ms.toFixed(1) + "ms");
-      assert.ok(box.top >= Math.min(row.top, bubble.top) - 1e-6 && box.top <= Math.max(row.top, bubble.top) + 1e-6, name + ": the top left its run at " + ms.toFixed(1) + "ms");
+      const c = compress(ms), at = ms.toFixed(1) + "ms";
+      assert.ok(Math.abs(box.width - (row.width + (bubble.width - row.width) * c)) <= 1e-5, name + ": the box is " + box.width + " wide at " + at + ", off the recording's curve");
+      assert.ok(Math.abs(box.height - (row.height + (bubble.height - row.height) * c)) <= 1e-5, name + ": the box is " + box.height + " tall at " + at + ", off the recording's curve");
+      // the side edges and the top stay on their way from the row's to the
+      // bubble's and only ever go one way
+      assert.ok(between(box.left, row.left, bubble.left), name + ": the left edge left its run at " + at);
+      assert.ok(between(box.left + box.width, R0, R1), name + ": the right end left its run at " + at);
+      assert.ok(between(box.top, row.top, bubble.top), name + ": the top left its run at " + at);
       if (before) {
-        assert.ok(box.left >= before.left - 1e-6, name + ": the left edge went back at " + ms.toFixed(1) + "ms");
-        assert.ok(box.top <= before.top + 1e-6, name + ": the top came back down at " + ms.toFixed(1) + "ms");
+        assert.ok((box.left - before.left) * Math.sign(bubble.left - row.left) >= -1e-6, name + ": the left edge went back at " + at);
+        assert.ok((box.left + box.width - before.left - before.width) * Math.sign(R1 - R0) >= -1e-6, name + ": the right end went back at " + at);
+        assert.ok(box.top <= before.top + 1e-6, name + ": the top came back down at " + at);
       }
       before = box;
     }
     const start = readings[0].box, end = readings.at(-1).box;
-    assert.ok(Math.abs(start.left - row.left) < 1e-6 && Math.abs(start.top - row.top) < 1e-6, name + ": the box does not start at the typing row's corner (" + start.left + ", " + start.top + ")");
+    for (const [key, want] of Object.entries(row)) assert.ok(Math.abs(start[key] - want) < 1e-6, name + ": the box does not start as the typing row (" + key + " " + start[key] + ")");
     for (const [key, want] of Object.entries(bubble)) assert.ok(Math.abs(end[key] - want) < 1e-6, name + ": the box did not land on the bubble's " + key + " (" + end[key] + ")");
   }
 });

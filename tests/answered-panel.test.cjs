@@ -2673,12 +2673,12 @@ test("send morph starts at the typed field, carries one copy of the words at ful
     motion.play();
     assert.equal(el.sent.classList.contains("arrive"), false, "two entrances own the same bubble");
     assert.equal(el.sent.style.opacity, "0", "real bubble must hold its layout while hidden");
-    // before the first frame: the start box, at the typing box's corner and
-    // the bubble's own width and height
+    // before the first frame: the start box, the typing box itself, which
+    // compresses into the bubble from there
     assert.equal(shell.style.left, "20px");
     assert.equal(shell.style.top, "300px");
-    assert.equal(shell.style.width, "170px", "the start box is not the bubble's width");
-    assert.equal(shell.style.height, "45px", "the start box is not the bubble's height");
+    assert.equal(shell.style.width, "300px", "the start box is not the typing box's width");
+    assert.equal(shell.style.height, "60px", "the start box is not the typing box's height");
     assert.equal(!!shell.querySelector(".sentmorph-source"), false, "the typed words fly as a second copy");
     assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     // the first frame drawn is a frame into the flight: ms below are from the press
