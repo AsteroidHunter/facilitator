@@ -3082,12 +3082,17 @@
   /* Use the controls' actual glass material. The native backdrop is visible
      only around the rim: the opaque, matching face inside replaces its pixels
      before clean enlarged text is painted, so the original ink cannot ghost.
-     the lens turns the workspace's own 7px at all four corners, a box and not
-     a capsule (LENS_CORNER in the script says the same, and its maps, mask and
-     joint follow it) */
+     on a project's name the lens turns the workspace's own 7px at all four
+     corners, a box and not a capsule (LENS_CORNER in the script says the same).
+     over the house it is the house's circle, half its 32px, as it always was:
+     the seat takes .round while it is set down on Home or carried over the
+     house (placeSeat and moveTabSelection) and a name takes it off again. the
+     script reads each lens's corner from here, so its maps, mask and joint
+     follow whichever it wears */
   body.focus #tabrow .projectlens{position:absolute; left:0; top:0; height:32px;
     box-sizing:border-box; border-radius:7px; z-index:3; pointer-events:none;
     backdrop-filter:var(--lens-filter); -webkit-backdrop-filter:var(--lens-filter)}
+  body.focus #tabrow .tabseat.round .projectlens{border-radius:16px}
   body.focus #tabrow .lensclear{position:absolute; inset:0; border-radius:inherit;
     --qn-tint:inherit; --qn-edge:inherit; --qn-ring:inherit;
     background-color:color-mix(in srgb, var(--paper), #fff calc(var(--qn-tint) * 100%));
@@ -3108,6 +3113,12 @@
   body.focus #tabrow .tabseat.still{transition:translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
   body.focus #tabrow .seatlens{width:100%;
     transition:transform .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .18s var(--gentle)}
+  /* a drag's release slides and resizes the seat (it is not .still), and a lens
+     going back to the house, or off it, turns between a name's corner and the
+     circle over the same .28s as it changes size. a click sets it down at once
+     (.still) and a drag changes the shape as it changes the width, with none */
+  body.focus #tabrow .tabseat:not(.still) .seatlens{
+    transition:transform .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .18s var(--gentle), border-radius .28s var(--gentle)}
   body.focus #tabrow .tabseat.gone .seatlens{opacity:0}
   body.focus #tabrow .tabseat.pressed .seatlens{transform:scale(1.1); --qn-edge:3.5;
     transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle)}
@@ -4031,15 +4042,18 @@ function renderTabs(st){
 // supply the visible center glyphs. The copied face is opaque there; its ink
 // is ordinary text, positioned from the live labels, not a filtered bitmap.
 const LENS_ZOOM = 1.075, LENS_BEND_WIDTH = 2.5, LENS_CLEAR_DEPTH = 3.5;
-// the lens is a box with slightly rounded corners, the workspace's own 7px (the
-// sheet's .projectlens says the same), not a capsule: the rim's maps, the clean
-// middle's mask and the joint all take their curve from here
+// on a project's name the lens is a box with slightly rounded corners, the
+// workspace's own 7px (the sheet's .projectlens says the same), not a capsule.
+// over the house it is the house's circle, a 16px corner on its 32px (the
+// sheet's .round). the rim's maps, the clean middle's mask and the joint take
+// their curve from the corner the lens wears, read from its computed style
+// (paintLenses), which is a name's LENS_CORNER when nothing says otherwise
 const LENS_CORNER = 7;
-function lensRadius(width, height = 32){
-  return Math.min(LENS_CORNER, width / 2, height / 2);
+function lensRadius(width, height = 32, corner = LENS_CORNER){
+  return Math.min(Number.isFinite(corner) ? corner : LENS_CORNER, width / 2, height / 2);
 }
-function lensDepth(x, y, width, height = 32){
-  const radius = lensRadius(width, height);
+function lensDepth(x, y, width, height = 32, corner = LENS_CORNER){
+  const radius = lensRadius(width, height, corner);
   const axis = Math.max(radius, Math.min(width - radius, x));
   const axisY = Math.max(radius, Math.min(height - radius, y));
   return radius - Math.hypot(x - axis, y - axisY);
@@ -4048,8 +4062,8 @@ function lensCenterAlpha(depth){
   const t = Math.max(0, Math.min(1, (depth - LENS_BEND_WIDTH) / (LENS_CLEAR_DEPTH - LENS_BEND_WIDTH)));
   return t * t * (3 - 2 * t);
 }
-function lensOffset(x, y, width, height = 32, zoom = LENS_ZOOM){
-  const cx = width / 2, cy = height / 2, radius = lensRadius(width, height);
+function lensOffset(x, y, width, height = 32, zoom = LENS_ZOOM, corner = LENS_CORNER){
+  const cx = width / 2, cy = height / 2, radius = lensRadius(width, height, corner);
   const axis = Math.max(radius, Math.min(width - radius, x));
   const axisY = Math.max(radius, Math.min(height - radius, y));
   const nx = x - axis, ny = y - axisY, length = Math.hypot(nx, ny), depth = radius - length;
@@ -4063,15 +4077,16 @@ function lensOffset(x, y, width, height = 32, zoom = LENS_ZOOM){
           (cy - y) * (1 - 1 / zoom) - (length ? ny / length * rim / zoom : 0)];
 }
 const lensMaps = new Map();
-function lensMap(width){
+function lensMap(width, corner = LENS_CORNER){
   const density = Math.max(1, Math.min(3, devicePixelRatio || 1)), height = 32;
-  const key = [width.toFixed(3), density].join(":");
+  const radius = lensRadius(width, height, corner);
+  const key = [width.toFixed(3), density, radius.toFixed(2)].join(":");
   if (lensMaps.has(key)) return lensMaps.get(key);
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(width * density); canvas.height = Math.ceil(height * density);
   const ctx = canvas.getContext("2d"), pw = canvas.width, ph = canvas.height;
   const zoom = ctx.createImageData(pw, ph), rim = ctx.createImageData(pw, ph);
-  const span = Math.max(width, height), radius = lensRadius(width, height);
+  const span = Math.max(width, height);
   for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++){
     const px = (x + .5) * width / pw, py = (y + .5) * height / ph, i = (y * pw + x) * 4;
     const nx = px - Math.max(radius, Math.min(width - radius, px));
@@ -4102,8 +4117,8 @@ function lensMap(width){
 // ramp. Each corner's box runs 1px over into the bands beside it, so the cut
 // edges, fractional on the right and foot, leave no seam. Both bounds are
 // exact: no coverage through depth 2.5, full coverage from depth 3.5 inward.
-function lensCenterMask(width){
-  const r = lensRadius(width), px = n => n + "px";
+function lensCenterMask(width, corner = LENS_CORNER){
+  const r = lensRadius(width, 32, corner), px = n => n + "px";
   const ramp = Array.from({ length:9 }, (_, i) => {
     const depth = LENS_BEND_WIDTH + i / 8;
     return { depth, alpha: lensCenterAlpha(depth) };
@@ -4138,9 +4153,9 @@ lensSvg.setAttribute("aria-hidden", "true");
 lensSvg.style.position = "absolute";
 document.body.appendChild(lensSvg);
 let lensId = 0;
-function resizeLens(el, width, zoom = LENS_ZOOM){
+function resizeLens(el, width, zoom = LENS_ZOOM, corner = LENS_CORNER){
   if (!width) return;
-  const map = lensMap(width), lens = el.lens;
+  const map = lensMap(width, corner), lens = el.lens;
   if (lens.width !== width){
     for (const image of lens.images) image.setAttribute("width", width);
     lens.width = width;
@@ -4148,7 +4163,7 @@ function resizeLens(el, width, zoom = LENS_ZOOM){
   if (lens.map !== map){
     lens.images[0].setAttribute("href", map.zoom);
     lens.images[1].setAttribute("href", map.rim);
-    const mask = lensCenterMask(width);
+    const mask = lensCenterMask(width, corner);
     if (lens.mask !== mask){ lens.clear.style.setProperty("--lens-center-mask", mask); lens.mask = mask; }
     lens.map = map;
   }
@@ -4187,12 +4202,17 @@ function paintLenses(){
     const opacity = Number(style.opacity) * Number(getComputedStyle(control).opacity);
     return { el, rect, style, opacity, cross: el.classList.contains("ptabx"), icon:el.tagName.toLowerCase() === "svg" };
   }).filter(s => s.rect.width && s.rect.height && s.style.visibility !== "hidden");
-  const lenses = [...liveLenses].filter(el => el.isConnected).map(el => ({ el, rect: el.getBoundingClientRect(), width: parseFloat(getComputedStyle(el).width) }));
+  // each lens's corner is read from the sheet (a name's 7px, the house's circle),
+  // mid-turn too while a lens slides back onto the house or off it
+  const lenses = [...liveLenses].filter(el => el.isConnected).map(el => {
+    const style = getComputedStyle(el);
+    return { el, rect: el.getBoundingClientRect(), width: parseFloat(style.width), corner: parseFloat(style.borderTopLeftRadius) };
+  });
   const joint = jointMeasure();
-  for (const { el, rect, width } of lenses){
+  for (const { el, rect, width, corner } of lenses){
     if (!width || !rect.width || !rect.height) continue;
     const lens = el.lens, kept = new Set();
-    resizeLens(el, width, LENS_ZOOM * rect.height / 32);
+    resizeLens(el, width, LENS_ZOOM * rect.height / 32, corner);
     for (const s of sources){
       const g = lensCopyGeometry(s.rect, rect, width);
       // Copy all visible names, including those beyond this lens: the mask is
@@ -4274,6 +4294,8 @@ function placeSeat(){
   if (!r || !r.width){ el.classList.add("gone"); seat.owner = null; seat.returning = false; return; }
   const o = oval.getBoundingClientRect(), x = r.left - o.left, w = r.width;
   const owner = homeOpen ? HOME_SEAT : on.classList.contains("draft") ? DRAFT : on.dataset.owner;
+  // on the house the lens is its circle, on a name that name's 7px corners
+  el.classList.toggle("round", owner === HOME_SEAT);
   // only a drag's release slides the lens, the rest of the way from where it
   // was let go. a click or a key that chooses another name sets it down there
   // at once, with its joint
@@ -4342,11 +4364,12 @@ function jointHump(u){
   const a = Math.abs(u);
   return a >= 1 ? 0 : 1 - sentSmooth(a);
 }
-// the lens's corner as it stands: the 7px of LENS_CORNER, grown with the press
-// and never more than half a side
+// the lens's corner as it stands: the one it wears (lens.corner, read in
+// jointMeasure; a name's 7px of LENS_CORNER when a box says none), grown with
+// the press and never more than half a side
 function jointRadius(lens){
   const scale = (lens.bottom - lens.top) / 32;
-  return lensRadius((lens.right - lens.left) / scale) * scale;
+  return lensRadius((lens.right - lens.left) / scale, 32, lens.corner) * scale;
 }
 // the shape at the join's own time tau, 0 apart and 1 joined: how far each
 // side bulges toward the other, the union's reach, the bulges' half width and
@@ -4514,12 +4537,12 @@ function jointMeasure(){
   const frame = document.getElementById("appframe");
   const box = frame && frame.getBoundingClientRect(), lens = tabSeat.face.getBoundingClientRect();
   if (!box || !box.width || !lens.width) return null;
-  const style = getComputedStyle(frame), dpr = devicePixelRatio || 1;
+  const style = getComputedStyle(frame), dpr = devicePixelRatio || 1, lensStyle = getComputedStyle(tabSeat.face);
   // the pane's clear border is drawn a whole device pixel wide or more
   const edge = parseFloat(style.borderTopWidth) || 0, drawn = edge ? Math.max(1, Math.floor(edge * dpr + 1e-6)) / dpr : 0;
-  const ring = (getComputedStyle(tabSeat.face).getPropertyValue?.("--qn-ring") || "").trim() || "#c7c7cc";
+  const ring = (lensStyle.getPropertyValue?.("--qn-ring") || "").trim() || "#c7c7cc";
   const carried = tabDrag?.held?.isConnected ? tabDrag.held.getBoundingClientRect() : null;
-  return { lens: { left: lens.left, top: lens.top, right: lens.right, bottom: lens.bottom }, ring,
+  return { lens: { left: lens.left, top: lens.top, right: lens.right, bottom: lens.bottom, corner: parseFloat(lensStyle.borderTopLeftRadius) }, ring,
     held: carried && carried.width ? { left: carried.left, top: carried.top, right: carried.right, bottom: carried.bottom } : null,
     pane: { left: box.left + drawn, top: box.top + drawn, right: box.right - drawn, bottom: box.bottom - drawn,
       corner: Math.max(0, (parseFloat(style.borderTopLeftRadius) || 0) - drawn) } };
@@ -4586,7 +4609,7 @@ function jointPaint(m, now){
   const foot = j.run?.kind === "split" ? j.run.foot : cx;
   const lean = Math.max(-JOINT_LEAN, Math.min(JOINT_LEAN, cx - foot)) * sentSmooth((j.tau - .05) / .2);
   const H = m.held;
-  const key = [j.tau, m.lens.left, m.lens.top, m.lens.right, m.lens.bottom, m.pane.top, m.pane.left, m.pane.right, foot, lean, m.ring,
+  const key = [j.tau, m.lens.left, m.lens.top, m.lens.right, m.lens.bottom, m.lens.corner, m.pane.top, m.pane.left, m.pane.right, foot, lean, m.ring,
     H ? [H.left, H.top, H.right, H.bottom].join(" ") : ""].join(",");
   if (key === j.key) return;
   j.key = key;
@@ -4770,6 +4793,7 @@ function startTabSelection(){
   t.onHouse = false;
   const el = tabSeat.el;
   el.classList.add("still", "carried"); el.classList.remove("gone");
+  el.classList.remove("round");   // the name's own lens, whatever the seat wore on Home
   el.style.transition = "none";
   el.style.translate = "";
   el.style.width = r.width + "px";
@@ -4787,6 +4811,7 @@ function moveTabSelection(e){
   if (onHouse !== t.onHouse){
     t.onHouse = onHouse;
     el.style.width = (onHouse ? t.house.width : source.width) + "px";
+    el.classList.toggle("round", onHouse);   // the circle with the width, the name's corners with its
   }
   if (onHouse){ el.style.transform = "translateX(" + t.houseLeft + "px)"; return; }
   const dx = Math.max(first.left - source.left, Math.min(last.right - source.right, e.clientX - t.x));

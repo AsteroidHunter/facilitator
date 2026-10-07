@@ -142,22 +142,28 @@ test("the lens dragged onto the house previews Home's circle and opens Home on r
   assert.equal(f.seat.el.style.width, "32px"); assert.equal(f.seat.el.style.transform, "translateX(0px)");
   assert.equal(f.context.homeOpen, false, "Home opened before the release");
   assert.deepEqual(f.switches, []); assert.deepEqual(f.writes, []);
+  assert.equal(f.seat.el.classList.contains("round"), true, "the lens over the house is not the house's circle");
   f.up(16, 22, f.homeButton);
   assert.equal(f.context.homeOpen, true); assert.equal(f.seat.owner, f.get("HOME_SEAT"));
   assert.equal(f.seat.w, 32); assert.equal(f.seat.x, 0);
+  assert.equal(f.seat.el.classList.contains("round"), true, "Home opened with a lens that is not its circle");
   assert.deepEqual(f.switches, []); assert.equal(f.context.activeOwner, "a");
   f.tick(0); assert.equal(f.context.tabDrag, null);
 });
 
 test("moving off the house shows the name lens again, and a release on a name selects it", () => {
-  const f = fixture(); f.down(); f.move(16);
-  assert.equal(f.seat.el.style.width, "32px");
+  const f = fixture(), round = () => f.seat.el.classList.contains("round");
+  f.down(); assert.equal(round(), false); f.move(16);
+  assert.equal(f.seat.el.style.width, "32px"); assert.equal(round(), true, "the circle comes with the width");
   f.move(200);
   assert.equal(f.seat.el.style.width, "100px"); assert.equal(f.seat.el.style.transform, "translateX(150px)");
+  assert.equal(round(), false, "the name's corners come back with its width");
   f.move(36);   // the gap between the house and the first name is neither
   assert.equal(f.seat.el.style.width, "100px"); assert.equal(f.seat.el.style.transform, "translateX(40px)");
-  f.move(16); f.move(200); f.up(200, 22, f.tabs.b);
+  assert.equal(round(), false);
+  f.move(16); assert.equal(round(), true); f.move(200); f.up(200, 22, f.tabs.b);
   assert.equal(f.context.homeOpen, false); assert.deepEqual(f.switches, ["b"]);
+  assert.equal(round(), false, "a lens set down on a name is still the house's circle");
 });
 
 test("cancelling a drag that is over the house restores the name lens and opens nothing", () => {
@@ -166,21 +172,34 @@ test("cancelling a drag that is over the house restores the name lens and opens 
     if (type === "visibilitychange") f.document.visibilityState = "hidden";
     f.dispatch(type, { key: "Escape", preventDefault() {}, stopImmediatePropagation() {} });
     assert.equal(f.seat.el.style.width, "100px", type); assert.equal(f.seat.el.style.transform, "translateX(40px)", type);
+    assert.equal(f.seat.el.classList.contains("round"), false, type + ": the name's lens is still the house's circle");
     f.up(16, 22, f.homeButton);
     assert.equal(f.context.homeOpen, false, type); assert.deepEqual(f.switches, [], type);
   }
   const out = fixture(); out.down(); out.move(16); out.up(16, 80, out.homeButton);   // released below the row
   assert.equal(out.context.homeOpen, false); assert.equal(out.seat.el.style.transform, "translateX(40px)");
+  assert.equal(out.seat.el.classList.contains("round"), false);
   const gone = fixture(); gone.down(); gone.move(16); gone.move(16, 22, 0);   // released outside the window
   assert.equal(gone.context.homeOpen, false); assert.equal(gone.seat.el.style.transform, "translateX(40px)");
+  assert.equal(gone.seat.el.classList.contains("round"), false);
 });
 
 test("a drag from Home can be carried back onto the house, which stays open, or onto a name", () => {
-  const f = fixture({ home: true }); f.down("b"); f.move(200); f.move(16);
-  assert.equal(f.seat.el.style.width, "32px"); f.up(16, 22, f.homeButton);
+  const f = fixture({ home: true }), round = () => f.seat.el.classList.contains("round");
+  assert.equal(round(), true, "Home's lens is its circle");
+  f.down("b"); f.move(200);
+  assert.equal(round(), false, "a name carried from Home is a name's lens, not the house's circle");
+  f.move(16);
+  assert.equal(f.seat.el.style.width, "32px"); assert.equal(round(), true); f.up(16, 22, f.homeButton);
   assert.equal(f.context.homeOpen, true); assert.deepEqual(f.switches, []); assert.equal(f.seat.x, 0);
+  assert.equal(round(), true);
   f.tick(0); f.down("b"); f.move(16); f.move(200); f.up(200, 22, f.tabs.b);
   assert.deepEqual(f.switches, ["b"]); assert.equal(f.context.homeOpen, false);
+  assert.equal(round(), false);
+  // let go off the house and the names while Home is open: the lens goes back to Home as its circle
+  const g = fixture({ home: true }); g.down("b"); g.move(200); g.up(200, 80, g.homeButton);
+  assert.equal(g.context.homeOpen, true); assert.equal(g.seat.el.classList.contains("round"), true);
+  assert.equal(g.seat.el.classList.contains("still"), false, "the way back to Home slides, and turns as it slides");
 });
 
 test("a reorder drag never lands on the house and only reorders the projects", () => {
@@ -309,16 +328,18 @@ test("the inner mask completely replaces original ink and feathers only after th
     }
     return stops.at(-1)[1];
   };
-  for (const width of [28, 32, 87.375, 480]) {
-    const css = f.context.lensCenterMask(width);
+  // a name's 7px, the house's circle (16 on its 32px) and a corner part way
+  // between, which a lens wears while it turns from one to the other
+  for (const corner of [7, 16, 10.3]) for (const width of [28, 32, 87.375, 480]) {
+    const css = f.context.lensCenterMask(width, corner);
     assert.doesNotMatch(css, /url\(/, "an undecoded mask image could expose the broken center for a frame");
     const layers = topLevel(css).map(text => layer(text.trim(), width));
     assert.equal(layers.length, 6, "four corners and two bands");
     assert.equal(layers.filter(l => l.radial).length, 4);
     for (let y = .125; y < 32; y += .5) for (let x = .125; x < width; x += .5) {
-      const coverage = 1 - layers.reduce((left, l) => left * (1 - coverAt(l, x, y)), 1), depth = f.context.lensDepth(x, y, width);
-      if (depth >= 3.5) assert.equal(coverage, 1, `original center pixels can leak through at ${x},${y} of ${width}`);
-      if (depth <= 2.5) assert.equal(coverage, 0, `the clear copy conceals the actual optical rim at ${x},${y} of ${width}`);
+      const coverage = 1 - layers.reduce((left, l) => left * (1 - coverAt(l, x, y)), 1), depth = f.context.lensDepth(x, y, width, 32, corner);
+      if (depth >= 3.5) assert.equal(coverage, 1, `original center pixels can leak through at ${x},${y} of ${width}, corner ${corner}`);
+      if (depth <= 2.5) assert.equal(coverage, 0, `the clear copy conceals the actual optical rim at ${x},${y} of ${width}, corner ${corner}`);
     }
   }
 });
@@ -413,6 +434,10 @@ test("Home and projects use the same lens, with a 32px circle at Home and a caps
   assert.equal(f.context.homeOpen, true); assert.equal(f.seat.owner, f.get("HOME_SEAT"));
   assert.equal(f.seat.x, 0); assert.equal(f.seat.w, 32);
   assert.equal(face.getBoundingClientRect().width, 32); assert.equal(face.getBoundingClientRect().height, 32);
+  // the 32px lens on the house is a circle, its maps and mask cut for a 16px corner
+  assert.equal(f.seat.el.classList.contains("round"), true, "the lens on Home is not the house's circle");
+  assert.equal(f.get("getComputedStyle(tabSeat.face).borderTopLeftRadius"), "16px");
+  assert.equal(face.lens.map, f.context.lensMap(32, 16)); assert.equal(face.lens.mask, f.context.lensCenterMask(32, 16));
   assert.equal(f.seat.el.classList.contains("still"), true, "Home did not get the same set-down as a project name");
   assert.equal(f.seat.el.classList.contains("gone"), false);
   f.context.placeSeat(); assert.equal(f.seat.el, element); assert.equal(f.seat.face, face);
@@ -420,6 +445,10 @@ test("Home and projects use the same lens, with a 32px circle at Home and a caps
   assert.equal(f.context.homeOpen, false); assert.equal(f.seat.owner, "b");
   assert.equal(f.seat.w, 140); assert.equal(f.seat.x, 140);
   assert.equal(f.seat.el, element); assert.equal(f.seat.face, face); assert.equal(f.get("liveLenses.size"), 1);
+  // and back on a name it is the name's 7px box again, in the same frame
+  assert.equal(f.seat.el.classList.contains("round"), false);
+  assert.equal(f.get("getComputedStyle(tabSeat.face).borderTopLeftRadius"), "7px");
+  assert.equal(face.lens.map, f.context.lensMap(140, 7)); assert.equal(face.lens.mask, f.context.lensCenterMask(140, 7));
   assertCopyPosition(f, f.house);
   assert.equal(f.homeButton.listeners.mousedown, undefined, "Home gained a project drag/reorder gesture");
 });
