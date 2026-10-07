@@ -2996,9 +2996,15 @@ function schedulePhoneAdvance(op, intent = null){
   }, AUTONEXT_MS);
 }
 // the move a double Enter's second press makes, and control+enter makes at
-// once: to the card that has waited longest, in the card's own workspace
+// once: to the card that has waited longest, in the card's own workspace. a
+// caret in the row goes on into the next card's row, as a step carries it:
+// the box it was in is hidden with its card, and on a phone the keyboard
+// would go down with it
 function phoneAdvance(id){
-  if (selectedId === id) jumpNextYellow(id, null, navigationPool(lastState, id));
+  if (selectedId !== id) return;
+  const typing = !!els[id]?.field.focused();
+  const next = jumpNextYellow(id, null, navigationPool(lastState, id));
+  if (typing && next && els[next]) focusBoxAtEnd(els[next]);
 }
 function armPhoneEnterAgain(id, op, source = "enter"){
   cancelAutoNext();
@@ -4771,12 +4777,15 @@ document.getElementById("setbtn").addEventListener("click", () => showMenu(setti
 let cancelMenuDrag;
 {
   const EDGE = 28;    // how far in from an edge a pull may begin
+  // how far a menu comes out before the row lets go of the caret: a tap whose
+  // finger slips a few px in the edge strip keeps the phone's keyboard up
+  const LET_GO_PX = 24;
   const LIST_COMMIT = 0.35;     // share of travel a slow drag needs, in either direction
   const FLICK_PX = 18, FLICK_SPEED = 0.4, FLICK_MS = 100;   // CSS px, CSS px/ms, recent ms
   // the finger's speed as it lifts, over its last 50ms: a reference
   // app's window for a speed read on the phone (its VELOCITY_WINDOW_MS)
   const HANDOFF_MS = 50;
-  let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false, travel = 1;
+  let panel = null, x0 = 0, y0 = 0, at = 0, live = false, opening = false, decided = false, travel = 1, letGo = false;
   let samples = [], direction = 0;
   let onCard = false, vertical = false, touchUntil = -Infinity;
   // Event time measures the finger even when the page is late answering it.
@@ -4817,6 +4826,9 @@ let cancelMenuDrag;
     onCard = false; vertical = false;
     const out = menuOut();
     if (out){ panel = out; opening = false; }
+    // a press on the typing row is a tap on its buttons or a caret put in its
+    // words, never a pull: the send square reaches into the right edge's strip
+    else if (target?.closest?.(".bottombar")){ panel = null; return; }
     else if (x <= EDGE){ panel = tickets; opening = true; }
     else if (x >= innerWidth - EDGE){ panel = settings; opening = true; }
     else { panel = null; return; }
@@ -4825,7 +4837,7 @@ let cancelMenuDrag;
       const rect = cardPane.getBoundingClientRect();
       onCard = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
     }
-    live = true; decided = false; x0 = x; y0 = y; at = opening ? 0 : 1;
+    live = true; decided = false; letGo = false; x0 = x; y0 = y; at = opening ? 0 : 1;
     samples = [{ x, t }]; direction = 0;
   };
   const move = (x, y, t) => {
@@ -4841,8 +4853,6 @@ let cancelMenuDrag;
       decided = true;
       if (onCard) suppressCardDrawerClick = true;
       if (vertical){ sample(y, t); return; }
-      // Dismiss during a recognized opening pull, before the panel travels.
-      if (opening){ dismissEditor(); closeProjects(); }
       tracePhone("note", "drawer", { side: panel.dataset.side, phase: "start" });
       document.body.classList.remove("menurelease");
       document.body.classList.add("menudrag");
@@ -4853,6 +4863,9 @@ let cancelMenuDrag;
     if (panel === tickets) sample(x, t);
     const d = menuSign(panel) * dx;
     at = Math.max(0, Math.min(1, (opening ? d : travel + d) / travel));
+    // an opening pull lets the row go once the menu has really come out, on
+    // its way and before it lands; a release that opens it lets go in runMenu
+    if (opening && !letGo && at * travel >= LET_GO_PX){ letGo = true; dismissEditor(); closeProjects(); }
     paintMenu(panel, at);
   };
   const end = e => {

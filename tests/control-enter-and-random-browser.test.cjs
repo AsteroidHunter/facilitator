@@ -258,12 +258,15 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
+// on both pages a caret in the box goes on into the next card's box with the
+// move. caretFromOutside: a move made with no box holding the caret puts it in
+// one; the phone never does, since a focused box is what raises its keyboard
 const PAGES = [
-  { name: "desktop", viewport: DESKTOP, caretFollows: true },
-  { name: "phone", viewport: PHONE, caretFollows: false },
+  { name: "desktop", viewport: DESKTOP, caretFromOutside: true },
+  { name: "phone", viewport: PHONE, caretFromOutside: false },
 ];
 
-for (const { name, viewport, caretFollows } of PAGES) {
+for (const { name, viewport, caretFromOutside } of PAGES) {
   for (const editor of ["formatted", "plain"]) {
     test(`${name} ${editor} row: control+enter with words sends once and lands where double Enter lands`, async () => {
       const ids = await board(`${name} ${editor} words`);
@@ -281,7 +284,7 @@ for (const { name, viewport, caretFollows } of PAGES) {
         assert.deepEqual([sends[0].box, sends[0].body], [ids.source, "words for the agent"]);
         assert.equal(control.browsing, false, "control+enter left the card browsed");
         assert.equal(control.shown, ids.oldest);
-        assert.equal(control.caretIn, caretFollows ? ids.oldest : null, "the caret did not land as double Enter's does");
+        assert.equal(control.caretIn, ids.oldest, "the caret did not go on into the next card's box");
 
         const double = await doubleEnterLanding(page, ids, "words for the double Enter");
         assert.deepEqual(control, double, "control+enter and double Enter landed differently");
@@ -324,7 +327,7 @@ for (const { name, viewport, caretFollows } of PAGES) {
       await settle(250);
       const outside = await landing(page);
       assert.equal(outside.browsing, false);
-      assert.equal(outside.caretIn, double.caretIn);
+      assert.equal(outside.caretIn, caretFromOutside ? double.caretIn : null);
       assert.equal(sends.length, 0);
       assert.deepEqual(problems, []);
     } finally {
@@ -395,7 +398,7 @@ for (const { name, viewport, caretFollows } of PAGES) {
       await settle(1200);
       const at = await landing(page);
       assert.equal(at.selected, ids.source, "a refused send moved the reader away from it");
-      if (caretFollows) {
+      if (name === "desktop") {
         // a refused send stays in the sent panel under its mark; the cross gives the words back
         assert.equal(await page.evaluate(card => {
           const held = (els[card] && els[card].sentHeld) || [];
