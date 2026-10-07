@@ -59,7 +59,7 @@ test("on a touch screen the tap area is at least 32 by 32 real pixels", () => {
 test("the touch rule changes nothing else about the button's look", () => {
   const [rule] = touchRules();
   assert.deepEqual(Object.keys(rule).sort(),
-    ["height", "justify-content", "opacity", "padding", "pointer-events", "right", "top", "width", "z-index"]);
+    ["height", "justify-content", "opacity", "padding", "pointer-events", "width"]);
   assert.ok(!/accent|purple/i.test(JSON.stringify(rule)));
 });
 
@@ -67,16 +67,12 @@ test("the touch rule changes nothing else about the button's look", () => {
 // positioned sibling, so the button, which comes first in the markup, sat under
 // the code with nothing wrong in its computed style. It is raised above the
 // code, in a stack of the wrapper's own, on touch screens only.
-test("on a touch screen the button is raised above the code that scrolls, and no higher than its block", () => {
-  const [button] = touchRules();
+test("the button is raised above the code that scrolls, and no higher than its block, on the Mac and the phone", () => {
+  const [button] = plainRules(BUTTON);
   assert.ok(parseInt(button["z-index"], 10) >= 1);
-  const wrap = touchRules(".cardmd .codeblockwrap");
-  assert.equal(wrap.length, 1);
-  assert.deepEqual(wrap[0], { isolation: "isolate" });
-  for (const selector of [".cardmd .codeblockwrap", BUTTON])
-    for (const rule of plainRules(selector)) {
-      assert.ok(!("z-index" in rule) && !("isolation" in rule), "the mouse's look has no stacking of its own");
-    }
+  const [wrap] = plainRules(".cardmd .codeblockwrap");
+  assert.equal(wrap.isolation, "isolate");
+  assert.equal(touchRules(".cardmd .codeblockwrap").length, 0, "no stacking of its own for touch");
 });
 
 // card-markdown.js run in a context of its own, with the page objects the copy
