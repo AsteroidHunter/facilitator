@@ -12,6 +12,7 @@
   "use strict";
 
   const COPY_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+  const COPIED_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5 10 18.5 20 6"/></svg>';
   const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
   const MAX_BLOCK_DEPTH = 32;
 
@@ -438,6 +439,34 @@
       COPY_ICON + '</button>' + languageHTML + '<pre class="codeblock"><code>' + escapeHTML(code) + "</code></pre></div>";
   }
 
+  // The older way to copy, for a page the clipboard API will not serve (a plain
+  // connection has no navigator.clipboard, and a refusal rejects): the block's
+  // text is selected where it stands and copied, then the selection is dropped.
+  function copySelected(code) {
+    const selection = globalThis.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+    selection.removeAllRanges();
+    return copied;
+  }
+
+  // A press on a block's copy button puts the block's text on the clipboard and
+  // shows a tick for a moment where the icon was.
+  function copyCodeBlock(button) {
+    const code = button.parentElement.querySelector("code");
+    const shown = () => {
+      button.innerHTML = COPIED_ICON;
+      setTimeout(() => { button.innerHTML = COPY_ICON; }, 1200);
+    };
+    const selected = () => { if (code && copySelected(code)) shown(); };
+    if (!navigator.clipboard || !navigator.clipboard.writeText) { selected(); return Promise.resolve(); }
+    return navigator.clipboard.writeText(code ? code.textContent : "").then(shown, selected);
+  }
+
   function imageGrid(lines) {
     const rendered = lines.map(line => renderInline(line, 0));
     const image = /<img class="shot"[^>]*>/g;
@@ -610,6 +639,6 @@
     return renderBlocks(String(source == null ? "" : source).replace(/\r\n?/g, "\n").split("\n"), 0);
   }
 
-  return { render, renderInline, escapeHTML, escapeAttribute, safeLinkTarget, safeImageTarget,
+  return { render, renderInline, escapeHTML, escapeAttribute, safeLinkTarget, safeImageTarget, copyCodeBlock,
     renderAttachment, attachmentInfo, attachmentFile, ATTACHMENT_TYPES, ATTACHMENT_ACCEPT, MAX_ATTACHMENT_SIZE };
 });

@@ -303,6 +303,16 @@
   pointer-events:none; transition:opacity .15s}
 .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
 .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
+/* a touch screen has no hover to bring the button up, so it stays shown there,
+   with a tap area of 32 real pixels (not --u: the phone scales that) round an
+   icon that stays small. WebKit on the phone paints a block that scrolls over
+   an earlier positioned sibling, so the button is raised above it, in a stack
+   of the wrapper's own so it rises no higher than the block it sits on */
+@media (hover: none){
+  .cardmd .codeblockwrap{isolation:isolate}
+  .cardmd .codeblockwrap .copybtn{top:calc(4 * var(--u)); right:calc(4 * var(--u));
+    width:32px; height:32px; padding:0; justify-content:center; opacity:1; pointer-events:auto; z-index:1}
+}
 .cardmd blockquote{margin:0 0 calc(9 * var(--u)) calc(2 * var(--u)); padding:calc(2 * var(--u)) 0 calc(2 * var(--u)) calc(12 * var(--u));
   border-left:calc(3 * var(--u)) solid var(--line); color:var(--sub)}
 .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 calc(9 * var(--u))}
