@@ -316,9 +316,14 @@
      sits half a line (9.375 units) under the block's top padding, and the
      padding below grows so the 32px button keeps room above and below it */
   .cardmd .codeblockwrap[data-lines="1"] .codeblock{padding-top:calc(12 * var(--u)); padding-bottom:calc(12 * var(--u))}
-  .cardmd .codeblockwrap[data-lines="1"][data-language] .codeblock{padding-top:calc(29 * var(--u))}
-  .cardmd .codeblockwrap[data-lines="1"] .copybtn{top:calc(21.375 * var(--u) - 16px)}
-  .cardmd .codeblockwrap[data-lines="1"][data-language] .copybtn{top:calc(38.375 * var(--u) - 16px)}
+  .cardmd .codeblockwrap[data-lines="1"]:not([data-language]) .copybtn{top:calc(21.375 * var(--u) - 16px)}
+  /* a block with a language keeps the Mac's label at the top left, raised above
+     the code like the button for the same reason, in a row tall enough for the
+     32px button, which sits in that row with its centre on the label's centre
+     (22 units down; the label is 14.7 units tall) */
+  .cardmd .codeblockwrap[data-language] .codeblock{padding-top:calc(40 * var(--u))}
+  .cardmd .codeblockwrap[data-language] .codelang{top:calc(14.65 * var(--u)); z-index:1}
+  .cardmd .codeblockwrap[data-language] .copybtn{top:calc(22 * var(--u) - 16px)}
 }
 .cardmd blockquote{margin:0 0 calc(9 * var(--u)) calc(2 * var(--u)); padding:calc(2 * var(--u)) 0 calc(2 * var(--u)) calc(12 * var(--u));
   border-left:calc(3 * var(--u)) solid var(--line); color:var(--sub)}
