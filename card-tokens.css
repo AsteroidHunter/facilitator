@@ -312,6 +312,13 @@
   .cardmd .codeblockwrap{isolation:isolate}
   .cardmd .codeblockwrap .copybtn{top:calc(4 * var(--u)); right:calc(4 * var(--u));
     width:32px; height:32px; padding:0; justify-content:center; opacity:1; pointer-events:auto; z-index:1}
+  /* a one line block puts the button's centre on the line's centre: the line
+     sits half a line (9.375 units) under the block's top padding, and the
+     padding below grows so the 32px button keeps room above and below it */
+  .cardmd .codeblockwrap[data-lines="1"] .codeblock{padding-top:calc(12 * var(--u)); padding-bottom:calc(12 * var(--u))}
+  .cardmd .codeblockwrap[data-lines="1"][data-language] .codeblock{padding-top:calc(29 * var(--u))}
+  .cardmd .codeblockwrap[data-lines="1"] .copybtn{top:calc(21.375 * var(--u) - 16px)}
+  .cardmd .codeblockwrap[data-lines="1"][data-language] .copybtn{top:calc(38.375 * var(--u) - 16px)}
 }
 .cardmd blockquote{margin:0 0 calc(9 * var(--u)) calc(2 * var(--u)); padding:calc(2 * var(--u)) 0 calc(2 * var(--u)) calc(12 * var(--u));
   border-left:calc(3 * var(--u)) solid var(--line); color:var(--sub)}
