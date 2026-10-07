@@ -302,10 +302,11 @@
    button and the label are raised above it, in a stack of the wrapper's own so
    they rise no higher than the block they sit on. The button centres itself on
    its own height, so the Mac's small one and the phone's 32px one both land on
-   the line. A one line block pads 12 above and below and keeps its right
-   padding clear of the button, so the button never covers the text */
+   the line. A one line block pads 12 above and below and ends its scrolling
+   code at a border to the right of the button (padding would let a long line
+   run on under the button), so the button never covers the text */
 .cardmd .codeblockwrap[data-lines="1"] .codeblock{padding-top:calc(12 * var(--u)); padding-bottom:calc(12 * var(--u))}
-.cardmd .codeblockwrap[data-lines="1"]:not([data-language]) .codeblock{padding-right:calc(52 * var(--u))}
+.cardmd .codeblockwrap[data-lines="1"]:not([data-language]) .codeblock{border-right:calc(46 * var(--u)) solid #EFF1F4}
 .cardmd .codeblockwrap[data-language] .codeblock{padding-top:calc(40 * var(--u))}
 .cardmd .codelang{position:absolute; top:calc(14.65 * var(--u)); left:calc(12 * var(--u)); z-index:1; max-width:calc(100% - 62 * var(--u));
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
