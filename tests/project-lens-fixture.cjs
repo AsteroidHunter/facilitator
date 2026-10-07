@@ -16,9 +16,11 @@ vm.runInContext(readFileSync(path.join(root, "card-logic.js"), "utf8"), cardLogi
 const shared = { sentCurve: cardLogic.sentCurve, sentSmooth: cardLogic.sentSmooth,
   sentBoxDistance: cardLogic.sentBoxDistance, MERGE_EASE: vm.runInContext("MERGE_EASE", cardLogic) };
 
-// The workspace pane at 1x: the bar's 32px pieces stand from 6 to 38, and the
-// pane's border box starts at --app-inset + --bar-h - 1 - --edge-drawn = 45,
-// its .8px clear border drawn one device pixel wide, so its ring starts at 46.
+// The workspace pane at 1x: the bar's 32px pieces stand from 7 to 39 (--app-inset
+// and the bar's 1px of padding under the window's top), and the pane's border
+// box starts at --app-inset + --bar-h - 1 - --edge-drawn = 45, its .8px clear
+// border drawn one device pixel wide, so its ring starts at 46.
+const ROW_TOP = 7;
 const PANE = { left: 6, top: 45, right: 994, bottom: 794 };
 
 function fixture({ home = false, closed = [], widths = [100, 140, 80], render = false, pane = true, reduced = false } = {}) {
@@ -80,10 +82,10 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
     getAnimations(options) { return [...(this.animations || []), ...(options?.subtree ? this.children.flatMap(el => el.getAnimations(options)) : [])]; }
     matches(selector) { return selector === ":hover" && this.hovered; }
     getBoundingClientRect() {
-      if (this === row) return { left:0, top:6, width:360, height:32, right:360, bottom:38 };
-      if (this === homeButton) return { left:0, top:6, width:32, height:32, right:32, bottom:38 };
-      if (this === house) return { left:8.5, top:14.5, width:15, height:15, right:23.5, bottom:29.5 };
-      if (this === oval || this === bar) return { left: 40, top: 6, width: 320, height: 32, right: 360, bottom: 38 };
+      if (this === row) return { left:0, top:ROW_TOP, width:360, height:32, right:360, bottom:ROW_TOP + 32 };
+      if (this === homeButton) return { left:0, top:ROW_TOP, width:32, height:32, right:32, bottom:ROW_TOP + 32 };
+      if (this === house) return { left:8.5, top:ROW_TOP + 8.5, width:15, height:15, right:23.5, bottom:ROW_TOP + 23.5 };
+      if (this === oval || this === bar) return { left: 40, top: ROW_TOP, width: 320, height: 32, right: 360, bottom: ROW_TOP + 32 };
       if (this === frame) return { ...PANE, width: PANE.right - PANE.left, height: PANE.bottom - PANE.top };
       if (this.classes.has("plabel") || this.classes.has("ptabx")) {
         const r = this.parentNode.getBoundingClientRect(), cross = this.classes.has("ptabx");
@@ -102,7 +104,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
         const widthOf = el => el.classes.has("closed") ? 0 : el.baseWidth + (el.classes.has("armed") ? 12 : 0);
         const move = (this.style.transform || "").match(/translate(?:X)?\(([-.\d]+)px(?:,\s*([-.\d]+)px)?/);
         const left = 40 + before.reduce((sum, el) => sum + widthOf(el), 0) + Number(move?.[1] || 0);
-        const top = 6 + Number(move?.[2] || 0);
+        const top = ROW_TOP + Number(move?.[2] || 0);
         return { left, top, width: widthOf(this), height: 32, right: left + widthOf(this), bottom: top + 32 };
       }
       // a test may stand in for a CSS transition by giving the place and width
@@ -112,7 +114,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
       const independent = (this.style.translate || "").split(" ").map(v => parseFloat(v) || 0);
       const width = parseFloat(shown.width ?? this.style.width) || 0;
       const left = (this.parentNode?.getBoundingClientRect().left || 0) + (parseFloat(this.style.left) || 0) + Number(move?.[1] || 0) + (independent[0] || 0);
-      const top = 6 + Number(move?.[2] || 0) + (independent[1] || 0);
+      const top = ROW_TOP + Number(move?.[2] || 0) + (independent[1] || 0);
       return { left, top, width, height: 32, right: left + width, bottom: top + 32 };
     }
   }
@@ -154,7 +156,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
     h: (tag, cls) => Object.assign(new Element(cls), { tagName: tag }), ResizeObserver: class { observe() {} unobserve() {} },
     MutationObserver: class { constructor(fn) { this.fn = fn; observers.push(this); } observe() {} },
     getComputedStyle(el) {
-      if (el === frame) return { borderTopWidth: "0.8px", borderTopLeftRadius: "12px", opacity: "1", width: "988px" };
+      if (el === frame) return { borderTopWidth: "0.8px", borderTopLeftRadius: "7px", opacity: "1", width: "988px" };
       const tab = el.closest(".ptab") || el.closest("#homeico"), cross = el.classes.has("ptabx"), armed = tab?.classes.has("armed");
       return { columnGap: "0", width: el.style.width || el.parentNode?.style.width || "0px",
         opacity: cross ? (armed ? (el.classes.has("off") ? ".3" : "1") : "0") : (el.classes.has("tearing") ? ".45" : "1"),
@@ -216,4 +218,4 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
   };
 }
 
-module.exports = { fixture, html, between, PANE };
+module.exports = { fixture, html, between, PANE, ROW_TOP };

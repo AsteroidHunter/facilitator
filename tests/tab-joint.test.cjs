@@ -31,10 +31,11 @@ function assertJoinedUnder(f, ow){
   assert.deepEqual(shapes(f), ["lens>pane"]);
   const rows = j.outline.loops[0].rows;
   assert.ok(Math.abs(rows[0][1] - rect.left) < .05 && Math.abs(rows[0][2] - rect.right) < .05, "starts on the lens's own sides");
-  // straight down the lens's full width where its own ends would round in,
-  // then only ever out into the flare: no waist at rest
+  // straight down the lens's full width from where its 7px corners end, then
+  // only ever out into the flare: no waist at rest
+  assert.equal(rows[0][0], rect.top + 7, "starts where the lens's corners end");
   for (const [y, l, r] of rows){
-    if (y >= 24 && y <= 35) assert.ok(Math.abs(l - rect.left) < .3 && Math.abs(r - rect.right) < .3, "straight sides at " + y + ": " + l + ", " + r);
+    if (y <= rect.bottom - 3) assert.ok(Math.abs(l - rect.left) < .3 && Math.abs(r - rect.right) < .3, "straight sides at " + y + ": " + l + ", " + r);
     assert.ok(l <= rect.left + .05 && r >= rect.right - .05, "no waist at " + y);
   }
   for (let i = 1; i < rows.length; i++) assert.ok(rows[i][1] <= rows[i - 1][1] + 1e-6, "the side only goes out");
@@ -64,8 +65,14 @@ test("at rest the open project's lens and the workspace are one outline, drawn i
   assert.match(j.face.attributes.d, /^M/); assert.match(j.ring.attributes.d, /^M/);
   assert.equal(j.ring.attributes.stroke, "#c7c7cc", "the glass's own ring color");
   assert.match(j.face.attributes.d, /V48\.50H/, "the pane's line is covered under the joint and faded below it");
-  // the face takes the lens's clean middle out (the lens draws its own words)
-  assert.match(j.face.attributes.d, /A12 12 0 0 1 /);
+  // the face takes the lens's clean middle out (the lens draws its own words):
+  // its sides straight down from the first row, then round its foot's two
+  // corners, the lens's own 7px less the 4px of rim
+  const lens = f.seat.face.getBoundingClientRect(), foot = (lens.bottom - 4).toFixed(2);
+  assert.ok(j.face.attributes.d.includes("V" + (lens.bottom - 4 - 3).toFixed(2) + "A3 3 0 0 1 " + (lens.right - 4 - 3).toFixed(2) + " " + foot +
+    "H" + (lens.left + 4 + 3).toFixed(2) + "A3 3 0 0 1 " + (lens.left + 4).toFixed(2) + " " + (lens.bottom - 4 - 3).toFixed(2) + "V" + (lens.top + 7).toFixed(2)),
+    "the clean middle is cut out with the lens's corners: " + j.face.attributes.d);
+  assert.doesNotMatch(j.face.attributes.d, /A12 12|A13 13|A16 16/);
   // beside the bar, straight after it, so it paints over the lens's foot and
   // is not cut off at the bar's foot
   const beside = f.topBar.parentNode.children;
@@ -341,8 +348,12 @@ test("another name carried across the open one keeps its own lens over the joint
   const frames = run(f, 100), held = f.context.tabDrag.held.getBoundingClientRect();
   assert.ok(frames.every(r => r.tau === 1 && r.kind === null), "the open lens stays joined");
   assert.equal(j.group.attributes["clip-path"], "url(#seatjoinkeep)");
-  const d = j.kept.attributes.d, r = (held.bottom - held.top) / 2;
-  assert.ok(d.includes("M" + (held.left + r).toFixed(2) + " " + held.top.toFixed(2)), "the carried capsule is cut out");
+  const d = j.kept.attributes.d, r = 7, f2 = v => v.toFixed(2);
+  // the carried name's own lens, a box with 7px corners, is the hole
+  assert.ok(d.includes("M" + f2(held.left + r) + " " + f2(held.top) + "H" + f2(held.right - r) + "A7.00 7.00 0 0 1 " + f2(held.right) + " " + f2(held.top + r) +
+    "V" + f2(held.bottom - r) + "A7.00 7.00 0 0 1 " + f2(held.right - r) + " " + f2(held.bottom) + "H" + f2(held.left + r) +
+    "A7.00 7.00 0 0 1 " + f2(held.left) + " " + f2(held.bottom - r) + "V" + f2(held.top + r) + "A7.00 7.00 0 0 1 " + f2(held.left + r) + " " + f2(held.top) + "Z"),
+    "the carried lens's box is cut out: " + d);
   assert.equal(j.kept.attributes["clip-rule"], "evenodd");
   f.up(60); f.tick(0); f.tick(250); run(f, 50);
   assert.equal(j.group.attributes["clip-path"], undefined, "nothing cut out once it is set down");
@@ -357,7 +368,7 @@ test("the pinch point, the split's clock and the join's curve are the merge's", 
   assert.equal(f.get("JOINT_JOIN(.5)"), f.get("sentCurve(MERGE_EASE)(.5)"));
   assert.match(html, /const JOINT_JOIN = sentCurve\(MERGE_EASE\)/);
   // the split's shapes are the join's, in reverse order
-  const lens = { left: 40, top: 6, right: 140, bottom: 38 }, pane = { left: 6, top: 46, right: 994, bottom: 794, corner: 11 };
+  const lens = { left: 40, top: 7, right: 140, bottom: 39 }, pane = { left: 6, top: 46, right: 994, bottom: 794, corner: 6.5 };
   for (const tau of [.1, .3, .6, .9]){
     const a = f.get("jointOutline(jointMoment(" + tau + ", " + JSON.stringify(lens) + ", " + JSON.stringify(pane) + ", 90, 0)).face");
     assert.equal(typeof a, "string"); assert.ok(a.length > 20);

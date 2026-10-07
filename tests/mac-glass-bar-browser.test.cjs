@@ -171,7 +171,7 @@ async function referenceCenter(page) {
     const box = tabSeat.face.getBoundingClientRect(), word = label.getBoundingClientRect();
     const ref = document.createElement("span"); ref.id = "lens-clean-reference"; ref.className = "qn-glass";
     ref.setAttribute("aria-hidden", "true"); ref.inert = true;
-    ref.style.cssText = `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:32px;border-radius:16px;z-index:20;pointer-events:none;backdrop-filter:none;background-color:color-mix(in srgb,var(--paper),#fff 77%)`;
+    ref.style.cssText = `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:32px;border-radius:7px;z-index:20;pointer-events:none;backdrop-filter:none;background-color:color-mix(in srgb,var(--paper),#fff 77%)`;
     const text = document.createElement("span"); text.textContent = label.textContent;
     // Independent reference geometry: the original label's reserved box is
     // centered in the pill, with ordinary CSS scaling around its own center.
@@ -306,7 +306,8 @@ test("the speaker and the squid remain glass circles drawn as the phone's row dr
       assert.equal(p.edge, pieces[0].edge, p.sel + " is not drawn with the house's edge");
       near(p.markMid[0], p.mid[0], p.sel + ": the mark is not centred across");
       near(p.markMid[1], p.mid[1], p.sel + ": the mark is not centred down");
-      near(p.top, 6, p.sel + ": the circle does not stand at the top of the bar");
+      // the row's 1px of padding over it: --app-inset (6) and 1
+      near(p.top, 7, p.sel + ": the circle does not stand at the top of the bar");
     }
     // the phone row's edge: the grey ring is the top rim, with no white line or
     // dark band of the glass's own drawn over it, and the soft shadow under it
@@ -457,9 +458,11 @@ test("the pane keeps the outline's rectangle, with clear paper under the bar and
       document.body.appendChild(probe);
       const drawn = probe.getBoundingClientRect().width;
       probe.remove();
-      return { r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, w: innerWidth, h: innerHeight, drawn,
+      return { r: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, w: innerWidth, h: innerHeight, drawn, dpr: devicePixelRatio,
         glass: f.classList.contains("qn-glass"), z: cs.zIndex, pointer: cs.pointerEvents, borderColor: cs.borderTopColor,
         radius: cs.borderRadius, filter: cs.backdropFilter, face: cs.backgroundColor,
+        lensRadius: getComputedStyle(tabSeat.face).borderRadius,
+        head: Math.min(...pieces.map(el => el.getBoundingClientRect().top)),
         foot: Math.max(...pieces.map(el => el.getBoundingClientRect().bottom)),
         barFace: bar.backgroundColor, barFilter: bar.backdropFilter, barLine: getComputedStyle(document.querySelector(".bar"), "::before").content,
         notch: on ? [getComputedStyle(on, "::before").content, getComputedStyle(on, "::after").content, getComputedStyle(on).borderTopStyle] : null };
@@ -471,13 +474,19 @@ test("the pane keeps the outline's rectangle, with clear paper under the bar and
     near(g.h - g.r.bottom, 6, "the pane's foot moved");
     near(g.r.top, 6 + 41 - 1 - g.drawn, "the pane's top edge moved");
     assert.equal(g.glass, true, "the pane is not the glass");
-    assert.equal(g.radius, "12px");
+    assert.equal(g.radius, "7px");
+    assert.equal(g.lensRadius, "7px", "the open name's lens is not a box with 7px corners");
     assert.equal(g.borderColor, "rgba(0, 0, 0, 0)", "the pane still draws the outline's line");
     assert.equal(g.filter, "none", "the pane blurs the whole window");
     assert.equal(g.face, "rgba(255, 255, 255, 0.35)");
     assert.equal(g.z, "-1", "the pane is not under the canvas");
     assert.equal(g.pointer, "none", "the pane takes the pointer");
     assert.ok(g.r.top - g.foot >= 6, `less than 6px of paper under the bar's pieces: ${g.r.top - g.foot}`);
+    // the paper over the pieces (the window's top to their top) and under them
+    // (their foot to the pane's top edge) are within one device pixel of each other
+    near(g.head, 7, "the row is not 1px down from the window's top");
+    assert.ok(Math.abs(g.head - (g.r.top - g.foot)) <= 1 / g.dpr + .01,
+      `the paper above the pieces (${g.head}) and under them (${g.r.top - g.foot}) are more than a device pixel apart`);
     // nothing joins the bar to the pane
     assert.equal(g.barFace, "rgba(0, 0, 0, 0)", "the bar still has a face");
     assert.equal(g.barFilter, "none", "the bar still blurs");

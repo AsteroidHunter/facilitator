@@ -271,28 +271,54 @@ test("the inner mask completely replaces original ink and feathers only after th
   for (const join of [2.5, 3.5]) assert.ok(Math.abs((alpha(join + e) - alpha(join - e)) / (2 * e)) < .00001);
   f.context.devicePixelRatio = 2; f.context.lensMap(87.375);
   const map = f.images[0]; assert.equal(map.width, 175); assert.equal(map.height, 64);
+  // the box's mask: four corners, a radial gradient each about the corner's
+  // centre, and two straight bands. read back from the CSS it is, layer by layer
+  const topLevel = text => { const out = []; let depth = 0, from = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "(") depth++; else if (text[i] === ")") depth--;
+      else if (text[i] === "," && !depth) { out.push(text.slice(from, i)); from = i + 1; }
+    }
+    return out.concat(text.slice(from)); };
+  // a size or place in px, "0", "100%" or "calc(100% - Npx)" of the whole
+  const length = (token, whole) => token === "0" ? 0 : token === "100%" ? whole :
+    token.startsWith("calc(") ? whole - parseFloat(token.match(/- ([\d.]+)px/)[1]) : parseFloat(token);
+  const layer = (text, width) => {
+    const m = text.match(/^(radial|linear)-gradient\((.*)\) (.+?)\/(.+?) no-repeat$/), H = 32;
+    assert.ok(m, text);
+    const [head, ...colors] = topLevel(m[2]).map(s => s.trim());
+    const size = m[4].split(/ (?![^(]*\))/), place = m[3].split(" ");
+    const wide = length(size[0], width), high = length(size[1], H);
+    const x0 = place[0] === "left" ? 0 : place[0] === "right" ? width - wide : length(place[0], width);
+    const y0 = place[1] === "top" ? 0 : place[1] === "bottom" ? H - high : length(place[1], H);
+    // each stop: its alpha, and its place along the gradient, from the start in px or from the far end
+    const stops = colors.map(s => {
+      const k = s.match(/^rgba\(0,0,0,([\d.]+)\) (.+)$/), back = k[2].match(/^calc\(100% - ([\d.]+)px\)$/);
+      return { alpha: Number(k[1]), at: back ? null : parseFloat(k[2]), back: back ? parseFloat(back[1]) : null };
+    });
+    const radial = m[1] === "radial", along = radial ? null : head === "to right" ? "x" : "y";
+    return { radial, x0, y0, wide, high, stops, along, centre: radial ? head.match(/at ([\d.]+)px ([\d.]+)px/).slice(1).map(Number) : null };
+  };
+  const coverAt = (l, x, y) => {
+    if (x < l.x0 || x >= l.x0 + l.wide || y < l.y0 || y >= l.y0 + l.high) return 0;
+    const where = l.radial ? Math.hypot(x - l.x0 - l.centre[0], y - l.y0 - l.centre[1]) : l.along === "x" ? x - l.x0 : y - l.y0;
+    const span = l.along === "x" ? l.wide : l.high;
+    const stops = l.stops.map(s => [s.at !== null ? s.at : span - s.back, s.alpha]);
+    if (where <= stops[0][0]) return stops[0][1];
+    for (let i = 1; i < stops.length; i++) if (where <= stops[i][0]) {
+      const [a, va] = stops[i - 1], [b, vb] = stops[i]; return va + (vb - va) * (where - a) / (b - a);
+    }
+    return stops.at(-1)[1];
+  };
   for (const width of [28, 32, 87.375, 480]) {
     const css = f.context.lensCenterMask(width);
     assert.doesNotMatch(css, /url\(/, "an undecoded mask image could expose the broken center for a frame");
-    assert.equal((css.match(/gradient\(/g) || []).length, 3);
-    const first = css.slice(0, css.indexOf(" left top/"));
-    const stops = [...first.matchAll(/rgba\(0,0,0,([\d.]+)\) ([\d.]+)px/g)].map(m => [Number(m[2]), Number(m[1])]);
-    const at = distance => {
-      if (distance <= stops[0][0]) return stops[0][1];
-      for (let i = 1; i < stops.length; i++) if (distance <= stops[i][0]) {
-        const [a, va] = stops[i - 1], [b, vb] = stops[i]; return va + (vb - va) * (distance - a) / (b - a);
-      }
-      return stops.at(-1)[1];
-    };
-    const r = Math.min(width, 32) / 2, horizontal = width >= 32;
+    const layers = topLevel(css).map(text => layer(text.trim(), width));
+    assert.equal(layers.length, 6, "four corners and two bands");
+    assert.equal(layers.filter(l => l.radial).length, 4);
     for (let y = .125; y < 32; y += .5) for (let x = .125; x < width; x += .5) {
-      const long = horizontal ? x : y, across = horizontal ? y : x, length = horizontal ? width : 32;
-      const a = long <= 2 * r ? at(Math.hypot(long - r, across - r)) : 0;
-      const b = long >= length - 2 * r ? at(Math.hypot(long - (length - r), across - r)) : 0;
-      const c = long >= r && long <= length - r ? at(Math.abs(across - r)) : 0;
-      const coverage = 1 - (1 - a) * (1 - b) * (1 - c), depth = f.context.lensDepth(x, y, width);
-      if (depth >= 3.5) assert.equal(coverage, 1, "original center pixels can leak through");
-      if (depth <= 2.5) assert.equal(coverage, 0, "the clear copy conceals the actual optical rim");
+      const coverage = 1 - layers.reduce((left, l) => left * (1 - coverAt(l, x, y)), 1), depth = f.context.lensDepth(x, y, width);
+      if (depth >= 3.5) assert.equal(coverage, 1, `original center pixels can leak through at ${x},${y} of ${width}`);
+      if (depth <= 2.5) assert.equal(coverage, 0, `the clear copy conceals the actual optical rim at ${x},${y} of ${width}`);
     }
   }
 });
