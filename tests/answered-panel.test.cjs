@@ -1126,29 +1126,30 @@ test("the sent panel opens on the same arrow and run, and a send cuts it back on
   assert.equal(run("SENT_ARRIVE_MS"), 400, "the arrival is not the sheet's --answ-come");
 });
 
-test("the band over the answer holds still while the sent panel runs", () => {
+test("the band over the answer follows the sent panel on every frame it runs, opening and cut back", () => {
+  // held at one end of the run, the answer's fade jumped up once the panel
+  // stood open and down as a cut back set off
   const { context } = sandbox();
   const el = fullCard("c1");
   context.syncSent(el, context.sentBatch(LIVE.map(m => m.text)));
   const panel = el.sent;
   const clip = layOutLong(panel, FakeResizeObserver.made[0]);
-  assert.equal(context.sentBand(el, 300), 300, "a panel at rest held the band");
-  // opening, 58px to 240px: the band stays where it stood before the run
+  assert.equal(context.sentBand(el, 118), 118, "a panel at rest held the band");
+  // opening, 58px to 240px
   panel.fire("click", { target: panel });
   clip.midRun = 100;
-  assert.equal(context.sentBand(el, 160), 118, "the opening run did not hold the band at its start");
+  assert.equal(context.sentBand(el, 160), 160, "the band did not follow the opening panel");
   clip.midRun = 180;
-  assert.equal(context.sentBand(el, 240), 118, "the band followed the panel on a frame of the run");
+  assert.equal(context.sentBand(el, 240), 240, "the band did not follow the opening panel");
   clip.midRun = null;
   landRun(panel);
-  assert.equal(context.sentBand(el, 300), 300, "the band stayed held once the run had landed");
-  // cutting back, 240px to 58px: the band goes to the far end at the start, so
-  // the words under the seat are back before it comes down over them
+  assert.equal(context.sentBand(el, 300), 300, "the band is not the open panel's once the run has landed");
+  // cutting back, 240px to 58px
   panel.fire("click", { target: panel });
   clip.midRun = 240;
-  assert.equal(context.sentBand(el, 300), 118, "cutting back did not put the band at its far end at once");
+  assert.equal(context.sentBand(el, 300), 300, "the band left the panel as the cut back set off");
   clip.midRun = 120;
-  assert.equal(context.sentBand(el, 180), 118);
+  assert.equal(context.sentBand(el, 180), 180, "the band did not follow the panel coming down");
   clip.midRun = null;
   // and a card with no sent panel is simply measured
   assert.equal(context.sentBand(fullCard("c2"), 77), 77);

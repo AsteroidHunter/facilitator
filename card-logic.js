@@ -3398,24 +3398,19 @@ function sentGooPath(U, L, r, k, bow, ext){
   }).join("");
 }
 
-// the band the answer is cut to while the sent panel at the foot runs. the panel
-// stands over the answer on an opaque seat, so for the length of a run the band
-// is held at the lower of the run's two ends rather than following the panel on
-// every frame: opening, the seat rises over words at full ink and the band
-// follows once it has landed; cutting back, the words under the seat are put
-// back at the start and are uncovered as it comes down. held, the answer's
-// fades and its run-out are not drawn and laid out again on every frame of the
-// run. band is what the page measured; what comes back is what it should write
+// the band the answer is cut to at the sent bubbles' top edge: what the page
+// measured, on every frame a bubble opens or is cut back on too. it used to be
+// held at the lower of a run's two ends, so the answer's fade was not drawn
+// again on every frame of the run; but then the fade stood under the seat for
+// the whole of an opening and went up in one frame once the bubble stood open,
+// the white over it growing upward all at once, and came down in one frame as
+// a cut back set off (the owner's recording).
+// following the bubble, the fade rides its top edge the whole way
+// and nothing changes once it has stopped. band is what the page measured;
+// what comes back is what it should write
 function sentBand(el, band){
-  const panel = sentPanels(el).find(one => one.answSpan);
-  const span = panel && panel.answSpan;
-  if (span && span.band == null){
-    const now = panel.querySelector(".answclip").getBoundingClientRect().height;
-    span.band = Math.max(0, Math.round(band - (now - Math.min(span.from, span.to))));
-  }
-  const out = span ? span.band : band;
-  sentKeepScroll(el, out);
-  return out;
+  sentKeepScroll(el, band);
+  return band;
 }
 // the answer stands still under the bubbles, whatever they do: it is a thing
 // of its own, and nothing the bubbles do is a reason for it to move (the

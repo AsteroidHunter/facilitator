@@ -895,9 +895,9 @@
      the panel over the answer stands in, so the two panels are one width with
      one right edge by construction, and it leaves the small step the old box
      left under itself before the row the reader types in. it is the card's own
-     opaque white, edge to edge: at rest the answer's band already ends at its
-     top edge, and while the panel runs the band is held still (sentBand in
-     card-logic.js), so the white is what covers the answer the panel rises over */
+     opaque white, edge to edge: the answer's band ends at its top edge, at rest
+     and on every frame of a run (sentBand in card-logic.js), so the white
+     covers what the band's fade has already taken down */
   body.focus .box.sel .sentwrap{
     display:flex; flex-direction:column; flex:none;
     padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);
@@ -5868,9 +5868,9 @@ function historyChevronSVG(){
 }
 
 // the sent panel's room on one card: the band the answer is cut to is written
-// again, since a run holds it still (sentBand) and a run that lands changes no
-// size the band's watch would see. the answer is not snapped again: the snap
-// leaves the sent bubbles' seat out, so nothing they do moves the answer
+// again, for a change in the seat the band's watch would not see. the answer
+// is not snapped again: the snap leaves the sent bubbles' seat out, so nothing
+// they do moves the answer
 function sentRoom(el){
   if (el.bandWrite) el.bandWrite();
 }
@@ -5926,10 +5926,9 @@ function watchBand(el){
   // foot of the answer: the depth the answer's own ramp is cut to. it is written
   // on the CARD and the answer inherits it, so every rule that reads --boxband
   // reads the number it always read.
-  // while the sent panel runs, the band is held at one end of the run rather
-  // than following the panel (sentBand in card-logic.js), and a band that has
-  // not changed is not written again, so a run writes it once and the answer's
-  // fades and run-out are not redrawn and laid out again on its every frame
+  // while a sent bubble opens or is cut back the band follows it on every frame
+  // (sentBand in card-logic.js), so the fade rides the bubble's top edge and
+  // does not jump once it stops; a band that has not changed is not written again
   const write = () => {
     const band = sentBand(el, boxBand(el.replyview, el.pendwrap));
     if (band === el.bandAt) return;
