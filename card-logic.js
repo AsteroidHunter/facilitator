@@ -2161,106 +2161,65 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
 // which bubbles become one, and how, is further down (sentCoalesce)
 const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
 
-// The field becomes the bubble the way the iPhone's Messages sends one, read
-// frame by frame off two of the owner's screen recordings, six sends in all:
-// one line and two, short and long, keyboard down and up, green and blue.
-// Every send is one box travelling from the typing bar to
-// the landed bubble, drawn shrunk about its bottom-right corner by one size
-// that dips and comes back. From 183ms on, one set of rows below places every
-// send's edges within 3pt, about 1pt on average.
-// - The box's left edge goes first and has arrived by 200ms; its top and
-//   bottom go together and later, 14% of the way at 100ms, 4.6% past the
-//   landing at 417ms and back by 717ms. Its right end goes from the bar's to
-//   the bubble's (read off the first recording, the only one where they differ).
-// - The size dips to 77% at 217ms, is whole again by 517ms, 0.5% over at
-//   567-617ms and settled by 750ms. Held at the bottom-right corner, it is
-//   what carries a bubble's left edge past its landing and back, the further
-//   the wider the bubble.
-// - The bubble is drawn at 69% strength when it appears and whole by 183ms,
-//   and the part still in the bar looks at 13.5% under the bar's frosted
-//   glass. The row here is not glass, so the box's grey is drawn at the
-//   strength the whole bubble looks: 13.5% for the share of it still over the
-//   typing row, the drawn strength for the share risen above the row's top.
-// Each row: ms from the tap; the box's left edge, its top and bottom, its right
-// end, each from the typing box's (0) to the seat's (1); the size; the strength
-// drawn. Rows are 1/60s apart, readings taken under the bar's glass (to 200ms)
-// kept running one way; the last, at 750ms, is the landing, which the fitted
-// rows are within 0.001 of from 733ms.
-// Not copied: the words turn white on the iPhone's colour; ours stay dark on
-// grey, so one copy of the words flies the whole way at full strength: laid
-// out once as the bubble lays them out, it starts over the typed words at the
-// typing size, shrinks to the bubble's size as the box's left edge travels and
-// takes the box's size on top, so no frame is blank, doubled, or halfway
-// through a rewrap.
-const SENT_FLIGHT_MS = 750;
+// The field becomes the bubble in the owner's three beats:
+// the box moves sideways, then up, and ends with an
+// accordion-like compress. The copy of the iPhone's send that stood here
+// before shrank the box
+// to 77% and grew it back past whole, and rose past its landing and came back;
+// the owner found that zoom in and out bouncy, so nothing here shrinks and
+// grows back and no edge goes past its landing.
+// - Sideways: the box's left edge, and its right end with it, sets off on the
+//   first frame and is in by 260ms. The iPhone's first 50ms barely move, which
+//   it hides under its frosted bar; drawn in the open here, that read as a
+//   pause as the message flew out.
+// - Up: the top and bottom rise together, slow to start so the sideways move
+//   leads, the top on its landing by 430ms and still from there.
+// - The compress: as it rises the box grows taller under its top, up to a
+//   fifth over the height it is heading for, and closes back down onto the
+//   bubble by 650ms, its foot coming up under the words like an accordion's
+//   bellows. The foot only ever moves up.
+// - The grey: drawn at 69% strength when the box appears and whole by 183ms,
+//   faint (13.5%) for the share of the box still over the typing row, as the
+//   iPhone's bubble looks under its bar's glass; read off the recordings and
+//   kept.
+// The words stay dark on grey: one copy, laid out once as the bubble lays them
+// out, starts over the typed words at the typing size and shrinks to the
+// bubble's size as the left edge travels, so no frame is blank, doubled, or
+// halfway through a rewrap.
+const SENT_FLIGHT_MS = 650;
 const SENT_FAINT = .135;
-const SENT_TRACK = [
-  // ms, left, down, right, size, strength
-  [0, 0, 0, 0, 1, .686],
-  [16.7, .001, .01, .081, .976, .686],
-  [33.3, .021, .013, .133, .968, .694],
-  [50, .083, .02, .189, .958, .713],
-  [66.7, .11, .046, .291, .905, .729],
-  [83.3, .212, .084, .352, .894, .755],
-  [100, .402, .14, .456, .894, .778],
-  [116.7, .556, .215, .513, .89, .816],
-  [133.3, .689, .253, .616, .864, .864],
-  [150, .763, .369, .675, .826, .906],
-  [166.7, .935, .46, .73, .816, .955],
-  [183.3, .987, .558, .784, .794, 1],
-  [200, 1, .643, .838, .782, 1],
-  [216.7, 1, .737, .892, .771, 1],
-  [233.3, 1, .804, .94, .779, 1],
-  [250, 1, .857, .946, .792, 1],
-  [266.7, 1, .904, .994, .809, 1],
-  [283.3, 1, .941, 1, .829, 1],
-  [300, 1, .972, 1, .849, 1],
-  [316.7, 1, .995, 1.043, .87, 1],
-  [333.3, 1, 1.014, 1.048, .889, 1],
-  [350, 1, 1.026, 1.048, .908, 1],
-  [366.7, 1, 1.036, 1.048, .925, 1],
-  [383.3, 1, 1.04, 1.048, .94, 1],
-  [400, 1, 1.045, 1.048, .953, 1],
-  [416.7, 1, 1.046, 1.048, .964, 1],
-  [433.3, 1, 1.044, 1.048, .974, 1],
-  [450, 1, 1.042, 1.048, .981, 1],
-  [466.7, 1, 1.038, 1.046, .988, 1],
-  [483.3, 1, 1.036, 1.044, .993, 1],
-  [500, 1, 1.033, 1.04, .997, 1],
-  [516.7, 1, 1.027, 1.025, 1, 1],
-  [533.3, 1, 1.024, 1, 1.002, 1],
-  [550, 1, 1.022, 1, 1.003, 1],
-  [566.7, 1, 1.017, 1, 1.005, 1],
-  [583.3, 1, 1.014, 1, 1.005, 1],
-  [600, 1, 1.012, 1, 1.005, 1],
-  [616.7, 1, 1.01, 1, 1.005, 1],
-  [633.3, 1, 1.009, 1, 1.004, 1],
-  [650, 1, 1.006, 1, 1.004, 1],
-  [666.7, 1, 1.003, 1, 1.004, 1],
-  [683.3, 1, 1.002, 1, 1.003, 1],
-  [700, 1, 1.001, 1, 1.003, 1],
-  [716.7, 1, 1, 1, 1.002, 1],
-  [733.3, 1, 1, 1, 1.001, 1],
-  [750, 1, 1, 1, 1, 1],
-];
+const SENT_SIDE_MS = 260;
+const SENT_SIDE = [.3, .6, .4, 1];
+const SENT_UP_MS = 430;
+const SENT_UP = [.45, 0, .25, 1];
+const SENT_STRETCH = .22;
+const SENT_STRETCH_PEAK_MS = 330;
+// the strength the bubble is drawn at, ms from the tap
+const SENT_STRENGTH = [[0, .686], [16.7, .686], [33.3, .694], [50, .713], [66.7, .729], [83.3, .755], [100, .778],
+  [116.7, .816], [133.3, .864], [150, .906], [166.7, .955], [183.3, 1]];
 // What stood before makes room on the iPhone's own glide, which is quicker
 // than the bubble's rise: 58% of the way at 100ms, 99% by 333ms. One curve
 // fitted to the middle of the six sends' frames, within 0.016 of each.
 const SENT_GLIDE_MS = 340;
 const SENT_GLIDE_EASE = "cubic-bezier(.24,.1,.15,1)";
 
-// the track at ms from the tap, on a straight line between its frames
+const sentSideCurve = sentCurve(SENT_SIDE), sentUpCurve = sentCurve(SENT_UP);
+// the track at ms from the tap: how far the sides have come in and the box
+// has risen (0 the typing box, 1 the seat), how much taller than its height it
+// stands, and the strength it is drawn at
 function sentTrack(ms){
+  const side = sentSideCurve(ms / SENT_SIDE_MS), down = sentUpCurve(ms / SENT_UP_MS);
+  const stretch = SENT_STRETCH * (ms <= SENT_STRETCH_PEAK_MS ? sentSmooth(ms / SENT_STRETCH_PEAK_MS) :
+    1 - sentSmooth((ms - SENT_STRETCH_PEAK_MS) / (SENT_FLIGHT_MS - SENT_STRETCH_PEAK_MS)));
   let i = 1;
-  while (i < SENT_TRACK.length - 1 && SENT_TRACK[i][0] < ms) i++;
-  const a = SENT_TRACK[i - 1], b = SENT_TRACK[i];
-  const f = Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
-  const at = n => a[n] + (b[n] - a[n]) * f;
-  return { left:at(1), down:at(2), right:at(3), size:at(4), strength:at(5) };
+  while (i < SENT_STRENGTH.length - 1 && SENT_STRENGTH[i][0] < ms) i++;
+  const a = SENT_STRENGTH[i - 1], b = SENT_STRENGTH[i];
+  const strength = a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
+  return { left:side, right:side, down, stretch, strength };
 }
 const sentWithin = p => Math.max(0, Math.min(1, p));
-// the travelling box at one point of the track, and the bubble drawn from it:
-// the box shrunk by the size about its bottom-right corner
+// the travelling box at one point of the track: its sides and its rise, and
+// the box drawn from it, as tall as the stretch makes it under its top
 function sentMorphBox(from, to, at){
   const mix = (a, b, p) => a + (b - a) * p;
   const frame = {
@@ -2269,9 +2228,9 @@ function sentMorphBox(from, to, at){
     top:mix(from.top, to.top, at.down),
     bottom:mix(from.top + from.height, to.top + to.height, at.down),
   };
-  const width = Math.max(0, frame.right - frame.left) * at.size;
-  const height = Math.max(0, frame.bottom - frame.top) * at.size;
-  return { frame, box:{ left:frame.right - width, top:frame.bottom - height, width, height } };
+  const width = Math.max(0, frame.right - frame.left);
+  const height = Math.max(0, frame.bottom - frame.top) * (1 + at.stretch);
+  return { frame, box:{ left:frame.left, top:frame.top, width, height } };
 }
 
 // A snapshot leaves the real editor and rendered message alone. Resolved styles
@@ -2490,12 +2449,11 @@ function armSentMotion(el){
       const rowTop = () => sentMotionVisible(source) ? source.getBoundingClientRect().top : start.top;
       // the seat is the new bubble as it stands, read every frame: a later
       // send pushes it up on that send's glide, and the flight follows it there
-      const seat = () => ({ box:target.getBoundingClientRect(), x:0, y:0 });
+      const seat = () => target.getBoundingClientRect();
       // one frame of the flight, ms from the tap
       const put = ms => {
         const at = sentTrack(ms);
-        const landing = seat();
-        const { frame, box } = sentMorphBox(start, landing.box, at);
+        const { frame, box } = sentMorphBox(start, seat(), at);
         write(box);
         // faint for the share of the box still over the typing row, the
         // track's strength for the share risen above the row's top
@@ -2510,16 +2468,15 @@ function armSentMotion(el){
         // the words ride the travelling box: their first line's left goes from
         // the typed words' place in it to the bubble's as its left edge
         // travels, its middle as it rises, and they shrink from the typing size
-        // to the bubble's as its left edge travels; then they take the box's
-        // size about its bottom-right corner, as the iPhone's words take their
-        // bubble's
+        // to the bubble's as its left edge travels. they ride its top, so the
+        // compress closes up under them
         const squeeze = sentWithin(at.left), rise = sentWithin(at.down);
-        const k = (grow + (1 - grow) * squeeze) * at.size;
-        const to = { x:landing.x + lead.x, y:landing.y + lead.y + inkLine / 2 };
+        const k = grow + (1 - grow) * squeeze;
+        const to = { x:lead.x, y:lead.y + inkLine / 2 };
         const lineLeft = frame.left + from.x + (to.x - from.x) * squeeze;
         const lineMiddle = frame.top + from.y + (to.y - from.y) * rise;
-        const x = frame.right - (frame.right - lineLeft) * at.size - lead.x * k - box.left;
-        const y = frame.bottom - (frame.bottom - lineMiddle) * at.size - (lead.y + inkLine / 2) * k - box.top;
+        const x = lineLeft - lead.x * k - box.left;
+        const y = lineMiddle - (lead.y + inkLine / 2) * k - box.top;
         incoming.style.transform = "translate(" + x + "px," + y + "px) scale(" +
           targetScale.x * k + "," + targetScale.y * k + ")";
       };
@@ -2980,7 +2937,7 @@ function dropSent(el){
 // later one on the mark's own run (MERGE_IN_MS), it is seen standing there a
 // moment (MERGE_HOLD_MS), and then the two run together (MERGE_MS). the
 // lengths are chosen to read calmly rather than copied from anything: the
-// iPhone's send is 750ms and its earlier messages glide in 340ms, and the
+// send's flight is 650ms and the earlier messages glide in 340ms, and the
 // merge is longer than either, since what it shows is a change of shape the
 // eye has to follow, not a thing arriving: the drops touch about a quarter of
 // a second in, the neck takes a tenth more, and the rest is the bubbles

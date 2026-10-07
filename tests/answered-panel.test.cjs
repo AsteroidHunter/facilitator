@@ -2686,7 +2686,7 @@ test("send morph starts at the typed field, carries one copy of the words at ful
     assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
     rect(el.sent, 140, 190, 180, 45);
     frame(400);
-    assert.ok(s.shell(), "the flight landed before the iPhone's 750ms");
+    assert.ok(s.shell(), "the flight landed before its 650ms");
     assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
     frame(750);
     assert.equal(shell.style.top, "190px", "flight aimed at a stale seat");
@@ -2833,13 +2833,13 @@ test("send morph keeps an earlier flight in the air through a rapid second send"
   // two bubbles, and each word waits for its own bubble's landing
   context.sentLanded(el, item);
   assert.equal(s.body.querySelectorAll(".sentmorph").length, 2);
-  frame(750); frame(767);
+  frame(650); frame(667);
   assert.equal(firstShell.parentNode, null);
   assert.equal(firstBubble.style.opacity, "");
   assert.equal(secondBubble.style.opacity, "0", "first landing exposed the second bubble early");
   assert.equal(secondBubble.classList.contains("sentflight"), true);
   assert.equal(secondBubble.dataset.mark, undefined, "receipt must wait until its own flight lands");
-  frame(850); frame(867);
+  frame(750); frame(767);
   assert.equal(s.shell(), null);
   assert.equal(secondBubble.style.opacity, "");
   assert.equal(secondBubble.classList.contains("sentflight"), false);
