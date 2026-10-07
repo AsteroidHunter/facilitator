@@ -2589,28 +2589,37 @@ function syncAnswered(el, meta, room = answeredRoomChanged){
 const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
 
 // The field becomes the bubble in the owner's two beats:
-// the box moves sideways, then up. The copy of the
+// the box moves sideways, then up, and compresses on its
+// way from the typing box into the bubble the way a reference app's send does in
+// the owner's reference recording. The copy of the
 // iPhone's send that stood here before shrank the box to 77%
 // and grew it back past whole, and rose past its landing and came back; the
 // owner found that zoom in and out bouncy, and the stretch and close at the
-// end that replaced it no better. The box is now the bubble's own width and height
-// from the first frame to the last and only its place moves: nothing widens,
-// narrows, stretches, squeezes or grows back, and no edge goes past its
-// landing.
-// - Sideways: the box's left edge, and the box with it, sets off on the first
-//   frame and is in by 260ms. The iPhone's first 50ms barely move, which it
-//   hides under its frosted bar; drawn in the open here, that read as a pause
-//   as the message flew out.
+// end that replaced it no better. Nothing widens past the bubble, shrinks and
+// grows back, or goes past its landing.
+// - Sideways: the box sets off on the first frame and its sideways move is in
+//   by 260ms. The iPhone's first 50ms barely move, which it hides under its
+//   frosted bar; drawn in the open here, that read as a pause as the message
+//   flew out.
 // - Up: the top rises, slow to start so the sideways move leads, and is on its
 //   landing by 430ms and still from there until the hand-off at 650ms.
+// - The compress: the box starts as the typing box itself, its width and
+//   height too, and they go to the bubble's from the first frame on
+//   the reference app's own length and curve (FLIGHT_MS,
+//   FLIGHT_EASE_POINTS, morphBox), half way at 53ms and whole by 400ms. Across,
+//   the way the box's two side edges have in common is the sideways move and
+//   the rest of the longer way is the compress, so a short message's box
+//   closes in from the left onto the bubble while its right end barely moves,
+//   as in the recording, and neither edge ever goes back; the top keeps the
+//   up curve and the foot stands where the height puts it.
 // - The grey: drawn at 69% strength when the box appears and whole by 183ms,
 //   faint (13.5%) for the share of the box still over the typing row, as the
 //   iPhone's bubble looks under its bar's glass; read off the recordings and
 //   kept.
 // The words stay dark on grey: one copy, laid out once as the bubble lays them
-// out, starts over the typed words at the typing size and shrinks to the
-// bubble's size as the left edge travels, so no frame is blank, doubled, or
-// halfway through a rewrap.
+// out, starts over the typed words at the typing size, rides the box's left
+// edge and top, and shrinks to the bubble's size as the box goes sideways, so
+// no frame is blank, doubled, or halfway through a rewrap.
 const SENT_FLIGHT_MS = 650;
 const SENT_FRAME_MS = 1000 / 60;
 const SENT_FAINT = .135;
@@ -2618,6 +2627,8 @@ const SENT_SIDE_MS = 260;
 const SENT_SIDE = [.3, .6, .4, 1];
 const SENT_UP_MS = 430;
 const SENT_UP = [.45, 0, .25, 1];
+const SENT_COMPRESS_MS = 400;
+const SENT_COMPRESS = [.22, 1, .36, 1];
 // the strength the bubble is drawn at, ms from the tap
 const SENT_STRENGTH = [[0, .686], [16.7, .686], [33.3, .694], [50, .713], [66.7, .729], [83.3, .755], [100, .778],
   [116.7, .816], [133.3, .864], [150, .906], [166.7, .955], [183.3, 1]];
@@ -2628,24 +2639,32 @@ const SENT_GLIDE_MS = 340;
 const SENT_GLIDE_EASE = "cubic-bezier(.24,.1,.15,1)";
 
 const sentSideCurve = sentCurve(SENT_SIDE), sentUpCurve = sentCurve(SENT_UP);
-// the track at ms from the tap: how far the box has come across and risen (0
-// the typing box's place, 1 the seat's), and the strength it is drawn at
+const sentCompressCurve = sentCurve(SENT_COMPRESS);
+// the track at ms from the tap: how far the box has come across and risen and
+// how far its size has gone (0 the typing box's, 1 the seat's), and the
+// strength it is drawn at
 function sentTrack(ms){
   const side = sentSideCurve(ms / SENT_SIDE_MS), down = sentUpCurve(ms / SENT_UP_MS);
+  const size = sentCompressCurve(ms / SENT_COMPRESS_MS);
   let i = 1;
   while (i < SENT_STRENGTH.length - 1 && SENT_STRENGTH[i][0] < ms) i++;
   const a = SENT_STRENGTH[i - 1], b = SENT_STRENGTH[i];
   const strength = a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
-  return { left:side, down, strength };
+  return { left:side, down, size, strength };
 }
 const sentWithin = p => Math.max(0, Math.min(1, p));
-// the travelling box at one point of the track: the seat's own width and
-// height, as it stands, the whole way, and its left and top on their way from
-// the typing box's to the seat's
+// the share of their moves two opposite edges make together: none when they
+// go opposite ways, else the shorter of the two
+const sentShared = (a, b) => a * b <= 0 ? 0 : Math.abs(a) <= Math.abs(b) ? a : b;
+// the travelling box at one point of the track, from the typing box to the
+// seat as it stands: its width and height on the compress, its two side edges
+// sideways by the way they share and the rest of each one's way on the
+// compress, and its top on the up curve
 function sentMorphBox(from, to, at){
   const mix = (a, b, p) => a + (b - a) * p;
-  return { left:mix(from.left, to.left, at.left), top:mix(from.top, to.top, at.down),
-    width:Math.max(0, to.width), height:Math.max(0, to.height) };
+  const way = to.left - from.left, shared = sentShared(way, to.left + to.width - from.left - from.width);
+  return { left:from.left + shared * at.left + (way - shared) * at.size, top:mix(from.top, to.top, at.down),
+    width:Math.max(0, mix(from.width, to.width, at.size)), height:Math.max(0, mix(from.height, to.height, at.size)) };
 }
 
 // A snapshot leaves the real editor and rendered message alone. Resolved styles
@@ -2885,10 +2904,10 @@ function armSentMotion(el){
         face.style.opacity = String(SENT_FAINT + (at.strength - SENT_FAINT) * clear);
         face.style.background = fill;
         if (copiedCut) copiedCut.style.setProperty("--answ-fill", cutFill);
-        // the words ride the travelling box: their first line's left goes from
-        // the typed words' place in it to the bubble's as its left edge
-        // travels, its middle as it rises, and they shrink from the typing size
-        // to the bubble's as its left edge travels
+        // the words ride the travelling box's left edge and top: their first
+        // line's left goes from the typed words' place in it to the bubble's
+        // as the box goes sideways, its middle as it rises, and they shrink
+        // from the typing size to the bubble's as the box goes sideways
         const across = sentWithin(at.left), rise = sentWithin(at.down);
         const k = grow + (1 - grow) * across;
         const to = { x:lead.x, y:lead.y + inkLine / 2 };
