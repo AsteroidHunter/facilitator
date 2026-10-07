@@ -243,11 +243,11 @@ test("install creates the environment and the config in one run, and no test pac
 
   assert.match(res.out, /✓ Python \d+\.\d+\.\d+ runs this setup\./, res.out);
   assert.match(res.out, /✓ uv found\./);
-  assert.match(res.out, /Creating the environment in \.venv on Python 3\.14\.\n✓ Environment created\./);
-  assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\./);
-  assert.match(res.out, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
-  assert.match(res.out, /✓ Wrote seed\.json from seed\.example\.json\./);
-  assert.match(res.out, /✓ Board installed\.\n\nConfig lives beside this command: run\.config\.json \(edit it\)\nand seed\.json\.\n$/);
+  assert.match(res.out, /Setting up the Python 3\.14 environment\.\n✓ Python 3\.14 environment ready\./);
+  assert.match(res.out, /Installing the packages Facilitator needs\.\n✓ Packages installed\./);
+  assert.match(res.out, /✓ Board settings created\.\n✓ Starting board created\.\n$/);
+  assert.doesNotMatch(res.out, /CPython|virtual environment|requirements\.txt|run\.config\.json|seed\.json|Board installed|Config lives|are in use here/,
+    "uv's own lines or a file name were printed:\n" + res.out);
   assert.doesNotMatch(res.out, /Start it with/, "install.sh ends with the next steps, so the board step does not repeat them");
   assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
 
@@ -323,7 +323,8 @@ test("install --dev adds the test packages from the lockfile, without running an
   assert.equal(res.npm_cwd, path.join(dir, "tests"), "npm ci did not run against tests/package.json");
   assert.deepEqual([res.files.root_node_modules, res.files.package_json, res.files.package_lock], [false, false, false],
     "the test packages went into the checkout's root");
-  assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\.\n[^]*Installing the test packages from tests\/package-lock\.json\.\n✓ Test packages installed\.\n✓ Board installed\./, res.out);
+  assert.match(res.out, /Installing the packages Facilitator needs\.\n✓ Packages installed\.\n[^]*Installing the packages the tests need\.\n✓ Packages for the tests installed\.\n$/, res.out);
+  assert.doesNotMatch(res.out, /npm|package-lock|Board installed/, "npm's own lines or a file name were printed:\n" + res.out);
   const lines = res.calls.map(c => c.join(" "));
   assert.ok(lines.indexOf(NPM_CI.join(" ")) > lines.findIndex(line => line.startsWith(`${UV} pip sync`)), "the test packages came before the board's own");
 });

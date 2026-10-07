@@ -2597,11 +2597,11 @@ def ensure_uv(quiet=False):
     return uv
 
 
-def run_uv(argv, quiet):
-    """Run uv in this checkout; quiet holds its output back and shows it only on failure."""
-    if not quiet:
-        return subprocess.run(argv, cwd=str(HERE)).returncode
-    result = subprocess.run(argv, cwd=str(HERE), capture_output=True, text=True, errors="replace")
+def run_held(argv, cwd=HERE):
+    """Run a command, here by default, holding its output back and showing it
+    only on failure, so an install says what it is doing in its own words and
+    not in uv's or npm's."""
+    result = subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True, errors="replace")
     if result.returncode != 0:
         sys.stdout.write(result.stdout)
         sys.stdout.flush()
@@ -2687,13 +2687,13 @@ def build_env(uv, have, quiet):
         why = f"it was on Python {have}" if have else "its Python is missing or broken"
         print(f"Rebuilding .venv on Python {APP_PYTHON}: {why}.")
     elif not quiet:
-        print(f"Creating the environment in .venv on Python {APP_PYTHON}.")
-    if run_uv([uv, "python", "install", "--no-bin", APP_PYTHON], quiet) != 0:
+        print(f"Setting up the Python {APP_PYTHON} environment.")
+    if run_held([uv, "python", "install", "--no-bin", APP_PYTHON]) != 0:
         sys.exit(problem(f"uv could not install Python {APP_PYTHON}.",
                          *(["Nothing in .venv was changed."] if there else []),
                          "See the output above, then run ./install.sh again."))
     stopped = stop_for_rebuild() if there else False
-    if run_uv([uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"], quiet) != 0:
+    if run_held([uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"]) != 0:
         sys.exit(problem("uv could not create .venv.",
                          "See the output above, then run ./install.sh again."))
     got = env_python()
@@ -2702,7 +2702,7 @@ def build_env(uv, have, quiet):
         sys.exit(problem(f"uv made .venv {made}, not on Python {APP_PYTHON}.",
                          "See the output above, then run ./install.sh again."))
     if not quiet:
-        ok("Environment created.")
+        ok(f"Python {APP_PYTHON} environment ready.")
     return stopped
 
 
@@ -2723,12 +2723,12 @@ def ensure_env(uv, quiet=False):
     else:
         stopped = build_env(uv, have, quiet)
     if not quiet:
-        print("Syncing packages to requirements.txt.")
-    if run_uv([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
+        print("Installing the packages Facilitator needs.")
+    if run_held([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"]) != 0:
         sys.exit(problem("uv could not sync requirements.txt.",
                          "See the output above, then run ./install.sh again."))
     if not quiet:
-        ok("Packages synced.")
+        ok("Packages installed.")
     return stopped
 
 
@@ -2736,25 +2736,23 @@ def ensure_config():
     """Write each config file from its example only when it is not already
     there, so a second run and a user's own edits are both left untouched.
     A new run.config.json names the default pair, 8877 and 8878, when nothing
-    holds it, and otherwise the next free pair above it, with a line saying
-    which. Nothing is asked of any port beyond whether it can be bound, and
-    Tailscale is not asked at all: install runs before the phone client is set
-    up, and run checks the Serve rules when it starts the board."""
-    for name, example in (("run.config.json", "run.config.example.json"),
-                          ("seed.json", "seed.example.json")):
+    holds it, and otherwise the next free pair above it; run says which port
+    the board is on. Nothing is asked of any port beyond whether it can be
+    bound, and Tailscale is not asked at all: install runs before the phone
+    client is set up, and run checks the Serve rules when it starts the board."""
+    for name, example, made in (("run.config.json", "run.config.example.json", "Board settings"),
+                                ("seed.json", "seed.example.json", "Starting board")):
         target = HERE / name
         if target.exists():
             ok(f"{name} found.")
             continue
         shutil.copyfile(HERE / example, target)
-        ok(f"Wrote {name} from {example}.")
+        ok(f"{made} created.")
         if name != "run.config.json":
             continue
         port = pick_pair(DEFAULT_PORT, serve=False)
         if port is not None and port != json.loads(target.read_text()).get("port"):
             target.write_text(config_with(target.read_text(), port, None))
-        if port is not None and port != DEFAULT_PORT:
-            print(f"Ports {DEFAULT_PORT} and {DEFAULT_PORT + 1} are in use here, so it names {port} and {port + 1}.")
 
 
 def find_node_tools():
@@ -2776,12 +2774,11 @@ def ensure_test_packages(npm):
     if have == pinned:
         ok("Test packages found.")
         return
-    print("Installing the test packages from tests/package-lock.json.")
-    if subprocess.run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
-                      cwd=str(TESTS_DIR)).returncode != 0:
+    print("Installing the packages the tests need.")
+    if run_held([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], TESTS_DIR) != 0:
         sys.exit(problem("npm could not install the test packages.",
                          "See the output above, then run ./install.sh --dev again."))
-    ok("Test packages installed.")
+    ok("Packages for the tests installed.")
 
 
 def cmd_install(args):
@@ -2828,10 +2825,6 @@ def cmd_install(args):
             if not before[name] and path.exists():
                 owned[name] = file_digest(path) if path.is_file() else "directory"
         INSTALL_RECORD.write_text(json.dumps(owned, indent=2) + "\n")
-    ok("Board installed.")
-    print()
-    print("Config lives beside this command: run.config.json (edit it)")
-    print("and seed.json.")
 
 
 def board_running(port):

@@ -331,7 +331,7 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     const first = await f.piped();
     assert.equal(first.code, 0, first.text);
     assert.match(first.text, /█████/);
-    const titles = ['1. Claude Code or Codex', '2. Chrome', '3. Python', '4. Phone client'];
+    const titles = ['1. Claude Code or Codex', '2. Chrome', '3. Python', '4. Mobile app'];
     const lines = first.text.split('\n');
     for (const title of titles) {
       const at = lines.indexOf(title);
@@ -344,7 +344,7 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     assert.match(first.text, /⊘ Skipped the phone client: there is no interactive terminal\./);
     assert.doesNotMatch(first.text, /Claude limits|facilitator password set/);
     await assert.rejects(fs.lstat(path.join(f.home, '.claude', 'settings.json')), { code: 'ENOENT' });
-    assert.match(first.text, /✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator\.\n\n✦ Facilitator is installed!\n\nNext steps:\n\n1\. Start the board: facilitator run\n2\. Onboard your agent, in Claude Code: \/facilitator onboard\n   or in Codex: \$facilitator onboard\n\n$/);
+    assert.match(first.text, /✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator\.\n\n✦ Facilitator is installed!\n\nNext steps:\n\n1\. Start the board: facilitator run\n2\. Complete the quick onboarding to start using the Facilitator!\n\n$/);
     const second = await f.piped();
     assert.equal(second.code, 0, second.text);
     assert.match(second.text, /✓ facilitator command and agent skill installed\n\n✦ Facilitator is installed!/);
