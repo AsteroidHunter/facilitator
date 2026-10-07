@@ -3262,28 +3262,8 @@
     color:var(--ink); background:var(--paper);
     border-radius:var(--sq); padding:1px 4px; white-space:pre-wrap;
   }
-  /* the wrapper, not the scrolling pre, anchors the copy button: an absolute
-     child of a scroller rides the scrolled content, so the button lives one
-     level up and stays pinned to the visible corner while the code scrolls */
-  .codeblockwrap{position:relative; margin:0 0 9px}
-  .reply .codeblock{
-    margin:0; padding:10px 12px; border-radius:8px;           /* same 9px rhythm */
-    background:#EFF1F4; border:0;   /* clean cool grey; the beige read as mud */
-    font:12.5px/1.5 var(--mono); color:var(--ink);
-    white-space:pre; overflow-x:auto;
-    user-select:text; -webkit-user-select:text;
-  }
-  .codeblockwrap .copybtn{
-    position:absolute; top:6px; right:8px; padding:4px 6px;
-    display:flex; align-items:center; color:var(--sub);
-    background:#FFFFFF;   /* solid: the button must read over any code beneath */
-    box-shadow:0 1px 4px rgba(33,29,23,.18);
-    border:0; border-radius:5px; cursor:pointer;
-    user-select:none; -webkit-user-select:none;
-    opacity:0; pointer-events:none; transition:opacity .15s;   /* shows on hover only */
-  }
-  .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
-  .codeblockwrap .copybtn:hover{color:var(--ink)}
+  /* the code block, its label and its copy button are the shared sheet's
+     (card-tokens.css), drawn alike here and on the phone */
   .reply blockquote{
     margin:0 0 9px 2px; padding:2px 0 2px 12px;   /* same 9px rhythm as paragraphs */
     border-left:3px solid var(--line); color:var(--sub);

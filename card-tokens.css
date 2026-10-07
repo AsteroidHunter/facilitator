@@ -288,42 +288,42 @@
 .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
   color:var(--ink); background:var(--paper); border-radius:var(--sq);
   padding:1px calc(4 * var(--u)); white-space:pre-wrap}
-.cardmd .codeblockwrap{position:relative; margin:0 0 calc(9 * var(--u))}
+.cardmd .codeblockwrap{position:relative; isolation:isolate; margin:0 0 calc(9 * var(--u))}
 .cardmd .codeblock{margin:0; padding:calc(10 * var(--u)) calc(12 * var(--u)); border-radius:calc(8 * var(--u));
   background:#EFF1F4; border:0; font:calc(12.5 * var(--u))/1.5 var(--mono); color:var(--ink);
   white-space:pre; overflow-x:auto; user-select:text; -webkit-user-select:text}
-.cardmd .codeblockwrap[data-language] .codeblock{padding-top:calc(29 * var(--u))}
-.cardmd .codelang{position:absolute; top:calc(7 * var(--u)); left:calc(12 * var(--u)); max-width:calc(100% - 62 * var(--u));
+/* the wrapper, not the scrolling pre, anchors the copy button: an absolute
+   child of a scroller rides the scrolled content, so the button lives one
+   level up and stays pinned to the visible corner while the code scrolls.
+   The Mac and the phone draw a code block alike: the button sits at the top
+   right, centred on the line of a one line block and on the label of a block
+   with a language, and the padding and the label are the same. WebKit on the
+   phone paints a block that scrolls over an earlier positioned sibling, so the
+   button and the label are raised above it, in a stack of the wrapper's own so
+   they rise no higher than the block they sit on. The button centres itself on
+   its own height, so the Mac's small one and the phone's 32px one both land on
+   the line. A one line block pads 12 above and below and keeps its right
+   padding clear of the button, so the button never covers the text */
+.cardmd .codeblockwrap[data-lines="1"] .codeblock{padding-top:calc(12 * var(--u)); padding-bottom:calc(12 * var(--u))}
+.cardmd .codeblockwrap[data-lines="1"]:not([data-language]) .codeblock{padding-right:calc(52 * var(--u))}
+.cardmd .codeblockwrap[data-language] .codeblock{padding-top:calc(40 * var(--u))}
+.cardmd .codelang{position:absolute; top:calc(14.65 * var(--u)); left:calc(12 * var(--u)); z-index:1; max-width:calc(100% - 62 * var(--u));
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   color:var(--sub); font:calc(10.5 * var(--u))/1.4 var(--mono)}
 .cardmd .codeblockwrap .copybtn{position:absolute; top:calc(6 * var(--u)); right:calc(8 * var(--u)); padding:calc(4 * var(--u)) calc(6 * var(--u));
-  display:flex; align-items:center; color:var(--sub); background:#fff;
+  display:flex; align-items:center; color:var(--sub); background:#fff; z-index:1;
   box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:calc(5 * var(--u));
   cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
   pointer-events:none; transition:opacity .15s}
+.cardmd .codeblockwrap[data-lines="1"]:not([data-language]) .copybtn{top:50%; transform:translateY(-50%)}
+.cardmd .codeblockwrap[data-language] .copybtn{top:calc(22 * var(--u)); transform:translateY(-50%)}
 .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
 .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
-/* a touch screen has no hover to bring the button up, so it stays shown there,
-   with a tap area of 32 real pixels (not --u: the phone scales that) round an
-   icon that stays small. WebKit on the phone paints a block that scrolls over
-   an earlier positioned sibling, so the button is raised above it, in a stack
-   of the wrapper's own so it rises no higher than the block it sits on */
+/* the two things that differ: a touch screen has no hover to bring the button
+   up, so it stays shown, and it has a tap area of 32 real pixels (not --u: the
+   phone scales that) round an icon that stays small */
 @media (hover: none){
-  .cardmd .codeblockwrap{isolation:isolate}
-  .cardmd .codeblockwrap .copybtn{top:calc(4 * var(--u)); right:calc(4 * var(--u));
-    width:32px; height:32px; padding:0; justify-content:center; opacity:1; pointer-events:auto; z-index:1}
-  /* a one line block puts the button's centre on the line's centre: the line
-     sits half a line (9.375 units) under the block's top padding, and the
-     padding below grows so the 32px button keeps room above and below it */
-  .cardmd .codeblockwrap[data-lines="1"] .codeblock{padding-top:calc(12 * var(--u)); padding-bottom:calc(12 * var(--u))}
-  .cardmd .codeblockwrap[data-lines="1"]:not([data-language]) .copybtn{top:calc(21.375 * var(--u) - 16px)}
-  /* a block with a language keeps the Mac's label at the top left, raised above
-     the code like the button for the same reason, in a row tall enough for the
-     32px button, which sits in that row with its centre on the label's centre
-     (22 units down; the label is 14.7 units tall) */
-  .cardmd .codeblockwrap[data-language] .codeblock{padding-top:calc(40 * var(--u))}
-  .cardmd .codeblockwrap[data-language] .codelang{top:calc(14.65 * var(--u)); z-index:1}
-  .cardmd .codeblockwrap[data-language] .copybtn{top:calc(22 * var(--u) - 16px)}
+  .cardmd .codeblockwrap .copybtn{width:32px; height:32px; padding:0; justify-content:center; opacity:1; pointer-events:auto}
 }
 .cardmd blockquote{margin:0 0 calc(9 * var(--u)) calc(2 * var(--u)); padding:calc(2 * var(--u)) 0 calc(2 * var(--u)) calc(12 * var(--u));
   border-left:calc(3 * var(--u)) solid var(--line); color:var(--sub)}
