@@ -5,11 +5,12 @@ const { test } = require("node:test");
 const vm = require("node:vm");
 
 // The copy button on a fenced block, on a phone. A touch screen has no hover to
-// bring it up, so the shared sheet keeps it shown there at a size a thumb can
-// hit, and the phone page copies the block's text when it is tapped. The Mac
-// keeps its hover rule and its own handler. No browser: the sheet is read as
-// text, the copy runs against stand-in page objects, and the phone page's click
-// handler is cut out of m.html by its own first line.
+// bring it up, so the shared sheet hides it at rest there and shows it, at a size
+// a thumb can hit, while the page marks the block; the phone page copies the
+// block's text when the button is tapped. The Mac keeps its hover rule and its
+// own handler. No browser: the sheet is read as text, the copy runs against
+// stand-in page objects, and the phone page's click handler is cut out of
+// m.html by its own first line.
 const ROOT = path.join(__dirname, "..");
 const SHEET = readFileSync(path.join(ROOT, "card-tokens.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const MARKDOWN = readFileSync(path.join(ROOT, "card-markdown.js"), "utf8");
@@ -41,11 +42,16 @@ test("the button stays hidden until hover where there is a mouse", () => {
   assert.equal(hover["pointer-events"], "auto");
 });
 
-test("on a touch screen the button is always shown and can be tapped", () => {
-  const rules = touchRules();
-  assert.equal(rules.length, 1, "one hover: none rule for the button");
-  assert.equal(rules[0].opacity, "1");
-  assert.equal(rules[0]["pointer-events"], "auto");
+test("on a touch screen the button rests hidden and cannot be hit, and a shown block brings it up", () => {
+  assert.equal(touchRules().length, 1, "one hover: none rule for the button");
+  assert.equal(touchRules()[0].opacity, undefined, "the base rule's hidden stands");
+  assert.equal(touchRules()[0]["pointer-events"], undefined);
+  const [stuck] = touchRules(".cardmd .codeblockwrap:hover .copybtn");
+  assert.equal(stuck.opacity, "0", "a stuck hover brings nothing up");
+  assert.equal(stuck["pointer-events"], "none");
+  const [shown] = touchRules(".cardmd .codeblockwrap.copyshown .copybtn");
+  assert.equal(shown.opacity, "1");
+  assert.equal(shown["pointer-events"], "auto");
 });
 
 test("on a touch screen the tap area is at least 32 by 32 real pixels", () => {
@@ -59,7 +65,7 @@ test("on a touch screen the tap area is at least 32 by 32 real pixels", () => {
 test("the touch rule changes nothing else about the button's look", () => {
   const [rule] = touchRules();
   assert.deepEqual(Object.keys(rule).sort(),
-    ["height", "justify-content", "opacity", "padding", "pointer-events", "width"]);
+    ["height", "justify-content", "padding", "transition", "width"]);
   assert.ok(!/accent|purple/i.test(JSON.stringify(rule)));
 });
 

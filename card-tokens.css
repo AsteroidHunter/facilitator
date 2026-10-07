@@ -320,11 +320,17 @@
 .cardmd .codeblockwrap[data-language] .copybtn{top:calc(22 * var(--u)); transform:translateY(-50%)}
 .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
 .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
-/* the two things that differ: a touch screen has no hover to bring the button
-   up, so it stays shown, and it has a tap area of 32 real pixels (not --u: the
-   phone scales that) round an icon that stays small */
+/* the two things that differ: a touch screen has a tap area of 32 real pixels
+   (not --u: the phone scales that) round an icon that stays small, and it has
+   no hover to bring the button up. The button rests hidden and cannot be hit,
+   so it never catches a tap meant for the code, and the phone page sets
+   copyshown on the block while it is scrolled or tapped and takes it off
+   about two seconds after. A touch screen can leave :hover stuck on a tapped
+   block, so hover brings nothing up there */
 @media (hover: none){
-  .cardmd .codeblockwrap .copybtn{width:32px; height:32px; padding:0; justify-content:center; opacity:1; pointer-events:auto}
+  .cardmd .codeblockwrap .copybtn{width:32px; height:32px; padding:0; justify-content:center; transition:opacity .25s}
+  .cardmd .codeblockwrap:hover .copybtn{opacity:0; pointer-events:none}
+  .cardmd .codeblockwrap.copyshown .copybtn{opacity:1; pointer-events:auto}
 }
 .cardmd blockquote{margin:0 0 calc(9 * var(--u)) calc(2 * var(--u)); padding:calc(2 * var(--u)) 0 calc(2 * var(--u)) calc(12 * var(--u));
   border-left:calc(3 * var(--u)) solid var(--line); color:var(--sub)}
