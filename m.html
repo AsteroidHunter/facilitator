@@ -6716,8 +6716,9 @@ function stepCard(dir, focus){
 
 // A drag across the card walks the same pool as the keyboard. It waits until
 // horizontal intent is unambiguous, leaving vertical scrolling alone, and it
-// never starts at an edge, on a control, or in an editor where the same motion
-// selects text. Each complete card moves across the fixed stage; x and uniform
+// never starts at an edge, on a control, in an editor where the same motion
+// selects text, or on code wide enough to scroll sideways, where the same
+// motion scrolls it. Each complete card moves across the fixed stage; x and uniform
 // scale are the only animated values. Its listeners are passive, like the
 // drawer pull's: they cover the answer, and one that may cancel would make the
 // phone wait on the page before letting the answer scroll.
@@ -6725,6 +6726,11 @@ function stepCard(dir, focus){
   const EDGE = 28, START = 10, COMMIT = 0.22, DEPTH = 0.035, GAP = 16, RUN_MS = 240;
   const blocked = "button,input,textarea,a,[contenteditable],[role='textbox'],.cm-editor,.answered.sent.open";
   let drag = null, finishTimer = null;
+  // code that fits has nothing to scroll, so a swipe on it still turns the card
+  const scrollsSideways = el => {
+    const code = el.closest("pre.codeblock");
+    return !!code && code.scrollWidth > code.clientWidth;
+  };
   const reduced = () => !!(matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
   const clear = () => {
     clearTimeout(finishTimer); finishTimer = null;
@@ -6786,7 +6792,7 @@ function stepCard(dir, focus){
     clear();
     if (e.touches.length !== 1 || menuOut()) return;
     const t = e.touches[0];
-    if (t.clientX <= EDGE || t.clientX >= innerWidth - EDGE || e.target.closest(blocked)) return;
+    if (t.clientX <= EDGE || t.clientX >= innerWidth - EDGE || e.target.closest(blocked) || scrollsSideways(e.target)) return;
     drag = { x:t.clientX, y:t.clientY, dx:0, width:document.getElementById("cards").clientWidth,
       decided:false, rejected:false };
   }, { passive:true });
@@ -7036,6 +7042,12 @@ addEventListener("keydown", e => {
   document.getElementById("pane").addEventListener("click", e => { if (inCard(e) && selectedId) useCard(selectedId); }, true);
   document.addEventListener("focusin", e => { if (inCard(e) && selectedId) useCard(selectedId); }, true);
 }
+
+// the copy button on a fenced block: a tap puts the block's text on the clipboard
+document.addEventListener("click", e => {
+  const button = e.target.closest?.(".copybtn");
+  if (button) CardMarkdown.copyCodeBlock(button);
+});
 
 addEventListener("keydown", e => {
   dispatchCardShortcut(e, homeOpen ? homeShortcutActions : phoneShortcutActions);
