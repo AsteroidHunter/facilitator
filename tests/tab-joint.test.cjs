@@ -55,25 +55,8 @@ function hotkeys(f){
     step(dy){ f.context.nav(0, dy); f.context.placeSeat(); },
   };
 }
-// the seat's slide as a browser shows it: held for its delay, then on its way
-// to the new name over .28s, its transition running all the while
-function slide(f, fromRect, ms = 280){
-  const el = f.seat.el, delay = parseFloat(el.style.transitionDelay) || 0, start = f.now;
-  const toX = parseFloat(el.style.transform.match(/translateX\(([-.\d]+)px/)[1]), toW = parseFloat(el.style.width);
-  const fromX = fromRect.left, fromW = fromRect.width;
-  el.animations = [{ playState: "running", transitionProperty: "transform" }];
-  const frames = [];
-  for (;;){
-    const t = Math.max(0, f.now - start - delay) / ms;
-    if (t >= 1) break;
-    el.animated = { transform: "translateX(" + (fromX + (toX - fromX) * t) + "px)", width: fromW + (toW - fromW) * t + "px" };
-    f.tick(16); frames.push({ ...record(f), held: f.now - start <= delay, lens: f.seat.face.getBoundingClientRect() });
-  }
-  el.animations = []; el.animated = null;
-  return frames;
-}
 // the joint's settings, read once from the page
-const settings = f => f.get("({ hold: JOINT_HOLD_MS, split: JOINT_SPLIT_MS, join: JOINT_JOIN_MS, tear: JOINT_TEAR, pinch: JOINT_PINCH, touch: JOINT_TOUCH })");
+const settings = f => f.get("({ split: JOINT_SPLIT_MS, join: JOINT_JOIN_MS, tear: JOINT_TEAR, pinch: JOINT_PINCH, touch: JOINT_TOUCH })");
 
 test("at rest the open project's lens and the workspace are one outline, drawn in the glass's face and ring", () => {
   const f = fixture({ render: true }), j = joint(f);
@@ -190,86 +173,124 @@ test("cancelled, the lens rejoins where it was, from wherever the split had got 
   assert.ok(rising(back) && back[0].kind === "join"); assertJoinedUnder(f, "a");
 });
 
-test("Command + a digit and the project step: the same split, a slide, and the same join", () => {
-  const f = fixture({ render: true }), s = settings(f), keys = hotkeys(f);
-  const from = f.seat.el.getBoundingClientRect();
-  assert.equal(keys.digit(3), true); assert.deepEqual(f.switches, ["c"]);
-  assert.equal(f.seat.el.style.transitionDelay, s.hold + "ms", "the lens holds while the joint starts to part");
-  const frames = slide(f, from);
-  const held = frames.filter(r => r.held);
-  assert.ok(held.length >= 8);
-  assert.ok(held.every(r => r.kind === "split" && r.foot === 90 && center(r.lens) === 90), "parting where it stood");
-  assert.ok(held.every(r => r.shapes.join() === "lens>pane"), "still one neck while held");
-  assert.ok(held.at(-1).tau < .75, "the neck has visibly narrowed: " + held.at(-1).tau);
-  // the same split a drag starts: the same moments of the same shapes
-  const d = fixture({ render: true }); d.down("a"); d.move(84);
-  const drag = run(d, held.length * 16);
-  held.forEach((r, i) => assert.ok(Math.abs(r.tau - drag[i].tau) < 1e-9, "frame " + i));
-  // on its way the lens breaks the thread and the drops draw back
-  const moving = frames.filter(r => !r.held);
-  assert.ok(moving.some(r => r.shapes.join(" ") === "lens>tip tip>pane"));
-  const after = run(f, 1400);
-  assert.equal(f.seat.el.style.transitionDelay, "", "the hold is let go once the slide has run");
-  const first = after.findIndex(r => r.kind === "join");
-  assert.ok(first >= 0 && after.slice(first).every(r => r.foot === 320));
-  assert.ok(rising(after.slice(first)));
-  assertJoinedUnder(f, "c");
-  // the step down and up: the same hold, split and join
-  const from2 = f.seat.el.getBoundingClientRect();
-  keys.step(-1); assert.deepEqual(f.switches, ["c", "b"]);
-  assert.equal(f.seat.el.style.transitionDelay, s.hold + "ms");
-  const stepped = slide(f, from2);
-  assert.ok(stepped.filter(r => r.held).every(r => r.kind === "split" && r.foot === 320));
-  run(f, 1400); assertJoinedUnder(f, "b");
+// a lens set down by a click or a key, read in the very frame of the switch,
+// before any clock has run: no delay, no slide and no fade, standing on the new
+// name with its words cut for it, and the joint whole under it
+function assertSetDown(f, ow){
+  const el = f.seat.el, rect = f.tabs[ow].getBoundingClientRect(), lens = f.seat.face.getBoundingClientRect();
+  assert.ok(!el.style.transitionDelay, "no hold");
+  assert.equal(el.classList.contains("still"), true, "no slide: the seat's transform and width have no transition");
+  assert.equal(f.get("seatSliding()"), false);
+  assert.equal(el.classList.contains("gone"), false, "no fade");
+  assert.ok(Math.abs(lens.left - rect.left) < 1e-9 && Math.abs(lens.width - rect.width) < 1e-9, "standing on the new name");
+  const label = f.tabs[ow].querySelector(".plabel"), g = f.get("lensCopyGeometry")(label.getBoundingClientRect(), lens, parseFloat(el.style.width));
+  assert.equal(f.seat.face.lens.copies.get(label).style.transform, "translate(" + g.x + "px," + g.y + "px) scale(" + g.sx + "," + g.sy + ")",
+    "the lens's words are cut for the new name");
+  assertJoinedUnder(f, ow);
+}
+const stays = (frames, foot) => frames.every(r => r.tau === 1 && r.kind === null && r.foot === foot && r.shapes.join() === "lens>pane");
+
+test("a click on another name sets the lens down on it at once, joint whole, with no pause, slide, split or regrow", () => {
+  const f = fixture({ render: true });
+  assertJoinedUnder(f, "a");
+  f.click("b"); f.context.placeSeat();   // and no clock has run
+  assert.deepEqual(f.switches, ["b"]);
+  assertSetDown(f, "b");
+  assert.ok(stays(run(f, 1500), 210), "nothing moves afterwards");
+  assertSetDown(f, "b");
+  assert.equal(f.frames.size, 0, "and nothing is left asking for frames");
 });
 
-test("a click on another name takes the same hold, split and join", () => {
-  const f = fixture({ render: true }), s = settings(f), from = f.seat.el.getBoundingClientRect();
+test("Command + a digit and the project step do the same: the lens and its joint stand on the new name in the frame of the key", () => {
+  const f = fixture({ render: true }), keys = hotkeys(f);
+  assert.equal(keys.digit(3), true); assert.deepEqual(f.switches, ["c"]);
+  assertSetDown(f, "c");
+  assert.ok(stays(run(f, 1500), 320));
+  keys.step(-1); assert.deepEqual(f.switches, ["c", "b"]);
+  assertSetDown(f, "b");
+  assert.ok(stays(run(f, 1500), 210));
+  keys.digit(1); assertSetDown(f, "a");
+  assert.ok(stays(run(f, 1500), 90));
+});
+
+test("a click or key during a drag's split or slide ends the same way: in place, the old joint gone and the new one whole", () => {
+  const f = fixture({ render: true });
+  f.down("a"); f.move(84); run(f, 100);
+  assert.ok(joint(f).tau > 0 && joint(f).tau < 1, "the split is part way");
+  f.dispatch("keydown", { key: "Escape", preventDefault(){}, stopImmediatePropagation(){} });
+  f.move(84, 22, 0);   // the grip is let go, as the next mouse move after a cancel finds it
+  assert.equal(f.seat.el.classList.contains("still"), false, "the cancelled drag sends the lens back by sliding");
   f.click("b"); f.context.placeSeat();
-  assert.equal(f.seat.el.style.transitionDelay, s.hold + "ms");
-  const frames = slide(f, from);
-  assert.ok(frames.filter(r => r.held).every(r => r.kind === "split" && r.foot === 90));
-  run(f, 1400); assertJoinedUnder(f, "b");
+  assertSetDown(f, "b");
+  assert.ok(stays(run(f, 1500), 210));
+});
+
+test("the new project tab is reached the same way: the lens is set down on it at once", () => {
+  const f = fixture({ render: true });
+  f.tabs.a.classList.remove("on"); f.tabs.c.classList.add("on", "draft"); f.context.placeSeat();
+  assert.equal(f.seat.owner, f.get("DRAFT"));
+  assertSetDown(f, "c");
+  assert.ok(stays(run(f, 1500), 320));
+});
+
+test("a drag's release still slides the lens the rest of the way from where it was let go", () => {
+  const f = fixture({ render: true }), s = settings(f);
+  f.down("a"); f.move(84); run(f, s.split + 50);
+  f.move(330); f.up(330, 22, f.tabs.c); f.click("c");
+  assert.deepEqual(f.switches, ["c"]);
+  assert.equal(f.seat.el.classList.contains("still"), false, "the seat's transform and width transition runs");
+  assert.ok(!f.seat.el.style.transitionDelay, "from the moment of release");
+  assert.equal(f.seat.el.style.transform, "translateX(280px)");
+  assert.equal(joint(f).tau, 0, "the joint forms only once the lens has landed");
+  const after = run(f, s.join + 100);
+  assert.ok(after.some(r => r.kind === "join") && rising(after));
+  assertJoinedUnder(f, "c");
+});
+
+test("the page keeps no hold before a slide, and the seat slides only when it is let go by a drag", () => {
+  assert.doesNotMatch(html, /JOINT_HOLD_MS|jointHold|holdUntil|transitionDelay/);
+  const still = between("  body.focus #tabrow .tabseat.still{", "\n");
+  assert.doesNotMatch(still, /transform|width/, "a seat set down has no transition on its place or width");
+  assert.match(between("  body.focus #tabrow .tabseat{", "}"), /transition:transform \.28s var\(--gentle\), width \.28s var\(--gentle\)/, "a drag's release slides over .28s");
 });
 
 test("renames and closes before the open name move the joint with the lens, with no split", () => {
   const f = fixture({ render: true }), keys = hotkeys(f);
-  const from = f.seat.el.getBoundingClientRect();
-  keys.digit(3); slide(f, from); run(f, 1500); assertJoinedUnder(f, "c");
+  keys.digit(3); run(f, 200); assertJoinedUnder(f, "c");
   f.context.closeTab("b"); f.context.placeSeat();
-  assert.equal(f.seat.el.style.transitionDelay, "");
+  assert.ok(!f.seat.el.style.transitionDelay);
   const frames = run(f, 200);
   assert.ok(frames.every(r => r.tau === 1 && r.kind === null));
   assertJoinedUnder(f, "c");
 });
 
-test("Home stays as it is: its circle is never joined, leaving for it parts the joint, leaving it forms one", () => {
+test("Home: its circle is never joined; a click on a name or on the house sets the lens down at once, joint whole or gone", () => {
   const f = fixture({ home: true, render: true }), j = joint(f);
   assert.equal(j.tau, 0); assert.equal(j.outline, null); assert.equal(j.svg.attributes.opacity, "0");
   assert.equal(f.seat.w, 32); assert.equal(f.seat.x, 0);
-  // home to a project: no split, the lens slides over, the joint forms there
-  const fromHome = f.seat.el.getBoundingClientRect();
+  // home to a project: the lens is on the name and the joint whole in the same frame
   f.click("b"); f.context.placeSeat();
-  assert.equal(f.seat.el.style.transitionDelay, "", "nothing to part from on Home");
-  const out = slide(f, fromHome).concat(run(f, 1200));
-  assert.ok(out.every(r => r.kind !== "split"));
-  assertJoinedUnder(f, "b");
-  // a project to home: the same hold and split, and no joint on the house
-  const fromB = f.seat.el.getBoundingClientRect();
+  assertSetDown(f, "b");
+  assert.ok(stays(run(f, 1200), 210));
+  // a project to home: the circle and no joint at once
   f.homeButton.listeners.click[0]();
   assert.equal(f.context.homeOpen, true);
-  assert.equal(f.seat.el.style.transitionDelay, "150ms");
-  const gone = slide(f, fromB).concat(run(f, 1500));
-  assert.ok(gone.every(r => r.kind !== "join"));
-  assert.equal(j.tau, 0); assert.equal(j.outline, null);
+  assert.ok(!f.seat.el.style.transitionDelay);
+  assert.equal(f.seat.el.classList.contains("still"), true);
+  assert.equal(j.tau, 0); assert.equal(j.outline, null); assert.equal(j.svg.attributes.opacity, "0");
   assert.equal(f.seat.w, 32); assert.equal(f.seat.x, 0);
+  assert.equal(f.seat.face.getBoundingClientRect().width, 32);
+  const gone = run(f, 1500);
+  assert.ok(gone.every(r => r.kind === null && r.tau === 0 && r.outline === null));
   assert.equal(f.seat.face.getBoundingClientRect().width, 32);
   // a drag from Home onto the house again and dropped there opens nothing new
   f.down("b"); f.move(16); run(f, 200); f.up(16, 22, f.homeButton); run(f, 1200);
   assert.equal(f.context.homeOpen, true); assert.equal(j.tau, 0);
   // a project's lens dragged onto the house parts and stays parted on Home
   const g = fixture({ render: true });
-  g.down("a"); g.move(16); run(g, 200); g.up(16, 22, g.homeButton); const h = run(g, 1500);
+  g.down("a"); g.move(16); run(g, 200); g.up(16, 22, g.homeButton);
+  assert.equal(g.seat.el.classList.contains("still"), false, "a drag's release onto the house still slides");
+  const h = run(g, 1500);
   assert.equal(g.context.homeOpen, true); assert.ok(h.every(r => r.kind !== "join")); assert.equal(joint(g).tau, 0);
   assert.equal(g.homeButton.listeners.mousedown, undefined, "Home gained no gesture");
 });
@@ -285,7 +306,7 @@ test("with reduced motion the joint is simply there, or not, where the lens stan
   assert.ok(landed.every(r => r.tau === 1 && r.kind === null), "joined at once where it landed");
   assertJoinedUnder(f, "c");
   keys.digit(2);
-  assert.equal(f.seat.el.style.transitionDelay, "", "no hold");
+  assert.ok(!f.seat.el.style.transitionDelay, "no hold");
   const hop = run(f, 100);
   assert.ok(hop.every(r => r.tau === 1 && r.kind === null && r.foot === 210));
   assertJoinedUnder(f, "b");
