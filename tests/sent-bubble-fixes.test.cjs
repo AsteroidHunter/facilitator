@@ -173,6 +173,25 @@ function page() {
     logging: on => { if (on) log.length = 0; logging = on; } };
 }
 
+// ---- 2. a clear gap under Delivered and Read before the next bubble ---------------------
+test("the word under a bubble has clear room under it before the next bubble, more than over it", () => {
+  // in --u: the word stands under its bubble, 3 down, on a line of 10.5 at 1.35,
+  // in the bubble's room (--answ-tag); the next bubble starts after that room
+  // and any step a bubble after another takes
+  const css = readFileSync(path.join(ROOT, "card-tokens.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const units = text => { const m = /calc\(([\d.]+) \* var\(--u\)\)/.exec(text || ""); return m ? +m[1] : 0; };
+  const tag = units(/--answ-tag:([^;}]+)/.exec(css)[1]);
+  const word = /\.answered\[data-mark\]::after\{[^}]*padding-top:([^;]+);[^}]*font:calc\(([\d.]+) \* var\(--u\)\)\/([\d.]+)/.exec(css);
+  assert.ok(word, "the word's rule moved");
+  const over = units(word[1]), line = +word[2] * +word[3];
+  const step = /\n\.answered\.sent \+ \.answered\.sent\{margin-top:([^;}]+)/.exec(css);
+  const under = tag - over - line + (step ? units(step[1]) : 0);
+  assert.ok(under >= 8, `the word's line ends ${under.toFixed(2)}u from the next bubble`);
+  assert.ok(under > over, `the word stands nearer the next bubble (${under.toFixed(2)}u) than its own (${over}u)`);
+  // the step is never run as a transition: the bubbles' own glides carry it
+  for (const rule of css.match(/transition:[^;}]+/g) || []) assert.doesNotMatch(rule, /margin-top/);
+});
+
 // ---- 3. the agent's answer stands still while the bubbles move and merge -----------------
 // a scroller the answer stands in: its content is the answer, the band's run-out
 // at its foot, and any slack held there
