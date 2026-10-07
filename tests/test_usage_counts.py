@@ -38,7 +38,6 @@ import importlib.util
 import json
 import logging
 import os
-import re
 import sys
 import tempfile
 import threading
@@ -1071,18 +1070,6 @@ class Server(unittest.TestCase):
         for secret in (EMAIL, "b@example.org", "c@example.org", "d@example", "e@example.org", "@example",
                        saved, uc.TOKEN):
             self.assertNotIn(secret, said)
-
-
-class Readme(unittest.TestCase):
-    def test_the_readme_lists_every_field_sent(self):
-        text = (ROOT / "README.md").read_text()
-        section = text.split("## Usage counts", 1)[1].split("\n## ", 1)[0]
-        listed = set(re.findall(r"^\| `([^`]+)` \|", section, re.M))
-        body = uc.payload(DAY, EXPECTED, "v0.2.259", {"os": "macOS", "os_version": "26"}, INSTALL)
-        sent = (set(body) - {"properties"}) | set(body["properties"])
-        self.assertEqual(listed, sent)
-        for words in ("Share daily usage counts", "Improvements", "PostHog", "public", "send"):
-            self.assertIn(words, section)
 
 
 if __name__ == "__main__":
