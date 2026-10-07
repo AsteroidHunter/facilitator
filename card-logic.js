@@ -2304,10 +2304,10 @@ function armSentMotion(el){
   const source = field && field.formatted() && field.view ? field.view.scrollDOM : el.ta;
   if (!sentMotionVisible(source)) return null;
   const standing = sentPanels(el);
-  // These are siblings inside the answer's scroller, never their common parent:
-  // the page's line snap may move either when the new foot takes its space.
   // The bubbles already standing are pushed up by the new one in their seat.
-  const beforeNeighbors = [el.answwrap, el.reply, ...standing].filter(node => sentMotionVisible(node))
+  // The answer is not among them: it stands still whatever the bubbles do
+  // (sentKeepScroll, and the desktop's snap, which leaves the seat out)
+  const beforeNeighbors = standing.filter(node => sentMotionVisible(node))
     .map(node => ({ node, rect:node.getBoundingClientRect() }));
   // Read the previous shifts before replacing them. Existing shells keep
   // flying toward their live seats, so a quick second send never teleports
@@ -2398,8 +2398,8 @@ function armSentMotion(el){
       if (!panel || standing.includes(panel) || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
       target = panel;
       panel.classList.add("sentflight");
-      // What stood before glides from where it stood: the answer's pieces where
-      // the new bubble takes their room, and every bubble it pushes up.
+      // What stood before glides from where it stood: every bubble the new one
+      // pushes up.
       for (const { node, rect } of beforeNeighbors){
         if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
         const after = node.getBoundingClientRect(), scale = sentScale(node, after);
@@ -3104,7 +3104,7 @@ function sentMergeStop(el){
 // the joined bubble, all in the joined bubble's own px, so the layer moves with
 // it if anything moves it. the room the two give up above them is held by the
 // seat's own ground, which comes down with the earlier bubble's head, and the
-// bubbles and the answer the merge moves glide there on the merge's own curve
+// other bubbles the merge moves glide there on the merge's own curve
 function sentMerge(el, run){
   const { a, b } = run;
   run.stage = "merge";
@@ -3117,7 +3117,8 @@ function sentMerge(el, run){
   const corner = parseFloat(look.borderTopLeftRadius) || 0;
   const word = b.dataset.mark || "";
   const seatFrom = el.sentwrap.getBoundingClientRect();
-  const around = [el.answwrap, el.reply, ...sentPanels(el).filter(one => one !== a && one !== b)]
+  // the other bubbles the merge moves; the answer stands still (sentKeepScroll)
+  const around = sentPanels(el).filter(one => one !== a && one !== b)
     .filter(node => sentMotionVisible(node)).map(node => ({ node, rect:node.getBoundingClientRect() }));
   const aCopy = sentSnapshot(a, true), bCopy = sentSnapshot(b, true);
   const count = a.sentMsgs.length;
@@ -3210,7 +3211,7 @@ function sentMerge(el, run){
     floor.style.top = left + "px";
     floor.style.height = -left + "px";
   };
-  // the bubbles and the answer the merge moves glide on its own curve
+  // the bubbles the merge moves glide on its own curve
   for (const { node, rect } of around){
     if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
     const after = node.getBoundingClientRect(), scale = sentScale(node, after);
@@ -3408,12 +3409,29 @@ function sentGooPath(U, L, r, k, bow, ext){
 function sentBand(el, band){
   const panel = sentPanels(el).find(one => one.answSpan);
   const span = panel && panel.answSpan;
-  if (!span) return band;
-  if (span.band == null){
+  if (span && span.band == null){
     const now = panel.querySelector(".answclip").getBoundingClientRect().height;
     span.band = Math.max(0, Math.round(band - (now - Math.min(span.from, span.to))));
   }
-  return span.band;
+  const out = span ? span.band : band;
+  sentKeepScroll(el, out);
+  return out;
+}
+// the answer stands still under the bubbles, whatever they do: it is a thing
+// of its own, and nothing the bubbles do is a reason for it to move (the
+// owner's word). the band is also the
+// depth of the run-out at the foot of the answer's scroll, so a band coming
+// down, as two bubbles join or one is cut back, shortened the scroll, and a
+// reader standing at the very end of the answer was pulled down with it in
+// one frame. the room the band gives up is held under the answer instead, and
+// let go of a frame later, once the new band stands, as far as the reader is
+// not standing on it (holdSlack, trimSlack)
+function sentKeepScroll(el, band){
+  const view = el.replyview, was = el.sentBandWas;
+  el.sentBandWas = band;
+  if (!view || was == null || !(band < was)) return;
+  holdSlack(view, heldSlack(view) + was - band);
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => trimSlack(view));
 }
 
 // ---- the board's refresh and the card's own motion ------------------------------------

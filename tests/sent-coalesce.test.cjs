@@ -216,9 +216,11 @@ test("the sent preview is one line deeper, and the page turn hands it over to th
     "the turn fades the word of one bubble only");
 });
 
-test("both pages read every bubble: the desktop's snap waits out any one moving, and the phone opens the one a failed send stands in", () => {
-  const snap = DESKTOP.slice(DESKTOP.indexOf("function snapCard(){"), DESKTOP.indexOf("const r = el.reply;", DESKTOP.indexOf("function snapCard(){")));
-  assert.match(snap, /sentPanels\(el\)\.some\(sent => sent\.classList\.contains\("open"\) \|\| sent\.classList\.contains\("motion"\) \|\|\s*sent\.classList\.contains\("coalesce"\)\)/);
+test("both pages read every bubble: the desktop's snap leaves the bubbles' seat out, and the phone opens the one a failed send stands in", () => {
+  const snap = DESKTOP.slice(DESKTOP.indexOf("function snapCard(){"), DESKTOP.indexOf("function tiltTitleAir("));
+  assert.match(snap, /const seat = el\.sentwrap \? el\.sentwrap\.getBoundingClientRect\(\)\.height : 0;/);
+  assert.match(snap, /boxBand\(view, el\.pendwrap, seat\)/);
+  assert.doesNotMatch(snap, /sentPanels\(el\)/, "the snap still waits on the bubbles");
   const draw = PHONE.slice(PHONE.indexOf("function drawSent(el, id, arrive){"), PHONE.indexOf("function opBadge(op){"));
   assert.match(draw, /for \(const panel of sentPanels\(el\)\)/);
   assert.match(draw, /sentRows\(panel\)\.some\(row => ids\.includes\(row\.dataset\.op\)\)\) openAnswered\(panel, true\)/);

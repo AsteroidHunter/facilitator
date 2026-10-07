@@ -1106,8 +1106,8 @@ test("the sent panel opens on the same arrow and run, and a send cuts it back on
   assert.deepEqual(clip.style.heights, ["240px", "58px"], "the cut back did not run from where the panel stood");
   assert.equal(blocks(panel).length, 3, "the message went into the panel it cut back");
   assert.equal(context.sentPanels(el).length, 2, "the message has no bubble of its own");
-  // the card is told the new bubble took its room; the run still going on the
-  // other is what the desktop's snap waits out (snapCard, read below)
+  // the card is told the new bubble took its room, and again once the run on
+  // the other has landed
   assert.equal(counts.rooms, rooms + 1, "the card was not told the new bubble took its room");
   landRun(panel);
   assert.ok(counts.rooms >= rooms + 2, "the card was not told once the panel had landed");
@@ -2762,11 +2762,13 @@ test("send morph lands a later send whole on a bubble of its own, never on a row
   assert.equal(older.style.opacity, "");
 });
 
-test("send morph moves the preceding answer when the first panel takes room", () => {
+test("send morph never glides the answer, even when something moved it while the first panel took room", () => {
+  // the answer stands still under the bubbles; nothing the send does gives it
+  // a glide of its own
   const s = motionScene(), { context, el, frame } = s;
   el.reply.isConnected = true;
   rect(el.reply, 20, 70, 300, 120);
-  let shift;
+  let shift = null;
   el.reply.animate = (keys, options) => {
     shift = { keys, options, cancel() {} };
     return shift;
@@ -2775,11 +2777,10 @@ test("send morph moves the preceding answer when the first panel takes room", ()
   s.insert();
   rect(el.reply, 20, 50, 300, 120);
   motion.play();
-  assert.equal(shift.keys[0].transform.trim(), "translate(0px,20px)");
-  assert.equal(shift.options.duration, 340, "the answer does not make room on the iPhone's glide");
-  assert.equal(shift.options.easing, "cubic-bezier(.24,.1,.15,1)");
+  assert.equal(shift, null, "the answer glided with the send");
   frame(1000 / 60); frame(650); frame(667);
   assert.equal(s.shell(), null);
+  assert.equal(shift, null);
 });
 
 test("send morph cleans an unplayed send and preserves a preexisting inline opacity", () => {

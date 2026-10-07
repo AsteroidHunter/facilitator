@@ -153,8 +153,9 @@ function page() {
   card.appendChild(sentwrap);
   const el = { box: card, ta, sent: null, sentwrap, answwrap: null, reply: null };
   // arm, put the new bubble in the seat, lay it out at TO, and play
-  function fly() {
-    const motion = context.armSentMotion(el);
+  const arm = () => context.armSentMotion(el);
+  const fly = () => seat(arm());
+  function seat(motion) {
     const p = element("div", "answered sent");
     const clip = element("div", "answclip"), stack = element("div", "answstack"), row = element("div", "answmsg");
     p.appendChild(clip); clip.appendChild(stack); stack.appendChild(row);
@@ -168,8 +169,96 @@ function page() {
   const frame = now => { clock.now = now; for (const fn of frames.splice(0)) fn(now); };
   const shell = () => body.children.find(n => n.classes.has("sentmorph")) || null;
   const box = () => { const s = shell().style; return { left: parseFloat(s.left), top: parseFloat(s.top), width: parseFloat(s.width), height: parseFloat(s.height) }; };
-  return { context, el, fly, frame, shell, box, log, logging: on => { if (on) log.length = 0; logging = on; } };
+  return { context, el, arm, seat, fly, frame, shell, box, make: element, set, log,
+    logging: on => { if (on) log.length = 0; logging = on; } };
 }
+
+// ---- 3. the agent's answer stands still while the bubbles move and merge -----------------
+// a scroller the answer stands in: its content is the answer, the band's run-out
+// at its foot, and any slack held there
+function scroller({ top = 0, client = 500, answer = 1810 } = {}) {
+  const props = {};
+  return {
+    scrollTop: top, clientHeight: client, band: 0,
+    get scrollHeight() { return answer + this.band + (parseFloat(props["--answ-slack"]) || 0); },
+    style: { setProperty: (k, v) => { props[k] = String(v); }, getPropertyValue: k => props[k] || "", removeProperty: k => { delete props[k]; } },
+    addEventListener() {},
+  };
+}
+
+test("a band coming down under the bubbles never pulls the answer's scroll: its room is held, then let go where the reader is not", () => {
+  // the reader at the very end of the answer (1810 + 190 - 500), or at its head
+  for (const [where, top] of [["at its end", 1500], ["at its head", 0]]) {
+    const frames = [];
+    const c = load({ requestAnimationFrame: fn => frames.push(fn) });
+    const view = scroller({ top });
+    const el = { replyview: view, sentwrap: { children: [] } };
+    view.band = c.sentBand(el, 190);
+    // two bubbles join and the seat comes down by 27px
+    view.band = c.sentBand(el, 163);
+    assert.equal(view.band, 163);
+    assert.ok(view.scrollHeight - view.clientHeight >= top, `the scroll would be pulled back (${where})`);
+    assert.equal(c.heldSlack(view), 27, `the room the band gave up was not held under the answer (${where})`);
+    // a frame later, once the new band stands
+    for (const fn of frames.splice(0)) fn();
+    assert.equal(c.heldSlack(view), top ? 27 : 0, `the held room was not let go as far as the reader does not stand on it (${where})`);
+  }
+});
+
+test("a send never glides the answer, whatever moved it", () => {
+  const s = page();
+  const moved = [];
+  for (const key of ["reply", "answwrap"]) {
+    const part = s.make("div");
+    s.el.box.appendChild(part);
+    s.set(part, { left: 20, top: 70, width: 300, height: 120 });
+    part.animate = () => { moved.push(key); return { cancel() {} }; };
+    s.el[key] = part;
+  }
+  const motion = s.arm();
+  // something lays the answer out 20px higher while the bubble takes its room
+  for (const key of ["reply", "answwrap"]) s.set(s.el[key], { left: 20, top: 50, width: 300, height: 120 });
+  s.seat(motion);
+  assert.deepEqual(moved, [], "the answer glided with the send");
+});
+
+test("the merge never glides the answer either", () => {
+  const merge = LOGIC.slice(LOGIC.indexOf("function sentMerge(el, run){"), LOGIC.indexOf("function sentMergeLand(el){"));
+  const around = merge.slice(merge.indexOf("const around ="), merge.indexOf(";", merge.indexOf("const around =")));
+  assert.ok(around, "the merge names nothing it moves");
+  assert.doesNotMatch(around, /el\.reply|el\.answwrap/, "the merge moves the answer");
+});
+
+test("the Mac board's snap fits the answer the same whatever stands in the bubbles' seat", () => {
+  // the desktop's own boxBand and snapCard, run on a stand-in card: the answer's
+  // scroller 500px tall, its line 28px, the bar 40px under it, and a seat of
+  // bubbles of three heights over the bar
+  const DESKTOP = readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const fn = name => { const at = DESKTOP.indexOf("function " + name + "("); return DESKTOP.slice(at, DESKTOP.indexOf("\n}\n", at) + 2); };
+  const written = [];
+  for (const seat of [0, 73, 150]) {
+    const style = () => { const p = {}; return new Proxy({ getPropertyValue: k => p[k] || "", setProperty: (k, v) => { p[k] = v; } }, { get: (t, k) => k in t ? t[k] : p[k] || "", set: (t, k, v) => { p[k] = String(v); return true; } }); };
+    const rect = r => () => ({ left: 0, right: 0, width: 0, ...r, bottom: r.top + r.height });
+    const first = { getBoundingClientRect: rect({ top: 100, height: 28 }) };
+    const reply = { style: style(), children: [first] };
+    const view = { style: style(), scrollTop: 0, getBoundingClientRect: rect({ top: 100, height: 500 }) };
+    const pendwrap = { getBoundingClientRect: rect({ top: 560 - seat, height: 40 + seat }) };
+    const sentwrap = { getBoundingClientRect: rect({ top: 560 - seat, height: seat }) };
+    const head = { style: style() };
+    const el = { box: { classList: { contains: c => c === "sel" }, querySelector: () => head },
+      reply, replyview: view, pendwrap, sentwrap, answ: null, answwrap: null, titleEl: { style: style() } };
+    const context = vm.createContext({
+      FOCUS: true, els: { card: el }, selectedId: "card",
+      sentPanels: () => [], tiltTitleAir: () => {},
+      getComputedStyle: node => ({ lineHeight: "28px", marginBottom: node === view ? "3.5px" : "0px", paddingTop: "0px", font: "18px x" }),
+    });
+    vm.runInContext(fn("boxBand") + fn("snapCard"), context);
+    vm.runInContext("snapCard()", context);
+    written.push(view.style.marginTop);
+  }
+  assert.ok(written[0], "the snap wrote nothing");
+  assert.deepEqual(written, [written[0], written[0], written[0]], `the answer was snapped to another place for each seat: ${written.join(", ")}`);
+});
 
 // ---- 6. the send flight on the Mac: no pause as it flies out, no lag ---------------------
 test("the first frame drawn after a send already has the box on its way, on time or late", () => {
