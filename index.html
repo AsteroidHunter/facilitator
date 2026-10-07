@@ -419,9 +419,11 @@
     /* 10% narrower than drawn, nudged right by half the difference so the box
        keeps its centre exactly where it was (was x 0.068, w 0.216) */
     --m1-x:calc(var(--ox) + var(--cw)*0.0788);     --m1-w:calc(var(--cw)*0.1944);
-    /* 15% shorter than drawn, lowered by half the difference so the box keeps
-       its centre exactly where it was (was y 0.7104, h 0.1792) */
-    --m1-y:0.72384;  --m1-h:0.15232;
+    /* starts one star row under the ticket list's foot, so the two never
+       overlap, and is 11 whole rows tall (was y 0.72384, h 0.15232, which put
+       its top 45.5px up inside the list). its foot is on a star line 11.52px
+       below the card's, the lowest that keeps a 1440 by 900 window unshrunk */
+    --m1-y:0.7872;   --m1-h:0.1408;
     --frame-x:calc(var(--ox) + var(--cw)*0.324);   --frame-w:calc(var(--cw)*0.352);
     --frame-y:0.0832; --frame-h:0.832;
     --pad-x:calc(var(--cw)*0.016);  --pad-y:0.008;
