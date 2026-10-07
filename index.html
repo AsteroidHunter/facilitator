@@ -4381,8 +4381,15 @@ function startTabSelection(){
   t.mode = "select";
   t.tabs = [...oval.querySelectorAll(".ptab:not(.draft)")].filter(el => el.getBoundingClientRect().width);
   t.rects = t.tabs.map(el => el.getBoundingClientRect());
-  t.left = r.left - tabSeat.el.parentNode.getBoundingClientRect().left;
+  const rowLeft = tabSeat.el.parentNode.getBoundingClientRect().left;
+  t.left = r.left - rowLeft;
   t.source = r;
+  // the house is in the same row, so the lens can be carried onto it. it is a
+  // target only while it is on the bar (the narrow view keeps its own button)
+  const house = document.getElementById("homeico").getBoundingClientRect();
+  t.house = house.width ? house : null;
+  t.houseLeft = t.house ? t.house.left - rowLeft : 0;
+  t.onHouse = false;
   const el = tabSeat.el;
   el.classList.add("still", "carried"); el.classList.remove("gone");
   el.style.transition = "none";
@@ -4390,17 +4397,28 @@ function startTabSelection(){
   el.style.width = r.width + "px";
   el.style.transform = "translateX(" + t.left + "px)";
 }
+function tabHit(r, e){
+  return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+}
 function moveTabSelection(e){
   const t = tabDrag, first = t.rects[0], last = t.rects[t.rects.length - 1];
-  const source = t.source;
+  const source = t.source, el = tabSeat.el;
+  // over the house the lens takes Home's circle, the shape a click on Home
+  // gives; a release here opens Home. off it the name lens is shown again
+  const onHouse = !!t.house && tabHit(t.house, e);
+  if (onHouse !== t.onHouse){
+    t.onHouse = onHouse;
+    el.style.width = (onHouse ? t.house.width : source.width) + "px";
+  }
+  if (onHouse){ el.style.transform = "translateX(" + t.houseLeft + "px)"; return; }
   const dx = Math.max(first.left - source.left, Math.min(last.right - source.right, e.clientX - t.x));
-  tabSeat.el.style.transform = "translateX(" + (t.left + dx) + "px)";
+  el.style.transform = "translateX(" + (t.left + dx) + "px)";
 }
 function finishTabSelection(e){
   const t = tabDrag;
   if (t?.mode !== "select") return;
-  const index = e ? t.rects.findIndex(r => e.clientX >= r.left && e.clientX < r.right &&
-    e.clientY >= r.top && e.clientY <= r.bottom) : -1;
+  const home = !!e && !!t.house && tabHit(t.house, e);
+  const index = e && !home ? t.rects.findIndex(r => tabHit(r, e)) : -1;
   const owner = index < 0 ? null : t.tabs[index].dataset.owner;
   // Keep a completed gesture until its synthetic click has passed, but allow
   // the release's one setTab/apply to repaint the bar normally.
@@ -4409,7 +4427,10 @@ function finishTabSelection(e){
   el.getBoundingClientRect();   // commit the dragged position before settling
   el.style.transition = ""; el.classList.remove("carried", "still");
   tabSeat.x = null; tabSeat.returning = true;
-  if (owner && validActiveOwnerIds.has(owner) && !tabClosed(owner) &&
+  // Home opens through the house's own click, so an unfinished new project
+  // tab is put away exactly as a click on the house puts it away
+  if (home){ if (!homeOpen) document.getElementById("homeico").click(); }
+  else if (owner && validActiveOwnerIds.has(owner) && !tabClosed(owner) &&
       (owner !== activeOwner || homeOpen || draft)) setTab(owner);
   if (lastState) renderTabs(lastState);
   placeSeat();
