@@ -3264,9 +3264,16 @@ function sentMergeLand(el){
 // the clock, so whatever the distance the drops swell toward each other, touch
 // in the middle of the side they share a little after they set off, and the
 // neck widens from there; the reach lets go over the last half, and the
-// joint settles into one rounded bubble. ey is the travel down, ew across
+// joint settles into one rounded bubble. ey is the travel down, ew across:
+// the narrower bubble flowing out to the wider's width, and its words, a
+// shorter message's moving left to the joined bubble's edge, which go at the
+// gentler pace the owner asked for:
+// over the whole of the travel from a tenth in, 700ms, rather than 450ms from
+// a fifth in, the fastest frame a little under two thirds as fast as it was
+const MERGE_ACROSS_FROM = .1;
 function sentMergeShape({ U0, L0, U1, L1, r }, t){
-  const ey = MERGE_CURVE(Math.min(1, t / MERGE_TRAVEL)), ew = sentSmooth((t - .2) / .45);
+  const ey = MERGE_CURVE(Math.min(1, t / MERGE_TRAVEL));
+  const ew = sentSmooth((t - MERGE_ACROSS_FROM) / (MERGE_TRAVEL - MERGE_ACROSS_FROM));
   const mix = (p, q, f) => p + (q - p) * f;
   const box = (from, to) => ({ left:mix(from.left, to.left, ew), right:mix(from.right, to.right, ew),
     top:mix(from.top, to.top, ey), bottom:mix(from.bottom, to.bottom, ey) });
