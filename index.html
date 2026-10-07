@@ -3508,6 +3508,13 @@
       <input type="checkbox" role="switch" id="setformat">
     </div>
   </div>
+  <div data-section="improvements" data-label="Improvements">
+    <div class="setrow">
+      <label class="setlabel" for="setusage"><span>Share daily usage counts</span>
+        <small class="sethelp">Once a day the board sends a few counts, like how many cards were made and messages sent, to help improve Facilitator. Never what you wrote, names or files. The README lists every field.</small></label>
+      <input type="checkbox" role="switch" id="setusage" checked>
+    </div>
+  </div>
 </div>
 
 <div id="appframe" class="qn-glass" aria-hidden="true"></div>
@@ -11074,12 +11081,18 @@ function setEditMode(on){
 {
   const btn = document.getElementById("setbtn");
   const format = document.getElementById("setformat");
+  // whether the board sends its daily usage counts (usage_counts.py): one of
+  // the board's settings, on unless it says "0", so every window and the
+  // phone's drawer show the same choice
+  const usage = document.getElementById("setusage");
+  const sharing = () => settingsStore.getItem("usagecounts") !== "0";
   const view = settingsOverlay(document.body, document.getElementById("setsrc"), {
     onOpen(){
       setOpen = true;
       document.body.classList.add("setopen");
       btn.setAttribute("aria-expanded", "true");
       format.checked = ComposeFormat.enabled();
+      usage.checked = sharing();
     },
     onClose(){
       setOpen = false;
@@ -11090,6 +11103,11 @@ function setEditMode(on){
   format.checked = ComposeFormat.enabled();
   format.addEventListener("change", () => ComposeFormat.setEnabled(format.checked));
   ComposeFormat.onChange(on => { format.checked = on; });
+  usage.checked = sharing();
+  usage.addEventListener("change", () => {
+    if (usage.checked) settingsStore.removeItem("usagecounts");
+    else settingsStore.setItem("usagecounts", "0");
+  });
   btn.addEventListener("click", () => view.open());
 }
 // the editor the typed formatting is drawn with is fetched once, early, so the

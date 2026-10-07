@@ -1729,6 +1729,13 @@ for (const type of ["gesturestart", "gesturechange"])
           <button id="notifyoff" class="sp-btn" type="button" hidden>Turn notifications off</button>
         </div>
       </div>
+      <div data-section="improvements" data-label="Improvements">
+        <div class="setrow">
+          <label class="setlabel" for="setusage"><span>Share daily usage counts</span>
+            <small class="sethelp">Once a day the board sends a few counts, like how many cards were made and messages sent, to help improve Facilitator. Never what you wrote, names or files. The README lists every field.</small></label>
+          <input type="checkbox" role="switch" id="setusage" checked>
+        </div>
+      </div>
       <div data-section="diagnostics" data-label="Diagnostics">
         <div class="setact">
           <button id="savediagnostic" class="sp-btn" type="button" aria-describedby="diagnostichelp" aria-keyshortcuts="Control+Shift+M">Save diagnostic history</button>
@@ -7074,6 +7081,30 @@ function keyBytes(b64url){
   format.checked = ComposeFormat.enabled();
   format.addEventListener("change", () => ComposeFormat.setEnabled(format.checked));
   ComposeFormat.onChange(on => { format.checked = on; });
+}
+// the daily usage counts: the one switch here that is the board's setting and
+// not this phone's, since the Mac does the sending (usage_counts.py). It is
+// read from the board when the page starts and again when its section is
+// opened, and a flip goes straight back to the board; one the board does not
+// take flips back
+{
+  const usage = document.getElementById("setusage");
+  let asked = 0;
+  const shown = answer => { if (answer && answer.values) usage.checked = answer.values.usagecounts !== "0"; };
+  const read = () => {
+    const mine = ++asked;
+    fetch("/settings").then(r => r.ok ? r.json() : null)
+      .then(answer => { if (mine === asked) shown(answer); }, () => {});
+  };
+  usage.addEventListener("change", () => {
+    const on = usage.checked, mine = ++asked;
+    fetch("/settings", { method: "POST", body: JSON.stringify({ usagecounts: on ? null : "0" }) })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(answer => { if (mine === asked) shown(answer); },
+            () => { if (mine === asked) usage.checked = !on; });
+  });
+  document.querySelector('#setpage .sp-item[data-section="improvements"]')?.addEventListener("click", read);
+  read();
 }
 // the editor it is drawn with is fetched once, early, so the row is already
 // wearing it by the time anybody types in it

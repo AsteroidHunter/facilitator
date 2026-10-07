@@ -32,6 +32,10 @@
 /claude-limits.json
 /claude-limits.json.tmp
 
+# the last day the daily usage counts dealt with, written by usage_counts.py
+/usage-counts.json
+/usage-counts.json.tmp
+
 # real seed content: private discussion topics, never committed
 /seed.json
 
