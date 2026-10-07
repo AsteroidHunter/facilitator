@@ -9,7 +9,7 @@ const { test } = require("node:test");
 // label at the top left, in a row of its own, and the button sits in that row with
 // its centre on the label's centre. The renderer marks a one line block, and the
 // shared sheet does the placing, padding and labelling outside any media query:
-// only the shown-always button and its 32px tap area are touch only. The /page
+// only the button's reveal and its 32px tap area are touch only. The /page
 // view does not load the sheet and repeats the rules. No browser: the sheets are
 // read as text and the offsets are worked out from their numbers.
 const ROOT = path.join(__dirname, "..");
@@ -64,9 +64,9 @@ test("the placing, padding and label rules are shared, none of them touch only",
   assert.doesNotMatch(TOUCH, /isolation|z-index/);
 });
 
-test("the touch only part is the always shown button and its tap area, nothing else", () => {
+test("the touch only part is the button's tap area and fade, and the shown state, nothing else", () => {
   const touch = rule(TOUCH, ".cardmd .codeblockwrap .copybtn");
-  assert.deepEqual(Object.keys(touch).sort(), ["height", "justify-content", "opacity", "padding", "pointer-events", "width"]);
+  assert.deepEqual(Object.keys(touch).sort(), ["height", "justify-content", "padding", "transition", "width"]);
   assert.equal(touch.width, "32px");
   assert.equal(touch.height, "32px");
   assert.equal(rule(PLAIN, ".cardmd .codeblockwrap .copybtn").opacity, "0", "hidden until hover on the Mac");

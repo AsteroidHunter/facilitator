@@ -7049,6 +7049,42 @@ document.addEventListener("click", e => {
   if (button) CardMarkdown.copyCodeBlock(button);
 });
 
+// the copy button shows on a fenced block only while the block is scrolled
+// sideways or tapped, and goes about 2 seconds after the last of either; a
+// finger on a shown block holds it, and a tick on the button is waited out. The
+// sheet does the fading (copyshown), and none of this stops or changes an event
+{
+  const SHOW_MS = 2000, TICK_WAIT_MS = 300;
+  const timers = new Map();
+  let held = null;
+  const wrapOf = el => el?.closest?.(".codeblockwrap") || null;
+  const hideLater = (wrap, ms) => {
+    clearTimeout(timers.get(wrap));
+    if (held === wrap) return;
+    timers.set(wrap, setTimeout(() => {
+      const button = wrap.querySelector(".copybtn");
+      if (button && /M4 12\.5/.test(button.innerHTML)) { hideLater(wrap, TICK_WAIT_MS); return; }
+      timers.delete(wrap);
+      wrap.classList.remove("copyshown");
+    }, ms));
+  };
+  const reveal = wrap => { if (!wrap) return; wrap.classList.add("copyshown"); hideLater(wrap, SHOW_MS); };
+  document.addEventListener("scroll", e => { if (e.target?.matches?.("pre.codeblock")) reveal(wrapOf(e.target)); }, true);
+  document.addEventListener("click", e => reveal(wrapOf(e.target)));
+  document.addEventListener("touchstart", e => {
+    const wrap = wrapOf(e.target);
+    if (!wrap || !wrap.classList.contains("copyshown")) return;
+    held = wrap;
+    clearTimeout(timers.get(wrap));
+  }, { capture: true, passive: true });
+  for (const type of ["touchend", "touchcancel"])
+    document.addEventListener(type, () => {
+      const wrap = held;
+      held = null;
+      if (wrap) hideLater(wrap, SHOW_MS);
+    }, { capture: true, passive: true });
+}
+
 addEventListener("keydown", e => {
   dispatchCardShortcut(e, homeOpen ? homeShortcutActions : phoneShortcutActions);
 });
