@@ -59,7 +59,7 @@ function clock() {
 test("the keys that are settings, and the ones that stay in the browser", () => {
   for (const key of ["pos.facilitator.main", "size.café-2.magic1", "hide.x.rail", "show.x.magic1",
                      "layoutbak.pos.x.main", "doc.tasks.facilitator", "bgcolor", "tocw", "composeformat",
-                     "home.chart", "magicrename.1", "layoutsync.1", "hideseed.1", "layoutvisibility.1",
+                     "usagecounts", "home.chart", "magicrename.1", "layoutsync.1", "hideseed.1", "layoutvisibility.1",
                      "layoutvisibility.2", "navrestore.1", "pos.my.lane.main"])
     assert.equal(isSetting(key), true, key);
   for (const key of ["selbox", "activeproj", "homeopen", "tikview.x", "activepage.x", "minibox.x",

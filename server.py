@@ -322,9 +322,11 @@ Endpoints:
                                settings are what the reader arranges on the
                                desktop pages: each lane's box places, sizes,
                                hides and shows, the background colour, the
-                               outline's width, formatting while typing, the
-                               home chart, the typed page's tasks and the
-                               one-time layout passes, under the key names and
+                               outline's width, formatting while typing,
+                               whether the daily usage counts are shared
+                               (usagecounts, "0" when off), the home chart,
+                               the typed page's tasks and the one-time layout
+                               passes, under the key names and
                                text values the browsers kept them under. They
                                live in settings.json beside state.json, so
                                every address the board is opened at shows the
@@ -615,6 +617,11 @@ settings and the Spotify sign-in persist to settings.json beside it. A first-eve
 (no state.json) seeds the board title and boxes from seed.json if present;
 the shipped seed.example.json holds a title and no boxes, so a new install
 opens with no project. Real discussion content never ships in this code.
+
+Once a day, unless the usagecounts setting is "0", a thread of the server's own
+sends one message of counts about the day before to PostHog (usage_counts.py;
+README.md, "Usage counts", lists every field). It is no route and answers
+nothing; usage-counts.json beside state.json holds the last day it dealt with.
 """
 
 from __future__ import annotations
@@ -1635,6 +1642,16 @@ _waiters = {ow: 0 for ow in OWNERS}
 _last_wait = {ow: 0.0 for ow in OWNERS}
 # the name each lane's agent last stated on its /wait call; None until stated
 _agent_names: dict = {ow: None for ow in OWNERS}
+
+
+def _agent_kind(owner: str) -> str:
+    """claude, codex or other: which agent the lane's listener said it was on
+    its last /wait, or other when none has said since the start. A reply's
+    transcript row carries this one word, never the name itself, so the daily
+    usage counts (usage_counts.py) can split replies by agent."""
+    said = (_agent_names.get(owner) or "").lower()
+    return "claude" if "claude" in said else "codex" if "codex" in said else "other"
+
 
 # ---- waking the listeners --------------------------------------------------------
 # The agents' long polls wait on the event loop, not on the condition above.
@@ -4832,7 +4849,7 @@ def _sweep_upload_parts() -> None:
 PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.jsonl", "settings.json",
                  "settings.json.tmp", "settings.json.bad-*", "vapid-key.pem", "bridge-auth.json",
                  "tokens-cache.json", "tokens-cache.json.tmp", "claude-limits.json",
-                 "claude-limits.json.tmp", "server.lock")
+                 "claude-limits.json.tmp", "usage-counts.json", "usage-counts.json.tmp", "server.lock")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
 
 
@@ -5131,7 +5148,7 @@ def _post_reply(q: Query, text: str):
              reply_short=box["reply_short"],
              reply_variants_version=REPLY_VARIANTS_VERSION,
              reply_id=box["reply_id"], reply_ts=now,
-             answered=box["answered"])
+             answered=box["answered"], agent_kind=_agent_kind(ow))
         _save()
         _notify()
         return 200, {"ok": True}
@@ -5990,7 +6007,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|chimemuted|home\.chart"
+    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|home\.chart"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096
@@ -6143,6 +6160,34 @@ def _post_spotify_session(q: Query, text: str):
             return 200, {"ok": True, "seeded": False, **store["spotify"]}
         _save_settings({**store, "spotify": rec})
         return 200, {"ok": True, **rec}
+
+
+# ---- the daily usage counts -------------------------------------------------------
+# Once a day the board sends one small message of counts about the day before
+# to the Facilitator project in PostHog: usage_counts.py says what, and the
+# README's "Usage counts" lists every field. It runs on a thread of its own,
+# never on a request. The switch is one of the board's settings, usagecounts,
+# on unless it says "0", so the Mac's settings page and the phone's drawer both
+# turn it off. usage-counts.json holds only the last day already dealt with.
+# usage_counts.py is imported only here, so a copy of the board without it, as
+# the tests' fixtures make, sends nothing at all.
+USAGE_MARKER = HERE / "usage-counts.json"
+USAGE_SETTING = "usagecounts"
+
+
+def _usage_sharing() -> bool:
+    with _settings_lock:
+        return _settings_file()["values"].get(USAGE_SETTING) != "0"
+
+
+def _start_usage_counts() -> None:
+    try:
+        import usage_counts
+    except ImportError:
+        return
+    sender = usage_counts.Sender(transcript=TRANSCRIPT_PATH, log_dir=LOG_DIR, marker=USAGE_MARKER,
+                                 index_html=HERE / "index.html", sharing=_usage_sharing, log=_info)
+    threading.Thread(target=sender.run, args=(_STOPPING,), name="usage-counts", daemon=True).start()
 
 
 # hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
@@ -7487,6 +7532,7 @@ def main() -> None:
         pushed = _state.get("push_last_ok") or {}
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
+        _start_usage_counts()
         server.run(sockets=[sock, bridge_sock])
     except Exception as error:
         # the last word about a start that died of something rather than being

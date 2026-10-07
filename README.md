@@ -51,6 +51,41 @@ To use the mobile version:
 3. Follow the steps to set up the web app
 4. Continue shipping!
 
+## Usage counts
+
+To help improve Facilitator, the board sends one small message of usage counts once a day. It only sends counts: never anything you typed, card text, titles, names, project names, folders or file paths.
+
+**How to switch it off:** open Settings (the squid at the top right of the board, or the settings drawer on the phone), choose **Improvements** and turn off **Share daily usage counts**. Nothing is sent from then on, and a day that ends while it is off is never sent later. It is on by default.
+
+**When:** once a day, for the day before: within 15 minutes after midnight while the board is running, or about 5 minutes after the board next starts. A day you did not use the board sends nothing. Each day is sent at most once, and after time offline at most the last 7 missed days are sent.
+
+**To whom:** the Facilitator project in [PostHog](https://posthog.com) Cloud, US region. The message carries PostHog's project token, which is public by design: it can only send counts in, never read anything out. Like any web request, the message reaches PostHog from your internet address. Facilitator asks PostHog not to work out a location from it, and the project is set to discard it.
+
+**Every field sent:**
+
+| Field | What it is |
+|---|---|
+| `api_key` | The project token (public, send-only) |
+| `event` | Always `daily_usage` |
+| `distinct_id` | A new random id for every message, never stored or reused, so two messages cannot be linked |
+| `timestamp` | The day counted, as noon UTC on that date |
+| `$process_person_profile` | Always `false`: PostHog keeps no profile of anyone |
+| `$geoip_disable` | Always `true`: PostHog works out no location |
+| `minutes_used` | Rough minutes you used the board: each 5-minute stretch with at least one of your actions (a message sent, a card made, closed or reopened, a project added) or the phone app opened counts as 5 |
+| `cards_created` | Cards you made |
+| `cards_closed` | Cards you closed |
+| `projects_created` | Projects added |
+| `messages_sent` | Messages you sent to agents |
+| `replies_claude` | Agent replies from Claude Code |
+| `replies_codex` | Agent replies from Codex |
+| `replies_other` | Agent replies from any other agent, or one that did not say which it is |
+| `phone_used` | `true` if the phone app was opened that day |
+| `facilitator_version` | The Facilitator version, for example `v0.2.259` |
+| `os` | `macOS` |
+| `os_version` | The macOS major version only, for example `15` |
+
+The only thing kept on your Mac for this is `usage-counts.json` beside the board's data, which holds the last day already dealt with. The code that sends it is [`usage_counts.py`](usage_counts.py).
+
 ## Updating the Facilitator
 
 Facilitator is still in development and will be constantly updated. To update, run the following on your terminal:
