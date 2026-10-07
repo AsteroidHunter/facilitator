@@ -2482,16 +2482,16 @@ BANNER_GLYPHS = {
 
 
 def check_python():
-    """Report the Python running this setup, and stop below the floor this
-    command needs. The board does not run on it: it runs on the Python
-    APP_PYTHON in .venv, which uv provides whatever Python runs this."""
+    """Stop when the Python running this setup is below the floor this command
+    needs, and say nothing otherwise. The board does not run on it: it runs on
+    the Python APP_PYTHON in .venv, which uv provides whatever Python runs
+    this, so which one runs the setup is not something to print."""
     have = sys.version_info[:3]
-    shown = ".".join(str(part) for part in have)
-    floor = ".".join(str(part) for part in MIN_PYTHON)
     if have < MIN_PYTHON:
+        shown = ".".join(str(part) for part in have)
+        floor = ".".join(str(part) for part in MIN_PYTHON)
         sys.exit(problem(f"Python {shown} is below the {floor} minimum.",
                          "Install a newer Python, then run ./install.sh again."))
-    ok(f"Python {shown} runs this setup.")
 
 
 def find_uv():
@@ -2557,9 +2557,12 @@ def install_uv():
             if hashlib.sha256(script.stdout).hexdigest() != UV_INSTALL_SHA256:
                 sys.exit(problem("The uv installer from astral.sh is not the one this checkout expects.",
                                  "Nothing was run. Install uv yourself, then run ./install.sh again."))
-            if subprocess.run(["sh"], input=script.stdout, env=env).returncode != 0:
+            # its own progress lines are held back and shown only if it fails
+            held = subprocess.run(["sh"], input=script.stdout, env=env, capture_output=True)
+            if held.returncode != 0:
+                show_held(held)
                 sys.exit(problem("The uv installer did not finish.",
-                                 "Install uv yourself, then run ./install.sh again."))
+                                 "Install uv yourself, then run ./install.sh again.", blank=True))
     uv = find_uv()
     if not uv:
         sys.exit(problem("uv is installed but still not found.",
@@ -2597,16 +2600,20 @@ def ensure_uv(quiet=False):
     return uv
 
 
+def show_held(result):
+    """Print the output of a run that was held back, as text or as bytes."""
+    for stream, text in ((sys.stdout, result.stdout), (sys.stderr, result.stderr)):
+        stream.write(text.decode("utf-8", "replace") if isinstance(text, bytes) else text)
+        stream.flush()
+
+
 def run_held(argv, cwd=HERE):
     """Run a command, here by default, holding its output back and showing it
     only on failure, so an install says what it is doing in its own words and
     not in uv's or npm's."""
     result = subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True, errors="replace")
     if result.returncode != 0:
-        sys.stdout.write(result.stdout)
-        sys.stdout.flush()
-        sys.stderr.write(result.stderr)
-        sys.stderr.flush()
+        show_held(result)
     return result.returncode
 
 

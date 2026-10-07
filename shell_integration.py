@@ -54,6 +54,12 @@ def problem(headline, *next_steps):
     return lead + "⚠ " + headline + "".join("\n  " + line for line in next_steps)
 
 
+def plain_problem(headline, *paragraphs):
+    """Like problem, but each paragraph is flush left after a blank line."""
+    lead = "\n" if _printed else ""
+    return lead + "⚠ " + headline + "".join("\n\n" + paragraph for paragraph in paragraphs)
+
+
 def block(newline):
     return newline.join((BEGIN, PATH_LINE, END, b""))
 
@@ -122,7 +128,8 @@ def inspect_profile(rc):
 
 def preflight():
     if (BIN.exists() or BIN.is_symlink()) and not owned_link():
-        raise SystemExit(problem(f"{BIN} already exists.", "Leaving it untouched."))
+        raise SystemExit(plain_problem(f"The facilitator command could not be set up: a file already exists at {BIN}.",
+                                       "Move or remove that file, then run ./install.sh again. Nothing was changed."))
     for rc in set(profiles() + [Path(p) for p in recorded_profiles()]):
         inspect_profile(rc)
     skills_preflight()
