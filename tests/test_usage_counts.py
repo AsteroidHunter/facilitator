@@ -1,18 +1,26 @@
 """The daily usage counts (usage_counts.py) and the server's side of them.
 
-  payload   the exact message: its fields, the two privacy flags, a fresh
-            random id for every message, the day as noon UTC, and nothing of
-            what the board holds in words (texts, titles, project names, paths)
+  payload   the exact message: its fields, the two privacy flags, the install
+            id, the day as noon UTC, and nothing of what the board holds in
+            words (texts, titles, project names, paths)
+  install   one random id, made the first time a message needs it, saved
+            beside the marker, the same on every message and after a restart;
+            a missing or broken file makes a new one; an id that cannot be
+            saved sends nothing
   counts    what each field is worked out from: transcript rows by kind, the
             reply's agent_kind, the phone's notifycheck lines, the rough minutes
   once      a day goes once: marked before it is sent, never again after a
             restart, and a board that never sent starts counting on its first day
-  off       nothing is sent while the switch is off, nor later for a day that
-            ended while it was off
+  email     a yes and an address are saved and told to PostHog once, as the one
+            $identify payload below; after it the daily messages are identified;
+            without a yes, or without an address, nothing is kept or sent
+  off       nothing is sent while the switch is off (no day, no identify), nor
+            later for a day that ended while it was off; a saved email waits
   offline   a send that cannot get through is quiet, leaves the day unmarked,
             and goes on a later look; a backlog is capped; a refusal is final
-  server    the reply row's agent_kind, the usagecounts setting, and the thread
-            the board starts at boot
+  logs      no email address, install id or token in any log line
+  server    the reply row's agent_kind, the usagecounts setting, the thread
+            the board starts at boot, and POST /usage/email
 
 Nothing here reaches PostHog or any other machine: every send goes to a fake
 opener handed to the sender, and the real urlopen and every HTTPS connection
@@ -23,10 +31,12 @@ state is seeded by hand and never written.
     python3 -m unittest tests/test_usage_counts.py
 """
 
+import asyncio
 import datetime as dt
 import http.client
 import importlib.util
 import json
+import logging
 import os
 import re
 import sys
@@ -47,6 +57,8 @@ DAY = dt.date(2026, 10, 4)           # the day the fixture board was used
 BEFORE = DAY - dt.timedelta(days=1)  # one owner message on this day too
 AFTER = DAY + dt.timedelta(days=1)   # nothing happened on this day
 SECRETS = ("SECRET", "Falcon", "/Users/", "alex", "Untitled plan", "hello agent")
+INSTALL = "11111111-1111-4111-8111-111111111111"   # an install id, for the tests that hand one in
+EMAIL = "ada.lovelace@example.org"                 # the address the tests give with a yes
 
 
 def at(day: dt.date, hour: int, minute: int, second: int = 0) -> float:
@@ -130,7 +142,7 @@ class FakeNet:
     def __call__(self, req, timeout=None):
         self.requests.append({"url": req.full_url, "method": req.get_method(), "timeout": timeout,
                               "headers": dict(req.header_items()), "body": json.loads(req.data)})
-        if self.marker is not None:
+        if self.marker is not None and self.requests[-1]["body"]["event"] == "daily_usage":
             self.marked_during.append(json.loads(self.marker.read_text())["through"])
         if self.fail is not None:
             raise self.fail
@@ -140,7 +152,11 @@ class FakeNet:
 
     @property
     def days(self):
-        return [r["body"]["timestamp"][:10] for r in self.requests]
+        return [r["body"]["timestamp"][:10] for r in self.requests if r["body"]["event"] == "daily_usage"]
+
+    @property
+    def events(self):
+        return [r["body"]["event"] for r in self.requests]
 
 
 def no_network(*args, **kwargs):
@@ -161,6 +177,8 @@ class Board(unittest.TestCase):
         self.logs.mkdir()
         self.transcript = self.dir / "transcript.jsonl"
         self.marker = self.dir / "usage-counts.json"
+        self.install = self.dir / "usage-install.json"
+        self.made = []   # every install id the sender made, in order
         self.index = self.dir / "index.html"
         self.index.write_text('<span id="npversion">v0.2.259</span>')
         self.write_rows(fixture_rows())
@@ -181,26 +199,58 @@ class Board(unittest.TestCase):
             for row in rows:
                 f.write(json.dumps(row) + "\n")
 
+    def new_id(self):
+        made = uuid.uuid4()
+        self.made.append(str(made))
+        return made
+
+    @staticmethod
+    def never():
+        raise AssertionError("a second id was made")
+
     def sender(self, **over):
         args = dict(transcript=self.transcript, log_dir=self.logs, marker=self.marker, index_html=self.index,
                     sharing=lambda: self.on, log=lambda kind, **fields: self.lines.append((kind, fields)),
-                    opener=self.net, today=lambda: self.today)
+                    opener=self.net, today=lambda: self.today, new_id=self.new_id, install_file=self.install)
         args.update(over)
         return uc.Sender(**args)
 
     def through(self):
         return json.loads(self.marker.read_text())["through"]
 
+    def saved(self):
+        return json.loads(self.install.read_text())
+
+    @staticmethod
+    def refuse_writing(path):
+        """A stand-in for os.replace that refuses to replace this one file."""
+        replace = os.replace
+
+        def refuse(src, dst, *args, **kwargs):
+            if str(dst) == str(path):
+                raise PermissionError(13, "Permission denied")
+            return replace(src, dst, *args, **kwargs)
+        return refuse
+
+    def two_used_days(self):
+        """DAY and the day after it were used; the marker stands before DAY, and
+        it is two days later, so one look sends both."""
+        self.write_rows(fixture_rows() + [{"ts": at(AFTER, 9, 0), "kind": "user", "box": "7", "text": "next day"}])
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        self.today = AFTER + dt.timedelta(days=1)
+
+    def sent_ids(self):
+        return [r["body"]["distinct_id"] for r in self.net.requests]
+
 
 class Payload(Board):
     def test_the_message_is_exactly_these_fields_and_flags(self):
-        ids = iter([uuid.UUID("11111111-1111-4111-8111-111111111111")])
         counts = uc.day_counts([DAY], self.transcript, self.logs)[DAY]
-        body = uc.payload(DAY, counts, "v0.2.259", {"os": "macOS", "os_version": "26"}, lambda: next(ids))
+        body = uc.payload(DAY, counts, "v0.2.259", {"os": "macOS", "os_version": "26"}, INSTALL)
         self.assertEqual(body, {
             "api_key": "phc_pmdWA3oMUgUWGLyLkXvDFSzYQgvTotFQyA93BWXTdJ9K",
             "event": "daily_usage",
-            "distinct_id": "11111111-1111-4111-8111-111111111111",
+            "distinct_id": INSTALL,
             "timestamp": "2026-10-04T12:00:00Z",
             "properties": {
                 "$process_person_profile": False,
@@ -209,6 +259,27 @@ class Payload(Board):
                 "facilitator_version": "v0.2.259",
                 "os": "macOS",
                 "os_version": "26",
+            },
+        })
+
+    def test_after_a_yes_the_message_is_the_same_without_the_no_profile_flag(self):
+        counts = uc.day_counts([DAY], self.transcript, self.logs)[DAY]
+        system = {"os": "macOS", "os_version": "26"}
+        plain = uc.payload(DAY, counts, "v0.2.259", system, INSTALL)
+        identified = uc.payload(DAY, counts, "v0.2.259", system, INSTALL, identified=True)
+        self.assertNotIn("$process_person_profile", identified["properties"])
+        self.assertIs(identified["properties"]["$geoip_disable"], True)
+        del plain["properties"]["$process_person_profile"]
+        self.assertEqual(identified, plain, "a yes changed something besides the profile flag")
+
+    def test_the_identify_is_exactly_this_and_carries_only_the_email(self):
+        self.assertEqual(uc.identify_payload(INSTALL, EMAIL), {
+            "api_key": "phc_pmdWA3oMUgUWGLyLkXvDFSzYQgvTotFQyA93BWXTdJ9K",
+            "event": "$identify",
+            "distinct_id": INSTALL,
+            "properties": {
+                "$geoip_disable": True,
+                "$set": {"email": EMAIL},
             },
         })
 
@@ -225,14 +296,11 @@ class Payload(Board):
         self.assertLessEqual(sent["timeout"], 10)
         self.assertNotIn("Cookie", sent["headers"])
 
-    def test_every_message_has_a_fresh_random_id(self):
+    def test_making_a_payload_keeps_nothing(self):
         counts = uc.day_counts([DAY], self.transcript, self.logs)[DAY]
-        system = uc.os_fields()
-        ids = {uc.payload(DAY, counts, "v0.2.259", system)["distinct_id"] for _ in range(50)}
-        self.assertEqual(len(ids), 50, "two messages shared an id")
-        for value in ids:
-            self.assertEqual(uuid.UUID(value).version, 4)
-        self.assertFalse(self.marker.exists(), "an id or anything else was kept to make a payload")
+        uc.payload(DAY, counts, "v0.2.259", uc.os_fields(), INSTALL)
+        uc.identify_payload(INSTALL, EMAIL)
+        self.assertFalse(self.marker.exists() or self.install.exists(), "a payload kept an id or anything else")
 
     def test_nothing_the_board_holds_in_words_is_sent(self):
         self.sender().look()
@@ -343,7 +411,7 @@ class OncePerDay(Board):
         self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
         self.today = AFTER
         board = self.sender()
-        with mock.patch("os.replace", side_effect=PermissionError(13, "Permission denied")):
+        with mock.patch("os.replace", self.refuse_writing(self.marker)):
             self.assertFalse(board.look())
         self.assertEqual(self.net.requests, [], "a day was sent that could not be marked")
 
@@ -382,6 +450,337 @@ class SwitchedOff(Board):
         self.sender(sharing=sharing).look()
         self.assertEqual(self.net.days, [DAY.isoformat()])
         self.assertEqual(self.through(), AFTER.isoformat())
+
+    def test_no_identify_leaves_while_the_switch_is_off_and_the_yes_waits(self):
+        self.on = False
+        board = self.sender()
+        self.assertEqual(board.link_email(EMAIL, True), "off")
+        self.assertEqual(self.net.requests, [])
+        self.assertEqual(self.saved()["email"], EMAIL, "the yes was not kept while the switch was off")
+        self.assertFalse(self.saved()["identify_done"])
+        self.assertTrue(board.look())
+        self.assertTrue(board.look())
+        self.assertEqual(self.net.requests, [], "something left with the switch off")
+        self.assertEqual(self.lines, [])
+
+    def test_turned_back_on_the_waiting_identify_goes_first_and_the_days_are_identified(self):
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        self.today = AFTER
+        self.on = False
+        board = self.sender()
+        board.link_email(EMAIL, True)
+        board.look()                          # DAY ended while it was off: never sent
+        self.assertEqual(self.net.requests, [])
+        self.on = True
+        self.write_rows([{"ts": at(AFTER, 9, 0), "kind": "user", "box": "7", "text": "next day"}], "a")
+        self.today = AFTER + dt.timedelta(days=1)
+        board.look()
+        self.assertEqual(self.net.events, ["$identify", "daily_usage"])
+        self.assertEqual(self.net.days, [AFTER.isoformat()])
+        self.assertEqual(len(set(self.sent_ids())), 1, "the identify and the day were under different ids")
+        self.assertNotIn("$process_person_profile", self.net.requests[1]["body"]["properties"])
+
+    def test_a_link_already_told_stays_when_the_switch_goes_off_and_on(self):
+        board = self.sender()
+        self.assertEqual(board.link_email(EMAIL, True), "sent")
+        self.on = False
+        self.two_used_days()
+        board.look()
+        self.assertEqual(self.net.events, ["$identify"], "something left with the switch off")
+        self.assertEqual(self.saved()["email"], EMAIL)
+        self.on = True
+        self.write_rows([{"ts": at(AFTER + dt.timedelta(days=1), 9, 0), "kind": "user", "box": "7", "text": "x"}], "a")
+        self.today = AFTER + dt.timedelta(days=2)
+        board.look()
+        self.assertEqual(self.net.events, ["$identify", "daily_usage"], "the email was told again, or not kept")
+        self.assertEqual(len(set(self.sent_ids())), 1)
+        self.assertNotIn("$process_person_profile", self.net.requests[1]["body"]["properties"])
+
+
+class InstallId(Board):
+    def test_it_is_made_when_a_message_first_needs_it_and_not_before(self):
+        self.sender().look()                   # a board's first look sends nothing
+        self.assertFalse(self.install.exists())
+        self.assertEqual(self.made, [])
+        self.today = AFTER
+        self.sender().look()
+        self.assertEqual(len(self.made), 1)
+        self.assertTrue(self.install.exists())
+
+    def test_every_daily_message_has_the_same_id_even_after_a_restart(self):
+        self.two_used_days()
+        self.sender().look()
+        self.assertEqual(self.net.days, [DAY.isoformat(), AFTER.isoformat()])
+        first, second = self.sent_ids()
+        self.assertEqual(first, second, "two messages had different ids")
+        self.assertEqual(uuid.UUID(first).version, 4)
+        self.write_rows([{"ts": at(AFTER + dt.timedelta(days=1), 9, 0), "kind": "user", "box": "7", "text": "x"}], "a")
+        self.today = AFTER + dt.timedelta(days=2)
+        self.sender().look()                   # the board restarted
+        self.assertEqual(self.sent_ids(), [first] * 3)
+        self.assertEqual(self.made, [first], "a second id was made")
+
+    def test_it_is_saved_where_only_its_owner_reads_it_and_loaded_again(self):
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        self.today = AFTER
+        board = self.sender()
+        board.look()
+        [sent] = self.sent_ids()
+        self.assertEqual(self.saved(), {"install_id": sent, "feedback_yes": False, "email": None,
+                                        "identify_done": False})
+        self.assertEqual(self.install.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.install.parent, self.marker.parent)
+        self.assertEqual(board.install.path, self.install)
+        self.assertEqual(uc.Install(self.install, self.never).get()["install_id"], sent)
+
+    def test_by_default_it_sits_beside_the_marker(self):
+        board = uc.Sender(transcript=self.transcript, log_dir=self.logs, marker=self.marker,
+                          index_html=self.index, sharing=lambda: True)
+        self.assertEqual(board.install.path, self.marker.with_name("usage-install.json"))
+
+    def test_a_good_file_is_used_as_it_is(self):
+        old = "22222222-2222-4222-8222-222222222222"
+        self.install.write_text(json.dumps({"install_id": old}))
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        self.today = AFTER
+        self.sender().look()
+        self.assertEqual(self.sent_ids(), [old])
+        self.assertEqual(self.made, [])
+
+    def test_a_missing_or_broken_file_makes_a_new_id_and_saves_it(self):
+        old = "abcdefab-cdef-4abc-8def-abcdefabcdef"
+        broken = {
+            "missing": None,
+            "empty": "",
+            "not json": "not json at all",
+            "a list": "[]",
+            "a string": '"x"',
+            "no id": "{}",
+            "a number": '{"install_id": 5}',
+            "a blocked word": '{"install_id": "null"}',
+            "not a uuid": '{"install_id": "abc"}',
+            "a uuid of another kind": json.dumps({"install_id": str(uuid.uuid1())}),
+            "capitals": json.dumps({"install_id": old.upper()}),
+            "not text": b"\xff\xfe\x00",
+        }
+        for name, content in broken.items():
+            with self.subTest(name):
+                self.install.unlink(missing_ok=True)
+                if isinstance(content, bytes):
+                    self.install.write_bytes(content)
+                elif content is not None:
+                    self.install.write_text(content)
+                self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+                self.today, self.made, self.net = AFTER, [], FakeNet(self.marker)
+                self.sender().look()
+                [sent] = self.sent_ids()
+                self.assertEqual(self.made, [sent])
+                self.assertNotEqual(sent, old)
+                self.assertEqual(self.saved()["install_id"], sent)
+                self.assertEqual(uc.Install(self.install, self.never).get()["install_id"], sent,
+                                 "the new id was not kept")
+
+    def test_a_file_that_cannot_be_read_makes_a_new_id_and_saves_it(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads everything")
+        old = "22222222-2222-4222-8222-222222222222"
+        self.install.write_text(json.dumps({"install_id": old}))
+        self.install.chmod(0)
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        self.today = AFTER
+        self.sender().look()
+        [sent] = self.sent_ids()
+        self.assertNotEqual(sent, old)
+        self.assertEqual(self.saved()["install_id"], sent)
+
+    def test_an_id_that_cannot_be_saved_sends_nothing_and_marks_nothing(self):
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        self.today = AFTER
+        board = self.sender()
+        with mock.patch("os.replace", self.refuse_writing(self.install)):
+            self.assertFalse(board.look(), "a day with no id to send under did not ask to be tried again")
+        self.assertEqual(self.net.requests, [])
+        self.assertEqual(self.through(), BEFORE.isoformat())
+        self.assertEqual(self.lines, [("usage", {"outcome": "unsaved", "reason": "Permission denied"})])
+        self.assertFalse(self.install.exists() or self.install.with_name(self.install.name + ".tmp").exists())
+        self.assertTrue(board.look())
+        self.assertEqual(self.net.days, [DAY.isoformat()])
+
+
+class EmailLink(Board):
+    def test_a_yes_keeps_the_email_beside_the_id_and_tells_posthog_once(self):
+        board = self.sender()
+        self.assertEqual(board.link_email(EMAIL, True), "sent")
+        [sent] = self.net.requests
+        [made] = self.made
+        self.assertEqual(sent["url"], "https://us.i.posthog.com/i/v0/e/")
+        self.assertEqual(sent["method"], "POST")
+        self.assertEqual(sent["headers"].get("Content-type"), "application/json")
+        self.assertLessEqual(sent["timeout"], 10)
+        self.assertEqual(sent["body"], {
+            "api_key": "phc_pmdWA3oMUgUWGLyLkXvDFSzYQgvTotFQyA93BWXTdJ9K",
+            "event": "$identify",
+            "distinct_id": made,
+            "properties": {"$geoip_disable": True, "$set": {"email": EMAIL}},
+        })
+        self.assertEqual(self.saved(), {"install_id": made, "feedback_yes": True, "email": EMAIL,
+                                        "identify_done": True})
+        self.assertEqual(self.install.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(board.link_email(EMAIL, True), "sent")
+        self.assertEqual(self.sender().link_email(f"  {EMAIL}  ", True), "sent")
+        self.assertEqual(len(self.net.requests), 1, "the same address was told twice")
+        self.assertEqual(self.made, [made])
+
+    def test_only_the_email_is_sent_and_never_a_name_or_a_location(self):
+        self.sender().link_email(EMAIL, True)
+        [sent] = self.net.requests
+        self.assertEqual(set(sent["body"]), {"api_key", "event", "distinct_id", "properties"})
+        self.assertEqual(set(sent["body"]["properties"]), {"$geoip_disable", "$set"})
+        self.assertEqual(sent["body"]["properties"]["$set"], {"email": EMAIL})
+        self.assertNotIn("$set_once", sent["body"]["properties"])
+
+    def test_without_an_explicit_yes_nothing_is_kept_or_sent(self):
+        board = self.sender()
+        for yes in (False, None, "yes", "true", "True", 1, 0, "", [], {}):
+            with self.subTest(yes=yes):
+                self.assertEqual(board.link_email(EMAIL, yes), "no")
+        self.assertEqual(self.net.requests, [])
+        self.assertFalse(self.install.exists(), "a no left something on the Mac")
+
+    def test_something_that_is_not_an_address_is_refused(self):
+        board = self.sender()
+        for email in (None, 5, "", "   ", "ada", "ada@", "@example.org", "ada@example", "a b@example.org",
+                      "a@b@example.org", "ada@exam\nple.org", "ada\x00@example.org", ["a@b.co"],
+                      {"email": "a@b.co"}, "a" * 250 + "@example.org"):
+            with self.subTest(email=email):
+                self.assertEqual(board.link_email(email, True), "bad")
+        self.assertEqual(self.net.requests, [])
+        self.assertFalse(self.install.exists())
+
+    def test_after_a_yes_the_daily_messages_are_identified_under_the_same_id(self):
+        self.two_used_days()
+        board = self.sender()
+        board.link_email(EMAIL, True)
+        board.look()
+        self.assertEqual(self.net.events, ["$identify", "daily_usage", "daily_usage"])
+        self.assertEqual(self.sent_ids(), [self.made[0]] * 3)
+        for sent in self.net.requests[1:]:
+            props = sent["body"]["properties"]
+            self.assertNotIn("$process_person_profile", props)
+            self.assertIs(props["$geoip_disable"], True)
+            self.assertNotIn("$set", props)
+            self.assertNotIn(EMAIL, json.dumps(sent["body"]), "the daily message carries the email")
+
+    def test_without_a_yes_the_daily_messages_stay_anonymous(self):
+        self.two_used_days()
+        self.sender().look()
+        self.assertEqual(self.net.events, ["daily_usage", "daily_usage"])
+        for sent in self.net.requests:
+            self.assertIs(sent["body"]["properties"]["$process_person_profile"], False)
+            self.assertIs(sent["body"]["properties"]["$geoip_disable"], True)
+
+    def test_the_yes_outlives_a_restart(self):
+        self.sender().link_email(EMAIL, True)
+        self.two_used_days()
+        self.sender().look()                   # a new sender, reading the file
+        self.assertEqual(self.net.events, ["$identify", "daily_usage", "daily_usage"])
+        self.assertEqual(self.made, self.sent_ids()[:1])
+        for sent in self.net.requests[1:]:
+            self.assertNotIn("$process_person_profile", sent["body"]["properties"])
+
+    def test_another_address_is_told_again_and_replaces_the_first(self):
+        board = self.sender()
+        board.link_email(EMAIL, True)
+        board.link_email("grace@example.com", True)
+        self.assertEqual(self.net.events, ["$identify", "$identify"])
+        self.assertEqual(self.net.requests[1]["body"]["properties"]["$set"], {"email": "grace@example.com"})
+        self.assertEqual(self.saved()["email"], "grace@example.com")
+        self.assertEqual(self.sent_ids(), [self.made[0]] * 2)
+
+    def test_an_identify_that_cannot_get_through_is_kept_and_goes_on_a_later_look(self):
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))   # no day is due
+        board = self.sender()
+        self.net.fail = urllib.error.URLError(OSError(8, "nodename nor servname provided"))
+        self.assertEqual(board.link_email(EMAIL, True), "failed")
+        self.assertEqual(self.saved()["email"], EMAIL)
+        self.assertFalse(self.saved()["identify_done"])
+        self.assertFalse(board.look(), "a failed identify did not ask to be tried again")
+        self.assertEqual(self.lines, [("usage", {"what": "identify", "outcome": "failed", "reason": "URLError"})] * 2)
+        self.net.fail = None
+        self.assertTrue(board.look())
+        self.assertEqual(self.net.events, ["$identify"] * 3)
+        self.assertTrue(self.saved()["identify_done"])
+        self.assertTrue(board.look())
+        self.assertEqual(len(self.net.requests), 3, "the address was told again once it had got through")
+
+    def test_a_failed_identify_does_not_hold_back_the_days(self):
+        self.two_used_days()
+        board = self.sender()
+        net = self.net
+
+        def identify_down(req, timeout=None):
+            if json.loads(req.data)["event"] == "$identify":
+                raise TimeoutError("timed out")
+            return net(req, timeout)
+
+        board.opener = identify_down
+        self.assertEqual(board.link_email(EMAIL, True), "failed")
+        self.assertFalse(board.look(), "the failed identify was not asked to be tried again")
+        self.assertEqual(net.days, [DAY.isoformat(), AFTER.isoformat()])
+        for sent in net.requests:
+            if sent["body"]["event"] == "daily_usage":
+                self.assertNotIn("$process_person_profile", sent["body"]["properties"])
+
+    def test_a_refusal_is_final(self):
+        self.net.status = 401
+        board = self.sender()
+        self.assertEqual(board.link_email(EMAIL, True), "refused")
+        self.assertTrue(self.saved()["identify_done"])
+        self.assertTrue(board.look())
+        self.assertEqual(len(self.net.requests), 1)
+        self.assertEqual(self.lines, [("usage", {"what": "identify", "outcome": "refused", "reason": "401"})])
+
+    def test_a_server_error_is_not_final(self):
+        self.net.status = 503
+        board = self.sender()
+        self.assertEqual(board.link_email(EMAIL, True), "failed")
+        self.assertFalse(self.saved()["identify_done"])
+
+    def test_an_email_that_cannot_be_saved_is_not_sent(self):
+        board = self.sender()
+        board.link_email(EMAIL, True)
+        self.net.requests.clear()
+        with mock.patch("os.replace", self.refuse_writing(self.install)):
+            self.assertEqual(board.link_email("grace@example.com", True), "unsaved")
+        self.assertEqual(self.net.requests, [])
+        self.assertEqual(self.saved()["email"], EMAIL, "the old file was lost")
+
+
+class Logs(Board):
+    def test_no_log_line_holds_an_email_an_install_id_or_the_token(self):
+        board = self.sender()
+        emails = [EMAIL, "b@example.org", "c@example.org", "d@example.org", "e@example.org"]
+        board.link_email(emails[0], True)                                    # sent
+        self.net.fail = RuntimeError(f"cannot reach {emails[1]} as {INSTALL}")
+        board.link_email(emails[1], True)                                    # failed
+        self.net.fail, self.net.status = None, 401
+        board.link_email(emails[2], True)                                    # refused
+        self.net.status, self.on = 200, False
+        board.link_email(emails[3], True)                                    # off
+        self.on = True
+        with mock.patch("os.replace", self.refuse_writing(self.install)):
+            board.link_email(emails[4], True)                                # unsaved
+        self.two_used_days()
+        board.look()                                                         # two days sent
+        self.net.status = 503
+        self.write_rows([{"ts": at(AFTER + dt.timedelta(days=1), 9, 0), "kind": "user", "box": "7", "text": "x"}], "a")
+        self.today = AFTER + dt.timedelta(days=2)
+        board.look()                                                         # a day failed
+        said = json.dumps(self.lines)
+        outcomes = {fields["outcome"] for kind, fields in self.lines if kind == "usage"}
+        self.assertTrue({"sent", "failed", "refused", "unsaved"} <= outcomes, outcomes)
+        for secret in (*emails, *self.made, INSTALL, uc.TOKEN, "phc_", "@example"):
+            self.assertNotIn(secret, said)
 
 
 class Offline(Board):
@@ -468,6 +867,12 @@ class Server(unittest.TestCase):
 
     def setUp(self):
         s = self.server
+        self.guards = [mock.patch("urllib.request.urlopen", no_network),
+                       mock.patch.object(http.client.HTTPSConnection, "connect", no_network),
+                       mock.patch.object(http.client.HTTPConnection, "connect", no_network)]
+        for guard in self.guards:
+            guard.start()
+        self.dir = Path(tempfile.mkdtemp(prefix="usage-counts-route-test-"))
         self.rows = []
         s._log = lambda kind, box, text, log_fields=None, **fields: self.rows.append({"kind": kind, "box": box, **fields})
         s._state.clear()
@@ -476,6 +881,11 @@ class Server(unittest.TestCase):
             "parked": False, "replies": 0, "seen": 0, "pending": [], "ball": "me", "ts": 1.0, "state": "queued"}],
             "busy": {"facilitator": None}, "claimed": {"facilitator": []}, "inbox": [], "next_reply_id": 1})
         s._settings = {"rev": 0, "values": {}, "spotify": {}}
+
+    def tearDown(self):
+        self.server._usage_sender = None
+        for guard in self.guards:
+            guard.stop()
 
     def reply_as(self, name):
         self.server._agent_names["facilitator"] = name
@@ -523,6 +933,144 @@ class Server(unittest.TestCase):
         self.assertIn("_start_usage_counts()", Path(ROOT / "server.py").read_text().split("def main()")[1])
         self.assertIn("usage-counts.json", s.PRIVATE_FILES)
         self.assertIn("/usage-counts.json", (ROOT / ".gitignore").read_text().split("\n"))
+        self.assertEqual(sender.install.path, s.HERE / "usage-install.json")
+        self.assertIs(s._usage_sender, sender, "the route would not reach the board's own sender")
+        for name in ("usage-install.json", "usage-install.json.tmp"):
+            self.assertIn(name, s.PRIVATE_FILES)
+            self.assertIn("/" + name, (ROOT / ".gitignore").read_text().split("\n"))
+
+    def sender_in_temp(self, net=None, sharing=None):
+        """The board's sender, as the route will find it, kept in a temporary folder."""
+        s = self.server
+        net = net or FakeNet()
+        s._usage_sender = uc.Sender(transcript=self.dir / "transcript.jsonl", log_dir=self.dir,
+                                    marker=self.dir / "usage-counts.json", index_html=self.dir / "index.html",
+                                    sharing=sharing or s._usage_sharing, log=s._info, opener=net)
+        return net
+
+    def call(self, body, headers=None, port=None):
+        """One request to POST /usage/email through the route's own wrapper:
+        the body read, the origin judged, the refusal logged."""
+        s = self.server
+        raw = body if isinstance(body, bytes) else json.dumps(body).encode()
+        head = {"host": f"127.0.0.1:{s.PORT}", "origin": f"http://127.0.0.1:{s.PORT}",
+                "content-type": "application/json"}
+        head.update(headers or {})
+        scope = {"type": "http", "method": "POST", "path": "/usage/email", "query_string": b"",
+                 "http_version": "1.1", "scheme": "http", "client": ("127.0.0.1", 50000),
+                 "server": ("127.0.0.1", port or s.PORT),
+                 "headers": [(k.encode(), v.encode()) for k, v in head.items() if v is not None]}
+        sent = []
+
+        async def receive():
+            if sent:
+                return {"type": "http.disconnect"}
+            sent.append(1)
+            return {"type": "http.request", "body": raw, "more_body": False}
+
+        [route] = [r for r in s.ROUTES if r.path == "/usage/email"]
+        response = asyncio.run(route.endpoint(s.Request(scope, receive)))
+        return response.status_code, json.loads(response.body)
+
+    def test_the_email_route_keeps_the_yes_and_tells_posthog(self):
+        net = self.sender_in_temp()
+        status, answer = self.call({"email": EMAIL, "yes": True})
+        self.assertEqual((status, answer), (200, {"ok": True, "sent": True}))
+        [sent] = net.requests
+        saved = json.loads((self.dir / "usage-install.json").read_text())
+        self.assertEqual(sent["body"], uc.identify_payload(saved["install_id"], EMAIL))
+        self.assertEqual((saved["feedback_yes"], saved["email"], saved["identify_done"]), (True, EMAIL, True))
+
+    def test_the_email_route_with_the_switch_off_keeps_it_and_sends_nothing(self):
+        net = self.sender_in_temp()
+        self.server._settings["values"]["usagecounts"] = "0"
+        self.assertEqual(self.call({"email": EMAIL, "yes": True}), (200, {"ok": True, "sent": False}))
+        self.assertEqual(net.requests, [])
+        saved = json.loads((self.dir / "usage-install.json").read_text())
+        self.assertEqual((saved["email"], saved["identify_done"]), (EMAIL, False))
+
+    def test_the_email_route_answers_sent_false_when_posthog_cannot_be_reached(self):
+        net = self.sender_in_temp()
+        net.fail = TimeoutError("timed out")
+        self.assertEqual(self.call({"email": EMAIL, "yes": True}), (200, {"ok": True, "sent": False}))
+
+    def test_the_email_route_refuses_what_is_not_a_clear_yes_with_an_address(self):
+        net = self.sender_in_temp()
+        for body in ({"email": EMAIL, "yes": False}, {"email": EMAIL, "yes": "true"}, {"email": EMAIL, "yes": 1},
+                     {"email": EMAIL}, {"yes": True}, {"email": EMAIL, "yes": True, "name": "Ada Lovelace"},
+                     {"email": "not an address", "yes": True}, {"email": None, "yes": True}, [EMAIL], EMAIL,
+                     b"not json", b""):
+            with self.subTest(body=body):
+                status, answer = self.call(body)
+                self.assertEqual(status, 400)
+                self.assertNotIn(EMAIL, json.dumps(answer))
+        self.assertEqual(net.requests, [])
+        self.assertFalse((self.dir / "usage-install.json").exists())
+
+    def test_the_email_route_answers_a_page_on_this_mac_and_nobody_else(self):
+        net = self.sender_in_temp()
+        s = self.server
+        ask = {"email": EMAIL, "yes": True}
+        self.assertEqual(self.call(ask, {"origin": None})[0], 403, "a caller with no origin was let in")
+        self.assertEqual(self.call(ask, {"origin": "https://example.com"})[0], 403)
+        self.assertEqual(self.call(ask, port=s.BRIDGE_PORT)[0], 404, "the phone's socket was answered")
+        self.assertEqual(self.call(ask, {"x-forwarded-for": "100.64.0.9"})[0], 404, "Tailscale Serve was answered")
+        self.assertEqual(self.call(ask, {"host": "example.com"})[0], 404)
+        self.assertEqual(self.call(ask, {"sec-fetch-site": "cross-site"})[0], 404)
+        s._usage_sender = None
+        self.assertEqual(self.call(ask)[0], 404, "a board with no sender answered")
+        self.assertEqual(net.requests, [])
+        self.assertFalse((self.dir / "usage-install.json").exists())
+
+    def test_the_email_route_is_one_capped_post_route_the_phone_gate_refuses(self):
+        import bridge_gate
+        s = self.server
+        routes = [r for r in s.ROUTES if r.path == "/usage/email"]
+        self.assertEqual([r.methods for r in routes], [{"POST"}])
+        self.assertEqual(s.USAGE_EMAIL_BODY_MAX, 2048)
+        self.sender_in_temp()
+        self.assertEqual(self.call(b"x" * 3000)[0], 413)
+        self.assertIn("/usage/email", bridge_gate.LOCAL_ONLY)
+        self.assertIn("POST /usage/email", s.__doc__)
+
+    def test_the_email_is_in_no_server_log_line_or_answer(self):
+        s = self.server
+        seen, answers = [], []
+
+        class Collect(logging.Handler):
+            def emit(self, record):
+                seen.append(json.dumps([record.getMessage(), getattr(record, "box", ""),
+                                        getattr(record, "fields", None)], default=str))
+
+        collect, level = Collect(), s.LOGGER.level
+        s.LOGGER.addHandler(collect)
+        s.LOGGER.setLevel(logging.DEBUG)
+        try:
+            net = self.sender_in_temp()
+            answers.append(self.call({"email": EMAIL, "yes": True}))                      # sent
+            net.fail = TimeoutError(f"cannot reach {EMAIL}")
+            answers.append(self.call({"email": "b@example.org", "yes": True}))            # not reached
+            net.fail, net.status = None, 401
+            answers.append(self.call({"email": "c@example.org", "yes": True}))            # refused by PostHog
+            net.status = 200
+            answers.append(self.call({"email": "d@example.org", "yes": False}))           # no yes: a 400 refusal
+            answers.append(self.call({"email": "d@example@org", "yes": True}))            # no address: a 400 refusal
+            answers.append(self.call({"email": EMAIL, "yes": True}, {"origin": None}))    # no origin: a 403 refusal
+            s._settings["values"]["usagecounts"] = "0"
+            answers.append(self.call({"email": "e@example.org", "yes": True}))            # switch off
+        finally:
+            s.LOGGER.removeHandler(collect)
+            s.LOGGER.setLevel(level)
+        for handler in s.LOGGER.handlers:
+            handler.flush()
+        written = "".join(p.read_text() for p in Path(self.logs).iterdir() if p.is_file())
+        saved = json.loads((self.dir / "usage-install.json").read_text())["install_id"]
+        said = json.dumps(seen) + written + json.dumps(answers)
+        self.assertTrue(any('"refusal"' in line for line in seen), "no refusal line was logged to look in")
+        self.assertTrue(any('"usage"' in line for line in seen), "no usage line was logged to look in")
+        for secret in (EMAIL, "b@example.org", "c@example.org", "d@example", "e@example.org", "@example",
+                       saved, uc.TOKEN):
+            self.assertNotIn(secret, said)
 
 
 class Readme(unittest.TestCase):
@@ -530,7 +1078,7 @@ class Readme(unittest.TestCase):
         text = (ROOT / "README.md").read_text()
         section = text.split("## Usage counts", 1)[1].split("\n## ", 1)[0]
         listed = set(re.findall(r"^\| `([^`]+)` \|", section, re.M))
-        body = uc.payload(DAY, EXPECTED, "v0.2.259", {"os": "macOS", "os_version": "26"})
+        body = uc.payload(DAY, EXPECTED, "v0.2.259", {"os": "macOS", "os_version": "26"}, INSTALL)
         sent = (set(body) - {"properties"}) | set(body["properties"])
         self.assertEqual(listed, sent)
         for words in ("Share daily usage counts", "Improvements", "PostHog", "public", "send"):

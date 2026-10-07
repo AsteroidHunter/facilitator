@@ -364,6 +364,22 @@ Endpoints:
                                above, and a 403 unless Origin is the page's own
                                loopback address. seed=1 is a browser's one-time
                                copy, applied only while none is kept
+  POST /usage/email         -> body = {"email": "<address>", "yes": true}: the
+                               onboarding's way to say that this person said
+                               yes to being emailed for feedback. Keeps the yes
+                               and the address in usage-install.json beside
+                               state.json and tells PostHog once that the
+                               install's random id belongs to that email (only
+                               the email, no name). Answers {ok, sent}: sent is
+                               false when the usagecounts switch is off or
+                               PostHog could not be reached, and it goes later.
+                               A 400 for a yes that is not true or something
+                               that is not an address, with nothing kept or
+                               sent. Local only like /spotify/session (a 404
+                               to anything else, a 403 unless Origin is the
+                               page's own loopback address), body capped at
+                               2048 bytes, and the address is never logged or
+                               answered back. Nothing calls it yet
   The five quick note routes below are OFF in this version
   (QUICK_NOTES_ON is False): each answers 404, the same as an unknown route,
   and /state carries no quicknotes. The notes already stored in state.json
@@ -620,8 +636,11 @@ opens with no project. Real discussion content never ships in this code.
 
 Once a day, unless the usagecounts setting is "0", a thread of the server's own
 sends one message of counts about the day before to PostHog (usage_counts.py;
-README.md, "Usage counts", lists every field). It is no route and answers
-nothing; usage-counts.json beside state.json holds the last day it dealt with.
+README.md, "Usage counts", lists every field). The thread is no route and
+answers nothing; usage-counts.json beside state.json holds the last day it dealt
+with, and usage-install.json beside it holds the install's random id, which
+every message carries, and the email when the person said yes to feedback mail
+(POST /usage/email). With the switch off nothing is sent at all.
 """
 
 from __future__ import annotations
@@ -4849,7 +4868,8 @@ def _sweep_upload_parts() -> None:
 PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.jsonl", "settings.json",
                  "settings.json.tmp", "settings.json.bad-*", "vapid-key.pem", "bridge-auth.json",
                  "tokens-cache.json", "tokens-cache.json.tmp", "claude-limits.json",
-                 "claude-limits.json.tmp", "usage-counts.json", "usage-counts.json.tmp", "server.lock")
+                 "claude-limits.json.tmp", "usage-counts.json", "usage-counts.json.tmp",
+                 "usage-install.json", "usage-install.json.tmp", "server.lock")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
 
 
@@ -6168,11 +6188,16 @@ def _post_spotify_session(q: Query, text: str):
 # README's "Usage counts" lists every field. It runs on a thread of its own,
 # never on a request. The switch is one of the board's settings, usagecounts,
 # on unless it says "0", so the Mac's settings page and the phone's drawer both
-# turn it off. usage-counts.json holds only the last day already dealt with.
+# turn it off. usage-counts.json holds only the last day already dealt with;
+# usage-install.json holds the install's random id and, after a yes to feedback
+# mail, the email (POST /usage/email below). Both are owner-only and ignored by git.
 # usage_counts.py is imported only here, so a copy of the board without it, as
 # the tests' fixtures make, sends nothing at all.
 USAGE_MARKER = HERE / "usage-counts.json"
+USAGE_INSTALL = HERE / "usage-install.json"
 USAGE_SETTING = "usagecounts"
+USAGE_EMAIL_BODY_MAX = 2048
+_usage_sender = None   # the one Sender, made at boot; the thread and the route share it
 
 
 def _usage_sharing() -> bool:
@@ -6181,13 +6206,41 @@ def _usage_sharing() -> bool:
 
 
 def _start_usage_counts() -> None:
+    global _usage_sender
     try:
         import usage_counts
     except ImportError:
         return
     sender = usage_counts.Sender(transcript=TRANSCRIPT_PATH, log_dir=LOG_DIR, marker=USAGE_MARKER,
-                                 index_html=HERE / "index.html", sharing=_usage_sharing, log=_info)
+                                 index_html=HERE / "index.html", sharing=_usage_sharing, log=_info,
+                                 install_file=USAGE_INSTALL)
+    _usage_sender = sender
     threading.Thread(target=sender.run, args=(_STOPPING,), name="usage-counts", daemon=True).start()
+
+
+def _post_usage_email(q: Query, text: str):
+    """The onboarding's yes to feedback mail: {"email": ..., "yes": true}. Only
+    a page on this Mac may ask, as with the Spotify sign-in. The address is
+    kept and sent by usage_counts.Sender.link_email and is neither logged nor
+    answered back; a refusal below names the reason and nothing else."""
+    if not q.local or _usage_sender is None:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    try:
+        rec = json.loads(text) if text else None
+    except ValueError:
+        rec = None
+    if not isinstance(rec, dict) or set(rec) != {"email", "yes"}:
+        return 400, {"error": "bad request"}
+    outcome = _usage_sender.link_email(rec["email"], rec["yes"])
+    if outcome == "no":
+        return 400, {"error": "needs a yes"}
+    if outcome == "bad":
+        return 400, {"error": "not an email address"}
+    if outcome == "unsaved":
+        return 500, {"error": "could not be saved"}
+    return 200, {"ok": True, "sent": outcome == "sent"}
 
 
 # hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
@@ -7057,6 +7110,7 @@ ROUTES = [
     Route("/settings", _endpoint(_post_settings, "text"), methods=["POST"]),
     Route("/spotify/session", _endpoint(_get_spotify_session), methods=["GET"]),
     Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
+    Route("/usage/email", _endpoint(_post_usage_email, "text", USAGE_EMAIL_BODY_MAX), methods=["POST"]),
     *([
         Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
         Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
