@@ -387,7 +387,7 @@ test("Home and projects use the same lens, with a 32px circle at Home and a caps
   assert.equal(f.context.homeOpen, true); assert.equal(f.seat.owner, f.get("HOME_SEAT"));
   assert.equal(f.seat.x, 0); assert.equal(f.seat.w, 32);
   assert.equal(face.getBoundingClientRect().width, 32); assert.equal(face.getBoundingClientRect().height, 32);
-  assert.equal(f.seat.el.classList.contains("still"), false, "Home did not get the established slide");
+  assert.equal(f.seat.el.classList.contains("still"), true, "Home did not get the same set-down as a project name");
   assert.equal(f.seat.el.classList.contains("gone"), false);
   f.context.placeSeat(); assert.equal(f.seat.el, element); assert.equal(f.seat.face, face);
   f.click("b"); f.context.placeSeat(); f.context.paintLenses();

@@ -4251,15 +4251,13 @@ function placeSeat(){
   if (!r || !r.width){ el.classList.add("gone"); seat.owner = null; seat.returning = false; return; }
   const o = oval.getBoundingClientRect(), x = r.left - o.left, w = r.width;
   const owner = homeOpen ? HOME_SEAT : on.classList.contains("draft") ? DRAFT : on.dataset.owner;
-  const returning = seat.returning;
-  const slide = returning || (seat.owner !== null && owner !== seat.owner);
+  // only a drag's release slides the lens, the rest of the way from where it
+  // was let go. a click or a key that chooses another name sets it down there
+  // at once, with its joint
+  const slide = seat.returning, moved = seat.owner !== null && owner !== seat.owner;
   seat.returning = false;
   if (!slide && owner === seat.owner && x === seat.x && w === seat.w) return;
   el.classList.toggle("still", !slide);
-  // a lens leaving its joint holds a moment while the joint parts, then
-  // slides (jointHold); a drag's own release slides at once
-  const hold = slide && !returning ? jointHold() : 0;
-  el.style.transitionDelay = hold ? hold + "ms" : "";
   if (slide) tabJoint.leave = true;
   el.style.transform = "translateX(" + x + "px)";
   el.style.width = w + "px";
@@ -4273,6 +4271,12 @@ function placeSeat(){
   }
   el.classList.remove("gone");
   seat.owner = owner; seat.x = x; seat.w = w;
+  if (moved && !slide){
+    // the joint is whole under the new name and the lens's copies are cut for
+    // it in this same frame, so neither shows the old name for a frame
+    tabJoint.snap = true;
+    if (lensFrame) paintLenses();
+  }
 }
 // ---- the seat's joint ---------------------------------------------------------
 // the open project's lens and the workspace's pane read as one piece of glass,
@@ -4290,11 +4294,12 @@ function placeSeat(){
 // parts, and what is left on the lens and on the pane draws back into each.
 // the pane's side stays where the neck stood while the lens moves: the neck
 // leans after the lens, and a lens pulled JOINT_TEAR px off breaks the thread
-// at once. choosing another project holds the lens up to JOINT_HOLD_MS while
-// the joint starts to part (jointHold, in placeSeat), the lens slides, and once
+// at once. choosing another project by a click or a key sets the lens down on
+// that name with its joint whole, nothing parting or forming (snap, in
+// jointPaint). a drag's release slides the lens the rest of the way, and once
 // it has landed and the old joint has gone the new one forms. reduced motion
 // shows the joint, or none, where the lens stands, with nothing moving
-const JOINT_JOIN_MS = 700, JOINT_SPLIT_MS = 560, JOINT_HOLD_MS = 150;
+const JOINT_JOIN_MS = 700, JOINT_SPLIT_MS = 560;
 const JOINT_TEAR = 24, JOINT_LEAN = 8;
 // the face covers the lens's rim this deep, the depth at which its clean face
 // is whole (LENS_CLEAR_DEPTH) and a little more, and fades into the pane below
@@ -4467,7 +4472,7 @@ const tabJoint = (() => {
   const face = make("path", { id: "seatjoinface", class: "face", fill: "url(#seatjoinshade)" }, group);
   make("use", { href: "#seatjoinface" }, clip);
   const ring = make("path", { class: "ring", "clip-path": "url(#seatjoinclip)" }, group);
-  return { svg, shade, stops, group, kept, face, ring, tau: 0, run: null, foot: null, at: null, drawn: false, ok: false, key: "", outline: null, holdUntil: 0, leave: false };
+  return { svg, shade, stops, group, kept, face, ring, tau: 0, run: null, foot: null, at: null, drawn: false, ok: false, key: "", outline: null, leave: false, snap: false };
 })();
 // beside the bar, after it (see #seatjoin in the sheet)
 document.getElementById("tabrow").closest(".bar").after(tabJoint.svg);
@@ -4499,17 +4504,6 @@ function jointBusy(){
   const j = tabJoint;
   return !!j.run || (j.drawn && j.ok && (jointWanted() ? j.tau < 1 : j.tau > 0));
 }
-// how long a lens leaving its joint holds before it slides: the whole hold
-// from a joint at rest, less from one already part way, what is left of a
-// hold still running, and none for a lens already on its way
-function jointHold(){
-  const j = tabJoint, now = jointClock();
-  if (jointStill() || !(j.tau > 0)) return 0;
-  if (j.holdUntil > now) return Math.round(j.holdUntil - now);
-  if (seatSliding()) return 0;
-  j.holdUntil = now + Math.round(JOINT_HOLD_MS * j.tau);
-  return Math.round(j.holdUntil - now);
-}
 function jointSplitStep(dt, cx){
   const j = tabJoint;
   if (j.run?.kind !== "split") j.run = { kind: "split", p: jointInverse(JOINT_SPLIT, 1 - j.tau), foot: j.foot ?? cx };
@@ -4527,14 +4521,18 @@ function jointPaint(m, now){
   const want = ok && jointWanted(), dt = j.at === null ? 0 : Math.max(0, now - j.at);
   j.at = now; j.ok = ok;
   const cx = ok ? (m.lens.left + m.lens.right) / 2 : null;
-  // a lens sent to another name parts from where it was joined, whether or not
+  // a lens let go by a drag parts from where it was joined, whether or not
   // its slide has shown yet; one sent back where it stood joins again there
   if (j.leave){
     j.leave = false;
     if (ok && j.drawn && !jointStill() && j.tau > 0 && j.run?.kind !== "split")
       j.run = { kind: "split", p: jointInverse(JOINT_SPLIT, 1 - j.tau), foot: j.foot ?? cx };
   }
-  if (!ok || !j.drawn || jointStill()){
+  // a lens set down on a name by a click or a key has its joint whole there,
+  // or none on Home, as reduced motion has it
+  const snap = j.snap;
+  j.snap = false;
+  if (!ok || !j.drawn || snap || jointStill()){
     j.run = null; j.tau = want ? 1 : 0; j.foot = cx;
     if (ok && seat.drawn) j.drawn = true;
   } else if (want && !(j.run?.kind === "split" && j.tau > 0 && Math.abs(cx - j.run.foot) > 1)){
@@ -4547,8 +4545,6 @@ function jointPaint(m, now){
     j.foot = cx;
   } else if (j.tau > 0) jointSplitStep(dt, cx);   // a joint left behind goes before the next one forms
   else j.run = null;
-  // a hold is let go once the slide it held has run
-  if (seat.el.style.transitionDelay && !seatSliding()) seat.el.style.transitionDelay = "";
   if (!jointBusy()) j.at = null;
   if (!ok || !(j.tau > 0)){
     if (j.key){ j.face.setAttribute("d", ""); j.ring.setAttribute("d", ""); j.svg.setAttribute("opacity", "0"); j.key = ""; j.outline = null; }
