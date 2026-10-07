@@ -2897,13 +2897,15 @@ function sentOf(el, id){
 }
 function drawSent(el, id, arrive){
   syncSent(el, sentOf(el, id), arrive);
-  const panel = el.sent;
-  if (!panel) return;
+  if (!el.sent) return;
   // a message newly refused, or whose fate is newly unknown, wears its mark,
-  // and a panel cut above that row is opened once so the mark is seen
-  const warn = localSends(id).filter(o => o.state === "failed" || o.state === "unsure").map(o => o.id).join(",");
-  if (warn && warn !== el.sentWarned && panel.classList.contains("more") && !panel.classList.contains("open"))
-    openAnswered(panel, true);
+  // and the bubble holding it, cut above that row, is opened once so the mark is seen
+  const ids = localSends(id).filter(o => o.state === "failed" || o.state === "unsure").map(o => o.id);
+  const warn = ids.join(",");
+  if (warn && warn !== el.sentWarned)
+    for (const panel of sentPanels(el))
+      if (panel.classList.contains("more") && !panel.classList.contains("open") &&
+          sentRows(panel).some(row => ids.includes(row.dataset.op))) openAnswered(panel, true);
   el.sentWarned = warn;
 }
 // what an unconfirmed message wears in its row. a send on its first try wears
@@ -3426,7 +3428,7 @@ function doSend(id, opts){
   el.ta.value = "";
   trayTake(el);       // the files that went leave the tray with the words
   el.tick();          // the square goes with the words, and the row falls back to one line
-  // an arrival: the panel comes in, or the message comes into it, cut to its preview
+  // an arrival: the message comes into a bubble of its own, cut to its preview
   drawSent(el, id, true);
   motion?.play();
   if (hist && hist.id === id) histExit(id);   // a send lands you back on the live reply
