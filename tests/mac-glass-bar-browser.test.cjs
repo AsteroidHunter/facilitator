@@ -390,6 +390,10 @@ test("Home and project button activation move the same selection lens", async ()
     await page.click("#homeico"); await page.waitForFunction(() => homeOpen); await seatStill(page);
     const atHome = await seat(page); onName(atHome, "Home circle");
     near(atHome.right - atHome.left, 32, "Home lens width");
+    // the lens over the house is its circle (half its 32px), and a name's 7px box off it
+    const corner = () => page.evaluate(() => ({ radius: getComputedStyle(tabSeat.face).borderTopLeftRadius,
+      clear: getComputedStyle(tabSeat.face.lens.clear).borderTopLeftRadius, round: tabSeat.el.classList.contains("round") }));
+    assert.deepEqual(await corner(), { radius: "16px", clear: "16px", round: true }, "the lens on Home is not the house's circle");
     const home = await page.evaluate(() => {
       const button = document.getElementById("homeico"), cs = getComputedStyle(button);
       const source = button.querySelector("svg"), copy = tabSeat.face.lens.copies.get(source)?.querySelector("svg");
@@ -409,9 +413,11 @@ test("Home and project button activation move the same selection lens", async ()
     await page.focus(`#tabbar .ptab[data-owner="${first}"]`); await page.keyboard.press("Enter");
     await page.waitForFunction(ow => !homeOpen && activeOwner === ow, {}, first); await seatStill(page);
     onName(await seat(page), "project button keyboard return");
+    assert.deepEqual(await corner(), { radius: "7px", clear: "7px", round: false }, "the lens on a name is not a 7px box");
     await page.focus("#homeico"); await page.keyboard.press("Enter");
     await page.waitForFunction(() => homeOpen); await seatStill(page);
     onName(await seat(page), "keyboard Home selection");
+    assert.deepEqual(await corner(), { radius: "16px", clear: "16px", round: true }, "Home's lens is not its circle again");
     assert.equal(await page.evaluate(() => window.savedSelectionLens === tabSeat.el), true);
   } finally { await context.close(); }
 });

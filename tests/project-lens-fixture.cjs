@@ -163,7 +163,9 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
         visibility: cross && !armed ? "hidden" : "visible", color: tab?.classes.has("on") ? "rgb(30,30,30)" : "rgb(100,100,100)",
         fontFamily: "sans-serif", fontSize: "13px", lineHeight: "16px", fontWeight: tab?.classes.has("unread") ? "600" : "500",
         fontStyle: "normal", fontStretch: "100%", letterSpacing: "normal", fontFeatureSettings: "normal", fontVariationSettings: "normal",
-        whiteSpace: "nowrap", textTransform: "none" };
+        whiteSpace: "nowrap", textTransform: "none",
+        // the sheet's corner for a lens: a name's 7px, the house's circle while its seat is .round
+        borderTopLeftRadius: el.classes.has("projectlens") ? (el.closest(".tabseat")?.classes.has("round") ? "16px" : "7px") : "0px" };
     },
     requestAnimationFrame(fn) { frames.set(++id, fn); return id; }, cancelAnimationFrame: key => frames.delete(key),
     setTimeout(fn, ms) { tasks.set(++id, { fn, at: now + ms }); return id; }, clearTimeout: key => tasks.delete(key),
