@@ -7179,8 +7179,9 @@ async function saveDiagnostic(source = "settings"){
   }
 }
 diagnosticButton.addEventListener("click", () => saveDiagnostic());
-// the Notifications switch keeps choice and delivery separate. Only a link
-// accepted by the board turns the switch on. Repairs never change an off choice.
+// the Notifications switch keeps choice and delivery separate. A new link turns
+// the switch on only once the board accepts it; a link the board has already
+// accepted stays on while it is sent again. Repairs never change an off choice.
 const notifySwitch = document.getElementById("notify");
 const notifyNote = document.getElementById("notifynote");
 const notifyRestore = document.getElementById("notifyrestore");
@@ -7256,8 +7257,9 @@ function forgetNotifyEndpoint(){
   notifyEndpoint = "";
   try { localStorage.removeItem(NOTIFY_ENDPOINT); } catch (_) {}
 }
-async function repairNotifications(mine, permission, tappedSubscription){
+async function repairNotifications(mine, permission, tappedSubscription, quiet){
   const live = () => mine === notifyGeneration && !notifyStopped && !notifyStopping;
+  let kept = false;
   try {
     // Take ownership of a tap's subscribe result even if Off or Log Out was
     // pressed while the browser was making it, so a late link is removed.
@@ -7296,7 +7298,12 @@ async function repairNotifications(mine, permission, tappedSubscription){
       notifyState(false, "Notifications are wanted, but permission is off in the phone's settings.", true);
       return;
     }
-    notifyState(false, null, false, true);
+    // A check on open, return or settings that finds the very link the board
+    // last accepted leaves the switch on: that link is still delivering, and a
+    // slow or unreachable Mac says nothing about it. Only a new link waits.
+    kept = !!quiet && !!sub && !!notifyEndpoint && sub.endpoint === notifyEndpoint;
+    if (kept) notifyState(true);
+    else notifyState(false, null, false, true);
     let active = sub;
     if (!active) {
       if (!notifyKey) {
@@ -7329,22 +7336,25 @@ async function repairNotifications(mine, permission, tappedSubscription){
   } catch (_) {
     // Keep even a newly created link for the next attempt. A lost HTTP answer
     // does not mean that the board failed to save it.
-    if (live()) notifyState(false, notifyChoice === "on"
+    if (live() && kept) notifyState(true);
+    else if (live()) notifyState(false, notifyChoice === "on"
       ? "Notifications are wanted but are not ready. Tap Restore notifications to try again."
       : "Could not check notifications. The saved choice has not changed.", notifyChoice === "on");
   }
 }
-function startNotifyRepair(permission, tappedSubscription){
+function startNotifyRepair(permission, tappedSubscription, quiet = false){
   const mine = ++notifyGeneration;
-  notifyState(false, null, false, true);
-  const work = repairNotifications(mine, permission, tappedSubscription);
+  // A check that is not a tap leaves a switch that reads on alone until it has
+  // read the phone's link.
+  if (!quiet || !notifySwitch.checked) notifyState(false, null, false, true);
+  const work = repairNotifications(mine, permission, tappedSubscription, quiet);
   notifyWork = work;
   work.finally(() => { if (notifyWork === work) notifyWork = null; });
   return work;
 }
 function checkNotifications(){
   if (macHost || notifyStopped || notifyStopping) return Promise.resolve();
-  return notifyWork || startNotifyRepair();
+  return notifyWork || startNotifyRepair(undefined, undefined, true);
 }
 function askNotifications(){
   if (macHost || notifyStopped || notifyStopping || notifyWork) return notifyWork;
