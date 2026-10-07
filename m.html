@@ -1260,8 +1260,15 @@
       rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
       rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
       rgba(0,0,0,0) 100%)}
+  /* a ticket is a fixed 52 tall and as wide as its section, so nothing inside
+     it can change its size, and it is contained in size and layout to say so.
+     a change inside, such as the working spinner's turn every 180ms, then lays
+     out and paints that ticket alone; uncontained, each turn laid out and
+     painted the whole list, which on the Simulator cost a 40 to 57ms frame,
+     under a sliding drawer as well. paint is not contained, so the keyboard
+     pick's glass and the folded corner still draw past the ticket's edge */
   .trow{
-    position:relative; flex:none; height:calc(52 * var(--u));
+    position:relative; flex:none; height:calc(52 * var(--u)); contain:size layout;
     touch-action:manipulation;
     border:var(--edge) solid var(--line); border-radius:calc(5 * var(--u)); background:#fff;
     box-shadow:0 1px 4px rgba(60,45,20,.05);
