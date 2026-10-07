@@ -476,8 +476,11 @@
    Its real box changes size; one copy of the words, laid out as the panel lays
    them out, rides it and shrinks from the typing size without rewrapping.
    The face is the panel's grey, written by the script with the box, along
-   with how strong it is at each frame. */
-.sentmorph{position:fixed; pointer-events:none; overflow:hidden; z-index:10000; box-sizing:border-box}
+   with how strong it is at each frame. It is handed a layer of its own, so
+   its moving box is drawn by itself: a box drawn into the page's own layer
+   has the page under it, the answer and its masked fades included, painted
+   again wherever it moves, on every frame of the flight */
+.sentmorph{position:fixed; pointer-events:none; overflow:hidden; z-index:10000; box-sizing:border-box; will-change:transform}
 .sentmorph-face{position:absolute; inset:0; border-radius:inherit}
 .sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
 /* two bubbles running together (card-logic.js: sentMerge). the joined bubble

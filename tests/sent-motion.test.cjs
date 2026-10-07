@@ -94,7 +94,8 @@ test("send shells never scale their changing box and reduced motion stills recei
   const shell = rule(".sentmorph");
   assert.match(shell, /position:fixed/);
   assert.match(shell, /pointer-events:none/);
-  assert.doesNotMatch(shell, /transform|accent|432BFF/i);
+  // a layer of its own, but never a transform on the box itself
+  assert.doesNotMatch(shell, /(?:^|;)\s*transform\s*:|accent|432BFF/i);
   const reduced = code.slice(code.indexOf("@media (prefers-reduced-motion: reduce)", code.indexOf(".sentmorph")));
   assert.match(reduced, /\.answered\.markin::after\{animation:none !important\}/);
   assert.match(reduced, /\.answered\.markgone::after\{transition:none !important\}/);
