@@ -23,7 +23,7 @@ const BOTH = "Is Tailscale installed on both your devices? (y / n) ";
 const ANSWER = "answer: ";
 const PASSWORDS = [["App password (input hidden): ", PASSWORD + "\n"], ["Confirm app password (input hidden): ", PASSWORD + "\n"]];
 const CLOSING = "✦ Facilitator is installed!\n\nNext steps:\n\n1. Start the board: facilitator run\n"
-  + "2. Onboard your agent, in Claude Code: /facilitator onboard\n   or in Codex: $facilitator onboard";
+  + "2. Complete the quick onboarding to start using the Facilitator!";
 
 async function using(options, body) {
   const f = await sandbox(options);
@@ -55,11 +55,11 @@ test("with neither Claude Code nor Codex it prints both links, stops, and change
     const { code, text } = await f.terminal([]);
     assert.equal(code, 1, text);
     assert.ok(text.includes("1. Claude Code or Codex\n───────────────────────\n\n"
-      + "⚠ Neither Claude Code nor Codex was found.\n"
-      + "  Facilitator needs at least one of them. Install one:\n"
-      + `    Claude Code: ${URLS.claude}\n`
-      + `    Codex: ${URLS.codex}\n`
-      + "  Then run ./install.sh again. Nothing was changed.\n"), text);
+      + "⚠ Neither Claude Code nor Codex was found.\n\n"
+      + "Facilitator needs at least one of them. Install one:\n"
+      + `Claude Code: ${URLS.claude}\n`
+      + `Codex: ${URLS.codex}\n\n`
+      + "Then run ./install.sh again. Nothing was changed.\n"), text);
     assert.doesNotMatch(text, /2\. Chrome/);
     assert.deepEqual(await f.calls(), [], "nothing was looked up or run");
     await assertNothingChanged(f);
@@ -84,11 +84,11 @@ test("without Chrome it prints the download link, says the board is its own app 
     const { code, text } = await f.terminal([]);
     assert.equal(code, 1, text);
     assert.ok(text.includes("✓ Claude Code found.\n\n2. Chrome\n─────────\n\n"
-      + "⚠ Chrome was not found.\n"
-      + "  Facilitator is meant to run as its own Chrome app window, not in a\n"
-      + "  browser tab. Install Chrome:\n"
-      + `    ${URLS.chrome}\n`
-      + "  Then run ./install.sh again. Nothing was changed.\n"), text);
+      + "⚠ Chrome was not found.\n\n"
+      + "Facilitator is meant to run as its own Chrome app window, not in a\n"
+      + "browser tab. Install Chrome:\n"
+      + `${URLS.chrome}\n\n`
+      + "Then run ./install.sh again. Nothing was changed.\n"), text);
     assert.doesNotMatch(text, /3\. Python/);
     assert.deepEqual(await f.calls(), [MDFIND, "open -Ra Google Chrome"]);
     await assertNothingChanged(f);
@@ -117,16 +117,18 @@ test("a full run with no phone client makes the private environment and the comm
     const { code, text, unsent } = await f.terminal([[PHONE, "n"]]);
     assert.equal(code, 0, text);
     assert.deepEqual(unsent, []);
-    assertSections(text, ["1. Claude Code or Codex", "2. Chrome", "3. Python", "4. Phone client"]);
+    assertSections(text, ["1. Claude Code or Codex", "2. Chrome", "3. Python", "4. Mobile app"]);
     assert.ok(text.includes("✓ Claude Code found.\n✓ Codex found.\n"), text);
     assert.ok(text.includes("✓ Chrome found.\n"), text);
-    assert.ok(text.includes("Setup builds a private Python environment in .venv with uv, installs\n"
-      + "the pinned packages, and writes run.config.json and seed.json from\n"
-      + "their examples when they are missing. Your own Python is not changed.\n"), text);
-    assert.match(text, /✓ Environment created\.\n/);
-    assert.match(text, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
-    assert.match(text, /✓ Board installed\.\n\nConfig lives beside this command/);
-    assert.ok(text.includes("4. Phone client\n───────────────\n\n"
+    assert.ok(text.includes("3. Python\n─────────\n\n"
+      + "Setup installs what Facilitator needs when it is missing.\n"
+      + "The packages only the tests need are left out; ./install.sh --dev adds them.\n\n"), text);
+    assert.ok(text.includes("Setting up the Python 3.14 environment.\n✓ Python 3.14 environment ready.\n"
+      + "Installing the packages Facilitator needs.\n✓ Packages installed.\n"
+      + "✓ Board settings created.\n✓ Starting board created.\n\n4. Mobile app\n"), text);
+    assert.doesNotMatch(text, /fake uv|Board installed|Config lives beside|Environment created|Packages synced|Wrote run\.config/,
+      "uv's own lines, a file name or a technical line was printed:\n" + text);
+    assert.ok(text.includes("4. Mobile app\n─────────────\n\n"
       + "The phone client puts your board on your phone, over Tailscale and\n"
       + "behind an app password.\n\n"
       + `${PHONE}n\n\n✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator.\n\n`
@@ -153,7 +155,7 @@ test("phone client yes, Tailscale on both, HTTPS on: the question texts and the 
     const { code, text, unsent } = await f.terminal([[PHONE, "Y"], [BOTH, "y"], [ANSWER, "y"], ...PASSWORDS]);
     assert.equal(code, 0, text);
     assert.deepEqual(unsent, []);
-    assertSections(text, ["4. Phone client", "4.1 Tailscale", "4.2 App password"]);
+    assertSections(text, ["4. Mobile app", "4.1 Tailscale", "4.2 App password"]);
     assert.ok(text.includes(`${PHONE}y\n\n4.1 Tailscale\n─────────────\n\n`
       + "Tailscale connects your phone to the board on your Mac privately,\n"
       + "without opening it to the internet. It is free.\n\n"
@@ -213,8 +215,8 @@ test("a run with no terminal asks nothing, treats the phone client as no, and sa
   await using({}, async f => {
     const { code, text } = await f.piped();
     assert.equal(code, 0, text);
-    assertSections(text, ["1. Claude Code or Codex", "2. Chrome", "3. Python", "4. Phone client"]);
-    assert.ok(text.includes("4. Phone client\n───────────────\n\n⊘ Skipped the phone client: there is no interactive terminal.\n\n"
+    assertSections(text, ["1. Claude Code or Codex", "2. Chrome", "3. Python", "4. Mobile app"]);
+    assert.ok(text.includes("4. Mobile app\n─────────────\n\n⊘ Skipped the phone client: there is no interactive terminal.\n\n"
       + "✓ facilitator command and agent skill installed\n"), text);
     assert.doesNotMatch(text, /\(y \/ n\)|4\.1|4\.2|App password|Tailscale/);
     assert.ok(text.endsWith(`${CLOSING}\n\n`), text.slice(-200));
@@ -261,9 +263,7 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
       const { code, text } = await f.piped();
       assert.equal(code, 0, `${python}: ${text}`);
       assert.ok(text.includes("3. Python\n─────────\n\n"
-        + "Setup builds a private Python environment in .venv with uv, installs\n"
-        + "the pinned packages, and writes run.config.json and seed.json from\n"
-        + "their examples when they are missing. Your own Python is not changed.\n"
+        + "Setup installs what Facilitator needs when it is missing.\n"
         + "The packages only the tests need are left out; ./install.sh --dev adds them.\n\n"
         + "No Python this setup can use was found (it needs 3.9 or newer).\n"
         + "uv will provide one for the private environment.\n"
@@ -421,7 +421,8 @@ test("--dev adds the test packages from the lockfile in tests/, after the board'
   await using({ node: true }, async f => {
     const { code, text } = await f.piped(["--dev"]);
     assert.equal(code, 0, text);
-    assert.match(text, /✓ Packages synced\.\n[^]*Installing the test packages from tests\/package-lock\.json\.\n✓ Test packages installed\.\n✓ Board installed\./);
+    assert.match(text, /✓ Packages installed\.\n[^]*Installing the packages the tests need\.\n✓ Packages for the tests installed\.\n/);
+    assert.doesNotMatch(text, /npm notice|added \d+ packages|package-lock/, "npm's own lines were printed");
     const calls = await f.calls();
     assert.ok(calls.includes("npm ci --ignore-scripts --no-audit --no-fund"), calls.join(" | "));
     assert.ok(calls.includes(`npm ran in ${path.join(f.repo, "tests")}`), calls.join(" | "));

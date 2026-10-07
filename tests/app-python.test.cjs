@@ -155,7 +155,7 @@ test("a .venv already on 3.14 is kept and only synced, wherever its Python came 
     await makeVenv(dir, { version });
     const loud = await drive(dir, "finish(lambda: cli.ensure_env(UV))");
     assert.equal(loud.exit, null, loud.out);
-    assert.match(loud.out, /^✓ Environment found in \.venv \(Python 3\.14\)\.\nSyncing packages/);
+    assert.match(loud.out, /^✓ Environment found in \.venv \(Python 3\.14\)\.\nInstalling the packages Facilitator needs\.\n✓ Packages installed\.\n$/);
     assert.deepEqual(lines(loud), [SYNC_CALL]);
     assert.equal(loud.old, true, "a .venv on 3.14 was rebuilt");
     const quiet = await drive(dir, "finish(lambda: cli.ensure_env(UV, quiet=True))");
@@ -170,7 +170,7 @@ test("a missing .venv is made quietly on update and named on install", async () 
   assert.deepEqual(lines(quiet), [INSTALL_CALL, VENV_CALL, SYNC_CALL]);
   const other = await checkout();
   const loud = await drive(other, "finish(lambda: cli.ensure_env(UV))");
-  assert.match(loud.out, /^Creating the environment in \.venv on Python 3\.14\.\n✓ Environment created\.\n/);
+  assert.match(loud.out, /^Setting up the Python 3\.14 environment\.\n✓ Python 3\.14 environment ready\.\n/);
 });
 
 test("a Python install that fails leaves .venv as it was, and a .venv uv makes on another Python is refused", async () => {

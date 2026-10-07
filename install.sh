@@ -104,6 +104,19 @@ stop() {
   exit 1
 }
 
+# stop_plain <headline> [line ...]: like stop, but each line is flush left and
+# an empty one is a blank line, which splits the lines into groups.
+stop_plain() {
+  local headline="$1" line
+  shift
+  if [ "$FRESH" -eq 0 ]; then printf '\n' >&2; fi
+  printf '⚠ %s\n' "$headline" >&2
+  for line in "$@"; do
+    printf '%s\n' "$line" >&2
+  done
+  exit 1
+}
+
 # Single-key questions. A key that is not an answer is ignored. The terminal
 # is put back whatever ends the run.
 TTY_STATE=''
@@ -266,7 +279,7 @@ uv_new_enough() {
 # No python3 that is new enough: get uv, then a Python of uv's own. PY ends up
 # naming it. Nothing goes into the user's Python.
 bootstrap_python() {
-  local uv found=1
+  local uv out found=1
   say "No Python this setup can use was found (it needs $MIN_PYTHON or newer)."
   say 'uv will provide one for the private environment.'
   if ! uv="$(find_uv)"; then
@@ -281,7 +294,11 @@ bootstrap_python() {
   fi
   if [ "$found" -eq 0 ]; then ok 'uv installed.'; fi
   say "Installing Python $MANAGED_PYTHON with uv."
-  "$uv" python install --no-bin "$MANAGED_PYTHON" || stop 'uv could not install Python.' 'See the output above, then run ./install.sh again.'
+  # uv's own progress lines are held back and shown only if it fails
+  if ! out="$("$uv" python install --no-bin "$MANAGED_PYTHON" 2>&1)"; then
+    printf '%s\n' "$out" >&2
+    stop 'uv could not install Python.' 'See the output above, then run ./install.sh again.'
+  fi
   PY="$("$uv" python find --managed-python "$MANAGED_PYTHON")" || PY=''
   [ -n "$PY" ] && [ -x "$PY" ] || stop 'uv installed Python but it was not found.' 'See the output above, then run ./install.sh again.'
   ok "Python $MANAGED_PYTHON installed."
@@ -353,10 +370,12 @@ if command -v codex >/dev/null 2>&1; then
   agent_found=1
 fi
 if [ "$agent_found" -eq 0 ]; then
-  stop 'Neither Claude Code nor Codex was found.' \
+  stop_plain 'Neither Claude Code nor Codex was found.' \
+    '' \
     'Facilitator needs at least one of them. Install one:' \
-    "  Claude Code: $CLAUDE_URL" \
-    "  Codex: $CODEX_URL" \
+    "Claude Code: $CLAUDE_URL" \
+    "Codex: $CODEX_URL" \
+    '' \
     'Then run ./install.sh again. Nothing was changed.'
 fi
 
@@ -364,10 +383,12 @@ section '2. Chrome'
 if chrome_known; then
   ok 'Chrome found.'
 else
-  stop 'Chrome was not found.' \
+  stop_plain 'Chrome was not found.' \
+    '' \
     'Facilitator is meant to run as its own Chrome app window, not in a' \
     'browser tab. Install Chrome:' \
-    "  $CHROME_URL" \
+    "$CHROME_URL" \
+    '' \
     'Then run ./install.sh again. Nothing was changed.'
 fi
 
@@ -378,9 +399,7 @@ if usable_python3; then
 fi
 
 section '3. Python'
-say 'Setup builds a private Python environment in .venv with uv, installs'
-say 'the pinned packages, and writes run.config.json and seed.json from'
-say 'their examples when they are missing. Your own Python is not changed.'
+say 'Setup installs what Facilitator needs when it is missing.'
 if [ -n "$DEV_FLAG" ]; then
   say 'With --dev, the packages only the tests need are installed too.'
 else
@@ -394,7 +413,7 @@ if [ -z "$PY" ]; then
 fi
 FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _install ${DEV_FLAG:+--dev}
 
-section '4. Phone client'
+section '4. Mobile app'
 if [ ! -t 0 ]; then
   skipped 'Skipped the phone client: there is no interactive terminal.'
 elif ! phone_client; then
@@ -413,5 +432,4 @@ fi
 printf '\n%s✦%s Facilitator is installed!\n\n' "$GREEN" "$RESET"
 printf '%sNext steps:%s\n\n' "$BOLD" "$RESET"
 printf '%s1.%s Start the board: facilitator run\n' "$BOLD" "$RESET"
-printf '%s2.%s Onboard your agent, in Claude Code: /facilitator onboard\n' "$BOLD" "$RESET"
-printf '   or in Codex: $facilitator onboard\n\n'
+printf '%s2.%s Complete the quick onboarding to start using the Facilitator!\n\n' "$BOLD" "$RESET"
