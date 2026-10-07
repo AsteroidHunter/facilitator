@@ -596,7 +596,7 @@ test("the document page's existing drop path accepts a PDF and preserves raw mes
 });
 
 for (const phone of [false, true]) {
-  test(`${phone ? "phone" : "desktop"} attachment replies fit the card and expose filename, open and download links`, async () => {
+  test(`${phone ? "phone" : "desktop"} attachment replies fit the card and show filenames, a document's name its link, with no open and download links`, async () => {
     const id = await createCard("Files in a reply");
     const pdf = await upload("Meeting report.pdf", PDF);
     const doc = await upload("A long document filename that wraps inside the phone card.docx", DOCX);
@@ -611,20 +611,16 @@ for (const phone of [false, true]) {
       const shape = await page.evaluate(id => {
         const reply = els[id].reply, box = reply.getBoundingClientRect();
         return { names: [...reply.querySelectorAll(".attachment-name")].map(el => el.textContent),
-          open: [...reply.querySelectorAll(".attachment-links a:not([download])")].map(el => el.getAttribute("href")),
-          download: [...reply.querySelectorAll("a[download]")].map(el => el.getAttribute("href")),
+          named: [...reply.querySelectorAll("a.attachment-name")].map(el => el.getAttribute("href")),
+          links: reply.querySelectorAll(".attachment-links, .attachment a[download], .attachment a:not(.attachment-name)").length,
           audio: reply.querySelector("audio").controls, gif: reply.querySelector("img").getAttribute("src"),
           overflow: [...reply.querySelectorAll(".attachment, .attachment-name, audio")].some(el => {
             const b = el.getBoundingClientRect(); return b.left < box.left - 1 || b.right > box.right + 1;
           }) };
       }, id);
       assert.deepEqual(shape.names, ["Meeting report.pdf", "A long document filename that wraps inside the phone card.docx", "Voice memo.wav"]);
-      assert.deepEqual(shape.open, [pdf, doc, audio]); assert.equal(shape.download.length, 3);
+      assert.deepEqual(shape.named, [pdf, doc]); assert.equal(shape.links, 0);
       assert.equal(shape.audio, true); assert.equal(shape.gif, gif); assert.equal(shape.overflow, false);
-      for (const target of shape.download) {
-        const response = await fetch(origin + target);
-        assert.equal(response.status, 200); assert.match(response.headers.get("content-disposition"), /^attachment/);
-      }
       if (process.env.ATTACHMENT_SHOTS) {
         await mkdir(process.env.ATTACHMENT_SHOTS, { recursive: true });
         await page.screenshot({ path: path.join(process.env.ATTACHMENT_SHOTS, phone ? "phone-attachments.png" : "desktop-attachments.png") });
