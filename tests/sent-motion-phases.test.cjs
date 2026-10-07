@@ -1,11 +1,11 @@
-// The send flight's phases, frame by frame, held to the iPhone's Messages send
-// as the owner's two screen recordings show it: six sends, one line and two,
-// short and long, keyboard down and up. The
-// recordings' own edge readings are in tests/fixtures/iphone-send-readings.json,
-// raw, not the curves the code was fitted to, so the check does not lean on
-// the code it checks: each send is flown here on its own bar and landed boxes
-// and has to land its edges where the iPhone drew them. What is ours and not
-// the iPhone's is the owner's order on the card: one copy of the words stays
+// The send flight's phases, frame by frame, in the owner's order:
+// the box moves sideways, then up, and ends
+// with an accordion-like compress, with no zoom in and out and no edge passing
+// its landing. The six sends of the owner's two iPhone recordings
+// (tests/fixtures/iphone-send-readings.json)
+// are flown here on their own bars and landed
+// boxes, one line and two, short and long, and the grey and the glide of what
+// stood before still follow the iPhone's readings. One copy of the words stays
 // dark the whole way, shrinking from the typing size to the bubble's, and no
 // tail. Boxes are synthetic viewport rectangles; no layout engine and no
 // browser runs, so nothing here claims how it looks.
@@ -16,7 +16,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const LOGIC = readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8");
 const IPHONE = JSON.parse(readFileSync(path.join(__dirname, "fixtures", "iphone-send-readings.json"), "utf8"));
-const FLIGHT_MS = 750;   // every send is within 1px of its landing from 713-798ms
+const FLIGHT_MS = 650;   // sideways by 260ms, up by 430ms, the compress closed by 650ms
 const FAINT = 0.135;     // how strong the bubble looks under the bar's glass, 17-50ms
 const DRAWN = 0.686;     // how strong it is drawn on its first frame, outside the glass
 const PT = 3;            // the recordings' pixels to a point
@@ -246,61 +246,53 @@ const edges = s => {
   return { left, right: left + width, top, bottom: top + height, width, height };
 };
 // the moments checked: before the first frame, then every 1/60s to the landing
-const MOMENTS = [null, 0];
-for (let i = 1; i <= 45; i++) MOMENTS.push(Math.round(i * 1000 / 6) / 10);
+// the moments checked: before the first frame, then every 1/60s from the first
+// frame drawn after the press to the landing
+const MOMENTS = [null];
+for (let i = 1; i <= 39; i++) MOMENTS.push(Math.round(i * 1000 / 6) / 10);
 
 // ---- the phases ------------------------------------------------------------------------
-test("every recorded send, flown on its own boxes, lands each edge where the iPhone drew it from 183ms on", () => {
-  // one line and two, short and long, keyboard down and up: from 183ms every
-  // edge within 3.5pt and on average within 1.2pt, and the right end within
-  // 0.5pt at every frame, the size held at the bubble's bottom-right corner
+test("every recorded send, flown on its own boxes, goes sideways and up to its landing and never past it", () => {
+  // one line and two, short and long, keyboard down and up: each edge stays
+  // between where it starts and where it lands at every frame, the top never
+  // rises above the bubble's, and every edge is on its landing at the end
   for (const [name, send] of Object.entries(IPHONE.sends)) {
     const s = flyRecorded(send);
-    const sq = { L: [], R: [], T: [], B: [] };
-    for (const [ms, L, R, T, B, wordsWidth] of send.frames) {
-      if (ms > FLIGHT_MS) break;
+    const bar = send.bar, landed = send.landed;
+    const between = (v, a, b) => v >= Math.min(a, b) - 1e-6 && v <= Math.max(a, b) + 1e-6;
+    for (const ms of MOMENTS.slice(1)) {
       s.frame(ms);
       const got = edges(s);
-      near(got.right, R, `${name}: the right end at ${ms}ms`, 0.5 * PT);
-      if (ms < 182) continue;
-      for (const [key, want, have] of [["L", L, got.left], ["R", R, got.right], ["T", T, got.top], ["B", B, got.bottom]]) {
-        if (want === null) continue;
-        near(have, want, `${name}: the ${{ L: "left edge", R: "right end", T: "top", B: "bottom" }[key]} at ${ms}ms`, 3.5 * PT);
-        sq[key].push((have - want) ** 2);
-      }
-      if (wordsWidth !== null) near(s.words().k, wordsWidth, `${name}: the words' size at ${ms}ms`, 0.03);
+      assert.ok(between(got.left, bar.left, landed.left), `${name}: the left edge passed its landing at ${ms}ms (${got.left})`);
+      assert.ok(between(got.right, bar.right, landed.right), `${name}: the right end passed its landing at ${ms}ms (${got.right})`);
+      assert.ok(between(got.top, bar.top, landed.top), `${name}: the top rose past its landing at ${ms}ms (${got.top})`);
     }
-    for (const [key, list] of Object.entries(sq)) {
-      const rms = Math.sqrt(list.reduce((a, b) => a + b, 0) / list.length) / PT;
-      assert.ok(rms <= 1.2, `${name}: the ${key} edge is ${rms.toFixed(2)}pt off on average from 183ms`);
-    }
+    const end = edges(s);
+    for (const [key, want] of [["left", landed.left], ["right", landed.right], ["top", landed.top], ["bottom", landed.bottom]])
+      near(end[key], want, `${name}: the ${key} at landing`, 1e-6);
   }
 });
 
-test("the box's left edge goes before it rises, as on the iPhone", () => {
-  // the recordings: the left edge two thirds of the way while the top has
-  // barely left the bar, at 100ms
+test("the box's left edge goes before it rises", () => {
+  // sideways, then up: the left edge most of the way in while the top has
+  // barely left the row
   const s = flyFirst();
   const travel = b => ({ across: (b.left - FIELD.left) / (BUBBLE.left - FIELD.left), up: (FIELD.top - b.top) / (FIELD.top - BUBBLE.top) });
-  let arrived = null, halfUp = null;
-  for (let ms = 0; ms <= FLIGHT_MS; ms++) {
+  let mostlyIn = null, quarterUp = null;
+  for (let ms = 1; ms <= FLIGHT_MS; ms++) {
     s.frame(ms);
     const p = travel(edges(s));
-    if (arrived === null && p.across >= 1) arrived = ms;
-    if (halfUp === null && p.up >= 0.5) halfUp = ms;
-    if (ms === 67) {
-      assert.ok(Math.abs(p.up) <= 0.02, `the top has left the row at 67ms (${p.up})`);
-      assert.ok(p.across >= 0.25, `the left edge has not squeezed in at 67ms (${p.across})`);
-    }
-    if (ms === 100) assert.ok(p.across >= 0.5 && p.up <= 0.1, `at 100ms the left edge is ${p.across} of the way and the top ${p.up}`);
+    if (mostlyIn === null && p.across >= 0.75) mostlyIn = ms;
+    if (quarterUp === null && p.up >= 0.25) quarterUp = ms;
+    if (ms === 67) assert.ok(p.across >= 0.4 && p.up <= 0.1, `at 67ms the left edge is ${p.across} of the way and the top ${p.up}`);
   }
-  assert.ok(arrived !== null && halfUp !== null && arrived < halfUp,
-    `the left edge reached the bubble's (${arrived}ms) after the top was halfway up (${halfUp}ms)`);
+  assert.ok(mostlyIn !== null && quarterUp !== null && mostlyIn < quarterUp,
+    `the left edge was three quarters in (${mostlyIn}ms) after the top was a quarter up (${quarterUp}ms)`);
 });
 
-test("the box's right end goes from the typing box's to the bubble's, as the iPhone's does", () => {
-  // the iPhone's bubble starts as its bar, right end and all; where the bar's
-  // right end is not the bubble's (the first recording), it travels across
+test("the box's right end goes from the typing box's to the bubble's and never past it", () => {
+  // the box starts as the typing box, right end and all, and its right end
+  // travels to the bubble's, one way
   const s = flyFirst();
   near(edges(s).right, FIELD.left + FIELD.width, "the start box's right end (the typing box's)", 1e-6);
   near(edges(s).width, FIELD.width, "the start box's width (the typing box's)", 1e-6);
@@ -308,29 +300,33 @@ test("the box's right end goes from the typing box's to the bubble's, as the iPh
   for (const ms of MOMENTS.slice(1)) {
     s.frame(ms);
     const r = edges(s).right;
-    if (ms <= 283) assert.ok(r >= before - 1e-9, `the right end went back at ${ms}ms`);
+    assert.ok(r >= before - 1e-9 && r <= RIGHT + 1e-9, `the right end went back or past the bubble's at ${ms}ms`);
     before = r;
-    if (ms === 100) assert.ok(r > FIELD.left + FIELD.width + 1 && r < RIGHT - 1, `the right end is not on its way at 100ms (${r})`);
+    if (ms === 100) assert.ok(r > FIELD.left + FIELD.width + 1 && r < RIGHT - 0.1, `the right end is not on its way at 100ms (${r})`);
   }
   near(edges(s).right, RIGHT, "the landing's right end", 1e-6);
 });
 
-test("the box and its words shrink to 77% as they leave the row and grow back in place", () => {
+test("the words go once from the typing size to the bubble's, and the box ends with an accordion-like compress", () => {
+  // no zoom in and out: the words' size only ever goes one way and the box
+  // never narrows past the bubble. the compress: the box rises a little
+  // taller than the bubble under its top, and once its top has landed it
+  // closes back down onto the bubble, its foot coming up and never going down
   const s = flyFirst();
-  s.frame(216.7);
-  near(s.words().k * WORDS.size, 0.771 * WORDS.size, "the words' size at 217ms", 0.02);
-  const low = edges(s);
-  assert.ok(low.width < 0.8 * BUBBLE.width && low.height < 0.8 * BUBBLE.height,
-    `the box is ${low.width} by ${low.height} at 217ms`);
-  let before = s.words().k;
-  for (let ms = 217; ms <= 566; ms++) {
+  let k = s.words().k, foot = edges(s).bottom, tallest = 0, topLanded = null;
+  for (let ms = 1; ms <= FLIGHT_MS; ms++) {
     s.frame(ms);
-    const k = s.words().k;
-    assert.ok(k >= before - 1e-9, `the words shrank again at ${ms}ms`);
-    before = k;
+    const w = s.words().k, b = edges(s);
+    assert.ok(w <= k + 1e-12 && w >= 1 - 1e-12, `the words' size went back or under the bubble's at ${ms}ms (${w})`);
+    assert.ok(b.width >= BUBBLE.width - 1e-9, `the box narrowed past the bubble at ${ms}ms (${b.width})`);
+    assert.ok(b.bottom <= foot + 1e-9, `the box's foot went down at ${ms}ms`);
+    if (topLanded === null && Math.abs(b.top - BUBBLE.top) < 1e-6) topLanded = { ms, height: b.height };
+    tallest = Math.max(tallest, b.height / BUBBLE.height);
+    k = w; foot = b.bottom;
   }
-  assert.ok(before > 1 && before < 1.006, `the words do not go a touch over their size at 567ms (${before})`);
-  s.frame(FLIGHT_MS);
+  assert.ok(tallest >= 1.15 && tallest <= 1.3, `the box does not rise a little taller than the bubble (${tallest})`);
+  assert.ok(topLanded && topLanded.height >= 1.1 * BUBBLE.height && FLIGHT_MS - topLanded.ms >= 150,
+    `the box does not close down onto the bubble after its top lands (${JSON.stringify(topLanded)})`);
   assert.equal(s.words().k, 1, "the words did not land at the bubble's size");
   near(edges(s).width, BUBBLE.width, "the box did not land at the bubble's width", 1e-6);
   near(edges(s).height, BUBBLE.height, "the box did not land at the bubble's height", 1e-6);
@@ -356,7 +352,7 @@ test("the grey is faint over the typing row and comes in as the box rises clear,
   // second recording's two lines against its one-line sends at 217ms
   const greyAt = (send, ms) => { const r = flyRecorded(send); r.frame(ms); return px(r.shell().querySelector(".sentmorph-face").style.opacity); };
   const two = greyAt(IPHONE.sends.s1, 216.7), one = greyAt(IPHONE.sends.s3, 216.7);
-  assert.ok(two < 0.8 && one > 0.95, `at 217ms the two-line grey is ${two} and the one-line ${one}`);
+  assert.ok(two < 0.8 && one - two > 0.15, `at 217ms the two-line grey is ${two} and the one-line ${one}`);
   // the grey firms up with delivery while airborne, and the face follows it
   const s3 = flyFirst();
   s3.p.fill = SAVED;
@@ -364,9 +360,9 @@ test("the grey is faint over the typing row and comes in as the box rises clear,
   assert.equal(s3.face().style.background, SAVED);
 });
 
-test("the flight takes the iPhone's 750ms, and the bubble takes over a frame after it lands", () => {
+test("the flight takes 650ms, and the bubble takes over a frame after it lands", () => {
   const s = flyFirst();
-  for (const ms of [400, 717, 733]) {
+  for (const ms of [400, 617, 633]) {
     s.frame(ms);
     assert.ok(s.shell(), `the flight ended by ${ms}ms`);
     assert.equal(s.p.style.getPropertyValue("opacity"), "0", `the real bubble showed at ${ms}ms`);

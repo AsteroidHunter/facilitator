@@ -457,14 +457,15 @@
    room the panel may take over the answer, and the rest scrolls inside the cut.
    a surface that writes none gives the panel a seat that scrolls instead.
    a local send morphs from the typing field to a bubble of its own in
-   card-logic.js the way the iPhone's Messages does, frame by frame off two
-   recordings, over 750ms: the typing box travels to the seat, its left edge
-   before its top, drawn shrunk a little about its bottom-right corner as it
-   leaves the row and growing back in place, its grey faint over the row and
-   coming in as it rises clear, while the bubbles that stood before make room
-   on a quicker glide. It wears the panel's own corners from its first frame
-   and carries its words dark the whole way. A send without measurable field
-   geometry uses the small rise and fade below.
+   card-logic.js over 650ms: the typing box moves sideways, its left edge
+   setting off on the first frame, then up, growing a little taller as it
+   rises, and ends with an accordion-like compress back onto the bubble's
+   height, with nothing shrinking and growing back and no edge passing its
+   landing. Its grey is faint over the row and comes in as it rises clear,
+   while the bubbles that stood before make room on a quicker glide. It wears
+   the panel's own corners from its first frame and carries its words dark the
+   whole way. A send without measurable field geometry uses the small rise and
+   fade below.
    Only a send changes the fold's timing; a manual fold keeps its own run. */
 .answered.sent{--sent-peek:calc(var(--answ-peek) + var(--answ-line))}
 .answered.sent.open .answclip{max-height:var(--sent-cap, none); overflow-y:auto; overscroll-behavior:contain}
