@@ -69,7 +69,8 @@ async function script(file, text) {
 // scrypt).
 // uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
 // back an installer that puts it in the home folder), "curl-tampered" (the
-// same, but what it hands back is not what the checkout expects) or "absent". The fake's
+// same, but what it hands back is not what the checkout expects), "curl-fails"
+// (the installer it hands back prints a line and exits with an error) or "absent". The fake's
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
 // hands over to the real python, so what runs on .venv really runs. It says
 // it is uvVersion when asked. node: true puts a fake node and a fake npm on
@@ -148,11 +149,18 @@ chmod +x "${target}"
 `);
   }
 
-  if (uv === "curl" || uv === "curl-tampered") {
+  if (uv === "curl" || uv === "curl-tampered" || uv === "curl-fails") {
     // the installer the fake curl hands back, and the fingerprint this copy of
     // the checkout is made to expect for it: "curl-tampered" serves something
-    // else under that fingerprint. The installer's own check is probed too.
-    const installer = `echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+    // else under that fingerprint, and "curl-fails" serves an installer that
+    // prints its lines and then stops with an error. Like the real one it
+    // prints progress lines of its own. The installer's own check is probed too.
+    const installer = uv === "curl-fails" ? `echo "installing to $HOME/.local/bin"
+echo "the fake uv installer could not write uv" >&2
+exit 1
+` : `echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+echo "downloading uv 0.12.22 (fake installer)"
+echo "installing to $HOME/.local/bin"
 printf x > "$HOME/probe.txt"
 echo "uv installer checks with $(sha256sum -b "$HOME/probe.txt" | awk '{printf $1}')" >> "${log}"
 mkdir -p "$HOME/.local/bin"
@@ -160,7 +168,7 @@ cat > "$HOME/.local/bin/uv" <<'FAKE'
 ${fakeUv}FAKE
 chmod +x "$HOME/.local/bin/uv"
 `;
-    const served = uv === "curl" ? installer : `echo "a changed uv installer ran" >> "${log}"\n`;
+    const served = uv === "curl-tampered" ? `echo "a changed uv installer ran" >> "${log}"\n` : installer;
     await fs.writeFile(path.join(dir, "served-installer.sh"), served);
     await script(path.join(tools, "curl"), `#!/bin/sh
 echo "curl $*" >> "${log}"

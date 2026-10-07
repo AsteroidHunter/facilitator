@@ -226,7 +226,7 @@ sha256_of() {
 # sha256sum command exists, and macOS has shasum instead, so one is put first
 # on PATH for it.
 install_uv() {
-  local dir file got status=0
+  local dir file got out status=0
   if command -v brew >/dev/null 2>&1; then
     say 'uv is not installed. Installing it with Homebrew.'
     brew install uv || stop 'Homebrew could not install uv.' 'Install uv yourself, then run ./install.sh again.'
@@ -253,9 +253,13 @@ install_uv() {
       printf '#!/bin/sh\nexec %q -a 256 "$@"\n' "$(command -v shasum)" > "$dir/bin/sha256sum"
       chmod +x "$dir/bin/sha256sum"
     fi
-    PATH="$dir/bin:$PATH" INSTALLER_NO_MODIFY_PATH=1 sh "$file" || status=$?
+    # its own progress lines are held back and shown only if it fails
+    out="$(PATH="$dir/bin:$PATH" INSTALLER_NO_MODIFY_PATH=1 sh "$file" 2>&1)" || status=$?
     rm -rf "$dir"
-    [ "$status" -eq 0 ] || stop 'The uv installer did not finish.' 'Install uv yourself, then run ./install.sh again.'
+    if [ "$status" -ne 0 ]; then
+      printf '%s\n' "$out" >&2
+      stop 'The uv installer did not finish.' 'Install uv yourself, then run ./install.sh again.'
+    fi
   fi
 }
 
@@ -400,11 +404,6 @@ fi
 
 section '3. Python'
 say 'Setup installs what Facilitator needs when it is missing.'
-if [ -n "$DEV_FLAG" ]; then
-  say 'With --dev, the packages only the tests need are installed too.'
-else
-  say 'The packages only the tests need are left out; ./install.sh --dev adds them.'
-fi
 printf '\n'
 FRESH=1
 if [ -z "$PY" ]; then

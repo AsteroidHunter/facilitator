@@ -121,8 +121,9 @@ test("a full run with no phone client makes the private environment and the comm
     assert.ok(text.includes("✓ Claude Code found.\n✓ Codex found.\n"), text);
     assert.ok(text.includes("✓ Chrome found.\n"), text);
     assert.ok(text.includes("3. Python\n─────────\n\n"
-      + "Setup installs what Facilitator needs when it is missing.\n"
-      + "The packages only the tests need are left out; ./install.sh --dev adds them.\n\n"), text);
+      + "Setup installs what Facilitator needs when it is missing.\n\n"
+      + "✓ uv found.\n"), text);
+    assert.doesNotMatch(text, /runs this setup|only the tests need|--dev/, "a line about the setup's Python or about --dev was printed:\n" + text);
     assert.ok(text.includes("Setting up the Python 3.14 environment.\n✓ Python 3.14 environment ready.\n"
       + "Installing the packages Facilitator needs.\n✓ Packages installed.\n"
       + "✓ Board settings created.\n✓ Starting board created.\n\n4. Mobile app\n"), text);
@@ -263,8 +264,7 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
       const { code, text } = await f.piped();
       assert.equal(code, 0, `${python}: ${text}`);
       assert.ok(text.includes("3. Python\n─────────\n\n"
-        + "Setup installs what Facilitator needs when it is missing.\n"
-        + "The packages only the tests need are left out; ./install.sh --dev adds them.\n\n"
+        + "Setup installs what Facilitator needs when it is missing.\n\n"
         + "No Python this setup can use was found (it needs 3.9 or newer).\n"
         + "uv will provide one for the private environment.\n"
         + "uv is not installed. Installing it with Homebrew.\n"), `${python}: ${text}`);
@@ -297,8 +297,9 @@ test("the python3 macOS ships runs the setup, and the app password is set on .ve
     const { code, text, unsent } = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], ...PASSWORDS]);
     assert.equal(code, 0, text);
     assert.deepEqual(unsent, []);
-    assert.match(text, /✓ Python 3\.9\.\d+ runs this setup\./);
+    assert.doesNotMatch(text, /runs this setup/, "the version of the Python that runs the setup was printed");
     assert.doesNotMatch(text, /No Python this setup can use/);
+    assert.ok((await f.calls()).some(line => line.startsWith("apple python3")), "the Apple python3 did not run the setup");
     assert.match(text, /\n✓ App password confirmed\.\n/);
     assert.ok(!text.includes(PASSWORD), "the password was echoed");
     const auth = JSON.parse(await fs.readFile(path.join(f.repo, "bridge-auth.json"), "utf8"));
@@ -319,11 +320,22 @@ for (const python of ["missing", "system"]) {
       const { code, text } = await f.piped();
       assert.equal(code, 0, text);
       assert.match(text, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
+      assert.doesNotMatch(text, /downloading uv|installing to/, "the uv installer's own progress lines were printed:\n" + text);
       const calls = await f.calls();
       assert.ok(calls.some(line => /^curl --proto =https --tlsv1\.2 -LsSf https:\/\/astral\.sh\/uv\/0\.12\.22\/install\.sh/.test(line)), calls.join(" | "));
       assert.ok(!calls.some(line => /astral\.sh\/uv\/install\.sh/.test(line)), "the unpinned address was fetched");
       assert.ok(calls.includes("uv installer ran with INSTALLER_NO_MODIFY_PATH=1"), calls.join(" | "));
       assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+    });
+  });
+
+  test(`a uv installer that fails shows what it printed, then stops (${python} python3)`, async () => {
+    await using({ python, uv: "curl-fails" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 1, text);
+      assert.match(text, /installing to .*\.local\/bin\nthe fake uv installer could not write uv\n\n⚠ The uv installer did not finish\.\n  Install uv yourself, then run \.\/install\.sh again\./);
+      assert.doesNotMatch(text, /✓ uv installed/);
+      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
     });
   });
 
@@ -384,6 +396,22 @@ test("a command or skill name that is already taken stops the run before the env
     assert.match(text, /already exists/);
     assert.equal(await f.has(path.join(f.repo, ".venv")), false);
     assert.equal(await fs.readFile(path.join(link, "mine.txt"), "utf8"), "mine");
+  });
+});
+
+test("a file already on the facilitator command's name stops the run in plain lines, before anything is made", async () => {
+  await using({}, async f => {
+    const bin = path.join(f.home, ".local/share/facilitator/bin/facilitator");
+    await fs.mkdir(path.dirname(bin), { recursive: true });
+    await fs.writeFile(bin, "something else\n");
+    const { code, text } = await f.piped();
+    assert.equal(code, 1, text);
+    assert.ok(text.includes("✓ Chrome found.\n\n"
+      + `⚠ The facilitator command could not be set up: a file already exists at ${bin}.\n\n`
+      + "Move or remove that file, then run ./install.sh again. Nothing was changed.\n"), text);
+    assert.doesNotMatch(text, /Leaving it untouched|\n {2}\S/, "an indented line was printed");
+    assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    assert.equal(await fs.readFile(bin, "utf8"), "something else\n");
   });
 });
 
