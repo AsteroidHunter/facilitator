@@ -152,7 +152,7 @@
     display:block; position:fixed;
     top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
     left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
-    border:var(--edge) solid transparent; border-radius:12px;
+    border:var(--edge) solid transparent; border-radius:7px;
     backdrop-filter:none; -webkit-backdrop-filter:none; --qn-tint:.35;
     pointer-events:none; z-index:-1;
   }
@@ -2802,13 +2802,20 @@
      and tug it downward. */
   /* fixed bar height in focus mode, 40px and its 1px bottom row. the glass
      pieces are 32px and stand at the top of it, --app-inset under the window's
-     top as the pane is in from the window's sides, on one centre line; the 7px
-     of padding under them leaves 7px of paper between their foot and the
-     pane's top edge, 7.5px on a 2x screen, where the pane's line sits half a
-     pixel lower. the pieces stand 8px apart, the phone's own gap, and the bar has
-     no side padding, so the house and the squid stand over the pane's own
-     left and right edges */
-  body.focus .bar{height:40px; padding:0 0 7px; gap:8px}
+     top as the pane is in from the window's sides, on one centre line, and the
+     7px of padding is shared: 1px over them, so they stand 7px from the
+     window's top, and 6px under them, which leaves 6px of paper between their
+     foot and the pane's top edge, 6.5px on a 2x screen, where the pane's line
+     sits half a pixel lower. the paper above and below the open name's lens is
+     as near equal as the screen can draw it: the two add to 13px, 13.5px on a
+     2x screen, an odd number of device pixels on both of the Mac's densities,
+     so the row moves down the whole pixel that leaves them one device pixel
+     apart and not a fraction that every edge would be drawn blurred on. the padding
+     moves the row and nothing else: the bar's height, so the pane's top, the
+     stage's and every page's own top, stand where they did. the pieces stand
+     8px apart, the phone's own gap, and the bar has no side padding, so the
+     house and the squid stand over the pane's own left and right edges */
+  body.focus .bar{height:40px; padding:1px 0 6px; gap:8px}
   body.focus #toc, body.focus #tocgrip{top:41px}
   body.focus #offline{top:41px}
   #tabrow, #tabbar{display:none}
@@ -3063,7 +3070,7 @@
     height:32px}
   body.focus #tabbar .ptab{position:relative; z-index:1; top:0;
     display:flex; align-items:center; height:32px; padding:0 14px;
-    border:none; border-radius:16px; background:none;
+    border:none; border-radius:7px; background:none;
     transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
   body.focus #tabbar .ptab.closed{display:none}
   body.focus #tabbar .ptab::before, body.focus #tabbar .ptab::after{content:none}
@@ -3074,9 +3081,12 @@
   body.focus #tabbar .ptabx{top:4px; height:24px}
   /* Use the controls' actual glass material. The native backdrop is visible
      only around the rim: the opaque, matching face inside replaces its pixels
-     before clean enlarged text is painted, so the original ink cannot ghost. */
+     before clean enlarged text is painted, so the original ink cannot ghost.
+     the lens turns the workspace's own 7px at all four corners, a box and not
+     a capsule (LENS_CORNER in the script says the same, and its maps, mask and
+     joint follow it) */
   body.focus #tabrow .projectlens{position:absolute; left:0; top:0; height:32px;
-    box-sizing:border-box; border-radius:16px; z-index:3; pointer-events:none;
+    box-sizing:border-box; border-radius:7px; z-index:3; pointer-events:none;
     backdrop-filter:var(--lens-filter); -webkit-backdrop-filter:var(--lens-filter)}
   body.focus #tabrow .lensclear{position:absolute; inset:0; border-radius:inherit;
     --qn-tint:inherit; --qn-edge:inherit; --qn-ring:inherit;
@@ -4021,8 +4031,15 @@ function renderTabs(st){
 // supply the visible center glyphs. The copied face is opaque there; its ink
 // is ordinary text, positioned from the live labels, not a filtered bitmap.
 const LENS_ZOOM = 1.075, LENS_BEND_WIDTH = 2.5, LENS_CLEAR_DEPTH = 3.5;
+// the lens is a box with slightly rounded corners, the workspace's own 7px (the
+// sheet's .projectlens says the same), not a capsule: the rim's maps, the clean
+// middle's mask and the joint all take their curve from here
+const LENS_CORNER = 7;
+function lensRadius(width, height = 32){
+  return Math.min(LENS_CORNER, width / 2, height / 2);
+}
 function lensDepth(x, y, width, height = 32){
-  const radius = Math.min(width, height) / 2;
+  const radius = lensRadius(width, height);
   const axis = Math.max(radius, Math.min(width - radius, x));
   const axisY = Math.max(radius, Math.min(height - radius, y));
   return radius - Math.hypot(x - axis, y - axisY);
@@ -4032,7 +4049,7 @@ function lensCenterAlpha(depth){
   return t * t * (3 - 2 * t);
 }
 function lensOffset(x, y, width, height = 32, zoom = LENS_ZOOM){
-  const cx = width / 2, cy = height / 2, radius = Math.min(cx, cy);
+  const cx = width / 2, cy = height / 2, radius = lensRadius(width, height);
   const axis = Math.max(radius, Math.min(width - radius, x));
   const axisY = Math.max(radius, Math.min(height - radius, y));
   const nx = x - axis, ny = y - axisY, length = Math.hypot(nx, ny), depth = radius - length;
@@ -4054,7 +4071,7 @@ function lensMap(width){
   canvas.width = Math.ceil(width * density); canvas.height = Math.ceil(height * density);
   const ctx = canvas.getContext("2d"), pw = canvas.width, ph = canvas.height;
   const zoom = ctx.createImageData(pw, ph), rim = ctx.createImageData(pw, ph);
-  const span = Math.max(width, height), radius = Math.min(width, height) / 2;
+  const span = Math.max(width, height), radius = lensRadius(width, height);
   for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++){
     const px = (x + .5) * width / pw, py = (y + .5) * height / ph, i = (y * pw + x) * 4;
     const nx = px - Math.max(radius, Math.min(width - radius, px));
@@ -4079,25 +4096,31 @@ function lensMap(width){
 }
 // Native CSS gradients keep the clean center opaque during width changes;
 // a newly generated PNG mask could be transparent for a frame while decoding.
-// Overlapping caps and the middle avoid cut-edge seams. Both bounds are exact:
-// no coverage through depth 2.5, full coverage from depth 3.5 inward.
+// The box's four corners are a quarter turn each, a radial gradient about the
+// corner's centre, and its sides are two bands, one running across the top and
+// foot and one down the two ends; the bands meet where every depth is past the
+// ramp. Each corner's box runs 1px over into the bands beside it, so the cut
+// edges, fractional on the right and foot, leave no seam. Both bounds are
+// exact: no coverage through depth 2.5, full coverage from depth 3.5 inward.
 function lensCenterMask(width){
-  const r = Math.min(width, 32) / 2, horizontal = width >= 32;
+  const r = lensRadius(width), px = n => n + "px";
   const ramp = Array.from({ length:9 }, (_, i) => {
     const depth = LENS_BEND_WIDTH + i / 8;
     return { depth, alpha: lensCenterAlpha(depth) };
   });
   const color = a => "rgba(0,0,0," + a + ")";
-  const cap = "radial-gradient(circle at " + r + "px " + r + "px," +
+  const turn = at => "radial-gradient(circle at " + at + "," +
     [...ramp].reverse().map(s => color(s.alpha) + " " + (r - s.depth) + "px").join(",") + ")";
-  const middle = "linear-gradient(to " + (horizontal ? "bottom" : "right") + "," +
+  const band = side => "linear-gradient(to " + side + "," +
     ramp.map(s => color(s.alpha) + " " + s.depth + "px").concat(
       [...ramp].reverse().map(s => color(s.alpha) + " calc(100% - " + s.depth + "px)")).join(",") + ")";
-  const capSize = horizontal ? (r * 2) + "px 100%" : "100% " + (r * 2) + "px";
-  const middleSize = horizontal ? "calc(100% - " + (r * 2) + "px) 100%" : "100% calc(100% - " + (r * 2) + "px)";
-  return cap + " left top/" + capSize + " no-repeat," +
-    middle + " center/" + middleSize + " no-repeat," +
-    cap + " " + (horizontal ? "right top" : "left bottom") + "/" + capSize + " no-repeat";
+  const box = px(r + 1) + " " + px(r + 1), near = px(r), far = "1px";
+  return turn(near + " " + near) + " left top/" + box + " no-repeat," +
+    turn(far + " " + near) + " right top/" + box + " no-repeat," +
+    turn(near + " " + far) + " left bottom/" + box + " no-repeat," +
+    turn(far + " " + far) + " right bottom/" + box + " no-repeat," +
+    band("bottom") + " " + px(r) + " 0/calc(100% - " + px(r * 2) + ") 100% no-repeat," +
+    band("right") + " 0 " + px(r) + "/100% calc(100% - " + px(r * 2) + ") no-repeat";
 }
 // Map a live label's viewport rectangle into the lens's local coordinates.
 // This includes current slide/width/reorder transforms and the current press
@@ -4281,11 +4304,11 @@ function placeSeat(){
 // ---- the seat's joint ---------------------------------------------------------
 // the open project's lens and the workspace's pane read as one piece of glass,
 // as the seated tab's open bottom once did: the lens's sides run straight down
-// into the pane and flare out into its top edge. Home's circle is never joined.
+// into the pane and flare out into its top edge. Home's lens is never joined.
 // the joint is drawn over the two by an svg of its own (#seatjoin): a face and
 // the glass's 1px ring along one outline, found row by row from a field, the
 // way the sent bubbles' merge finds theirs (sentGooPath in card-logic.js): the
-// distance to the lens's capsule, run on down into the pane, and to the pane's
+// distance to the lens's box (7px corners), run on down into the pane, and to the pane's
 // top edge, a bulge on each where they face, and a polynomial smooth minimum.
 // the join is the merge's: on the merge's own curve (MERGE_EASE), the lens's
 // foot and the pane's top bow toward each other, touch in the middle, a neck
@@ -4319,11 +4342,17 @@ function jointHump(u){
   const a = Math.abs(u);
   return a >= 1 ? 0 : 1 - sentSmooth(a);
 }
+// the lens's corner as it stands: the 7px of LENS_CORNER, grown with the press
+// and never more than half a side
+function jointRadius(lens){
+  const scale = (lens.bottom - lens.top) / 32;
+  return lensRadius((lens.right - lens.left) / scale) * scale;
+}
 // the shape at the join's own time tau, 0 apart and 1 joined: how far each
 // side bulges toward the other, the union's reach, the bulges' half width and
-// how far the lens's capsule runs on down
+// how far the lens's box runs on down
 function jointShape(tau, lens, paneTop){
-  const r = (lens.bottom - lens.top) / 2, half = (lens.right - lens.left) / 2;
+  const r = jointRadius(lens), half = (lens.right - lens.left) / 2;
   // the bulges are whole by the time they touch: nothing travels here, so a
   // drop that crept for longer than the merge's would only read as a wait
   const swell = sentSmooth(tau / .2) * (1 - sentSmooth((tau - .6) / .35));
@@ -4336,7 +4365,7 @@ function jointShape(tau, lens, paneTop){
 // one moment: the lens and the pane as they stand (viewport px, the pane's box
 // on its ring's outer edge), where the neck meets the pane and how far it leans
 function jointMoment(tau, lens, pane, foot, lean){
-  return { ...jointShape(tau, lens, pane.top), tau, lens, r: (lens.bottom - lens.top) / 2,
+  return { ...jointShape(tau, lens, pane.top), tau, lens, r: jointRadius(lens),
     pane, paneTop: pane.top, foot, lean };
 }
 // how far a point stands outside the joined shape: below nothing, inside
@@ -4350,13 +4379,13 @@ function jointField(x, y, g){
   return jointSmin(lens, pane, g.reach);
 }
 // the join's time at which the two first touch, under a lens 32 high over the
-// Mac's 8px of paper, and the split's progress at which they part again
+// Mac's 7px of paper, and the split's progress at which they part again
 const JOINT_TOUCH = (() => {
-  const lens = { left: 0, top: 0, right: 120, bottom: 32 }, pane = { left: -200, top: 40, right: 320, bottom: 400, corner: 12 };
+  const lens = { left: 0, top: 0, right: 120, bottom: 32 }, pane = { left: -200, top: 39, right: 320, bottom: 400, corner: 7 };
   let lo = 0, hi = 1;
   for (let i = 0; i < 30; i++){
     const m = (lo + hi) / 2;
-    if (jointField(60, 36, jointMoment(m, lens, pane, 60, 0)) < 0) hi = m; else lo = m;
+    if (jointField(60, 35.5, jointMoment(m, lens, pane, 60, 0)) < 0) hi = m; else lo = m;
   }
   return hi;
 })();
@@ -4435,10 +4464,14 @@ function jointOutline(g){
   for (const loop of loops){
     const down = loop.rows.map(([y, l]) => [l, y]), side = loop.rows.map(([y, , r]) => [r, y]);
     face += line(down.concat(side.slice().reverse()));
-    // round the lens's clean middle and back, so the face is one band
-    if (loop.top === "lens" && ri > 0)
-      face += "L" + P(L.right - JOINT_RIM, top) + "A" + ri + " " + ri + " 0 0 1 " + P(L.right - g.r, top + ri) +
-        "H" + (L.left + g.r).toFixed(2) + "A" + ri + " " + ri + " 0 0 1 " + P(L.left + JOINT_RIM, top);
+    // round the lens's clean middle and back, so the face is one band: down
+    // the middle's right side, round its foot's two corners (the lens's own
+    // corner, RIM in) and up its left
+    if (loop.top === "lens" && ri > 0){
+      const xr = L.right - JOINT_RIM, xl = L.left + JOINT_RIM, foot = L.bottom - JOINT_RIM, arc = (x, y) => "A" + ri + " " + ri + " 0 0 1 " + P(x, y);
+      face += "L" + P(xr, top) + "V" + (foot - ri).toFixed(2) + arc(xr - ri, foot) +
+        "H" + (xl + ri).toFixed(2) + arc(xl, foot - ri) + "V" + top.toFixed(2);
+    }
     face += "Z";
     const headOpen = loop.top !== "tip", footOpen = loop.bottom !== "tip";
     if (headOpen && footOpen) ring += line(down) + line(side);
@@ -4562,12 +4595,13 @@ function jointPaint(m, now){
   j.ring.setAttribute("d", out.ring);
   j.ring.setAttribute("stroke", m.ring);
   // a name carried in a reorder over the open one keeps its own lens on top:
-  // its capsule is cut out of the joint for as long as it is carried
+  // its box, corners and all, is cut out of the joint for as long as it is carried
   if (H){
-    const r = (H.bottom - H.top) / 2, f = v => v.toFixed(2);
+    const r = jointRadius(H), f = v => v.toFixed(2), arc = (x, y) => "A" + f(r) + " " + f(r) + " 0 0 1 " + f(x) + " " + f(y);
     j.kept.setAttribute("d", "M-1 -1H" + f(m.pane.right + 64) + "V" + f(out.bottom + 8) + "H-1Z" +
-      "M" + f(H.left + r) + " " + f(H.top) + "H" + f(H.right - r) + "A" + f(r) + " " + f(r) + " 0 0 1 " + f(H.right - r) + " " + f(H.bottom) +
-      "H" + f(H.left + r) + "A" + f(r) + " " + f(r) + " 0 0 1 " + f(H.left + r) + " " + f(H.top) + "Z");
+      "M" + f(H.left + r) + " " + f(H.top) + "H" + f(H.right - r) + arc(H.right, H.top + r) + "V" + f(H.bottom - r) +
+      arc(H.right - r, H.bottom) + "H" + f(H.left + r) + arc(H.left, H.bottom - r) + "V" + f(H.top + r) +
+      arc(H.left + r, H.top) + "Z");
     j.group.setAttribute("clip-path", "url(#seatjoinkeep)");
   } else j.group.removeAttribute("clip-path");
   // the lens's clean face down to its foot, the pane's lit edge from its line
