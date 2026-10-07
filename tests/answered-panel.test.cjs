@@ -2672,11 +2672,13 @@ test("send morph starts at the typed field, carries one copy of the words at ful
     motion.play();
     assert.equal(el.sent.classList.contains("arrive"), false, "two entrances own the same bubble");
     assert.equal(el.sent.style.opacity, "0", "real bubble must hold its layout while hidden");
-    frame(0);
+    // before the first frame: the start box, the typing box's own
     assert.equal(shell.style.top, "300px");
     assert.equal(shell.style.width, "300px", "the start box does not end where the bubble ends");
     assert.equal(!!shell.querySelector(".sentmorph-source"), false, "the typed words fly as a second copy");
     assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
+    // the first frame drawn is a frame into the flight: ms below are from the press
+    frame(1000 / 60);
     frame(140);
     assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     frame(240);
@@ -2688,12 +2690,12 @@ test("send morph starts at the typed field, carries one copy of the words at ful
     frame(400);
     assert.ok(s.shell(), "the flight landed before its 650ms");
     assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
-    frame(750);
+    frame(650);
     assert.equal(shell.style.top, "190px", "flight aimed at a stale seat");
     assert.equal(shell.style.width, "180px");
     assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     assert.ok(s.shell(), "landing frame was removed before painting");
-    frame(767);
+    frame(667);
     assert.equal(s.shell(), null);
     assert.equal(el.sent.style.opacity, "");
     assert.equal(el.sent.dataset.mark, "Delivered");
@@ -2726,7 +2728,7 @@ test("send morph shifts the bubbles standing on its own curve without replaying 
   assert.equal(first.style.opacity, "", "an existing row was hidden");
   assert.equal(older.style.opacity, "", "an existing bubble was hidden");
   assert.equal(el.sent.style.opacity, "0", "the new bubble showed under its own flight");
-  frame(750); frame(767);
+  frame(1000 / 60); frame(650); frame(667);
   assert.equal(animation.cancelled, true);
   assert.equal(s.shell(), null);
 });
@@ -2744,16 +2746,17 @@ test("send morph lands a later send whole on a bubble of its own, never on a row
   assert.equal(older.querySelectorAll(".answmsg").length, 1, "the later send went into the bubble standing");
   rect(fresh, 150, 262, 170, 45);
   motion.play();
+  frame(1000 / 60);
   frame(320);
   assert.equal(s.shell().querySelector(".sentmorph-target").style.opacity, "1");
   assert.equal(s.shell().style.opacity, "", "the box fades");
   assert.equal(oldRow.style.opacity, "", "a row of the bubble standing was hidden");
-  frame(750);
+  frame(650);
   assert.equal(s.shell().style.top, "262px", "the box did not land on the new bubble");
   assert.equal(s.shell().style.height, "45px", "the box did not land whole");
   assert.equal(s.shell().querySelector(".sentmorph-target").style.transform, "translate(0px,0px) scale(1,1)",
     "the words did not land on the new bubble's own place");
-  frame(767);
+  frame(667);
   assert.equal(s.shell(), null);
   assert.equal(fresh.style.opacity, "");
   assert.equal(older.style.opacity, "");
@@ -2775,7 +2778,7 @@ test("send morph moves the preceding answer when the first panel takes room", ()
   assert.equal(shift.keys[0].transform.trim(), "translate(0px,20px)");
   assert.equal(shift.options.duration, 340, "the answer does not make room on the iPhone's glide");
   assert.equal(shift.options.easing, "cubic-bezier(.24,.1,.15,1)");
-  frame(750); frame(767);
+  frame(1000 / 60); frame(650); frame(667);
   assert.equal(s.shell(), null);
 });
 
@@ -2818,7 +2821,8 @@ test("send morph cancels cleanly on removal, hiding and a changed motion prefere
 test("send morph keeps an earlier flight in the air through a rapid second send", () => {
   const s = motionScene(), { context, el, frame } = s;
   const first = context.armSentMotion(el);
-  s.insert("Invented first flight."); first.play(); frame(100);
+  // the first flight's first frame is drawn at 1/60s, so its ms are from its press
+  s.insert("Invented first flight."); first.play(); frame(1000 / 60); frame(100);
   const firstShell = s.shell(), top = firstShell.style.top;
   context.performance.now = () => 100;
   const firstBubble = el.sent;
@@ -2830,9 +2834,11 @@ test("send morph keeps an earlier flight in the air through a rapid second send"
   const secondBubble = el.sent;
   assert.notEqual(secondBubble, firstBubble, "the second send has no bubble of its own");
   // the second is Delivered while the first is still on its way: two places,
-  // two bubbles, and each word waits for its own bubble's landing
+  // two bubbles, and each word waits for its own bubble's landing. its first
+  // frame is drawn at 116.7, a frame after its press at 100
   context.sentLanded(el, item);
   assert.equal(s.body.querySelectorAll(".sentmorph").length, 2);
+  frame(100 + 1000 / 60);
   frame(650); frame(667);
   assert.equal(firstShell.parentNode, null);
   assert.equal(firstBubble.style.opacity, "");

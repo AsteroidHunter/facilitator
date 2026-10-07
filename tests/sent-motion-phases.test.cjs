@@ -247,9 +247,15 @@ const edges = s => {
 };
 // the moments checked: before the first frame, then every 1/60s to the landing
 // the moments checked: before the first frame, then every 1/60s from the first
-// frame drawn after the press to the landing
-const MOMENTS = [null];
-for (let i = 1; i <= 39; i++) MOMENTS.push(Math.round(i * 1000 / 6) / 10);
+// frame drawn after the press to the landing. the flight's clock starts a frame
+// before its first frame, so with the first frame drawn at exactly 1/60s every
+// moment here is ms from the press
+const FIRST = 1000 / 60;
+const MOMENTS = [null, FIRST];
+for (let i = 2; i <= 39; i++) MOMENTS.push(Math.round(i * 1000 / 6) / 10);
+// and every ms, from that first frame to the landing
+const EVERY_MS = [FIRST];
+for (let ms = 17; ms <= FLIGHT_MS; ms++) EVERY_MS.push(ms);
 
 // ---- the phases ------------------------------------------------------------------------
 test("every recorded send, flown on its own boxes, goes sideways and up to its landing and never past it", () => {
@@ -279,7 +285,7 @@ test("the box's left edge goes before it rises", () => {
   const s = flyFirst();
   const travel = b => ({ across: (b.left - FIELD.left) / (BUBBLE.left - FIELD.left), up: (FIELD.top - b.top) / (FIELD.top - BUBBLE.top) });
   let mostlyIn = null, quarterUp = null;
-  for (let ms = 1; ms <= FLIGHT_MS; ms++) {
+  for (const ms of EVERY_MS) {
     s.frame(ms);
     const p = travel(edges(s));
     if (mostlyIn === null && p.across >= 0.75) mostlyIn = ms;
@@ -314,7 +320,7 @@ test("the words go once from the typing size to the bubble's, and the box ends w
   // closes back down onto the bubble, its foot coming up and never going down
   const s = flyFirst();
   let k = s.words().k, foot = edges(s).bottom, tallest = 0, topLanded = null;
-  for (let ms = 1; ms <= FLIGHT_MS; ms++) {
+  for (const ms of EVERY_MS) {
     s.frame(ms);
     const w = s.words().k, b = edges(s);
     assert.ok(w <= k + 1e-12 && w >= 1 - 1e-12, `the words' size went back or under the bubble's at ${ms}ms (${w})`);
@@ -350,7 +356,7 @@ test("the grey is faint over the typing row and comes in as the box rises clear,
   }
   // a taller bubble clears its bar later, and its grey comes in later: the
   // second recording's two lines against its one-line sends at 217ms
-  const greyAt = (send, ms) => { const r = flyRecorded(send); r.frame(ms); return px(r.shell().querySelector(".sentmorph-face").style.opacity); };
+  const greyAt = (send, ms) => { const r = flyRecorded(send); r.frame(FIRST); r.frame(ms); return px(r.shell().querySelector(".sentmorph-face").style.opacity); };
   const two = greyAt(IPHONE.sends.s1, 216.7), one = greyAt(IPHONE.sends.s3, 216.7);
   assert.ok(two < 0.8 && one - two > 0.15, `at 217ms the two-line grey is ${two} and the one-line ${one}`);
   // the grey firms up with delivery while airborne, and the face follows it
@@ -362,7 +368,7 @@ test("the grey is faint over the typing row and comes in as the box rises clear,
 
 test("the flight takes 650ms, and the bubble takes over a frame after it lands", () => {
   const s = flyFirst();
-  for (const ms of [400, 617, 633]) {
+  for (const ms of [FIRST, 400, 617, 633]) {
     s.frame(ms);
     assert.ok(s.shell(), `the flight ended by ${ms}ms`);
     assert.equal(s.p.style.getPropertyValue("opacity"), "0", `the real bubble showed at ${ms}ms`);
@@ -461,6 +467,7 @@ test("the bubbles that stood before make room on the iPhone's glide, quicker tha
   for (const [ms, value] of IPHONE.glide)
     near(curve(ms / 340), value, `the glide at ${ms}ms against the iPhone's`, 0.017);
   const f = flyFirst();
+  f.frame(FIRST);
   f.frame(100);
   const up = (FIELD.top - edges(f).top) / (FIELD.top - BUBBLE.top);
   assert.ok(curve(100 / 340) - up > 0.4, `the glide is not well ahead of the rise at 100ms (${curve(100 / 340)} against ${up})`);

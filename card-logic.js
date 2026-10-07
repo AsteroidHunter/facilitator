@@ -2187,6 +2187,7 @@ const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
 // bubble's size as the left edge travels, so no frame is blank, doubled, or
 // halfway through a rewrap.
 const SENT_FLIGHT_MS = 650;
+const SENT_FRAME_MS = 1000 / 60;
 const SENT_FAINT = .135;
 const SENT_SIDE_MS = 260;
 const SENT_SIDE = [.3, .6, .4, 1];
@@ -2444,27 +2445,32 @@ function armSentMotion(el){
       // for the whole flight; the face's strength is written with each frame
       shell.style.borderRadius = endCorners.map(n => n + "px").join(" ");
       face.style.background = panelStyle.backgroundColor;
-      // the typing row's top, where the iPhone's bar glass ends, read as it
-      // stands, since the emptied row may close up under the flight
-      const rowTop = () => sentMotionVisible(source) ? source.getBoundingClientRect().top : start.top;
-      // the seat is the new bubble as it stands, read every frame: a later
-      // send pushes it up on that send's glide, and the flight follows it there
-      const seat = () => target.getBoundingClientRect();
-      // one frame of the flight, ms from the tap
+      const copiedCut = targetCopy.querySelector(".answclip");
+      // one frame of the flight, ms from the tap. everything it needs is read
+      // before anything is written, so a frame lays the page out once: a read
+      // after a write makes the browser lay the page out again on the spot,
+      // twice a frame here before, on a page as large as the Mac board
       const put = ms => {
         const at = sentTrack(ms);
-        const { frame, box } = sentMorphBox(start, seat(), at);
-        write(box);
-        // faint for the share of the box still over the typing row, the
-        // track's strength for the share risen above the row's top
-        const clear = box.height > 0 ? sentWithin((rowTop() - box.top) / box.height) : 1;
-        face.style.opacity = String(SENT_FAINT + (at.strength - SENT_FAINT) * clear);
+        // the seat is the new bubble as it stands, read every frame: a later
+        // send pushes it up on that send's glide, and the flight follows it there
+        const landing = target.getBoundingClientRect();
+        // the typing row's top, where the iPhone's bar glass ends, read as it
+        // stands, since the emptied row may close up under the flight
+        const row = source.isConnected ? source.getBoundingClientRect() : null;
+        const rowTop = row && row.height > 0 ? row.top : start.top;
         // Delivery may firm the grey up while airborne; use the live face so
         // the final handoff matches the actual bubble, including local sends.
         const liveStyle = getComputedStyle(panel);
-        face.style.background = liveStyle.backgroundColor;
-        const copiedCut = targetCopy.querySelector(".answclip");
-        if (copiedCut) copiedCut.style.setProperty("--answ-fill", liveStyle.getPropertyValue("--answ-fill"));
+        const fill = liveStyle.backgroundColor, cutFill = liveStyle.getPropertyValue("--answ-fill");
+        const { frame, box } = sentMorphBox(start, landing, at);
+        write(box);
+        // faint for the share of the box still over the typing row, the
+        // track's strength for the share risen above the row's top
+        const clear = box.height > 0 ? sentWithin((rowTop - box.top) / box.height) : 1;
+        face.style.opacity = String(SENT_FAINT + (at.strength - SENT_FAINT) * clear);
+        face.style.background = fill;
+        if (copiedCut) copiedCut.style.setProperty("--answ-fill", cutFill);
         // the words ride the travelling box: their first line's left goes from
         // the typed words' place in it to the bubble's as its left edge
         // travels, its middle as it rises, and they shrink from the typing size
@@ -2484,11 +2490,17 @@ function armSentMotion(el){
       previousPriority = target.style.getPropertyPriority("opacity");
       target.style.setProperty("opacity", "0");
       put(0);   // the start box and the words over the typed ones, before any frame
-      const t0 = performance.now();
+      // the clock starts a frame before the first frame drawn, so that frame
+      // already has the box on its way: until the press the typed words stood
+      // where the box starts. started on the press itself, the first frame
+      // drew the box standing still on the row, and a first frame late after
+      // the send's own work kept it there longer
+      let t0 = null;
       const step = now => {
         raf = 0;
         if (done) return;
         if (!target.isConnected || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
+        if (t0 === null) t0 = now - SENT_FRAME_MS;
         const ms = Math.max(0, Math.min(SENT_FLIGHT_MS, now - t0));
         put(ms);
         if (ms < SENT_FLIGHT_MS) raf = requestAnimationFrame(step);
