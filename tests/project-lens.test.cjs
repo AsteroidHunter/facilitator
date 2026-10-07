@@ -76,6 +76,7 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
     get firstElementChild() { return this.children[0]; }
     get lastElementChild() { return this.children.at(-1); }
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+    click() { (this.listeners.click || []).forEach(fn => fn()); }
     querySelectorAll(selector) {
       if (selector === "*") return this.children.flatMap(el => [el, ...el.querySelectorAll("*")]);
       if (selector === "feImage") return this.children.filter(el => el.tagName === selector);
@@ -315,6 +316,62 @@ test("selection can begin on home; cancelling returns to its circle, releasing s
   f.up(180, 80); assert.equal(f.seat.el.classList.contains("gone"), false); assert.equal(f.seat.returning, false); assert.equal(f.seat.w, 32); assert.equal(f.seat.x, 0);
   f.tick(0); f.down(); f.move(180); f.up(180);
   assert.deepEqual(f.switches, ["b"]); assert.equal(f.context.homeOpen, false);
+});
+
+test("the lens dragged onto the house previews Home's circle and opens Home on release", () => {
+  const f = fixture(); f.down(); f.move(180);
+  assert.equal(f.seat.el.style.width, "100px");
+  f.move(16);
+  assert.equal(f.seat.el.style.width, "32px"); assert.equal(f.seat.el.style.transform, "translateX(0px)");
+  assert.equal(f.context.homeOpen, false, "Home opened before the release");
+  assert.deepEqual(f.switches, []); assert.deepEqual(f.writes, []);
+  f.up(16, 22, f.homeButton);
+  assert.equal(f.context.homeOpen, true); assert.equal(f.seat.owner, f.get("HOME_SEAT"));
+  assert.equal(f.seat.w, 32); assert.equal(f.seat.x, 0);
+  assert.deepEqual(f.switches, []); assert.equal(f.context.activeOwner, "a");
+  f.tick(0); assert.equal(f.context.tabDrag, null);
+});
+
+test("moving off the house shows the name lens again, and a release on a name selects it", () => {
+  const f = fixture(); f.down(); f.move(16);
+  assert.equal(f.seat.el.style.width, "32px");
+  f.move(200);
+  assert.equal(f.seat.el.style.width, "100px"); assert.equal(f.seat.el.style.transform, "translateX(150px)");
+  f.move(36);   // the gap between the house and the first name is neither
+  assert.equal(f.seat.el.style.width, "100px"); assert.equal(f.seat.el.style.transform, "translateX(40px)");
+  f.move(16); f.move(200); f.up(200, 22, f.tabs.b);
+  assert.equal(f.context.homeOpen, false); assert.deepEqual(f.switches, ["b"]);
+});
+
+test("cancelling a drag that is over the house restores the name lens and opens nothing", () => {
+  for (const type of ["keydown", "blur", "pointercancel", "visibilitychange"]) {
+    const f = fixture(); f.down(); f.move(16);
+    if (type === "visibilitychange") f.document.visibilityState = "hidden";
+    f.dispatch(type, { key: "Escape", preventDefault() {}, stopImmediatePropagation() {} });
+    assert.equal(f.seat.el.style.width, "100px", type); assert.equal(f.seat.el.style.transform, "translateX(40px)", type);
+    f.up(16, 22, f.homeButton);
+    assert.equal(f.context.homeOpen, false, type); assert.deepEqual(f.switches, [], type);
+  }
+  const out = fixture(); out.down(); out.move(16); out.up(16, 80, out.homeButton);   // released below the row
+  assert.equal(out.context.homeOpen, false); assert.equal(out.seat.el.style.transform, "translateX(40px)");
+  const gone = fixture(); gone.down(); gone.move(16); gone.move(16, 22, 0);   // released outside the window
+  assert.equal(gone.context.homeOpen, false); assert.equal(gone.seat.el.style.transform, "translateX(40px)");
+});
+
+test("a drag from Home can be carried back onto the house, which stays open, or onto a name", () => {
+  const f = fixture({ home: true }); f.down("b"); f.move(200); f.move(16);
+  assert.equal(f.seat.el.style.width, "32px"); f.up(16, 22, f.homeButton);
+  assert.equal(f.context.homeOpen, true); assert.deepEqual(f.switches, []); assert.equal(f.seat.x, 0);
+  f.tick(0); f.down("b"); f.move(16); f.move(200); f.up(200, 22, f.tabs.b);
+  assert.deepEqual(f.switches, ["b"]); assert.equal(f.context.homeOpen, false);
+});
+
+test("a reorder drag never lands on the house and only reorders the projects", () => {
+  const f = fixture(); f.tabs.b.classList.add("armed"); f.down("b"); f.move(10); f.move(16);
+  assert.equal(f.context.tabDrag.mode, "reorder"); assert.equal(f.seat.el.style.width, "100px");
+  f.up(16, 22, f.homeButton); f.tick(250);
+  assert.equal(f.context.homeOpen, false); assert.deepEqual(f.switches, []);
+  assert.deepEqual(f.writes[0].order, ["b", "a", "c"]);
 });
 
 test("a close button stops the tab gesture and closes only that project; the final tab stays", () => {
