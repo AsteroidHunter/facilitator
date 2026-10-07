@@ -306,6 +306,29 @@ test("the answer's fade follows a bubble opening and cut back on every frame, so
   assert.equal(cut.landed, cut.written.at(-1));
 });
 
+// ---- 7. a shorter message moves left at a gentler pace as the bubbles join ---------------
+test("as two bubbles join, the shorter message moves left at a gentler pace and still lands before the joined bubble comes up", () => {
+  // the share of its sideways move a shorter message's words (and its drop's
+  // edge) have made at each ms of the 1000ms merge: before, 450ms on a smooth
+  // step, its fastest a third of the whole move in 100ms
+  const c = load();
+  const spec = { U0: { left: 0, top: 0, right: 300, bottom: 50 }, L0: { left: 200, top: 76, right: 300, bottom: 126 },
+    U1: { left: 0, top: 0, right: 300, bottom: 68 }, L1: { left: 0, top: 50, right: 300, bottom: 100 }, r: 18 };
+  const travel = c.read("MERGE_TRAVEL"), length = c.read("MERGE_MS");
+  let peak = 0, from = null, to = null, prev = 0;
+  for (let ms = 0; ms <= length; ms++) {
+    const ew = c.sentMergeShape(spec, ms / length).ew;
+    assert.ok(ew >= prev - 1e-12, `the move went back at ${ms}ms`);
+    peak = Math.max(peak, (ew - prev) * 1000);
+    if (from === null && ew > .001) from = ms;
+    if (to === null && ew >= .999) to = ms;
+    prev = ew;
+  }
+  assert.ok(peak <= 2.2, `its fastest is ${peak.toFixed(2)} of the move a second`);
+  assert.ok(to - from >= 600, `the move takes only ${to - from}ms`);
+  assert.equal(c.sentMergeShape(spec, travel).ew, 1, "the words have not landed when the joined bubble starts to come up");
+});
+
 // ---- 6. the send flight on the Mac: no pause as it flies out, no lag ---------------------
 test("the first frame drawn after a send already has the box on its way, on time or late", () => {
   for (const first of [1000 / 60, 500]) {
