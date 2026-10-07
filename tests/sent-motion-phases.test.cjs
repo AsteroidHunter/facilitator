@@ -1,7 +1,8 @@
 // The send flight's phases, frame by frame, in the owner's order:
-// the box moves sideways, then up, and ends
-// with an accordion-like compress, with no zoom in and out and no edge passing
-// its landing. The six sends of the owner's two iPhone recordings
+// the box moves sideways, then up, in the
+// bubble's own width and height the whole way, with no zoom in and out, no
+// widening, stretching or squeezing, and no edge passing its landing. The six
+// sends of the owner's two iPhone recordings
 // (tests/fixtures/iphone-send-readings.json)
 // are flown here on their own bars and landed
 // boxes, one line and two, short and long, and the grey and the glide of what
@@ -16,12 +17,10 @@ const path = require("node:path");
 const vm = require("node:vm");
 const LOGIC = readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8");
 const IPHONE = JSON.parse(readFileSync(path.join(__dirname, "fixtures", "iphone-send-readings.json"), "utf8"));
-const FLIGHT_MS = 650;   // sideways by 260ms, up by 430ms, the compress closed by 650ms
+const FLIGHT_MS = 650;   // sideways by 260ms, up by 430ms, handed over to the bubble at 650ms
 const FAINT = 0.135;     // how strong the bubble looks under the bar's glass, 17-50ms
 const DRAWN = 0.686;     // how strong it is drawn on its first frame, outside the glass
 const PT = 3;            // the recordings' pixels to a point
-const SQUEEZE = 0.22;    // how far the box trails the bubble's left at its widest, as a share of the bubble's width
-const PEAK_MS = 330;     // when the compress is out furthest, and the box widest
 
 function bezier([x1, y1, x2, y2]) {
   const at = (a, b, t) => 3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
@@ -264,11 +263,10 @@ for (let ms = 17; ms <= FLIGHT_MS; ms++) EVERY_MS.push(ms);
 
 // ---- the phases ------------------------------------------------------------------------
 test("every recorded send, flown on its own boxes, goes sideways and up to its landing and never past it", () => {
-  // one line and two, short and long, keyboard down and up: the right end and
+  // one line and two, short and long, keyboard down and up: the left edge and
   // the top stay between where they start and where they land at every frame,
-  // the top never rises above the bubble's, the left edge never comes in past
-  // the bubble's and trails it by no more than the compress's fifth of the
-  // bubble's width, and every edge is on its landing at the end
+  // the right end and the foot never pass the bubble's, and every edge is on
+  // its landing at the end
   for (const [name, send] of Object.entries(IPHONE.sends)) {
     const s = flyRecorded(send);
     const bar = send.bar, landed = send.landed;
@@ -276,11 +274,10 @@ test("every recorded send, flown on its own boxes, goes sideways and up to its l
     for (const ms of MOMENTS.slice(1)) {
       s.frame(ms);
       const got = edges(s);
-      assert.ok(got.left <= Math.max(bar.left, landed.left) + 1e-6, `${name}: the left edge passed its landing at ${ms}ms (${got.left})`);
-      assert.ok(got.left >= Math.min(bar.left, landed.left - SQUEEZE * (landed.right - landed.left)) - 1e-6,
-        `${name}: the left edge trails the bubble by more than a fifth of its width at ${ms}ms (${got.left})`);
-      assert.ok(between(got.right, bar.right, landed.right), `${name}: the right end passed its landing at ${ms}ms (${got.right})`);
+      assert.ok(between(got.left, bar.left, landed.left), `${name}: the left edge passed its landing at ${ms}ms (${got.left})`);
+      assert.ok(got.right <= landed.right + 1e-6, `${name}: the right end passed its landing at ${ms}ms (${got.right})`);
       assert.ok(between(got.top, bar.top, landed.top), `${name}: the top rose past its landing at ${ms}ms (${got.top})`);
+      assert.ok(got.bottom >= landed.bottom - 1e-6, `${name}: the foot rose past its landing at ${ms}ms (${got.bottom})`);
     }
     const end = edges(s);
     for (const [key, want] of [["left", landed.left], ["right", landed.right], ["top", landed.top], ["bottom", landed.bottom]])
@@ -289,9 +286,8 @@ test("every recorded send, flown on its own boxes, goes sideways and up to its l
 });
 
 test("the sideways move goes before the box rises", () => {
-  // sideways, then up: the sideways move, which the words ride (the box's
-  // left edge trails them for the compress), most of the way in while the top
-  // has barely left the row
+  // sideways, then up: the sideways move, which the words ride with the box's
+  // left edge, most of the way in while the top has barely left the row
   const s = flyFirst();
   const typedLeft = FIELD.left + TYPED.padLeft, landedLeft = BUBBLE.left + PAD.x;
   const travel = b => ({ across: (s.wordsLeft() - typedLeft) / (landedLeft - typedLeft), up: (FIELD.top - b.top) / (FIELD.top - BUBBLE.top) });
@@ -307,64 +303,72 @@ test("the sideways move goes before the box rises", () => {
     `the left edge was three quarters in (${mostlyIn}ms) after the top was a quarter up (${quarterUp}ms)`);
 });
 
-test("the box's right end goes from the typing box's to the bubble's and never past it", () => {
-  // the box starts as the typing box, right end and all, and its right end
-  // travels to the bubble's, one way
+test("the box is the bubble's own width and height from before the first frame to the landing, and never wider than the bubble", () => {
+  // the typing box is wider (317.6) and a little shorter (43.3) than the
+  // bubble (160 by 52.5), and the box takes neither: it starts at the typing
+  // box's corner at the bubble's size, and only its left and top travel
   const s = flyFirst();
-  near(edges(s).right, FIELD.left + FIELD.width, "the start box's right end (the typing box's)", 1e-6);
-  near(edges(s).width, FIELD.width, "the start box's width (the typing box's)", 1e-6);
-  let before = -Infinity;
-  for (const ms of MOMENTS.slice(1)) {
+  near(edges(s).left, FIELD.left, "the start box's left (the typing box's)", 1e-6);
+  near(edges(s).top, FIELD.top, "the start box's top (the typing box's)", 1e-6);
+  near(edges(s).width, BUBBLE.width, "the start box's width (the bubble's, not the typing box's)", 1e-6);
+  near(edges(s).height, BUBBLE.height, "the start box's height (the bubble's, not the typing box's)", 1e-6);
+  let before = edges(s);
+  for (const ms of EVERY_MS) {
     s.frame(ms);
-    const r = edges(s).right;
-    assert.ok(r >= before - 1e-9 && r <= RIGHT + 1e-9, `the right end went back or past the bubble's at ${ms}ms`);
-    before = r;
-    if (ms === 100) assert.ok(r > FIELD.left + FIELD.width + 1 && r < RIGHT - 0.1, `the right end is not on its way at 100ms (${r})`);
+    const b = edges(s);
+    near(b.width, BUBBLE.width, `the box is not the bubble's width at ${ms}ms`, 1e-9);
+    near(b.height, BUBBLE.height, `the box is not the bubble's height at ${ms}ms`, 1e-9);
+    assert.ok(b.right <= RIGHT + 1e-9, `the right end went past the bubble's at ${ms}ms`);
+    assert.ok(b.left >= before.left - 1e-9, `the left edge went back at ${ms}ms`);
+    assert.ok(b.right >= before.right - 1e-9, `the right end went back at ${ms}ms`);
+    before = b;
+    if (ms === 100) assert.ok(b.right > FIELD.left + BUBBLE.width + 1 && b.right < RIGHT - 0.1, `the box is not on its way at 100ms (${b.right})`);
   }
   near(edges(s).right, RIGHT, "the landing's right end", 1e-6);
 });
 
-test("the words go once from the typing size to the bubble's, and the box ends with an accordion-like compress from side to side", () => {
-  // no zoom in and out: the words' size only ever goes one way and the box
-  // never narrows past the bubble. the compress: the box arrives with its
-  // right end on the bubble's, its left edge trailing the words out to a
-  // fifth of the bubble's width at the peak, and from there closes in onto the
-  // bubble's width, the left edge only ever coming in and the width only ever
-  // shrinking. it is never taller than the bubble, never stretched
+test("the words go once from the typing size to the bubble's, and nothing about the box changes size", () => {
+  // no zoom in and out: the words' size only ever goes one way, the box's size
+  // never changes at all, and its left edge and top only ever go one way
   const s = flyFirst();
-  let k = s.words().k, before = edges(s), tallest = 0, sideLanded = null, widest = null;
+  let k = s.words().k, before = edges(s);
   for (const ms of EVERY_MS) {
     s.frame(ms);
     const w = s.words().k, b = edges(s);
     assert.ok(w <= k + 1e-12 && w >= 1 - 1e-12, `the words' size went back or under the bubble's at ${ms}ms (${w})`);
-    assert.ok(b.width >= BUBBLE.width - 1e-9, `the box narrowed past the bubble at ${ms}ms (${b.width})`);
-    assert.ok(b.right >= before.right - 1e-9, `the right end went back at ${ms}ms`);
-    if (ms > PEAK_MS) {
-      assert.ok(b.width <= before.width + 1e-9, `the box widened again after its peak at ${ms}ms (${b.width})`);
-      assert.ok(b.left >= before.left - 1e-9, `the left edge went back while closing at ${ms}ms`);
-    }
-    if (sideLanded === null && Math.abs(b.right - RIGHT) < 1e-6) sideLanded = { ms, width: b.width };
-    if (sideLanded) near(b.right, RIGHT, `the right end left the bubble's at ${ms}ms`, 1e-6);
-    tallest = Math.max(tallest, b.height / BUBBLE.height);
-    if (ms >= sideLanded?.ms && (widest === null || b.width > widest.width)) widest = { ms, width: b.width };
+    assert.ok(Math.abs(b.width - before.width) < 1e-9, `the box's width changed at ${ms}ms (${before.width} to ${b.width})`);
+    assert.ok(Math.abs(b.height - before.height) < 1e-9, `the box's height changed at ${ms}ms (${before.height} to ${b.height})`);
+    assert.ok(b.top <= before.top + 1e-9, `the top came back down at ${ms}ms`);
     k = w; before = b;
   }
-  assert.ok(tallest <= 1 + 1e-9, `the box stands taller than the bubble (${tallest})`);
-  assert.ok(sideLanded && FLIGHT_MS - sideLanded.ms >= 300, `the right end lands too late to leave room to close in (${JSON.stringify(sideLanded)})`);
-  assert.ok(Math.abs(widest.ms - PEAK_MS) <= 2 && Math.abs(widest.width / BUBBLE.width - (1 + SQUEEZE)) < 0.01,
-    `the box is not a fifth wider than the bubble at its peak (${JSON.stringify(widest)})`);
   assert.equal(s.words().k, 1, "the words did not land at the bubble's size");
   near(edges(s).left, BUBBLE.left, "the box did not land at the bubble's left", 1e-6);
+  near(edges(s).top, BUBBLE.top, "the box did not land at the bubble's top", 1e-6);
   near(edges(s).width, BUBBLE.width, "the box did not land at the bubble's width", 1e-6);
   near(edges(s).height, BUBBLE.height, "the box did not land at the bubble's height", 1e-6);
 });
 
-test("the squeeze closes in on the words: they are not scaled sideways or squashed, and stand still while it closes", () => {
+test("every recorded send is flown in the bubble's own width and height, whatever its typing bar's", () => {
+  // the six sends' bars are as wide as the screen or wider than their bubbles,
+  // and some are taller or shorter than them: none of it reaches the box
+  for (const [name, send] of Object.entries(IPHONE.sends)) {
+    const s = flyRecorded(send), landed = send.landed;
+    const want = { width: landed.right - landed.left, height: landed.bottom - landed.top };
+    for (const ms of [null, ...EVERY_MS]) {
+      if (ms !== null) s.frame(ms);
+      const b = edges(s);
+      near(b.width, want.width, `${name}: the box is not the bubble's width ${ms === null ? "before the first frame" : `at ${ms}ms`}`, 1e-6);
+      near(b.height, want.height, `${name}: the box is not the bubble's height ${ms === null ? "before the first frame" : `at ${ms}ms`}`, 1e-6);
+    }
+  }
+});
+
+test("the words are not scaled sideways or squashed, and stand still once the sideways move has landed", () => {
   // the words are one copy scaled evenly (the same factor across and down),
-  // and once the sideways move has landed they stay where the bubble holds
-  // them while the box stretches out behind them and closes in
+  // and from the moment the sideways move lands they stay where the bubble
+  // holds them while the box goes on rising
   const s = flyFirst();
-  let still = null, trailed = 0;
+  let still = null;
   for (const ms of EVERY_MS) {
     s.frame(ms);
     const m = /scale\(([-\d.e]+),([-\d.e]+)\)/.exec(s.shell().querySelector(".sentmorph-target").style.transform);
@@ -372,12 +376,11 @@ test("the squeeze closes in on the words: they are not scaled sideways or squash
     if (ms >= 260) {
       const left = s.wordsLeft();
       if (still === null) still = left;
-      near(left, still, `the words moved sideways while the box closed in at ${ms}ms`, 1e-6);
-      trailed = Math.max(trailed, left - PAD.x - edges(s).left);
+      near(left, still, `the words moved sideways at ${ms}ms`, 1e-6);
+      near(left - PAD.x - edges(s).left, 0, `the words are not at the bubble's own place in the box at ${ms}ms`, 1e-6);
     }
   }
   near(still, BUBBLE.left + PAD.x, "the words did not stand at the bubble's own place", 1e-6);
-  near(trailed, SQUEEZE * BUBBLE.width, "the box does not trail the words by a fifth of the bubble's width at its widest", 0.01);
 });
 
 test("the grey is faint over the typing row and comes in as the box rises clear, as the iPhone's colour does", () => {
