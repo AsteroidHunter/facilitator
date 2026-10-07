@@ -435,7 +435,8 @@
     const label = String(language || "").trim();
     const languageHTML = label ? '<span class="codelang">' + escapeHTML(label) + "</span>" : "";
     const languageData = label ? ' data-language="' + escapeAttribute(label) + '"' : "";
-    return '<div class="codeblockwrap"' + languageData + '><button type="button" class="copybtn" title="copy" aria-label="copy code">' +
+    const oneLine = /\n/.test(String(code).replace(/\n$/, "")) ? "" : ' data-lines="1"';
+    return '<div class="codeblockwrap"' + languageData + oneLine + '><button type="button" class="copybtn" title="copy" aria-label="copy code">' +
       COPY_ICON + '</button>' + languageHTML + '<pre class="codeblock"><code>' + escapeHTML(code) + "</code></pre></div>";
   }
 
