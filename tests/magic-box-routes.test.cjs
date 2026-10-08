@@ -109,6 +109,19 @@ test("what is wrong is refused and nothing is kept for it", async () => {
   assert.deepEqual((await card("0")).magic, before.magic);
 });
 
+test("a web address that is not https or not public is refused before anything is fetched", async () => {
+  const before = await card("0");
+  for (const [kind, address] of [["url", "http://example.org/"], ["url", "https://127.0.0.1:1/"],
+    ["url", "https://localhost/"], ["url", "https://printer.local/"], ["url", "https://[::1]/"],
+    ["url", "https://example.org/\nhttps://example.com/"], ["url", "not an address"],
+    ["image", "https://192.168.1.1/picture.png"], ["image", "http://example.org/picture.png"]]) {
+    const answer = await json(await open("0", kind, address));
+    assert.equal(answer.status, 400, `${kind} ${address}`);
+    assert.equal(typeof answer.body.error, "string");
+  }
+  assert.deepEqual((await card("0")).magic, before.magic);
+});
+
 test("the transcript says a box was opened and closed, never what it held", async () => {
   await open("0", "markdown", "a secret plan", "&title=Secret");
   await fetch(`${board.origin}/magic/close?box=0`, { method: "POST" });
