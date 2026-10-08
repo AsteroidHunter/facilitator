@@ -1,7 +1,8 @@
-/* A card's magic box on the Mac board: where it stands beside the card. What
-   can be worked out without a page is kept here, so it is tested without a
-   browser; index.html holds the element, its looks and its wiring. Every
-   length is in the 1440 by 900 stage's own pixels. */
+/* A card's magic box on the Mac board: where it stands beside the card, and the
+   sealed frames it shows pages in. What can be worked out without a page is
+   kept here, so it is tested without a browser; index.html holds the element,
+   its looks and its wiring. Every length is in the 1440 by 900 stage's own
+   pixels. */
 (function (root) {
   "use strict";
   // one star cell: the stars sit at CELL * (n + 0.5) across the stage, and every
@@ -32,5 +33,28 @@
     }
     return { left, top, width, height: card.top + card.height - top, floating };
   }
-  root.MagicBox = { CELL, onStar, place };
+  // a page an agent wrote runs sealed off: its frame has scripts and nothing
+  // else, so its origin is its own and never the board's (no same origin, no
+  // forms, no popups, no way to the top window), and this policy stands first
+  // in the page, ahead of anything the agent wrote, so the page loads nothing
+  // from anywhere and sends nothing anywhere. A second policy the agent adds
+  // can only narrow it further
+  const PAGE_SANDBOX = "allow-scripts";
+  const PAGE_POLICY = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+    "img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; " +
+    "form-action 'none'; base-uri 'none'";
+  // word: when given, the page tells the board it is still itself each time it
+  // finishes loading, by posting the word to it. A page that has sent its frame
+  // elsewhere loads without saying it, and the board puts the page back
+  function pageDoc(html, word) {
+    const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' +
+      JSON.stringify(String(word)).replace(/</g, "\\u003c") + ', "*"))</script>' : "";
+    return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
+      '<meta name="referrer" content="no-referrer">' + hello + String(html == null ? "" : html);
+  }
+  // a website runs as itself, on its own origin, which is never the board's;
+  // its frame is credentialless, so the owner's cookies, storage and saved
+  // passwords stay out of it, and it may not open windows or move the board
+  const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
+  root.MagicBox = { CELL, onStar, place, PAGE_SANDBOX, PAGE_POLICY, pageDoc, SITE_SANDBOX };
 })(globalThis);

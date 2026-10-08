@@ -8226,7 +8226,10 @@ def _unframeable(send, scope=None):
     """Only the local board's phone document and its onboarding may be framed
     by its own origin. Root stays unframeable, so another site cannot wrap the
     parent in a frame. The phone bridge and every preexisting policy retain
-    their protections."""
+    their protections. The board page's policy carries frame-ancestors and
+    nothing else on purpose: a magic box's sealed page is a srcdoc frame, which
+    inherits the page's policy, and a script or fetch directive here would stop
+    every one."""
     headers = {name.lower(): value for name, value in (scope or {}).get("headers", ())}
     local_phone = bool(scope and scope.get("path") in SAME_ORIGIN_FRAMES
                        and (scope.get("server") or (None, None))[1] != BRIDGE_PORT
