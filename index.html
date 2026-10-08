@@ -10826,6 +10826,19 @@ const boardShortcutActions = {
     if (boardShortcutTyping(e.target)) return;
     boardSectionMove(e, shortcut.value);
   },
+  // control+shift+' and ; choose the next or previous section as a tap on its
+  // name does. They stop at Doing and Done, and come from where the section
+  // chords may come from. With the list put away its names are not there to
+  // tap, and a picture or a new tab's folder choice holds the keys, so they
+  // leave the key alone
+  drawerSection(e, shortcut){
+    const list = document.getElementById("tickets");
+    if (!list || list.classList.contains("region-off") || draft || p3Zoom) return;
+    if (!sectionChordSource(e.target, selectedId && els[selectedId])) return;
+    e.preventDefault();
+    const to = adjacentTicketView(curView(), shortcut.value);
+    if (to) setView(to);
+  },
   responseScroll(e){
     responseScrollKey(e, boardResponseCard);
   },
@@ -10859,22 +10872,22 @@ addEventListener("keydown", e => {
 // releases, other keys, a lost window and a hidden page stop the response
 // scroll whatever holds the board's keys
 listenResponseScroll();
+// each button, and control+shift+' and ;, write the view of the project being
+// looked at, and nothing else: another project keeps whatever view was chosen
+// for it, and one that has never been given a view opens on doing
+function setView(v){
+  if (!setTicketViewOf(activeOwner, v)) return;
+  chooseTicketNames(v);
+  cancelAutoNext();
+  paintViewTabs();
+  // the render keeps the sheet where it is (tikTravelIntent), then the travel
+  // animates it from its live position to the chosen section, across any middle
+  tikTravelIntent = v;
+  if (lastState) apply(lastState);
+  tikTravelIntent = null;
+  moveTicketSheet(v, true);
+}
 {
-  // each button writes the view of the project being looked at, and nothing
-  // else: another project keeps whatever view was chosen for it, and one that
-  // has never been given a view opens on doing
-  const setView = v => {
-    if (!setTicketViewOf(activeOwner, v)) return;
-    chooseTicketNames(v);
-    cancelAutoNext();
-    paintViewTabs();
-    // the render keeps the sheet where it is (tikTravelIntent), then the travel
-    // animates it from its live position to the chosen section, across any middle
-    tikTravelIntent = v;
-    if (lastState) apply(lastState);
-    tikTravelIntent = null;
-    moveTicketSheet(v, true);
-  };
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
   document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
   document.getElementById("tik-page-back").addEventListener("click", () => slideTicketNames(0));

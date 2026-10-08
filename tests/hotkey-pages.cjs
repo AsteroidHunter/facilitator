@@ -189,6 +189,7 @@ const KEYS = {
   "ctrl+shift+,": { key: "<", code: "Comma", ctrlKey: true, shiftKey: true },
   "down": { key: "ArrowDown", code: "ArrowDown" },
   "ctrl+shift+'": { key: "\"", code: "Quote", ctrlKey: true, shiftKey: true },
+  "ctrl+shift+;": { key: ":", code: "Semicolon", ctrlKey: true, shiftKey: true },
   "tab": { key: "Tab", code: "Tab" },
   "shift+tab": { key: "Tab", code: "Tab", shiftKey: true },
   "ctrl+tab": { key: "Tab", code: "Tab", ctrlKey: true },

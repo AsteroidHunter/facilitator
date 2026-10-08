@@ -131,9 +131,9 @@ function header(page) {
   vm.runInContext(between(logic, 'function chipOff(', '// the sun, built'), ctx);
   vm.runInContext(between(logic, 'const TICKET_VIEWS =', '// the doing, docked, deferred and done sections filter'), ctx);
   const pageSource = source(page);
-  const start = page === 'm.html' ? 'function setView(v){' : '  const setView = v => {';
-  const handlers = between(pageSource, start, '// press feedback,');
-  vm.runInContext(handlers, ctx);
+  const handlers = between(pageSource, 'function setView(v){', '// press feedback,');
+  // the board hangs its listeners in a block after setView; the cut ends inside it
+  vm.runInContext(handlers + (page === 'index.html' ? '\n}' : ''), ctx);
   ctx.paintViewTabs(); ctx.moveTicketSheet('todo', false);
   return { ctx, nodes, stored, calls, timers,
     click: name => nodes[name === 'right' ? 'tik-page' : name === 'left' ? 'tik-page-back' : name === 'arrow'

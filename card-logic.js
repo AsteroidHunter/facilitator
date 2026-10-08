@@ -302,10 +302,10 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => !e.ctrlKey && !e.metaKey && !e.repeat && !e.isComposing &&
       !e.defaultPrevented ? sectionKeyOf(e) : null,
   },
-  // control+shift+' and ; step the open card list to its next or previous
-  // section. Like the comma key they match the physical key, since what the
-  // key types changes with the layout and the shift. Only the phone's list
-  // answers them
+  // control+shift+' and ; step the ticket list to its next or previous
+  // section: the phone's card list while it is out, the board's list while it
+  // is on the page. Like the comma key they match the physical key, since what
+  // the key types changes with the layout and the shift
   {
     action: "drawerSection", mini: false,
     match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&

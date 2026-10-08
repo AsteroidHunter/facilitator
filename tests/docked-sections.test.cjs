@@ -81,10 +81,11 @@ for (const page of ['index.html', 'm.html']) {
     assert.match(html, /id="tv-deferred" inert/); assert.match(html, /id="tv-done" inert/);
     ctx.cancelAutoNext = () => {}; ctx.dropResponseScroll = () => {}; ctx.renderTickets = () => {};
     ctx.tickets = node(); ctx.tickets.classList.add('drawer-settled'); ctx.drawerOpen = () => true;
-    const from = html.indexOf(page === 'm.html' ? 'function setView(v){' : '  const setView = v => {');
+    const from = html.indexOf('function setView(v){');
     const end = html.indexOf('document.getElementById("tv-done").addEventListener', from);
     const through = html.indexOf('\n', end);
-    vm.runInContext(html.slice(from, through), ctx);
+    // the board hangs its listeners in a block after setView; the cut ends inside it
+    vm.runInContext(html.slice(from, through) + (page === 'index.html' ? '\n}' : ''), ctx);
     ctx.paintViewTabs(); ctx.moveTicketSheet('todo', false);
     nodes['tik-page'].listeners.click();
     assert.equal(ctx.curView(), 'todo');
