@@ -9,29 +9,41 @@
   // box edge on the board lands on one of them
   const CELL = 11.52;
   function onStar(x) { return (Math.floor(x / CELL - 0.5 + 1e-6) + 0.5) * CELL; }
+  // the shape of an iPhone 13 mini's screen, 375 by 812 points: width over
+  // height and nothing else, so the box's size always comes from the card and
+  // the window
+  const SHAPE = 375 / 812;
   // card: the card's rectangle, {left, top, width, height}. fit: the stage's
-  // transform and the room the window gives it, {scale, tx, left, right}, the
-  // last two the screen x of the frame's inner edges (frameLimits). bar: the
-  // height of the card's top bar. The box is as tall as the card, two thirds as
-  // wide in whole cells, and one cell to its right. When that runs past the
-  // frame it slides left, onto a star line, and floats over the card's right
-  // edge instead; the board never shrinks for it. Over the card it starts on the
-  // first star row under the card's top bar, so the card's own chips stay in
-  // reach
+  // transform and the workspace, {scale, tx, left, right, clear}, left and right
+  // the screen x of the workspace's inner edges and clear the room the fit keeps
+  // between the board and them (FRAME_CLEAR), all screen pixels. bar: the height
+  // of the card's top bar.
+  // The box keeps the phone's shape. It is as tall as the card when that leaves
+  // at least `clear` on each side of it in the room right of the card, and as
+  // much smaller as it must be when it does not. It stands in the middle of that
+  // room, so the gap to the card and the gap to the workspace's edge are always
+  // equal, with its middle level with the card's; the board never shrinks for
+  // it. Less than half the card's height is too small to read beside it: then
+  // it floats over the card's right part, `clear` in from the edge, below the
+  // first star row under the card's top bar so the card's own chips stay in
+  // reach, and still level with the card's middle
   function place(card, fit, bar = 0) {
-    const width = Math.max(1, Math.round(card.width * 2 / 3 / CELL)) * CELL;
     const scale = fit.scale || 1;
-    const room = (fit.right - fit.tx) / scale;   // the frame's inner right edge, on the stage
+    const edge = (fit.right - fit.tx) / scale;   // the workspace's right edge, on the stage
     const seen = (fit.left - fit.tx) / scale;    // and its left one
-    let left = card.left + card.width + CELL;
-    let top = card.top;
-    let floating = false;
-    if (left + width > room) {
-      left = Math.max(onStar(room - width), onStar(seen) + CELL);
-      top = onStar(card.top + bar) + CELL;
-      floating = true;
+    const clear = (fit.clear || 0) / scale;
+    const middle = card.top + card.height / 2;
+    const right = card.left + card.width;
+    const room = edge - right;
+    const width = Math.min(card.height * SHAPE, room - 2 * clear);
+    if (width / SHAPE >= card.height / 2) {
+      const height = width / SHAPE;
+      return { left: right + (room - width) / 2, top: middle - height / 2, width, height, floating: false };
     }
-    return { left, top, width, height: card.top + card.height - top, floating };
+    const under = onStar(card.top + bar) + CELL - card.top;
+    const across = Math.max(1, Math.min((card.height - 2 * under) * SHAPE, edge - seen - 2 * clear));
+    const tall = across / SHAPE;
+    return { left: edge - clear - across, top: middle - tall / 2, width: across, height: tall, floating: true };
   }
   // a page an agent wrote runs sealed off: its frame has scripts and nothing
   // else, so its origin is its own and never the board's (no same origin, no
@@ -56,5 +68,5 @@
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { CELL, onStar, place, PAGE_SANDBOX, PAGE_POLICY, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { CELL, onStar, SHAPE, place, PAGE_SANDBOX, PAGE_POLICY, pageDoc, SITE_SANDBOX };
 })(globalThis);

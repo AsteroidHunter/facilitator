@@ -45,7 +45,7 @@ After reading the separate `/fresh` result as described below, answer with a com
 
 ## The magic box
 
-Each card can have one magic box: a portrait box beside the card on the Mac board, as tall as the card, for what a reply carries badly: a picture or a chart, a page you made, a website. Open one yourself whenever it would help the owner follow the card; nobody has to ask for it. The box waits on its card and shows when the owner is on that card. It never moves the board to the card. Use the `facilitator` command, which finds the board's port itself:
+Each card can have one magic box: a box the shape of a phone screen beside the card on the Mac board, as tall as the card when the window has room and smaller when it does not, for what a reply carries badly: a picture or a chart, a page you made, a website. Open one yourself whenever it would help the owner follow the card; nobody has to ask for it. The box waits on its card and shows when the owner is on that card. It never moves the board to the card. Use the `facilitator` command, which finds the board's port itself:
 
     facilitator magic m12 markdown --file notes.md --title "Release notes"
     facilitator magic m12 text "plain words, shown as typed"
