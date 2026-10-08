@@ -950,17 +950,15 @@
   body.focus .box.sel .answwrap:empty{display:none}
   /* the measures, read off the owner's drawing of this card: the title's face
      at 15 on a 20 line, a size under the answer's 18, and about a line of air
-     round the words. a long batch shows two and three quarter lines before it
-     is opened, so the third line is seen dissolving, and the cut fades over
-     that last three quarters (the sent bubbles at the card's foot take these
-     measures and cut shallower, card-tokens.css). the strip the arrow stands
-     in is 36px, up from the 20px of air it had, so the 7px arrow has 14.5px
-     clear over it and under it, a little taller than the old box's own shut
-     bar */
+     round the words. how much of a long batch shows before it is opened is
+     counted in the 20 line by the sheet (card-tokens.css), the same for this
+     panel and for the sent bubbles at the card's foot. the strip the arrow
+     stands in is 36px, up from the 20px of air it had, so the 7px arrow has
+     14.5px clear over it and under it, a little taller than the old box's own
+     shut bar */
   body.focus .box.sel{
     --answ-font:400 15px/20px var(--inter); --answ-line:20px;
     --answ-pad-y:18px; --answ-pad-x:18px; --answ-round:18px;
-    --answ-peek:calc(20px * 2.75); --answ-fade:calc(20px * .75);
     --answ-strip:36px;
   }
   /* the bar: the button, one step, and the row. the step is the strip's own
@@ -2428,14 +2426,13 @@
      card and the phone draw (card-tokens.css), at this card's own size, in a
      seat between the card's name and its reply. an empty seat takes no room.
      the measures are the large card's carried down to this card's 12px type,
-     and the preview is a line shorter, one and three quarters, because the
-     whole card is only a few lines tall and a long batch shut must not take
-     the reply's room. the arrow's strip is 24px, up from the 11px of air it
-     had, so the 7px arrow has 8.5px clear over it and under it */
+     and the preview is the sheet's, counted in this card's 17px line, which
+     keeps a long batch shut from taking the reply's room on a card only a few
+     lines tall. the arrow's strip is 24px, up from the 11px of air it had, so
+     the 7px arrow has 8.5px clear over it and under it */
   #magic2 .mbox{
     --answ-font:400 12px/17px var(--inter); --answ-line:17px;
     --answ-pad-y:11px; --answ-pad-x:12px; --answ-round:12px;
-    --answ-peek:calc(17px * 1.75); --answ-fade:calc(17px * .75);
     --answ-strip:24px;
   }
   #magic2 .answwrap{display:flex; flex-direction:column; flex:none; margin:6px 0}

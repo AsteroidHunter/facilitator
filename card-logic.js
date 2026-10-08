@@ -2419,17 +2419,17 @@ function answeredInk(stack){
   return boxes;
 }
 
-const SENT_WHOLE_LINES = 2;   // the lines a sent bubble shows whole, with no cut
+const ANSWERED_WHOLE_LINES = 2;   // the lines a batch shows whole, with no cut
 
 // whether the batch has text past the preview, and where the preview ends.
-// the sheet cuts a long batch a fraction of a line past whole lines, so the
-// line the cut falls in is seen dissolving: two and three quarter lines down
-// for the panel over the answer; for a sent bubble one and a half, or two and a
-// half when its second line is blank (a paragraph break after the first line,
-// or two messages joined by their blank line), which is the sheet's .gap and
-// is set here, off the ink. a sent bubble of up to two lines is no long batch
-// at all: it is shown whole, however shallow the sheet's cut, and stands as
-// tall as its text. the cut is kept only while a line of text really runs
+// the sheet cuts a long batch half a line past a whole number of lines, so the
+// line the cut falls in is seen dissolving: one and a half lines down, or two
+// and a half when the batch's second line is blank (a paragraph break after
+// the first line, or two messages joined by their blank line), which is the
+// sheet's .gap and is set here, off the ink. the panel over the answer and
+// each sent bubble are cut the same way. a batch of up to two lines is no long
+// batch at all: it is shown whole, however shallow the sheet's cut, and stands
+// as tall as its text. the cut is kept only while a line of text really runs
 // through it with at least half of itself showing (to the pixel: the cut is a
 // rounded height and the phone's line is not a whole number of them): when it
 // lands in blank, a paragraph break, the air between two messages or a line
@@ -2456,12 +2456,11 @@ function fitAnswered(panel){
     if (had) clip.style.setProperty("--answ-stop", had);
     return false;
   }
-  const sent = panel.classList.contains("sent");
   const line = parseFloat(getComputedStyle(clip).lineHeight) || 0;
   const ink = answeredInk(clip.querySelector(".answstack"));
   // the second line is blank when no ink stands across the middle of it and
-  // there is ink below it: a bubble of one line has no second line to be blank
-  const gap = sent && line > 0 &&
+  // there is ink below it: a batch of one line has no second line to be blank
+  const gap = line > 0 &&
     !ink.some(box => box.top < line * 1.5 && box.bottom > line * 1.5) &&
     ink.some(box => box.top >= line * 1.5);
   if (gap !== gapped){
@@ -2469,9 +2468,10 @@ function fitAnswered(panel){
     cut = clip.clientHeight;   // the cut the sheet gives it now
   }
   const end = ink.reduce((low, box) => Math.max(low, box.bottom), 0);
-  // a sent bubble holds two lines whole, and a little over them: a tall glyph or
-  // a small inline box is not a third line
-  const more = sent && line > 0 ? end > line * (SENT_WHOLE_LINES + .5) : end > cut + 1;
+  // a batch holds two lines whole, and a little over them: a tall glyph or a
+  // small inline box is not a third line. a line that cannot be read leaves
+  // the sheet's own cut to say
+  const more = line > 0 ? end > line * (ANSWERED_WHOLE_LINES + .5) : end > cut + 1;
   let stop = 0;
   if (more){
     const through = ink.some(box => box.bottom > cut + 1 && box.top <= cut - line / 2 + 1);
@@ -2559,7 +2559,7 @@ function fillAnswered(panel, batch){
   stackAnswered(panel, batch);
   panel.answRun = (panel.answRun || 0) + 1;
   settleAnswered(panel);
-  panel.classList.remove("open", "more");
+  panel.classList.remove("open", "more", "gap");
   const clip = panel.querySelector(".answclip");
   clip.style.removeProperty("--answ-stop");
   clip.scrollTop = 0;
@@ -4282,8 +4282,9 @@ function turnGo(el, turn){
   // carries no word: their marks fade out on the way up, and a bubble still
   // faded takes its full grey and ink with it. the seat's picture also gives
   // way to the new page's panel behind it over the second half of the glide
-  // (the sheet's turnhand), since the sent preview is shallower than the
-  // panel's over the answer, so the swap when the sheet goes is not one
+  // (the sheet's turnhand), since the bubbles may share the messages out
+  // differently from the one panel over the answer, so the swap when the sheet
+  // goes is not one
   for (const rising of turn.page.querySelectorAll(".answered.sent")){
     fadeMark(rising);
     for (const one of [rising, ...rising.querySelectorAll(".undelivered")]) one.classList.remove("undelivered");
