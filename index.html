@@ -460,10 +460,10 @@
   }
   /* it settles while the composer in magic box 2 holds the keys */
   body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
-  /* and it sits level with the board while the card on screen is only browsed
-     to with the arrow keys and not selected: the selected card alone stands
-     up. its edge line stays */
-  body.focus.browsing main{box-shadow:none}
+  /* and it sits level with the board once it is lowered, by a double click on
+     the empty board and nothing else. browsed to or selected, it stands up
+     either way. its edge line stays */
+  body.focus.lowered main{box-shadow:none}
   body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column}
   body.focus #sections > div:not(.bucket){display:contents}
   body.focus .bucket, body.focus .addrow{display:none}
@@ -5726,17 +5726,14 @@ addEventListener("fullscreenchange", () => { fitStage(); seatPagePill(); });
   for (const type of ["pointerdown", "focusin"])
     document.addEventListener(type, e => { if (inCard(e) && selectedId) useCard(selectedId); }, true);
 }
-// a press on the bare board, the paper beside and below the panels, lets go of
-// the card on screen: it stays, browsed. a press on a panel, a button or the
-// card itself is not a press on the paper. the ticket list has no box, so its
-// empty strips and the gaps between tickets are paper too: a press that lands
-// on a list section itself, not on a ticket, counts. the drawer is a panel
-document.addEventListener("pointerdown", e => {
+// a double click on the bare board, the paper beside and below the panels,
+// lowers the card on screen: it lets go of the caret, loses its drop shadow and
+// stays, browsed. one click there does nothing. a click on a panel, the ticket
+// list, a button or the card itself is not a click on the paper
+document.addEventListener("dblclick", e => {
   if (e.button || editMode || homeOpen) return;
   const t = e.target;
-  const listPaper = (t.id === "tiklist" || t.id === "tiksheet" || t.classList?.contains("tikpane"));
-  if (t === document.getElementById("stage") || t === document.body ||
-      t === document.documentElement || listPaper) unselectShown();
+  if (t === document.getElementById("stage") || t === document.body || t === document.documentElement) lowerShown();
 }, true);
 // the house leaves the board for the home page the way another tab does: the
 // card on screen is no longer selected, so coming back through a tab shows it
@@ -5745,12 +5742,15 @@ document.getElementById("homeico")?.addEventListener("click", () => unselectShow
 
 // browsing: the card on screen was reached without being chosen, by the arrow
 // keys, a tab switch, a load or a fallback pick. selectedId still names it, so
-// every key that acts on the card acts on it, but it is not selected: neither
-// it nor its ticket wears the drop shadow, and nothing on it counts as read. a
-// click on its ticket or into it, or Enter, selects it; Escape puts it back
+// every key that acts on the card acts on it, but it is not selected: nothing
+// on it counts as read. a click on its ticket or into it, or Enter, selects it;
+// Escape puts it back. the card stands raised either way (see lowerShown in
+// card-logic.js), and every showing or choosing of a card comes through here,
+// so each one raises a card a double click had lowered
 function setBrowsing(on){
   browsing = on;
   document.body.classList.toggle("browsing", on);
+  setLowered(false);
 }
 
 // a click on a ticket, a chip or an outline entry, the caret carried along by
@@ -5809,8 +5809,9 @@ function browse(id){
   select(id, { browse: true });
 }
 // the browsed card on screen becomes the selected one where it stands: nothing
-// on it moves, it takes the drop shadow back and counts as read. while the
-// home page is up the board is not on screen, so nothing on it is selected
+// on it moves, it stands raised again if a double click had lowered it, and it
+// counts as read. while the home page is up the board is not on screen, so
+// nothing on it is selected
 function chooseShown(){
   const id = selectedId;
   if (homeOpen || !browsing || !id || !els[id]) return;
@@ -5821,9 +5822,9 @@ function chooseShown(){
     if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
 }
 
-// Escape with nothing being typed: the card stays on screen, browsed, and
-// gives up its drop shadow. whatever held the focus inside it lets go, so the
-// Enter that selects it again is never a press on one of its buttons
+// Escape with nothing being typed: the card stays on screen, browsed, and still
+// raised. whatever held the focus inside it lets go, so the Enter that selects
+// it again is never a press on one of its buttons
 function unselectShown(){
   const id = selectedId;
   if (browsing || !id || !els[id]) return;

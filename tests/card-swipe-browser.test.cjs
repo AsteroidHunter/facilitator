@@ -163,9 +163,9 @@ function distinct(frame){
     assert.ok(parseFloat(face.border)>0 && parseFloat(face.border)<=1,`card edge is not the hairline: ${face.border}`);
     assert.equal(face.border,frame.paneEdge,"card edge is not drawn as wide as the pane's own");
     assert.notEqual(face.borderColor,"rgba(0, 0, 0, 0)"); assert.ok(Math.abs(parseFloat(face.radius)-7*REST)<=.05,`card corners are not 7px at rest: ${face.radius}`);
-    // the card swiped to lands browsed, so it is level with the page; the one
-    // swiped away was selected, so it keeps the drop shadow
-    if(face.incoming) assert.equal(face.shadow,"none"); else assert.notEqual(face.shadow,"none");
+    // a card stands raised however it was reached: the card swiped to lands
+    // raised, and the one swiped away keeps its drop shadow
+    assert.notEqual(face.shadow,"none");
     assert.equal(face.overflow,"hidden");
     assert.ok(face.replyLength>400,"empty fixture cannot prove the moving card surface");
     assert.ok(Math.abs(face.y)<.01); assert.ok(Math.abs(face.centerY-frame.centerY)<.05);
