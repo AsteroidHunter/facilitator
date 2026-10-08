@@ -33,13 +33,19 @@ function picker() {
     projBtn: {
       addEventListener(type, fn) { handlers[type] = fn; },
       setAttribute(name, value) { attributes[name] = value; },
+      getBoundingClientRect: () => ({ left: 100, width: 100 }),
     },
-    document: { body: { classList: {
-      contains: name => classes.has(name),
-      add: name => classes.add(name),
-      remove: name => classes.delete(name),
-    } } },
-    projMenu: { querySelector: () => null },
+    document: {
+      body: { classList: {
+        contains: name => classes.has(name),
+        add: name => classes.add(name),
+        remove: name => classes.delete(name),
+      } },
+      documentElement: { clientWidth: 375 },
+      getElementById: id => ({ getBoundingClientRect: () => (id === "tikbtn" ? { left: 16 } : { right: 359 }) }),
+    },
+    projMenu: { querySelector: () => null, style: {} },
+    getComputedStyle: () => ({ width: "200px" }),
     lastState: null,
     dismissEditor() {},
     endProjCarry() {},

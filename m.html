@@ -406,9 +406,10 @@
   /* ---- the project list, popped from the project's capsule --------------------- */
   /* the board's places: Home, then the projects in the board's own order, the
      unread ones heavier, the open one checked. it is the same glass, rounder,
-     standing just over the row with its left edge on the capsule's and its
-     right edge on the plus's, and a long list scrolls inside it. a press held
-     on a project lifts it, and the finger carries it up or down the list to
+     standing just over the row, as wide as from the capsule's left edge to the
+     plus's right edge, and centred on the capsule when it opens (the script
+     sets left and right then; these give its width), and a long list scrolls
+     inside it. a press held on a project lifts it, and the finger carries it up or down the list to
      reorder the board's tabs. the shade under it is the drawers' shade at a
      little over half its weight, so the page and the row draw back a little
      while the list is up. it fades in and out with the list, however the list
@@ -427,7 +428,7 @@
     display:flex; flex-direction:column; padding:calc(6 * var(--u)); border-radius:calc(22 * var(--u));
     overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
-    visibility:hidden; opacity:0; transform:scale(.9); transform-origin:25% 100%;
+    visibility:hidden; opacity:0; transform:scale(.9); transform-origin:50% 100%;
     transition:opacity .14s ease-out, transform .14s ease-out, visibility 0s linear .14s;
   }
   #projmenu::-webkit-scrollbar{display:none}
@@ -3782,10 +3783,26 @@ function renderTabs(st){
   projBtn.setAttribute("aria-label", name + (others ? ", unread replies elsewhere" : "") + ", choose a project");
 }
 function projOpen(){ return document.body.classList.contains("projopen"); }
+// where the list's left edge stands so it is centred on the capsule, kept
+// between the bar's own side edges; a list wider than that sits on the left one
+function projMenuLeft(centre, width, minLeft, maxRight){
+  return Math.max(minLeft, Math.min(centre - width / 2, maxRight - width));
+}
+function centreProjMenu(){
+  const pill = projBtn.getBoundingClientRect();
+  const from = document.getElementById("tikbtn").getBoundingClientRect().left;
+  const to = document.getElementById("setbtn").getBoundingClientRect().right;
+  projMenu.style.left = projMenu.style.right = "";   // its own width, from the sheet
+  const wide = document.documentElement.clientWidth, w = parseFloat(getComputedStyle(projMenu).width);
+  const left = projMenuLeft(pill.left + pill.width / 2, w, from, to);
+  projMenu.style.left = left + "px";
+  projMenu.style.right = (wide - left - w) + "px";
+}
 function openProjects(){
   if (projOpen()) return;
   dismissEditor();
   if (lastState) renderTabs(lastState);
+  centreProjMenu();
   document.body.classList.add("projopen");
   projBtn.setAttribute("aria-expanded", "true");
   // the open place in sight in a list long enough to scroll
