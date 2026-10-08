@@ -3334,6 +3334,17 @@ def cmd_update_steps(args):
         sys.exit(1)
 
 
+def installer_step(step, *args, **kwargs):
+    """Run one step that install.sh hands to this command. Ctrl+C ends it with a
+    new line, one plain sentence and the interrupted exit status, not a
+    traceback."""
+    try:
+        step(*args, **kwargs)
+    except KeyboardInterrupt:
+        print("\nExiting facilitator installer.")
+        sys.exit(130)
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args and not args[0].startswith("-") else "run"
@@ -3353,9 +3364,9 @@ def main():
         cmd_password(args)
     elif cmd == "_password-setup" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
         on_app_env()
-        cmd_password(args, installer=True)
+        installer_step(cmd_password, args, installer=True)
     elif cmd == "_install" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
-        cmd_install(args)
+        installer_step(cmd_install, args)
     elif cmd == "uninstall":
         cmd_uninstall(args)
     elif cmd == "update":
