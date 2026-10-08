@@ -109,8 +109,10 @@ for (const surface of ['Mac', 'narrow Mac', 'phone']) {
             const e = f.send(field, { key: shiftKey ? 'T' : 't', code: 'KeyT', metaKey: true, shiftKey });
             assert.equal(e.defaultPrevented, true, `${kind}/${stop}/${shiftKey}`);
           }
-          if (!stop && state === 'board') assert.equal(f.calls.filter(x => x === 'create').length, 2);
-          if (stop || ['home', 'settings', 'drawer'].includes(state)) assert.deepEqual(f.calls, []);
+          // the phone's card list hands Command + T to the card, as the board does
+          const creates = !stop && (state === 'board' || (phone && state === 'drawer'));
+          if (creates) assert.equal(f.calls.filter(x => x === 'create').length, 2);
+          if (!creates && (stop || ['home', 'settings', 'drawer'].includes(state))) assert.deepEqual(f.calls, []);
         }
       }
     });
