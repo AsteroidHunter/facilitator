@@ -51,6 +51,9 @@
 # dropped images: runtime discussion content, never committed
 /uploads/
 
+# what the cards' magic boxes hold, kept beside state.json
+/magic-boxes/
+
 # probe tooling deps, if ever installed beside probe3.js
 /node_modules/
 /tests/node_modules/

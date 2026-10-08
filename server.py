@@ -160,6 +160,36 @@ Endpoints:
                                is a 404. Lets an agent working in another project
                                show a picture on the board without writing a file
                                into this repo
+  POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the portrait
+                               box beside the card on the Mac board, and open
+                               it, in place of whatever it held. K is text
+                               (shown as typed), markdown (the card's renderer),
+                               html (a whole page, run in a sealed frame with
+                               no network) or image (the picture's bytes: PNG,
+                               JPEG, GIF, WebP, or SVG without script). The body
+                               is the content: text and pages up to 1 MiB,
+                               pictures up to 10 MiB (413). T is a title for
+                               the box's header, 120 characters at most.
+                               Answers {ok, box, kind, rev, shown}. 400 for a
+                               card, kind or title that is wrong or an empty
+                               body, 415 for a body that is not the picture
+                               it should be. The content is kept in
+                               magic-boxes/ beside state.json, owner-only; the
+                               card carries only magic: {open, kind, rev, ts},
+                               which /state sends for cards that have one; the
+                               transcript gets the kind and size, never the
+                               content. Local only: the phone bridge refuses
+                               every /magic route
+  POST /magic/close?box=ID  -> hide the box and keep what it holds; {ok, open}.
+                               404 when the card has no box
+  POST /magic/reopen?box=ID -> show it again; {ok, open}
+  GET  /magic?box=ID        -> {box, open, kind, title, rev, ts, shown}: what an
+                               agent may read back. 404 when there is no box
+  GET  /magic/body?box=ID   -> what the box holds, for the page, as JSON (with
+                               nosniff), never as a page: text, html, or src
+                               for a picture
+  GET  /magic/img?box=ID    -> the box's picture, with nosniff and a sandbox
+                               policy, as a panel picture is served
   GET  /cm-markdown.js      -> the vendored CodeMirror 6 bundle beside index.html,
                                fetched the first time the file navigator opens a file
   GET  /card-markdown.js    -> the shared, finite card-prose renderer used by
@@ -1622,6 +1652,13 @@ UPLOAD_STALL_TIMEOUT = 60.0     # seconds an upload may go with no bytes arrivin
 UPLOAD_TIME_LIMIT = 3600.0      # seconds a whole upload may take
 UPLOAD_RECEIPTS = 256           # finished uploads remembered by operation id, newest kept
 MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator will preview inline
+# a card's magic box: the portrait box beside the card an agent fills. What it
+# holds lives here, beside state.json and as private as it, one file per card
+# named by the box's revision; state.json only says that a box exists
+MAGIC_DIR = HERE / "magic-boxes"
+MAGIC_KINDS = ("text", "markdown", "html", "image")
+MAGIC_IMAGE_MAX = 10 * 1024 * 1024    # bytes of one picture in a box
+MAGIC_TITLE_MAX = 120                 # characters of a box's title
 # the control bytes a real text file never carries: every C0 control except tab,
 # newline, carriage return and form feed. A file can decode as utf-8 and still be
 # binary (an ascii-only payload, or bytes that merely validate), so the navigator
@@ -2648,6 +2685,7 @@ _last_durable: str | None = None
 # woken for a reply the board does not have.
 _transcript_due: list = []   # (event row, kind, box, chars, log fields), under _lock
 _push_due: list = []         # box ids whose turn is to be pushed once the save lands, under _lock
+_magic_sweep_due: list = []  # card ids whose older magic box files go once the save lands, under _lock
 
 
 def _side_effect_failure(kind: str, box: str = "", **fields) -> None:
@@ -2666,9 +2704,10 @@ def _commit_side_effects() -> None:
     installed, so a transcript that cannot be appended is written down as its
     own failure and never fails the save; the state stays the source of truth
     and the transcript is the record that follows it."""
-    global _transcript_due, _push_due
+    global _transcript_due, _push_due, _magic_sweep_due
     due, _transcript_due = _transcript_due, []
     pushes, _push_due = _push_due, []
+    swept, _magic_sweep_due = _magic_sweep_due, []
     if due:
         try:
             # Encode the batch before opening the file. A malformed internal
@@ -2691,6 +2730,11 @@ def _commit_side_effects() -> None:
             threading.Thread(target=_push_turn, args=(bid,), daemon=True).start()
         except Exception as e:
             _side_effect_failure("pushfail", bid, reason=type(e).__name__)
+    for bid in swept:
+        try:
+            _magic_sweep(bid)
+        except Exception as e:
+            _side_effect_failure("magicsweepfail", bid, reason=type(e).__name__)
 
 
 def _discard_side_effects() -> None:
@@ -2698,6 +2742,7 @@ def _discard_side_effects() -> None:
     just taken back, so none of it is written or sent."""
     _transcript_due.clear()
     _push_due.clear()
+    _magic_sweep_due.clear()
 
 
 def _restore_last_durable() -> None:
@@ -2890,6 +2935,9 @@ def _remove_empty_meta_box(box: dict) -> str:
         for note in _state.get("quicknotes", []):
             if note.get("card") == bid:
                 note["card"] = None
+    # its magic box goes with it, once the save that removes the card lands
+    if box.get("magic"):
+        _magic_sweep_due.append(bid)
     _log("delete", bid, box["title"])
     return "deleted"
 
@@ -4006,6 +4054,10 @@ def _ui_state() -> dict:
                 # paints it only while the card is actually awaiting the reader
                 "testing": bool(b.get("testing", False)),
                 "queuePos": qpos.get(b["id"], 0),
+                # the card's magic box, only on a card that has one: whether it
+                # is open, what kind it holds and its revision. what it holds
+                # is read from /magic/body, so this reading stays small
+                **({"magic": b["magic"]} if b.get("magic") else {}),
             }
             for b in st["boxes"]
         ],
@@ -4927,6 +4979,233 @@ def _svg_carries_script(path: Path) -> bool:
                 return True
             tail = window[-_SVG_OVERLAP:]
     return False
+
+
+# ---- the magic box -----------------------------------------------------------------
+# One box per card, beside it on the Mac board, that the card's agent fills with
+# text, markdown, a page of its own or a picture. The card carries magic =
+# {open, kind, rev, ts} and nothing more, since /state is read every second;
+# what the box holds is one file in MAGIC_DIR named by the card and the
+# revision. A save that fails leaves the card naming the file it had, and the
+# files of older revisions go only once the save that replaced them has landed
+# (_magic_sweep). Nothing a box holds is ever served as a page from this
+# address: the words travel as JSON, a picture with the upload's sandbox, and
+# the page puts an agent's page in a sealed frame of its own.
+
+_MAGIC_SAFE_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,63}")
+# tried in this order: an SVG is the loosest check, so it comes last
+MAGIC_PICTURES = (".png", ".jpg", ".gif", ".webp", ".svg")
+
+
+def _magic_stem(bid: str) -> str:
+    """The card's part of its box's file names: the id itself when it is a
+    plain name, a hash of it otherwise, so no id can name a place outside the
+    folder."""
+    if _MAGIC_SAFE_ID.fullmatch(bid):
+        return bid
+    return "h" + hashlib.sha256(bid.encode()).hexdigest()[:24]
+
+
+def _magic_file(bid: str, rev: int, ext: str = ".json") -> Path:
+    return MAGIC_DIR / f"{_magic_stem(bid)}-{rev}{ext}"
+
+
+def _magic_write(path: Path, data: bytes) -> None:
+    """One file of a box, whole or not at all, readable by this account alone."""
+    MAGIC_DIR.mkdir(mode=0o700, exist_ok=True)
+    try:
+        os.chmod(MAGIC_DIR, 0o700)
+    except OSError:
+        pass   # a volume that keeps no modes still takes the write
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        with open(tmp, "wb", opener=_private_opener) as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _magic_sweep(bid: str) -> None:
+    """Every file of a card's box but the revision the card names now, and all
+    of them for a card the board no longer has. Callers hold _lock."""
+    box = _box(bid)
+    keep = (box.get("magic") or {}).get("rev") if box else None
+    mine = re.compile(re.escape(_magic_stem(bid)) + r"-([0-9]+)\.[a-z]+")
+    try:
+        names = os.listdir(MAGIC_DIR)
+    except OSError:
+        return
+    for name in names:
+        hit = mine.fullmatch(name)
+        if hit and int(hit.group(1)) != keep:
+            (MAGIC_DIR / name).unlink(missing_ok=True)
+
+
+def _magic_picture_ext(data: bytes) -> str | None:
+    """Which picture the bytes are, read from their start the way an upload's
+    are, or None."""
+    head = data[:UPLOAD_HEAD]
+    return next((ext for ext in MAGIC_PICTURES if UPLOAD_KINDS[ext][1](head)), None)
+
+
+def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes | None, note: dict):
+    """The box's new content written and the card naming it, saved as one
+    change. Run through _run_state_request, so a failure puts the board back."""
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        rev = int((box.get("magic") or {}).get("rev", 0)) + 1
+        now = time.time()
+        record = {"box": bid, "kind": kind, "title": title, "rev": rev, "ts": now, **record}
+        try:
+            if picture is not None:
+                _magic_write(_magic_file(bid, rev, record["ext"]), picture)
+            _magic_write(_magic_file(bid, rev), json.dumps(record).encode())
+        except OSError as e:
+            _error("magicfail", bid, reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the box could not be written"}
+        box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now}
+        _magic_sweep_due.append(bid)
+        # the transcript keeps that a box was opened and what kind, never what
+        # it holds, the way a quick note is kept by its length
+        _log("magic", bid, "", log_fields=note, **note)
+        _save()
+        _notify()
+        answer = {"ok": True, "box": bid, "kind": kind, "rev": rev, "shown": record.get("shown", "inline")}
+        for key in ("reason", "url"):
+            if record.get(key):
+                answer[key] = record[key]
+        return 200, answer
+
+
+def _post_magic(q: Query, body: bytes):
+    """Fill a card's box and open it, in place of whatever it held."""
+    bid, kind = q.one("box"), q.one("kind")
+    title = " ".join(q.one("title").split())
+    with _lock:
+        if _box(bid) is None:
+            return 400, {"error": "bad box"}
+    if kind not in MAGIC_KINDS:
+        return 400, {"error": "kind must be one of " + ", ".join(MAGIC_KINDS)}
+    if len(title) > MAGIC_TITLE_MAX:
+        return 400, {"error": f"title over {MAGIC_TITLE_MAX} characters"}
+    if not body.strip():
+        return 400, {"error": "the box would be empty"}
+    picture = None
+    if kind == "image":
+        ext = _magic_picture_ext(body)
+        if ext is None:
+            return 415, {"error": "that is not a PNG, JPEG, GIF, WebP or SVG picture"}
+        if ext == ".svg" and _SVG_SCRIPT.search(body):
+            return 415, {"error": "that SVG carries script"}
+        record, picture = {"ext": ext}, body
+    else:
+        if len(body) > MAX_TEXT_BODY:
+            return 413, {"error": "text and pages are limited to 1 MiB"}
+        words = body.decode("utf-8", "replace").strip()
+        record = {"html": words} if kind == "html" else {"text": words}
+    note = {"action": "open", "magic": kind, "bytes": len(body), "title_chars": len(title)}
+    return _run_state_request(_magic_store, bid, kind, title, record, picture, note)
+
+
+def _magic_flag(q: Query, opened: bool):
+    """Hide a card's box or show it again; what it holds is kept either way."""
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        magic = box.get("magic")
+        if not magic:
+            return 404, {"error": "this card has no magic box"}
+        if magic.get("open") != opened:
+            magic["open"] = opened
+            action = "reopen" if opened else "close"
+            _log("magic", bid, "", log_fields={"action": action}, action=action)
+            _save()
+            _notify()
+        return 200, {"ok": True, "box": bid, "open": opened, "rev": magic["rev"]}
+
+
+def _post_magic_close(q: Query, _):
+    return _magic_flag(q, False)
+
+
+def _post_magic_reopen(q: Query, _):
+    return _magic_flag(q, True)
+
+
+def _magic_record(bid: str):
+    """(status, the card's magic field, its stored record): read under the lock,
+    so the file read is the revision the card names."""
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, None, None
+        magic = dict(box["magic"]) if box.get("magic") else None
+        if magic is None:
+            return 404, None, None
+        try:
+            return 200, magic, json.loads(_magic_file(bid, magic["rev"]).read_bytes())
+        except (OSError, ValueError):
+            return 404, None, None
+
+
+def _magic_missing(status: int):
+    return status, {"error": "bad box" if status == 400 else "this card has no magic box"}
+
+
+def _get_magic(q: Query, _):
+    """What an agent may read back about a box: never what a website said."""
+    bid = q.one("box")
+    status, magic, record = _magic_record(bid)
+    if record is None:
+        return _magic_missing(status)
+    out = {"box": bid, "open": magic["open"], "kind": record["kind"], "title": record.get("title", ""),
+           "rev": magic["rev"], "ts": record.get("ts", 0), "shown": record.get("shown", "inline")}
+    for key in ("reason", "url"):
+        if record.get(key):
+            out[key] = record[key]
+    return 200, out
+
+
+def _get_magic_body(q: Query, _):
+    """What the box holds, for the page, as JSON and never as a page."""
+    bid = q.one("box")
+    status, magic, record = _magic_record(bid)
+    if record is None:
+        return _magic_missing(status)
+    out = {"box": bid, "open": magic["open"], "kind": record["kind"], "title": record.get("title", ""),
+           "rev": magic["rev"]}
+    if record["kind"] == "image":
+        out["src"] = f"/magic/img?box={quote(bid, safe='')}&rev={magic['rev']}"
+    for key in ("text", "html", "url", "shown", "reason", "preview"):
+        if key in record:
+            out[key] = record[key]
+    return Response(json.dumps(out).encode(), media_type="application/json",
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def _get_magic_img(q: Query, _):
+    """A box's picture, served the way an upload is: its type cannot be
+    reinterpreted and it sits in a sandbox, so an SVG runs nothing."""
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        magic = (box or {}).get("magic") or {}
+        if magic.get("kind") != "image":
+            return 404, {"error": "this card's box holds no picture"}
+        try:
+            ext = json.loads(_magic_file(bid, magic["rev"]).read_bytes())["ext"]
+            data = _magic_file(bid, magic["rev"], ext).read_bytes()
+        except (OSError, ValueError, KeyError):
+            return 404, {"error": "this card's box holds no picture"}
+    return Response(data, media_type=IMG_TYPES[ext],
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                             "Content-Security-Policy": "sandbox"})
 
 
 def _sweep_upload_parts() -> None:
@@ -7454,6 +7733,16 @@ ROUTES = [
     Route("/navfile", _endpoint(_get_navfile), methods=["GET"]),
     Route("/navimg", _endpoint(_get_navimg), methods=["GET"]),
     Route("/open-in-browser", _endpoint(_post_open_in_browser, "text", 8192), methods=["POST"]),
+    # a card's magic box. Filling it is a plain endpoint, not a state one: it
+    # takes the board's lock itself, only for the store, and nothing slow
+    # happens while it is held
+    Route("/magic", _endpoint(_get_magic), methods=["GET"]),
+    Route("/magic", _endpoint(_post_magic, "raw", MAGIC_IMAGE_MAX,
+                              "text and pages are limited to 1 MiB, pictures to 10 MiB"), methods=["POST"]),
+    Route("/magic/close", _state_endpoint(_post_magic_close, "text"), methods=["POST"]),
+    Route("/magic/reopen", _state_endpoint(_post_magic_reopen, "text"), methods=["POST"]),
+    Route("/magic/body", _endpoint(_get_magic_body), methods=["GET"]),
+    Route("/magic/img", _endpoint(_get_magic_img), methods=["GET"]),
     Route("/upload", _post_upload, methods=["POST"]),
     Route("/upload", _get_upload_receipt, methods=["GET"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
