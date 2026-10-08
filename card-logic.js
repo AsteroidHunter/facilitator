@@ -2399,15 +2399,25 @@ function answeredInk(stack){
   return boxes;
 }
 
+const SENT_WHOLE_LINES = 2;   // the lines a sent bubble shows whole, with no cut
+
 // whether the batch has text past the preview, and where the preview ends.
-// the sheet cuts a long batch two and three quarter lines down, so the third
-// line is seen dissolving. that cut is kept only while a line of text really
-// runs through it with at least half of itself showing: when it lands in blank,
-// a paragraph break, the air between two messages or a line with nothing on
-// it, the preview is stopped at the foot of the last line that has text
-// instead, and it is that line the cut dissolves. a batch with no text
-// past the cut is no long batch at all, however tall its blank tail: it gets no
-// strip, no arrow and no fade, and it stands exactly as tall as its text.
+// the sheet cuts a long batch a fraction of a line past whole lines, so the
+// line the cut falls in is seen dissolving: two and three quarter lines down
+// for the panel over the answer; for a sent bubble one and a half, or two and a
+// half when its second line is blank (a paragraph break after the first line,
+// or two messages joined by their blank line), which is the sheet's .gap and
+// is set here, off the ink. a sent bubble of up to two lines is no long batch
+// at all: it is shown whole, however shallow the sheet's cut, and stands as
+// tall as its text. the cut is kept only while a line of text really runs
+// through it with at least half of itself showing (to the pixel: the cut is a
+// rounded height and the phone's line is not a whole number of them): when it
+// lands in blank, a paragraph break, the air between two messages or a line
+// with nothing on it, the preview is stopped at the foot of the last line that
+// has text instead, and it is that line the cut dissolves. a batch with no
+// text past the cut is no long batch at all, however tall its blank tail: it
+// gets no strip, no arrow and no fade, and it stands exactly as tall as its
+// text.
 // an open panel shows everything and so cannot say, and neither can one part
 // way through a run: each keeps the word it was opened under. a panel that is
 // not laid out measures nothing and says nothing, and the observer asks again
@@ -2419,24 +2429,37 @@ function fitAnswered(panel){
   if (!clip) return false;
   const had = clip.style.getPropertyValue("--answ-stop");
   const long = panel.classList.contains("more");
+  const gapped = panel.classList.contains("gap");
   clip.style.removeProperty("--answ-stop");   // read the cut the sheet gives
-  const cut = clip.clientHeight;
+  let cut = clip.clientHeight;
   if (!cut){
     if (had) clip.style.setProperty("--answ-stop", had);
     return false;
   }
+  const sent = panel.classList.contains("sent");
   const line = parseFloat(getComputedStyle(clip).lineHeight) || 0;
   const ink = answeredInk(clip.querySelector(".answstack"));
+  // the second line is blank when no ink stands across the middle of it and
+  // there is ink below it: a bubble of one line has no second line to be blank
+  const gap = sent && line > 0 &&
+    !ink.some(box => box.top < line * 1.5 && box.bottom > line * 1.5) &&
+    ink.some(box => box.top >= line * 1.5);
+  if (gap !== gapped){
+    panel.classList.toggle("gap", gap);
+    cut = clip.clientHeight;   // the cut the sheet gives it now
+  }
   const end = ink.reduce((low, box) => Math.max(low, box.bottom), 0);
-  const more = end > cut + 1;
+  // a sent bubble holds two lines whole, and a little over them: a tall glyph or
+  // a small inline box is not a third line
+  const more = sent && line > 0 ? end > line * (SENT_WHOLE_LINES + .5) : end > cut + 1;
   let stop = 0;
   if (more){
-    const through = ink.some(box => box.bottom > cut + 1 && box.top <= cut - line / 2);
+    const through = ink.some(box => box.bottom > cut + 1 && box.top <= cut - line / 2 + 1);
     if (!through) stop = ink.reduce((low, box) => box.bottom <= cut + 1 ? Math.max(low, box.bottom) : low, 0);
-  } else if (end && end < cut - 1) stop = end;
+  } else if (end && Math.abs(end - cut) > 1) stop = end;
   if (stop) clip.style.setProperty("--answ-stop", Math.round(stop * 100) / 100 + "px");
   panel.classList.toggle("more", more);
-  return more !== long || clip.style.getPropertyValue("--answ-stop") !== had;
+  return more !== long || gap !== gapped || clip.style.getPropertyValue("--answ-stop") !== had;
 }
 
 // one message is one block of the card's own prose: the same markdown, the same
@@ -4239,7 +4262,7 @@ function turnGo(el, turn){
   // carries no word: their marks fade out on the way up, and a bubble still
   // faded takes its full grey and ink with it. the seat's picture also gives
   // way to the new page's panel behind it over the second half of the glide
-  // (the sheet's turnhand), since the sent preview is a line deeper than the
+  // (the sheet's turnhand), since the sent preview is shallower than the
   // panel's over the answer, so the swap when the sheet goes is not one
   for (const rising of turn.page.querySelectorAll(".answered.sent")){
     fadeMark(rising);

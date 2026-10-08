@@ -75,6 +75,15 @@ function inlineStyle() {
 // stop the script wrote, else at the preview the test says the sheet cuts it
 // to. midRun stands for a run caught part way, so it only holds while a run
 // has its height written in
+// the cut the sheet gives a sent bubble's batch, which the stand-in lays out only
+// while a test names the panel's line (sheetLine): one and a half lines, or two
+// and a half once the script has set .gap on the bubble
+let sheetLine = 0;
+function sheetCut(node) {
+  const panel = node.parentNode;
+  if (!sheetLine || !node.classList.contains("answclip") || !panel || !panel.classList.contains("sent")) return 0;
+  return Math.round(sheetLine * (panel.classList.contains("gap") ? 2.5 : 1.5));
+}
 function laidOutHeight(node) {
   if (node.midRun != null && node.style.height) return node.midRun;
   if (node.style.height) return parseFloat(node.style.height);
@@ -91,10 +100,12 @@ function element(tag) {
   const listeners = {};
   const nodes = [];
   let html = "";
+  let held = 0;
   const el = {
     tagName: String(tag).toUpperCase(), nodeType: 1,
     parentNode: null, dataset: {}, style: inlineStyle(), id: "",
-    clientHeight: 0, scrollHeight: 0, scrollTop: 0, offsetWidth: 0, midRun: null, midShade: null, rect: null,
+    get clientHeight() { return held || sheetCut(el); }, set clientHeight(value) { held = value; },
+    scrollHeight: 0, scrollTop: 0, offsetWidth: 0, midRun: null, midShade: null, rect: null,
     get parentElement() { return el.parentNode; },
     get childNodes() { return nodes; },
     get children() { return nodes.filter(node => node.nodeType === 1); },
@@ -788,6 +799,233 @@ test("a cut that lands in blank stops at the foot of the last line with text", (
   }
 });
 
+// ---- the sent bubble's preview ----------------------------------------------------------
+// up to two lines it is shown whole; past them it is cut at one and a half lines,
+// or at two and a half when its second line is blank. the stand-in lays the
+// bubble out the moment it is drawn, as a browser would, so a send is measured
+// by the same call that draws it: the words stand on the tops given, one entry
+// per text node of the column (a list of tops where the browser wrapped the node
+// onto several lines, none where it is not laid out), and the sheet's cut is the
+// one the bubble's own class gives. lay() moves the words to other tops
+function sentShown(texts, tops, { line = 21, arrive = false } = {}) {
+  const { context, run } = sandbox();
+  context.line = line;
+  const glyph = line * 6 / 7;
+  const placed = [...tops];
+  context.document.createRange = () => ({
+    node: null,
+    selectNodeContents(node) { this.node = node; },
+    getClientRects() {
+      let stack = this.node.parentNode;
+      while (stack && !stack.classList.contains("answstack")) stack = stack.parentNode;
+      const at = textsOf(stack).indexOf(this.node);
+      return [].concat(placed[at] ?? []).map(top =>
+        ({ top: top + (line - glyph) / 2, bottom: top + (line + glyph) / 2, height: glyph }));
+    },
+  });
+  sheetLine = line;
+  const el = fullCard("c1");
+  context.syncSent(el, context.sentBatch(texts), arrive);
+  const panel = el.sent, clip = panel.querySelector(".answclip");
+  return { context, run, el, panel, clip, lay: next => placed.splice(0, placed.length, ...next) };
+}
+const cutOf = clip => clip.getBoundingClientRect().height;
+const gapOf = panel => panel.classList.contains("gap");
+const shown = fn => { try { fn(); } finally { sheetLine = 0; } };
+
+test("a sent bubble of one line is shown whole, with no cut, strip or fade", () => shown(() => {
+  const { context, panel, clip } = sentShown(["Invented one line."], [0]);
+  assert.equal(panel.classList.contains("more"), false, "one line was taken for a long batch");
+  assert.equal(gapOf(panel), false);
+  assert.equal(stopOf(panel), "21px", "the bubble does not stand as tall as its line");
+  assert.equal(cutOf(clip), 21);
+  assert.equal(context.answeredShade(panel), "0", "one line dissolves");
+  panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("open"), false, "one line took a press");
+}));
+
+test("a sent bubble of two lines is shown whole, though the sheet would cut it at one and a half", () => shown(() => {
+  const { context, panel, clip } = sentShown(["Invented line a\nInvented line b"], [0, 21]);
+  assert.equal(Math.round(21 * 1.5), 32, "the sheet's cut is not a line and a half");
+  assert.equal(panel.classList.contains("more"), false, "two lines were taken for a long batch");
+  assert.equal(gapOf(panel), false);
+  assert.equal(stopOf(panel), "42px", "the bubble was not held at the foot of its second line");
+  assert.equal(cutOf(clip), 42, "the second line is cut");
+  assert.equal(context.answeredShade(panel), "0", "two lines dissolve");
+  panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("open"), false, "two lines took a press");
+}));
+
+test("lines are the lines the browser wrapped, not the breaks typed", () => shown(() => {
+  // one paragraph with no break in it, wrapped onto two lines, and then onto three
+  const words = ["Invented words that run on past the width of the bubble and wrap."];
+  const two = sentShown(words, [[0, 21]]);
+  assert.equal(two.panel.classList.contains("more"), false, "two wrapped lines were taken for a long batch");
+  assert.equal(stopOf(two.panel), "42px");
+  assert.equal(cutOf(two.clip), 42);
+  const three = sentShown(words, [[0, 21, 42]]);
+  assert.equal(three.panel.classList.contains("more"), true, "three wrapped lines were shown whole");
+  assert.equal(gapOf(three.panel), false);
+  assert.equal(cutOf(three.clip), 32);
+}));
+
+test("a sent bubble past two lines is cut at one and a half lines and dissolves over the half", () => shown(() => {
+  for (const [what, tops] of [["three lines", [0, 21, 42]], ["six lines", [0, 21, 42, 63, 84, 105]]]) {
+    const texts = tops.map((_, i) => "Invented line " + String.fromCharCode(97 + i));
+    const { context, panel, clip } = sentShown([texts.join("\n")], tops);
+    assert.equal(panel.classList.contains("more"), true, `${what}: the text past the cut was not marked`);
+    assert.equal(gapOf(panel), false, `${what}: the cut was deepened`);
+    assert.equal(stopOf(panel), "", `${what}: the cut was stopped short`);
+    assert.equal(cutOf(clip), 32, `${what}: the cut is not a line and a half`);
+    assert.equal(context.answeredShade(panel), "1", `${what}: the cut does not dissolve`);
+    assert.equal(context.fitAnswered(panel), false, `${what}: a second look changed the bubble`);
+  }
+}));
+
+test("a sent bubble whose second line is blank is cut at two and a half lines", () => shown(() => {
+  // a paragraph break after the first line: the second line is the air between
+  const { context, panel, clip } = sentShown(["Invented line a\n\nInvented line c"], [0, 42]);
+  assert.equal(panel.classList.contains("more"), true, "the third line was not marked as past the cut");
+  assert.equal(gapOf(panel), true, "a blank second line did not deepen the cut");
+  assert.equal(stopOf(panel), "", "the deeper cut was stopped short");
+  assert.equal(cutOf(clip), 53, "the cut is not two and a half lines");
+  assert.equal(context.answeredShade(panel), "1", "the deeper cut does not dissolve");
+  assert.equal(context.fitAnswered(panel), false, "a second look changed the bubble");
+}));
+
+test("two messages joined by their blank line are cut at two and a half lines, however short", () => shown(() => {
+  const { context, panel, clip } = sentShown(["Invented message one.", "Invented message two."], [0, 42]);
+  assert.equal(blocks(panel).length, 2, "the two messages are not two blocks in one bubble");
+  assert.equal(panel.classList.contains("more"), true, "two short messages still read whole");
+  assert.equal(gapOf(panel), true);
+  assert.equal(cutOf(clip), 53);
+  assert.equal(context.answeredShade(panel), "1");
+  // and opened, it is the whole of both; cut back, it returns to two and a half lines
+  panel.querySelector(".answclip").scrollHeight = 63;
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  assert.deepEqual(clip.style.heights, ["53px", "63px", "63px", "53px"], "the fold did not run between the cut and the whole");
+  assert.equal(cutOf(clip), 53, "the cut back bubble lost its deeper cut");
+}));
+
+test("a second line with words on it keeps the cut at one and a half lines, in one message or two", () => shown(() => {
+  const one = sentShown(["Invented line a\nInvented line b\n\nInvented line d"], [0, 21, 63]);
+  assert.equal(gapOf(one.panel), false);
+  assert.equal(cutOf(one.clip), 32);
+  const two = sentShown(["Invented a\nInvented b", "Invented c"], [0, 21, 63]);
+  assert.equal(gapOf(two.panel), false, "a first message of two lines was taken for a blank second line");
+  assert.equal(cutOf(two.clip), 32);
+  assert.equal(two.panel.classList.contains("more"), true);
+  // a picture under the first line stands across the second
+  const pic = sentShown(["Invented line a", "Invented caption"], [0, null]);
+  const img = element("img");
+  img.rect = { top: 21, bottom: 121 };
+  pic.panel.querySelectorAll(".answmsg")[1].appendChild(img);
+  pic.context.fitAnswered(pic.panel);
+  assert.equal(gapOf(pic.panel), false, "a picture on the second line was taken for blank");
+}));
+
+test("the cut that lands in blank still stops at the last line with text, on a blank second line too", () => shown(() => {
+  // a, a blank line, another blank line's worth of air, then the next words
+  const { panel, clip } = sentShown(["Invented line a\n\n\nInvented line d"], [0, 63]);
+  assert.equal(gapOf(panel), true);
+  assert.equal(panel.classList.contains("more"), true);
+  assert.equal(stopOf(panel), "21px", "the cut in blank did not stop at the foot of the line with text");
+  assert.equal(cutOf(clip), 21);
+}));
+
+test("the cut follows the words: a message coming into a bubble fits it again, and one not laid out keeps its cut", () => shown(() => {
+  const { context, el, panel, clip, lay } = sentShown(["Invented line a"], [0]);
+  assert.equal(panel.classList.contains("more"), false);
+  assert.equal(gapOf(panel), false, "a bubble of one line has a blank second line");
+  assert.equal(cutOf(clip), 21);
+  // a second message comes into the bubble, a blank line under the first: the
+  // bubble is cut now, and at two and a half lines
+  lay([0, 42]);
+  context.syncSent(el, context.sentBatch(["Invented line a", "Invented line c"]));
+  assert.equal(el.sent, panel, "the message did not come into the bubble");
+  assert.equal(panel.classList.contains("more"), true, "the bubble was not cut for the message");
+  assert.equal(gapOf(panel), true);
+  assert.equal(cutOf(clip), 53);
+  // a bubble that is not laid out (its seat hidden) measures nothing and says nothing
+  sheetLine = 0;
+  assert.equal(context.fitAnswered(panel), false, "a bubble not laid out said it had changed");
+  assert.equal(gapOf(panel), true, "a bubble not laid out lost its deeper cut");
+  sheetLine = 21;
+  // and a first message of two lines, shown whole, which a second message cuts
+  // at a line and a half, its own second line having words on it
+  const two = sentShown(["Invented line a\nInvented line b"], [0, 21]);
+  assert.equal(two.panel.classList.contains("more"), false);
+  assert.equal(cutOf(two.clip), 42);
+  two.lay([0, 21, 63]);
+  two.context.syncSent(two.el, two.context.sentBatch(["Invented line a\nInvented line b", "Invented line c"]));
+  assert.equal(two.el.sent, two.panel, "the message did not come into the bubble");
+  assert.equal(two.panel.classList.contains("more"), true);
+  assert.equal(gapOf(two.panel), false, "a second line with words on it deepened the cut");
+  assert.equal(cutOf(two.clip), 32);
+}));
+
+test("the phone's line is not a whole number of points, and the cut still stands where it should", () => shown(() => {
+  const line = 21 * .9;
+  const lines = n => Array.from({ length: n }, (_, i) => i * line);
+  // three lines: the cut shows exactly half of the second, which still counts
+  const three = sentShown(["Invented a\nInvented b\nInvented c"], lines(3), { line });
+  assert.equal(three.panel.classList.contains("more"), true);
+  assert.equal(stopOf(three.panel), "", "half a line showing was taken for under half (cut " + cutOf(three.clip) + ")");
+  assert.equal(cutOf(three.clip), Math.round(line * 1.5));
+  // a blank second line: the cut shows half of the third
+  const gap = sentShown(["Invented a\n\nInvented c"], [0, 2 * line], { line });
+  assert.equal(gapOf(gap.panel), true);
+  assert.equal(stopOf(gap.panel), "", "half a line showing was taken for under half (cut " + cutOf(gap.clip) + ")");
+  assert.equal(cutOf(gap.clip), Math.round(line * 2.5));
+  // two lines still whole
+  const two = sentShown(["Invented a\nInvented b"], lines(2), { line });
+  assert.equal(two.panel.classList.contains("more"), false);
+  assert.equal(stopOf(two.panel), String(Math.round(2 * line * 100) / 100) + "px");
+}));
+
+test("a send is measured as it is drawn, so it lands on the preview it will keep", () => shown(() => {
+  for (const [what, words, tops, cut, gap, more] of [
+    ["one line", ["Invented one."], [0], 21, false, false],
+    ["two lines", ["Invented a\nInvented b"], [0, 21], 42, false, false],
+    ["three lines", ["Invented a\nInvented b\nInvented c"], [0, 21, 42], 32, false, true],
+    ["a blank second line", ["Invented a\n\nInvented c"], [0, 42], 53, true, true],
+  ]) {
+    // the bubble has not been looked at again since the send drew it
+    const { context, panel, clip } = sentShown(words, tops, { arrive: true });
+    assert.equal(panel.classList.contains("arrive"), true, `${what}: the send did not come in as a send`);
+    assert.equal(panel.classList.contains("more"), more, `${what}: the bubble was drawn before it was fitted`);
+    assert.equal(gapOf(panel), gap, `${what}: the bubble was drawn before it was fitted`);
+    assert.equal(cutOf(clip), cut, `${what}: the landing height is not the preview's`);
+    // looking again changes nothing, so nothing moves after the landing
+    assert.equal(context.fitAnswered(panel), false, `${what}: the bubble moved after it landed`);
+    assert.equal(cutOf(clip), cut);
+  }
+  // a send standing in a bubble of its own beside the bubble before it, each of
+  // one line and whole, and the two coming together: the joined bubble is fitted
+  // as it is joined, to two and a half lines
+  const { context, el, panel, clip } = sentShown(["Invented first."], [0, 42]);
+  context.syncSent(el, [{ text: "Invented first." }, { text: "Invented second.", stage: "local" }], true);
+  const [a, b] = context.sentPanels(el);
+  assert.equal(a, panel);
+  assert.ok(b && b !== a, "the send has no bubble of its own");
+  assert.equal(cutOf(a.querySelector(".answclip")), 21, "a bubble of one line was cut");
+  assert.equal(cutOf(b.querySelector(".answclip")), 21, "a send of one line was cut");
+  context.sentJoin(el, a, b);
+  assert.equal(context.sentPanels(el).length, 1, "the two bubbles did not become one");
+  assert.equal(context.sentPanels(el)[0], a);
+  assert.equal(gapOf(a), true, "the joined bubble was not fitted as it joined");
+  assert.equal(a.classList.contains("more"), true);
+  assert.equal(cutOf(clip), 53, "the joined bubble does not stand at two and a half lines");
+  // and the same two when they are on screen together at once, as a reading of
+  // the board brings them: the one bubble is fitted as it is drawn
+  const read = sentShown(["Invented first.", "Invented second."], [0, 42]);
+  assert.equal(read.context.sentPanels(read.el).length, 1, "a reading of two messages drew two bubbles");
+  assert.equal(cutOf(read.clip), 53);
+}));
+
 test("a line of text through the cut keeps the cut, and so does a picture", () => {
   const { context } = sandbox();
   const el = card("c1");
@@ -906,10 +1144,13 @@ test("the sheet draws one grey panel with no frame, a blank line between message
   assert.ok(!/border:|box-shadow|outline/.test(panel), "the panel wears a frame or a shade");
   assert.match(rule(TOKENS, ".answclip"), /max-height:var\(--answ-stop, var\(--sent-peek, var\(--answ-peek\)\)\); overflow:hidden/,
     "the cut does not take the script's stop before the sent panel's preview and the surface's own");
-  // the sent panel's preview is one line deeper than the panel over the answer,
-  // on every surface, so two one-line messages in one bubble read whole
-  assert.ok(rules(TOKENS, ".answered.sent").some(one => /--sent-peek:calc\(var\(--answ-peek\) \+ var\(--answ-line\)\)/.test(one)),
-    "the sent panel's preview is not a line deeper than the surface's");
+  // the sent panel's preview is counted in the surface's own line, on every
+  // surface: one and a half lines dissolving over the half line, and two and a
+  // half when the second line is blank (the script sets .gap)
+  assert.ok(rules(TOKENS, ".answered.sent").some(one => /--sent-peek:calc\(var\(--answ-line\) \* 1\.5\); --answ-fade:calc\(var\(--answ-line\) \* \.5\)/.test(one)),
+    "the sent panel's preview is not one and a half lines dissolving over a half");
+  assert.ok(rules(TOKENS, ".answered.sent.gap").some(one => /--sent-peek:calc\(var\(--answ-line\) \* 2\.5\)/.test(one)),
+    "a sent panel with a blank second line is not cut at two and a half lines");
   assert.ok(!/--sent-peek/.test(DESKTOP + PHONE), "a page sets the sent preview of its own");
   assert.match(rule(TOKENS, ".answered.open .answclip"), /max-height:none/);
   // the dissolve: a strip of the panel's own grey, the surface's own depth,

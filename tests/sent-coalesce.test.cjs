@@ -201,11 +201,12 @@ test("the drops are drawn with a clip path over a plain face, never a blur, filt
   assert.ok(!/accent|432BFF|purple/i.test(sheet + merge), "the merge wears the accent");
 });
 
-test("the sent preview is one line deeper, and the page turn hands it over to the panel behind it with a fade", () => {
-  assert.match(code, /\.answered\.sent\{--sent-peek:calc\(var\(--answ-peek\) \+ var\(--answ-line\)\)\}/);
+test("the sent preview is shallower, and the page turn hands it over to the panel behind it with a fade", () => {
+  assert.match(code, /\.answered\.sent\{--sent-peek:calc\(var\(--answ-line\) \* 1\.5\); --answ-fade:calc\(var\(--answ-line\) \* \.5\)\}/);
+  assert.match(code, /\.answered\.sent\.gap\{--sent-peek:calc\(var\(--answ-line\) \* 2\.5\)\}/);
   assert.match(code, /\.answclip\{position:relative; max-height:var\(--answ-stop, var\(--sent-peek, var\(--answ-peek\)\)\);/);
-  // the surfaces keep their own previews: the phone and the large card 2.75
-  // lines, the small card 1.75, so the sent one is 3.75 and 2.75
+  // the surfaces keep their own previews for the panel over the answer: the
+  // phone and the large card 2.75 lines, the small card 1.75
   assert.match(PHONE, /--answ-peek:calc\(21 \* var\(--u\) \* 2\.75\)/);
   assert.match(DESKTOP, /--answ-peek:calc\(20px \* 2\.75\)/);
   assert.match(DESKTOP, /--answ-peek:calc\(17px \* 1\.75\)/);
