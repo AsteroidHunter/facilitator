@@ -11,7 +11,7 @@ const PAGES = ["blank", "new project"];
 const CARD_KEYS = ["cmd+t", "ctrl+shift+right", "right", "ctrl+shift+up", "escape", "enter", "ctrl+enter",
   "ctrl+r", "ctrl+s", "ctrl+u", "ctrl+shift+]", "]"];
 
-test("the map's 2 pairs: Command + number chooses a project on a blank page and on the new project page", () => {
+test("Command + number chooses a project on a blank page and on the new project page", () => {
   for (const page of PAGES) {
     for (const [digit, owner] of [["1", "one"], ["2", "two"], ["3", "three"]]) {
       const f = macPage({ page });
@@ -27,7 +27,7 @@ test("the map's 2 pairs: Command + number chooses a project on a blank page and 
   }
 });
 
-test("the card keys stay off where there is no card (map: d)", () => {
+test("the card keys stay off where there is no card", () => {
   for (const page of PAGES) {
     for (const key of CARD_KEYS) {
       const f = macPage({ page });
@@ -37,7 +37,7 @@ test("the card keys stay off where there is no card (map: d)", () => {
   }
 });
 
-test("the settings page, a page menu and the delete question keep even the project keys (map: c)", () => {
+test("the settings page, a page menu and the delete question keep even the project keys", () => {
   const over = { settings: { setOpen: true }, "page menu": { pageMenu: {} }, "delete question": { pageWarn: {} } };
   for (const page of ["board", ...PAGES]) {
     for (const [name, state] of Object.entries(over)) {
@@ -50,7 +50,7 @@ test("the settings page, a page menu and the delete question keep even the proje
   }
 });
 
-test("Home is as it was: the project keys and nothing else (map: b)", () => {
+test("Home is as it was: the project keys and nothing else", () => {
   const f = macPage();
   f.ctx.homeOpen = true;
   assert.deepEqual(f.press("board", "cmd+2").calls, ["tab two"]);

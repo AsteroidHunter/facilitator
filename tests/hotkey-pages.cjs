@@ -168,7 +168,7 @@ function card(doc, parent, id) {
   return { el, parts: { title: titleEl, sun, dock, arc, x, histUp, copy, answeredRow, pendRow, ta, reply } };
 }
 
-// the keys the hotkey map pressed, as a browser names them
+// the keys pressed, as a browser names them
 const KEYS = {
   "cmd+t": { key: "t", code: "KeyT", metaKey: true },
   "cmd+2": { key: "2", code: "Digit2", metaKey: true },

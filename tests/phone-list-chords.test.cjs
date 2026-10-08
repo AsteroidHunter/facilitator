@@ -1,8 +1,8 @@
 // With the phone's card list out, a chord the list does not answer itself does
 // what it does with the list shut (the list's keydown listener in m.html hands
-// it to the page's own action table). The hotkey map found five such keys dead
-// there: Command + T, Control + Shift + up and down, Control + Enter, Control + R
-// and Control + U. The list's own keys, its plain keys and the settings drawer
+// it to the page's own action table). Five such keys used to do nothing there:
+// Command + T, Control + Shift + up and down, Control + Enter, Control + R and
+// Control + U. The list's own keys, its plain keys and the settings drawer
 // are as they were. The page's real listeners run in a VM (hotkey-pages.cjs);
 // no browser.
 const assert = require("node:assert/strict");
@@ -17,7 +17,7 @@ const FIXED = [
   ["ctrl+u", ["fetch /testing?box=c1 POST"]],
 ];
 
-test("the map's 5 card list pairs now do what they do with the list shut, once", () => {
+test("the five chords the list has no entry for do what they do with the list shut, once", () => {
   for (const place of ["card list", "card list button"]) {
     for (const [key, want] of FIXED) {
       const f = phonePage();
@@ -61,7 +61,7 @@ test("the list's own keys answer as they did", () => {
   }
 });
 
-test("plain left, right and the bracket keys still do not reach the card with the list out (map: g)", () => {
+test("plain left, right and the bracket keys still do not reach the card with the list out", () => {
   for (const key of ["right", "]"]) {
     const f = phonePage();
     const { e, calls } = f.press("card list", key);
@@ -70,7 +70,7 @@ test("plain left, right and the bracket keys still do not reach the card with th
   }
 });
 
-test("the settings drawer keeps every key, the five included (map: c)", () => {
+test("the settings drawer keeps every key, the five included", () => {
   for (const place of ["settings", "settings field"]) {
     for (const key of ["cmd+t", "ctrl+shift+up", "ctrl+enter", "ctrl+r", "ctrl+u", "cmd+2", "ctrl+shift+]", "ctrl+s"]) {
       const f = phonePage();
@@ -80,7 +80,7 @@ test("the settings drawer keeps every key, the five included (map: c)", () => {
   }
 });
 
-test("the home page has no card list and keeps the card keys off (map: b)", () => {
+test("the home page has no card list and keeps the card keys off", () => {
   for (const key of ["cmd+t", "ctrl+shift+up", "ctrl+enter", "ctrl+r", "ctrl+u"]) {
     const f = phonePage();
     assert.deepEqual(f.press("home", key).calls, [], key);
