@@ -269,11 +269,13 @@ test("control+u unfolds the selected card only while it wears the fold, from whe
   const unfoldSelected = logic("unfoldSelected");
   const body = { closest: () => null };
   const ta = { tagName: "TEXTAREA", closest: sel => (sel === ".cm-editor" ? null : ta) };
-  const title = { tagName: "INPUT", closest: sel => (sel === ".cm-editor" ? null : title) };
-  const el = { ta };
+  // the card's own title while it is renamed, and a field of another panel
+  const title = { tagName: "SPAN", closest: sel => (sel === ".cm-editor" ? null : title), contains: n => n === title };
+  const field = { tagName: "INPUT", closest: sel => (sel === ".cm-editor" ? null : field) };
+  const el = { ta, titleEl: title };
   const press = target => ({ target, prevented: false, preventDefault() { this.prevented = true; } });
   sandbox.lastState = { boxes: [card(), card({ id: "m2", testing: false })] };
-  for (const [target, where] of [[body, "the board"], [ta, "the card's own composer"]]) {
+  for (const [target, where] of [[body, "the board"], [ta, "the card's own composer"], [title, "the card's own title"]]) {
     calls.length = 0;
     const e = press(target);
     assert.equal(unfoldSelected(e, "m1", el), true, `control+u from ${where} did nothing`);
@@ -282,7 +284,7 @@ test("control+u unfolds the selected card only while it wears the fold, from whe
     assert.deepEqual(asked(), ["/testing?box=m1&v=0 POST"]);
   }
   calls.length = 0;
-  for (const [e, id, why] of [[press(title), "m1", "from a title being renamed"], [press(body), "m2", "on a card with no fold"],
+  for (const [e, id, why] of [[press(field), "m1", "from another panel's field"], [press(body), "m2", "on a card with no fold"],
     [press(body), null, "with no card selected"], [press(body), "gone", "on a card the board no longer has"]]) {
     assert.equal(unfoldSelected(e, id, el), false, `control+u acted ${why}`);
     assert.equal(e.prevented, false, `control+u was cancelled ${why}`);

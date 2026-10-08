@@ -317,8 +317,9 @@ test("dispatch hands each section key to its own action with the section", async
 });
 
 // the typing rule the pages apply: the chord from the card's own composer in
-// either shape and from anywhere nothing is typed; never from a title or
-// another field. the keys alone only where nothing is typed at all
+// either shape, its own title being renamed and anywhere nothing is typed;
+// never from another card's title or another field. the keys alone only where
+// nothing is typed at all
 function tree() {
   const node = (parent, flags = {}) => ({
     parent, ...flags,
@@ -341,10 +342,11 @@ function tree() {
   const otherCm = node(body, { cm: true });
   const otherContent = node(otherCm, { field: true });
   const button = node(card);
-  return { body, title, content, ta, plainTa, other, otherContent, button, el: { ta } };
+  const otherTitle = node(node(body), { field: true });
+  return { body, title, content, ta, plainTa, other, otherContent, otherTitle, button, el: { ta, titleEl: title } };
 }
 
-test("the chord comes from the card's composer or from no field; the keys alone from no field only", async () => {
+test("the chord comes from the card's composer, its own title or no field; the keys alone from no field only", async () => {
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const context = vm.createContext({ Date, setTimeout, clearTimeout, setInterval, clearInterval });
   vm.runInContext(source, context, { filename: "card-logic.js" });
@@ -356,8 +358,12 @@ test("the chord comes from the card's composer or from no field; the keys alone 
   assert.equal(chordFrom(t.ta, t.el), true);
   // the plain composer is the card's textarea itself
   assert.equal(chordFrom(t.plainTa, { ta: t.plainTa }), true);
+  // the card's own title while it is renamed, as its composer
+  assert.equal(chordFrom(t.title, t.el), true);
   for (const target of [t.body, t.button, null]) assert.equal(chordFrom(target, t.el), true);
-  for (const target of [t.title, t.other, t.otherContent]) assert.equal(chordFrom(target, t.el), false);
+  for (const target of [t.otherTitle, t.other, t.otherContent]) assert.equal(chordFrom(target, t.el), false);
+  // a card that names no title of its own takes the chord from no title
+  assert.equal(chordFrom(t.title, { ta: t.ta }), false);
   assert.equal(chordFrom(t.content, null), false);
   // the keys alone: the page's typing check refuses every field and the composer
   for (const target of [t.content, t.ta, t.plainTa, t.title, t.other, t.otherContent]) assert.equal(editing(target), true);

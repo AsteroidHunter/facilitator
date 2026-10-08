@@ -75,7 +75,7 @@ function phone({ view = 'todo', drawer = true, menu = drawer ? 'tickets' : null 
     getComputedStyle: () => ({ transform: 'matrix(1, 0, 0, 1, 0, 0)' }),
     fetch: () => new Promise(() => {}), poll() {},
     tickets: nodes.tickets, homeOpen: false, phoneDeveloperMode: false,
-    activeOwner: 'lane', selectedId: 'c1', els: { c1: { ta: targets.ta } }, lastState: { boxes: [] },
+    activeOwner: 'lane', selectedId: 'c1', els: { c1: { ta: targets.ta, titleEl: targets.title } }, lastState: { boxes: [] },
     drawerOpen: () => state.drawer, menuOut: () => state.menu,
     addEventListener: (type, fn) => { if (type === 'keydown') listeners.push(fn); },
   });
@@ -308,17 +308,17 @@ test('with the settings out, or the home page up, the keys do not move the list 
 });
 
 // ---- typing --------------------------------------------------------------------
-test('typing: the card\'s own box and anywhere nothing is typed take the keys; a title or another field keeps them', () => {
+test('typing: the card\'s own box, its own title and anywhere nothing is typed take the keys; another field keeps them', () => {
   for (const key of ['quote', 'semicolon']) {
     for (const start of ['docked', 'deferred']) {
       const target = VIEWS[VIEWS.indexOf(start) + (key === 'quote' ? 1 : -1)];
-      for (const from of ['ta', 'content', 'body', 'button']) {
+      for (const from of ['ta', 'content', 'title', 'body', 'button']) {
         const f = phone({ view: start });
         const e = f.press(f[key], {}, f.targets[from]);
         assert.equal(f.view(), target, `${key} from ${from}`);
         assert.equal(e.defaultPrevented, true);
       }
-      for (const from of ['title', 'other']) {
+      for (const from of ['other']) {
         const f = phone({ view: start }), before = f.snapshot();
         const e = f.press(f[key], {}, f.targets[from]);
         assert.equal(e.defaultPrevented, false, `${from} keeps the key`);
