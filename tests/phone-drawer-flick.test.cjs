@@ -40,7 +40,7 @@ function fixture({ open = null, width = 300, mouse = false } = {}) {
     closeDrawer: () => runMenu(tickets, 0),
     menuTravel: () => width,
     menuSign: p => p === tickets ? 1 : -1,
-    dismissEditor() {}, closeProjects() {}, tracePhone() {},
+    dismissEditor() {}, closeProjects() {}, tracePhone() {}, stopList() {},
     paintMenu: (p, at) => paints.push({ side: p.dataset.side, at }),
     runMenu,
   });
