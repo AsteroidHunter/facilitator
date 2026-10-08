@@ -66,7 +66,8 @@ test("the lens turns between a name's corner and the circle over the width's own
   const script = sheet.slice(sheet.indexOf("function placeSeat("));
   assert.match(script, /el\.classList\.toggle\("round", owner === HOME_SEAT\)/);
   assert.match(script, /el\.classList\.toggle\("round", onHouse\)/);
-  assert.match(script, /el\.classList\.remove\("round"\)/);
+  // and a drag takes it off on a name and keeps it on the house it was lifted from
+  assert.match(script, /el\.classList\.toggle\("round", t\.onHouse\)/);
 });
 
 test("a lens of any width is a box with 7px corners to the rim's map and the clean middle", () => {

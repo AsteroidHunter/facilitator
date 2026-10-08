@@ -299,7 +299,9 @@ test("Home: its circle is never joined; a click on a name or on the house sets t
   assert.equal(g.seat.el.classList.contains("still"), false, "a drag's release onto the house still slides");
   const h = run(g, 1500);
   assert.equal(g.context.homeOpen, true); assert.ok(h.every(r => r.kind !== "join")); assert.equal(joint(g).tau, 0);
-  assert.equal(g.homeButton.listeners.mousedown, undefined, "Home gained no gesture");
+  // the house only lifts the lens while Home is open: closed, a press on it starts nothing
+  const shut = fixture(); shut.downHome();
+  assert.equal(shut.context.tabDrag, null, "a press on the house started a drag with Home closed");
 });
 
 test("with reduced motion the joint is simply there, or not, where the lens stands", () => {

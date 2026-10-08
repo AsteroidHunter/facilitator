@@ -450,7 +450,9 @@ test("Home and projects use the same lens, with a 32px circle at Home and a caps
   assert.equal(f.get("getComputedStyle(tabSeat.face).borderTopLeftRadius"), "7px");
   assert.equal(face.lens.map, f.context.lensMap(140, 7)); assert.equal(face.lens.mask, f.context.lensCenterMask(140, 7));
   assertCopyPosition(f, f.house);
-  assert.equal(f.homeButton.listeners.mousedown, undefined, "Home gained a project drag/reorder gesture");
+  // the house has one press, which lifts the lens (see "a drag from the house"); it has no reorder or tear-out
+  assert.equal(f.homeButton.listeners.mousedown.length, 1, "Home gained more than the lens lift");
+  assert.equal(f.homeButton.listeners.dragstart, undefined, "Home gained a native drag");
 });
 
 test("the Home center mirrors its existing SVG as an inert vector without IDs or handlers", () => {

@@ -113,13 +113,16 @@ test('the slide redirects from its live position and reduced motion cancels trav
   assert.equal(cancelled, 1); assert.equal(nodes.tiksheet.style.transform, 'translateX(-100%)');
 });
 
-test('glass triangle has only its own hit area, mark size, edge tangent, centred row, and mirrored return', () => {
+test('glass triangle has a square hit area, mark size, edge tangent, centred row, and mirrored return', () => {
   const css = source('card-tokens.css');
   const rule = /#tikhead \.tik-page\{([^}]+)\}/.exec(css)?.[1]; assert.ok(rule);
-  for (const part of ['right:0; left:auto', 'width:var(--bar-mark); height:var(--bar-mark)',
-    'padding:0; margin:0; border:0', 'clip-path:polygon(0 0, 100% 50%, 0 100%)',
+  for (const part of ['right:calc((var(--bar-mark) - var(--bar-sq)) / 2); left:auto', 'width:var(--bar-sq); height:var(--bar-sq)',
+    'padding:0; margin:0; border:0',
     'top:calc(50% + 3 * var(--u))', 'transform:translateY(-50%)', '--qn-face:rgba(30,30,30,.77)']) assert.ok(rule.includes(part), part);
-  assert.match(css, /#tikhead \.tik-page\.back\{left:0; right:auto; transform:translateY\(-50%\) scaleX\(-1\)\}/);
+  assert.doesNotMatch(rule, /clip-path/);
+  const triangle = /#tikhead \.tik-page::after\{([^}]+)\}/.exec(css)?.[1]; assert.ok(triangle);
+  for (const part of ['width:var(--bar-mark); height:var(--bar-mark)', 'clip-path:polygon(0 0, 100% 50%, 0 100%)']) assert.ok(triangle.includes(part), part);
+  assert.match(css, /#tikhead \.tik-page\.back\{left:calc\(\(var\(--bar-mark\) - var\(--bar-sq\)\) \/ 2\); right:auto; transform:translateY\(-50%\) scaleX\(-1\)\}/);
   assert.match(css, /#tiknames\{[^}]*overflow:clip/);
   assert.match(css, /\.qn-glass\{[^}]*background-image:var\(--qn-light\);[^}]*backdrop-filter:blur\(var\(--qn-blur\)\)/);
   assert.doesNotMatch(rule, /--accent|432BFF|purple/i);

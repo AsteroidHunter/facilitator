@@ -63,6 +63,7 @@ function geometry(page, viewport, width, edge) {
   const holder = declarations(pageSource, page === 'index.html' ? 'body.focus #tickets' : '#tickets');
   const vars = { '--u': page === 'index.html' ? '1px' : '.985px', '--ch': '900px',
     '--edge-drawn': edge + 'px', '--bar-mark': page === 'index.html' ? '10px' : '9.85px',
+    '--bar-sq': page === 'index.html' ? '24px' : 'calc(28 * var(--u))',
     ...Object.fromEntries(Object.entries(holder).filter(([key]) => key.startsWith('--'))),
     ...Object.fromEntries(Object.entries(declarations(pageSource, '#tiklist')).filter(([key]) => key.startsWith('--'))),
   };
@@ -75,16 +76,22 @@ function geometry(page, viewport, width, edge) {
   const headLeft = margin[3], headRight = width - margin[1], headWidth = headRight - headLeft;
   const arrow = { ...declarations(css, '#tikhead #tik-page'), ...declarations(css, '#tikhead .tik-page') };
   const back = { ...arrow, ...declarations(css, '#tikhead #tik-page.back'), ...declarations(css, '#tikhead .tik-page.back') };
-  const w = px(arrow.width), h = px(arrow.height);
-  const right = headRight - px(arrow.right), left = headLeft + px(back.left);
+  // The button is a square of --bar-sq and the triangle is a --bar-mark box
+  // centred in it (::after), so the square reaches past the box by `lean` on
+  // each side; the box's outer edge is the tip's.
+  const triangle = declarations(css, '#tikhead .tik-page::after');
+  const square = px(arrow.width), h = px(arrow.height), w = px(triangle.width);
+  assert.equal(px(triangle.height), w); assert.equal(square, h);
+  const lean = (square - w) / 2;
+  const right = headRight - px(arrow.right) - lean, left = headLeft + px(back.left) + lean;
   // The polygon's pointing vertex is at (w, h/2); scaleX(-1) mirrors it
   // around the centre of the left button, placing its pointing vertex at 0.
-  assert.equal(arrow['clip-path'], 'polygon(0 0, 100% 50%, 0 100%)');
+  assert.equal(triangle['clip-path'], 'polygon(0 0, 100% 50%, 0 100%)');
   assert.equal(back.transform, 'translateY(-50%) scaleX(-1)');
   const nameMargin = sides(declarations(css, '#tiknames').margin).map(v => px(v, headWidth));
   const topPad = px(sides(head.padding)[0]), nameHeight = 29 * px('var(--u)');
   const centre = px(arrow.top, topPad + nameHeight); // translateY(-h/2) cancels the tip's h/2
-  return { row, left, right, w, h, centre, nameCentre: topPad + nameHeight / 2,
+  return { row, left, right, w, h, square, lean, centre, nameCentre: topPad + nameHeight / 2,
     names: { left: headLeft + nameMargin[3], right: headRight - nameMargin[1] } };
 }
 function element() {
@@ -144,8 +151,9 @@ for (const page of ['index.html', 'm.html']) {
         assert.ok(Math.abs(g[direction] - g.row[direction]) < 1e-9,
           `${direction} tip ${g[direction]} must meet ticket ${direction} ${g.row[direction]} at viewport ${viewport}`);
         assert.ok(g.right - g.w >= g.row.left && g.left + g.w <= g.row.right);
-        assert.ok(g.names.left >= g.left + g.w && g.names.right <= g.right - g.w);
-        const inset = Math.max((g.row.right - g.row.left) * .1, g.w);
+        // the names stay clear of the whole square, not only of the triangle
+        assert.ok(g.names.left >= g.left + g.w + g.lean && g.names.right <= g.right - g.w - g.lean);
+        const inset = Math.max((g.row.right - g.row.left) * .1, g.w + g.lean);
         assert.ok(Math.abs(g.names.left - g.row.left - inset) < 1e-9);
         assert.ok(Math.abs(g.row.right - g.names.right - inset) < 1e-9);
         assert.ok(Math.abs(g.centre - g.nameCentre) < 1e-9);
@@ -199,16 +207,20 @@ for (const page of ['index.html', 'm.html']) {
     assert.equal((markup.match(/class="tikpair"/g) || []).length, 2);
     assert.match(markup, /<\/div><\/div><\/div><button id="tik-page-back"/);
     const names = rule(css, '#tiknames'), pair = rule(css, '#tiklabels .tikpair');
-    assert.equal(names.margin, '0 max(10%, var(--bar-mark))');
+    // clear of each arrow's whole square: the triangle's box and half the square's overhang
+    assert.equal(names.margin, '0 max(10%, calc((var(--bar-mark) + var(--bar-sq)) / 2))');
     assert.equal(names.overflow, 'clip'); assert.equal(names['min-width'], '0');
     assert.equal(pair.flex, '0 0 100%');
     assert.equal(rule(css, '#tikhead .tvb')['min-width'], '0');
-    const mark = page === 'index.html' ? 10 : 9.85;
+    const mark = page === 'index.html' ? 10 : 9.85, square = page === 'index.html' ? 24 : 28 * .985;
+    const reach = (mark + square) / 2;
     for (const width of [100, 180, 289, 320, 390, 640, 1440]) {
-      const inset = Math.max(width * .1, mark);
-      assert.ok(Math.abs(width - 2 * inset - width * .8) < 1e-9);
-      assert.ok(inset >= mark && width - inset <= width - mark);
+      const inset = Math.max(width * .1, reach);
+      assert.ok(inset >= reach && width - inset <= width - reach);
+      if (width * .1 >= reach) assert.ok(Math.abs(width - 2 * inset - width * .8) < 1e-9);
     }
+    // at the widths the list is drawn at, the middle 80 percent is what it was
+    for (const width of [289, 320, 390, 640, 1440]) assert.equal(Math.max(width * .1, reach), width * .1);
     assert.match(rule(css, '#tiklabels').transition, /transform \.24s var\(--gentle\)/);
     assert.match(css, /prefers-reduced-motion: reduce\)\{#tiklabels\{transition:none\}/);
   });
@@ -289,17 +301,24 @@ test('inactive arrows reuse the sun fade and cursor, with no hover or press feed
   assert.match(between(source('card-logic.js'), 'function slideTicketNames(', 'const TICKET_VIEW_KEY'), /if \(chipOff\(arrow\)\) return;/);
 });
 
-test('the triangle has a native-free mark-sized box on Mac and inherits the same scaled mark as the phone sun and moon', () => {
-  const arrow = rule(css, '#tikhead .tik-page');
+test('the arrow is a native-free square of --bar-sq with a mark-sized triangle that inherits the same scaled mark as the phone sun and moon', () => {
+  const arrow = rule(css, '#tikhead .tik-page'), triangle = rule(css, '#tikhead .tik-page::after');
   assert.equal(arrow.appearance, 'none', 'Mac native button drawing must not alter the triangle');
   assert.equal(arrow['-webkit-appearance'], 'none'); assert.equal(arrow['box-sizing'], 'border-box');
-  assert.equal(arrow.width, 'var(--bar-mark)'); assert.equal(arrow.height, 'var(--bar-mark)');
+  // the press area: a square like every control on the top row, with no clip cutting it down
+  assert.equal(arrow.width, 'var(--bar-sq)'); assert.equal(arrow.height, 'var(--bar-sq)');
   for (const key of ['padding', 'margin', 'border', 'border-radius', 'min-width', 'min-height']) assert.equal(arrow[key], '0');
-  assert.equal(arrow['clip-path'], 'polygon(0 0, 100% 50%, 0 100%)');
-  assert.equal(arrow.right, '0'); assert.equal(arrow.left, 'auto');
+  assert.equal(arrow['clip-path'], undefined, 'a clip path would cut the hit area to the triangle');
+  assert.equal(arrow.right, 'calc((var(--bar-mark) - var(--bar-sq)) / 2)'); assert.equal(arrow.left, 'auto');
   assert.equal(arrow.top, 'calc(50% + 3 * var(--u))'); assert.equal(arrow.transform, 'translateY(-50%)');
+  // the triangle: the mark's box, centred in the square
+  assert.equal(triangle.width, 'var(--bar-mark)'); assert.equal(triangle.height, 'var(--bar-mark)');
+  assert.equal(triangle['clip-path'], 'polygon(0 0, 100% 50%, 0 100%)');
+  assert.equal(triangle.left, '50%'); assert.equal(triangle.top, '50%');
+  assert.equal(triangle.margin, 'calc(var(--bar-mark) / -2) 0 0 calc(var(--bar-mark) / -2)');
   const back = rule(css, '#tikhead .tik-page.back');
-  assert.equal(back.left, '0'); assert.equal(back.right, 'auto'); assert.equal(back.transform, 'translateY(-50%) scaleX(-1)');
+  assert.equal(back.left, 'calc((var(--bar-mark) - var(--bar-sq)) / 2)'); assert.equal(back.right, 'auto');
+  assert.equal(back.transform, 'translateY(-50%) scaleX(-1)');
   const mark = Number(/--bar-mark:([\d.]+)px/.exec(css)[1]); assert.equal(mark, 10);
   assert.match(source('index.html'), /svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
   assert.match(html, /--full-bar-mark:var\(--bar-mark\)/);
