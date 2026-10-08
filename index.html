@@ -4747,6 +4747,19 @@ function beginTabDrag(el, ow, e){
     horizontal: el.classList.contains("armed") ? "reorder" : "select" };
   if (tabArm) clearTimeout(tabArm.timer);
 }
+// the house holds the lens while Home is open, and the lens is taken off it as
+// it is taken off a name: pressed on the house and carried sideways, it leaves
+// as a name's lens and a release over a project opens that project. the house
+// has no reorder and no tear-out, so a first pull downward does nothing
+document.getElementById("homeico").addEventListener("mousedown", e => {
+  if (e.button !== 0 || !homeOpen || LOCKED || tabGlide) return;
+  beginTabDrag(document.getElementById("homeico"), null, e);
+  tabDrag.home = true;
+});
+// a drag that began on the house is not a click on it, even if it ends there
+document.getElementById("homeico").addEventListener("click", e => {
+  if (tabDrag?.home && tabDrag.mode === "selected") e.stopImmediatePropagation();
+});
 function shutTabBands(){
   const all = [...document.querySelectorAll("#tabbar .ptab")];
   for (const el of all){ el.style.transition = "none"; el.classList.remove("armed"); }
@@ -4754,14 +4767,15 @@ function shutTabBands(){
   for (const el of all) el.style.transition = "";
 }
 function startTabSelection(){
-  const t = tabDrag, oval = t.el.parentNode;
+  const t = tabDrag;
   shutTabBands();
   const r = t.el.getBoundingClientRect();
   if (!r.width || !t.el.isConnected){ tabDrag = null; return; }
   placeSeat();
   t.mode = "select";
-  t.tabs = [...oval.querySelectorAll(".ptab:not(.draft)")].filter(el => el.getBoundingClientRect().width);
+  t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")].filter(el => el.getBoundingClientRect().width);
   t.rects = t.tabs.map(el => el.getBoundingClientRect());
+  if (!t.rects.length){ tabDrag = null; return; }
   const rowLeft = tabSeat.el.parentNode.getBoundingClientRect().left;
   t.left = r.left - rowLeft;
   t.source = r;
@@ -4770,10 +4784,11 @@ function startTabSelection(){
   const house = document.getElementById("homeico").getBoundingClientRect();
   t.house = house.width ? house : null;
   t.houseLeft = t.house ? t.house.left - rowLeft : 0;
-  t.onHouse = false;
+  // a drag from a name starts off the house; one from the house starts on it
+  t.onHouse = !!t.home;
   const el = tabSeat.el;
   el.classList.add("still", "carried"); el.classList.remove("gone");
-  el.classList.remove("round");   // the name's own lens, whatever the seat wore on Home
+  el.classList.toggle("round", t.onHouse);   // a name's own lens, whatever the seat wore on Home
   el.style.transition = "none";
   el.style.translate = "";
   el.style.width = r.width + "px";
@@ -4782,18 +4797,35 @@ function startTabSelection(){
 function tabHit(r, e){
   return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY <= r.bottom;
 }
+// the name nearest an x: the one it is over or, between the house and the
+// names, the first
+function nearestTab(rects, x){
+  let near = rects[0], gap = Infinity;
+  for (const r of rects){
+    const d = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+    if (d < gap){ gap = d; near = r; }
+  }
+  return near;
+}
 function moveTabSelection(e){
   const t = tabDrag, first = t.rects[0], last = t.rects[t.rects.length - 1];
-  const source = t.source, el = tabSeat.el;
+  const el = tabSeat.el;
   // over the house the lens takes Home's circle, the shape a click on Home
   // gives; a release here opens Home. off it the name lens is shown again
   const onHouse = !!t.house && tabHit(t.house, e);
   if (onHouse !== t.onHouse){
     t.onHouse = onHouse;
-    el.style.width = (onHouse ? t.house.width : source.width) + "px";
+    // a lens taken off the house has no name of its own to wear: it is the
+    // width of the name nearest the pointer as it leaves, held until it is back
+    if (t.home && !onHouse){
+      const w = nearestTab(t.rects, e.clientX).width;
+      t.source = { left: t.house.left, right: t.house.left + w, width: w };
+    }
+    el.style.width = (onHouse ? t.house.width : t.source.width) + "px";
     el.classList.toggle("round", onHouse);   // the circle with the width, the name's corners with its
   }
   if (onHouse){ el.style.transform = "translateX(" + t.houseLeft + "px)"; return; }
+  const source = t.source;
   const dx = Math.max(first.left - source.left, Math.min(last.right - source.right, e.clientX - t.x));
   el.style.transform = "translateX(" + (t.left + dx) + "px)";
 }
@@ -4835,7 +4867,8 @@ addEventListener("mousemove", e => {
     if (Math.abs(dx) > Math.abs(dy)){
       if (tabDrag.horizontal === "reorder") startReorder();
       else startTabSelection();
-    } else tabDrag.mode = "tear";
+    } else if (tabDrag.home){ tabDrag = null; return; }
+    else tabDrag.mode = "tear";
   }
   if (!tabDrag) return;
   if (tabDrag.mode === "reorder") moveReorder(e);
@@ -10778,9 +10811,10 @@ listenResponseScroll();
   // while a pointer (mouse, pen or touch) or Enter/Space holds it, and the
   // stylesheet eases a modest inset shade in over 80ms and back out over 160ms.
   // .pressed holds for at least the 80ms press-in, so a quick tap still shows the
-  // dip before it rises. selection stays with the click handlers above
+  // dip before it rises. selection stays with the click handlers above. the two
+  // arrows beside the names take it the same way, on their square
   const PRESS_MIN = 80;
-  for (const name of document.querySelectorAll("#tikhead .tvb")){
+  for (const name of document.querySelectorAll("#tikhead .tvb, #tikhead .tik-page")){
     let since = 0, timer = 0;
     const press = () => {
       clearTimeout(timer);

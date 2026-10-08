@@ -138,30 +138,64 @@
 .dockbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
 
 /* The head and the ticket border boxes share the pane's side insets. Each
-   triangle points at that edge from inside the box, and its clipped shape is
-   its complete hit area. Exclude the head's top padding from vertical centring. */
+   triangle points at that edge from inside the box. Exclude the head's top
+   padding from vertical centring.
+   Each arrow's button is a square of --bar-sq, like every other control on the
+   top row, and that square is its hit area. The triangle is drawn inside it, in
+   a --bar-mark box, centred, so the mark stands on the pixels it always did and
+   the square reaches past the box's edge by half the difference. Two pieces
+   are drawn inside the button: ::before is the pressed plate, which takes the
+   section names' pressed shade (#tikhead .tvb:active in each page) with the
+   same 80ms in and 160ms out, and ::after is the triangle, cut by a clip path
+   and made of the glass of .qn-glass, which the button itself no longer paints. */
 #tikhead{margin:0 var(--tik-inset-r) 0 var(--tik-inset-l)}
 #tiknames{
-  flex:1; min-width:0; margin:0 max(10%, var(--bar-mark)); overflow:clip;
+  flex:1; min-width:0; margin:0 max(10%, calc((var(--bar-mark) + var(--bar-sq)) / 2)); overflow:clip;
 }
 #tiklabels{display:flex; transition:transform .24s var(--gentle)}
 #tiklabels .tikpair{display:flex; flex:0 0 100%; min-width:0; gap:calc(4 * var(--u))}
 #tikhead .tvb{min-width:0}
 @media (prefers-reduced-motion: reduce){#tiklabels{transition:none}}
 #tikhead .tik-page{
-  position:absolute; right:0; left:auto;
+  position:absolute; right:calc((var(--bar-mark) - var(--bar-sq)) / 2); left:auto;
   top:calc(50% + 3 * var(--u)); transform:translateY(-50%);
-  width:var(--bar-mark); height:var(--bar-mark); min-width:0; min-height:0;
+  width:var(--bar-sq); height:var(--bar-sq); min-width:0; min-height:0;
   box-sizing:border-box; -webkit-appearance:none; appearance:none;
-  padding:0; margin:0; border:0; border-radius:0; cursor:pointer;
-  clip-path:polygon(0 0, 100% 50%, 0 100%);
+  padding:0; margin:0; border:0; border-radius:0; cursor:pointer; outline:none;
+  background:none; box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none;
   --qn-face:rgba(30,30,30,.77); --qn-edge:.6;
-  background-color:var(--qn-face);
 }
-#tikhead .tik-page.back{left:0; right:auto; transform:translateY(-50%) scaleX(-1)}
+#tikhead .tik-page.back{left:calc((var(--bar-mark) - var(--bar-sq)) / 2); right:auto; transform:translateY(-50%) scaleX(-1)}
+#tikhead .tik-page::before{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  border-radius:calc(7 * var(--u));
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:box-shadow .16s ease-out;
+}
+#tikhead .tik-page::after{
+  content:""; position:absolute; left:50%; top:50%; pointer-events:none;
+  width:var(--bar-mark); height:var(--bar-mark);
+  margin:calc(var(--bar-mark) / -2) 0 0 calc(var(--bar-mark) / -2);
+  clip-path:polygon(0 0, 100% 50%, 0 100%);
+  border-radius:0;
+  background-color:var(--qn-face);
+  background-image:var(--qn-light);
+  backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
+  -webkit-backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(.9 * var(--qn-edge))),
+    var(--qn-edge-shadow),
+    inset 0 2px 0 rgba(0,0,0,.045),
+    var(--qn-inner-shadow),
+    var(--qn-depth-shadow);
+}
 #tikhead .tik-page[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
 #tikhead .tik-page:not([aria-disabled="true"]):active{--qn-edge:.35}
-#tikhead .tik-page:not([aria-disabled="true"]):focus-visible{background-color:var(--ink)}
+#tikhead .tik-page:not([aria-disabled="true"]):active::before, #tikhead .tik-page:not([aria-disabled="true"]).pressed::before{
+  box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:box-shadow .08s ease-in;
+}
+#tikhead .tik-page:not([aria-disabled="true"]):focus-visible::after{background-color:var(--ink)}
 
 /* ---- the owner's grey ---------------------------------------------------- */
 /* --bubble-fill is the grey the owner's own words stand on: the panel of the
@@ -788,13 +822,13 @@
 /* asked for less transparency, the note is a solid white card with the same
    rim and shadow: nothing shows through and nothing is blurred */
 @media (prefers-reduced-transparency: reduce){
-  .qn-glass{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none}
+  .qn-glass, #tikhead .tik-page::after{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none}
   .qn-card::before, .sp-page::before{display:none}
 }
 /* and a browser that cannot blur what is behind gets nearly solid white, since
    an unblurred board through a half clear face would sit under the words */
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  .qn-glass{background-color:rgba(255,255,255,.94)}
+  .qn-glass, #tikhead .tik-page::after{background-color:rgba(255,255,255,.94)}
 }
 
 /* ---- the settings page --------------------------------------------------- */

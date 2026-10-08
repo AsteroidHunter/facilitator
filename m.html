@@ -4393,10 +4393,11 @@ document.getElementById("tv-done").addEventListener("click", () => setView("done
 // while a finger, pointer or Enter/Space holds it, and the stylesheet eases a
 // modest inset shade in over 80ms and back out over 160ms. a phone tap is often
 // shorter than the press-in, so .pressed holds for at least those 80ms and the
-// dip still shows before it rises. selection stays with the tap handlers above
+// dip still shows before it rises. selection stays with the tap handlers above.
+// the two arrows beside the names take it the same way, on their square
 {
   const PRESS_MIN = 80;
-  for (const name of document.querySelectorAll("#tikhead .tvb")){
+  for (const name of document.querySelectorAll("#tikhead .tvb, #tikhead .tik-page")){
     let since = 0, timer = 0;
     const press = () => {
       clearTimeout(timer);

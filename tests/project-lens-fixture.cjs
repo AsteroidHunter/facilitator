@@ -211,10 +211,15 @@ function fixture({ home = false, closed = [], widths = [100, 140, 80], render = 
     const rect = tabs[ow].getBoundingClientRect(), e = { button: 0, clientX: rect.left + rect.width / 2, clientY: 22, ...extra };
     tabs[ow].listeners.mousedown.forEach(fn => fn(e)); return e;
   }
+  // a press on the house: x is where on its 32px the pointer lands
+  function downHome(extra = {}) {
+    const e = { button: 0, clientX: 16, clientY: 22, ...extra };
+    (homeButton.listeners.mousedown || []).forEach(fn => fn(e)); return e;
+  }
   function move(x, y = 22, buttons = 1) { dispatch("mousemove", { clientX: x, clientY: y, buttons }); }
   function up(x, y = 22, target = tabs.a) { dispatch("mouseup", { clientX: x, clientY: y, screenX: x, screenY: y, target }); }
   const click = ow => tabs[ow].listeners.click.forEach(fn => fn());
-  return { context, seat, tabs, oval, bar, row, topBar, homeButton, house, frame, document, images, switches, writes, opens, observers, frames, dispatch, down, move, up, click, tick,
+  return { context, seat, tabs, oval, bar, row, topBar, homeButton, house, frame, document, images, switches, writes, opens, observers, frames, dispatch, down, downHome, move, up, click, tick,
     get now() { return now; }, setReduced(on) { still = on; },
     get: source => vm.runInContext(source, context),
   };
