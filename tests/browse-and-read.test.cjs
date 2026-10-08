@@ -246,6 +246,12 @@ function desktop() {
     row: id => rows.find(r => r.dataset.id === id),
     // a pointer pressed on a node, as the page's own listener on the document hears it
     pressOn: node => doc.fire("pointerdown", node),
+    // one click on a node, whole: the press, the lift and the click
+    clickOn: node => { for (const type of ["pointerdown", "pointerup", "click"]) doc.fire(type, node); },
+    // two quick clicks, whole: the browser's dblclick comes after the second
+    dblclickOn: node => {
+      for (const type of ["pointerdown", "pointerup", "click", "pointerdown", "pointerup", "click", "dblclick"]) doc.fire(type, node);
+    },
     settle: () => new Promise(r => setImmediate(r)),
   };
 }
@@ -288,7 +294,7 @@ test("the arrow keys browse: the ticket is marked, nothing is selected and nothi
   assert.equal(d.shown(), "b");
 });
 
-test("the big card is flat when browsed; the ticket on screen is lifted either way, as the sheet states it", () => {
+test("the big card is flat only once lowered; the ticket on screen is lifted either way, as the sheet states it", () => {
   const css = HTML.desktop;
   const rule = selector => {
     const at = css.indexOf(selector + "{");
@@ -308,8 +314,11 @@ test("the big card is flat when browsed; the ticket on screen is lifted either w
   // the title weight is the unread mark and the lift leaves it alone
   assert.match(css, /\.trow\.seen \.ttl\{[^}]*color:#847A6B/);
   assert.doesNotMatch(rule("  .trow.on"), /font-weight|\.ttl/);
-  // the large card sits level with the board while it is browsed, its edge line kept
-  assert.match(rule("body.focus.browsing main"), /box-shadow:none/);
+  // the large card stands raised, browsed or selected, and sits level with the
+  // board only once a double click has lowered it, its edge line kept
+  assert.match(rule("body.focus main"), /box-shadow:0 2px 18px rgba\(60,45,20,\.18\), 0 1px 3px rgba\(60,45,20,\.10\)/);
+  assert.match(rule("body.focus.lowered main"), /box-shadow:none/);
+  assert.doesNotMatch(css, /\.browsing[^{\n]*\{[^}\n]*box-shadow/, "a rule still takes the shadow off a browsed card");
   assert.match(css, /body\.focus\.minifocus main\{box-shadow:0 2px 18px rgba\(60,45,20,\.06\)\}/);
 });
 
@@ -473,60 +482,73 @@ test("a press in a card that is already selected reads the reply that came while
   assert.deepEqual(d.seen, [], "a press on a ticket read the card on screen");
 });
 
-test("a press on the empty board lets go of the card, which stays on screen", () => {
+test("a double click on the empty board lowers the card, which stays on screen; one click does nothing", () => {
   const d = loaded();
   const stage = d.doc.getElementById("stage");
+  const lowered = () => d.body.classList.contains("lowered");
   // the arrows mark the ticket of the card on screen, as select() does
   d.press("ArrowRight");
   d.press("ArrowLeft");
   assert.ok(d.row("a").classList.contains("on"));
-  const lets = node => {
-    d.press("Enter");
-    assert.equal(d.browsing(), false);
+  // one click, or just the press of one, on the paper does nothing to the card
+  d.press("Enter");
+  d.seen.length = 0;
+  for (const node of [stage, d.body]) {
     d.pressOn(node);
-    return d.browsing();
-  };
+    d.clickOn(node);
+    assert.equal(d.browsing(), false, "a single click on the empty board let go of the card");
+    assert.equal(lowered(), false, "a single click on the empty board lowered the card");
+    assert.equal(d.doc.activeElement, d.els.a.ta, "a single click on the empty board took the caret out");
+  }
   // the paper: the stage itself, and the page around it
   for (const node of [stage, d.body]) {
-    d.seen.length = 0;
-    assert.equal(lets(node), true, "a press on the empty board left the card selected");
+    d.press("Enter");
+    assert.equal(d.browsing(), false);
+    d.dblclickOn(node);
+    assert.equal(lowered(), true, "a double click on the empty board left the card raised");
+    assert.equal(d.browsing(), true, "a double click on the empty board left the card selected");
     assert.ok(d.body.classList.contains("browsing"));
-    assert.equal(d.shown(), "a", "unselecting took the card off the screen");
+    assert.equal(d.shown(), "a", "lowering took the card off the screen");
     assert.ok(d.els.a.box.classList.contains("sel"));
-    assert.ok(d.row("a").classList.contains("on"), "unselecting took the mark off the ticket");
+    assert.ok(d.row("a").classList.contains("on"), "lowering took the mark off the ticket");
     assert.equal(d.doc.activeElement, d.body, "the caret stayed in the card");
+    assert.deepEqual(d.seen, [], "lowering read the card");
+    // and whatever selects the card raises it again
+    d.press("Enter");
+    assert.equal(lowered(), false, "Enter left the card lowered");
   }
   // not the paper: the card, a ticket, a button
   for (const node of [d.els.a.reply, d.main, d.row("a"), d.homeico]) {
     d.press("Enter");
-    d.pressOn(node);
-    assert.equal(d.browsing(), false, `a press on ${node.tagName}#${node.id} unselected the card`);
+    d.dblclickOn(node);
+    assert.equal(lowered(), false, `a double click on ${node.tagName}#${node.id} lowered the card`);
+    assert.equal(d.browsing(), false, `a double click on ${node.tagName}#${node.id} unselected the card`);
   }
-  // not the right button, not edit mode, not the home page
-  d.doc.fire("pointerdown", stage, { button: 2 });
-  assert.equal(d.browsing(), false, "a right press unselected the card");
+  // not edit mode, not the home page
   d.sandbox.editMode = true;
-  d.pressOn(stage);
-  assert.equal(d.browsing(), false, "a press in edit mode unselected the card");
+  d.dblclickOn(stage);
+  assert.equal(lowered(), false, "a double click in edit mode lowered the card");
   d.sandbox.editMode = false;
   vm.runInContext("homeOpen = true", d.sandbox);
-  d.pressOn(stage);
-  assert.equal(d.browsing(), false, "a press under the home page unselected the card");
+  d.dblclickOn(stage);
+  assert.equal(lowered(), false, "a double click under the home page lowered the card");
   vm.runInContext("homeOpen = false", d.sandbox);
-  // and a card that was only browsed stays as it is, unread marks and all
-  d.pressOn(stage);
+  // a card that was only browsed is lowered where it stands, unread marks and all
+  d.press("Escape");
+  d.press("Escape");
   assert.equal(d.browsing(), true);
   d.seen.length = 0;
-  d.pressOn(stage);
+  d.dblclickOn(stage);
+  assert.equal(lowered(), true, "a double click did not lower a card that was only browsed");
   assert.equal(d.browsing(), true);
   assert.equal(d.shown(), "a");
   assert.deepEqual(d.seen, []);
 });
 
-// the ticket list has no box round it, so the strips beside and below its
-// tickets and the gaps between them are paper. the board's sections are the
-// elements a press there lands on; the tickets are children of a section
-test("a press on the ticket list's empty area lets go of the card; a press on a ticket still selects", () => {
+// the ticket list is a panel: a click on it, in its strips and gaps as on a
+// ticket, is a click on the list and not on the empty board, and two of them
+// leave the card raised
+test("a double click on the ticket list, a gap in it or a ticket does not lower the card; a ticket still selects", () => {
   const d = loaded();
   const sheet = new Node(d.doc, "div", { id: "tiksheet", parent: d.doc.getElementById("tiklist") });
   const pane = new Node(d.doc, "div", { cls: ["tikpane"], parent: sheet });
@@ -534,36 +556,21 @@ test("a press on the ticket list's empty area lets go of the card; a press on a 
   const inner = new Node(d.doc, "div", { cls: ["trowin"], parent: d.row("b") });
   d.press("ArrowRight");
   d.press("ArrowLeft");
-  const unselects = (node, why) => {
+  for (const node of [pane, sheet, d.doc.getElementById("tiklist"), d.row("b"), inner]) {
     d.press("Enter");
     assert.equal(d.browsing(), false, "Enter did not select the card");
-    d.pressOn(node);
-    assert.equal(d.browsing(), true, why);
-    assert.equal(d.shown(), "a", "unselecting took the card off the screen");
-    assert.ok(d.row("a").classList.contains("on"), "unselecting took the mark off the ticket");
-  };
-  // the strip beside the list and the gap between two tickets land on the section
-  unselects(pane, "a press in the strip beside the list left the card selected");
-  unselects(pane, "a press in a gap between two tickets left the card selected");
-  // the section holders themselves, should a press ever land on one
-  unselects(sheet, "a press on the sheet left the card selected");
-  unselects(d.doc.getElementById("tiklist"), "a press on the list holder left the card selected");
-  // a ticket, or anything in one, is not the paper: the press leaves the card
-  // selected and the ticket's own click chooses it, as it did
-  for (const node of [d.row("b"), inner]) {
-    d.press("Enter");
-    d.pressOn(node);
-    assert.equal(d.browsing(), false, `a press on a ticket ${node.className} unselected the card`);
+    d.dblclickOn(node);
+    assert.equal(d.body.classList.contains("lowered"), false, `a double click on ${node.className || node.id} lowered the card`);
+    assert.equal(d.browsing(), false, `a double click on ${node.className || node.id} let go of the card`);
+    assert.ok(d.row("a").classList.contains("on"));
   }
-  // the edit mode, the right button and the home page keep the list as a panel
-  d.sandbox.editMode = true;
-  d.pressOn(pane);
-  assert.equal(d.browsing(), false, "a press on the list in edit mode unselected the card");
-  d.sandbox.editMode = false;
-  d.doc.fire("pointerdown", pane, { button: 2 });
-  assert.equal(d.browsing(), false, "a right press on the list unselected the card");
-  d.pressOn(pane);
-  assert.equal(d.browsing(), true);
+  // a ticket's click is select(), as it always was, and it raises a lowered card
+  d.dblclickOn(d.doc.getElementById("stage"));
+  assert.equal(d.body.classList.contains("lowered"), true);
+  d.get("select")("c");
+  assert.equal(d.shown(), "c");
+  assert.equal(d.browsing(), false);
+  assert.equal(d.body.classList.contains("lowered"), false, "choosing a ticket left the card lowered");
 });
 
 test("a click on the open project's tab unselects the card on screen; another tab, or home, switches", () => {
@@ -756,18 +763,145 @@ test("a board reloaded onto the home page shows its card browsed and reads nothi
   assert.deepEqual(d.seen, []);
 });
 
-test("the browsing look is drawn only on the board, which the home page hides", () => {
+test("the lowered look is drawn only on the board, which the home page hides", () => {
   const css = HTML.desktop;
-  // the one browsing rule paints the card frame alone; the ticket on screen
-  // draws the same browsed or selected
-  const rules = css.match(/^[^\n{]*\.browsing[^\n{]*\{/gm) || [];
+  // no rule draws a browsed card differently; the one lowered rule paints the
+  // card frame alone, and the ticket on screen draws the same either way
+  assert.deepEqual((css.match(/^[^\n{]*\.browsing[^\n{]*\{/gm) || []).map(r => r.trim()), []);
+  const rules = css.match(/^[^\n{]*\.lowered[^\n{]*\{/gm) || [];
   assert.deepEqual(rules.map(r => r.trim()),
-    ["body.focus.browsing main{"]);
+    ["body.focus.lowered main{"]);
   // it stands on the stage, and home hides the stage
   const at = marker => { const i = css.indexOf(marker); assert.ok(i >= 0, marker); return i; };
   assert.ok(at('<div id="stage">') < at('<div id="tickets">') && at('<div id="tickets">') < at("\n<main>"));
   assert.ok(at("\n</main>\n</div>\n") < at('<section id="home"'), "the home page is inside the stage");
   assert.match(css, /body\.focus\.home #stage\{visibility:hidden; opacity:0; pointer-events:none\}/);
+});
+
+// ---- raised by default -----------------------------------------------------------------
+// the card on screen stands raised whenever it is open, read or only browsed.
+// body.lowered is the one thing that takes the shadow off, a double click on
+// the empty board sets it, and every showing or choosing of a card clears it
+const lowered = d => d.body.classList.contains("lowered");
+// is the large card drawn raised? the sheet's own rules that take its shadow
+// off, read against the classes the body wears
+function drawnRaised(d) {
+  const flat = [...HTML.desktop.matchAll(/^\s*body\.focus((?:\.[\w-]+)+) main\{box-shadow:none\}/gm)]
+    .map(m => m[1].split(".").filter(Boolean));
+  assert.ok(flat.length > 0, "the sheet has no rule that takes the card's shadow off");
+  return !flat.some(names => names.every(name => d.body.classList.contains(name)));
+}
+function withOtherLane(d) {
+  d.state.boxes.push(card("o1", { owner: "other" }));
+  d.els.o1 = { box: new Node(d.doc, "div"), ta: new Node(d.doc, "textarea"), toc: { classList: classes() }, tick() {} };
+  d.sandbox.seenSync(d.state);
+}
+
+test("the card is raised on load, after switching projects and back, and after home", () => {
+  const d = loaded();
+  withOtherLane(d);
+  // opened by the board's first reading: browsed, and drawn raised
+  assert.equal(d.browsing(), true);
+  assert.equal(drawnRaised(d), true, "the card the board opened on is drawn flat");
+  // another project and back: browsed each time, drawn raised each time
+  d.get("setTab")("other");
+  assert.equal(d.shown(), "o1");
+  assert.equal(drawnRaised(d), true, "a project switch drew the card flat");
+  d.get("setTab")("lane");
+  assert.equal(d.shown(), "a");
+  assert.equal(d.browsing(), true);
+  assert.equal(drawnRaised(d), true, "switching back drew the card flat");
+  // the arrows
+  d.press("ArrowRight");
+  assert.equal(drawnRaised(d), true, "browsing to the next card drew it flat");
+  // home and back
+  d.homeico.click();
+  assert.equal(drawnRaised(d), true, "going home drew the card flat");
+  d.get("setTab")("lane");
+  assert.equal(d.get("homeOpen"), false);
+  assert.equal(drawnRaised(d), true, "coming back from home drew the card flat");
+  // selected, then let go of by Escape: still raised
+  d.press("Enter");
+  assert.equal(drawnRaised(d), true);
+  d.press("Escape", { target: d.els.b.ta });
+  d.press("Escape");
+  assert.equal(d.browsing(), true);
+  assert.equal(drawnRaised(d), true, "Escape drew the card flat");
+  // and lowered once a double click says so, which the same reading sees
+  d.dblclickOn(d.doc.getElementById("stage"));
+  assert.equal(drawnRaised(d), false, "a double click on the empty board did not draw the card flat");
+});
+
+test("a lowered card is raised again by a project switch, home, a ticket, the arrows, Enter and a click into it", () => {
+  const d = loaded();
+  withOtherLane(d);
+  const stage = d.doc.getElementById("stage");
+  const lower = () => { d.dblclickOn(stage); assert.equal(lowered(d), true, "the double click did not lower the card"); };
+  lower();
+  d.get("setTab")("other");
+  assert.equal(lowered(d), false, "a project switch left the card lowered");
+  d.get("setTab")("lane");
+  lower();
+  d.homeico.click();
+  d.get("setTab")("lane");
+  assert.equal(lowered(d), false, "coming back from home left the card lowered");
+  lower();
+  d.press("ArrowRight");
+  assert.equal(lowered(d), false, "the arrows left the card lowered");
+  lower();
+  d.press("Enter");
+  assert.equal(lowered(d), false, "Enter left the card lowered");
+  d.press("Escape", { target: d.els.b.ta });
+  lower();
+  d.pressOn(d.els.b.reply);
+  assert.equal(lowered(d), false, "a press into the card left it lowered");
+  assert.equal(d.browsing(), false);
+  lower();
+  d.els.b.chip.focus();
+  assert.equal(lowered(d), false, "the focus landing in the card left it lowered");
+  lower();
+  d.get("select")("c");
+  assert.equal(lowered(d), false, "choosing a ticket left the card lowered");
+  // a reload is a new page: nothing is lowered to begin with
+  assert.equal(lowered(loaded()), false);
+});
+
+test("Escape lets go of the caret and the card but does not lower it; the open project's tab does not either", () => {
+  const d = loaded();
+  d.press("Enter");
+  d.press("Escape", { target: d.els.a.ta });
+  assert.equal(d.doc.activeElement, d.body, "the first Escape left the caret in the composer");
+  d.press("Escape");
+  assert.equal(d.browsing(), true, "the second Escape did not let go of the card");
+  assert.equal(lowered(d), false, "Escape lowered the card");
+  assert.equal(drawnRaised(d), true, "Escape drew the card flat");
+  // the tab and the house let go of the card the way they did, and leave it standing
+  d.press("Enter");
+  d.homeico.click();
+  assert.equal(d.browsing(), true);
+  assert.equal(lowered(d), false, "the house lowered the card");
+  const click = between(HTML.desktop, '      t.addEventListener("click", () => {', "\n      oval.appendChild(t);");
+  let handler = null;
+  d.sandbox.tabDrag = null;
+  vm.runInContext(`(function(t, ow){\n${click}\n})`, d.sandbox)({ addEventListener: (type, fn) => { if (type === "click") handler = fn; } }, "lane");
+  vm.runInContext("homeOpen = false; setTab = () => {}", d.sandbox);
+  d.press("Enter");
+  handler();
+  assert.equal(d.browsing(), true, "a click on the open tab did not let go of the card");
+  assert.equal(lowered(d), false, "a click on the open tab lowered the card");
+});
+
+test("one click, however many, does nothing to the card; only a dblclick on the paper lowers it", () => {
+  const d = loaded();
+  const stage = d.doc.getElementById("stage");
+  d.press("Enter");
+  for (let i = 0; i < 4; i++) d.clickOn(stage);
+  assert.equal(lowered(d), false, "clicks on the empty board lowered the card");
+  assert.equal(d.browsing(), false, "clicks on the empty board let go of the card");
+  // the wire is the browser's own dblclick on the document, and nothing else
+  const wire = between(HTML.desktop, 'document.addEventListener("dblclick", e => {', "\n}, true);");
+  assert.match(wire, /t === document\.getElementById\("stage"\) \|\| t === document\.body \|\| t === document\.documentElement\) lowerShown\(\)/);
+  assert.doesNotMatch(HTML.desktop, /addEventListener\("pointerdown", e => \{\n  if \(e\.button \|\| editMode \|\| homeOpen\) return;/);
 });
 
 // ---- the two read rules, shared by every surface --------------------------------------

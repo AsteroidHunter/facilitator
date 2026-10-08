@@ -534,9 +534,10 @@
   /* Card touches land on the page. Keep that surface still during a flick;
      the ticket panes end touch-action lookup at their own scroll containers. */
   body.listout #page{touch-action:none}
-  /* a card only browsed to sits level with the page: the drop shadow is the
-     selected card's, and the hairline edge stays */
-  body.browsing main{box-shadow:none}
+  /* a card sits level with the page once it is lowered, by a double tap on the
+     empty page and nothing else. browsed to or selected, it stands up either
+     way, and the hairline edge stays */
+  body.lowered main{box-shadow:none}
   #empty{display:none; flex:1; align-items:center; justify-content:center;
     font:italic 400 calc(17 * var(--u)) var(--serif); color:var(--sub); padding:calc(20 * var(--u)); text-align:center}
   main.blank #empty{display:flex}
@@ -574,10 +575,10 @@
     will-change:transform; pointer-events:none;
   }
   .box.cardswipe-in{z-index:3}
-  /* the card swiped to lands browsed, and the one swiped away keeps the
-     shadow only while it was selected, so the pane's own shadow never has to
-     change when the faces are taken off */
-  .box.cardswipe-in, body.browsing .box.cardswipe{box-shadow:none}
+  /* the card swiped to lands raised, and the one swiped away keeps the shadow
+     unless it was lowered, so the pane's own shadow never has to change when
+     the faces are taken off */
+  body.lowered .box.cardswipe:not(.cardswipe-in){box-shadow:none}
   body.carddrag .box.cardswipe{transition:none}
 
   /* ---- the home page ------------------------------------------------------ */
@@ -3171,13 +3172,15 @@ function reachLater(){
 // ---- selection and tabs ----------------------------------------------------------
 // browsing: the card on screen was reached without being chosen, by a swipe,
 // the keys, a tab, a load or a fallback pick. selectedId still names it, so
-// every key that acts on the card acts on it, but it is not selected: it sits
-// level with the page instead of wearing the drop shadow, and nothing on it
-// counts as read. a tap on it or into it, or Enter, selects it; Escape puts
-// it back
+// every key that acts on the card acts on it, but it is not selected: nothing
+// on it counts as read. a tap on it or into it, or Enter, selects it; Escape
+// puts it back. the card stands raised either way (see lowerShown in
+// card-logic.js), and every showing or choosing of a card comes through here,
+// so each one raises a card a double tap had lowered
 function setBrowsing(on){
   browsing = on;
   document.body.classList.toggle("browsing", on);
+  setLowered(false);
 }
 
 // a tap on a drawer row, a card just made, the caret carried along by a step:
@@ -3219,8 +3222,9 @@ function browse(id){
   select(id, { browse: true });
 }
 // the browsed card on screen becomes the selected one where it stands: nothing
-// on it moves, it takes the drop shadow back and counts as read. while the
-// home page is up the board is not on screen, so nothing on it is selected
+// on it moves, it stands raised again if a double tap had lowered it, and it
+// counts as read. while the home page is up the board is not on screen, so
+// nothing on it is selected
 function chooseShown(){
   const id = selectedId;
   if (homeOpen || !browsing || !id || !els[id]) return;
@@ -3230,9 +3234,9 @@ function chooseShown(){
   for (const r of document.querySelectorAll("#tiklist .trow"))
     if (r.dataset.id === id && r.classList.contains("yours")) r.classList.add("seen");
 }
-// Escape with nothing being typed: the card stays on screen, browsed, and
-// gives up its drop shadow. whatever held the focus inside it lets go, so the
-// Enter that selects it again is never a press on one of its buttons
+// Escape with nothing being typed: the card stays on screen, browsed, and still
+// raised. whatever held the focus inside it lets go, so the Enter that selects
+// it again is never a press on one of its buttons
 function unselectShown(){
   const id = selectedId;
   if (browsing || !id || !els[id]) return;
@@ -4387,6 +4391,23 @@ function openDrawer(){ showMenu(tickets); }
 function closeDrawer(){ hideMenu(tickets); }
 function drawerOpen(){ return menuAvailable(tickets) && tickets.classList.contains("open"); }
 scrim.addEventListener("click", () => { const out = menuOut(); if (out) hideMenu(out); });
+// two quick taps on the bare page, the thin margin round the card, the band
+// under the status bar and the gaps between the row's buttons, lower the card
+// on screen: it lets go of the caret, loses its drop shadow and stays, browsed.
+// one tap there does nothing. a tap on a button, the card, the list or a menu
+// is not a tap on the page, and neither is any tap while a menu is out or the
+// home page is up. this stands before the listener below on purpose: a tap
+// that shuts the list is read while the list is still out, so it is no first
+// tap. it is a click, which a swipe or a pull never makes, and the page's
+// touch-action keeps the second tap from zooming it
+let lastPageTap = null;
+page.addEventListener("click", e => {
+  const bare = e.target === page || e.target === document.getElementById("dock");
+  if (!bare || homeOpen || menuOut()){ lastPageTap = null; return; }
+  const at = performance.now();
+  if (tapAgain(lastPageTap, at, e.clientX, e.clientY)){ lastPageTap = null; lowerShown(); }
+  else lastPageTap = { at, x: e.clientX, y: e.clientY };
+});
 // a tap on the card with the list out lands on the page behind it, since the
 // card takes no touch then, and shuts the list. the card stays where it is
 // shown, with the ticket it was switched to

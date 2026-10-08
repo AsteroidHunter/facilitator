@@ -350,6 +350,30 @@ function controlEnter(e){
   return e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
 }
 
+// The card on screen stands raised, wearing its drop shadow, for as long as it
+// is open: on load, on a switch of project, card or page, and after the home
+// page, whether it is browsed or selected. Two quick presses on the empty page
+// lower it, a double click on the board and a double tap on the phone, and
+// that is the only thing that does; body.lowered is that one state, and the
+// page's setBrowsing, which every showing and choosing of a card goes through,
+// clears it. It is the look alone: browsing, which says what counts as read,
+// keeps its own rules and is let go of as a press on the empty page used to
+// let go of it
+function setLowered(on){ document.body.classList.toggle("lowered", !!on); }
+function lowerShown(){
+  if (!selectedId || !els[selectedId]) return;
+  unselectShown();
+  setLowered(true);
+}
+// the phone hears no double tap of the browser's own, so it counts two: a tap
+// is the second when it comes within the double tap window of the last and
+// lands near it
+const DOUBLE_TAP_MS = 300;
+const DOUBLE_TAP_PX = 30;
+function tapAgain(last, at, x, y){
+  return !!last && at - last.at < DOUBLE_TAP_MS && Math.hypot(x - last.x, y - last.y) <= DOUBLE_TAP_PX;
+}
+
 // the two standing boxes sit in the lists but are not cards to walk to
 function isStandingBox(id){ return id === "0" || id === "t0"; }
 

@@ -1,7 +1,8 @@
 // browsing cards on the phone without selecting them, in a real page: a card
 // only arrived at (a swipe, the keys, a tab, opening the app) is on screen
-// level with the page and unread; a card that is used (a tap on it or into its
-// reply box, Enter, typing) is selected, wears the drop shadow and is read.
+// and unread; a card that is used (a tap on it or into its reply box, Enter,
+// typing) is selected and read. the card wears the drop shadow either way, and
+// only a double tap on the empty page lowers it (raised-by-default.test.cjs).
 // the desktop board's own version of this is in browse-and-read.test.cjs.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -114,7 +115,7 @@ const look = p => p.page.evaluate(() => {
   const shadow = getComputedStyle(document.getElementById("pane")).boxShadow;
   return {
     shown: box ? box.id.replace(/^box-/, "") : null, selected: selectedId,
-    browsing, bodyBrowsing: document.body.classList.contains("browsing"),
+    browsing, bodyBrowsing: document.body.classList.contains("browsing"), lowered: document.body.classList.contains("lowered"),
     shadow: shadow === "none" ? "flat" : shadow, typing: !!ta && document.activeElement === ta,
     read: Object.keys(seenTotals).filter(id => seenTotals[id] > 0 && (seenReplies[id] || 0) >= seenTotals[id]).sort(),
   };
@@ -123,7 +124,8 @@ function assertBrowsed(state, id, why){
   assert.equal(state.shown, id, why + ": card on screen");
   assert.equal(state.browsing, true, why + ": not browsing");
   assert.equal(state.bodyBrowsing, true, why + ": body not marked browsing");
-  assert.equal(state.shadow, "flat", why + ": the card wears a shadow");
+  assert.equal(state.lowered, false, why + ": the card is lowered");
+  assert.equal(state.shadow, SELECTED_SHADOW, why + ": the card has no drop shadow");
   assert.ok(!state.read.includes(id), why + ": the card was marked read");
 }
 function assertSelected(state, id, why){
@@ -165,7 +167,7 @@ async function pick(p, owner){
 const READING = "article.box.sel .reply";
 const REPLY_BOX = "article.box.sel textarea";
 
-test("arriving at a card only browses it: nothing is read and the card sits level with the page", async () => {
+test("arriving at a card only browses it: nothing is read and the card stands raised", async () => {
   // opening the app on the lane's own pick, and on a card the last visit left
   let p = await openPhone();
   const first = (await look(p)).shown;
@@ -254,7 +256,8 @@ test("Enter selects the card and lands the caret in the reply box; Escape leaves
   const off = await look(p);
   assert.equal(off.shown, "1.3");
   assert.equal(off.browsing, true, "the second Escape did not unselect");
-  assert.equal(off.shadow, "flat", "the unselected card kept its shadow");
+  assert.equal(off.shadow, SELECTED_SHADOW, "the unselected card lost its shadow");
+  assert.equal(off.lowered, false, "Escape lowered the card");
   assert.ok(off.read.includes("1.3"), "unselecting took the read mark back");
   await chord(p, [], "Enter");
   assertSelected(await look(p), "1.3", "Enter again");
@@ -358,19 +361,19 @@ test("choosing the open project in the list unselects the card and leaves it on 
   const off = await look(p);
   assert.equal(off.shown, "1.1", "the card left the screen");
   assert.equal(off.browsing, true, "choosing the open project did not unselect");
-  assert.equal(off.shadow, "flat", "the unselected card kept its shadow");
+  assert.equal(off.shadow, SELECTED_SHADOW, "the unselected card lost its shadow");
   assert.ok(off.read.includes("1.1"), "unselecting took the read mark back");
   // on a browsed card the row is only a project: it shows the lane's own pick, browsed
   await pick(p, "facilitator");
   const again = await look(p);
   assert.equal(again.browsing, true, "the open project chosen again selected a card");
-  assert.equal(again.shadow, "flat", "the open project chosen again left a shadow on the card");
+  assert.equal(again.shadow, SELECTED_SHADOW, "the open project chosen again took the shadow off the card");
   // the other project only browses
   await pick(p, "pastureland");
   const other = await look(p);
   assert.ok(other.shown && other.shown.startsWith("2."), "the other project showed no card of its own");
   assert.equal(other.browsing, true, "the other project selected a card");
-  assert.equal(other.shadow, "flat", "the other project left a shadow on the card");
+  assert.equal(other.shadow, SELECTED_SHADOW, "the other project took the shadow off the card");
   await p.close();
 });
 
@@ -420,35 +423,35 @@ test("closing or deferring the card on screen lands on the card below it, browse
   await p.close();
 });
 
-test("the card swiped away keeps the drop shadow only while selected; the card swiped to is level", async () => {
+test("the card swiped away and the card swiped to both carry the drop shadow, browsed or selected", async () => {
   const p = await openPhone({ selbox: "1.1" });
   const faces = () => p.page.evaluate(() => [...document.querySelectorAll(".box.cardswipe")].map(el => ({
     incoming: el.classList.contains("cardswipe-in"), shadow: getComputedStyle(el).boxShadow,
   })));
   const pane = () => p.page.evaluate(() => getComputedStyle(document.getElementById("pane")).boxShadow);
-  // browsed: both faces are level
+  // browsed: both faces stand raised
   await swipe(p, -1, { hold: true });
   let now = await faces();
   assert.equal(now.length, 2);
-  assert.ok(now.every(f => f.shadow === "none"), "a face is shadowed while the card is browsed: " + JSON.stringify(now));
+  assert.ok(now.every(f => f.shadow === SELECTED_SHADOW), "a face is flat while the card is browsed: " + JSON.stringify(now));
   await touch(p, "touchCancel", 0, 0);
   await pause(450);
-  // selected: the face leaving carries the drop shadow, the one arriving does not
+  // selected: the same, and the pane's own shadow stays out from between the faces
   await tap(p, READING);
   assertSelected(await look(p), "1.1", "before the swipe");
   await swipe(p, -1, { hold: true });
   now = await faces();
   assert.equal(now.length, 2);
   assert.equal(now.find(f => !f.incoming).shadow, SELECTED_SHADOW, "the face leaving lost its shadow");
-  assert.equal(now.find(f => f.incoming).shadow, "none", "the face arriving wears a shadow");
+  assert.equal(now.find(f => f.incoming).shadow, SELECTED_SHADOW, "the face arriving is flat");
   assert.equal(await pane(), "none", "the pane's own shadow shows between the faces");
   if (SHOTS){ await mkdir(SHOTS, { recursive: true }); await p.page.screenshot({ path: path.join(SHOTS, "swipe-from-selected.png") }); }
   await touch(p, "touchEnd", 0, 0);
   await pause(500);
   const landed = await look(p);
   assert.equal(landed.browsing, true, "the swipe selected the card it landed on");
-  assert.equal(landed.shadow, "flat");
-  assert.equal(await pane(), "none");
+  assert.equal(landed.shadow, SELECTED_SHADOW, "the card swiped to landed flat");
+  assert.equal(await pane(), SELECTED_SHADOW);
   await p.close();
 });
 
@@ -458,9 +461,10 @@ test("the selected shadow is the board's own, and the page adds no ring", async 
   const values = "box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)";
   assert.ok(board.includes(values), "the board's selected shadow moved");
   assert.ok(phone.includes(values), "the phone's selected shadow differs from the board's");
-  assert.match(phone, /body\.browsing main\{box-shadow:none\}/);
-  const rules = phone.match(/body\.browsing[^{]*\{[^}]*\}/g) || [];
-  for (const rule of rules) assert.ok(!/outline|ring|--accent/.test(rule), "a browsing rule adds more than the shadow: " + rule);
+  assert.match(phone, /body\.lowered main\{box-shadow:none\}/);
+  assert.doesNotMatch(phone, /body\.browsing[^{]*\{[^}]*box-shadow/, "a rule still takes the shadow off a browsed card");
+  const rules = phone.match(/body\.lowered[^{]*\{[^}]*\}/g) || [];
+  for (const rule of rules) assert.ok(!/outline|ring|--accent/.test(rule), "a lowered rule adds more than the shadow: " + rule);
   // the lifted ticket has no browsing variant on either page: lift and shadow, browsed or selected
   for (const [name, css] of [["board", board], ["phone", phone]])
     assert.doesNotMatch(css, /body\.browsing\s+\.trow/, name + " draws the ticket of a browsed card differently");
