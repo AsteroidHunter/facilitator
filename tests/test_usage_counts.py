@@ -910,6 +910,22 @@ class Server(unittest.TestCase):
         self.assertEqual(self.reply_as("my-own-agent")["agent_kind"], "other")
         self.assertEqual(self.reply_as(None)["agent_kind"], "other")
 
+    def test_a_reply_by_a_model_name_is_stored_as_its_agent(self):
+        self.assertEqual(self.reply_as("opus")["agent_kind"], "claude")
+        self.assertEqual(self.reply_as("sonnet")["agent_kind"], "claude")
+        self.assertEqual(self.reply_as("gpt")["agent_kind"], "codex")
+        self.assertEqual(self.reply_as("astra")["agent_kind"], "codex")
+
+    def test_the_server_and_the_counts_share_one_rule(self):
+        for name in ("opus", "Claude Code", "gpt-5", "astra", "codex on opus", "gemini", "", None):
+            self.server._agent_names["facilitator"] = name
+            self.assertEqual(self.server._agent_kind("facilitator"), uc.agent_kind(name), name)
+
+    def test_the_server_stores_other_when_agent_names_is_missing(self):
+        self.server._agent_names["facilitator"] = "opus"
+        with mock.patch.dict(sys.modules, {"agent_names": None}):
+            self.assertEqual(self.server._agent_kind("facilitator"), "other")
+
     def test_the_switch_is_a_board_setting_that_is_on_until_set_to_0(self):
         s = self.server
         self.assertTrue(s.SETTINGS_KEY.fullmatch("usagecounts"))
