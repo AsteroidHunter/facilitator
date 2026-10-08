@@ -540,13 +540,24 @@
    Its real box moves and compresses, never scaled, and clips what stands
    outside it; one copy of the words, laid out as the panel lays them out,
    rides it and shrinks from the typing size without rewrapping.
+   The box is cut out of the face by four clips nested one in the next, each
+   rounding one corner and riding it on a transform, and the face and the words
+   stand on a ground held at the viewport's origin, so the whole flight is
+   transforms the browser runs on its own (card-logic.js hands it over before
+   the first frame): no frame of it waits for the page, or lays the page out.
    The face is the panel's grey at full strength, written by the script
-   before the first frame. It is handed a layer of its own, so
-   its moving box is drawn by itself: a box drawn into the page's own layer
-   has the page under it, the answer and its masked fades included, painted
-   again wherever it moves, on every frame of the flight */
-.sentmorph{position:fixed; pointer-events:none; overflow:hidden; z-index:10000; box-sizing:border-box; will-change:transform}
-.sentmorph-face{position:absolute; inset:0; border-radius:inherit}
+   before the first frame. The shell is handed a layer of its own, so the
+   moving box is drawn by itself: a box drawn into the page's own layer has the
+   page under it, the answer and its masked fades included, painted again
+   wherever it moves, on every frame of the flight. The clips and the ground
+   take layers of their own from their animations alone: asked for up front
+   as well, they made the frame the send draws heavier, and on the iPhone
+   simulator it reached the screen later, its first frame 26 to 38ms into the
+   flight rather than 23 to 32 */
+.sentmorph{position:fixed; left:0; top:0; pointer-events:none; z-index:10000; will-change:transform}
+.sentmorph-clip{position:absolute; left:0; top:0; overflow:hidden}
+.sentmorph-ground{position:absolute; left:0; top:0}
+.sentmorph-face{position:absolute}
 .sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
 /* two bubbles running together (card-logic.js: sentMerge). the joined bubble
    is laid out and hidden, and this layer inside it draws the merge in its own

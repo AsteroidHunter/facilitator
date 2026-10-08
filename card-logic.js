@@ -2624,8 +2624,20 @@ const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
 // out, starts over the typed words at the typing size, rides the box's left
 // edge and top, and shrinks to the bubble's size as the box goes sideways, so
 // no frame is blank, doubled, or halfway through a rewrap.
+// The browser draws the flight by itself: the whole of it is handed over before
+// the first frame as Web Animations of transforms alone, joined straight
+// between as few keyframes as keep it within SENT_TRUE_PX of its curves (about
+// thirty), which the browser runs off the page's own thread. The flight the
+// page drew frame by frame before stood still for two to four frames whenever
+// the page was busy in the air (the board's answer, the bubbles redrawn, the
+// next reading) and then jumped on, while the glide of the bubbles standing,
+// already the browser's, went on smoothly: six of the seven sends in the
+// owner's Mac recording. The
+// page now only watches the seat, and hands the rest of the flight over again
+// if the seat moves.
 const SENT_FLIGHT_MS = 650;
 const SENT_FRAME_MS = 1000 / 60;
+const SENT_TRUE_PX = .1;
 const SENT_SIDE_MS = 260;
 const SENT_SIDE = [.3, .6, .4, 1];
 const SENT_UP_MS = 430;
@@ -2637,14 +2649,29 @@ const SENT_COMPRESS = [.22, 1, .36, 1];
 // fitted to the middle of the six sends' frames, within 0.016 of each.
 const SENT_GLIDE_MS = 340;
 const SENT_GLIDE_EASE = "cubic-bezier(.24,.1,.15,1)";
+const SENT_GLIDE = [.24, .1, .15, 1];   // the same curve, for a flight whose seat glides
 
 const sentSideCurve = sentCurve(SENT_SIDE), sentUpCurve = sentCurve(SENT_UP);
-const sentCompressCurve = sentCurve(SENT_COMPRESS);
+const sentCompressCurve = sentCurve(SENT_COMPRESS), sentGlideCurve = sentCurve(SENT_GLIDE);
 // the track at ms from the tap: how far the box has come across and risen and
 // how far its size has gone (0 the typing box's, 1 the seat's)
 function sentTrack(ms){
   return { left:sentSideCurve(ms / SENT_SIDE_MS), down:sentUpCurve(ms / SENT_UP_MS),
     size:sentCompressCurve(ms / SENT_COMPRESS_MS) };
+}
+// the track at every whole ms of the flight, worked out once as the page
+// loads, since a flight is planned in its press's own task, before its first frame
+const SENT_TRACKS = Array.from({ length:SENT_FLIGHT_MS + 1 }, (_, ms) => sentTrack(ms));
+// how far in the flight's animations are held until the browser first draws
+// them, so that first frame already has the box on its way. Chromium starts a
+// held animation on the frame it first draws it: held a frame in, that frame
+// is a frame in. WebKit starts it from the time of the frame it was made in
+// and draws it a frame or two later, so unheld its first frame is already 19
+// to 44ms in on the iPhone simulator (the reference recording's own first
+// frame is 0.33 of the compress, about 30ms); held a frame in as well, it was
+// 39 to 53ms in, a jump past the frames after it
+function sentHeldMs(){
+  return typeof navigator !== "undefined" && navigator.userAgentData ? SENT_FRAME_MS : 0;
 }
 const sentWithin = p => Math.max(0, Math.min(1, p));
 // the share of their moves two opposite edges make together: none when they
@@ -2665,7 +2692,8 @@ function sentMorphBox(from, to, at){
 // are copied because the fixed flight lives outside the card, including outside
 // the desktop's scaled stage. Text alone scales, by that stage's existing factor
 // and in flight from the typing size to the bubble's and by the track's size;
-// the shell itself interpolates real viewport geometry, never transform scale.
+// the box itself keeps real viewport geometry, cut out by clips that only
+// move, never transform scale.
 const SENT_SNAPSHOT_STYLE = [
   "box-sizing", "display", "position", "top", "right", "bottom", "left", "font", "font-family", "font-size", "font-weight",
   "font-style", "line-height", "letter-spacing", "color", "text-align", "text-indent",
@@ -2729,7 +2757,7 @@ function armSentMotion(el){
   if (!el || !el.ta || stillMotion() || typeof requestAnimationFrame !== "function") return null;
   const field = typeof ComposeFormat !== "undefined" && ComposeFormat.fieldOf(el.ta);
   const source = field && field.formatted() && field.view ? field.view.scrollDOM : el.ta;
-  if (!sentMotionVisible(source)) return null;
+  if (!sentMotionVisible(source) || typeof source.animate !== "function") return null;
   const standing = sentPanels(el);
   // The bubbles already standing are pushed up by the new one in their seat.
   // The answer is not among them: it stands still whatever the bubbles do
@@ -2754,34 +2782,64 @@ function armSentMotion(el){
     size:typedSize,
     line:(parseFloat(sourceStyle.lineHeight) * sourceScale.y) || typedSize * 1.5,
   };
+  // The box is cut out of a grey face by four clips nested one in the next, each
+  // as large as the box ever is and rounding one corner of it: each clip rides
+  // its own corner, so the four cut out the box at its width and height while
+  // each only moves. Inside them the ground the face and the words stand on is
+  // held at the viewport's origin, so everything in it is placed in viewport px
   const shell = document.createElement("div");
   shell.className = "sentmorph";
   shell.setAttribute("aria-hidden", "true");
-  const base = getComputedStyle(el.box || source).getPropertyValue("--card").trim() || "#fff";
-  shell.style.background = base;
+  const clips = corners.map(() => {
+    const clip = document.createElement("div");
+    clip.className = "sentmorph-clip";
+    return clip;
+  });
+  const ground = document.createElement("div");
+  ground.className = "sentmorph-ground";
+  clips.reduce((outer, inner) => outer.appendChild(inner)).appendChild(ground);
+  shell.appendChild(clips[0]);
   const face = document.createElement("div");
   face.className = "sentmorph-face";
-  face.style.opacity = "0";
+  face.style.background = getComputedStyle(el.box || source).getPropertyValue("--card").trim() || "#fff";
   const outgoing = document.createElement("div");
   outgoing.className = "sentmorph-source";
   const sourceCopy = sentSnapshot(source);
   sourceCopy.style.opacity = "1"; // the phone may be blinking its caret layer off at the press
   sourceCopy.style.width = (start.width / sourceScale.x) + "px";
   sourceCopy.style.height = (start.height / sourceScale.y) + "px";
-  outgoing.style.transform = "scale(" + sourceScale.x + "," + sourceScale.y + ")";
+  outgoing.style.transform = "translate(" + start.left + "px," + start.top + "px) scale(" + sourceScale.x + "," + sourceScale.y + ")";
   outgoing.appendChild(sourceCopy);
   const incoming = document.createElement("div");
   incoming.className = "sentmorph-target";
-  shell.append(face, outgoing, incoming);
-  const write = box => {
-    for (const key of ["left", "top", "width", "height"]) shell.style[key] = box[key] + "px";
+  ground.append(face, outgoing, incoming);
+  // the clips' own size, and where each layer stands for a box: the first clip
+  // at the box's top left, the next three by how far their corners stand from
+  // the one before (the top right, the foot's right, the foot's left), and the
+  // ground back at the origin
+  const room = { width:0, height:0 };
+  const fit = (width, height) => {
+    Object.assign(room, { width, height });
+    for (const clip of clips) Object.assign(clip.style, { width:width + "px", height:height + "px" });
   };
-  write(start);
-  shell.style.borderRadius = startCorners.map(n => n + "px").join(" ");
+  const layers = box => [[box.left, box.top], [box.width - room.width, 0], [0, box.height - room.height],
+    [room.width - box.width, 0], [-box.left, room.height - box.height - box.top]];
+  const move = ([x, y]) => "translate(" + x + "px," + y + "px)";
+  const place = box => layers(box).forEach((at, i) => { (clips[i] || ground).style.transform = move(at); });
+  const round = radii => clips.forEach((clip, i) => { clip.style[corners[i]] = radii[i] + "px"; });
+  const cover = boxes => {
+    const left = Math.min(...boxes.map(b => b.left)), top = Math.min(...boxes.map(b => b.top));
+    Object.assign(face.style, { left:left + "px", top:top + "px",
+      width:Math.max(...boxes.map(b => b.left + b.width)) - left + "px", height:Math.max(...boxes.map(b => b.top + b.height)) - top + "px" });
+  };
+  fit(start.width, start.height);
+  place(start);
+  round(startCorners);
+  cover([start]);
   document.body.appendChild(shell);
   sourceCopy.scrollTop = source.scrollTop;
   sourceCopy.scrollLeft = source.scrollLeft;
-  let raf = 0, done = false, played = false, target = null, panel = null;
+  let raf = 0, done = false, played = false, target = null, panel = null, flying = [];
   const shifts = [];
   const stopShifts = () => {
     for (const shift of shifts.splice(0)) shift.cancel();
@@ -2792,6 +2850,7 @@ function armSentMotion(el){
     done = true;
     if (raf) cancelAnimationFrame(raf);
     stopShifts();
+    for (const anim of flying.splice(0)) anim.cancel();
     if (target){
       if (previousOpacity) target.style.setProperty("opacity", previousOpacity, previousPriority);
       else target.style.removeProperty("opacity");
@@ -2837,6 +2896,9 @@ function armSentMotion(el){
           [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
           { duration:SENT_GLIDE_MS, easing:SENT_GLIDE_EASE });
         shifts.push(shift);
+        // an earlier send still in the air takes this glide into its seat
+        // whole, from the glide's first frame (follow, below)
+        node.sentGlide = { shift, x:rect.left - after.left, y:rect.top - after.top };
       }
       const targetRect = target.getBoundingClientRect(), targetScale = sentScale(target, targetRect);
       const targetCopy = sentSnapshot(target);
@@ -2872,54 +2934,136 @@ function armSentMotion(el){
       // the bubble's face and corners, written before the first frame and kept
       // for the whole flight: the grey a saved message stands on, whole, and
       // the dissolve at a long message's cut in that same grey
-      shell.style.borderRadius = endCorners.map(n => n + "px").join(" ");
+      round(endCorners);
       const grey = panelStyle.getPropertyValue("--bubble-fill").trim() || panelStyle.backgroundColor;
       face.style.background = grey;
       face.style.opacity = "1";
       const copiedCut = targetCopy.querySelector(".answclip");
       if (copiedCut) copiedCut.style.setProperty("--answ-fill", grey);
-      // one frame of the flight, ms from the tap. everything it needs is read
-      // before anything is written, so a frame lays the page out once: a read
-      // after a write makes the browser lay the page out again on the spot,
-      // twice a frame here before, on a page as large as the Mac board
-      const put = ms => {
-        const at = sentTrack(ms);
-        // the seat is the new bubble as it stands, read every frame: a later
-        // send pushes it up on that send's glide, and the flight follows it there
-        const landing = target.getBoundingClientRect();
-        const box = sentMorphBox(start, landing, at);
-        write(box);
-        // the words ride the travelling box's left edge and top: their first
-        // line's left goes from the typed words' place in it to the bubble's
-        // as the box goes sideways, its middle as it rises, and they shrink
-        // from the typing size to the bubble's as the box goes sideways
-        const across = sentWithin(at.left), rise = sentWithin(at.down);
+      // one moment of the flight, ms from the tap, on a seat: the travelling
+      // box, and the words riding its left edge and top: their first line's
+      // left goes from the typed words' place in it to the bubble's as the box
+      // goes sideways, its middle as it rises, and they shrink from the typing
+      // size to the bubble's as the box goes sideways
+      const at = (ms, seat) => {
+        const track = SENT_TRACKS[ms] || sentTrack(ms), box = sentMorphBox(start, seat, track);
+        const across = sentWithin(track.left), rise = sentWithin(track.down);
         const k = grow + (1 - grow) * across;
         const to = { x:lead.x, y:lead.y + inkLine / 2 };
         const lineLeft = box.left + from.x + (to.x - from.x) * across;
         const lineMiddle = box.top + from.y + (to.y - from.y) * rise;
-        const x = lineLeft - lead.x * k - box.left;
-        const y = lineMiddle - (lead.y + inkLine / 2) * k - box.top;
-        incoming.style.transform = "translate(" + x + "px," + y + "px) scale(" +
-          targetScale.x * k + "," + targetScale.y * k + ")";
+        return { box, x:lineLeft - lead.x * k, y:lineMiddle - (lead.y + inkLine / 2) * k, k };
+      };
+      const words = one => "translate(" + one.x + "px," + one.y + "px) scale(" + targetScale.x * one.k + "," + targetScale.y * one.k + ")";
+      // how far the copy reaches from its corner, so a change in its scale is
+      // weighed in px
+      const reach = Math.max(targetRect.width, targetRect.height);
+      // a box's edges on whole device pixels, where the bubble's own grey is
+      // painted: the clips cut where they are put, so a box landing between
+      // pixels stood up to a pixel inside the bubble each side, and stepped out
+      // to it at the hand-over (0.3 to 0.6pt on the iPhone simulator)
+      const dpr = typeof devicePixelRatio === "number" && devicePixelRatio > 0 ? devicePixelRatio : 0;
+      const onPixels = r => {
+        if (!dpr) return r;
+        const px = v => Math.round(v * dpr) / dpr, left = px(r.left), top = px(r.top);
+        return { left, top, width:px(r.left + r.width) - left, height:px(r.top + r.height) - top };
+      };
+      // the seat at ms of the flight: the new bubble as laid out, and moved by
+      // the glide a later send gives it, whose offset goes to nothing on the
+      // glide's own curve from the flight's ms it set off at; as the page reads
+      // it, or as the flight lands on it, on whole pixels
+      const seat = { base:targetRect, glide:null, since:0, seen:target.sentGlide || null };
+      const held = sentHeldMs();
+      const seatAt = (ms, drawn) => {
+        const { glide, since } = seat, base = drawn ? onPixels(seat.base) : seat.base;
+        const left = glide ? 1 - sentGlideCurve((ms - since) / SENT_GLIDE_MS) : 0;
+        return left ? { left:base.left + glide.x * left, top:base.top + glide.y * left, width:base.width, height:base.height } : base;
+      };
+      // the whole flight handed to the browser on that seat: each layer's
+      // transform at as few moments as keep every edge, the words' place and
+      // their reach within SENT_TRUE_PX of where the curves put them on every
+      // ms, joined straight. a flight handed over again goes on from the same
+      // start, so the clock carries on through the change
+      const hand = () => {
+        const all = [];
+        for (let ms = 0; ms <= SENT_FLIGHT_MS; ms++) all.push(at(ms, seatAt(ms, true)));
+        const marks = all.map(({ box, x, y, k }) => [box.left, box.top, box.left + box.width, box.top + box.height, x, y, k * reach]);
+        const straight = (i, j) => {
+          for (let n = i + 1; n < j; n++) for (let v = 0; v < marks[n].length; v++)
+            if (Math.abs(marks[i][v] + (marks[j][v] - marks[i][v]) * (n - i) / (j - i) - marks[n][v]) > SENT_TRUE_PX) return false;
+          return true;
+        };
+        // each curve's landing is a keyframe of its own, so nothing creeps on
+        // once its move is in
+        const lands = [SENT_SIDE_MS, SENT_COMPRESS_MS, SENT_UP_MS, SENT_FLIGHT_MS];
+        const moments = [0];
+        for (let i = 0; i < SENT_FLIGHT_MS;){
+          const stop = lands.find(ms => ms > i);
+          let j = i + 1;
+          while (j < stop && straight(i, j + 1)) j++;
+          moments.push(j);
+          i = j;
+        }
+        const frames = moments.map(ms => all[ms]), boxes = frames.map(one => one.box);
+        fit(Math.max(...all.map(one => one.box.width)) + 1, Math.max(...all.map(one => one.box.height)) + 1);
+        cover(all.map(one => one.box));
+        const keys = transform => moments.map((ms, i) => ({ offset:ms / SENT_FLIGHT_MS, transform:transform(i) }));
+        const timing = { duration:SENT_FLIGHT_MS, fill:"both", easing:"linear" };
+        const before = flying;
+        flying = [...clips, ground].map((node, n) => node.animate(keys(i => move(layers(boxes[i])[n])), timing));
+        flying.push(incoming.animate(keys(i => words(frames[i])), timing));
+        const clock = before[0];
+        for (const anim of flying){
+          if (clock && typeof clock.startTime === "number") anim.startTime = clock.startTime;
+          else anim.currentTime = clock && typeof clock.currentTime === "number" ? clock.currentTime : held;
+        }
+        for (const anim of before) anim.cancel();
+      };
+      // the seat as it stands at a frame: a later send's glide is taken whole,
+      // from its first frame; any other move is met from the frame it is seen
+      // on, as the frame-by-frame flight met it, and nothing is handed over again
+      // while the seat stands where the flight is going
+      const follow = ms => {
+        const now = target.getBoundingClientRect(), glide = target.sentGlide || null;
+        const fresh = glide !== seat.seen;
+        if (fresh){
+          seat.seen = glide;
+          seat.glide = glide && glide.shift.playState !== "idle" ? glide : null;
+          seat.since = ms - (seat.glide && typeof glide.shift.currentTime === "number" ? glide.shift.currentTime : 0);
+        }
+        const want = seatAt(ms);
+        if (!fresh && ["left", "top", "width", "height"].every(key => Math.abs(now[key] - want[key]) <= .5)) return;
+        if (seat.glide && seat.glide.shift.playState === "idle") seat.glide = null;
+        const off = seatAt(ms);
+        seat.base = { left:now.left - (off.left - seat.base.left), top:now.top - (off.top - seat.base.top), width:now.width, height:now.height };
+        hand();
       };
       previousOpacity = target.style.getPropertyValue("opacity");
       previousPriority = target.style.getPropertyPriority("opacity");
       target.style.setProperty("opacity", "0");
-      put(0);   // the start box and the words over the typed ones, before any frame
-      // the clock starts a frame before the first frame drawn, so that frame
-      // already has the box on its way: until the press the typed words stood
-      // where the box starts. started on the press itself, the first frame
-      // drew the box standing still on the row, and a first frame late after
-      // the send's own work kept it there longer
+      // the first frame the browser draws already has the box on its way,
+      // however late it comes (sentHeldMs): until the press the typed words
+      // stood where the box starts; started on the press itself, the first
+      // frame drew the box standing still on the row, and a first frame late
+      // after the send's own work kept it there longer
+      hand();
+      // under them, the start box and the words over the typed ones
+      const first = at(0, seatAt(0, true));
+      place(first.box);
+      incoming.style.transform = words(first);
+      // the page's own frames only watch: whether the flight should stop, and
+      // where the seat stands. they write nothing while the seat stays put, so
+      // a frame the page is too busy to run holds nothing still. their clock
+      // starts as the animations' does, at the first frame less what they are
+      // held at
       let t0 = null;
       const step = now => {
         raf = 0;
         if (done) return;
         if (!target.isConnected || !sentMotionVisible(panel) || stillMotion()){ finish(); return; }
-        if (t0 === null) t0 = now - SENT_FRAME_MS;
+        if (t0 === null) t0 = now - held;
         const ms = Math.max(0, Math.min(SENT_FLIGHT_MS, now - t0));
-        put(ms);
+        follow(ms);
         if (ms < SENT_FLIGHT_MS) raf = requestAnimationFrame(step);
         else raf = requestAnimationFrame(finish);
       };

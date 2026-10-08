@@ -39,6 +39,11 @@ test("the send's lengths are shared by both pages: the flight, its compress, the
   assert.deepEqual([...run("SENT_COMPRESS")], [.22, 1, .36, 1]);
   assert.equal(run("SENT_GLIDE_MS"), 340);
   assert.equal(run("SENT_GLIDE_EASE"), "cubic-bezier(.24,.1,.15,1)");
+  // the curve an earlier flight's seat glides on is that same curve
+  assert.equal(run("SENT_GLIDE_EASE"), "cubic-bezier(" + run("SENT_GLIDE").map(n => String(n).replace(/^0\./, ".")).join(",") + ")");
+  // the flight is handed to the browser as keyframes joined straight, within
+  // 0.1px of its curves on every ms
+  assert.equal(run("SENT_TRUE_PX"), .1);
   assert.equal(run("SENT_ARRIVE_MS"), 400);
   assert.match(CSS, /--answ-come:\.4s/);
   assert.match(CSS, /--sent-ease:cubic-bezier\(\.22, 1, \.36, 1\)/);
@@ -136,6 +141,14 @@ test("send shells never scale their changing box and reduced motion stills recei
   assert.match(shell, /pointer-events:none/);
   // a layer of its own, but never a transform on the box itself
   assert.doesNotMatch(shell, /(?:^|;)\s*transform\s*:|accent|432BFF/i);
+  // the box is cut out by clips that only move: the shell clips nothing, each
+  // clip hides what stands outside it, and the face is placed by the script,
+  // rounded by the clips rather than by itself. the clips and the ground take
+  // layers from their animations alone, so the frame a send draws stays light
+  assert.doesNotMatch(shell, /overflow/);
+  assert.match(rule(".sentmorph-clip"), /position:absolute; left:0; top:0; overflow:hidden/);
+  for (const name of [".sentmorph-clip", ".sentmorph-ground"]) assert.doesNotMatch(rule(name), /will-change/, name + " asks for a layer up front");
+  assert.doesNotMatch(rule(".sentmorph-face"), /inset|radius/);
   const reduced = code.slice(code.indexOf("@media (prefers-reduced-motion: reduce)", code.indexOf(".sentmorph")));
   assert.match(reduced, /\.answered\.markin::after\{animation:none !important\}/);
   assert.match(reduced, /\.answered\.markgone::after\{transition:none !important\}/);
