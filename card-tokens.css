@@ -386,10 +386,11 @@
    --answ-font and --answ-line are its type and one line of it. the drawing
      sets it in the title's face, a size under the answer and on a closer line;
    --answ-pad-y and --answ-pad-x are the air inside it, --answ-round its corner;
-   --answ-peek is how much of a long batch shows before it is opened, and
-     --answ-fade how deep the cut dissolves;
    --answ-strip is the height of the grey strip at the foot of a long batch
      that the arrow stands in.
+   How much of a long batch shows before it is opened is not a measure a
+   surface types: it is counted in the surface's own --answ-line and is one
+   rule for every surface and every panel (the cut, below).
    It hugs the right end of the column it stands in, the side the owner's own
    words stand on everywhere on the card, and is as wide as its longest line up
    to a little under the whole column, which is where the drawing stops it.
@@ -410,11 +411,22 @@
   --answ-move:.33s; --answ-come:.4s; --answ-rise:10px; --answ-gone:.4s;
   --sent-ease:cubic-bezier(.22, 1, .36, 1);
   --answ-fill:var(--bubble-fill); --answ-tag:calc(17 * var(--u));
+  --answ-peek:calc(var(--answ-line) * 1.5); --answ-fade:calc(var(--answ-line) * .5);
 }
+.answered.gap{--answ-peek:calc(var(--answ-line) * 2.5)}
 /* the cut. a batch longer than the preview shows its first lines and dissolves
-   into the panel's own grey over the last of them, the way the drawing's third
-   line fades, and an opened panel shows the whole batch in place, pushing the
-   answer down rather than lying over it.
+   into the panel's own grey over the last half line of them, and an opened
+   panel shows the whole batch in place, pushing the answer down rather than
+   lying over it.
+   the preview is the same for the panel over the answer and for each sent
+   bubble, counted in the surface's own --answ-line. a batch of up to two lines
+   is shown whole, with no cut, strip or fade (the script decides that,
+   fitAnswered in card-logic.js). a longer one is cut at one and a half lines
+   (--answ-peek) and dissolves over the half line (--answ-fade). when its
+   second line is blank, a paragraph break after the first line or two messages
+   joined by their blank line, the script sets .gap and the cut stands at two
+   and a half lines instead, so the blank line is not all of what the preview
+   shows.
    the dissolve is a strip of the panel's own grey, --answ-fade deep, laid over
    the foot of the cut and drawn once. on a flat grey panel it reads exactly as
    the words dissolving into the grey, and all it ever does is fade: whole while
@@ -425,10 +437,10 @@
    --answ-stop is written by the script and by nothing else: the foot of the
    last line with text, when the preview's own cut would otherwise land in
    blank, a paragraph break or the air between two messages, when a batch
-   that fits ends on a blank tail, or when a sent bubble of two lines is shown
-   whole under the shallower cut the sheet gives it. without it the cut is the
-   surface's own preview */
-.answclip{position:relative; max-height:var(--answ-stop, var(--sent-peek, var(--answ-peek))); overflow:hidden; --answ-shade:0}
+   that fits ends on a blank tail, or when a batch of two lines is shown whole
+   under the shallower cut the sheet gives it. without it the cut is
+   --answ-peek */
+.answclip{position:relative; max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-shade:0}
 .answered.more:not(.open) .answclip{--answ-shade:1}
 .answclip::after{
   content:""; position:absolute; left:0; right:0; bottom:0; height:var(--answ-fade);
@@ -511,16 +523,8 @@
    one seat. each bubble is the panel above to the letter: the same grey, the
    same cut to a preview with the same dissolve and arrow, the same run to open
    it and cut it back. what is its own is its seat, which each page gives it,
-   how far it may open, how deep its preview is, and how it comes in.
-   its preview is shallower than the panel's over the answer, counted in the
-   surface's own --answ-line: a bubble of up to two lines is shown whole, with
-   no cut, strip or fade (the script decides that, fitAnswered in
-   card-logic.js); a longer one is cut at one and a half lines (--sent-peek)
-   and dissolves over the half line, --answ-fade here half a line and not the
-   surface's three quarters. when its second line is blank, a paragraph break
-   after the first line or two messages joined by their blank line, the script
-   sets .gap and the cut stands at two and a half lines instead, so the blank
-   line is not all of what the preview shows.
+   how far it may open, and how it comes in. its preview is the panel's over
+   the answer, the cut above.
    open, a long batch stops at --sent-cap, which each large card writes as the
    room the panel may take over the answer, and the rest scrolls inside the cut.
    a surface that writes none gives the panel a seat that scrolls instead.
@@ -536,8 +540,6 @@
    whole way. A send without measurable field geometry uses the small rise and
    fade below.
    Only a send changes the fold's timing; a manual fold keeps its own run. */
-.answered.sent{--sent-peek:calc(var(--answ-line) * 1.5); --answ-fade:calc(var(--answ-line) * .5)}
-.answered.sent.gap{--sent-peek:calc(var(--answ-line) * 2.5)}
 .answered.sent.open .answclip{max-height:var(--sent-cap, none); overflow-y:auto; overscroll-behavior:contain}
 .answered.sent.sentflight{--answ-move:var(--answ-come); --gentle:var(--sent-ease)}
 @keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
@@ -694,9 +696,10 @@
 .turnpage{position:absolute; left:0; right:0; top:0; bottom:0; will-change:transform}
 .turnpage.gliding{transition:transform var(--turn-glide) var(--gentle)}
 /* the seat's picture gives way to the new page's panel behind it over the
-   second half of the glide. the sent preview is shallower than the panel over
-   the answer, and the two stand on one head, so what is seen to change is
-   only what differs at their foot, and the sheet going takes nothing away */
+   second half of the glide. the sent bubbles and the panel over the answer
+   share one preview and stand on one head, though the bubbles may share the
+   messages out differently, so what is seen to change is only what differs at
+   their foot, and the sheet going takes nothing away */
 @keyframes turnhand{45%{opacity:1} to{opacity:0}}
 .turnpage.gliding > .sentwrap{animation:turnhand var(--turn-glide) var(--gentle) both}
 @keyframes cardprint{from{opacity:0; transform:translate3d(0, var(--print-rise), 0)}}
