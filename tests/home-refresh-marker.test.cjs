@@ -225,17 +225,18 @@ for (const name of ['index.html', 'm.html']) {
     for (const host of [p.nodes.homeplot, p.nodes.homelimits]) assert.equal(footerFlow(host, 1).width, 0);
   });
 
-  test(`${name}: usage rows end next to the footer without changing reserved panel or row sizes`, () => {
+  test(`${name}: usage rows end next to the footer and the box is only as tall as its rows`, () => {
     const rows = declarations('.lm-rows');
-    assert.equal(declarations('.lm-box').height, 'calc(184 * var(--u, 1px))');
-    assert.equal(rows.flex, '1 1 auto'); assert.equal(rows['grid-auto-rows'], '16px');
-    assert.equal(rows['align-content'], 'end', 'spare provider space belongs above the rows, not above the footer');
+    assert.equal(declarations('.lm-box').height, 'auto');
+    assert.equal(rows.flex, 'none'); assert.equal(rows['grid-auto-rows'], '16px');
+    assert.equal(rows['align-content'], undefined, 'no spare room to pack above the rows');
     for (const count of [0, 1, 3, 4]) {
       const host = page(name, count > 0, count).nodes.homelimits;
       assert.equal(host.querySelectorAll('.lm-row').length, count);
-      if (!count) assert.ok(host.querySelector('.tk-wait'), 'cold loading keeps the reserved grid stage');
+      if (!count) assert.ok(host.querySelector('.tk-wait'), 'cold loading keeps a one-row message');
       for (const unit of [0.72, 1, 1.3]) {
         assert.equal(length(rows['row-gap'], unit), 7 * unit);
+        assert.equal(length(rows['margin-top'], unit), 7 * unit, 'a small gap under the heading');
         assert.equal(length(declarations('.tk-status')['margin-top'], unit), 8 * unit);
       }
     }

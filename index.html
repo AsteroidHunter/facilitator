@@ -3296,7 +3296,7 @@
      token box and as wide, so both share the line, and the pair is centred in
      the frame however tall the limits box is, following the window. the token
      box keeps its 35% of the frame's height and gives up height only when the
-     pair would not otherwise fit; the limits box reserves all four rows. the
+     pair would not otherwise fit; the limits box is only as tall as its rows. the
      column takes no clicks, only the two boxes do. the panel fills the token box and its
      charts are drawn to the height left for them, scrolling sideways inside
      it (home-widgets.css) */
@@ -3632,7 +3632,7 @@
 <div id="homepair">
   <section id="home" aria-label="Home"><div id="homeplot"></div></section>
   <!-- the limits box, directly under the token box and as wide: home-widgets.js
-       draws it at its finished size even before its first reading -->
+       draws it from the last kept reading, so it opens at its finished height -->
   <section id="homelimits" aria-label="Plan limits" hidden></section>
 </div>
 <!-- the thin line down the middle of the home page's frame, between the two halves -->
