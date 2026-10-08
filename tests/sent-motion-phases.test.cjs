@@ -11,17 +11,23 @@
 // still follows the iPhone's readings. The box is the bubble's own grey, whole
 // from its first frame, as the reference recording's box is, so its compress
 // is seen. One copy of the words stays dark the whole way, shrinking from the
-// typing size to the bubble's, and no tail. Boxes are synthetic viewport
-// rectangles; no layout engine and no browser runs, so nothing here claims how
-// it looks.
+// typing size to the bubble's, and no tail. The whole flight is handed to the
+// browser before the first frame as transform keyframes, which it runs by
+// itself, so a page too busy to draw holds nothing still (the owner's Mac
+// recording); what is checked
+// here is those keyframes, read back as the browser joins them. Boxes are
+// synthetic viewport rectangles; no layout engine and no browser runs, so
+// nothing here claims how it looks.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { test } = require("node:test");
 const path = require("node:path");
 const vm = require("node:vm");
+const { drawn, running } = require("./sent-flight-drawn.cjs");
 const LOGIC = readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8");
 const IPHONE = JSON.parse(readFileSync(path.join(__dirname, "fixtures", "iphone-send-readings.json"), "utf8"));
 const FLIGHT_MS = 650;   // sideways by 260ms, up by 430ms, handed over to the bubble at 650ms
+const TRUE_PX = 0.1;     // the keyframes, joined straight, stand this near the curves on every ms
 const PT = 3;            // the recordings' pixels to a point
 
 function bezier([x1, y1, x2, y2]) {
@@ -130,7 +136,8 @@ function element(tag = "div", cls = "") {
       return copy;
     },
     animate(keys, options) {
-      const run = { keys, options, cancelled: false, cancel() { run.cancelled = true; } };
+      const run = { keys, options, cancelled: false, playState: "running",
+        cancel() { run.cancelled = true; run.playState = "idle"; } };
       node.animations.push(run);
       return run;
     },
@@ -145,13 +152,15 @@ function box(node, r) {
 }
 
 // a page with a typing row at `field`, its words typed as `typed` says, and rows
-// set in `words`
-function scene(field = FIELD, typed = TYPED, words = WORDS) {
+// set in `words`, in Chromium (which starts a held animation on the frame it
+// first draws it) unless it is WebKit (which starts it from its frame's own time)
+function scene(field = FIELD, typed = TYPED, words = WORDS, engine = "chromium") {
   DOC.body = element("body");
   const clock = { now: 0, still: false };
   const frames = [];
   const context = vm.createContext({
     console,
+    navigator: engine === "chromium" ? { userAgentData: { brands: [] } } : {},
     document: { body: DOC.body, createElement: tag => element(tag) },
     performance: { now: () => clock.now },
     requestAnimationFrame: fn => frames.push(fn),
@@ -213,23 +222,21 @@ function scene(field = FIELD, typed = TYPED, words = WORDS) {
     for (const fn of frames.splice(0)) fn(ms);
   };
   const shell = () => DOC.body.children.find(n => n.classes.has("sentmorph")) || null;
-  // the shell's layers of words, and the one copy's place and scale
-  const layers = () => shell().children.filter(n => n.classes.has("sentmorph-source") || n.classes.has("sentmorph-target"));
-  const wordsAt = () => {
-    const m = /translate\(([-\d.e]+)px,([-\d.e]+)px\) scale\(([-\d.e]+),([-\d.e]+)\)/
-      .exec(shell().querySelector(".sentmorph-target").style.transform);
-    return m ? { x: +m[1], y: +m[2], k: +m[3] } : { x: NaN, y: NaN, k: NaN };   // not placed yet
-  };
+  // the shell's layers of words, and the one copy's place in the box and scale,
+  // as the browser draws them at the moment of the clock
+  const layers = () => shell().querySelectorAll(".sentmorph-source, .sentmorph-target");
+  const wordsAt = () => drawn(shell(), clock.now).words;
   // where the first line of the words starts on the page: the box's left, the
   // copy's place in it, and the row's padding (PAD) scaled with the copy
-  const wordsLeft = () => { const w = wordsAt(), left = parseFloat(shell().style.left); return left + w.x + PAD.x * w.k; };
+  const wordsLeft = () => { const d = drawn(shell(), clock.now); return d.left + d.words.x + PAD.x * d.words.k; };
   return { context, clock, el, panel, row, frame, shell, layers, words: wordsAt, wordsLeft };
 }
 const px = value => parseFloat(value);
 const near = (actual, expected, label, within = 0.05) =>
   assert.ok(Math.abs(actual - expected) <= within, `${label}: ${actual} is not ${expected}`);
-function flyFirst() {
-  const s = scene();
+function flyFirst(engine = "chromium", dpr) {
+  const s = scene(FIELD, TYPED, WORDS, engine);
+  if (dpr) s.context.devicePixelRatio = dpr;
   const motion = s.context.armSentMotion(s.el);
   assert.ok(motion, "a send with a laid-out field must fly");
   const p = s.panel(["Looks good, ship it"]);
@@ -251,11 +258,16 @@ function flyRecorded(send) {
   motion.play();
   return s;
 }
+// the box the browser draws at the moment of the clock (ms from the press: the
+// flight's clock starts a frame before the first frame, drawn at 1/60s)
 const edges = s => {
-  const left = px(s.shell().style.left), width = px(s.shell().style.width);
-  const top = px(s.shell().style.top), height = px(s.shell().style.height);
+  const { left, top, width, height } = drawn(s.shell(), s.clock.now);
   return { left, right: left + width, top, bottom: top + height, width, height };
 };
+// a value the browser draws against the curve it is on: the keyframes are
+// the curves' own values, and joined straight each edge stands within TRUE_PX
+// of the curves on every ms (a width or height, two edges apart, within twice that)
+const onCurve = (actual, expected, way, ms, label, exact = 1e-6) => near(actual, expected, label, 2 * TRUE_PX + exact);
 // the moments checked: before the first frame, then every 1/60s to the landing
 // the moments checked: before the first frame, then every 1/60s from the first
 // frame drawn after the press to the landing. the flight's clock starts a frame
@@ -325,10 +337,10 @@ test("the box starts as the typing box and compresses into the bubble, closing i
   for (const ms of EVERY_MS) {
     s.frame(ms);
     const b = edges(s), c = COMPRESS(ms);
-    near(b.width, FIELD.width + (BUBBLE.width - FIELD.width) * c, `the box's width is off the reference curve at ${ms}ms`, 1e-4);
-    near(b.height, FIELD.height + (BUBBLE.height - FIELD.height) * c, `the box's height is off the reference curve at ${ms}ms`, 1e-4);
-    near(b.right, fieldRight + (RIGHT - fieldRight) * SIDEWAYS(ms), `the right end is off the sideways curve at ${ms}ms`, 1e-4);
-    near(b.top, FIELD.top + (BUBBLE.top - FIELD.top) * UP(ms), `the top is off the up curve at ${ms}ms`, 1e-4);
+    onCurve(b.width, FIELD.width + (BUBBLE.width - FIELD.width) * c, BUBBLE.width - FIELD.width, ms, `the box's width is off the reference curve at ${ms}ms`, 1e-4);
+    onCurve(b.height, FIELD.height + (BUBBLE.height - FIELD.height) * c, BUBBLE.height - FIELD.height, ms, `the box's height is off the reference curve at ${ms}ms`, 1e-4);
+    onCurve(b.right, fieldRight + (RIGHT - fieldRight) * SIDEWAYS(ms), RIGHT - fieldRight, ms, `the right end is off the sideways curve at ${ms}ms`, 1e-4);
+    onCurve(b.top, FIELD.top + (BUBBLE.top - FIELD.top) * UP(ms), BUBBLE.top - FIELD.top, ms, `the top is off the up curve at ${ms}ms`, 1e-4);
     assert.ok(b.width <= FIELD.width + 1e-9 && b.width >= BUBBLE.width - 1e-9, `the box's width left its run at ${ms}ms (${b.width})`);
     assert.ok(b.height >= FIELD.height - 1e-9 && b.height <= BUBBLE.height + 1e-9, `the box's height left its run at ${ms}ms (${b.height})`);
     assert.ok(b.right <= RIGHT + 1e-9, `the right end went past the bubble's at ${ms}ms`);
@@ -374,8 +386,8 @@ test("every recorded send compresses from its own typing bar into its bubble on 
     for (const ms of [null, ...EVERY_MS]) {
       if (ms !== null) s.frame(ms);
       const b = edges(s), c = ms === null ? 0 : COMPRESS(ms), at = ms === null ? "before the first frame" : `at ${ms}ms`;
-      near(b.width, from.width + (to.width - from.width) * c, `${name}: the box's width is off the reference curve ${at}`, 1e-3);
-      near(b.height, from.height + (to.height - from.height) * c, `${name}: the box's height is off the reference curve ${at}`, 1e-3);
+      onCurve(b.width, from.width + (to.width - from.width) * c, to.width - from.width, ms || 0, `${name}: the box's width is off the reference curve ${at}`, 1e-3);
+      onCurve(b.height, from.height + (to.height - from.height) * c, to.height - from.height, ms || 0, `${name}: the box's height is off the reference curve ${at}`, 1e-3);
       if (bar.right === landed.right) near(b.right, landed.right, `${name}: the right end moved ${at}`, 1e-6);
     }
   }
@@ -391,8 +403,8 @@ test("the words are not scaled sideways or squashed, stand at the bubble's own p
   let still = null;
   for (const ms of EVERY_MS) {
     s.frame(ms);
-    const m = /scale\(([-\d.e]+),([-\d.e]+)\)/.exec(s.shell().querySelector(".sentmorph-target").style.transform);
-    assert.ok(m && Math.abs(m[1] - m[2]) < 1e-12, `the words are squashed at ${ms}ms (${m && m[0]})`);
+    const w = s.words();
+    assert.ok(Math.abs(w.k - w.ky) < 1e-12, `the words are squashed at ${ms}ms (${w.k}, ${w.ky})`);
     if (ms >= 260) near(s.wordsLeft() - PAD.x - edges(s).left, 0, `the words are not at the bubble's own place in the box at ${ms}ms`, 1e-6);
     if (ms >= 400) {
       const left = s.wordsLeft();
@@ -456,13 +468,28 @@ test("the flight takes 650ms, and the bubble takes over a frame after it lands",
   assert.equal(s.p.style.getPropertyValue("opacity"), "");
 });
 
-test("the flying box keeps the bubble's rounded corners at every frame", () => {
+test("the flying box keeps the bubble's rounded corners at every frame: four clips, each rounding its own corner and riding it", () => {
+  // the box is cut out by four clips nested one in the next, each as large as
+  // the box ever is: the first rounds the top left, then the top right, the
+  // foot's right and the foot's left. each stands on its own corner at every
+  // frame, and the ground inside them stands at the viewport's origin
   const s = flyFirst();
-  const corners = [ROUND, ROUND, ROUND, ROUND].map(n => n + "px").join(" ");
-  assert.equal(s.shell().style.borderRadius, corners, "the corners are not the bubble's before the first frame");
-  for (const ms of [0, 50, 133.3, 216.7, 400, FLIGHT_MS]) {
-    s.frame(ms);
-    assert.equal(s.shell().style.borderRadius, corners, `the corners are not the bubble's at ${ms}ms`);
+  const clips = s.shell().querySelectorAll(".sentmorph-clip");
+  const names = ["border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius"];
+  clips.forEach((clip, i) => names.forEach((name, j) =>
+    assert.equal(clip.style.getPropertyValue(name), i === j ? ROUND + "px" : "", `clip ${i} rounds the wrong corner (${name})`)));
+  const room = { width: px(clips[0].style.width), height: px(clips[0].style.height) };
+  assert.ok(clips.every(clip => px(clip.style.width) === room.width && px(clip.style.height) === room.height), "the clips are not one size");
+  assert.ok(room.width >= FIELD.width && room.height >= BUBBLE.height, `the clips (${room.width} by ${room.height}) are smaller than the box gets`);
+  for (const ms of [0, FIRST, 50, 133.3, 216.7, 400, FLIGHT_MS]) {
+    if (ms) s.frame(ms);
+    const d = drawn(s.shell(), s.clock.now);
+    near(d.origin.x, 0, `the ground left the viewport's origin across at ${ms}ms`, 1e-9);
+    near(d.origin.y, 0, `the ground left the viewport's origin down at ${ms}ms`, 1e-9);
+    assert.ok(d.width <= room.width && d.height <= room.height, `the box outgrew its clips at ${ms}ms`);
+    const face = s.face().style;
+    assert.ok(px(face.left) <= d.left && px(face.top) <= d.top && px(face.left) + px(face.width) >= d.right - 1e-9 &&
+      px(face.top) + px(face.height) >= d.bottom - 1e-9, `the grey does not fill the box at ${ms}ms`);
   }
 });
 
@@ -575,7 +602,8 @@ test("a later send flies into a bubble of its own the way the first send flies, 
 test("nothing lands on a bubble standing cut: a later send flies whole to its own bubble, nothing fading", () => {
   // the old shared panel squeezed a row below its cut into the cut's edge; now
   // the bubble standing, cut or not, is only ever moved, and its rows are left alone
-  const { p, q, frame, layers, shell } = flyLater(["Looks good, ship it", "And one more", "And a third"]);
+  const later = flyLater(["Looks good, ship it", "And one more", "And a third"]);
+  const { p, q, frame, layers, shell } = later;
   const rows = p.querySelectorAll(".answmsg");
   for (const ms of MOMENTS.slice(1)) {
     frame(ms);
@@ -584,12 +612,158 @@ test("nothing lands on a bubble standing cut: a later send flies whole to its ow
     assert.ok(!shell().style.opacity || shell().style.opacity === "1", `the box fades at ${ms}ms`);
     for (const row of rows) assert.equal(row.style.getPropertyValue("opacity"), "", `a row standing was hidden at ${ms}ms`);
   }
-  const landed = { top: px(shell().style.top), height: px(shell().style.height) };
+  const landed = edges(later);
   near(landed.top, BUBBLE.top, "the box did not land on the new bubble");
   near(landed.height, BUBBLE.height, "the box did not land whole");
   frame(FLIGHT_MS + 17);
   assert.equal(shell(), null);
   assert.equal(q.style.getPropertyValue("opacity"), "");
+});
+
+// ---- the browser draws the flight ------------------------------------------------------
+const flightLayers = shell => shell.querySelectorAll(".sentmorph-clip, .sentmorph-ground, .sentmorph-target");
+const handed = shell => flightLayers(shell).reduce((n, node) => n + node.animations.length, 0);
+
+test("the whole flight is handed to the browser before the first frame, as transforms alone, and the page's frames hand nothing over again", () => {
+  const s = flyFirst();
+  const layers = flightLayers(s.shell());
+  assert.equal(layers.length, 6, "the flight is not four clips, the ground and the words");
+  assert.equal(handed(s.shell()), 6, "the flight is not one animation a layer");
+  for (const node of layers) {
+    const run = running(node);
+    assert.equal(run.options.duration, FLIGHT_MS, "a layer's flight is not the flight's length");
+    assert.equal(run.options.easing, "linear", "a layer's keyframes are eased again on top of their curves");
+    assert.equal(run.options.fill, "both", "a layer leaves its landing before the bubble takes over");
+    near(run.currentTime, 1000 / 60, "the flight is not held a frame in until the browser draws it", 1e-9);
+    assert.equal(run.keys[0].offset, 0);
+    assert.equal(run.keys.at(-1).offset, 1);
+    for (const key of run.keys)
+      assert.deepEqual(Object.keys(key).sort(), ["offset", "transform"], "a keyframe moves something besides the transform");
+    assert.deepEqual(run.keys.map(key => key.offset), running(layers[0]).keys.map(key => key.offset), "the layers' keyframes are not at the same moments");
+    // few keyframes, so handing them over is quick: each one is a whole ms
+    assert.ok(run.keys.length <= 60, `the flight is handed over as ${run.keys.length} keyframes`);
+    for (const key of run.keys) near(key.offset * FLIGHT_MS, Math.round(key.offset * FLIGHT_MS), "a keyframe is not on a whole ms", 1e-9);
+  }
+  // joined straight, the box the browser draws stands within TRUE_PX of the
+  // curves on every ms, and on them at each keyframe
+  const moments = new Set(running(layers[0]).keys.map(key => Math.round(key.offset * FLIGHT_MS)));
+  for (let ms = 0; ms <= FLIGHT_MS; ms++) {
+    const got = drawn(s.shell(), ms), want = s.context.sentMorphBox(FIELD, BUBBLE, s.context.sentTrack(ms));
+    for (const key of ["left", "top", "width", "height"])
+      near(got[key], want[key], `the ${key} drawn at ${ms}ms`, moments.has(ms) ? 1e-9 : 2 * TRUE_PX);
+  }
+  for (const ms of EVERY_MS) s.frame(ms);
+  assert.equal(handed(s.shell()), 6, "a frame of the page handed the flight over again while the seat stood still");
+  s.frame(FLIGHT_MS + 17);
+  assert.equal(s.shell(), null);
+  assert.ok(layers.every(node => node.animations.every(run => run.cancelled)), "an animation outlived the flight");
+});
+
+test("in WebKit the flight is not held: the browser shows its first frame a frame or two after the frame's own time, already on its way", () => {
+  // WebKit starts an animation from the time of the frame it is made in and
+  // draws it later (19 to 44ms in on the iPhone simulator); held a frame in as
+  // in Chromium, its first frame stood 39 to 53ms in, a jump. here its first
+  // frame comes late, at 500ms, and the page's clock starts there with it
+  const s = flyFirst("webkit");
+  const layers = flightLayers(s.shell());
+  for (const node of layers) assert.equal(running(node).currentTime, 0, "WebKit's flight is held");
+  const FIRST_LATE = 500;
+  s.frame(FIRST_LATE);
+  for (const ms of [600, 900, FIRST_LATE + FLIGHT_MS - 1]) {
+    s.frame(ms);
+    assert.ok(s.shell(), `the flight ended early, at ${ms - FIRST_LATE}ms of its own clock`);
+  }
+  assert.equal(handed(s.shell()), 6, "the page's frames handed the flight over again");
+  s.frame(FIRST_LATE + FLIGHT_MS);
+  assert.ok(s.shell(), "the landing frame was not painted before the swap");
+  s.frame(FIRST_LATE + FLIGHT_MS + 17);
+  assert.equal(s.shell(), null, "the bubble did not take over a frame after the landing");
+  // and Chromium's is held a frame in
+  const c = flyFirst("chromium");
+  for (const node of flightLayers(c.shell())) near(running(node).currentTime, 1000 / 60, "Chromium's flight is not held a frame in", 1e-9);
+});
+
+test("the flight lands on the seat's edges on whole device pixels, where the bubble's grey is painted, so the hand-over moves nothing", () => {
+  // the bubble's grey is painted with its edges on whole device pixels, and
+  // the clips cut where they are put: landed between pixels, the box stood up
+  // to a pixel inside the bubble each side and stepped out to it at the
+  // hand-over (0.3 to 0.6pt on the iPhone simulator, 3 pixels to a point)
+  const s = flyFirst("chromium", 3);
+  const onPixel = v => Math.round(v * 3) / 3;
+  const want = { left: onPixel(BUBBLE.left), top: onPixel(BUBBLE.top),
+    right: onPixel(BUBBLE.left + BUBBLE.width), bottom: onPixel(BUBBLE.top + BUBBLE.height) };
+  for (const ms of EVERY_MS) s.frame(ms);
+  const landed = edges(s);
+  for (const key of ["left", "top", "right", "bottom"]) {
+    near(landed[key], want[key], `the landing's ${key} is not on a whole device pixel`, 1e-9);
+    near(landed[key] * 3, Math.round(landed[key] * 3), `the landing's ${key} is between device pixels`, 1e-6);
+  }
+  // the page reads the seat as laid out, between pixels, and sees it standing
+  // where the flight goes: nothing is handed over again for the rounding
+  assert.equal(handed(s.shell()), 6, "the flight was handed over again for its seat's rounding");
+  // with no pixels to go by, the landing is the seat as laid out
+  const plain = flyFirst();
+  for (const ms of EVERY_MS) plain.frame(ms);
+  near(edges(plain).left, BUBBLE.left, "the landing moved with no device pixels to go by", 1e-9);
+});
+
+test("a page too busy to run its frames holds nothing still: the box the browser draws goes on between them", () => {
+  // the owner's Mac recording: the page ran no frame of its own for two to
+  // four frames between about 50 and 125ms, and the box stood still and then
+  // jumped while the bubbles' glide went on. here the page runs its first
+  // frame and then none until 125ms: the box drawn at each 1/60s in between is
+  // where the curves put it, and a step on from the one before
+  const s = flyFirst();
+  s.frame(FIRST);
+  let before = drawn(s.shell(), FIRST);
+  for (const ms of [33.3, 50, 66.7, 83.3, 100, 116.7]) {
+    const got = drawn(s.shell(), ms);
+    const want = s.context.sentMorphBox(FIELD, BUBBLE, s.context.sentTrack(ms));
+    for (const key of ["left", "top", "width", "height"]) near(got[key], want[key], `the ${key} drawn at ${ms}ms with the page busy`, 2 * TRUE_PX);
+    assert.ok(got.left > before.left + 1 && got.width < before.width - 1, `the box stood still at ${ms}ms while the page was busy`);
+    before = got;
+  }
+  s.frame(125);
+  near(edges(s).left, s.context.sentMorphBox(FIELD, BUBBLE, s.context.sentTrack(125)).left, "the box once the page came back", 2 * TRUE_PX);
+  assert.equal(handed(s.shell()), 6, "the page's late frame handed the flight over again");
+});
+
+test("an earlier send still in the air follows its bubble up the glide a later send gives it, taken whole from the glide's first frame", () => {
+  // a later send at 100ms: its own bubble takes the seat's foot and pushes the
+  // first one up by its height and the mark's room, on the glide. the browser
+  // runs that glide from the next frame; the first flight takes it into its
+  // seat then, once, and rises with its bubble on the glide's own curve
+  const s = flyFirst();
+  s.frame(FIRST);
+  s.frame(100);
+  const firstShell = s.shell();
+  const second = s.context.armSentMotion(s.el);
+  const q = s.panel(["One more thing"]);
+  box(q, BUBBLE);
+  box(q.querySelector(".answmsg"), { left: BUBBLE.left + PAD.x, top: BUBBLE.top + PAD.y, width: BUBBLE.width - 2 * PAD.x, height: 21 });
+  const rise = BUBBLE.height + ROOM, raised = { ...BUBBLE, top: BUBBLE.top - rise };
+  box(s.p, raised);
+  second.play();
+  near(+/translate\(0px,([-\d.e]+)px\)/.exec(s.p.animations.at(-1).keys[0].transform)[1], rise, "the first bubble does not glide from where it stood", 1e-9);
+  const glide = bezier([0.24, 0.1, 0.15, 1]), since = 100 + FIRST;
+  const offset = ms => rise * (1 - glide(Math.max(0, (ms - since) / 340)));
+  const at = [since];
+  for (let ms = 118; ms <= FLIGHT_MS; ms++) at.push(ms);
+  for (const ms of at) {
+    s.p.shiftY = offset(ms);   // the glide as the browser draws it
+    const held = drawn(firstShell, ms);
+    s.frame(ms);
+    const got = drawn(firstShell, ms), seat = { ...raised, top: raised.top + offset(ms) };
+    // (between two keyframes, the later of which may already have the glide's first ms)
+    if (ms === since) for (const key of ["left", "top", "width", "height"])
+      near(got[key], held[key], `the first flight jumped as it took the glide (${key})`, 2 * TRUE_PX);
+    const want = s.context.sentMorphBox(FIELD, seat, s.context.sentTrack(ms));
+    for (const key of ["left", "top", "width", "height"]) near(got[key], want[key], `the first flight's ${key} at ${ms}ms on its gliding seat`, 2 * TRUE_PX);
+  }
+  for (const key of ["left", "top", "width", "height"]) near(drawn(firstShell, FLIGHT_MS)[key], raised[key], `the first flight did not land on its raised bubble (${key})`, 1e-6);
+  assert.equal(handed(firstShell), 12, "the first flight was not handed over again exactly once");
+  s.frame(FLIGHT_MS + 17);
+  assert.equal(firstShell.parentElement, null, "the first flight outlived its landing");
 });
 
 test("a reader who asked for no motion gets no flight", () => {

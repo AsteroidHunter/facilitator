@@ -23,6 +23,7 @@ const TOKENS = readFileSync(path.join(ROOT, "card-tokens.css"), "utf8");
 const DESKTOP = readFileSync(path.join(ROOT, "index.html"), "utf8");
 const PHONE = readFileSync(path.join(ROOT, "m.html"), "utf8");
 const markdown = require("../card-markdown.js");
+const { drawn } = require("./sent-flight-drawn.cjs");
 
 // ---- the stand-in dom ---------------------------------------------------------
 // just enough of an element for the panel: classes, attributes, children, a
@@ -2610,9 +2611,25 @@ test("a panel whose own lane was scrolled comes down to its head on the run, not
 
 // Synthetic viewport rectangles exercise the real send code and its frames.
 // They do not simulate layout or claim a rendered appearance.
+// the browser's animations, kept on the node so a test can read back what the
+// flight hands it: given to the scene's own nodes only, the typing field and
+// whatever the code makes, so no other test's stand-in learns to animate
+function animated(node) {
+  node.animations = [];
+  node.animate = (keys, options) => {
+    const run = { keys, options, playState: "running", cancel() { run.playState = "idle"; } };
+    node.animations.push(run);
+    return run;
+  };
+  return node;
+}
 function motionScene(formatted = false) {
   const s = sandbox(), { context } = s;
+  const make = context.document.createElement;
+  context.document.createElement = tag => animated(make(tag));
+  context.navigator = { userAgentData: { brands: [] } };   // Chromium, as the Mac board's browser
   const el = fullCard("motion");
+  animated(el.ta);
   const body = element("body");
   context.document.body = body;
   body.appendChild(el.box);
@@ -2634,7 +2651,7 @@ function motionScene(formatted = false) {
       getPropertyValue: name => node.style.getPropertyValue(name) || values[name] || inherited.getPropertyValue(name),
     };
   };
-  const source = formatted ? element("div") : el.ta;
+  const source = formatted ? animated(element("div")) : el.ta;
   if (formatted) {
     source.innerHTML = "<div><b>Invented formatted draft.</b></div>";
     el.box.appendChild(source);
@@ -2665,9 +2682,11 @@ test("send morph starts at the typed field, carries one copy of the words at ful
     const motion = context.armSentMotion(el);
     const shell = s.shell();
     assert.ok(shell);
-    assert.equal(shell.style.left, "20px");
-    assert.equal(shell.style.top, "300px");
-    assert.equal(shell.style.width, "300px");
+    // the box the clips cut out at a moment of the flight, ms from the press
+    const at = ms => drawn(shell, ms);
+    assert.equal(at(0).left, 20);
+    assert.equal(at(0).top, 300);
+    assert.equal(at(0).width, 300);
     assert.equal(shell.getAttribute("aria-hidden"), "true");
     const item = s.insert();
     motion.play();
@@ -2675,10 +2694,10 @@ test("send morph starts at the typed field, carries one copy of the words at ful
     assert.equal(el.sent.style.opacity, "0", "real bubble must hold its layout while hidden");
     // before the first frame: the start box, the typing box itself, which
     // compresses into the bubble from there
-    assert.equal(shell.style.left, "20px");
-    assert.equal(shell.style.top, "300px");
-    assert.equal(shell.style.width, "300px", "the start box is not the typing box's width");
-    assert.equal(shell.style.height, "60px", "the start box is not the typing box's height");
+    assert.equal(at(0).left, 20);
+    assert.equal(at(0).top, 300);
+    assert.equal(at(0).width, 300, "the start box is not the typing box's width");
+    assert.equal(at(0).height, 60, "the start box is not the typing box's height");
     assert.equal(!!shell.querySelector(".sentmorph-source"), false, "the typed words fly as a second copy");
     assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     // the first frame drawn is a frame into the flight: ms below are from the press
@@ -2695,8 +2714,8 @@ test("send morph starts at the typed field, carries one copy of the words at ful
     assert.ok(s.shell(), "the flight landed before its 650ms");
     assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
     frame(650);
-    assert.equal(shell.style.top, "190px", "flight aimed at a stale seat");
-    assert.equal(shell.style.width, "180px");
+    assert.ok(Math.abs(at(650).top - 190) < 1e-9, "flight aimed at a stale seat");
+    assert.ok(Math.abs(at(650).width - 180) < 1e-9);
     assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
     assert.ok(s.shell(), "landing frame was removed before painting");
     frame(667);
@@ -2756,9 +2775,10 @@ test("send morph lands a later send whole on a bubble of its own, never on a row
   assert.equal(s.shell().style.opacity, "", "the box fades");
   assert.equal(oldRow.style.opacity, "", "a row of the bubble standing was hidden");
   frame(650);
-  assert.equal(s.shell().style.top, "262px", "the box did not land on the new bubble");
-  assert.equal(s.shell().style.height, "45px", "the box did not land whole");
-  assert.equal(s.shell().querySelector(".sentmorph-target").style.transform, "translate(0px,0px) scale(1,1)",
+  const landed = drawn(s.shell(), 650);
+  assert.ok(Math.abs(landed.top - 262) < 1e-9, "the box did not land on the new bubble");
+  assert.ok(Math.abs(landed.height - 45) < 1e-9, "the box did not land whole");
+  assert.deepEqual([landed.words.x, landed.words.y, landed.words.k, landed.words.ky].map(v => Math.round(v * 1e9) / 1e9), [0, 0, 1, 1],
     "the words did not land on the new bubble's own place");
   frame(667);
   assert.equal(s.shell(), null);
@@ -2828,12 +2848,12 @@ test("send morph keeps an earlier flight in the air through a rapid second send"
   const first = context.armSentMotion(el);
   // the first flight's first frame is drawn at 1/60s, so its ms are from its press
   s.insert("Invented first flight."); first.play(); frame(1000 / 60); frame(100);
-  const firstShell = s.shell(), top = firstShell.style.top;
+  const firstShell = s.shell(), top = drawn(firstShell, 100).top;
   context.performance.now = () => 100;
   const firstBubble = el.sent;
   const second = context.armSentMotion(el);
   assert.equal(firstShell.parentNode, s.body, "second send removed an unfinished flight");
-  assert.equal(firstShell.style.top, top, "second send teleported the first bubble");
+  assert.equal(drawn(firstShell, 100).top, top, "second send teleported the first bubble");
   assert.equal(firstBubble.style.opacity, "0", "second send exposed the first bubble at its destination");
   const item = s.insert("Invented second flight."); second.play();
   const secondBubble = el.sent;

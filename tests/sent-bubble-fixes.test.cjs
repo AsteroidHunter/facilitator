@@ -8,6 +8,7 @@ const { readFileSync } = require("node:fs");
 const { test } = require("node:test");
 const path = require("node:path");
 const vm = require("node:vm");
+const { drawn, running } = require("./sent-flight-drawn.cjs");
 const ROOT = path.resolve(__dirname, "..");
 const LOGIC = readFileSync(path.join(ROOT, "card-logic.js"), "utf8");
 
@@ -108,11 +109,14 @@ test("on the page's own frames the flying box starts as the typing row and compr
     }
     const R0 = row.left + row.width, R1 = bubble.left + bubble.width;
     const between = (v, a, b) => v >= Math.min(a, b) - 1e-6 && v <= Math.max(a, b) + 1e-6;
+    // the keyframes the browser is handed, joined straight, keep each edge
+    // within 0.1px of the curves on every ms, so a width or height within 0.2px
+    const within = () => 0.2 + 1e-9;
     let before = null;
     for (const { ms, box } of readings) {
       const c = compress(ms), at = ms.toFixed(1) + "ms";
-      assert.ok(Math.abs(box.width - (row.width + (bubble.width - row.width) * c)) <= 1e-5, name + ": the box is " + box.width + " wide at " + at + ", off the recording's curve");
-      assert.ok(Math.abs(box.height - (row.height + (bubble.height - row.height) * c)) <= 1e-5, name + ": the box is " + box.height + " tall at " + at + ", off the recording's curve");
+      assert.ok(Math.abs(box.width - (row.width + (bubble.width - row.width) * c)) <= within(ms, bubble.width - row.width), name + ": the box is " + box.width + " wide at " + at + ", off the recording's curve");
+      assert.ok(Math.abs(box.height - (row.height + (bubble.height - row.height) * c)) <= within(ms, bubble.height - row.height), name + ": the box is " + box.height + " tall at " + at + ", off the recording's curve");
       // the side edges and the top stay on their way from the row's to the
       // bubble's and only ever go one way
       assert.ok(between(box.left, row.left, bubble.left), name + ": the left edge left its run at " + at);
@@ -184,7 +188,14 @@ function page() {
       },
       querySelector: sel => node.querySelectorAll(sel)[0] || null,
       cloneNode(deep) { const copy = element(tag, [...node.classes].join(" ")); if (deep) node.children.forEach(k => copy.appendChild(k.cloneNode(true))); return copy; },
-      animate: () => ({ cancel() {} }),
+      // an animation handed to the browser, kept so the test can read it back
+      animations: [],
+      animate(keys, options) {
+        note("animate");
+        const run = { keys, options, playState: "running", cancel() { run.playState = "idle"; } };
+        node.animations.push(run);
+        return run;
+      },
     };
     return node;
   }
@@ -193,6 +204,7 @@ function page() {
   const clock = { now: 0 };
   const context = load({
     document: { body, createElement: tag => element(tag) },
+    navigator: { userAgentData: { brands: [] } },   // Chromium, as the Mac board's browser
     performance: { now: () => clock.now },
     requestAnimationFrame: fn => frames.push(fn), cancelAnimationFrame: () => {},
     setTimeout: () => 0, clearTimeout: () => {},
@@ -232,7 +244,8 @@ function page() {
   }
   const frame = now => { clock.now = now; for (const fn of frames.splice(0)) fn(now); };
   const shell = () => body.children.find(n => n.classes.has("sentmorph")) || null;
-  const box = () => { const s = shell().style; return { left: parseFloat(s.left), top: parseFloat(s.top), width: parseFloat(s.width), height: parseFloat(s.height) }; };
+  // the box the browser draws at the moment of the clock, ms from the press
+  const box = () => { const { left, top, width, height } = drawn(shell(), clock.now); return { left, top, width, height }; };
   return { context, el, arm, seat, fly, frame, shell, box, make: element, set, log,
     logging: on => { if (on) log.length = 0; logging = on; } };
 }
@@ -419,22 +432,29 @@ test("an attachment shows its name with no Open and Download links: a document's
   assert.match(markdown.render("/uploads/1791398534302337004-plot.png"), /<img class="shot"/);
 });
 
-// ---- 6. the send flight on the Mac: no pause as it flies out, no lag ---------------------
+// ---- 6. the send flight on the Mac: no pause as it flies out, no lag, no hold ------------
 test("the first frame drawn after a send already has the box on its way, on time or late", () => {
+  // the browser holds the flight a frame in until it draws it, however late
+  // that first frame comes after the send's own work
   for (const first of [1000 / 60, 500]) {
     const s = page();
     s.fly();
-    const start = s.box();
+    const start = drawn(s.shell(), 0);
     s.frame(first);
-    const got = s.box(), want = s.context.sentMorphBox(FROM, TO, s.context.sentTrack(1000 / 60));
+    const layers = s.shell().querySelectorAll(".sentmorph-clip, .sentmorph-ground, .sentmorph-target");
+    for (const node of layers)
+      assert.equal(running(node).currentTime, 1000 / 60, `a layer is not held a frame into the flight for its first frame at ${first.toFixed(1)}ms`);
+    const got = drawn(s.shell(), 1000 / 60), want = s.context.sentMorphBox(FROM, TO, s.context.sentTrack(1000 / 60));
     assert.ok((got.left - start.left) / (TO.left - FROM.left) >= 0.1,
       `the box stands on the row on the first frame drawn at ${first.toFixed(1)}ms (left ${got.left})`);
     for (const key of ["left", "top", "width", "height"])
-      assert.ok(Math.abs(got[key] - want[key]) < 1e-6, `the first frame drawn at ${first.toFixed(1)}ms is not one frame into the flight (${key} ${got[key]}, ${want[key]})`);
+      assert.ok(Math.abs(got[key] - want[key]) <= 0.2, `the first frame drawn at ${first.toFixed(1)}ms is not one frame into the flight (${key} ${got[key]}, ${want[key]})`);
   }
 });
 
-test("a frame of the flight reads the page before it writes to it, so the page is laid out once a frame", () => {
+test("the page's own frames in the air only read the seat: they write nothing and hand nothing over, so the browser moves the box", () => {
+  // the frame-by-frame flight laid the page out every frame and stood still
+  // whenever the page was busy; now the page's frames only watch the seat
   const s = page();
   s.fly();
   s.frame(1000 / 60);
@@ -442,10 +462,33 @@ test("a frame of the flight reads the page before it writes to it, so the page i
     s.logging(true);
     s.frame(now);
     s.logging(false);
-    const firstWrite = s.log.indexOf("write"), lastRead = s.log.lastIndexOf("read");
-    assert.ok(firstWrite >= 0 && lastRead >= 0, "the frame neither read nor wrote");
-    assert.ok(lastRead < firstWrite, `the frame at ${now}ms read the page after writing to it (${s.log.join(" ")})`);
+    assert.ok(s.log.includes("read"), `the frame at ${now}ms did not look at the seat`);
+    assert.deepEqual(s.log.filter(what => what !== "read"), [], `the frame at ${now}ms wrote to the page or handed the flight over (${s.log.join(" ")})`);
   }
+});
+
+test("a seat that moves in the air is met from the frame it is seen on, and the flight carries on from there", () => {
+  // the frame-by-frame flight followed the seat it read every frame; the
+  // watching page does the same, handing the rest of the flight over once
+  const s = page();
+  const p = s.fly();
+  s.frame(1000 / 60);
+  s.frame(200);
+  const moved = { left: TO.left - 20, top: TO.top - 30, width: TO.width + 20, height: TO.height + 10 };
+  s.set(p, moved);
+  s.logging(true);
+  s.frame(217);
+  s.logging(false);
+  assert.ok(s.log.includes("animate"), "the moved seat was not handed over");
+  for (const ms of [217, 300, 450, 650]) {
+    const got = drawn(s.shell(), ms), want = s.context.sentMorphBox(FROM, moved, s.context.sentTrack(ms));
+    for (const key of ["left", "top", "width", "height"])
+      assert.ok(Math.abs(got[key] - want[key]) <= 0.2, `the flight is not going to the moved seat at ${ms}ms (${key} ${got[key]}, ${want[key]})`);
+  }
+  s.logging(true);
+  s.frame(233);
+  s.logging(false);
+  assert.ok(!s.log.includes("animate"), "the flight was handed over again with the seat standing still");
 });
 
 test("the flying box has a layer of its own, so the page under it is not painted again as it moves", () => {
