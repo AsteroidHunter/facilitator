@@ -1,8 +1,11 @@
-// Where a card's magic box stands, worked out without a browser: as tall as the
-// card, two thirds as wide in whole star cells, one cell to its right, every
-// edge on a star line, and over the card's edge rather than off the frame when
-// the window has no room. And the page's wiring, read from its source: the box
-// is never one of the regions the fit, the layout or edit mode work on.
+// Where a card's magic box stands, worked out without a browser: the shape of an
+// iPhone 13 mini's screen, as tall as the card when the room right of the card
+// allows and smaller when it does not, in the middle of that room so the gap to
+// the card and the gap to the workspace's edge are equal, level with the card's
+// middle, and over the card's edge rather than off the workspace when the window
+// has no room. Its look, read from the page's source: the ticket list's two soft
+// ends and no line. And the page's wiring: the box is never one of the regions
+// the fit, the layout or edit mode work on.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -16,57 +19,139 @@ function api() {
   vm.runInContext(read("magic-box.js"), scope);
   return scope.MagicBox;
 }
-const { CELL, place } = api();
-const close = (a, b) => Math.abs(a - b) < 1e-6;
-const onStarLine = x => close((x / CELL - 0.5) - Math.round(x / CELL - 0.5), 0);
+const { CELL, SHAPE, place } = api();
+const close = (a, b, by = 1e-6) => Math.abs(a - b) < by;
 // the card where a new board puts it (index.html --frame-*), in stage pixels
 const CARD = { left: 1440 * 0.324, top: 900 * 0.0832, width: 1440 * 0.352, height: 900 * 0.832 };
-const WIDE = { scale: 1, tx: 0, left: 25, right: 1415 };
+const RIGHT = c => c.left + c.width;
+const MIDDLE = r => r.top + r.height / 2;
+// the workspace in a window w wide, as magicPlace hands it over: the frame's
+// inner edges 6.5px in from the window's sides, the stage centred while the
+// window is wider than it, and the fit's clearance of 16 as the least gap
+const fitAt = (w, more = {}) => ({ scale: 1, tx: Math.max(0, (w - 1440) / 2), left: 6.5, right: w - 6.5, clear: 16, ...more });
+const edgeOf = fit => (fit.right - fit.tx) / fit.scale;
+// a box beside its card: the phone's shape, the two gaps equal, the middles level
+function besideRight(at, card, fit) {
+  const gapCard = at.left - RIGHT(card), gapEdge = edgeOf(fit) - (at.left + at.width);
+  assert.equal(at.floating, false);
+  assert.ok(close(at.width / at.height, 375 / 812), `shape ${at.width / at.height}`);
+  assert.ok(close(gapCard, gapEdge), `gaps ${gapCard} and ${gapEdge}`);
+  assert.ok(gapCard >= fit.clear / fit.scale - 1e-6, `gap ${gapCard} under the clearance`);
+  assert.ok(close(MIDDLE(at), MIDDLE(card)), `middle ${MIDDLE(at)} against ${MIDDLE(card)}`);
+  assert.ok(at.height <= card.height + 1e-6, "never taller than the card");
+  return gapCard;
+}
 
-test("beside the default card: as tall, two thirds as wide in whole cells, one cell to the right", () => {
-  const at = place(CARD, WIDE);
-  assert.ok(close(at.width, 29 * CELL), `width ${at.width}`);
-  assert.ok(close(at.left, CARD.left + CARD.width + CELL));
-  assert.deepEqual([at.top, at.height, at.floating], [CARD.top, CARD.height, false]);
-  assert.ok(onStarLine(at.left) && onStarLine(at.left + at.width), "both side edges on star lines");
-  assert.ok(at.left + at.width < 1440, "inside the 1440 stage");
+test("the shape is an iPhone 13 mini's screen, 375 by 812, and only a ratio", () => {
+  assert.equal(SHAPE, 375 / 812);
+  // no size of its own: a card twice as tall, with room for it, has a box twice as big
+  const tall = place({ ...CARD, height: CARD.height }, fitAt(3000));
+  const half = place({ ...CARD, height: CARD.height / 2 }, fitAt(3000));
+  assert.ok(close(tall.width, 2 * half.width) && close(tall.height, 2 * half.height));
 });
 
-test("a dragged or sized card takes its box with it", () => {
-  const moved = { left: 8.5 * CELL, top: 3.5 * CELL, width: 30 * CELL, height: 50 * CELL };
-  const at = place(moved, WIDE);
-  assert.ok(close(at.width, 20 * CELL));
-  assert.ok(close(at.left, moved.left + moved.width + CELL));
-  assert.deepEqual([at.top, at.height, at.floating], [moved.top, moved.height, false]);
+test("in the Mac's 1512 window: as tall as the card, in the middle of the room right of it", () => {
+  const fit = fitAt(1512);
+  const at = place(CARD, fit, 34);
+  assert.ok(close(at.height, CARD.height) && close(at.top, CARD.top));
+  assert.ok(close(at.width, CARD.height * 375 / 812));
+  const gap = besideRight(at, CARD, fit);
+  assert.ok(gap > 16, `room to spare: ${gap}`);
 });
 
-test("with no room on the right it floats over the card's edge, inside the frame, on a star line", () => {
-  const narrow = { scale: 1, tx: 0, left: 25, right: 1175 };
-  const at = place(CARD, narrow, 34);
-  assert.equal(at.floating, true);
-  assert.ok(at.left + at.width <= 1175 + 1e-6, "ends inside the frame");
-  assert.ok(at.left < CARD.left + CARD.width && at.left > CARD.left, "over the card's right part");
-  assert.ok(onStarLine(at.left));
-  assert.ok(close(at.width, 29 * CELL), "the same size, never squeezed");
-  assert.ok(at.top > CARD.top + 34 && at.top - (CARD.top + 34) < CELL, "starts just under the card's top bar");
-  assert.ok(onStarLine(at.top), "on a star row");
-  assert.ok(close(at.top + at.height, CARD.top + CARD.height), "and ends with the card");
-  const beside = place(CARD, WIDE, 34);
-  assert.deepEqual([beside.top, beside.height], [CARD.top, CARD.height], "beside the card the bar changes nothing");
+test("a narrower window shrinks it, keeping the shape and the middle, with the least gap either side", () => {
+  const fit = fitAt(1280);
+  const at = place(CARD, fit, 34);
+  assert.ok(at.height < CARD.height, `height ${at.height}`);
+  assert.ok(close(besideRight(at, CARD, fit), 16), "both gaps are the clearance");
+  assert.ok(close(at.width, edgeOf(fit) - RIGHT(CARD) - 32));
+});
+
+test("at every window width the gaps stay equal, and the box only grows as the window does", () => {
+  let last = 0;
+  for (let w = 1190; w <= 1700; w += 7) {
+    const fit = fitAt(w);
+    const at = place(CARD, fit, 34);
+    besideRight(at, CARD, fit);
+    assert.ok(at.width >= last - 1e-6, `smaller at ${w}`);
+    last = at.width;
+  }
+  assert.ok(close(last, CARD.height * 375 / 812), "and stops at the card's height");
+});
+
+test("a card made shorter or moved takes its box with it", () => {
+  const fit = fitAt(1280);
+  for (const card of [{ ...CARD, height: 520 }, { ...CARD, top: 180, height: 520 }, { ...CARD, left: 300 }]) {
+    const at = place(card, fit, 34);
+    besideRight(at, card, fit);
+  }
+  const shorter = place({ ...CARD, height: 520 }, fit, 34);
+  assert.ok(close(shorter.height, 520), "a short enough card has a box as tall as itself");
 });
 
 test("the room is read through the stage's scale and shift, in both panes", () => {
-  assert.equal(place(CARD, { scale: 0.8, tx: 20, left: 25, right: 1100 }).floating, false);   // (1100-20)/.8 = 1350
-  assert.equal(place(CARD, { scale: 0.8, tx: 20, left: 25, right: 1060 }).floating, true);    // 1300 < 1319
-  const pane = place(CARD, { scale: 0.9, tx: -300, left: 0, right: 1000 });                   // the right pane
-  assert.equal(pane.floating, false);
+  const scaled = { scale: 0.8, tx: 20, left: 6.5, right: 1100, clear: 16 };
+  const at = place(CARD, scaled, 34);
+  // (1100 - 20) / .8 = 1350 on the stage, and the clearance is 16 screen pixels
+  assert.ok(close(besideRight(at, CARD, scaled), 20), "16 on screen is 20 on a stage drawn at .8");
+  const pane = { scale: 0.9, tx: -300, left: 0, right: 1000, clear: 16 };   // the right pane
+  besideRight(place(CARD, pane, 34), CARD, pane);
 });
 
-test("in a window narrower than the box it never starts left of the frame", () => {
-  const at = place(CARD, { scale: 1, tx: 0, left: 600, right: 700 });
+test("with less than half the card's height beside it, it floats over the card's edge", () => {
+  const fit = fitAt(1100);
+  const at = place(CARD, fit, 34);
   assert.equal(at.floating, true);
-  assert.ok(at.left >= 600, `left ${at.left}`);
-  assert.ok(onStarLine(at.left));
+  assert.ok(close(at.width / at.height, 375 / 812));
+  assert.ok(close(edgeOf(fit) - (at.left + at.width), 16), "the clearance in from the workspace's edge");
+  assert.ok(at.left < RIGHT(CARD) && at.left > CARD.left, "over the card's right part");
+  assert.ok(at.top > CARD.top + 34 && at.top - (CARD.top + 34) < 2 * CELL, "under the card's top bar");
+  assert.ok(close(MIDDLE(at), MIDDLE(CARD)), "level with the card's middle");
+  // one window wider than the threshold keeps it beside the card
+  const just = fitAt(1200);
+  besideRight(place(CARD, just, 34), CARD, just);
+});
+
+test("in a window narrower than the box it never starts left of the workspace", () => {
+  const fit = { scale: 1, tx: 0, left: 600, right: 700, clear: 16 };
+  const at = place(CARD, fit, 34);
+  assert.equal(at.floating, true);
+  assert.ok(at.left >= 616 - 1e-6 && at.left + at.width <= 684 + 1e-6, `${at.left} to ${at.left + at.width}`);
+  assert.ok(close(at.width / at.height, 375 / 812));
+  assert.ok(close(MIDDLE(at), MIDDLE(CARD)));
+});
+
+test("the page hands the box the workspace's own edges and the fit's clearance", () => {
+  const html = read("index.html");
+  const call = html.slice(html.indexOf("const at = MagicBox.place("), html.indexOf("MB.el.classList.toggle(\"floating\""));
+  assert.match(call, /left: lim\.left - FRAME_CLEAR, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR/);
+  assert.match(html, /const FRAME_CLEAR = 16;/);
+});
+
+test("the box wears the ticket list's two soft ends, and no line under its bar", () => {
+  const html = read("index.html");
+  const rule = sel => {
+    const at = html.indexOf("\n  " + sel + "{");
+    assert.ok(at > 0, sel);
+    return html.slice(at, html.indexOf("}", html.indexOf("100%)", html.indexOf("mask-image:", at))) + 1);
+  };
+  const masks = text => [...text.matchAll(/(?:-webkit-)?mask-image:(linear-gradient\([\s\S]*?100%\))/g)].map(m => m[1].replace(/\s+/g, " "));
+  const list = masks(rule(".tikpane")), box = masks(rule("#magicbox .mbbody"));
+  assert.equal(list.length, 2);
+  assert.deepEqual(box, list, "the very ramp the ticket list draws, prefixed and not");
+  // both bands at the list's own depth, held there, and one depth for both
+  assert.match(rule("#magicbox .mbbody"), /--upband:var\(--listfade\); --downband:var\(--listfade\)/);
+  assert.equal((html.match(/--listfade:\s*\d/g) || []).length, 1, "--listfade is set once, for both");
+  const tokens = html.slice(html.indexOf("--cw:1440px"), html.indexOf("\n  }", html.indexOf("--cw:1440px")));
+  assert.match(tokens, /--listfade:22px;/, "among the board's own tokens");
+  // the bar: no face and no line
+  const bar = html.slice(html.indexOf("  #magicbox .mbbar{"), html.indexOf("}", html.indexOf("  #magicbox .mbbar{")));
+  assert.ok(!/box-shadow|border|background/.test(bar), bar);
+  // beside the card the box paints nothing of its own; floated it wears the card's
+  const on = html.slice(html.indexOf("  body.focus #magicbox.on{"), html.indexOf("}", html.indexOf("  body.focus #magicbox.on{")));
+  assert.match(on, /background:transparent; border:none; border-radius:0; box-shadow:none/);
+  const sheet = html.slice(html.indexOf("  #magicbox{display:none}"), html.indexOf("  /* on the chat lane's tab"));
+  assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
 
 test("an agent's page gets the sealing policy first, before anything it wrote", () => {
