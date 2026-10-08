@@ -362,6 +362,18 @@ class Counts(Board):
         self.assertEqual(uc.agent_kind("agent"), "other")
         self.assertEqual(uc.agent_kind(None), "other")
 
+    def test_model_names_count_as_their_agent(self):
+        for name in ("opus", "Claude-Opus-4", "sonnet 5", "Haiku", "fable"):
+            self.assertEqual(uc.agent_kind(name), "claude", name)
+        for name in ("gpt-5", "GPT", "astra"):
+            self.assertEqual(uc.agent_kind(name), "codex", name)
+        self.assertEqual(uc.agent_kind("gemini"), "other")
+        self.assertEqual(uc.agent_kind(""), "other")
+
+    def test_a_name_matching_both_lists_is_claude(self):
+        self.assertEqual(uc.agent_kind("codex on opus"), "claude")
+        self.assertEqual(uc.agent_kind("claude gpt"), "claude")
+
     def test_a_phone_opening_alone_is_a_used_day(self):
         self.write_rows([])
         counts = uc.day_counts([DAY], self.transcript, self.logs)
