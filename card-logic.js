@@ -345,6 +345,14 @@ function cardShortcutEditing(target){
     !!target.closest("textarea, input, [contenteditable], [role='textbox'], .cm-editor");
 }
 
+// A key held with Command or Control is a command of the page's, never typing,
+// so a box being typed in lets it go on to the page and keeps the rest: letters,
+// the arrows, Backspace and the like. Enter, Escape and Tab stay the box's own
+// whatever is held with them
+function pageChord(e){
+  return (e.metaKey || e.ctrlKey) && e.key !== "Enter" && e.key !== "Escape" && e.key !== "Tab";
+}
+
 // control and enter and nothing else: shift keeps its new line, command sends
 // as plain Enter does, and option does nothing of the page's
 function controlEnter(e){
@@ -422,13 +430,13 @@ const SECTION_KEY_HINTS = {
   done: "Control + Shift + Backspace or Delete",
 };
 
-// Where the chord may come from: anywhere nothing is being typed, and the
-// card's own composer in either shape (its textarea, or the editor that holds
-// it). A title being renamed and every other field keep the chord.
+// Where the chord may come from: anywhere nothing is being typed, the card's
+// own composer in either shape (its textarea, or the editor that holds it), and
+// the card's own title while it is renamed. Every other field keeps the chord.
 function sectionChordSource(target, el){
   if (!cardShortcutEditing(target)) return true;
   if (!el || !el.ta) return false;
-  if (target === el.ta) return true;
+  if (target === el.ta || (el.titleEl && el.titleEl.contains(target))) return true;
   const editor = target.closest(".cm-editor");
   return !!editor && editor.contains(el.ta);
 }
@@ -506,12 +514,14 @@ function responseScrollBounce(view, dir){
 }
 
 // Where the chord may come from: the page itself, the card's own composer
-// (its textarea, or the editor standing in for it), or the response. The sent
-// box, the answered panel, the title and every other field keep the chord.
+// (its textarea, or the editor standing in for it), the card's own title while
+// it is renamed, or the response. The sent box, the answered panel and every
+// other field keep the chord.
 function responseScrollSource(target, el){
   const doc = el.replyview.ownerDocument;
   if (!target || target === doc || target === doc.body || target === doc.documentElement) return true;
   if (el.ta && target === el.ta) return true;
+  if (el.titleEl && el.titleEl.contains(target)) return true;
   const editor = typeof target.closest === "function" && target.closest(".cm-editor");
   if (editor) return !!el.ta && editor.contains(el.ta);
   return el.replyview.contains(target) && !cardShortcutEditing(target) &&
@@ -4918,7 +4928,11 @@ function editTitle(id, opts){
     } else t.textContent = old;
   };
   t.onkeydown = e => {
-    e.stopPropagation();   // card-switching keys must not fire while naming
+    // control+enter keeps the name as Enter does, then goes on to the page's own
+    // control+enter, the move to the card that has waited longest
+    if (controlEnter(e)){ commit(); el.ta.focus(); return; }
+    // the name keeps the keys it is typed with; a command of the page's goes on
+    if (!pageChord(e)) e.stopPropagation();
     if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }
     else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); el.ta.focus(); }
     else if (e.key === "Escape"){

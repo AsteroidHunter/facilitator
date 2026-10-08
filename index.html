@@ -7342,9 +7342,13 @@ function inlineEdit(spanEl, initial, onSave){
     if (save) onSave(v);
   };
   inp.addEventListener("keydown", e => {
+    // control+enter saves as Enter does, then goes on to the board's own
+    // control+enter, the move to the card that has waited longest
+    if (controlEnter(e)){ finish(true); return; }
     if (e.key === "Enter"){ e.preventDefault(); finish(true); }
     if (e.key === "Escape") finish(false);
-    e.stopPropagation();
+    // the box keeps the keys it is typed with; a command of the page's goes on
+    if (!pageChord(e)) e.stopPropagation();
   });
   inp.addEventListener("blur", () => finish(false));
 }
@@ -10058,7 +10062,11 @@ function miniEditTitle(id, opts){
     } else t.textContent = old;
   };
   t.onkeydown = e => {
-    e.stopPropagation();   // the card-walking keys must not fire while naming
+    // control+enter keeps the name, hands the keys back to the large card and
+    // goes on to its move, as control+enter in the small card's empty box does
+    if (controlEnter(e)){ commit(); miniHold(false); return; }
+    // the name keeps the keys it is typed with; a command of the page's goes on
+    if (!pageChord(e)) e.stopPropagation();
     if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta?.focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
@@ -10101,7 +10109,7 @@ const miniShortcutActions = {
   // would. taken here in capture, so its composer's editor never sees the chord
   sectionChord(e, shortcut){
     const el = miniId && miniEls[miniId];
-    if (!el || !sectionChordSource(e.target, el)) return;
+    if (!el || !sectionChordSource(e.target, { ta: el.ta, titleEl: el.title })) return;
     miniSectionMove(e, shortcut.value);
   },
   sectionKey(e, shortcut){
@@ -10217,11 +10225,13 @@ function renderMiniCards(state){
         return false;
       };
       send.addEventListener("click", fire);
-      // the board's own arrow keys must never see this typing. control+enter
-      // sends, then hands the keys back to the large card and moves on to the
-      // card that has waited longest, or does just that when nothing is typed
+      // the board's own arrow keys must never see this typing; a command of the
+      // page's goes on, and so does Escape, which takes the caret out as it does
+      // in the large card. control+enter sends, then hands the keys back to the
+      // large card and moves on to the card that has waited longest, or does
+      // just that when nothing is typed
       ta.addEventListener("keydown", e => {
-        e.stopPropagation();
+        if (!pageChord(e) && e.key !== "Escape") e.stopPropagation();
         if (e.key === "Enter" && !e.shiftKey && !e.altKey){
           e.preventDefault();
           const sending = fire();
@@ -10748,6 +10758,9 @@ const boardShortcutActions = {
     nav(shortcut.value, 0);
   },
   history(e, shortcut){
+    // typed in the small card, which has no older replies, the key is not the
+    // large card's
+    if (miniFocused && boardShortcutTyping(e.target)) return;
     e.preventDefault();
     histStep(selectedId, shortcut.value);
   },
@@ -10786,9 +10799,10 @@ const boardShortcutActions = {
   },
   // control+enter outside a composer: the move a double Enter's second press
   // makes. a field that is not a composer keeps the key, and a button does not
-  // take it as a press
+  // take it as a press. a field the key itself took off the page, as the goal
+  // editor does when it saves, keeps nothing
   advance(e){
-    if (!boardMoveLive() || boardShortcutTyping(e.target)) return;
+    if (!boardMoveLive() || (e.target?.isConnected !== false && boardShortcutTyping(e.target))) return;
     e.preventDefault();
     if (!e.repeat) boardAdvance(selectedId);
   },

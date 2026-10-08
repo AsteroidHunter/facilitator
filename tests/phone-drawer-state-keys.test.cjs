@@ -57,7 +57,7 @@ function phone({ menu = 'tickets', section = 'todo', bucket = 'meta' } = {}) {
     localStorage: { getItem: () => null, setItem() {} },
     window: {}, matchMedia: () => ({ matches: false }),
     tickets: 'tickets', homeOpen: false, phoneDeveloperMode: false,
-    activeOwner: 'lane', selectedId: 'c1', els: { c1: { ta: targets.ta, ...chips(section) } },
+    activeOwner: 'lane', selectedId: 'c1', els: { c1: { ta: targets.ta, titleEl: targets.title, ...chips(section) } },
     lastState: { boxes: [{ id: 'c1', bucket }, { id: 'c2', bucket }] },
     drawerOpen: () => state.menu === 'tickets', menuOut: () => state.menu,
     curView: () => 'todo',
@@ -118,16 +118,17 @@ test('the card list stays out and the card behind it is not typed into', () => {
   assert.deepEqual(f.browsed, []);
 });
 
-test('the chord works from the card\'s composer and from a button in the list, not from a title being typed', () => {
+test('the chord works from the card\'s composer, its title being typed and a button in the list, not from another field', () => {
   for (const menu of ['tickets', null]) {
     const f = phone({ menu });
     f.press(KEYS['\\'], {}, f.targets.ta);
     f.press(KEYS[']'], {}, f.targets.button);
-    assert.deepEqual(f.calls, [['deferred', 'c1'], ['docked', 'c1']], `menu ${menu}`);
+    const t = f.press(KEYS.Delete, {}, f.targets.title);
+    assert.deepEqual(f.calls, [['deferred', 'c1'], ['docked', 'c1'], ['done', 'c1']], `menu ${menu}`);
+    assert.equal(t.defaultPrevented, true, `menu ${menu}: nothing is typed into the title`);
     const g = phone({ menu });
-    const e = g.press(KEYS['\\'], {}, g.targets.title);
-    g.press(KEYS['\\'], {}, g.targets.other);
-    assert.deepEqual(g.calls, [], `menu ${menu}: a field that is not the composer keeps the chord`);
+    const e = g.press(KEYS['\\'], {}, g.targets.other);
+    assert.deepEqual(g.calls, [], `menu ${menu}: a field that is not the card's own keeps the chord`);
     assert.equal(e.defaultPrevented, false);
   }
 });

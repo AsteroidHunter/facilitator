@@ -107,7 +107,8 @@ function world({ clientHeight = 400, scrollHeight = 2000, scrollTop = 1000, comp
     } else {
       ta = content = node(compose, { editor: true });
     }
-    return { el: { box, replyview, reply, pendwrap, answwrap, ta }, parts: { title, reply, answeredRow, pendRow, content, ta } };
+    return { el: { box, replyview, reply, pendwrap, answwrap, ta, titleEl: title },
+             parts: { title, reply, answeredRow, pendRow, content, ta } };
   };
   const a = makeCard(), b = makeCard();
   const mdnav = node(node(doc.body, { cm: true }), { editor: true });
@@ -437,11 +438,11 @@ test("another key or a changed modifier during the hold stops it without taking 
   assert.equal(f.time.pending(), 1);
 });
 
-// control+s while typing in the card's own composer scrolls, and the caret's
-// field keeps focus
-test("the composer being typed in, in either shape, the response and the page itself all take the chord", async () => {
+// control+s while typing in the card's own composer or its own title scrolls,
+// and the caret's field keeps focus
+test("the composer being typed in, in either shape, the card's own title, the response and the page itself all take the chord", async () => {
   for (const composer of ["cm", "textarea"]) {
-    for (const where of ["content", "ta", "reply", "body"]) {
+    for (const where of ["content", "ta", "title", "reply", "body"]) {
       const f = await setup({ composer });
       const target = where === "body" ? f.doc.body : f.a.parts[where];
       f.doc.activeElement = target;
@@ -456,7 +457,7 @@ test("the composer being typed in, in either shape, the response and the page it
 test("other fields, the sent and answered boxes and other cards keep the chord", async () => {
   const f = await setup();
   const others = {
-    title: f.a.parts.title, pendRow: f.a.parts.pendRow, answeredRow: f.a.parts.answeredRow,
+    otherTitle: f.b.parts.title, pendRow: f.a.parts.pendRow, answeredRow: f.a.parts.answeredRow,
     navigator: f.mdnav, search: f.search, otherComposer: f.b.parts.content,
     otherTextarea: f.b.parts.ta, otherReply: f.b.parts.reply,
   };
@@ -687,9 +688,10 @@ const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(resol
 const fadedCross = () => ({ getAttribute: name => (name === "aria-disabled" ? "true" : null) });
 
 for (const name of ["index.html", "m.html"]) {
-  test(`${name} control+shift with [, ] and \\ moves the selected card from its composer, the response and the page`, async () => {
+  test(`${name} control+shift with [, ] and \\ moves the selected card from its composer, its title, the response and the page`, async () => {
     const f = await sectionPage(name);
-    const from = { composer: f.a.parts.content, textarea: f.a.parts.ta, reply: f.a.parts.reply, page: f.doc.body };
+    const from = { composer: f.a.parts.content, textarea: f.a.parts.ta, title: f.a.parts.title,
+                   reply: f.a.parts.reply, page: f.doc.body };
     for (const [where, target] of Object.entries(from)) {
       for (const keys of SECTIONS) {
         const before = f.moves.length;
@@ -706,9 +708,9 @@ for (const name of ["index.html", "m.html"]) {
     assert.deepEqual(f.calls, [], "a section chord reached another command");
   });
 
-  test(`${name} a title, another field and another card's composer keep the section chord`, async () => {
+  test(`${name} another card's title, another field and another card's composer keep the section chord`, async () => {
     const f = await sectionPage(name);
-    const others = { title: f.a.parts.title, navigator: f.mdnav, search: f.search,
+    const others = { otherTitle: f.b.parts.title, navigator: f.mdnav, search: f.search,
                      otherComposer: f.b.parts.content, otherTextarea: f.b.parts.ta };
     for (const [where, target] of Object.entries(others)) {
       for (const keys of SECTIONS) {
@@ -825,8 +827,10 @@ test("index.html the small card's section keys move its own card and stop there"
   assert.ok(start >= 0 && fnAt > start && end > fnAt);
   const w = world();
   const moves = [], requests = [];
+  // the small card names its title el.title
+  const small = { ...w.a.el, title: w.a.parts.title };
   const l = await logic({
-    miniId: "c1", miniEls: { c1: w.a.el, c2: w.b.el },
+    miniId: "c1", miniEls: { c1: small, c2: w.b.el },
     lastState: { boxes: [{ id: "c1", bucket: "meta" }] },
     miniCreate() {}, miniStep() {}, poll() {},
     sectionKeyMove: (id, section, el, close) => { moves.push({ id, section, el, close }); return true; },
@@ -842,7 +846,7 @@ test("index.html the small card's section keys move its own card and stop there"
     return e;
   };
   for (const keys of SECTIONS) {
-    for (const target of [w.a.parts.content, w.a.parts.ta, w.doc.body]) {
+    for (const target of [w.a.parts.content, w.a.parts.ta, w.a.parts.title, w.doc.body]) {
       const e = send(sectionChord(keys), target);
       assert.ok(e.defaultPrevented && e.stopped, `${keys.code} chord was not taken from the small card`);
     }
@@ -853,14 +857,13 @@ test("index.html the small card's section keys move its own card and stop there"
     }
     const e = send(sectionAlone(keys), w.doc.body);
     assert.ok(e.defaultPrevented && e.stopped);
-    // another field keeps the chord
+    // another field, and another card's title, keep the chord
     assert.equal(send(sectionChord(keys), w.search).defaultPrevented, false);
-    assert.equal(send(sectionChord(keys), w.a.parts.title).defaultPrevented, false);
+    assert.equal(send(sectionChord(keys), w.b.parts.title).defaultPrevented, false);
   }
-  assert.equal(moves.length, 12);
-  for (const move of moves) assert.equal(move.el, w.a.el);
-  assert.deepEqual(moves.map(m => m.section),
-    ["doing", "doing", "doing", "doing", "docked", "docked", "docked", "docked", "deferred", "deferred", "deferred", "deferred"]);
+  assert.equal(moves.length, 15);
+  for (const move of moves) assert.equal(move.el, small);
+  assert.deepEqual(moves.map(m => m.section), ["doing", "docked", "deferred"].flatMap(s => Array(5).fill(s)));
   moves[0].close("c1");
   assert.deepEqual(requests.map(([url, method]) => [url.split("&sid=")[0], method]), [["/close?box=c1", "POST"]], "not the small cross's close");
 });
