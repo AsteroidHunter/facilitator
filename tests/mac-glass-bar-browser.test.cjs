@@ -171,7 +171,7 @@ async function referenceCenter(page) {
     const box = tabSeat.face.getBoundingClientRect(), word = label.getBoundingClientRect();
     const ref = document.createElement("span"); ref.id = "lens-clean-reference"; ref.className = "qn-glass";
     ref.setAttribute("aria-hidden", "true"); ref.inert = true;
-    ref.style.cssText = `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:32px;border-radius:7px;z-index:20;pointer-events:none;backdrop-filter:none;background-color:color-mix(in srgb,var(--paper),#fff 77%)`;
+    ref.style.cssText = `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:32px;border-radius:10px;z-index:20;pointer-events:none;backdrop-filter:none;background-color:color-mix(in srgb,var(--paper),#fff 77%)`;
     const text = document.createElement("span"); text.textContent = label.textContent;
     // Independent reference geometry: the original label's reserved box is
     // centered in the pill, with ordinary CSS scaling around its own center.
@@ -390,7 +390,7 @@ test("Home and project button activation move the same selection lens", async ()
     await page.click("#homeico"); await page.waitForFunction(() => homeOpen); await seatStill(page);
     const atHome = await seat(page); onName(atHome, "Home circle");
     near(atHome.right - atHome.left, 32, "Home lens width");
-    // the lens over the house is its circle (half its 32px), and a name's 7px box off it
+    // the lens over the house is its circle (half its 32px), and a name's 10px box off it
     const corner = () => page.evaluate(() => ({ radius: getComputedStyle(tabSeat.face).borderTopLeftRadius,
       clear: getComputedStyle(tabSeat.face.lens.clear).borderTopLeftRadius, round: tabSeat.el.classList.contains("round") }));
     assert.deepEqual(await corner(), { radius: "16px", clear: "16px", round: true }, "the lens on Home is not the house's circle");
@@ -413,7 +413,7 @@ test("Home and project button activation move the same selection lens", async ()
     await page.focus(`#tabbar .ptab[data-owner="${first}"]`); await page.keyboard.press("Enter");
     await page.waitForFunction(ow => !homeOpen && activeOwner === ow, {}, first); await seatStill(page);
     onName(await seat(page), "project button keyboard return");
-    assert.deepEqual(await corner(), { radius: "7px", clear: "7px", round: false }, "the lens on a name is not a 7px box");
+    assert.deepEqual(await corner(), { radius: "10px", clear: "10px", round: false }, "the lens on a name is not a 10px box");
     await page.focus("#homeico"); await page.keyboard.press("Enter");
     await page.waitForFunction(() => homeOpen); await seatStill(page);
     onName(await seat(page), "keyboard Home selection");
@@ -481,7 +481,7 @@ test("the pane keeps the outline's rectangle, with clear paper under the bar and
     near(g.r.top, 6 + 41 - 1 - g.drawn, "the pane's top edge moved");
     assert.equal(g.glass, true, "the pane is not the glass");
     assert.equal(g.radius, "7px");
-    assert.equal(g.lensRadius, "7px", "the open name's lens is not a box with 7px corners");
+    assert.equal(g.lensRadius, "10px", "the open name's lens is not a box with 10px corners");
     assert.equal(g.borderColor, "rgba(0, 0, 0, 0)", "the pane still draws the outline's line");
     assert.equal(g.filter, "none", "the pane blurs the whole window");
     assert.equal(g.face, "rgba(255, 255, 255, 0.35)");
