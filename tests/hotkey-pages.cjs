@@ -263,12 +263,14 @@ function macPage({ page = "board" } = {}) {
 
   const boxes = [{ id: "c1", owner: "one", bucket: "meta", testing: true, state: "yours" },
     { id: "c2", owner: "one", bucket: "meta", state: "yours" }, { id: "m1", owner: "facilitator", bucket: "meta" }];
-  const pages = page === "blank" ? { one: [{ id: "p2", kind: "blank" }] } : undefined;
+  // the project's page on show: its cards, or a blank page. a new tab choosing
+  // its folder has no pages at all
+  const pages = { one: [page === "blank" ? { id: "p2", kind: "blank" } : { id: "p1", kind: "board" }] };
   const ctx = base(doc, calls, {
     FOCUS: true, homeOpen: false, pageWarn: null, pageMenu: null, setOpen: false, draft: null, DRAFT: "__new__",
     ownerReady: true, LOCKED: null, p3Zoom: null, browsing: false,
     activeOwner: page === "new project" ? "__new__" : "one", selectedId: "c1",
-    lastState: { boxes, ...(pages ? { pages } : {}) },
+    lastState: { boxes, pages },
     els: { c1: a.el, c2: b.el }, miniFocused: false, miniId: "m1",
     miniEls: { m1: { box: mbox, title: mtitle, ta: mta, sun: msun, dock: mdock } },
   });

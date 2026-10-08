@@ -103,14 +103,17 @@ test("Mac Home preserves modal and focus guards and ignores unavailable numbers"
   assert.deepEqual(loading.snapshot(), before);
 });
 
-test("Mac Home opens projects above a remembered blank page, without enabling blank-page shortcuts", () => {
+test("Mac Home opens projects above a remembered blank page, which keeps the project keys and no card keys", () => {
   const f = fixture();
   f.context.lastState.pages = { alpha: [{ id: "blank", kind: "blank" }] };
   f.context.curPage = () => ({ kind: "blank" });
   assert.equal(f.key("2").defaultPrevented, true);
   assert.equal(f.snapshot().home, false);
+  // the blank page chooses a project as Home does
+  assert.equal(f.key("1").defaultPrevented, true);
+  assert.equal(f.snapshot().owner, "alpha");
   const before = f.snapshot();
-  assert.equal(f.key("1").defaultPrevented, false);
+  for (const key of ["t", "ArrowLeft", "0"]) assert.equal(f.key(key).defaultPrevented, false, key);
   assert.deepEqual(f.snapshot(), before);
 });
 
