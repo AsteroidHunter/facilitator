@@ -69,6 +69,48 @@ test("in a window narrower than the box it never starts left of the frame", () =
   assert.ok(onStarLine(at.left));
 });
 
+test("an agent's page gets the sealing policy first, before anything it wrote", () => {
+  const { pageDoc, PAGE_POLICY, PAGE_SANDBOX, SITE_SANDBOX } = api();
+  const doc = pageDoc('<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src *"><script>1</script>');
+  assert.ok(doc.startsWith(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${PAGE_POLICY}">`));
+  assert.ok(doc.indexOf(PAGE_POLICY) < doc.indexOf("default-src *"), "the agent's own policy comes after, so it can only narrow");
+  for (const part of ["default-src 'none'", "connect-src 'none'", "frame-src 'none'", "form-action 'none'", "base-uri 'none'",
+    "img-src data: blob:", "script-src 'unsafe-inline'"])
+    assert.ok(PAGE_POLICY.includes(part), part);
+  assert.ok(!/https?:|\*/.test(PAGE_POLICY), "the policy names no place on the network");
+  assert.equal(pageDoc(null), pageDoc(""));
+  // with a word, the page says it is still itself once it has loaded, right
+  // after the policy and before the agent's own page; the word cannot close
+  // the script it stands in
+  const said = pageDoc("<p>x</p>", "magic-</script>x");
+  assert.ok(said.indexOf(PAGE_POLICY) < said.indexOf("postMessage") && said.indexOf("postMessage") < said.indexOf("<p>x</p>"));
+  assert.match(said, /addEventListener\("load", \(\) => parent\.postMessage\("magic-\\u003c\/script>x", "\*"\)\)/);
+  // scripts and nothing else: never the board's origin, no forms, popups or top navigation
+  assert.equal(PAGE_SANDBOX, "allow-scripts");
+  assert.equal(SITE_SANDBOX, "allow-scripts allow-same-origin allow-forms");
+  for (const flag of ["allow-popups", "allow-top-navigation", "allow-modals"]) assert.ok(!SITE_SANDBOX.includes(flag), flag);
+});
+
+test("the page builds its frames from those lists, and a site's frame carries no logins", () => {
+  const html = read("index.html");
+  assert.match(html, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
+  assert.match(html, /frame\.srcdoc = MagicBox\.pageDoc\(html, page\.word\)/);
+  assert.match(html, /frame\.setAttribute\("credentialless", ""\)/);
+  assert.match(html, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
+  assert.equal((html.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);
+});
+
+test("the board's own policy holds nothing a sealed page would inherit and be stopped by", () => {
+  // a srcdoc frame inherits the policy of the page it stands in. the board's
+  // page carries only frame-ancestors, which a srcdoc page has no answer to be
+  // checked against; a script or fetch directive here would silently stop
+  // every agent page
+  const server = read("server.py");
+  const framing = server.slice(server.indexOf("def _unframeable("), server.indexOf("# -- the wire"));
+  assert.match(framing, /frame-ancestors 'none'/);
+  assert.ok(!/default-src|script-src|style-src|connect-src|img-src/.test(framing));
+});
+
 test("the page loads the box's script and keeps the box out of the regions", () => {
   const html = read("index.html");
   assert.match(html, /<script src="\/magic-box\.js"><\/script>/);

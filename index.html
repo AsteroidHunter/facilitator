@@ -1433,6 +1433,21 @@
      the board's own body size */
   #magicbox .mbtext{padding:calc(var(--pad-x)*2/3); font-size:15px; line-height:1.55; color:var(--ink)}
   #magicbox .mbtext.plain{white-space:pre-wrap}
+  /* a picture is shown whole, as the picture panel shows one, inside the same
+     inset as the words; a page or a site fills the body edge to edge */
+  #magicbox .mbimg{display:block; width:100%; height:100%; object-fit:contain; padding:calc(var(--pad-x)*2/3)}
+  #magicbox .mbframe{display:block; width:100%; height:100%; border:0; background:var(--card)}
+  /* a site that will not be framed: its name in the bar's mono line, its title
+     in the card title's face, its summary in the words' own size, and its
+     address, underlined like a link in a card, which opens it in the owner's
+     browser */
+  #magicbox .mbpreview{padding:calc(var(--pad-x)*2/3); color:var(--ink)}
+  #magicbox .mbsite{font:11.5px var(--mono); color:var(--sub)}
+  #magicbox .mbtitle{margin:8px 0 6px; font:625 22px/1.25 var(--inter); overflow-wrap:anywhere}
+  #magicbox .mbdesc{margin:0 0 12px; font-size:15px; line-height:1.55}
+  #magicbox .mbaddr{display:block; padding:0; border:none; background:none; text-align:left; cursor:pointer;
+    font:11.5px/1.5 var(--mono); color:var(--sub); text-decoration:underline; text-underline-offset:2px;
+    overflow-wrap:anywhere}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
@@ -8220,7 +8235,7 @@ function magicOff(){
   if (!MB.el) return;
   MB.el.classList.remove("on");
   if (MB.id === null) return;
-  MB.id = null; MB.rev = 0; MB.asked++; MB.url = "";
+  MB.id = null; MB.rev = 0; MB.asked++; MB.url = ""; MB.page = null;
   MB.body.textContent = "";
   MB.name.textContent = "";
   MB.open.hidden = true;
@@ -8250,9 +8265,77 @@ function magicDraw(box){
     if (box.kind === "text") prose.textContent = box.text || "";
     else prose.innerHTML = fmt(box.text || "");
     MB.body.appendChild(prose);
+  } else if (box.kind === "image"){
+    // the board's own copy, served sandboxed, so the picture's site never sees
+    // the owner's browser
+    const img = h("img", "mbimg");
+    img.alt = box.title || "";
+    img.src = box.src;
+    MB.body.appendChild(img);
+  } else if (box.kind === "html"){
+    magicPage(box.html || "", 0);
+  } else if (box.kind === "url" && box.shown === "frame"){
+    const frame = h("iframe", "mbframe");
+    frame.setAttribute("credentialless", "");
+    frame.credentialless = true;
+    frame.setAttribute("sandbox", MagicBox.SITE_SANDBOX);
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.src = box.url;
+    MB.body.appendChild(frame);
+  } else if (box.kind === "url"){
+    // a site that will not be framed: what it says about itself, as plain
+    // words, and its address, which opens it in the owner's own browser
+    const p = box.preview || {}, card = h("div", "mbpreview");
+    if (p.site) card.appendChild(h("div", "mbsite", p.site));
+    if (p.title) card.appendChild(h("div", "mbtitle", p.title));
+    if (p.description) card.appendChild(h("p", "mbdesc", p.description));
+    const link = h("button", "mbaddr", MB.url);
+    link.type = "button";
+    link.addEventListener("click", magicOpenSite);
+    card.appendChild(link);
+    MB.body.appendChild(card);
   }
   MB.el.classList.add("on");
   magicPlace();
+}
+// an agent's page in its sealed frame. each time the page finishes loading it
+// says so with a word only it and the board know (MagicBox.pageDoc). a load the
+// word does not follow is the page sending its frame somewhere else, which it
+// may not: a fresh frame with the page takes its place, and a page that keeps
+// leaving is taken down after three tries. the frame cannot be looked into, so
+// the word is how the board knows what is in it
+function magicPage(html, tries){
+  MB.body.textContent = "";
+  MB.page = null;
+  if (tries > 3) return;
+  const frame = h("iframe", "mbframe");
+  frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
+  frame.setAttribute("referrerpolicy", "no-referrer");
+  const page = MB.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries };
+  frame.addEventListener("load", () => {
+    page.loads++;
+    // the word is posted from the page's own load, so it lands a moment after
+    // the frame's; half a second is long past it on a page that stayed
+    setTimeout(() => {
+      if (MB.page === page && frame.isConnected && page.said < page.loads) magicPage(html, tries + 1);
+    }, 500);
+  });
+  frame.srcdoc = MagicBox.pageDoc(html, page.word);
+  MB.body.appendChild(frame);
+}
+addEventListener("message", e => {
+  const page = MB.page;
+  if (page && e.source === page.frame.contentWindow && e.data === page.word) page.said++;
+});
+// the site in the owner's own browser, where the owner is signed in: Chrome on
+// the Mac, as the card's link menu opens it, and a new tab anywhere else
+function magicOpenSite(){
+  if (!MB.url) return;
+  const mac = (/^Mac/.test(navigator.platform) || navigator.userAgentData?.platform === "macOS") &&
+    !navigator.maxTouchPoints;
+  if (mac && ["localhost", "127.0.0.1"].includes(location.hostname))
+    fetch("/open-in-browser", { method: "POST", body: MB.url }).catch(() => {});
+  else window.open(MB.url, "_blank", "noopener,noreferrer");
 }
 // beside the card's own rectangle, read off the page the way the fit reads the
 // regions: screen pixels, less the stage's origin, over the stage's scale
@@ -8281,16 +8364,7 @@ if (MB.el){
     magicOff();
     fetch("/magic/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
   });
-  // the site in the owner's own browser, where the owner is signed in: Chrome
-  // on the Mac, as the card's link menu opens it, and a new tab anywhere else
-  MB.open.addEventListener("click", () => {
-    if (!MB.url) return;
-    const mac = (/^Mac/.test(navigator.platform) || navigator.userAgentData?.platform === "macOS") &&
-      !navigator.maxTouchPoints;
-    if (mac && ["localhost", "127.0.0.1"].includes(location.hostname))
-      fetch("/open-in-browser", { method: "POST", body: MB.url }).catch(() => {});
-    else window.open(MB.url, "_blank", "noopener,noreferrer");
-  });
+  MB.open.addEventListener("click", magicOpenSite);
   // the card moves under the box when it is dragged or sized, and gets shorter
   // when the page switcher needs its foot: the box follows each of those
   const card = document.querySelector("main");
