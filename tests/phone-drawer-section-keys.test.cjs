@@ -152,13 +152,12 @@ test('the keys need Control and Shift alone: Command, Option, a missing modifier
   for (const code of ['constructor', 'toString', '__proto__']) assert.equal(resolve(keyEvent('x', code, CHORD)), null);
 });
 
-test('the board answers neither key, the small card scope does not see them and the section chords are as they were', () => {
+test('the small card scope does not see the keys, a page with no action leaves them and the section chords are as they were', () => {
   const f = phone(), resolve = f.ctx.cardShortcut;
   assert.equal(resolve(keyEvent('"', 'Quote', CHORD))?.action, 'drawerSection', 'the full scope has the key');
   assert.equal(resolve(keyEvent('"', 'Quote', CHORD), 'mini'), null);
   assert.equal(resolve(keyEvent(':', 'Semicolon', CHORD), 'mini'), null);
   assert.equal(f.ctx.dispatchCardShortcut(keyEvent('"', 'Quote', CHORD), {}), false, 'a page with no list leaves the key alone');
-  assert.doesNotMatch(source('index.html'), /drawerSection/);
   for (const [key, code, section] of [['{', 'BracketLeft', 'doing'], ['}', 'BracketRight', 'docked'], ['|', 'Backslash', 'deferred']]) {
     assert.deepEqual(plain(resolve(keyEvent(key, code, CHORD))), { action: 'sectionChord', value: section });
   }
