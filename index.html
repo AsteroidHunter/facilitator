@@ -6513,6 +6513,8 @@ function makeBox(b, i, state){
     // seat stands empty and takes no room until something is sent
     const pendwrap = h("div", "pendwrap");
     const sentwrap = h("div", "sentwrap");
+    // the files picked for the next message, over the typing row
+    const tray = h("div", "tray");
     const bottombar = h("div", "bottombar");
     const clipfile = h("input", "clipfile");
     clipfile.type = "file";
@@ -6534,7 +6536,7 @@ function makeBox(b, i, state){
     send.innerHTML = SEND_ICON;
     compose.append(ta, send);
     bottombar.append(clipfile, clip, compose);
-    pendwrap.append(meta, sentwrap, bottombar);
+    pendwrap.append(meta, sentwrap, tray, bottombar);
     // the column: the scroller holding the answered panel over the answer, and laid
     // over the answer at the card's floor the sent panel and the row the reader types in
     replyview.append(answwrap, reply);
@@ -6586,7 +6588,7 @@ function makeBox(b, i, state){
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + "px";
       seatSquare(ta, send);
-      send.classList.toggle("show", ta.value.trim().length > 0 || arrowAgainFor(b.id));
+      send.classList.toggle("show", ta.value.trim().length > 0 || traySendable(els[b.id]) || arrowAgainFor(b.id));
       riseBand(ta);
     };
     ta.addEventListener("input", () => {
@@ -6600,21 +6602,22 @@ function makeBox(b, i, state){
     readOnCompose(ta, b.id, useCard);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
     tick();
-    wireAttachmentTransfer(ta);
+    // picked, pasted or dropped, a file goes into the tray and starts uploading
+    wireAttachmentTransfer(ta, files => trayAdd(b.id, files));
     ta.addEventListener("keydown", e => composerEnter(e, b.id));
     // both controls swallow the press while the box has the focus, the way the
     // chat bar does it, so the caret never leaves the words
     send.addEventListener("pointerdown", e => { if (ComposeFormat.focused(ta)) e.preventDefault(); });
     send.addEventListener("click", () => composerArrow(b.id));
     // the plus hands the press straight to the hidden picker, and what comes
-    // back goes up the board's own /upload road, the same one a dropped image
-    // takes, so a picked file and a dropped one land in exactly one place
+    // back goes into the tray, the same place a dropped or pasted image goes,
+    // so a picked file and a dropped one land in exactly one place
     clip.addEventListener("pointerdown", e => { if (ComposeFormat.focused(ta)) e.preventDefault(); });
     clip.addEventListener("click", () => clipfile.click());
-    clipfile.addEventListener("change", async () => {
+    clipfile.addEventListener("change", () => {
       const files = [...(clipfile.files || [])];
       clipfile.value = "";   // so the same file picked twice fires twice
-      await attach(files, ta);
+      trayAdd(b.id, files);
     });
     head.addEventListener("click", () => {
       if (box.classList.contains("done") || box.classList.contains("waiting") || box.classList.contains("parked"))
@@ -6674,7 +6677,10 @@ function makeBox(b, i, state){
                   // each message with where it stands with the agent, which a
                   // send adds to before the board's next reading says so
                   sentwrap, sent: null, sentKey: "", sentItems: [],
-                  pendwrap, bottombar, clip, clipfile, tick, field };
+                  pendwrap, bottombar, clip, clipfile, tick, field,
+                  // the tray's files, in the order they were picked, and a send
+                  // pressed while some were still uploading (trayAdd, in card-logic.js)
+                  tray, trayItems: [], trayHold: null };
     const sentCard = els[b.id];
     sentCard.sentRoom = () => sentRoom(sentCard);
     syncOmniCard(els[b.id], b);
@@ -6832,8 +6838,10 @@ function askEnterAdvance(id, source = "enter"){
 function composerArrow(id){
   if (arrowAgainFor(id) && askEnterAdvance(id, "arrow")) return;
   const el = els[id];
-  if (!el?.ta.value.trim()) return;
-  const intent = armEnterAgain(id, "arrow");
+  if (!el?.ta.value.trim() && !traySendable(el)) return;
+  // a send held for a file still on its way arms no second press: it goes by
+  // itself once the file lands
+  const intent = trayBusy(el) ? null : armEnterAgain(id, "arrow");
   doSend(id, { advance: false, enterIntent: intent });
 }
 function composerEnter(e, id){
@@ -6845,15 +6853,15 @@ function composerEnter(e, id){
   // control+enter is a double Enter pressed at once: the send, then the move
   // once the board has the message
   const now = controlEnter(e);
-  if (!el.ta.value.trim()){
+  if (!el.ta.value.trim() && !traySendable(el)){
     if (askEnterAdvance(id)) return;
     cancelAutoNext();
     if (now) boardAdvance(id);
     return;
   }
-  const intent = armEnterAgain(id);
+  const intent = trayBusy(el) ? null : armEnterAgain(id);
   doSend(id, { advance: false, enterIntent: intent });
-  if (now) askEnterAdvance(id);
+  if (intent && now) askEnterAdvance(id);
 }
 
 // jumpNextYellow and stampText live in card-logic.js, shared with the phone page
@@ -6866,10 +6874,24 @@ function undone(id){
     .then(() => poll()).catch(() => {});
 }
 
+// the message as this board has always carried a file: the words, then the
+// file's address on a line of its own, which is what the box held when the
+// address was written into it. the phone puts its pictures ahead of the words
+// (trayMessage), and the sent panel here has always read it this way round
+function deskMessage(el, typed){
+  const urls = el.trayItems.filter(it => it.state === "done").map(it => it.url);
+  return [typed, ...urls].filter(Boolean).join("\n");
+}
+
 async function doSend(id, opts){
   opts = opts || {};
   const el = els[id];
-  const text = el.ta.value.trim();
+  const typed = el.ta.value.trim();
+  if (!typed && !traySendable(el)) return;
+  // a file still on its way holds the send: the words stay in the row and go
+  // with their files the moment the last one lands (trayLanded)
+  if (trayBusy(el)){ trayHoldSend(id, opts); return; }
+  const text = deskMessage(el, typed);
   if (!text) return;
   const reopen = boxDone(id);   // before the send; the poll below clears the flag
   const followView = captureSentView(id);
@@ -6877,6 +6899,7 @@ async function doSend(id, opts){
   // does not get through stays there under its mark, and the cross gives them back
   const motion = armSentMotion(el);
   el.ta.value = "";
+  trayTake(el);       // the files that went leave the tray with the words
   el.tick();
   // The empty arrow remains tappable while its first delivery is in flight.
   const send = el.send;
@@ -6976,6 +6999,8 @@ function apply(state){
       dropAnswered(els[id], null);
       els[id].sentRoom = null;
       dropSent(els[id]);
+      // an upload for a card that is gone has nowhere to land
+      trayDrop(els[id]);
       els[id].box.remove(); els[id].toc.remove(); delete els[id];
     }
   }
@@ -12496,7 +12521,7 @@ installBtn.addEventListener("click", () => {
     ready: state => !!lastState && ownerReady &&
       (!(Number.isFinite(state.rev) && Number.isFinite(lastState.rev)) || lastState.rev >= state.rev),
     busy: () => !!draft || !!autoNext || !!document.querySelector('.title[contenteditable="true"]') ||
-      Object.values(els).some(el => el.ta?.attachmentPending || el.sendsOut || el.sentHeld?.length),
+      Object.values(els).some(el => el.ta?.attachmentPending || trayBusy(el) || el.trayHold || el.sendsOut || el.sentHeld?.length),
     restore(state) {
       Object.assign(lastSel, state.lastSel);
       if (validActiveOwnerIds.has(state.owner) && (!LOCKED || LOCKED === state.owner)) setTab(state.owner);

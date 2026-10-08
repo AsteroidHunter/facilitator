@@ -44,9 +44,16 @@ function adapter(phone) {
   });
   vm.runInContext(read('mac-phone-view.js'), ctx);
   ctx.view = ctx.MacPhoneView;
+  // the rail's rules are shared by both pages, so both are run on the real ones
+  const logic = read('card-logic.js');
+  for (const name of ['trayMoving', 'trayBusy']) {
+    const from = logic.indexOf(`function ${name}(`);
+    assert.ok(from >= 0, `card-logic.js must ship ${name}`);
+    vm.runInContext(logic.slice(from, logic.indexOf('\n', from)), ctx);
+  }
   if (phone) {
-    const from = source.indexOf('function trayMessage(el, typed){');
-    vm.runInContext(source.slice(from, source.indexOf('\n}', from) + 2), ctx);
+    const from = logic.indexOf('function trayMessage(el, typed){');
+    vm.runInContext(logic.slice(from, logic.indexOf('\n}', from) + 2), ctx);
   }
   vm.runInContext(source.slice(start, end + '\n  };'.length) + '\nthis.adapter = adapter;', ctx);
   return { ctx, els, shelf, stored, adapter: ctx.adapter };
@@ -142,6 +149,19 @@ test('desktop uploads and unconfirmed sends defer handoff until settled', () => 
     f.els.a[key] = value; assert.equal(f.adapter.busy(), true); delete f.els.a[key];
   }
   assert.equal(f.adapter.busy(), false);
+});
+
+test('desktop rail uploads and held sends defer handoff; a settled square does not', () => {
+  const f = adapter(false);
+  for (const state of ['up', 'queued', 'wait']) {
+    f.els.a.trayItems = [{ state }]; assert.equal(f.adapter.busy(), true, state);
+  }
+  for (const state of ['done', 'failed', 'refused']) {
+    f.els.a.trayItems = [{ state }]; assert.equal(!!f.adapter.busy(), false, state);
+  }
+  f.els.a.trayItems = [];
+  f.els.a.trayHold = {}; assert.equal(f.adapter.busy(), true);
+  f.els.a.trayHold = null; assert.equal(!!f.adapter.busy(), false);
 });
 
 test('phone uploads, failed files, held sends and composition retain their live controls', () => {

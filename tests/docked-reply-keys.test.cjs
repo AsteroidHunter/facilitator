@@ -59,8 +59,8 @@ function fixture(mode, extra = []) {
     },
     sentLaunch() { item = {}; return item; }, sentTry: () => new Promise(resolve => { resolveSend = resolve; }),
     sentLanded() {}, sentFailed() {}, poll() {}, drawSent() {},
-    ensureCard: id => ctx.els[id], traySendable: () => false, trayBusy: () => false,
-    trayMessage: (_, text) => text, trayTake() {}, mintOp: (kind, fields) => (op = { kind, ...fields }),
+    // the rail's own functions are the shared ones in card-logic.js, run on cards with an empty rail
+    ensureCard: id => ctx.els[id], mintOp: (kind, fields) => (op = { kind, ...fields }),
     laneOf: () => 'send', runOps() {},
     select(id) { ctx.selectedId = id; }, browse(id) { ctx.selectedId = id; },
     focusBoxAtEnd(el) { ctx.document.activeElement = el.ta; }, boardMoveLive: () => true,
@@ -68,10 +68,10 @@ function fixture(mode, extra = []) {
   const doubles = Object.fromEntries(['sentLaunch', 'sentTry', 'sentLanded', 'sentFailed', 'syncSpinner', 'focusBoxAtEnd', 'h'].map(k => [k, ctx[k]]));
   vm.runInContext(logic, ctx);
   Object.assign(ctx, doubles);
-  for (const b of ctx.lastState.boxes) ctx.els[b.id] = { ta: { ...composer }, tick() {}, send: {}, sentItems: [], meta: { textContent: '' } };
+  for (const b of ctx.lastState.boxes) ctx.els[b.id] = { ta: { ...composer }, tick() {}, send: {}, sentItems: [], meta: { textContent: '' }, trayItems: [], trayHold: null };
   if (desktop) {
     vm.runInContext('poolScope = state => b => b.ws === "work";', ctx);
-    for (const name of ['nav', 'enterViewKey', 'doSend', 'renderCarousel', 'clearEnterAgain', 'scheduleDesktopAdvance', 'boardAdvance', 'askEnterAdvance']) vm.runInContext(block(html, `${name === 'doSend' ? 'async ' : ''}function ${name}(`), ctx);
+    for (const name of ['nav', 'enterViewKey', 'deskMessage', 'doSend', 'renderCarousel', 'clearEnterAgain', 'scheduleDesktopAdvance', 'boardAdvance', 'askEnterAdvance']) vm.runInContext(block(html, `${name === 'doSend' ? 'async ' : ''}function ${name}(`), ctx);
     vm.runInContext(between(html, 'const boardShortcutTyping =', '\naddEventListener("keydown", e => {'), ctx);
   } else {
     for (const name of ['navigationPool', 'cardStepTarget', 'stepCard', 'phoneEnterViewKey', 'doSend', 'landSend', 'renderTickets', 'clearPhoneEnterAgain', 'schedulePhoneAdvance', 'phoneAdvance', 'askPhoneEnterAdvance']) vm.runInContext(block(html, `function ${name}(`), ctx);
