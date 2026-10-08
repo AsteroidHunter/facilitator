@@ -1,9 +1,10 @@
-// The Mac board's corners and top row. The workspace and the open project's lens
-// turn 7px at every corner (a box with slightly rounded corners, not the 12px
-// workspace and the capsule lens the glass port made), and the bar's row stands
-// 1px lower so the paper above the lens and the paper below it, down to the
-// workspace's top line, are as even as the screen can draw them. Source and
-// synthetic-geometry checks, like project-lens.test.cjs: nothing starts a browser.
+// The Mac board's corners and top row. The workspace turns 7px at every corner
+// and the open project's lens 10px, 3px rounder (boxes with rounded corners,
+// not the 12px workspace and the capsule lens the glass port made), and the
+// bar's row stands 1px lower so the paper above the lens and the paper below
+// it, down to the workspace's top line, are as even as the screen can draw
+// them. Source and synthetic-geometry checks, like project-lens.test.cjs:
+// nothing starts a browser.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { readFileSync } = require("node:fs");
@@ -27,15 +28,17 @@ const decl = (block, property) => {
   return m && m[1].trim().replace(/\s+/g, " ");
 };
 
-test("the workspace turns 7px, and the lens on a project's name and its tab turn the same 7px at all four corners", () => {
+test("the workspace turns 7px, and the lens on a project's name and its tab turn 10px, 3px rounder, at all four corners", () => {
   assert.equal(decl(rules("body.focus #appframe"), "border-radius"), "7px", "the workspace");
-  assert.equal(decl(rules("body.focus #tabrow .projectlens"), "border-radius"), "7px", "the lens");
-  assert.equal(decl(rules("body.focus #tabbar .ptab"), "border-radius"), "7px", "the tab under it");
+  assert.equal(decl(rules("body.focus #tabrow .projectlens"), "border-radius"), "10px", "the lens");
+  assert.equal(decl(rules("body.focus #tabbar .ptab"), "border-radius"), "10px", "the tab under it");
+  assert.equal(parseFloat(decl(rules("body.focus #tabrow .projectlens"), "border-radius")) -
+    parseFloat(decl(rules("body.focus #appframe"), "border-radius")), 3, "the pill is 3px rounder than the workspace");
   // the clear face, the rim's glass and the dragged copies are one rule: the copy takes the lens's own corner
   assert.equal(decl(rules("body.focus #tabrow .lensclear"), "border-radius"), "inherit");
   // one corner is written in the script and in the sheet, and they agree
   const f = fixture();
-  assert.equal(f.get("LENS_CORNER"), 7);
+  assert.equal(f.get("LENS_CORNER"), 10);
   assert.equal(parseFloat(decl(rules("body.focus #tabrow .projectlens"), "border-radius")), f.get("LENS_CORNER"));
   // no rule of the bar's is left at the glass port's 12px or 16px
   for (const selector of ["body.focus #appframe", "body.focus #tabrow .projectlens", "body.focus #tabbar .ptab"])
@@ -50,38 +53,43 @@ test("the house, speaker, squid and plus stay circles, and so does the lens over
   // while its seat is .round (set down on Home, or carried over the house)
   assert.equal(decl(rules("body.focus #tabrow .tabseat.round .projectlens"), "border-radius"), "16px");
   assert.equal(decl(rules("body.focus #tabrow .projectlens"), "height"), "32px");
-  assert.equal(decl(rules("body.focus #tabrow .projectlens"), "border-radius"), "7px", "a name's lens is not 7px by default");
+  assert.equal(decl(rules("body.focus #tabrow .projectlens"), "border-radius"), "10px", "a name's lens is not 10px by default");
   assert.equal(decl(rules("body.focus #tabrow .lensclear"), "border-radius"), "inherit", "the clear face takes the lens's circle too");
 });
 
-test("the lens turns between a name's corner and the circle over the width's own .28s, but only when it slides", () => {
+test("the lens turns between a name's corner and the circle over the width's own .28s, but only when it slides or glides", () => {
   // a drag's release slides the seat (it is not .still) and its lens turns as it resizes
   const sliding = rules("body.focus #tabrow .tabseat:not(.still) .seatlens");
   assert.match(decl(sliding, "transition"), /border-radius \.28s var\(--gentle\)/);
   assert.match(rules("body.focus #tabrow .tabseat"), /width \.28s var\(--gentle\)/, "the seat's width runs on the same .28s");
+  // held down while it is carried or let go, it turns the same way, and keeps the press's own timing
+  const held = decl(rules("body.focus #tabrow .tabseat.pressed:not(.still) .seatlens"), "transition");
+  assert.match(held, /border-radius \.28s var\(--gentle\)/);
+  assert.equal(held.replace(", border-radius .28s var(--gentle)", ""), decl(rules("body.focus #tabrow .tabseat.pressed .seatlens"), "transition"));
   // a click or key sets it down at once: no transition of the corner at rest, nor when pressed
   assert.doesNotMatch(decl(rules("body.focus #tabrow .seatlens"), "transition"), /border-radius/);
   assert.doesNotMatch(decl(rules("body.focus #tabrow .tabseat.pressed .seatlens"), "transition"), /border-radius/);
   // and the seat is only ever .round where the script says: set down on Home, carried over the house
   const script = sheet.slice(sheet.indexOf("function placeSeat("));
   assert.match(script, /el\.classList\.toggle\("round", owner === HOME_SEAT\)/);
-  assert.match(script, /el\.classList\.toggle\("round", onHouse\)/);
+  assert.match(script, /seatGlide\(el, x, onHouse \? t\.house\.width : source\.width, onHouse\)/);
+  assert.match(script, /function seatGlide\(el, x, w, round\)\{[^}]*el\.classList\.toggle\("round", round\)/);
   // and a drag takes it off on a name and keeps it on the house it was lifted from
   assert.match(script, /el\.classList\.toggle\("round", t\.onHouse\)/);
 });
 
-test("a lens of any width is a box with 7px corners to the rim's map and the clean middle", () => {
+test("a lens of any width is a box with 10px corners to the rim's map and the clean middle", () => {
   const f = fixture();
-  assert.equal(f.context.lensRadius(100), 7);
-  assert.equal(f.context.lensRadius(28), 7);
+  assert.equal(f.context.lensRadius(100), 10);
+  assert.equal(f.context.lensRadius(28), 10);
   assert.equal(f.context.lensRadius(10), 5, "never more than half a side");
   assert.equal(f.context.lensRadius(100, 8), 4);
-  // depth in from the edge: straight along a side, and round a corner at 7px
+  // depth in from the edge: straight along a side, and round a corner at 10px
   assert.equal(f.context.lensDepth(50, 2, 100), 2);
   assert.equal(f.context.lensDepth(2, 16, 100), 2);
-  assert.ok(Math.abs(f.context.lensDepth(5, 5, 100) - (7 - Math.hypot(2, 2))) < 1e-9, "a point 5px in from both sides of a corner");
+  assert.ok(Math.abs(f.context.lensDepth(5, 5, 100) - (10 - Math.hypot(5, 5))) < 1e-9, "a point 5px in from both sides of a corner");
   assert.ok(f.context.lensDepth(1, 1, 100) < 0, "the corner's own point is outside the rounded box");
-  assert.equal(f.context.lensDepth(50, 16, 100), 7, "inside, past the corner's reach");
+  assert.equal(f.context.lensDepth(50, 16, 100), 10, "inside, past the corner's reach");
   // the rim's map bends light only where the box's edge is: not at (5,5), which a
   // capsule's curve would have passed through, and so it does at (1,16) on the straight side
   f.context.lensMap(100);
@@ -90,7 +98,7 @@ test("a lens of any width is a box with 7px corners to the rim's map and the cle
   assert.notEqual(rim.data[at(1, 16)], 128);
   assert.notEqual(rim.data[at(16, 1) + 1], 128);
   // the bend near a corner pulls inward, toward that corner's centre
-  assert.ok(rim.data[at(3, 2)] > 128 && rim.data[at(3, 2) + 1] > 128, "pulled right and down at the top left");
+  assert.ok(rim.data[at(4, 4)] > 128 && rim.data[at(4, 4) + 1] > 128, "pulled right and down at the top left");
 });
 
 test("the lens over the house is the circle premain drew: its depth, rim map and radius are the pill's, to the pixel", () => {
@@ -122,24 +130,27 @@ test("the lens over the house is the circle premain drew: its depth, rim map and
   }
   assert.equal(f.context.lensRadius(32, 32, 16), 16, "half the house's 32px: a circle");
   assert.equal(f.context.lensRadius(32, 32, 7), 7);
-  assert.equal(f.context.lensRadius(32, 32, NaN), 7, "a corner that cannot be read is a name's");
+  assert.equal(f.context.lensRadius(32, 32, NaN), 10, "a corner that cannot be read is a name's");
   assert.equal(f.context.lensRadius(20, 32, 16), 10, "never more than half a side");
   // the joint of a lens that wears the circle (a split still running as it is carried over the house)
   const radius = box => f.get("jointRadius(" + JSON.stringify(box) + ")");
   assert.equal(radius({ left: 0, top: 0, right: 32, bottom: 32, corner: 16 }), 16);
-  assert.equal(radius({ left: 0, top: 0, right: 32, bottom: 32 }), 7);
-  assert.equal(radius({ left: 0, top: 0, right: 100, bottom: 32, corner: NaN }), 7);
+  assert.equal(radius({ left: 0, top: 0, right: 32, bottom: 32 }), 10);
+  assert.equal(radius({ left: 0, top: 0, right: 100, bottom: 32, corner: NaN }), 10);
 });
 
-test("the joint takes the lens's 7px corner, grown with the press and never past half a side", () => {
+test("the joint takes the lens's 10px corner, grown with the press and never past half a side, and the workspace's 7px", () => {
   const f = fixture();
   const radius = box => f.get("jointRadius(" + JSON.stringify(box) + ")");
-  assert.equal(radius({ left: 0, top: 0, right: 100, bottom: 32 }), 7);
-  assert.ok(Math.abs(radius({ left: 0, top: 0, right: 110, bottom: 35.2 }) - 7.7) < 1e-9, "pressed 10% larger");
+  assert.equal(radius({ left: 0, top: 0, right: 100, bottom: 32 }), 10);
+  assert.ok(Math.abs(radius({ left: 0, top: 0, right: 110, bottom: 35.2 }) - 11) < 1e-9, "pressed 10% larger");
   assert.equal(radius({ left: 0, top: 0, right: 10, bottom: 32 }), 5);
-  // the joint's own self-calibration stands on the page's gap and corner
+  // the joint's own self-calibration stands on the page's gap and the workspace's corner
   assert.match(html, /pane = \{ left: -200, top: 39, right: 320, bottom: 400, corner: 7 \}/);
   assert.match(html, /jointField\(60, 35\.5, jointMoment/);
+  // and the pane it joins keeps the workspace's own corner, read from the sheet's 7px
+  const m = f.get("jointMeasure()");
+  assert.equal(m.lens.corner, 10); assert.ok(Math.abs(m.pane.corner - (7 - 1)) < 1e-9, "the pane's 7px, less its 1px drawn edge");
 });
 
 test("the row stands 1px lower under the same 40px bar, so the lens has even paper above and below", () => {

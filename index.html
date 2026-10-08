@@ -3070,7 +3070,7 @@
     height:32px}
   body.focus #tabbar .ptab{position:relative; z-index:1; top:0;
     display:flex; align-items:center; height:32px; padding:0 14px;
-    border:none; border-radius:7px; background:none;
+    border:none; border-radius:10px; background:none;
     transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
   body.focus #tabbar .ptab.closed{display:none}
   body.focus #tabbar .ptab::before, body.focus #tabbar .ptab::after{content:none}
@@ -3082,15 +3082,16 @@
   /* Use the controls' actual glass material. The native backdrop is visible
      only around the rim: the opaque, matching face inside replaces its pixels
      before clean enlarged text is painted, so the original ink cannot ghost.
-     on a project's name the lens turns the workspace's own 7px at all four
-     corners, a box and not a capsule (LENS_CORNER in the script says the same).
+     on a project's name the lens turns 10px at all four corners, 3px rounder
+     than the workspace's own 7px, a box and not a capsule (LENS_CORNER in the
+     script says the same).
      over the house it is the house's circle, half its 32px, as it always was:
      the seat takes .round while it is set down on Home or carried over the
-     house (placeSeat and moveTabSelection) and a name takes it off again. the
+     house (placeSeat and seatGlide) and a name takes it off again. the
      script reads each lens's corner from here, so its maps, mask and joint
      follow whichever it wears */
   body.focus #tabrow .projectlens{position:absolute; left:0; top:0; height:32px;
-    box-sizing:border-box; border-radius:7px; z-index:3; pointer-events:none;
+    box-sizing:border-box; border-radius:10px; z-index:3; pointer-events:none;
     backdrop-filter:var(--lens-filter); -webkit-backdrop-filter:var(--lens-filter)}
   body.focus #tabrow .tabseat.round .projectlens{border-radius:16px}
   body.focus #tabrow .lensclear{position:absolute; inset:0; border-radius:inherit;
@@ -3115,13 +3116,18 @@
     transition:transform .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .18s var(--gentle)}
   /* a drag's release slides and resizes the seat (it is not .still), and a lens
      going back to the house, or off it, turns between a name's corner and the
-     circle over the same .28s as it changes size. a click sets it down at once
-     (.still) and a drag changes the shape as it changes the width, with none */
+     circle over the same .28s as it changes size. a lens carried onto the house
+     or off it glides and turns the same way (seatGlide, in the script). a click
+     sets it down at once (.still) */
   body.focus #tabrow .tabseat:not(.still) .seatlens{
     transition:transform .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .18s var(--gentle), border-radius .28s var(--gentle)}
   body.focus #tabrow .tabseat.gone .seatlens{opacity:0}
   body.focus #tabrow .tabseat.pressed .seatlens{transform:scale(1.1); --qn-edge:3.5;
     transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle)}
+  /* a lens held down as it is carried, or still held as it is let go, turns
+     its corner as a lens not held does */
+  body.focus #tabrow .tabseat.pressed:not(.still) .seatlens{
+    transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle), border-radius .28s var(--gentle)}
   body.focus #tabrow :is(.tabseat.carried, .tabheld){z-index:4}
   /* the joint: the open project's lens joined to the workspace's pane, as the
      seated tab's open bottom once was (the seat's joint, in the script). one
@@ -4022,13 +4028,14 @@ function renderTabs(st){
 // supply the visible center glyphs. The copied face is opaque there; its ink
 // is ordinary text, positioned from the live labels, not a filtered bitmap.
 const LENS_ZOOM = 1.075, LENS_BEND_WIDTH = 2.5, LENS_CLEAR_DEPTH = 3.5;
-// on a project's name the lens is a box with slightly rounded corners, the
-// workspace's own 7px (the sheet's .projectlens says the same), not a capsule.
-// over the house it is the house's circle, a 16px corner on its 32px (the
-// sheet's .round). the rim's maps, the clean middle's mask and the joint take
-// their curve from the corner the lens wears, read from its computed style
-// (paintLenses), which is a name's LENS_CORNER when nothing says otherwise
-const LENS_CORNER = 7;
+// on a project's name the lens is a box with rounded corners, 10px, 3px
+// rounder than the workspace's own 7px (the sheet's .projectlens says the
+// same), not a capsule. over the house it is the house's circle, a 16px corner
+// on its 32px (the sheet's .round). the rim's maps, the clean middle's mask
+// and the joint take their curve from the corner the lens wears, read from its
+// computed style (paintLenses), which is a name's LENS_CORNER when nothing
+// says otherwise
+const LENS_CORNER = 10;
 function lensRadius(width, height = 32, corner = LENS_CORNER){
   return Math.min(Number.isFinite(corner) ? corner : LENS_CORNER, width / 2, height / 2);
 }
@@ -4274,7 +4281,7 @@ function placeSeat(){
   if (!r || !r.width){ el.classList.add("gone"); seat.owner = null; seat.returning = false; return; }
   const o = oval.getBoundingClientRect(), x = r.left - o.left, w = r.width;
   const owner = homeOpen ? HOME_SEAT : on.classList.contains("draft") ? DRAFT : on.dataset.owner;
-  // on the house the lens is its circle, on a name that name's 7px corners
+  // on the house the lens is its circle, on a name that name's 10px corners
   el.classList.toggle("round", owner === HOME_SEAT);
   // only a drag's release slides the lens, the rest of the way from where it
   // was let go. a click or a key that chooses another name sets it down there
@@ -4310,7 +4317,7 @@ function placeSeat(){
 // the joint is drawn over the two by an svg of its own (#seatjoin): a face and
 // the glass's 1px ring along one outline, found row by row from a field, the
 // way the sent bubbles' merge finds theirs (sentGooPath in card-logic.js): the
-// distance to the lens's box (7px corners), run on down into the pane, and to the pane's
+// distance to the lens's box (10px corners), run on down into the pane, and to the pane's
 // top edge, a bulge on each where they face, and a polynomial smooth minimum.
 // the join is the merge's: on the merge's own curve (MERGE_EASE), the lens's
 // foot and the pane's top bow toward each other, touch in the middle, a neck
@@ -4321,10 +4328,14 @@ function placeSeat(){
 // leans after the lens, and a lens pulled JOINT_TEAR px off breaks the thread
 // at once. choosing another project by a click or a key sets the lens down on
 // that name with its joint whole, nothing parting or forming (snap, in
-// jointPaint). a drag's release slides the lens the rest of the way, and once
-// it has landed and the old joint has gone the new one forms. reduced motion
-// shows the joint, or none, where the lens stands, with nothing moving
-const JOINT_JOIN_MS = 700, JOINT_SPLIT_MS = 560;
+// jointPaint). a drag's release changes the page and slides the lens the rest
+// of the way, and the new joint starts forming in that same frame, under the
+// lens as it slides, once the old one has gone: the page, the landing and the
+// join are one motion. the join takes the .28s slide and the 700ms it used to
+// take after the slide together, so it ends when it did and runs slower and
+// earlier. reduced motion shows the joint, or none, where the lens stands,
+// with nothing moving
+const JOINT_JOIN_MS = 980, JOINT_SPLIT_MS = 560;
 const JOINT_TEAR = 24, JOINT_LEAN = 8;
 // the face covers the lens's rim this deep, the depth at which its clean face
 // is whole (LENS_CLEAR_DEPTH) and a little more, and fades into the pane below
@@ -4527,14 +4538,12 @@ function jointMeasure(){
     pane: { left: box.left + drawn, top: box.top + drawn, right: box.right - drawn, bottom: box.bottom - drawn,
       corner: Math.max(0, (parseFloat(style.borderTopLeftRadius) || 0) - drawn) } };
 }
-// the seat stands on a project's name and nothing is carrying it there
+// the seat stands on a project's name, or is sliding onto it from a drag's
+// release, and nothing is carrying it there
 function jointWanted(){
   const seat = tabSeat;
   if (!seat.drawn || seat.owner === null || seat.owner === HOME_SEAT || seat.el.classList.contains("gone")) return false;
-  return tabDrag?.mode !== "select" && !seatSliding();
-}
-function seatSliding(){
-  return tabSeat.el.getAnimations().some(a => a.playState === "running" && ["transform", "width"].includes(a.transitionProperty));
+  return tabDrag?.mode !== "select";
 }
 function jointBusy(){
   const j = tabJoint;
@@ -4807,27 +4816,44 @@ function nearestTab(rects, x){
   }
   return near;
 }
+// a carried lens goes onto the house, or off it, the way a drag's release
+// slides it onto a name: from where it is seen, over the release's .28s on
+// --gentle, its width and its corner turning on the way. its place is written
+// at once to transform, so it goes on following the pointer, and the rest of
+// the way is a translate that runs out on that same curve
+const SEAT_GLIDE = "width .28s var(--gentle), translate .28s var(--gentle)";
+function seatGlide(el, x, w, round){
+  const from = el.getBoundingClientRect().left - el.parentNode.getBoundingClientRect().left;
+  el.style.transition = "width .28s var(--gentle)";   // a width already turning goes on from where it is
+  el.style.transform = "translateX(" + x + "px)";
+  el.style.translate = (from - x) + "px 0px";
+  el.style.width = w + "px";
+  el.classList.toggle("round", round);
+  el.classList.remove("still");   // the lens's corner turns with the width, as on a release
+  el.getBoundingClientRect();
+  el.style.transition = SEAT_GLIDE;
+  el.style.translate = "0px 0px";
+}
 function moveTabSelection(e){
   const t = tabDrag, first = t.rects[0], last = t.rects[t.rects.length - 1];
   const el = tabSeat.el;
   // over the house the lens takes Home's circle, the shape a click on Home
   // gives; a release here opens Home. off it the name lens is shown again
   const onHouse = !!t.house && tabHit(t.house, e);
-  if (onHouse !== t.onHouse){
-    t.onHouse = onHouse;
-    // a lens taken off the house has no name of its own to wear: it is the
-    // width of the name nearest the pointer as it leaves, held until it is back
-    if (t.home && !onHouse){
-      const w = nearestTab(t.rects, e.clientX).width;
-      t.source = { left: t.house.left, right: t.house.left + w, width: w };
-    }
-    el.style.width = (onHouse ? t.house.width : t.source.width) + "px";
-    el.classList.toggle("round", onHouse);   // the circle with the width, the name's corners with its
+  const crossed = onHouse !== t.onHouse;
+  // a lens taken off the house has no name of its own to wear: it is the
+  // width of the name nearest the pointer as it leaves, held until it is back
+  if (crossed && t.home && !onHouse){
+    const w = nearestTab(t.rects, e.clientX).width;
+    t.source = { left: t.house.left, right: t.house.left + w, width: w };
   }
-  if (onHouse){ el.style.transform = "translateX(" + t.houseLeft + "px)"; return; }
   const source = t.source;
-  const dx = Math.max(first.left - source.left, Math.min(last.right - source.right, e.clientX - t.x));
-  el.style.transform = "translateX(" + (t.left + dx) + "px)";
+  const x = onHouse ? t.houseLeft :
+    t.left + Math.max(first.left - source.left, Math.min(last.right - source.right, e.clientX - t.x));
+  if (!crossed){ el.style.transform = "translateX(" + x + "px)"; return; }
+  t.onHouse = onHouse;
+  // the circle with the house's width, the name's corners with its own
+  seatGlide(el, x, onHouse ? t.house.width : source.width, onHouse);
 }
 function finishTabSelection(e){
   const t = tabDrag;

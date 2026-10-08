@@ -328,9 +328,9 @@ test("the inner mask completely replaces original ink and feathers only after th
     }
     return stops.at(-1)[1];
   };
-  // a name's 7px, the house's circle (16 on its 32px) and a corner part way
+  // a name's 10px, the house's circle (16 on its 32px) and a corner part way
   // between, which a lens wears while it turns from one to the other
-  for (const corner of [7, 16, 10.3]) for (const width of [28, 32, 87.375, 480]) {
+  for (const corner of [10, 16, 13.2]) for (const width of [28, 32, 87.375, 480]) {
     const css = f.context.lensCenterMask(width, corner);
     assert.doesNotMatch(css, /url\(/, "an undecoded mask image could expose the broken center for a frame");
     const layers = topLevel(css).map(text => layer(text.trim(), width));
@@ -445,10 +445,10 @@ test("Home and projects use the same lens, with a 32px circle at Home and a caps
   assert.equal(f.context.homeOpen, false); assert.equal(f.seat.owner, "b");
   assert.equal(f.seat.w, 140); assert.equal(f.seat.x, 140);
   assert.equal(f.seat.el, element); assert.equal(f.seat.face, face); assert.equal(f.get("liveLenses.size"), 1);
-  // and back on a name it is the name's 7px box again, in the same frame
+  // and back on a name it is the name's 10px box again, in the same frame
   assert.equal(f.seat.el.classList.contains("round"), false);
-  assert.equal(f.get("getComputedStyle(tabSeat.face).borderTopLeftRadius"), "7px");
-  assert.equal(face.lens.map, f.context.lensMap(140, 7)); assert.equal(face.lens.mask, f.context.lensCenterMask(140, 7));
+  assert.equal(f.get("getComputedStyle(tabSeat.face).borderTopLeftRadius"), "10px");
+  assert.equal(face.lens.map, f.context.lensMap(140, 10)); assert.equal(face.lens.mask, f.context.lensCenterMask(140, 10));
   assertCopyPosition(f, f.house);
   // the house has one press, which lifts the lens (see "a drag from the house"); it has no reorder or tear-out
   assert.equal(f.homeButton.listeners.mousedown.length, 1, "Home gained more than the lens lift");

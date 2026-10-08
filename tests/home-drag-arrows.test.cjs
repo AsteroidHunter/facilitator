@@ -54,9 +54,10 @@ test("off the house the glass is a name's and follows the pointer; back on it, t
   f.move(100);
   assert.deepEqual(shape(f), ["100px", "translateX(84px)", false]);
   f.move(330); assert.deepEqual(shape(f), ["100px", "translateX(260px)", false], "held inside the names' strip");
-  // and back onto the house it is the circle at once, with no slide
+  // and back onto the house it glides there and turns to the circle, as a release slides it
   f.move(16); assert.deepEqual(shape(f), ["32px", "translateX(0px)", true]);
-  assert.equal(cls(f, "still"), true, "the shape changes with no transition while it is carried");
+  assert.equal(cls(f, "still"), false, "the shape turns with the release's transition while it is carried");
+  assert.equal(f.seat.el.style.transition, f.get("SEAT_GLIDE"));
   assert.equal(f.context.homeOpen, true);
 });
 
