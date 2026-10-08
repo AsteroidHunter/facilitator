@@ -1903,7 +1903,10 @@ let validOwners = new Set();
 // in card-logic.js; curView() answers with the open project's own
 const lastSel = {};             // owner -> the card that was open when that tab was left
 let pendingFocus = null;        // a card just made: name it as soon as it is drawn
-let wantBox = new URLSearchParams(location.search).get("box");   // a notification opened the page on this card
+// an entry the page wrote into its own history (the spare page, at the end) keeps
+// the address the page was opened by: loaded on one again, that tap is not news
+const addressSeen = !!history.state?.phonePage;
+let wantBox = addressSeen ? null : new URLSearchParams(location.search).get("box");   // a notification opened the page on this card
 let homeOpen = false;           // the house's page is up over the card (the home page, below)
 
 // the card's helpers, the one state a card's colour and place come from, the
@@ -6794,7 +6797,7 @@ if (!macHost && "serviceWorker" in navigator){
 // the first reading is drawn, and the log is told it arrived
 {
   const asked = new URLSearchParams(location.search);
-  if (asked.get("box")){
+  if (asked.get("box") && !addressSeen){
     tapNoteArrive(asked.get("box"), asked.get("tap"), "url");
     tapNoteResult(asked.get("box"), asked.get("tap"));
   }
@@ -7209,6 +7212,39 @@ if (macHost) {
   };
   macHost.connect(window, adapter);
   addEventListener("pagehide", () => macHost.lost(window));
+}
+</script>
+<script>
+// the spare page. a back swipe from the phone's left edge is the browser's own and
+// no page can stop it: it leaves the board for whatever is behind it. so the board
+// writes a second entry for itself, the same address, and the swipe lands on the
+// first and stays. the browser skips an entry written without a tap in the last
+// ten seconds (and the one under it too), so the copy is only written in a tap.
+// a landing writes it again at once, while the swipe's own lift still counts as a
+// tap; when it does not, the page steps forward onto the copy it came back from,
+// which was written in a tap and needs none to step onto. any touch while the copy
+// is missing writes it. a board alone in its window, or inside the Mac, has
+// nothing to go back to and writes none
+if (parent === window) {
+  const onSpare = () => history.state?.phonePage === "spare";
+  // a tap now or in the last few seconds; a browser that cannot say is believed
+  const tapped = () => navigator.userActivation?.isActive !== false;
+  const writeSpare = () => {
+    history.scrollRestoration = "manual";   // stepping between the two moves nothing
+    history.replaceState({ phonePage: "board" }, "", location.href);
+    history.pushState({ phonePage: "spare" }, "", location.href);
+  };
+  let touched = false;
+  addEventListener("touchstart", () => { touched = true; }, { capture: true, passive: true });
+  for (const type of ["touchend", "click"])
+    addEventListener(type, () => {
+      if (touched && !onSpare() && history.length > 1 && tapped()) writeSpare();
+    }, { capture: true, passive: true });
+  addEventListener("popstate", e => {
+    if (e.state?.phonePage === "spare") return;
+    if (tapped()) writeSpare();
+    else history.forward();
+  });
 }
 </script>
 </body>
