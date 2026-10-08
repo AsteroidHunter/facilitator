@@ -2249,9 +2249,11 @@ function makeBox(b){
   // the sent panel's room: the band is written again, for a change in the seat
   // the band's watch would not see
   card.sentRoom = () => card.bandWrite && card.bandWrite();
-  // Tab on the card walks the text box and the title and nothing else (cardTab);
+  // Tab on the card walks the text box and the title and nothing else (cardTab), and
+  // no other part of the card is a stop of the browser's own Tab (quietStops);
   // with a menu out the menu keeps the key (keepTabInMenu)
   box.addEventListener("keydown", e => { if (!menuOut()) cardTab(e, b.id, focusBoxAtEnd); });
+  quietStops(card);
   // how far the answer is scrolled, read where it can be: a card that is not
   // on show has no layout and reads zero, but it keeps its place for when it is
   // shown again, and this is what a card taken down hands to the shelf
@@ -6772,6 +6774,15 @@ document.addEventListener("click", e => {
 
 addEventListener("keydown", e => {
   dispatchCardShortcut(e, homeOpen ? homeShortcutActions : phoneShortcutActions);
+});
+// Tab with the focus nowhere, or on a button outside the card, goes to the text box of
+// the card on screen (cardTabAway), whenever nothing else is up over it: after a load, a
+// tap on the answer, on bare card or on a ticket, with Home just left, and after a menu
+// has shut and left the focus where it was
+addEventListener("keydown", e => {
+  if (e.key !== "Tab" || homeOpen || menuOut()) return;
+  const shown = phoneResponseCard();
+  if (shown) cardTabAway(e, shown.id, focusBoxAtEnd);
 });
 // releases, other keys, a lost window and a hidden page stop the response scroll
 listenResponseScroll();

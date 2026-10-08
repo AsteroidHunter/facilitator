@@ -1771,7 +1771,8 @@ test("desktop history controls appear for a prior reply and share keyboard histo
       "the history controls did not use the composer arrow's fade curve");
     assert.deepEqual({ upDisabled: shown.upDisabled, downDisabled: shown.downDisabled,
       upTab: shown.upTab, downTab: shown.downTab },
-    { upDisabled: false, downDisabled: true, upTab: 0, downTab: 0 });
+    // Tab on a card walks its text box and its title only, so the arrows are no stop of it
+    { upDisabled: false, downDisabled: true, upTab: -1, downTab: -1 });
     assert.deepEqual(shown.labels, ["older reply", "newer reply"]);
     assert.deepEqual(shown.arrowTransforms, [[1, 0, 0, 1], [-1, 0, 0, -1]],
       "the older and newer arrows did not point up and down");

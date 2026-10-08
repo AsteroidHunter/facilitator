@@ -567,7 +567,7 @@ for (const kind of ["desktop", "phone"]) {
     assert.equal(samples[split - 1].sunMark, 0, "the sun's mark is still shown on the green card");
     assert.equal(samples[samples.length - 1].sunMark, 1, "the sun's mark did not come back after the reply");
     assert.equal(sunGreen.aria, "true", "the sun is not inert on the green card");
-    assert.equal(sunGreen.tab, 0, "the sun left the keyboard path on the green card");
+    assert.equal(sunGreen.tab, -1, "the sun is a Tab stop; Tab on a card walks its text box and its title only");
     const sunSteps = samples.slice(1).map((s, i) => Math.abs(s.sunMark - samples[i].sunMark));
     assert.ok(Math.max(...sunSteps) < 0.3, "the sun's mark jumped rather than fading");
     assert.deepEqual(problems, []);

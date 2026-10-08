@@ -6455,8 +6455,6 @@ function makeBox(b, i, state){
     histctl.setAttribute("aria-hidden", hasHistory ? "false" : "true");
     histUp.disabled = !hasHistory;
     histDown.disabled = true;
-    histUp.tabIndex = hasHistory ? 0 : -1;
-    histDown.tabIndex = hasHistory ? 0 : -1;
     histctl.append(histUp, histDown, histPos);
     histUp.addEventListener("click", () => histStep(b.id, 1));
     histDown.addEventListener("click", () => histStep(b.id, -1));
@@ -6722,8 +6720,10 @@ function makeBox(b, i, state){
     // and the reader's own scrolling of the answer, which holds a page turn back
     watchReading(els[b.id]);
 
-    // Tab on the card walks the text box and the title and nothing else (cardTab)
+    // Tab on the card walks the text box and the title and nothing else (cardTab),
+    // and no other part of the card is a stop of the browser's own Tab (quietStops)
     box.addEventListener("keydown", e => cardTab(e, b.id, el => el.ta.focus()));
+    quietStops(els[b.id]);
 }
 
 // "+" row under each meta section: one click = new box owned by that section,
@@ -6981,8 +6981,6 @@ function setDesktopHistoryAvailability(id, hasHistory){
   el.hasHistory = hasHistory;
   el.box.classList.toggle("hashist", hasHistory);
   el.histctl.setAttribute("aria-hidden", hasHistory ? "false" : "true");
-  el.histUp.tabIndex = hasHistory ? 0 : -1;
-  el.histDown.tabIndex = hasHistory ? 0 : -1;
   el.histUp.disabled = !hasHistory;
   el.histDown.disabled = true;
 }
@@ -10830,6 +10828,14 @@ addEventListener("keydown", e => {
   // the keys are its own
   if (!boardKeysLive()) return;
   dispatchCardShortcut(e, boardShortcutActions);
+});
+// Tab with the focus nowhere, or on a button outside the card, goes to the text box of
+// the card on screen (cardTabAway), whenever that card holds the board's keys: after a
+// load, a click on the answer, on bare card or on a ticket, with Home just left, and
+// after a menu has shut and handed the focus back to its button
+addEventListener("keydown", e => {
+  if (e.key !== "Tab" || !FOCUS || draft || !boardResponseCard()) return;
+  cardTabAway(e, selectedId, el => el.ta.focus());
 });
 // releases, other keys, a lost window and a hidden page stop the response
 // scroll whatever holds the board's keys
