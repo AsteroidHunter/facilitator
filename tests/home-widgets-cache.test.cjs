@@ -6,6 +6,7 @@ const { test } = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { boxHeight } = require('./limits-box-model.cjs');
 const ROOT = process.env.HOME_SOURCE_ROOT || path.resolve(__dirname, '..');
 const SOURCE = fs.readFileSync(path.join(ROOT, 'home-widgets.js'), 'utf8');
 const CSS = fs.readFileSync(path.join(ROOT, 'home-widgets.css'), 'utf8');
@@ -83,10 +84,13 @@ function declarations(selector) {
 }
 // This evaluates only the explicit border-box height contract; it deliberately
 // makes no claim to be a browser layout engine. A phone's containing height is
-// auto, so the old height:100% and row-dependent limits height fail this check.
+// auto, so the old height:100% fails this check. The limits box has no height of
+// its own: it is the sum of its heading, its rows and its line (limits-box-model.cjs).
 function structuralHeight(root, unit = 1, parent = null) {
   const panel = root.classList.contains('tk-panel') ? root : root.querySelector('.tk-panel');
   assert.ok(panel, 'the panel exists before data arrives');
+  // the limits box is as tall as its rows, so its height is worked out from what it holds
+  if (panel.classList.contains('lm-box')) return boxHeight(panel, { unit });
   let rules = declarations('.tk-panel');
   if (panel.classList.contains('lm-box')) rules = { ...rules, ...declarations('.lm-box') };
   assert.equal(rules['box-sizing'], 'border-box');
@@ -137,18 +141,25 @@ test('limits cache survives reopening and paints before a deferred request', asy
 });
 
 for (const kind of ['panel', 'limits']) {
-  test(`${kind}: structural CSS/DOM panel height stays identical through loading, data, refresh and empty states`, async () => {
+  test(`${kind}: structural CSS/DOM panel height ${kind === 'panel' ? 'stays identical' : 'changes only with the number of bars'} through loading, data, refresh and empty states`, async () => {
     const { W, root } = harness(); const host = root();
     let answer = kind === 'panel' ? tokens(10) : limits(23);
     const widget = W[kind](host, { load: async () => answer });
-    const cold = [1, 0.9, 1.2].map(unit => structuralHeight(host, unit));
+    const units = [1, 0.9, 1.2], heights = () => units.map(unit => structuralHeight(host, unit));
+    const cold = heights();
     const board = structuralHeight(host, 1, 240);
-    const work = widget.refresh(); assert.deepEqual([1, 0.9, 1.2].map(unit => structuralHeight(host, unit)), cold);
+    const work = widget.refresh(); assert.deepEqual(heights(), cold);
     await work;
-    assert.deepEqual([1, 0.9, 1.2].map(unit => structuralHeight(host, unit)), cold);
-    assert.equal(structuralHeight(host, 1, 240), board);
+    if (kind === 'limits') {
+      // two bars: one row and one gap more than the one-row loading message
+      heights().forEach((h, i) => assert.ok(Math.abs(h - cold[i] - (16 + 7 * units[i])) < 1e-9));
+      assert.equal(structuralHeight(host, 1, 240), heights()[0]);
+    } else {
+      assert.deepEqual(heights(), cold);
+      assert.equal(structuralHeight(host, 1, 240), board);
+    }
     answer = kind === 'panel' ? tokens(0) : { codex: { weekly: { used: 12, resets: 4102444800 } } };
-    await widget.refresh(); assert.deepEqual([1, 0.9, 1.2].map(unit => structuralHeight(host, unit)), cold);
+    await widget.refresh(); assert.deepEqual(heights(), cold, 'a single bar is the height of the message');
     assert.equal(host.hidden, false);
     if (kind === 'panel') assert.match(host.textContent, /No token usage yet/);
   });

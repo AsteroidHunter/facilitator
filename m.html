@@ -1637,8 +1637,9 @@ for (const type of ["gesturestart", "gesturechange"])
     <div id="cards"></div>
     <!-- the home page, opened by the house: the board's name, mark and version,
          then the token panel, which home-widgets.js builds into #homeplot when
-         the page loads, and under it the limits box, #homelimits. Both reserve
-         their finished size even before their first reading -->
+         the page loads, and under it the limits box, #homelimits. The token panel
+         reserves its finished size even before its first reading; the limits box
+         is drawn from its last kept reading and is only as tall as its rows -->
     <section id="home" aria-label="Home"><div id="homestack">
       <div id="homebrand"><span id="homemark" aria-hidden="true"></span><span id="homebrandcopy"><span id="homebrandname">Facilitator</span><span id="homeversion"></span></span></div>
       <div id="homeplot"></div><div id="homelimits" hidden></div>
