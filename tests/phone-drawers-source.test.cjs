@@ -1,7 +1,7 @@
 // What the phone page's two drawers are made of, read out of m.html's source: no
 // browser. The card list is the ticket box on the page, above a card that goes
-// down 55% of the screen, the two on one fraction and moved by transform alone,
-// the box nine tenths of the space the drop opens and seen only above the card;
+// down at most 55% of the screen, the two on one fraction and moved by transform
+// alone, the box nine tenths of that room and seen only above the card;
 // the settings are the narrow panel off the right edge. None of what moves is laid
 // out again or timed by a script, and nothing the drawers add is purple.
 const assert = require("node:assert/strict");
@@ -79,20 +79,21 @@ test("the card goes down 55% of the screen and the box comes in, both on the one
   // across, its right edge comes in from the page's left edge; down, it takes back what the window goes down
   assert.match(box, /transform:translate3d\(calc\(\(var\(--list-v\) - 1\) \* \(var\(--pg-l\) \+ 100% \* \(1 \+ var\(--list-share\)\) \/ \(2 \* var\(--list-share\)\)\)\),\s*calc\(-1 \* var\(--list-v\) \* var\(--list-drop, 0px\)\), 0\)/,
     "the box does not come in from the left on the card's fraction, holding still up and down");
-  // nine tenths of the card's column and of the drop, in the middle of each (the
-  // window it is laid in starts a drop above the page)
+  // nine tenths of the card's column and of the room the card may drop, in the
+  // middle of each (the window it is laid in starts a room above the page); the
+  // card drops only as far as the rows need, so the box's spare foot is under it
   assert.match(box, /--list-share:\.9;/, "the box is not nine tenths of the space");
   assert.match(box, /left:calc\(var\(--pg-l\) \+ \(100% - var\(--pg-l\) - var\(--pg-r\)\) \* \(1 - var\(--list-share\)\) \/ 2\);/);
   assert.match(box, /width:calc\(\(100% - var\(--pg-l\) - var\(--pg-r\)\) \* var\(--list-share\)\);/);
-  assert.match(box, /top:calc\(var\(--list-drop, 0px\) \+ var\(--pg-t\) \+ var\(--list-drop, 0px\) \* \(1 - var\(--list-share\)\) \/ 2\);/);
-  assert.match(box, /height:calc\(var\(--list-drop, 0px\) \* var\(--list-share\)\);/);
+  assert.match(box, /top:calc\(var\(--list-room, 0px\) \+ var\(--pg-t\) \+ var\(--list-room, 0px\) \* \(1 - var\(--list-share\)\) \/ 2\);/);
+  assert.match(box, /height:calc\(var\(--list-room, 0px\) \* var\(--list-share\)\);/);
   assert.doesNotMatch(box, /box-shadow:\s*[^n;]|background:\s*(?!transparent)/, "the box paints something of its own");
   // the window the box is seen through: under the card, clipping, its foot on the card's top edge
   const win = rulesFor(/^#tikwin$/).map(r => r.body).join(";");
   assert.match(win, /z-index:0/, "the box does not lie under the card");
   assert.match(win, /overflow:clip/, "the window does not clip the box");
   assert.match(win, /pointer-events:none/, "the window takes a touch");
-  assert.match(win, /top:calc\(-1 \* var\(--list-drop, 0px\)\);[\s\S]*height:calc\(var\(--pg-t\) \+ var\(--list-drop, 0px\)\)/,
+  assert.match(win, /top:calc\(-1 \* var\(--list-room, 0px\)\);[\s\S]*height:calc\(var\(--pg-t\) \+ var\(--list-room, 0px\)\)/,
     "the window does not end at the card's resting top");
   assert.match(win, /transform:translate3d\(0, calc\(var\(--list-v\) \* var\(--list-drop, 0px\)\), 0\)/,
     "the window's foot does not go down with the card");

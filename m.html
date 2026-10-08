@@ -158,8 +158,10 @@
      --listfade the depth of the list's own fade, a length so the script can
      read it in pixels at whatever size the page stands. --drawer-run-ms and
      --drawer-run-ease are the length and curve of the list's run, worked out
-     by the script for each run and written on the three parts it moves */
+     by the script for each run and written on the three parts it moves, as is
+     --list-drop, how far the card goes down with the list out */
   @property --list-v{syntax:"<number>"; inherits:false; initial-value:0}
+  @property --list-drop{syntax:"<length>"; inherits:false; initial-value:0px}
   @property --drawer-run-ms{syntax:"*"; inherits:false}
   @property --drawer-run-ease{syntax:"*"; inherits:false}
   @property --page-scale{syntax:"<number>"; inherits:false; initial-value:1}
@@ -213,7 +215,7 @@
        already stands in at rest. --page-scale is written by the script and is
        exactly 1 with the settings shut. the card list does not draw it back */
     --page-scale:1;
-    --list-drop:0px;
+    --list-room:0px;
     transform:scale(var(--page-scale));
     transform-origin:50% 50%;
     transition:transform var(--drawer-ms) var(--drawer-tap);
@@ -509,11 +511,12 @@
     margin-bottom:calc(0px - var(--kb-lift, 0px));
     transition:margin-bottom var(--kb-anim);
   }
-  /* the card list pulled out drops the card by --list-drop, the list's own
-     height and the share of the screen it is given, written on the page by the
-     script. the fraction is --list-v, written on the card with the list's, so
-     the two cross on one number; what is under the screen's foot and the row's
-     bed is out of sight. only its picture moves, and a finger's run is not
+  /* the card list pulled out drops the card by --list-drop, as far as the
+     section on show needs and never further than the room the list is laid
+     out in, written on the card by the script. the fraction is --list-v,
+     written on the card with the list's, so the two cross on one number;
+     what is under the screen's foot and the row's bed is out of sight. only
+     its picture moves, and a finger's run is not
      timed. the two transitions are the keyboard's lift and this one, each
      rule stating both; the list's run is on the curve the script writes, and
      on the menus' own where that curve cannot be written. a card with the
@@ -1103,11 +1106,15 @@
   body.setout #page{will-change:transform}
   /* the card list: the board's ticket box at the phone's size, laid on the page
      in the space the card leaves above it. that space is the card's column,
-     from the card's own edges, and the drop, from the top the card has at rest;
-     the box takes --list-share of it each way and stands in its middle, so there
-     is paper all round it. it comes in from the page's left edge on the card's
-     fraction, --list-v, written on it with the card's, so the two cross together
-     and a finger carries both. it lies under the card and is seen only through
+     from the card's own edges, and the room, --list-room, the furthest the card
+     can go down, from the top the card has at rest; the box takes --list-share
+     of it each way and stands in its middle, so there is paper all round it.
+     the card goes down only as far as the section on show needs (fitList), so
+     what the box has spare below its tickets stays under the card, and the box
+     itself never moves or changes size for it. it comes in from the page's
+     left edge on the card's fraction, --list-v, written on it with the card's,
+     so the two cross together and a finger carries both. it lies under the
+     card and is seen only through
      #tikwin, a window whose foot is the card's top edge: the window goes down
      with the card and the box inside goes up by as much, so the box holds still
      and the card's going down uncovers it, and no part of it shows beside the
@@ -1115,12 +1122,13 @@
      paints nothing, as on the board; the list inside is the board's own and
      fades at its ends. it is on show only while it is out, and is taken away
      for the whole run that puts it back, so it disappears once it has finished
-     leaving. the window is laid a drop above the page, so with the list shut
+     leaving. the window is laid a room above the page, so with the list shut
      neither it nor the box stands moved by the drop, and the drop written
-     after the page is first drawn starts no run of theirs */
+     after the page is first drawn starts no run of theirs; with the list out
+     its top is never below the screen's, whatever the drop */
   #tikwin{
-    position:absolute; z-index:0; left:0; right:0; top:calc(-1 * var(--list-drop, 0px));
-    height:calc(var(--pg-t) + var(--list-drop, 0px));
+    position:absolute; z-index:0; left:0; right:0; top:calc(-1 * var(--list-room, 0px));
+    height:calc(var(--pg-t) + var(--list-room, 0px));
     overflow:clip; pointer-events:none;
     transform:translate3d(0, calc(var(--list-v) * var(--list-drop, 0px)), 0);
     transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap));
@@ -1136,9 +1144,9 @@
     position:absolute; pointer-events:auto;
     left:calc(var(--pg-l) + (100% - var(--pg-l) - var(--pg-r)) * (1 - var(--list-share)) / 2);
     width:calc((100% - var(--pg-l) - var(--pg-r)) * var(--list-share));
-    /* the window's top is a drop above the page's */
-    top:calc(var(--list-drop, 0px) + var(--pg-t) + var(--list-drop, 0px) * (1 - var(--list-share)) / 2);
-    height:calc(var(--list-drop, 0px) * var(--list-share));
+    /* the window's top is a room above the page's */
+    top:calc(var(--list-room, 0px) + var(--pg-t) + var(--list-room, 0px) * (1 - var(--list-share)) / 2);
+    height:calc(var(--list-room, 0px) * var(--list-share));
     background:transparent; border:none; border-radius:0; box-shadow:none;
     display:flex; flex-direction:column; overflow:visible; gap:calc(var(--line-gap) + var(--u));
     /* across: its right edge from the page's left edge, its own width and its
@@ -1280,8 +1288,11 @@
      how far it still can, each capped at that depth by the script beside the
      list, so an edge with nothing past it stays at full ink and a section that
      fits wears no fade at all. a mask does not scroll with the rows.
-     scroll-padding keeps a row that is scrolled into view clear of both ramps */
-  .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
+     scroll-padding keeps a row that is scrolled into view clear of both ramps.
+     a section is as tall as its rows, gaps and padding, and never taller than
+     the list, so what the list has spare under it is the list's height less
+     the section's, which is all the card's drop needs to know (listSlack) */
+  .tikpane{flex:0 0 100%; min-width:0; align-self:flex-start; max-height:100%; overflow-y:auto; overflow-x:hidden;
     -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:calc(6 * var(--u));
     padding:calc(var(--edge-drawn) + 10 * var(--u))
             calc(var(--list-side) + var(--tik-inset-r))
@@ -4490,22 +4501,47 @@ function menuOut(){ return menus.find(p => menuAvailable(p) && p.classList.conta
 // the two cannot differ. enough to read as a step back, and little enough that
 // the words on it are not noticeably smaller
 const PAGE_SINK = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sink"));
-// how far down the card goes with the list out, as a share of the screen's
-// height. the card's own translate takes lengths and its percentages are of
-// its own size, so the distance is written on the page in pixels, which the
-// card and the list both read it from, and again only when the screen's height
-// changes
+// how far down the card goes with the list out. the most it may is the room,
+// a share of the screen's height, which the list is laid out in. the card's
+// own translate takes lengths and its percentages are of its own size, so the
+// room is written on the page in pixels, and again only when the screen's
+// height changes. the drop is the room less what the section on show leaves
+// spare under its last ticket (listSlack): the smaller of the room and what
+// the list's own rows need, read off the list as it is laid out and never
+// counted, so an empty section still opens onto its names and arrows. it is
+// written on the three parts that move by it. the list fits as it comes on
+// show (paintMenu); out and at rest, a ticket come or gone or another section
+// glides it to its new drop on its own spring from rest; on the move, under a
+// finger or on a run, it fits once it is at rest again
 const LIST_DROP = 0.55;
-let listDropAt = "";
-function sizeList(){
-  const at = Math.round(document.body.clientHeight * LIST_DROP) + "px";
-  if (at === listDropAt) return;
-  listDropAt = at;
-  page.style.setProperty("--list-drop", at);
+let listRoom = 0, listDrop = 0;
+let listSlack = () => 0;   // measured with the sections, after the list's fades
+function dropList(px){
+  listDrop = +px.toFixed(2);
+  for (const el of [cardPane, tikwin, tickets]) el.style.setProperty("--list-drop", listDrop + "px");
 }
-sizeList();
-addEventListener("resize", sizeList);
-addEventListener("orientationchange", sizeList);
+function fitList(now){
+  // shut or on the move: it fits as it comes on show, or once it is out and at rest
+  if (!now && (!tickets.classList.contains("drawer-settled") || listPlay.some(a => a.playState === "running"))) return;
+  const room = Math.round(document.body.clientHeight * LIST_DROP);
+  if (room !== listRoom){ listRoom = room; page.style.setProperty("--list-room", room + "px"); }
+  const drop = room - listSlack(), was = listDrop;
+  if (!(Math.abs(drop - was) >= .5)) return;
+  if (now) return dropList(drop);
+  listRun = listSpring(0, 1, 0, Math.abs(drop - was));
+  const keyed = LIST_KEYED && !LIST_CALM?.matches;
+  Object.assign(listRun, { keyed, fit: [was, drop], until: performance.now() + listRun.ms + (keyed ? LIST_SETUP_MS : 0) });
+  document.body.classList.toggle("listkeys", keyed);
+  if (LIST_EASED) for (const el of [cardPane, tickets, tikwin]){
+    el.style.setProperty("--drawer-run-ms", listRun.ms + "ms");
+    el.style.setProperty("--drawer-run-ease", listRun.ease);
+  }
+  dropList(drop);
+  playList();
+}
+fitList(true);
+addEventListener("resize", () => fitList());
+addEventListener("orientationchange", () => fitList());
 // how the list runs, after a tap or a release: the slowdown of a reference
 // app's jump to the latest message (its createGlide), a weight on a
 // damped spring. its damping is held just over critical, so it slows into its
@@ -4584,8 +4620,12 @@ function listSpring(from, to, speed, px){
     at: t => t < ms ? to - sign * left(t) : to,
     velocity: t => t < ms ? sign * rate(t) : 0 };
 }
-// stop the list's keyframes where they are shown: its parts go to what is written on them
+// stop the list's keyframes where they are shown: its parts go to what is
+// written on them. a refit stopped on its way has the drop it has reached
+// written first, so whatever moves the list next leaves from where it stands
 function stopList(){
+  const run = listRun, at = listPlay[0]?.playState === "running" ? Math.max(0, Number(listPlay[0].currentTime) || 0) : null;
+  if (run?.fit && at != null) dropList(run.fit[0] + (run.fit[1] - run.fit[0]) * run.at(at));
   for (const a of listPlay) a.cancel();
   listPlay = [];
 }
@@ -4603,6 +4643,7 @@ function listMoving(){
 // that run is played as keyframes (playList)
 function planList(v, speed, released){
   if (!LIST_EASED) return;
+  if (listRun?.fit) stopList();   // a refit is no run of the fraction: it stops where it is, and this leaves from there
   let from = Number(tickets.style.getPropertyValue("--list-v")) || 0, rest = !released;
   if (!released){
     speed = 0;
@@ -4625,7 +4666,7 @@ function planList(v, speed, released){
   }
   stopList();
   // the furthest any part goes: the card's drop, or the list across a screen it is never wider than
-  listRun = listSpring(from, v, speed, Math.max(parseFloat(listDropAt) || 0, innerWidth || 0));
+  listRun = listSpring(from, v, speed, Math.max(listDrop || 0, innerWidth || 0));
   const keyed = !!listRun && rest && LIST_KEYED && !LIST_CALM?.matches;
   // a run played as keyframes also waits out its first frame (playList)
   const ms = listRun ? listRun.ms + (keyed ? LIST_SETUP_MS : 0) : 0;
@@ -4639,7 +4680,10 @@ function planList(v, speed, released){
 // play a run from rest as keyframes on the three parts it moves, from the
 // fraction it leaves to the one now written on them. the list's travel across
 // and the card's drop are plain pixels at each point; the list's fade and its
-// arrows' (their --list-v) take the fraction itself. the fade stops short of
+// arrows' (their --list-v) take the fraction itself. a refit (fitList) is the
+// same spring run on the drop, with the list out the whole way: the card and
+// the window go down or up by the change and the list holds still, unfaded,
+// with its arrows as they are. the fade stops short of
 // whole, at LIST_FADE_TOP: a list that is fading is drawn as one see-through
 // group, and a close that starts fully opaque has that group built in its
 // first moving frame, where it costs a step (on the Simulator a close's first
@@ -4649,15 +4693,18 @@ function playList(){
   const run = listRun;
   if (!run || !run.keyed || run.played || !run.ms) return;
   run.played = true;
-  const drop = parseFloat(listDropAt) || 0, travel = menuTravel(tickets);
+  const [from, to] = run.fit || [listDrop, listDrop], travel = menuTravel(tickets);
+  // each point's fraction and drop
+  const place = run.fit ? at => [1, from + (to - from) * at] : v => [v, from];
   const px = n => +n.toFixed(3) + "px";
-  const play = (el, frame) => el.animate(run.points.map(([offset, v]) => ({ offset, ...frame(v) })),
+  const play = (el, frame) => el.animate(run.points.map(([offset, at]) => ({ offset, ...frame(...place(at)) })),
     { duration: run.ms, easing: "linear", fill: "backwards", id: "list-run" });
   listPlay = [
-    play(tickets, v => ({ transform: `translate3d(${px((v - 1) * travel)}, ${px(-v * drop)}, 0px)`, opacity: Math.min(v, LIST_FADE_TOP) })),
-    play(tikwin, v => ({ transform: `translate3d(0px, ${px(v * drop)}, 0px)` })),
-    play(cardPane, v => ({ transform: `translate(0px, ${px(v * drop)})` })),
-    ...tikArrows.map(el => play(el, v => ({ "--list-v": v }))),
+    play(tickets, (v, drop) => ({ transform: `translate3d(${px((v - 1) * travel)}, ${px(-v * drop)}, 0px)`,
+      ...run.fit ? {} : { opacity: Math.min(v, LIST_FADE_TOP) } })),
+    play(tikwin, (v, drop) => ({ transform: `translate3d(0px, ${px(v * drop)}, 0px)` })),
+    play(cardPane, (v, drop) => ({ transform: `translate(0px, ${px(v * drop)})` })),
+    ...run.fit ? [] : tikArrows.map(el => play(el, v => ({ "--list-v": v }))),
   ];
   const playing = listPlay;
   playing[0].finished.then(() => {
@@ -4691,10 +4738,11 @@ function paintMenu(panel, v){
   if (panel === tickets){
     ++ticketDrawerRun;
     panel.classList.remove("drawer-settled");
-    // the list is drawn as it first comes on show, so a tap or a pull opens it onto current rows
+    // the list is drawn as it first comes on show, so a tap or a pull opens it
+    // onto current rows, and as far as they need
     if (v > 0 && !panel.classList.contains("live")){
-      sizeList();
       if (lastState) renderTickets(lastState, "drawer", true);
+      fitList(true);
     }
     cardPane.style.setProperty("--list-v", num);
     tickets.style.setProperty("--list-v", num);
@@ -4952,6 +5000,30 @@ for (const pane of document.querySelectorAll(".tikpane")){
   new MutationObserver(read).observe(pane, { childList: true });
   if (window.ResizeObserver) new ResizeObserver(read).observe(pane);
   read();
+}
+
+// what the section on show leaves spare under its last ticket, for the card's
+// drop (fitList): the list's height less the section's. a section is laid out
+// at the height of its own rows and never taller than the list, so this is
+// nothing for a full one, and for a short one exactly the room its rows,
+// gaps and padding do not use
+listSlack = () => {
+  const pane = drawerPane(), list = pane?.parentElement;
+  return pane && list ? Math.max(0, list.clientHeight - pane.offsetHeight) : 0;
+};
+// the list fits again when a section changes height (a ticket come or gone),
+// when another section is named, and when the list comes to rest, from its
+// own run or from a refit
+{
+  const fit = () => fitList();
+  if (window.ResizeObserver){
+    const sized = new ResizeObserver(fit);
+    for (const pane of document.querySelectorAll(".tikpane")) sized.observe(pane);
+  }
+  const named = new MutationObserver(fit);
+  named.observe(tickets, { attributes: true, attributeFilter: ["class"] });
+  named.observe(document.getElementById("tikhead"), { attributes: true, attributeFilter: ["class"], subtree: true });
+  listLandings.push(fit);
 }
 
 // The keyboard pick belongs only to this drawer, and lasts only for this load.
