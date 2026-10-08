@@ -227,8 +227,7 @@ test("a run with no terminal asks nothing, treats the phone client as no, and sa
 test("stopping at a question leaves the command alone, and running again finishes safely", async () => {
   await using({}, async f => {
     const stopped = await f.terminal([[PHONE, "\x03"]]);
-    assert.equal(stopped.code, 130, stopped.text);
-    assert.doesNotMatch(stopped.text, /command and agent skill installed|Facilitator is installed/);
+    assertPlainExit(stopped, PHONE);
     assert.equal(await f.has(path.join(f.home, ".local")), false, "the command was linked before the question was answered");
     const again = await f.terminal([[PHONE, "n"]]);
     assert.equal(again.code, 0, again.text);
@@ -237,12 +236,16 @@ test("stopping at a question leaves the command alone, and running again finishe
   });
 });
 
-// Ctrl+C in a step the command runs ends with one plain sentence on its own
-// line, never a Python traceback, and the run stops with the interrupted status
+// Ctrl+C anywhere ends the run the same way: a new line, one sentence on a line
+// of its own and nothing after it, never a Python traceback, and status 130.
+// `after` is the last thing printed before the keypress.
 const EXITING = "Exiting facilitator installer.";
+const literal = text => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function assertPlainExit(stopped, after) {
   assert.equal(stopped.code, 130, stopped.text);
-  assert.ok(stopped.text.includes(`${after}\n${EXITING}\n`), stopped.text.slice(-300));
+  // the terminal's own ^C may sit after the line or on a line of its own, but no blank line comes before the sentence
+  assert.match(stopped.text, new RegExp(`${literal(after)}(\\n\\^C|\\^C)?\\n${literal(EXITING)}\\n$`), stopped.text.slice(-300));
+  assert.equal(stopped.text.split(EXITING).length, 2, "the sentence was not printed exactly once:\n" + stopped.text);
   assert.doesNotMatch(stopped.text, /Traceback|KeyboardInterrupt|File "|\.py"/, "a traceback was printed:\n" + stopped.text);
   assert.doesNotMatch(stopped.text, /command and agent skill installed|Facilitator is installed/);
 }
@@ -268,10 +271,36 @@ test("Ctrl+C at the confirm prompt exits the same way, and no password is saved"
 test("Ctrl+C in the middle of the package sync exits the same way and shows nothing the sync had printed", async () => {
   await using({ hang: "sync" }, async f => {
     const stopped = await f.terminal([["Installing the packages Facilitator needs.", "\x03"]]);
-    assert.equal(stopped.code, 130, stopped.text);
-    assert.ok(stopped.text.includes(`Installing the packages Facilitator needs.\n^C\n${EXITING}\n`), stopped.text.slice(-300));
-    assert.doesNotMatch(stopped.text, /Traceback|KeyboardInterrupt|File "|syncing \(fake uv\)|✓ Packages installed/);
+    assertPlainExit(stopped, "Installing the packages Facilitator needs.");
+    assert.ok(stopped.text.includes("Installing the packages Facilitator needs.\n^C\n"), "the keypress is echoed on its own line");
+    assert.doesNotMatch(stopped.text, /syncing \(fake uv\)|✓ Packages installed/);
     assert.equal(await f.has(path.join(f.home, ".local")), false, "the command was linked");
+  });
+});
+
+test("Ctrl+C at each of the shell's own questions exits with the same sentence", async () => {
+  const PRESS = "Once installed, press any key.";
+  for (const [steps, after] of [
+    [[[PHONE, "\x03"]], PHONE],
+    [[[PHONE, "y"], [BOTH, "\x03"]], BOTH],
+    [[[PHONE, "y"], [BOTH, "n"], [ANSWER, "\x03"]], ANSWER],
+    [[[PHONE, "y"], [BOTH, "n"], [ANSWER, "y"], [PRESS, "\x03"]], PRESS],
+    [[[PHONE, "y"], [BOTH, "y"], [ANSWER, "\x03"]], ANSWER],
+  ]) {
+    await using({}, async f => {
+      const stopped = await f.terminal(steps);
+      assertPlainExit(stopped, after);
+      assert.equal(await f.has(path.join(f.home, ".local")), false, `${after}: the command was linked`);
+    });
+  }
+});
+
+test("Ctrl+C in the shell's own Python install exits with the same sentence and shows nothing uv printed", async () => {
+  await using({ python: "missing", hang: "python" }, async f => {
+    const stopped = await f.terminal([["Installing Python 3.14 with uv.", "\x03"]]);
+    assertPlainExit(stopped, "Installing Python 3.14 with uv.");
+    assert.doesNotMatch(stopped.text, /installing Python \(fake uv\)|✓ Python 3\.14 installed/);
+    assert.equal(await f.has(path.join(f.repo, ".venv")), false, ".venv was made");
   });
 });
 
