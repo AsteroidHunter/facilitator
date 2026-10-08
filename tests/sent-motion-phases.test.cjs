@@ -7,11 +7,13 @@
 // sends of the owner's two iPhone recordings
 // (tests/fixtures/iphone-send-readings.json)
 // are flown here on their own bars and landed
-// boxes, one line and two, short and long, and the grey and the glide of what
-// stood before still follow the iPhone's readings. One copy of the words stays
-// dark the whole way, shrinking from the typing size to the bubble's, and no
-// tail. Boxes are synthetic viewport rectangles; no layout engine and no
-// browser runs, so nothing here claims how it looks.
+// boxes, one line and two, short and long, and the glide of what stood before
+// still follows the iPhone's readings. The box is the bubble's own grey, whole
+// from its first frame, as the reference recording's box is, so its compress
+// is seen. One copy of the words stays dark the whole way, shrinking from the
+// typing size to the bubble's, and no tail. Boxes are synthetic viewport
+// rectangles; no layout engine and no browser runs, so nothing here claims how
+// it looks.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { test } = require("node:test");
@@ -20,8 +22,6 @@ const vm = require("node:vm");
 const LOGIC = readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8");
 const IPHONE = JSON.parse(readFileSync(path.join(__dirname, "fixtures", "iphone-send-readings.json"), "utf8"));
 const FLIGHT_MS = 650;   // sideways by 260ms, up by 430ms, handed over to the bubble at 650ms
-const FAINT = 0.135;     // how strong the bubble looks under the bar's glass, 17-50ms
-const DRAWN = 0.686;     // how strong it is drawn on its first frame, outside the glass
 const PT = 3;            // the recordings' pixels to a point
 
 function bezier([x1, y1, x2, y2]) {
@@ -48,6 +48,7 @@ const PAD = { x: 18 * 0.985, y: 16 * 0.985 };                        // --answ-p
 const WORDS = { size: 15 * 0.985, line: 21 };                         // --answ-font, m.html:863
 const ROUND = 17.73;                                                   // --answ-round, 18u
 const LOCAL = "rgb(249, 249, 249)", SAVED = "rgb(243, 243, 243)";       // .answered.undelivered, --bubble-fill
+const GREY = "#F3F3F3";                                                // --bubble-fill as the sheet writes it
 const RIGHT = BUBBLE.left + BUBBLE.width;                              // 359.7
 const GROW = TYPED.size / WORDS.size;
 // the compress, the sideways move and the rise: the share of their way at ms
@@ -166,7 +167,7 @@ function scene(field = FIELD, typed = TYPED, words = WORDS) {
       borderTopLeftRadius: node.radius + "px", borderTopRightRadius: node.radius + "px",
       borderBottomRightRadius: node.radius + "px", borderBottomLeftRadius: node.radius + "px",
       getPropertyValue: name => name === "--card" ? "#ffffff" : name === "--answ-fill" ? node.fill :
-        name === "opacity" ? node.ink : "",
+        name === "--bubble-fill" ? " " + GREY : name === "opacity" ? node.ink : "",
     }),
   });
   vm.runInContext(LOGIC, context, { filename: "card-logic.js" });
@@ -402,32 +403,42 @@ test("the words are not scaled sideways or squashed, stand at the bubble's own p
   near(still, BUBBLE.left + PAD.x, "the words did not stand at the bubble's own place", 1e-6);
 });
 
-test("the grey is faint over the typing row and comes in as the box rises clear, as the iPhone's colour does", () => {
-  // the iPhone's bubble is drawn at 69% on its first frame and whole by 183ms,
-  // and the part still in the bar looks at 13.5% under the bar's frosted glass
+test("the box is the bubble's own grey, whole from before the first frame, so the compress is seen while it happens", () => {
+  // the reference recording's box is drawn whole from its first moving frame
+  // and is seen squeezing in; the iPhone's faint start (13.5% over the row,
+  // 69% above it) and the half grey of a message not saved yet drew the
+  // compress's first half all but white. Now the face is whole and the grey a
+  // saved message stands on at every frame, over the row and above it, even
+  // while this message is not saved (the panel's own grey is LOCAL here)
   const s = flyFirst();
-  near(px(s.face().style.opacity), FAINT, "the grey before the first frame", 1e-9);
-  assert.equal(s.face().style.background, LOCAL, "the face is not the bubble's live grey");
-  let before = 0;
-  for (const ms of MOMENTS.slice(1)) {
-    s.frame(ms);
-    const grey = px(s.face().style.opacity), b = edges(s);
-    assert.ok(grey >= before - 1e-9 && grey <= 1, `the grey went back or over at ${ms}ms (${grey})`);
-    if (b.top >= FIELD.top) near(grey, FAINT, `the grey over the row at ${ms}ms`, 1e-9);
-    if (b.bottom <= FIELD.top) assert.ok(grey >= DRAWN - 1e-9, `the grey above the row at ${ms}ms is ${grey}`);
-    if (ms >= 183.3 && b.bottom <= FIELD.top) near(grey, 1, `the grey at ${ms}ms`, 1e-9);
-    before = grey;
+  const cut = () => s.shell().querySelector(".answclip");
+  for (const ms of MOMENTS) {
+    if (ms !== null) s.frame(ms);
+    const at = ms === null ? "before the first frame" : `at ${ms}ms`;
+    assert.equal(s.face().style.opacity, "1", `the grey is not whole ${at}`);
+    assert.equal(s.face().style.background, GREY, `the face is not the bubble's own grey ${at}`);
+    assert.equal(cut().style.getPropertyValue("--answ-fill"), GREY, `the dissolve at the cut is not the face's grey ${at}`);
   }
-  // a taller bubble clears its bar later, and its grey comes in later: the
-  // second recording's two lines against its one-line sends at 217ms
-  const greyAt = (send, ms) => { const r = flyRecorded(send); r.frame(FIRST); r.frame(ms); return px(r.shell().querySelector(".sentmorph-face").style.opacity); };
-  const two = greyAt(IPHONE.sends.s1, 216.7), one = greyAt(IPHONE.sends.s3, 216.7);
-  assert.ok(two < 0.8 && one - two > 0.15, `at 217ms the two-line grey is ${two} and the one-line ${one}`);
-  // the grey firms up with delivery while airborne, and the face follows it
+  // every frame the size is still on its way is drawn whole: from the first
+  // frame drawn to the compress's landing
+  const t = flyFirst();
+  let moving = 0;
+  for (const ms of EVERY_MS) {
+    const width = edges(t).width;
+    t.frame(ms);
+    if (edges(t).width < width - 1e-9) {
+      moving++;
+      assert.equal(t.face().style.opacity, "1", `the box squeezed in at ${ms}ms while not drawn whole`);
+    }
+  }
+  assert.ok(moving >= 380, `the size moved on only ${moving} of the ms checked`);
+  // a message the board saves while airborne keeps the same grey: no step
   const s3 = flyFirst();
+  s3.frame(FIRST);
   s3.p.fill = SAVED;
   s3.frame(160);
-  assert.equal(s3.face().style.background, SAVED);
+  assert.equal(s3.face().style.background, GREY);
+  assert.equal(s3.face().style.opacity, "1");
 });
 
 test("the flight takes 650ms, and the bubble takes over a frame after it lands", () => {

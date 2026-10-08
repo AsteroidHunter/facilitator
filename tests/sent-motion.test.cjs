@@ -39,7 +39,6 @@ test("the send's lengths are shared by both pages: the flight, its compress, the
   assert.deepEqual([...run("SENT_COMPRESS")], [.22, 1, .36, 1]);
   assert.equal(run("SENT_GLIDE_MS"), 340);
   assert.equal(run("SENT_GLIDE_EASE"), "cubic-bezier(.24,.1,.15,1)");
-  assert.equal(run("SENT_FAINT"), .135);
   assert.equal(run("SENT_ARRIVE_MS"), 400);
   assert.match(CSS, /--answ-come:\.4s/);
   assert.match(CSS, /--sent-ease:cubic-bezier\(\.22, 1, \.36, 1\)/);
@@ -61,21 +60,22 @@ test("the send's lengths are shared by both pages: the flight, its compress, the
 test("the track runs in time from the typing box to the exact landing, and its size goes once from the typing box's to the seat's", () => {
   const { context, run } = load();
   assert.equal(typeof context.sentTrack, "function");
-  assert.deepEqual({ ...context.sentTrack(-5) }, { left: 0, down: 0, size: 0, strength: .686 },
+  assert.deepEqual({ ...context.sentTrack(-5) }, { left: 0, down: 0, size: 0 },
     "the track does not start on the typing box");
-  assert.deepEqual({ ...context.sentTrack(run("SENT_FLIGHT_MS")) }, { left: 1, down: 1, size: 1, strength: 1 },
+  assert.deepEqual({ ...context.sentTrack(run("SENT_FLIGHT_MS")) }, { left: 1, down: 1, size: 1 },
     "the track does not end on the landing");
-  assert.deepEqual({ ...context.sentTrack(5000) }, { left: 1, down: 1, size: 1, strength: 1 });
+  assert.deepEqual({ ...context.sentTrack(5000) }, { left: 1, down: 1, size: 1 });
   // no stretch past the seat and close, no squeeze from the side: one size
-  // change, from the typing box's to the seat's
-  for (const key of ["right", "squeeze", "stretch"])
+  // change, from the typing box's to the seat's. and no strength: the box is
+  // drawn whole the whole way, so its compress is seen
+  for (const key of ["right", "squeeze", "stretch", "strength"])
     assert.ok(!(key in context.sentTrack(100)), `the track still carries a ${key}`);
-  for (const name of ["SENT_SQUEEZE", "SENT_SQUEEZE_PEAK_MS", "SENT_STRETCH", "SENT_STRETCH_PEAK_MS"])
+  for (const name of ["SENT_SQUEEZE", "SENT_SQUEEZE_PEAK_MS", "SENT_STRETCH", "SENT_STRETCH_PEAK_MS", "SENT_FAINT", "SENT_STRENGTH"])
     assert.equal(run(`typeof ${name}`), "undefined", `${name} is still there`);
   let before = context.sentTrack(0);
   for (let ms = 1; ms <= run("SENT_FLIGHT_MS"); ms++) {
     const at = context.sentTrack(ms);
-    for (const key of ["left", "down", "size", "strength"])
+    for (const key of ["left", "down", "size"])
       assert.ok(at[key] >= before[key] - 1e-12 && at[key] <= 1, `the track's ${key} goes back or over whole at ${ms}ms`);
     before = at;
   }
@@ -95,7 +95,7 @@ test("the track runs in time from the typing box to the exact landing, and its s
   // share goes on the sideways curve and the rest of each one's on the size;
   // its top on the up curve
   const from = { left: 0, top: 100, width: 300, height: 40 }, to = { left: 200, top: 0, width: 150, height: 50 };
-  const out = (left, down, size, seat = to) => ({ ...context.sentMorphBox(from, seat, { left, down, size, strength: 1 }) });
+  const out = (left, down, size, seat = to) => ({ ...context.sentMorphBox(from, seat, { left, down, size }) });
   assert.deepEqual(out(0, 0, 0), from, "the box does not start as the typing box");
   assert.deepEqual(out(1, 1, 1), to, "the box does not land on the seat");
   // the right end has 50 to go and the left edge 200: they share 50

@@ -2612,26 +2612,26 @@ const SENT_ARRIVE_MS = 400;   // the sheet's --answ-come
 //   closes in from the left onto the bubble while its right end barely moves,
 //   as in the recording, and neither edge ever goes back; the top keeps the
 //   up curve and the foot stands where the height puts it.
-// - The grey: drawn at 69% strength when the box appears and whole by 183ms,
-//   faint (13.5%) for the share of the box still over the typing row, as the
-//   iPhone's bubble looks under its bar's glass; read off the recordings and
-//   kept.
+// - The grey: the bubble's own grey, whole from the first frame to the last,
+//   as the recording's box is drawn whole from its first moving frame, so the
+//   compress is seen squeezing in for the same 14 frames or so. The iPhone's
+//   faint start under its bar's glass that stood here before (13.5% over the
+//   typing row, 69% above it, whole by 183ms), and the half grey of a message
+//   the board has not saved yet, drew the compress's first half all but white,
+//   and nothing was seen to compress. A send not saved by the landing takes
+//   its faded look from the bubble it hands over to, as its words do.
 // The words stay dark on grey: one copy, laid out once as the bubble lays them
 // out, starts over the typed words at the typing size, rides the box's left
 // edge and top, and shrinks to the bubble's size as the box goes sideways, so
 // no frame is blank, doubled, or halfway through a rewrap.
 const SENT_FLIGHT_MS = 650;
 const SENT_FRAME_MS = 1000 / 60;
-const SENT_FAINT = .135;
 const SENT_SIDE_MS = 260;
 const SENT_SIDE = [.3, .6, .4, 1];
 const SENT_UP_MS = 430;
 const SENT_UP = [.45, 0, .25, 1];
 const SENT_COMPRESS_MS = 400;
 const SENT_COMPRESS = [.22, 1, .36, 1];
-// the strength the bubble is drawn at, ms from the tap
-const SENT_STRENGTH = [[0, .686], [16.7, .686], [33.3, .694], [50, .713], [66.7, .729], [83.3, .755], [100, .778],
-  [116.7, .816], [133.3, .864], [150, .906], [166.7, .955], [183.3, 1]];
 // What stood before makes room on the iPhone's own glide, which is quicker
 // than the bubble's rise: 58% of the way at 100ms, 99% by 333ms. One curve
 // fitted to the middle of the six sends' frames, within 0.016 of each.
@@ -2641,16 +2641,10 @@ const SENT_GLIDE_EASE = "cubic-bezier(.24,.1,.15,1)";
 const sentSideCurve = sentCurve(SENT_SIDE), sentUpCurve = sentCurve(SENT_UP);
 const sentCompressCurve = sentCurve(SENT_COMPRESS);
 // the track at ms from the tap: how far the box has come across and risen and
-// how far its size has gone (0 the typing box's, 1 the seat's), and the
-// strength it is drawn at
+// how far its size has gone (0 the typing box's, 1 the seat's)
 function sentTrack(ms){
-  const side = sentSideCurve(ms / SENT_SIDE_MS), down = sentUpCurve(ms / SENT_UP_MS);
-  const size = sentCompressCurve(ms / SENT_COMPRESS_MS);
-  let i = 1;
-  while (i < SENT_STRENGTH.length - 1 && SENT_STRENGTH[i][0] < ms) i++;
-  const a = SENT_STRENGTH[i - 1], b = SENT_STRENGTH[i];
-  const strength = a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
-  return { left:side, down, size, strength };
+  return { left:sentSideCurve(ms / SENT_SIDE_MS), down:sentUpCurve(ms / SENT_UP_MS),
+    size:sentCompressCurve(ms / SENT_COMPRESS_MS) };
 }
 const sentWithin = p => Math.max(0, Math.min(1, p));
 // the share of their moves two opposite edges make together: none when they
@@ -2852,7 +2846,8 @@ function armSentMotion(el){
       incoming.appendChild(targetCopy);
       // One copy of the words from here on, at full strength the whole way: the
       // typed copy goes in the same task, and the strength a message not yet
-      // saved is drawn at is the landed bubble's own, not the flight's.
+      // saved is drawn at is the landed bubble's own, not the flight's, for the
+      // words and the grey alike.
       outgoing.remove();
       targetCopy.style.opacity = "1";
       for (const pair of targetCopy.sentInk) pair.copy.style.opacity = "1";
@@ -2875,10 +2870,14 @@ function armSentMotion(el){
       const panelStyle = getComputedStyle(panel);
       const endCorners = corners.map(name => (parseFloat(panelStyle[name]) || 0) * targetScale.x);
       // the bubble's face and corners, written before the first frame and kept
-      // for the whole flight; the face's strength is written with each frame
+      // for the whole flight: the grey a saved message stands on, whole, and
+      // the dissolve at a long message's cut in that same grey
       shell.style.borderRadius = endCorners.map(n => n + "px").join(" ");
-      face.style.background = panelStyle.backgroundColor;
+      const grey = panelStyle.getPropertyValue("--bubble-fill").trim() || panelStyle.backgroundColor;
+      face.style.background = grey;
+      face.style.opacity = "1";
       const copiedCut = targetCopy.querySelector(".answclip");
+      if (copiedCut) copiedCut.style.setProperty("--answ-fill", grey);
       // one frame of the flight, ms from the tap. everything it needs is read
       // before anything is written, so a frame lays the page out once: a read
       // after a write makes the browser lay the page out again on the spot,
@@ -2888,22 +2887,8 @@ function armSentMotion(el){
         // the seat is the new bubble as it stands, read every frame: a later
         // send pushes it up on that send's glide, and the flight follows it there
         const landing = target.getBoundingClientRect();
-        // the typing row's top, where the iPhone's bar glass ends, read as it
-        // stands, since the emptied row may close up under the flight
-        const row = source.isConnected ? source.getBoundingClientRect() : null;
-        const rowTop = row && row.height > 0 ? row.top : start.top;
-        // Delivery may firm the grey up while airborne; use the live face so
-        // the final handoff matches the actual bubble, including local sends.
-        const liveStyle = getComputedStyle(panel);
-        const fill = liveStyle.backgroundColor, cutFill = liveStyle.getPropertyValue("--answ-fill");
         const box = sentMorphBox(start, landing, at);
         write(box);
-        // faint for the share of the box still over the typing row, the
-        // track's strength for the share risen above the row's top
-        const clear = box.height > 0 ? sentWithin((rowTop - box.top) / box.height) : 1;
-        face.style.opacity = String(SENT_FAINT + (at.strength - SENT_FAINT) * clear);
-        face.style.background = fill;
-        if (copiedCut) copiedCut.style.setProperty("--answ-fill", cutFill);
         // the words ride the travelling box's left edge and top: their first
         // line's left goes from the typed words' place in it to the bubble's
         // as the box goes sideways, its middle as it rises, and they shrink
