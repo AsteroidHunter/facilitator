@@ -4927,6 +4927,43 @@ function cardTab(e, id, toBox){
   return true;
 }
 
+// a key typed in a text field, a list or a dialog is that control's own, and
+// Tab out of it is never taken from it
+function cardTabOwned(target){
+  return cardShortcutEditing(target) || (!!target && typeof target.closest === "function" &&
+    !!target.closest("select, summary, dialog, [role='dialog'], [role='menu'], [role='listbox']"));
+}
+
+// Tab from anywhere else on the page goes the way it goes from a button on the
+// card: the focus is nowhere after a load, a click on the answer, on bare card or
+// on a ticket, or with Home just left; or it sits on a button outside the card,
+// which a shut menu hands it back to. the browser's own Tab would start from where
+// the reader last clicked and stop on the plus before the text box. the page asks
+// this only while the card on screen holds the keys, and a text field keeps its Tab
+function cardTabAway(e, id, toBox){
+  const el = els[id];
+  if (!el || el.box.contains(e.target) || cardTabOwned(e.target)) return false;
+  return cardTab(e, id, toBox);
+}
+
+// nothing on a card but its text box and its title is a Tab stop: the buttons of
+// the top row, the plus, the send arrow, and what the card draws later (links in
+// an answer, copy buttons, the tray's and the sent panel's controls), which is
+// quieted as it arrives. they keep their clicks, taps and own keys
+const CARD_STOPS = "a[href], area[href], button, input, select, summary, textarea";
+function quietStops(el){
+  const keeps = n => n === el.titleEl || n === el.ta || !!(n.closest && n.closest(".cm-editor"));
+  const quiet = root => {
+    if (root.nodeType !== 1) return;
+    for (const n of [root, ...root.querySelectorAll(CARD_STOPS)])
+      if (n.matches(CARD_STOPS) && !keeps(n)) n.tabIndex = -1;
+  };
+  quiet(el.box);
+  new MutationObserver(list => {
+    for (const m of list) for (const n of m.addedNodes) quiet(n);
+  }).observe(el.box, { childList: true, subtree: true });
+}
+
 // after a send, move to the next YELLOW card: one awaiting the reader's read, never a
 // green working card or a grey queued one. opts go to select as they are; the
 // desktop asks for focus. answers with the card it landed on, or nothing when
