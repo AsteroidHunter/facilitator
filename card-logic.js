@@ -12,6 +12,11 @@
 // keep a card by, or null for the whole lane. the desktop narrows to the chosen
 // workspace; the phone shows the lane whole
 let poolScope = null;
+// keyPanels: the parts of a page that stand beside the card with work of their
+// own, as a selector. a button focused in one keeps the card's control+s, as
+// their fields do, where a button anywhere else counts as the page. the desktop
+// names its boxes beside the card; the phone has none
+let keyPanels = null;
 // keyboardTitle: the desktop's keyboard path through a card's title. Tab and
 // shift Tab commit the name and move on to the composer, and Escape hands focus
 // back to the composer. the phone makes the Tab move out of the title in its own
@@ -515,8 +520,10 @@ function responseScrollBounce(view, dir){
 
 // Where the chord may come from: the page itself, the card's own composer
 // (its textarea, or the editor standing in for it), the card's own title while
-// it is renamed, or the response. The sent box, the answered panel and every
-// other field keep the chord.
+// it is renamed, and anything else that is not a field, as the page itself is:
+// the response, a button on the card, or one on the bars around it, which a
+// click leaves focused. The sent box, the answered panel, another card, a panel
+// the page names in keyPanels and every other field keep the chord.
 function responseScrollSource(target, el){
   const doc = el.replyview.ownerDocument;
   if (!target || target === doc || target === doc.body || target === doc.documentElement) return true;
@@ -524,9 +531,12 @@ function responseScrollSource(target, el){
   if (el.titleEl && el.titleEl.contains(target)) return true;
   const editor = typeof target.closest === "function" && target.closest(".cm-editor");
   if (editor) return !!el.ta && editor.contains(el.ta);
-  return el.replyview.contains(target) && !cardShortcutEditing(target) &&
-    !(el.pendwrap && el.pendwrap.contains(target)) &&
-    !(el.answwrap && el.answwrap.contains(target));
+  if (cardShortcutEditing(target)) return false;
+  if ((el.pendwrap && el.pendwrap.contains(target)) || (el.answwrap && el.answwrap.contains(target))) return false;
+  if ((el.box || el.replyview).contains(target)) return true;
+  if (keyPanels && typeof target.closest === "function" && target.closest(keyPanels)) return false;
+  return !(typeof els === "object" && els &&
+    Object.values(els).some(card => card && card !== el && card.box && card.box.contains(target)));
 }
 
 // A press or a motion still stands only for the same card, drawn by the same
