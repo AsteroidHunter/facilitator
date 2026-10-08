@@ -127,7 +127,10 @@ restore_tty() {
   fi
 }
 trap restore_tty EXIT
-trap 'restore_tty; printf "\n"; exit 130' INT
+# Ctrl+C stops the run the same way wherever it lands: a new line, one
+# sentence, status 130. The steps facilitator runs exit quietly on it, so this
+# is the only place the sentence is printed.
+trap 'restore_tty; printf "\nExiting facilitator installer.\n"; exit 130' INT
 
 # ask_key <valid keys> <prompt>: the key goes in REPLY. Fails when the input
 # ends before a key arrives.

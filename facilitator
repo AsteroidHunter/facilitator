@@ -3335,13 +3335,12 @@ def cmd_update_steps(args):
 
 
 def installer_step(step, *args, **kwargs):
-    """Run one step that install.sh hands to this command. Ctrl+C ends it with a
-    new line, one plain sentence and the interrupted exit status, not a
-    traceback."""
+    """Run one step that install.sh hands to this command. Ctrl+C ends it
+    quietly with the interrupted exit status, not a traceback; install.sh's own
+    Ctrl+C handler prints the line that ends the run."""
     try:
         step(*args, **kwargs)
     except KeyboardInterrupt:
-        print("\nExiting facilitator installer.")
         sys.exit(130)
 
 
