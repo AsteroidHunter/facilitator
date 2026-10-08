@@ -1392,6 +1392,47 @@
   /* both rules above set display, which beats the hidden attribute on their own.
      without this the stub and the picture are on screen at the same time */
   #magic3 [hidden]{display:none}
+  /* a card's magic box, beside the card on screen. every look here is one the
+     card already wears: its white face, its edge, its 7px corners and its
+     raised shadow; a top bar of the card's own height and hairline, the bar's
+     muted mono line on the left and the card's own close cross on the right.
+     where it stands is magic-box.js's: as tall as the card, two thirds as wide,
+     one star cell to its right, and over the card's edge when the window has
+     no room for that. off the board (home, edit mode) it is not drawn */
+  #magicbox{display:none}
+  body.focus #magicbox.on{
+    display:flex; flex-direction:column; position:fixed; z-index:1; overflow:hidden;
+    border:var(--edge) solid var(--line); background:var(--card); border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+  }
+  body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
+  /* the bar's line starts where the words under it start */
+  #magicbox .mbbar{
+    display:flex; align-items:center; gap:var(--bar-gap-chips); flex:none;
+    height:var(--cardbar-h); padding:0 var(--bar-tail) 0 calc(var(--pad-x)*2/3);
+    background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
+  }
+  /* a name too long for the room is cut at the buttons, never ended in dots,
+     the way the card's bar cuts its own */
+  #magicbox .mbname{flex:1 1 auto; min-width:0; font:11.5px var(--mono); color:var(--sub);
+    white-space:nowrap; overflow:hidden}
+  #magicbox .mbopen{flex:none; height:var(--bar-sq); padding:0 8px; border:none; border-radius:var(--sq);
+    background:var(--card); font:11.5px var(--mono); color:var(--sub); cursor:pointer; white-space:nowrap}
+  #magicbox .mbopen[hidden]{display:none}
+  #magicbox .mbx{position:relative; flex:none; width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
+    background:var(--card); font-size:0; padding:0; border:none; cursor:pointer}
+  #magicbox .mbx::before, #magicbox .mbx::after{
+    content:""; position:absolute; left:50%; top:50%;
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
+  }
+  #magicbox .mbx::before{transform:translate(-50%,-50%) rotate(45deg)}
+  #magicbox .mbx::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  #magicbox :is(.mbopen, .mbx):hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  #magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto}
+  /* words stand off the box's edge by the card's answer's own side inset, in
+     the board's own body size */
+  #magicbox .mbtext{padding:calc(var(--pad-x)*2/3); font-size:15px; line-height:1.55; color:var(--ink)}
+  #magicbox .mbtext.plain{white-space:pre-wrap}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
@@ -3633,6 +3674,15 @@
   <button id="ndown" title="next project row">˅</button>
 </div>
 
+<!-- the card's magic box: what the card's agent put beside it. not a region:
+     it is placed from the card's own rectangle and filled only for the card on
+     screen, so the fit, the saved layout and edit mode never see it. it stands
+     over the card by its z-index when the window has no room beside it -->
+<section id="magicbox">
+  <div class="mbbar"><span class="mbname"></span><button class="mbopen" type="button" hidden>Open in Chrome</button><button class="mbx" type="button" aria-label="close the box"></button></div>
+  <div class="mbbody"></div>
+</section>
+
 <main>
   <div id="rail" class="trio">
     <span id="rail-start"></span>
@@ -3691,6 +3741,7 @@
 
 <script src="/board-settings.js"></script>
 <script src="/mac-phone-view.js"></script>
+<script src="/magic-box.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
 <script src="/home-widgets.js"></script>
@@ -3977,6 +4028,7 @@ function deselect(){
     els[k].toc.classList.remove("t-sel");
   }
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
+  magicSync();   // no card on screen, so no magic box either
 }
 
 let tabDrag = null;   // horizontal intent is latched at press; a downward tug still tears out
@@ -5418,6 +5470,7 @@ function setHome(on){
     homeShow();
   }
   if (lastState) renderTabs(lastState);   // no project tab is seated while home is up
+  magicSync();   // a magic box goes with the board, and comes back with it
 }
 // the house is a place, like a tab: pressing it while home is up changes nothing
 document.getElementById("homeico").addEventListener("click", () => { if (!homeOpen) setHome(true); });
@@ -5937,6 +5990,7 @@ function select(id, opts){
   // frame, since the card was display:none until the line above
   snapCard();
   requestAnimationFrame(snapCard);
+  magicSync();   // this card's magic box, or none, in place of the last card's
 }
 // the arrow keys and a tab switch: the card is shown and its ticket marked,
 // and nothing is selected or read. the card already on screen and selected
@@ -8130,6 +8184,118 @@ async function panelPoll(){
 // no build up front any more: panelPoll builds it, and only on the tab that
 // gets it, so loading straight onto another tab never flashes the marks
 panelPoll(); setInterval(panelPoll, 4000);
+
+// a card's magic box: the box beside the card on screen that the card's agent
+// filled (POST /magic, or `facilitator magic`). each card keeps its own and only
+// the one on screen is ever built, so at most one live frame is on the page. the
+// card's magic field says whether it has one, whether it is open and which
+// revision; what it holds is read from /magic/body when that revision moves.
+// MagicBox.place (magic-box.js) works out where it stands
+const MB = { el: document.getElementById("magicbox"), id: null, rev: 0, asked: 0, url: "" };
+if (MB.el){
+  MB.name = MB.el.querySelector(".mbname");
+  MB.open = MB.el.querySelector(".mbopen");
+  MB.x = MB.el.querySelector(".mbx");
+  MB.body = MB.el.querySelector(".mbbody");
+}
+// the card the box belongs to, or null: the card on screen, on this tab, not
+// done, with an open box. the classes are read rather than the flags, since the
+// first fit runs before the edit mode flag exists
+function magicCard(){
+  const cls = document.body.classList;
+  if (!FOCUS || !lastState || !shownId || cls.contains("home") || cls.contains("editmode") || phoneWanted) return null;
+  const b = lastState.boxes.find(x => x.id === shownId);
+  return b && b.owner === activeOwner && !b.done && b.magic && b.magic.open ? b : null;
+}
+function magicSync(){
+  if (!MB.el) return;
+  const b = magicCard();
+  if (!b){ magicOff(); return; }
+  if (MB.id !== b.id || MB.rev !== b.magic.rev) magicLoad(b.id, b.magic.rev);
+  else magicPlace();
+}
+// the box off the page with everything in it, so a frame that was showing
+// stops running the moment its card is not the one on screen
+function magicOff(){
+  if (!MB.el) return;
+  MB.el.classList.remove("on");
+  if (MB.id === null) return;
+  MB.id = null; MB.rev = 0; MB.asked++; MB.url = "";
+  MB.body.textContent = "";
+  MB.name.textContent = "";
+  MB.open.hidden = true;
+}
+async function magicLoad(id, rev){
+  magicOff();
+  const asked = ++MB.asked;
+  MB.id = id; MB.rev = rev;
+  let box = null;
+  try {
+    const r = await fetch("/magic/body?box=" + encodeURIComponent(id), { cache: "no-store" });
+    if (r.ok) box = await r.json();
+  } catch (e) {}
+  // the card on screen or its box changed while this was in the air
+  if (asked !== MB.asked) return;
+  // nothing came: the next reading of the board asks again
+  if (!box){ MB.rev = 0; return; }
+  magicDraw(box);
+}
+function magicDraw(box){
+  MB.url = box.kind === "url" ? box.url || "" : "";
+  MB.name.textContent = box.title || MB.url.replace(/^https:\/\//, "");
+  MB.open.hidden = !MB.url;
+  MB.body.dataset.kind = box.kind;
+  if (box.kind === "text" || box.kind === "markdown"){
+    const prose = h("div", "mbtext cardmd" + (box.kind === "text" ? " plain" : ""));
+    if (box.kind === "text") prose.textContent = box.text || "";
+    else prose.innerHTML = fmt(box.text || "");
+    MB.body.appendChild(prose);
+  }
+  MB.el.classList.add("on");
+  magicPlace();
+}
+// beside the card's own rectangle, read off the page the way the fit reads the
+// regions: screen pixels, less the stage's origin, over the stage's scale
+function magicPlace(){
+  if (!MB.el || !MB.el.classList.contains("on")) return;
+  const card = document.querySelector("main"), stage = document.getElementById("stage");
+  if (!card || !stage) return;
+  const S = stageScale || 1, sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
+  if (r.width < 1 || card.classList.contains("region-off")){ MB.el.style.visibility = "hidden"; return; }
+  const lim = frameLimits();
+  const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cardbar-h")) || 0;
+  const at = MagicBox.place({ left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S },
+    { scale: S, tx: stageTx, left: lim.left, right: lim.right }, bar);
+  Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
+    height: at.height + "px", visibility: "" });
+  MB.el.classList.toggle("floating", at.floating);
+}
+if (MB.el){
+  // closing hides the box at once and keeps what it holds on the board; the
+  // agent, or a later reading, can open it again
+  MB.x.addEventListener("click", () => {
+    const id = MB.id;
+    if (!id) return;
+    const b = lastState?.boxes.find(x => x.id === id);
+    if (b?.magic) b.magic.open = false;
+    magicOff();
+    fetch("/magic/close?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
+  });
+  // the site in the owner's own browser, where the owner is signed in: Chrome
+  // on the Mac, as the card's link menu opens it, and a new tab anywhere else
+  MB.open.addEventListener("click", () => {
+    if (!MB.url) return;
+    const mac = (/^Mac/.test(navigator.platform) || navigator.userAgentData?.platform === "macOS") &&
+      !navigator.maxTouchPoints;
+    if (mac && ["localhost", "127.0.0.1"].includes(location.hostname))
+      fetch("/open-in-browser", { method: "POST", body: MB.url }).catch(() => {});
+    else window.open(MB.url, "_blank", "noopener,noreferrer");
+  });
+  // the card moves under the box when it is dragged or sized, and gets shorter
+  // when the page switcher needs its foot: the box follows each of those
+  const card = document.querySelector("main");
+  if (card) new MutationObserver(magicPlace).observe(card, { attributes: true, attributeFilter: ["style", "class"] });
+}
 
 // the dormant quick-chat panel, bound to one lane, one card and one listener.
 // Those bindings named a project's own lane, so they are cleared here: with no
@@ -10810,6 +10976,7 @@ async function poll(){
     if (!lastState) build(state);
     apply(state);
     lastState = state;
+    magicSync();   // the card on screen's magic box, opened, changed or closed by its agent
     P3_LANE = state.imagePanelLane || "";
     // the mount map decides which lane's reader is on screen, so a change to the
     // board's navigator lanes re-applies the layout to put a reader up or take one
@@ -11305,6 +11472,7 @@ function fitStage(){
   document.body.style.backgroundPosition = tx + "px " + (STAGE_BAR + ty) + "px";
   applyRespNav();   // show or hide the pan arrow for the current mode and pane
   seatPagePill();   // the stage's foot has moved, and the pill sits against it
+  magicSync();      // and the card's magic box follows the card, or goes in the phone view
 }
 
 // the edge arrow that pans between the two panes. It only exists when the mode

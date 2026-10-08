@@ -202,7 +202,7 @@ function desktop() {
     // what the board's own boardKeysLive asks, beside the home page's homeOpen
     pageWarn: null, pageMenu: null, qnOpen: false, setOpen: false, onBoardPage: () => true,
     cancelAutoNext: noop, histExit: noop, syncDesktopHistoryAvailability: noop, updatePwd: noop,
-    snapCard: noop, renderTabs: noop, rowsOf: () => ["lane"],
+    snapCard: noop, renderTabs: noop, rowsOf: () => ["lane"], magicSync: noop,
     // what setTab asks of the rest of the board
     ownerReady: true, validActiveOwnerIds: new Set(["lane", "other"]), LOCKED: null, endDraft: noop,
     applySavedLayout: noop, panelPoll: noop, chatPoll: noop, fileNavPoll: noop, apply: noop,
