@@ -6722,18 +6722,8 @@ function makeBox(b, i, state){
     // and the reader's own scrolling of the answer, which holds a page turn back
     watchReading(els[b.id]);
 
-    // explicit focus ring: title -> text -> attach -> send -> cross -> moon -> sun -> (wrap)
-    const ring = [titleEl, ta, clip, send, x, arc, dock, sun];
-    for (const node of [ta, clip, send, x, arc, dock, sun]){
-      node.addEventListener("keydown", e => {
-        if (e.key === "Tab"){
-          e.preventDefault();
-          const idx = ring.indexOf(node);
-          const next = (idx + (e.shiftKey ? -1 : 1) + ring.length) % ring.length;
-          ring[next].focus();
-        }
-      });
-    }
+    // Tab on the card walks the text box and the title and nothing else (cardTab)
+    box.addEventListener("keydown", e => cardTab(e, b.id, el => el.ta.focus()));
 }
 
 // "+" row under each meta section: one click = new box owned by that section,
