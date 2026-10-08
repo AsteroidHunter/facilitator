@@ -1557,6 +1557,409 @@ function wireAttachmentTransfer(ta, pick = files => attach(files, ta)){
   }
 }
 
+// ---- the files picked for the next message ---------------------------------------
+// a picked file goes into the tray over the typing row at once, as a square that
+// stands from the tap, and starts uploading while the words are typed, one file
+// at a time in the order they were picked. the square carries the state alone,
+// with no words anywhere: the upload's ring while it goes, and a red mark when
+// it did not. a file the board refuses wears the mark and is not tried again;
+// one that did not get through is tried again on its own a few times, then wears
+// the mark and waits for a tap. the message carries
+// the files the way the board keeps them, as /uploads lines ahead of the words,
+// and a send pressed while a file is still on its way waits for it in the row:
+// nothing goes without its files, and nothing leaves the row before it can go.
+// the tray moves on one beat, 400ms on a curve that leaves fast and settles
+// slowly: a square slides a short way in from the left as it arrives, one taken
+// out shrinks and fades while the rest close the gap, and the tray eases shut
+// under the last one.
+// a try that did not get through, which says nothing about the file, is tried
+// again on its own, on the same backoff the messages use, a few times, and at
+// once when the app comes back to the screen or back online. before a file is
+// sent again the board is asked whether the last try landed after all, under
+// the file's operation id, so a reply lost on the way never costs the whole
+// file again, and never leaves a second copy on the board. the phone and the
+// desktop board draw and run it from here, each on its own card's row
+const TRAY_TRIES = 5;                 // tries in a round before the file waits for a tap
+const TRAY_QUIET_MS = 75000;          // no progress this long and the try is given up
+const TRAY_MS = 400;
+const TRAY_EASE = "cubic-bezier(.22,1,.36,1)";
+const TRAY_SLIDE_PX = 18;             // a short hop beside a 64px square, with no visible origin
+const TRAY_PREVIEW_PX = 192;          // a picture's preview width: sharp at 3x in a 64px square
+const TRAY_RING = 65.97;              // the ring's length, twice pi times its 10.5px radius
+const TRAY_REFUSED = new Set([400, 401, 403, 413, 415]);   // the board decided about this file
+const TRAY_X = '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1 1l6 6M7 1L1 7" ' +
+  'stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+function trayBeat(){
+  const calm = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return { duration: calm ? 0 : TRAY_MS, easing: TRAY_EASE };
+}
+function trayMoving(it){ return it.state === "up" || it.state === "queued" || it.state === "wait"; }
+function trayBusy(el){ return !!el && el.trayItems.some(trayMoving); }
+// something in the tray can go with a message: uploaded, or still on its way
+function traySendable(el){ return !!el && el.trayItems.some(it => it.state === "done" || trayMoving(it)); }
+// sizes the way the phone's own Files app writes them: KB under a megabyte
+function traySize(bytes){
+  return bytes < 1e6 ? Math.max(bytes ? 1 : 0, Math.round(bytes / 1e3)) + " KB" : (bytes / 1e6).toFixed(1) + " MB";
+}
+
+function trayAdd(id, files){
+  const el = els[id];
+  if (!el || !files.length) return;
+  el.trayCard = id;
+  trayListen();
+  trayOpen(el);
+  for (const file of files){
+    const info = CardMarkdown.attachmentFile(file);
+    const it = { key: newOpId(), file, name: info.name, kind: info.kind || "document",
+      ext: (info.ext || (/\.([a-z0-9]+)$/i.exec(info.name) || [])[1] || "file").toUpperCase(),
+      total: file.size, sent: 0, tries: 0, measured: false, urls: [],
+      state: info.error ? "refused" : "queued" };
+    el.trayItems.push(it);
+    traySquare(el, it);
+    it.sq.animate([{ opacity: 0, transform: "translateX(-" + TRAY_SLIDE_PX + "px)" },
+                   { opacity: 1, transform: "none" }], trayBeat());
+    if (!info.error) trayPreview(it);
+  }
+  trayDraw(el);
+  trayPump(el);
+  el.tick();
+}
+
+// the tray stands again: a close still running is called off, and whatever it
+// was taking away goes at once
+function trayOpen(el){
+  const tray = el.tray;
+  if (el.trayClosing){ const run = el.trayClosing; el.trayClosing = null; run.cancel(); }
+  for (const sq of [...tray.querySelectorAll(".tsq")])
+    if (!el.trayItems.some(it => it.sq === sq)) sq.remove();
+  tray.classList.remove("closing");
+  tray.classList.add("on");
+}
+
+function traySquare(el, it){
+  const sq = h("div", "tsq");
+  const face = h("div", "tsqface");
+  const kind = h("span", "tsqkind", it.ext);
+  kind.appendChild(h("small", "", traySize(it.total)));
+  const veil = h("span", "tsqveil");
+  const ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  ring.setAttribute("class", "tsqring");
+  ring.setAttribute("viewBox", "0 0 24 24");
+  ring.setAttribute("aria-hidden", "true");
+  ring.innerHTML = '<circle class="track" cx="12" cy="12" r="10.5"/><circle class="arc" cx="12" cy="12" r="10.5"/>';
+  const bang = h("span", "tsqbang", "!");
+  bang.setAttribute("aria-hidden", "true");
+  face.append(kind, veil, ring, bang);
+  const x = h("button", "tsqx");
+  x.type = "button"; x.setAttribute("aria-label", "take " + it.name + " out");
+  x.innerHTML = TRAY_X;
+  sq.append(face, x);
+  sq.setAttribute("role", "img");
+  // a tap inside the row keeps the keyboard where it is, as the plus does
+  x.addEventListener("pointerdown", e => { if (ComposeFormat.focused(el.ta)) e.preventDefault(); });
+  x.addEventListener("click", e => { e.stopPropagation(); trayRemove(el, it); });
+  face.addEventListener("click", () => trayRetry(el, it));
+  Object.assign(it, { sq, face, veil, arc: ring.querySelector(".arc") });
+  el.tray.appendChild(sq);
+}
+
+// the picture a square wears: a photo decoded small on the side where the
+// engine can, which is a fraction of the work of the whole photo, else the
+// photo itself; a video's first frame; anything else keeps its kind and size
+async function trayPreview(it){
+  if (it.kind !== "image" && it.kind !== "video") return;
+  let pic;
+  if (it.kind === "image"){
+    let url = null;
+    try {
+      if (typeof createImageBitmap === "function"){
+        const bitmap = await createImageBitmap(it.file, { resizeWidth: TRAY_PREVIEW_PX, resizeQuality: "medium" });
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width; canvas.height = bitmap.height;
+        canvas.getContext("2d").drawImage(bitmap, 0, 0);
+        if (bitmap.close) bitmap.close();
+        const blob = await new Promise(resolve => canvas.toBlob(resolve));
+        if (blob) url = URL.createObjectURL(blob);
+      }
+    } catch (e) {}   // this engine cannot draw this file small: the whole file then
+    if (it.gone){ if (url) URL.revokeObjectURL(url); return; }
+    if (!url) url = URL.createObjectURL(it.file);
+    it.urls.push(url);
+    pic = new Image();
+    pic.alt = "";
+    pic.onload = () => it.sq.classList.add("drawn");
+    pic.src = url;
+  } else {
+    const url = URL.createObjectURL(it.file);
+    it.urls.push(url);
+    pic = document.createElement("video");
+    pic.muted = true; pic.playsInline = true; pic.preload = "metadata";
+    pic.addEventListener("loadeddata", () => it.sq.classList.add("drawn"), { once: true });
+    pic.src = url + "#t=0.1";
+  }
+  pic.className = "tsqpic";
+  pic.setAttribute("aria-hidden", "true");
+  it.face.insertBefore(pic, it.veil);
+}
+
+// one upload at a time per card, in the order the files were picked
+function trayPump(el){
+  if (el.trayItems.some(it => it.state === "up")) return;
+  const next = el.trayItems.find(it => it.state === "queued");
+  if (next) trayUpload(el, next);
+}
+
+function trayUpload(el, it){
+  it.state = "up"; it.sent = 0; it.measured = false; it.tries++;
+  if (it.posted) trayAsk(el, it);
+  else trayPost(el, it);
+}
+
+// the board is asked whether the file's last try landed after all: its
+// receipt answers with the stored file, and only a board with no record of it
+// is sent the file again
+async function trayAsk(el, it){
+  trayDraw(el);
+  let answer = null, body = null;
+  try {
+    answer = await fetch("/upload?op=" + encodeURIComponent(it.key), { signal: AbortSignal.timeout(8000) });
+    body = await answer.json();
+  } catch (e) {}
+  if (it.gone || it.state !== "up" || it.xhr) return;
+  if (answer && answer.ok && body && body.url) trayLanded(el, it, 200, body);
+  else if (answer && answer.ok && body && body.arriving) trayLanded(el, it, 409, null);
+  else if (answer && answer.status === 404) trayPost(el, it);
+  else trayLanded(el, it, answer ? answer.status : 0, body);
+}
+
+// an XMLHttpRequest and not a fetch: it is the one way a page can hear how
+// much of a body has gone. the operation id names this file's upload, so the
+// board can tell a second try of it from a new file. once progress has been
+// heard, a try that hears none for TRAY_QUIET_MS is given up, since a link can
+// die without either end being told
+function trayPost(el, it){
+  const xhr = new XMLHttpRequest();
+  it.xhr = xhr;
+  it.posted = true;
+  xhr.open("POST", "/upload?name=" + encodeURIComponent(it.name) + "&op=" + encodeURIComponent(it.key));
+  const landed = (status, body) => {
+    if (it.xhr !== xhr) return;
+    it.xhr = null;
+    clearTimeout(it.quiet);
+    trayLanded(el, it, status, body);
+  };
+  xhr.upload.onprogress = e => {
+    if (it.xhr !== xhr) return;
+    it.sent = e.loaded;
+    if (e.lengthComputable && e.total) it.total = e.total;
+    it.measured = true;
+    clearTimeout(it.quiet);
+    it.quiet = setTimeout(() => { if (it.xhr === xhr){ xhr.abort(); landed(0, null); } }, TRAY_QUIET_MS);
+    trayDraw(el);
+  };
+  xhr.onload = () => {
+    let body = null;
+    try { body = JSON.parse(xhr.responseText); } catch (e) {}
+    landed(xhr.status, body);
+  };
+  xhr.onerror = () => landed(0, null);
+  xhr.send(it.file);
+  trayDraw(el);
+}
+
+// how a try ended: stored; refused for good; or not got through, which says
+// nothing about the file and is tried again on the messages' backoff until the
+// round's tries are spent, then waits for a tap
+function trayLanded(el, it, status, body){
+  if (it.gone) return;
+  if (status === 200 && body && body.url){
+    it.state = "done"; it.url = body.url; it.sent = it.total;
+  } else if (TRAY_REFUSED.has(status)){
+    it.state = "refused";
+  } else {
+    if (it.tries < TRAY_TRIES){
+      it.state = "wait";
+      clearTimeout(it.timer);
+      it.timer = setTimeout(() => trayAgain(el, it), backoffMs(it.tries));
+    } else it.state = "failed";
+  }
+  trayDraw(el);
+  el.tick();
+  trayRelease(el);
+  trayPump(el);
+}
+function trayAgain(el, it){
+  clearTimeout(it.timer);
+  if (it.gone || it.state !== "wait") return;
+  it.state = "queued";
+  trayDraw(el);
+  trayPump(el);
+}
+
+// a tap on a file that did not get through starts another round of tries; a
+// tap on one waiting out its backoff tries it now
+function trayRetry(el, it){
+  if (it.gone) return;
+  if (it.state === "wait"){ trayAgain(el, it); return; }
+  if (it.state !== "failed") return;
+  it.state = "queued"; it.tries = 0;
+  trayDraw(el);
+  el.tick();
+  trayPump(el);
+}
+// the app is on screen again, or the network is back: every file waiting out
+// a backoff is tried now, as the messages are
+function trayWake(){
+  for (const el of Object.values(els))
+    for (const it of el.trayItems || []) if (it.state === "wait") trayAgain(el, it);
+}
+// hung on the first file picked and not before, so a page that never picks one
+// (and a sandbox that loads this file bare) carries no listener for it
+let trayListening = false;
+function trayListen(){
+  if (trayListening) return;
+  trayListening = true;
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) trayWake(); });
+  window.addEventListener("pageshow", trayWake);
+  window.addEventListener("online", trayWake);
+}
+
+// the cross: the file leaves the tray, and an upload of it still going is let go
+function trayRemove(el, it){
+  if (it.gone) return;
+  trayForget(it);
+  el.trayItems = el.trayItems.filter(o => o !== it);
+  trayLeave(el, [it]);
+  trayDraw(el);
+  el.tick();
+  trayRelease(el);
+  trayPump(el);
+}
+function trayForget(it){
+  it.gone = true;
+  clearTimeout(it.timer);
+  clearTimeout(it.quiet);
+  if (it.xhr){ const xhr = it.xhr; it.xhr = null; xhr.abort(); }
+}
+
+// a send pressed while files were still on their way: the words stay in the
+// row until the files have landed
+function trayHoldSend(id, opts){
+  const el = els[id];
+  el.trayHold = { advance: opts.advance, wait: new Set(el.trayItems.filter(trayMoving).map(it => it.key)) };
+}
+// the files a held send waited for have landed: it goes now, or, when one of
+// them did not get through, it stays in the row and the square wears its mark
+function trayRelease(el){
+  const hold = el.trayHold;
+  if (!hold) return;
+  const waited = el.trayItems.filter(it => hold.wait.has(it.key));
+  if (waited.some(trayMoving)) return;
+  el.trayHold = null;
+  if (waited.some(it => it.state !== "done")) return;
+  doSend(el.trayCard, { advance: hold.advance });
+}
+
+// the message's text: the pictures on one line and in a paragraph of their
+// own, which is what makes two to four of them stand as the card's grid, then
+// every other file on a line of its own, then the words
+function trayMessage(el, typed){
+  const done = el.trayItems.filter(it => it.state === "done");
+  const pics = done.filter(it => it.kind === "image").map(it => it.url).join(" ");
+  const files = done.filter(it => it.kind !== "image").map(it => it.url).join("\n");
+  return [pics, files, typed].filter(Boolean).join("\n\n");
+}
+// the files that went with a message leave the tray; one that did not upload
+// stays, so nothing picked is lost without a word
+function trayTake(el){
+  const going = el.trayItems.filter(it => it.state === "done");
+  if (!going.length) return;
+  for (const it of going) trayForget(it);
+  el.trayItems = el.trayItems.filter(it => it.state !== "done");
+  trayLeave(el, going);
+  trayDraw(el);
+}
+
+// the leaving squares shrink and fade where they stand. with others staying,
+// each leaving one gives up its seat at once and keeps only its picture, and
+// the ones after it slide into the room from where they were; with none
+// staying, the tray eases its own height shut under them
+function trayLeave(el, leaving){
+  const tray = el.tray, beat = trayBeat();
+  const drop = [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.8)" }];
+  const gone = sq => { for (const url of leaving.find(it => it.sq === sq)?.urls || []) URL.revokeObjectURL(url); sq.remove(); };
+  if (!el.trayItems.length){
+    const height = tray.offsetHeight;
+    const cs = getComputedStyle(tray);
+    const pad = parseFloat(cs.paddingTop) || 0, padBottom = parseFloat(cs.paddingBottom) || 0;
+    tray.classList.add("closing");
+    for (const it of leaving) it.sq.animate(drop, beat);
+    const run = tray.animate([{ height: height + "px", paddingTop: pad + "px", paddingBottom: padBottom + "px" },
+                              { height: "0px", paddingTop: "0px", paddingBottom: "0px" }], beat);
+    el.trayClosing = run;
+    const end = () => {
+      for (const it of leaving) gone(it.sq);
+      if (el.trayClosing !== run) return;
+      el.trayClosing = null;
+      tray.classList.remove("on", "closing");
+    };
+    run.finished.then(end, end);
+    return;
+  }
+  const stay = el.trayItems.map(it => it.sq);
+  const before = stay.map(sq => sq.getBoundingClientRect());
+  const seats = leaving.map(it => it.sq.getBoundingClientRect());
+  for (const it of leaving) it.sq.classList.add("leaving");
+  const box = tray.getBoundingClientRect();
+  leaving.forEach((it, i) => {
+    it.sq.style.left = (seats[i].left - box.left) + "px";
+    it.sq.style.top = (seats[i].top - box.top) + "px";
+  });
+  stay.forEach((sq, i) => {
+    const after = sq.getBoundingClientRect();
+    const dx = before[i].left - after.left, dy = before[i].top - after.top;
+    if (Math.abs(dx) > .5 || Math.abs(dy) > .5)
+      sq.animate([{ transform: "translate(" + dx + "px," + dy + "px)" }, { transform: "none" }], beat);
+  });
+  for (const it of leaving){
+    const end = () => gone(it.sq);
+    it.sq.animate(drop, beat).finished.then(end, end);
+  }
+}
+
+// every square's dress from its file's state
+function trayDraw(el){
+  for (const it of el.trayItems){
+    for (const state of ["up", "queued", "wait", "done", "failed", "refused"])
+      it.sq.classList.toggle(state, it.state === state);
+    it.sq.classList.toggle("indet", it.state === "up" && !it.measured);
+    it.sq.classList.toggle("tappable", it.state === "failed" || it.state === "wait");
+    const measured = it.state === "done" || (it.state === "up" && it.measured);
+    it.arc.style.strokeDashoffset = !measured ? ""
+      : String(TRAY_RING * (1 - (it.total ? Math.min(1, it.sent / it.total) : 0)));
+    it.sq.setAttribute("aria-label", it.name + ": " + trayWords(it));
+  }
+}
+function trayWords(it){
+  return it.state === "done" ? "uploaded" : it.state === "refused" ? "not attached" : it.state === "failed" ? "not uploaded"
+    : it.state === "wait" ? "waiting to try again" : it.state === "queued" ? "waiting its turn" : "uploading";
+}
+
+// a card that has gone takes its tray with it
+function trayDrop(el){
+  for (const it of el.trayItems){
+    trayForget(it);
+    for (const url of it.urls) URL.revokeObjectURL(url);
+  }
+  el.trayItems = [];
+  el.trayHold = null;
+}
+
+// the pace of a try that did not get through, shared by the rail and the phone's messages
+const RETRY_MIN_MS = 1500, RETRY_MAX_MS = 30000;
+function backoffMs(tries){ return Math.min(RETRY_MAX_MS, RETRY_MIN_MS * 2 ** Math.max(0, tries - 1)) * (0.8 + Math.random() * 0.4); }
+
 // the send square's seat. it is bottom aligned in the row, the way the chat
 // panel pins its arrow to the pill's bottom edge so it holds still while the
 // box grows, and the margin written here drops it so its middle lands on the

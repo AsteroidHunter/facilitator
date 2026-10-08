@@ -964,3 +964,63 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .app-link-menu button:disabled{opacity:.5; cursor:default}
 .app-link-status{font:12px var(--sans); color:var(--ink); max-width:240px; padding:6px 10px}
 .app-link-status:empty{display:none}
+
+/* ---- the files picked for the next message: a tray over the typing row ---- */
+/* one 64px square per file, standing from the pick on, with the upload's ring
+   over it. the squares carry the state alone: no words stand under them. the
+   tray is the typing row's width and the card's white, so the answer's fade
+   reads it as part of the foot. the squares' corners are the 7px of things
+   let into the card, and the cross hangs off the top right corner, which is
+   what the tray's top and right padding are for. --tray-gap is the clear
+   space between the squares' row and the line above the typing row */
+.tray{--tray-gap:calc(12 * var(--u)); display:none; flex-wrap:wrap; align-items:flex-start; gap:var(--sp-s); flex:none; position:relative;
+  margin:0 calc(var(--pad-x)*2/3); padding:var(--sp-s) calc(6 * var(--u)) var(--tray-gap) 0; background:var(--card)}
+.tray.on{display:flex}
+.tray.closing{overflow:hidden}
+.tsq{position:relative; flex:none; width:calc(64 * var(--u)); height:calc(64 * var(--u))}
+.tsq.leaving{position:absolute; pointer-events:none}
+.tsqface{position:absolute; inset:0; overflow:hidden; border-radius:calc(7 * var(--u));
+  background:#F3F1EC; box-shadow:inset 0 0 0 var(--edge-drawn) var(--line)}
+.tsq.tappable .tsqface{cursor:pointer}
+/* a file with no picture says its kind and its size, in the notes' type */
+.tsqkind{position:absolute; inset:0; display:grid; place-content:center; text-align:center;
+  font:600 calc(11 * var(--u))/1.25 var(--mono); letter-spacing:.04em; color:var(--sub)}
+.tsqkind small{display:block; font-weight:400; font-size:calc(9.5 * var(--u)); letter-spacing:0}
+/* with a ring or a mark to wear, a file with no picture keeps only its kind,
+   at the top, and the mark stands under it */
+.tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind{place-content:start center; padding-top:calc(8 * var(--u))}
+.tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind small{display:none}
+.tsq:not(.drawn) :is(.tsqring, .tsqbang){top:62%}
+.tsqpic{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
+  opacity:0; transition:opacity .26s var(--gentle)}
+.tsq.drawn .tsqpic{opacity:1}
+/* a picture with see-through parts shows the face behind it, never the words */
+.tsq.drawn .tsqkind{visibility:hidden}
+/* over a picture, while it is on its way or held up, a shade the ring and
+   the mark read against */
+.tsqveil{position:absolute; inset:0; background:rgba(33,29,23,.38); opacity:0; transition:opacity .26s var(--gentle)}
+.tsq.drawn:is(.up,.queued,.wait,.failed,.refused) .tsqveil{opacity:1}
+/* the upload's ring: how much of the file has gone, or a quarter turning
+   while the phone cannot say */
+.tsqring{position:absolute; left:50%; top:50%; width:calc(24 * var(--u)); height:calc(24 * var(--u)); margin:calc(-12 * var(--u)) 0 0 calc(-12 * var(--u));
+  transform:rotate(-90deg); opacity:0; transition:opacity .26s var(--gentle); overflow:visible}
+.tsqring circle{fill:none; stroke-width:2.5}
+.tsqring .track{stroke:rgba(33,29,23,.14)}
+.tsqring .arc{stroke:var(--ink); stroke-linecap:round; stroke-dasharray:65.97; stroke-dashoffset:65.97;
+  transition:stroke-dashoffset .2s linear}
+.tsq.drawn .tsqring .track{stroke:rgba(255,255,255,.42)}
+.tsq.drawn .tsqring .arc{stroke:#fff}
+.tsq:is(.up,.queued,.wait) .tsqring{opacity:1}
+.tsq:is(.queued,.wait,.indet) .tsqring{animation:tsqturn .8s linear infinite}
+.tsq:is(.queued,.wait,.indet) .tsqring .arc{stroke-dashoffset:49.48; transition:none}
+@keyframes tsqturn{from{transform:rotate(-90deg)} to{transform:rotate(270deg)}}
+/* the file did not go: a mark in the card's own red, just there, no entrance */
+.tsqbang{position:absolute; left:50%; top:50%; width:calc(22 * var(--u)); height:calc(22 * var(--u)); margin:calc(-11 * var(--u)) 0 0 calc(-11 * var(--u));
+  border-radius:50%; background:var(--must); color:#fff; font:700 calc(13 * var(--u))/calc(22 * var(--u)) var(--sans);
+  text-align:center; display:none}
+.tsq:is(.failed,.refused) .tsqbang{display:block}
+.tsqx{position:absolute; top:calc(-6 * var(--u)); right:calc(-6 * var(--u)); z-index:1; width:calc(20 * var(--u)); height:calc(20 * var(--u)); padding:0;
+  border:none; border-radius:50%; background:rgba(33,29,23,.72); color:#fff;
+  display:grid; place-items:center; cursor:pointer}
+.tsqx::after{content:""; position:absolute; inset:calc(-8 * var(--u))}
+.tsqx svg{width:calc(8 * var(--u)); height:calc(8 * var(--u))}
