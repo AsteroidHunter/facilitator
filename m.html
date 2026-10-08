@@ -6656,6 +6656,12 @@ const menuShortcutActions = {
     const to = adjacentTicketView(curView(), shortcut.value);
     if (to) setView(to);
   },
+  // control+shift+[ ] \ and delete move the card on screen, the one the list
+  // lifts, as they do with the list shut, and the list stays out
+  sectionChord(e, shortcut){
+    if (!drawerOpen()) return;
+    phoneShortcutActions.sectionChord(e, shortcut);
+  },
   drawerWalk(e, shortcut){
     if (!drawerOpen() || phoneShortcutTyping(e.target)) return;
     e.preventDefault();
