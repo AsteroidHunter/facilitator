@@ -10711,6 +10711,10 @@ function boardResponseCard(){
       el.wtmenu?.classList.contains("open")) return null;
   return { id: selectedId, owner: activeOwner, el };
 }
+// the boxes beside the card with work of their own: a button focused in one
+// (a file in the navigator, the player's, the small card's) keeps control+s,
+// where a button on the card or on the bars around it counts as the page
+keyPanels = "#magic1, #magic2, #magic3, #magic4, #goalbox";
 
 // whether control+enter and control+r may move the card on screen: the page's
 // keys are the board's, and no panel, picture, menu or small card holds them.

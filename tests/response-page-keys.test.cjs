@@ -147,6 +147,8 @@ function keyboard(l, doc, actions, target) {
 async function setup(opts, globals) {
   const l = await logic(globals);
   const w = world(opts);
+  // every page keeps its cards' parts in els, as the page() worlds below do
+  l.context.els = { c1: w.a.el, c2: w.b.el };
   w.doc.activeElement = w.a.parts.content;
   const actions = { responseScroll: e => l.responseScrollKey(e, w.find) };
   return { ...l, ...w, view: w.a.el.replyview, ...keyboard(l, w.doc, actions, w.a.parts.content) };
