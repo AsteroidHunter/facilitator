@@ -237,6 +237,44 @@ test("stopping at a question leaves the command alone, and running again finishe
   });
 });
 
+// Ctrl+C in a step the command runs ends with one plain sentence on its own
+// line, never a Python traceback, and the run stops with the interrupted status
+const EXITING = "Exiting facilitator installer.";
+function assertPlainExit(stopped, after) {
+  assert.equal(stopped.code, 130, stopped.text);
+  assert.ok(stopped.text.includes(`${after}\n${EXITING}\n`), stopped.text.slice(-300));
+  assert.doesNotMatch(stopped.text, /Traceback|KeyboardInterrupt|File "|\.py"/, "a traceback was printed:\n" + stopped.text);
+  assert.doesNotMatch(stopped.text, /command and agent skill installed|Facilitator is installed/);
+}
+
+test("Ctrl+C at the first app password prompt exits with one plain sentence and no traceback", async () => {
+  await using({}, async f => {
+    const stopped = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], [PASSWORDS[0][0], "\x03"]]);
+    assertPlainExit(stopped, PASSWORDS[0][0]);
+    assert.equal(await f.has(path.join(f.home, ".local")), false, "the command was linked");
+    assert.equal(await f.has(path.join(f.repo, "bridge-auth.json")), false, "a password was saved");
+  });
+});
+
+test("Ctrl+C at the confirm prompt exits the same way, and no password is saved", async () => {
+  await using({}, async f => {
+    const stopped = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], PASSWORDS[0], [PASSWORDS[1][0], "\x03"]]);
+    assertPlainExit(stopped, PASSWORDS[1][0]);
+    assert.ok(!stopped.text.includes(PASSWORD), "the password was echoed");
+    assert.equal(await f.has(path.join(f.repo, "bridge-auth.json")), false, "a password was saved");
+  });
+});
+
+test("Ctrl+C in the middle of the package sync exits the same way and shows nothing the sync had printed", async () => {
+  await using({ hang: "sync" }, async f => {
+    const stopped = await f.terminal([["Installing the packages Facilitator needs.", "\x03"]]);
+    assert.equal(stopped.code, 130, stopped.text);
+    assert.ok(stopped.text.includes(`Installing the packages Facilitator needs.\n^C\n${EXITING}\n`), stopped.text.slice(-300));
+    assert.doesNotMatch(stopped.text, /Traceback|KeyboardInterrupt|File "|syncing \(fake uv\)|✓ Packages installed/);
+    assert.equal(await f.has(path.join(f.home, ".local")), false, "the command was linked");
+  });
+});
+
 test("a second run on an installed copy keeps the password and the config and makes nothing again", async () => {
   await using({ agents: ["claude", "codex"] }, async f => {
     const first = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], ...PASSWORDS]);

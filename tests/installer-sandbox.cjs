@@ -75,8 +75,10 @@ async function script(file, text) {
 // hands over to the real python, so what runs on .venv really runs. It says
 // it is uvVersion when asked. node: true puts a fake node and a fake npm on
 // PATH; npm ci makes tests/node_modules/puppeteer-core at the pinned version.
+// hang: "sync" makes the fake uv's package sync run for a minute, so a test can
+// press Ctrl+C in the middle of it.
 async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present",
-  venvPython = "3.14.0", uvVersion = "0.11.18", node = false } = {}) {
+  venvPython = "3.14.0", uvVersion = "0.11.18", node = false, hang = "" } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
@@ -120,10 +122,12 @@ fi
   };
   await script(path.join(tools, "python3"), wrappers[python]);
 
+  const syncStep = hang === "sync" ? 'echo "syncing (fake uv)"; sleep 60' : ":";
   const fakeUv = `#!/bin/sh
 echo "uv $*" >> "${log}"
 case "$1" in
   --version) echo "uv ${uvVersion} (fake)" ;;
+  pip) ${syncStep} ;;
   venv)
     mkdir -p .venv/bin
     printf 'home = /fake\\nversion_info = ${venvPython}\\n' > .venv/pyvenv.cfg
