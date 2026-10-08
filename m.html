@@ -6628,7 +6628,9 @@ function phoneDrawerScrollCard(){
   return { id: curView(), owner: activeOwner, el: drawerScrollers.get(pane) };
 }
 
-// while a drawer is out its keys are the whole table, so the card behind it is left alone
+// while a drawer is out these are its own keys. with the card list out a chord
+// it has no entry for is the card's, as with the list shut (the listener
+// below); the settings keep every key, so the card behind them is left alone
 const menuShortcutActions = {
   diagnostic: phoneShortcutActions.diagnostic,
   cardsDrawer: phoneShortcutActions.cardsDrawer,
@@ -6717,7 +6719,14 @@ addEventListener("keydown", e => {
   if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey){ keepTabInMenu(e); return; }
   const shortcut = cardShortcut(e);
   if (!shortcut || (shortcut.action === "diagnostic" && !phoneDeveloperMode)) return;
-  dispatchCardShortcut(e, menuShortcutActions);
+  // the card list stands beside the card, as the Mac's list does, so a chord it
+  // does not answer itself does what it does with the list shut; its plain keys
+  // stay its own. a card the chord moved to keeps its lifted ticket in view
+  if (!dispatchCardShortcut(e, menuShortcutActions) && drawerOpen() && (e.ctrlKey || e.metaKey)){
+    const was = selectedId;
+    dispatchCardShortcut(e, phoneShortcutActions);
+    if (selectedId !== was) drawerRows().find(r => r.dataset.id === selectedId)?.scrollIntoView({ block: "nearest" });
+  }
   e.stopImmediatePropagation();
 });
 

@@ -348,7 +348,13 @@ function phonePage() {
   const tickets = make("div", doc.body, { id: "tickets" });
   const sheet = make("div", tickets, { id: "tiksheet" });
   const todo = make("div", sheet, { cls: "tikpane", attrs: { "data-view": "todo" } });
-  const rows = ["c1", "c2"].map(id => { const r = make("div", todo, { cls: "trow" }); r.dataset.id = id; return r; });
+  Object.assign(todo, { clientHeight: 300, scrollHeight: 1500, scrollTop: 600, ownerDocument: doc.document });
+  const rows = ["c1", "c2"].map(id => {
+    const r = make("div", todo, { cls: "trow" });
+    r.dataset.id = id;
+    r.scrollIntoView = () => calls.push(["ticket in view", id]);
+    return r;
+  });
   const listButton = make("button", tickets, { id: "tv-docked", cls: "ptab tvb" });
   const settings = make("div", doc.body, { id: "settings" });
   const settingsField = make("input", settings);
