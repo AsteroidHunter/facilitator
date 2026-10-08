@@ -1667,9 +1667,14 @@ def _agent_kind(owner: str) -> str:
     """claude, codex or other: which agent the lane's listener said it was on
     its last /wait, or other when none has said since the start. A reply's
     transcript row carries this one word, never the name itself, so the daily
-    usage counts (usage_counts.py) can split replies by agent."""
-    said = (_agent_names.get(owner) or "").lower()
-    return "claude" if "claude" in said else "codex" if "codex" in said else "other"
+    usage counts (usage_counts.py) can split replies by agent. The word lists
+    are agent_names.py's, the same ones the counts use; a copy of the board
+    without that file, as the tests' fixtures make, stores other."""
+    try:
+        import agent_names
+    except ImportError:
+        return "other"
+    return agent_names.agent_kind(_agent_names.get(owner))
 
 
 # ---- waking the listeners --------------------------------------------------------

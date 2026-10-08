@@ -69,6 +69,8 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+import agent_names
+
 ENDPOINT = "https://us.i.posthog.com/i/v0/e/"   # PostHog Cloud, US region
 # the project token: public by design, it can send events and read nothing
 TOKEN = "phc_pmdWA3oMUgUWGLyLkXvDFSzYQgvTotFQyA93BWXTdJ9K"
@@ -86,8 +88,6 @@ READ_CHUNK = 65536        # bytes the transcript is read backwards in
 # the transcript kinds that are the owner's own doing: a message sent, a card
 # made, closed, reopened or removed, a project or a page added or taken away
 OWNER_KINDS = frozenset(("user", "create", "done", "undone", "delete", "project", "page+", "page-"))
-AGENTS = (("claude", ("claude", "opus", "sonnet", "haiku", "fable")),
-          ("codex", ("codex", "gpt", "astra")))
 VERSION = re.compile(rb'id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)<')
 EMAIL_PART = r"[^@\s\x00-\x1f\x7f]+"
 EMAIL = re.compile(f"{EMAIL_PART}@{EMAIL_PART}\\.{EMAIL_PART}")
@@ -105,11 +105,7 @@ def clean_email(value) -> str | None:
 
 def agent_kind(name) -> str:
     """claude, codex or other, from the name a lane's agent gave on /wait."""
-    said = str(name or "").lower()
-    for agent, words in AGENTS:
-        if any(word in said for word in words):
-            return agent
-    return "other"
+    return agent_names.agent_kind(name)
 
 
 def _day_bounds(day: dt.date) -> tuple[float, float]:
