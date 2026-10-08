@@ -165,15 +165,29 @@ Endpoints:
                                it, in place of whatever it held. K is text
                                (shown as typed), markdown (the card's renderer),
                                html (a whole page, run in a sealed frame with
-                               no network) or image (the picture's bytes: PNG,
-                               JPEG, GIF, WebP, or SVG without script). The body
-                               is the content: text and pages up to 1 MiB,
-                               pictures up to 10 MiB (413). T is a title for
-                               the box's header, 120 characters at most.
-                               Answers {ok, box, kind, rev, shown}. 400 for a
-                               card, kind or title that is wrong or an empty
-                               body, 415 for a body that is not the picture
-                               it should be. The content is kept in
+                               no network), image (the picture's bytes: PNG,
+                               JPEG, GIF, WebP, or SVG without script; or one
+                               https address, which the board downloads once)
+                               or url (one https address). The body is the
+                               content: text and pages up to 1 MiB, pictures up
+                               to 10 MiB (413). T is a title for the box's
+                               header, 120 characters at most. A web address
+                               is asked for by the board first: https only,
+                               every address its name resolves to public (this
+                               computer, the home network and the tailnet are
+                               refused, 400), at most 5 redirects each checked
+                               again, no cookies. A website that lets this page
+                               frame it is shown live (shown: frame); one that
+                               refuses, or answers with an error or something
+                               not a page, is shown as a preview of its title
+                               and description with Open in Chrome (shown:
+                               preview, reason in fixed words).
+                               Answers {ok, box, kind, rev, shown[, reason,
+                               url]}, never words from the site itself. 400 for
+                               a card, kind, title or address that is wrong or
+                               an empty body, 415 for a body that is not the
+                               picture it should be, 502 for a site that could
+                               not be reached. The content is kept in
                                magic-boxes/ beside state.json, owner-only; the
                                card carries only magic: {open, kind, rev, ts},
                                which /state sends for cards that have one; the
@@ -186,8 +200,9 @@ Endpoints:
   GET  /magic?box=ID        -> {box, open, kind, title, rev, ts, shown}: what an
                                agent may read back. 404 when there is no box
   GET  /magic/body?box=ID   -> what the box holds, for the page, as JSON (with
-                               nosniff), never as a page: text, html, or src
-                               for a picture
+                               nosniff), never as a page: text, html, src for
+                               a picture, or url, shown, reason and preview
+                               {title, description, site} for a website
   GET  /magic/img?box=ID    -> the box's picture, with nosniff and a sandbox
                                policy, as a panel picture is served
   GET  /cm-markdown.js      -> the vendored CodeMirror 6 bundle beside index.html,
@@ -746,6 +761,8 @@ import contextlib
 import fcntl
 import gzip
 import hashlib
+import http.client
+import ipaddress
 import json
 import logging
 import logging.handlers
@@ -756,6 +773,7 @@ import secrets
 import shutil
 import signal
 import socket
+import ssl
 import stat
 import struct
 import subprocess
@@ -766,8 +784,9 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse, quote
+from urllib.parse import parse_qs, urljoin, urlparse, quote
 
 HERE = Path(__file__).resolve().parent
 
@@ -1656,9 +1675,17 @@ MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator 
 # holds lives here, beside state.json and as private as it, one file per card
 # named by the box's revision; state.json only says that a box exists
 MAGIC_DIR = HERE / "magic-boxes"
-MAGIC_KINDS = ("text", "markdown", "html", "image")
+MAGIC_KINDS = ("text", "markdown", "html", "image", "url")
 MAGIC_IMAGE_MAX = 10 * 1024 * 1024    # bytes of one picture in a box
 MAGIC_TITLE_MAX = 120                 # characters of a box's title
+# a website or a web picture is asked for by the board itself before anything
+# is shown, and these bound how long and how much: one step (connecting, or
+# one read) and the whole of it, redirects included
+MAGIC_FETCH_STEP = 8.0                # seconds
+MAGIC_FETCH_TOTAL = 15.0              # seconds
+MAGIC_REDIRECTS = 5
+MAGIC_PAGE_HEAD = 256 * 1024          # bytes of a page read for its preview
+MAGIC_ADDRESS_MAX = 8192              # bytes of one web address
 # the control bytes a real text file never carries: every C0 control except tab,
 # newline, carriage return and form feed. A file can decode as utf-8 and still be
 # binary (an ascii-only payload, or bytes that merely validate), so the navigator
@@ -5050,6 +5077,260 @@ def _magic_picture_ext(data: bytes) -> str | None:
     return next((ext for ext in MAGIC_PICTURES if UPLOAD_KINDS[ext][1](head)), None)
 
 
+# A website, or a picture on one, is asked for by the board before the box
+# shows anything. Only https, and only places on the public internet: a name
+# that resolves to this computer, the home network, the tailnet or any other
+# address that is not global is refused, at every hop of every redirect. The
+# connection goes to the address that was checked, never to a second lookup of
+# the name, which could answer differently. Nothing is sent with the request
+# but the request: no cookies, no sign-in, nothing of the owner's.
+
+class _MagicRefused(Exception):
+    def __init__(self, status: int, words: str) -> None:
+        super().__init__(words)
+        self.status, self.words = status, words
+
+
+MAGIC_LOCAL_NAMES = (".local", ".localhost", ".internal", ".home.arpa", ".lan", ".ts.net")
+_MAGIC_SHARED_SPACE = ipaddress.ip_network("100.64.0.0/10")   # the tailnet's addresses
+MAGIC_NOT_PUBLIC = "addresses on this computer or the home network cannot be shown"
+# the page is asked for as a browser asks for it, so the site answers with the
+# framing headers it would send the owner's Chrome
+MAGIC_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 facilitator-board")
+
+
+def _magic_public(ip: str) -> bool:
+    """True for an address on the public internet. An IPv4 address written
+    inside an IPv6 one is judged as the IPv4 address it carries."""
+    try:
+        addr = ipaddress.ip_address(ip.split("%")[0])
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address):
+        if addr.ipv4_mapped is not None:
+            addr = addr.ipv4_mapped
+        elif addr.sixtofour is not None or addr.teredo is not None:
+            return False
+    return addr.is_global and not addr.is_multicast and addr not in _MAGIC_SHARED_SPACE
+
+
+def _magic_address(text: str, resolve=None):
+    """(the address, its host, its port, the addresses it resolves to) for an
+    https address that names a public place, or _MagicRefused in plain words."""
+    text = text.strip()
+    if not text or len(text) > MAGIC_ADDRESS_MAX or re.search(r"[\x00-\x20\x7f\\]", text):
+        raise _MagicRefused(400, "that is not one web address")
+    try:
+        url = urlparse(text)
+        port = url.port or 443
+    except ValueError:
+        raise _MagicRefused(400, "that is not one web address") from None
+    if url.scheme != "https":
+        raise _MagicRefused(400, "only https addresses can be shown")
+    if url.username or url.password:
+        raise _MagicRefused(400, "an address with a name or password in it cannot be shown")
+    host = (url.hostname or "").rstrip(".").lower()
+    if not host:
+        raise _MagicRefused(400, "that is not one web address")
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is None and (host == "localhost" or host.endswith(MAGIC_LOCAL_NAMES) or "." not in host):
+        raise _MagicRefused(400, MAGIC_NOT_PUBLIC)
+    if literal is not None:
+        ips = [str(literal)]
+    else:
+        try:
+            found = (resolve or socket.getaddrinfo)(host, port, type=socket.SOCK_STREAM)
+        except (OSError, UnicodeError):
+            raise _MagicRefused(502, "that site's name could not be found") from None
+        ips = list(dict.fromkeys(info[4][0] for info in found))
+    if not ips or not all(_magic_public(ip) for ip in ips):
+        raise _MagicRefused(400, MAGIC_NOT_PUBLIC)
+    return text, host, port, ips
+
+
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    """An https connection made to an address already checked, with the
+    certificate checked against the name. The name is never looked up again,
+    so the place that was checked is the place connected to."""
+
+    def __init__(self, host: str, ip: str, port: int, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout, context=ssl.create_default_context())
+        self._pinned = ip
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self._pinned, self.port), self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        except BaseException:
+            sock.close()
+            raise
+
+
+def _magic_fetch(url: str, limit: int, *, resolve=None, connect=None):
+    """(final address, its host, status, headers, the first limit bytes, whether
+    that was all of it) for an https address. Every hop is checked by
+    _magic_address before it is asked, and redirects are followed here, at
+    most MAGIC_REDIRECTS of them. Refusals and failures as _MagicRefused."""
+    deadline = time.monotonic() + MAGIC_FETCH_TOTAL
+    for _hop in range(MAGIC_REDIRECTS + 1):
+        url, host, port, ips = _magic_address(url, resolve)
+        parts = urlparse(url)
+        path = (parts.path or "/") + ("?" + parts.query if parts.query else "")
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise _MagicRefused(502, "that site took too long to answer")
+        conn = None
+        try:
+            conn = (connect or _PinnedHTTPS)(host, ips[0], port, min(MAGIC_FETCH_STEP, left))
+            conn.request("GET", path, headers={
+                "User-Agent": MAGIC_AGENT, "Accept-Language": "en",
+                "Accept": "text/html,application/xhtml+xml,image/*;q=0.9,*/*;q=0.8",
+                "Accept-Encoding": "identity"})
+            res = conn.getresponse()
+            where = res.getheader("Location")
+            if res.status in (301, 302, 303, 307, 308) and where:
+                url = urljoin(url, where.strip())
+                continue
+            got = bytearray()
+            while len(got) <= limit:
+                if time.monotonic() > deadline:
+                    raise _MagicRefused(502, "that site took too long to answer")
+                chunk = res.read(min(65536, limit + 1 - len(got)))
+                if not chunk:
+                    break
+                got += chunk
+            return url, host, res.status, res.headers, bytes(got[:limit]), len(got) <= limit
+        except (OSError, http.client.HTTPException, UnicodeError, ValueError):
+            raise _MagicRefused(502, "that site could not be reached") from None
+        finally:
+            if conn is not None:
+                conn.close()
+    raise _MagicRefused(502, f"that site redirected more than {MAGIC_REDIRECTS} times")
+
+
+def _magic_frameable(headers) -> tuple[bool, str]:
+    """Whether a site lets this board show it in a frame, by the rule
+    browsers keep: an enforced policy's frame-ancestors wins over
+    X-Frame-Options, and the board's page is http://127.0.0.1, so only a
+    source of * or http: lets it in. With no frame-ancestors anywhere,
+    X-Frame-Options DENY or SAMEORIGIN refuses; any other value is ignored, as
+    browsers ignore it. The reason is fixed words, never the header's own
+    text, since what a site says goes back to no agent."""
+    named = False
+    for value in headers.get_all("Content-Security-Policy") or []:
+        for policy in value.split(","):
+            for directive in policy.split(";"):
+                words = directive.split()
+                if words and words[0].lower() == "frame-ancestors":
+                    named = True
+                    if not any(w.lower() in ("*", "http:") for w in words[1:]):
+                        return False, "Content-Security-Policy frame-ancestors"
+                    break
+    if named:
+        return True, ""
+    said = {v.strip().lower() for value in headers.get_all("X-Frame-Options") or [] for v in value.split(",")}
+    for word in ("deny", "sameorigin"):
+        if word in said:
+            return False, "X-Frame-Options " + word.upper()
+    return True, ""
+
+
+class _MagicPreview(HTMLParser):
+    """The few things a preview shows, out of the head of a page: its title
+    and its description, from the page's own tags and its Open Graph ones."""
+    WANTED = ("og:title", "og:description", "og:site_name", "description")
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.found: dict = {}
+        self.title: list = []
+        self._in_title = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "title":
+            self._in_title = True
+        elif tag == "meta":
+            a = {k.lower(): v or "" for k, v in attrs}
+            name = (a.get("property") or a.get("name") or "").lower()
+            if name in self.WANTED and "content" in a:
+                self.found.setdefault(name, a["content"])
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title.append(data)
+
+
+def _magic_plain(text: str, cap: int) -> str:
+    """One line of plain words: controls gone, spaces collapsed, at most cap
+    characters, an ellipsis where it was cut."""
+    words = " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", text or "").split())
+    return words if len(words) <= cap else words[:cap - 1].rstrip() + "…"
+
+
+def _magic_preview(page: bytes, headers, host: str) -> dict:
+    """{title, description, site} for a preview, as plain text."""
+    charset = headers.get_content_charset() if headers is not None else None
+    if not charset:
+        named = re.search(rb"<meta[^>]+charset=[\"']?([A-Za-z0-9_-]+)", page[:4096], re.IGNORECASE)
+        charset = named.group(1).decode("ascii") if named else "utf-8"
+    try:
+        text = page.decode(charset, "replace")
+    except LookupError:
+        text = page.decode("utf-8", "replace")
+    reader = _MagicPreview()
+    try:
+        reader.feed(text)
+        reader.close()
+    except Exception:
+        pass   # a page too broken to read keeps whatever was read before it broke
+    found = reader.found
+    return {"title": _magic_plain(found.get("og:title") or "".join(reader.title), 200),
+            "description": _magic_plain(found.get("og:description") or found.get("description", ""), 500),
+            "site": _magic_plain(found.get("og:site_name") or host, 80)}
+
+
+def _magic_website(text: str, **fetching) -> tuple[dict, str]:
+    """A website's record, shown in a frame when it allows that and as a
+    preview when it does not, and its host."""
+    url, host, status, headers, page, _whole = _magic_fetch(text, MAGIC_PAGE_HEAD, **fetching)
+    html_page = headers.get_content_type() in ("text/html", "application/xhtml+xml")
+    if not 200 <= status < 300:
+        framed, reason = False, f"the site answered {status}"
+    elif not html_page:
+        framed, reason = False, "not a web page"
+    else:
+        framed, reason = _magic_frameable(headers)
+    preview = _magic_preview(page, headers, host) if html_page else {"title": "", "description": "", "site": host}
+    return {"url": url, "shown": "frame" if framed else "preview", "reason": reason, "preview": preview}, host
+
+
+def _magic_web_picture(text: str, **fetching) -> tuple[bytes, str]:
+    """A picture on the web, downloaded once, so its site never sees the
+    owner's browser; and its host."""
+    _url, host, status, _headers, data, whole = _magic_fetch(text, MAGIC_IMAGE_MAX, **fetching)
+    if not 200 <= status < 300:
+        raise _MagicRefused(502, f"the picture's site answered {status}")
+    if not whole:
+        raise _MagicRefused(413, "the picture is larger than 10 MiB")
+    return data, host
+
+
+def _magic_one_address(body: bytes) -> str | None:
+    """The body as one web address on one line, or None."""
+    text = body.decode("utf-8", "replace").strip()
+    if not text or len(body) > MAGIC_ADDRESS_MAX or "\n" in text:
+        return None
+    return text if re.match(r"(?i)[a-z][a-z0-9+.-]*://", text) else None
+
+
 def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes | None, note: dict):
     """The box's new content written and the card naming it, saved as one
     change. Run through _run_state_request, so a failure puts the board back."""
@@ -5094,20 +5375,36 @@ def _post_magic(q: Query, body: bytes):
         return 400, {"error": f"title over {MAGIC_TITLE_MAX} characters"}
     if not body.strip():
         return 400, {"error": "the box would be empty"}
-    picture = None
-    if kind == "image":
-        ext = _magic_picture_ext(body)
-        if ext is None:
-            return 415, {"error": "that is not a PNG, JPEG, GIF, WebP or SVG picture"}
-        if ext == ".svg" and _SVG_SCRIPT.search(body):
-            return 415, {"error": "that SVG carries script"}
-        record, picture = {"ext": ext}, body
-    else:
-        if len(body) > MAX_TEXT_BODY:
-            return 413, {"error": "text and pages are limited to 1 MiB"}
-        words = body.decode("utf-8", "replace").strip()
-        record = {"html": words} if kind == "html" else {"text": words}
-    note = {"action": "open", "magic": kind, "bytes": len(body), "title_chars": len(title)}
+    picture, host = None, None
+    # the web is asked here, before the board's lock is taken, since a site
+    # can take seconds to answer and the board must not wait on it
+    try:
+        if kind == "url":
+            address = _magic_one_address(body)
+            if address is None:
+                return 400, {"error": "a website box takes one web address on one line"}
+            record, host = _magic_website(address)
+        elif kind == "image":
+            ext = _magic_picture_ext(body)
+            address = None if ext else _magic_one_address(body)
+            if address is not None:
+                body, host = _magic_web_picture(address)
+                ext = _magic_picture_ext(body)
+            if ext is None:
+                return 415, {"error": "that is not a PNG, JPEG, GIF, WebP or SVG picture"}
+            if ext == ".svg" and _SVG_SCRIPT.search(body):
+                return 415, {"error": "that SVG carries script"}
+            record, picture = {"ext": ext}, body
+        else:
+            if len(body) > MAX_TEXT_BODY:
+                return 413, {"error": "text and pages are limited to 1 MiB"}
+            words = body.decode("utf-8", "replace").strip()
+            record = {"html": words} if kind == "html" else {"text": words}
+    except _MagicRefused as refused:
+        return refused.status, {"error": refused.words}
+    # the host of a website or a web picture, never the rest of its address
+    note = {"action": "open", "magic": kind, "bytes": len(body), "title_chars": len(title),
+            **({"host": host} if host else {})}
     return _run_state_request(_magic_store, bid, kind, title, record, picture, note)
 
 
