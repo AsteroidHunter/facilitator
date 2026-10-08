@@ -53,6 +53,20 @@
       nothing.
   facilitator status
       one-line board state
+  facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
+  facilitator magic CARD close|reopen|show
+      fill a card's magic box, the portrait box beside the card on the Mac
+      board, and open it in place of what it held, so an agent can show the
+      owner what words carry badly without being asked. KIND is text (shown
+      as typed), markdown, html (a page of its own, run sealed off with no
+      network), image (a picture file, or one https address the board
+      downloads once) or url (one https website: shown live when it allows
+      that, as a preview with Open in Chrome when it does not). CONTENT is
+      the words or the address; --file sends a file's contents and - reads
+      standard input. close hides the box and keeps it, reopen shows it
+      again, show prints what the board says it holds. Prints the board's
+      answer as one JSON line; exits 1 with the board's own words when it
+      refuses, and with the status line when the board is down.
   facilitator bridge [on|off] [--dry-run]
       switch the persistent phone bridge on or off. With no on/off word it
       toggles the current Tailscale Serve state. Turning it on prints a QR
@@ -123,9 +137,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -1863,6 +1878,89 @@ def cmd_status():
     print(f"server up, {len(st['boxes'])} boxes, {st['queued']} queued | {lanes}")
 
 
+MAGIC_KINDS = ("text", "markdown", "html", "image", "url")
+MAGIC_ACTIONS = ("close", "reopen", "show")
+MAGIC_HELP = """usage: facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
+       facilitator magic CARD close|reopen|show
+
+Fill a card's magic box on the Mac board and open it, in place of what it
+held. KIND is text, markdown, html, image or url. CONTENT is the words, or one
+https address for url and image; --file sends a file's contents (a picture's
+bytes for image) and - reads standard input. close hides the box and keeps
+it, reopen shows it again, show prints what it holds. Prints the board's
+answer as one JSON line; exits 1 with the board's words when it refuses."""
+
+
+def cmd_magic(args):
+    """One call to the board's /magic routes, for an agent showing the owner
+    something beside a card. The content is read here, on the agent's side,
+    so the board is handed bytes and never a path to open."""
+    words = args[1:]
+    if words in ([], ["-h"], ["--help"]):
+        if words:
+            print(MAGIC_HELP)
+            return
+        sys.exit(MAGIC_HELP)
+    title, path, rest = None, None, []
+    at = 0
+    while at < len(words):
+        word = words[at]
+        if word in ("--title", "--file"):
+            if at + 1 == len(words):
+                sys.exit(f"magic: {word} needs a value")
+            if word == "--title":
+                title = words[at + 1]
+            else:
+                path = words[at + 1]
+            at += 2
+            continue
+        rest.append(word)
+        at += 1
+    if len(rest) < 2:
+        sys.exit(MAGIC_HELP)
+    card, what, content = rest[0], rest[1], rest[2:]
+    if what in MAGIC_ACTIONS:
+        if content or path is not None or title is not None:
+            sys.exit(f"magic: {what} takes only the card")
+        method, route, body, query = ("GET" if what == "show" else "POST",
+                                      "/magic" if what == "show" else "/magic/" + what,
+                                      None if what == "show" else b"", {"box": card})
+    elif what in MAGIC_KINDS:
+        if len(content) + (path is not None) != 1:
+            sys.exit("magic: give the content once: as one argument, as --file PATH, or as - to read standard input")
+        if path is not None:
+            try:
+                body = Path(path).expanduser().read_bytes()
+            except OSError as error:
+                sys.exit(f"magic: {path} cannot be read: {error.strerror or error}")
+        elif content[0] == "-":
+            body = sys.stdin.buffer.read()
+        else:
+            body = content[0].encode("utf-8")
+        method, route, query = "POST", "/magic", {"box": card, "kind": what}
+        if title is not None:
+            query["title"] = title
+    else:
+        sys.exit(f"magic: {what} is not one of {', '.join(MAGIC_KINDS)}, {', '.join(MAGIC_ACTIONS)}")
+    port = board_port()
+    request = urllib.request.Request(f"http://127.0.0.1:{port}{route}?{urlencode(query)}",
+                                     data=body, method=method)
+    try:
+        # a website or a web picture is fetched by the board before it answers,
+        # within its own 15 seconds, so this waits a little longer than that
+        with urllib.request.urlopen(request, timeout=60) as response:
+            answer = json.load(response)
+    except urllib.error.HTTPError as refused:
+        try:
+            said = json.load(refused).get("error")
+        except (ValueError, AttributeError, OSError):
+            said = None
+        sys.exit(f"magic: {said or f'the board answered {refused.code}'}")
+    except (OSError, ValueError):
+        sys.exit(f"server: DOWN (port {port})")
+    print(json.dumps(answer, ensure_ascii=False))
+
+
 def board_port():
     """The board's port from run.config.json when there is one; the server's
     own default otherwise, so the bridge works on a machine with no lanes
@@ -3355,6 +3453,8 @@ def main():
         cmd_stop(args)
     elif cmd == "status":
         cmd_status()
+    elif cmd == "magic":
+        cmd_magic(args)
     elif cmd == "bridge":
         cmd_bridge(args)
     elif cmd == "password":
