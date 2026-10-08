@@ -1,8 +1,8 @@
 // Control + S scrolls the card's answer from a focused button as it does from
-// the page: Chrome focuses a button it clicks, and the hotkey map found the key
-// dead after a click on a card's sun, cloud, moon, cross or history arrow, a
-// project tab, a list section name, a page dot or the speaker, and on the phone
-// after Tab reached a card button. responseScrollSource in card-logic.js treats
+// the page: Chrome focuses a button it clicks, and the key used to do nothing
+// after a click on a card's sun, cloud, moon, cross or history arrow, a project
+// tab, a list section name, a page dot or the speaker, and on the phone after
+// Tab reached a card button. responseScrollSource in card-logic.js treats
 // a focused element that is not a field as the page, unless it sits in the sent
 // box, the answered panel, another card or a panel the page names (keyPanels).
 // The pages' real handlers run in a VM (hotkey-pages.cjs); no browser.
@@ -67,7 +67,7 @@ test("the sent box, the answered panel and another card keep the chord, on both 
   }
 });
 
-test("Mac: a file navigator row, like the panels' fields, keeps the chord (map: e)", () => {
+test("Mac: a file navigator row, like the panels' fields, keeps the chord", () => {
   for (const place of ["navigator row", "file editor"]) {
     const f = macPage();
     const { e, calls } = f.press(place, "ctrl+s");
@@ -80,7 +80,7 @@ test("Mac: a file navigator row, like the panels' fields, keeps the chord (map: 
   assert.deepEqual(controlS(f, chip).calls, []);
 });
 
-test("Mac: a button under the settings page, a page menu, the delete question or Home does not reach the card (map: c, b)", () => {
+test("Mac: a button under the settings page, a page menu, the delete question or Home does not reach the card", () => {
   const blockers = {
     settings: f => { f.ctx.setOpen = true; },
     "page menu": f => { f.ctx.pageMenu = {}; },

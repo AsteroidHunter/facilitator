@@ -3,7 +3,7 @@
 // card's title while it is renamed on both pages, and on the Mac the small
 // card's title and box and the goal box. The card's own title counts as the
 // card's own box for Control + S, Control + U and the section chords. Each
-// pair the hotkey map found dead in these boxes is pressed here through the
+// key that used to do nothing in these boxes is pressed here through the
 // pages' real handlers, beside the keys that stay with the box on purpose.
 // No browser (see hotkey-pages.cjs).
 const assert = require("node:assert/strict");
@@ -47,7 +47,7 @@ const PHONE_FIXED = [
   ["title", "ctrl+shift+,", ["show list"]],
 ];
 
-test("the map's 20 Mac pairs in the boxes being typed in now do their job", () => {
+test("20 Mac keys in the boxes being typed in do their job", () => {
   assert.equal(MAC_FIXED.length, 20);
   for (const [place, key, want] of MAC_FIXED) {
     const f = macPage();
@@ -57,7 +57,7 @@ test("the map's 20 Mac pairs in the boxes being typed in now do their job", () =
   }
 });
 
-test("the map's 10 phone pairs in a renamed title now do their job", () => {
+test("10 phone keys in a renamed title do their job", () => {
   assert.equal(PHONE_FIXED.length, 10);
   for (const [place, key, want] of PHONE_FIXED) {
     const f = phonePage();
@@ -106,7 +106,7 @@ test("the small card box's Escape takes the caret out, as the large card's does,
 });
 
 // ---- off on purpose, and as it was ------------------------------------------
-test("letters, the bracket keys and plain arrows stay in every box (map: a)", () => {
+test("letters, the bracket keys and plain arrows stay in every box", () => {
   for (const place of ["title", "small card box", "small card title", "goal editor"]) {
     for (const key of ["a", "]", "right"]) {
       const f = macPage();
@@ -159,7 +159,7 @@ test("Tab, Shift+Tab and Control+Tab in a title are left exactly to the Tab hand
   }
 });
 
-test("the small card answers its own set: older replies, Control + R, S and U stay off in its boxes (map: f)", () => {
+test("the small card answers its own set: older replies, Control + R, S and U stay off in its boxes", () => {
   for (const place of ["small card box", "small card title"]) {
     for (const key of ["ctrl+shift+up", "ctrl+r", "ctrl+s", "ctrl+u"]) {
       const f = macPage();
@@ -183,7 +183,7 @@ test("the small card's box keeps its own Enter and Control + Enter", () => {
   }
 });
 
-test("another panel's field keeps the card's chords: Control + S, U and the section chords (map: e)", () => {
+test("another panel's field keeps the card's chords: Control + S, U and the section chords", () => {
   for (const place of ["goal editor", "file editor"]) {
     for (const key of ["ctrl+s", "ctrl+u", "ctrl+shift+]"]) {
       const f = macPage();
@@ -199,7 +199,7 @@ test("another panel's field keeps the card's chords: Control + S, U and the sect
   }
 });
 
-test("with the card list shut, Control + Shift + ' from the phone's title still does nothing (map: h)", () => {
+test("with the card list shut, Control + Shift + ' from the phone's title still does nothing", () => {
   const f = phonePage();
   const { e, calls } = f.press("title", "ctrl+shift+'");
   assert.deepEqual(calls, []);
