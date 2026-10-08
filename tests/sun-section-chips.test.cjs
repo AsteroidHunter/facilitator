@@ -585,10 +585,12 @@ test("the desktop bar lays the chips out sun, moon, cross", async () => {
   const chipRule = between(html, "  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn, body.focus .box.sel .dockbtn{", "}");
   assert.doesNotMatch(chipRule, /[\s;{]order:/);
   assert.match(chipRule, /width:var\(--bar-sq\); height:var\(--bar-sq\); border-radius:var\(--sq\)/);
-  // the focus ring runs cross, moon, sun, and a shift tab out of the title lands on the sun
-  assert.match(html, /const ring = \[titleEl, ta, clip, send, x, arc, dock, sun\];/);
+  // Tab on the card walks the text box and the title only, so the chips are no stop of it
+  // and a shift tab out of the title lands in the text box (tests/card-tab-loop.test.cjs)
+  assert.match(html, /box\.addEventListener\("keydown", e => cardTab\(e, b\.id, el => el\.ta\.focus\(\)\)\);/);
+  assert.doesNotMatch(html, /const ring = \[/);
   const logic = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
-  assert.match(logic, /\(e\.shiftKey \? \(el\.sun \|\| el\.arc\) : el\.ta\)\.focus\(\)/);
+  assert.match(logic, /commit\(\); el\.ta\.focus\(\); \}/);
 });
 
 test("the small card seats the round yellow sun one seat left of the moon", async () => {
