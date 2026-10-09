@@ -1127,9 +1127,12 @@
      the way out, so they disappear only once they have finished leaving */
   /* the narrow white panel off the right edge, 71.4% of the screen wide and
      never wider than 289px. the two exposed corners are a little rounder than
-     the board's small inset panels. the two at the screen edge stay square */
+     the board's small inset panels. the two at the screen edge stay square.
+     the width is --settings-w because a picture opened full screen is as wide
+     as the settings stand (#picfull in card-tokens.css) */
+  :root{--settings-w:min(71.4vw, 289px)}
   #settings{
-    position:fixed; top:0; bottom:0; right:0; width:min(71.4vw, 289px); z-index:20;
+    position:fixed; top:0; bottom:0; right:0; width:var(--settings-w); z-index:20;
     background:#fff;
     display:flex; flex-direction:column;
     padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px);

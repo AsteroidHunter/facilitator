@@ -232,15 +232,16 @@ function installCardPageGuard(win = window){
 
 // ---- a card's picture, opened full screen ---------------------------------------
 // a picture in a card, in its reply or in the messages sent and answered, opens
-// on a plain click or tap as large as the screen holds, centred over the board
-// dimmed, and the next click or tap anywhere, or Escape, puts it back. it looks
-// and moves as the picture panel's zoom on the desktop board does (p3Zoom): the
-// veil is the board's ink at .62, and the picture grows out of its place and
-// shrinks back into it over 300ms on the curve the tabs glide on. what grows is
-// a copy laid over the board, with the card's own picture hidden where it
-// stands, so nothing in the card moves: its scroll, its fold and its layout are
-// as they were when the copy lands back on it. the boxes beside the card keep
-// the menu for their pictures
+// on a plain click or tap as large as the settings' own place holds (the room,
+// #picfull .picfull-room in card-tokens.css), centred over the board dimmed and
+// clear of every edge of the screen, and the next click or tap anywhere, or
+// Escape, puts it back. it looks and moves as the picture panel's zoom on the
+// desktop board does (p3Zoom): the veil is the board's ink at .62, and the
+// picture grows out of its place and shrinks back into it over 300ms on the
+// curve the tabs glide on. what grows is a copy laid over the board, with the
+// card's own picture hidden where it stands, so nothing in the card moves: its
+// scroll, its fold and its layout are as they were when the copy lands back on
+// it. the boxes beside the card keep the menu for their pictures
 const CARD_PICTURES = ".reply.cardmd img.shot, .answmsg.cardmd img.shot";
 const CARD_PICTURE_MS = 300;
 const CARD_PICTURE_EASE = "cubic-bezier(0.25, 1, 0.5, 1)";
@@ -263,13 +264,11 @@ function cardPictureFit(w, h, box){
   const s = Math.min(box.w / w, box.h / h, CARD_PICTURE_MOST);
   return { x: box.x + (box.w - w * s) / 2, y: box.y + (box.h - h * s) / 2, w: w * s, h: h * s };
 }
-// the room it may fill: the layer's inside, which is the whole window less the
-// phone's safe areas, the layer's padding
+// the room it may fill, measured where the sheet lays it out: the settings'
+// own place on this page, at this window's size
 function cardPictureBox(layer){
-  const cs = layer.ownerDocument.defaultView.getComputedStyle(layer);
-  const l = parseFloat(cs.paddingLeft) || 0, t = parseFloat(cs.paddingTop) || 0;
-  return { x: l, y: t, w: layer.clientWidth - l - (parseFloat(cs.paddingRight) || 0),
-    h: layer.clientHeight - t - (parseFloat(cs.paddingBottom) || 0) };
+  const r = layer.querySelector(".picfull-room").getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height };
 }
 function cardPicturePlace(big, r){
   Object.assign(big.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
@@ -296,7 +295,9 @@ function cardPictureLayer(doc){
   layer.id = "picfull";
   const veil = doc.createElement("div");
   veil.className = "picfull-veil";
-  layer.appendChild(veil);
+  const room = doc.createElement("div");
+  room.className = "picfull-room";
+  layer.append(veil, room);
   for (const type of ["pointerdown", "mousedown", "touchstart", "touchmove", "touchend", "wheel", "contextmenu"])
     layer.addEventListener(type, e => {
       e.stopPropagation();
