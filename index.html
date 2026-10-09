@@ -3505,6 +3505,12 @@
     30%{transform:scale(1) rotate(0deg); animation-timing-function:linear}
     55%{transform:scale(1) rotate(4deg); animation-timing-function:cubic-bezier(.55,0,.85,.4)}
     100%{transform:scale(0) rotate(14deg)}}
+  /* the onboarding (openOnboarding below), over the whole window and over
+     everything on it while the board has no profile. its page paints its own
+     paper, the board's; once done it goes on the board's own .18s fade */
+  #onboard{position:fixed; inset:0; width:100%; height:100%; margin:0; padding:0; border:none;
+    z-index:2147483647; background:transparent; transition:opacity .18s ease}
+  #onboard.gone{opacity:0; pointer-events:none}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 <link id="homesheet" rel="stylesheet" href="/home-widgets.css">
@@ -3752,6 +3758,50 @@ let ownerRefused = false;
 let knownOwnerIds = new Set();
 let validActiveOwnerIds = new Set();
 if (LOCKED) document.body.classList.add("locked");
+
+// the onboarding: a board with no complete profile (GET /profile in server.py)
+// has had nobody's first run on it yet. the server says so in front of
+// board-settings.js (BOARD_ONBOARDING), and the onboarding (/onboarding,
+// onboarding.html) is laid over the whole window before anything here can be
+// used. it stands in a frame of its own, so its cards keep their own state and
+// keys, and the board under it loads as it always does but takes no focus,
+// pointer or key (inert). its closing card saves the profile and names the
+// project it opened; the board then shows that project's tab, and the frame
+// goes on the board's own fade
+if (globalThis.BOARD_ONBOARDING) openOnboarding();
+function openOnboarding(){
+  const frame = document.createElement("iframe");
+  frame.id = "onboard";
+  frame.title = "Welcome to Facilitator";
+  frame.src = "/onboarding";
+  // beside the body rather than in it, so the whole board can be inert while
+  // the frame stays live
+  document.documentElement.appendChild(frame);
+  document.body.inert = true;
+  const away = () => {
+    document.body.inert = false;
+    frame.classList.add("gone");
+    frame.addEventListener("transitionend", () => frame.remove(), { once: true });
+    setTimeout(() => frame.remove(), 400);   // reduced motion has no transition to end
+  };
+  // a frame that did not get the onboarding (a server without the page, say)
+  // is taken away rather than left over the board as a wall
+  frame.addEventListener("load", () => {
+    if (!frame.contentDocument?.getElementById("obstage")) away();
+    else frame.contentWindow.focus();
+  });
+  addEventListener("message", async function done(e){
+    if (e.source !== frame.contentWindow || e.origin !== location.origin || e.data?.onboarding !== "done") return;
+    removeEventListener("message", done);
+    await poll();   // the sample project's tab arrives with its label and folder
+    const project = e.data.project;
+    if (project && validActiveOwnerIds.has(project)){
+      if (tabClosed(project)) reopenTab(project);
+      else setTab(project);
+    }
+    away();
+  });
+}
 
 function showOwnerRefusal(message){
   ownerReady = false;
