@@ -3605,6 +3605,163 @@ test("the answer's band comes down with the falling bubble's head rather than dr
   assert.equal(context.sentBand(el, measured()), measured(), "the band is still held once the fall has landed");
 });
 
+// ---- the joined cut from the first frame ------------------------------------------------
+// the stand-in lays nothing out, so which bubble is cut is written by hand, as a
+// browser's measure would set it: the earlier bubble cut or not (topCut), the
+// later one cut or not (bottomCut), and the joined one always, since two
+// messages always run past the lines a bubble shows whole
+function cutScene(topCut, bottomCut) {
+  const s = fallScene(), { context, el, bubbles } = s;
+  const join = context.sentJoin;
+  context.sentJoin = (one, a, b) => { join(one, a, b); a.classList.add("more"); };
+  s.draw([at(W[0], "sent")]);
+  const cut = (panel, on) => panel.classList.toggle("more", on);
+  cut(bubbles()[0], topCut);
+  const motion = context.armSentMotion(el);
+  s.draw([at(W[0], "sent"), at(W[1], "local")], true);
+  cut(bubbles()[0], topCut);
+  cut(bubbles()[1], bottomCut);
+  motion.play();
+  s.frame(1000 / 60);
+  s.draw([at(W[0], "sent"), at(W[1], "sent")]);
+  s.frame(650);
+  s.frame(667);
+  return s;
+}
+const isFoot = node => node.classList.contains("sentfoot");
+const footOf = panel => panel.children.find(isFoot) || null;
+const hasArrow = foot => !!foot.querySelector(".answchev");
+
+test("as the word over the earlier bubble fades, the later bubble takes on the joined bubble's cut, dissolve and arrow", () => {
+  const s = cutScene(false, false), { el, bubbles } = s;
+  assert.equal(el.sentMerge.stage, "move");
+  const [, later] = bubbles();
+  const foot = footOf(later);
+  assert.ok(foot, "the later bubble did not take on the joined foot as the word went");
+  assert.ok(foot.classList.contains("on"), "the joined foot does not come in");
+  assert.equal(foot.getAttribute("aria-hidden"), "true");
+  assert.ok(hasArrow(foot), "the joined bubble's arrow does not come in with its cut");
+  // its own clock is the word's: one timer, the fade's 300ms, and the fall starts on it
+  assert.deepEqual(s.pending().filter(t => t.ms >= s.merge.OUT_MS && t.ms <= 1000).map(t => t.ms), [s.merge.OUT_MS]);
+  s.ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  assert.equal(footOf(later), null, "the foot stayed on the later bubble once the layer drew it");
+  const [joined] = bubbles();
+  const layer = joined.querySelector(".sentgoo");
+  const drawn = layer.querySelector(".sentgoo-foot .sentfoot");
+  assert.ok(drawn, "the layer does not draw the joined foot from the first frame");
+  assert.ok(hasArrow(drawn), "the layer's foot has no arrow while nothing else carries one");
+  assert.equal(drawn.style.opacity, "1");
+  // the words stand in a window that ends at the joined cut
+  const win = layer.querySelector(".sentgoo-win");
+  assert.ok(win, "the words are not windowed at the joined cut");
+  const words = win.children.filter(one => one.classList.contains("sentgoo-words"));
+  assert.equal(words.length, 2, "both bubbles' words are not under the joined cut");
+  const cutAt = joined.querySelector(".answclip").getBoundingClientRect().bottom - joined.getBoundingClientRect().top;
+  assert.ok(Math.abs(parseFloat(win.style.top) + parseFloat(win.style.height) - cutAt) < 1e-6, "the window does not end at the joined cut");
+  // the foot rides the later bubble's box: as wide as the box, from its left edge
+  const footBox = layer.querySelector(".sentgoo-foot");
+  s.frame(300);
+  assert.ok(parseFloat(footBox.style.width) > 0 && footBox.style.left !== "", "the foot does not follow the later bubble's box");
+  s.frame(s.merge.MS);
+  s.frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(joined.querySelector(".sentgoo"), null);
+});
+
+test("a later bubble already cut wears the joined foot as it is, and the layer's foot stands in for its own dissolve and arrow", () => {
+  const s = cutScene(false, true), { el, bubbles } = s;
+  const [, later] = bubbles();
+  assert.equal(footOf(later), null, "a foot was put over the later bubble's own, the same one, twice");
+  s.ringFor(s.merge.OUT_MS);
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  const drawn = layer.querySelector(".sentgoo-foot .sentfoot");
+  assert.ok(drawn && hasArrow(drawn), "the later bubble's arrow is not carried on by the layer's foot");
+  // the later bubble's own picture gives up its dissolve and its arrow to the foot
+  const later2 = layer.querySelector(".sentgoo-win").children[1].children[0];
+  assert.equal(later2.querySelector(".answclip").style.getPropertyValue("--answ-shade"), "0", "the later bubble's own dissolve is drawn under the foot's");
+  assert.equal(later2.querySelector(".answfoot").style.visibility, "hidden", "the later bubble's own arrow is drawn under the foot's");
+});
+
+test("an earlier bubble already cut carries its own cut, dissolve and arrow down, over the joined foot, and is the one arrow", () => {
+  const s = cutScene(true, false), { bubbles } = s;
+  const [earlier, later] = bubbles();
+  const foot = footOf(later);
+  assert.ok(foot, "the later words do not go under the joined cut as the word goes");
+  assert.equal(hasArrow(foot), false, "a second arrow comes in under the earlier bubble's own");
+  s.ringFor(s.merge.OUT_MS);
+  const layer = earlier.querySelector(".sentgoo");
+  const drawn = layer.querySelector(".sentgoo-foot .sentfoot");
+  assert.equal(hasArrow(drawn), false, "the layer draws a second arrow under the earlier bubble's own");
+  const win = layer.querySelector(".sentgoo-win");
+  assert.equal(win.children.length, 1, "the earlier bubble's words are cut at the joined cut before they land there");
+  // drawn over the foot, in its own picture, with its own arrow
+  const order = layer.children;
+  const above = order.indexOf(order.find(one => one.classList.contains("sentgoo-words")));
+  assert.ok(above > order.indexOf(layer.querySelector(".sentgoo-foot")), "the earlier bubble is drawn under the joined foot");
+  assert.ok(order[above].querySelector(".answfoot .answchev"), "the earlier bubble's own arrow is not carried down");
+});
+
+test("when both bubbles are cut the later one's arrow stays put and the earlier one's goes as it sinks onto it", () => {
+  const s = cutScene(true, true), { bubbles, frame } = s;
+  s.ringFor(s.merge.OUT_MS);
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  assert.ok(hasArrow(layer.querySelector(".sentgoo-foot .sentfoot")));
+  const own = layer.children.find(one => one.classList.contains("sentgoo-words")).querySelector(".answfoot");
+  frame(17);
+  assert.equal(own.style.opacity, "1", "the earlier bubble's arrow went before it sank in");
+  frame(s.merge.MS * .8);
+  assert.equal(own.style.opacity, "0", "the earlier bubble's arrow is still drawn over the joined one's at the landing");
+});
+
+test("the joined foot goes again when the two stop matching, at once when the move is let go, and never outlives the seat", () => {
+  const s = cutScene(false, false), { el, bubbles, draw, ringFor, pending } = s;
+  const later = bubbles()[1];
+  const foot = footOf(later);
+  // an agent picks up the second while the word goes: they no longer match
+  draw([at(W[0], "sent"), at(W[1], "delivered")]);
+  ringFor(s.merge.OUT_MS);
+  assert.ok(el.sentMerge === null, "bubbles that no longer match were merged");
+  assert.equal(foot.classList.contains("on"), false, "the joined foot does not go when the two stop matching");
+  const gone = pending().find(t => t.ms === s.merge.OUT_MS + 20);
+  assert.ok(gone, "the joined foot has no clock to go on");
+  gone.fn();
+  assert.equal(footOf(later), null, "the joined foot stayed on a bubble that is not joining");
+  // a move let go of mid way takes its foot with it at once
+  const t = cutScene(false, false);
+  const second = t.bubbles()[1];
+  t.context.sentMergeStop(t.el);
+  assert.equal(footOf(second), null);
+  const u = cutScene(false, false);
+  u.context.dropSent(u.el);
+  assert.equal(u.el.sentwrap.children.length, 0, "the move left its foot in the seat");
+});
+
+test("the joined foot is the sheet's own foot of a cut bubble, to the pixel, and comes in on the word's run", () => {
+  const rule = name => {
+    const at = TOKENS.indexOf("\n" + name + "{");
+    assert.ok(at >= 0, name + " is not in the sheet");
+    return TOKENS.slice(at + 1, TOKENS.indexOf("}", at));
+  };
+  const foot = rule(".sentfoot");
+  // across the words' column, down to the bubble's foot, a dissolve's height over the strip's
+  assert.match(foot, /left:var\(--answ-pad-x\); right:var\(--answ-pad-x\); bottom:0;/);
+  assert.match(foot, /height:calc\(var\(--answ-strip\) \+ var\(--answ-fade\)\)/);
+  // the dissolve is the cut's own strip of grey, and the grey under it ends at the foot of the words
+  assert.match(foot, /linear-gradient\(to bottom, transparent, var\(--answ-fill\) var\(--answ-fade\)\) top \/ 100% calc\(100% - var\(--answ-pad-y\)\) no-repeat/);
+  assert.match(TOKENS, /\.answclip::after\{\s*content:""; position:absolute; left:0; right:0; bottom:0; height:var\(--answ-fade\);\s*background:linear-gradient\(to bottom, transparent, var\(--answ-fill\)\);/);
+  // the word's own 300ms on the card's even curve, and nothing moves under reduced motion
+  assert.match(foot, /transition:opacity calc\(var\(--answ-come\) \* \.75\) var\(--gentle\)/);
+  assert.match(TOKENS, /\.answered\.markout\.markmove::after\{transition:opacity calc\(var\(--answ-come\) \* \.75\) var\(--gentle\)\}/);
+  const reduced = TOKENS.slice(TOKENS.lastIndexOf("@media (prefers-reduced-motion: reduce)", TOKENS.indexOf(".sentfoot{transition:none !important}")));
+  assert.match(reduced.slice(0, reduced.indexOf("\n}")), /\.sentfoot\{transition:none !important\}/);
+  // the arrow in the strip, centred as the panel's own strip centres it
+  assert.match(rule(".sentfoot-arrow"), /bottom:0; height:var\(--answ-strip\);\s*display:flex; align-items:center; justify-content:center/);
+  assert.match(TOKENS, /\.answfoot\{\s*display:none; height:var\(--answ-strip\);\s*align-items:center; justify-content:center;\s*\}/);
+  assert.match(TOKENS, /\.sentgoo-win\{overflow:hidden\}/);
+  assert.ok(!/accent|432BFF|purple/i.test(foot), "the foot wears the accent");
+});
+
 test("two bubbles neither delivered wait as long as the word takes to fade, then fall the same way", () => {
   const s = fallScene(), { el, bubbles, pending, ringFor, frame } = s;
   s.draw([at(W[0], "local")]);
