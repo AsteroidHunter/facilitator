@@ -141,7 +141,8 @@ test("send shells never scale their changing box and reduced motion stills recei
   assert.match(shell, /pointer-events:none/);
   // a layer of its own, but never a transform on the box itself
   assert.doesNotMatch(shell, /(?:^|;)\s*transform\s*:|accent|432BFF/i);
-  // the box is cut out by clips that only move: the shell clips nothing, each
+  // the box is cut out by clips that only move: the sheet gives the shell no cut
+  // of its own (the script writes one where the card shows its foot), each
   // clip hides what stands outside it, and the face is placed by the script,
   // rounded by the clips rather than by itself. the clips and the ground take
   // layers from their animations alone, so the frame a send draws stays light
