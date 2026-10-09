@@ -45,8 +45,11 @@
 //            this browser and drawn the moment the box is made, before the
 //            route has answered; the answer that follows moves the bars and
 //            the numbers where they differ, on the same nodes, so nothing
-//            jumps and the box keeps its size. With no saved reading it keeps
-//            that same space for a quiet loading or empty message
+//            jumps. The box is only as tall as its heading, its rows and its
+//            line, with a small gap under the heading, so it opens at its
+//            finished height from the kept answer and changes height only when
+//            the number of rows does. With no saved reading a quiet loading or
+//            empty message takes the room of one row
 //
 // Each widget is a function of (element, days) that draws into the element
 // it is given and owns nothing outside it, so either can later sit in a shared

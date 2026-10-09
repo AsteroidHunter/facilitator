@@ -64,16 +64,23 @@ function page(which) {
     names.push(n.name);
     if (prev && prev.onblur) prev.onblur();
   }
+  // letting go of the focus leaves nothing focused: the card itself ('card7' in the log)
+  function blurOf(n, id) {
+    if (doc.activeElement !== n) return;
+    doc.activeElement = null;
+    names.push('card' + id);
+    if (n.onblur) n.onblur();
+  }
   function card(id) {
     const box = part('box' + id);
     const title = Object.assign(part('title' + id), {
       textContent: 'Card ' + id, isContentEditable: false,
       setAttribute(n) { if (n === 'contenteditable') this.isContentEditable = true; },
       removeAttribute(n) { if (n === 'contenteditable') this.isContentEditable = false; },
-      focus() { focusOn(this); },
+      focus() { focusOn(this); }, blur() { blurOf(this, id); },
     });
     const ta = Object.assign(part('compose' + id, ['textarea']), {
-      value: 'draft', caret: null, focus() { focusOn(this); },
+      value: 'draft', caret: null, focus() { focusOn(this); }, blur() { blurOf(this, id); },
       setSelectionRange(a, b) { this.caret = [a, b]; },
     });
     const el = { box, titleEl: title, ta, field: { focused: () => doc.activeElement === ta } };
@@ -185,14 +192,14 @@ for (const which of PAGES) {
     });
   }
 
-  test(`${which}: from every starting place Tab, Tab, Tab only ever visits the text box and the title`, () => {
+  test(`${which}: from every starting place Tab, Tab, Tab only ever visits the text box, the title and the card itself`, () => {
     for (const [label, arrange, target] of STARTS) {
       const p = page(which);
       arrange(p);
       const shown = p.context.selectedId;
       p.press({}, target(p));
       for (let i = 0; i < 5; i++) p.press();
-      assert.deepEqual(p.names, ['compose', 'title', 'compose', 'title', 'compose', 'title'].map(n => n + shown), label);
+      assert.deepEqual(p.names, ['compose', 'title', 'card', 'compose', 'title', 'card'].map(n => n + shown), label);
     }
   });
 

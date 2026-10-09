@@ -17,10 +17,11 @@ let poolScope = null;
 // their fields do, where a button anywhere else counts as the page. the desktop
 // names its boxes beside the card; the phone has none
 let keyPanels = null;
-// keyboardTitle: the desktop's keyboard path through a card's title. Tab and
-// shift Tab commit the name and move on to the composer, and Escape hands focus
-// back to the composer. the phone makes the Tab move out of the title in its own
-// listener, and walks the rest of the card with cardTab
+// keyboardTitle: the desktop's keyboard path through a card's title. Tab commits
+// the name and moves on to the card itself (cardStop), shift Tab commits it and
+// moves on to the composer, and Escape hands focus back to the composer. the phone
+// makes the Tab move out of the title in its own listener, and walks the rest of
+// the card with cardTab
 let keyboardTitle = false;
 // answeredRoomChanged: what a page does once the panel that stands ABOVE the
 // answer, holding the messages that answer was given, has taken its room or
@@ -35,6 +36,11 @@ let answeredRoomChanged = null;
 // it held back while the reader was busy can be shown. the desktop asks the
 // board; the phone draws the reading it already holds
 let turnAgain = null;
+// waitNewestFirst: whether the cards awaiting the reader are listed newest turn
+// first. a page answers from the board's waitnewest setting ("1" is newest
+// first); until it does, and wherever it is not set, they are listed oldest
+// turn first
+let waitNewestFirst = () => false;
 
 // Browser defaults shared by the Mac board and the phone document. Install in
 // the head, before fields, drawers or other handlers can stop an event.
@@ -1299,7 +1305,7 @@ function restedSince(b, field){ return b[field] || Number.MAX_SAFE_INTEGER; }
 
 function poolOf(state){
   const keep = poolScope ? poolScope(state) : null;
-  const legacy = (a, b) => {
+  const legacy = (a, b, newest) => {
     // an untouched new card stays on top; the first send drops it into the
     // waiting group; anything green (in progress) sinks below all of that
     const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
@@ -1307,8 +1313,11 @@ function poolOf(state){
     if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
     // the waiting group is a queue: oldest turn first, so old turns do not go
     // stale below newer ones. this is the same measure the post-send jump uses
-    // to pick the longest-waiting card; equal stamps keep the board's order
-    if (g(a) === 1) return waitingSince(a) - waitingSince(b);
+    // to pick the longest-waiting card; equal stamps keep the board's order.
+    // the reader may choose newest turn first instead (waitNewestFirst), which
+    // turns only this comparison over: the jump does not read it, and the other
+    // sections reach here with newest false, so they keep their fallback order
+    if (g(a) === 1) return newest ? waitingSince(b) - waitingSince(a) : waitingSince(a) - waitingSince(b);
     return (b.ts || 0) - (a.ts || 0);                    // queued and working: newest first
   };
   // the four sections lie one after another: doing, docked, deferred, done. doing keeps
@@ -1317,13 +1326,14 @@ function poolOf(state){
   // fall back to the order above
   const part = x => { const s = cardState(x); return s === "done" ? 3 : s === "parked" ? 2 : x.docked ? 1 : 0; };
   const stamp = { 1: "dockedTs", 2: "parkedTs", 3: "doneTs" };
+  const newest = !!waitNewestFirst();
   return state.boxes.filter(b =>
     b.owner === activeOwner && b.id !== "q" && (!keep || keep(b)))
     .sort((a, b) => {
       const pa = part(a), pb = part(b);
       if (pa !== pb) return pa - pb;
       if (pa) return restedSince(b, stamp[pa]) - restedSince(a, stamp[pa]) || legacy(a, b);
-      return legacy(a, b);
+      return legacy(a, b, newest);
     });
 }
 
@@ -2791,6 +2801,14 @@ function sentMotionVisible(node){
   }
   return true;
 }
+// a node of the seat on screen, a bubble hidden for its merge's fall included,
+// whose layer is what is seen of it, and the seat's ground over it
+function sentSeen(el, node){
+  const run = el && el.sentMerge;
+  if (run && run.stage === "merge" && (node === run.a || node === run.floor))
+    return !!node.isConnected && sentMotionVisible(el.sentwrap);
+  return sentMotionVisible(node);
+}
 // Where a card shows its foot, in viewport px: the boxes above the seat that
 // cut what overflows them, met, up to the first box fixed to the viewport,
 // which nothing above it can cut. The body's own overflow is the window's, so
@@ -2831,10 +2849,12 @@ function armSentMotion(el){
   const source = field && field.formatted() && field.view ? field.view.scrollDOM : el.ta;
   if (!sentMotionVisible(source) || typeof source.animate !== "function") return null;
   const standing = sentPanels(el);
-  // The bubbles already standing are pushed up by the new one in their seat.
+  // The bubbles already standing are pushed up by the new one in their seat,
+  // and a bubble part way through its fall with the seat's ground over it.
   // The answer is not among them: it stands still whatever the bubbles do
   // (sentKeepScroll, and the desktop's snap, which leaves the seat out)
-  const beforeNeighbors = standing.filter(node => sentMotionVisible(node))
+  const fallFloor = el.sentMerge && el.sentMerge.stage === "merge" && el.sentMerge.floor;
+  const beforeNeighbors = (fallFloor ? [...standing, fallFloor] : standing).filter(node => sentSeen(el, node))
     .map(node => ({ node, rect:node.getBoundingClientRect() }));
   // Read the previous shifts before replacing them. Existing shells keep
   // flying toward their live seats, so a quick second send never teleports
@@ -2975,7 +2995,7 @@ function armSentMotion(el){
       // What stood before glides from where it stood: every bubble the new one
       // pushes up.
       for (const { node, rect } of beforeNeighbors){
-        if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
+        if (!sentSeen(el, node) || typeof node.animate !== "function") continue;
         const after = node.getBoundingClientRect(), scale = sentScale(node, after);
         const dx = (rect.left - after.left) / scale.x, dy = (rect.top - after.top) / scale.y;
         if (Math.abs(dx) <= .5 && Math.abs(dy) <= .5) continue;
@@ -3429,8 +3449,9 @@ function sentBadgePress(el, e){
 // off the newest message in each: both not delivered yet, both Delivered, or
 // both Read (the owner's rule). while
 // they differ they stay two, each under its own word. once they match, the word
-// under the earlier bubble fades out and comes in under the later one, and only
-// then do the two run together like two drops of water (sentMove, sentMerge).
+// under the earlier bubble fades out, and the moment it is gone the earlier
+// bubble falls into the later one while the word comes in under it (sentMove,
+// sentMerge).
 // a bubble once joined stays one, whatever its messages do next, and carries
 // the one word sentTagOf gives it. what a reading brings that this page did
 // not send is no arrival and moves nothing: it joins the bubble before it at
@@ -3516,22 +3537,31 @@ function sentDropPanel(panel){
 
 // the messages this page sent that did not get through (el.sentHeld) stand in
 // the seat after what the board has, since a reading of the board knows
-// nothing of them
+// nothing of them. what a run of messages is drawn from: the words, and the
+// state, the badge and the stage of each
+function sentKeyOf(msgs){
+  return JSON.stringify(msgs.map(m => [answeredText(m), m.op || "", m.state || "", m.badge || "", m.stage || ""]));
+}
 function syncSent(el, batch, arrive){
   if (!el || !el.sentwrap) return;
   const shown = (batch || []).concat(el.sentHeld || []).filter(m => !ANSWERED_BLANK.test(answeredText(m)));
   if (!shown.length){ dropSent(el); return; }
-  // what the seat is drawn from: the words, and the state, the badge and the
-  // stage of each. a pass bringing the same again touches no dom
-  const key = JSON.stringify(shown.map(m => [answeredText(m), m.op || "", m.state || "", m.badge || "", m.stage || ""]));
+  // a pass bringing the same again touches no dom
+  const key = sentKeyOf(shown);
   if (el.sent && el.sentKey === key) return;
   el.sentKey = key;
   const room = el.sentRoom || null;
-  // a merge in the middle of its motion lands first: this pass draws over it
-  if (el.sentMerge && el.sentMerge.stage === "merge") sentMergeLand(el);
   const own = arrive ? (batch || []).filter(m => !ANSWERED_BLANK.test(answeredText(m))).at(-1) || null : null;
   const standing = sentPanels(el);
   const groups = sentGroups(standing.map(panel => panel.sentMsgs || []), shown, own);
+  // a merge in the middle of its fall goes on under a pass that leaves the
+  // bubble it draws in holding the same messages, each as it was, as a send
+  // after them does; any other pass lands it first and draws over it
+  const falling = el.sentMerge && el.sentMerge.stage === "merge" ? el.sentMerge.a : null;
+  if (falling){
+    const kept = groups.find(group => group.id === standing.indexOf(falling));
+    if (!kept || sentKeyOf(kept.msgs) !== sentKeyOf(falling.sentMsgs || [])) sentMergeLand(el);
+  }
   const drawn = [];
   let fresh = null;   // the bubble this page's send comes into
   groups.forEach((group, i) => {
@@ -3595,21 +3625,24 @@ function dropSent(el){
 // ---- the merge ---------------------------------------------------------------------------
 // the order is the owner's: the later bubble has landed and stands where the
 // earlier one stands; the word under the earlier one fades out (MERGE_OUT_MS,
-// gentler than a word giving way to the next), the word comes in under the
-// later one on the mark's own run (MERGE_IN_MS), it is seen standing there a
-// moment (MERGE_HOLD_MS), and then the two run together (MERGE_MS). the
-// lengths are chosen to read calmly rather than copied from anything: the
-// send's flight is 650ms and the earlier messages glide in 340ms, and the
-// merge is longer than either, since what it shows is a change of shape the
-// eye has to follow, not a thing arriving: the drops touch about a quarter of
-// a second in, the neck takes a tenth more, and the rest is the bubbles
-// travelling and the joint settling. from the moment the later bubble matches
-// to the moment it is one, 1.8s.
-// the drops: the earlier bubble's foot and the later one's head each bulge
-// toward the other, the bulges meet in the middle of the side they share,
-// a neck forms there and widens to the whole side while the gap closes, the
-// narrower one flows out to the wider's width, and the joint settles into one
-// rounded bubble with nothing over or under it. the outline is drawn on every
+// gentler than a word giving way to the next), and the moment it is gone the
+// earlier bubble starts to fall, gently, into the later one (MERGE_MS), while
+// the word comes in under the later one on the mark's own run (MERGE_IN_MS).
+// two bubbles with no word to fade, neither delivered yet, wait the same
+// MERGE_OUT_MS and fall the same way. the send's flight is 650ms and the
+// earlier messages glide in 340ms; the merge is longer than either, since what
+// it shows is a change of shape the eye has to follow, not a thing arriving:
+// the earlier bubble falls over the merge's first four fifths and the joint
+// settles over the last. from the moment the later bubble matches to the
+// moment it is one, 1.3s.
+// the fall: the earlier bubble moves straight down, keeping its height, on a
+// curve with no speed at its start and none at its landing, and nothing past
+// it (FALL_EASE); the later bubble stands where it is. as the earlier one
+// nears, its foot and the later one's head each bulge toward the other, the
+// bulges meet in the middle of the side they share, a neck forms there and
+// widens to the whole side as the foot sinks into the later bubble, the
+// narrower one flows out to the wider's width, and the joint settles into
+// one rounded bubble with nothing over or under it. the outline is drawn on every
 // frame as one clip path over a plain grey face (sentGooPath), the smooth union
 // of the two rounded boxes, so it is exactly the two boxes on the first frame
 // and exactly the joined bubble on the last. no blur, filter or mask: a blur
@@ -3621,14 +3654,20 @@ function dropSent(el){
 // switching to it
 const MERGE_OUT_MS = 300;
 const MERGE_IN_MS = 400;    // MARK_IN_MS, the sheet's --answ-come
-const MERGE_HOLD_MS = 100;
 const MERGE_MS = 1000;
-// how far the bubbles have come together: slow to start, as two drops creep
-// together before they touch, and long to settle, with nothing past the end.
-// they travel over the first four fifths, and the joint settles over the last
-const MERGE_EASE = [.6, 0, .3, 1];
+// the earlier bubble falls over the first four fifths, and the joint settles
+// over the last
 const MERGE_TRAVEL = .8;
-const MERGE_CURVE = sentCurve(MERGE_EASE);
+// how far it has fallen: from no speed, so it sets off softly, to no speed at
+// its landing, which it never passes (both handles stay inside the unit box).
+// a tenth of the way down at 143ms and half way at 281ms, where the curve
+// below is at 211ms and 370ms, so the fall is seen to start as the word goes
+const FALL_EASE = [.4, 0, .2, 1];
+const FALL_CURVE = sentCurve(FALL_EASE);
+// the curve two bubbles came together on before the earlier one fell: slow to
+// start and long to settle, with nothing past the end. the tab joint in
+// index.html runs its own join on it
+const MERGE_EASE = [.6, 0, .3, 1];
 
 // a flight, a fold or a word going out is let finish first; whoever ends it
 // asks again
@@ -3677,11 +3716,13 @@ function sentJoin(el, a, b){
   el.sent = panels[panels.length - 1];
 }
 
-// the word moves first. both bubbles take the grey the joined one is drawn in
-// on the panel's own run, the earlier one's word fades out (and the later
-// one's too, when it says something else), the joined bubble's word comes in
-// under the later one, and after a moment the two run together, if they still
-// stand in one place and nothing else has taken them
+// the word goes first. both bubbles take the grey the joined one is drawn in
+// on the panel's own run, and the earlier one's word fades out (and the later
+// one's too, when it says something else). the moment it is gone, or as long
+// after the two matched when there was no word to go, the earlier bubble
+// starts to fall into the later one and the joined bubble's word comes in
+// under it as it falls, if the two still stand in one place and nothing else
+// has taken them
 function sentMove(el, a, b){
   const run = el.sentMerge = { a, b, stage:"move", timers:[], shifts:[] };
   a.markHeld = b.markHeld = true;
@@ -3692,20 +3733,15 @@ function sentMove(el, a, b){
   for (const one of [a, b]) one.classList.toggle("undelivered", faded);
   const later = (ms, fn) => run.timers.push(setTimeout(() => { if (el.sentMerge === run) fn(); }, ms));
   const going = [a, b].filter(one => one.dataset.mark && (one === a || one.dataset.mark !== tag));
-  const comes = !!tag && b.dataset.mark !== tag;
   for (const one of going){
     one.classList.remove("markin");
     one.classList.add("markout", "markmove");
   }
-  const inAt = going.length ? MERGE_OUT_MS : 0;
-  later(inAt, () => {
+  later(MERGE_OUT_MS, () => {
     for (const one of going){
       one.classList.remove("markout", "markmove");
       showMark(one, "", false);
     }
-    if (comes) showMark(b, tag, true);
-  });
-  later(inAt + (comes ? MERGE_IN_MS : 0) + MERGE_HOLD_MS, () => {
     const panels = sentPanels(el);
     if (panels.indexOf(b) !== panels.indexOf(a) + 1 || panels.indexOf(a) < 0 ||
         sentStands(a.sentMsgs) !== sentStands(b.sentMsgs) || sentBusy(a) || sentBusy(b)){
@@ -3754,7 +3790,8 @@ function sentMergeStop(el){
 // the joined bubble, all in the joined bubble's own px, so the layer moves with
 // it if anything moves it. the room the two give up above them is held by the
 // seat's own ground, which comes down with the earlier bubble's head, and the
-// other bubbles the merge moves glide there on the merge's own curve
+// other bubbles the merge moves glide there on the fall's own curve. the word
+// the move brings in under the later bubble comes in here, on the mark's run
 function sentMerge(el, run){
   const { a, b } = run;
   run.stage = "merge";
@@ -3765,7 +3802,9 @@ function sentMerge(el, run){
   const fill = look.backgroundColor;
   const ground = look.getPropertyValue("--card").trim() || "#fff";
   const corner = parseFloat(look.borderTopLeftRadius) || 0;
-  const word = b.dataset.mark || "";
+  // the joined bubble's word, which comes in unless it stands under the later one already
+  const word = sentTagOf(a.sentMsgs.concat(b.sentMsgs));
+  const comes = !!word && b.dataset.mark !== word;
   const seatFrom = el.sentwrap.getBoundingClientRect();
   // the other bubbles the merge moves; the answer stands still (sentKeepScroll)
   const around = sentPanels(el).filter(one => one !== a && one !== b)
@@ -3790,16 +3829,17 @@ function sentMerge(el, run){
   // the later words' first line in the joined bubble, and whether the cut hides it
   const textTo = bTo ? y(bTo.top) + jointPad : H;
   const hidden = !bTo || bTo.top + jointPad * s.y >= cut.bottom - 1;
-  // the two boxes end as the joined bubble's head and foot, overlapping by a
-  // corner each way so the joint is gone: the head down to the blank line
-  // between the two bubbles' words, the foot up from it
-  const joinAt = Math.max(r, Math.min(H - r, hidden ? H - r : y(bTo.top)));
-  const U1 = { left:0, top:0, right:W, bottom:Math.min(H, joinAt + r) };
-  const L1 = { left:0, top:Math.max(0, joinAt - r), right:W, bottom:H };
+  // the joined bubble is laid out up from the later one's foot, so the later
+  // bubble stands where it is: its box ends where it starts, flowed out to the
+  // joined bubble's width. the earlier one falls until its head is the joined
+  // bubble's head, its foot sunk into the later one by a corner each way past
+  // that one's own head, so the joint is gone once it has landed
+  const L1 = { left:0, top:Math.max(0, Math.min(L0.top, H - 2 * r)), right:W, bottom:H };
+  const U1 = { left:0, top:0, right:W, bottom:Math.min(H, Math.max(U0.bottom - U0.top, L1.top + 2 * r)) };
   const aStart = { x:U0.left, y:U0.top };
   const aEnd = { x:x(aTo.left) - (aFrom.left - A.left) / s.x, y:y(aTo.top) - (aFrom.top - A.top) / s.y };
   // words the cut will hide stay where they stood and fade as the earlier
-  // drop comes down over them, rather than travelling to a place under the cut
+  // bubble sinks over them, rather than travelling to a place under the cut
   const bStart = { x:L0.left, y:L0.top };
   const bEnd = bTo && !hidden ? { x:x(bTo.left) - (bFrom.left - B.left) / s.x, y:textTo - (bFrom.top - B.top) / s.y } : bStart;
   // the layer
@@ -3828,7 +3868,7 @@ function sentMerge(el, run){
   let mark = null;
   if (word){
     mark = document.createElement("div");
-    mark.className = "sentgoo-mark";
+    mark.className = comes ? "sentgoo-mark markin" : "sentgoo-mark";
     mark.textContent = word;
     layer.appendChild(mark);
   }
@@ -3849,19 +3889,26 @@ function sentMerge(el, run){
   const spec = { U0, L0, U1, L1, r };
   const mix = (p, q, f) => p + (q - p) * f;
   const put = t => {
-    const { U, L, k, bow, ey, ew } = sentMergeShape(spec, t);
+    const { U, L, k, bow, ey, ew, sunk } = sentMergeShape(spec, t);
     face.style.clipPath = 'path("' + sentGooPath(U, L, r, k, bow, ext) + '")';
     aWords.style.transform = "translate(" + mix(aStart.x, aEnd.x, ew) + "px," + mix(aStart.y, aEnd.y, ey) + "px)";
-    bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, ey) + "px)";
-    // later words the joined bubble's cut hides go before the earlier foot reaches them
-    if (hidden) bWords.style.opacity = String(1 - sentSmooth((t - .05) / .3));
+    // the later words keep their line until the earlier bubble lands on them
+    bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, sunk) + "px)";
+    // later words the joined bubble's cut hides go as the earlier foot sinks over them
+    if (hidden) bWords.style.opacity = String(1 - sunk);
     if (mark) mark.style.top = L.bottom + "px";
     joined.style.opacity = String(sentSmooth((t - MERGE_TRAVEL) / (1 - MERGE_TRAVEL)));
     const left = Math.min(0, rise * (1 - ey));
     floor.style.top = left + "px";
     floor.style.height = -left + "px";
+    // and the answer's band with it (sentBand), told whenever it has come down a half pixel
+    const held = -left * s.y;
+    if (Math.abs(held - (run.held || 0)) >= .5 || (!held && run.held)){
+      run.held = held;
+      if (el.sentRoom) el.sentRoom();
+    }
   };
-  // the bubbles the merge moves glide on its own curve
+  // the bubbles the merge moves glide down with the fall, on its own curve
   for (const { node, rect } of around){
     if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
     const after = node.getBoundingClientRect(), scale = sentScale(node, after);
@@ -3870,7 +3917,7 @@ function sentMerge(el, run){
     const transform = getComputedStyle(node).transform || "none";
     run.shifts.push(node.animate(
       [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
-      { duration:MERGE_MS * MERGE_TRAVEL, easing:"cubic-bezier(" + MERGE_EASE.join(",") + ")" }));
+      { duration:MERGE_MS * MERGE_TRAVEL, easing:"cubic-bezier(" + FALL_EASE.join(",") + ")" }));
   }
   put(0);   // the two bubbles as they stood, before any frame
   const t0 = performance.now();
@@ -3904,38 +3951,46 @@ function sentMergeLand(el){
   if (el.sentRoom && panel.isConnected) el.sentRoom();
 }
 
-// the two drops at one moment t (0 to 1) of their merge: the earlier box U and
-// the later box L, travelling from where they stood (U0, L0) to the joined
-// bubble's head and foot (U1, L1), how far the sides they share bulge toward
-// each other (bow) and how far their union reaches across (k). the bubbles
-// travel over the first MERGE_TRAVEL and the joint settles over the rest, so
-// the joined bubble's copy comes up over words that have already landed. the
-// bulging and the reach follow how near the two faces have come rather than
-// the clock, so whatever the distance the drops swell toward each other, touch
-// in the middle of the side they share a little after they set off, and the
-// neck widens from there; the reach lets go over the last half, and the
-// joint settles into one rounded bubble. ey is the travel down, ew across:
-// the narrower bubble flowing out to the wider's width, and its words, a
-// shorter message's moving left to the joined bubble's edge, which go at the
-// gentler pace the owner asked for:
+// the two bubbles at one moment t (0 to 1) of their merge: the earlier box U
+// falling from where it stood (U0) to the joined bubble's head (U1), the later
+// box L standing where it stood (L0, which L1 keeps but for its width), how
+// far the sides they share bulge toward each other (bow) and how far their
+// union reaches across (k). the earlier box falls over the first MERGE_TRAVEL
+// and the joint settles over the rest, so the joined bubble's copy comes up
+// over words that have already landed. it falls at its own height until its
+// foot reaches the later one's head, and from there its foot sinks into the
+// later one (sunk, 0 at the touch and 1 on landing) while its head lands, so
+// nothing over the later bubble's head ever stretches. the bulging and the
+// reach follow how near the two faces have come rather than the clock, so
+// whatever the distance they swell toward each other, touch in the middle of
+// the side they share before the faces meet, and the neck widens from there;
+// the bulge lets go as the foot sinks and the reach over the last half, and
+// the joint settles into one rounded bubble. ey is the fall, ew across: the
+// narrower bubble flowing out to the wider's width, and its words, a shorter
+// message's moving left to the joined bubble's edge, which go at the gentler
+// pace the owner asked for:
 // over the whole of the travel from a tenth in, 700ms, rather than 450ms from
 // a fifth in, the fastest frame a little under two thirds as fast as it was
 const MERGE_ACROSS_FROM = .1;
 function sentMergeShape({ U0, L0, U1, L1, r }, t){
-  const ey = MERGE_CURVE(Math.min(1, t / MERGE_TRAVEL));
+  const ey = FALL_CURVE(Math.min(1, t / MERGE_TRAVEL));
   const ew = sentSmooth((t - MERGE_ACROSS_FROM) / (MERGE_TRAVEL - MERGE_ACROSS_FROM));
   const mix = (p, q, f) => p + (q - p) * f;
-  const box = (from, to) => ({ left:mix(from.left, to.left, ew), right:mix(from.right, to.right, ew),
-    top:mix(from.top, to.top, ey), bottom:mix(from.bottom, to.bottom, ey) });
+  const across = (from, to) => ({ left:mix(from.left, to.left, ew), right:mix(from.right, to.right, ew) });
   const gap = Math.max(0, L0.top - U0.bottom);
-  // the share of the travel at which the two faces would meet with no help
-  const travel = (U1.bottom - U0.bottom) + (L0.top - L1.top);
+  // the share of the fall at which the two faces would meet with no help
+  const travel = (U1.top - U0.top) + (L0.top - L1.top);
   const meet = travel > 0 ? Math.min(1, gap / travel) : 0;
   const near = meet > 0 ? ey / meet : 1;
+  const from = Math.min(meet, .9);
+  const sunk = sentSmooth((ey - from) / (1 - from));
+  const top = mix(U0.top, U1.top, ey), tall = U0.bottom - U0.top;
+  const U = { ...across(U0, U1), top, bottom:top + tall + (U1.bottom - U1.top - tall) * sunk };
+  const L = { ...across(L0, L1), top:mix(L0.top, L1.top, ey), bottom:mix(L0.bottom, L1.bottom, ey) };
   const bulge = Math.max(4, .3 * gap), reach = Math.max(1.5 * r, 1.65 * gap);
-  const bow = bulge * sentSmooth(near / .8) * (1 - sentSmooth((near - 1) / 1.2));
+  const bow = bulge * sentSmooth(near / .8) * (1 - sentSmooth(sunk / .55));
   const k = reach * sentSmooth((near - .45) / .5) * (1 - sentSmooth((t - .4) / .45));
-  return { U:box(U0, U1), L:box(L0, L1), k, bow, ey, ew };
+  return { U, L, k, bow, ey, ew, sunk };
 }
 
 // a css cubic-bezier as a function of its x, found by halving
@@ -4064,8 +4119,14 @@ function sentGooPath(U, L, r, k, bow, ext){
 // a cut back set off (the owner's recording).
 // following the bubble, the fade rides its top edge the whole way
 // and nothing changes once it has stopped. band is what the page measured;
-// what comes back is what it should write
+// what comes back is what it should write. while one bubble falls into the
+// next the seat already stands at its joined height, and the band is held
+// down by the room the falling bubble's head has still to come down (the
+// seat's ground over it, run.held, in the page's px), so the fade comes down
+// with the head rather than dropping the whole way on the fall's first frame
 function sentBand(el, band){
+  const run = el.sentMerge;
+  if (run && run.stage === "merge" && run.held) band = Math.round(band + run.held);
   sentKeepScroll(el, band);
   return band;
 }
@@ -4990,7 +5051,7 @@ function editTitle(id, opts){
     // the name keeps the keys it is typed with; a command of the page's goes on
     if (!pageChord(e)) e.stopPropagation();
     if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }
-    else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); el.ta.focus(); }
+    else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); if (e.shiftKey) el.ta.focus(); else cardStop(el); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
       else { end(); t.textContent = old; }
@@ -5000,24 +5061,36 @@ function editTitle(id, opts){
   t.onblur = () => { if (t.isContentEditable) commit(); };
 }
 
-// Tab on a card walks two stops and no others: the box the reader types in, then
-// the title, and round again, with shift Tab walking them the other way. the
-// buttons of the top row, the plus and the send arrow keep their clicks, taps and
-// own keys and are only no longer stops. from anywhere else on the card Tab lands
-// on the box and shift Tab on the title. out of the title the page makes the move
-// itself (editTitle on the desktop, the Tab listener ahead of it on the phone).
-// answers true when it moved the focus; toBox is how the page puts the caret in
-// the box
+// Tab on a card walks three stops and no others: the title, the card itself with
+// nothing focused (so the card's keys act on it), and the box the reader types in,
+// and round again, with shift Tab walking them the other way. the buttons of the
+// top row, the plus and the send arrow keep their clicks, taps and own keys and are
+// only no longer stops. with nothing focused, or on any spot of the card that is
+// not a stop, Tab lands on the box and shift Tab on the title. out of the title the
+// page makes the move itself (editTitle on the desktop, the Tab listener ahead of it
+// on the phone). answers true when it moved the focus; toBox is how the page puts
+// the caret in the box
 function cardTab(e, id, toBox){
   if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.defaultPrevented) return false;
   const el = els[id];
   if (!el || el.titleEl.contains(e.target)) return false;
   e.preventDefault();
-  if (el.field.focused() || e.shiftKey){
+  if (el.field.focused() && e.shiftKey) cardStop(el);
+  else if (el.field.focused() || e.shiftKey){
     if (el.titleEl.isContentEditable) el.titleEl.focus();
     else editTitle(id);
   } else toBox(el);
   return true;
+}
+
+// the card itself: whatever holds the focus lets go of it and nothing is focused, so
+// the card's keys act on the card as they do after a click on its bare face. a title
+// being renamed keeps its name as it blurs (editTitle's blur) and drops its
+// selection; a half-typed message stays in the box
+function cardStop(el){
+  const live = document.activeElement;
+  if (live && typeof live.blur === "function" && live !== document.body) live.blur();
+  if (live === el.titleEl) getSelection().removeAllRanges();
 }
 
 // a key typed in a text field, a list or a dialog is that control's own, and
@@ -5075,7 +5148,9 @@ function jumpNextYellow(fromId, opts, source){
   // agent has never answered has only its own ts to age by, and one carrying
   // neither stamp cannot be aged, so it sorts last instead of posing as the
   // oldest thing here. the filter above already made a fresh array, so nothing
-  // else sees this sort, and equal stamps keep the list's own order
+  // else sees this sort, and equal stamps keep the list's own order. the reader's
+  // choice of newest first (waitNewestFirst) turns the list over by stamp only,
+  // so equal stamps stand as they did and the card this lands on is the same
   const listOrder = new Map(p.map((b, i) => [b.id, i]));
   p.sort((a, b) => waitingSince(a) - waitingSince(b) || listOrder.get(a.id) - listOrder.get(b.id));
   select(p[0].id, opts);

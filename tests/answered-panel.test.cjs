@@ -3327,10 +3327,11 @@ test("send morph keeps an earlier flight in the air through a rapid second send"
 // ---- one bubble for each send, and the merge ------------------------------------------
 // the owner's rule: a new message goes as
 // a bubble of its own and joins the one above it only once the two stand in the
-// same place, not delivered, Delivered or Read, the word under the earlier one
-// moving to the new one first. the seat is laid out by hand, one bubble over the
-// next, so the merge runs on its own clocks and frames; a seat left unlaid is one
-// not on screen, where the two become one at once
+// same place, not delivered, Delivered or Read: the word under the earlier one
+// fades out, and the moment it is gone the earlier bubble falls into the new
+// one while the word comes in under it. the seat is laid out by hand, one bubble
+// over the next, so the merge runs on its own clocks and frames; a seat left
+// unlaid is one not on screen, where the two become one at once
 const W = ["Invented first.", "Invented second.", "Invented third."];
 const at = (text, stage) => ({ text, stage });
 function seatScene() {
@@ -3352,7 +3353,7 @@ function seatScene() {
   };
   const draw = (list, arrive) => { s.context.syncSent(s.el, list, arrive); lay(); };
   // the merge's own lengths, read off the script
-  const merge = Object.fromEntries(["OUT_MS", "IN_MS", "HOLD_MS", "MS"].map(k => [k, s.run("MERGE_" + k)]));
+  const merge = Object.fromEntries(["OUT_MS", "IN_MS", "MS"].map(k => [k, s.run("MERGE_" + k)]));
   return { ...s, bubbles, lay, draw, merge };
 }
 const marks = panels => [...panels].map(panel => panel.dataset.mark || "");
@@ -3379,14 +3380,10 @@ test("a second message stands in a bubble of its own, and joins only once it sta
   assert.equal(second.dataset.mark, undefined, "a word stood under the second while the first was still going");
   assert.ok(first.classList.contains("coalesce"), "the refresh does not wait out the merge");
   assert.equal(context.turnHolding(el, "motion"), true, "a page turn would cut the merge short");
-  // then it comes in under the second, on the mark's own run
+  // the moment the word is gone the first falls into the second, and the word
+  // comes in under it on the mark's own run as it falls
   ringFor(s.merge.OUT_MS);
-  assert.deepEqual(marks(bubbles()), ["", "Delivered"], "the word did not move down to the later bubble");
-  assert.ok(second.classList.contains("markin"), "the word did not come in under the later bubble");
-  assert.equal(bubbles().length, 2, "the bubbles joined before the word had come in");
-  // and only then the two run together
-  ringFor(s.merge.OUT_MS + s.merge.IN_MS + s.merge.HOLD_MS);
-  assert.equal(el.sentMerge.stage, "merge");
+  assert.equal(el.sentMerge.stage, "merge", "the first did not start to fall as its word went");
   assert.equal(bubbles().length, 1, "the two did not become one");
   assert.equal(bubbles()[0], first, "the joined bubble is not the first one");
   assert.deepEqual(first.querySelector(".answstack").children.map(row => row.dataset.text), [W[0], W[1]]);
@@ -3394,7 +3391,9 @@ test("a second message stands in a bubble of its own, and joins only once it sta
   assert.ok(layer, "the merge has no layer to draw in");
   assert.equal(first.style.visibility, "hidden", "the joined bubble showed before the merge was drawn");
   assert.equal(layer.style.visibility, "visible");
-  assert.equal(layer.querySelector(".sentgoo-mark").textContent, "Delivered", "the word under the drops is not the moved one");
+  const word = layer.querySelector(".sentgoo-mark");
+  assert.equal(word.textContent, "Delivered", "the word under the two is not the moved one");
+  assert.ok(word.classList.contains("markin"), "the word did not come in under the second as the first fell");
   // the first frame drawn is the two bubbles as they stood, two shapes with their own corners
   const face = layer.querySelector(".sentgoo-face");
   assert.equal((face.style.clipPath.match(/M/g) || []).length, 2);
@@ -3434,26 +3433,27 @@ test("two bubbles standing in different places never merge, each keeping its own
   t.draw([at(W[0], "sent"), at(W[1], "local")].map(m => ({ ...m, state: "pending" })));
   for (const timer of t.pending()) timer.fn();
   assert.equal(t.bubbles().length, 2, "Delivered and not delivered joined");
-  // both Read: the word moves, and the merge follows
+  // both Read: the words go, and the first falls into the second under Read
   draw([at(W[0], "delivered"), at(W[1], "read")]);
   assert.equal(el.sentMerge.stage, "move", "two bubbles both Read did not begin to merge");
   const [first, second] = bubbles();
   assert.ok(first.classList.contains("markout") && second.classList.contains("markout"),
     "Read under the first and Delivered under the second do not both go out");
   s.ringFor(s.merge.OUT_MS);
-  assert.deepEqual(marks(bubbles()), ["", "Read"]);
+  assert.equal(el.sentMerge.stage, "merge");
+  assert.deepEqual(marks(bubbles()), ["Read"]);
+  assert.equal(first.querySelector(".sentgoo-mark").textContent, "Read");
 });
 
-test("a move whose bubbles stop matching before the merge gives each its own word back and merges nothing", () => {
+test("a move whose bubbles stop matching before the fall gives each its own word back and merges nothing", () => {
   const s = seatScene(), { context, el, ringFor, bubbles, draw } = s;
   draw([at(W[0], "sent")]);
   draw([at(W[0], "sent"), at(W[1], "local")], true);
   draw([at(W[0], "sent"), at(W[1], "sent")]);
   assert.equal(el.sentMerge.stage, "move");
-  ringFor(s.merge.OUT_MS);
-  // an agent picks up the second before the merge: Delivered over Read
+  // an agent picks up the second while the first word is going: Delivered over Read
   draw([at(W[0], "sent"), at(W[1], "delivered")]);
-  ringFor(s.merge.OUT_MS + s.merge.IN_MS + s.merge.HOLD_MS);
+  ringFor(s.merge.OUT_MS);
   assert.equal(el.sentMerge, null);
   assert.equal(bubbles().length, 2, "bubbles that no longer match were merged");
   assert.deepEqual([...bubbles()].map(one => one.dataset.tag), ["Delivered", "Read"]);
@@ -3476,8 +3476,7 @@ test("a reader who asked for no motion sees the two become one the moment they m
   assert.equal(one.querySelector(".sentgoo"), null, "a merge was drawn against the setting");
   for (const name of ["markout", "markmove", "markin", "coalesce"])
     assert.equal(one.classList.contains(name), false, `the joined bubble wears ${name}`);
-  assert.ok(!pending().some(t => [s.merge.OUT_MS, s.merge.OUT_MS + s.merge.IN_MS + s.merge.HOLD_MS].includes(t.ms)),
-    "a merge's clock stands behind a merge that did not run");
+  assert.ok(!pending().some(t => t.ms === s.merge.OUT_MS), "a merge's clock stands behind a merge that did not run");
 });
 
 test("a bubble once joined stays one, whatever its messages do next", () => {
@@ -3500,30 +3499,232 @@ test("a bubble once joined stays one, whatever its messages do next", () => {
   assert.equal(context.sentPanels(el).length, 1);
 });
 
-test("a merge in motion lands at once when the seat is drawn again or taken away, and leaves nothing behind", () => {
+// a send flown into its seat the way a page sends it: armed, drawn as an
+// arrival, played and flown to its landing at 650ms. board is what the board
+// says of the messages while the send is in the air, drawn as a reading
+function flySecond(s, after, board) {
+  const motion = s.context.armSentMotion(s.el);
+  s.draw(after, true);
+  motion.play();
+  s.frame(1000 / 60);
+  if (board) s.draw(board);
+  s.frame(650);
+  s.frame(667);
+}
+// where a copy of words stands in the merge's layer
+const shifted = node => Number(/translate\([^,]+px,([^)]+)px\)/.exec(node.style.transform)[1]);
+// the seat laid out the way the pages lay it out, up from its foot: a bubble of
+// one message 45px tall, a joined one cut to its preview at 87px, its rows 42px
+// apart, 26px between two bubbles (the word's room and the step), and laid out
+// again the moment two bubbles join, as a browser would before the merge reads it
+function fallScene() {
+  const s = seatScene(), { context, el, bubbles } = s;
+  const lay = () => {
+    let foot = 480;
+    const panels = bubbles();
+    for (let i = panels.length - 1; i >= 0; i--) {
+      const panel = panels[i], rows = context.sentRows(panel);
+      const height = rows.length > 1 ? 87 : 45, top = foot - height;
+      panel.isConnected = true;
+      rect(panel, 150, top, 170, height);
+      rows.forEach((row, n) => { row.isConnected = true; rect(row, 168, top + 12 + 42 * n, 134, 21); });
+      rect(panel.querySelector(".answclip"), 168, top + 12, 134, Math.min(height - 24, 52));
+      foot = top - 26;
+    }
+    el.sentwrap.isConnected = true;
+    rect(el.sentwrap, 0, foot + 26, 390, Math.max(1, 480 - foot - 26));
+    el.replyview.rect = { top: 100, bottom: 700 };
+  };
+  const join = context.sentJoin;
+  context.sentJoin = (...args) => { join(...args); lay(); };
+  const draw = (list, arrive) => { context.syncSent(el, list, arrive); lay(); };
+  return { ...s, lay, draw };
+}
+
+test("the earlier bubble starts to fall the moment the word under it has faded, and only it moves", () => {
+  const s = fallScene(), { context, el, bubbles, pending, ringFor, frame } = s;
+  s.draw([at(W[0], "sent")]);
+  const [first] = bubbles();
+  // the second is Delivered while it flies: two bubbles both Delivered once it lands
+  flySecond(s, [at(W[0], "sent"), at(W[1], "local")], [at(W[0], "sent"), at(W[1], "sent")]);
+  assert.equal(bubbles().length, 2);
+  assert.equal(el.sentMerge.stage, "move", "the two did not begin to join as the second landed");
+  assert.ok(first.classList.contains("markout") && first.classList.contains("markmove"), "the first word is not fading out");
+  // one clock, the word's own fade (the sheet's 300ms), and nothing falls before it rings
+  assert.deepEqual(pending().filter(t => t.ms >= s.merge.OUT_MS && t.ms <= 1000).map(t => t.ms), [s.merge.OUT_MS]);
+  assert.equal(first.querySelector(".sentgoo"), null, "the first fell while its word was still there");
+  ringFor(s.merge.OUT_MS);
+  assert.equal(first.classList.contains("markout"), false, "the word is still going as the first falls");
+  assert.equal(el.sentMerge.stage, "merge", "the first did not start to fall as its word went");
+  // the first frame is the two where they stood; a frame later the first is on its way down and the second has not moved
+  const [upper, lower] = first.querySelectorAll(".sentgoo .sentgoo-words");
+  const from = shifted(upper), stays = shifted(lower);
+  frame(50);
+  assert.ok(shifted(upper) > from, "the first had not started down 50ms after its word went");
+  for (const ms of [100, 300, 500, 700, 800]) {
+    frame(ms);
+    assert.equal(shifted(lower), stays, `the second's words moved at ${ms}ms`);
+  }
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(bubbles().length, 1);
+  assert.deepEqual(marks(bubbles()), ["Delivered"]);
+  assert.equal(context.turnHolding(el, "motion"), false);
+});
+
+test("the answer's band comes down with the falling bubble's head rather than dropping on the fall's first frame", () => {
+  const s = fallScene(), { context, el, ringFor, frame } = s;
+  // what the page measures: the depth of the answer the seat stands over, from
+  // an answer whose foot is at 600, and what it writes, which sentBand says
+  const measured = () => 600 - el.sentwrap.rect.top;
+  const written = [];
+  el.sentRoom = () => { if (el.sentwrap.rect) written.push([measured(), context.sentBand(el, measured())]); };
+  s.draw([at(W[0], "sent")]);
+  flySecond(s, [at(W[0], "sent"), at(W[1], "local")], [at(W[0], "sent"), at(W[1], "sent")]);
+  const before = context.sentBand(el, measured());
+  written.length = 0;
+  ringFor(s.merge.OUT_MS);
+  // the seat already stands at its joined height, lower by the whole fall
+  const fall = before - measured();
+  assert.ok(fall > 20, `the seat did not come down for the fall (${fall}px)`);
+  assert.ok(written.length, "the page was not told of the band as the fall began");
+  assert.equal(written.at(-1)[1], before, "the band dropped the whole fall on its first frame");
+  let last = before;
+  for (let ms = 17; ms <= 1000; ms += 17) {
+    frame(ms);
+    const band = written.at(-1)[1];
+    assert.ok(band <= last && band >= measured(), `the band went back up or past the seat at ${ms}ms`);
+    assert.ok(last - band <= 4, `the band dropped ${last - band}px in one frame at ${ms}ms`);
+    last = band;
+  }
+  frame(s.merge.MS);
+  assert.equal(written.at(-1)[1], measured(), "the band is not the joined seat's on the fall's last frame");
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(context.sentBand(el, measured()), measured(), "the band is still held once the fall has landed");
+});
+
+test("two bubbles neither delivered wait as long as the word takes to fade, then fall the same way", () => {
+  const s = fallScene(), { el, bubbles, pending, ringFor, frame } = s;
+  s.draw([at(W[0], "local")]);
+  const [first] = bubbles();
+  // nothing reaches the board while the second flies: both stand not delivered as it lands
+  flySecond(s, [at(W[0], "local"), at(W[1], "local")]);
+  assert.equal(bubbles().length, 2);
+  assert.deepEqual(marks(bubbles()), ["", ""], "a word stands under a message not delivered");
+  assert.equal(el.sentMerge.stage, "move", "the two did not begin to join as the second landed");
+  assert.ok(!bubbles().some(one => one.classList.contains("markout")), "a word goes out where there was none");
+  // the same clock as the word's fade, and nothing falls before it rings
+  assert.deepEqual(pending().filter(t => t.ms >= s.merge.OUT_MS && t.ms <= 1000).map(t => t.ms), [s.merge.OUT_MS]);
+  assert.equal(first.querySelector(".sentgoo"), null, "the first fell before the pause was out");
+  ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge", "the first did not start to fall after the pause");
+  assert.equal(first.querySelector(".sentgoo-mark"), null, "a word came in under messages not delivered");
+  const [upper] = first.querySelectorAll(".sentgoo .sentgoo-words");
+  const from = shifted(upper);
+  frame(50);
+  assert.ok(shifted(upper) > from, "the first had not started down 50ms after the pause");
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(bubbles().length, 1);
+  assert.equal(bubbles()[0].classList.contains("undelivered"), true, "the joined bubble lost its faded grey");
+});
+
+test("a third message sent while the first falls into the second leaves the fall going, and all three end as one bubble", () => {
+  const s = seatScene(), { context, el, bubbles, ringFor, frame } = s;
+  s.draw([at(W[0], "sent")]);
+  s.draw([at(W[0], "sent"), at(W[1], "local")], true);
+  s.draw([at(W[0], "sent"), at(W[1], "sent")]);
+  ringFor(s.merge.OUT_MS);
+  frame(300);
+  const run = el.sentMerge, [joined] = bubbles();
+  assert.equal(run.stage, "merge");
+  // the third, sent part way down: a bubble of its own under the falling one, and the fall goes on
+  s.draw([at(W[0], "sent"), at(W[1], "sent"), at(W[2], "local")], true);
+  assert.ok(el.sentMerge === run, "the send landed the fall part way down");
+  assert.ok(joined.querySelector(".sentgoo"), "the fall's layer went under the send");
+  assert.equal(joined.style.visibility, "hidden", "the joined bubble showed part way through the fall");
+  assert.equal(bubbles().length, 2);
+  assert.ok(bubbles()[0] === joined, "the falling bubble is not the first in the seat");
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(joined.style.visibility, "");
+  // the third is not delivered yet, so it stands apart under Delivered
+  assert.equal(bubbles().length, 2);
+  // the board has it: the word under the joined bubble fades, and the joined bubble falls into it
+  s.draw([at(W[0], "sent"), at(W[1], "sent"), at(W[2], "sent")]);
+  assert.equal(el.sentMerge.stage, "move");
+  ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the second fall did not land");
+  assert.equal(bubbles().length, 1, "three messages did not end as one bubble");
+  assert.deepEqual(bubbles()[0].querySelector(".answstack").children.map(row => row.dataset.text), W);
+  assert.deepEqual(marks(bubbles()), ["Delivered"]);
+});
+
+test("a send made part way through a fall glides the falling bubble and the seat's ground up with the rest", () => {
+  const s = seatScene(), { context, el, bubbles, ringFor, frame } = s;
+  s.draw([at(W[0], "sent")]);
+  s.draw([at(W[0], "sent"), at(W[1], "local")], true);
+  s.draw([at(W[0], "sent"), at(W[1], "sent")]);
+  ringFor(s.merge.OUT_MS);
+  frame(300);
+  const run = el.sentMerge, [joined] = bubbles(), floor = run.floor;
+  // the stand-in reads a hidden node as hidden, as a browser does
+  const seen = context.getComputedStyle;
+  context.getComputedStyle = (node, pseudo) => ({ ...seen(node, pseudo),
+    visibility: node.style && node.style.visibility === "hidden" ? "hidden" : "visible" });
+  assert.equal(context.sentMotionVisible(joined), false, "the falling bubble is not hidden");
+  floor.isConnected = true;
+  rect(floor, 0, 290, 390, 10);
+  const motion = context.armSentMotion(el);
+  s.draw([at(W[0], "sent"), at(W[1], "sent"), at(W[2], "local")], true);
+  // the seat grows up from its foot: what stood moves up by the new bubble's room
+  rect(joined, 150, 238, 170, 45);
+  rect(floor, 0, 228, 390, 10);
+  const third = bubbles()[1];
+  rect(third, 150, 300, 170, 45);
+  for (const row of third.querySelector(".answstack").children) rect(row, 168, 312, 134, 21);
+  motion.play();
+  for (const node of [joined, floor]) {
+    const glide = node.animations.at(-1);
+    assert.ok(glide, "a node of the fall did not glide with the send");
+    assert.match(glide.keys[0].transform, /^translate\(0px,62px\)/);
+    assert.equal(glide.options.duration, s.run("SENT_GLIDE_MS"));
+  }
+  assert.ok(el.sentMerge === run, "the send landed the fall");
+  assert.ok(joined.querySelector(".sentgoo"));
+});
+
+test("a merge lands at once under a reading that changes its messages, or when the seat is taken away, and leaves nothing behind", () => {
   const start = () => {
     const s = seatScene();
     s.draw([at(W[0], "sent")]);
     s.draw([at(W[0], "sent"), at(W[1], "local")], true);
     s.draw([at(W[0], "sent"), at(W[1], "sent")]);
     s.ringFor(s.merge.OUT_MS);
-    s.ringFor(s.merge.OUT_MS + s.merge.IN_MS + s.merge.HOLD_MS);
     s.frame(300);
     assert.equal(s.el.sentMerge.stage, "merge");
     return s;
   };
-  // a third message sent mid merge: the merge lands, and the third stands on its own
+  // an agent picks up the first part way down: the fall lands, and the joined bubble is drawn as it is now
   const s = start();
   const [joined] = s.bubbles();
-  s.draw([at(W[0], "sent"), at(W[1], "sent"), at(W[2], "local")], true);
-  assert.equal(s.el.sentMerge, null);
+  s.draw([at(W[0], "delivered"), at(W[1], "sent")]);
+  assert.ok(s.el.sentMerge === null, "a reading that changed the falling bubble's messages did not land the fall");
   assert.equal(joined.querySelector(".sentgoo"), null, "the merge's layer stayed under a new pass");
+  assert.equal(s.el.sentwrap.querySelector(".sentgoo-ground"), null);
   assert.equal(joined.style.visibility, "");
-  assert.equal(s.bubbles().length, 2);
+  assert.equal(s.bubbles().length, 1);
   assert.deepEqual(joined.querySelector(".answstack").children.map(row => row.dataset.text), [W[0], W[1]]);
   // the answer lands mid merge: everything goes
   const t = start();
   t.context.dropSent(t.el);
-  assert.equal(t.el.sentMerge, null);
+  assert.ok(t.el.sentMerge === null, "the seat taken away left the fall going");
   assert.equal(t.el.sentwrap.children.length, 0, "the merge left its layer or ground in the seat");
 });

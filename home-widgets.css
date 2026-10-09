@@ -149,14 +149,16 @@
 .tk-updated:empty, .lm-updated:empty{display:none}
 @media (prefers-reduced-motion: reduce){ .tk-refresh.on::before{animation:none} }
 
-/* Reserve four plan rows even with no saved reading or only one provider.
-   Keep spare room above the rows, not between the last row and its timestamp.
-   Replacing a loading message or changing providers never moves either box. */
-.lm-box{height:calc(184 * var(--u, 1px))}
-.lm-rows{flex:1 1 auto; min-height:0; display:grid;
+/* The box is only as tall as its heading, the rows it has and its timestamp,
+   with a small gap under the heading, so there is no empty room above the rows.
+   The page draws the last kept reading when it makes the box, so the box opens
+   at its finished height and changes height only when the number of rows does.
+   A loading or empty message takes one row, never more than the rows would. */
+.lm-box{height:auto}
+.lm-rows{flex:none; display:grid; margin-top:calc(7 * var(--u, 1px));
   grid-template-columns:max-content minmax(0, 1fr) max-content; grid-auto-rows:16px;
-  align-items:center; align-content:end; column-gap:calc(10 * var(--u, 1px)); row-gap:calc(7 * var(--u, 1px))}
-.lm-rows > .tk-wait{grid-column:1 / -1; grid-row:1 / span 4; height:100%}
+  align-items:center; column-gap:calc(10 * var(--u, 1px)); row-gap:calc(7 * var(--u, 1px))}
+.lm-rows > .tk-wait{display:block; grid-column:1 / -1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .lm-title{flex:none; font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink)}
 .lm-row{display:contents}
 .lm-name{color:var(--ink); white-space:nowrap}

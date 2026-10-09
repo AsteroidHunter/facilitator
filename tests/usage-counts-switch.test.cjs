@@ -43,7 +43,7 @@ const VIEWS = {
   mac: { source: MAC, setsrc: () => between(MAC, '<div id="setsrc"', '<div id="appframe"'),
          sections: ["appearance", "editor", "improvements"] },
   phone: { source: PHONE, setsrc: () => between(PHONE, '<div id="setsrc">', '<div id="setfoot">'),
-           sections: ["editor", "notifications", "improvements", "diagnostics"] },
+           sections: ["editor", "appearance", "notifications", "improvements", "diagnostics"] },
 };
 
 for (const [name, view] of Object.entries(VIEWS)) {
@@ -84,6 +84,7 @@ function macPage(stored = {}) {
                      removeItem: k => store.delete(k) },
     settingsOverlay: (host, source, opts) => { overlay = opts; return { open: () => opts.onOpen() } },
     ComposeFormat: { enabled: () => false, setEnabled() {}, onChange() {}, preload() {} },
+    waitNewestFirst: () => false, lastState: null, renderCarousel() {},   // the block beside this switch, not under test here
   });
   vm.runInContext(between(MAC, "// ---- settings ----", "function buildHandles()"), context);
   const usage = element("setusage");
@@ -130,7 +131,7 @@ function phonePage({ values = {}, refuse = false } = {}) {
       return { ok: true, json: async () => ({ rev: 1, values: { ...board.values } }) };
     },
   });
-  vm.runInContext(between(PHONE, "// the daily usage counts: the one switch here", "// the editor it is drawn with"), context);
+  vm.runInContext(between(PHONE, "// the daily usage counts: the one switch here", "// the order of the cards waiting"), context);
   return {
     board, usage,
     async flip(on) { usage.checked = on; usage.events.change(); await settle(); },
