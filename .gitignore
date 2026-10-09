@@ -36,9 +36,14 @@
 /usage-counts.json
 /usage-counts.json.tmp
 
-# the install's random id and, after a yes to feedback mail, the email: usage_counts.py
+# the install's random id and, after a yes to feedback mail, the email and the
+# answers that go with it: usage_counts.py
 /usage-install.json
 /usage-install.json.tmp
+
+# who uses this board, from the onboarding and Settings, Profile: server.py
+/profile.json
+/profile.json.tmp
 
 # real seed content: private discussion topics, never committed
 /seed.json
