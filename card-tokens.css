@@ -613,9 +613,6 @@
 /* the words of the merge stand in a window that ends at the joined cut */
 .sentgoo-win{overflow:hidden}
 .sentgoo-win > *{position:absolute; transform-origin:0 0}
-/* short earlier words in the place they take are cut to the bubbles' outline,
-   as the face is (card-logic.js: sentShortFade) */
-.sentgoo-shape > *{position:absolute; transform-origin:0 0}
 
 /* ---- the delivery marks -------------------------------------------------- */
 /* where a sent message stands (card-logic.js names the stages). a message the
