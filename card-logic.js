@@ -4154,7 +4154,6 @@ function sentMerge(el, run){
     .filter(node => sentMotionVisible(node)).map(node => ({ node, rect:node.getBoundingClientRect() }));
   const aCopy = sentSnapshot(a, true), bCopy = sentSnapshot(b, true);
   const count = a.sentMsgs.length;
-  const aCut = a.classList.contains("more");
   sentJoin(el, a, b);
   const M = a.getBoundingClientRect(), s = sentScale(a, M);
   const rows = sentRows(a);
@@ -4208,22 +4207,7 @@ function sentMerge(el, run){
   };
   const aWords = holder(aCopy, true), bWords = holder(bCopy, true), joined = holder(mCopy, false);
   joined.style.opacity = "0";
-  // the earlier words of a bubble that was not cut fall into the joined
-  // bubble's cut: they are drawn in a window that dissolves them over the half
-  // line above it and hides them under it, as the joined bubble does, so the
-  // joined cut's dissolve is there as they land. a cut earlier bubble brings
-  // its own cut down, and the later bubble is never drawn in the window
-  const win = sentJoinedCut(a, cut, ext, y, aCut);
-  if (win){
-    Object.assign(aWords.style, { left:-ext.left + "px", top:-ext.top + "px" });
-    win.appendChild(aWords);
-  }
-  layer.append(face, win || aWords, bWords);
-  // the later words the joined cut hides go as the earlier bubble sinks over
-  // them. under an earlier bubble with no arrow of its own to bring down (not
-  // cut), the later bubble's arrow stays for the joined bubble's, which only
-  // comes up at the end
-  const bText = !hidden ? null : aCut ? bWords : bCopy.querySelector(".answclip") || bWords;
+  layer.append(face, aWords, bWords);
   let mark = null;
   if (word){
     mark = document.createElement("div");
@@ -4254,7 +4238,7 @@ function sentMerge(el, run){
     // the later words keep their line until the earlier bubble lands on them
     bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, sunk) + "px)";
     // later words the joined bubble's cut hides go as the earlier foot sinks over them
-    if (bText) bText.style.opacity = String(1 - sunk);
+    if (hidden) bWords.style.opacity = String(1 - sunk);
     if (mark) mark.style.top = L.bottom + "px";
     joined.style.opacity = String(sentSmooth((t - MERGE_TRAVEL) / (1 - MERGE_TRAVEL)));
     const left = Math.min(0, rise * (1 - ey));
@@ -4290,24 +4274,6 @@ function sentMerge(el, run){
     run.raf = requestAnimationFrame(t < 1 ? step : () => { sentMergeLand(el); sentCoalesce(el); });
   };
   run.raf = requestAnimationFrame(step);
-}
-// the window the earlier words of a merge fall in when the earlier bubble was
-// not cut (aCut) and the joined one is: the merge layer's own px from ext, the
-// words seen whole down to the half line over the joined cut (cut, the joined
-// bubble's .answclip on screen), dissolving over that half line as its own
-// dissolve does (.answclip::after) and gone under it. null when there is no
-// cut to fall into
-function sentJoinedCut(a, cut, ext, y, aCut){
-  if (aCut || !a.classList.contains("more") || a.classList.contains("open")) return null;
-  const clip = a.querySelector(".answclip");
-  const fade = clip ? parseFloat(getComputedStyle(clip, "::after").height) || 0 : 0;
-  const to = y(cut.bottom) - ext.top, from = Math.max(0, to - fade);
-  const win = document.createElement("div");
-  win.className = "sentgoo-win";
-  const mask = "linear-gradient(to bottom, #000 " + from + "px, transparent " + to + "px)";
-  Object.assign(win.style, { left:ext.left + "px", top:ext.top + "px", width:(ext.right - ext.left) + "px",
-    height:(ext.bottom - ext.top) + "px", maskImage:mask, webkitMaskImage:mask });
-  return win;
 }
 // the merge has landed, or is cut short: the layer and the ground go, and the
 // joined bubble stands where they were drawn, with the word its record has now
