@@ -1085,7 +1085,7 @@ function omniTitleSpot(el, frame){
 // the card's words and art as one Omni state. the outline keeps the title as
 // it is stored; the words are left alone while the reader is typing in them
 function omniFace(el, title){
-  if (!el.titleEl.isContentEditable) el.titleEl.textContent = omniCardTitle(title);
+  if (!el.titleEl.isContentEditable){ el.titleEl.textContent = omniCardTitle(title); fitTitle(el.titleEl); }
   if (el.tocTitle) el.tocTitle.textContent = title;
   return paintOmniCard(el, { title });
 }
@@ -5288,6 +5288,171 @@ function serverNow(){
   return state.now + (Date.now() - state.fetchedAt) / 1000;
 }
 
+// ---- the card's title -----------------------------------------------------------
+// the big title on a card keeps to two lines. one line, or two at the sheet's own
+// size, stand exactly as the sheet draws them. a title that would run on to a third
+// line takes the largest size at which it sits on two, measured and not stepped,
+// down to TITLE_MIN at the smallest, and grows back as words go. typing stops at two
+// full lines at TITLE_MIN: a key that would start a third adds nothing, and a paste
+// puts in the words that fit. a title the reader did not type (one an agent set, or
+// the name a first message gave) can be longer than that: it takes TITLE_MIN and is
+// cut at the foot of its second line, with nothing written after it, and the title
+// the board stores is left as it is. while it is being renamed it shows whole, so
+// the words past the cut can be seen and taken out
+const TITLE_LINES = 2, TITLE_MIN = 20, TITLE_STEP = 0.05;
+const TITLE_FIT = ["font-size", "line-height", "max-height", "overflow"];
+
+// the size a title takes: the largest from base down to min at which linesAt (the
+// words laid out at a size, their lines counted) gives no more than two, found to
+// a twentieth of a pixel. over: two lines at min do not hold them
+function titleFitSize(linesAt, base, min = TITLE_MIN){
+  if (linesAt(base) <= TITLE_LINES) return { size: base, over: false };
+  if (!(base > min) || linesAt(min) > TITLE_LINES) return { size: Math.min(base, min), over: true };
+  let fits = min, not = base;
+  while (not - fits > TITLE_STEP){
+    const mid = (fits + not) / 2;
+    if (linesAt(mid) <= TITLE_LINES) fits = mid; else not = mid;
+  }
+  return { size: fits, over: false };
+}
+
+// how much of `text` goes into a title: all of it when the title still fits with
+// it, or when it is no longer than what it replaces (a title already past two lines
+// may be cut down but not added to); otherwise the longest start of it that fits,
+// ended at the end of a whole word when an earlier word ends inside it. fits(part)
+// answers whether the title fits with part put in; taken is the length part replaces
+function titleRoom(fits, text, taken){
+  if (text.length <= taken || fits(text)) return text;
+  if (!fits("")) return "";
+  let lo = 0, hi = text.length;
+  while (hi - lo > 1){
+    const mid = (lo + hi) >> 1;
+    if (fits(text.slice(0, mid))) lo = mid; else hi = mid;
+  }
+  if (/\S/.test(text[lo]) && /\S/.test(text[lo - 1] || "")){
+    const word = text.slice(0, lo).search(/\s\S*$/);
+    if (word > 0) lo = word;
+  }
+  while (lo > 0 && /\s/.test(text[lo - 1])) lo--;
+  return text.slice(0, lo);
+}
+
+// the lines a title's words take as laid out now: the boxes a Range hands back
+// over them, one run of boxes to a line, counted by where each line starts
+function titleLines(t){
+  const half = parseFloat(getComputedStyle(t).lineHeight) / 2 || 0;
+  const rg = document.createRange();
+  rg.selectNodeContents(t);
+  let lines = 0, top = -Infinity;
+  for (const q of [...rg.getClientRects()].sort((a, b) => a.top - b.top))
+    if (q.height > 0 && q.top > top + half){ lines++; top = q.top; }
+  return lines;
+}
+
+// fits a card's title to its two lines (above), from the sheet's own size each
+// time. a title not laid out, on a card not on show, keeps what it has and is
+// fitted as its card shows (watchTitle)
+function fitTitle(t){
+  if (!t || !t.style || typeof t.style.removeProperty !== "function" ||
+      typeof getComputedStyle !== "function" || !t.isConnected || !t.getClientRects().length) return;
+  const s = t.style;
+  for (const p of TITLE_FIT) s.removeProperty(p);
+  const cs = getComputedStyle(t), base = parseFloat(cs.fontSize), ratio = parseFloat(cs.lineHeight) / base;
+  if (!(base > 0 && ratio > 0) || titleLines(t) <= TITLE_LINES) return;
+  // the line keeps the sheet's own proportion to the letters at every size
+  const at = size => {
+    s.setProperty("font-size", size + "px");
+    s.setProperty("line-height", size * ratio + "px");
+    return titleLines(t);
+  };
+  const fit = titleFitSize(at, base);
+  at(fit.size);
+  if (fit.over && !t.isContentEditable){
+    s.setProperty("max-height", TITLE_LINES * fit.size * ratio + "px");
+    s.setProperty("overflow", "hidden");
+  }
+}
+
+// a card's title is fitted again whenever the card changes size, and a card coming
+// on show changes from no size at all, so a title is fitted as its card shows and
+// as the window is resized. the card's own size never follows its title, so a fit
+// made from here never asks for another
+let titleWatch = null;
+const titleOfBox = new WeakMap();
+function watchTitle(el){
+  if (typeof ResizeObserver !== "function" || !el.box || !el.titleEl) return;
+  if (!titleWatch) titleWatch = new ResizeObserver(list => { for (const e of list) fitTitle(titleOfBox.get(e.target)); });
+  titleOfBox.set(el.box, el.titleEl);
+  titleWatch.observe(el.box);
+}
+
+// the lines a title would take at `size` with `text` in place of the range r inside
+// it, laid out in a copy beside it: the title's own element, classes, editing state
+// and words, so the copy breaks its lines as the title would, while the title, its
+// caret and its undo are left alone. a line break goes in as the editor puts one in,
+// and one at the end stands the caret on a line of its own, which counts
+function titleLinesWith(t, r, text, size){
+  const cs = getComputedStyle(t);
+  const copy = t.cloneNode(true);
+  const twin = n => {
+    const path = [];
+    for (; n !== t; n = n.parentNode) path.unshift([...n.parentNode.childNodes].indexOf(n));
+    return path.reduce((m, i) => m.childNodes[i], copy);
+  };
+  const cut = document.createRange();
+  cut.setStart(twin(r.startContainer), r.startOffset);
+  cut.setEnd(twin(r.endContainer), r.endOffset);
+  cut.deleteContents();
+  const part = document.createDocumentFragment();
+  text.split(/\r\n|[\r\n\u2028\u2029]/).forEach((line, i, all) => {
+    if (i) part.appendChild(document.createElement("br"));
+    if (line || (i && i === all.length - 1)) part.appendChild(document.createTextNode(line || "\u200b"));
+  });
+  cut.insertNode(part);
+  copy.removeAttribute("tabindex");
+  copy.setAttribute("aria-hidden", "true");
+  copy.style.cssText = "position:absolute; left:0; top:0; visibility:hidden; pointer-events:none; margin:0;" +
+    " max-height:none; overflow:visible; width:" + cs.width + "; font-size:" + size + "px; line-height:" +
+    size * parseFloat(cs.lineHeight) / parseFloat(cs.fontSize) + "px";
+  t.parentNode.insertBefore(copy, t.nextSibling);
+  const lines = titleLines(copy);
+  copy.remove();
+  return lines;
+}
+
+// how much of `text` a title being renamed takes in place of the range r, or of the
+// selection when no range is given: titleRoom, measured at TITLE_MIN
+function titleRoomAt(t, text, r){
+  if (!r){
+    const sel = getSelection();
+    if (!sel || !sel.rangeCount) return text;
+    r = sel.getRangeAt(0);
+  }
+  if (!t.contains(r.startContainer) || !t.contains(r.endContainer)) return text;
+  const taken = document.createRange();
+  taken.setStart(r.startContainer, r.startOffset);
+  taken.setEnd(r.endContainer, r.endOffset);
+  return titleRoom(part => titleLinesWith(t, r, part, TITLE_MIN) <= TITLE_LINES, text, taken.toString().length);
+}
+
+// the typing limit, on beforeinput in a title being renamed: what would put words
+// in is cut to what fits, which for a key is all of it or nothing. deleting, the
+// arrows, a selection and every key of the card are not input and go on as ever.
+// a word an input method is still composing cannot be held back (the browser does
+// not let that input be cancelled); it is fitted as the rest are
+function titleLimit(e, t){
+  if (!t.isContentEditable || e.defaultPrevented || e.isComposing || !/^insert/.test(e.inputType || "")) return;
+  const text = e.data != null ? e.data
+    : e.dataTransfer ? e.dataTransfer.getData("text/plain")
+    : /^insert(LineBreak|Paragraph)$/.test(e.inputType) ? "\n" : "";
+  if (!text) return;
+  const r = (typeof e.getTargetRanges === "function" && e.getTargetRanges()[0]) || null;
+  const room = titleRoomAt(t, text, r);
+  if (room === text) return;
+  e.preventDefault();
+  if (room) document.execCommand("insertText", false, room);
+}
+
 // a just-created card: the cursor starts in the title; Enter saves the name
 // and drops the cursor into the message input
 function editTitle(id, opts){
@@ -5295,7 +5460,18 @@ function editTitle(id, opts){
   const el = els[id]; if (!el) return;
   const t = el.titleEl, old = t.textContent;
   t.setAttribute("contenteditable", "plaintext-only");
+  // the phone's grey guess at the rest of a word is drawn inside the line after the
+  // fit has measured it, and can carry the word on to a third line, so the title
+  // asks for none. the keyboard reads this as the focus arrives, so it comes first
+  t.setAttribute("writingsuggestions", "false");
   if (old === "…") t.textContent = "";
+  // a title cut at its second line shows whole while it is renamed, before the
+  // caret is placed in it; what would be typed or pasted is held to two lines
+  fitTitle(t);
+  if (!t.titleLimited && typeof t.addEventListener === "function"){
+    t.titleLimited = true;
+    t.addEventListener("beforeinput", e => titleLimit(e, t));
+  }
   // a click edits in place with the caret where you click; other entries (new card, tab) focus and select all
   if (!opts.fromClick){
     t.focus();
@@ -5307,6 +5483,7 @@ function editTitle(id, opts){
   }
   let inputSeen = false;
   t.oninput = () => {
+    fitTitle(t);
     if (inputSeen) return;
     inputSeen = true;
     try { window.phoneHistory?.note("stage", { stage: "title-input", box: id,
@@ -5329,6 +5506,7 @@ function editTitle(id, opts){
       fetch("/title?box=" + encodeURIComponent(id), { method: "POST" })
         .then(() => poll()).catch(() => {});
     } else t.textContent = old;
+    fitTitle(t);
   };
   t.onkeydown = e => {
     // control+enter keeps the name as Enter does, then goes on to the page's own
@@ -5340,7 +5518,7 @@ function editTitle(id, opts){
     else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); if (e.shiftKey) cardStop(el); else el.ta.focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
-      else { end(); t.textContent = old; }
+      else { end(); t.textContent = old; fitTitle(t); }
       if (keyboardTitle) el.ta.focus();
     }
   };

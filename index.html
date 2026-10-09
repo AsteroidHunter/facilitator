@@ -6155,6 +6155,9 @@ function snapCard(){
   if (!FOCUS) return;
   const el = els[selectedId];
   if (!el || !el.box.classList.contains("sel")) return;
+  // the title is fitted to its two lines first (fitTitle, card-logic.js), since
+  // the head it stands in is part of the room measured below
+  fitTitle(el.titleEl);
   // the sent bubbles at the foot are not counted at all: the answer is snapped
   // against the bar under them as though their seat stood empty, so a send, a
   // merge or a bubble opened never moves it (the owner's word:
@@ -6291,8 +6294,15 @@ function tiltTitleAir(el, first){
   const hp = parseFloat(getComputedStyle(head).paddingTop);
   const rg = document.createRange();
   rg.selectNodeContents(title);
-  const t = rg.getBoundingClientRect();
+  let t = rg.getBoundingClientRect();
   if (!t.height) return;
+  // a title cut at the foot of its second line (fitTitle, card-logic.js) is
+  // measured to the foot of the words left showing, not the hidden ones under it
+  if (title.style.maxHeight){
+    const cut = title.getBoundingClientRect().bottom;
+    const shown = [...rg.getClientRects()].filter(q => q.height > 0 && q.top < cut);
+    if (shown.length) t = { top: t.top, bottom: Math.min(cut, Math.max(...shown.map(q => q.bottom))) };
+  }
   const over = t.top - bar.getBoundingClientRect().bottom;
   // what stands under the title. on a card carrying the answered panel over its
   // answer it is that panel, and a panel is not type: its own top edge is where
@@ -6728,6 +6738,7 @@ function makeBox(b, i, state){
     // and no other part of the card is a stop of the browser's own Tab (quietStops)
     box.addEventListener("keydown", e => cardTab(e, b.id, el => el.ta.focus()));
     quietStops(els[b.id]);
+    watchTitle(els[b.id]);
 }
 
 // "+" row under each meta section: one click = new box owned by that section,
@@ -6772,7 +6783,8 @@ async function newCard(owner){
   else await poll();   // the reading that draws the card lands on it
 }
 
-// a copied line ends in a break that the title's wrapping hides, leaving the caret no spot to draw at
+// a copied line ends in a break that the title's wrapping hides, leaving the caret no spot to draw at.
+// the words go in as far as the title's two lines hold them (titleRoomAt, card-logic.js)
 function pasteIntoTitle(e){
   if (!e.currentTarget.isContentEditable) return;
   const words = e.clipboardData && e.clipboardData.getData("text/plain");
@@ -6780,7 +6792,8 @@ function pasteIntoTitle(e){
   e.preventDefault();
   const line = words.replace(/^\s*[\r\n\u2028\u2029]\s*|\s*[\r\n\u2028\u2029]\s*$/g, "")
     .replace(/\s*[\r\n\u2028\u2029]\s*/g, " ");
-  if (line) document.execCommand("insertText", false, line);
+  const room = line && titleRoomAt(e.currentTarget, line);
+  if (room) document.execCommand("insertText", false, room);
 }
 
 // editTitle is shared with the phone page in card-logic.js. the desktop's
@@ -7097,7 +7110,7 @@ function apply(state){
     // outline keeps the stored title. an Omni sweep in flight writes both itself
     if (!el.titleEl.isContentEditable && !el.omniSweep){
       const shown = omniCardTitle(b.title);
-      if (el.titleEl.textContent !== shown) el.titleEl.textContent = shown;   // first message just named a new box
+      if (el.titleEl.textContent !== shown){ el.titleEl.textContent = shown; fitTitle(el.titleEl); }   // first message just named a new box
       if (el.tocTitle.textContent !== b.title) el.tocTitle.textContent = b.title;
     }
     syncOmniCard(el, b);

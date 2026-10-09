@@ -45,7 +45,7 @@ After reading the separate `/fresh` result as described below, answer with a com
 
 ## Titles
 
-A user-created box is auto-named with the chopped first line of its first message, which reads badly. When you claim such a box (title ends in "…" or just parrots the message), set a brief accurate title as part of answering it: `POST /title?box=ID`, raw text body. Keep titles short enough to sit on one line.
+A user-created box is auto-named with the chopped first line of its first message, which reads badly. When you claim such a box (title ends in "…" or just parrots the message), set a brief accurate title as part of answering it: `POST /title?box=ID`, raw text body. Keep titles short enough to sit on one line. Never set one longer than two lines: the card shrinks a title to keep it on two lines, down to 20px, and whatever still does not fit is cut off at the end of the second line and never seen.
 
 ## Status changes
 

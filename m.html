@@ -2266,6 +2266,10 @@ function makeBox(b){
   // with a menu out the menu keeps the key (keepTabInMenu)
   box.addEventListener("keydown", e => { if (!menuOut()) cardTab(e, b.id, focusBoxAtEnd); });
   quietStops(card);
+  // the title keeps to two lines as the card shows and turns (watchTitle), and
+  // once more when the web faces land, which change the width of every word
+  watchTitle(card);
+  webFacesLanded().then(() => fitTitle(titleEl));
   // how far the answer is scrolled, read where it can be: a card that is not
   // on show has no layout and reads zero, but it keeps its place for when it is
   // shown again, and this is what a card taken down hands to the shelf
@@ -2325,8 +2329,10 @@ function drawCard(el, b, state){
     readOnArrival(el, b, b.id === selectedId && !browsing && !drawerOpen());
     // the card reads its own name, Omni Card #N for an Omni ticket; an Omni
     // sweep in flight writes it itself
-    if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title))
+    if (!el.titleEl.isContentEditable && !el.omniSweep && el.titleEl.textContent !== omniCardTitle(b.title)){
       el.titleEl.textContent = omniCardTitle(b.title);
+      fitTitle(el.titleEl);
+    }
     syncOmniCard(el, b);
     // the message a send has just drawn is not the poll's to take away. a state
     // fetched before the server had that message knows nothing about it, and the
