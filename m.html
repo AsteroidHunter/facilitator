@@ -711,7 +711,7 @@
   .box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
   .box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}
   .xbtn{color:#1e1e1e}
-  .xbtn svg{width:var(--bar-mark); height:var(--bar-mark)}
+  .xbtn svg{width:calc(var(--bar-mark) * var(--done-scale)); height:calc(var(--bar-mark) * var(--done-scale))}
 
   .head{flex:none; padding:var(--titleair) 0 0}
   .title{

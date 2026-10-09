@@ -113,6 +113,7 @@
 :root{
   --hist-glyph-w:11px; --hist-glyph-h:7px;
   --bar-mark:10px; --cardspin-s:11px;
+  --done-scale:1.3;
   --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
   --spin-fade:.26s;
 }
