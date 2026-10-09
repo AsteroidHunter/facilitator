@@ -2010,6 +2010,25 @@ function watchRise(node){
   }, { passive: true });
   riseBand(node);
 }
+// the row fitted again on the frame its card is laid out after standing hidden.
+// a card is built, and given back its words from the shelf, while it is not on
+// show (the cards around the one on show are, reachCards), and a row with no
+// width keeps the height it had (fitRow), so a draft of several lines would
+// stand one line tall until the next key. the bar's width going from none to
+// some is that frame, whatever showed the card: a tap in the list, a step, a
+// swipe, the home page put away. the observer delivers after layout and before
+// paint, so the row is drawn at its height from the first frame; any other
+// change of width is the window's, which ticks the card on show itself
+function watchShown(el){
+  if (!window.ResizeObserver) return;
+  let wide = 0;
+  el.shownObserver = new ResizeObserver(rs => {
+    const w = rs[rs.length - 1].contentRect.width;
+    if (w && !wide) el.tick();
+    wide = w;
+  });
+  el.shownObserver.observe(el.bottombar);
+}
 
 // ---- the card ----------------------------------------------------------------
 function makeBox(b){
@@ -2284,6 +2303,8 @@ function makeBox(b){
   watchRise(replyview);
   // and the reader's own scrolling of the answer, which holds a page turn back
   watchReading(els[b.id]);
+  // and the row's height, on the frame the card is shown
+  watchShown(els[b.id]);
   return els[b.id];
 }
 
@@ -2392,6 +2413,7 @@ function dropCard(id, gone){
   turnEnd(el);
   clearTimeout(el.turnHeld); clearTimeout(el.printTimer);
   if (el.bandObserver) el.bandObserver.disconnect();
+  if (el.shownObserver) el.shownObserver.disconnect();
   // the row's typed formatting is held by the formatter as well as by this
   // card, so the card takes it with it: without this the editor and the
   // removed card stay reachable for the rest of the page's life
@@ -5762,7 +5784,8 @@ function twinLines(twin, m){
   return Math.max(1, Math.round((twin.scrollHeight - m.pt - m.pb) / m.lh));
 }
 // the row's height from its text; whether it grew, for the blink. a row not on
-// screen has no width to wrap at and keeps the height it had
+// screen has no width to wrap at and keeps the height it had, and is fitted on
+// the frame its card is shown (watchShown)
 function fitRow(ta, twin){
   const m = rowMetrics(ta);
   if (!m.lh || !ta.clientWidth) return false;
