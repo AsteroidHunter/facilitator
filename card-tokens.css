@@ -573,20 +573,24 @@
 .sentmorph-ground{position:absolute; left:0; top:0}
 .sentmorph-face{position:absolute}
 .sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
-/* two bubbles running together (card-logic.js: sentMerge). the joined bubble
-   is laid out and hidden, and this layer inside it draws the merge in its own
-   px: a grey face cut each frame by a clip path to the two drops' outline,
-   copies of the two bubbles' words riding on transforms, the word that stands
-   under them, and a copy of the joined bubble that comes up at the end. the
-   ground is the seat's own colour over the room the two give up above them,
-   under every bubble in the seat. nothing here blurs, filters or masks */
+/* the earlier of two bubbles falling into the later one (card-logic.js:
+   sentMerge). the joined bubble is laid out and hidden, and this layer inside
+   it draws the merge in its own px: a grey face cut each frame by a clip path
+   to the two bubbles' outline, copies of the two bubbles' words riding on
+   transforms, the word that stands under them, and a copy of the joined bubble
+   that comes up at the end. the ground is the seat's own colour over the room
+   the two give up above them, under every bubble in the seat. nothing here
+   blurs, filters or masks */
 .sentgoo{position:absolute; left:0; top:0; pointer-events:none}
 .sentgoo > *{position:absolute; left:0; top:0; transform-origin:0 0}
 .sentgoo-words{will-change:transform, opacity}
 /* the word under the bubbles, drawn as the mark under a panel is drawn
-   (.answered[data-mark]::after, below), and placed by the script */
+   (.answered[data-mark]::after, below), and placed by the script. a word that
+   comes in under the later bubble as the earlier one falls comes in on the
+   mark's own run */
 .sentgoo > .sentgoo-mark{left:auto; right:var(--answ-round); padding-top:calc(3 * var(--u));
   font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub); white-space:nowrap}
+.sentgoo > .sentgoo-mark.markin{animation:markin var(--answ-come) var(--sent-ease) backwards}
 .sentgoo-ground{position:absolute; left:0; right:0; pointer-events:none}
 
 /* ---- the delivery marks -------------------------------------------------- */
@@ -614,8 +618,8 @@
    the mark changes on a panel that is standing.
    each sent bubble carries its own word while two bubbles stand in different
    places. once the later one stands where the earlier one does, the earlier
-   one's word fades out and the joined bubble's word comes in under the later
-   one, and only then do the two run together.
+   one's word fades out, and the moment it is gone the earlier bubble falls
+   into the later one while the joined bubble's word comes in under it.
    once the reply to the messages lands, the word has nothing left to say: it
    fades out on its own, over --answ-gone and on the same curve, with nothing
    but its strength changing (markgone), and stays gone. the panel over a reply
@@ -670,12 +674,14 @@
 .answered.markout::after{opacity:0; transition:opacity calc(var(--answ-come) / 2) var(--sent-ease)}
 /* the word moving down to the later of two bubbles about to join (card-logic.js:
    sentMove) goes out more gently than a word giving way to the next: 300ms,
-   on the card's even curve, before it comes in under the later bubble */
+   on the card's even curve. the earlier bubble starts to fall the moment it
+   is gone, and the word comes in under the later bubble as it falls */
 .answered.markout.markmove::after{transition:opacity calc(var(--answ-come) * .75) var(--gentle)}
 .answered.markgone::after{opacity:0; transition:opacity var(--answ-gone) var(--gentle)}
 @media (prefers-reduced-motion: reduce){
   .answered.arrive, .answmsg.arrive, .answered.markin::after{animation:none !important}
   .answered.markout::after, .answered.markgone::after{transition:none !important}
+  .sentgoo > .sentgoo-mark.markin{animation:none !important}
 }
 
 /* ---- the page turn and the print ----------------------------------------- */

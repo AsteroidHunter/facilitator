@@ -2,7 +2,8 @@
  * The board's own settings, for the two desktop pages (index.html and
  * page.html): where each box sits and how big it is, which boxes are put
  * away, the background colour, the outline's width, formatting while typing,
- * whether the daily usage counts are shared, the home chart, the typed page's
+ * whether the daily usage counts are shared, whether the cards waiting on the
+ * reader are listed newest first, the home chart, the typed page's
  * tasks and the one-time layout passes that go with them. They used to live
  * in each browser's localStorage, which files them under the board's address,
  * so the board opened at another address (a port it moved to) started from
@@ -47,7 +48,7 @@
   // server.py. A lane is any printable text, a box one of the page's ids
   const SETTINGS_KEY = new RegExp("^(?:(?:(?:layoutbak\\.)?(?:pos|size)|hide|show)\\.[^\\x00-\\x1f\\x7f]{1,200}\\.[A-Za-z0-9_-]{1,64}"
     + "|doc\\.tasks\\.[^\\x00-\\x1f\\x7f]{1,200}"
-    + "|bgcolor|tocw|composeformat|chimemuted|usagecounts|home\\.chart"
+    + "|bgcolor|tocw|composeformat|chimemuted|usagecounts|waitnewest|home\\.chart"
     + "|magicrename\\.1|layoutsync\\.1|hideseed\\.1|layoutvisibility\\.[12]|navrestore\\.1)$", "u");
   const SETTINGS_HOLD = 3000;   // ms a window's own write stands over a reading on its way
   const RETRY = 2000;           // ms before a write the board did not answer goes again

@@ -59,6 +59,7 @@ function makeSandbox(){
     node.addEventListener = (type, fn) => { (node.listeners[type] = node.listeners[type] || []).push(fn); };
     node.fire = type => { for (const fn of node.listeners[type] || []) fn({ type }); };
     node.focus = () => { sandbox.document.activeElement = node; };
+    node.blur = () => { if (sandbox.document.activeElement === node) sandbox.document.activeElement = null; };
     node.querySelector = selector => selector.startsWith(".")
       ? node.children.find(child => child.classList && child.classList.contains(selector.slice(1))) || null : null;
     node.querySelectorAll = () => [];
@@ -266,7 +267,7 @@ test("Tab on a card named ticket omni lights it in, swaps title and art as the l
   card.titleEl.textContent = "ticket omni";
   card.titleEl.wordsRect = rect(20, 40, 110, 70);
   card.titleEl.onkeydown(key("Tab"));
-  assert.equal(sandbox.document.activeElement, card.ta);          // on to the composer
+  assert.equal(sandbox.document.activeElement, null);             // on to the card itself, nothing focused
   assert.deepEqual(posts.map(p => p.body), ["ticket omni"]);       // the stored title is the server's to make
   assert.ok(childOf(card, "omni-sweep"), "a Tab into Omni starts the light");
   assert.equal(frames.length, 1);
