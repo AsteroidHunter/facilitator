@@ -722,6 +722,10 @@
 .cardmd .attachment{display:block; max-width:100%; margin:calc(8 * var(--u)) 0; overflow-wrap:anywhere}
 .cardmd .attachment audio, .cardmd .attachment video{display:block; width:100%; max-width:100%; max-height:calc(420 * var(--u)); border-radius:calc(6 * var(--u))}
 .cardmd .attachment-name{display:block; overflow-wrap:anywhere}
+/* a sent bubble shows a player with no name under it: the picture or the player
+   says what was sent. a document keeps its name, which is its link and all of
+   it there is to see */
+.answered.sent .attachment-video .attachment-name, .answered.sent .attachment-audio .attachment-name{display:none}
 .attachment-status{font-size:calc(12 * var(--u)); line-height:1.4; color:var(--must, #b73a3a); white-space:pre-wrap; overflow-wrap:anywhere}
 .attachment-status:empty{display:none}
 
