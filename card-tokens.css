@@ -592,6 +592,9 @@
   font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub); white-space:nowrap}
 .sentgoo > .sentgoo-mark.markin{animation:markin var(--answ-come) var(--sent-ease) backwards}
 .sentgoo-ground{position:absolute; left:0; right:0; pointer-events:none}
+/* the earlier words fall into the joined cut in a window that dissolves them
+   at it (card-logic.js: sentJoinedCut) */
+.sentgoo-win > *{position:absolute; transform-origin:0 0}
 
 /* ---- the delivery marks -------------------------------------------------- */
 /* where a sent message stands (card-logic.js names the stages). a message the
