@@ -336,7 +336,10 @@ Endpoints:
                                background_default, a #rrggbb colour, it is
                                written after them as
                                globalThis.BOARD_BGCOLOR_DEFAULT, the colour a
-                               page uses until a bgcolor is saved
+                               page uses until a bgcolor is saved. While the
+                               profile is not complete (GET /profile) it ends
+                               with globalThis.BOARD_ONBOARDING=true, which the
+                               board reads to put the onboarding up
   GET  /settings            -> {rev, values}: the same settings, for a page
                                whose /state says settingsRev has moved
   POST /settings[?seed=1]   -> body = {"<key>": "<value>" or null, ...}: sets
@@ -381,7 +384,54 @@ Endpoints:
                                to anything else, a 403 unless Origin is the
                                page's own loopback address), body capped at
                                2048 bytes, and the address is never logged or
-                               answered back. Nothing calls it yet
+                               answered back. Nothing calls it yet: the
+                               onboarding and the Profile section in Settings
+                               reach the same link through POST /profile
+  GET  /profile             -> {name, email, emailYes, work, agent, timeZone,
+                               complete}: who uses this board, kept in
+                               profile.json beside state.json, owner-only, and
+                               sent nowhere unless the person said yes to
+                               feedback mail (see POST). A missing or
+                               unreadable file answers every field null
+                               and complete false; complete
+                               is true once a name is kept. Answered to the
+                               Mac's pages and, through the bridge, to a
+                               signed-in phone, which shows it in its Settings
+  POST /profile             -> body = {"<field>": <value>, ...}, any of the
+                               fields above but complete: sets those and keeps
+                               the rest. name, work and agent are text (name
+                               at most 200 characters and never empty, work
+                               2000, agent 100; null or blank clears work and
+                               agent), email an address or null, emailYes true
+                               or false, timeZone an IANA name the page read off
+                               the Mac. A yes needs an email, and clearing the
+                               email takes the yes with it. Every field is
+                               checked before anything is kept, and a refusal is
+                               a 400 naming the field and never its value. Once
+                               kept, with the yes on, the email, name, work,
+                               main agent and time zone go to
+                               usage_counts.Sender.link_person, which tells
+                               PostHog, as properties of the install's person,
+                               only what it has not been told: everything at the
+                               yes, then only an answer that changes. Without
+                               the yes nothing leaves, and a yes taken back is
+                               forgotten there (unlink_email) with nothing
+                               sent. Answers the stored profile with ok and
+                               sent (PostHog holds the person as saved). Local
+                               only like /usage/email, body capped at 8192
+                               bytes, and no log line holds a value
+  GET  /onboarding          -> onboarding.html, the onboarding the Mac board
+                               lays over itself while the profile is not
+                               complete, with the board's version written into
+                               it. Local only, and the one page besides /m that
+                               the board's own origin may frame
+  POST /onboarding/sample   -> makes the sample project the onboarding opens,
+                               ~/facilitator-sample, holding its internal folder
+                               and its wiki with one short example in each, the
+                               first time it is missing; one that exists, as a
+                               folder or anything else, is never touched.
+                               Answers {ok, path, made}; a 409 when something
+                               that is not a folder holds the name. Local only
   The five quick note routes below are OFF in this version
   (QUICK_NOTES_ON is False): each answers 404, the same as an unknown route,
   and /state carries no quicknotes. The notes already stored in state.json
@@ -642,8 +692,17 @@ sends one message of counts about the day before to PostHog (usage_counts.py;
 README.md, "Usage counts", lists every field). The thread is no route and
 answers nothing; usage-counts.json beside state.json holds the last day it dealt
 with, and usage-install.json beside it holds the install's random id, which
-every message carries, and the email when the person said yes to feedback mail
-(POST /usage/email). With the switch off nothing is sent at all.
+every message carries, and the email and the profile's answers when the person
+said yes to feedback mail (POST /profile). With the switch off nothing is sent
+at all.
+
+A Mac board whose profile.json is missing or has no name has not been through
+the onboarding: /board-settings.js says so in front of the store
+(globalThis.BOARD_ONBOARDING), and the board lays /onboarding over itself
+before it can be used. The profile stays on this Mac unless the person says
+yes to feedback mail: then its email, name, work answer, main agent and time
+zone go to PostHog once, as that person's properties, and again only when one
+of them changes, never on a daily message.
 """
 
 from __future__ import annotations
@@ -4881,7 +4940,8 @@ PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.json
                  "settings.json.tmp", "settings.json.bad-*", "vapid-key.pem", "bridge-auth.json",
                  "tokens-cache.json", "tokens-cache.json.tmp", "claude-limits.json",
                  "claude-limits.json.tmp", "usage-counts.json", "usage-counts.json.tmp",
-                 "usage-install.json", "usage-install.json.tmp", "server.lock")
+                 "usage-install.json", "usage-install.json.tmp", "profile.json", "profile.json.tmp",
+                 "server.lock")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
 
 
@@ -6126,6 +6186,11 @@ def _get_board_settings_js(q: Query, _):
         lead = "globalThis.BOARD_SETTINGS=" + json.dumps(_settings_answer(_settings_file())) + ";"
     if BACKGROUND_DEFAULT:
         lead += "globalThis.BOARD_BGCOLOR_DEFAULT=" + json.dumps(BACKGROUND_DEFAULT) + ";"
+    # whether the board still has to put the onboarding up, and nothing of the
+    # profile itself: a board somebody has been through it on gets no word here
+    with _profile_lock:
+        if not _profile_complete(_profile_read()):
+            lead += "globalThis.BOARD_ONBOARDING=true;"
     return 200, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8"
 
 
@@ -6202,7 +6267,9 @@ def _post_spotify_session(q: Query, text: str):
 # on unless it says "0", so the Mac's settings page and the phone's drawer both
 # turn it off. usage-counts.json holds only the last day already dealt with;
 # usage-install.json holds the install's random id and, after a yes to feedback
-# mail, the email (POST /usage/email below). Both are owner-only and ignored by git.
+# mail, the email and the profile's answers that go with it (POST /profile, and
+# the email alone through POST /usage/email below). Both are owner-only and
+# ignored by git.
 # usage_counts.py is imported only here, so a copy of the board without it, as
 # the tests' fixtures make, sends nothing at all.
 USAGE_MARKER = HERE / "usage-counts.json"
@@ -6253,6 +6320,281 @@ def _post_usage_email(q: Query, text: str):
     if outcome == "unsaved":
         return 500, {"error": "could not be saved"}
     return 200, {"ok": True, "sent": outcome == "sent"}
+
+
+# ---- the profile -------------------------------------------------------------------
+# Who uses this board, in their own words: the name, the email with its yes to
+# feedback mail, what they will mostly use Facilitator for, their main agent
+# and the time zone the page reads off the Mac. Kept in profile.json beside
+# state.json, owner-only and ignored by git, and written only by a page on this
+# Mac. Without the yes none of it leaves the Mac. With it, the email and the
+# answers go to PostHog as that person's properties, once and then only when
+# one changes, through the usage sender (link_person in usage_counts.py), and
+# never with a daily message; taking the yes back sends nothing more.
+#
+# A profile that is missing or has no name is a board nobody has been through
+# the onboarding on: /board-settings.js says so, and the Mac board puts the
+# onboarding up before it can be used (see the onboarding below).
+PROFILE_PATH = HERE / "profile.json"
+PROFILE_BODY_MAX = 8192
+PROFILE_TEXT_MAX = {"name": 200, "work": 2000, "agent": 100}
+TIME_ZONE_MAX = 64
+TIME_ZONE = re.compile(r"[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+){0,3}")
+PROFILE_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# the same rule as usage_counts.clean_email, here too because a copy of the
+# board without usage_counts.py still keeps a profile
+EMAIL_PART = r"[^@\s\x00-\x1f\x7f]+"
+EMAIL_ADDRESS = re.compile(f"{EMAIL_PART}@{EMAIL_PART}\\.{EMAIL_PART}")
+EMAIL_MAX = 254
+_profile_lock = threading.Lock()
+
+
+def _clean_email(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    address = value.strip()
+    return address if len(address) <= EMAIL_MAX and EMAIL_ADDRESS.fullmatch(address) else None
+
+
+def _clean_text(value, cap: int) -> str | None:
+    """Text as the profile keeps it, trimmed, or None for what is not one:
+    nothing, blank, past its cap or holding a control character other than a
+    tab or a new line."""
+    if not isinstance(value, str) or PROFILE_CONTROL.search(value):
+        return None
+    text = value.strip()
+    return text if text and len(text) <= cap else None
+
+
+def _clean_time_zone(value) -> str | None:
+    return value if isinstance(value, str) and len(value) <= TIME_ZONE_MAX and TIME_ZONE.fullmatch(value) else None
+
+
+def _profile_read() -> dict:
+    """The profile as kept, every field present. A file that is missing,
+    unreadable or not a profile reads as an empty one, which is a board the
+    onboarding has not been through; a field that does not pass its own rule
+    reads as not given."""
+    rec = {"name": None, "email": None, "email_yes": False, "work": None, "agent": None, "time_zone": None}
+    try:
+        raw = json.loads(PROFILE_PATH.read_text())
+    except (OSError, ValueError):
+        return rec
+    if not isinstance(raw, dict):
+        return rec
+    for key, cap in PROFILE_TEXT_MAX.items():
+        rec[key] = _clean_text(raw.get(key), cap)
+    rec["email"] = _clean_email(raw.get("email"))
+    rec["email_yes"] = raw.get("email_yes") is True and rec["email"] is not None
+    rec["time_zone"] = _clean_time_zone(raw.get("time_zone"))
+    return rec
+
+
+def _profile_complete(rec: dict) -> bool:
+    return bool(rec["name"])
+
+
+def _profile_write(rec: dict) -> None:
+    """profile.json the way settings.json is written: a temp file beside it,
+    owner-only, flushed to the disk, then one rename."""
+    tmp = PROFILE_PATH.with_name("profile.json.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(rec, indent=1) + "\n")
+            f.flush()
+            _durable_fsync(f.fileno())
+        os.replace(tmp, PROFILE_PATH)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        _error("savefail", step="profile", reason=e.strerror or type(e).__name__)
+        raise SaveFailed("profile") from e
+
+
+def _profile_answer(rec: dict) -> dict:
+    return {"name": rec["name"], "email": rec["email"], "emailYes": rec["email_yes"], "work": rec["work"],
+            "agent": rec["agent"], "timeZone": rec["time_zone"], "complete": _profile_complete(rec)}
+
+
+def _profile_person(rec: dict) -> dict:
+    """The person properties the usage sender keeps and tells PostHog under
+    the yes: the profile's fields by PostHog's names, the ones given only."""
+    named = {"email": rec["email"], "name": rec["name"], "work": rec["work"],
+             "main_agent": rec["agent"], "time_zone": rec["time_zone"]}
+    return {key: value for key, value in named.items() if value is not None}
+
+
+def _profile_link(rec: dict) -> bool:
+    """The usage sender's record follows the profile's yes. With the yes, the
+    email and the answers go to link_person, which keeps them and tells
+    PostHog only what it has not been told, so a save that changed nothing it
+    holds sends nothing; without it, a yes kept there is forgotten and nothing
+    is sent. True when PostHog holds the person as they are now."""
+    sender = _usage_sender
+    if sender is None:
+        return False
+    if rec["email_yes"]:
+        return sender.link_person(_profile_person(rec), True) == "sent"
+    sender.unlink_email()
+    return False
+
+
+def _get_profile(q: Query, _):
+    with _profile_lock:
+        return 200, _profile_answer(_profile_read())
+
+
+def _post_profile(q: Query, text: str):
+    """Sets the named fields and keeps the rest. Only a page on this Mac may
+    write, as with the usage email: the phone shows the profile and leaves it
+    to the Mac. A refusal names the field, never what it held."""
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    try:
+        changes = json.loads(text) if text else None
+    except ValueError:
+        changes = None
+    if not isinstance(changes, dict) or not changes or \
+            not set(changes) <= {"name", "email", "emailYes", "work", "agent", "timeZone"}:
+        return 400, {"error": "bad profile"}
+    new = {}
+    for key, cap in PROFILE_TEXT_MAX.items():
+        if key not in changes:
+            continue
+        value = changes[key]
+        if value is None or (isinstance(value, str) and not value.strip()):
+            new[key] = None
+            continue
+        text = _clean_text(value, cap)
+        if text is None:
+            return 400, {"error": "bad " + key}
+        new[key] = text
+    if "email" in changes:
+        value = changes["email"]
+        if value is None or (isinstance(value, str) and not value.strip()):
+            new["email"] = None
+        else:
+            new["email"] = _clean_email(value)
+            if new["email"] is None:
+                return 400, {"error": "not an email address"}
+    if "emailYes" in changes:
+        if not isinstance(changes["emailYes"], bool):
+            return 400, {"error": "bad yes"}
+        new["email_yes"] = changes["emailYes"]
+    if "timeZone" in changes:
+        value = changes["timeZone"]
+        if value is not None and _clean_time_zone(value) is None:
+            return 400, {"error": "bad time zone"}
+        new["time_zone"] = value
+    with _profile_lock:
+        rec = {**_profile_read(), **new}
+        if not rec["name"]:
+            return 400, {"error": "a name is needed"}
+        if rec["email"] is None:
+            if new.get("email_yes") is True:
+                return 400, {"error": "a yes needs an email"}
+            rec["email_yes"] = False   # the yes goes with the address
+        _profile_write(rec)
+        _info("profile", fields=",".join(sorted(new)), yes=rec["email_yes"])
+    # outside the lock: telling PostHog can take the sender's whole timeout
+    sent = _profile_link(rec)
+    return 200, {"ok": True, **_profile_answer(rec), "sent": sent}
+
+
+# ---- the onboarding ---------------------------------------------------------------
+# What a Mac board shows first while its profile is not complete: the mock's
+# run of real cards (onboarding.html), laid over the whole board in a frame of
+# its own until the closing card is marked done and the profile is saved. It
+# opens the sample project below as its project, and the board lands on that
+# project's tab when it ends.
+ONBOARDING_PAGE = HERE / "onboarding.html"
+ONBOARDING_VERSION_SLOT = b'<meta name="facilitator-version" content="">'
+BOARD_VERSION = re.compile(rb'id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)<')
+
+
+def _get_onboarding(q: Query, _):
+    # the Welcome card's lockup carries the board's own version, read where the
+    # board keeps it (#npversion in index.html) rather than written twice
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not ONBOARDING_PAGE.is_file():
+        return 404, {"error": "not found"}
+    page = ONBOARDING_PAGE.read_bytes()
+    try:
+        found = BOARD_VERSION.search((HERE / "index.html").read_bytes())
+    except OSError:
+        found = None
+    if found:
+        page = page.replace(ONBOARDING_VERSION_SLOT,
+                            b'<meta name="facilitator-version" content="' + found.group(1) + b'">', 1)
+    return 200, page, "text/html; charset=utf-8"
+
+
+# The sample project: a folder in the home folder holding the two folders every
+# project here keeps beside its work, its internal folder (notes and reports
+# that never get pushed, <folder>-internal) and its wiki (<folder>-wiki), each
+# with one short example. Made the first time the onboarding asks and it is
+# missing, and never touched again: a folder, a file or a link already holding
+# the name is left exactly as it is.
+SAMPLE_NAME = "facilitator-sample"
+SAMPLE_FILES = {
+    f"{SAMPLE_NAME}-internal/example-note.md": (
+        "# Example note\n\n"
+        "This is the project's internal folder. It holds what you and your agents write while\n"
+        "working: notes, plans, reports and screenshots. None of it is meant to be shared or\n"
+        "pushed.\n\n"
+        "A good habit is one folder per piece of work, named for the card and the date, with a\n"
+        "short report inside saying what was done and what is left.\n"),
+    f"{SAMPLE_NAME}-wiki/example-page.md": (
+        "# Example page\n\n"
+        "This is the project's wiki. It holds what stays true for a while: how the project is\n"
+        "laid out, how to run it, and the decisions behind it.\n\n"
+        "Keep each page short and about one thing, and change it when the project changes.\n"),
+}
+
+
+def _make_sample(home: Path) -> tuple[Path, bool]:
+    """The sample project's folder and whether it was made now. Built in a
+    hidden folder beside it and renamed into place, so it is either all there
+    or not there at all; a name that turns up taken meanwhile wins. Raises
+    FileExistsError when something that is not a folder holds the name."""
+    root = home / SAMPLE_NAME
+    if root.is_symlink() or root.exists():
+        if root.is_dir():
+            return root, False
+        raise FileExistsError(SAMPLE_NAME)
+    build = Path(tempfile.mkdtemp(prefix=f".{SAMPLE_NAME}-", dir=home))
+    try:
+        for rel, text in SAMPLE_FILES.items():
+            (build / rel).parent.mkdir(parents=True, exist_ok=True)
+            (build / rel).write_text(text)
+        os.chmod(build, 0o755)   # mkdtemp makes it owner-only; it is an ordinary folder
+        if root.is_symlink() or root.exists():
+            return _make_sample(home)
+        os.rename(build, root)
+    finally:
+        shutil.rmtree(build, ignore_errors=True)
+    return root, True
+
+
+def _post_onboarding_sample(q: Query, _):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    try:
+        root, made = _make_sample(Path.home())
+    except FileExistsError:
+        return 409, {"error": "the name is taken by something that is not a folder"}
+    except OSError as e:
+        _error("sample", reason=e.strerror or type(e).__name__)
+        return 500, {"error": "the sample project could not be made"}
+    _info("sample", made=made)
+    # resolved, the way POST /project keeps a lane's folder, so the page finds
+    # the sample's tab by its folder on a later run instead of making another
+    return 200, {"ok": True, "path": str(root.resolve()), "made": made}
 
 
 # hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
@@ -7123,6 +7465,11 @@ ROUTES = [
     Route("/spotify/session", _endpoint(_get_spotify_session), methods=["GET"]),
     Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
     Route("/usage/email", _endpoint(_post_usage_email, "text", USAGE_EMAIL_BODY_MAX), methods=["POST"]),
+    # the profile, in profile.json, and the onboarding that fills it
+    Route("/profile", _endpoint(_get_profile), methods=["GET"]),
+    Route("/profile", _endpoint(_post_profile, "text", PROFILE_BODY_MAX), methods=["POST"]),
+    Route("/onboarding", _endpoint(_get_onboarding), methods=["GET"]),
+    Route("/onboarding/sample", _endpoint(_post_onboarding_sample, "text"), methods=["POST"]),
     *([
         Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
         Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
@@ -7252,12 +7599,18 @@ class SiteGuard:
                        headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
 
 
+# the pages the board's own origin may frame: the phone page, for the Mac's
+# narrow view, and the onboarding, which the board lays over itself
+SAME_ORIGIN_FRAMES = frozenset({"/m", "/onboarding"})
+
+
 def _unframeable(send, scope=None):
-    """Only the local board's phone document may be framed by its own origin.
-    Root stays unframeable, so another site cannot wrap the parent in a frame.
-    The phone bridge and every preexisting policy retain their protections."""
+    """Only the local board's phone document and its onboarding may be framed
+    by its own origin. Root stays unframeable, so another site cannot wrap the
+    parent in a frame. The phone bridge and every preexisting policy retain
+    their protections."""
     headers = {name.lower(): value for name, value in (scope or {}).get("headers", ())}
-    local_phone = bool(scope and scope.get("path") == "/m"
+    local_phone = bool(scope and scope.get("path") in SAME_ORIGIN_FRAMES
                        and (scope.get("server") or (None, None))[1] != BRIDGE_PORT
                        and b"x-forwarded-for" not in headers
                        and b"tailscale-headers-info" not in headers

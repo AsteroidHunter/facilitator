@@ -55,9 +55,12 @@ FILE_ROUTES = ("/uploads/", "/laneimg/")
 # a link from another site may open these; no other route may be read that way
 PAGE_OPENS = frozenset({"/m", "/"})
 # answered only to a page on the Mac itself, never through this gate, signed in
-# or not: the Spotify sign-in, the explicit browser-window launcher and the
-# onboarding's yes to feedback mail
-LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email"})
+# or not: the Spotify sign-in, the explicit browser-window launcher, the yes to
+# feedback mail, and the onboarding with the sample project it makes. The
+# profile is not here: a signed-in phone reads it, and its route refuses a write
+# that did not come from the Mac
+LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
+                        "/onboarding", "/onboarding/sample"})
 
 
 def _client_class(headers):
