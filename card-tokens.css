@@ -1002,6 +1002,21 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .app-link-status{font:12px var(--sans); color:var(--ink); max-width:240px; padding:6px 10px}
 .app-link-status:empty{display:none}
 
+/* a card's picture opened full screen (openCardPicture in card-logic.js). the
+   veil is the board's ink written opaque and brought to .62 by the fade, as the
+   desktop's picture panel zoom does it. the layer's padding is the phone's safe
+   areas, so a tall picture stops short of the notch and the home bar. it stands
+   over everything either page draws and under the link menu */
+:is(.reply, .answmsg).cardmd img.shot:not([id^="magic"] *){cursor:zoom-in}
+.picfull-from{visibility:hidden}
+#picfull{display:none; position:fixed; inset:0; z-index:9000; box-sizing:border-box;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  cursor:zoom-out; -webkit-tap-highlight-color:transparent}
+#picfull.on{display:block}
+#picfull .picfull-veil{position:absolute; inset:0; background:var(--ink); opacity:0; will-change:opacity}
+#picfull .picfull-img{position:absolute; display:block; max-width:none; max-height:none; margin:0;
+  transform-origin:0 0; will-change:transform; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none}
+
 /* ---- the files picked for the next message: a tray over the typing row ---- */
 /* one 64px square per file, standing from the pick on, with the upload's ring
    over it. the squares carry the state alone: no words stand under them. the
