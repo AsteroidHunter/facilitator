@@ -4002,45 +4002,13 @@ function sentJoin(el, a, b){
   el.sent = panels[panels.length - 1];
 }
 
-// the joined bubble's foot as it will stand, drawn before the joined bubble
-// itself is: the dissolve over the half line its cut falls in, the grey that
-// hides what stands under the cut, and the arrow when this foot is the one
-// that carries it. the sheet places it (.sentfoot) at the foot of whatever it
-// stands in. two messages always run past the lines a bubble shows whole, so
-// the joined bubble is always cut, and its foot is the later bubble's own,
-// since the joined bubble stands up from the later one's foot
-function sentFoot(arrow){
-  const foot = h("div", "sentfoot");
-  foot.setAttribute("aria-hidden", "true");
-  if (arrow){
-    const strip = h("div", "sentfoot-arrow");
-    strip.innerHTML = ANSWERED_CHEV;
-    foot.appendChild(strip);
-  }
-  return foot;
-}
-// the foot a move put on the later bubble goes: faded out the way it came in
-// when the two no longer match, and at once when the move is let go of
-function sentFootOff(run, gently){
-  const foot = run && run.foot;
-  if (!foot) return;
-  run.foot = null;
-  if (!gently || stillMotion()){ foot.remove(); return; }
-  foot.classList.remove("on");
-  setTimeout(() => foot.remove(), MERGE_OUT_MS + 20);
-}
-
 // the word goes first. both bubbles take the grey the joined one is drawn in
 // on the panel's own run, and the earlier one's word fades out (and the later
-// one's too, when it says something else). over that same moment the later
-// bubble takes on the joined bubble's foot (sentFoot): a later bubble that is
-// cut wears it already, and one that is not sees its words under the joined
-// cut go, the dissolve come up over the line the cut falls in, and the arrow
-// come in, unless the earlier bubble is cut and so carries its own arrow down
-// with it. the moment the word is gone, or as long after the two matched when
-// there was no word to go, the earlier bubble starts to fall into the later
-// one and the joined bubble's word comes in under it as it falls, if the two
-// still stand in one place and nothing else has taken them
+// one's too, when it says something else). the moment it is gone, or as long
+// after the two matched when there was no word to go, the earlier bubble
+// starts to fall into the later one and the joined bubble's word comes in
+// under it as it falls, if the two still stand in one place and nothing else
+// has taken them
 function sentMove(el, a, b){
   const run = el.sentMerge = { a, b, stage:"move", timers:[], shifts:[] };
   a.markHeld = b.markHeld = true;
@@ -4054,12 +4022,6 @@ function sentMove(el, a, b){
   for (const one of going){
     one.classList.remove("markin");
     one.classList.add("markout", "markmove");
-  }
-  if (!b.classList.contains("more")){
-    run.foot = sentFoot(!a.classList.contains("more"));
-    b.appendChild(run.foot);
-    void run.foot.offsetWidth;   // it comes in from nothing
-    run.foot.classList.add("on");
   }
   later(MERGE_OUT_MS, () => {
     for (const one of going){
@@ -4087,7 +4049,6 @@ function sentMove(el, a, b){
 function sentMoveBack(el){
   const run = el.sentMerge;
   if (!run) return;
-  sentFootOff(run, true);
   sentMergeStop(el);
   const panels = sentPanels(el);
   for (const one of [run.a, run.b]){
@@ -4106,7 +4067,6 @@ function sentMergeStop(el){
   if (run.stage === "merge"){ sentMergeLand(el); return; }
   el.sentMerge = null;
   for (const timer of run.timers) clearTimeout(timer);
-  sentFootOff(run, false);
   for (const one of [run.a, run.b]) one.classList.remove("coalesce", "markout", "markmove");
 }
 
@@ -4117,22 +4077,10 @@ function sentMergeStop(el){
 // it if anything moves it. the room the two give up above them is held by the
 // seat's own ground, which comes down with the earlier bubble's head, and the
 // other bubbles the merge moves glide there on the fall's own curve. the word
-// the move brings in under the later bubble comes in here, on the mark's run.
-// the joined bubble's cut stands from the first frame, where it will stand:
-// the later words, and the earlier ones unless the earlier bubble is cut and
-// carries its own cut, dissolve and arrow down with it, are drawn in a window
-// that ends at the joined cut, and the joined foot the move put on the later
-// bubble (sentFoot) is drawn over them on the later bubble's box as it widens,
-// in place of the later bubble's own dissolve and arrow
+// the move brings in under the later bubble comes in here, on the mark's run
 function sentMerge(el, run){
   const { a, b } = run;
   run.stage = "merge";
-  const aCut = a.classList.contains("more"), bCut = b.classList.contains("more");
-  // the foot on the later bubble is handed to the layer at the strength it has
-  // reached, and taken out of the picture of the later bubble
-  const reached = run.foot ? parseFloat(getComputedStyle(run.foot).opacity) : 1;
-  const footFrom = reached >= 0 && reached <= 1 ? reached : 1;
-  sentFootOff(run, false);
   const A = a.getBoundingClientRect(), B = b.getBoundingClientRect();
   const aRow = sentRows(a)[0], bRow = sentRows(b)[0];
   const aFrom = aRow.getBoundingClientRect(), bFrom = bRow.getBoundingClientRect();
@@ -4202,35 +4150,7 @@ function sentMerge(el, run){
   };
   const aWords = holder(aCopy, true), bWords = holder(bCopy, true), joined = holder(mCopy, false);
   joined.style.opacity = "0";
-  // the joined cut, from the first frame (sentFoot)
-  const cutBy = a.classList.contains("more");
-  let footBox = null, foot = null, topArrow = null;
-  if (cutBy){
-    const win = document.createElement("div");
-    win.className = "sentgoo-win";
-    Object.assign(win.style, { left:ext.left + "px", top:ext.top + "px", width:(ext.right - ext.left) + "px",
-      height:Math.max(0, y(cut.bottom) - ext.top) + "px" });
-    for (const words of aCut ? [bWords] : [aWords, bWords]){
-      Object.assign(words.style, { left:-ext.left + "px", top:-ext.top + "px" });
-      win.appendChild(words);
-    }
-    // the later bubble's own dissolve and arrow give way to the joined foot
-    const bClip = bCopy.querySelector(".answclip"), bFoot = bCopy.querySelector(".answfoot");
-    if (bClip) bClip.style.setProperty("--answ-shade", "0");
-    if (bFoot) bFoot.style.visibility = "hidden";
-    // the arrow is the foot's unless the earlier bubble carries its own down
-    // alone; when both are drawn, the earlier one's goes as it sinks in
-    foot = sentFoot(!aCut || bCut);
-    foot.classList.add("on");
-    foot.style.opacity = String(footFrom);
-    footBox = document.createElement("div");
-    footBox.className = "sentgoo-foot";
-    footBox.style.height = H + "px";
-    footBox.appendChild(foot);
-    if (aCut && bCut) topArrow = aCopy.querySelector(".answfoot");
-    layer.append(face, win, footBox);
-    if (aCut) layer.appendChild(aWords);
-  } else layer.append(face, aWords, bWords);
+  layer.append(face, aWords, bWords);
   let mark = null;
   if (word){
     mark = document.createElement("div");
@@ -4262,13 +4182,6 @@ function sentMerge(el, run){
     bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, sunk) + "px)";
     // later words the joined bubble's cut hides go as the earlier foot sinks over them
     if (hidden) bWords.style.opacity = String(1 - sunk);
-    if (footBox){
-      footBox.style.left = L.left + "px";
-      footBox.style.width = Math.max(0, L.right - L.left) + "px";
-      // a foot the move had not brought all the way in comes the rest of the way at the move's pace
-      if (footFrom < 1) foot.style.opacity = String(Math.min(1, footFrom + t * MERGE_MS / MERGE_OUT_MS));
-    }
-    if (topArrow) topArrow.style.opacity = String(1 - sunk);
     if (mark) mark.style.top = L.bottom + "px";
     joined.style.opacity = String(sentSmooth((t - MERGE_TRAVEL) / (1 - MERGE_TRAVEL)));
     const left = Math.min(0, rise * (1 - ey));

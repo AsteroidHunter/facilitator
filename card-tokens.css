@@ -592,27 +592,6 @@
   font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub); white-space:nowrap}
 .sentgoo > .sentgoo-mark.markin{animation:markin var(--answ-come) var(--sent-ease) backwards}
 .sentgoo-ground{position:absolute; left:0; right:0; pointer-events:none}
-/* the joined bubble's foot as it will stand, drawn before the joined bubble is
-   (card-logic.js: sentFoot): first on the later bubble, coming in over the
-   word's own 300ms as the word over it fades, then in the layer, on the later
-   bubble's box as it widens. it is the foot the sheet gives a cut bubble, to
-   the pixel: across the words' column, the dissolve over the half line above
-   the cut (--answ-fade, the cut's own strip of grey, .answclip::after) and the
-   grey below it down to the foot of the words, which hides what stands under
-   the cut, and the arrow in the strip under the cut (--answ-strip), as
-   .answfoot centres it. a cut bubble stands as tall as its cut and its strip,
-   so its cut stands exactly the strip's height over its foot */
-.sentfoot{position:absolute; left:var(--answ-pad-x); right:var(--answ-pad-x); bottom:0;
-  height:calc(var(--answ-strip) + var(--answ-fade)); pointer-events:none; opacity:0;
-  background:linear-gradient(to bottom, transparent, var(--answ-fill) var(--answ-fade)) top / 100% calc(100% - var(--answ-pad-y)) no-repeat;
-  transition:opacity calc(var(--answ-come) * .75) var(--gentle)}
-.sentfoot.on{opacity:1}
-.sentfoot-arrow{position:absolute; left:0; right:0; bottom:0; height:var(--answ-strip);
-  display:flex; align-items:center; justify-content:center}
-.sentgoo-foot > .sentfoot{transition:none}
-/* the words of the merge stand in a window that ends at the joined cut */
-.sentgoo-win{overflow:hidden}
-.sentgoo-win > *{position:absolute; transform-origin:0 0}
 
 /* ---- the delivery marks -------------------------------------------------- */
 /* where a sent message stands (card-logic.js names the stages). a message the
@@ -703,7 +682,6 @@
   .answered.arrive, .answmsg.arrive, .answered.markin::after{animation:none !important}
   .answered.markout::after, .answered.markgone::after{transition:none !important}
   .sentgoo > .sentgoo-mark.markin{animation:none !important}
-  .sentfoot{transition:none !important}
 }
 
 /* ---- the page turn and the print ----------------------------------------- */
