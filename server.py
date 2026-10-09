@@ -160,8 +160,8 @@ Endpoints:
                                is a 404. Lets an agent working in another project
                                show a picture on the board without writing a file
                                into this repo
-  POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the portrait
-                               box beside the card on the Mac board, and open
+  POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the box
+                               beside the card on the Mac board, and open
                                it, in place of whatever it held. K is text
                                (shown as typed), markdown (the card's renderer),
                                html (a whole page, run in a sealed frame with
@@ -379,7 +379,9 @@ Endpoints:
                                (usagecounts, "0" when off), whether the cards
                                waiting on the reader are listed newest first
                                (waitnewest, "1" when so), the home chart,
-                               the typed page's tasks and the one-time layout
+                               the magic box's frame and shadow (magicframe,
+                               magicshadow, "1" when on), the typed page's
+                               tasks and the one-time layout
                                passes, under the key names and
                                text values the browsers kept them under. They
                                live in settings.json beside state.json, so
@@ -1675,7 +1677,7 @@ UPLOAD_STALL_TIMEOUT = 60.0     # seconds an upload may go with no bytes arrivin
 UPLOAD_TIME_LIMIT = 3600.0      # seconds a whole upload may take
 UPLOAD_RECEIPTS = 256           # finished uploads remembered by operation id, newest kept
 MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator will preview inline
-# a card's magic box: the portrait box beside the card an agent fills. What it
+# a card's magic box: the box beside the card an agent fills. What it
 # holds lives here, beside state.json and as private as it, one file per card
 # named by the box's revision; state.json only says that a box exists
 MAGIC_DIR = HERE / "magic-boxes"
@@ -6669,8 +6671,9 @@ def _post_seen(q: Query, text: str):
 # ---- the board's settings ---------------------------------------------------------
 # What the reader arranges on the desktop pages: where each box sits and how
 # big it is, which boxes are put away, the background colour, the outline's
-# width, formatting while typing, the home chart, the typed page's tasks, and
-# the one-time layout passes that go with them. They lived in each browser's
+# width, formatting while typing, the home chart, the magic box's frame and
+# shadow, the typed page's tasks, and the one-time layout passes that go with
+# them. They lived in each browser's
 # own storage, filed under the board's address, so the board opened at another
 # address (a port it moved to) started from nothing. Now they are the board's,
 # kept under the browsers' own key names and text values so the pages read
@@ -6689,7 +6692,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|waitnewest|home\.chart"
+    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|waitnewest|home\.chart|magicframe|magicshadow"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096

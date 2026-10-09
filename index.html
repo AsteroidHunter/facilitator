@@ -1395,21 +1395,30 @@
   /* both rules above set display, which beats the hidden attribute on their own.
      without this the stub and the picture are on screen at the same time */
   #magic3 [hidden]{display:none}
-  /* a card's magic box, beside the card on screen: what it holds and nothing
-     else, its top and foot dissolving under the ticket list's own ramp. the
-     box paints nothing of its own, as the ticket holder paints nothing: no
-     bar, no face, no edge, no corners, no shadow. where it stands is
-     magic-box.js's: nine tenths of the card's height and a little wider than
-     an iPhone 13 mini's screen when the room right of the card allows, in the
-     middle of that room and level with the card's middle. floated over the
-     card's edge when the window has no room, its body takes the card's white
-     face so the card's words do not show through it. off the board (home,
-     edit mode) it is not drawn */
+  /* a card's magic box, beside the card on screen. as it comes it is what it
+     holds and nothing else, its top and foot dissolving under the ticket
+     list's own ramp: the box paints nothing of its own, as the ticket holder
+     paints nothing. two switches in Settings dress it (magicDress): the frame
+     gives it the card's own white face, edge and 7px corners, and the shadow
+     gives that frame the card's raised shadow. the shadow needs the frame: on
+     a box with no edge it would outline an empty rectangle, and stay hard
+     where the words and pages dissolve. in the frame the ramp is dropped: the
+     frame's edge already ends the box, and a picture or a page in it is shown
+     whole up to that edge. where it stands and how big it is is
+     magic-box.js's: at most nine tenths of the card's height and a little
+     wider than an iPhone 13 mini's screen, inside that a picture in its own
+     shape and words at their own height, in the middle of the room right of
+     the card and level with the card's middle. floated over the card's edge
+     when the window has no room, an unframed body takes the card's white face
+     so the card's words do not show through it. off the board (home, edit
+     mode) it is not drawn */
   #magicbox{display:none}
   body.focus #magicbox.on{
     display:flex; flex-direction:column; position:fixed; z-index:1; overflow:hidden;
     background:transparent; border:none; border-radius:0; box-shadow:none;
   }
+  body.focus #magicbox.on.framed{border:var(--edge) solid var(--line); background:var(--card); border-radius:7px}
+  body.focus #magicbox.on.framed.shadowed{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
   /* the two soft ends are the ramp .tikpane draws, the same stops at the same
      --listfade, with both bands held at their full depth: a section of the list
@@ -1436,23 +1445,25 @@
       rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
       rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
       rgba(0,0,0,0) 100%)}
+  #magicbox.framed .mbbody{-webkit-mask-image:none; mask-image:none}
   #magicbox.floating .mbbody{background:var(--card)}
   /* words run the box's full width, in the board's own body size, and start
-     and end clear of the two ramps; on a floated box they stand off its sides
-     by the card's answer's own side inset */
+     and end clear of the two ramps; in a frame, or on a floated box, they
+     stand off its edges by the card's answer's own inset */
   #magicbox .mbtext{padding:var(--listfade) 0; font-size:15px; line-height:1.55; color:var(--ink)}
   #magicbox .mbtext.plain{white-space:pre-wrap}
-  /* a picture is shown whole, as the picture panel shows one, between the two
-     ramps; a page or a site fills the body edge to edge on its own white, so
-     its top and foot are the ones that dissolve */
-  #magicbox .mbimg{display:block; width:100%; height:100%; object-fit:contain; padding:var(--listfade) 0}
+  /* a picture fills the box, which takes the picture's own shape, so unframed
+     its own top and foot are the ones that dissolve; a page or a site fills
+     the body edge to edge on its own white */
+  #magicbox .mbimg{display:block; width:100%; height:100%; object-fit:contain}
   #magicbox .mbframe{display:block; width:100%; height:100%; border:0; background:var(--card)}
   /* a site that will not be framed: its name in the board's muted mono line,
      its title in the card title's face, its summary in the words' own size,
      and its address, underlined like a link in a card, which opens it in the
      owner's browser */
   #magicbox .mbpreview{padding:var(--listfade) 0; color:var(--ink)}
-  #magicbox.floating :is(.mbtext, .mbimg, .mbpreview){padding-inline:calc(var(--pad-x)*2/3)}
+  #magicbox.floating :is(.mbtext, .mbpreview){padding-inline:calc(var(--pad-x)*2/3)}
+  #magicbox.framed :is(.mbtext, .mbpreview){padding:calc(var(--pad-x)*2/3)}
   #magicbox .mbsite{font:11.5px var(--mono); color:var(--sub)}
   #magicbox .mbtitle{margin:8px 0 6px; font:625 22px/1.25 var(--inter); overflow-wrap:anywhere}
   #magicbox .mbdesc{margin:0 0 12px; font-size:15px; line-height:1.55}
@@ -3602,6 +3613,14 @@
       <label class="setlabel" for="setwait"><span>Cards waiting on you</span>
         <small id="setwaitnote" class="sethelp" role="status" aria-live="polite">Oldest first</small></label>
       <input type="checkbox" role="switch" id="setwait" aria-describedby="setwaitnote">
+    </div>
+    <div class="setrow">
+      <label class="setlabel" for="setmagicframe"><span>Magic box frame</span></label>
+      <input type="checkbox" role="switch" id="setmagicframe">
+    </div>
+    <div class="setrow">
+      <label class="setlabel" for="setmagicshadow"><span>Magic box shadow</span></label>
+      <input type="checkbox" role="switch" id="setmagicshadow">
     </div>
   </div>
   <div data-section="editor" data-label="Editor">
@@ -8241,7 +8260,8 @@ function magicOff(){
   if (!MB.el) return;
   MB.el.classList.remove("on");
   if (MB.id === null) return;
-  MB.id = null; MB.rev = 0; MB.asked++; MB.url = ""; MB.page = null;
+  MB.id = null; MB.rev = 0; MB.asked++; MB.url = ""; MB.page = null; MB.natural = null;
+  if (MB.words) MB.words.disconnect();
   MB.body.textContent = "";
 }
 async function magicLoad(id, rev){
@@ -8272,8 +8292,20 @@ function magicDraw(box){
     // the owner's browser
     const img = h("img", "mbimg");
     img.alt = box.title || "";
+    img.addEventListener("load", magicPlace);
     img.src = box.src;
     MB.body.appendChild(img);
+    // the box takes the picture's own shape, read off a copy of it that is never
+    // laid out: a drawing (SVG) on the page answers with the size it is drawn
+    // at, which would hold the box at whatever size it last had. a picture
+    // that cannot be read has no size of its own and takes the whole box
+    const own = new Image();
+    own.onload = own.onerror = () => {
+      if (!img.isConnected) return;
+      MB.natural = [own.naturalWidth, own.naturalHeight];
+      magicPlace();
+    };
+    own.src = box.src;
   } else if (box.kind === "html"){
     magicPage(box.html || "", 0);
   } else if (box.kind === "url" && box.shown === "frame"){
@@ -8297,6 +8329,8 @@ function magicDraw(box){
     card.appendChild(link);
     MB.body.appendChild(card);
   }
+  const words = MB.body.querySelector(".mbtext, .mbpreview");
+  if (words && MB.words) MB.words.observe(words);
   MB.el.classList.add("on");
   magicPlace();
 }
@@ -8339,22 +8373,55 @@ function magicOpenSite(){
     fetch("/open-in-browser", { method: "POST", body: MB.url }).catch(() => {});
   else window.open(MB.url, "_blank", "noopener,noreferrer");
 }
+// the box's two looks from Settings, both the board's settings (settings.json)
+// so every window shows the same box: the frame, and the shadow under it. read
+// on every placing, so a switch flipped in another window is taken here at the
+// next reading of the board
+const MAGIC_FRAME_KEY = "magicframe", MAGIC_SHADOW_KEY = "magicshadow";   // "1" on, absent off
+function magicDress(){
+  if (!MB.el) return;
+  MB.el.classList.toggle("framed", settingsStore.getItem(MAGIC_FRAME_KEY) === "1");
+  MB.el.classList.toggle("shadowed", settingsStore.getItem(MAGIC_SHADOW_KEY) === "1");
+}
+// what the box shows asks for, in stage pixels (MagicBox.place's want), or
+// nothing for a page or a site. most: the largest box there is room for. a
+// picture asks for its own size, as many stage pixels as it has pixels on
+// screen, so it is never drawn past its sharpness; words for their own height
+// at that largest box's width. the frame's edge, when there is one, is added
+// to both, so what is inside it is the size it asks for
+function magicWant(most, S){
+  const kind = MB.body.dataset.kind, edges = MB.el.offsetWidth - MB.el.clientWidth;
+  if (kind === "image"){
+    const [w, h] = MB.natural || [0, 0];
+    return w && h ? { width: w / S + edges, height: h / S + edges } : null;
+  }
+  const words = MB.body.querySelector(".mbtext, .mbpreview");
+  if (!words) return null;
+  MB.el.style.width = most.width + "px";
+  return { height: words.offsetHeight + edges };
+}
 // beside the card's own rectangle, read off the page the way the fit reads the
 // regions: screen pixels, less the stage's origin, over the stage's scale. the
 // workspace's edges are the frame's inner ones, and the least gap either side
-// of the box is the clearance the fit keeps between the board and them
+// of the box is the clearance the fit keeps between the board and them. a
+// picture still on its way keeps the box hidden, so it never shows at the
+// wrong size first
 function magicPlace(){
   if (!MB.el || !MB.el.classList.contains("on")) return;
   const card = document.querySelector("main"), stage = document.getElementById("stage");
   if (!card || !stage) return;
   const S = stageScale || 1, sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
   if (r.width < 1 || card.classList.contains("region-off")){ MB.el.style.visibility = "hidden"; return; }
+  magicDress();
   const lim = frameLimits();
   const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cardbar-h")) || 0;
-  const at = MagicBox.place({ left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S },
-    { scale: S, tx: stageTx, left: lim.left - FRAME_CLEAR, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR }, bar);
+  const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
+  const fit = { scale: S, tx: stageTx, left: lim.left - FRAME_CLEAR, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
+  const most = MagicBox.place(rect, fit, bar);
+  const at = MagicBox.place(rect, fit, bar, magicWant(most, S));
+  const img = MB.body.dataset.kind === "image" && MB.body.querySelector(".mbimg");
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
-    height: at.height + "px", visibility: "" });
+    height: at.height + "px", visibility: img && (!img.complete || !MB.natural) ? "hidden" : "" });
   MB.el.classList.toggle("floating", at.floating);
 }
 if (MB.el){
@@ -8362,6 +8429,9 @@ if (MB.el){
   // when the page switcher needs its foot: the box follows each of those
   const card = document.querySelector("main");
   if (card) new MutationObserver(magicPlace).observe(card, { attributes: true, attributeFilter: ["style", "class"] });
+  // words that change height after they are drawn (a font arriving, a frame
+  // switched on or off) take the box with them
+  if (window.ResizeObserver) MB.words = new ResizeObserver(() => magicPlace());
 }
 
 // the dormant quick-chat panel, bound to one lane, one card and one listener.
@@ -12007,6 +12077,11 @@ function setEditMode(on){
     if (emailYes.checked) change.email = profileFields.email.value;
     saveProfile(change, profileFields.email);
   });
+  // the magic box's frame and its shadow (magicDress): board settings, off
+  // unless they say "1"; a switch put back off takes its key away
+  const looks = [[document.getElementById("setmagicframe"), MAGIC_FRAME_KEY],
+                 [document.getElementById("setmagicshadow"), MAGIC_SHADOW_KEY]];
+  const showLooks = () => { for (const [box, key] of looks) box.checked = settingsStore.getItem(key) === "1"; };
   const view = settingsOverlay(document.body, document.getElementById("setsrc"), {
     onOpen(){
       setOpen = true;
@@ -12016,6 +12091,7 @@ function setEditMode(on){
       usage.checked = sharing();
       showWait();
       readProfile();
+      showLooks();
     },
     onClose(){
       setOpen = false;
@@ -12037,6 +12113,12 @@ function setEditMode(on){
     else settingsStore.removeItem("waitnewest");
     showWait();
     if (lastState) renderCarousel(lastState);
+  });
+  showLooks();
+  for (const [box, key] of looks) box.addEventListener("change", () => {
+    if (box.checked) settingsStore.setItem(key, "1");
+    else settingsStore.removeItem(key);
+    magicPlace();
   });
   btn.addEventListener("click", () => view.open());
 }
