@@ -2917,6 +2917,34 @@ function sentSeen(el, node){
     return !!node.isConnected && sentMotionVisible(el.sentwrap);
   return sentMotionVisible(node);
 }
+// Where a card shows its foot, in viewport px: the boxes above the seat that
+// cut what overflows them, met, up to the first box fixed to the viewport,
+// which nothing above it can cut. The body's own overflow is the window's, so
+// the walk stops under it. Null when nothing above the seat cuts, as on the
+// small card, whose foot is seen wherever it stands. The flight is cut here
+// too: it stands outside the card, and the typing row a long message grows
+// can reach past what the card shows of it (a card laid out shorter than the
+// row's cap), as can the bubble it lands on, and the flight drew those parts
+// over the card's head and past its edge.
+function sentView(seat){
+  const cuts = value => !!value && value !== "visible";
+  let view = null;
+  for (let at = seat && seat.parentElement; at && at !== document.body; at = at.parentElement){
+    const style = getComputedStyle(at);
+    const x = cuts(style.overflowX), y = cuts(style.overflowY);
+    if (x || y){
+      const rect = at.getBoundingClientRect(), scale = sentScale(at, rect);
+      const left = rect.left + (at.clientLeft || 0) * scale.x, top = rect.top + (at.clientTop || 0) * scale.y;
+      const page = document.documentElement;
+      view = view || { left:0, top:0, right:page.clientWidth, bottom:page.clientHeight };
+      if (x){ view.left = Math.max(view.left, left); view.right = Math.min(view.right, left + at.clientWidth * scale.x); }
+      if (y){ view.top = Math.max(view.top, top); view.bottom = Math.min(view.bottom, top + at.clientHeight * scale.y); }
+    }
+    if (style.position === "fixed") break;
+  }
+  return view && { left:view.left, top:view.top,
+    width:Math.max(0, view.right - view.left), height:Math.max(0, view.bottom - view.top) };
+}
 
 // Arm before the page empties its composer; play in that same task after the
 // message has its seat. Every send flies into a bubble of its own, the way the
@@ -2958,10 +2986,15 @@ function armSentMotion(el){
   // as large as the box ever is and rounding one corner of it: each clip rides
   // its own corner, so the four cut out the box at its width and height while
   // each only moves. Inside them the ground the face and the words stand on is
-  // held at the viewport's origin, so everything in it is placed in viewport px
+  // held at the viewport's origin, so everything in it is placed in viewport px.
+  // The shell itself is cut where the card shows its foot (sentView), and the
+  // four stand in a frame held at the viewport's origin inside that cut, so the
+  // flight shows only what the card would show of the row and of the bubble
   const shell = document.createElement("div");
   shell.className = "sentmorph";
   shell.setAttribute("aria-hidden", "true");
+  const view = document.createElement("div");
+  view.className = "sentmorph-view";
   const clips = corners.map(() => {
     const clip = document.createElement("div");
     clip.className = "sentmorph-clip";
@@ -2970,7 +3003,17 @@ function armSentMotion(el){
   const ground = document.createElement("div");
   ground.className = "sentmorph-ground";
   clips.reduce((outer, inner) => outer.appendChild(inner)).appendChild(ground);
-  shell.appendChild(clips[0]);
+  view.appendChild(clips[0]);
+  shell.appendChild(view);
+  // the cut, written again whenever the flight is handed over again, since
+  // whatever moved the seat may have moved the card's foot with it
+  const cut = () => {
+    const seen = sentView(el.sentwrap);
+    if (!seen) return;
+    Object.assign(shell.style, { left:seen.left + "px", top:seen.top + "px",
+      width:seen.width + "px", height:seen.height + "px", overflow:"hidden" });
+    Object.assign(view.style, { left:-seen.left + "px", top:-seen.top + "px" });
+  };
   const face = document.createElement("div");
   face.className = "sentmorph-face";
   face.style.background = getComputedStyle(el.box || source).getPropertyValue("--card").trim() || "#fff";
@@ -3008,6 +3051,7 @@ function armSentMotion(el){
   place(start);
   round(startCorners);
   cover([start]);
+  cut();
   document.body.appendChild(shell);
   sourceCopy.scrollTop = source.scrollTop;
   sourceCopy.scrollLeft = source.scrollLeft;
@@ -3179,6 +3223,7 @@ function armSentMotion(el){
         const frames = moments.map(ms => all[ms]), boxes = frames.map(one => one.box);
         fit(Math.max(...all.map(one => one.box.width)) + 1, Math.max(...all.map(one => one.box.height)) + 1);
         cover(all.map(one => one.box));
+        cut();
         const keys = transform => moments.map((ms, i) => ({ offset:ms / SENT_FLIGHT_MS, transform:transform(i) }));
         const timing = { duration:SENT_FLIGHT_MS, fill:"both", easing:"linear" };
         const before = flying;
