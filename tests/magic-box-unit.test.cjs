@@ -5,12 +5,13 @@
 // workspace's edge are equal, level with the card's middle, and over the card's
 // edge rather than off the workspace when the window has no room; inside that
 // largest box, a picture in its own shape and never past its own size, words
-// at their own height. Its look, read from the page's source: what it holds and
-// the ticket list's two soft ends, no bar, and the card's own frame and shadow
-// only under the two Settings switches; with the shadow on, whichever of the
-// card and the box is held stands up and the other settles. And the page's
-// wiring: the box is never one of the regions the fit, the layout or edit mode
-// work on, and a click or the focus says which of the two is held.
+// at their own height, hung from that box's top. Its look, read from the
+// page's source: what it holds and the ticket list's two soft ends, no bar,
+// and the card's own frame and shadow only under the two Settings switches;
+// with the shadow on, whichever of the card and the box is held stands up and
+// the other settles. And the page's wiring: the box is never one of the
+// regions the fit, the layout or edit mode work on, and a click or the focus
+// says which of the two is held.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -137,7 +138,8 @@ test("in a window narrower than the box it never starts left of the workspace", 
 const SIZED = (want, fit = fitAt(1512)) => ({ most: place(CARD, fit, 34), at: place(CARD, fit, 34, want), fit });
 function sizedRight({ most, at, fit }) {
   assert.ok(at.width <= most.width + 1e-6 && at.height <= most.height + 1e-6, "never larger than the largest box");
-  assert.ok(close(MIDDLE(at), MIDDLE(CARD)), "level with the card's middle");
+  assert.ok(close(at.top, most.top), "its top on the largest box's top, not centred up and down");
+  assert.equal(at.floating, most.floating);
   if (!at.floating) {
     const gapCard = at.left - RIGHT(CARD), gapEdge = edgeOf(fit) - (at.left + at.width);
     assert.ok(close(gapCard, gapEdge), `gaps ${gapCard} and ${gapEdge}`);
@@ -166,7 +168,12 @@ test("words take their own height up to the largest box, then scroll; a page or 
   const short = sizedRight(SIZED({ height: 180 }));
   assert.deepEqual([short.width, short.height], [most.width, 180], "the full width, their own height");
   const long = sizedRight(SIZED({ height: 5000 }));
-  assert.deepEqual([long.width, long.height], [most.width, most.height], "no taller than the largest box");
+  assert.deepEqual(long, most, "no taller than the largest box, and then exactly where it stood");
+  // a short one hangs from the largest box's top, which is 5% of the card's
+  // height under the card's own top, and keeps its left and right as before
+  assert.ok(close(short.top - CARD.top, 0.05 * CARD.height));
+  assert.ok(short.top + short.height < MIDDLE(CARD), "well above the card's middle");
+  assert.equal(short.left, most.left);
   assert.deepEqual(place(CARD, fitAt(1512), 34, null), most, "a page or a site asks for nothing");
 });
 

@@ -34,9 +34,10 @@
   // first star row under the card's top bar so the card's own chips stay in
   // reach. Inside that whole box, what it shows takes its own size: a picture
   // its own shape, as large as fits, and words their own height, then scroll.
-  // Whatever size results stands in the middle of the room right of the card,
-  // so the gap to the card and the gap to the workspace's edge are equal, with
-  // its middle level with the card's
+  // The whole box stands with its middle level with the card's. Whatever size
+  // results stands in the middle of the room right of the card, so the gap to
+  // the card and the gap to the workspace's edge are equal, with its top on the
+  // whole box's top
   function place(card, fit, bar = 0, want) {
     const scale = fit.scale || 1;
     const edge = (fit.right - fit.tx) / scale;   // the workspace's right edge, on the stage
@@ -52,6 +53,7 @@
       width = Math.max(1, Math.min(Math.min(card.height * TALL, card.height - 2 * under) * SHAPE, edge - seen - 2 * clear));
       height = width / SHAPE;
     }
+    const top = middle - height / 2;
     if (want && want.width > 0 && want.height > 0) {
       const s = Math.min(1, width / want.width, height / want.height);
       width = want.width * s;
@@ -60,7 +62,7 @@
       height = Math.min(height, want.height);
     }
     const left = floating ? edge - clear - width : right + (room - width) / 2;
-    return { left, top: middle - height / 2, width, height, floating };
+    return { left, top, width, height, floating };
   }
   // a page an agent wrote runs sealed off: its frame has scripts and nothing
   // else, so its origin is its own and never the board's (no same origin, no
