@@ -127,6 +127,47 @@ test("the fall sets off softly, lands without passing its place, and leaves the 
   assert.deepEqual(plain(run("MERGE_EASE")), [.6, 0, .3, 1]);
 });
 
+test("short earlier words fade out from the join's first frame to nothing as the earlier bubble lands, and in from the edge's moment to whole as the join ends", () => {
+  const { context, run } = load();
+  const travel = run("MERGE_TRAVEL"), length = run("MERGE_MS");
+  for (const inAt of [0, .3, .62]) {
+    const at = ms => plain(context.sentShortFade(ms / length, inAt));
+    assert.equal(at(0).out, 1, "the words where they stood are not whole as the join starts");
+    assert.ok(at(17).out < 1, "the words where they stood do not start to go on the join's first frame");
+    assert.equal(at(travel * length).out, 0, "the words where they stood are still drawn once the earlier bubble is all taken in");
+    assert.equal(at(travel * length - 17).out > 0, true, "the words where they stood are gone before the earlier bubble lands");
+    // the copy in its place: nothing up to the edge's moment, something after it, whole at the end and not before
+    assert.equal(at(inAt * length).in, 0, "the words in their place come in before the edge reaches them");
+    assert.ok(at(inAt * length + 17).in > 0, "the words in their place do not start to come in as the edge reaches them");
+    assert.equal(at(length).in, 1, "the words in their place are not whole as the join ends");
+    assert.ok(at(length - 17).in < 1, "the words in their place are whole before the join ends");
+    // the strength only ever goes one way
+    let out = 1, into = 0;
+    for (let ms = 0; ms <= length; ms += 4) {
+      const f = at(ms);
+      assert.ok(f.out <= out + 1e-12 && f.in >= into - 1e-12, `a fade turned round at ${ms}ms`);
+      out = f.out; into = f.in;
+    }
+  }
+});
+
+test("the edge's moment is when the earlier bubble's widening side reaches the words' right end in their place", () => {
+  const { context, run } = load();
+  // the side goes from 110 to 0 on the merge's own widening (sentAcross)
+  const sentAcross = run("sentAcross");
+  for (const at of [42, 80, 5]) {
+    const t = context.sentEdgeReaches(110, 0, at);
+    const edge = ms => 110 * (1 - sentAcross(ms));
+    assert.ok(Math.abs(edge(t) - at) < 1e-6, `the side stands at ${edge(t)} rather than ${at} at the edge's moment`);
+    assert.ok(edge(t - .01) > at, "the side reached the words' end before the edge's moment");
+    assert.ok(t > 0 && t < run("MERGE_TRAVEL"));
+  }
+  // a side that stands there already reaches it at once; one that never gets there never does
+  assert.equal(context.sentEdgeReaches(30, 0, 42), 0);
+  assert.equal(context.sentEdgeReaches(110, 50, 42), 1);
+  assert.equal(run("SHORT_TEXT"), .9);
+});
+
 // two one-line bubbles on the phone (read-v7 in the simulator runs), in the
 // joined bubble's own px: the earlier one 18pt narrower, 17pt of room between
 // them, and the joined one laid out bottom up from the later one's foot. the

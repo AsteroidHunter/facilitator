@@ -4149,6 +4149,7 @@ function sentMerge(el, run){
     .filter(node => sentMotionVisible(node)).map(node => ({ node, rect:node.getBoundingClientRect() }));
   const aCopy = sentSnapshot(a, true), bCopy = sentSnapshot(b, true);
   const count = a.sentMsgs.length;
+  const aSpan = sentInkSpan(a.querySelector(".answstack"));
   sentJoin(el, a, b);
   const M = a.getBoundingClientRect(), s = sentScale(a, M);
   const rows = sentRows(a);
@@ -4180,6 +4181,11 @@ function sentMerge(el, run){
   // bubble sinks over them, rather than travelling to a place under the cut
   const bStart = { x:L0.left, y:L0.top };
   const bEnd = bTo && !hidden ? { x:x(bTo.left) - (bFrom.left - B.left) / s.x, y:textTo - (bFrom.top - B.top) / s.y } : bStart;
+  // earlier words narrower than SHORT_TEXT of the joined column fade across
+  // the join (sentShortFade): where their right end stands once landed, and the
+  // moment the earlier box's widening side reaches it
+  const short = !!aSpan && cut.width > 0 && aSpan.right - aSpan.left < SHORT_TEXT * cut.width;
+  const inAt = short ? sentEdgeReaches(U0.left, U1.left, aEnd.x + (aSpan.right - A.left) / s.x) : 0;
   // the layer
   const layer = document.createElement("div");
   layer.className = "sentgoo";
@@ -4202,9 +4208,30 @@ function sentMerge(el, run){
   };
   const aWords = holder(aCopy, true), bWords = holder(bCopy, true), joined = holder(mCopy, false);
   joined.style.opacity = "0";
+  // the second copy of short earlier words, and their rows in the joined
+  // bubble's copy, which come in with it so the words reach their whole
+  // strength as the join ends and not before. a cut earlier bubble's own arrow
+  // goes with the words where they stood, and the joined foot's comes in as it
+  // goes: the second copy carries none, since it would stand where no arrow does
+  const aLater = short ? holder(aCopy.cloneNode(true), true) : null;
+  const firstRows = short ? [...mCopy.querySelector(".answstack").children].slice(0, count) : [];
+  // the copy in the place the words take stands in the bubbles' own outline,
+  // cut on every frame as the face is (sentGooPath), so no part of it is drawn
+  // on the card outside the bubble: what of it the earlier bubble has not
+  // widened over yet is not drawn until it has
+  let lateShape = null;
+  if (short){
+    const own = aLater.querySelector(".answfoot");
+    if (own) own.style.visibility = "hidden";
+    lateShape = document.createElement("div");
+    lateShape.className = "sentgoo-shape";
+    Object.assign(lateShape.style, { width:(ext.right - ext.left) + "px", height:(ext.bottom - ext.top) + "px" });
+    Object.assign(aLater.style, { left:-ext.left + "px", top:-ext.top + "px" });
+    lateShape.appendChild(aLater);
+  }
   // the joined cut, from the first frame (sentFoot)
   const cutBy = a.classList.contains("more");
-  let footBox = null, foot = null, topArrow = null;
+  let footBox = null, foot = null, topArrow = null, footArrow = null;
   if (cutBy){
     const win = document.createElement("div");
     win.className = "sentgoo-win";
@@ -4214,23 +4241,33 @@ function sentMerge(el, run){
       Object.assign(words.style, { left:-ext.left + "px", top:-ext.top + "px" });
       win.appendChild(words);
     }
+    // the window stands where the outline's own px start, so the outline cuts it as it cuts the face
+    if (lateShape && !aCut){
+      Object.assign(lateShape.style, { left:"0px", top:"0px" });
+      win.insertBefore(lateShape, bWords);
+    }
     // the later bubble's own dissolve and arrow give way to the joined foot
     const bClip = bCopy.querySelector(".answclip"), bFoot = bCopy.querySelector(".answfoot");
     if (bClip) bClip.style.setProperty("--answ-shade", "0");
     if (bFoot) bFoot.style.visibility = "hidden";
     // the arrow is the foot's unless the earlier bubble carries its own down
-    // alone; when both are drawn, the earlier one's goes as it sinks in
-    foot = sentFoot(!aCut || bCut);
+    // alone; when both are drawn, the earlier one's goes as it sinks in. short
+    // earlier words fading across leave theirs where they stood, and the
+    // foot's comes in as it goes
+    foot = sentFoot(!aCut || bCut || short);
     foot.classList.add("on");
     foot.style.opacity = String(footFrom);
     footBox = document.createElement("div");
     footBox.className = "sentgoo-foot";
     footBox.style.height = H + "px";
     footBox.appendChild(foot);
-    if (aCut && bCut) topArrow = aCopy.querySelector(".answfoot");
+    if (aCut && bCut && !short) topArrow = aCopy.querySelector(".answfoot");
+    if (aCut && !bCut && short) footArrow = foot.querySelector(".sentfoot-arrow");
     layer.append(face, win, footBox);
-    if (aCut) layer.appendChild(aWords);
-  } else layer.append(face, aWords, bWords);
+    if (aCut) layer.append(...(lateShape ? [aWords, lateShape] : [aWords]));
+  } else layer.append(...[face, aWords, lateShape, bWords].filter(Boolean));
+  if (lateShape && lateShape.parentNode === layer)
+    Object.assign(lateShape.style, { left:ext.left + "px", top:ext.top + "px" });
   let mark = null;
   if (word){
     mark = document.createElement("div");
@@ -4257,7 +4294,17 @@ function sentMerge(el, run){
   const put = t => {
     const { U, L, k, bow, ey, ew, sunk } = sentMergeShape(spec, t);
     face.style.clipPath = 'path("' + sentGooPath(U, L, r, k, bow, ext) + '")';
-    aWords.style.transform = "translate(" + mix(aStart.x, aEnd.x, ew) + "px," + mix(aStart.y, aEnd.y, ey) + "px)";
+    if (lateShape) lateShape.style.clipPath = face.style.clipPath;
+    if (short){
+      // the earlier words fall where they stood and in the place they take, and do not slide
+      const fade = sentShortFade(t, inAt), down = mix(aStart.y, aEnd.y, ey);
+      aWords.style.transform = "translate(" + aStart.x + "px," + down + "px)";
+      aWords.style.opacity = String(fade.out);
+      aLater.style.transform = "translate(" + aEnd.x + "px," + down + "px)";
+      aLater.style.opacity = String(fade.in);
+      for (const row of firstRows) row.style.opacity = String(fade.in);
+      if (footArrow) footArrow.style.opacity = String(1 - fade.out);
+    } else aWords.style.transform = "translate(" + mix(aStart.x, aEnd.x, ew) + "px," + mix(aStart.y, aEnd.y, ey) + "px)";
     // the later words keep their line until the earlier bubble lands on them
     bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, sunk) + "px)";
     // later words the joined bubble's cut hides go as the earlier foot sinks over them
@@ -4345,9 +4392,10 @@ function sentMergeLand(el){
 // over the whole of the travel from a tenth in, 700ms, rather than 450ms from
 // a fifth in, the fastest frame a little under two thirds as fast as it was
 const MERGE_ACROSS_FROM = .1;
+const sentAcross = t => sentSmooth((t - MERGE_ACROSS_FROM) / (MERGE_TRAVEL - MERGE_ACROSS_FROM));
 function sentMergeShape({ U0, L0, U1, L1, r }, t){
   const ey = FALL_CURVE(Math.min(1, t / MERGE_TRAVEL));
-  const ew = sentSmooth((t - MERGE_ACROSS_FROM) / (MERGE_TRAVEL - MERGE_ACROSS_FROM));
+  const ew = sentAcross(t);
   const mix = (p, q, f) => p + (q - p) * f;
   const across = (from, to) => ({ left:mix(from.left, to.left, ew), right:mix(from.right, to.right, ew) });
   const gap = Math.max(0, L0.top - U0.bottom);
@@ -4364,6 +4412,65 @@ function sentMergeShape({ U0, L0, U1, L1, r }, t){
   const bow = bulge * sentSmooth(near / .8) * (1 - sentSmooth(sunk / .55));
   const k = reach * sentSmooth((near - .45) / .5) * (1 - sentSmooth((t - .4) / .45));
   return { U, L, k, bow, ey, ew, sunk };
+}
+
+// the earlier message's words across the join, when they are short: they do
+// not slide to the joined bubble's left edge, which read as a shift (the
+// owner's word). they fall with the earlier bubble where they stood, and fade
+// from whole at the join's first frame to nothing the moment the earlier
+// bubble has landed and is all taken in (MERGE_TRAVEL). a second copy falls
+// with them at the place the words take in the joined bubble, and fades in
+// from the moment the earlier bubble's side, widening to the left, reaches
+// where their right end will stand, to whole as the join ends. words at least
+// SHORT_TEXT of the joined bubble's column wide, the same width included,
+// slide as they always have: their two places all but meet
+const SHORT_TEXT = .9;
+// the moment (0 to 1 of the merge) the earlier box's left edge, going from
+// from to to as the box widens (sentAcross), reaches at: at once when it
+// stands there already, and never when it never gets there
+function sentEdgeReaches(from, to, at){
+  if (from <= at) return 0;
+  if (to > at) return 1;
+  const need = (from - at) / (from - to);
+  let lo = 0, hi = MERGE_TRAVEL;
+  for (let i = 0; i < 40; i++){
+    const mid = (lo + hi) / 2;
+    if (sentAcross(mid) < need) lo = mid; else hi = mid;
+  }
+  return hi;
+}
+// how strong the two copies stand at t: the words where they stood (out) and
+// the words in the place they take (in), which starts at inAt
+function sentShortFade(t, inAt){
+  const clamp = v => Math.max(0, Math.min(1, v));
+  return { out:1 - clamp(t / MERGE_TRAVEL), in:t <= inAt ? 0 : clamp((t - inAt) / Math.max(1e-6, 1 - inAt)) };
+}
+// how far across the words of a column of messages reach, in the viewport's
+// px: the left of the leftmost line with text and the right of the rightmost,
+// pictures and players included, or null when nothing in it can be measured
+function sentInkSpan(stack){
+  if (!stack) return null;
+  const range = document.createRange();
+  let left = Infinity, right = -Infinity;
+  const walk = node => {
+    for (const child of node.childNodes){
+      if (child.nodeType === 3){
+        if (ANSWERED_BLANK.test(child.textContent)) continue;
+        range.selectNodeContents(child);
+        for (const r of range.getClientRects()){
+          if (!(r.right > r.left)) continue;
+          left = Math.min(left, r.left); right = Math.max(right, r.right);
+        }
+      } else if (child.nodeType === 1){
+        if (ANSWERED_SEEN.has(child.tagName.toUpperCase())){
+          const r = child.getBoundingClientRect();
+          if (r.right > r.left){ left = Math.min(left, r.left); right = Math.max(right, r.right); }
+        } else walk(child);
+      }
+    }
+  };
+  walk(stack);
+  return right > left ? { left, right } : null;
 }
 
 // a css cubic-bezier as a function of its x, found by halving
