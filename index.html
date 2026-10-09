@@ -3531,6 +3531,11 @@
       <label class="setlabel" for="bgpick"><span>Background colour</span></label>
       <input type="color" id="bgpick" value="#F5F4F1">
     </div>
+    <div class="setrow">
+      <label class="setlabel" for="setwait"><span>Cards waiting on you</span>
+        <small id="setwaitnote" class="sethelp" role="status" aria-live="polite">Oldest first</small></label>
+      <input type="checkbox" role="switch" id="setwait" aria-describedby="setwaitnote">
+    </div>
   </div>
   <div data-section="editor" data-label="Editor">
     <div class="setrow">
@@ -10324,6 +10329,9 @@ function renderMiniCards(state){
 // with the phone page in card-logic.js. the desktop narrows the lane's pool to
 // the chosen workspace, and hands poolOf that test here
 poolScope = state => { const w = curWs(state); return w ? (b => b.ws === w.id) : null; };
+// the cards waiting on the reader are listed newest turn first when the board's
+// waitnewest setting is "1", and oldest first otherwise (the settings page)
+waitNewestFirst = () => settingsStore.getItem("waitnewest") === "1";
 
 function carouselRow(state){
   const w = curWs(state);
@@ -11588,6 +11596,15 @@ function setEditMode(on){
   // phone's drawer show the same choice
   const usage = document.getElementById("setusage");
   const sharing = () => settingsStore.getItem("usagecounts") !== "0";
+  // the order of the cards waiting on the reader: the board's waitnewest
+  // setting, "1" for newest first and absent for oldest first. the switch is on
+  // for newest first, and the line under the name says which is chosen
+  const wait = document.getElementById("setwait");
+  const waitNote = document.getElementById("setwaitnote");
+  const showWait = () => {
+    wait.checked = waitNewestFirst();
+    waitNote.textContent = wait.checked ? "Newest first" : "Oldest first";
+  };
   const view = settingsOverlay(document.body, document.getElementById("setsrc"), {
     onOpen(){
       setOpen = true;
@@ -11595,6 +11612,7 @@ function setEditMode(on){
       btn.setAttribute("aria-expanded", "true");
       format.checked = ComposeFormat.enabled();
       usage.checked = sharing();
+      showWait();
     },
     onClose(){
       setOpen = false;
@@ -11609,6 +11627,13 @@ function setEditMode(on){
   usage.addEventListener("change", () => {
     if (usage.checked) settingsStore.removeItem("usagecounts");
     else settingsStore.setItem("usagecounts", "0");
+  });
+  showWait();
+  wait.addEventListener("change", () => {
+    if (wait.checked) settingsStore.setItem("waitnewest", "1");
+    else settingsStore.removeItem("waitnewest");
+    showWait();
+    if (lastState) renderCarousel(lastState);
   });
   btn.addEventListener("click", () => view.open());
 }

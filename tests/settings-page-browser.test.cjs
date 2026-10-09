@@ -920,12 +920,14 @@ test("the same page changes layout when the window does", async () => {
 // notes and the status line are empty until there is something to say)
 const HELD = {
   editor: ["setformat"],
+  appearance: ["setwait", "setwaitnote"],
   notifications: ["notify", "notifynote"],
   improvements: ["setusage"],
   diagnostics: ["savediagnostic", "diagnostichelp", "diagnosticstatus"],
 };
 const SECTIONS = {
   editor: ["setformat"],
+  appearance: ["setwait"],
   notifications: ["notify"],
   improvements: ["setusage"],
   diagnostics: ["savediagnostic", "diagnostichelp"],
@@ -1018,12 +1020,12 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
     const list = await drawerView(page);
     assert.equal(list.view, "list");
     assert.equal(list.title, "Settings");
-    assert.deepEqual(list.items, ["Editor", "Notifications", "Improvements", "Diagnostics"]);
+    assert.deepEqual(list.items, ["Editor", "Appearance", "Notifications", "Improvements", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows over the list");
     assert.equal(list.back, false, "the list has a way back");
     assert.equal(list.close, false, "the page carries window buttons or a close mark of its own");
     assert.deepEqual(list.anyShown, [], "a control shows before its section is opened");
-    const words = { editor: "Editor", notifications: "Notifications", improvements: "Improvements",
+    const words = { editor: "Editor", appearance: "Appearance", notifications: "Notifications", improvements: "Improvements",
                     diagnostics: "Diagnostics" };
     for (const [name, ids] of Object.entries(SECTIONS)) {
       await page.tap('.sp-item[data-section="' + name + '"]');
@@ -1070,7 +1072,7 @@ test("phone: the drawer stays narrow, with the list and sections, in a wide wind
     const box = await cover(page, "#settings");
     assert.equal(box.right - box.left, 289, "the drawer is not capped at 289px");
     const list = await drawerView(page);
-    assert.deepEqual(list.items, ["Editor", "Notifications", "Improvements", "Diagnostics"]);
+    assert.deepEqual(list.items, ["Editor", "Appearance", "Notifications", "Improvements", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows beside the list");
     await page.tap('.sp-item[data-section="notifications"]');
     await settle(80);
