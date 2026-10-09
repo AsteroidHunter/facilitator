@@ -455,8 +455,8 @@
     top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
     border:var(--edge) solid var(--line); background:#fff; border-radius:7px;
     /* raised while it holds the keys, the same lift the small card gets. it
-       settles back the moment magic box 2 is clicked into, so exactly one of
-       the two is ever standing up */
+       settles back the moment magic box 2 is clicked into, or its own magic box
+       when that wears a shadow, so exactly one of the two is ever standing up */
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     transition:box-shadow .2s;
     padding:calc(var(--ch)*0.022) var(--pad-x);
@@ -464,6 +464,11 @@
   }
   /* it settles while the composer in magic box 2 holds the keys */
   body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
+  /* and while its magic box is held (magicHold), when the box wears its
+     shadow, but not where the box is not drawn (home, edit mode). the box is
+     named inside :where so this weighs what the rule above does, and the
+     lowered card below still sits level */
+  body.focus:not(.home, .editmode):has(:where(#magicbox.on.framed.shadowed.held)) main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
   /* and it sits level with the board once it is lowered, by a double click on
      the empty board and nothing else. browsed to or selected, it stands up
      either way. its edge line stays */
@@ -1400,7 +1405,11 @@
      list's own ramp: the box paints nothing of its own, as the ticket holder
      paints nothing. two switches in Settings dress it (magicDress): the frame
      gives it the card's own white face, edge and 7px corners, and the shadow
-     gives that frame the card's raised shadow. the shadow needs the frame: on
+     gives that frame the card's own shadow. that shadow also says which of
+     the box and the card is being worked in (magicHold): the one held wears
+     the card's raised shadow and the other the faint one the card settles to
+     under magic box 2, eased over the card's own .2s. a box comes in settled,
+     since the card is what was being worked in. the shadow needs the frame: on
      a box with no edge it would outline an empty rectangle, and stay hard
      where the words and pages dissolve. in the frame the ramp is dropped: the
      frame's edge already ends the box, and a picture or a page in it is shown
@@ -1416,9 +1425,11 @@
   body.focus #magicbox.on{
     display:flex; flex-direction:column; position:fixed; z-index:1; overflow:hidden;
     background:transparent; border:none; border-radius:0; box-shadow:none;
+    transition:box-shadow .2s;
   }
   body.focus #magicbox.on.framed{border:var(--edge) solid var(--line); background:var(--card); border-radius:7px}
-  body.focus #magicbox.on.framed.shadowed{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  body.focus #magicbox.on.framed.shadowed{box-shadow:0 2px 18px rgba(60,45,20,.06)}
+  body.focus #magicbox.on.framed.shadowed.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
   /* the two soft ends are the ramp .tikpane draws, the same stops at the same
      --listfade, with both bands held at their full depth: a section of the list
@@ -8258,14 +8269,17 @@ function magicSync(){
 // stops running the moment its card is not the one on screen
 function magicOff(){
   if (!MB.el) return;
-  MB.el.classList.remove("on");
+  MB.el.classList.remove("on", "held");
   if (MB.id === null) return;
   MB.id = null; MB.rev = 0; MB.asked++; MB.url = ""; MB.page = null; MB.natural = null;
   if (MB.words) MB.words.disconnect();
   MB.body.textContent = "";
 }
 async function magicLoad(id, rev){
+  // the agent's next revision keeps the box held; another card's comes settled
+  const held = id === MB.id && MB.el.classList.contains("held");
   magicOff();
+  MB.el.classList.toggle("held", held);
   const asked = ++MB.asked;
   MB.id = id; MB.rev = rev;
   let box = null;
@@ -8433,6 +8447,25 @@ if (MB.el){
   // switched on or off) take the box with them
   if (window.ResizeObserver) MB.words = new ResizeObserver(() => magicPlace());
 }
+// which of the two is being worked in, the card or its box. clicking or
+// focusing into the box hands it over; clicking anywhere else, or the focus
+// going into the card to type, hands it back, as magic box 2 takes and gives
+// back the keys (miniHold). the box's held class is all there is to it: with
+// the box's shadow on, the one held stands up and the other settles, and with
+// it off nothing shows it
+function magicHold(inside){
+  if (MB.el) MB.el.classList.toggle("held", inside && MB.el.classList.contains("on"));
+}
+addEventListener("pointerdown", e => magicHold(!!MB.el?.contains(e.target)), true);
+addEventListener("focusin", e => {
+  if (MB.el?.contains(e.target)) magicHold(true);
+  else if (e.target.closest?.("main")) magicHold(false);
+}, true);
+// a click inside a page or a site in the box never reaches the board, and no
+// focusin comes either: the board's window only loses the focus, to the frame
+addEventListener("blur", () => setTimeout(() => {
+  if (MB.el?.contains(document.activeElement)) magicHold(true);
+}));
 
 // the dormant quick-chat panel, bound to one lane, one card and one listener.
 // Those bindings named a project's own lane, so they are cleared here: with no
