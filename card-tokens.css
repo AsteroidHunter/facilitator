@@ -545,6 +545,11 @@
 @keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
 .answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--sent-ease)}
 /* A viewport shell crosses the composer's and panel's clipping boundaries.
+   It is cut where the card shows its foot, the boxes above the seat that clip
+   met (card-logic.js writes the cut on the shell, and holds a frame inside it
+   at the viewport's origin), so nothing of a tall row or of the bubble that
+   the card does not show is drawn by the flight either; a card that shows the
+   whole of both writes a cut that takes nothing.
    Its real box moves and compresses, never scaled, and clips what stands
    outside it; one copy of the words, laid out as the panel lays them out,
    rides it and shrinks from the typing size without rewrapping.
@@ -563,6 +568,7 @@
    simulator it reached the screen later, its first frame 26 to 38ms into the
    flight rather than 23 to 32 */
 .sentmorph{position:fixed; left:0; top:0; pointer-events:none; z-index:10000; will-change:transform}
+.sentmorph-view{position:absolute; left:0; top:0}
 .sentmorph-clip{position:absolute; left:0; top:0; overflow:hidden}
 .sentmorph-ground{position:absolute; left:0; top:0}
 .sentmorph-face{position:absolute}
