@@ -14,6 +14,9 @@
   email     a yes and an address are saved and told to PostHog once, as the one
             $identify payload below; after it the daily messages are identified;
             without a yes, or without an address, nothing is kept or sent
+  person    under the same yes the profile's answers go with the email, once,
+            then only what changes ($set, and $unset for one cleared); never on
+            a daily message; taking the yes back sends nothing and forgets them
   off       nothing is sent while the switch is off (no day, no identify), nor
             later for a day that ended while it was off; a saved email waits
   offline   a send that cannot get through is quiet, leaves the day unmarked,
@@ -538,7 +541,7 @@ class InstallId(Board):
         board.look()
         [sent] = self.sent_ids()
         self.assertEqual(self.saved(), {"install_id": sent, "feedback_yes": False, "email": None,
-                                        "identify_done": False})
+                                        "answers": {}, "told": {}, "identify_done": False})
         self.assertEqual(self.install.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.install.parent, self.marker.parent)
         self.assertEqual(board.install.path, self.install)
@@ -635,7 +638,7 @@ class EmailLink(Board):
             "properties": {"$geoip_disable": True, "$set": {"email": EMAIL}},
         })
         self.assertEqual(self.saved(), {"install_id": made, "feedback_yes": True, "email": EMAIL,
-                                        "identify_done": True})
+                                        "answers": {}, "told": {"email": EMAIL}, "identify_done": True})
         self.assertEqual(self.install.stat().st_mode & 0o777, 0o600)
         self.assertEqual(board.link_email(EMAIL, True), "sent")
         self.assertEqual(self.sender().link_email(f"  {EMAIL}  ", True), "sent")
@@ -765,6 +768,117 @@ class EmailLink(Board):
             self.assertEqual(board.link_email("grace@example.com", True), "unsaved")
         self.assertEqual(self.net.requests, [])
         self.assertEqual(self.saved()["email"], EMAIL, "the old file was lost")
+
+
+PERSON = {"email": EMAIL, "name": "Ada Lovelace", "work": "Notes on the analytical engine, in my words",
+          "main_agent": "Claude Code", "time_zone": "Europe/London"}
+
+
+class PersonLink(Board):
+    """The profile's answers under the email's yes: told once with it, then only
+    what changes, never on a daily message, and nothing after the yes is gone."""
+
+    def sets(self):
+        return [r["body"]["properties"] for r in self.net.requests if r["body"]["event"] == "$identify"]
+
+    def test_the_yes_sends_the_email_and_every_answer_once_as_the_persons_properties(self):
+        board = self.sender()
+        self.assertEqual(board.link_person(PERSON, True), "sent")
+        [sent] = self.net.requests
+        self.assertEqual(sent["body"], {
+            "api_key": uc.TOKEN, "event": "$identify", "distinct_id": self.made[0],
+            "properties": {"$geoip_disable": True, "$set": PERSON},
+        })
+        saved = self.saved()
+        self.assertEqual((saved["feedback_yes"], saved["email"], saved["identify_done"]), (True, EMAIL, True))
+        self.assertEqual(saved["answers"], {k: v for k, v in PERSON.items() if k != "email"})
+        self.assertEqual(saved["told"], PERSON)
+        self.assertEqual(board.link_person(dict(PERSON), True), "sent")
+        self.assertEqual(self.sender().link_person(PERSON, True), "sent")
+        self.assertEqual(len(self.net.requests), 1, "the same person was told twice")
+
+    def test_only_an_answer_that_changed_is_sent_again_and_a_cleared_one_is_unset(self):
+        board = self.sender()
+        board.link_person(PERSON, True)
+        board.link_person({**PERSON, "work": "Teaching"}, True)
+        self.assertEqual(self.sets()[1], {"$geoip_disable": True, "$set": {"work": "Teaching"}})
+        changed = {k: v for k, v in PERSON.items() if k != "main_agent"}
+        board.link_person({**changed, "work": "Teaching"}, True)
+        self.assertEqual(self.sets()[2], {"$geoip_disable": True, "$unset": ["main_agent"]})
+        board.link_person({**PERSON, "email": "grace@example.com"}, True)
+        self.assertEqual(self.sets()[3]["$set"], {"email": "grace@example.com", "work": PERSON["work"],
+                                                  "main_agent": "Claude Code"})
+        self.assertEqual(self.sent_ids(), [self.made[0]] * 4)
+
+    def test_answers_that_are_not_text_or_too_long_are_left_out_and_unknown_names_never_go(self):
+        self.sender().link_person({**PERSON, "name": "", "work": "x" * 2001, "main_agent": 5,
+                                   "time_zone": "Mars\x00Base", "phone": "555 0100"}, True)
+        self.assertEqual(self.sets()[0]["$set"], {"email": EMAIL})
+
+    def test_without_the_yes_or_an_address_nothing_is_kept_or_sent(self):
+        board = self.sender()
+        for yes in (False, None, "yes", 1):
+            self.assertEqual(board.link_person(PERSON, yes), "no")
+        for person in ({**PERSON, "email": "not an address"}, {k: v for k, v in PERSON.items() if k != "email"},
+                       "ada@example.org", None):
+            self.assertEqual(board.link_person(person, True), "bad")
+        self.assertEqual(self.net.requests, [])
+        self.assertFalse(self.install.exists())
+
+    def test_taking_the_yes_back_sends_nothing_and_forgets_the_person_here(self):
+        self.two_used_days()
+        board = self.sender()
+        board.link_person(PERSON, True)
+        self.assertEqual(board.unlink_email(), "forgotten")
+        self.assertEqual(self.net.events, ["$identify"], "taking the yes back sent something")
+        saved = self.saved()
+        self.assertEqual((saved["feedback_yes"], saved["email"], saved["answers"], saved["told"]),
+                         (False, None, {}, {}))
+        self.assertEqual(saved["install_id"], self.made[0], "the id went with the yes")
+        board.look()
+        self.assertEqual(self.net.events, ["$identify", "daily_usage", "daily_usage"])
+        for sent in self.net.requests[1:]:
+            self.assertIs(sent["body"]["properties"]["$process_person_profile"], False)
+        self.assertEqual(board.unlink_email(), "none")
+        self.assertEqual(board.link_person(PERSON, True), "sent")
+        self.assertEqual(self.sets()[-1]["$set"], PERSON, "a new yes did not tell it all again")
+
+    def test_the_answers_never_ride_on_a_daily_message_or_in_a_log_line(self):
+        self.two_used_days()
+        board = self.sender()
+        board.link_person(PERSON, True)
+        board.look()
+        for sent in self.net.requests[1:]:
+            body = json.dumps(sent["body"])
+            self.assertNotIn("$set", sent["body"]["properties"])
+            for value in PERSON.values():
+                self.assertNotIn(value, body, "a daily message carries " + value)
+        logged = json.dumps(self.lines)
+        for value in (*PERSON.values(), self.made[0]):
+            self.assertNotIn(value, logged)
+
+    def test_the_switch_off_holds_the_answers_and_a_failure_keeps_them_for_a_later_look(self):
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))   # no day is due
+        self.on = False
+        board = self.sender()
+        self.assertEqual(board.link_person(PERSON, True), "off")
+        self.assertEqual(self.net.requests, [])
+        self.on = True
+        self.net.fail = TimeoutError("timed out")
+        self.assertFalse(board.look())
+        self.net.fail = None
+        self.assertTrue(board.look())
+        self.assertEqual(self.sets()[-1]["$set"], PERSON)
+        self.assertTrue(self.saved()["identify_done"])
+
+    def test_a_record_from_before_the_answers_counts_its_email_as_told(self):
+        self.install.write_text(json.dumps({"install_id": INSTALL, "feedback_yes": True, "email": EMAIL,
+                                            "identify_done": True}))
+        board = self.sender()
+        self.assertEqual(board.identify(), "sent")
+        self.assertEqual(self.net.requests, [], "an email already told went again")
+        board.link_person(PERSON, True)
+        self.assertEqual(self.sets()[0]["$set"], {k: v for k, v in PERSON.items() if k != "email"})
 
 
 class Logs(Board):
