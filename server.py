@@ -20,7 +20,10 @@ Endpoints:
   GET  /state               -> full UI state (page polls this), with rev, the
                                board's revision: every saved change moves it,
                                and settingsRev, the settings' own revision
-                               (see /settings)
+                               (see /settings), and onboarding: true while the
+                               profile is not complete (see GET /profile), so
+                               a page open across a restart puts the
+                               onboarding up without a reload
   GET  /m/state[?since=R][&delta=E][&ops=A,B] -> what the phone reads: {rev,
                                changed, live, ...}. With since naming the
                                revision the phone already holds and nothing
@@ -4147,7 +4150,14 @@ def _get_state(q: Query, _):
         # and an expired working flag drops out of green (handing over
         # a deferred turn) within about that same second
         _sweep_clocks()
-        return 200, *_snapshot(_ui_state())
+        reading = _ui_state()
+        # while no profile is kept, every reading says so: a page loaded before
+        # the profile went missing, a window left open across a restart above
+        # all, learns it here within a second and puts the onboarding up, and
+        # one showing it takes it away once the profile is saved anywhere
+        if _profile_needed():
+            reading["onboarding"] = True
+        return 200, *_snapshot(reading)
 
 
 def _get_phone_state(q: Query, _):
@@ -6188,9 +6198,8 @@ def _get_board_settings_js(q: Query, _):
         lead += "globalThis.BOARD_BGCOLOR_DEFAULT=" + json.dumps(BACKGROUND_DEFAULT) + ";"
     # whether the board still has to put the onboarding up, and nothing of the
     # profile itself: a board somebody has been through it on gets no word here
-    with _profile_lock:
-        if not _profile_complete(_profile_read()):
-            lead += "globalThis.BOARD_ONBOARDING=true;"
+    if _profile_needed():
+        lead += "globalThis.BOARD_ONBOARDING=true;"
     return 200, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8"
 
 
@@ -6392,6 +6401,26 @@ def _profile_read() -> dict:
 
 def _profile_complete(rec: dict) -> bool:
     return bool(rec["name"])
+
+
+_profile_seen: tuple = (None, False)   # (the file's stamp, complete) as last read
+
+
+def _profile_needed() -> bool:
+    """Whether the onboarding is still to be done on this board: no complete
+    profile. Asked on every /state, about once a second for each open page, so
+    the file is read again only when its stamp has moved; a missing file is
+    always a board that needs it."""
+    global _profile_seen
+    try:
+        seen = PROFILE_PATH.stat()
+    except OSError:
+        return True
+    stamp = (seen.st_mtime_ns, seen.st_size, seen.st_ino)
+    if _profile_seen[0] != stamp:
+        with _profile_lock:
+            _profile_seen = (stamp, _profile_complete(_profile_read()))
+    return not _profile_seen[1]
 
 
 def _profile_write(rec: dict) -> None:
