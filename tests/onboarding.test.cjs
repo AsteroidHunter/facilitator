@@ -13,6 +13,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
+const vm = require("node:vm");
 const { startBoard, ROOT } = require("./board-fixture.cjs");
 const { noProfile } = require("./fixture-auth.cjs");
 
@@ -73,6 +74,11 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   const lead = (await board.call("GET", "/board-settings.js")).text.split("/*")[0];
   assert.match(lead, /globalThis\.BOARD_ONBOARDING=true;$/);
   assert.equal(json(await board.call("GET", "/profile")).complete, false);
+  // every reading says so as well, before and after a restart, so a page left
+  // open across the restart puts the onboarding up without a reload
+  assert.equal(json(await board.call("GET", "/state")).onboarding, true);
+  await board.restart();
+  assert.equal(json(await board.call("GET", "/state")).onboarding, true, "a restarted board stopped asking");
 
   const page = await frameOpen(board);
   assert.equal(page.status, 200);
@@ -123,8 +129,10 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   assert.equal(posthog.bodies.length, 2);
 
   assert.doesNotMatch((await board.call("GET", "/board-settings.js")).text, /BOARD_ONBOARDING/);
+  assert.equal("onboarding" in json(await board.call("GET", "/state")), false, "a saved profile is still asked for");
   await board.restart();
   assert.doesNotMatch((await board.call("GET", "/board-settings.js")).text, /BOARD_ONBOARDING/);
+  assert.equal("onboarding" in json(await board.call("GET", "/state")), false);
   assert.equal(json(await board.call("GET", "/profile")).name, "Ada Lovelace");
   const log = fs.readdirSync(board.logs).map(f => fs.readFileSync(path.join(board.logs, f), "utf8")).join("");
   for (const value of ["Ada", "ada@example.org", "research", "Teaching", "Writing", install.install_id])
@@ -166,9 +174,89 @@ test("the board lays the onboarding over itself while the server says so, and ta
             "the board under the onboarding can still be used");
   assert.ok(gate.includes('e.data?.onboarding !== "done"') && gate.includes("e.origin !== location.origin"));
   assert.match(gate, /if \(tabClosed\(project\)\) reopenTab\(project\);\s*else setTab\(project\);/);
-  assert.ok(gate.includes('if (!frame.contentDocument?.getElementById("obstage")) away();'),
+  assert.ok(gate.includes('if (!frame.contentDocument?.getElementById("obstage")){ onboard.failed = true; away(); }'),
             "a frame without the onboarding would wall the board off");
+  const reading = MAC.slice(MAC.indexOf("async function poll(){"), MAC.indexOf("if (seq <= createSeq) return;"));
+  assert.match(reading, /try \{ onboardingWatch\(state\); \} catch \(e\) \{/,
+               "a reading of the board never asks whether the onboarding is needed");
   assert.match(MAC, /#onboard\{position:fixed; inset:0;[^}]*z-index:2147483647;[^}]*transition:opacity \.18s ease\}/);
+});
+
+// the board's own gate code, run in a vm with the window, the document and the
+// board's tab moves replaced by small fakes and the clock handed in
+function gate({ flag = false } = {}) {
+  const frames = [], timers = [], listeners = {}, moves = [];
+  let now = 1000;
+  const frameOf = () => {
+    const self = { id: "", title: "", src: "", classList: { add: c => { self.gone = c === "gone"; } }, events: {},
+      removed: false, contentWindow: { focus() {} }, contentDocument: null,
+      addEventListener(type, fn) { this.events[type] = fn; }, remove() { this.removed = true; } };
+    return self;
+  };
+  const document = { body: { inert: false }, createElement: () => { const f = frameOf(); frames.push(f); return f; },
+                     documentElement: { appendChild() {} } };
+  const context = vm.createContext({
+    document, globalThis: { BOARD_ONBOARDING: flag }, location: { origin: "http://127.0.0.1:1" },
+    Date: { now: () => now },
+    setTimeout: (fn, ms) => { timers.push({ fn, at: now + ms }); return timers.length; },
+    clearTimeout: id => { if (timers[id - 1]) timers[id - 1].cleared = true; },
+    addEventListener: (type, fn) => { listeners[type] = fn; }, removeEventListener: type => { delete listeners[type]; },
+    poll: async () => {}, validActiveOwnerIds: new Set(["facilitator-sample"]), tabClosed: () => false,
+    setTab: id => moves.push(id), reopenTab: id => moves.push("reopen " + id),
+  });
+  const block = MAC.slice(MAC.indexOf("const onboard = {"), MAC.indexOf("\nfunction showOwnerRefusal"));
+  vm.runInContext(block, context);
+  return {
+    frames, moves, listeners, document,
+    watch: (state, asked = now) => vm.runInContext("onboardingWatch", context)({ ...state, fetchedAt: asked }),
+    pass(ms) { now += ms; for (const t of timers) if (!t.cleared && !t.ran && t.at <= now) { t.ran = true; t.fn(); } },
+    get now() { return now; },
+  };
+}
+
+test("a page that loaded without the flag puts the onboarding up from its next reading, once", () => {
+  const g = gate();
+  assert.equal(g.frames.length, 0);
+  g.watch({ onboarding: true });
+  assert.equal(g.frames.length, 1, "the reading did not put the onboarding up");
+  assert.equal(g.frames[0].src, "/onboarding");
+  assert.equal(g.document.body.inert, true);
+  g.watch({ onboarding: true });
+  g.watch({ onboarding: true });
+  assert.equal(g.frames.length, 1, "every reading opened another frame");
+  const loaded = gate({ flag: true });
+  assert.equal(loaded.frames.length, 1, "the flag at load no longer puts it up");
+  loaded.watch({ onboarding: true });
+  assert.equal(loaded.frames.length, 1);
+});
+
+test("the onboarding goes two seconds after the board stops asking, and a reading older than that is not believed", () => {
+  const g = gate({ flag: true });
+  const [frame] = g.frames;
+  g.watch({});
+  g.pass(1900);
+  assert.equal(frame.gone, undefined, "it went before this window's own closing card could name a project");
+  g.watch({ onboarding: true });   // still asked for: the leaving is called off
+  g.pass(3000);
+  assert.equal(frame.gone, undefined);
+  g.watch({});
+  g.pass(2100);
+  assert.equal(frame.gone, true, "a profile saved in another window left this one walled off");
+  assert.equal(g.document.body.inert, false);
+  g.watch({ onboarding: true }, g.now - 50);   // asked before it ended
+  assert.equal(g.frames.length, 1, "a stale reading put it back up");
+  g.pass(10);
+  g.watch({ onboarding: true }, g.now);       // the profile went missing again since
+  assert.equal(g.frames.length, 2);
+});
+
+test("a frame that did not get the onboarding is taken away and not put up again by that page", () => {
+  const g = gate({ flag: true });
+  g.frames[0].events.load();   // no #obstage in it
+  assert.equal(g.frames[0].gone, true);
+  assert.equal(g.document.body.inert, false);
+  g.watch({ onboarding: true });
+  assert.equal(g.frames.length, 1, "a broken onboarding was put up again every second");
 });
 
 test("the Profile section is in Settings on the Mac, editable, and on the phone, shown", () => {

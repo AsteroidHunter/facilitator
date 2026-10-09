@@ -271,6 +271,32 @@ class Gate(Case):
         (self.app / "profile.json").unlink()
         self.assertIn("BOARD_ONBOARDING=true", self.lead())
 
+    def reading(self):
+        S._state.clear()
+        S._state.update({"rev": 1, "boxes": [], "busy": {"facilitator": None}, "claimed": {"facilitator": []},
+                         "inbox": [], "next_reply_id": 1})
+        status, body, _ = S._get_state(S.Query({}), None)
+        self.assertEqual(status, 200)
+        return json.loads(body)
+
+    def test_every_reading_says_so_too_so_a_page_open_across_a_restart_puts_it_up(self):
+        self.assertIs(self.reading().get("onboarding"), True)
+        self.call("POST", "/profile", ANSWERS)
+        self.assertNotIn("onboarding", self.reading(), "a board with a profile is still told to onboard")
+        (self.app / "profile.json").unlink()
+        self.assertIs(self.reading().get("onboarding"), True, "a profile gone missing was not noticed")
+        (self.app / "profile.json").write_text(json.dumps({"name": ""}))
+        self.assertIs(self.reading().get("onboarding"), True)
+
+    def test_the_file_is_read_again_only_when_its_stamp_moves(self):
+        self.call("POST", "/profile", ANSWERS)
+        self.assertFalse(S._profile_needed())
+        with mock.patch.object(S, "_profile_read", side_effect=AssertionError("read again")):
+            for _ in range(5):
+                self.assertFalse(S._profile_needed())
+        self.call("POST", "/profile", {"name": "Grace"})
+        self.assertFalse(S._profile_needed())
+
 
 class PostHog(Case):
     def sets(self):

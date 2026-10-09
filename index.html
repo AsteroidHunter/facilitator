@@ -3767,9 +3767,19 @@ if (LOCKED) document.body.classList.add("locked");
 // keys, and the board under it loads as it always does but takes no focus,
 // pointer or key (inert). its closing card saves the profile and names the
 // project it opened; the board then shows that project's tab, and the frame
-// goes on the board's own fade
+// goes on the board's own fade.
+// whether it is needed is asked twice over: by that flag as the page loads, so
+// a board that needs it never shows itself first, and by every reading of
+// /state (onboarding: true, onboardingWatch below). the flag alone is read
+// once, so a page already open when the profile went missing, a window left
+// open across facilitator restart above all, would never put it up; the
+// reading puts it up there within a second, with no reload. once the profile
+// is saved, here or in another window, the readings stop saying so and a frame
+// still up takes itself away
+const onboard = { frame: null, away: null, failed: false, leaving: 0, ended: 0 };
 if (globalThis.BOARD_ONBOARDING) openOnboarding();
 function openOnboarding(){
+  if (onboard.frame || onboard.failed) return;
   const frame = document.createElement("iframe");
   frame.id = "onboard";
   frame.title = "Welcome to Facilitator";
@@ -3778,20 +3788,29 @@ function openOnboarding(){
   // the frame stays live
   document.documentElement.appendChild(frame);
   document.body.inert = true;
-  const away = () => {
+  onboard.frame = frame;
+  // the frame's window, kept: its done message must still be known as its own
+  const source = frame.contentWindow;
+  const away = onboard.away = () => {
+    if (onboard.frame !== frame) return;
+    onboard.frame = onboard.away = null;
+    clearTimeout(onboard.leaving);
+    onboard.leaving = 0;
+    onboard.ended = Date.now();
     document.body.inert = false;
     frame.classList.add("gone");
     frame.addEventListener("transitionend", () => frame.remove(), { once: true });
     setTimeout(() => frame.remove(), 400);   // reduced motion has no transition to end
   };
   // a frame that did not get the onboarding (a server without the page, say)
-  // is taken away rather than left over the board as a wall
+  // is taken away rather than left over the board as a wall, and not put up
+  // again by this page
   frame.addEventListener("load", () => {
-    if (!frame.contentDocument?.getElementById("obstage")) away();
+    if (!frame.contentDocument?.getElementById("obstage")){ onboard.failed = true; away(); }
     else frame.contentWindow.focus();
   });
   addEventListener("message", async function done(e){
-    if (e.source !== frame.contentWindow || e.origin !== location.origin || e.data?.onboarding !== "done") return;
+    if (e.source !== source || e.origin !== location.origin || e.data?.onboarding !== "done") return;
     removeEventListener("message", done);
     await poll();   // the sample project's tab arrives with its label and folder
     const project = e.data.project;
@@ -3801,6 +3820,21 @@ function openOnboarding(){
     }
     away();
   });
+}
+// every reading of the board: the onboarding up while the board says it is
+// needed, and taken away two seconds after it stops saying so, which leaves
+// this window's own closing card the time to name the project to open. a
+// reading asked before the onboarding last ended here is older than the save
+// and is not believed
+function onboardingWatch(state){
+  if (state.onboarding){
+    if (onboard.ended && !(state.fetchedAt > onboard.ended)) return;
+    clearTimeout(onboard.leaving);
+    onboard.leaving = 0;
+    openOnboarding();
+  } else if (onboard.frame && !onboard.leaving){
+    onboard.leaving = setTimeout(() => onboard.away?.(), 2000);
+  }
 }
 
 function showOwnerRefusal(message){
@@ -10748,6 +10782,11 @@ async function poll(){
   // the board has answered: it is asked once about each message held on a card
   // that did not get through, so one that landed after all is not left as failed
   for (const el of [...Object.values(els), ...Object.values(miniEls)]) if (el.sentHeld && el.sentHeld.length) sentAskHeld(el);
+  // whether the onboarding is needed, on every reading and on its own try, so
+  // nothing in the draw below can keep it from going up
+  try { onboardingWatch(state); } catch (e) {
+    if (typeof reportProblem === "function") reportProblem("error", e);
+  }
   if (seq <= createSeq) return;   // asked before the last new card's answer came in (newCard)
   noteDoing("render");
   try {
