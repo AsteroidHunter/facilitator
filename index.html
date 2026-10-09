@@ -445,9 +445,6 @@
     --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
     --grid:calc(var(--cw)*0.008);
     --pane-w:calc(var(--cw)*0.072); --pane-gap:calc(var(--cw)*0.024);
-    /* how deep the ticket list's top and foot dissolve; a card's magic box
-       wears the same two ends */
-    --listfade:22px;
   }
   body.focus main{
     max-width:none; margin:0; overflow:hidden;
@@ -455,8 +452,8 @@
     top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
     border:var(--edge) solid var(--line); background:#fff; border-radius:7px;
     /* raised while it holds the keys, the same lift the small card gets. it
-       settles back the moment magic box 2 is clicked into, or its own magic box
-       when that wears a shadow, so exactly one of the two is ever standing up */
+       settles back the moment magic box 2 is clicked into, or its own magic
+       box, so exactly one of the two is ever standing up */
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     transition:box-shadow .2s;
     padding:calc(var(--ch)*0.022) var(--pad-x);
@@ -464,11 +461,10 @@
   }
   /* it settles while the composer in magic box 2 holds the keys */
   body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
-  /* and while its magic box is held (magicHold), when the box wears its
-     shadow, but not where the box is not drawn (home, edit mode). the box is
-     named inside :where so this weighs what the rule above does, and the
-     lowered card below still sits level */
-  body.focus:not(.home, .editmode):has(:where(#magicbox.on.framed.shadowed.held)) main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
+  /* and while its magic box is held (magicHold), but not where the box is not
+     drawn (home, edit mode). the box is named inside :where so this weighs
+     what the rule above does, and the lowered card below still sits level */
+  body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
   /* and it sits level with the board once it is lowered, by a double click on
      the empty board and nothing else. browsed to or selected, it stands up
      either way. its edge line stays */
@@ -1279,7 +1275,7 @@
      row stands where it did.
      use a non-scrolling clip so selected-row reveal cannot shift the outer
      holder sideways. each section below handles its own vertical scrolling. */
-  #tiklist{--list-air:7px; --list-side:20px;
+  #tiklist{--listfade:22px; --list-air:7px; --list-side:20px;
     position:relative; flex:1; min-height:0; overflow:clip;
     display:flex; flex-direction:column;
     margin:0 calc(var(--list-side)*-1) calc(var(--list-air)*-1)}
@@ -1400,87 +1396,78 @@
   /* both rules above set display, which beats the hidden attribute on their own.
      without this the stub and the picture are on screen at the same time */
   #magic3 [hidden]{display:none}
-  /* a card's magic box, beside the card on screen. as it comes it is what it
-     holds and nothing else, its top and foot dissolving under the ticket
-     list's own ramp: the box paints nothing of its own, as the ticket holder
-     paints nothing. two switches in Settings dress it (magicDress): the frame
-     gives it the card's own white face, edge and 7px corners, and the shadow
-     gives that frame the card's own shadow. that shadow also says which of
-     the box and the card is being worked in (magicHold): the one held wears
-     the card's raised shadow and the other the faint one the card settles to
-     under magic box 2, eased over the card's own .2s. a box comes in settled,
-     since the card is what was being worked in. the shadow needs the frame: on
-     a box with no edge it would outline an empty rectangle, and stay hard
-     where the words and pages dissolve. in the frame the ramp is dropped: the
-     frame's edge already ends the box, and a picture or a page in it is shown
-     whole up to that edge. where it stands and how big it is is
+  /* a card's magic box, beside the card on screen, in the card's own white
+     face, edge, 7px corners and shadow. the shadow also says which of the box
+     and the card is being worked in (magicHold): the one held wears the card's
+     raised shadow and the other the faint one the card settles to under magic
+     box 2, eased over the card's own .2s. a box comes in settled, since the
+     card is what was being worked in. where it stands and how big it is is
      magic-box.js's: at most nine tenths of the card's height and a little
      wider than an iPhone 13 mini's screen, level with the card's middle;
      inside that a picture in its own shape and words at their own height, in
      the middle of the room right of the card and hung from that largest
-     box's top. floated over the card's edge when the window has no room, an
-     unframed body takes the card's white face so the card's words do not
-     show through it. off the board (home, edit mode) it is not drawn */
+     box's top. floated over the card's edge when the window has no room. off
+     the board (home, edit mode) it is not drawn */
   #magicbox{display:none}
   body.focus #magicbox.on{
     display:flex; flex-direction:column; position:fixed; z-index:1; overflow:hidden;
-    background:transparent; border:none; border-radius:0; box-shadow:none;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.06);
     transition:box-shadow .2s;
   }
-  body.focus #magicbox.on.framed{border:var(--edge) solid var(--line); background:var(--card); border-radius:7px}
-  body.focus #magicbox.on.framed.shadowed{box-shadow:0 2px 18px rgba(60,45,20,.06)}
-  body.focus #magicbox.on.framed.shadowed.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  body.focus #magicbox.on.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
-  /* the two soft ends are the ramp .tikpane draws, the same stops at the same
-     --listfade, with both bands held at their full depth: a section of the list
-     fades only where it has more to scroll, the box always, since what a frame
-     or a picture holds is not the board's to measure. the mask stays where it
-     is while the words scroll under it, as the list's does */
-  #magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto;
-    --upband:var(--listfade); --downband:var(--listfade);
-    -webkit-mask-image:linear-gradient(to bottom,
-      rgba(0,0,0,0) 0,
-      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
-      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
-      rgba(0,0,0,1) var(--upband, 0px),
-      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
-      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
-      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
-      rgba(0,0,0,0) 100%);
-    mask-image:linear-gradient(to bottom,
-      rgba(0,0,0,0) 0,
-      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
-      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
-      rgba(0,0,0,1) var(--upband, 0px),
-      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
-      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
-      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
-      rgba(0,0,0,0) 100%)}
-  #magicbox.framed .mbbody{-webkit-mask-image:none; mask-image:none}
-  #magicbox.floating .mbbody{background:var(--card)}
-  /* words run the box's full width, in the board's own body size, and start
-     and end clear of the two ramps; in a frame, or on a floated box, they
-     stand off its edges by the card's answer's own inset */
-  #magicbox .mbtext{padding:var(--listfade) 0; font-size:15px; line-height:1.55; color:var(--ink)}
+  /* its top bar is the card's own: as tall, as white, and parted from what the
+     box holds by the same hairline. at its right stand the Mac's three window
+     lights in the Mac's order: the red one puts the box away (magicClose), and
+     the yellow and green ones, for shrinking it and for full size, are greyed
+     until they have work. as on the Mac, the red one shows its cross while the
+     pointer is over the lights or the red one has the keys */
+  #magicbox .mbbar{flex:none; display:flex; align-items:center; justify-content:flex-end;
+    height:var(--cardbar-h); padding:0 12px; background:var(--card);
+    box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
+  #magicbox .mblights{display:flex; gap:8px}
+  #magicbox .mblight{position:relative; width:12px; height:12px; padding:0; border:none; border-radius:50%;
+    background:#DCDCDC; box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
+  #magicbox .mbclose{background:#FF5F57; cursor:pointer}
+  #magicbox .mbclose:focus-visible{outline:2px solid var(--line); outline-offset:1px}
+  #magicbox .mbclose::before, #magicbox .mbclose::after{content:""; position:absolute; left:50%; top:50%;
+    width:6.5px; height:1.2px; margin:-0.6px 0 0 -3.25px; border-radius:1px; background:rgba(77,0,0,.7);
+    opacity:0; transform:rotate(45deg)}
+  #magicbox .mbclose::after{transform:rotate(-45deg)}
+  #magicbox .mblights:hover .mbclose::before, #magicbox .mblights:hover .mbclose::after,
+  #magicbox .mbclose:focus-visible::before, #magicbox .mbclose:focus-visible::after{opacity:1}
+  #magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto}
+  /* words run the box's full width in the board's own body size, off its
+     edges by the card's answer's own inset */
+  #magicbox .mbtext{padding:calc(var(--pad-x)*2/3); font-size:15px; line-height:1.55; color:var(--ink)}
   #magicbox .mbtext.plain{white-space:pre-wrap}
-  /* a picture fills the box, which takes the picture's own shape, so unframed
-     its own top and foot are the ones that dissolve; a page or a site fills
-     the body edge to edge on its own white */
+  /* a picture fills the box, which takes the picture's own shape; a page or a
+     site fills the body edge to edge on its own white */
   #magicbox .mbimg{display:block; width:100%; height:100%; object-fit:contain}
   #magicbox .mbframe{display:block; width:100%; height:100%; border:0; background:var(--card)}
-  /* a site that will not be framed: its name in the board's muted mono line,
-     its title in the card title's face, its summary in the words' own size,
-     and its address, underlined like a link in a card, which opens it in the
-     owner's browser */
-  #magicbox .mbpreview{padding:var(--listfade) 0; color:var(--ink)}
-  #magicbox.floating :is(.mbtext, .mbpreview){padding-inline:calc(var(--pad-x)*2/3)}
-  #magicbox.framed :is(.mbtext, .mbpreview){padding:calc(var(--pad-x)*2/3)}
-  #magicbox .mbsite{font:11.5px var(--mono); color:var(--sub)}
-  #magicbox .mbtitle{margin:8px 0 6px; font:625 22px/1.25 var(--inter); overflow-wrap:anywhere}
-  #magicbox .mbdesc{margin:0 0 12px; font-size:15px; line-height:1.55}
-  #magicbox .mbaddr{display:block; padding:0; border:none; background:none; text-align:left; cursor:pointer;
-    font:11.5px/1.5 var(--mono); color:var(--sub); text-decoration:underline; text-underline-offset:2px;
-    overflow-wrap:anywhere}
+  /* the clear cover over a page or a site while the pointer is not over the box
+     (magicPointer): the pointer lands on it, so the board knows it came, and it
+     comes off at once, before any click */
+  #magicbox .mbcover{position:absolute; inset:0}
+  #magicbox.over .mbcover{display:none}
+  /* a site that will not be framed: the box comes square, and in its middle a
+     smaller box with the site's name and the mark for opening it in a new
+     page, which it does when clicked. a breath of the board's ink over the
+     card's white, whatever colour the board is, with the card's edge and the
+     7px of things let into the card, deepening by half the one press shade
+     under the pointer and by all of it while pressed */
+  #magicbox .mbaway{display:flex; align-items:center; justify-content:center; height:100%; padding:24px}
+  #magicbox .mbopen{--mbtile:color-mix(in srgb, var(--ink) 4%, var(--card));
+    display:inline-flex; align-items:center; justify-content:center; gap:10px;
+    max-width:100%; min-width:58%; padding:18px 22px; cursor:pointer;
+    background:var(--mbtile); border:var(--edge) solid var(--line); border-radius:7px;
+    color:var(--ink); font:625 17px/1.3 var(--inter); transition:background .12s}
+  #magicbox .mbopen:hover{background:color-mix(in srgb, #000 calc(var(--press) / 2), var(--mbtile))}
+  #magicbox .mbopen:active{background:color-mix(in srgb, #000 var(--press), var(--mbtile))}
+  #magicbox .mbopen:focus-visible{outline:2px solid var(--line); outline-offset:2px}
+  #magicbox .mbopen span{min-width:0; overflow-wrap:anywhere; text-align:center}
+  #magicbox .mbopen svg{flex:none; width:15px; height:15px; color:var(--sub)}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
@@ -3625,14 +3612,6 @@
         <small id="setwaitnote" class="sethelp" role="status" aria-live="polite">Oldest first</small></label>
       <input type="checkbox" role="switch" id="setwait" aria-describedby="setwaitnote">
     </div>
-    <div class="setrow">
-      <label class="setlabel" for="setmagicframe"><span>Magic box frame</span></label>
-      <input type="checkbox" role="switch" id="setmagicframe">
-    </div>
-    <div class="setrow">
-      <label class="setlabel" for="setmagicshadow"><span>Magic box shadow</span></label>
-      <input type="checkbox" role="switch" id="setmagicshadow">
-    </div>
   </div>
   <div data-section="editor" data-label="Editor">
     <div class="setrow">
@@ -3735,6 +3714,13 @@
      screen, so the fit, the saved layout and edit mode never see it. it stands
      over the card by its z-index when the window has no room beside it -->
 <section id="magicbox">
+  <div class="mbbar">
+    <span class="mblights">
+      <button type="button" class="mblight mbclose" aria-label="Close the magic box"></button>
+      <span class="mblight" aria-hidden="true"></span>
+      <span class="mblight" aria-hidden="true"></span>
+    </span>
+  </div>
   <div class="mbbody"></div>
 </section>
 
@@ -8246,9 +8232,15 @@ panelPoll(); setInterval(panelPoll, 4000);
 // card's magic field says whether it has one, whether it is open and which
 // revision; what it holds is read from /magic/body when that revision moves.
 // MagicBox.place (magic-box.js) works out where it stands. the box shows what it
-// holds and nothing else: its title is kept by the board and not drawn here
+// holds under its own top bar and nothing else: its title is kept by the board
+// and not drawn here. it never takes the keys or moves the board when it comes:
+// it waits on its card, and only a click or a Tab puts the owner in it
 const MB = { el: document.getElementById("magicbox"), id: null, rev: 0, asked: 0, url: "" };
-if (MB.el) MB.body = MB.el.querySelector(".mbbody");
+if (MB.el){
+  MB.body = MB.el.querySelector(".mbbody");
+  MB.bar = MB.el.querySelector(".mbbar");
+  MB.el.querySelector(".mbclose").addEventListener("click", () => magicClose());
+}
 // the card the box belongs to, or null: the card on screen, on this tab, not
 // done, with an open box. the classes are read rather than the flags, since the
 // first fit runs before the edit mode flag exists
@@ -8269,7 +8261,8 @@ function magicSync(){
 // stops running the moment its card is not the one on screen
 function magicOff(){
   if (!MB.el) return;
-  MB.el.classList.remove("on", "held");
+  MB.el.classList.remove("on", "held", "over");
+  MB.over = false;   // a box taken away is left by the pointer without a word
   if (MB.id === null) return;
   MB.id = null; MB.rev = 0; MB.asked++; MB.url = ""; MB.page = null; MB.natural = null;
   if (MB.words) MB.words.disconnect();
@@ -8329,21 +8322,21 @@ function magicDraw(box){
     frame.setAttribute("sandbox", MagicBox.SITE_SANDBOX);
     frame.setAttribute("referrerpolicy", "no-referrer");
     frame.src = box.url;
-    MB.body.appendChild(frame);
+    MB.body.append(frame, h("div", "mbcover"));
   } else if (box.kind === "url"){
-    // a site that will not be framed: what it says about itself, as plain
-    // words, and its address, which opens it in the owner's own browser
-    const p = box.preview || {}, card = h("div", "mbpreview");
-    if (p.site) card.appendChild(h("div", "mbsite", p.site));
-    if (p.title) card.appendChild(h("div", "mbtitle", p.title));
-    if (p.description) card.appendChild(h("p", "mbdesc", p.description));
-    const link = h("button", "mbaddr", MB.url);
-    link.type = "button";
-    link.addEventListener("click", magicOpenSite);
-    card.appendChild(link);
-    MB.body.appendChild(card);
+    // a site that will not be framed: a smaller box in the middle with the
+    // site's name and the mark for a new page, which opens it there
+    const away = h("div", "mbaway"), open = h("button", "mbopen");
+    const name = magicSiteName(box);
+    open.type = "button";
+    open.setAttribute("aria-label", "Open " + name + " in a new page");
+    open.appendChild(h("span", "", name));
+    open.insertAdjacentHTML("beforeend", MAGIC_NEW_PAGE);
+    open.addEventListener("click", magicOpenSite);
+    away.appendChild(open);
+    MB.body.appendChild(away);
   }
-  const words = MB.body.querySelector(".mbtext, .mbpreview");
+  const words = MB.body.querySelector(".mbtext");
   if (words && MB.words) MB.words.observe(words);
   MB.el.classList.add("on");
   magicPlace();
@@ -8371,12 +8364,24 @@ function magicPage(html, tries){
     }, 500);
   });
   frame.srcdoc = MagicBox.pageDoc(html, page.word);
-  MB.body.appendChild(frame);
+  MB.body.append(frame, h("div", "mbcover"));
 }
 addEventListener("message", e => {
   const page = MB.page;
   if (page && e.source === page.frame.contentWindow && e.data === page.word) page.said++;
 });
+// the mark for opening in a new page: a page with an arrow leaving it at the top
+// right, drawn in the line's own colour
+const MAGIC_NEW_PAGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 2.5h4v4"/>' +
+  '<path d="M13.5 2.5 7.5 8.5"/><path d="M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/></svg>';
+// a site's name as the site gives it, or its address's host without "www."
+function magicSiteName(box){
+  const site = ((box.preview || {}).site || "").trim();
+  let host = "";
+  try { host = new URL(box.url || "").hostname; } catch (e) {}
+  return (site && site !== host ? site : host.replace(/^www\./, "")) || site || box.url || "";
+}
 // the site in the owner's own browser, where the owner is signed in: Chrome on
 // the Mac, as the card's link menu opens it, and a new tab anywhere else
 function magicOpenSite(){
@@ -8387,32 +8392,35 @@ function magicOpenSite(){
     fetch("/open-in-browser", { method: "POST", body: MB.url }).catch(() => {});
   else window.open(MB.url, "_blank", "noopener,noreferrer");
 }
-// the box's two looks from Settings, both the board's settings (settings.json)
-// so every window shows the same box: the frame, and the shadow under it. read
-// on every placing, so a switch flipped in another window is taken here at the
-// next reading of the board
-const MAGIC_FRAME_KEY = "magicframe", MAGIC_SHADOW_KEY = "magicshadow";   // "1" on, absent off
-function magicDress(){
-  if (!MB.el) return;
-  MB.el.classList.toggle("framed", settingsStore.getItem(MAGIC_FRAME_KEY) === "1");
-  MB.el.classList.toggle("shadowed", settingsStore.getItem(MAGIC_SHADOW_KEY) === "1");
+// the red light: the box put away, as `facilitator magic close` does. what it
+// held is kept, and the card's agent brings it back by filling it again. it
+// goes at once, and the board's next reading agrees
+function magicClose(){
+  const id = MB.id;
+  if (!id) return;
+  const b = lastState && lastState.boxes.find(x => x.id === id);
+  if (b && b.magic) b.magic.open = false;
+  magicOff();
+  fetch("/magic/close?box=" + encodeURIComponent(id), { method: "POST" }).then(() => poll(), () => {});
 }
 // what the box shows asks for, in stage pixels (MagicBox.place's want), or
 // nothing for a page or a site. most: the largest box there is room for. a
 // picture asks for its own size, as many stage pixels as it has pixels on
-// screen, so it is never drawn past its sharpness; words for their own height
-// at that largest box's width. the frame's edge, when there is one, is added
-// to both, so what is inside it is the size it asks for
+// screen, so it is never drawn past its sharpness, with the top bar as its
+// head; words for their own height at that largest box's width; a site that
+// will not be framed for a square. the edge and the top bar are added, so
+// what is under the bar is the size it asks for
 function magicWant(most, S){
-  const kind = MB.body.dataset.kind, edges = MB.el.offsetWidth - MB.el.clientWidth;
+  const kind = MB.body.dataset.kind, edges = MB.el.offsetWidth - MB.el.clientWidth, head = MB.bar.offsetHeight;
   if (kind === "image"){
     const [w, h] = MB.natural || [0, 0];
-    return w && h ? { width: w / S + edges, height: h / S + edges } : null;
+    return w && h ? { width: w / S + edges, height: h / S + edges, head } : null;
   }
-  const words = MB.body.querySelector(".mbtext, .mbpreview");
+  if (MB.body.querySelector(".mbaway")) return { height: most.width };
+  const words = MB.body.querySelector(".mbtext");
   if (!words) return null;
   MB.el.style.width = most.width + "px";
-  return { height: words.offsetHeight + edges };
+  return { height: words.offsetHeight + edges + head };
 }
 // beside the card's own rectangle, read off the page the way the fit reads the
 // regions: screen pixels, less the stage's origin, over the stage's scale. the
@@ -8426,7 +8434,6 @@ function magicPlace(){
   if (!card || !stage) return;
   const S = stageScale || 1, sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
   if (r.width < 1 || card.classList.contains("region-off")){ MB.el.style.visibility = "hidden"; return; }
-  magicDress();
   const lim = frameLimits();
   const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cardbar-h")) || 0;
   const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
@@ -8443,29 +8450,59 @@ if (MB.el){
   // when the page switcher needs its foot: the box follows each of those
   const card = document.querySelector("main");
   if (card) new MutationObserver(magicPlace).observe(card, { attributes: true, attributeFilter: ["style", "class"] });
-  // words that change height after they are drawn (a font arriving, a frame
-  // switched on or off) take the box with them
+  // words that change height after they are drawn (a font arriving) take the
+  // box with them
   if (window.ResizeObserver) MB.words = new ResizeObserver(() => magicPlace());
 }
 // which of the two is being worked in, the card or its box. clicking or
 // focusing into the box hands it over; clicking anywhere else, or the focus
 // going into the card to type, hands it back, as magic box 2 takes and gives
-// back the keys (miniHold). the box's held class is all there is to it: with
-// the box's shadow on, the one held stands up and the other settles, and with
-// it off nothing shows it
+// back the keys (miniHold). the box's held class is all there is to it: the
+// one held stands up on the card's shadow and the other settles
 function magicHold(inside){
   if (MB.el) MB.el.classList.toggle("held", inside && MB.el.classList.contains("on"));
 }
 addEventListener("pointerdown", e => magicHold(!!MB.el?.contains(e.target)), true);
 addEventListener("focusin", e => {
   if (MB.el?.contains(e.target)) magicHold(true);
-  else if (e.target.closest?.("main")) magicHold(false);
+  else {
+    MB.back = e.target;   // where the owner was, for a page that takes the keys
+    if (e.target.closest?.("main")) magicHold(false);
+  }
 }, true);
-// a click inside a page or a site in the box never reaches the board, and no
-// focusin comes either: the board's window only loses the focus, to the frame
-addEventListener("blur", () => setTimeout(() => {
-  if (MB.el?.contains(document.activeElement)) magicHold(true);
-}));
+// a page or a site in the box never takes the keys by itself: one that focuses
+// its own field as it loads, or at any time after, would pull the owner out of
+// whatever they are typing. a click inside the frame never reaches the board
+// and no focusin comes either: the board's window only loses the focus, to the
+// frame. the owner's own way in is a click with the pointer over the box, or a
+// Tab; the focus arriving any other way is the page's doing, and it goes
+// straight back to where the owner was. that is read once the board's window
+// has let go, a moment after it hears of it: a focus put back while the frame
+// is still taking it is taken by the board's page alone, and every key typed
+// after it still goes to the frame. an agent's own page is also stopped from
+// trying (MagicBox.pageDoc); a website is not the board's to change.
+// where the pointer is comes from the board's own pointer events: a frame
+// keeps them to itself while the pointer is over it, so a pointer that went
+// straight into one would never be heard. the frame's cover (.mbcover) is what
+// the pointer lands on first, and it comes off as it does; the board then
+// knows the pointer is at the box until it hears it anywhere else
+if (MB.el){ MB.over = false; MB.tabbed = 0; MB.back = null; }
+function magicPointer(e){
+  const over = !!MB.el && MB.el.classList.contains("on") && MB.el.contains(e.target);
+  if (over === MB.over) return;
+  MB.over = over;
+  MB.el.classList.toggle("over", over);
+}
+for (const type of ["pointerover", "pointermove", "pointerdown"]) addEventListener(type, magicPointer, true);
+addEventListener("keydown", e => { if (e.key === "Tab") MB.tabbed = Date.now(); }, true);
+function magicFocusCame(){
+  const into = document.activeElement;
+  if (!MB.el || !MB.el.contains(into)) return;
+  if (MB.over || Date.now() - MB.tabbed < 1000){ magicHold(true); return; }
+  if (MB.back && MB.back.isConnected && !MB.el.contains(MB.back)) MB.back.focus({ preventScroll: true });
+  else into.blur();
+}
+addEventListener("blur", () => setTimeout(magicFocusCame));
 
 // the dormant quick-chat panel, bound to one lane, one card and one listener.
 // Those bindings named a project's own lane, so they are cleared here: with no
@@ -12110,11 +12147,6 @@ function setEditMode(on){
     if (emailYes.checked) change.email = profileFields.email.value;
     saveProfile(change, profileFields.email);
   });
-  // the magic box's frame and its shadow (magicDress): board settings, off
-  // unless they say "1"; a switch put back off takes its key away
-  const looks = [[document.getElementById("setmagicframe"), MAGIC_FRAME_KEY],
-                 [document.getElementById("setmagicshadow"), MAGIC_SHADOW_KEY]];
-  const showLooks = () => { for (const [box, key] of looks) box.checked = settingsStore.getItem(key) === "1"; };
   const view = settingsOverlay(document.body, document.getElementById("setsrc"), {
     onOpen(){
       setOpen = true;
@@ -12124,7 +12156,6 @@ function setEditMode(on){
       usage.checked = sharing();
       showWait();
       readProfile();
-      showLooks();
     },
     onClose(){
       setOpen = false;
@@ -12146,12 +12177,6 @@ function setEditMode(on){
     else settingsStore.removeItem("waitnewest");
     showWait();
     if (lastState) renderCarousel(lastState);
-  });
-  showLooks();
-  for (const [box, key] of looks) box.addEventListener("change", () => {
-    if (box.checked) settingsStore.setItem(key, "1");
-    else settingsStore.removeItem(key);
-    magicPlace();
   });
   btn.addEventListener("click", () => view.open());
 }
