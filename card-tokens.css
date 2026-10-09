@@ -887,8 +887,12 @@
    as a second, grey line beneath the white one, and the two hide the grey ring
    that goes round the other three sides. both are left out here, so the ring is
    the top edge as well, and the rest of the stack, the bottom and side rims,
-   the inner glow and the outer shadow, is the note's own */
-.sp-veil .sp-page{position:absolute; inset:15%; border-radius:9px; overflow:hidden;
+   the inner glow and the outer shadow, is the note's own.
+   --sp-inset is the window's place on the desktop, how far in it stands from
+   every edge of the board's window. a picture opened full screen is fitted in
+   the same place (#picfull below), so the two never part */
+:root{--sp-inset:15%}
+.sp-veil .sp-page{position:absolute; inset:var(--sp-inset); border-radius:9px; overflow:hidden;
   box-shadow:
     inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
     inset 0 0 0 1px var(--qn-ring),
@@ -1004,16 +1008,24 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 
 /* a card's picture opened full screen (openCardPicture in card-logic.js). the
    veil is the board's ink written opaque and brought to .62 by the fade, as the
-   desktop's picture panel zoom does it. the layer's padding is the phone's safe
-   areas, so a tall picture stops short of the notch and the home bar. it stands
-   over everything either page draws and under the link menu */
+   desktop's picture panel zoom does it. it stands over everything either page
+   draws and under the link menu */
 :is(.reply, .answmsg).cardmd img.shot:not([id^="magic"] *){cursor:zoom-in}
 .picfull-from{visibility:hidden}
-#picfull{display:none; position:fixed; inset:0; z-index:9000; box-sizing:border-box;
-  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+#picfull{display:none; position:fixed; inset:0; z-index:9000;
   cursor:zoom-out; -webkit-tap-highlight-color:transparent}
 #picfull.on{display:block}
 #picfull .picfull-veil{position:absolute; inset:0; background:var(--ink); opacity:0; will-change:opacity}
+/* the room the picture is fitted in, which is the settings' own place, so the
+   picture never meets an edge of the screen. down, it stands --sp-inset in from
+   the top and the bottom, as the desktop's settings window does. across, it is
+   as wide as the settings stand, centred: on the desktop that is what the inset
+   leaves, so the room is the settings window exactly. the phone's settings are a
+   drawer of their own width (--settings-w in m.html) running the full height, so
+   there the room takes the drawer's width and the desktop window's top and
+   bottom */
+#picfull .picfull-room{position:absolute; top:var(--sp-inset); bottom:var(--sp-inset); left:0; right:0;
+  width:var(--settings-w, calc(100% - 2 * var(--sp-inset))); margin:0 auto}
 #picfull .picfull-img{position:absolute; display:block; max-width:none; max-height:none; margin:0;
   transform-origin:0 0; will-change:transform; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none}
 

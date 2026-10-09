@@ -146,7 +146,8 @@ test("what moves for the drawers is a transform or an opacity, and no script car
 
 test("the settings are the narrow panel off the right edge and the list uses no shade or page depth", () => {
   const settings = rulesFor(/^#settings$/).map(r => r.body).join(";");
-  assert.match(settings, /top:0; bottom:0; right:0; width:min\(71\.4vw, 289px\)/, "the settings are not the narrow panel on the right edge");
+  assert.match(settings, /top:0; bottom:0; right:0; width:var\(--settings-w\)/, "the settings are not the narrow panel on the right edge");
+  assert.match(CSS, /:root\{--settings-w:min\(71\.4vw, 289px\)\}/, "the settings are not 71.4% of the screen wide, capped at 289px");
   assert.doesNotMatch(settings, /left:0|width:100%/, "the settings are the screen's width");
   assert.match(settings, /border-left:var\(--edge\) solid var\(--line\); border-radius:12px 0 0 12px/, "the settings' edge or corners changed");
   assert.match(settings, /transform:translateX\(var\(--shift\)\)/);

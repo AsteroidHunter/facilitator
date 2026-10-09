@@ -10,6 +10,17 @@ const { Node, dispatch } = require('./page-event-model.cjs');
 const root = path.join(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const source = read('card-logic.js');
+// the settings' place, read out of the sheets: the desktop window's inset from
+// every edge (card-tokens.css) and the phone drawer's width (m.html)
+const INSET = Number(/:root\{--sp-inset:([\d.]+)%\}/.exec(read('card-tokens.css'))[1]) / 100;
+const [VW, CAP] = /--settings-w:min\(([\d.]+)vw, ([\d.]+)px\)/.exec(read('m.html')).slice(1).map(Number);
+// the room as the sheet lays it out (#picfull .picfull-room): INSET in from the
+// top and the bottom, centred at the settings' width, which on the desktop is
+// what the inset leaves and on the phone is the drawer's
+function room(width, height, phone) {
+  const w = phone ? Math.min(width * VW / 100, CAP) : width * (1 - 2 * INSET);
+  return { left: (width - w) / 2, top: height * INSET, width: w, height: height * (1 - 2 * INSET) };
+}
 
 // one compound selector: tag, classes, [attr] and [attr^="value"]
 function compound(node, sel) {
@@ -34,14 +45,15 @@ function matches(node, selector) {
   });
 }
 
-function fixture({ reduced = false, width = 1376, height = 1032, safe = [0, 0, 0, 0] } = {}) {
+// the owner's Mac window by default
+function fixture({ reduced = false, width = 1512, height = 982, phone = false } = {}) {
   const win = new Node(null, 'window');
   const doc = new Node(win, 'document');
   doc.baseURI = 'http://127.0.0.1:32123/';
   doc.defaultView = win;
   const timers = [];
   let now = 0;
-  const screen = { width, height };
+  const screen = { width, height, phone };
   function element(tag, parent = null, cls = '') {
     const node = new Node(parent, tag);
     node.tag = tag; node.tagName = tag.toUpperCase(); node.ownerDocument = doc;
@@ -62,6 +74,7 @@ function fixture({ reduced = false, width = 1376, height = 1032, safe = [0, 0, 0
       if (child.parent) child.remove();
       child.parent = node; node.children.push(child); return child;
     };
+    node.append = (...kids) => kids.forEach(kid => node.appendChild(kid));
     node.remove = () => { if (node.parent) node.parent.children = node.parent.children.filter(n => n !== node); node.parent = null; };
     Object.defineProperty(node, 'isConnected', { get: () => { for (let n = node; n; n = n.parent) if (n === doc) return true; return false; } });
     node.focus = () => { doc.activeElement = node; };
@@ -76,11 +89,12 @@ function fixture({ reduced = false, width = 1376, height = 1032, safe = [0, 0, 0
       walk(node); return out;
     };
     node.rect = { left: 20, top: 30, width: 0, height: 0 };
-    node.getBoundingClientRect = () => ({ ...node.rect, right: node.rect.left + node.rect.width, bottom: node.rect.top + node.rect.height });
+    // the room is laid out by the sheet's rule, at the window's size of the moment
+    node.getBoundingClientRect = () => {
+      const r = classes.has('picfull-room') ? room(screen.width, screen.height, screen.phone) : node.rect;
+      return { ...r, right: r.left + r.width, bottom: r.top + r.height };
+    };
     node.offsetWidth = 160; node.offsetHeight = 100;
-    // the layer is fixed over the whole window
-    for (const [k, v] of [['clientWidth', 'width'], ['clientHeight', 'height']])
-      Object.defineProperty(node, k, { get: () => node.id === 'picfull' ? screen[v] : 0 });
     node.computed = {};
     node.animate = (keyframes, timing) => {
       const a = { keyframes, timing, playState: 'running', currentTime: 0, onfinish: null,
@@ -102,10 +116,7 @@ function fixture({ reduced = false, width = 1376, height = 1032, safe = [0, 0, 0
   win.navigator = { platform: 'MacIntel', clipboard: { writeText: async () => {} } };
   win.location = new URL(doc.baseURI); win.innerWidth = width; win.innerHeight = height;
   win.matchMedia = q => ({ matches: reduced && /reduced-motion/.test(q) });
-  win.getComputedStyle = el => {
-    if (el.id === 'picfull') return { paddingTop: safe[0] + 'px', paddingRight: safe[1] + 'px', paddingBottom: safe[2] + 'px', paddingLeft: safe[3] + 'px' };
-    return { borderRadius: '6px', transform: 'none', opacity: el.className === 'picfull-veil' ? '0' : '1', ...el.computed };
-  };
+  win.getComputedStyle = el => ({ borderRadius: '6px', transform: 'none', opacity: el.className === 'picfull-veil' ? '0' : '1', ...el.computed });
   const fake = {
     setTimeout: (fn, ms) => { const t = { fn, at: now + ms }; timers.push(t); return t; },
     clearTimeout: t => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
@@ -151,7 +162,6 @@ function fixture({ reduced = false, width = 1376, height = 1032, safe = [0, 0, 0
     key: key => dispatch(doc.activeElement, { type: 'keydown', key, code: key, metaKey: false }),
     menu: () => doc.body.children.find(n => n.className === 'app-link-menu'),
     advance(ms) { now += ms; for (const t of timers.filter(t => t.at <= now)) { fake.clearTimeout(t); t.fn(); } },
-    fit: (w, h, box) => vm.runInContext(`cardPictureFit(${w}, ${h}, ${JSON.stringify(box)})`, ctx),
   };
 }
 const big = f => f.layer().children.find(n => n.className === 'picfull-img');
@@ -160,35 +170,61 @@ const veil = f => f.layer().children.find(n => n.className === 'picfull-veil');
 const same = (actual, expected, msg) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected, msg);
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: ${a} vs ${b}`);
 // where the copy stands: left, top, width, height
+const at = f => ['left', 'top', 'width', 'height'].map(k => { assert.match(big(f).style[k], /px$/); return parseFloat(big(f).style[k]); });
 function placed(f, expected) {
-  const s = big(f).style;
-  ['left', 'top', 'width', 'height'].forEach((k, i) => {
-    assert.match(s[k], /px$/); close(parseFloat(s[k]), expected[i], k);
-  });
+  at(f).forEach((v, i) => close(v, expected[i], ['left', 'top', 'width', 'height'][i]));
+}
+// a transform's numbers, in order
+const numbers = t => t.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number);
+function over(actual, expected, msg) {
+  const got = numbers(actual);
+  assert.equal(got.length, expected.length, msg);
+  got.forEach((v, i) => close(v, expected[i], msg));
 }
 
-test('fitting: tall, wide and small pictures keep their shape, centred, never past twice their size', () => {
-  const f = fixture();
-  const mac = { x: 0, y: 0, w: 1376, h: 1032 };
-  const phone = { x: 0, y: 62, w: 402, h: 874 - 62 - 34 };   // an iPhone's safe areas
+test('the room is the settings window on the desktop and the drawer\'s width on the phone', () => {
+  // the owner's Mac window: fifteen percent in from every edge
+  const mac = room(1512, 982, false);
+  close(mac.left, 226.8, 'left'); close(mac.top, 147.3, 'top'); close(mac.width, 1058.4, 'width'); close(mac.height, 687.4, 'height');
+  // an iPhone 17: the drawer's 71.4% across, centred, and the desktop's fifteen percent top and bottom
+  const phone = room(402, 874, true);
+  close(phone.width, 402 * 0.714, 'drawer width'); close(phone.left, (402 - 402 * 0.714) / 2, 'centred');
+  close(phone.top, 874 * 0.15, 'top'); close(phone.height, 874 * 0.7, 'height');
+  // a larger phone, where the drawer stops at 289
+  close(room(440, 956, true).width, 289, 'the drawer\'s cap');
+});
+
+test('fitting: in the settings\' place at its own shape, centred, clear of every edge, never past twice its size', () => {
+  const screens = [['the owner\'s Mac window', 1512, 982, false], ['a small Mac window', 900, 600, false],
+    ['an iPhone 17', 402, 874, true], ['a larger phone', 440, 956, true]];
+  const pictures = [['wide', 2400, 600], ['tall', 600, 2000], ['small', 96, 64], ['photo', 1600, 1200]];
+  for (const [where, W, H, phone] of screens) for (const [kind, w, h] of pictures) {
+    const f = fixture({ width: W, height: H, phone }), box = room(W, H, phone), msg = kind + ' on ' + where;
+    f.press(f.picture(f.reply, { w, h }));
+    const [x, y, cw, ch] = at(f);
+    close(cw / ch, w / h, msg + ': its shape');
+    assert.ok(x >= box.left - 1e-9 && y >= box.top - 1e-9 && x + cw <= box.left + box.width + 1e-9 &&
+      y + ch <= box.top + box.height + 1e-9, msg + ': inside the settings\' place');
+    close(x - box.left, box.left + box.width - (x + cw), msg + ': centred across');
+    close(y - box.top, box.top + box.height - (y + ch), msg + ': centred down');
+    assert.ok(cw <= w * 2 + 1e-9, msg + ': at most twice its size');
+    // it fills the place's width or its height, unless the cap stops it first
+    if (cw < w * 2 - 1e-9) assert.ok(Math.abs(cw - box.width) < 1e-6 || Math.abs(ch - box.height) < 1e-6, msg + ': fills the place');
+    assert.ok(x > 0 && y > 0 && x + cw < W && y + ch < H, msg + ': clear of every edge');
+  }
+  // the numbers the report gives, on the owner's Mac window and an iPhone 17
   const cases = [
-    // [natural w, natural h, box, expected w, expected h]
-    [600, 2400, mac, 258, 1032],          // tall: the height decides
-    [3000, 500, mac, 1376, 1376 / 6],     // wide: the width decides
-    [120, 80, mac, 240, 160],             // small: twice its size and no more
-    [600, 2400, phone, 778 / 4, 778],
-    [3000, 500, phone, 402, 67],
-    [120, 80, phone, 240, 160],
-    [1376, 1032, mac, 1376, 1032],        // exactly the screen's shape fills it
+    [1512, 982, false, 2400, 600, [226.8, 358.7, 1058.4, 264.6]],
+    [1512, 982, false, 600, 2000, [652.89, 147.3, 206.22, 687.4]],
+    [1512, 982, false, 96, 64, [660, 427, 192, 128]],
+    [402, 874, true, 2400, 600, [57.486, 401.1215, 287.028, 71.757]],
+    [402, 874, true, 600, 2000, [109.23, 131.1, 183.54, 611.8]],
+    [402, 874, true, 96, 64, [105, 373, 192, 128]],
   ];
-  for (const [w, h, box, ew, eh] of cases) {
-    const r = f.fit(w, h, box);
-    close(r.w, ew, `${w}x${h} width`); close(r.h, eh, `${w}x${h} height`);
-    close(r.w / r.h, w / h, `${w}x${h} shape`);
-    close(r.x - box.x, box.x + box.w - (r.x + r.w), `${w}x${h} centred across`);
-    close(r.y - box.y, box.y + box.h - (r.y + r.h), `${w}x${h} centred down`);
-    assert.ok(r.w <= box.w + 1e-9 && r.h <= box.h + 1e-9, `${w}x${h} inside the screen`);
-    assert.ok(r.w <= w * 2 + 1e-9, `${w}x${h} at most twice its size`);
+  for (const [W, H, phone, w, h, expected] of cases) {
+    const f = fixture({ width: W, height: H, phone });
+    f.press(f.picture(f.reply, { w, h }));
+    placed(f, expected);
   }
 });
 
@@ -206,13 +242,15 @@ for (const where of ['reply', 'sent message']) {
     assert.ok(layer.classList.contains('on'));
     const copy = big(f);
     assert.equal(copy.src, img.src); assert.equal(copy.draggable, false);
-    // 800x600 in 1376x1032 is height bound: 1032 * 4/3 = 1376, the whole window
-    placed(f, [0, 0, 1376, 1032]);
+    // 800x600 in the settings window's place at 1512x982, 1058.4 by 687.4 from
+    // (226.8, 147.3), is bound by its height
+    const h = 687.4, w = h * 4 / 3, x = 226.8 + (1058.4 - w) / 2, y = 147.3;
+    placed(f, [x, y, w, h]);
     assert.equal(copy.style.borderRadius, '6px', 'the card picture\'s own corners');
     assert.ok(img.classList.contains('picfull-from'), 'the card keeps its picture, hidden in place');
     assert.equal(img.parent, where === 'reply' ? f.reply : f.msg, 'the card picture never leaves the card');
     const [grow] = copy.animations, [dim] = veil(f).animations;
-    assert.equal(grow.keyframes[0].transform, 'translate(100px, 200px) scale(' + 400 / 1376 + ', ' + 300 / 1032 + ')');
+    over(grow.keyframes[0].transform, [100 - x, 200 - y, 400 / w, 300 / h], 'grows from the card picture');
     assert.equal(grow.keyframes[1].transform, 'none');
     same(dim.keyframes, [{ opacity: 0 }, { opacity: 0.62 }]);
     for (const a of [grow, dim]) same(a.timing, { duration: 300, easing: 'cubic-bezier(0.25, 1, 0.5, 1)', fill: 'both' });
@@ -234,7 +272,9 @@ test('a click or tap anywhere closes it back into the card, with focus as before
     assert.deepEqual(f.docClicks, [], 'the closing click reaches nothing behind');
     assert.equal(f.doc.activeElement, f.textarea, 'focus is back in the closing press');
     const shrink = big(f).animations.at(-1);
-    same(shrink.keyframes[1], { transform: 'translate(100px, 180px) scale(' + 400 / 1376 + ', ' + 300 / 1032 + ')', opacity: 1 });
+    const [x, y, w, h] = at(f);
+    over(shrink.keyframes[1].transform, [100 - x, 180 - y, 400 / w, 300 / h], 'lands on the card picture where it stands now');
+    assert.equal(shrink.keyframes[1].opacity, 1);
     assert.equal(shrink.timing.duration, 300);
     same(veil(f).animations.at(-1).keyframes, [{ opacity: '0.62' }, { opacity: 0 }]);
     assert.ok(img.classList.contains('picfull-from'), 'hidden until the copy lands');
@@ -307,15 +347,10 @@ test('a resized window or a turned phone refits the open picture', () => {
   const f = fixture();
   const img = f.picture(f.reply, { w: 800, h: 600 });
   f.press(img);
-  f.screen.width = 402; f.screen.height = 874;
+  f.screen.width = 900; f.screen.height = 600;
   f.win.listeners.filter(l => l.type === 'resize').forEach(l => l.fn({}));
-  placed(f, [0, (874 - 301.5) / 2, 402, 301.5]);
-});
-
-test('the phone keeps a tall picture inside its safe areas', () => {
-  const f = fixture({ width: 402, height: 874, safe: [62, 0, 34, 0] });
-  f.press(f.picture(f.reply, { w: 600, h: 2400, rect: { left: 16, top: 300, width: 100, height: 400 } }));
-  placed(f, [(402 - 194.5) / 2, 62, 194.5, 778]);
+  // the settings window's place at 900x600 is 630 by 420 from (135, 90): height bound
+  placed(f, [135 + (630 - 560) / 2, 90, 560, 420]);
 });
 
 test('the menu keeps its other ways in, and pictures with nothing to open keep the click', () => {
@@ -379,8 +414,15 @@ test('the sheet: the board ink veil, over the board and under the menu, no accen
   const block = css.slice(css.indexOf("/* a card's picture opened full screen"), css.indexOf('/* ---- the files picked'));
   assert.match(block, /#picfull\{display:none; position:fixed; inset:0; z-index:9000/);
   assert.match(block, /\.picfull-veil\{[^}]*background:var\(--ink\); opacity:0/);
-  assert.match(block, /safe-area-inset-top/);
   assert.match(block, /\.picfull-from\{visibility:hidden\}/);
+  // the room and the settings read the same two names, so they never part
+  assert.match(css, /:root\{--sp-inset:15%\}\n\.sp-veil \.sp-page\{position:absolute; inset:var\(--sp-inset\);/,
+    'the settings window stands --sp-inset in from every edge');
+  assert.match(block, /#picfull \.picfull-room\{position:absolute; top:var\(--sp-inset\); bottom:var\(--sp-inset\); left:0; right:0;\s+width:var\(--settings-w, calc\(100% - 2 \* var\(--sp-inset\)\)\); margin:0 auto\}/);
+  assert.doesNotMatch(block, /safe-area|padding/, 'the room, not a padding, keeps the picture off the edges');
+  assert.match(read('m.html'), /:root\{--settings-w:min\(71\.4vw, 289px\)\}\s+#settings\{\s+position:fixed; top:0; bottom:0; right:0; width:var\(--settings-w\);/,
+    'the phone drawer and the room share one width');
+  assert.doesNotMatch(read('index.html'), /--settings-w|--sp-inset/, 'the desktop room is the settings window, inset alike on every side');
   assert.match(block, /:is\(\.reply, \.answmsg\)\.cardmd img\.shot:not\(\[id\^="magic"\] \*\)\{cursor:zoom-in\}/);
   assert.doesNotMatch(block, /--accent|purple|#432BFF/i);
   const menu = Number(/\.app-link-menu\{[^}]*z-index:(\d+)/.exec(css)[1]);
