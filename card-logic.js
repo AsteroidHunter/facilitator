@@ -4937,7 +4937,7 @@ function selectNextCard(id, order, section = "todo"){
 
 // ---- the four section chips ---------------------------------------------------
 // every card carries a chip for each section, left to right in the tabs' own
-// order: the sun for doing, the cloud for docked, the moon for deferred, the cross for done. the chip
+// order: the sun for doing, the cloud for docked, the moon for deferred, the sunset for done. the chip
 // that names the section the card already stands in is faded and switched off,
 // since pressing it could only ask for what is already true. it is marked with
 // aria-disabled rather than the disabled property so it keeps its place in the
@@ -4961,6 +4961,18 @@ const DOCK_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" str
   'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   '<path d="M12.8 10.7a4.35 4.35 0 1 0-5.9 3.4M8 1.5v1.7M1.5 8h1.7M3.4 3.4l1.2 1.2M12.6 3.4l-1.2 1.2M3.4 12.6l1.2-1.2"></path>' +
   '<path d="M9 21h10a3.5 3.5 0 0 0 .7-6.9 5 5 0 0 0-9.6-1.5A4.3 4.3 0 0 0 9 21Z"></path></svg>';
+// Done's sunset: the last sliver of sun on a horizon line, wide rays above it
+// and two reflection dashes below. the paths are drawn on the 24 box at stroke
+// 2.4 like the sun, cloud and moon, but they fill only the lower part of it, so
+// the box is cut to the ink instead: the view box is 21.43 wide, the drawing's
+// own centre (12, 14.8) at its middle, which enlarges it by 1.12 and puts its
+// middle on the box's middle, where the sun's is. the stroke is 2.4 / 1.12 so it
+// stays the 2.4 of the 24 box on screen, the weight of the marks beside it
+const DONE_ICON = '<svg viewBox="1.29 4.09 21.43 21.43" width="9" height="9" fill="none" stroke="currentColor" ' +
+  'stroke-width="2.143" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M3 15H21"></path><path d="M7.5 15A5.5 5.5 0 0 1 16.5 15"></path>' +
+  '<path d="M12 9.2V7.4M16.3 10.4L17.5 9M7.7 10.4L6.5 9"></path>' +
+  '<path d="M8 19H16M10.5 22.2H13.5"></path></svg>';
 
 function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === "true"; }
 

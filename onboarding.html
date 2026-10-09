@@ -219,14 +219,10 @@
   body.focus .box.sel .xbtn{
     grid-area:cross; position:relative; top:auto; right:auto; left:auto;
     width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
-    background:var(--card); font-size:0; padding:0; border:none;
+    background:var(--card); color:#1e1e1e; font-size:0; padding:0; border:none;
+    display:inline-flex; align-items:center; justify-content:center;
   }
-  body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
-    content:""; position:absolute; left:50%; top:50%;
-    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
-  }
-  body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
-  body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  body.focus .box.sel .xbtn svg{width:var(--bar-mark); height:var(--bar-mark)}
   body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn, body.focus .box.sel .dockbtn{
     position:relative; top:auto; right:auto;
@@ -789,8 +785,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const HINT_SPOTS = ["reply", "title", "box", "bar"];
   const asked = new URLSearchParams(location.search).get("hint") || (/hint=(\w+)/.exec(location.hash) || [])[1];
   const HINT = HINT_SPOTS.includes(asked) ? asked : "reply";
-  // the four chips a card in Doing wears, drawn; only the closing card's cross
-  // is wired, to the close it makes on the board
+  // the four chips a card in Doing wears, drawn; only the closing card's sunset
+  // is wired, to the done it makes on the board
   const SHOW_CHIPS = true;
   // the card from which on the board's ticket list stands beside the card
   const BOARD_FROM = "email";
@@ -893,7 +889,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const cardSpin = makeCardSpinner();
     const arc = h("button", "arcbtn");
     arc.innerHTML = MOON_ICON;
-    const x = h("button", "xbtn", "×");
+    const x = h("button", "xbtn");
+    x.innerHTML = DONE_ICON;
+    x.setAttribute("aria-label", "done");
     for (const chip of [sun, dock, arc, x]){ chip.type = "button"; chip.tabIndex = -1; }
     topbar.append(histctl, barHint, sun, dock, cardSpin, arc, x);
     box.appendChild(topbar);
@@ -978,7 +976,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
       el.ta.disabled = true;
       el.ta.tabIndex = -1;
       if (spec.closing){
-        // the cross on the closing card closes it, as Control + Shift + Backspace does
+        // the sunset on the closing card marks it done, as Control + Shift + Backspace does
         el.x.addEventListener("click", finish);
         return card;
       }

@@ -639,14 +639,10 @@
   body.focus .box.sel .xbtn{
     grid-area:cross; position:relative; top:auto; right:auto; left:auto;
     width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
-    background:var(--card); font-size:0; padding:0; border:none;
+    background:var(--card); color:#1e1e1e; font-size:0; padding:0; border:none;
+    display:inline-flex; align-items:center; justify-content:center;
   }
-  body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
-    content:""; position:absolute; left:50%; top:50%;
-    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
-  }
-  body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
-  body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  body.focus .box.sel .xbtn svg{width:var(--bar-mark); height:var(--bar-mark)}
   body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the sun is the moon's twin on this bar: the same white seat, the same
      rounding and the same dark mark, so the four chips stay one family and the
@@ -2361,14 +2357,11 @@
     margin-top:8px; padding-right:96px; flex:none; cursor:text}
   #magic2 .mtitle[contenteditable]{outline:none}
   #magic2 .mtitle[contenteditable]:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
-  /* the cross, copied off the card: round pink chip, two black bars */
+  /* the done chip, copied off the card: round pink chip, the dark sunset */
   #magic2 .mx{position:absolute; top:9px; right:9px; z-index:4;
-    width:16px; height:16px; border-radius:50%; background:#FF9F98;
-    border:none; padding:0; font-size:0; cursor:pointer}
-  #magic2 .mx::before, #magic2 .mx::after{content:""; position:absolute;
-    left:50%; top:50%; width:9px; height:1.2px; background:#1e1e1e; border-radius:1px}
-  #magic2 .mx::before{transform:translate(-50%,-50%) rotate(45deg)}
-  #magic2 .mx::after{transform:translate(-50%,-50%) rotate(-45deg)}
+    width:16px; height:16px; border-radius:50%; background:#FF9F98; color:#1e1e1e;
+    border:none; padding:0; font-size:0; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center}
   #magic2 .mx:hover{background:#F8837A}
   /* the defer chip, copied off the card: round orange chip, black moon */
   #magic2 .marc{position:absolute; top:9px; right:34px; z-index:4;
@@ -6595,8 +6588,10 @@ function makeBox(b, i, state){
     box.appendChild(topbar);
 
     const head = h("div", "head");
-    // the remove cross now renders on every card, not just meta boxes, so all cards share one design
-    const x = h("button", "xbtn", "×");
+    // the done mark renders on every card, not just meta boxes, so all cards share one design
+    const x = h("button", "xbtn");
+    x.innerHTML = DONE_ICON;
+    x.setAttribute("aria-label", "done");
     x.title = "done (an empty card is removed instead)\n" + SECTION_KEY_HINTS.done;
     x.addEventListener("click", async e => {
       e.stopPropagation();
@@ -6609,7 +6604,7 @@ function makeBox(b, i, state){
       selectNextCard(b.id, order, section);
       poll();
     });
-    topbar.appendChild(x);   // the cross is an item of the bar now, not a pinned corner
+    topbar.appendChild(x);   // the done mark is an item of the bar now, not a pinned corner
     // the card's own number, its id; the same number the quick note's "card N" /
     // "cN" names. a change to the numbering has to be carried into the quick
     // note system as well: see the note on the outline's number above
@@ -10294,7 +10289,7 @@ function renderMiniCards(state){
       title.addEventListener("focus", () => { if (!title.isContentEditable) miniEditTitle(b.id); });
       // the same three round chips the large card carries, and the same jobs:
       // the yellow sun moves a card to doing, the orange moon defers, the pink
-      // cross closes a card that holds a conversation and removes one that is
+      // sunset marks a card done that holds a conversation and removes one that is
       // empty. this list holds doing cards alone, so here the sun is always
       // the faded one
       const sun = sunChip("msun", b.id);
@@ -10304,6 +10299,8 @@ function renderMiniCards(state){
       arc.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
       arc.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(arc)) toggleFlag(b.id, "park"); });
       const x = h("button", "mx");
+      x.innerHTML = DONE_ICON;
+      x.setAttribute("aria-label", "done");
       x.title = "done (an empty card is removed instead)\n" + SECTION_KEY_HINTS.done;
       x.addEventListener("click", async e => {
         e.stopPropagation();

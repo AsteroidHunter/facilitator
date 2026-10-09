@@ -45,7 +45,7 @@ test("the marks and the spinner are named once, in the sheet, and never again on
     assert.doesNotMatch(html, /\.cardspin\s*[{,:]/, `${name} carries a rule for the spinner of its own`);
     assert.doesNotMatch(html, /histrun/, `${name} still has the run the spinner once stood in`);
     assert.match(html, /:is\(\.arcbtn, \.sunbtn, \.dockbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/, `${name}: the sun and the moon are not sized by the mark size`);
-    assert.match(html, /width:var\(--bar-mark\); height:var\(--cross-t\);/, `${name}: the cross is not drawn from the mark size and its thickness`);
+    assert.match(html, /\.xbtn svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/, `${name}: the done sunset is not sized by the mark size`);
   }
 });
 
