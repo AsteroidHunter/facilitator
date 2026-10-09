@@ -35,6 +35,11 @@ let answeredRoomChanged = null;
 // it held back while the reader was busy can be shown. the desktop asks the
 // board; the phone draws the reading it already holds
 let turnAgain = null;
+// waitNewestFirst: whether the cards awaiting the reader are listed newest turn
+// first. a page answers from the board's waitnewest setting ("1" is newest
+// first); until it does, and wherever it is not set, they are listed oldest
+// turn first
+let waitNewestFirst = () => false;
 
 // Browser defaults shared by the Mac board and the phone document. Install in
 // the head, before fields, drawers or other handlers can stop an event.
@@ -1299,7 +1304,7 @@ function restedSince(b, field){ return b[field] || Number.MAX_SAFE_INTEGER; }
 
 function poolOf(state){
   const keep = poolScope ? poolScope(state) : null;
-  const legacy = (a, b) => {
+  const legacy = (a, b, newest) => {
     // an untouched new card stays on top; the first send drops it into the
     // waiting group; anything green (in progress) sinks below all of that
     const g = x => ({ "new": 0, yours: 1, queued: 2, working: 3, done: 4 })[queueState(x)];
@@ -1307,8 +1312,11 @@ function poolOf(state){
     if (g(a) === 0) return (b.ts || 0) - (a.ts || 0);   // newest created on top
     // the waiting group is a queue: oldest turn first, so old turns do not go
     // stale below newer ones. this is the same measure the post-send jump uses
-    // to pick the longest-waiting card; equal stamps keep the board's order
-    if (g(a) === 1) return waitingSince(a) - waitingSince(b);
+    // to pick the longest-waiting card; equal stamps keep the board's order.
+    // the reader may choose newest turn first instead (waitNewestFirst), which
+    // turns only this comparison over: the jump does not read it, and the other
+    // sections reach here with newest false, so they keep their fallback order
+    if (g(a) === 1) return newest ? waitingSince(b) - waitingSince(a) : waitingSince(a) - waitingSince(b);
     return (b.ts || 0) - (a.ts || 0);                    // queued and working: newest first
   };
   // the four sections lie one after another: doing, docked, deferred, done. doing keeps
@@ -1317,13 +1325,14 @@ function poolOf(state){
   // fall back to the order above
   const part = x => { const s = cardState(x); return s === "done" ? 3 : s === "parked" ? 2 : x.docked ? 1 : 0; };
   const stamp = { 1: "dockedTs", 2: "parkedTs", 3: "doneTs" };
+  const newest = !!waitNewestFirst();
   return state.boxes.filter(b =>
     b.owner === activeOwner && b.id !== "q" && (!keep || keep(b)))
     .sort((a, b) => {
       const pa = part(a), pb = part(b);
       if (pa !== pb) return pa - pb;
       if (pa) return restedSince(b, stamp[pa]) - restedSince(a, stamp[pa]) || legacy(a, b);
-      return legacy(a, b);
+      return legacy(a, b, newest);
     });
 }
 
@@ -5030,7 +5039,9 @@ function jumpNextYellow(fromId, opts, source){
   // agent has never answered has only its own ts to age by, and one carrying
   // neither stamp cannot be aged, so it sorts last instead of posing as the
   // oldest thing here. the filter above already made a fresh array, so nothing
-  // else sees this sort, and equal stamps keep the list's own order
+  // else sees this sort, and equal stamps keep the list's own order. the reader's
+  // choice of newest first (waitNewestFirst) turns the list over by stamp only,
+  // so equal stamps stand as they did and the card this lands on is the same
   const listOrder = new Map(p.map((b, i) => [b.id, i]));
   p.sort((a, b) => waitingSince(a) - waitingSince(b) || listOrder.get(a.id) - listOrder.get(b.id));
   select(p[0].id, opts);
