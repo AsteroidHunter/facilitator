@@ -222,7 +222,7 @@
     background:var(--card); color:#1e1e1e; font-size:0; padding:0; border:none;
     display:inline-flex; align-items:center; justify-content:center;
   }
-  body.focus .box.sel .xbtn svg{width:var(--bar-mark); height:var(--bar-mark)}
+  body.focus .box.sel .xbtn svg{width:calc(var(--bar-mark) * var(--done-scale)); height:calc(var(--bar-mark) * var(--done-scale))}
   body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn, body.focus .box.sel .dockbtn{
     position:relative; top:auto; right:auto;

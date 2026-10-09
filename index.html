@@ -642,7 +642,7 @@
     background:var(--card); color:#1e1e1e; font-size:0; padding:0; border:none;
     display:inline-flex; align-items:center; justify-content:center;
   }
-  body.focus .box.sel .xbtn svg{width:var(--bar-mark); height:var(--bar-mark)}
+  body.focus .box.sel .xbtn svg{width:calc(var(--bar-mark) * var(--done-scale)); height:calc(var(--bar-mark) * var(--done-scale))}
   body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the sun is the moon's twin on this bar: the same white seat, the same
      rounding and the same dark mark, so the four chips stay one family and the
