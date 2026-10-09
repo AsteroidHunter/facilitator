@@ -6898,7 +6898,8 @@ function undone(id){
 // the message as this board has always carried a file: the words, then the
 // file's address on a line of its own, which is what the box held when the
 // address was written into it. the phone puts its pictures ahead of the words
-// (trayMessage), and the sent panel here has always read it this way round
+// (trayMessage), and a sent bubble on either page shows the files over the
+// words whichever way round they came (sentOrder)
 function deskMessage(el, typed){
   const urls = el.trayItems.filter(it => it.state === "done").map(it => it.url);
   return [typed, ...urls].filter(Boolean).join("\n");

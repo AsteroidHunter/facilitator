@@ -1743,19 +1743,52 @@ async function trayPreview(it){
     it.urls.push(url);
     pic = new Image();
     pic.alt = "";
-    pic.onload = () => it.sq.classList.add("drawn");
+    pic.onload = () => { it.sq.classList.add("drawn"); trayStill(it); };
     pic.src = url;
   } else {
     const url = URL.createObjectURL(it.file);
     it.urls.push(url);
     pic = document.createElement("video");
     pic.muted = true; pic.playsInline = true; pic.preload = "metadata";
-    pic.addEventListener("loadeddata", () => it.sq.classList.add("drawn"), { once: true });
-    pic.src = url + "#t=0.1";
+    pic.addEventListener("loadeddata", () => { it.sq.classList.add("drawn"); trayStill(it, pic); }, { once: true });
+    pic.src = url + "#t=" + TRAY_STILL_AT;
   }
   pic.className = "tsqpic";
   pic.setAttribute("aria-hidden", "true");
   it.face.insertBefore(pic, it.veil);
+}
+
+// what the sent bubble a file goes into shows of it until the board's copy has
+// come back (sentStills, below), so the bubble has its picture from its first
+// frame and nothing has to come back from the board first: a picture's own
+// file, and the frame a video's square drew, kept as a still at the width a
+// bubble shows it at, so it is the picture the square wore. each is decoded
+// before anything wears it, which is what lets the bubble, and the flight's
+// copy of it, have the picture in the very task they are drawn in. neither is
+// among the urls the tray lets go
+const TRAY_STILL_AT = 0.1;            // seconds in: the frame the square's player is sent to
+const TRAY_STILL_PX = 960;            // sharp at 3x in the widest bubble
+function trayStill(it, video){
+  if (!video){ trayKeep(it, URL.createObjectURL(it.file)); return; }
+  const width = video.videoWidth, height = video.videoHeight;
+  if (!width || !height) return;
+  const k = Math.min(1, TRAY_STILL_PX / width);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width * k); canvas.height = Math.round(height * k);
+  try { canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height); }
+  catch (e) { return; }   // this engine cannot draw this player: the bubble waits for the board
+  canvas.toBlob(blob => { if (blob) trayKeep(it, URL.createObjectURL(blob), width, height); }, "image/jpeg", .85);
+}
+function trayKeep(it, url, width, height){
+  const img = new Image();
+  img.src = url;
+  const keep = () => {
+    // an engine that cannot draw the file: the bubble waits for the board's copy
+    if (!img.naturalWidth){ URL.revokeObjectURL(url); return; }
+    it.still = { url, width: width || img.naturalWidth, height: height || img.naturalHeight, img };
+    sentStillFor(it);
+  };
+  (img.decode ? img.decode() : Promise.resolve()).then(keep, keep);
 }
 
 // one upload at a time per card, in the order the files were picked
@@ -1830,6 +1863,7 @@ function trayLanded(el, it, status, body){
   if (it.gone) return;
   if (status === 200 && body && body.url){
     it.state = "done"; it.url = body.url; it.sent = it.total;
+    sentStillFor(it);
   } else if (TRAY_REFUSED.has(status)){
     it.state = "refused";
   } else {
@@ -2504,7 +2538,9 @@ function fitAnswered(panel){
 // state the page dresses it in: the phone says so of a message the board has not
 // confirmed yet. and a sent message carries its stage (see the delivery marks
 // further down): one the board has not saved yet is drawn faded, and takes its
-// full ink once the board has it
+// full ink once the board has it. a sent bubble lays its files over its words
+// and shows a file picked on this page from what was kept of it (sentOrder and
+// sentStills, below)
 const ANSWERED_STATES = ["pending", "unsure", "failed"];
 
 // the badge a sent row wears while its message is not through, inside the row
@@ -2534,6 +2570,76 @@ function sentBadge(kind){
   badge.append(cross, retry);
   return badge;
 }
+
+// a picture or a player in a sent bubble has nothing to draw until the board
+// has sent its file back, and WebKit draws nothing at all for a player that asks
+// only for the file's metadata: the bubble stood as an empty grey box over its
+// arrow, and the flight's copy of it, made in the press's own task, flew with
+// the picture's place blank. a file picked on this page wears what was kept of
+// it (trayStill) from the bubble's first frame, the flight's copy included: a
+// picture shows its own file through srcset, its address staying the board's
+// for the link menu, and a video wears its square's frame as its poster, in the
+// video's own shape. a player with no still here, one drawn after a reload or
+// sent from the other page, is sent to the square's frame once it knows the
+// file, which has WebKit fetch that frame and draw it
+const SENT_STILLS = new Map();   // an uploaded file's address -> what was kept of it here
+function sentStillFor(it){
+  if (!it.still || !it.url) return;
+  const key = CardMarkdown.safeImageTarget(it.url);
+  if (!key || SENT_STILLS.has(key)) return;
+  SENT_STILLS.set(key, it.still);
+  // a send pressed before the square had its picture wears it now
+  for (const node of document.querySelectorAll(".answered.sent video[src], .answered.sent img[src]"))
+    if (node.getAttribute("src") === key) sentWear(node, it.still);
+}
+function sentWear(node, still){
+  if (node.tagName === "IMG"){ node.setAttribute("srcset", still.url + " 1x"); return; }
+  node.setAttribute("poster", still.url);
+  node.style.aspectRatio = still.width + " / " + still.height;
+}
+// the order a sent bubble lays a message out in, whichever page sent it: its
+// pictures on one line, which is what makes two to four of them the card's
+// grid, then each other file on a line of its own, then the words, so a
+// picture and a video both stand over the words. the phone sends its messages
+// this way round already (trayMessage) and the desktop sends its words first
+// (deskMessage); what was sent is left as it is, for the board and for the
+// panel over the answer, and only the bubble lays it out again. a line is a
+// file's when it holds nothing but uploaded files' addresses, as the tray
+// writes them, and a message with a fenced block in it is left as it is
+function sentOrder(text){
+  const files = line => {
+    const words = line.trim().split(/\s+/);
+    return line.trim() && words.every(w => w.startsWith("/uploads/") && CardMarkdown.safeImageTarget(w)) ? words : null;
+  };
+  const lines = text.split("\n");
+  if (!lines.some(files) || /^ {0,3}(```|~~~)/m.test(text)) return text;
+  const pictures = [], others = [], words = [];
+  for (const line of lines){
+    const found = files(line);
+    if (!found){ words.push(line); continue; }
+    for (const url of found) (sentPicture(url) ? pictures : others).push(url);
+  }
+  while (words.length && ANSWERED_BLANK.test(words[0])) words.shift();
+  while (words.length && ANSWERED_BLANK.test(words[words.length - 1])) words.pop();
+  return [pictures.join(" "), others.join("\n"), words.join("\n")].filter(Boolean).join("\n\n");
+}
+// a picture by its name, as the renderer tells one (CardMarkdown.renderAttachment)
+function sentPicture(url){
+  const file = url.split(/[?#]/)[0].split("/").pop();
+  let name = file;
+  try { name = decodeURIComponent(file); } catch (e) {}
+  return CardMarkdown.attachmentInfo(name)?.kind === "image";
+}
+function sentStills(msg){
+  for (const node of msg.querySelectorAll("video[src], img[src]")){
+    const still = SENT_STILLS.get(node.getAttribute("src"));
+    if (still){ sentWear(node, still); continue; }
+    if (node.tagName !== "VIDEO") continue;
+    node.addEventListener("loadedmetadata", () => {
+      if (node.readyState < 2 && !node.currentTime && !node.getAttribute("poster")) node.currentTime = TRAY_STILL_AT;
+    }, { once: true });
+  }
+}
 function stackAnswered(panel, batch){
   const stack = panel.querySelector(".answstack");
   const want = batch.filter(m => !ANSWERED_BLANK.test(answeredText(m)));
@@ -2545,9 +2651,11 @@ function stackAnswered(panel, batch){
     let msg = have[i];
     if (i >= keep){
       const text = answeredText(m);
+      const sent = panel.classList.contains("sent");
       msg = h("div", "answmsg cardmd");
       msg.dataset.text = text;
-      msg.innerHTML = fmt(text);
+      msg.innerHTML = fmt(sent ? sentOrder(text) : text);
+      if (sent) sentStills(msg);
       stack.appendChild(msg);
     }
     for (const state of ANSWERED_STATES) msg.classList.toggle(state, m.state === state);
