@@ -1708,6 +1708,15 @@ for (const type of ["gesturestart", "gesturechange"])
           <input type="checkbox" role="switch" id="setusage" checked>
         </div>
       </div>
+      <div data-section="profile" data-label="Profile">
+        <p class="setnote">Kept on your Mac, and changed in Settings there.</p>
+        <div class="setrow"><div class="setlabel"><span>Name</span><small id="pfname" class="sethelp"></small></div></div>
+        <div class="setrow"><div class="setlabel"><span>Email</span><small id="pfemail" class="sethelp"></small></div></div>
+        <div class="setrow"><div class="setlabel"><span>Feedback emails</span><small id="pfyes" class="sethelp"></small></div></div>
+        <div class="setrow"><div class="setlabel"><span>Work</span><small id="pfwork" class="sethelp"></small></div></div>
+        <div class="setrow"><div class="setlabel"><span>Main agent</span><small id="pfagent" class="sethelp"></small></div></div>
+        <div class="setrow"><div class="setlabel"><span>Time zone</span><small id="pftz" class="sethelp"></small></div></div>
+      </div>
       <div data-section="diagnostics" data-label="Diagnostics">
         <div class="setact">
           <button id="savediagnostic" class="sp-btn" type="button" aria-describedby="diagnostichelp" aria-keyshortcuts="Control+Shift+M">Save diagnostic history</button>
@@ -6963,6 +6972,23 @@ function keyBytes(b64url){
 // the editor it is drawn with is fetched once, early, so the row is already
 // wearing it by the time anybody types in it
 ComposeFormat.preload();
+// the profile the Mac keeps (GET /profile): shown here and changed only on the
+// Mac, where it lives and where the yes to feedback mail is answered. Read when
+// the page starts and again when its section is opened
+{
+  const shown = { name: "pfname", email: "pfemail", work: "pfwork", agent: "pfagent", timeZone: "pftz" };
+  let asked = 0;
+  const read = () => {
+    const mine = ++asked;
+    fetch("/profile").then(r => r.ok ? r.json() : null).then(p => {
+      if (mine !== asked || !p) return;
+      for (const [key, id] of Object.entries(shown)) document.getElementById(id).textContent = p[key] || "";
+      document.getElementById("pfyes").textContent = p.emailYes ? "On" : "Off";
+    }, () => {});
+  };
+  document.querySelector('#setpage .sp-item[data-section="profile"]')?.addEventListener("click", read);
+  read();
+}
 const diagnosticButton = document.getElementById("savediagnostic");
 let diagnosticRetry = false, diagnosticToastTimer = null;
 let developerTaps = 0, developerTapAt = -Infinity;

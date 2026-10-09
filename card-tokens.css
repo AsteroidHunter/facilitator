@@ -969,6 +969,20 @@
 @media (prefers-reduced-motion: reduce){
   .sp-pane .setrow input[type="checkbox"], .sp-pane .setrow input[type="checkbox"]::before{transition:none}
 }
+/* a choice in words is a field: the card's white, the line's edge and the
+   board's own corner and type, with the ink's edge while it is typed in */
+.sp-pane .setrow .setfield{flex:0 1 280px; min-width:0; box-sizing:border-box; margin:0;
+  padding:7px 10px; font:14px/1.35 var(--sans); color:var(--ink); background:var(--card);
+  border:var(--edge) solid var(--line); border-radius:var(--sq); outline:none;
+  transition:border-color .18s}
+.sp-pane .setrow .setfield:focus{border-color:var(--ink)}
+/* a value that is only shown stands where a control would, in the sub ink,
+   and words with nothing to click are not drawn as clickable */
+.sp-pane .setrow .setvalue{flex:none; max-width:60%; font:14px/1.35 var(--sans); color:var(--sub);
+  text-align:right; overflow-wrap:anywhere}
+.sp-pane .setlabel:not(label){cursor:default}
+/* words that say what a whole section is, above its rows */
+.sp-pane .setnote{margin:0 0 6px; font:12px/1.5 var(--sans); color:var(--sub)}
 /* an action is a button with the words that go with it under it. it is the
    card's own kind of control, no border and the card's white for a fill, with
    the board's one press shade mixed into that fill */

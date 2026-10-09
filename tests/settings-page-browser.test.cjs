@@ -445,7 +445,7 @@ test("wide: sections stand on the left and the chosen one's settings on the righ
   const { page, problems } = await open("/", WIDE);
   try {
     await openMac(page);
-    assert.deepEqual(await labels(page), ["Appearance", "Editor", "Improvements"], "the sections are not the settings' own groups");
+    assert.deepEqual(await labels(page), ["Appearance", "Editor", "Improvements", "Profile"], "the sections are not the settings' own groups");
     assert.equal(await shown(page, ".sp-list"), true, "the list of sections is not showing");
     assert.equal(await shown(page, ".sp-panes"), true, "the settings are not showing beside the list");
     assert.equal(await shown(page, ".sp-back"), false, "a back mark shows where there is nothing to go back to");
@@ -832,7 +832,7 @@ test("narrow Mac: only the list, a section on tap, a way back, and a way out", a
   try {
     await openMac(page);
     assertSeventhTenths(await share(page), "at the tall window");
-    assert.deepEqual(await labels(page), ["Appearance", "Editor", "Improvements"]);
+    assert.deepEqual(await labels(page), ["Appearance", "Editor", "Improvements", "Profile"]);
     assert.equal(await shown(page, ".sp-list"), true, "the list is not showing");
     assert.equal(await shown(page, ".sp-panes"), false, "settings show beside a list that has no room");
     assert.equal(await shown(page, ".sp-back"), false, "the list has a back mark");
@@ -1020,7 +1020,7 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
     const list = await drawerView(page);
     assert.equal(list.view, "list");
     assert.equal(list.title, "Settings");
-    assert.deepEqual(list.items, ["Editor", "Appearance", "Notifications", "Improvements", "Diagnostics"]);
+    assert.deepEqual(list.items, ["Editor", "Appearance", "Notifications", "Improvements", "Profile", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows over the list");
     assert.equal(list.back, false, "the list has a way back");
     assert.equal(list.close, false, "the page carries window buttons or a close mark of its own");
@@ -1072,7 +1072,7 @@ test("phone: the drawer stays narrow, with the list and sections, in a wide wind
     const box = await cover(page, "#settings");
     assert.equal(box.right - box.left, 289, "the drawer is not capped at 289px");
     const list = await drawerView(page);
-    assert.deepEqual(list.items, ["Editor", "Appearance", "Notifications", "Improvements", "Diagnostics"]);
+    assert.deepEqual(list.items, ["Editor", "Appearance", "Notifications", "Improvements", "Profile", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows beside the list");
     await page.tap('.sp-item[data-section="notifications"]');
     await settle(80);
