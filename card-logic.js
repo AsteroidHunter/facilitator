@@ -908,6 +908,63 @@ function omniTicket(title){
   const variant = ((number - 1) % 3) + 1;
   return { number, variant, src: "/assets/ticket-" + variant + ".webp" };
 }
+// ---- pictures the board could not hand over -----------------------------------
+// a phone's connection drops and returns under the app all the time, and a
+// picture asked for just then fails once and stays failed: the browser never
+// asks again by itself, and a row, a card and a reply keep their element for as
+// long as the page is open. so the page does the asking. a failed picture is
+// asked for again a little later, three times, and again whenever the app comes
+// back to the front or the phone is back online. the Omni art on a ticket or a
+// card is out of sight while it is failed, so no broken-image box is ever drawn
+// there, and shows when it has loaded; a picture in a card's words stays where
+// it is in the text. watchPictures is started once by the page
+const PICTURE_RETRY_MS = [3000, 10000, 30000];
+const PICTURES = ".cardmd img[src], img.omni-art, img.omni-card-art";
+const PICTURES_HIDDEN = "img.omni-art, img.omni-card-art";
+function watchPictures(){
+  const failed = new Set();        // pictures that have failed and have not loaded since
+  const tries = new WeakMap();     // a picture -> the address and the asks made of it
+  const ask = image => {
+    if (image.isConnected === false){ failed.delete(image); return; }
+    if (image.hasAttribute("srcset")) return;
+    const src = image.getAttribute("src");
+    if (!src) return;
+    image.removeAttribute("src");
+    image.src = src;
+  };
+  const ours = e => {
+    const image = e.target;
+    return image && image.tagName === "IMG" && image.matches(PICTURES) ? image : null;
+  };
+  document.addEventListener("error", e => {
+    const image = ours(e);
+    if (!image) return;
+    failed.add(image);
+    if (image.matches(PICTURES_HIDDEN)) image.style.display = "none";
+    const src = image.getAttribute("src");
+    let kept = tries.get(image);
+    if (!kept || kept.src !== src){ kept = { src, n: 0 }; tries.set(image, kept); }
+    if (kept.n >= PICTURE_RETRY_MS.length) return;
+    setTimeout(() => { if (failed.has(image)) ask(image); }, PICTURE_RETRY_MS[kept.n++]);
+  }, true);
+  document.addEventListener("load", e => {
+    const image = ours(e);
+    if (!image) return;
+    failed.delete(image);
+    tries.delete(image);
+    if (image.matches(PICTURES_HIDDEN)) image.style.display = "";
+  }, true);
+  const wake = () => {
+    for (const image of [...failed]){
+      if (image.isConnected === false){ failed.delete(image); continue; }
+      tries.delete(image);
+      ask(image);
+    }
+  };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) wake(); });
+  window.addEventListener("pageshow", wake);
+  window.addEventListener("online", wake);
+}
 function omniArt(info, cls){
   const image = h("img", cls);
   image.src = info.src;
