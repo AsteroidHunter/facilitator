@@ -5,13 +5,14 @@
 // workspace's edge are equal, level with the card's middle, and over the card's
 // edge rather than off the workspace when the window has no room; inside that
 // largest box, a picture in its own shape and never past its own size, words
-// at their own height, hung from that box's top. Its look, read from the
-// page's source: what it holds and the ticket list's two soft ends, no bar,
-// and the card's own frame and shadow only under the two Settings switches;
-// with the shadow on, whichever of the card and the box is held stands up and
-// the other settles. And the page's wiring: the box is never one of the
-// regions the fit, the layout or edit mode work on, and a click or the focus
-// says which of the two is held.
+// at their own height, hung from that box's top, under a top bar that keeps
+// its height. Its look, read from the page's source: the card's own edge, face,
+// corners and shadow, always, a white top bar with the Mac's three lights, and
+// a site that will not be framed as a square with its name in the middle;
+// whichever of the card and the box is held stands up and the other settles.
+// And the page's wiring: the box is never one of the regions the fit, the
+// layout or edit mode work on, a click or the focus says which of the two is
+// held, and a page in the box never takes the keys by itself.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -191,85 +192,106 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   assert.match(fn, /MagicBox\.place\(rect, fit, bar, magicWant\(most, S\)\)/);
   assert.match(html, /const FRAME_CLEAR = 16;/);
   // a picture asks for as many stage pixels as it has pixels on screen, its
-  // size read once off a copy that is never laid out
+  // size read once off a copy that is never laid out, with the top bar as its
+  // head; words for their own height and the bar; a refused site for a square
   const want = html.slice(html.indexOf("function magicWant("), html.indexOf("function magicPlace(){"));
-  assert.match(want, /const \[w, h\] = MB\.natural \|\| \[0, 0\];\s*return w && h \? \{ width: w \/ S \+ edges, height: h \/ S \+ edges \} : null;/);
-  assert.match(want, /height: words\.offsetHeight \+ edges/);
+  assert.match(want, /head = MB\.bar\.offsetHeight/);
+  assert.match(want, /const \[w, h\] = MB\.natural \|\| \[0, 0\];\s*return w && h \? \{ width: w \/ S \+ edges, height: h \/ S \+ edges, head \} : null;/);
+  assert.match(want, /if \(MB\.body\.querySelector\("\.mbaway"\)\) return \{ height: most\.width \};/);
+  assert.match(want, /height: words\.offsetHeight \+ edges \+ head/);
   assert.match(html, /const own = new Image\(\);[\s\S]{0,200}MB\.natural = \[own\.naturalWidth, own\.naturalHeight\];/);
 });
 
-test("Settings has the two switches, kept with the board's settings and read on every placing", () => {
-  const html = read("index.html");
-  const appearance = html.slice(html.indexOf('data-section="appearance"'), html.indexOf('data-section="editor"'));
-  assert.match(appearance, /<label class="setlabel" for="setmagicframe"><span>Magic box frame<\/span><\/label>\s*<input type="checkbox" role="switch" id="setmagicframe">/);
-  assert.match(appearance, /<label class="setlabel" for="setmagicshadow"><span>Magic box shadow<\/span><\/label>\s*<input type="checkbox" role="switch" id="setmagicshadow">/);
-  assert.ok(!/checked/.test(appearance), "both off at first");
-  assert.match(html, /const MAGIC_FRAME_KEY = "magicframe", MAGIC_SHADOW_KEY = "magicshadow";/);
-  const { isSetting } = require(path.join(ROOT, "board-settings.js"));
-  for (const key of ["magicframe", "magicshadow"]) {
-    assert.equal(isSetting(key), true, key);
-    assert.match(read("server.py"), new RegExp("SETTINGS_KEY = re\\.compile\\([\\s\\S]*?\\|" + key + "[|\"]"), key);
-  }
-  const place = html.slice(html.indexOf("function magicPlace(){"), html.indexOf("MB.el.classList.toggle(\"floating\""));
-  assert.match(place, /magicDress\(\);/);
+test("a picture's top bar keeps its height while the picture under it is fitted to what is left", () => {
+  const fit = fitAt(1512), most = place(CARD, fit, 34), bar = 34;
+  const tall = place(CARD, fit, 34, { width: 600, height: 2400, head: bar });
+  assert.ok(close(tall.height, most.height), "as tall as the largest box, bar and all");
+  assert.ok(close((tall.height - bar) / tall.width, 4), "the picture keeps its own shape under the bar");
+  const small = place(CARD, fit, 34, { width: 200, height: 120, head: bar });
+  assert.deepEqual([small.width, small.height], [200, 120 + bar], "a small picture keeps its size, the bar above it");
+  assert.ok(close(small.top, most.top), "and hangs from the largest box's top");
 });
 
-test("the box is what it holds between the ticket list's two soft ends: no bar, and no edge, face or shadow unless switched on", () => {
+test("the box's edge and shadow are no setting: no switch, and no key for one", () => {
   const html = read("index.html");
-  const rule = sel => {
-    const at = html.indexOf("\n  " + sel + "{");
-    assert.ok(at > 0, sel);
-    return html.slice(at, html.indexOf("}", html.indexOf("100%)", html.indexOf("mask-image:", at))) + 1);
-  };
-  const masks = text => [...text.matchAll(/(?:-webkit-)?mask-image:(linear-gradient\([\s\S]*?100%\))/g)].map(m => m[1].replace(/\s+/g, " "));
-  const list = masks(rule(".tikpane")), box = masks(rule("#magicbox .mbbody"));
-  assert.equal(list.length, 2);
-  assert.deepEqual(box, list, "the very ramp the ticket list draws, prefixed and not");
-  // both bands at the list's own depth, held there, and one depth for both
-  assert.match(rule("#magicbox .mbbody"), /--upband:var\(--listfade\); --downband:var\(--listfade\)/);
-  assert.equal((html.match(/--listfade:\s*\d/g) || []).length, 1, "--listfade is set once, for both");
-  const tokens = html.slice(html.indexOf("--cw:1440px"), html.indexOf("\n  }", html.indexOf("--cw:1440px")));
-  assert.match(tokens, /--listfade:22px;/, "among the board's own tokens");
-  // no bar: the box holds its body and nothing else, and nothing names a bar
-  const section = html.slice(html.indexOf('<section id="magicbox">'), html.indexOf("</section>", html.indexOf('<section id="magicbox">')));
-  assert.equal(section.replace(/\s+/g, ""), '<sectionid="magicbox"><divclass="mbbody"></div>');
-  for (const gone of ["mbbar", "mbname", "mbopen", "mbx", "Open in Chrome", "close the box"])
+  for (const gone of ["setmagicframe", "setmagicshadow", "Magic box frame", "Magic box shadow", "magicframe", "magicshadow",
+    "magicDress", ".framed", ".shadowed"])
     assert.ok(!html.includes(gone), gone);
-  // as it comes, the box and its body paint nothing of their own: no face, no
-  // edge, no corners, no shadow
-  const on = html.slice(html.indexOf("  body.focus #magicbox.on{"), html.indexOf("}", html.indexOf("  body.focus #magicbox.on{")));
-  assert.match(on, /background:transparent; border:none; border-radius:0; box-shadow:none/);
-  assert.ok(!/border|background|box-shadow|radius/.test(rule("#magicbox .mbbody")), "the body draws none of them");
+  const { isSetting } = require(path.join(ROOT, "board-settings.js"));
+  for (const key of ["magicframe", "magicshadow"]) {
+    assert.equal(isSetting(key), false, key);
+    assert.ok(!read("server.py").includes(key), key);
+  }
+});
+
+test("the box wears the card's own edge, face, corners and shadow, under a white top bar with the Mac's three lights", () => {
+  const html = read("index.html");
   const sheet = html.slice(html.indexOf("  #magicbox{display:none}"), html.indexOf("  /* on the chat lane's tab"));
-  // the edge, corners and shadow live only under the two switches' classes, and
-  // they are the card's own, as main wears them
   const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
-  const framed = sheet.match(/body\.focus #magicbox\.on\.framed\{([^}]*)\}/)[1];
+  const on = sheet.slice(sheet.indexOf("  body.focus #magicbox.on{"), sheet.indexOf("}", sheet.indexOf("  body.focus #magicbox.on{")));
   assert.match(card, /border:var\(--edge\) solid var\(--line\); background:#fff; border-radius:7px;/);
-  assert.equal(framed, "border:var(--edge) solid var(--line); background:var(--card); border-radius:7px");
-  // held, the card's own raised shadow; not held, the faint one the card
-  // settles to under magic box 2
-  const raised = sheet.match(/body\.focus #magicbox\.on\.framed\.shadowed\.held\{box-shadow:([^}]*)\}/)[1];
-  assert.ok(card.includes("box-shadow:" + raised + ";"), "the card's own raised shadow");
-  const faint = sheet.match(/body\.focus #magicbox\.on\.framed\.shadowed\{box-shadow:([^}]*)\}/)[1];
+  assert.match(on, /background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:7px;/);
+  // as it comes, the faint shadow the card settles to under magic box 2; held,
+  // the card's own raised one
+  const faint = on.match(/box-shadow:([^;]*);/)[1];
   assert.ok(html.includes("body.focus.minifocus main{box-shadow:" + faint + "}"), "the card's own settled shadow");
-  const rest = sheet.replace(/body\.focus #magicbox\.on\.framed[^{]*\{[^}]*\}/g, "");
-  assert.ok(!/solid|box-shadow:\s*0|border-radius:\s*7px/.test(rest), "no edge, shadow or corner anywhere else in the box");
-  assert.ok(!/\.shadowed/.test(rest), "the shadow is never without the frame");
-  // in the frame the ramp is dropped
-  assert.match(sheet, /#magicbox\.framed \.mbbody\{-webkit-mask-image:none; mask-image:none\}/);
-  // floated over the card, only the card's white face, so the card's words do not show through
-  assert.match(sheet, /#magicbox\.floating \.mbbody\{background:var\(--card\)\}/);
+  const raised = sheet.match(/body\.focus #magicbox\.on\.held\{box-shadow:([^}]*)\}/)[1];
+  assert.ok(card.includes("box-shadow:" + raised + ";"), "the card's own raised shadow");
+  assert.ok(!/mask-image/.test(sheet), "nothing in the box fades");
+  // the bar: as tall as the card's, white, the card's hairline under it, its
+  // lights at the right
+  const bar = sheet.match(/#magicbox \.mbbar\{([^}]*)\}/)[1];
+  assert.match(bar, /justify-content:flex-end/);
+  assert.match(bar, /height:var\(--cardbar-h\)/);
+  assert.match(bar, /background:var\(--card\)/);
+  assert.match(bar, /box-shadow:inset 0 calc\(-1 \* var\(--edge-drawn\)\) 0 var\(--line\)/);
+  // three lights in the Mac's order: the red one a button that closes the box,
+  // the other two greyed and no buttons at all
+  const section = html.slice(html.indexOf('<section id="magicbox">'), html.indexOf("</section>", html.indexOf('<section id="magicbox">')));
+  const lights = [...section.matchAll(/<(button|span) [^>]*class="mblight(?: [^"]*)?"[^>]*>/g)];
+  assert.deepEqual(lights.map(m => m[1]), ["button", "span", "span"]);
+  assert.match(lights[0][0], /class="mblight mbclose" aria-label="Close the magic box"/);
+  for (const m of lights.slice(1)) assert.match(m[0], /aria-hidden="true"/);
+  assert.match(sheet, /#magicbox \.mblight\{[^}]*background:#DCDCDC/);
+  assert.match(sheet, /#magicbox \.mbclose\{background:#FF5F57; cursor:pointer\}/);
+  assert.ok(section.indexOf("mbbar") < section.indexOf("mbbody"), "the bar stands above what the box holds");
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
 
-test("with its shadow on, whichever of the card and the box is held stands up and the other settles, and nothing else changes", () => {
+test("the red light puts the box away as the agent's close does, and the board keeps what it held", () => {
+  const html = read("index.html");
+  assert.match(html, /MB\.el\.querySelector\("\.mbclose"\)\.addEventListener\("click", \(\) => magicClose\(\)\)/);
+  const fn = html.slice(html.indexOf("function magicClose(){"), html.indexOf("function magicWant("));
+  assert.match(fn, /if \(b && b\.magic\) b\.magic\.open = false;\s*magicOff\(\);/);
+  assert.match(fn, /fetch\("\/magic\/close\?box=" \+ encodeURIComponent\(id\), \{ method: "POST" \}\)/);
+});
+
+test("a site that will not be framed comes square, with its name and a new-page mark in a box in the middle", () => {
+  const html = read("index.html");
+  const nameFn = html.slice(html.indexOf("function magicSiteName("), html.indexOf("// the site in the owner's own browser"));
+  const ctx = vm.createContext({ URL });
+  vm.runInContext(nameFn, ctx);
+  assert.equal(ctx.magicSiteName({ url: "https://www.google.com/", preview: { site: "www.google.com" } }), "google.com");
+  assert.equal(ctx.magicSiteName({ url: "https://github.com/x", preview: { site: "GitHub" } }), "GitHub");
+  assert.equal(ctx.magicSiteName({ url: "https://www.example.org/" }), "example.org");
+  const draw = html.slice(html.indexOf("function magicDraw("), html.indexOf("function magicPage("));
+  assert.match(draw, /const away = h\("div", "mbaway"\), open = h\("button", "mbopen"\);/);
+  assert.match(draw, /open\.setAttribute\("aria-label", "Open " \+ name \+ " in a new page"\);/);
+  assert.match(draw, /open\.insertAdjacentHTML\("beforeend", MAGIC_NEW_PAGE\);/);
+  assert.match(draw, /open\.addEventListener\("click", magicOpenSite\);/);
+  const sheet = html.slice(html.indexOf("  #magicbox{display:none}"), html.indexOf("  /* on the chat lane's tab"));
+  assert.match(sheet, /--mbtile:color-mix\(in srgb, var\(--ink\) 4%, var\(--card\)\)/, "its own fill, whatever colour the board is");
+  assert.match(sheet, /#magicbox \.mbopen:hover\{background:color-mix\(in srgb, #000 calc\(var\(--press\) \/ 2\), var\(--mbtile\)\)\}/);
+  assert.match(sheet, /#magicbox \.mbopen:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mbtile\)\)\}/);
+});
+
+test("whichever of the card and the box is held stands up and the other settles, and nothing else changes", () => {
   const html = read("index.html");
   const settled = html.match(/body\.focus\.minifocus main\{box-shadow:([^}]*)\}/)[1];
-  // the card settles only while an open, framed, shadowed box is held and
-  // drawn, at the settled rule's own weight, ahead of the lowered card's rule,
-  // so a lowered card stays level
-  const rule = "  body.focus:not(.home, .editmode):has(:where(#magicbox.on.framed.shadowed.held)) main{box-shadow:" + settled + "}";
+  // the card settles only while an open box is held and drawn, at the settled
+  // rule's own weight, ahead of the lowered card's rule, so a lowered card
+  // stays level
+  const rule = "  body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main{box-shadow:" + settled + "}";
   assert.ok(html.includes(rule));
   assert.ok(html.indexOf(rule) < html.indexOf("  body.focus.lowered main{box-shadow:none}"));
   // both ease over the card's own timing, and the shadow is all they change
@@ -282,41 +304,99 @@ test("with its shadow on, whichever of the card and the box is held stands up an
   assert.equal(rules.length, 2, "the box's rule and the card's");
   for (const [, , body] of rules) assert.match(body, /^box-shadow:[^;]*$/);
   // the box goes off the page settled; the agent's next revision keeps it held
-  assert.match(html, /function magicOff\(\)\{\s*if \(!MB\.el\) return;\s*MB\.el\.classList\.remove\("on", "held"\);/);
+  assert.match(html, /function magicOff\(\)\{\s*if \(!MB\.el\) return;\s*MB\.el\.classList\.remove\("on", "held", "over"\);/);
   assert.match(html, /const held = id === MB\.id && MB\.el\.classList\.contains\("held"\);\s*magicOff\(\);\s*MB\.el\.classList\.toggle\("held", held\);/);
 });
 
-test("clicking or focusing into the box holds it; clicking elsewhere or focusing into the card hands it back", () => {
+test("clicking or focusing into the box holds it, and a page in it never takes the keys by itself", () => {
   const html = read("index.html");
-  const from = html.indexOf("function magicHold(");
-  const src = html.slice(from, html.indexOf("}));", html.indexOf('addEventListener("blur"', from)) + 4);
-  const classes = new Set(["on", "framed", "shadowed"]), inBox = new Set(), on = {};
+  const last = 'addEventListener("blur", () => setTimeout(magicFocusCame));';
+  const src = html.slice(html.indexOf("function magicHold("), html.indexOf(last) + last.length);
+  const classes = new Set(["on"]), inBox = new Set(), on = {};
+  const doc = { activeElement: null };
   const node = where => {
-    const n = { closest: sel => (sel === "main" && where === "card" ? {} : null) };
+    const n = { where, isConnected: true, focused: 0, closest: sel => (sel === "main" && where === "card" ? {} : null),
+      focus() { this.focused++; doc.activeElement = this; }, blur() { doc.activeElement = null; } };
     if (where === "box") inBox.add(n);
     return n;
   };
   const el = { contains: n => inBox.has(n),
     classList: { contains: c => classes.has(c), toggle: (c, yes) => (yes ? classes.add(c) : classes.delete(c)) } };
-  const doc = { activeElement: null };
-  vm.runInContext(src, vm.createContext({ MB: { el }, document: doc, setTimeout: fn => fn(),
-    addEventListener: (type, fn, capture) => { on[type] = { fn, capture }; } }));
+  let now = 100000;
+  const MB = { el };
+  vm.runInContext(src, vm.createContext({ MB, document: doc, setTimeout: fn => fn(), Date: { now: () => now },
+    addEventListener: (type, fn, capture) => { (on[type] = on[type] || []).push({ fn, capture }); } }));
+  const fire = (type, e) => { for (const l of on[type]) l.fn(e); };
   const held = () => classes.has("held");
-  const [box, frame, card, board] = [node("box"), node("box"), node("card"), node("board")];
-  assert.equal(on.pointerdown.capture, true);
-  assert.equal(on.focusin.capture, true);
-  on.pointerdown.fn({ target: box }); assert.equal(held(), true, "a click in the box");
-  on.pointerdown.fn({ target: card }); assert.equal(held(), false, "a click on the card");
-  on.pointerdown.fn({ target: box }); on.pointerdown.fn({ target: board });
+  const [cover, frame, card, board] = [node("box"), node("box"), node("card"), node("board")];
+  for (const type of ["pointerdown", "focusin", "pointerover", "pointermove", "keydown"])
+    assert.ok(on[type].every(l => l.capture === true), type);
+  // clicks and the focus moving, as before
+  fire("pointerdown", { target: cover }); assert.equal(held(), true, "a click in the box");
+  fire("pointerdown", { target: card }); assert.equal(held(), false, "a click on the card");
+  fire("pointerdown", { target: cover }); fire("pointerdown", { target: board });
   assert.equal(held(), false, "a click anywhere else");
-  on.focusin.fn({ target: box }); assert.equal(held(), true, "the focus moved into the box");
-  on.focusin.fn({ target: board }); assert.equal(held(), true, "the focus elsewhere leaves it");
-  on.focusin.fn({ target: card }); assert.equal(held(), false, "the focus moved into the card, to type");
-  doc.activeElement = frame; on.blur.fn(); assert.equal(held(), true, "a click inside a page or site in the box");
-  doc.activeElement = card; on.pointerdown.fn({ target: card }); on.blur.fn();
-  assert.equal(held(), false, "the window losing the focus anywhere else leaves it");
+  fire("focusin", { target: cover }); assert.equal(held(), true, "the focus moved into the box");
+  fire("focusin", { target: card }); assert.equal(held(), false, "the focus moved into the card, to type");
+  assert.equal(MB.back, card, "and the board knows where the owner was");
+  // the owner types in the card, the pointer elsewhere: a page in the box takes
+  // the keys, and they go straight back
+  fire("pointermove", { target: board });
+  assert.equal(MB.over, false);
+  doc.activeElement = frame; fire("blur", {});
+  assert.equal(doc.activeElement, card, "the keys are back in the card");
+  assert.equal(card.focused, 1);
+  assert.equal(held(), false, "and the box is not held for it");
+  // the owner's own click: the pointer lands on the frame's cover first
+  fire("pointerover", { target: cover });
+  assert.equal(MB.over, true);
+  assert.ok(classes.has("over"), "the cover comes off");
+  doc.activeElement = frame; fire("blur", {});
+  assert.equal(doc.activeElement, frame, "the keys stay in the frame");
+  assert.equal(held(), true);
+  // a Tab into the frame is the owner's too, for a second
+  fire("pointerdown", { target: card }); fire("pointermove", { target: board });
+  fire("keydown", { key: "Tab" });
+  doc.activeElement = frame; fire("blur", {});
+  assert.equal(held(), true, "a Tab");
+  fire("pointerdown", { target: card });
+  now += 2000;
+  doc.activeElement = frame; fire("blur", {});
+  assert.equal(doc.activeElement, card, "long after a Tab, the page's own doing");
+  // nowhere to go back to: the frame lets go
+  MB.back = null;
+  doc.activeElement = frame; fire("blur", {});
+  assert.equal(doc.activeElement, null);
+  // a box that is not open is never held and never under the pointer
   classes.delete("on");
-  on.pointerdown.fn({ target: box }); assert.equal(held(), false, "a box that is not open is never held");
+  fire("pointerdown", { target: cover }); assert.equal(held(), false);
+  fire("pointerover", { target: cover }); assert.equal(MB.over, false);
+  // every frame comes with its cover, which is gone while the pointer is over the box
+  assert.equal((html.match(/MB\.body\.append\(frame, h\("div", "mbcover"\)\);/g) || []).length, 2);
+  assert.match(html, /#magicbox \.mbcover\{position:absolute; inset:0\}/);
+  assert.match(html, /#magicbox\.over \.mbcover\{display:none\}/);
+});
+
+test("an agent's page cannot focus anything until the owner has just clicked or typed in it", () => {
+  const { KEYS_GUARD, pageDoc } = api();
+  const doc = pageDoc("<p>x</p>", "w");
+  assert.ok(doc.indexOf(KEYS_GUARD) > 0 && doc.indexOf(KEYS_GUARD) < doc.indexOf("postMessage") &&
+    doc.indexOf(KEYS_GUARD) < doc.indexOf("<p>x</p>"), "it runs before anything else in the page");
+  const calls = [];
+  const proto = () => ({ focus() { calls.push(this.name); } });
+  const ctx = { navigator: { userActivation: { isActive: false } }, HTMLElement: { prototype: proto() },
+    SVGElement: { prototype: proto() }, focus() { calls.push("window"); } };
+  ctx.window = ctx;
+  vm.runInContext(KEYS_GUARD, vm.createContext(ctx));
+  const field = Object.create(ctx.HTMLElement.prototype);
+  field.name = "field";
+  const drawing = Object.create(ctx.SVGElement.prototype);
+  drawing.name = "drawing";
+  field.focus(); drawing.focus(); ctx.window.focus();
+  assert.deepEqual(calls, [], "nothing taken while the owner is elsewhere");
+  ctx.navigator.userActivation.isActive = true;
+  field.focus(); drawing.focus(); ctx.window.focus();
+  assert.deepEqual(calls, ["field", "drawing", "window"], "taken right after the owner's own click or key");
 });
 
 test("an agent's page gets the sealing policy first, before anything it wrote", () => {

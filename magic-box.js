@@ -25,7 +25,9 @@
   // {width, height} for a picture (its own shape, and at most its own size so it
   // is never drawn past its sharpness), {height} for words (their own height at
   // the box's full width), nothing for a page or a site, which have no size of
-  // their own and take the whole of it.
+  // their own and take the whole of it. A picture's want may carry head, the
+  // height of the box's own top bar: the bar keeps its height while the
+  // picture under it is fitted to what is left.
   // The whole box keeps its shape. It is at full size when that leaves at least
   // `clear` on each side of it in the room right of the card, and as much
   // smaller as it must be when it does not; the board never shrinks for it.
@@ -55,9 +57,10 @@
     }
     const top = middle - height / 2;
     if (want && want.width > 0 && want.height > 0) {
-      const s = Math.min(1, width / want.width, height / want.height);
+      const head = Math.min(want.head || 0, height);
+      const s = Math.min(1, width / want.width, (height - head) / want.height);
       width = want.width * s;
-      height = want.height * s;
+      height = want.height * s + head;
     } else if (want && want.height > 0) {
       height = Math.min(height, want.height);
     }
@@ -66,7 +69,8 @@
   }
   // a page an agent wrote runs sealed off: its frame has scripts and nothing
   // else, so its origin is its own and never the board's (no same origin, no
-  // forms, no popups, no way to the top window), and this policy stands first
+  // forms, no popups, no way to the top window). Its buttons, fields and
+  // drawings work, since they are its own script. This policy stands first
   // in the page, ahead of anything the agent wrote, so the page loads nothing
   // from anywhere and sends nothing anywhere. A second policy the agent adds
   // can only narrow it further
@@ -74,6 +78,20 @@
   const PAGE_POLICY = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
     "img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; " +
     "form-action 'none'; base-uri 'none'";
+  // the page may not take the keys by itself: it comes beside the card while the
+  // owner may be typing there. Run ahead of anything the agent wrote, this
+  // makes focusing anything in the page, or the page itself, do nothing unless
+  // the owner has just clicked or typed in it, so a field the owner clicks
+  // still takes the caret and a widget may still move it on after a click.
+  // A browser that cannot tell whether the owner did leaves focus alone
+  const KEYS_GUARD = "(() => {" +
+    "const ua = navigator.userActivation, asked = () => !!ua && ua.isActive;" +
+    "for (const P of [HTMLElement.prototype, SVGElement.prototype, globalThis.MathMLElement && MathMLElement.prototype]) {" +
+    "const real = P && P.focus; if (!real) continue;" +
+    "Object.defineProperty(P, 'focus', { value: function focus(o) { if (asked()) return real.call(this, o); } }); }" +
+    "const win = window.focus;" +
+    "Object.defineProperty(window, 'focus', { value: function focus() { if (asked()) return win.call(window); } });" +
+    "})();";
   // word: when given, the page tells the board it is still itself each time it
   // finishes loading, by posting the word to it. A page that has sent its frame
   // elsewhere loads without saying it, and the board puts the page back
@@ -81,11 +99,12 @@
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' +
       JSON.stringify(String(word)).replace(/</g, "\\u003c") + ', "*"))</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
-      '<meta name="referrer" content="no-referrer">' + hello + String(html == null ? "" : html);
+      '<meta name="referrer" content="no-referrer"><script>' + KEYS_GUARD + '</script>' + hello +
+      String(html == null ? "" : html);
   }
   // a website runs as itself, on its own origin, which is never the board's;
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { CELL, onStar, TALL, WIDE, SHAPE, place, PAGE_SANDBOX, PAGE_POLICY, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { CELL, onStar, TALL, WIDE, SHAPE, place, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
 })(globalThis);
