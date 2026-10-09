@@ -2184,14 +2184,16 @@ function makeBox(b){
     if (e.altKey) { notePhoneEnter("handler", e, "modifier", ta); return; }
     if (e.isComposing) { notePhoneEnter("handler", e, "composition", ta); return; }
     // control+enter is a double Enter pressed at once, and no on-screen
-    // keyboard has the key, so it answers whether or not that keyboard is up
+    // keyboard has the key, so it answers whether or not that keyboard is up.
+    // it still jumps to the next card, and so does command+enter; only the
+    // plain second Enter opens the card list
     const now = controlEnter(e);
     if (!now && document.body.classList.contains("kb")) { notePhoneEnter("handler", e, "keyboard", ta); return; }
     e.preventDefault();
     if (e.repeat) { notePhoneEnter("handler", e, "repeat", ta); return; }
     const hadDraft = !!ta.value.trim() || traySendable(els[b.id]);
     if (!hadDraft){
-      if (!askPhoneEnterAdvance(b.id)){
+      if (!askPhoneEnterAdvance(b.id, "enter", !now && !e.metaKey)){
         cancelAutoNext();
         if (now) phoneAdvance(b.id);
       }
@@ -2582,17 +2584,34 @@ function schedulePhoneAdvance(op, intent = null){
   clearTimeout(autoNext);
   autoNext = setTimeout(() => {
     autoNext = null;
+    let opens = false;
     if (intent){
       const valid = intent.active && phoneEnterAgain === intent && intent.advance &&
         phoneEnterViewKey(op.box) === intent.view;
+      opens = intent.opens;
       clearPhoneEnterAgain(intent);
       if (!valid) return;
     }
-    phoneAdvance(op.box);
+    if (opens) phoneOpenDrawer(op.box);
+    else phoneAdvance(op.box);
   }, AUTONEXT_MS);
 }
-// the move a double Enter's second press makes, and control+enter makes at
-// once: to the card that has waited longest, in the card's own workspace. a
+// the move a double Enter's second press makes: the card list comes out on
+// Doing, the card just answered lifted in it, and the caret lets go as the
+// list's other ways in let it go. the card is still the one on screen, and a
+// send the board refused never gets here
+function phoneOpenDrawer(id){
+  if (selectedId !== id) return;
+  if (curView() !== "todo"){
+    setTicketViewOf(activeOwner, "todo");
+    chooseTicketNames("todo");
+    paintViewTabs();
+    if (lastState) renderTickets(lastState);
+  }
+  openDrawer();
+}
+// the move control+enter makes at once, and the send arrow's second press
+// makes: to the card that has waited longest, in the card's own workspace. a
 // caret in the row goes on into the next card's row, as a step carries it:
 // the box it was in is hidden with its card, and on a phone the keyboard
 // would go down with it
@@ -2606,7 +2625,7 @@ function armPhoneEnterAgain(id, op, source = "enter"){
   cancelAutoNext();
   const intent = {
     id, op, source, view: phoneEnterViewKey(id), deadline: Date.now() + ENTER_AGAIN_MS,
-    delivered: false, advance: false, active: true, timer: null,
+    delivered: false, advance: false, opens: false, active: true, timer: null,
   };
   intent.timer = setTimeout(() => {
     if (phoneEnterAgain === intent && !intent.advance) clearPhoneEnterAgain(intent);
@@ -2614,12 +2633,13 @@ function armPhoneEnterAgain(id, op, source = "enter"){
   phoneEnterAgain = intent;
   if (source === "arrow") els[id]?.tick();
 }
-function askPhoneEnterAdvance(id, source = "enter"){
+function askPhoneEnterAdvance(id, source = "enter", opens = false){
   const intent = phoneEnterAgain;
   if (!intent || !intent.active || intent.source !== source || intent.id !== id || phoneEnterViewKey(id) !== intent.view) return false;
   if (intent.advance) return true;
   if (Date.now() > intent.deadline) return false;
   intent.advance = true;
+  intent.opens = opens;
   intent.op.advance = true;
   clearTimeout(intent.timer);
   if (source === "arrow") els[id]?.tick();
