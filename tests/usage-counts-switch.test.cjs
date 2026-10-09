@@ -41,9 +41,9 @@ function theSwitch(html) {
 
 const VIEWS = {
   mac: { source: MAC, setsrc: () => between(MAC, '<div id="setsrc"', '<div id="appframe"'),
-         sections: ["appearance", "editor", "improvements"] },
+         sections: ["appearance", "editor", "improvements", "profile"] },
   phone: { source: PHONE, setsrc: () => between(PHONE, '<div id="setsrc">', '<div id="setfoot">'),
-           sections: ["editor", "appearance", "notifications", "improvements", "diagnostics"] },
+           sections: ["editor", "appearance", "notifications", "improvements", "profile", "diagnostics"] },
 };
 
 for (const [name, view] of Object.entries(VIEWS)) {
@@ -85,6 +85,7 @@ function macPage(stored = {}) {
     settingsOverlay: (host, source, opts) => { overlay = opts; return { open: () => opts.onOpen() } },
     ComposeFormat: { enabled: () => false, setEnabled() {}, onChange() {}, preload() {} },
     waitNewestFirst: () => false, lastState: null, renderCarousel() {},   // the block beside this switch, not under test here
+    fetch: async () => ({ ok: false }),   // the Profile section's reading, not under test here
   });
   vm.runInContext(between(MAC, "// ---- settings ----", "function buildHandles()"), context);
   const usage = element("setusage");

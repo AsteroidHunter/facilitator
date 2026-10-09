@@ -3552,6 +3552,35 @@
       <input type="checkbox" role="switch" id="setusage" checked>
     </div>
   </div>
+  <div data-section="profile" data-label="Profile">
+    <div class="setrow">
+      <label class="setlabel" for="setname"><span>Name</span></label>
+      <input type="text" id="setname" class="setfield" maxlength="200" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="setrow">
+      <label class="setlabel" for="setemail"><span>Email</span></label>
+      <input type="email" id="setemail" class="setfield" maxlength="254" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="setrow">
+      <label class="setlabel" for="setemailyes"><span>Feedback emails</span>
+        <small class="sethelp">Your email, name, work, main agent and time zone go to PostHog, so Facilitator's maker can ask you for feedback. Turned off, nothing more is sent.</small></label>
+      <input type="checkbox" role="switch" id="setemailyes">
+    </div>
+    <div class="setrow">
+      <label class="setlabel" for="setwork"><span>Work</span>
+        <small class="sethelp">What you'll mostly use Facilitator for</small></label>
+      <input type="text" id="setwork" class="setfield" maxlength="2000" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="setrow">
+      <label class="setlabel" for="setagent"><span>Main agent</span></label>
+      <input type="text" id="setagent" class="setfield" maxlength="100" list="setagents" autocomplete="off" spellcheck="false">
+      <datalist id="setagents"><option value="Claude Code"></option><option value="Codex"></option></datalist>
+    </div>
+    <div class="setrow">
+      <div class="setlabel"><span>Time zone</span><small class="sethelp">From your Mac</small></div>
+      <span id="settz" class="setvalue"></span>
+    </div>
+  </div>
 </div>
 
 <div id="appframe" class="qn-glass" aria-hidden="true"></div>
@@ -11620,6 +11649,41 @@ function setEditMode(on){
     wait.checked = waitNewestFirst();
     waitNote.textContent = wait.checked ? "Newest first" : "Oldest first";
   };
+  // the profile (GET and POST /profile in server.py): what the onboarding
+  // saved, read from the board each time the page opens and saved a field at a
+  // time as each is changed. a change the board refuses (an empty name, an
+  // email that is not one, the yes with no email) goes back to what is kept.
+  // the time zone is read off this Mac and goes with every change, so it
+  // follows the Mac. turning the yes on takes the address in its field with it
+  const profileFields = { name: document.getElementById("setname"), email: document.getElementById("setemail"),
+                          work: document.getElementById("setwork"), agent: document.getElementById("setagent") };
+  const emailYes = document.getElementById("setemailyes");
+  const timeZone = document.getElementById("settz");
+  let profileKept = null;
+  const showProfile = (p, only) => {
+    if (!p) return;
+    profileKept = p;
+    for (const [key, input] of Object.entries(profileFields))
+      if (!only || input === only) input.value = p[key] || "";
+    emailYes.checked = !!p.emailYes;
+    timeZone.textContent = p.timeZone || "";
+  };
+  const readProfile = () => fetch("/profile").then(r => r.ok ? r.json() : null)
+    .then(p => showProfile(p), () => {});
+  const hereZone = () => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (err) { return null; }
+  };
+  const saveProfile = (change, only) =>
+    fetch("/profile", { method: "POST", body: JSON.stringify({ ...change, timeZone: hereZone() }) })
+      .then(r => r.ok ? r.json() : null, () => null)
+      .then(p => showProfile(p || profileKept, only));
+  for (const [key, input] of Object.entries(profileFields))
+    input.addEventListener("change", () => saveProfile({ [key]: input.value }, input));
+  emailYes.addEventListener("change", () => {
+    const change = { emailYes: emailYes.checked };
+    if (emailYes.checked) change.email = profileFields.email.value;
+    saveProfile(change, profileFields.email);
+  });
   const view = settingsOverlay(document.body, document.getElementById("setsrc"), {
     onOpen(){
       setOpen = true;
@@ -11628,6 +11692,7 @@ function setEditMode(on){
       format.checked = ComposeFormat.enabled();
       usage.checked = sharing();
       showWait();
+      readProfile();
     },
     onClose(){
       setOpen = false;

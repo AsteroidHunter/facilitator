@@ -190,6 +190,7 @@ function macPage(stored = {}) {
     settingsOverlay: (host, source, opts) => ({ open: () => opts.onOpen() }),
     ComposeFormat: { enabled: () => false, setEnabled() {}, onChange() {}, preload() {} },
     lastState: { boxes: [] }, renderCarousel: state => repaints.push(state),
+    fetch: async () => ({ ok: false }),   // the Profile section's reading, not under test here
   });
   // the page's own line that answers for the option, then its settings block
   vm.runInContext(between(MAC, "waitNewestFirst = () =>", "\n") + "\n", context);
