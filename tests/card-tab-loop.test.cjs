@@ -1,6 +1,8 @@
 // Tab on an open card walks three stops, the title, the text box, and the card itself
 // with nothing focused, and round again; shift Tab walks them the other way; the
-// buttons of the card are never a stop. The Mac board and the phone page are each
+// buttons of the card are never a stop. The cards are made with an empty title, as
+// the board makes a new one; the cases at the end give a card a name, and the first
+// Tab onto it then lands in the text box. The Mac board and the phone page are each
 // run on their own real wiring:
 // the shared cardTab and editTitle out of card-logic.js, the card's listener
 // lifted from index.html or m.html, and on the phone the Tab listener ahead of
@@ -34,7 +36,8 @@ const PHONE_FOCUS_BOX = between(phone, 'function focusBoxAtEnd(el){', '\n}\n');
 const BUTTONS = ['histUp', 'sun', 'dock', 'arc', 'x', 'clip', 'send'];
 
 // one card on a page. which is 'mac' or 'phone'
-function page(which, { menu = false } = {}) {
+// titled: false is a card just made (an empty title), true one that already has a name
+function page(which, { menu = false, titled = false } = {}) {
   const doc = { activeElement: null, listeners: [] };
   const names = [];
   function focusOn(n) {
@@ -53,7 +56,7 @@ function page(which, { menu = false } = {}) {
   }
   const part = name => ({ name, contains(n) { return n === this; }, focus() { focusOn(this); }, blur() { blurOf(this); } });
   const title = Object.assign(part('title'), {
-    textContent: 'Tab cycling', isContentEditable: false,
+    textContent: titled ? 'Tab cycling' : '', isContentEditable: false,
     setAttribute(n) { if (n === 'contenteditable') this.isContentEditable = true; },
     removeAttribute(n) { if (n === 'contenteditable') this.isContentEditable = false; },
   });
@@ -108,7 +111,7 @@ function page(which, { menu = false } = {}) {
     if (!e.stopped) for (const fn of listeners) fn(e);
     return e;
   }
-  return { el, doc, names, calls, press, title, ta, sun: el.sun };
+  return { el, doc, names, calls, press, title, ta, context, sun: el.sun };
 }
 
 const PAGES = ['mac', 'phone'];
@@ -265,6 +268,56 @@ test('phone: shift Tab from a button puts the caret at the end of the words', ()
   assert.equal(where(p), 'compose');
   assert.deepEqual(p.ta.caret, [5, 5]);
 });
+
+// a card that already has a name is one the reader is revisiting: the first Tab onto it
+// lands in the text box, and the loop after that is the same
+for (const which of PAGES) {
+  test(`${which}: a titled card: Tab with the focus on a button of the card goes to the text box`, () => {
+    for (const name of BUTTONS) {
+      const p = page(which, { titled: true });
+      p.el[name].focus();
+      const e = p.press('Tab');
+      assert.equal(where(p), 'compose', name);
+      assert.ok(e.defaultPrevented, name);
+    }
+  });
+
+  test(`${which}: a titled card: after the first Tab the loop is text box, card, title, text box`, () => {
+    const p = page(which, { titled: true });
+    p.sun.focus();
+    for (let i = 0; i < 9; i++) p.press('Tab');
+    assert.deepEqual(p.names.slice(1), Array.from({ length: 3 }, () => ['compose', 'card', 'title']).flat());
+  });
+
+  test(`${which}: a titled card: Shift Tab from a button still lands in the text box and the loop goes the other way`, () => {
+    const p = page(which, { titled: true });
+    p.sun.focus();
+    for (let i = 0; i < 6; i++) p.press('Tab', { shiftKey: true });
+    assert.deepEqual(p.names.slice(1), ['compose', 'title', 'card', 'compose', 'title', 'card']);
+  });
+
+  test(`${which}: a titled card: naming it again starts afresh, and the next first Tab lands in the text box`, () => {
+    const p = page(which, { titled: true });
+    p.ta.focus();
+    p.press('Tab');
+    assert.equal(where(p), null);
+    p.context.editTitle('7');
+    p.title.blur();
+    assert.equal(where(p), null);
+    p.press('Tab');
+    assert.equal(where(p), 'compose');
+  });
+
+  test(`${which}: a card with no name yet, or only the ellipsis, sends the first Tab to the title`, () => {
+    for (const text of ['', '   ', '…']) {
+      const p = page(which);
+      p.title.textContent = text;
+      p.sun.focus();
+      p.press('Tab');
+      assert.equal(where(p), 'title', JSON.stringify(text));
+    }
+  });
+}
 
 test('the old ring is gone from the Mac board and the buttons carry no Tab handler of their own', () => {
   assert.ok(!/const ring = \[/.test(mac));

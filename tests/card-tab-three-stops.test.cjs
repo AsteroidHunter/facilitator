@@ -2,7 +2,9 @@
 // the card itself with nothing focused (so the card's keys act on it), and back to the
 // title. Shift Tab goes the other way: title, card, text box. From the card with
 // nothing focused, or from a spot that is no stop, the first Tab lands on the title,
-// the next stop, and the first Shift Tab in the text box.
+// the next stop, and the first Shift Tab in the text box. The exception is a card that
+// already has a name, one being revisited: its first Tab lands in the text box, and the
+// loop goes on from there (a card stop the loop itself left still goes on to the title).
 // Both directions are run from each of the three stops and from the starting states
 // the first-Tab fix covered (after a click on the reply text, on bare card, with
 // nothing selected), on the Mac page and on the phone page, each on its own real
@@ -52,7 +54,9 @@ function part(name, kinds = []) {
 }
 
 // one page with a card '7' on screen. which: 'mac' or 'phone'
-function page(which) {
+// titled: false is a card just made (an empty title, the caret starts in it), true one
+// that already has a name and is being revisited
+function page(which, { titled = false } = {}) {
   const doc = { activeElement: null };
   const log = [];
   const body = part('body');
@@ -72,7 +76,7 @@ function page(which) {
   }
   const box = Object.assign(part('box'), { classList: { contains: () => false } });
   const title = Object.assign(part('title'), {
-    textContent: 'Tab cycling', isContentEditable: false,
+    textContent: titled ? 'Tab cycling' : '', isContentEditable: false,
     setAttribute(n) { if (n === 'contenteditable') this.isContentEditable = true; },
     removeAttribute(n) { if (n === 'contenteditable') this.isContentEditable = false; },
     focus() { focusOn(this); }, blur() { blurOn(this); },
@@ -275,6 +279,74 @@ for (const which of PAGES) {
     assert.equal(p.context.sectionChordSource(live, p.el), true);
     p.ta.focus();
     assert.equal(p.context.cardShortcutEditing(p.ta), true);
+  });
+}
+
+// a card that already has a name is one being revisited: the first Tab from the card
+// stop, however it was come to, lands in the text box, and the loop goes on from there
+for (const which of PAGES) {
+  for (const [label, target] of [
+    ['nothing selected', p => p.body],
+    ['after a click on bare card', p => p.body],
+    ['after a click on the reply text', p => p.replyText],
+  ]) {
+    test(`${which}: a titled card, ${label}: first Tab lands in the text box, then the card, the title, the text box`, () => {
+      const p = page(which, { titled: true });
+      p.press(false, target(p));
+      assert.equal(p.where(), 'compose');
+      p.press(false);
+      assert.equal(p.where(), 'card');
+      p.press(false);
+      assert.equal(p.where(), 'title');
+      p.press(false);
+      assert.equal(p.where(), 'compose');
+    });
+
+    test(`${which}: a titled card, ${label}: Shift Tab is unchanged, text box, title, card, text box`, () => {
+      const p = page(which, { titled: true });
+      p.press(true, target(p));
+      assert.equal(p.where(), 'compose');
+      p.press(true);
+      assert.equal(p.where(), 'title');
+      p.press(true);
+      assert.equal(p.where(), 'card');
+      p.press(true, target(p));
+      assert.equal(p.where(), 'compose');
+    });
+  }
+
+  test(`${which}: a titled card: the card stop the loop left goes on to the title, from the text box or from the title`, () => {
+    for (const via of ['compose', 'title']) {
+      const p = page(which, { titled: true });
+      if (via === 'compose') { p.ta.focus(); p.press(false); }
+      else { p.press(false, p.body); p.press(false); p.press(false); p.press(true); }
+      assert.equal(p.where(), 'card', via);
+      p.press(false, via === 'compose' ? p.replyText : p.body);
+      assert.equal(p.where(), 'title', via);
+    }
+  });
+
+  test(`${which}: a card just made starts in its title and follows the standard cycle, named or not`, () => {
+    for (const name of ['', 'Fresh card']) {
+      const p = page(which);
+      p.context.editTitle('7');
+      assert.equal(p.where(), 'title');
+      p.title.textContent = name;
+      p.press(false);
+      assert.equal(p.where(), 'compose');
+      p.press(false);
+      assert.equal(p.where(), 'card');
+      p.press(false);
+      assert.equal(p.where(), 'title', JSON.stringify(name));
+      p.press(false);
+      assert.equal(p.where(), 'compose');
+    }
+  });
+
+  test(`${which}: a card with no name yet sends the first Tab from the card stop to the title`, () => {
+    const p = page(which);
+    p.press(false, p.body);
+    assert.equal(p.where(), 'title');
   });
 }
 

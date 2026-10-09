@@ -1,5 +1,5 @@
-// The first Tab on an open card goes to its title, and the first Shift Tab to its text
-// box, from every place the focus can be when the key is pressed, not only from a
+// The first Tab on an open card goes to its title (to its text box when the card
+// already has a name), and the first Shift Tab to its text box, from every place the focus can be when the key is pressed, not only from a
 // button of the card: nothing focused after a load, after a click on the answer, on
 // bare card or on a ticket, with Home just left, and on a button outside the card that
 // a shut menu has handed the focus back to. The card with nothing focused is the
@@ -53,8 +53,9 @@ function part(name, kinds = []) {
   };
 }
 
-// one page with two cards, '7' and '8', which: 'mac' or 'phone'
-function page(which) {
+// one page with two cards, '7' and '8', which: 'mac' or 'phone'. titled: false is cards
+// just made (an empty title), true cards that already have a name
+function page(which, { titled = false } = {}) {
   const doc = { activeElement: null };
   const names = [];
   const bodyClasses = new Set();
@@ -76,7 +77,7 @@ function page(which) {
   function card(id) {
     const box = part('box' + id);
     const title = Object.assign(part('title' + id), {
-      textContent: 'Card ' + id, isContentEditable: false,
+      textContent: titled ? 'Card ' + id : '', isContentEditable: false,
       setAttribute(n) { if (n === 'contenteditable') this.isContentEditable = true; },
       removeAttribute(n) { if (n === 'contenteditable') this.isContentEditable = false; },
       focus() { focusOn(this); }, blur() { blurOf(this, id); },
@@ -239,6 +240,37 @@ for (const which of PAGES) {
     assert.equal(e.defaultPrevented, false);
     assert.equal(p.names.length, 0);
   });
+
+  // a card that already has a name is one being revisited: the first Tab onto it goes
+  // to the text box, from every starting place, and Shift Tab still goes there too
+  for (const [label, arrange, target] of STARTS) {
+    test(`${which}: a titled card: the first Tab goes to the text box, ${label}`, () => {
+      const p = page(which, { titled: true });
+      arrange(p);
+      const shown = p.context.selectedId;
+      const e = p.press({}, target(p));
+      assert.ok(e.defaultPrevented, 'the page left the key to the browser');
+      assert.equal(p.where(), 'compose' + shown);
+      assert.ok(!p.names.some(n => BUTTONS.some(b => n.startsWith(b))), 'a button took the focus');
+    });
+
+    test(`${which}: a titled card: Shift Tab goes to the text box, ${label}`, () => {
+      const p = page(which, { titled: true });
+      arrange(p);
+      const shown = p.context.selectedId;
+      p.press({ shiftKey: true }, target(p));
+      assert.equal(p.where(), 'compose' + shown);
+    });
+
+    test(`${which}: a titled card: the loop after the first Tab is text box, card, title, ${label}`, () => {
+      const p = page(which, { titled: true });
+      arrange(p);
+      const shown = p.context.selectedId;
+      p.press({}, target(p));
+      for (let i = 0; i < 5; i++) p.press();
+      assert.deepEqual(p.names, ['compose', 'card', 'title', 'compose', 'card', 'title'].map(n => n + shown));
+    });
+  }
 }
 
 // the Mac board leaves the key alone while something else holds the board's keys
