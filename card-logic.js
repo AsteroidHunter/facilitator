@@ -72,6 +72,14 @@ function installCardPageGuard(win = window){
         ((e.altKey && !e.ctrlKey && key === "u") || (e.ctrlKey && !e.altKey && key === "p"))))
       e.preventDefault();
   }, true);
+  // while a card's picture is open the keys are its own: Escape puts it back,
+  // and nothing goes on to the board it covers
+  win.addEventListener("keydown", e => {
+    if (!cardPictureShown) return;
+    e.stopImmediatePropagation();
+    if (!e.metaKey) e.preventDefault();
+    if (e.key === "Escape") closeCardPicture();
+  }, true);
 
   let menu = null, returnTo = null;
   const downloads = new WeakSet();
@@ -149,10 +157,20 @@ function installCardPageGuard(win = window){
     shown.style.top = Math.max(8, Math.min(y, win.innerHeight - shown.offsetHeight - 8)) + "px";
     (shown.querySelector("button:not(:disabled)") || shown).focus({ preventScroll: true });
   }
+  // a plain click or tap on a card's picture opens it full screen. a modified
+  // click, a right click, a drag and a finger held still on it bring the menu,
+  // and so does a click on a picture that has not drawn, which has nothing to
+  // open. a phone has no right click and iOS sends no contextmenu for a long
+  // press, so the held finger is timed here, and the click its lifting may
+  // still send is swallowed
+  let pressedFrom = null, hold = null, held = null;
+  const plainClick = e => e.type === "click" && !e.button && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
   function activate(e){
     const link = linkFor(e);
     if (!link || downloads.has(link)) return;
     e.preventDefault(); e.stopImmediatePropagation();
+    if (held === link && e.type === "click"){ held = null; return; }
+    if (plainClick(e) && cardPicture(link) && openCardPicture(link, pressedFrom)) return;
     show(link, e);
   }
   for (const type of ["click", "auxclick", "contextmenu", "dragstart"])
@@ -162,7 +180,22 @@ function installCardPageGuard(win = window){
   }, true);
   win.addEventListener("pointerdown", e => {
     if (menu && !menu.contains(e.target)) close();
+    pressedFrom = doc.activeElement;
   }, true);
+  const letGo = () => { clearTimeout(hold?.timer); hold = null; };
+  win.addEventListener("touchstart", e => {
+    letGo(); held = null;
+    const target = e.target?.nodeType === 3 ? e.target.parentElement : e.target;
+    const picture = e.touches.length === 1 && !cardPictureShown ? cardPicture(target) : null;
+    if (!picture) return;
+    const at = { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY };
+    hold = { at, timer: setTimeout(() => { hold = null; held = picture; show(picture, at); }, CARD_PICTURE_HOLD_MS) };
+  }, { capture: true, passive: true });
+  win.addEventListener("touchmove", e => {
+    const t = e.touches[0];
+    if (hold && t && Math.hypot(t.clientX - hold.at.clientX, t.clientY - hold.at.clientY) > CARD_PICTURE_SLOP) letGo();
+  }, { capture: true, passive: true });
+  for (const type of ["touchend", "touchcancel"]) win.addEventListener(type, letGo, { capture: true, passive: true });
   win.addEventListener("keydown", e => {
     if (menu && menu.contains(e.target)) {
       e.stopImmediatePropagation();
@@ -195,6 +228,150 @@ function installCardPageGuard(win = window){
       if (files || !field || field.disabled || field.readOnly) e.preventDefault();
     }, true);
   }
+}
+
+// ---- a card's picture, opened full screen ---------------------------------------
+// a picture in a card, in its reply or in the messages sent and answered, opens
+// on a plain click or tap as large as the screen holds, centred over the board
+// dimmed, and the next click or tap anywhere, or Escape, puts it back. it looks
+// and moves as the picture panel's zoom on the desktop board does (p3Zoom): the
+// veil is the board's ink at .62, and the picture grows out of its place and
+// shrinks back into it over 300ms on the curve the tabs glide on. what grows is
+// a copy laid over the board, with the card's own picture hidden where it
+// stands, so nothing in the card moves: its scroll, its fold and its layout are
+// as they were when the copy lands back on it. the boxes beside the card keep
+// the menu for their pictures
+const CARD_PICTURES = ".reply.cardmd img.shot, .answmsg.cardmd img.shot";
+const CARD_PICTURE_MS = 300;
+const CARD_PICTURE_EASE = "cubic-bezier(0.25, 1, 0.5, 1)";
+const CARD_PICTURE_VEIL = 0.62;
+// never more than twice the picture's own size: a small picture still comes up
+// large enough to read, and none is blown up to where its pixels show
+const CARD_PICTURE_MOST = 2;
+// a finger held this long, moving no further than the slop, is a long press
+const CARD_PICTURE_HOLD_MS = 500;
+const CARD_PICTURE_SLOP = 10;
+let cardPictureShown = null;   // what is open, and null whenever nothing is
+
+function cardPicture(target){
+  const picture = target?.closest?.(CARD_PICTURES);
+  return picture && !picture.closest('[id^="magic"]') ? picture : null;
+}
+// where a picture w by h stands in the box: as large as it fits at its own
+// shape, never past CARD_PICTURE_MOST times its size, and centred
+function cardPictureFit(w, h, box){
+  const s = Math.min(box.w / w, box.h / h, CARD_PICTURE_MOST);
+  return { x: box.x + (box.w - w * s) / 2, y: box.y + (box.h - h * s) / 2, w: w * s, h: h * s };
+}
+// the room it may fill: the layer's inside, which is the whole window less the
+// phone's safe areas, the layer's padding
+function cardPictureBox(layer){
+  const cs = layer.ownerDocument.defaultView.getComputedStyle(layer);
+  const l = parseFloat(cs.paddingLeft) || 0, t = parseFloat(cs.paddingTop) || 0;
+  return { x: l, y: t, w: layer.clientWidth - l - (parseFloat(cs.paddingRight) || 0),
+    h: layer.clientHeight - t - (parseFloat(cs.paddingBottom) || 0) };
+}
+function cardPicturePlace(big, r){
+  Object.assign(big.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
+}
+// the card's picture where it stands, or null where it stands nowhere
+function cardPictureRect(img){
+  const r = img.isConnected ? img.getBoundingClientRect() : null;
+  return r && r.width && r.height ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
+}
+// the transform that lays the copy, placed at `to`, over `from`
+function cardPictureOver(from, to){
+  return "translate(" + (from.x - to.x) + "px, " + (from.y - to.y) + "px) scale(" +
+    (from.w / to.w) + ", " + (from.h / to.h) + ")";
+}
+const cardPictureStill = win => !!win.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+// the layer, built the first time a picture is opened and kept afterwards. the
+// whole of it is the way out, and no press on it reaches the board under it:
+// not a tap that would pick or swipe a card, not a scroll, not a menu
+function cardPictureLayer(doc){
+  let layer = doc.getElementById("picfull");
+  if (layer) return layer;
+  layer = doc.createElement("div");
+  layer.id = "picfull";
+  const veil = doc.createElement("div");
+  veil.className = "picfull-veil";
+  layer.appendChild(veil);
+  for (const type of ["pointerdown", "mousedown", "touchstart", "touchmove", "touchend", "wheel", "contextmenu"])
+    layer.addEventListener(type, e => {
+      e.stopPropagation();
+      if (type === "touchmove" || type === "wheel" || type === "contextmenu") e.preventDefault();
+    }, { passive: false });
+  layer.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); closeCardPicture(); });
+  doc.body.appendChild(layer);
+  return layer;
+}
+
+// back is what had focus before the press that opened it, given back on close.
+// answers false for a picture that has not drawn, which has nothing to show
+function openCardPicture(img, back){
+  if (cardPictureShown || !img.complete || !img.naturalWidth) return false;
+  const doc = img.ownerDocument, win = doc.defaultView;
+  const layer = cardPictureLayer(doc), veil = layer.querySelector(".picfull-veil");
+  const big = doc.createElement("img");
+  big.className = "picfull-img";
+  big.src = img.currentSrc || img.src; big.alt = img.alt; big.draggable = false;
+  big.style.borderRadius = win.getComputedStyle(img).borderRadius;
+  const from = cardPictureRect(img);
+  layer.appendChild(big);
+  layer.classList.add("on");
+  const to = cardPictureFit(img.naturalWidth, img.naturalHeight, cardPictureBox(layer));
+  cardPicturePlace(big, to);
+  img.classList.add("picfull-from");
+  const z = cardPictureShown = { img, big, layer, veil, to, back, closing: false };
+  // it stands at full size now; the transform carries it back over the card's
+  // picture and lets go, which is what lands it exactly
+  const timing = { duration: cardPictureStill(win) ? 0 : CARD_PICTURE_MS, easing: CARD_PICTURE_EASE, fill: "both" };
+  z.grow = big.animate([{ transform: cardPictureOver(from || to, to) }, { transform: "none" }], timing);
+  z.dim = veil.animate([{ opacity: 0 }, { opacity: CARD_PICTURE_VEIL }], timing);
+  win.addEventListener("resize", refitCardPicture);
+  return true;
+}
+// a window resized or a phone turned while it is open: it takes the new screen
+function refitCardPicture(){
+  const z = cardPictureShown;
+  if (!z || z.closing) return;
+  z.grow.finish();
+  z.to = cardPictureFit(z.img.naturalWidth, z.img.naturalHeight, cardPictureBox(z.layer));
+  cardPicturePlace(z.big, z.to);
+}
+function closeCardPicture(){
+  const z = cardPictureShown;
+  if (!z || z.closing) return;
+  z.closing = true;
+  const doc = z.layer.ownerDocument, win = doc.defaultView;
+  win.removeEventListener("resize", refitCardPicture);
+  // focus goes back inside the press or the key that closes, which is what
+  // lets a phone bring its keyboard back with it
+  if (z.back && z.back !== doc.body && z.back.isConnected && doc.activeElement !== z.back)
+    z.back.focus({ preventScroll: true });
+  // home is where the card's picture stands now, so a card that moved under
+  // the copy is still met exactly. a picture the card has drawn again since has
+  // no place left, and the copy only fades
+  const home = cardPictureRect(z.img);
+  // both starting values are read above the cancels, which drop them to the
+  // sheet's. caught halfway out it turns round from where it is, and takes only
+  // the time it has spent getting there
+  const cs = win.getComputedStyle(z.big);
+  const start = { transform: cs.transform, opacity: cs.opacity };
+  const dim = win.getComputedStyle(z.veil).opacity;
+  const part = z.grow.playState === "running" ? Math.max(0.4, (z.grow.currentTime || 0) / CARD_PICTURE_MS) : 1;
+  const timing = { duration: cardPictureStill(win) ? 0 : CARD_PICTURE_MS * part, easing: CARD_PICTURE_EASE, fill: "both" };
+  z.grow.cancel(); z.dim.cancel();
+  z.grow = z.big.animate([start, home ? { transform: cardPictureOver(home, z.to), opacity: 1 }
+    : { transform: start.transform, opacity: 0 }], timing);
+  z.dim = z.veil.animate([{ opacity: dim }, { opacity: 0 }], timing);
+  z.grow.onfinish = () => {
+    z.big.remove(); z.dim.cancel();
+    z.img.classList.remove("picfull-from");
+    z.layer.classList.remove("on");
+    cardPictureShown = null;
+  };
 }
 
 // ---- the card pages' keyboard commands ------------------------------------------
