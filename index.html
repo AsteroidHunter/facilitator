@@ -6377,11 +6377,13 @@ function tiltTitleAir(el, first){
   let t = rg.getBoundingClientRect();
   if (!t.height) return;
   // a title cut at the foot of its second line (fitTitle, card-logic.js) is
-  // measured to the foot of the words left showing, not the hidden ones under it
+  // measured over the words left showing, not the hidden ones under it or, while
+  // it is renamed and scrolled to the caret, over it
   if (title.style.maxHeight){
-    const cut = title.getBoundingClientRect().bottom;
-    const shown = [...rg.getClientRects()].filter(q => q.height > 0 && q.top < cut);
-    if (shown.length) t = { top: t.top, bottom: Math.min(cut, Math.max(...shown.map(q => q.bottom))) };
+    const cut = title.getBoundingClientRect();
+    const shown = [...rg.getClientRects()].filter(q => q.height > 0 && q.bottom > cut.top && q.top < cut.bottom);
+    if (shown.length) t = { top: Math.max(cut.top, Math.min(...shown.map(q => q.top))),
+                            bottom: Math.min(cut.bottom, Math.max(...shown.map(q => q.bottom))) };
   }
   const over = t.top - bar.getBoundingClientRect().bottom;
   // what stands under the title. on a card carrying the answered panel over its
