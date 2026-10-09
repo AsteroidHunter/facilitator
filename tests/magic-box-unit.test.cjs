@@ -3,10 +3,12 @@
 // mini screen as tall as the card, smaller when the room right of the card is
 // short, in the middle of that room so the gap to the card and the gap to the
 // workspace's edge are equal, level with the card's middle, and over the card's
-// edge rather than off the workspace when the window has no room. Its look,
-// read from the page's source: what it holds and the ticket list's two soft
-// ends, no bar, no edge, no face. And the page's wiring: the box is never one of
-// the regions the fit, the layout or edit mode work on.
+// edge rather than off the workspace when the window has no room; inside that
+// largest box, a picture in its own shape and never past its own size, words
+// at their own height. Its look, read from the page's source: what it holds and
+// the ticket list's two soft ends, no bar, and the card's own frame and shadow
+// only under the two Settings switches. And the page's wiring: the box is never
+// one of the regions the fit, the layout or edit mode work on.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -129,14 +131,81 @@ test("in a window narrower than the box it never starts left of the workspace", 
   assert.ok(close(MIDDLE(at), MIDDLE(CARD)));
 });
 
-test("the page hands the box the workspace's own edges and the fit's clearance", () => {
-  const html = read("index.html");
-  const call = html.slice(html.indexOf("const at = MagicBox.place("), html.indexOf("MB.el.classList.toggle(\"floating\""));
-  assert.match(call, /left: lim\.left - FRAME_CLEAR, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR/);
-  assert.match(html, /const FRAME_CLEAR = 16;/);
+// what the box shows, inside the largest box there is room for
+const SIZED = (want, fit = fitAt(1512)) => ({ most: place(CARD, fit, 34), at: place(CARD, fit, 34, want), fit });
+function sizedRight({ most, at, fit }) {
+  assert.ok(at.width <= most.width + 1e-6 && at.height <= most.height + 1e-6, "never larger than the largest box");
+  assert.ok(close(MIDDLE(at), MIDDLE(CARD)), "level with the card's middle");
+  if (!at.floating) {
+    const gapCard = at.left - RIGHT(CARD), gapEdge = edgeOf(fit) - (at.left + at.width);
+    assert.ok(close(gapCard, gapEdge), `gaps ${gapCard} and ${gapEdge}`);
+  }
+  return at;
+}
+
+test("a wide picture gets a wide, short box and a tall one a tall, narrow box, in its own shape", () => {
+  const wide = sizedRight(SIZED({ width: 2000, height: 1000 }));
+  assert.ok(close(wide.width / wide.height, 2) && close(wide.width, place(CARD, fitAt(1512), 34).width), "as wide as there is room");
+  const tall = sizedRight(SIZED({ width: 600, height: 2400 }));
+  assert.ok(close(tall.width / tall.height, 0.25) && close(tall.height, TALL * CARD.height), "as tall as there is room");
+  const square = sizedRight(SIZED({ width: 1500, height: 1500 }));
+  assert.ok(close(square.width, square.height));
 });
 
-test("the box is what it holds between the ticket list's two soft ends: no bar, edge, face or shadow", () => {
+test("a picture is never drawn past its own size, and a small one keeps its size", () => {
+  const small = sizedRight(SIZED({ width: 200, height: 120 }));
+  assert.deepEqual([small.width, small.height], [200, 120]);
+  // the gaps are equal for the narrower width too
+  assert.ok(small.left - RIGHT(CARD) > place(CARD, fitAt(1512), 34).left - RIGHT(CARD));
+});
+
+test("words take their own height up to the largest box, then scroll; a page or a site takes all of it", () => {
+  const most = place(CARD, fitAt(1512), 34);
+  const short = sizedRight(SIZED({ height: 180 }));
+  assert.deepEqual([short.width, short.height], [most.width, 180], "the full width, their own height");
+  const long = sizedRight(SIZED({ height: 5000 }));
+  assert.deepEqual([long.width, long.height], [most.width, most.height], "no taller than the largest box");
+  assert.deepEqual(place(CARD, fitAt(1512), 34, null), most, "a page or a site asks for nothing");
+});
+
+test("in a narrow window the picture is fitted inside the smaller box, and in no room it floats the same way", () => {
+  sizedRight(SIZED({ width: 2000, height: 1000 }, fitAt(1280)));
+  const afloat = sizedRight(SIZED({ width: 2000, height: 1000 }, fitAt(1100)));
+  assert.equal(afloat.floating, true);
+  assert.ok(close(edgeOf(fitAt(1100)) - (afloat.left + afloat.width), 16), "the clearance in from the workspace's edge");
+});
+
+test("the page hands the box the workspace's own edges, the fit's clearance and what it shows", () => {
+  const html = read("index.html");
+  const fn = html.slice(html.indexOf("function magicPlace(){"), html.indexOf("MB.el.classList.toggle(\"floating\""));
+  assert.match(fn, /left: lim\.left - FRAME_CLEAR, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR/);
+  assert.match(fn, /MagicBox\.place\(rect, fit, bar, magicWant\(most, S\)\)/);
+  assert.match(html, /const FRAME_CLEAR = 16;/);
+  // a picture asks for as many stage pixels as it has pixels on screen, its
+  // size read once off a copy that is never laid out
+  const want = html.slice(html.indexOf("function magicWant("), html.indexOf("function magicPlace(){"));
+  assert.match(want, /const \[w, h\] = MB\.natural \|\| \[0, 0\];\s*return w && h \? \{ width: w \/ S \+ edges, height: h \/ S \+ edges \} : null;/);
+  assert.match(want, /height: words\.offsetHeight \+ edges/);
+  assert.match(html, /const own = new Image\(\);[\s\S]{0,200}MB\.natural = \[own\.naturalWidth, own\.naturalHeight\];/);
+});
+
+test("Settings has the two switches, kept with the board's settings and read on every placing", () => {
+  const html = read("index.html");
+  const appearance = html.slice(html.indexOf('data-section="appearance"'), html.indexOf('data-section="editor"'));
+  assert.match(appearance, /<label class="setlabel" for="setmagicframe"><span>Magic box frame<\/span><\/label>\s*<input type="checkbox" role="switch" id="setmagicframe">/);
+  assert.match(appearance, /<label class="setlabel" for="setmagicshadow"><span>Magic box shadow<\/span><\/label>\s*<input type="checkbox" role="switch" id="setmagicshadow">/);
+  assert.ok(!/checked/.test(appearance), "both off at first");
+  assert.match(html, /const MAGIC_FRAME_KEY = "magicframe", MAGIC_SHADOW_KEY = "magicshadow";/);
+  const { isSetting } = require(path.join(ROOT, "board-settings.js"));
+  for (const key of ["magicframe", "magicshadow"]) {
+    assert.equal(isSetting(key), true, key);
+    assert.match(read("server.py"), new RegExp("SETTINGS_KEY = re\\.compile\\([\\s\\S]*?\\|" + key + "[|\"]"), key);
+  }
+  const place = html.slice(html.indexOf("function magicPlace(){"), html.indexOf("MB.el.classList.toggle(\"floating\""));
+  assert.match(place, /magicDress\(\);/);
+});
+
+test("the box is what it holds between the ticket list's two soft ends: no bar, and no edge, face or shadow unless switched on", () => {
   const html = read("index.html");
   const rule = sel => {
     const at = html.indexOf("\n  " + sel + "{");
@@ -157,13 +226,25 @@ test("the box is what it holds between the ticket list's two soft ends: no bar, 
   assert.equal(section.replace(/\s+/g, ""), '<sectionid="magicbox"><divclass="mbbody"></div>');
   for (const gone of ["mbbar", "mbname", "mbopen", "mbx", "Open in Chrome", "close the box"])
     assert.ok(!html.includes(gone), gone);
-  // beside the card the box and its body paint nothing of their own: no face,
-  // no edge, no corners, no shadow
+  // as it comes, the box and its body paint nothing of their own: no face, no
+  // edge, no corners, no shadow
   const on = html.slice(html.indexOf("  body.focus #magicbox.on{"), html.indexOf("}", html.indexOf("  body.focus #magicbox.on{")));
   assert.match(on, /background:transparent; border:none; border-radius:0; box-shadow:none/);
   assert.ok(!/border|background|box-shadow|radius/.test(rule("#magicbox .mbbody")), "the body draws none of them");
   const sheet = html.slice(html.indexOf("  #magicbox{display:none}"), html.indexOf("  /* on the chat lane's tab"));
-  assert.ok(!/solid|box-shadow:\s*0|border-radius:\s*7px/.test(sheet), "no edge, shadow or corner anywhere in the box");
+  // the edge, corners and shadow live only under the two switches' classes, and
+  // they are the card's own, as main wears them
+  const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
+  const framed = sheet.match(/body\.focus #magicbox\.on\.framed\{([^}]*)\}/)[1];
+  assert.match(card, /border:var\(--edge\) solid var\(--line\); background:#fff; border-radius:7px;/);
+  assert.equal(framed, "border:var(--edge) solid var(--line); background:var(--card); border-radius:7px");
+  const shadow = sheet.match(/body\.focus #magicbox\.on\.framed\.shadowed\{box-shadow:([^}]*)\}/)[1];
+  assert.ok(card.includes("box-shadow:" + shadow + ";"), "the card's own raised shadow");
+  const rest = sheet.replace(/body\.focus #magicbox\.on\.framed[^{]*\{[^}]*\}/g, "");
+  assert.ok(!/solid|box-shadow:\s*0|border-radius:\s*7px/.test(rest), "no edge, shadow or corner anywhere else in the box");
+  assert.ok(!/\.shadowed/.test(rest), "the shadow is never without the frame");
+  // in the frame the ramp is dropped
+  assert.match(sheet, /#magicbox\.framed \.mbbody\{-webkit-mask-image:none; mask-image:none\}/);
   // floated over the card, only the card's white face, so the card's words do not show through
   assert.match(sheet, /#magicbox\.floating \.mbbody\{background:var\(--card\)\}/);
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");

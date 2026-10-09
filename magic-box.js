@@ -21,17 +21,23 @@
   // transform and the workspace, {scale, tx, left, right, clear}, left and right
   // the screen x of the workspace's inner edges and clear the room the fit keeps
   // between the board and them (FRAME_CLEAR), all screen pixels. bar: the height
-  // of the card's top bar.
-  // The box keeps its shape. It is at full size when that leaves at least
+  // of the card's top bar. want: what the box shows asks for, in stage pixels:
+  // {width, height} for a picture (its own shape, and at most its own size so it
+  // is never drawn past its sharpness), {height} for words (their own height at
+  // the box's full width), nothing for a page or a site, which have no size of
+  // their own and take the whole of it.
+  // The whole box keeps its shape. It is at full size when that leaves at least
   // `clear` on each side of it in the room right of the card, and as much
-  // smaller as it must be when it does not. It stands in the middle of that
-  // room, so the gap to the card and the gap to the workspace's edge are always
-  // equal, with its middle level with the card's; the board never shrinks for
-  // it. Less than half the card's height is too small to read beside it: then
-  // it floats over the card's right part, `clear` in from the edge, below the
+  // smaller as it must be when it does not; the board never shrinks for it.
+  // Less than half the card's height is too small to read beside it: then it
+  // floats over the card's right part, `clear` in from the edge, below the
   // first star row under the card's top bar so the card's own chips stay in
-  // reach, and still level with the card's middle
-  function place(card, fit, bar = 0) {
+  // reach. Inside that whole box, what it shows takes its own size: a picture
+  // its own shape, as large as fits, and words their own height, then scroll.
+  // Whatever size results stands in the middle of the room right of the card,
+  // so the gap to the card and the gap to the workspace's edge are equal, with
+  // its middle level with the card's
+  function place(card, fit, bar = 0, want) {
     const scale = fit.scale || 1;
     const edge = (fit.right - fit.tx) / scale;   // the workspace's right edge, on the stage
     const seen = (fit.left - fit.tx) / scale;    // and its left one
@@ -39,16 +45,22 @@
     const middle = card.top + card.height / 2;
     const right = card.left + card.width;
     const room = edge - right;
-    const width = Math.min(card.height * WIDE, room - 2 * clear);
-    if (width / SHAPE >= card.height / 2) {
-      const height = width / SHAPE;
-      return { left: right + (room - width) / 2, top: middle - height / 2, width, height, floating: false };
+    let width = Math.min(card.height * WIDE, room - 2 * clear), height = width / SHAPE;
+    const floating = height < card.height / 2;
+    if (floating) {
+      const under = onStar(card.top + bar) + CELL - card.top;
+      width = Math.max(1, Math.min(Math.min(card.height * TALL, card.height - 2 * under) * SHAPE, edge - seen - 2 * clear));
+      height = width / SHAPE;
     }
-    const under = onStar(card.top + bar) + CELL - card.top;
-    const most = Math.min(card.height * TALL, card.height - 2 * under);
-    const across = Math.max(1, Math.min(most * SHAPE, edge - seen - 2 * clear));
-    const tall = across / SHAPE;
-    return { left: edge - clear - across, top: middle - tall / 2, width: across, height: tall, floating: true };
+    if (want && want.width > 0 && want.height > 0) {
+      const s = Math.min(1, width / want.width, height / want.height);
+      width = want.width * s;
+      height = want.height * s;
+    } else if (want && want.height > 0) {
+      height = Math.min(height, want.height);
+    }
+    const left = floating ? edge - clear - width : right + (room - width) / 2;
+    return { left, top: middle - height / 2, width, height, floating };
   }
   // a page an agent wrote runs sealed off: its frame has scripts and nothing
   // else, so its origin is its own and never the board's (no same origin, no

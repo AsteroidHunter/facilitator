@@ -55,7 +55,7 @@
       one-line board state
   facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
   facilitator magic CARD close|reopen|show
-      fill a card's magic box, the portrait box beside the card on the Mac
+      fill a card's magic box, the box beside the card on the Mac
       board, and open it in place of what it held, so an agent can show the
       owner what words carry badly without being asked. KIND is text (shown
       as typed), markdown, html (a page of its own, run sealed off with no

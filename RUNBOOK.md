@@ -45,7 +45,7 @@ After reading the separate `/fresh` result as described below, answer with a com
 
 ## The magic box
 
-Each card can have one magic box: a portrait box beside the card on the Mac board, nine tenths as tall as the card when the window has room and smaller when it does not, showing only what it holds with its top and bottom fading out, for what a reply carries badly: a picture or a chart, a page you made, a website. Open one yourself whenever it would help the owner follow the card; nobody has to ask for it. The box waits on its card and shows when the owner is on that card. It never moves the board to the card. Use the `facilitator` command, which finds the board's port itself:
+Each card can have one magic box: a box beside the card on the Mac board, showing only what it holds with its top and bottom fading out, for what a reply carries badly: a picture or a chart, a page you made, a website. Open one yourself whenever it would help the owner follow the card; nobody has to ask for it. The box waits on its card and shows when the owner is on that card. It never moves the board to the card. Use the `facilitator` command, which finds the board's port itself:
 
     facilitator magic m12 markdown --file notes.md --title "Release notes"
     facilitator magic m12 text "plain words, shown as typed"
@@ -59,6 +59,8 @@ Each card can have one magic box: a portrait box beside the card on the Mac boar
 
 - One box per card. A new one replaces what the box held and opens it; a closed box keeps what it held until it is replaced.
 - The box is display only: nothing in it comes back to you. It has no title line and no buttons of its own: a `--title` is kept with the box and `show` prints it, but the board does not draw it, and the board has no control to close the box (`close` does).
+- The box takes the size of what it shows, inside the largest box the window has room for (nine tenths of the card's height and a little wider than a phone screen, smaller in a narrow window): a picture its own shape and never past its own size, words their own height and then they scroll, a page or a website the whole of it.
+- Settings, Appearance, has two switches for it, both off at first and kept with the board's settings: Magic box frame puts it in the card's own white box with its edge and corners, and the fade is then dropped; Magic box shadow gives that frame the card's shadow, and does nothing without the frame.
 - `text` is shown as typed and `markdown` as a card shows a reply. Both, and `html`, are limited to 1 MiB; a picture to 10 MiB (PNG, JPEG, GIF, WebP, or SVG without script).
 - An `html` page runs its own script, sealed off from the board and with no network at all: no fetches, no forms, no outside pictures or fonts. Put pictures and styles inline (`data:` addresses, `<style>`).
 - `url` and web pictures take https addresses on the public internet only; this computer, the home network and the tailnet are refused. The board asks the site first. A site that allows it is shown live (`"shown": "frame"`); one that refuses to be framed, as Google, GitHub and MDN do, is shown as a preview of its title and summary and its address, which opens the site in the owner's own browser when clicked (`"shown": "preview"`, `reason` saying why). The owner's logins never show in the box. A site shown live has no way from the box to open it in the owner's browser. Wikimedia serves only its standard thumbnail widths (330px and others); another width is refused with a 400, which the board passes on.
