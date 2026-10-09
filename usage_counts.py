@@ -29,17 +29,26 @@ only numbers, yes or no, the version and the macOS major version: never a word
 anybody typed, a name, a title, a folder or a path. The token is PostHog's
 public project token, which can only send.
 
-An email is added only when the person says yes to being emailed for feedback.
-link_email(email, yes) saves the yes and the address in usage-install.json and
-sends PostHog one $identify for the install id, with the email as the one
-person property ($set). Nothing else of the person is sent. From then on the
-daily messages leave $process_person_profile out (PostHog's default, an
-identified event), so usage shows next to the email, and the days already sent
-under the same id are attributed to the person. An identify that could not get
-through is kept and sent on a later look. Turning the switch off sends nothing
-at all, no day and no identify; the saved yes and address stay on the Mac, and
-turning it back on picks up where it stopped: a pending identify goes out and
-the daily messages are identified again, under the same id.
+A person is added only when they say yes to being emailed for feedback, in the
+onboarding or in Settings, Profile (POST /profile in server.py). With that yes,
+link_person(person, yes) saves the yes, the address and the profile's other
+answers in usage-install.json and sends PostHog one $identify for the install
+id, setting them as properties of that person ($set): email, name, work (what
+they will mostly use Facilitator for, in their own words), main_agent and
+time_zone, each only when given. An answer changed later while the yes holds
+is sent once more, alone: the next identify carries only what differs from what
+PostHog was last told, and an answer cleared is unset ($unset). None of it ever
+rides on a daily message. Taking the yes back (unlink_email) forgets the
+address and the answers here and sends nothing; what PostHog already holds stays
+there. link_email(email, yes) is the same with the email alone.
+
+From the yes on the daily messages leave $process_person_profile out (PostHog's
+default, an identified event), so usage shows next to the person, and the days
+already sent under the same id are attributed to them. An identify that could
+not get through is kept and sent on a later look. Turning the switch off sends
+nothing at all, no day and no identify; the saved yes and answers stay on the
+Mac, and turning it back on picks up where it stopped: a pending identify goes
+out and the daily messages are identified again, under the same id.
 
 Each day goes at most once. usage-counts.json beside state.json holds the last
 day already dealt with, and nothing else; a day is marked there before its
@@ -52,9 +61,10 @@ day is not sent at all when the install id cannot be saved, since a new one
 every time would make every message a stranger.
 
 The server starts Sender.run on a thread of its own once the board is up, and
-every failure is caught and written down. Only link_email runs on a request (the
-onboarding's, see POST /usage/email in server.py), and it sends one identify.
-No log line ever holds an email address, an install id or the token."""
+every failure is caught and written down. Only link_person, link_email and
+unlink_email run on a request (POST /profile and POST /usage/email in
+server.py), and each sends at most one identify. No log line ever holds an email
+address, any other answer, an install id or the token."""
 from __future__ import annotations
 
 import datetime as dt
@@ -92,6 +102,10 @@ VERSION = re.compile(rb'id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)<')
 EMAIL_PART = r"[^@\s\x00-\x1f\x7f]+"
 EMAIL = re.compile(f"{EMAIL_PART}@{EMAIL_PART}\\.{EMAIL_PART}")
 EMAIL_MAX = 254           # the longest an address can be
+# the answers that go with the email under its yes, as PostHog person
+# properties, and the most characters each may hold (the profile's own caps)
+PERSON_TEXT_MAX = {"name": 200, "work": 2000, "main_agent": 100, "time_zone": 64}
+CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def clean_email(value) -> str | None:
@@ -101,6 +115,20 @@ def clean_email(value) -> str | None:
         return None
     address = value.strip()
     return address if len(address) <= EMAIL_MAX and EMAIL.fullmatch(address) else None
+
+
+def clean_answers(value) -> dict:
+    """The answers that go with the email, as they are kept and sent: each of
+    PERSON_TEXT_MAX's names that holds text, trimmed, within its cap and with no
+    control character but a tab or a new line. Anything else is left out."""
+    out = {}
+    if not isinstance(value, dict):
+        return out
+    for key, cap in PERSON_TEXT_MAX.items():
+        text = value.get(key)
+        if isinstance(text, str) and text.strip() and len(text.strip()) <= cap and not CONTROL.search(text):
+            out[key] = text.strip()
+    return out
 
 
 def agent_kind(name) -> str:
@@ -278,18 +306,23 @@ def payload(day: dt.date, counts: dict, version: str, system: dict, install_id: 
     }
 
 
-def identify_payload(install_id: str, email: str) -> dict:
-    """PostHog's $identify for the install id: it sets one person property,
-    the email, on the person the id already belongs to. No name, no other
-    field, no timestamp (PostHog stamps it on arrival), and no location."""
+def identify_payload(install_id: str, changed, gone=()) -> dict:
+    """PostHog's $identify for the install id: it sets person properties on the
+    person the id already belongs to. changed is what to set, the person
+    properties that differ from what PostHog was last told (or the email alone,
+    given as text); gone names the ones taken away since, which are unset. No
+    other field, no timestamp (PostHog stamps it on arrival), and no location."""
+    props = {"email": changed} if isinstance(changed, str) else dict(changed)
+    properties = {"$geoip_disable": True}
+    if props:
+        properties["$set"] = props
+    if gone:
+        properties["$unset"] = list(gone)
     return {
         "api_key": TOKEN,
         "event": "$identify",
         "distinct_id": install_id,
-        "properties": {
-            "$geoip_disable": True,
-            "$set": {"email": email},
-        },
+        "properties": properties,
     }
 
 
@@ -314,17 +347,38 @@ def post(body: dict, opener=None, timeout: float = TIMEOUT) -> tuple[str, str]:
     return "failed", str(status)
 
 
+def person_of(rec: dict) -> dict:
+    """The person properties a record says PostHog should hold: the email and
+    the answers given with it, or nothing without a yes."""
+    return {"email": rec["email"], **rec["answers"]} if rec["email"] is not None else {}
+
+
+def pending(rec: dict) -> tuple[dict, list]:
+    """What PostHog has not been told yet: the properties that differ from the
+    ones last told, and the names of those told once and taken away since."""
+    now = person_of(rec)
+    changed = {key: value for key, value in now.items() if rec["told"].get(key) != value}
+    gone = [key for key in rec["told"] if key not in now]
+    return changed, gone
+
+
 class Install:
-    """The install id, and the email when the person said yes to being emailed
-    for feedback, in one owner-only file:
+    """The install id, and the email and the answers that go with it when the
+    person said yes to being emailed for feedback, in one owner-only file:
 
       install_id     a uuid4, made the first time it is asked for
       feedback_yes   true only with a saved email: the yes
       email          the address, kept as the person gave it
-      identify_done  PostHog has been told the email, or turned it down for good
+      answers        what goes with it under the same yes: name, work,
+                     main_agent and time_zone, each only when given
+      told           the person properties PostHog was last told, or turned
+                     down for good, so only a change is ever sent again
+      identify_done  nothing is left to tell PostHog
 
     A file that is missing, unreadable or without a proper id is made again
-    with a new id, and any email in it is gone with it. Nothing here logs."""
+    with a new id, and any email and answers in it are gone with it. A file
+    from before the answers went with the email has no told: its email counts
+    as told when identify_done says so. Nothing here logs."""
 
     def __init__(self, path: Path, new_id: Callable[[], uuid.UUID] = uuid.uuid4) -> None:
         self.path, self.new_id = path, new_id
@@ -340,14 +394,25 @@ class Install:
         if made.version != 4 or str(made) != rec["install_id"]:
             return None   # not an id this code made, so not one to send
         email = clean_email(rec.get("email")) if rec.get("feedback_yes") is True else None
-        return {"install_id": rec["install_id"], "email": email,
-                "identify_done": email is not None and rec.get("identify_done") is True}
+        told = rec.get("told")
+        if isinstance(told, dict):
+            told = {key: value for key, value in told.items()
+                    if key in ("email", *PERSON_TEXT_MAX) and isinstance(value, str)}
+        else:
+            told = {"email": email} if email is not None and rec.get("identify_done") is True else {}
+        out = {"install_id": rec["install_id"], "email": email,
+               "answers": clean_answers(rec.get("answers")) if email is not None else {}, "told": told}
+        changed, gone = pending(out)
+        out["identify_done"] = email is not None and not changed and not gone
+        return out
 
     def write(self, rec: dict) -> None:
         """Replaces the file whole, or raises OSError and leaves it as it was."""
         tmp = self.path.with_name(self.path.name + ".tmp")
+        changed, gone = pending(rec)
         body = {"install_id": rec["install_id"], "feedback_yes": rec["email"] is not None,
-                "email": rec["email"], "identify_done": rec["identify_done"]}
+                "email": rec["email"], "answers": rec["answers"], "told": rec["told"],
+                "identify_done": rec["email"] is not None and not changed and not gone}
         try:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
@@ -367,26 +432,38 @@ class Install:
         with self.lock:
             rec = self.read()
             if rec is None:
-                rec = {"install_id": str(self.new_id()), "email": None, "identify_done": False}
+                rec = {"install_id": str(self.new_id()), "email": None, "answers": {}, "told": {},
+                       "identify_done": False}
                 self.write(rec)
             return rec
 
-    def link(self, email: str) -> dict:
-        """Keeps the yes and this address. The same address again changes
-        nothing; a different one has not been told to PostHog yet."""
+    def link(self, email: str, answers: dict | None = None) -> None:
+        """Keeps the yes, this address and, when given, these answers in place
+        of the ones kept. The same again changes nothing; whatever differs from
+        what PostHog was last told is what the next identify sends."""
         with self.lock:
             rec = self.get()
-            if rec["email"] != email:
-                rec = {**rec, "email": email, "identify_done": False}
-                self.write(rec)
-            return rec
+            answers = rec["answers"] if answers is None else answers
+            if rec["email"] != email or rec["answers"] != answers:
+                self.write({**rec, "email": email, "answers": answers})
 
-    def told(self, email: str) -> None:
-        """Marks this address as dealt with, unless it changed meanwhile."""
+    def mark_told(self, person: dict) -> None:
+        """Marks these person properties as told, unless they changed meanwhile."""
         with self.lock:
             rec = self.read()
-            if rec is not None and rec["email"] == email and not rec["identify_done"]:
-                self.write({**rec, "identify_done": True})
+            if rec is not None and person_of(rec) == person and rec["told"] != person:
+                self.write({**rec, "told": dict(person)})
+
+    def unlink(self) -> bool:
+        """Forgets the yes, the address, the answers and what PostHog was told
+        of them, so a later yes tells it all again. The id stays. False when
+        there was nothing to forget."""
+        with self.lock:
+            rec = self.read()
+            if rec is None or (rec["email"] is None and not rec["told"]):
+                return False
+            self.write({**rec, "email": None, "answers": {}, "told": {}})
+            return True
 
 
 class Sender:
@@ -429,12 +506,14 @@ class Sender:
         return True
 
     def identify(self) -> str:
-        """Tells PostHog the saved email, if there is one it has not been told.
-        "sent" when it has been told (now or before), "refused" when PostHog
-        turned it down for good, "failed" when it could not get through, "off"
-        when the switch is off (nothing leaves), and "none" when no email is
-        saved. A failed or switched-off identify is kept and goes on a later
-        call. The log line says the outcome and never the address or the id."""
+        """Tells PostHog what it has not been told of the saved person: the
+        properties that changed since the last identify, in one message, and
+        nothing when nothing changed. "sent" when it has been told (now or
+        before), "refused" when PostHog turned it down for good, "failed" when
+        it could not get through, "off" when the switch is off (nothing leaves),
+        and "none" when no email is saved. A failed or switched-off identify is
+        kept and goes on a later call. The log line says the outcome and never
+        a value or the id."""
         with self.identifying:
             rec = self.install.read()
             if rec is None or rec["email"] is None:
@@ -443,35 +522,69 @@ class Sender:
                 return "sent"
             if not self.sharing():
                 return "off"
-            outcome, why = post(identify_payload(rec["install_id"], rec["email"]), self.opener)
+            changed, gone = pending(rec)
+            outcome, why = post(identify_payload(rec["install_id"], changed, gone), self.opener)
             if outcome != "failed":
                 try:
-                    self.install.told(rec["email"])
+                    self.install.mark_told(person_of(rec))
                 except OSError as e:
                     self.log("usage", what="identify", outcome="unmarked", reason=e.strerror or type(e).__name__)
             self.log("usage", what="identify", outcome=outcome, **({"reason": why} if why else {}))
             return outcome
 
+    def link_person(self, person, yes) -> str:
+        """The person said yes to being emailed for feedback: keeps the yes, the
+        address and the answers that go with it (clean_answers: name, work,
+        main_agent, time_zone) next to the install id, in place of the ones
+        kept, then tells PostHog whatever it has not been told. Called again
+        with the same, it sends nothing; with an answer changed, only that.
+        Without an explicit yes (True itself, nothing that merely counts as
+        true) or without an email address, nothing is kept and nothing is
+        sent. Returns "no", "bad" or "unsaved" for those and for a file that
+        cannot be written, else what identify() answers: "sent", "off" (kept,
+        goes when the switch is on), "failed" (kept, goes on a later look) or
+        "refused"."""
+        if yes is not True:
+            return "no"
+        address = clean_email(person.get("email") if isinstance(person, dict) else None)
+        if address is None:
+            return "bad"
+        return self._link(address, clean_answers(person))
+
     def link_email(self, email, yes) -> str:
-        """The person said yes to being emailed for feedback: keeps the yes and
-        the address next to the install id, then tells PostHog once. Without
-        an explicit yes (True itself, nothing that merely counts as true) or
-        with something that is not an email address, nothing is kept and
-        nothing is sent. Returns "no", "bad" or "unsaved" for those and for a
-        file that cannot be written, else what identify() answers: "sent",
-        "off" (kept, goes when the switch is on), "failed" (kept, goes on a
-        later look) or "refused"."""
+        """link_person with the email alone: the answers already kept stay as
+        they are."""
         if yes is not True:
             return "no"
         address = clean_email(email)
         if address is None:
             return "bad"
+        return self._link(address, None)
+
+    def _link(self, address: str, answers: dict | None) -> str:
         try:
-            self.install.link(address)
+            self.install.link(address, answers)
         except OSError as e:
             self.log("usage", what="identify", outcome="unsaved", reason=e.strerror or type(e).__name__)
             return "unsaved"
         return self.identify()
+
+    def unlink_email(self) -> str:
+        """The person took the yes back: the address and the answers are
+        forgotten here, and the daily messages go back to asking PostHog for
+        no person profile. Nothing is sent, and what PostHog already holds stays
+        there. "forgotten", "none" when nothing was kept, or "unsaved" when the
+        file cannot be written."""
+        with self.identifying:
+            try:
+                forgot = self.install.unlink()
+            except OSError as e:
+                self.log("usage", what="unlink", outcome="unsaved", reason=e.strerror or type(e).__name__)
+                return "unsaved"
+        if not forgot:
+            return "none"
+        self.log("usage", what="unlink", outcome="forgotten")
+        return "forgotten"
 
     def look(self) -> bool:
         """One look: a saved email PostHog has not been told goes first, then
