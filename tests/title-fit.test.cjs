@@ -37,7 +37,8 @@ const LETTER = 0.56, SPACE = 0.28;
 function world(sheet) {
   let body = null;
   const sel = { range: null, get rangeCount() { return this.range ? 1 : 0; }, getRangeAt() { return this.range; },
-    removeAllRanges() { this.range = null; }, addRange(r) { this.range = r; } };
+    removeAllRanges() { this.range = null; }, addRange(r) { this.range = r; },
+    get focusNode() { return this.range && this.range.endContainer; }, get focusOffset() { return this.range && this.range.endOffset; } };
   const doc = { activeElement: null };
 
   class Node {
@@ -129,7 +130,8 @@ function world(sheet) {
       width: s.getPropertyValue("width") || sh.width + "px",
     };
   };
-  // the line boxes of an element's words: runs split at <br>, words laid greedily
+  // the line boxes of an element's words: runs split at <br>, words laid greedily.
+  // each line also says where in the words it starts (from), for a caret
   function lineBoxes(el) {
     const runs = [""];
     (function walk(n) {
@@ -141,25 +143,33 @@ function world(sheet) {
     })(el);
     if (runs.length > 1 && runs[runs.length - 1] === "") runs.pop();   // a closing break starts no line
     const cs = computed(el), size = parseFloat(cs.fontSize), lh = parseFloat(cs.lineHeight), room = parseFloat(cs.width);
-    const widths = [];
+    const lines = [];
+    let base = 0;
     for (const run of runs) {
-      const words = run.split(/[ \t\n]+/).filter(Boolean);
-      if (!words.length) { if (runs.length > 1) widths.push(0); continue; }
-      let cur = null;
-      for (const w of words) {
-        const ww = w.length * LETTER * size;
-        if (cur === null) cur = ww;
+      const words = [...run.matchAll(/[^ \t\n]+/g)];
+      if (!words.length) { if (runs.length > 1) lines.push({ width: 0, from: base }); base += run.length + 1; continue; }
+      let cur = null, from = 0;
+      for (const m of words) {
+        const ww = m[0].length * LETTER * size;
+        if (cur === null) { cur = ww; from = m.index; }
         else if (cur + SPACE * size + ww <= room + 1e-9) cur += SPACE * size + ww;
-        else { widths.push(cur); cur = ww; }
+        else { lines.push({ width: cur, from: base + from }); cur = ww; from = m.index; }
       }
-      widths.push(cur);
+      lines.push({ width: cur, from: base + from });
+      base += run.length + 1;
     }
-    return widths.map((width, i) => ({ top: i * lh, bottom: i * lh + 0.97 * size, height: 0.97 * size, width }));
+    // an engine may lay each line at its own rounding of the line height
+    const pitch = sheet.round ? sheet.round(lh) : lh;
+    return lines.map((l, i) => ({ top: i * pitch, bottom: i * pitch + 0.97 * size, height: 0.97 * size, ...l }));
   }
 
   class Range {
     constructor() { this.startContainer = this.endContainer = null; this.startOffset = this.endOffset = 0; }
-    setStart(n, o) { this.startContainer = n; this.startOffset = o; }
+    // as in the DOM, a start set past the end (or with no end yet) collapses the range there
+    setStart(n, o) {
+      this.startContainer = n; this.startOffset = o;
+      if (!this.endContainer || (this.endContainer === n && this.endOffset < o)) this.setEnd(n, o);
+    }
     setEnd(n, o) { this.endContainer = n; this.endOffset = o; }
     selectNodeContents(n) { this.setStart(n, 0); this.setEnd(n, n.nodeType === 3 ? n.data.length : n.childNodes.length); }
     same() { assert.equal(this.startContainer, this.endContainer, "the model keeps a range inside one node"); }
@@ -185,7 +195,19 @@ function world(sheet) {
         c.parentNode.insertBefore(n, rest);
       } else c.insertBefore(n, c.childNodes[this.startOffset] || null);
     }
-    getClientRects() { return lineBoxes(this.startContainer); }
+    getClientRects() {
+      const c = this.startContainer;
+      if (c === this.endContainer && this.startOffset === this.endOffset) {
+        // a caret in a title's words: the box of the line its offset stands on; a
+        // caret between elements has none, as in the browsers
+        if (c.nodeType !== 3) return [];
+        let on = null;
+        for (const l of lineBoxes(c.parentNode)) if (l.from <= this.startOffset) on = l;
+        return on ? [on] : [];
+      }
+      return lineBoxes(c);
+    }
+    getBoundingClientRect() { return { top: 0, bottom: 0, height: 0, width: 0 }; }
   }
 
   // the editor's own insertion where the selection stands, the caret after it
@@ -247,6 +269,13 @@ function world(sheet) {
   const el = { box, titleEl: title, ta };
   context.els["7"] = el;
 
+  // the caret at a place in the title's one run of words, and where each line starts
+  const caretAt = o => {
+    const r = new Range(), n = title.childNodes[0];
+    r.setStart(n, o); r.setEnd(n, o);
+    sel.range = r;
+  };
+  const lineStarts = () => lineBoxes(title).map(l => l.from);
   const caretAtEnd = () => {
     const r = new Range(), last = title.childNodes[title.childNodes.length - 1];
     if (last && last.nodeType === 3) { r.setStart(last, last.data.length); r.setEnd(last, last.data.length); }
@@ -292,7 +321,7 @@ function world(sheet) {
     probe.style.cssText = `font-size:${px}px; line-height:${px * sheet.lineHeight / sheet.fontSize}px`;
     return lineBoxes(probe).length;
   };
-  return { context, title, box, el, sel, caretAtEnd, input, type, key, lines, size, shown, linesAt,
+  return { context, title, box, el, sel, caretAt, lineStarts, caretAtEnd, input, type, key, lines, size, shown, linesAt,
     observers, posts, execs, put, Text, Elem };
 }
 
@@ -443,18 +472,95 @@ for (const [name, sheet] of Object.entries(SHEETS)) {
     assert.equal(s.overflow, "hidden");
     assert.equal(w.title.textContent, long, "the stored title is not changed");
     assert.ok(!/…|\.\.\./.test(w.title.textContent), "no ellipsis is written");
-    // renamed, it shows whole so the words past the cut can be seen and taken out
+    // renamed, it keeps the very same two line box at the same size: no third line
+    // shows, and nothing in the title's own style moves as the rename starts
+    const style = () => w.title.style.cssText.split("; ").sort().join("; ");
+    const atRest = style();
     w.context.editTitle("7");
-    assert.equal(w.shown().cut, "");
-    assert.equal(w.size(), 20);
+    assert.equal(w.title.isContentEditable, true);
+    assert.equal(style(), atRest);
+    assert.deepEqual(w.shown(), s);
+    // scrolled a line down to the caret, a fit while it is renamed keeps that line
+    const line = 20 * sheet.lineHeight / sheet.fontSize;
+    w.title.scrollTop = line;
+    w.context.fitTitle(w.title);
+    assert.equal(w.title.scrollTop, line);
     w.caretAtEnd();
     assert.equal(w.type("more"), 0, "nothing can be added to it");
     assert.equal(w.input("deleteContentBackward").defaultPrevented, false, "but it can be cut down");
-    // Escape puts the stored title back, cut again
+    assert.equal(w.title.scrollTop, line, "a letter taken out keeps the lines in view");
+    assert.equal(style(), atRest);
+    // Escape puts the stored title back, cut again, at its first two lines
     w.key("Escape");
     assert.equal(w.title.textContent, long);
-    assert.ok(Math.abs(parseFloat(w.shown().cut) - twoLines) < 1e-9);
+    assert.equal(style(), atRest);
+    assert.equal(w.title.scrollTop, 0);
     assert.equal(w.posts.length, 0);
+  });
+
+  test(`${name}: renaming a cut title, words taken out let the rest come up until it fits two lines uncut`, () => {
+    const w = world(sheet);
+    const long = words(70);
+    w.title.textContent = long;
+    w.context.fitTitle(w.title);
+    w.context.editTitle("7");
+    w.caretAtEnd();
+    w.title.scrollTop = 20 * sheet.lineHeight / sheet.fontSize;
+    while (w.linesAt(w.title.textContent, 20) > 2) {
+      assert.equal(w.shown().cut !== "", true, "cut while it still takes more than two lines at 20px");
+      assert.equal(w.size(), 20);
+      w.input("deleteContentBackward");
+    }
+    // the words left take two lines: the cut is gone and they all show, at 20px or more
+    const now = w.shown();
+    assert.equal(now.cut, "");
+    assert.equal(now.overflow, "");
+    assert.equal(now.lines, 2);
+    assert.ok(now.size >= 20);
+    // Enter keeps the shorter name, which then stands uncut at rest
+    w.key("Enter");
+    assert.equal(w.posts.length, 1);
+    assert.equal(w.posts[0].body, w.title.textContent.trim());
+    assert.equal(w.shown().cut, "");
+  });
+
+  test(`${name}: a renamed cut title shows whole lines and moves only as the caret goes past the two in view`, () => {
+    const w = world(sheet);
+    w.title.textContent = wordsFor(w, 4, 20);
+    w.context.fitTitle(w.title);
+    const line = 20 * sheet.lineHeight / sheet.fontSize;
+    const starts = w.lineStarts();
+    assert.equal(starts.length, 4, "four lines at 20px, two of them past the cut");
+    // the browser leaves the box somewhere; the title's own listener answers
+    const scrolled = top => {
+      w.title.scrollTop = top;
+      for (const fn of w.title.listeners.scroll || []) fn();
+      return w.title.scrollTop;
+    };
+    const near = (a, b, why) => assert.ok(Math.abs(a - b) < 1e-9, `${why}: ${a} for ${b}`);
+    // at rest no scroll listener is on it yet
+    assert.equal(w.title.listeners.scroll, undefined);
+    w.context.editTitle("7");
+    assert.equal((w.title.listeners.scroll || []).length, 1);
+    // the caret on the second line in view and the browser a pixel past it (WebKit
+    // does this): the box goes back, since that line was in view all along
+    w.caretAt(starts[1] + 2);
+    near(scrolled(1), 0, "a nudge with the caret's line in view");
+    // the caret on to the third line: stopped a little short, or a little past, of a
+    // whole line, the box stands on the whole line that shows it
+    w.caretAt(starts[2] + 2);
+    near(scrolled(line - 2), line, "short of the line");
+    near(scrolled(line + 1.5), line, "past the line");
+    // the caret at the very end: the last two lines
+    w.caretAt(w.title.textContent.length);
+    near(scrolled(2 * line - 3), 2 * line, "the end");
+    // back at the start: the first two lines
+    w.caretAt(1);
+    near(scrolled(4), 0, "the start");
+    // a title not being renamed is never moved by it
+    w.key("Escape");
+    assert.equal(w.title.scrollTop, 0);
+    assert.equal(scrolled(7), 7);
   });
 
   test(`${name}: a card not on show keeps its title as it is, and fits it as the card shows`, () => {
@@ -483,6 +589,19 @@ test("the phone starts from its own title size, the Mac from 30px, and both stop
     w.context.fitTitle(w.title);
     assert.equal(w.size(), 20, name);
   }
+});
+
+test("the cut and the scroll go by the lines as laid out, where an engine rounds a line (WebKit: 25.38px at 25px)", () => {
+  const w = world({ ...SHEETS.phone, round: Math.floor });
+  w.title.textContent = words(70);
+  w.context.fitTitle(w.title);
+  assert.equal(w.size(), 20);
+  assert.ok(Math.abs(parseFloat(w.title.style.getPropertyValue("line-height")) - 25.3807) < 1e-3, "the line height asked for");
+  assert.equal(w.shown().cut, "50px", "two lines as they stand, not 50.76px, so no sliver of the third shows");
+  w.context.editTitle("7");
+  w.title.scrollTop = 23;
+  for (const fn of w.title.listeners.scroll) fn();
+  assert.equal(w.title.scrollTop, 25, "a whole laid out line down");
 });
 
 test("the rename asks the keyboard for no grey guess at the word, before the title takes the focus", () => {
@@ -565,8 +684,11 @@ test("both pages fit the title where its words or its card change, and the RUNBO
   assert.match(mac, /el\.titleEl\.textContent = shown; fitTitle\(el\.titleEl\);/);
   assert.match(mac, /quietStops\(els\[b\.id\]\);\n\s*watchTitle\(els\[b\.id\]\);/);
   assert.match(between(mac, "function pasteIntoTitle(e){", "\n}\n"), /titleRoomAt\(e\.currentTarget, line\)/);
-  // the cut title's air is measured to the words left showing
-  assert.match(between(mac, "function tiltTitleAir(el, first){", "\n}\n"), /title\.style\.maxHeight/);
+  // the cut title's air is measured over the words left showing, wherever the
+  // rename has scrolled them
+  const air = between(mac, "function tiltTitleAir(el, first){", "\n}\n");
+  assert.match(air, /title\.style\.maxHeight/);
+  assert.match(air, /q\.bottom > cut\.top && q\.top < cut\.bottom/);
   // the phone: a reading that renames it, the card as it shows, the web faces
   assert.match(phone, /el\.titleEl\.textContent = omniCardTitle\(b\.title\);\n\s*fitTitle\(el\.titleEl\);/);
   assert.match(phone, /watchTitle\(card\);\n\s*webFacesLanded\(\)\.then\(\(\) => fitTitle\(titleEl\)\);/);
@@ -574,6 +696,7 @@ test("both pages fit the title where its words or its card change, and the RUNBO
   const edit = between(logic, "function editTitle(id, opts){", "\n}\n");
   assert.equal((edit.match(/fitTitle\(t\)/g) || []).length, 4);
   assert.match(edit, /addEventListener\("beforeinput", e => titleLimit\(e, t\)\)/);
+  assert.match(edit, /addEventListener\("scroll", \(\) => titleScrolled\(t\), \{ passive: true \}\)/);
   // the floor and the two lines
   assert.match(logic, /const TITLE_LINES = 2, TITLE_MIN = 20, TITLE_STEP = 0\.05;/);
   const titles = between(runbook, "## Titles", "\n## ");

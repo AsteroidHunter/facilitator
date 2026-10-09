@@ -5354,10 +5354,11 @@ function serverNow(){
 // puts in the words that fit. a title the reader did not type (one an agent set, or
 // the name a first message gave) can be longer than that: it takes TITLE_MIN and is
 // cut at the foot of its second line, with nothing written after it, and the title
-// the board stores is left as it is. while it is being renamed it shows whole, so
-// the words past the cut can be seen and taken out
+// the board stores is left as it is. renamed, it keeps that same two line box at the
+// same size: the words past the cut come into it as the caret goes to them, the box
+// scrolling inside itself a whole line at a time, and words taken out let the rest
+// come up. at rest it shows its first two lines again
 const TITLE_LINES = 2, TITLE_MIN = 20, TITLE_STEP = 0.05;
-const TITLE_FIT = ["font-size", "line-height", "max-height", "overflow"];
 
 // the size a title takes: the largest from base down to min at which linesAt (the
 // words laid out at a size, their lines counted) gives no more than two, found to
@@ -5394,40 +5395,90 @@ function titleRoom(fits, text, taken){
   return text.slice(0, lo);
 }
 
-// the lines a title's words take as laid out now: the boxes a Range hands back
-// over them, one run of boxes to a line, counted by where each line starts
-function titleLines(t){
+// where each line of a title's words starts as laid out now: the boxes a Range
+// hands back over them, one run of boxes to a line, read by where each line starts
+function titleRowTops(t){
   const half = parseFloat(getComputedStyle(t).lineHeight) / 2 || 0;
   const rg = document.createRange();
   rg.selectNodeContents(t);
-  let lines = 0, top = -Infinity;
+  const tops = [];
   for (const q of [...rg.getClientRects()].sort((a, b) => a.top - b.top))
-    if (q.height > 0 && q.top > top + half){ lines++; top = q.top; }
-  return lines;
+    if (q.height > 0 && (!tops.length || q.top > tops[tops.length - 1] + half)) tops.push(q.top);
+  return tops;
+}
+
+// the lines a title's words take as laid out now
+function titleLines(t){
+  return titleRowTops(t).length;
+}
+
+// how far one line of a title stands below the one before, as laid out. an engine
+// can round a line to its own units (WebKit lays a 25.38px line at 25px), and the
+// cut and the scroll go by the lines as they stand, so no sliver of a third shows
+function titlePitch(t, tops = titleRowTops(t)){
+  return tops.length > 1 ? (tops[tops.length - 1] - tops[0]) / (tops.length - 1) : parseFloat(getComputedStyle(t).lineHeight);
 }
 
 // fits a card's title to its two lines (above), from the sheet's own size each
 // time. a title not laid out, on a card not on show, keeps what it has and is
-// fitted as its card shows (watchTitle)
+// fitted as its card shows (watchTitle). the cut stays on while the size is
+// measured, since lines are counted off the words' own boxes, which a cut does not
+// move, so a title being renamed keeps the lines it is scrolled to
 function fitTitle(t){
   if (!t || !t.style || typeof t.style.removeProperty !== "function" ||
       typeof getComputedStyle !== "function" || !t.isConnected || !t.getClientRects().length) return;
-  const s = t.style;
-  for (const p of TITLE_FIT) s.removeProperty(p);
+  const s = t.style, top = t.scrollTop || 0;
+  s.removeProperty("font-size");
+  s.removeProperty("line-height");
   const cs = getComputedStyle(t), base = parseFloat(cs.fontSize), ratio = parseFloat(cs.lineHeight) / base;
-  if (!(base > 0 && ratio > 0) || titleLines(t) <= TITLE_LINES) return;
-  // the line keeps the sheet's own proportion to the letters at every size
-  const at = size => {
-    s.setProperty("font-size", size + "px");
-    s.setProperty("line-height", size * ratio + "px");
-    return titleLines(t);
-  };
-  const fit = titleFitSize(at, base);
-  at(fit.size);
-  if (fit.over && !t.isContentEditable){
-    s.setProperty("max-height", TITLE_LINES * fit.size * ratio + "px");
-    s.setProperty("overflow", "hidden");
+  let fit = { size: base, over: false };
+  if (base > 0 && ratio > 0 && titleLines(t) > TITLE_LINES){
+    // the line keeps the sheet's own proportion to the letters at every size
+    const at = size => {
+      s.setProperty("font-size", size + "px");
+      s.setProperty("line-height", size * ratio + "px");
+      return titleLines(t);
+    };
+    fit = titleFitSize(at, base);
+    at(fit.size);
   }
+  if (!fit.over){ s.removeProperty("max-height"); s.removeProperty("overflow"); return; }
+  s.setProperty("max-height", TITLE_LINES * titlePitch(t) + "px");
+  s.setProperty("overflow", "hidden");
+  t.scrollTop = t.isContentEditable ? top : 0;
+}
+
+// the line of a title the caret (the moving end of a selection) stands on, by the
+// line starts tops, or -1 when it is not in the title or has no box
+function titleCaretRow(t, tops){
+  const sel = getSelection();
+  if (!sel || !sel.rangeCount || !sel.focusNode || !t.contains(sel.focusNode)) return -1;
+  const r = document.createRange();
+  r.setStart(sel.focusNode, sel.focusOffset);
+  const q = r.getClientRects()[0] || r.getBoundingClientRect();
+  if (!q || !q.height) return -1;
+  const mid = (q.top + q.bottom) / 2;
+  let row = 0;
+  for (let i = 1; i < tops.length; i++) if (mid >= tops[i]) row = i;
+  return row;
+}
+
+// a cut title being renamed is scrolled by the browser to keep the caret in sight,
+// which can stop part way through a line, or nudge a pixel past one (WebKit does,
+// for a caret on the last line in view). it is set on the whole line nearest where
+// the browser left it that still shows the caret's own line, so the box always
+// shows two whole lines and moves only when the caret goes past them
+function titleScrolled(t){
+  if (!t.isContentEditable || !t.style.maxHeight) return;
+  const tops = titleRowTops(t);
+  if (tops.length <= TITLE_LINES) return;
+  const line = titlePitch(t, tops), now = t.scrollTop;
+  if (!(line > 0)) return;
+  let first = Math.round(now / line);
+  const caret = titleCaretRow(t, tops);
+  if (caret >= 0) first = Math.min(caret, Math.max(caret - TITLE_LINES + 1, first));
+  first = Math.max(0, Math.min(tops.length - TITLE_LINES, first));
+  if (Math.abs(first * line - now) > 0.5) t.scrollTop = first * line;
 }
 
 // a card's title is fitted again whenever the card changes size, and a card coming
@@ -5523,12 +5574,13 @@ function editTitle(id, opts){
   // asks for none. the keyboard reads this as the focus arrives, so it comes first
   t.setAttribute("writingsuggestions", "false");
   if (old === "…") t.textContent = "";
-  // a title cut at its second line shows whole while it is renamed, before the
-  // caret is placed in it; what would be typed or pasted is held to two lines
+  // a title cut at its second line keeps its two line box while it is renamed and
+  // scrolls in it to the caret; what would be typed or pasted is held to two lines
   fitTitle(t);
   if (!t.titleLimited && typeof t.addEventListener === "function"){
     t.titleLimited = true;
     t.addEventListener("beforeinput", e => titleLimit(e, t));
+    t.addEventListener("scroll", () => titleScrolled(t), { passive: true });
   }
   // a click edits in place with the caret where you click; other entries (new card, tab) focus and select all
   if (!opts.fromClick){
