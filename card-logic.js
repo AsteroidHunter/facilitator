@@ -5516,6 +5516,7 @@ function editTitle(id, opts){
   opts = opts || {};
   const el = els[id]; if (!el) return;
   const t = el.titleEl, old = t.textContent;
+  el.cycleStop = false;   // naming the card is a new start, not the loop's card stop
   t.setAttribute("contenteditable", "plaintext-only");
   // the phone's grey guess at the rest of a word is drawn inside the line after the
   // fit has measured it, and can carry the word on to a third line, so the title
@@ -5587,28 +5588,46 @@ function editTitle(id, opts){
 // round again, with shift Tab walking them the other way: title, card, box. the
 // buttons of the top row, the plus and the send arrow keep their clicks, taps and own
 // keys and are only no longer stops. with nothing focused, or on any spot of the card
-// that is not a stop, the card is where the reader is: Tab lands on the title and
-// shift Tab on the box. out of the title the page makes the move itself (editTitle on
-// the desktop, the Tab listener ahead of it on the phone). answers true when it moved
-// the focus; toBox is how the page puts the caret in the box
+// that is not a stop, the card is where the reader is: shift Tab lands on the box, and
+// Tab lands on the title, except on a card that already has a title when the reader
+// has just come to it (opened, or a click on its reply or bare face), where the first
+// Tab lands on the box: a card being revisited is not renamed, while a card just made
+// starts with the caret in its title and so follows the loop from there. a card the
+// loop itself left (cardStop) is still the loop's third stop, and its Tab goes on to
+// the title. out of the title the page makes the move itself (editTitle on the desktop,
+// the Tab listener ahead of it on the phone). answers true when it moved the focus;
+// toBox is how the page puts the caret in the box
 function cardTab(e, id, toBox){
   if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.defaultPrevented) return false;
   const el = els[id];
   if (!el || el.titleEl.contains(e.target)) return false;
   e.preventDefault();
   const inBox = el.field.focused();
+  const inLoop = el.cycleStop;   // the loop left the card here, with nothing since
+  el.cycleStop = false;
   if (inBox && !e.shiftKey) cardStop(el);
   else if (!inBox && e.shiftKey) toBox(el);
+  else if (!inBox && !inLoop && cardTitled(el)) toBox(el);
   else if (el.titleEl.isContentEditable) el.titleEl.focus();
   else editTitle(id);
   return true;
 }
 
+// a card has a title when its name is not empty. the board makes a new card with an
+// empty title (the server's create), the page shows that as an empty title, and the
+// ellipsis is the same empty name editTitle clears when the reader starts naming
+function cardTitled(el){
+  const name = el.titleEl.textContent.trim();
+  return name !== "" && name !== "…";
+}
+
 // the card itself: whatever holds the focus lets go of it and nothing is focused, so
 // the card's keys act on the card as they do after a click on its bare face. a title
 // being renamed keeps its name as it blurs (editTitle's blur) and drops its
-// selection; a half-typed message stays in the box
+// selection; a half-typed message stays in the box. the card is marked as left by the
+// loop, so the next Tab goes on to the title (see cardTab)
 function cardStop(el){
+  el.cycleStop = true;
   const live = document.activeElement;
   if (live && typeof live.blur === "function" && live !== document.body) live.blur();
   if (live === el.titleEl) getSelection().removeAllRanges();
