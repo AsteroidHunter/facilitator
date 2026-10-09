@@ -170,8 +170,9 @@ Endpoints:
                                https address, which the board downloads once)
                                or url (one https address). The body is the
                                content: text and pages up to 1 MiB, pictures up
-                               to 10 MiB (413). T is a title for the box's
-                               header, 120 characters at most. A web address
+                               to 10 MiB (413). T is a title kept with the box
+                               (the board does not draw it), 120 characters at
+                               most. A web address
                                is asked for by the board first: https only,
                                every address its name resolves to public (this
                                computer, the home network and the tailnet are
@@ -179,9 +180,10 @@ Endpoints:
                                again, no cookies. A website that lets this page
                                frame it is shown live (shown: frame); one that
                                refuses, or answers with an error or something
-                               not a page, is shown as a preview of its title
-                               and description with Open in Chrome (shown:
-                               preview, reason in fixed words).
+                               not a page, is shown as a preview of its title,
+                               description and address, the address opening it
+                               in Chrome (shown: preview, reason in fixed
+                               words).
                                Answers {ok, box, kind, rev, shown[, reason,
                                url]}, never words from the site itself. 400 for
                                a card, kind, title or address that is wrong or

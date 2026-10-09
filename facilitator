@@ -61,7 +61,8 @@
       as typed), markdown, html (a page of its own, run sealed off with no
       network), image (a picture file, or one https address the board
       downloads once) or url (one https website: shown live when it allows
-      that, as a preview with Open in Chrome when it does not). CONTENT is
+      that, as a preview whose address opens in Chrome when it does not).
+      The box shows only the content; --title is kept with it. CONTENT is
       the words or the address; --file sends a file's contents and - reads
       standard input. close hides the box and keeps it, reopen shows it
       again, show prints what the board says it holds. Prints the board's
