@@ -17,10 +17,11 @@ let poolScope = null;
 // their fields do, where a button anywhere else counts as the page. the desktop
 // names its boxes beside the card; the phone has none
 let keyPanels = null;
-// keyboardTitle: the desktop's keyboard path through a card's title. Tab and
-// shift Tab commit the name and move on to the composer, and Escape hands focus
-// back to the composer. the phone makes the Tab move out of the title in its own
-// listener, and walks the rest of the card with cardTab
+// keyboardTitle: the desktop's keyboard path through a card's title. Tab commits
+// the name and moves on to the card itself (cardStop), shift Tab commits it and
+// moves on to the composer, and Escape hands focus back to the composer. the phone
+// makes the Tab move out of the title in its own listener, and walks the rest of
+// the card with cardTab
 let keyboardTitle = false;
 // answeredRoomChanged: what a page does once the panel that stands ABOVE the
 // answer, holding the messages that answer was given, has taken its room or
@@ -4954,7 +4955,7 @@ function editTitle(id, opts){
     // the name keeps the keys it is typed with; a command of the page's goes on
     if (!pageChord(e)) e.stopPropagation();
     if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }
-    else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); el.ta.focus(); }
+    else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); if (e.shiftKey) el.ta.focus(); else cardStop(el); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
       else { end(); t.textContent = old; }
@@ -4964,24 +4965,36 @@ function editTitle(id, opts){
   t.onblur = () => { if (t.isContentEditable) commit(); };
 }
 
-// Tab on a card walks two stops and no others: the box the reader types in, then
-// the title, and round again, with shift Tab walking them the other way. the
-// buttons of the top row, the plus and the send arrow keep their clicks, taps and
-// own keys and are only no longer stops. from anywhere else on the card Tab lands
-// on the box and shift Tab on the title. out of the title the page makes the move
-// itself (editTitle on the desktop, the Tab listener ahead of it on the phone).
-// answers true when it moved the focus; toBox is how the page puts the caret in
-// the box
+// Tab on a card walks three stops and no others: the title, the card itself with
+// nothing focused (so the card's keys act on it), and the box the reader types in,
+// and round again, with shift Tab walking them the other way. the buttons of the
+// top row, the plus and the send arrow keep their clicks, taps and own keys and are
+// only no longer stops. with nothing focused, or on any spot of the card that is
+// not a stop, Tab lands on the box and shift Tab on the title. out of the title the
+// page makes the move itself (editTitle on the desktop, the Tab listener ahead of it
+// on the phone). answers true when it moved the focus; toBox is how the page puts
+// the caret in the box
 function cardTab(e, id, toBox){
   if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.defaultPrevented) return false;
   const el = els[id];
   if (!el || el.titleEl.contains(e.target)) return false;
   e.preventDefault();
-  if (el.field.focused() || e.shiftKey){
+  if (el.field.focused() && e.shiftKey) cardStop(el);
+  else if (el.field.focused() || e.shiftKey){
     if (el.titleEl.isContentEditable) el.titleEl.focus();
     else editTitle(id);
   } else toBox(el);
   return true;
+}
+
+// the card itself: whatever holds the focus lets go of it and nothing is focused, so
+// the card's keys act on the card as they do after a click on its bare face. a title
+// being renamed keeps its name as it blurs (editTitle's blur) and drops its
+// selection; a half-typed message stays in the box
+function cardStop(el){
+  const live = document.activeElement;
+  if (live && typeof live.blur === "function" && live !== document.body) live.blur();
+  if (live === el.titleEl) getSelection().removeAllRanges();
 }
 
 // a key typed in a text field, a list or a dialog is that control's own, and
