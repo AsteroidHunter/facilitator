@@ -499,8 +499,9 @@ Endpoints:
                                "weekly") {used, resets}: a whole percent from 0
                                to 100, 0 once the reset time has passed, and the
                                reset as epoch seconds or null, plus "fetched"
-                               (epoch seconds when Codex was last read, or
-                               null), "now" (this server's clock) and
+                               (epoch seconds when the Codex reading was taken,
+                               a session log's own time for one from the logs,
+                               or null), "now" (this server's clock) and
                                "refreshing" (a renewal is running). It answers
                                at once from the last reading; one five minutes
                                old is renewed in the background. limits.py
@@ -4349,10 +4350,12 @@ def _get_tokens_daily(q: Query, _):
 # and of Codex as a percent used, for the tools that have a number to show.
 # Claude's come from the file claude-statusline.py writes beside this one
 # (gitignored); Codex's from its own app server, at most once in five minutes,
-# or from its session logs. limits.py is loaded when the page first asks. The
-# first ask waits for Codex; every later one is answered at once from the last
-# reading, with the time it was taken, while a stale reading is renewed in the
-# background (`refreshing` says so).
+# or, until it has answered once in this run, from its session logs, dated by
+# their own time. limits.py is loaded when the page first asks. The first ask
+# waits for Codex; every later one is answered at once from the last reading,
+# with the time it was taken, while a stale reading is renewed in the
+# background (`refreshing` says so). Each change of source writes one
+# `limitsource` info line.
 CLAUDE_LIMITS = HERE / "claude-limits.json"
 _limits = None
 _limits_lock = threading.Lock()
@@ -4363,7 +4366,9 @@ def _get_limits(q: Query, _):
     global _limits
     with _limits_lock:
         if _limits is None:
-            _limits = limits.Limits(CLAUDE_LIMITS, lambda: _ledger().latest_limits())
+            _limits = limits.Limits(
+                CLAUDE_LIMITS, lambda: _ledger().latest_limits(),
+                note=lambda old, new, why: _info("limitsource", old=old, new=new, reason=why))
         reader = _limits
     shown = reader.answer()
     _debug("limits", source=reader.source,
