@@ -1,9 +1,11 @@
-// The first Tab on an open card goes to its text box from every place the focus can be
-// when the key is pressed, not only from a button of the card: nothing focused after a
-// load, after a click on the answer, on bare card or on a ticket, with Home just left,
-// and on a button outside the card that a shut menu has handed the focus back to. The
-// browser's own Tab would start from where the reader last clicked and stop on the plus
-// before the text box; here the page takes the key itself. The plus, and everything else
+// The first Tab on an open card goes to its title, and the first Shift Tab to its text
+// box, from every place the focus can be when the key is pressed, not only from a
+// button of the card: nothing focused after a load, after a click on the answer, on
+// bare card or on a ticket, with Home just left, and on a button outside the card that
+// a shut menu has handed the focus back to. The card with nothing focused is the
+// loop's third stop, so the title is the next one. The browser's own Tab would start
+// from where the reader last clicked and stop on the plus; here the page takes the key
+// itself. The plus, and everything else
 // on the card but its text box and its title, is no stop of Tab either.
 // The Mac page and the phone page are each run on their own real code: cardTab,
 // cardTabAway, cardTabOwned and quietStops out of card-logic.js, the board's and the
@@ -169,37 +171,37 @@ const STARTS = [
 
 for (const which of PAGES) {
   for (const [label, arrange, target] of STARTS) {
-    test(`${which}: the first Tab goes to the text box, ${label}`, () => {
+    test(`${which}: the first Tab goes to the title, ${label}`, () => {
       const p = page(which);
       arrange(p);
       const from = target(p);
       const shown = p.context.selectedId;
       const e = p.press({}, from);
       assert.ok(e.defaultPrevented, 'the page left the key to the browser');
-      assert.equal(p.where(), 'compose' + shown);
+      assert.equal(p.where(), 'title' + shown);
+      assert.equal(p.els[shown].titleEl.isContentEditable, true);
       assert.ok(!p.names.some(n => BUTTONS.some(b => n.startsWith(b))), 'a button took the focus');
     });
 
-    test(`${which}: Shift Tab goes to the title, ${label}`, () => {
+    test(`${which}: Shift Tab goes to the text box, ${label}`, () => {
       const p = page(which);
       arrange(p);
       const from = target(p);
       const shown = p.context.selectedId;
       const e = p.press({ shiftKey: true }, from);
       assert.ok(e.defaultPrevented);
-      assert.equal(p.where(), 'title' + shown);
-      assert.equal(p.els[shown].titleEl.isContentEditable, true);
+      assert.equal(p.where(), 'compose' + shown);
     });
   }
 
-  test(`${which}: from every starting place Tab, Tab, Tab only ever visits the text box, the title and the card itself`, () => {
+  test(`${which}: from every starting place Tab, Tab, Tab only ever visits the title, the text box and the card itself`, () => {
     for (const [label, arrange, target] of STARTS) {
       const p = page(which);
       arrange(p);
       const shown = p.context.selectedId;
       p.press({}, target(p));
       for (let i = 0; i < 5; i++) p.press();
-      assert.deepEqual(p.names, ['compose', 'title', 'card', 'compose', 'title', 'card'].map(n => n + shown), label);
+      assert.deepEqual(p.names, ['title', 'compose', 'card', 'title', 'compose', 'card'].map(n => n + shown), label);
     }
   });
 
@@ -280,9 +282,9 @@ for (const [label, arrange] of PHONE_HELD) {
   });
 }
 
-test('phone: Tab from nothing puts the caret at the end of the words', () => {
+test('phone: Shift Tab from nothing puts the caret at the end of the words', () => {
   const p = page('phone');
-  p.press({}, p.body);
+  p.press({ shiftKey: true }, p.body);
   assert.deepEqual(p.els['7'].ta.caret, [5, 5]);
 });
 

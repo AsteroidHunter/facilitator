@@ -267,7 +267,7 @@ test("Tab on a card named ticket omni lights it in, swaps title and art as the l
   card.titleEl.textContent = "ticket omni";
   card.titleEl.wordsRect = rect(20, 40, 110, 70);
   card.titleEl.onkeydown(key("Tab"));
-  assert.equal(sandbox.document.activeElement, null);             // on to the card itself, nothing focused
+  assert.equal(sandbox.document.activeElement, card.ta);          // on to the composer
   assert.deepEqual(posts.map(p => p.body), ["ticket omni"]);       // the stored title is the server's to make
   assert.ok(childOf(card, "omni-sweep"), "a Tab into Omni starts the light");
   assert.equal(frames.length, 1);

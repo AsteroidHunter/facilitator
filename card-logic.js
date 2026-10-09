@@ -18,8 +18,8 @@ let poolScope = null;
 // names its boxes beside the card; the phone has none
 let keyPanels = null;
 // keyboardTitle: the desktop's keyboard path through a card's title. Tab commits
-// the name and moves on to the card itself (cardStop), shift Tab commits it and
-// moves on to the composer, and Escape hands focus back to the composer. the phone
+// the name and moves on to the composer, shift Tab commits it and moves on to the
+// card itself (cardStop), and Escape hands focus back to the composer. the phone
 // makes the Tab move out of the title in its own listener, and walks the rest of
 // the card with cardTab
 let keyboardTitle = false;
@@ -5159,7 +5159,7 @@ function editTitle(id, opts){
     // the name keeps the keys it is typed with; a command of the page's goes on
     if (!pageChord(e)) e.stopPropagation();
     if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }
-    else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); if (e.shiftKey) el.ta.focus(); else cardStop(el); }
+    else if (keyboardTitle && e.key === "Tab"){ e.preventDefault(); commit(); if (e.shiftKey) cardStop(el); else el.ta.focus(); }
     else if (e.key === "Escape"){
       if (!old && !t.textContent.trim()) commit();
       else { end(); t.textContent = old; }
@@ -5169,25 +5169,25 @@ function editTitle(id, opts){
   t.onblur = () => { if (t.isContentEditable) commit(); };
 }
 
-// Tab on a card walks three stops and no others: the title, the card itself with
-// nothing focused (so the card's keys act on it), and the box the reader types in,
-// and round again, with shift Tab walking them the other way. the buttons of the
-// top row, the plus and the send arrow keep their clicks, taps and own keys and are
-// only no longer stops. with nothing focused, or on any spot of the card that is
-// not a stop, Tab lands on the box and shift Tab on the title. out of the title the
-// page makes the move itself (editTitle on the desktop, the Tab listener ahead of it
-// on the phone). answers true when it moved the focus; toBox is how the page puts
-// the caret in the box
+// Tab on a card walks three stops and no others: the title, the box the reader types
+// in, and the card itself with nothing focused (so the card's keys act on it), and
+// round again, with shift Tab walking them the other way: title, card, box. the
+// buttons of the top row, the plus and the send arrow keep their clicks, taps and own
+// keys and are only no longer stops. with nothing focused, or on any spot of the card
+// that is not a stop, the card is where the reader is: Tab lands on the title and
+// shift Tab on the box. out of the title the page makes the move itself (editTitle on
+// the desktop, the Tab listener ahead of it on the phone). answers true when it moved
+// the focus; toBox is how the page puts the caret in the box
 function cardTab(e, id, toBox){
   if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.defaultPrevented) return false;
   const el = els[id];
   if (!el || el.titleEl.contains(e.target)) return false;
   e.preventDefault();
-  if (el.field.focused() && e.shiftKey) cardStop(el);
-  else if (el.field.focused() || e.shiftKey){
-    if (el.titleEl.isContentEditable) el.titleEl.focus();
-    else editTitle(id);
-  } else toBox(el);
+  const inBox = el.field.focused();
+  if (inBox && !e.shiftKey) cardStop(el);
+  else if (!inBox && e.shiftKey) toBox(el);
+  else if (el.titleEl.isContentEditable) el.titleEl.focus();
+  else editTitle(id);
   return true;
 }
 

@@ -1,8 +1,8 @@
-// Tab on an open card cycles three stops in this order: the title, the card itself
-// with nothing focused (so the card's keys act on it), then the text box, and back to
-// the title. Shift Tab goes the other way. From the card with nothing focused the
-// first Tab still lands in the text box, and the first Shift Tab on the title, as
-// they did before the card was a stop.
+// Tab on an open card cycles three stops in this order: the title, the text box, then
+// the card itself with nothing focused (so the card's keys act on it), and back to the
+// title. Shift Tab goes the other way: title, card, text box. From the card with
+// nothing focused, or from a spot that is no stop, the first Tab lands on the title,
+// the next stop, and the first Shift Tab in the text box.
 // Both directions are run from each of the three stops and from the starting states
 // the first-Tab fix covered (after a click on the reply text, on bare card, with
 // nothing selected), on the Mac page and on the phone page, each on its own real
@@ -149,7 +149,7 @@ function page(which) {
 }
 
 const PAGES = ['mac', 'phone'];
-const ORDER = ['title', 'card', 'compose'];
+const ORDER = ['title', 'compose', 'card'];
 const next = n => ORDER[(ORDER.indexOf(n) + 1) % 3];
 const prev = n => ORDER[(ORDER.indexOf(n) + 2) % 3];
 
@@ -157,7 +157,7 @@ for (const which of PAGES) {
   for (const stop of ORDER) {
     test(`${which}: Tab from the ${stop} goes to the ${next(stop)}`, () => {
       const p = page(which);
-      if (stop === 'title') { p.ta.focus(); p.press(false); }
+      if (stop === 'title') p.press(false, p.body);
       else p.go(stop);
       assert.equal(p.where(), stop === 'card' ? 'card' : stop);
       const e = p.press(false, stop === 'card' ? p.body : undefined);
@@ -167,7 +167,7 @@ for (const which of PAGES) {
 
     test(`${which}: Shift Tab from the ${stop} goes to the ${prev(stop)}`, () => {
       const p = page(which);
-      if (stop === 'title') { p.ta.focus(); p.press(false); }
+      if (stop === 'title') p.press(false, p.body);
       else p.go(stop);
       assert.equal(p.where(), stop);
       const e = p.press(true, stop === 'card' ? p.body : undefined);
@@ -176,23 +176,22 @@ for (const which of PAGES) {
     });
   }
 
-  test(`${which}: six Tabs from the title go title, card, compose, title, card, compose and no button is visited`, () => {
+  test(`${which}: six Tabs from the title go compose, card, title, compose, card, title and no button is visited`, () => {
     const p = page(which);
-    p.ta.focus();
-    p.press(false);
+    p.press(false, p.body);
     assert.equal(p.where(), 'title');
     p.log.length = 0;
     for (let i = 0; i < 6; i++) p.press(false);
-    assert.deepEqual(p.log, ['card', 'compose', 'title', 'card', 'compose', 'title']);
+    assert.deepEqual(p.log, ['compose', 'card', 'title', 'compose', 'card', 'title']);
     for (const b of BUTTONS) assert.ok(!p.log.includes(b), b);
   });
 
-  test(`${which}: six Shift Tabs from the text box go card, title, compose, card, title, compose`, () => {
+  test(`${which}: six Shift Tabs from the title go card, compose, title, card, compose, title`, () => {
     const p = page(which);
-    p.ta.focus();
+    p.press(false, p.body);
     p.log.length = 0;
     for (let i = 0; i < 6; i++) p.press(true);
-    assert.deepEqual(p.log, ['card', 'title', 'compose', 'card', 'title', 'compose']);
+    assert.deepEqual(p.log, ['card', 'compose', 'title', 'card', 'compose', 'title']);
     for (const b of BUTTONS) assert.ok(!p.log.includes(b), b);
   });
 
@@ -205,68 +204,71 @@ for (const which of PAGES) {
     ['after a click on the reply text', p => p.replyText],
   ];
   for (const [label, target] of STARTS) {
-    test(`${which}: ${label}: Tab lands in the text box, then the title, then the card, then the text box`, () => {
+    test(`${which}: ${label}: Tab lands on the title, then the text box, then the card, then the title`, () => {
       const p = page(which);
       p.press(false, target(p));
-      assert.equal(p.where(), 'compose');
-      p.press(false);
-      assert.equal(p.where(), 'title');
-      p.press(false);
-      assert.equal(p.where(), 'card');
-      p.press(false, target(p));
-      assert.equal(p.where(), 'compose');
-    });
-
-    test(`${which}: ${label}: Shift Tab lands on the title, then the text box, then the card, then the title`, () => {
-      const p = page(which);
-      p.press(true, target(p));
       assert.equal(p.where(), 'title');
       assert.equal(p.title.isContentEditable, true);
-      p.press(true);
+      p.press(false);
       assert.equal(p.where(), 'compose');
+      p.press(false);
+      assert.equal(p.where(), 'card');
+      p.press(false, target(p));
+      assert.equal(p.where(), 'title');
+    });
+
+    test(`${which}: ${label}: Shift Tab lands in the text box, then the title, then the card, then the text box`, () => {
+      const p = page(which);
+      p.press(true, target(p));
+      assert.equal(p.where(), 'compose');
+      p.press(true);
+      assert.equal(p.where(), 'title');
       p.press(true);
       assert.equal(p.where(), 'card');
       p.press(true, target(p));
-      assert.equal(p.where(), 'title');
+      assert.equal(p.where(), 'compose');
     });
   }
 
-  test(`${which}: leaving the title for the card keeps a name being renamed, and the message in the box stays`, () => {
+  test(`${which}: leaving the title for the text box keeps a name being renamed, and the message in the box stays`, () => {
     const p = page(which);
     p.press(false, p.body);
-    p.press(false);
     assert.equal(p.where(), 'title');
     p.title.textContent = 'Renamed card';
     p.press(false);
-    assert.equal(p.where(), 'card');
+    assert.equal(p.where(), 'compose');
     assert.equal(p.title.isContentEditable, false);
     assert.equal(p.title.textContent, 'Renamed card');
     assert.deepEqual(p.posts, ['Renamed card']);
     assert.equal(p.ta.value, 'half a message');
   });
 
-  test(`${which}: leaving the title for the text box by Shift Tab keeps the name too`, () => {
+  test(`${which}: leaving the title for the card by Shift Tab keeps the name too`, () => {
     const p = page(which);
-    p.press(true, p.body);
+    p.press(false, p.body);
     p.title.textContent = 'Another name';
     p.press(true);
-    assert.equal(p.where(), 'compose');
+    assert.equal(p.where(), 'card');
+    assert.equal(p.title.isContentEditable, false);
     assert.deepEqual(p.posts, ['Another name']);
   });
 
   test(`${which}: leaving the text box for the card keeps the half-typed message`, () => {
     const p = page(which);
     p.ta.focus();
-    p.press(true);
+    p.press(false);
     assert.equal(p.where(), 'card');
     assert.equal(p.ta.value, 'half a message');
     assert.deepEqual(p.posts, []);
+    p.press(true);
+    assert.equal(p.where(), 'compose');
+    assert.equal(p.ta.value, 'half a message');
   });
 
   test(`${which}: at the card stop nothing is being typed in, so the card's keys act on the card`, () => {
     const p = page(which);
     p.ta.focus();
-    p.press(true);
+    p.press(false);
     assert.equal(p.where(), 'card');
     const live = p.context.document.activeElement;
     assert.equal(p.context.cardShortcutEditing(live), false);
@@ -276,16 +278,15 @@ for (const which of PAGES) {
   });
 }
 
-test('phone: Shift Tab out of the title puts the caret at the end of the words, Tab out of it leaves the box alone', () => {
+test('phone: Tab out of the title puts the caret at the end of the words, Shift Tab out of it leaves the box alone', () => {
   const p = page('phone');
-  p.press(true, p.body);
-  p.press(true);
+  p.press(false, p.body);
+  p.press(false);
   assert.equal(p.where(), 'compose');
   assert.deepEqual(p.ta.caret, [14, 14]);
   const q = page('phone');
-  q.ta.focus();
-  q.press(false);
-  q.press(false);
+  q.press(false, q.body);
+  q.press(true);
   assert.equal(q.where(), 'card');
   assert.equal(q.ta.caret, null);
 });

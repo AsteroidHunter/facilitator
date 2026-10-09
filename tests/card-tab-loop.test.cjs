@@ -1,6 +1,7 @@
-// Tab on an open card walks three stops, the title, the card itself with nothing
-// focused, and the text box, and round again; shift Tab walks them the other way;
-// the buttons of the card are never a stop. The Mac board and the phone page are each run on their own real wiring:
+// Tab on an open card walks three stops, the title, the text box, and the card itself
+// with nothing focused, and round again; shift Tab walks them the other way; the
+// buttons of the card are never a stop. The Mac board and the phone page are each
+// run on their own real wiring:
 // the shared cardTab and editTitle out of card-logic.js, the card's listener
 // lifted from index.html or m.html, and on the phone the Tab listener ahead of
 // the title and focusBoxAtEnd. The elements are small stand-ins that keep the
@@ -114,42 +115,56 @@ const PAGES = ['mac', 'phone'];
 const where = p => p.doc.activeElement ? p.doc.activeElement.name : null;
 
 for (const which of PAGES) {
-  test(`${which}: Tab with the focus on a button of the card goes to the text box`, () => {
+  test(`${which}: Tab with the focus on a button of the card goes to the title`, () => {
     for (const name of BUTTONS) {
       const p = page(which);
       p.el[name].focus();
       const e = p.press('Tab');
-      assert.equal(where(p), 'compose', name);
+      assert.equal(where(p), 'title', name);
+      assert.equal(p.title.isContentEditable, true, name);
       assert.ok(e.defaultPrevented, name);
     }
   });
 
-  test(`${which}: Tab in the text box goes to the title, and the title is open for typing`, () => {
+  test(`${which}: Tab in the text box goes to the card with nothing focused and keeps the message`, () => {
     const p = page(which);
     p.ta.focus();
     p.press('Tab');
-    assert.equal(where(p), 'title');
-    assert.equal(p.title.isContentEditable, true);
+    assert.equal(where(p), null);
+    assert.equal(p.ta.value, 'draft');
   });
 
-  test(`${which}: Tab in the title goes to the card with nothing focused and keeps the name`, () => {
+  test(`${which}: Tab in the title goes to the text box and keeps the name`, () => {
     const p = page(which);
     p.ta.focus();
-    p.press('Tab');
+    p.press('Tab', { shiftKey: true });
+    assert.equal(where(p), 'title');
     p.title.textContent = 'Renamed card';
     p.press('Tab');
+    assert.equal(where(p), 'compose');
+    assert.equal(p.title.isContentEditable, false);
+    assert.equal(p.title.textContent, 'Renamed card');
+    assert.equal(p.calls.posts, 1);
+  });
+
+  test(`${which}: Shift Tab in the title goes to the card with nothing focused and keeps the name`, () => {
+    const p = page(which);
+    p.ta.focus();
+    p.press('Tab', { shiftKey: true });
+    p.title.textContent = 'Renamed card';
+    p.press('Tab', { shiftKey: true });
     assert.equal(where(p), null);
     assert.equal(p.title.isContentEditable, false);
     assert.equal(p.title.textContent, 'Renamed card');
     assert.equal(p.calls.posts, 1);
   });
 
-  test(`${which}: Tab loops title, card, text box and reaches nothing else`, () => {
+  test(`${which}: Tab loops title, text box, card and reaches nothing else`, () => {
     const p = page(which);
     p.sun.focus();
     for (let i = 0; i < 12; i++) p.press('Tab');
     const seen = p.names.slice(1);
-    assert.deepEqual(seen, Array.from({ length: 4 }, () => ['compose', 'title', 'card']).flat());
+    assert.deepEqual(seen, Array.from({ length: 4 }, () => ['title', 'compose', 'card']).flat());
     for (const name of BUTTONS) assert.ok(!seen.includes(name), name);
   });
 
@@ -157,24 +172,24 @@ for (const which of PAGES) {
     const p = page(which);
     p.ta.focus();
     p.press('Tab', { shiftKey: true });
-    assert.equal(where(p), null);
-    p.press('Tab', { shiftKey: true });
     assert.equal(where(p), 'title');
+    p.press('Tab', { shiftKey: true });
+    assert.equal(where(p), null);
     p.press('Tab', { shiftKey: true });
     assert.equal(where(p), 'compose');
     p.press('Tab', { shiftKey: true });
-    assert.equal(where(p), null);
+    assert.equal(where(p), 'title');
     for (const name of BUTTONS) assert.ok(!p.names.includes(name), name);
   });
 
-  test(`${which}: Shift Tab from a button of the card lands on the title`, () => {
+  test(`${which}: Shift Tab from a button of the card lands in the text box`, () => {
     for (const name of BUTTONS) {
       const p = page(which);
       p.el[name].focus();
       p.press('Tab', { shiftKey: true });
-      assert.equal(where(p), 'title', name);
-      p.press('Tab', { shiftKey: true });
       assert.equal(where(p), 'compose', name);
+      p.press('Tab', { shiftKey: true });
+      assert.equal(where(p), 'title', name);
     }
   });
 
@@ -202,7 +217,7 @@ test('mac: Enter in the title still commits and goes to the text box, Escape too
   for (const key of ['Enter', 'Escape']) {
     const p = page('mac');
     p.ta.focus();
-    p.press('Tab');
+    p.press('Tab', { shiftKey: true });
     assert.equal(where(p), 'title');
     p.press(key);
     assert.equal(where(p), 'compose', key);
@@ -210,12 +225,12 @@ test('mac: Enter in the title still commits and goes to the text box, Escape too
   }
 });
 
-test('mac: the title takes shift Tab to the text box and no longer to the sun', () => {
+test('mac: the title takes shift Tab to the card and no longer to the sun', () => {
   const p = page('mac');
   p.ta.focus();
-  p.press('Tab');
   p.press('Tab', { shiftKey: true });
-  assert.equal(where(p), 'compose');
+  p.press('Tab', { shiftKey: true });
+  assert.equal(where(p), null);
   assert.ok(!p.names.includes('sun'));
 });
 
@@ -227,26 +242,26 @@ test('phone: a menu that is out keeps the Tab, the card does not move the focus'
   assert.equal(e.defaultPrevented, false);
 });
 
-test('phone: shift Tab out of the title puts the caret at the end of the words, Tab leaves the card alone', () => {
+test('phone: Tab out of the title puts the caret at the end of the words, shift Tab leaves the card alone', () => {
   const p = page('phone');
   p.ta.focus();
-  p.press('Tab');
-  assert.equal(where(p), 'title');
   p.press('Tab', { shiftKey: true });
+  assert.equal(where(p), 'title');
+  p.press('Tab');
   assert.equal(where(p), 'compose');
   assert.deepEqual(p.ta.caret, [5, 5]);
   const q = page('phone');
   q.ta.focus();
-  q.press('Tab');
-  q.press('Tab');
+  q.press('Tab', { shiftKey: true });
+  q.press('Tab', { shiftKey: true });
   assert.equal(where(q), null);
   assert.equal(q.ta.caret, null);
 });
 
-test('phone: Tab from a button puts the caret at the end of the words', () => {
+test('phone: shift Tab from a button puts the caret at the end of the words', () => {
   const p = page('phone');
   p.sun.focus();
-  p.press('Tab');
+  p.press('Tab', { shiftKey: true });
   assert.equal(where(p), 'compose');
   assert.deepEqual(p.ta.caret, [5, 5]);
 });
