@@ -6724,7 +6724,7 @@ function makeBox(b, i, state){
     // and the reader's own scrolling of the answer, which holds a page turn back
     watchReading(els[b.id]);
 
-    // Tab on the card walks the text box and the title and nothing else (cardTab),
+    // Tab on the card walks the title, the card and the text box and nothing else (cardTab),
     // and no other part of the card is a stop of the browser's own Tab (quietStops)
     box.addEventListener("keydown", e => cardTab(e, b.id, el => el.ta.focus()));
     quietStops(els[b.id]);
