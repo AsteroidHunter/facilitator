@@ -595,15 +595,41 @@ function phoneBoxScript(page) {
   const start = page.indexOf("<script>\n// ---- the card's magic box, in the card list's drawer");
   const src = page.slice(start + "<script>".length, page.indexOf("</script>", start));
   const classes = new Set(), listeners = {}, calls = [], drawer = { settings: false, runs: [] };
+  // keyframes played on a part: what was asked, and a finish the test gives
+  const anims = [];
+  const animate = part => (keys, opts) => {
+    let done, fail;
+    const a = { part, keys, opts, startTime: null, cancelled: false,
+      finished: new Promise((resolve, reject) => { done = resolve; fail = reject; }),
+      cancel() { a.cancelled = true; fail(new Error("cancelled")); }, finish() { done(); } };
+    a.finished.catch(() => {});
+    anims.push(a);
+    return a;
+  };
   const tickets = { dataset: { side: "left" }, clientWidth: 346, clientHeight: 433,
-    classList: { contains: c => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
-    getAnimations: () => drawer.runs };
+    classList: { contains: c => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+      remove: c => classes.delete(c) },
+    getAnimations: () => drawer.runs, animate: animate("drawer"), querySelector: () => null };
   const settings = { dataset: { side: "right" } };
   const box = { offsetHeight: 89, style: {}, querySelector: () => ({ addEventListener() {} }) };
   const face = () => (classes.has("boxface") ? "box" : "list") + " from the " + tickets.dataset.side;
+  const paneClasses = new Set(), paneListeners = {};
+  const cardPane = { getAnimations: () => [], animate: animate("card"), offsetWidth: 0,
+    classList: { add: c => paneClasses.add(c), remove: c => paneClasses.delete(c), contains: c => paneClasses.has(c) },
+    addEventListener: (type, fn) => { paneListeners[type] = fn; } };
   const ctx = {
-    document: { getElementById: () => box }, tickets, settings, innerWidth: 402, homeOpen: false, shownId: "a", activeOwner: "p",
-    tikwin: { getAnimations: () => [] }, cardPane: { getAnimations: () => [] },
+    document: { getElementById: () => box, body: { classList: { add() {} } } },
+    tickets, settings, innerWidth: 402, homeOpen: false, shownId: "a", activeOwner: "p",
+    tikwin: { getAnimations: () => [], animate: animate("window") }, cardPane, tikArrows: [],
+    // the page's run machinery, as far as the swap uses it: a straight spring of
+    // 100ms, the drawer's 300px travel, the card's drop (120px under the list,
+    // 90px under the box) and a stop that cancels what is playing
+    LIST_KEYED: true, LIST_CALM: { matches: false }, LIST_FADE_TOP: .999, LIST_SETUP_MS: 200,
+    listSpring: (from, to) => ({ ms: 100, at: t => from + (to - from) * Math.min(1, t / 100), velocity: () => 0 }),
+    menuTravel: () => 300, menuSign: p => p.dataset.side === "right" ? -1 : 1,
+    listDrop: 120, listPlay: [], listRun: null, ticketDrawerRun: 0, performance: { now: () => 0 },
+    stopList: () => { for (const a of ctx.listPlay) a.cancel(); ctx.listPlay = []; },
+    settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
     magicView: () => ({ body: {}, want: () => ({ height: 89 }), waiting: () => false, draw() {}, clear() {} }),
     MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
@@ -624,7 +650,7 @@ function phoneBoxScript(page) {
       drawer.land = async () => { land(); drawer.runs = []; await new Promise(r => setImmediate(r)); };
     },
     listMoving: () => drawer.runs.length > 0,
-    fitList() {}, poll() {},
+    fitList: now => { if (now) ctx.listDrop = classes.has("boxface") ? 90 : 120; }, poll() {},
     fetch: url => { calls.push(url); return new Promise(() => {}); },
     apply: () => calls.push("apply"), select: () => calls.push("select"), deselect: () => calls.push("deselect"),
     openDrawer: () => calls.push("list"), listSlack: () => 7,
@@ -632,7 +658,7 @@ function phoneBoxScript(page) {
     addEventListener: (type, fn, opts) => { (listeners[type] = listeners[type] || []).push({ fn, opts }); },
   };
   vm.runInContext(src, vm.createContext(ctx));
-  return { ctx, classes, tickets, listeners, calls, drawer };
+  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners };
 }
 
 test("on the phone the box comes down in the card list's own drawer, from the right, pulled the other way from the list", () => {
@@ -675,7 +701,7 @@ test("on the phone the box comes down in the card list's own drawer, from the ri
 });
 
 test("control shift period does for the box what control shift comma does for the list", async () => {
-  const { ctx, classes, calls, drawer } = phoneBoxScript(read("m.html"));
+  const { ctx, classes, calls, drawer, anims, paneClasses, paneListeners } = phoneBoxScript(read("m.html"));
   const keys = [ctx.phoneShortcutActions, ctx.menuShortcutActions];
   assert.ok(keys.every(k => typeof k.boxDrawer === "function" && typeof k.cardsDrawer === "function"),
     "both keys are answered with the drawers shut and with one out");
@@ -685,8 +711,12 @@ test("control shift period does for the box what control shift comma does for th
     table[action](e, { action, value: true });
     return e.prevented;
   };
-  // on a card with no box the period does nothing, and still takes the key, so
-  // the phone types no period into the reply box
+  const tick = () => new Promise(r => setImmediate(r));
+  const live = () => anims.filter(a => !a.cancelled && !a.done);
+  const finishAll = async () => { for (const a of live()) { a.done = true; a.finish(); } await tick(); };
+  const ends = (a, prop) => [a.keys[0][prop], a.keys.at(-1)[prop]].map(v => typeof v === "number" ? +v.toFixed(3) : v);
+  // on a card with no box the period brings nothing and still takes the key,
+  // so the phone types no period into the reply box
   ctx.shownId = "b";
   assert.equal(press("boxDrawer"), true, "the key was left to type a period on a card with no box");
   assert.deepEqual(calls, []);
@@ -701,24 +731,69 @@ test("control shift period does for the box what control shift comma does for th
   // the comma brings the list from the left
   press("cardsDrawer");
   assert.deepEqual(calls, ["show list from the left"]);
-  // with the list out, the period swaps it for the box: the list goes back,
-  // and the box comes in from the right once it has landed
+  // with the list out, the period swaps it for the box and the card stays down:
+  // the drawer stays out, and first the list goes off to the left and fades as
+  // it does when it shuts, at its own height, the card and the window still
   press("boxDrawer", ctx.menuShortcutActions);
-  assert.deepEqual(calls, ["close list from the left"]);
-  await drawer.land();
-  assert.deepEqual(calls, ["close list from the left", "show box from the right"]);
-  // and with the box out, the comma swaps back to the list
+  assert.deepEqual(calls, [], "the drawer was shut or opened again");
+  assert.equal(ctx.menuOut(), ctx.tickets);
+  let going = live();
+  assert.deepEqual(going.map(a => a.part), ["drawer"], "only the drawer moves while the list goes");
+  // (the stand-in spring is straight, 100ms long: the first millisecond with no
+  // more than 2% of the way to go is the 99th)
+  assert.deepEqual(ends(going[0], "transform"), ["translate3d(0px, -120px, 0px)", "translate3d(-297px, -120px, 0px)"]);
+  assert.deepEqual(ends(going[0], "opacity"), [.999, .01]);
+  assert.ok(!classes.has("boxface"), "the face changed before the list had gone");
+  // once it is all but gone, the box comes in from the right as the drawer does
+  // when it opens, and the card and the window glide to the box's own drop
+  await finishAll();
+  assert.ok(classes.has("boxface") && ctx.tickets.dataset.side === "right");
+  let coming = live();
+  assert.deepEqual(coming.map(a => a.part), ["drawer", "window", "card"]);
+  assert.deepEqual(ends(coming[0], "transform"), ["translate3d(300px, -120px, 0px)", "translate3d(0px, -90px, 0px)"]);
+  assert.deepEqual(ends(coming[0], "opacity"), [0, .999]);
+  assert.deepEqual(ends(coming[1], "transform"), ["translate3d(0px, 120px, 0px)", "translate3d(0px, 90px, 0px)"]);
+  assert.deepEqual(ends(coming[2], "transform"), ["translate(0px, 120px)", "translate(0px, 90px)"]);
+  assert.ok(going.every(a => a.cancelled), "the list's going was left playing");
+  await finishAll();
+  assert.deepEqual(calls, ["settled"], "the drawer was not settled once the box was in");
+  // and the comma swaps back the other way: the box goes off to the right, the
+  // list comes in from the left, the card back to the list's drop
   press("cardsDrawer", ctx.menuShortcutActions);
-  await drawer.land();
-  assert.deepEqual(calls, ["close box from the right", "show list from the left"]);
-  // a second key before the drawer has landed is the one that counts: the
-  // list on its way back comes out again, and the box does not follow
+  going = live();
+  assert.deepEqual(ends(going[0], "transform"), ["translate3d(0px, -90px, 0px)", "translate3d(297px, -90px, 0px)"]);
+  await finishAll();
+  assert.ok(!classes.has("boxface") && ctx.tickets.dataset.side === "left");
+  coming = live();
+  assert.deepEqual(ends(coming[0], "transform"), ["translate3d(-300px, -90px, 0px)", "translate3d(0px, -120px, 0px)"]);
+  assert.deepEqual(ends(coming[2], "transform"), ["translate(0px, 90px)", "translate(0px, 120px)"]);
+  await finishAll();
+  // a run or a key that comes while the list is going stops the swap where it
+  // stands, and the box does not follow
   press("boxDrawer", ctx.menuShortcutActions);
+  going = live();
+  ctx.stopList();
+  await tick();
+  assert.ok(going.every(a => a.cancelled) && live().length === 0 && !classes.has("boxface"));
+  // with reduced motion the face changes where it stands, the card still down
+  ctx.LIST_CALM = { matches: true };
+  press("boxDrawer", ctx.menuShortcutActions);
+  assert.ok(classes.has("boxface") && live().length === 0 && ctx.menuOut() === ctx.tickets);
+  assert.deepEqual(calls, ["settled"]);
+  ctx.LIST_CALM = { matches: false };
+  // the key of the face that is out shuts the drawer, as before
+  press("boxDrawer", ctx.menuShortcutActions);
+  assert.deepEqual(calls, ["close box from the right"]);
+  await drawer.land();
+  // shut, but still going back with its other face: it comes out again with the
+  // asked-for face once it has landed
   press("cardsDrawer");
-  await drawer.land();
-  assert.deepEqual(calls, ["show list from the left"]);
-  assert.ok(!classes.has("boxface"));
   press("cardsDrawer", ctx.menuShortcutActions);
+  press("boxDrawer");
+  assert.deepEqual(calls, []);
+  await drawer.land();
+  assert.deepEqual(calls, ["show box from the right"]);
+  press("boxDrawer", ctx.menuShortcutActions);
   await drawer.land();
   // with the settings out, the period swaps them for the box at once, as the
   // comma swaps them for the list
@@ -730,14 +805,11 @@ test("control shift period does for the box what control shift comma does for th
   ctx.showMenu(ctx.settings);
   press("cardsDrawer", ctx.menuShortcutActions);
   assert.deepEqual(calls, ["show list from the left"]);
-  // a box gone from the card while the list went back brings nothing
-  press("boxDrawer", ctx.menuShortcutActions);
-  ctx.shownId = "b";
-  await drawer.land();
-  assert.deepEqual(calls, ["close list from the left"]);
-  assert.equal(ctx.menuOut(), null);
   // the period on a card with no box, with the settings out, leaves them out
+  press("cardsDrawer", ctx.menuShortcutActions);
+  await drawer.land();
   ctx.showMenu(ctx.settings);
+  ctx.shownId = "b";
   assert.equal(press("boxDrawer", ctx.menuShortcutActions), true);
   assert.deepEqual(calls, []);
   assert.equal(ctx.menuOut(), ctx.settings);
