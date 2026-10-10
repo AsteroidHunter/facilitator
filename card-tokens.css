@@ -1052,8 +1052,9 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    so what it holds stands on the board's own paper, its ends dissolving as
    the ticket list's do, and clicking into it moves no shadow, its own or the
    card's. a line across its bar, the ticket list's own, parts the bar from
-   what the box holds */
-.magicbox{display:flex; flex-direction:var(--mb-flow); overflow:hidden;
+   what the box holds. the bar stands at the box's top everywhere: on the
+   board, on the phone and in a portrait window alike */
+.magicbox{display:flex; flex-direction:column; overflow:hidden;
   /* its own lengths, in the board's pixels; the phone gives them in its own
      (m.html). --mb-x is the cross's seat and --mb-gap the space round it,
      the same at the box's edge and at its side, as the card's own bar keeps
@@ -1064,23 +1065,14 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
      --mb-air is the space the box keeps between what it holds and its far
      edge, and --mb-fade the depth of the fuzz, the ticket list's own 22px.
      --mb-lead is the space over the words' first line, from the bar's foot
-     (from the box's top edge where the bar stands at the foot) to the top of
-     that line, a heading's or plain words' alike: it is what puts the first
-     line's capitals as far under the bar as the card's title's capitals
-     stand under the card's own bar (19px on the board, measured)
-     --mb-flow, the two airs and the two line ends say which end the bar
-     stands at, and which edge of the bar its line is drawn on */
-  --mb-x:20px; --mb-gap:5px; --mb-bar:calc(var(--mb-x) + 2 * var(--mb-gap)); --mb-air:8px; --mb-fade:22px; --mb-lead:13px;
-  --mb-flow:column; --mb-air-head:0px; --mb-air-foot:var(--mb-air); --mb-line-top:auto; --mb-line-foot:0px}
-/* on the phone (.barfoot, m.html) and in a portrait window the bar stands at
-   the box's foot, its line along its top, and the space goes to the top, now
-   the far edge */
-.magicbox.barfoot{--mb-flow:column-reverse; --mb-air-head:var(--mb-air); --mb-air-foot:0px; --mb-line-top:0px; --mb-line-foot:auto}
-@media (orientation:portrait){
-  .magicbox{--mb-flow:column-reverse; --mb-air-head:var(--mb-air); --mb-air-foot:0px; --mb-line-top:0px; --mb-line-foot:auto}
-}
-/* its bar: nothing of its own but the line along the edge it shares with
-   what the box holds, which dissolves as it goes under it (the fuzz, below).
+     to the top of that line, a heading's or plain words' alike: it is what
+     puts the first line's capitals as far under the bar as the card's
+     title's capitals stand under the card's own bar (19px on the board,
+     measured) */
+  --mb-x:20px; --mb-gap:5px; --mb-bar:calc(var(--mb-x) + 2 * var(--mb-gap)); --mb-air:8px; --mb-fade:22px; --mb-lead:13px}
+/* its bar: nothing of its own but the line along its foot, the edge it
+   shares with what the box holds, which dissolves as it goes under it (the
+   fuzz, below).
    the line is the ticket list's under its section names (#tikhead::after
    in each page): the card's hairline, --edge of --line, drawn as a top edge
    of no height so it takes nothing from the bar, across the whole width of
@@ -1094,7 +1086,7 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .magicbox .mbbar{flex:none; position:relative; display:flex; align-items:center; justify-content:flex-end;
   height:var(--mb-bar); padding:0 var(--mb-gap)}
 .magicbox .mbbar::after{content:""; position:absolute; pointer-events:none;
-  left:0; right:0; top:var(--mb-line-top); bottom:var(--mb-line-foot); height:0;
+  left:0; right:0; bottom:0; height:0;
   border-top:var(--edge) solid var(--line)}
 .magicbox .mbclose{position:relative; flex:none; display:grid; place-items:center;
   width:var(--mb-x); height:var(--mb-x); padding:0; border:none; border-radius:var(--sq);
@@ -1111,7 +1103,7 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    --mb-fade by the view (card-logic.js), so an end with nothing past it
    stays at full ink and words that fit wear no fuzz at all */
 .magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto;
-  margin:var(--mb-air-head) 0 var(--mb-air-foot)}
+  margin:0 0 var(--mb-air)}
 .magicbox .mbbody[data-kind="image"]{margin:0}
 .magicbox .mbbody:is([data-kind="text"], [data-kind="markdown"]){
   -webkit-mask-image:linear-gradient(to bottom,
@@ -1138,7 +1130,7 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    own inset, and start --mb-lead under the bar: their first line, a heading
    too, keeps no top margin of its own, which would add a line's worth of
    space to it */
-.magicbox .mbtext{padding:calc(var(--mb-lead) - var(--mb-air-head)) 0 var(--mb-inset, 16px);
+.magicbox .mbtext{padding:var(--mb-lead) 0 var(--mb-inset, 16px);
   font-size:15px; line-height:1.55; color:var(--ink)}
 .magicbox .mbtext > :first-child{margin-top:0}
 .magicbox .mbtext.plain{white-space:pre-wrap}
