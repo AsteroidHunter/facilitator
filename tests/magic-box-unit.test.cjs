@@ -1221,3 +1221,13 @@ test("the Mac box's words can be selected and copied, and command+a picks only t
   assert.ok(optIn && /#magicbox \.mbtext/.test(optIn[0]), "the box's words opt back in to selection");
   assert.ok(/getSelection\(\)\.selectAllChildren\(words\)/.test(html), "command+a selects the box's words alone");
 });
+
+test("the Mac's box hides every scrollbar and a page in it never scrolls sideways; the phone's page is as it was", () => {
+  const MB = api();
+  const mac = MB.pageDoc("<p>x</p>", "w", true), phone = MB.pageDoc("<p>x</p>", "w", false);
+  assert.ok(mac.includes("<style>*{scrollbar-width:none}*::-webkit-scrollbar{display:none}html{overflow-x:hidden}</style>"));
+  assert.ok(mac.indexOf("<style>") < mac.indexOf("<p>x</p>"), "the agent's styles come after");
+  assert.ok(!/scrollbar|overflow-x/.test(phone), "the phone's page is unchanged");
+  const html = read("index.html");
+  assert.match(html, /#magicbox, #magicbox \*\{scrollbar-width:none\}\s*#magicbox::-webkit-scrollbar, #magicbox \*::-webkit-scrollbar\{display:none\}\s*#magicbox \.mbbody\{overflow-x:hidden\}/);
+});
