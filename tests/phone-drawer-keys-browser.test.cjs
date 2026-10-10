@@ -651,7 +651,7 @@ const calls = page => page.evaluate(() => { const c = window.__calls; window.__c
 const OLD_KEYS = [
   ["ArrowRight", []], ["ArrowLeft", []],
   ["ArrowRight", ["Control", "Shift"]], ["ArrowUp", ["Control", "Shift"]],
-  ["KeyT", ["Meta"]], ["Digit1", ["Meta"]], ["Enter", ["Control"]], ["KeyR", ["Control"]], ["KeyS", ["Control"]],
+  ["KeyT", ["Meta"]], ["Digit1", ["Meta"]], ["Enter", ["Control", "Shift"]], ["KeyR", ["Control"]], ["KeyS", ["Control"]],
   ["KeyU", ["Control"]], ["BracketLeft", []],
 ];
 

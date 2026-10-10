@@ -168,7 +168,7 @@ The keys, on the Mac board and on the phone with a paired keyboard:
 
 - Left and right arrows: the previous or next card. Control + Shift + left and right do the same while typing.
 - Enter: select the card and start typing. In the typing box, Enter sends, Shift + Enter starts a new line, and Command + Enter sends without moving.
-- Enter twice, or Control + Enter: send, then go to the card that has waited longest on you (with nothing typed, Control + Enter only moves). On the phone, Enter twice sends and then opens the card list.
+- Enter twice, or Control + Shift + Enter: send, then go to the card that has waited longest on you (with nothing typed, Control + Shift + Enter only moves). Control + Enter alone is not bound: on an iPhone with a keyboard the system opens its copy menu on it. On the phone, Enter twice sends and then opens the card list.
 - Escape: leave the typing box, then let go of the card; it also closes a menu or a picture.
 - Control + R: a random card from the list that is neither being worked on nor waiting for an agent.
 - Control + Shift + up and down: the card's older and newer replies.

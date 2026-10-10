@@ -808,7 +808,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     work: "To change an earlier answer, go back with " + key("Control + Shift + ←") + " and send it again. " +
           "Press " + key("Control + Shift + ↑") + " to see this card's earlier replies, and " +
           key("Control + Shift + ↓") + " to come back. " + key("Control + Shift + →") + " goes on.",
-    agent: "Press " + key("Control + Enter") + " for the card that has waited longest for you. " +
+    agent: "Press " + key("Control + Shift + Enter") + " for the card that has waited longest for you. " +
            "With words in the reply box, it sends them first.",
   };
   const FINISH = "Press " + key("Control + Shift + Backspace") + " to mark this card done and open your board.";
@@ -1030,14 +1030,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
       }
     });
     ta.addEventListener("input", () => { el.tick(); noteTyping(ta); });
-    // Enter sends and Shift + Enter is a new line; Control + Enter sends what
-    // the box holds and then moves on, or only moves with the box empty
-    // (composerEnter in index.html)
+    // Enter sends and Shift + Enter is a new line; Control + Shift + Enter sends
+    // what the box holds and then moves on, or only moves with the box empty
+    // (composerEnter in index.html). Control + Enter alone is the system's
     ta.addEventListener("keydown", e => {
-      if (e.key !== "Enter" || e.shiftKey || e.altKey || e.isComposing) return;
+      const now = controlShiftEnter(e);
+      if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || e.isComposing || bareControlEnter(e)) return;
       e.preventDefault();
       if (e.repeat) return;
-      const now = controlEnter(e);
       sendFrom(card);
       // the board moves once it has the message, which here it has at the press
       if (now) advance();
@@ -1344,7 +1344,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     if (next >= cards.length){ printReply(cards[at].el); return; }
     show(next);
   }
-  // Control + Enter: the card that has waited longest for the reader
+  // Control + Shift + Enter: the card that has waited longest for the reader
   // (jumpNextYellow in card-logic.js). every card here has waited since the
   // run began, so the list's own order breaks the tie: the first question
   // still unanswered and not on its way, and once none is, the closing card
@@ -1424,7 +1424,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // the keys, read by the board's own table (cardShortcut in card-logic.js)
   // and answered as the board answers them (boardShortcutActions in
   // index.html): Control + Shift + an arrow from anywhere, a plain arrow,
-  // Enter and Control + Enter only where nothing is being typed, Escape out
+  // Enter and Control + Shift + Enter only where nothing is being typed, Escape out
   // of the reply box, Control + Shift + ↑ and ↓ through the card's older
   // replies, and the done chord on the closing card. Tab goes between the
   // question and the reply box

@@ -1,7 +1,7 @@
 // Double Enter on the phone page (which the Mac board's narrow view shows) sends
 // the message and then brings out the card list on Doing, the card just
 // answered lifted in it, instead of jumping to the card that has waited longest.
-// Control + Enter keeps its jump, a send the board refuses opens nothing, and
+// Control + Shift + Enter keeps its jump, a send the board refuses opens nothing, and
 // the wide Mac board's double Enter still jumps.
 //
 // The phone's real reply-box key handler, its Enter intent (arm, ask, schedule),
@@ -48,7 +48,8 @@ function phonePage({ view = 'todo' } = {}) {
     activeOwner: 'one', selectedId: 'card', lastState: { boxes: [{ id: 'card', ws: 'work' }] },
     ops: [], createDiagnostics: new Map(),
     els: { card: { ta, field: { focused: () => false }, sentItems: [], meta: { textContent: '' } } },
-    controlEnter: e => e.key === 'Enter' && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey,
+    controlShiftEnter: e => e.key === 'Enter' && e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey,
+    bareControlEnter: e => e.key === 'Enter' && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey,
     traySendable: () => false,
     notePhoneEnter() {}, tracePhone() {}, saveOps() {}, drawSent() {}, ensureCard: id => ctx.els[id],
     undone() {}, drawerNote() {}, endPhoneTrace() {},
@@ -77,9 +78,12 @@ function phonePage({ view = 'todo' } = {}) {
     'var autoNext = null; (function(){' + HANDLER + '})();', ctx);
   vm.runInContext(`setTicketViewOf('one', ${JSON.stringify(view)})`, ctx);
   calls.length = 0;
+  // answers whether the handler cancelled the key
   const press = (init = {}) => {
+    let prevented = false;
     ta.listeners.keydown({ key: 'Enter', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false,
-      repeat: false, isComposing: false, preventDefault() {}, ...init });
+      repeat: false, isComposing: false, preventDefault() { prevented = true; }, ...init });
+    return prevented;
   };
   return {
     ctx, calls, sent, ta, press,
@@ -195,20 +199,22 @@ test('a single Enter sends and neither opens the list nor jumps', async () => {
   p.done();
 });
 
-test('Control + Enter with words sends and still jumps, with no list', async () => {
+const CONTROL_SHIFT = { ctrlKey: true, shiftKey: true };
+
+test('Control + Shift + Enter with words sends and still jumps, with no list', async () => {
   const p = phonePage();
   p.type('an answer');
-  p.press({ ctrlKey: true });
+  assert.equal(p.press(CONTROL_SHIFT), true, 'the key was left to the box, which would type a line');
   p.land();
   await p.settle();
   assert.deepEqual(p.sent, ['an answer']);
   assert.deepEqual(p.calls, ['jump']);
 });
 
-test('Control + Enter sent before the board has the message jumps once it has', async () => {
+test('Control + Shift + Enter sent before the board has the message jumps once it has', async () => {
   const p = phonePage();
   p.type('an answer');
-  p.press({ ctrlKey: true });
+  p.press(CONTROL_SHIFT);
   await p.settle();
   assert.deepEqual(p.calls, []);
   p.land();
@@ -216,21 +222,41 @@ test('Control + Enter sent before the board has the message jumps once it has', 
   assert.deepEqual(p.calls, ['jump']);
 });
 
-test('Control + Enter on an empty box still jumps, with no list', async () => {
+test('Control + Shift + Enter on an empty box still jumps, with no list', async () => {
   const p = phonePage();
-  p.press({ ctrlKey: true });
+  p.press(CONTROL_SHIFT);
   await p.settle();
   assert.deepEqual(p.calls, ['jump']);
 });
 
-test('Control + Enter as the second press after an Enter still jumps, with no list', async () => {
+test('Control + Shift + Enter as the second press after an Enter still jumps, with no list', async () => {
   const p = phonePage();
   p.type('an answer');
   p.press();
   p.land();
-  p.press({ ctrlKey: true });
+  p.press(CONTROL_SHIFT);
   await p.settle();
   assert.deepEqual(p.calls, ['jump']);
+});
+
+test('Control + Enter alone is the system\'s: nothing sent, nothing jumped, nothing cancelled', async () => {
+  const p = phonePage();
+  p.type('an answer');
+  assert.equal(p.press({ ctrlKey: true }), false, 'the key was cancelled');
+  await p.settle();
+  assert.deepEqual(p.sent, []);
+  assert.deepEqual(p.calls, []);
+  const empty = phonePage();
+  assert.equal(empty.press({ ctrlKey: true }), false);
+  await empty.settle();
+  assert.deepEqual(empty.calls, []);
+});
+
+test('Shift + Enter alone is still a new line', async () => {
+  const p = phonePage();
+  p.type('an answer');
+  assert.equal(p.press({ shiftKey: true }), false);
+  assert.deepEqual(p.sent, []);
 });
 
 test('Command + Enter keeps what it did: a second press still jumps', async () => {

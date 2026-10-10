@@ -175,7 +175,8 @@ function desk() {
     sentTry: async () => "landed", sentLanded() {}, sentFailed() {}, undone() {}, poll() {}, cancelAutoNext() {},
     scheduleDesktopAdvance() {}, clearEnterAgain() {}, renderCarousel() {}, histExit() {},
     hist: null, lastState: {}, boardAdvance() {},
-    arrowAgainFor: () => false, askEnterAdvance: () => false, armEnterAgain: () => ({ id: "c1" }), controlEnter: () => false,
+    arrowAgainFor: () => false, askEnterAdvance: () => false, armEnterAgain: () => ({ id: "c1" }),
+    controlShiftEnter: () => false, bareControlEnter: () => false,
   });
   el.send = { disabled: false };
   const source = read("index.html");

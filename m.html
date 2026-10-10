@@ -2300,14 +2300,16 @@ function makeBox(b){
         notePhoneEnter("handler", e, "other-key", ta);
       return;
     }
-    if (e.shiftKey) { notePhoneEnter("handler", e, "shift", ta); return; }
+    const now = controlShiftEnter(e);
+    if (e.shiftKey && !now) { notePhoneEnter("handler", e, "shift", ta); return; }
     if (e.altKey) { notePhoneEnter("handler", e, "modifier", ta); return; }
+    // control+enter alone is the system's: it opens the copy menu on an iPhone
+    if (bareControlEnter(e)) { notePhoneEnter("handler", e, "modifier", ta); return; }
     if (e.isComposing) { notePhoneEnter("handler", e, "composition", ta); return; }
-    // control+enter is a double Enter pressed at once, and no on-screen
+    // control+shift+enter is a double Enter pressed at once, and no on-screen
     // keyboard has the key, so it answers whether or not that keyboard is up.
     // it still jumps to the next card, and so does command+enter; only the
     // plain second Enter opens the card list
-    const now = controlEnter(e);
     if (!now && document.body.classList.contains("kb")) { notePhoneEnter("handler", e, "keyboard", ta); return; }
     e.preventDefault();
     if (e.repeat) { notePhoneEnter("handler", e, "repeat", ta); return; }
@@ -2739,7 +2741,7 @@ function phoneOpenDrawer(id){
   }
   openDrawer();
 }
-// the move control+enter makes at once, and the send arrow's second press
+// the move control+shift+enter makes at once, and the send arrow's second press
 // makes: to the card that has waited longest, in the card's own workspace. a
 // caret in the row goes on into the next card's row, as a step carries it:
 // the box it was in is hidden with its card, and on a phone the keyboard
@@ -6733,7 +6735,7 @@ const phoneShortcutActions = {
   unfold(e){
     unfoldSelected(e, selectedId, selectedId && els[selectedId]);
   },
-  // control+enter outside a reply box: the move a double Enter's second press
+  // control+shift+enter outside a reply box: the move a double Enter's second press
   // makes. a field that is not a reply box keeps the key
   advance(e){
     if (!lastState || phoneShortcutTyping(e.target)) return;
