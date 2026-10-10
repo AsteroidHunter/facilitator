@@ -146,7 +146,7 @@
 /* The four marks are drawn --chip-scale times --bar-mark (the sunset a further
    --done-scale, see DONE_ICON), and each stands in a seat of --bar-sq, the
    rectangle a hover or a press paints, the same size for all four. the board's
-   seats keep the step they always had (--bar-gap-chips in index.html). the phone
+   seats keep one fixed step (--bar-gap-chips in index.html). the phone
    page spaces its seats by the width of the marks instead, so the air between
    neighbouring marks is the same all along its bar, and reads the widths of the
    ink from here: --ink-sun, --ink-dock, --ink-moon and --ink-done are the widths
