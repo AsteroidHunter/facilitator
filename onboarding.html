@@ -1398,7 +1398,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     document.getElementById("tik-page").addEventListener("click", () => slideTicketNames(1));
     document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
     document.getElementById("tv-done").addEventListener("click", () => setView("done"));
-    paintSectionSymbols();   // the card bar's symbol before each section name
     const PRESS_MIN = 80;
     for (const name of document.querySelectorAll("#tikhead .tvb")){
       let since = 0, timer = 0;
