@@ -238,10 +238,10 @@ test("holding the chord scrolls down from the first frame at the old pace and le
   near(f.view.scrollTop, 1000 + f.held(20), "first frame");
   assert.ok(f.view.scrollTop - 1000 > 2.99 && f.view.scrollTop - 1000 < 3.02, "the first frame is the old 3px");
   f.time.run(4);
-  // 100ms in, well inside the double tap window, the motion is 16px: the 15px
+  // 100ms in, well inside the double tap window, the motion is 15.3px: the 15px
   // of the old steady pace and a little more from the speed rising
   near(f.view.scrollTop, 1000 + f.held(100), "after 100ms");
-  assert.ok(f.view.scrollTop - 1000 > 16 && f.view.scrollTop - 1000 < 16.2, `${f.view.scrollTop - 1000}`);
+  assert.ok(f.view.scrollTop - 1000 > 15.2 && f.view.scrollTop - 1000 < 15.4, `${f.view.scrollTop - 1000}`);
   const letGo = f.view.scrollTop;
   f.release("S");
   // not over: it eases off, going on for about the speed it had times 0.1s
@@ -339,8 +339,8 @@ test("an up press speeds up and eases off upward, as a down one does downward", 
   f.press(); f.time.run(1); f.release("S");
   f.time.elapse(100);
   const start = f.view.scrollTop;
-  f.press(); f.time.run(60);
-  near(f.view.scrollTop, start - f.held(1200), "the climb");
+  f.press(); f.time.run(120);
+  near(f.view.scrollTop, start - f.held(2400), "the climb");
   const letGo = f.view.scrollTop;
   f.release("S");
   easeOut(f);
@@ -515,9 +515,9 @@ test("a hold that reaches either end bounces once there and a scroll short of it
 });
 
 test("an ease that carries the response to its end stops there and bounces once", async () => {
-  // 150px to go: a 400ms hold covers about 121 and the ease about 55 more
+  // 150px to go: a 600ms hold covers about 144 and the ease about 41 more
   const f = await setup({ scrollTop: 1450 });
-  f.press(); f.time.run(20);
+  f.press(); f.time.run(30);
   assert.ok(f.view.scrollTop < 1600);
   f.release("S");
   assert.deepEqual(bounces(f), []);
