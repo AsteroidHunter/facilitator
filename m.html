@@ -702,7 +702,12 @@
      the cell's centre, the seat's centre */
   .topbar > .dockbtn{margin-left:var(--seat-gap-dock)}
   .topbar > .arcbtn{margin-left:var(--seat-gap-moon)}
-  .topbar > .xbtn{margin-left:var(--seat-gap-done)}
+  /* the cross is grown as the other marks were (see its bars below), and the gap
+     rule above gives its seat the new width's room. the sun, the cloud and the
+     moon stay where they stood: the cross's seat takes that room from the right
+     instead, by half what its width grew from the .6678 share it had, which the
+     negative margin gives back to the grid's last column */
+  .topbar > .xbtn{margin-left:var(--seat-gap-done); margin-right:calc((.6678 - var(--ink-done)) / 2 * var(--chip-w))}
   .topbar:has(> .dockbtn[aria-disabled="true"]) > .cardspin{margin-left:var(--seat-gap-dock)}
   /* the history control keeps its own width on a card with nothing older, and
      only its marks go. the seats and the chevrons are sized by --hist-cell,
@@ -748,7 +753,8 @@
   .box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}
   .xbtn::before, .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
-    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
+    width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--cross-t) * var(--chip-scale));
+    background:#1e1e1e; border-radius:calc(var(--cross-t) * var(--chip-scale));
   }
   .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
