@@ -133,6 +133,19 @@ Endpoints:
   POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
                                that sends a nonempty meta card here closes it to
                                done instead, so old tabs cannot erase a thread
+  POST /bin?box=ID          -> move any card to the Bin, the Mac board's garbage
+                               can: it leaves every section, its lane's queue and
+                               any claim on it, and no reading or agent sees it.
+                               Its queued messages, thread, attachments and magic
+                               box are all kept. {ok, box, rev}
+  GET  /bin                 -> the Bin, newest first: {cards: [{id, title, owner,
+                               section, ts, until}], keepDays}, ts when it went
+                               in, until when it is deleted for good
+  POST /bin/restore?box=ID  -> put a card from the Bin back in its place and
+                               section, its queued messages back on the queue.
+                               A card BIN_KEEP_DAYS in the Bin is deleted for good,
+                               checked when the board starts and once a day. The
+                               three Bin routes are local only: the bridge refuses them
   POST /upload?name=F[&op=ID] -> body = raw attachment bytes; saves to the sibling internal
                                folder ../facilitator-internal/uploads/ (outside the
                                repo, never pushed), returns {"url": "/uploads/..."}
@@ -1901,7 +1914,7 @@ def _sync_owner_registries() -> None:
     for p in _state.get("projects", []):
         if isinstance(p, dict) and p.get("id") and p["id"] not in kept:
             kept.append(p["id"])
-    for b in _state.get("boxes", []):
+    for b in _state.get("boxes", []) + [e.get("card") for e in _state.get("bin", []) if isinstance(e, dict)]:
         ow = b.get("owner") if isinstance(b, dict) else None
         if ow and ow not in kept:
             kept.append(ow)
@@ -2505,6 +2518,16 @@ def _migrate() -> None:
     _state.pop("paused", None)   # the pause switch is gone; drop what an older board saved
     _state.pop("end", None)   # the end switch is gone; drop what an older board saved
     _state.setdefault("title", "facilitator")
+    # the Bin (2026-10-10): a board from before it has none, and an entry that
+    # is not a card is dropped. Its cards stand with the board's own through
+    # every upgrade below, so one restored later is as current as the rest, and
+    # leave again before the save
+    entries = _state.get("bin")
+    _state["bin"] = [e for e in (entries if isinstance(entries, list) else [])
+                     if isinstance(e, dict) and isinstance(e.get("card"), dict)
+                     and isinstance(e["card"].get("id"), str)]
+    binned = {id(e["card"]) for e in _state["bin"]}
+    _state["boxes"].extend(e["card"] for e in _state["bin"])
     # owners come from data, not code: the built-in facilitator, the lanes named
     # in run.config.json, the stored project lanes, and any owner a saved card
     # already carries. Registered here, before the per-owner loops below lay out
@@ -2730,6 +2753,7 @@ def _migrate() -> None:
     # tabs to list by: cards saved before the board stamped them are filled once
     # from the transcript and from then on the routes keep the stamps
     _backfill_rest_stamps()
+    _state["boxes"] = [b for b in _state["boxes"] if id(b) not in binned]
     _save()
 
 
@@ -3011,6 +3035,96 @@ def _close_box(box: dict) -> str:
     if box["bucket"] != "meta" or _box_has_content(box):
         return _mark_box_done(box)
     return _remove_empty_meta_box(box)
+
+
+# ---- the Bin ------------------------------------------------------------------
+# The garbage can beside a ticket on the Mac board moves the card into the Bin:
+# _state["bin"], newest first, each entry {card, ts, at}, where card is the
+# card's whole record, ts when it went in and at its place in _state["boxes"].
+# A card in the Bin is in no lane, queue or claim, so no agent is handed it and
+# no reading (/state, /m/state, /wait, /fresh, /unread) can show it. Its thread
+# stays in the transcript, its attachments in the uploads folder and its magic
+# box in MAGIC_DIR, so a restore brings it back whole, where it was. After
+# BIN_KEEP_DAYS it is deleted for good: checked when the board starts and every
+# BIN_CHECK_EVERY seconds after.
+BIN_KEEP_DAYS = 30
+BIN_KEEP = BIN_KEEP_DAYS * 86400
+BIN_CHECK_EVERY = 86400
+
+
+def _bin_entries() -> list:
+    """The Bin's entries, the list itself; a missing or malformed one reads empty."""
+    entries = _state.get("bin")
+    if not isinstance(entries, list):
+        entries = _state["bin"] = []
+    return entries
+
+
+def _binned(bid: str) -> dict | None:
+    return next((e for e in _bin_entries() if e["card"]["id"] == bid), None)
+
+
+def _bin_box(box: dict) -> None:
+    """Move one card from the board into the Bin. Its queued messages stay on
+    it, unanswered; a claim held on it is let go without consuming them, so the
+    agent holding it gets no answer through it and the messages are waiting
+    again when it comes back. Caller holds _lock and saves."""
+    bid = box["id"]
+    at = _state["boxes"].index(box)
+    _state["boxes"].remove(box)
+    if bid in _state["inbox"]:
+        _state["inbox"].remove(bid)
+    ow = box.get("owner", "facilitator")
+    if _state["busy"].get(ow) == bid:
+        _state["busy"][ow] = None
+        _state["claimed"][ow] = []
+        _state["ack"][ow] = None
+    _bin_entries().insert(0, {"card": box, "ts": time.time(), "at": at})
+    _log("bin", bid, box["title"])
+
+
+def _restore_binned(entry: dict) -> dict:
+    """Put one card from the Bin back on the board as it was, in its own place
+    and section; queued messages go back on its lane's queue. Caller holds
+    _lock and saves."""
+    _bin_entries().remove(entry)
+    card = entry["card"]
+    at = entry.get("at")
+    at = at if isinstance(at, int) and 0 <= at <= len(_state["boxes"]) else len(_state["boxes"])
+    _register_owner(card.get("owner", "facilitator"))
+    _state["boxes"].insert(at, card)
+    if card.get("pending") and card["id"] not in _state["inbox"]:
+        _state["inbox"].append(card["id"])
+    _log("restore", card["id"], card["title"])
+    return card
+
+
+def _bin_expire(now: float | None = None) -> list:
+    """Delete for good every card that has been in the Bin BIN_KEEP_DAYS or
+    more: its record, its quick note link and, once the save lands, its magic
+    box's files. Answers the ids it deleted. Caller holds _lock and saves."""
+    now = time.time() if now is None else now
+    entries = _bin_entries()
+    gone = [e for e in entries if now - e.get("ts", now) >= BIN_KEEP]
+    for e in gone:
+        entries.remove(e)
+        card = e["card"]
+        for note in _state.get("quicknotes", []):
+            if note.get("card") == card["id"]:
+                note["card"] = None
+        if card.get("magic"):
+            _magic_sweep_due.append(card["id"])
+        _log("expire", card["id"], card.get("title", ""))
+    return [e["card"]["id"] for e in gone]
+
+
+def _bin_clock() -> None:
+    """The Bin's daily check, for a board that stays up for days."""
+    while not _STOPPING.wait(BIN_CHECK_EVERY):
+        with _lock:
+            if _bin_expire():
+                _save()
+                _notify()
 
 
 def _ws(owner: str, wid: str) -> dict | None:
@@ -5124,6 +5238,9 @@ def _magic_sweep(bid: str) -> None:
     """Every file of a card's box but the revision the card names now, and all
     of them for a card the board no longer has. Callers hold _lock."""
     box = _box(bid)
+    if box is None:   # a card in the Bin keeps its box until it is deleted for good
+        entry = _binned(bid)
+        box = entry["card"] if entry else None
     keep = (box.get("magic") or {}).get("rev") if box else None
     mine = re.compile(re.escape(_magic_stem(bid)) + r"-([0-9]+)\.[a-z]+")
     try:
@@ -6263,7 +6380,8 @@ def _omni_entry(text: str) -> bool:
 
 def _next_omni_number(owner: str) -> int:
     """Allocate within one lane while the caller holds _lock."""
-    used = [_omni_number(b.get("title", "")) for b in _state["boxes"]
+    # a card in the Bin keeps its number, so one restored never shares it
+    used = [_omni_number(b.get("title", "")) for b in _state["boxes"] + [e["card"] for e in _bin_entries()]
             if b.get("owner", "facilitator") == owner]
     return max((number for number in used if number is not None), default=0) + 1
 
@@ -6452,6 +6570,45 @@ def _post_delete(q: Query, text: str):
         _save()
         _notify()
         return 200, {"ok": True, "action": action}
+
+
+def _post_bin(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        _bin_box(box)
+        _save()
+        _notify()
+        return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
+
+
+def _get_bin(q: Query, _):
+    """The Bin, newest first: each card's id, title, owner, the section it
+    left and when it went in, with when it is deleted for good."""
+    with _lock:
+        cards = []
+        for e in _bin_entries():
+            c = e["card"]
+            cards.append({"id": c["id"], "title": c.get("title", ""),
+                          "owner": c.get("owner", "facilitator"),
+                          "section": ("done" if c.get("done") else "deferred" if c.get("parked")
+                                      else "docked" if c.get("docked") else "doing"),
+                          "ts": e.get("ts", 0), "until": e.get("ts", 0) + BIN_KEEP})
+        return 200, {"cards": cards, "keepDays": BIN_KEEP_DAYS}
+
+
+def _post_bin_restore(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        entry = _binned(bid)
+        if entry is None:
+            return 400, {"error": "not in the bin"}
+        _restore_binned(entry)
+        _save()
+        _notify()
+        return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
 
 
 def _post_ws_goal(q: Query, text: str):
@@ -8151,6 +8308,9 @@ ROUTES = [
     Route("/project", _state_endpoint(_post_project, "text"), methods=["POST"]),
     Route("/close", _state_endpoint(_post_close, "text"), methods=["POST"]),
     Route("/delete", _state_endpoint(_post_delete, "text"), methods=["POST"]),
+    Route("/bin", _state_endpoint(_get_bin), methods=["GET"]),
+    Route("/bin", _state_endpoint(_post_bin, "text"), methods=["POST"]),
+    Route("/bin/restore", _state_endpoint(_post_bin_restore, "text"), methods=["POST"]),
     Route("/ws/goal", _state_endpoint(_post_ws_goal, "text"), methods=["POST"]),
     Route("/ws/task", _state_endpoint(_post_ws_task, "text"), methods=["POST"]),
     Route("/ws/current", _state_endpoint(_post_ws_current, "text"), methods=["POST"]),
@@ -8655,11 +8815,13 @@ def main() -> None:
             for b in _state["boxes"]:
                 if b["pending"] and b["id"] not in _state["inbox"]:
                     _state["inbox"].append(b["id"])
+            _bin_expire()   # cards past their 30 days in the Bin go for good
             _save()
         pushed = _state.get("push_last_ok") or {}
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
         _start_usage_counts()
+        threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
         server.run(sockets=[sock, bridge_sock])
     except Exception as error:
         # the last word about a start that died of something rather than being
