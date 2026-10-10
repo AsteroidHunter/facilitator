@@ -6,13 +6,13 @@
 // edge rather than off the workspace when the window has no room; inside that
 // largest box, a picture in its own shape and never past its own size, words
 // at their own height, hung from that box's top, under a top bar that keeps
-// its height. Its look, read from the page's source: the card's own edge, face,
-// corners and shadow, always, a white top bar with the Mac's three lights, and
-// a site that will not be framed as a square with its name in the middle;
-// whichever of the card and the box is held stands up and the other settles,
-// and a box beside a lowered card sits level with it. And the page's wiring: the box is never one of the regions the fit, the
-// layout or edit mode work on, a click or the focus says which of the two is
-// held, and a page in the box never takes the keys by itself.
+// its height. Its look, read from the page's source: no edge, face or shadow
+// of its own, a short bar parted from what it shows by the ticket list's own
+// line, one cross, and a site that will not be framed as a square with its
+// name in the middle; clicking into it moves no shadow. And the page's wiring:
+// the box is never one of the regions the fit, the layout or edit mode work
+// on, and a page in the box never takes the keys by itself. People and agents
+// know it as a side note; the code keeps its own name for it.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -313,7 +313,7 @@ test("the box has no frame, face or shadow: a short bar parted from what it hold
     assert.ok(section.length > 0, open);
     const bar = section.slice(section.indexOf('<div class="mbbar">'), section.indexOf("</div>", section.indexOf('<div class="mbbar">')));
     assert.equal(bar.trim().split("\n").slice(1).map(l => l.trim()).join(""),
-      '<button type="button" class="mbclose" aria-label="Close the magic box"></button>');
+      '<button type="button" class="mbclose" aria-label="Close the side note"></button>');
     assert.ok(!/mblight/.test(page), "a light is left on the page");
   }
   // its mark is drawn once, by the view both pages share, in the card bar's
@@ -836,4 +836,29 @@ test("both pages load the box's script, and the board keeps the box out of the r
   assert.match(html, /MagicBox\.place\(/);
   assert.match(read("server.py"), /Route\("\/magic-box\.js", _static\("magic-box\.js"/);
   assert.match(read("tests/fixture-auth.cjs"), /'magic-box\.js'/);
+});
+
+test("people and agents know it as a side note: the pages' labels, the command, its help, the runbook and the skill", () => {
+  const phone = read("m.html"), board = read("index.html");
+  assert.match(phone, /<section id="mbface" class="magicbox barfoot" aria-label="side note">/);
+  for (const page of [board, phone]) assert.ok(!/aria-label="[^"]*magic/i.test(page), "a label still says magic");
+  const cli = read("facilitator"), runbook = read("RUNBOOK.md"), skill = read(".agents/skills/facilitator/SKILL.md");
+  assert.match(cli, /\n    elif cmd == "sidenote":\n        cmd_magic\(args\)\n/);
+  assert.ok(!/cmd == "magic"/.test(cli), "the old command is still taken");
+  for (const [name, text] of [["facilitator", cli], ["RUNBOOK.md", runbook], ["SKILL.md", skill]]) {
+    assert.ok(!/facilitator magic|magic box/i.test(text), name + " still names the magic box");
+    assert.match(text, /facilitator sidenote CARD|facilitator sidenote m12/, name);
+  }
+  assert.match(runbook, /\n## Side notes\n/);
+  assert.match(runbook, /\n## Seeing a card's side note\n/);
+  assert.match(skill, /the runbook's "Side notes" section/);
+  // what the board says back to an agent, in the same name
+  const server = read("server.py");
+  for (const words of ["this card has no side note", "the side note would be empty", "the side note could not be written",
+    "a website side note takes one web address on one line", "this card's side note holds no picture"])
+    assert.ok(server.includes(`"${words}"`), words);
+  assert.ok(!/"error": "[^"]*magic box/.test(server), "a refusal still says magic box");
+  // the routes and the stored folder keep their names
+  assert.match(server, /Route\("\/magic", _endpoint\(_post_magic/);
+  assert.match(server, /MAGIC_DIR = HERE \/ "magic-boxes"/);
 });
