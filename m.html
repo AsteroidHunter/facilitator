@@ -1798,6 +1798,68 @@ for (const type of ["gesturestart", "gesturechange"])
 <script src="/home-widgets.js"></script>
 <script src="/m-splash.js"></script>
 <script>
+// THE PAGE DOES NOT START WITHOUT ITS CODE, AND DOES NOT SIT ON THE GLOBE
+// WITHOUT IT. The three shared files named below are what the rest of this
+// script is written in (the others are only used when a feature is opened, or
+// are guarded where they are used). The browser waits for each of them however
+// long it takes and nothing keeps an older copy, so one missing here failed: the line
+// dropped part of the way through it, or the bridge answered with an error.
+// Starting without it only breaks, with the globe still turning over a page
+// nothing can take it down from, so the white "server down" screen takes the
+// page instead and counts to its next try. A try asks for the files that failed
+// (or, when none did, for the page), and when the Mac answers it reloads, which
+// asks for every file again. An error thrown anywhere before the first board is
+// drawn puts up the same screen; once a board has been drawn the page works and
+// the screen goes. A picture or script that failed to load carries no message,
+// and the browser's own ResizeObserver complaint is routine (card-report.js
+// lists it): neither is the page breaking. Rejected promises are not counted
+// either, since a call to the Mac that fails on a bad line is not an error in
+// the page.
+const lostFiles = [
+  ["/card-markdown.js", typeof CardMarkdown],
+  ["/card-logic.js", typeof settingsPage],
+  ["/compose-format.js", typeof ComposeFormat],
+].filter(([, kind]) => kind === "undefined").map(([file]) => file);
+let pageRetry = null;
+// drewBoard is declared further down; until the script has got there it cannot
+// be read, and no board has been drawn
+function boardDrawn(){
+  try { return drewBoard; } catch (_) { return false; }
+}
+function pageBroken(){
+  if (boardDrawn()) return;
+  if (!pageRetry){
+    pageRetry = downRetry(document.querySelector("#serverdown .retry"), async () => {
+      if (document.hidden) return false;
+      try {
+        for (const url of lostFiles.length ? lostFiles : [location.href]){
+          const answer = await fetch(url, { cache: "no-store" });
+          if (!answer.ok) return false;
+          await answer.arrayBuffer();   // all of it: a line that drops again is not an answer
+        }
+      } catch (_) { return false; }
+      if (!boardDrawn()) location.reload();
+      return true;
+    });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) pageRetry.now(); });
+    addEventListener("online", () => pageRetry.now());
+  }
+  document.body.classList.add("down");
+  pageRetry.start();
+}
+// the first board has been drawn after all: whatever threw did not stop the page
+function pageMended(){
+  if (!pageRetry) return;
+  pageRetry.stop();
+  document.body.classList.remove("down");
+}
+addEventListener("error", event => {
+  if (event.message && !/^ResizeObserver loop/.test(event.message)) pageBroken();
+});
+if (lostFiles.length){
+  pageBroken();
+  throw new Error("the page's shared files did not load: " + lostFiles.join(", "));
+}
 // Only the Mac's own same-origin frame can enable the host adapter. A direct
 // /m visit, including every iPhone visit, keeps the ordinary phone lifecycle.
 const macHost = (() => {
@@ -5748,6 +5810,7 @@ async function readBoard(){
             endPhoneTrace(applyTrace, { action: "state", part: "apply", changed: true });
             servedCards = served;
             drewBoard = true;   // a whole reading reached the screen
+            pageMended();       // and a page held on its white screen by an earlier error is whole
           } catch (e) {
             lastState = heldState;
             lastRev = null;
