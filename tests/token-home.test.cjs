@@ -854,6 +854,8 @@ function homeBlock({ serve = true, stored = {} } = {}) {
     console, document: doc, localStorage: store, settingsStore: settings, FOCUS: true, editMode: false, lastState: { rev: 1 },
     setEditMode: on => { ctx.editMode = on; },
     renderTabs: st => tabs.push(st),
+    magicSync: () => {},   // the card's magic box goes with the board and comes back with it
+
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },
     clearInterval: id => { timers.delete(id); },
     fetch: async url => { fetched.push(url);

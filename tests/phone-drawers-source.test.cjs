@@ -154,7 +154,8 @@ test("the settings are the narrow panel off the right edge and the list uses no 
   const shade = rulesFor(/^#settings::after$/).map(r => r.body).join(";");
   assert.match(shade, /box-shadow:-2px 0 6px rgba\(0,0,0,\.10\), -10px 0 26px rgba\(0,0,0,\.20\)/, "the settings' shade changed");
   // a pull on the settings is measured against the width they are drawn at, as before the card list moved
-  assert.match(MENUS, /function menuTravel\(panel\)\{\s*return panel === tickets \? tickets\.offsetLeft \+ tickets\.offsetWidth : panel\.getBoundingClientRect\(\)\.width;/);
+  // (and the card list from the page's left edge, or from its right when it comes in with the magic box)
+  assert.match(MENUS, /function menuTravel\(panel\)\{\s*if \(panel !== tickets\) return panel\.getBoundingClientRect\(\)\.width;\s*return tickets\.dataset\.side === "right" \? tikwin\.clientWidth - tickets\.offsetLeft : tickets\.offsetLeft \+ tickets\.offsetWidth;/);
   // the shade and the page's depth belong to the settings alone
   assert.match(MENUS, /\} else \{\s*\/\/ the settings come out on their list[\s\S]*?--scrimv[\s\S]*?--page-scale/);
   const list = MENUS.slice(MENUS.indexOf("if (panel === tickets){"), MENUS.indexOf("} else {", MENUS.indexOf("if (panel === tickets){")));

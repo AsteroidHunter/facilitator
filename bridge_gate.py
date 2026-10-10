@@ -56,13 +56,15 @@ FILE_ROUTES = ("/uploads/", "/laneimg/")
 PAGE_OPENS = frozenset({"/m", "/"})
 # answered only to a page on the Mac itself, never through this gate, signed in
 # or not: the Spotify sign-in, the explicit browser-window launcher, the yes to
-# feedback mail, the onboarding with the sample project it makes, and the cards'
-# magic boxes, which only the Mac board shows and only agents on the Mac fill.
-# The profile is not here: a signed-in phone reads it, and its route refuses a
-# write that did not come from the Mac
+# feedback mail, the onboarding with the sample project it makes, and filling,
+# reading back and reopening the cards' magic boxes, which only agents on the
+# Mac do. A signed-in phone reads what a box holds and its picture, and closes
+# it, as the board does: those three routes pass. The profile is not here: a
+# signed-in phone reads it, and its route refuses a write that did not come from
+# the Mac
 LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
                         "/onboarding", "/onboarding/sample",
-                        "/magic", "/magic/close", "/magic/reopen", "/magic/body", "/magic/img"})
+                        "/magic", "/magic/reopen"})
 
 
 def _client_class(headers):

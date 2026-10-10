@@ -1396,78 +1396,18 @@
   /* both rules above set display, which beats the hidden attribute on their own.
      without this the stub and the picture are on screen at the same time */
   #magic3 [hidden]{display:none}
-  /* a card's magic box, beside the card on screen, in the card's own white
-     face, edge, 7px corners and shadow. the shadow also says which of the box
-     and the card is being worked in (magicHold): the one held wears the card's
-     raised shadow and the other the faint one the card settles to under magic
-     box 2, eased over the card's own .2s. a box comes in settled, since the
-     card is what was being worked in. where it stands and how big it is is
-     magic-box.js's: at most nine tenths of the card's height and a little
-     wider than an iPhone 13 mini's screen, level with the card's middle;
-     inside that a picture in its own shape and words at their own height, in
-     the middle of the room right of the card and hung from that largest
-     box's top. floated over the card's edge when the window has no room. off
-     the board (home, edit mode) it is not drawn */
+  /* a card's magic box, beside the card on screen. its look is the shared
+     sheet's (.magicbox, card-tokens.css), which the phone's drawer wears too;
+     its words stand off its edges by the card's answer's own inset. where it
+     stands and how big it is is magic-box.js's: at most nine tenths of the
+     card's height and a little wider than an iPhone 13 mini's screen, level
+     with the card's middle; inside that a picture in its own shape and words
+     at their own height, in the middle of the room right of the card and hung
+     from that largest box's top. floated over the card's edge when the window
+     has no room. off the board (home, edit mode) it is not drawn */
   #magicbox{display:none}
-  body.focus #magicbox.on{
-    display:flex; flex-direction:column; position:fixed; z-index:1; overflow:hidden;
-    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
-    box-shadow:0 2px 18px rgba(60,45,20,.06);
-    transition:box-shadow .2s;
-  }
-  body.focus #magicbox.on.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
-  /* its top bar is the card's own: as tall, as white, and parted from what the
-     box holds by the same hairline. at its right stand the Mac's three window
-     lights in the Mac's order: the red one puts the box away (magicClose), and
-     the yellow and green ones, for shrinking it and for full size, are greyed
-     until they have work. as on the Mac, the red one shows its cross while the
-     pointer is over the lights or the red one has the keys */
-  #magicbox .mbbar{flex:none; display:flex; align-items:center; justify-content:flex-end;
-    height:var(--cardbar-h); padding:0 12px; background:var(--card);
-    box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
-  #magicbox .mblights{display:flex; gap:8px}
-  #magicbox .mblight{position:relative; width:12px; height:12px; padding:0; border:none; border-radius:50%;
-    background:#DCDCDC; box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
-  #magicbox .mbclose{background:#FF5F57; cursor:pointer}
-  #magicbox .mbclose:focus-visible{outline:2px solid var(--line); outline-offset:1px}
-  #magicbox .mbclose::before, #magicbox .mbclose::after{content:""; position:absolute; left:50%; top:50%;
-    width:6.5px; height:1.2px; margin:-0.6px 0 0 -3.25px; border-radius:1px; background:rgba(77,0,0,.7);
-    opacity:0; transform:rotate(45deg)}
-  #magicbox .mbclose::after{transform:rotate(-45deg)}
-  #magicbox .mblights:hover .mbclose::before, #magicbox .mblights:hover .mbclose::after,
-  #magicbox .mbclose:focus-visible::before, #magicbox .mbclose:focus-visible::after{opacity:1}
-  #magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto}
-  /* words run the box's full width in the board's own body size, off its
-     edges by the card's answer's own inset */
-  #magicbox .mbtext{padding:calc(var(--pad-x)*2/3); font-size:15px; line-height:1.55; color:var(--ink)}
-  #magicbox .mbtext.plain{white-space:pre-wrap}
-  /* a picture fills the box, which takes the picture's own shape; a page or a
-     site fills the body edge to edge on its own white */
-  #magicbox .mbimg{display:block; width:100%; height:100%; object-fit:contain}
-  #magicbox .mbframe{display:block; width:100%; height:100%; border:0; background:var(--card)}
-  /* the clear cover over a page or a site while the pointer is not over the box
-     (magicPointer): the pointer lands on it, so the board knows it came, and it
-     comes off at once, before any click */
-  #magicbox .mbcover{position:absolute; inset:0}
-  #magicbox.over .mbcover{display:none}
-  /* a site that will not be framed: the box comes square, and in its middle a
-     smaller box with the site's name and the mark for opening it in a new
-     page, which it does when clicked. a breath of the board's ink over the
-     card's white, whatever colour the board is, with the card's edge and the
-     7px of things let into the card, deepening by half the one press shade
-     under the pointer and by all of it while pressed */
-  #magicbox .mbaway{display:flex; align-items:center; justify-content:center; height:100%; padding:24px}
-  #magicbox .mbopen{--mbtile:color-mix(in srgb, var(--ink) 4%, var(--card));
-    display:inline-flex; align-items:center; justify-content:center; gap:10px;
-    max-width:100%; min-width:58%; padding:18px 22px; cursor:pointer;
-    background:var(--mbtile); border:var(--edge) solid var(--line); border-radius:7px;
-    color:var(--ink); font:625 17px/1.3 var(--inter); transition:background .12s}
-  #magicbox .mbopen:hover{background:color-mix(in srgb, #000 calc(var(--press) / 2), var(--mbtile))}
-  #magicbox .mbopen:active{background:color-mix(in srgb, #000 var(--press), var(--mbtile))}
-  #magicbox .mbopen:focus-visible{outline:2px solid var(--line); outline-offset:2px}
-  #magicbox .mbopen span{min-width:0; overflow-wrap:anywhere; text-align:center}
-  #magicbox .mbopen svg{flex:none; width:15px; height:15px; color:var(--sub)}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
@@ -3713,10 +3653,10 @@
      it is placed from the card's own rectangle and filled only for the card on
      screen, so the fit, the saved layout and edit mode never see it. it stands
      over the card by its z-index when the window has no room beside it -->
-<section id="magicbox">
+<section id="magicbox" class="magicbox">
   <div class="mbbar">
     <span class="mblights">
-      <button type="button" class="mblight mbclose" aria-label="Close the magic box"></button>
+      <button type="button" class="mblight mbclose" aria-label="Close the magic box"><i></i></button>
       <span class="mblight" aria-hidden="true"></span>
       <span class="mblight" aria-hidden="true"></span>
     </span>
@@ -8235,10 +8175,11 @@ panelPoll(); setInterval(panelPoll, 4000);
 // holds under its own top bar and nothing else: its title is kept by the board
 // and not drawn here. it never takes the keys or moves the board when it comes:
 // it waits on its card, and only a click or a Tab puts the owner in it
-const MB = { el: document.getElementById("magicbox"), id: null, rev: 0, asked: 0, url: "" };
+const MB = { el: document.getElementById("magicbox"), id: null, rev: 0, asked: 0 };
 if (MB.el){
-  MB.body = MB.el.querySelector(".mbbody");
-  MB.bar = MB.el.querySelector(".mbbar");
+  // what it holds is drawn by the view both pages share (card-logic.js)
+  MB.view = magicView(MB.el, { placed: () => magicPlace(), openSite: magicOpenSite });
+  MB.body = MB.view.body;
   MB.el.querySelector(".mbclose").addEventListener("click", () => magicClose());
 }
 // the card the box belongs to, or null: the card on screen, on this tab, not
@@ -8264,9 +8205,9 @@ function magicOff(){
   MB.el.classList.remove("on", "held", "over");
   MB.over = false;   // a box taken away is left by the pointer without a word
   if (MB.id === null) return;
-  MB.id = null; MB.rev = 0; MB.asked++; MB.url = ""; MB.page = null; MB.natural = null;
+  MB.id = null; MB.rev = 0; MB.asked++;
   if (MB.words) MB.words.disconnect();
-  MB.body.textContent = "";
+  MB.view.clear();
 }
 async function magicLoad(id, rev){
   // the agent's next revision keeps the box held; another card's comes settled
@@ -8287,110 +8228,22 @@ async function magicLoad(id, rev){
   magicDraw(box);
 }
 function magicDraw(box){
-  MB.url = box.kind === "url" ? box.url || "" : "";
-  MB.body.dataset.kind = box.kind;
-  if (box.kind === "text" || box.kind === "markdown"){
-    const prose = h("div", "mbtext cardmd" + (box.kind === "text" ? " plain" : ""));
-    if (box.kind === "text") prose.textContent = box.text || "";
-    else prose.innerHTML = fmt(box.text || "");
-    MB.body.appendChild(prose);
-  } else if (box.kind === "image"){
-    // the board's own copy, served sandboxed, so the picture's site never sees
-    // the owner's browser
-    const img = h("img", "mbimg");
-    img.alt = box.title || "";
-    img.addEventListener("load", magicPlace);
-    img.src = box.src;
-    MB.body.appendChild(img);
-    // the box takes the picture's own shape, read off a copy of it that is never
-    // laid out: a drawing (SVG) on the page answers with the size it is drawn
-    // at, which would hold the box at whatever size it last had. a picture
-    // that cannot be read has no size of its own and takes the whole box
-    const own = new Image();
-    own.onload = own.onerror = () => {
-      if (!img.isConnected) return;
-      MB.natural = [own.naturalWidth, own.naturalHeight];
-      magicPlace();
-    };
-    own.src = box.src;
-  } else if (box.kind === "html"){
-    magicPage(box.html || "", 0);
-  } else if (box.kind === "url" && box.shown === "frame"){
-    const frame = h("iframe", "mbframe");
-    frame.setAttribute("credentialless", "");
-    frame.credentialless = true;
-    frame.setAttribute("sandbox", MagicBox.SITE_SANDBOX);
-    frame.setAttribute("referrerpolicy", "no-referrer");
-    frame.src = box.url;
-    MB.body.append(frame, h("div", "mbcover"));
-  } else if (box.kind === "url"){
-    // a site that will not be framed: a smaller box in the middle with the
-    // site's name and the mark for a new page, which opens it there
-    const away = h("div", "mbaway"), open = h("button", "mbopen");
-    const name = magicSiteName(box);
-    open.type = "button";
-    open.setAttribute("aria-label", "Open " + name + " in a new page");
-    open.appendChild(h("span", "", name));
-    open.insertAdjacentHTML("beforeend", MAGIC_NEW_PAGE);
-    open.addEventListener("click", magicOpenSite);
-    away.appendChild(open);
-    MB.body.appendChild(away);
-  }
+  MB.view.draw(box);
   const words = MB.body.querySelector(".mbtext");
   if (words && MB.words) MB.words.observe(words);
   MB.el.classList.add("on");
   magicPlace();
 }
-// an agent's page in its sealed frame. each time the page finishes loading it
-// says so with a word only it and the board know (MagicBox.pageDoc). a load the
-// word does not follow is the page sending its frame somewhere else, which it
-// may not: a fresh frame with the page takes its place, and a page that keeps
-// leaving is taken down after three tries. the frame cannot be looked into, so
-// the word is how the board knows what is in it
-function magicPage(html, tries){
-  MB.body.textContent = "";
-  MB.page = null;
-  if (tries > 3) return;
-  const frame = h("iframe", "mbframe");
-  frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
-  frame.setAttribute("referrerpolicy", "no-referrer");
-  const page = MB.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries };
-  frame.addEventListener("load", () => {
-    page.loads++;
-    // the word is posted from the page's own load, so it lands a moment after
-    // the frame's; half a second is long past it on a page that stayed
-    setTimeout(() => {
-      if (MB.page === page && frame.isConnected && page.said < page.loads) magicPage(html, tries + 1);
-    }, 500);
-  });
-  frame.srcdoc = MagicBox.pageDoc(html, page.word);
-  MB.body.append(frame, h("div", "mbcover"));
-}
-addEventListener("message", e => {
-  const page = MB.page;
-  if (page && e.source === page.frame.contentWindow && e.data === page.word) page.said++;
-});
-// the mark for opening in a new page: a page with an arrow leaving it at the top
-// right, drawn in the line's own colour
-const MAGIC_NEW_PAGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 2.5h4v4"/>' +
-  '<path d="M13.5 2.5 7.5 8.5"/><path d="M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/></svg>';
-// a site's name as the site gives it, or its address's host without "www."
-function magicSiteName(box){
-  const site = ((box.preview || {}).site || "").trim();
-  let host = "";
-  try { host = new URL(box.url || "").hostname; } catch (e) {}
-  return (site && site !== host ? site : host.replace(/^www\./, "")) || site || box.url || "";
-}
-// the site in the owner's own browser, where the owner is signed in: Chrome on
-// the Mac, as the card's link menu opens it, and a new tab anywhere else
-function magicOpenSite(){
-  if (!MB.url) return;
+// a site that will not be framed, in the owner's own browser, where the owner
+// is signed in: Chrome on the Mac, as the card's link menu opens it, and a new
+// tab anywhere else
+function magicOpenSite(url){
+  if (!url) return;
   const mac = (/^Mac/.test(navigator.platform) || navigator.userAgentData?.platform === "macOS") &&
     !navigator.maxTouchPoints;
   if (mac && ["localhost", "127.0.0.1"].includes(location.hostname))
-    fetch("/open-in-browser", { method: "POST", body: MB.url }).catch(() => {});
-  else window.open(MB.url, "_blank", "noopener,noreferrer");
+    fetch("/open-in-browser", { method: "POST", body: url }).catch(() => {});
+  else window.open(url, "_blank", "noopener,noreferrer");
 }
 // the red light: the box put away, as `facilitator magic close` does. what it
 // held is kept, and the card's agent brings it back by filling it again. it
@@ -8402,25 +8255,6 @@ function magicClose(){
   if (b && b.magic) b.magic.open = false;
   magicOff();
   fetch("/magic/close?box=" + encodeURIComponent(id), { method: "POST" }).then(() => poll(), () => {});
-}
-// what the box shows asks for, in stage pixels (MagicBox.place's want), or
-// nothing for a page or a site. most: the largest box there is room for. a
-// picture asks for its own size, as many stage pixels as it has pixels on
-// screen, so it is never drawn past its sharpness, with the top bar as its
-// head; words for their own height at that largest box's width; a site that
-// will not be framed for a square. the edge and the top bar are added, so
-// what is under the bar is the size it asks for
-function magicWant(most, S){
-  const kind = MB.body.dataset.kind, edges = MB.el.offsetWidth - MB.el.clientWidth, head = MB.bar.offsetHeight;
-  if (kind === "image"){
-    const [w, h] = MB.natural || [0, 0];
-    return w && h ? { width: w / S + edges, height: h / S + edges, head } : null;
-  }
-  if (MB.body.querySelector(".mbaway")) return { height: most.width };
-  const words = MB.body.querySelector(".mbtext");
-  if (!words) return null;
-  MB.el.style.width = most.width + "px";
-  return { height: words.offsetHeight + edges + head };
 }
 // beside the card's own rectangle, read off the page the way the fit reads the
 // regions: screen pixels, less the stage's origin, over the stage's scale. the
@@ -8439,10 +8273,10 @@ function magicPlace(){
   const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
   const fit = { scale: S, tx: stageTx, left: lim.left - FRAME_CLEAR, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
   const most = MagicBox.place(rect, fit, bar);
-  const at = MagicBox.place(rect, fit, bar, magicWant(most, S));
-  const img = MB.body.dataset.kind === "image" && MB.body.querySelector(".mbimg");
+  // what it shows asks for, in stage pixels: the view's want (card-logic.js)
+  const at = MagicBox.place(rect, fit, bar, MB.view.want(most, S));
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
-    height: at.height + "px", visibility: img && (!img.complete || !MB.natural) ? "hidden" : "" });
+    height: at.height + "px", visibility: MB.view.waiting() ? "hidden" : "" });
   MB.el.classList.toggle("floating", at.floating);
 }
 if (MB.el){

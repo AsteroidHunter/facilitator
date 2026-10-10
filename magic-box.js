@@ -1,8 +1,9 @@
-/* A card's magic box on the Mac board: where it stands beside the card, and the
-   sealed frames it shows pages in. What can be worked out without a page is
-   kept here, so it is tested without a browser; index.html holds the element,
-   its looks and its wiring. Every length is in the 1440 by 900 stage's own
-   pixels. */
+/* A card's magic box: where it stands beside the card on the Mac board, how big
+   what it shows is in any room (the phone's drawer is one), and the sealed
+   frames it shows pages in. What can be worked out without a page is kept
+   here, so it is tested without a browser; card-tokens.css holds its look,
+   card-logic.js its drawing, and each page its element and wiring. Every
+   length on the board is in the 1440 by 900 stage's own pixels. */
 (function (root) {
   "use strict";
   // one star cell: the stars sit at CELL * (n + 0.5) across the stage, and every
@@ -56,6 +57,15 @@
       height = width / SHAPE;
     }
     const top = middle - height / 2;
+    ({ width, height } = fitRoom({ width, height }, want));
+    const left = floating ? edge - clear - width : right + (room - width) / 2;
+    return { left, top, width, height, floating };
+  }
+  // what the box shows, at its own size inside a room {width, height}: want as
+  // place() takes it. The phone's drawer is such a room, with no card beside it.
+  // MagicBox.fit
+  function fitRoom(room, want) {
+    let { width, height } = room;
     if (want && want.width > 0 && want.height > 0) {
       const head = Math.min(want.head || 0, height);
       const s = Math.min(1, width / want.width, (height - head) / want.height);
@@ -64,8 +74,7 @@
     } else if (want && want.height > 0) {
       height = Math.min(height, want.height);
     }
-    const left = floating ? edge - clear - width : right + (room - width) / 2;
-    return { left, top, width, height, floating };
+    return { width, height };
   }
   // a page an agent wrote runs sealed off: its frame has scripts and nothing
   // else, so its origin is its own and never the board's (no same origin, no
@@ -106,5 +115,5 @@
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { CELL, onStar, TALL, WIDE, SHAPE, place, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { CELL, onStar, TALL, WIDE, SHAPE, place, fit: fitRoom, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
 })(globalThis);
