@@ -223,8 +223,7 @@
   }
   body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
-    width:calc(var(--bar-mark) * var(--cross-scale)); height:calc(var(--cross-t) * var(--cross-scale));
-    background:#1e1e1e; border-radius:calc(var(--cross-t) * var(--cross-scale));
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
   }
   body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}

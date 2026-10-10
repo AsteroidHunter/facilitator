@@ -654,13 +654,9 @@
     width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
     background:var(--card); font-size:0; padding:0; border:none;
   }
-  /* the cross's two bars are --cross-scale times the mark size, and as thick as
-     their length asks, --cross-weight of it, so it is drawn as it always was,
-     only as much larger as the sun, the cloud and the moon beside it now are */
   body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
-    width:calc(var(--bar-mark) * var(--cross-scale)); height:calc(var(--cross-t) * var(--cross-scale));
-    background:#1e1e1e; border-radius:calc(var(--cross-t) * var(--cross-scale));
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
   }
   body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
