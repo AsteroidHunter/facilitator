@@ -1,5 +1,5 @@
-// `facilitator magic`, the one call an agent makes to open, fill and close a
-// card's magic box on its own. A copy of the command runs beside a fixture
+// `facilitator sidenote`, the one call an agent makes to open, fill and close
+// a card's side note on its own. A copy of the command runs beside a fixture
 // board on spare ports, finding the port the way it does on a real install,
 // in the run.config.json beside it. No browser is started and no site is
 // asked for: the web addresses used here are refused before any fetch.
@@ -23,8 +23,8 @@ before(async () => {
 });
 after(async () => { if (board) await board.stop(); });
 
-function magic(args, input, command = cli) {
-  const run = spawnSync("python3", [command, "magic", ...args], {
+function magic(args, input, command = cli, name = "sidenote") {
+  const run = spawnSync("python3", [command, name, ...args], {
     encoding: "utf8", input, timeout: 60000,
     env: { ...process.env, FACILITATOR_LOG_DIR: path.join(board.outer, "cli-logs") },
   });
@@ -32,8 +32,11 @@ function magic(args, input, command = cli) {
 }
 const body = async id => (await fetch(`${board.origin}/magic/body?box=${id}`)).json();
 
-test("each kind fills the card's box from an argument, a file or standard input", async () => {
-  let run = magic(["0", "text", "plain *words*", "--title", "Words"]);
+test("each kind fills the card's side note from an argument, a file or standard input", async () => {
+  // a card never filled has none to show, and says so in the new name
+  let run = magic(["0", "show"]);
+  assert.deepEqual([run.code, run.out, run.err], [1, "", "sidenote: this card has no side note"]);
+  run = magic(["0", "text", "plain *words*", "--title", "Words"]);
   assert.equal(run.code, 0, run.err);
   const answer = JSON.parse(run.out);
   assert.deepEqual([answer.ok, answer.box, answer.kind, answer.shown], [true, "0", "text", "inline"]);
@@ -58,7 +61,7 @@ test("each kind fills the card's box from an argument, a file or standard input"
   assert.deepEqual(Buffer.from(await (await fetch(board.origin + shown.src)).arrayBuffer()), PNG);
 });
 
-test("close hides the box, reopen shows it, show prints what it holds", async () => {
+test("close hides the side note, reopen shows it, show prints what it holds", async () => {
   assert.equal(magic(["1.1", "text", "for the lane card"]).code, 0);
   let run = magic(["1.1", "close"]);
   assert.equal(run.code, 0, run.err);
@@ -72,11 +75,13 @@ test("close hides the box, reopen shows it, show prints what it holds", async ()
 
 test("the board's refusals come back in its own words with exit 1", () => {
   const cases = [
-    [["nope", "text", "x"], /^magic: bad box$/],
-    [["0", "url", "http://example.org/"], /^magic: only https addresses can be shown$/],
+    [["nope", "text", "x"], /^sidenote: bad box$/],
+    [["0", "url", "http://example.org/"], /^sidenote: only https addresses can be shown$/],
     [["0", "url", "https://192.168.1.1/"], /home network/],
     [["0", "image", "not a picture at all"], /not a PNG, JPEG, GIF, WebP or SVG picture/],
-    [["1.1.1", "close"], /^magic: bad box$/],
+    [["1.1.1", "close"], /^sidenote: bad box$/],
+    [["0", "text", "   "], /^sidenote: the side note would be empty$/],
+    [["0", "url", "https://example.org/\nhttps://example.com/"], /^sidenote: a website side note takes one web address on one line$/],
   ];
   for (const [args, words] of cases) {
     const run = magic(args);
@@ -91,12 +96,24 @@ test("what the command cannot send is refused before the board is asked", () => 
     ["0", "close", "extra"], ["0", "video", "x"], ["0", "text", "--title"], ["0", "markdown", "--file", "/no/such/file.md"]]) {
     const run = magic(args);
     assert.equal(run.code, 1, args.join(" "));
-    assert.match(run.err, /^magic: /, args.join(" "));
+    assert.match(run.err, /^sidenote: /, args.join(" "));
   }
   assert.equal(magic(["0"]).code, 1);
   const help = magic(["--help"]);
   assert.equal(help.code, 0);
-  assert.match(help.out, /^usage: facilitator magic CARD KIND/);
+  assert.match(help.out, /^usage: facilitator sidenote CARD KIND/);
+  assert.match(help.out, /Fill a card's side note on the Mac board/);
+  assert.doesNotMatch(help.out, /magic/i);
+});
+
+test("the old name is gone: `facilitator magic` is no command, and fills nothing", async () => {
+  const before = await body("0");
+  const run = magic(["0", "text", "by the old name"], undefined, cli, "magic");
+  assert.equal(run.code, 1);
+  assert.equal(run.out, "");
+  assert.match(run.err, /facilitator sidenote CARD KIND/);
+  assert.doesNotMatch(run.err, /facilitator magic/);
+  assert.deepEqual(await body("0"), before);
 });
 
 test("a board that is down is said so, with exit 1", async () => {
@@ -121,6 +138,8 @@ test("a board that is down is said so, with exit 1", async () => {
 
 test("the command's help names the subcommand", () => {
   const run = spawnSync("python3", [cli, "no-such-command"], { encoding: "utf8" });
-  assert.match(run.stderr, /facilitator magic CARD KIND \(CONTENT \| --file PATH \| -\) \[--title TITLE\]/);
-  assert.match(run.stderr, /facilitator magic CARD close\|reopen\|show/);
+  assert.match(run.stderr, /facilitator sidenote CARD KIND \(CONTENT \| --file PATH \| -\) \[--title TITLE\]/);
+  assert.match(run.stderr, /facilitator sidenote CARD close\|reopen\|show/);
+  assert.match(run.stderr, /fill a card's side note, shown beside the card/);
+  assert.doesNotMatch(run.stderr, /magic/i);
 });
