@@ -7824,19 +7824,24 @@ function drawerSwapFirstFrame(playing){
   deselect = function(){ deselectCard(); phoneMagicSync(); };
   openDrawer = function(){ drawerFace(false); openList(); };
   const listAir = () => -parseFloat(getComputedStyle(document.getElementById("tiklist")).marginBottom) || 0;
-  listSlack = () => tickets.classList.contains("boxface")
-    ? Math.max(0, tickets.clientHeight - phoneMagicFoot() + listAir()) : listSpare();
   for (const keys of [phoneShortcutActions, menuShortcutActions]){
     keys.cardsDrawer = e => drawerKey(e, false);
     keys.boxDrawer = e => drawerKey(e, true);
   }
-  // the drawer's two gaps, for the card list and the box alike: above, from the
+  // the drawer's gaps, for the card list and the box alike: above, from the
   // foot of the notch (or the island) to the first thing the drawer draws, the
   // drawers having no edge of their own to see (DRAWN_TOP); below, from the foot
-  // of what it shows to the card's top. the card is where it is, so the drawer
-  // goes up by half the difference and the two are equal (--tik-lift, taken
-  // from the transform with the drop; the drawer keeps its size). a web page
-  // cannot see the notch, only the safe area, which ends at the status bar's
+  // of what it shows to the card's top. the card list is placed first: the card
+  // is where its drop puts it, so the list goes up by half the difference of its
+  // two gaps and they are equal, both A (--tik-lift, taken from the transform
+  // with the drop; the drawer keeps its size). the box then takes the list's
+  // place, not its own: its first mark starts at the height the list's does,
+  // whatever the list is showing (read with the list put back in place for an
+  // instant, as the swap does, with nothing drawn between), and the card's drop
+  // leaves A under what the box shows, so the two faces have one top and one gap
+  // above and below. the card goes down no further than the room, as before, so
+  // a box tall enough to need more stops the card short of A: the gap below is
+  // what is left. a web page cannot see the notch, only the safe area, which ends at the status bar's
   // foot: the notch's foot stands NOTCH_GAP above that on the iPhone 13 mini
   // (notch 37.5, inset 50) and the iPhone 17 (island 50.7, inset 62), read off
   // their screens with the device mask drawn. in a browser tab, where the page
@@ -7858,24 +7863,48 @@ function drawerSwapFirstFrame(playing){
     }
     return notchProbe.getBoundingClientRect().height;
   };
-  const drawerFoot = () => {
-    if (tickets.classList.contains("boxface")) return phoneMagicFoot();
-    const pane = drawerPane(), shown = pane ? [...pane.children].filter(el => el.offsetParent) : [];
-    if (!shown.length || !listSpare()) return 0;
-    return shown[shown.length - 1].getBoundingClientRect().bottom - tickets.getBoundingClientRect().top;
+  // the list's foot (its last ticket, from the drawer's top) and what it leaves
+  // spare under it, 0 for a section that fills the list. with the box out the
+  // list is not laid out, so it is put back in place for the reading, the box
+  // out of the way, and put away again: styles only, with no frame drawn between
+  // and nothing the page watches (its class, its sections' sizes) changed
+  const listFoot = () => {
+    const out = tickets.classList.contains("boxface");
+    const put = out ? [document.getElementById("tikhead"), document.getElementById("tiklist"), PB.el] : [];
+    const had = put.map(el => el.style.display);
+    if (out){ put[0].style.display = put[1].style.display = "flex"; put[2].style.display = "none"; }
+    const spare = listSpare(), pane = drawerPane(), shown = pane ? [...pane.children].filter(el => el.offsetParent) : [];
+    const foot = shown.length && spare ? shown[shown.length - 1].getBoundingClientRect().bottom - tickets.getBoundingClientRect().top : 0;
+    put.forEach((el, i) => { el.style.display = had[i]; });
+    return { foot, spare };
+  };
+  // where the drawer stands with the face it has: its lift, and for the box the
+  // spare room under its words that puts the card's top A under them (listSlack)
+  const place = () => {
+    const box = tickets.classList.contains("boxface");
+    const at = page.getBoundingClientRect().top, px = (el, name) => parseFloat(getComputedStyle(el)[name]) || 0;
+    const top = at + px(tikwin, "top") + px(tickets, "top"), pageTop = at + px(page, "paddingTop");
+    const list = listFoot(), notch = notchFoot();
+    let lift = 0;
+    if (list.foot > 0){
+      const card = pageTop + listRoom - list.spare;
+      lift = Math.max(0, (top + DRAWN_TOP.list - notch - (card - top - list.foot)) / 2);
+    }
+    if (!box) return { lift, slack: null };
+    const gap = top + DRAWN_TOP.list - lift - notch, foot = phoneMagicFoot();
+    const boxLift = lift - (DRAWN_TOP.list - DRAWN_TOP.box);
+    if (!(foot > 0)) return { lift: boxLift, slack: null };
+    // the card's top at foot + gap: its drop, and the room it leaves of the most it may have
+    return { lift: boxLift, slack: Math.max(0, listRoom - (top - boxLift + foot + gap - pageTop)) };
+  };
+  listSlack = () => {
+    const box = tickets.classList.contains("boxface"), at = box ? place().slack : null;
+    return at !== null ? at : box ? Math.max(0, tickets.clientHeight - phoneMagicFoot() + listAir()) : listSpare();
   };
   const fitBase = fitList;
   fitList = function(now){
     fitBase(now);
-    const foot = drawerFoot();
-    let lift = 0;
-    if (foot > 0){
-      const at = page.getBoundingClientRect().top, px = (el, name) => parseFloat(getComputedStyle(el)[name]) || 0;
-      const top = at + px(tikwin, "top") + px(tickets, "top"), card = at + px(page, "paddingTop") + listDrop;
-      const drawn = top + DRAWN_TOP[tickets.classList.contains("boxface") ? "box" : "list"];
-      lift = Math.max(0, (drawn - notchFoot() - (card - top - foot)) / 2);
-    }
-    tickets.style.setProperty("--tik-lift", lift.toFixed(2) + "px");
+    tickets.style.setProperty("--tik-lift", place().lift.toFixed(2) + "px");
   };
 }
 </script>
