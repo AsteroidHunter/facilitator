@@ -259,19 +259,34 @@ test("the box wears the card's own edge, face, corners and shadow, under a short
   const on = html.slice(html.indexOf("  body.focus #magicbox.on{"), html.indexOf("}", html.indexOf("  body.focus #magicbox.on{")));
   assert.match(on, /display:flex; position:fixed; z-index:1; --mb-inset:calc\(var\(--pad-x\)\*2\/3\)/);
   assert.ok(!/#magicbox \.mb/.test(html), "no look of its own on the board");
-  // the bar: white, the cross's seat and a pixel of air over and under it, so
-  // shorter than the card's own bar on both pages, and no line under it
+  // the bar: white, no line under it, the cross's seat with the same gap over
+  // and under it as at the box's side, so the cross's middle stands as far
+  // from the box's edge as from its side, on the board and on the phone (the
+  // card's own bar keeps 5px about its squares at the card's corner); the
+  // seat clears the 7px rounded corner by more than 4px, and the bar is still
+  // shorter than the card's own
   const bar = sheet.match(/\.magicbox \.mbbar\{([^}]*)\}/)[1];
   assert.match(bar, /justify-content:flex-end/);
+  assert.match(bar, /align-items:center/);
   assert.match(bar, /height:var\(--mb-bar\)/);
+  assert.match(bar, /padding:0 var\(--mb-gap\)/);
   assert.match(bar, /background:var\(--card\)/);
   assert.ok(!/box-shadow|border/.test(bar), "a line under the bar");
-  assert.match(box, /--mb-x:24px; --mb-bar:calc\(var\(--mb-x\) \+ 2px\);/);
-  assert.match(read("card-tokens.css"), /--cardbar-h:34px;/);
-  assert.ok(24 + 2 < 34, "the board's box bar is shorter than its card bar");
+  assert.match(box, /--mb-bar:calc\(var\(--mb-x\) \+ 2 \* var\(--mb-gap\)\);/);
+  assert.match(box, /border-radius:7px;/);
   const own = phone.match(/  #mbface\{display:none;([^}]*)\}/)[1];
-  assert.match(own, /--mb-x:calc\(24 \* var\(--u\)\); --mb-bar:calc\(var\(--mb-x\) \+ 2 \* var\(--u\)\);/);
+  assert.ok(!/--mb-bar/.test(own), "the phone sets its own bar, apart from the seat and the gap");
+  assert.match(read("card-tokens.css"), /--cardbar-h:34px;/);
   assert.match(phone, /--cardbar-h:calc\(var\(--full-cardbar-h\) \* var\(--rest\)\);/, "the phone's card bar is 34 of its own pixels too");
+  for (const [where, seat, gap] of [["board", box.match(/--mb-x:(\d+)px;/), box.match(/--mb-gap:(\d+)px;/)],
+                                    ["phone", own.match(/--mb-x:calc\((\d+) \* var\(--u\)\);/), own.match(/--mb-gap:calc\((\d+) \* var\(--u\)\);/)]]) {
+    const x = +seat[1], g = +gap[1], height = x + 2 * g;
+    assert.equal(g + x / 2, (height - x) / 2 + x / 2, where + ": the cross's middle is not as far from the edge as from the side");
+    assert.ok(g >= 5, where + ": the seat stands closer than the card bar's 5px to the box's edges");
+    assert.ok(7 - Math.hypot(7 - g, 7 - g) > 4, where + ": the seat crowds the rounded corner");
+    assert.ok(height < 34, where + ": the box's bar is no shorter than the card's");
+    assert.ok(x >= 12 + 2 * 4, where + ": the seat leaves under 4px about the 12px mark");
+  }
   // one cross, a button that closes the box, in the bar, on the board and on
   // the phone alike, and no lights left anywhere
   for (const [page, open] of [[html, '<section id="magicbox" class="magicbox">'], [phone, '<section id="mbface" class="magicbox held barfoot"']]) {
