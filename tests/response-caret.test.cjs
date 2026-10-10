@@ -17,6 +17,7 @@ const logic = readFileSync(path.join(ROOT, "card-logic.js"), "utf8");
 const mac = readFileSync(path.join(ROOT, "index.html"), "utf8");
 const phone = readFileSync(path.join(ROOT, "m.html"), "utf8");
 const runbook = readFileSync(path.join(ROOT, "RUNBOOK.md"), "utf8");
+const tokens = readFileSync(path.join(ROOT, "card-tokens.css"), "utf8");
 
 function between(source, start, end) {
   const a = source.indexOf(start), b = source.indexOf(end, a + start.length);
@@ -433,4 +434,68 @@ test("the RUNBOOK's key list names the place key and the response's caret", () =
   assert.match(keys, /Control \+ Option \+ up and down/);
   assert.match(keys, /Command \+ A/);
   assert.match(keys, /Command \+ C/);
+});
+
+// ---- the read-only caret in silver ---------------------------------------------------
+
+// a hex colour's three channels
+const channels = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+function token(name) {
+  const m = new RegExp(`--${name}:(#[0-9A-Fa-f]{6})`).exec(between(tokens, ":root{", "\n}"));
+  assert.ok(m, name);
+  return m[1];
+}
+
+test("the answer's caret and selection are greys, lighter than the solid ink the typing box draws them in", () => {
+  const caret = channels(token("read-caret")), select = channels(token("read-select"));
+  for (const [name, c] of [["read-caret", caret], ["read-select", select]]) {
+    assert.ok(c[0] === c[1] && c[1] === c[2], `${name} is not a grey: ${c}`);
+    assert.ok(c[0] >= 0x99, `${name} is not a light grey: ${c}`);
+  }
+  // the selection behind the words is lighter than the caret, so the words read through it
+  assert.ok(select[0] > caret[0]);
+  // the typing box's own dress is the black block and the black selection, untouched
+  for (const source of [mac, phone]) assert.match(source, /\n  ::selection\{background:#000; color:#fff\}/);
+  assert.match(mac, /#fatcaret\{background:var\(--card\); mix-blend-mode:difference\}/);
+  assert.match(mac, /#fatcaretlift\{background:var\(--ink\); mix-blend-mode:color-dodge\}/);
+});
+
+test("the silver is worn by the answer only while its caret stands in it, the words keeping their ink", () => {
+  const rule = between(tokens, "/* ---- the answer's read-only caret", "\n\n");
+  assert.match(rule, /\n\.reply\[contenteditable\]::selection, \.reply\[contenteditable\] \*::selection\{background:var\(--read-select\); color:var\(--ink\)\}/);
+  // the phone's own caret, which on an iPhone tints the selection and its handles too
+  assert.match(phone, /\n  \.reply\[contenteditable\]\{caret-color:var\(--read-caret\)\}/);
+  // and no typing field takes either colour
+  for (const source of [mac, phone, tokens])
+    for (const m of source.matchAll(/([^\n{}]*)\{[^}]*var\(--read-(?:caret|select)\)/g))
+      assert.match(m[1], /\.reply\[contenteditable\]|#fatcaret\.ro/, m[1]);
+});
+
+test("Mac board: the block caret takes its silver form in the answer and its own in every other field", () => {
+  assert.match(mac, /\n  #fatcaret\.ro\{background:var\(--read-caret\); mix-blend-mode:multiply\}/);
+  assert.match(mac, /\n  #fatcaretlift\.ro\{visibility:hidden\}/);
+  // the block's own focus listener, run over stand-ins
+  const listener = between(mac, 'document.addEventListener("focusin", e => {\n    const el = trackable(e.target);', "\n  });");
+  const cls = () => {
+    const s = new Set();
+    return { add: n => s.add(n), remove: n => s.delete(n), contains: n => s.has(n), toggle: (n, on) => (on ? s.add(n) : s.delete(n)) };
+  };
+  const bar = { classList: cls() }, lift = { classList: cls() };
+  const field = tag => ({ tagName: tag, classList: cls() });
+  const reply = field("DIV"), ta = field("TEXTAREA"), title = field("SPAN");
+  reply.classList.add("reply");
+  title.classList.add("title");
+  const heard = [];
+  const context = vm.createContext({ cells: [bar, lift], queue: () => {}, trackable: t => t,
+    document: { addEventListener: (type, fn) => heard.push(fn) } });
+  vm.runInContext("let cur = null, isField = false;\n" + listener, context);
+  const focus = target => heard[0]({ target });
+  focus(reply);
+  assert.equal(bar.classList.contains("ro"), true);
+  assert.equal(lift.classList.contains("ro"), true);
+  for (const other of [ta, title, null]) {
+    focus(other);
+    assert.equal(bar.classList.contains("ro"), false, other && other.tagName);
+    assert.equal(lift.classList.contains("ro"), false, other && other.tagName);
+  }
 });

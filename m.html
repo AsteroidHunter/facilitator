@@ -799,6 +799,9 @@
     padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 0 calc(var(--pad-x)*2/3);
   }
   .reply[contenteditable]{outline:none}   /* the response with its caret in it (replyCaret) */
+  /* its caret in silver, which on an iPhone tints the selection and its handles
+     too (card-tokens.css, "the answer's read-only caret") */
+  .reply[contenteditable]{caret-color:var(--read-caret)}
   /* the card's two fades, the desktop's rules at phone size and with the phone's
      own seat in front of them. the depths, the stops and the compositing are the
      desktop's to the number; what the desktop writes as body.focus .box.sel is
