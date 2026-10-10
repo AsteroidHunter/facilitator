@@ -934,11 +934,12 @@ test("the drawer goes up by half the difference of its two gaps, so they are equ
   const lift = () => { ctx.fitList(true); return tickets.style["--tik-lift"]; };
   ctx.drawerFace(true);
   // the box's words end 65px under its top; the card stands 40 + 90 down the page and the
-  // drawer's top at 50. above: from the notch's foot (30) to 50 is 20; below: 130 - 50 - 65 is 15
+  // drawer's top at 50, the note's cross drawn 10.1 under it. above: from the notch's foot (30) to
+  // 60.1 is 30.1; below: 130 - 50 - 65 is 15
   pageEl.style.paddingTop = "40px"; tickets.style.top = "50px"; notch.getBoundingClientRect = () => ({ height: 30 });
-  assert.equal(lift(), "2.50px");
+  assert.equal(lift(), "7.55px");
   notch.getBoundingClientRect = () => ({ height: 5 });
-  assert.equal(lift(), "15.00px", "a notch higher up leaves more to take");
+  assert.equal(lift(), "20.05px", "a notch higher up leaves more to take");
   tickets.style.top = "20px"; notch.getBoundingClientRect = () => ({ height: 30 });
   assert.equal(lift(), "0.00px", "a drawer already nearer the notch than the card is not lowered");
   const page = read("m.html");
