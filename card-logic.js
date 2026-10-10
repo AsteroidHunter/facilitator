@@ -7289,7 +7289,10 @@ function magicView(el, hooks = {}){
     const frame = h("iframe", "mbframe");
     frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
     frame.setAttribute("referrerpolicy", "no-referrer");
-    const run = view.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries };
+    const run = view.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries, height: 0 };
+    // a board that sizes the box to the page waits a moment for its height
+    // (view.waiting), then shows it at whatever size it has
+    if (hooks.sized) setTimeout(placed, PAGE_WAIT + 50);
     frame.addEventListener("load", () => {
       run.loads++;
       // the word is posted from the page's own load, so it lands a moment
@@ -7298,15 +7301,24 @@ function magicView(el, hooks = {}){
         if (view.page === run && frame.isConnected && run.said < run.loads) page(html, tries + 1);
       }, 500);
     });
-    frame.srcdoc = MagicBox.pageDoc(html, run.word);
+    frame.srcdoc = MagicBox.pageDoc(html, run.word, !!hooks.sized);
+    run.since = Date.now();
     view.body.append(frame, h("div", "mbcover"));
   };
+  // hooks.sized: the page also says its own height, the word, a space and the
+  // height in its pixels (MagicBox.pageDoc), and the box is sized to it
+  const PAGE_WAIT = 1000;
   addEventListener("message", e => {
     const run = view.page;
-    if (run && e.source === run.frame.contentWindow && e.data === run.word) run.said++;
+    if (!run || e.source !== run.frame.contentWindow || typeof e.data !== "string") return;
+    if (e.data === run.word) run.said++;
+    else if (hooks.sized && e.data.startsWith(run.word + " ")){
+      const tall = Math.ceil(+e.data.slice(run.word.length + 1));
+      if (tall > 0 && tall !== run.height){ run.height = tall; placed(); }
+    }
   });
-  // what the box shows asks for (MagicBox's want), or nothing for a page or a
-  // site, which take the whole room. room: the largest box there is room for,
+  // what the box shows asks for (MagicBox's want), or nothing for a site, or a
+  // page that has not said its height (hooks.sized), which take the whole room. room: the largest box there is room for,
   // which a page lays the words out at. scale: screen pixels to the page's own,
   // the board's stage scale. a picture asks for its own size, as many of the
   // page's pixels as it has pixels on screen, so it is never drawn past its
@@ -7323,14 +7335,19 @@ function magicView(el, hooks = {}){
       return w && h ? { width: w / scale + edges, height: h / scale + edges, head } : null;
     }
     if (view.body.querySelector(".mbaway")) return { height: room.width };
+    // an agent's page that has said its height, laid out at the box's width
+    if (kind === "html") return hooks.sized && view.page && view.page.height ? { height: view.page.height + edges + head } : null;
     const words = view.body.querySelector(".mbtext");
     if (!words) return null;
     el.style.width = room.width + "px";
     return { height: words.offsetHeight + edges + head };
   };
-  // a picture still on its way: the box is kept hidden, so it never shows at
-  // the wrong size first
+  // a picture still on its way, or a page that has not yet said its height on
+  // a board that sizes the box to it: the box is kept hidden, so it never
+  // shows at the wrong size first
   view.waiting = () => {
+    const run = view.page;
+    if (hooks.sized && run && view.body.dataset.kind === "html" && !run.height && Date.now() - run.since < PAGE_WAIT) return true;
     const img = view.body.dataset.kind === "image" && view.body.querySelector(".mbimg");
     return !!img && (!img.complete || !view.natural);
   };
