@@ -6,10 +6,6 @@
    length on the board is in the 1440 by 900 stage's own pixels. */
 (function (root) {
   "use strict";
-  // one star cell: the stars sit at CELL * (n + 0.5) across the stage, and every
-  // box edge on the board lands on one of them
-  const CELL = 11.52;
-  function onStar(x) { return (Math.floor(x / CELL - 0.5 + 1e-6) + 0.5) * CELL; }
   // the box at full size, as shares of the card's height: an iPhone 13 mini
   // screen's shape (375 by 812 points) as tall as the card, then 5% taken off
   // its top and 5% off its foot, and 7% of its width added on each side. SHAPE
@@ -19,10 +15,10 @@
   const WIDE = 375 / 812 * 1.14;
   const SHAPE = WIDE / TALL;
   // card: the card's rectangle, {left, top, width, height}. fit: the stage's
-  // transform and the workspace, {scale, tx, left, right, clear}, left and right
-  // the screen x of the workspace's inner edges and clear the room the fit keeps
-  // between the board and them (FRAME_CLEAR), all screen pixels. bar: the height
-  // of the card's top bar. want: what the box shows asks for, in stage pixels:
+  // transform and the workspace, {scale, tx, right, clear}, right the screen x
+  // of the workspace's inner right edge and clear the room the fit keeps
+  // between the board and it (FRAME_CLEAR), all screen pixels. want: what the
+  // box shows asks for, in stage pixels:
   // {width, height} for a picture (its own shape, and at most its own size so it
   // is never drawn past its sharpness), {height} for words (their own height at
   // the box's full width), nothing for a page or a site, which have no size of
@@ -32,34 +28,28 @@
   // The whole box keeps its shape. It is at full size when that leaves at least
   // `clear` on each side of it in the room right of the card, and as much
   // smaller as it must be when it does not; the board never shrinks for it.
-  // Less than half the card's height is too small to read beside it: then it
-  // floats over the card's right part, `clear` in from the edge, below the
-  // first star row under the card's top bar so the card's own chips stay in
-  // reach. Inside that whole box, what it shows takes its own size: a picture
-  // its own shape, as large as fits, and words their own height, then scroll.
-  // The whole box stands with its middle level with the card's. Whatever size
-  // results stands in the middle of the room right of the card, so the gap to
-  // the card and the gap to the workspace's edge are equal, with its top on the
-  // whole box's top
-  function place(card, fit, bar = 0, want) {
+  // Less than half the card's height is too small to read beside it, and the
+  // box never stands over the card: then it is not shown at all (shown is
+  // false). It stays open, and shows again by itself once the window gives it
+  // that room. Inside that whole box, what it shows takes its own size: a
+  // picture its own shape, as large as fits, and words their own height, then
+  // scroll. The whole box stands with its middle level with the card's.
+  // Whatever size results stands in the middle of the room right of the card,
+  // so the gap to the card and the gap to the workspace's edge are equal, with
+  // its top on the whole box's top
+  function place(card, fit, want) {
     const scale = fit.scale || 1;
     const edge = (fit.right - fit.tx) / scale;   // the workspace's right edge, on the stage
-    const seen = (fit.left - fit.tx) / scale;    // and its left one
     const clear = (fit.clear || 0) / scale;
     const middle = card.top + card.height / 2;
     const right = card.left + card.width;
     const room = edge - right;
-    let width = Math.min(card.height * WIDE, room - 2 * clear), height = width / SHAPE;
-    const floating = height < card.height / 2;
-    if (floating) {
-      const under = onStar(card.top + bar) + CELL - card.top;
-      width = Math.max(1, Math.min(Math.min(card.height * TALL, card.height - 2 * under) * SHAPE, edge - seen - 2 * clear));
-      height = width / SHAPE;
-    }
+    let width = Math.max(0, Math.min(card.height * WIDE, room - 2 * clear)), height = width / SHAPE;
+    const shown = height >= card.height / 2;
     const top = middle - height / 2;
     ({ width, height } = fitRoom({ width, height }, want));
-    const left = floating ? edge - clear - width : right + (room - width) / 2;
-    return { left, top, width, height, floating };
+    const left = right + (room - width) / 2;
+    return { left, top, width, height, shown };
   }
   // what the box shows, at its own size inside a room {width, height}: want as
   // place() takes it. The phone's drawer is such a room, with no card beside it.
@@ -115,5 +105,5 @@
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { CELL, onStar, TALL, WIDE, SHAPE, place, fit: fitRoom, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, place, fit: fitRoom, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
 })(globalThis);

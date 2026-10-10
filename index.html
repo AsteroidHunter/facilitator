@@ -1416,13 +1416,12 @@
      card's height and a little wider than an iPhone 13 mini's screen, level
      with the card's middle; inside that a picture in its own shape and words
      at their own height, in the middle of the room right of the card and hung
-     from that largest box's top. floated over the card's edge when the window
-     has no room, where it stands on the board's own paper so the card's words
-     do not show through it, still with no edge or shadow. off the board
-     (home, edit mode) it is not drawn */
+     from that largest box's top. it never stands over the card: in a window
+     with too little room beside the card it is not shown (magicPlace), and it
+     comes back when the room does. off the board (home, edit mode) it is not
+     drawn */
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
-  body.focus #magicbox.on.floating{background:var(--paper)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
@@ -8184,7 +8183,7 @@ async function panelPoll(){
 panelPoll(); setInterval(panelPoll, 4000);
 
 // a card's magic box: the box beside the card on screen that the card's agent
-// filled (POST /magic, or `facilitator magic`). each card keeps its own and only
+// filled (POST /magic, or `facilitator sidenote`). each card keeps its own and only
 // the one on screen is ever built, so at most one live frame is on the page. the
 // card's magic field says whether it has one, whether it is open and which
 // revision; what it holds is read from /magic/body when that revision moves.
@@ -8259,7 +8258,7 @@ function magicOpenSite(url){
     fetch("/open-in-browser", { method: "POST", body: url }).catch(() => {});
   else window.open(url, "_blank", "noopener,noreferrer");
 }
-// the cross: the box put away, as `facilitator magic close` does. what it
+// the cross: the box put away, as `facilitator sidenote CARD close` does. what it
 // held is kept, and the card's agent brings it back by filling it again. it
 // goes at once, and the board's next reading agrees
 function magicClose(){
@@ -8272,10 +8271,12 @@ function magicClose(){
 }
 // beside the card's own rectangle, read off the page the way the fit reads the
 // regions: screen pixels, less the stage's origin, over the stage's scale. the
-// workspace's edges are the frame's inner ones, and the least gap either side
-// of the box is the clearance the fit keeps between the board and them. a
+// workspace's right edge is the frame's inner one, and the least gap either
+// side of the box is the clearance the fit keeps between the board and it. a
 // picture still on its way keeps the box hidden, so it never shows at the
-// wrong size first
+// wrong size first. a window with too little room beside the card hides it
+// too, where it is, still open: every fit and every reading of the board
+// places it again, so it is back the moment the window gives it the room
 function magicPlace(){
   if (!MB.el || !MB.el.classList.contains("on")) return;
   const card = document.querySelector("main"), stage = document.getElementById("stage");
@@ -8283,15 +8284,14 @@ function magicPlace(){
   const S = stageScale || 1, sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
   if (r.width < 1 || card.classList.contains("region-off")){ MB.el.style.visibility = "hidden"; return; }
   const lim = frameLimits();
-  const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cardbar-h")) || 0;
   const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
-  const fit = { scale: S, tx: stageTx, left: lim.left - FRAME_CLEAR, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
-  const most = MagicBox.place(rect, fit, bar);
+  const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
+  const most = MagicBox.place(rect, fit);
+  if (!most.shown){ MB.el.style.visibility = "hidden"; return; }
   // what it shows asks for, in stage pixels: the view's want (card-logic.js)
-  const at = MagicBox.place(rect, fit, bar, MB.view.want(most, S));
+  const at = MagicBox.place(rect, fit, MB.view.want(most, S));
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
     height: at.height + "px", visibility: MB.view.waiting() ? "hidden" : "" });
-  MB.el.classList.toggle("floating", at.floating);
 }
 if (MB.el){
   // the card moves under the box when it is dragged or sized, and gets shorter
