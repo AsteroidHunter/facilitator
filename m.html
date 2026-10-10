@@ -7541,9 +7541,11 @@ function drawerKey(e, box){
   if (same && menuOut() === tickets){ closeDrawer(); return; }
   if (same || (menuOut() !== tickets && !listMoving())){ drawerFace(box); showMenu(tickets); return; }
   if (menuOut() === tickets) closeDrawer();
-  // the drawer's run and transitions, as settleTicketDrawer reads them
+  // the drawer's movement, as settleTicketDrawer reads it: its hiding, which
+  // waits out the whole run and more, is not waited for, since by then the
+  // drawer is off the page and faded and its face can change unseen
   const moving = [tickets, tikwin, cardPane].flatMap(el => el.getAnimations())
-    .filter(a => a.id === "list-run" || a.transitionProperty);
+    .filter(a => a.transitionProperty === "transform" || a.id === "list-run");
   Promise.all(moving.map(a => a.finished.catch(() => {}))).then(() => {
     if (swap !== drawerSwap || menuOut() === tickets || listMoving() || (box && !phoneMagicCard())) return;
     drawerFace(box);
