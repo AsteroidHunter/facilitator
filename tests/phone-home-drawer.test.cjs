@@ -242,14 +242,15 @@ test("the shared menu key action also rejects the ticket menu on Home", () => {
 test("Home leaves an open or moving settings menu alone and its ticket button cannot close it", () => {
   for (const moving of [false, true]) {
     const f = fixture();
-    if (moving) { f.gesture("touchstart", 390); f.gesture("touchmove", 200); }
-    else f.nodes.setbtn.fire("click");
+    // the settings come out with their circle alone; the moving ones are being pulled shut
+    f.nodes.setbtn.fire("click");
+    if (moving) { f.gesture("touchstart", 100); f.gesture("touchmove", 150); }
     const properties = [f.nodes.settings.style.getPropertyValue("--shift"), f.nodes.scrim.style.getPropertyValue("--scrimv"),
       f.nodes.page.style.getPropertyValue("--page-scale")];
     f.home(); noLeft(f); f.nodes.tikbtn.fire("click");
     assert.deepEqual([f.nodes.settings.style.getPropertyValue("--shift"), f.nodes.scrim.style.getPropertyValue("--scrimv"),
       f.nodes.page.style.getPropertyValue("--page-scale")], properties);
-    if (moving) f.gesture("touchend", 200);
+    if (moving) f.gesture("touchend", 150);
     assert.equal(f.run("menuOut() === settings"), true);
     assert.equal(f.document.body.classList.contains("setout"), true);
   }

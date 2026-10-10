@@ -395,11 +395,13 @@ test("an edge pull lets the row go as the drawer starts to travel, before it lan
   }
 });
 
-test("a pull from the right edge opens settings and lets the row go the same way", async () => {
-  const id = await card("Settings pulled open by hand", "A reply to answer.");
+// the settings come out with their circle alone; the right edge's pull is the
+// card's magic box, so on a card with none it brings nothing
+test("a pull from the right edge on a card with no box opens nothing, and the row keeps the caret", async () => {
+  const id = await card("Nothing pulled in from the right", "A reply to answer.");
   const { page, problems, sends } = await openPhone(id, { formatted: false });
   try {
-    const before = await typeInRow(page, "a draft on the way to settings", 2, 7);
+    const before = await typeInRow(page, "a draft that stays where it is", 2, 7);
     const width = await menuWidth(page, "settings");
     const edge = PHONE.width - 6;
 
@@ -407,18 +409,17 @@ test("a pull from the right edge opens settings and lets the row go the same way
     await touchStep(page, "touchmove", edge - Math.round(width * 0.3), 500);
     await settle(60);
     const pulling = await caretState(page);
-    assert.equal(pulling.dragging, true, "the sideways travel was not read as a pull");
-    assert.equal(pulling.settingsOpen, false, "settings had already landed");
-    assert.equal(pulling.inRow, false, "the row kept the caret while settings came out");
-    assert.equal(pulling.editing, false);
+    assert.equal(pulling.dragging, false, "the right edge's travel was read as a pull");
+    assert.equal(pulling.menuOut, false, "something came out from the right edge");
+    assert.equal(pulling.inRow, true, "the row let go of the caret for a pull that brings nothing");
     assert.equal(pulling.value, before.value);
 
     await touchStep(page, "touchmove", edge - Math.round(width * 0.8), 500);
     await touchStep(page, "touchend", 0, 0);
     await settle(250);
     const landed = await caretState(page);
-    assert.equal(landed.settingsOpen, true, "the pull did not land settings open");
-    assert.equal(landed.inRow, false);
+    assert.equal(landed.settingsOpen, false, "a pull opened the settings");
+    assert.equal(landed.drawerOpen, false, "a pull from the right edge brought the card list");
     assert.equal(landed.value, before.value);
 
     assert.deepEqual(sends, [], "a pull sent a message");

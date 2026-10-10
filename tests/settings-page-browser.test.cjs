@@ -162,15 +162,10 @@ async function openIfShut(page) {
   if (!(await shown(page, ".sp-page"))) await openMac(page);
 }
 
-// the phone opens its settings drawer with a pull from the right edge
-async function openPhone(page, width = PHONE.width) {
-  const from = width - 6, y = 500;
-  await page.touchscreen.touchStart(from, y);
-  for (let step = 1; step <= 8; step++) {
-    await page.touchscreen.touchMove(from - 30 * step, y);
-    await settle(16);
-  }
-  await page.touchscreen.touchEnd();
+// the phone opens its settings drawer with the squid circle at the row's right
+// end, the only way in: no pull brings them
+async function openPhone(page) {
+  await page.tap("#setbtn");
   await page.waitForSelector("#settings.open", { timeout: 5000 });
   await settle(700);
 }
@@ -912,7 +907,7 @@ test("the same page changes layout when the window does", async () => {
 });
 
 // ---- the phone app ------------------------------------------------------------------
-// a pull from the right edge brings in the narrow white panel the phone has always had,
+// the squid circle brings in the narrow white panel the phone has always had,
 // and the settings page fills it; the row along the bottom holds its four buttons,
 // the gear at its right end among them
 
@@ -961,7 +956,7 @@ function drawerView(page) {
   }, SECTIONS, HELD);
 }
 
-test("phone: a pull from the right edge brings in the drawer, in its own size and style, holding the page", async () => {
+test("phone: the squid circle brings in the drawer, in its own size and style, holding the page", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
     const wide = Math.min(PHONE.width * 0.714, 289);

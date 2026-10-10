@@ -472,35 +472,68 @@ test("the board's own policy holds nothing a sealed page would inherit and be st
   assert.ok(!/default-src|script-src|style-src|connect-src|img-src/.test(framing));
 });
 
-test("on the phone the box comes down in the card list's own drawer, from the side its pull names", () => {
+// the phone's box script, the separate one at the foot of m.html, run against
+// stand-ins for the page: card "a" has an open box and card "b" none. the drawer
+// is a model of the page's: its face and side are the box script's own, and
+// out, shut and the run it goes back on are the stand-ins'
+function phoneBoxScript(page) {
+  const start = page.indexOf("<script>\n// ---- the card's magic box, in the card list's drawer");
+  const src = page.slice(start + "<script>".length, page.indexOf("</script>", start));
+  const classes = new Set(), listeners = {}, calls = [], drawer = { settings: false, runs: [] };
+  const tickets = { dataset: { side: "left" }, clientWidth: 346, clientHeight: 433,
+    classList: { contains: c => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
+    getAnimations: () => drawer.runs };
+  const settings = { dataset: { side: "right" } };
+  const box = { offsetHeight: 89, style: {}, querySelector: () => ({ addEventListener() {} }) };
+  const face = () => (classes.has("boxface") ? "box" : "list") + " from the " + tickets.dataset.side;
+  const ctx = {
+    document: { getElementById: () => box }, tickets, settings, innerWidth: 402, homeOpen: false, shownId: "a", activeOwner: "p",
+    tikwin: { getAnimations: () => [] }, cardPane: { getAnimations: () => [] },
+    lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
+    magicView: () => ({ body: {}, want: () => ({ height: 89 }), waiting: () => false, draw() {}, clear() {} }),
+    MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
+    menuOut: () => classes.has("open") ? tickets : drawer.settings ? settings : null,
+    drawerOpen: () => classes.has("open"),
+    // showing one drawer puts the other away, as the page's showMenu does
+    showMenu: p => {
+      if (p === settings) { classes.delete("open"); drawer.settings = true; calls.push("settings"); return; }
+      drawer.settings = false; classes.add("open"); calls.push("show " + face());
+    },
+    // shutting the drawer starts its run back, which lands when the test says
+    closeDrawer: () => {
+      classes.delete("open"); calls.push("close " + face());
+      let land;
+      drawer.runs = [{ id: "list-run", finished: new Promise(r => { land = r; }) }];
+      drawer.land = async () => { land(); drawer.runs = []; await new Promise(r => setImmediate(r)); };
+    },
+    listMoving: () => drawer.runs.length > 0,
+    fitList() {}, poll() {},
+    fetch: url => { calls.push(url); return new Promise(() => {}); },
+    apply: () => calls.push("apply"), select: () => calls.push("select"), deselect: () => calls.push("deselect"),
+    openDrawer: () => calls.push("list"), listSlack: () => 7,
+    phoneShortcutActions: {}, menuShortcutActions: {},
+    addEventListener: (type, fn, opts) => { (listeners[type] = listeners[type] || []).push({ fn, opts }); },
+  };
+  vm.runInContext(src, vm.createContext(ctx));
+  return { ctx, classes, tickets, listeners, calls, drawer };
+}
+
+test("on the phone the box comes down in the card list's own drawer, from the right, pulled the other way from the list", () => {
   const page = read("m.html");
   // the drawer wears the box in place of the list, and comes in from the right for it
   assert.match(page, /#tickets\.boxface > #tikhead, #tickets\.boxface > #tiklist\{display:none\}/);
   assert.match(page, /#tickets\[data-side="right"\]\{\s*transform:translate3d\(calc\(\(1 - var\(--list-v\)\) \* \(var\(--pg-r\)/);
-  assert.match(page, /else if \(x >= innerWidth - EDGE\)\{ panel = tickets\.dataset\.side === "right" \? tickets : settings; opening = true; \}/);
+  assert.match(page, /else if \(x >= innerWidth - EDGE && tickets\.dataset\.side === "right"\)\{ panel = tickets; opening = true; \}/);
+  // no pull opens the settings: their circle alone does
+  const gesture = page.slice(page.indexOf("const start = (x, y, t, target) => {"), page.indexOf("const move = (x, y, t) => {"))
+    .replace(/\/\/.*$/gm, "");
+  assert.ok(gesture.includes("panel = tickets") && !gesture.includes("settings"), "a pull can still bring the settings");
   assert.match(page, /const direction = flick\(\) \* menuSign\(panel\);/, "a flick opens the way the drawer comes in");
   assert.match(page, /travel = menuTravel\(tickets\) \* menuSign\(tickets\);/, "its slide comes from its own side");
-  assert.equal((page.match(/const MAGIC_PULL = /g) || []).length, 1, "one switch for the pull");
+  assert.ok(!page.includes("MAGIC_PULL"), "the pull's side is settled, with no switch left to change");
   assert.match(read("server.py"), /def _phone_box[\s\S]*?\*\*\(\{"magic": b\["magic"\]\} if b\.get\("magic"\) else \{\}\),/, "the phone's reading carries the box");
   // the box's own script, run against stand-ins for the page
-  const start = page.indexOf("<script>\n// ---- the card's magic box, in the card list's drawer");
-  const src = page.slice(start + "<script>".length, page.indexOf("</script>", start));
-  const classes = new Set(), listeners = {}, calls = [];
-  const tickets = { dataset: { side: "left" }, clientWidth: 346, clientHeight: 433,
-    classList: { contains: c => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) } };
-  const box = { offsetHeight: 89, style: {}, querySelector: () => ({ addEventListener() {} }) };
-  const ctx = {
-    document: { getElementById: () => box }, tickets, innerWidth: 402, homeOpen: false, shownId: "a", activeOwner: "p",
-    lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
-    magicView: () => ({ body: {}, want: () => ({ height: 89 }), waiting: () => false, draw() {}, clear() {} }),
-    MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
-    drawerOpen: () => false, closeDrawer() {}, fitList() {}, poll() {},
-    fetch: url => { calls.push(url); return new Promise(() => {}); },
-    apply: () => calls.push("apply"), select: () => calls.push("select"), deselect: () => calls.push("deselect"),
-    openDrawer: () => calls.push("list"), listSlack: () => 7,
-    addEventListener: (type, fn, opts) => { (listeners[type] = listeners[type] || []).push({ fn, opts }); },
-  };
-  vm.runInContext(src, vm.createContext(ctx));
+  const { ctx, classes, tickets, listeners, calls } = phoneBoxScript(page);
   const touch = x => { for (const l of listeners.touchstart) l.fn({ touches: [{ clientX: x }] }); };
   assert.ok(listeners.touchstart.every(l => l.opts.capture === true), "the face is chosen before the drawer's own gesture");
   touch(400);
@@ -511,7 +544,8 @@ test("on the phone the box comes down in the card list's own drawer, from the si
   assert.equal(ctx.listSlack(), 7, "and the list's own drop");
   ctx.shownId = "b";
   touch(400);
-  assert.ok(!classes.has("boxface") && tickets.dataset.side === "left", "a card with no box: the settings, as before");
+  assert.ok(!classes.has("boxface") && tickets.dataset.side === "left",
+    "a card with no box: the drawer stays on the left, so the right edge's pull does nothing");
   ctx.shownId = "a"; touch(400); classes.add("open");
   touch(2);
   assert.ok(classes.has("boxface"), "while out it keeps the face it went out with");

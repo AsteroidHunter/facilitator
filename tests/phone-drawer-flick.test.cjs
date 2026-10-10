@@ -39,7 +39,7 @@ function fixture({ open = null, width = 300, mouse = false } = {}) {
     drawerOpen: () => shown === tickets,
     closeDrawer: () => runMenu(tickets, 0),
     menuTravel: () => width,
-    menuSign: p => p === tickets ? 1 : -1,
+    menuSign: p => p.dataset.side === 'right' ? -1 : 1,
     dismissEditor() {}, closeProjects() {}, tracePhone() {}, stopList() {},
     paintMenu: (p, at) => paints.push({ side: p.dataset.side, at }),
     runMenu,
@@ -177,16 +177,41 @@ test('a fast swipe outside the 28px left edge never claims the drawer', () => {
 });
 
 test('the right drawer retains its distance-only halfway release', () => {
-  for (const closing of [false, true]) {
-    for (const dx of [30, 108, 180]) {
-      const f = fixture({ open: closing ? 'right' : null });
-      const x = closing ? 100 : 385, sign = closing ? 1 : -1;
-      f.fire('start', 1000, x);
-      f.fire('move', 1040, x + sign * dx);
-      f.fire('end', 1045);
-      assert.equal(f.shown(), dx > 150 ? (closing ? null : 'right') : (closing ? 'right' : null));
-    }
+  for (const dx of [30, 108, 180]) {
+    const f = fixture({ open: 'right' });
+    f.fire('start', 1000, 100);
+    f.fire('move', 1040, 100 + dx);
+    f.fire('end', 1045);
+    assert.equal(f.shown(), dx > 150 ? null : 'right');
   }
+});
+
+test('no pull opens the settings: on a card with no box the right edge does nothing', () => {
+  for (const dx of [30, 108, 180]) {
+    const f = fixture();
+    f.fire('start', 1000, 385);
+    f.fire('move', 1040, 385 - dx);
+    f.fire('end', 1045);
+    assert.equal(f.shown(), null, `dx=${dx}`);
+    assert.deepEqual(f.paints, []);
+    assert.deepEqual(f.runs, []);
+  }
+});
+
+test('the drawer set on the right for the magic box comes in from the right edge, pulled leftwards', () => {
+  const f = fixture();
+  f.tickets.dataset.side = 'right';
+  f.fire('start', 1000, 385);
+  f.fire('move', 1030, 370);
+  f.fire('move', 1060, 355);
+  f.fire('end', 1070);
+  assert.deepEqual(f.runs, [{ side: 'right', at: 1, release: true }], 'a short fast flick from the right brought the box');
+  const back = fixture();
+  back.tickets.dataset.side = 'right';
+  back.fire('start', 1000, 385);
+  back.fire('move', 1030, 400);
+  back.fire('end', 1035);
+  assert.deepEqual(back.runs.map(r => r.at), [0], 'a rightward flick from the right edge left it shut');
 });
 
 test('same-time events cannot supply infinite flick velocity', () => {

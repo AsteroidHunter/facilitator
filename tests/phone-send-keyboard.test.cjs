@@ -1,5 +1,5 @@
 // The phone's keyboard stays up through a send. The send square's right part
-// sits inside the strip along the right edge where a settings pull begins, and
+// sits inside the strip along the right edge where the magic box's pull begins, and
 // the iOS Simulator showed a tap there that slid 6 to 8 px letting go of the
 // caret, so the keyboard went down, with the message sent or not. And a second
 // press on the square moved to the next waiting card without the caret, which
@@ -33,9 +33,11 @@ const row = { closest: s => s === '.bottombar' ? row : null };
 const square = { closest: s => s === '.bottombar' ? row : null, parent: row };
 const card = { closest: () => null };
 
-function drawer({ open = null } = {}) {
+// box: the card on screen has a magic box, so the drawer stands on the right for
+// it (as the page's touch listener sets it before this gesture's own)
+function drawer({ open = null, box = false } = {}) {
   const listeners = new Map(), pageListeners = new Map(), events = [], runs = [];
-  const tickets = { dataset: { side: 'left' } }, settings = { dataset: { side: 'right' } };
+  const tickets = { dataset: { side: box ? 'right' : 'left' } }, settings = { dataset: { side: 'right' } };
   const page = { addEventListener: (type, fn) => pageListeners.set(type, fn) };
   const cardPane = { getBoundingClientRect: () => ({ left: 10, right: WIDTH - 10, top: 60, bottom: 312 }) };
   const travel = p => p === tickets ? 300 : 320;
@@ -51,7 +53,7 @@ function drawer({ open = null } = {}) {
     drawerOpen: () => shown === tickets,
     closeDrawer() {},
     menuTravel: travel,
-    menuSign: p => p === tickets ? 1 : -1,
+    menuSign: p => p.dataset.side === 'right' ? -1 : 1,
     // the row letting go of the caret, which is what puts a phone's keyboard down
     dismissEditor: () => events.push('let go'),
     closeProjects() {}, tracePhone() {}, stopList() {},
@@ -99,29 +101,47 @@ test('a press on the row\'s plus button inside the left strip that slides keeps 
 // ---- a slip beside the row comes out a little and goes back, with the caret kept ------
 
 for (const dx of [-8, 8]) {
-  test(`a press just right of the square that slips ${Math.abs(dx)} px ${dx < 0 ? 'in' : 'toward the edge'} keeps the caret, and settings go back`, () => {
+  test(`a press just right of the square that slips ${Math.abs(dx)} px ${dx < 0 ? 'in' : 'toward the edge'} keeps the caret, and the box goes back`, () => {
+    const f = drawer({ box: true });
+    f.slide(WIDTH - 14, ROW_Y, dx, card);
+    assert.equal(f.letGo(), 0, 'a slip of a few px let go of the caret');
+    assert.deepEqual(f.runs, [{ side: 'right', at: 0 }], 'the box did not go back');
+  });
+  test(`on a card with no box, a press just right of the square that slips ${Math.abs(dx)} px ${dx < 0 ? 'in' : 'toward the edge'} does nothing`, () => {
     const f = drawer();
     f.slide(WIDTH - 14, ROW_Y, dx, card);
     assert.equal(f.letGo(), 0, 'a slip of a few px let go of the caret');
-    assert.deepEqual(f.runs, [{ side: 'right', at: 0 }], 'the settings did not go back');
+    assert.deepEqual(f.events, [], 'something came out from the right edge');
+    assert.deepEqual(f.runs, []);
   });
 }
 
 // ---- a real pull still lets the row go, on its way out -----------------------------------
 
-test('a settings pull from the edge lets the caret go once settings have come out 24 px, and only once', () => {
-  const f = drawer();
+test('a box pull from the right edge lets the caret go once the box has come out 24 px, and only once', () => {
+  const f = drawer({ box: true });
   const x = WIDTH - 6;
   f.touch('start', x, ROW_Y, card);
   for (const dx of [-8, -16, -20]) f.touch('move', x + dx, ROW_Y, card);
-  assert.equal(f.letGo(), 0, 'the caret went before the settings had really moved');
+  assert.equal(f.letGo(), 0, 'the caret went before the box had really moved');
   f.touch('move', x - 30, ROW_Y, card);
   assert.equal(f.letGo(), 1, 'a pull 30 px out still holds the caret');
-  assert.deepEqual(f.events.slice(-2), ['let go', 30], 'the caret went after the move that took the settings out 30 px was painted');
+  assert.deepEqual(f.events.slice(-2), ['let go', 30], 'the caret went after the move that took the box out 30 px was painted');
   for (const dx of [-120, -200]) f.touch('move', x + dx, ROW_Y, card);
   f.touch('end', x - 200, ROW_Y, card);
   assert.equal(f.letGo(), 1, 'the caret was let go more than once');
-  assert.deepEqual(f.runs, [{ side: 'right', at: 1 }], 'the pull did not land the settings open');
+  assert.deepEqual(f.runs, [{ side: 'right', at: 1 }], 'the pull did not land the box open');
+});
+
+test('no pull from the right edge brings the settings, and the caret stays', () => {
+  const f = drawer();
+  const x = WIDTH - 6;
+  f.touch('start', x, ROW_Y, card);
+  for (const dx of [-8, -30, -120, -200]) f.touch('move', x + dx, ROW_Y, card);
+  f.touch('end', x - 200, ROW_Y, card);
+  assert.equal(f.letGo(), 0, 'a pull that brought nothing let go of the caret');
+  assert.deepEqual(f.events, []);
+  assert.deepEqual(f.runs, []);
 });
 
 test('a list pull from the left edge at the row\'s height, left of the row, still opens it', () => {

@@ -162,7 +162,7 @@ Endpoints:
                                into this repo
   POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the box
                                beside the card on the Mac board (and above
-                               it on the phone, pulled out from the edge),
+                               it on the phone, pulled in from the right edge),
                                and open it, in place of whatever it held.
                                It waits on its card and never takes the
                                keys. K is text
