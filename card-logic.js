@@ -691,7 +691,7 @@ const RESPONSE_SCROLL_TOP = 1800;
 // how long the key is held at the first speed before the speed starts to rise
 const RESPONSE_HOLD_MS = 1700;
 // how long the rise then takes to go from the first speed to the top
-const RESPONSE_RAMP_MS = 24000;
+const RESPONSE_RAMP_MS = 2667;
 // after letting go the speed falls by a factor of e every this long, so the
 // motion goes on for about the speed it had times this (180px from the top
 // speed), and is over once it is under RESPONSE_EASE_END pixels a second
