@@ -785,7 +785,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const HINT_SPOTS = ["reply", "title", "box", "bar"];
   const asked = new URLSearchParams(location.search).get("hint") || (/hint=(\w+)/.exec(location.hash) || [])[1];
   const HINT = HINT_SPOTS.includes(asked) ? asked : "reply";
-  // the four chips a card in Doing wears, drawn; only the closing card's sunset
+  // the four chips a card in Doing wears, drawn; only the closing card's checkmark
   // is wired, to the done it makes on the board
   const SHOW_CHIPS = true;
   // the card from which on the board's ticket list stands beside the card
@@ -976,7 +976,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
       el.ta.disabled = true;
       el.ta.tabIndex = -1;
       if (spec.closing){
-        // the sunset on the closing card marks it done, as Control + Shift + Backspace does
+        // the checkmark on the closing card marks it done, as Control + Shift + Backspace does
         el.x.addEventListener("click", finish);
         return card;
       }

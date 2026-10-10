@@ -664,16 +664,16 @@
   #home .tk-opt::after{content:""; position:absolute; left:0; right:0; top:calc(-9 * var(--u)); bottom:calc(-9 * var(--u))}
 
   /* the card's own top bar: the reply history on the left, the sun, the defer
-     chip and the done sunset on the right, over the hairline the desktop bar wears.
+     chip and the done checkmark on the right, over the hairline the desktop bar wears.
      the top row's own names, for this page only. every element on the row, the
      two arrows and the four chips, stands in a square --bar-sq, a seat sized
-     for a finger, and the sun, the cloud, the moon and the sunset draw their marks across
+     for a finger, and the sun, the cloud, the moon and the checkmark draw their marks across
      inside it at --bar-mark, the one mark size both pages share
      (card-tokens.css, with --cross-t, the cross's thickness, and --cardspin-s,
      the spinner's own size). --bar-ink-gap is the air between one mark and the
      next, edge to edge, the same for every pair: card-tokens.css moves the four
      squares apart by what each pair's widths ask for. --bar-tail is how far the
-     sunset's square ends short of the bar's right edge */
+     checkmark's square ends short of the bar's right edge */
   :root, #page{--bar-sq:calc(28 * var(--u)); --bar-ink-gap:calc(23.5 * var(--u)); --bar-tail:calc(6 * var(--u))}
   /* the bar is a grid of five columns, the history control and then the four
      chips, so the working spinner can stand in the sun's own cell and share its

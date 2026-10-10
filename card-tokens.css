@@ -116,9 +116,9 @@
 :root{
   --hist-glyph-w:11px; --hist-glyph-h:7px;
   --bar-mark:10px; --cardspin-s:11px;
-  --done-scale:1.3;
+  --done-scale:1;
   --chip-scale:1.2;
-  --ink-sun:.975; --ink-dock:.96653; --ink-moon:.74841; --ink-done:calc(.85 * var(--done-scale));
+  --ink-sun:.975; --ink-dock:.96653; --ink-moon:.74841; --ink-done:calc(.975 * var(--done-scale));
   --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
   --spin-fade:.26s;
 }
@@ -143,8 +143,8 @@
 .topbar:has(> .dockbtn[aria-disabled="true"]) .sunbtn svg{opacity:1}
 .dockbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
 
-/* The four marks are drawn --chip-scale times --bar-mark (the sunset a further
-   --done-scale, see DONE_ICON), and each stands in a seat of --bar-sq, the
+/* The four marks are drawn --chip-scale times --bar-mark (the checkmark a further
+   --done-scale, which is 1: it is the sun's size, see DONE_ICON), and each stands in a seat of --bar-sq, the
    rectangle a hover or a press paints, the same size for all four. the board's
    seats keep one fixed step (--bar-gap-chips in index.html). the phone
    page spaces its seats by the width of the marks instead, so the air between

@@ -2388,7 +2388,7 @@
     margin-top:8px; padding-right:96px; flex:none; cursor:text}
   #magic2 .mtitle[contenteditable]{outline:none}
   #magic2 .mtitle[contenteditable]:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
-  /* the done chip, copied off the card: round pink chip, the dark sunset */
+  /* the done chip, copied off the card: round pink chip, the dark checkmark */
   #magic2 .mx{position:absolute; top:9px; right:9px; z-index:4;
     width:16px; height:16px; border-radius:50%; background:#FF9F98; color:#1e1e1e;
     border:none; padding:0; font-size:0; cursor:pointer;
@@ -10501,7 +10501,7 @@ function renderMiniCards(state){
       title.addEventListener("focus", () => { if (!title.isContentEditable) miniEditTitle(b.id); });
       // the same three round chips the large card carries, and the same jobs:
       // the yellow sun moves a card to doing, the orange moon defers, the pink
-      // sunset marks a card done that holds a conversation and removes one that is
+      // checkmark marks a card done that holds a conversation and removes one that is
       // empty. this list holds doing cards alone, so here the sun is always
       // the faded one
       const sun = sunChip("msun", b.id);
