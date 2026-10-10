@@ -6972,10 +6972,28 @@ function quickNoteOverlay(host, opts){
 // that opens one section at a time is 989px, the board's own single column width
 const SETTINGS_NARROW_PX = 989;
 const SETTINGS_NARROW = "(max-width: " + SETTINGS_NARROW_PX + "px)";
+// the Mac's page is narrower than that on purpose, so it turns to the list by
+// its own, smaller width
+const SETTINGS_MAC_NARROW_PX = 600;
 const SETTINGS_MARKS = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   next: '<path d="M9 5l7 7-7 7"/>',
 };
+// the Mac page's little mark to the left of each section's name: one line
+// drawing to a section, on the same 24 grid and round ends as the marks above
+const SETTINGS_ICONS = {
+  profile: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.2 18.4c1.4-2.3 3.4-3.4 5.8-3.4s4.4 1.1 5.8 3.4"/>',
+  appearance: '<path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.9-.8 1.9-1.7 0-.5-.2-.9-.5-1.3-.3-.4-.4-.8-.4-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.2-4-8-9-8z"/><path d="M7.5 11h.01M10 7.5h.01M14.5 7.5h.01"/>',
+  editor: '<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M14.5 6.5l3 3"/>',
+  improvements: '<path d="M3.5 17l6-6 4 4 7-7.5"/><path d="M14.5 7.5h6v6"/>',
+};
+function settingsIcon(id){
+  const mark = h("span", "sp-ico");
+  mark.setAttribute("aria-hidden", "true");
+  mark.innerHTML = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + SETTINGS_ICONS[id] + '</svg>';
+  return mark;
+}
 function settingsMark(name){
   const svg = h("span");
   svg.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
@@ -7013,11 +7031,14 @@ function settingsLights(close){
 // section groups. opts.close puts the whole page away. opts.lights, on the
 // desktop, adds the window buttons that do it. opts.narrow, where the
 // window is not what decides, is a query like matchMedia's that says when the
-// page is narrow. what comes back moves between the list and one section, and
+// page is narrow. opts.mac is the Mac's look: a mark beside each section's
+// name, each section's choices in one rounded grey box, and no second heading
+// over them. what comes back moves between the list and one section, and
 // says where it stands
 function settingsPage(root, source, opts){
   const narrow = opts.narrow || matchMedia(SETTINGS_NARROW);
   root.classList.add("qn-glass", "sp-page");
+  if (opts.mac) root.classList.add("sp-mac");
   root.setAttribute("role", "dialog");
   root.setAttribute("aria-modal", "true");
   root.setAttribute("aria-label", "Settings");
@@ -7039,6 +7060,7 @@ function settingsPage(root, source, opts){
     const item = h("button", "sp-item");
     item.type = "button";
     item.dataset.section = id;
+    if (opts.mac && SETTINGS_ICONS[id]) item.append(settingsIcon(id));
     item.append(h("span", "", label));
     const next = h("span", "sp-next");
     next.appendChild(settingsMark("next"));
@@ -7046,8 +7068,14 @@ function settingsPage(root, source, opts){
     const pane = h("section", "sp-pane");
     pane.id = "settings-" + id;
     pane.setAttribute("aria-label", label);
-    pane.appendChild(h("h3", "sp-panehead", label));
-    pane.append(...group.childNodes);
+    if (opts.mac){
+      const box = h("div", "sp-box");
+      box.append(...group.childNodes);
+      pane.appendChild(box);
+    } else {
+      pane.appendChild(h("h3", "sp-panehead", label));
+      pane.append(...group.childNodes);
+    }
     list.appendChild(item);
     panes.appendChild(pane);
     return { id, label, item, pane };
@@ -7112,8 +7140,9 @@ function widthQuery(el, limit){
 
 // the desktop's seat for the page: a veil over the whole window, the same one
 // the quick note opens over, with the page centred on it at about seven tenths
-// of the window each way. the page turns between its two layouts by its own
-// width, not the window's. a press on the veil outside the page, Escape and the
+// of the window down and about half of it across, the veil and the page
+// fading in and out together (.sp-veil in card-tokens.css). the page turns
+// between its two layouts by its own width, not the window's. a press on the veil outside the page, Escape and the
 // red window button all put the whole page away from either view, and no key
 // goes on to the board it covers. opts carries onOpen and onClose for the page's
 // own bookkeeping
@@ -7126,7 +7155,7 @@ function settingsOverlay(host, source, opts){
   veil.appendChild(seat);
   host.appendChild(veil);
   let open = false, back = null, downOutside = false;
-  const page = settingsPage(seat, source, { close, lights: true, narrow: widthQuery(seat, SETTINGS_NARROW_PX) });
+  const page = settingsPage(seat, source, { close, lights: true, mac: true, narrow: widthQuery(seat, SETTINGS_MAC_NARROW_PX) });
   function openOverlay(){
     if (open) return;
     open = true;

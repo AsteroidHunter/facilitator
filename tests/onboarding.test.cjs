@@ -270,11 +270,13 @@ test("a frame that did not get the onboarding is taken away and not put up again
 });
 
 test("the Profile section is in Settings on the Mac, editable, and on the phone, shown", () => {
-  const mac = MAC.slice(MAC.indexOf('<div data-section="profile" data-label="Profile">'), MAC.indexOf('<div id="appframe"'));
-  for (const id of ["setname", "setemail", "setemailyes", "setwork", "setagent", "settz"])
+  const mac = MAC.slice(MAC.indexOf('<div data-section="profile" data-label="Profile">'), MAC.indexOf('<div data-section="appearance"'));
+  for (const id of ["setname", "setemail", "setwork", "setagent", "settz"])
     assert.ok(mac.includes(`id="${id}"`), id);
-  assert.match(mac, /<input type="checkbox" role="switch" id="setemailyes">/);
-  assert.match(mac, /go to PostHog, so Facilitator's maker can ask you for feedback/);
+  // no switch and no subtitles: the email is the yes, and clearing it takes the yes back
+  assert.doesNotMatch(mac, /setemailyes|Feedback emails|role="switch"|sethelp|avatar/i);
+  assert.ok(MAC.includes('const change = { [key]: input.value };'));
+  assert.ok(MAC.includes('if (key === "email") change.emailYes = input.value.trim() !== "";'));
   assert.ok(MAC.includes('fetch("/profile", { method: "POST", body: JSON.stringify({ ...change, timeZone: hereZone() }) })'));
   const phone = PHONE.slice(PHONE.indexOf('<div data-section="profile" data-label="Profile">'), PHONE.indexOf('<div data-section="diagnostics"'));
   for (const id of ["pfname", "pfemail", "pfyes", "pfwork", "pfagent", "pftz"]) assert.ok(phone.includes(`id="${id}"`), id);
