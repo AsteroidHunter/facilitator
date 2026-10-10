@@ -267,15 +267,17 @@ test("the box wears the card's own edge, face, corners and shadow, under a white
   assert.match(bar, /height:var\(--cardbar-h\)/);
   assert.match(bar, /background:var\(--card\)/);
   assert.match(bar, /box-shadow:inset 0 calc\(-1 \* var\(--edge-drawn\)\) 0 var\(--line\)/);
-  // three lights in the Mac's order, on the board and on the phone alike: the
-  // red one a button that closes the box, the other two greyed and no buttons
+  // three lights, mirrored from the Mac's order since they stand at the right:
+  // green, yellow and red from the left, so the red one is outermost, on the
+  // board and on the phone alike. the red one a button that closes the box,
+  // the other two greyed and no buttons
   for (const [page, open] of [[html, '<section id="magicbox" class="magicbox">'], [read("m.html"), '<section id="mbface" class="magicbox held"']]) {
     const section = page.slice(page.indexOf(open), page.indexOf("</section>", page.indexOf(open)));
     assert.ok(section.length > 0, open);
     const lights = [...section.matchAll(/<(button|span) [^>]*class="mblight(?: [^"]*)?"[^>]*>/g)];
-    assert.deepEqual(lights.map(m => m[1]), ["button", "span", "span"]);
-    assert.match(lights[0][0], /class="mblight mbclose" aria-label="Close the magic box"/);
-    for (const m of lights.slice(1)) assert.match(m[0], /aria-hidden="true"/);
+    assert.deepEqual(lights.map(m => m[1]), ["span", "span", "button"]);
+    assert.match(lights[2][0], /class="mblight mbclose" aria-label="Close the magic box"/);
+    for (const m of lights.slice(0, 2)) assert.match(m[0], /aria-hidden="true"/);
     assert.ok(section.indexOf("mbbar") < section.indexOf("mbbody"), "the bar stands above what the box holds");
   }
   assert.match(sheet, /\.magicbox \.mblight\{[^}]*background:#DCDCDC/);
