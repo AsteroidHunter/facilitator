@@ -198,30 +198,33 @@ test("control+shift+s no longer scrolls or bounces and leaves the key alone", as
   }
 });
 
-test("the speed starts at 150 px/s, rises along an S to 1800 px/s over 2.4 seconds and holds there", async () => {
+test("the speed stays at 150 px/s for 1.7 seconds, then rises along an S to 1800 px/s over 24 seconds and holds there", async () => {
   const { held, speed } = await logic();
   near(speed(0), 150, "the first speed is the steady pace it replaces");
-  near(speed(1200), 975, "half way along the ramp is half way up");
-  near(speed(2400), 1800, "the top speed");
-  near(speed(5000), 1800, "and it holds");
+  near(speed(1700), 150, "and it stays there for the first 1.7 seconds");
+  near(speed(13700), 975, "half way along the ramp is half way up");
+  near(speed(25700), 1800, "the top speed");
+  near(speed(60000), 1800, "and it holds");
   let last = 0;
-  for (let ms = 0; ms <= 2800; ms += 10) {
+  for (let ms = 0; ms <= 27000; ms += 10) {
     assert.ok(speed(ms) >= last, `the speed fell at ${ms}ms`);
     last = speed(ms);
   }
-  // gentle at both ends, so nothing jolts as the key goes down or the top is reached:
-  // in the first and the last 60ms the speed moves a quarter of what an even ramp would
-  const even = (1800 - 150) / 2400 * 60;
-  assert.ok(speed(60) - speed(0) < even / 4, "a jolt at the start");
-  assert.ok(speed(2400) - speed(2340) < even / 4, "a jolt at the top");
+  // gentle at both ends, so nothing jolts as the rise begins or the top is reached:
+  // in the 60ms after the hold-off and the last 60ms the speed moves a quarter of
+  // what an even ramp would
+  const even = (1800 - 150) / 24000 * 60;
+  assert.ok(speed(1760) - speed(1700) < even / 4, "a jolt at the start of the rise");
+  assert.ok(speed(25700) - speed(25640) < even / 4, "a jolt at the top");
   // the distance is 150px/s all along with the rise on top of it
   near(held(0), 0);
-  near(held(2400), 2340, "the ramp");
-  near(held(3000), 3420, "a 3 second hold");
+  near(held(1700), 255, "the hold-off");
+  near(held(25700), 23655, "the ramp");
+  near(held(30000), 31395, "a 30 second hold");
   // the distance is the area under the speed, however the time is cut into frames
   let area = 0;
-  for (let ms = 0; ms < 3000; ms += 1) area += (speed(ms) + speed(ms + 1)) / 2 / 1000;
-  assert.ok(Math.abs(area - held(3000)) < 0.05, `${area} against ${held(3000)}`);
+  for (let ms = 0; ms < 30000; ms += 1) area += (speed(ms) + speed(ms + 1)) / 2 / 1000;
+  assert.ok(Math.abs(area - held(30000)) < 0.05, `${area} against ${held(30000)}`);
   const a = await setup(), b = await setup();
   a.press(); a.time.run(20, 20);
   b.press(); b.time.run(8, 50);
@@ -238,10 +241,10 @@ test("holding the chord scrolls down from the first frame at the old pace and le
   near(f.view.scrollTop, 1000 + f.held(20), "first frame");
   assert.ok(f.view.scrollTop - 1000 > 2.99 && f.view.scrollTop - 1000 < 3.02, "the first frame is the old 3px");
   f.time.run(4);
-  // 100ms in, well inside the double tap window, the motion is 15.3px: the 15px
-  // of the old steady pace and a little more from the speed rising
+  // 100ms in, well inside the double tap window, the motion is 15px: the old
+  // steady pace, as the speed has not begun to rise
   near(f.view.scrollTop, 1000 + f.held(100), "after 100ms");
-  assert.ok(f.view.scrollTop - 1000 > 15.2 && f.view.scrollTop - 1000 < 15.4, `${f.view.scrollTop - 1000}`);
+  assert.ok(Math.abs(f.view.scrollTop - 1000 - 15) < 1e-6, `${f.view.scrollTop - 1000}`);
   const letGo = f.view.scrollTop;
   f.release("S");
   // not over: it eases off, going on for about the speed it had times 0.1s
@@ -258,14 +261,14 @@ test("holding the chord scrolls down from the first frame at the old pace and le
 });
 
 test("letting go eases the speed off without a jolt, never backwards, to a stop within half a second", async () => {
-  const f = await setup({ scrollHeight: 20000, scrollTop: 0 });
-  // a 2.4 second hold, which is the top speed
-  f.press(); f.time.run(119);
+  const f = await setup({ scrollHeight: 100000, scrollTop: 0 });
+  // a 25.7 second hold, which is the top speed
+  f.press(); f.time.run(1284);
   const before = f.view.scrollTop;
   f.time.run(1);
   const lastHeld = f.view.scrollTop - before;
   const letGo = f.view.scrollTop;
-  near(letGo, f.held(2400));
+  near(letGo, f.held(25700));
   f.release("S");
   const steps = [];
   let last = letGo;
@@ -335,12 +338,12 @@ test("a tap then a quick press and hold scrolls up, and the press after that goe
 });
 
 test("an up press speeds up and eases off upward, as a down one does downward", async () => {
-  const f = await setup({ scrollHeight: 20000, scrollTop: 10000 });
+  const f = await setup({ scrollHeight: 100000, scrollTop: 50000 });
   f.press(); f.time.run(1); f.release("S");
   f.time.elapse(100);
   const start = f.view.scrollTop;
-  f.press(); f.time.run(120);
-  near(f.view.scrollTop, start - f.held(2400), "the climb");
+  f.press(); f.time.run(1285);
+  near(f.view.scrollTop, start - f.held(25700), "the climb");
   const letGo = f.view.scrollTop;
   f.release("S");
   easeOut(f);
@@ -410,7 +413,7 @@ test("a stalled frame moves at most one clamped step", async () => {
   f.press();
   f.time.run(1, 5000);
   near(f.view.scrollTop, 1000 + f.held(50));
-  assert.ok(f.view.scrollTop - 1000 > 7.5 && f.view.scrollTop - 1000 < 7.7);
+  assert.ok(Math.abs(f.view.scrollTop - 1000 - 7.5) < 1e-6);
 });
 
 test("the motion stops at either end and still takes the chord there", async () => {
@@ -515,9 +518,9 @@ test("a hold that reaches either end bounces once there and a scroll short of it
 });
 
 test("an ease that carries the response to its end stops there and bounces once", async () => {
-  // 150px to go: a 600ms hold covers about 144 and the ease about 41 more
-  const f = await setup({ scrollTop: 1450 });
-  f.press(); f.time.run(30);
+  // 70px to go: a 400ms hold covers 60 and the ease about 15 more
+  const f = await setup({ scrollTop: 1530 });
+  f.press(); f.time.run(20);
   assert.ok(f.view.scrollTop < 1600);
   f.release("S");
   assert.deepEqual(bounces(f), []);
