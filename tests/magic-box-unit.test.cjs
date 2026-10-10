@@ -557,6 +557,75 @@ test("on the phone the box comes down in the card list's own drawer, from the ri
     "every reading is the page's own, and then the box is read for the card on screen");
 });
 
+test("control shift period does for the box what control shift comma does for the list", async () => {
+  const { ctx, classes, calls, drawer } = phoneBoxScript(read("m.html"));
+  const keys = [ctx.phoneShortcutActions, ctx.menuShortcutActions];
+  assert.ok(keys.every(k => typeof k.boxDrawer === "function" && typeof k.cardsDrawer === "function"),
+    "both keys are answered with the drawers shut and with one out");
+  const press = (action, table = ctx.phoneShortcutActions) => {
+    const e = { prevented: false, preventDefault() { this.prevented = true; } };
+    calls.length = 0;
+    table[action](e, { action, value: true });
+    return e.prevented;
+  };
+  // on a card with no box the period does nothing, and still takes the key, so
+  // the phone types no period into the reply box
+  ctx.shownId = "b";
+  assert.equal(press("boxDrawer"), true, "the key was left to type a period on a card with no box");
+  assert.deepEqual(calls, []);
+  assert.equal(ctx.menuOut(), null);
+  // the period brings the box from the right, and again shuts it
+  ctx.shownId = "a";
+  assert.equal(press("boxDrawer"), true);
+  assert.deepEqual(calls, ["show box from the right"]);
+  assert.equal(press("boxDrawer", ctx.menuShortcutActions), true);
+  assert.deepEqual(calls, ["close box from the right"]);
+  await drawer.land();
+  // the comma brings the list from the left
+  press("cardsDrawer");
+  assert.deepEqual(calls, ["show list from the left"]);
+  // with the list out, the period swaps it for the box: the list goes back,
+  // and the box comes in from the right once it has landed
+  press("boxDrawer", ctx.menuShortcutActions);
+  assert.deepEqual(calls, ["close list from the left"]);
+  await drawer.land();
+  assert.deepEqual(calls, ["close list from the left", "show box from the right"]);
+  // and with the box out, the comma swaps back to the list
+  press("cardsDrawer", ctx.menuShortcutActions);
+  await drawer.land();
+  assert.deepEqual(calls, ["close box from the right", "show list from the left"]);
+  // a second key before the drawer has landed is the one that counts: the
+  // list on its way back comes out again, and the box does not follow
+  press("boxDrawer", ctx.menuShortcutActions);
+  press("cardsDrawer");
+  await drawer.land();
+  assert.deepEqual(calls, ["show list from the left"]);
+  assert.ok(!classes.has("boxface"));
+  press("cardsDrawer", ctx.menuShortcutActions);
+  await drawer.land();
+  // with the settings out, the period swaps them for the box at once, as the
+  // comma swaps them for the list
+  ctx.showMenu(ctx.settings);
+  press("boxDrawer", ctx.menuShortcutActions);
+  assert.deepEqual(calls, ["show box from the right"]);
+  press("boxDrawer", ctx.menuShortcutActions);
+  await drawer.land();
+  ctx.showMenu(ctx.settings);
+  press("cardsDrawer", ctx.menuShortcutActions);
+  assert.deepEqual(calls, ["show list from the left"]);
+  // a box gone from the card while the list went back brings nothing
+  press("boxDrawer", ctx.menuShortcutActions);
+  ctx.shownId = "b";
+  await drawer.land();
+  assert.deepEqual(calls, ["close list from the left"]);
+  assert.equal(ctx.menuOut(), null);
+  // the period on a card with no box, with the settings out, leaves them out
+  ctx.showMenu(ctx.settings);
+  assert.equal(press("boxDrawer", ctx.menuShortcutActions), true);
+  assert.deepEqual(calls, []);
+  assert.equal(ctx.menuOut(), ctx.settings);
+});
+
 test("both pages load the box's script, and the board keeps the box out of the regions", () => {
   const html = read("index.html");
   assert.match(html, /<script src="\/magic-box\.js"><\/script>/);

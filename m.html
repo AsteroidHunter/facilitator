@@ -7436,7 +7436,8 @@ if (parent === window) {
 // card-tokens.css): the same window, place, travel, spring and fade, and the
 // card goes down only as far as the box needs (listSlack). the list comes in
 // from the left, pulled in from the left edge; the box comes in from the right,
-// pulled in from the right edge, the other way. it never comes by itself: it
+// pulled in from the right edge, the other way, or brought by control+shift+
+// period as control+shift+comma brings the list. it never comes by itself: it
 // waits on its card, and goes back when its card leaves the screen or the box
 // is put away. it stands apart from the page's own script and reaches into it
 // only through the few names it wraps at the foot here
@@ -7523,10 +7524,37 @@ for (const type of ["touchstart", "mousedown"]) addEventListener(type, e => {
   if (at.clientX <= MAGIC_EDGE) drawerFace(false);
   else if (at.clientX >= innerWidth - MAGIC_EDGE) drawerFace(!!phoneMagicCard());
 }, { capture: true, passive: true });
+// control+shift+period does for the box what control+shift+comma does for the
+// list, and the two keys share this one rule: the face asked for comes out,
+// and the key again puts it back. the settings go as it comes, as they always
+// did for the list; the drawer out with its other face goes back first, and
+// comes out again with this one once it has landed, since it cannot change
+// face on the way. typing or not, the key types nothing, and coming out takes
+// the caret out of its box (runMenu). on a card with no box the period does
+// nothing, and still types nothing: left alone, the phone types a period into
+// the reply box and corrects the word before it
+let drawerSwap = 0;
+function drawerKey(e, box){
+  e.preventDefault();
+  if (box && !phoneMagicCard()) return;
+  const swap = ++drawerSwap, same = tickets.classList.contains("boxface") === box;
+  if (same && menuOut() === tickets){ closeDrawer(); return; }
+  if (same || (menuOut() !== tickets && !listMoving())){ drawerFace(box); showMenu(tickets); return; }
+  if (menuOut() === tickets) closeDrawer();
+  // the drawer's run and transitions, as settleTicketDrawer reads them
+  const moving = [tickets, tikwin, cardPane].flatMap(el => el.getAnimations())
+    .filter(a => a.id === "list-run" || a.transitionProperty);
+  Promise.all(moving.map(a => a.finished.catch(() => {}))).then(() => {
+    if (swap !== drawerSwap || menuOut() === tickets || listMoving() || (box && !phoneMagicCard())) return;
+    drawerFace(box);
+    showMenu(tickets);
+  });
+}
 // the page's own script, reached through the names it already has: every
 // reading, every card put on show or taken off it, the cards button, which
-// always brings the list, and the drawer's drop, which out for the box is what
-// the drawer leaves under it
+// always brings the list, the drawer's drop, which out for the box is what the
+// drawer leaves under it, and the two drawer keys, with the drawers shut and
+// with one out
 {
   const applyReading = apply, selectCard = select, deselectCard = deselect, openList = openDrawer, listSpare = listSlack;
   apply = function(state){ applyReading(state); phoneMagicSync(); };
@@ -7535,6 +7563,10 @@ for (const type of ["touchstart", "mousedown"]) addEventListener(type, e => {
   openDrawer = function(){ drawerFace(false); openList(); };
   listSlack = () => tickets.classList.contains("boxface")
     ? Math.max(0, tickets.clientHeight - PB.el.offsetHeight) : listSpare();
+  for (const keys of [phoneShortcutActions, menuShortcutActions]){
+    keys.cardsDrawer = e => drawerKey(e, false);
+    keys.boxDrawer = e => drawerKey(e, true);
+  }
 }
 </script>
 </body>

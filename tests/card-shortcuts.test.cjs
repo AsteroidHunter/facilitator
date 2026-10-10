@@ -524,6 +524,7 @@ test("the random pick has nothing to answer with when no card qualifies", async 
 const COMMA = { ctrlKey: true, shiftKey: true, code: "Comma" };
 const OLD_COMMA = { metaKey: true, shiftKey: true, code: "Comma" };
 const OLD_PERIOD = { metaKey: true, shiftKey: true, code: "Period" };
+const PERIOD = { ctrlKey: true, shiftKey: true, code: "Period" };
 
 test("control shift comma names the card list by the physical key, whatever character it types", async () => {
   const { resolve } = await shortcuts();
@@ -545,12 +546,30 @@ test("the card list chord needs control and shift alone, and ignores repeats and
   assert.equal(resolve(event(",", { metaKey: true, code: "Comma" })), null, "command comma alone is the browser's settings");
 });
 
-test("command shift comma and period, and every chord on the period, name nothing", async () => {
+test("control shift period names the magic box by the physical key, whatever character it types", async () => {
+  const { resolve } = await shortcuts();
+  for (const key of [">", ".", "Dead", "Unidentified"]) {
+    assert.deepEqual(plain(resolve(event(key, PERIOD))), { action: "boxDrawer", value: true }, key + " on Period");
+  }
+  assert.equal(resolve(event(".", { ctrlKey: true, shiftKey: true })), null, "a period with no physical key named is no chord");
+  assert.equal(resolve(event(">", { ctrlKey: true, shiftKey: true, code: "KeyZ" })), null);
+});
+
+test("the magic box chord needs control and shift alone, and ignores repeats and composition", async () => {
+  const { resolve } = await shortcuts();
+  for (const off of [{ ctrlKey: false }, { shiftKey: false }, { metaKey: true }, { altKey: true },
+                     { repeat: true }, { isComposing: true }]) {
+    assert.equal(resolve(event(">", { ...PERIOD, ...off })), null, "Period with " + JSON.stringify(off));
+  }
+});
+
+test("command shift comma and period, and every other chord on the period, name nothing", async () => {
   const { resolve } = await shortcuts();
   assert.equal(resolve(event("<", OLD_COMMA)), null, "the old card list chord is still named");
   assert.equal(resolve(event(">", OLD_PERIOD)), null, "the old settings chord is still named");
+  // control and shift alone are the magic box's (above)
   const held = [{}, { metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true },
-                { metaKey: true, shiftKey: true }, { ctrlKey: true, shiftKey: true },
+                { metaKey: true, shiftKey: true },
                 { metaKey: true, ctrlKey: true, shiftKey: true }, { altKey: true, shiftKey: true }];
   for (const modifiers of held) {
     for (const key of [">", ".", "Dead", "Unidentified"]) {
@@ -560,9 +579,10 @@ test("command shift comma and period, and every chord on the period, name nothin
   }
 });
 
-test("the card list key is not in the mini scope", async () => {
+test("the card list and magic box keys are not in the mini scope", async () => {
   const { resolve } = await shortcuts();
   assert.equal(resolve(event(",", COMMA), "mini"), null);
+  assert.equal(resolve(event(">", PERIOD), "mini"), null);
   assert.equal(resolve(event("ArrowDown"), "mini"), null);
 });
 

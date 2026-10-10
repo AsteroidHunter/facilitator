@@ -412,6 +412,14 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
       !e.repeat && !e.isComposing && e.code === "Comma" ? true : null,
   },
+  // control+shift+period, the key beside it, is the phone's card's magic box,
+  // brought down in the same drawer from the other side; read off the physical
+  // key for the same reason (">" on a US layout)
+  {
+    action: "boxDrawer", mini: false,
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.repeat && !e.isComposing && e.code === "Period" ? true : null,
+  },
   {
     action: "history", mini: false,
     match: e => e.ctrlKey && !e.metaKey && e.shiftKey &&
