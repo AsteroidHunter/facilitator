@@ -509,16 +509,19 @@
      the gap between neighbouring squares is its own value and is never worked
      out from the square: --bar-gap-hist between the two arrows and
      --bar-gap-chips between the sun, the cloud, the moon and the cross. the arrow marks
-     stand 28 apart and the chip marks 25, so squares this size leave those two
-     gaps. --bar-lead is how far in the first arrow's square starts, and
-     --bar-tail how far the cross's square ends short of the bar's right edge;
-     with the gaps they hold every mark on the pixel it already stood on.
+     stand 28 apart and the chip marks 27, so squares this size leave those two
+     gaps. the chips' gap was 1px for the 10px marks; the marks are drawn 1.2
+     times larger now, which took the air between them down by about 2px, and
+     the 3px gives it back. --bar-lead is how far in the first arrow's square
+     starts, and --bar-tail how far the cross's square ends short of the bar's
+     right edge; with the arrows' gap they hold those marks on the pixel they
+     already stood on, and the cross keeps its place at the right.
      --histpos-room is what the "n of m" count keeps ahead of it beyond the
      arrows' gap, and --pathline-h the height of the path line the bar replaced,
      which the bar's bottom margin hands back */
   :root{
     --bar-sq:24px;
-    --bar-gap-hist:4px; --bar-gap-chips:1px; --bar-lead:2px; --bar-tail:5px;
+    --bar-gap-hist:4px; --bar-gap-chips:3px; --bar-lead:2px; --bar-tail:5px;
     --histpos-room:2px; --pathline-h:15px;
   }
   .topbar{display:none}
