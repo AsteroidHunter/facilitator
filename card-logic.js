@@ -680,7 +680,7 @@ const RESPONSE_TAP_MS = 300;
 const RESPONSE_SCROLL_SPEED = 150;
 const RESPONSE_SCROLL_TOP = 1800;
 // how long the key is held for the speed to go from the first to the top
-const RESPONSE_RAMP_MS = 1200;
+const RESPONSE_RAMP_MS = 2400;
 // after letting go the speed falls by a factor of e every this long, so the
 // motion goes on for about the speed it had times this (180px from the top
 // speed), and is over once it is under RESPONSE_EASE_END pixels a second
