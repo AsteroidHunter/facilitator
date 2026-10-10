@@ -631,15 +631,34 @@ function sectionChordSource(target, el){
 }
 
 // ---- scrolling the response with control+s ---------------------------------------
-// Holding the chord scrolls the selected card's response slowly down from the
-// first frame. Tapping s and pressing it again within the double tap window,
-// with control still held, scrolls up instead. Letting go of s or control
-// stops the motion at once. The response scroller (el.replyview) holds the
-// live reply and a history step alike. macOS text boxes give control+s no
-// meaning, so the chord works from the card's composer too.
+// Holding the chord scrolls the selected card's response down from the first
+// frame, slowly at first and faster the longer it is held. Tapping s and
+// pressing it again within the double tap window, with control still held,
+// scrolls up instead. Letting go of s or control eases the motion off; anything
+// else that ends it (another key, the card or list changing, the window being
+// left) stops it at once. The response scroller (el.replyview) holds the live
+// reply and a history step alike. macOS text boxes give control+s no meaning,
+// so the chord works from the card's composer too.
+//
+// The speed is shaped after WebKit's own Page Down and arrow keys, measured in
+// a WKWebView: the speed rises while the key is down, to within 5 percent of a
+// top speed in about a second, and holds there, and after letting go it dies
+// away with a time constant of about 0.1 seconds. Here it starts at the steady
+// pace this key used to have and rises along an S (smoothstep) that is within 5
+// percent of the top after about a second, so nothing jolts at either end: a
+// tap goes a line or two, and a long hold crosses a long response in a few
+// seconds.
 const RESPONSE_TAP_MS = 300;
-// CSS pixels per second
+// CSS pixels per second: the speed at the first frame, and the top speed
 const RESPONSE_SCROLL_SPEED = 150;
+const RESPONSE_SCROLL_TOP = 1800;
+// how long the key is held for the speed to go from the first to the top
+const RESPONSE_RAMP_MS = 1200;
+// after letting go the speed falls by a factor of e every this long, so the
+// motion goes on for about the speed it had times this (180px from the top
+// speed), and is over once it is under RESPONSE_EASE_END pixels a second
+const RESPONSE_EASE_MS = 100;
+const RESPONSE_EASE_END = 10;
 // the longest frame gap counted, so a stalled page never catches up in a jump
 const RESPONSE_FRAME_MAX_MS = 50;
 // a press that finds nothing to scroll that way, or a hold that reaches the
@@ -668,6 +687,44 @@ function stopResponseScroll(){
 function dropResponseScroll(){
   stopResponseScroll();
   responseLastPress = null;
+}
+
+// How far the response has gone, in pixels, once the key has been held for
+// held milliseconds: the first speed all along, and on top of it the rise to the
+// top speed along its S. The S is the smoothstep 3x^2 - 2x^3 over the ramp, so
+// the rise adds up to x^3 - x^4/2, then to a straight run at the top speed.
+// The distance for a frame is the difference of two of these, so it does not
+// depend on how many frames the time is cut into.
+function responseHeldPath(held){
+  const x = held / RESPONSE_RAMP_MS;
+  const rise = x < 1 ? x * x * x * (1 - x / 2) : x - 0.5;
+  return (RESPONSE_SCROLL_SPEED * held +
+    (RESPONSE_SCROLL_TOP - RESPONSE_SCROLL_SPEED) * RESPONSE_RAMP_MS * rise) / 1000;
+}
+
+// the speed, in pixels a second, once the key has been held for held milliseconds
+function responseHeldSpeed(held){
+  const x = Math.min(1, held / RESPONSE_RAMP_MS);
+  return RESPONSE_SCROLL_SPEED + (RESPONSE_SCROLL_TOP - RESPONSE_SCROLL_SPEED) * x * x * (3 - 2 * x);
+}
+
+// How far an easing motion has gone, in pixels, eased milliseconds after the
+// key was let go at speed from (pixels a second)
+function responseEasePath(from, eased){
+  return from * RESPONSE_EASE_MS / 1000 * (1 - Math.exp(-eased / RESPONSE_EASE_MS));
+}
+
+// Letting go: the motion under way eases off from the speed it has reached.
+// Reduced motion stops it at once, as the bounce is left out for it.
+function easeResponseScroll(){
+  const run = responseScrolling;
+  if (!run || run.eased != null) return;
+  if (stillMotion()){
+    stopResponseScroll();
+    return;
+  }
+  run.from = responseHeldSpeed(run.held);
+  run.eased = 0;
 }
 
 // control and s and nothing else, so control+shift+s is not the chord
@@ -750,7 +807,18 @@ function responseScrollFrame(at){
   // and taken afresh when something else has moved the response
   if (Math.abs(view.scrollTop - run.pos) >= 1) run.pos = view.scrollTop;
   const room = Math.max(0, view.scrollHeight - view.clientHeight);
-  run.pos = Math.max(0, Math.min(room, run.pos + run.dir * RESPONSE_SCROLL_SPEED * dt / 1000));
+  // the frame's distance: along the rise while the key is held, along the ease
+  // once it is let go, which is over when its speed is almost nothing
+  let step, over = false;
+  if (run.eased == null){
+    step = responseHeldPath(run.held + dt) - responseHeldPath(run.held);
+    run.held += dt;
+  } else {
+    step = responseEasePath(run.from, run.eased + dt) - responseEasePath(run.from, run.eased);
+    run.eased += dt;
+    over = run.from * Math.exp(-run.eased / RESPONSE_EASE_MS) < RESPONSE_EASE_END;
+  }
+  run.pos = Math.max(0, Math.min(room, run.pos + run.dir * step));
   const computed = responseScrollTiming ? performance.now() : 0;
   if (run.pos !== view.scrollTop) view.scrollTop = run.pos;
   if (responseScrollTiming) noteResponseScroll("step", run, at, computed, callback);
@@ -758,6 +826,10 @@ function responseScrollFrame(at){
     // the motion stops here, so the hold that reached the end bounces once
     stopResponseScroll();
     responseScrollBounce(view, run.dir);
+    return;
+  }
+  if (over){
+    stopResponseScroll();
     return;
   }
   run.frame = requestAnimationFrame(responseScrollFrame);
@@ -795,25 +867,32 @@ function responseScrollKey(event, find){
     return true;
   }
   responseScrolling = {
-    ...press, find, dir, last: at, pos: view.scrollTop,
+    ...press, find, dir, last: at, pos: view.scrollTop, held: 0, eased: null, from: 0,
     frame: requestAnimationFrame(responseScrollFrame),
   };
   if (responseScrollTiming) noteResponseScroll("start", responseScrolling);
   return true;
 }
 
-// Letting go of s stops the motion and keeps the press for the double tap
-// window. Letting go of control stops it and forgets the press.
+// Letting go of s eases the motion off and keeps the press for the double tap
+// window. Letting go of control eases it off and forgets the press. Any other
+// modifier down stops it at once.
 function responseScrollKeyUp(event){
-  if (!event.ctrlKey || event.shiftKey || event.metaKey || event.altKey){
+  if (event.shiftKey || event.metaKey || event.altKey){
     dropResponseScroll();
     return;
   }
+  if (!event.ctrlKey){
+    responseLastPress = null;
+    easeResponseScroll();
+    return;
+  }
   if (event.key === "s" || event.key === "S"){
-    stopResponseScroll();
+    easeResponseScroll();
     if (responseLastPress && responseLastPress.released == null) responseLastPress.released = performance.now();
   } else if (event.key === "Control"){
-    dropResponseScroll();
+    responseLastPress = null;
+    easeResponseScroll();
   }
 }
 
