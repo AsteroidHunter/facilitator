@@ -1151,10 +1151,10 @@
      hangs from the drawer's top at its own size (MagicBox.fit), so the card
      goes down only as far as it needs, as it does for a short section. like
      the list, it paints no panel and casts no shadow of its own.
-     its bar stands at its foot (.barfoot), next to the card under it, and its
-     lengths are the page's own, scaled as the card's are. its lead puts the
-     first line's capitals 17px under the box's top, as the card's title's
-     stand under the card's own bar here (measured) */
+     its bar stands at its top with the cross at its right, as on the board,
+     and its lengths are the page's own, scaled as the card's are. its lead
+     puts the first line's capitals 17px under the bar's line, as the card's
+     title's stand under the card's own bar here (measured) */
   #mbface{display:none; --mb-inset:calc(16 * var(--u));
     --mb-x:calc(20 * var(--u)); --mb-gap:calc(5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u));
     --mb-lead:calc(11.5 * var(--u))}
@@ -1696,7 +1696,7 @@ for (const type of ["gesturestart", "gesturechange"])
     <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
     <!-- the card's magic box, which this same drawer brings down in place of the
          list when it is pulled out for the box -->
-    <section id="mbface" class="magicbox barfoot" aria-label="side note">
+    <section id="mbface" class="magicbox" aria-label="side note">
       <div class="mbbar">
         <button type="button" class="mbclose" aria-label="Close the side note"></button>
       </div>

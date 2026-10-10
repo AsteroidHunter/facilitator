@@ -312,7 +312,7 @@ test("the box has no frame, face or shadow: a short bar parted from what it hold
   // height, across the whole width, taking no touch
   const line = sheet.match(/\.magicbox \.mbbar::after\{([^}]*)\}/)[1].replace(/\s+/g, " ");
   assert.match(line, /content:""; position:absolute; pointer-events:none;/);
-  assert.match(line, /left:0; right:0; top:var\(--mb-line-top\); bottom:var\(--mb-line-foot\); height:0;/);
+  assert.match(line, /left:0; right:0; bottom:0; height:0;/);
   assert.match(line, /border-top:var\(--edge\) solid var\(--line\)$/);
   for (const page of [html, phone]) {
     const list = page.match(/  #tikhead::after\{([^}]*)\}/)[1].replace(/\s+/g, " ");
@@ -320,17 +320,18 @@ test("the box has no frame, face or shadow: a short bar parted from what it hold
     assert.match(list, /left:0; right:0; height:0;/);
     assert.match(list, /border-top:var\(--edge\) solid var\(--line\);/);
   }
-  // it runs along the bar's foot where the bar is at the head, and along the
-  // bar's top where it stands at the foot (the phone, a portrait window)
-  assert.match(box, /--mb-flow:column; --mb-air-head:0px; --mb-air-foot:var\(--mb-air\); --mb-line-top:auto; --mb-line-foot:0px/);
-  assert.match(sheet, /\.magicbox\.barfoot\{--mb-flow:column-reverse; --mb-air-head:var\(--mb-air\); --mb-air-foot:0px; --mb-line-top:0px; --mb-line-foot:auto\}/);
-  assert.match(sheet, /@media \(orientation:portrait\)\{\s*\.magicbox\{--mb-flow:column-reverse; --mb-air-head:var\(--mb-air\); --mb-air-foot:0px; --mb-line-top:0px; --mb-line-foot:auto\}\s*\}/);
-  assert.match(box, /flex-direction:var\(--mb-flow\)/);
+  // the bar stands at the box's top on the board, on the phone and in a
+  // portrait window alike, the line along its foot: nothing in the sheet
+  // or either page turns the box over or moves the bar to its foot
+  assert.match(box, /flex-direction:column;/);
+  assert.ok(!/column-reverse|--mb-flow|--mb-air-head|--mb-air-foot|--mb-line-top|--mb-line-foot|barfoot/.test(code(boxBlock())), "a way to put the bar at the foot is left");
+  assert.ok(!/@media[^{]*portrait[^{]*\{[^@]*\.magicbox/.test(code(read("card-tokens.css"))), "a portrait window still turns the box over");
+  for (const page of [html, phone]) assert.ok(!/barfoot|#magicbox[^{]*\{[^}]*column-reverse|#mbface[^{]*\{[^}]*column-reverse/.test(code(page)), "a page turns its box over");
   // words run out to the box's sides, the line's ends, with no frame to keep off
-  assert.match(sheet, /\.magicbox \.mbtext\{padding:calc\(var\(--mb-lead\) - var\(--mb-air-head\)\) 0 var\(--mb-inset, 16px\);/);
+  assert.match(sheet, /\.magicbox \.mbtext\{padding:var\(--mb-lead\) 0 var\(--mb-inset, 16px\);/);
   // one cross, a button that closes the box, in the bar, on the board and on
   // the phone alike
-  for (const [page, open] of [[html, '<section id="magicbox" class="magicbox">'], [phone, '<section id="mbface" class="magicbox barfoot"']]) {
+  for (const [page, open] of [[html, '<section id="magicbox" class="magicbox">'], [phone, '<section id="mbface" class="magicbox"']]) {
     const section = page.slice(page.indexOf(open), page.indexOf("</section>", page.indexOf(open)));
     assert.ok(section.length > 0, open);
     const bar = section.slice(section.indexOf('<div class="mbbar">'), section.indexOf("</div>", section.indexOf('<div class="mbbar">')));
@@ -359,7 +360,7 @@ test("what the box holds keeps white at its far edge, and words that scroll diss
   const html = read("index.html"), sheet = boxSheet(), logic = read("card-logic.js");
   // white between what it holds and the far edge, a picture excepted, which
   // fills its box in its own shape
-  assert.match(sheet, /\.magicbox \.mbbody\{[^}]*margin:var\(--mb-air-head\) 0 var\(--mb-air-foot\)\}/);
+  assert.match(sheet, /\.magicbox \.mbbody\{[^}]*margin:0 0 var\(--mb-air\)\}/);
   assert.match(sheet, /\.magicbox \.mbbody\[data-kind="image"\]\{margin:0\}/);
   // the fuzz: the ticket list's own ramp, word for word, on words alone
   const ramp = s => s.replace(/\s+/g, " ").trim();
@@ -391,15 +392,14 @@ test("the words start as far under the bar as the card's title does under its ow
   // the first line keeps no top margin of its own: a heading's would add a
   // line's worth of white over it
   assert.match(sheet, /\.magicbox \.mbtext > :first-child\{margin-top:0\}/);
-  // the words' top padding is the lead less what white the box already keeps
-  // over them, so the first line stands --mb-lead under the bar's foot, or
-  // under the box's top where the bar stands at the foot
-  assert.match(sheet, /\.magicbox \.mbtext\{padding:calc\(var\(--mb-lead\) - var\(--mb-air-head\)\) 0 /);
+  // the words' top padding is the lead, so the first line stands --mb-lead
+  // under the bar's foot, its line, on both pages
+  assert.match(sheet, /\.magicbox \.mbtext\{padding:var\(--mb-lead\) 0 /);
   // measured on the simulators: the card's title's capitals stand 19.2px under
   // the card's bar on the board and 17.4px on the phone; a first line's
   // capitals stand 6.1px (a heading) to 6.5px (plain words) under its top
   const box = sheet.match(/\n\.magicbox\{([^}]*)\}/)[1];
-  const lead = +box.match(/--mb-lead:(\d+(?:\.\d+)?)px;/)[1];
+  const lead = +box.match(/--mb-lead:(\d+(?:\.\d+)?)px\b/)[1];
   assert.ok(Math.abs(lead + 6.1 - 19.2) < .6 && Math.abs(lead + 6.5 - 19.2) < .6, "the board's lead does not put the first line where the card's title stands");
   const own = phone.match(/  #mbface\{display:none;([^}]*)\}/)[1];
   const phoneLead = +own.match(/--mb-lead:calc\((\d+(?:\.\d+)?) \* var\(--u\)\)/)[1] * .984;
@@ -471,7 +471,7 @@ test("clicking into the box moves no shadow, the card's or its own", () => {
   const script = html.slice(html.indexOf("function magicCard("), html.indexOf('addEventListener("blur", () => setTimeout(magicFocusCame));'));
   assert.ok(!/magicHold|"held"/.test(script), "the box is still held");
   assert.match(script, /MB\.el\.classList\.remove\("on", "over"\);/);
-  assert.match(phone, /<section id="mbface" class="magicbox barfoot"/);
+  assert.match(phone, /<section id="mbface" class="magicbox"/);
   // the card keeps its own shadow rules, none of them about its box: raised,
   // settled under magic box 2's composer, level once lowered
   assert.ok(html.includes("  body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}"));
@@ -861,7 +861,7 @@ test("both pages load the box's script, and the board keeps the box out of the r
 
 test("people and agents know it as a side note: the pages' labels, the command, its help, the runbook and the skill", () => {
   const phone = read("m.html"), board = read("index.html");
-  assert.match(phone, /<section id="mbface" class="magicbox barfoot" aria-label="side note">/);
+  assert.match(phone, /<section id="mbface" class="magicbox" aria-label="side note">/);
   for (const page of [board, phone]) assert.ok(!/aria-label="[^"]*magic/i.test(page), "a label still says magic");
   const cli = read("facilitator"), runbook = read("RUNBOOK.md"), skill = read(".agents/skills/facilitator/SKILL.md");
   assert.match(cli, /\n    elif cmd == "sidenote":\n        cmd_magic\(args\)\n/);
