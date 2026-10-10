@@ -5371,7 +5371,7 @@ function selectNextCard(id, order, section = "todo"){
 
 // ---- the four section chips ---------------------------------------------------
 // every card carries a chip for each section, left to right in the tabs' own
-// order: the sun for doing, the cloud for docked, the moon for deferred, the checkmark for done. the chip
+// order: the sun for doing, the cloud for docked, the moon for deferred, the cross for done. the chip
 // that names the section the card already stands in is faded and switched off,
 // since pressing it could only ask for what is already true. it is marked with
 // aria-disabled rather than the disabled property so it keeps its place in the
@@ -5404,16 +5404,6 @@ const DOCK_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" str
   '<path d="M12.89 14.64A3.8 3.8 0 1 1 14.18 13.37"></path>' +
   '<path d="M5.72 16.61L4.34 17.99M3.55 11.38L1.6 11.38M5.72 6.14L4.34 4.76M10.95 3.97L10.95 2.03M16.19 6.14L17.57 4.76"></path>' +
   '<path d="M11.694 21.975H19.694A2.8 2.8 0 0 0 20.254 16.455A4 4 0 0 0 12.574 15.255A3.44 3.44 0 0 0 11.694 21.975Z"></path></svg>';
-// Done's checkmark: a plain two-stroke tick, one line with a round join, drawn
-// on the 24 box in the sun's own stroke (2.4, round caps), so on the bar it
-// weighs what the sun does. it runs the box's width, as the sun's rays do (ink
-// from 0.3 to 23.7), and the window is moved up 0.6 to put the ink's own centre
-// (12, 11.4) at the window's middle, where the sun's is. the pages draw it at
-// the sun's size, --done-scale (card-tokens.css) being 1
-const DONE_ICON = '<svg viewBox="0 -0.6 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
-  'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<path d="M1.5 11.1L9 18.6L22.5 4.2"></path></svg>';
-
 function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === "true"; }
 
 // the sun, built the same on every surface; each page seats it and dresses it

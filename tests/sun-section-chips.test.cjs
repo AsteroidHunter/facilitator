@@ -137,7 +137,7 @@ const EXPECTED_OFF = {
 // ---- the three surfaces, each built from its own page's lines ------------------------
 async function desktopLarge() {
   const html = await readFile(path.join(ROOT, "index.html"), "utf8");
-  const build = between(html, '    const x = h("button", "xbtn");', "    topbar.insertBefore(dock, arc);");
+  const build = between(html, '    const x = h("button", "xbtn", "×");', "    topbar.insertBefore(dock, arc);");
   const paint = between(html, "    const cs = cardState(b);   // one state", "    paintSectionChips(el, b);");
   const env = await context();
   const makeChips = vm.runInContext(`(function(b, topbar, head, box){\n${build}\nreturn { sun, dock, arc, x };\n})`, env.ctx);

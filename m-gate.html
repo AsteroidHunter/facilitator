@@ -60,7 +60,7 @@
     text-align:left; overflow:hidden;
   }
   /* the top bar: the reply history arrows on the left, the defer moon and the
-     done checkmark on the right, over the hairline the app's bar wears. visual
+     close cross on the right, over the hairline the app's bar wears. visual
      only here, so it takes no taps */
   .topbar{
     display:flex; align-items:center; gap:9px; height:34px; padding:0 8px 0 14px;
@@ -78,7 +78,12 @@
     flex:none; width:28px; height:28px; position:relative; color:#000;
     display:inline-flex; align-items:center; justify-content:center;
   }
-  .xbtn{color:#1e1e1e}
+  .xbtn::before, .xbtn::after{
+    content:""; position:absolute; left:50%; top:50%;
+    width:13.2px; height:1.56px; background:#1e1e1e; border-radius:1.56px;
+  }
+  .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
+  .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
 
   .body{padding:14px 24px}
   /* the steps as ordinary card prose: a plain ordered list at the card's own
@@ -163,7 +168,7 @@
           <span class="histbtn newer"><svg class="chev" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true"><path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         </div>
         <span class="arcbtn"><svg viewBox="0 0 24 24" width="10.8" height="10.8" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></span>
-        <span class="xbtn"><svg viewBox="0 -0.6 24 24" width="10.8" height="10.8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 11.1L9 18.6L22.5 4.2"/></svg></span>
+        <span class="xbtn"></span>
       </div>
       <div class="body">
         <div class="reply cardmd">
