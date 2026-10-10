@@ -308,6 +308,24 @@ for (const which of PAGES) {
     assert.equal(where(p), 'compose');
   });
 
+  // the loop's card stop is the loop's only while the reader stays on it. coming
+  // back to the card (each page's select) or a press on it (the card's
+  // pointerdown) is coming to it afresh
+  test(`${which}: a titled card: after the loop's card stop, coming back to the card or pressing it sends the first Tab to the text box`, () => {
+    const p = page(which, { titled: true });
+    p.ta.focus();
+    p.press('Tab');
+    assert.equal(where(p), null);
+    p.context.cardTabAfresh(p.el);
+    p.press('Tab');
+    assert.equal(where(p), 'compose');
+    // and with nothing in between, the card stop still goes on to the title
+    p.press('Tab');
+    assert.equal(where(p), null);
+    p.press('Tab');
+    assert.equal(where(p), 'title');
+  });
+
   test(`${which}: a card with no name yet, or only the ellipsis, sends the first Tab to the title`, () => {
     for (const text of ['', '   ', '…']) {
       const p = page(which);
@@ -318,6 +336,15 @@ for (const which of PAGES) {
     }
   });
 }
+
+test('both pages start the walk afresh when a card is shown and when it is pressed', () => {
+  const macSelect = between(mac, 'function select(id, opts){', '\n}\n');
+  const phoneSelect = between(phone, 'function select(id, opts){', '\n}\n');
+  assert.match(macSelect, /cardTabAfresh\(els\[id\]\);/);
+  assert.match(phoneSelect, /cardTabAfresh\(shown\);/);
+  assert.match(mac, /box\.addEventListener\("pointerdown", \(\) => cardTabAfresh\(els\[b\.id\]\), true\);/);
+  assert.match(phone, /box\.addEventListener\("pointerdown", \(\) => cardTabAfresh\(card\), true\);/);
+});
 
 test('the old ring is gone from the Mac board and the buttons carry no Tab handler of their own', () => {
   assert.ok(!/const ring = \[/.test(mac));

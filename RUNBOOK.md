@@ -177,7 +177,7 @@ The keys, on the Mac board and on the phone with a paired keyboard:
 - Control + Shift + [ , ] , \ and Backspace or Delete: move the card to Doing, Docked, Deferred or Done.
 - Control + Shift + ' and ;: the next or previous section of the ticket list.
 - Command + T: a new card. Command + 1 to 9: switch project.
-- Tab: steps from the card's title to its typing box to the card itself, and round; Shift + Tab goes the other way. On a card that already has a title, the first Tab goes to the typing box.
+- Tab: steps from the card's title to its typing box to the card itself, and round; Shift + Tab goes the other way. On a card that already has a title, the first Tab goes to the typing box, and so does the first Tab after you come back to the card or click it.
 - On the phone, Control + Shift + comma opens and shuts the card list; with it out, up and down walk the tickets, Enter selects the lifted one and shuts the list, and Escape just shuts it.
 - On the phone, Control + Shift + period opens and shuts the card's magic box the same way. Either key swaps out whatever else is open: the card list, the box or the settings. On a card with no box the period does nothing.
 

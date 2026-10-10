@@ -6199,6 +6199,14 @@ function cardStop(el){
   if (live === el.titleEl) getSelection().removeAllRanges();
 }
 
+// the reader comes to the card afresh: it is shown again (each page's select, on
+// coming back to it from another card too) or pressed with the pointer or a finger.
+// a card stop the loop left behind is forgotten, so the first Tab on a card with a
+// name lands in the box again (cardTab)
+function cardTabAfresh(el){
+  if (el) el.cycleStop = false;
+}
+
 // a key typed in a text field, a list or a dialog is that control's own, and
 // Tab out of it is never taken from it
 function cardTabOwned(target){
