@@ -172,7 +172,7 @@ The keys, on the Mac board and on the phone with a paired keyboard:
 - Escape: leave the typing box, then let go of the card; it also closes a menu or a picture.
 - Control + R: a random card from the list that is neither being worked on nor waiting for an agent.
 - Control + Shift + up and down: the card's older and newer replies.
-- Control + S: hold to scroll the answer down; tap and then hold to scroll up.
+- Control + S: hold to scroll the answer down, faster the longer you hold; tap and then hold to scroll up.
 - Control + U: clear a ticket's ready-to-test corner.
 - Control + Shift + [ , ] , \ and Backspace or Delete: move the card to Doing, Docked, Deferred or Done.
 - Control + Shift + ' and ;: the next or previous section of the ticket list.
