@@ -1088,8 +1088,13 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
      rounded corner. still shorter than the card's own bar.
      --mb-air is the white the box keeps between what it holds and its far
      edge, and --mb-fade the depth of the fuzz, the ticket list's own 22px.
+     --mb-lead is the space over the words' first line, from the bar's foot
+     (from the box's top edge where the bar stands at the foot) to the top of
+     that line, a heading's or plain words' alike: it is what puts the first
+     line's capitals as far under the bar as the card's title's capitals
+     stand under the card's own bar (19px on the board, measured)
      --mb-flow and the two airs say which end the bar stands at */
-  --mb-x:20px; --mb-gap:5px; --mb-bar:calc(var(--mb-x) + 2 * var(--mb-gap)); --mb-air:8px; --mb-fade:22px;
+  --mb-x:20px; --mb-gap:5px; --mb-bar:calc(var(--mb-x) + 2 * var(--mb-gap)); --mb-air:8px; --mb-fade:22px; --mb-lead:13px;
   --mb-flow:column; --mb-air-head:0px; --mb-air-foot:var(--mb-air)}
 /* on the phone (.barfoot, m.html) and in a portrait window the bar stands at
    the box's foot, and the white goes to the top, now the far edge */
@@ -1148,8 +1153,12 @@ body.lowered .magicbox{box-shadow:none}
     rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
     rgba(0,0,0,0) 100%)}
 /* words run the box's full width in the card's own body size, off its edges
-   by --mb-inset, which each page sets to its card answer's own inset */
-.magicbox .mbtext{padding:var(--mb-inset, 16px); font-size:15px; line-height:1.55; color:var(--ink)}
+   by --mb-inset, which each page sets to its card answer's own inset, and
+   start --mb-lead under the bar: their first line, a heading too, keeps no
+   top margin of its own, which would add a line's worth of white to it */
+.magicbox .mbtext{padding:var(--mb-inset, 16px); padding-top:calc(var(--mb-lead) - var(--mb-air-head));
+  font-size:15px; line-height:1.55; color:var(--ink)}
+.magicbox .mbtext > :first-child{margin-top:0}
 .magicbox .mbtext.plain{white-space:pre-wrap}
 /* a picture fills the box, which takes the picture's own shape; a page or a
    site fills the body edge to edge on its own white */
