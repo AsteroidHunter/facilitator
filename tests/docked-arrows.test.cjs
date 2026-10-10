@@ -320,10 +320,10 @@ test('the arrow is a native-free square of --bar-sq with a mark-sized triangle t
   assert.equal(back.left, 'calc((var(--bar-mark) - var(--bar-sq)) / 2)'); assert.equal(back.right, 'auto');
   assert.equal(back.transform, 'translateY(-50%) scaleX(-1)');
   const mark = Number(/--bar-mark:([\d.]+)px/.exec(css)[1]); assert.equal(mark, 10);
-  assert.match(source('index.html'), /svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
+  assert.match(source('index.html'), /svg\{width:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\); height:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\)\}/);
   assert.match(html, /--full-bar-mark:var\(--bar-mark\)/);
   assert.match(html, /#page, #projmenu\{[^}]*--bar-mark:calc\(var\(--full-bar-mark\) \* var\(--rest\)\)/);
-  assert.match(html, /svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
+  assert.match(html, /svg\{width:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\); height:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\)\}/);
   assert.match(between(html, '<div id="page">', '<div id="tikhead">'), /<div id="tikwin"><aside id="tickets"/);
   assert.equal(mark * (1 - Number(/--sink:([\d.]+)/.exec(html)[1])), 9.85);
   assert.doesNotMatch(between(css, '#tiknames{', '/* ---- the owner'), /--accent|432BFF/);
