@@ -1889,10 +1889,11 @@ function statusOf(b){
 
 function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 // Done's sunset, the same drawing as DONE_ICON in card-logic.js, which this page does not load
-const DONE_ICON = '<svg viewBox="0 0.75 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
+const DONE_ICON = '<svg viewBox="0 2.8 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
   'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<path d="M7.65 18A4.35 4.35 0 0 1 16.35 18"></path><path d="M2.5 18H21.5"></path>' +
-  '<path d="M12 9.45V7.5M18.05 11.95L19.42 10.58M5.95 11.95L4.58 10.58"></path></svg>';
+  '<path d="M3 15H21"></path><path d="M7.5 15A5.5 5.5 0 0 1 16.5 15"></path>' +
+  '<path d="M12 9.2V7.4M16.3 10.4L17.5 9M7.7 10.4L6.5 9"></path>' +
+  '<path d="M8 19H16M10.5 22.2H13.5"></path></svg>';
 
 // One renderer and one URL policy serve every card and document surface.
 function fmt(t){ return CardMarkdown.render(t || ""); }

@@ -5404,18 +5404,19 @@ const DOCK_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" str
   '<path d="M12.89 14.64A3.8 3.8 0 1 1 14.18 13.37"></path>' +
   '<path d="M5.72 16.61L4.34 17.99M3.55 11.38L1.6 11.38M5.72 6.14L4.34 4.76M10.95 3.97L10.95 2.03M16.19 6.14L17.57 4.76"></path>' +
   '<path d="M11.694 21.975H19.694A2.8 2.8 0 0 0 20.254 16.455A4 4 0 0 0 12.574 15.255A3.44 3.44 0 0 0 11.694 21.975Z"></path></svg>';
-// Done's sunset (sunset A of the icon sheet): a half sun on a horizon line with
-// three short rays above it. the paths and the stroke are the chosen drawing as
-// it stands on the 24 box, 2.4 wide, so every proportion in it, the lines
-// included, is the drawing's own at any size. it fills only a band of that box,
-// so the window is moved down 0.75 to put the ink's own centre (12, 12.75) at
-// the window's middle, where the sun's is, and the pages draw the svg
-// --done-scale (card-tokens.css) times the mark size, since a mark of line art
-// needs more room than the solid moon to read as big as the sun
-const DONE_ICON = '<svg viewBox="0 0.75 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
+// Done's sunset: the last sliver of sun on a horizon line, wide rays above it
+// and two reflection dashes below. the paths and the stroke are the chosen
+// drawing as it stands on the 24 box, 2.4 wide, so every proportion in it, the
+// lines included, is the drawing's own at any size. it fills only the lower
+// part of that box, so the window is moved down 2.8 to put the ink's own centre
+// (12, 14.8) at the window's middle, where the sun's is, and the pages draw the
+// svg --done-scale (card-tokens.css) times the mark size, since a mark of line
+// art needs more room than the solid moon to read as big as the sun
+const DONE_ICON = '<svg viewBox="0 2.8 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
   'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<path d="M7.65 18A4.35 4.35 0 0 1 16.35 18"></path><path d="M2.5 18H21.5"></path>' +
-  '<path d="M12 9.45V7.5M18.05 11.95L19.42 10.58M5.95 11.95L4.58 10.58"></path></svg>';
+  '<path d="M3 15H21"></path><path d="M7.5 15A5.5 5.5 0 0 1 16.5 15"></path>' +
+  '<path d="M12 9.2V7.4M16.3 10.4L17.5 9M7.7 10.4L6.5 9"></path>' +
+  '<path d="M8 19H16M10.5 22.2H13.5"></path></svg>';
 
 function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === "true"; }
 
