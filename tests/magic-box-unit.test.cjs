@@ -634,17 +634,26 @@ function phoneBoxScript(page) {
   };
   const tickets = { dataset: { side: "left" }, clientWidth: 346, clientHeight: 433,
     classList: { contains: c => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
-      remove: c => classes.delete(c) },
+      remove: c => classes.delete(c), add: c => classes.add(c) },
     getAnimations: () => drawer.runs, animate: animate("drawer"), querySelector: () => null };
   const settings = { dataset: { side: "right" } };
-  const box = { offsetHeight: 89, style: {}, querySelector: () => ({ addEventListener() {} }) };
+  // the box, 89px tall, whose words (16px of white under their last line) end
+  // 8px over its foot, where the window they scroll in ends; and the list's
+  // two parts, its names and its rows, the rows reaching 7px past the drawer
+  const box = { offsetHeight: 89, style: {}, querySelector: () => ({ addEventListener() {} }), animate: animate("box"),
+    getBoundingClientRect: () => ({ top: 0, bottom: 89, height: 89 }) };
+  const words = { getBoundingClientRect: () => ({ bottom: 81 }), style: { paddingBottom: "16px" } };
+  const body = { scrollHeight: 60, clientHeight: 60, querySelector: () => words, getBoundingClientRect: () => ({ bottom: 81 }) };
+  const parts = { mbface: box, tikhead: { animate: animate("list names") },
+    tiklist: { animate: animate("list rows"), style: { marginBottom: "-7px" } } };
   const face = () => (classes.has("boxface") ? "box" : "list") + " from the " + tickets.dataset.side;
   const paneClasses = new Set(), paneListeners = {};
   const cardPane = { getAnimations: () => [], animate: animate("card"), offsetWidth: 0,
     classList: { add: c => paneClasses.add(c), remove: c => paneClasses.delete(c), contains: c => paneClasses.has(c) },
     addEventListener: (type, fn) => { paneListeners[type] = fn; } };
   const ctx = {
-    document: { getElementById: () => box, body: { classList: { add() {} } } },
+    document: { getElementById: id => parts[id], body: { classList: { add() {} } } },
+    getComputedStyle: el => el.style,
     tickets, settings, innerWidth: 402, homeOpen: false, shownId: "a", activeOwner: "p",
     tikwin: { getAnimations: () => [], animate: animate("window") }, cardPane, tikArrows: [],
     // the page's run machinery, as far as the swap uses it: a straight spring of
@@ -654,10 +663,10 @@ function phoneBoxScript(page) {
     listSpring: (from, to) => ({ ms: 100, at: t => from + (to - from) * Math.min(1, t / 100), velocity: () => 0 }),
     menuTravel: () => 300, menuSign: p => p.dataset.side === "right" ? -1 : 1,
     listDrop: 120, listPlay: [], listRun: null, ticketDrawerRun: 0, performance: { now: () => 0 },
-    stopList: () => { for (const a of ctx.listPlay) a.cancel(); ctx.listPlay = []; },
+    stopList: () => { classes.delete("swapface"); for (const a of ctx.listPlay) a.cancel(); ctx.listPlay = []; },
     settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
-    magicView: () => ({ body: {}, want: () => ({ height: 89 }), waiting: () => false, draw() {}, clear() {} }),
+    magicView: () => ({ body, want: () => ({ height: 89 }), waiting: () => false, draw() {}, clear() {} }),
     MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
     menuOut: () => classes.has("open") ? tickets : drawer.settings ? settings : null,
     drawerOpen: () => classes.has("open"),
@@ -684,13 +693,17 @@ function phoneBoxScript(page) {
     addEventListener: (type, fn, opts) => { (listeners[type] = listeners[type] || []).push({ fn, opts }); },
   };
   vm.runInContext(src, vm.createContext(ctx));
-  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners };
+  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners, body };
 }
 
 test("on the phone the box comes down in the card list's own drawer, from the right, pulled the other way from the list", () => {
   const page = read("m.html");
   // the drawer wears the box in place of the list, and comes in from the right for it
   assert.match(page, /#tickets\.boxface > #tikhead, #tickets\.boxface > #tiklist\{display:none\}/);
+  // while it changes face both are on show, the box laid over the list from the
+  // drawer's top where it hangs alone
+  assert.match(page, /#tickets\.swapface > #tikhead, #tickets\.swapface > #tiklist\{display:flex\}/);
+  assert.match(page, /#tickets\.swapface > #mbface\{display:flex; flex:none; position:absolute; top:0; left:0; right:0; margin:0 auto\}/);
   assert.match(page, /#tickets\[data-side="right"\]\{\s*transform:translate3d\(calc\(\(1 - var\(--list-v\)\) \* \(var\(--pg-r\)/);
   assert.match(page, /else if \(x >= innerWidth - EDGE && tickets\.dataset\.side === "right"\)\{ panel = tickets; opening = true; \}/);
   // no pull opens the settings: their circle alone does
@@ -702,12 +715,21 @@ test("on the phone the box comes down in the card list's own drawer, from the ri
   assert.ok(!page.includes("MAGIC_PULL"), "the pull's side is settled, with no switch left to change");
   assert.match(read("server.py"), /def _phone_box[\s\S]*?\*\*\(\{"magic": b\["magic"\]\} if b\.get\("magic"\) else \{\}\),/, "the phone's reading carries the box");
   // the box's own script, run against stand-ins for the page
-  const { ctx, classes, tickets, listeners, calls } = phoneBoxScript(page);
+  const { ctx, classes, tickets, listeners, calls, body } = phoneBoxScript(page);
   const touch = x => { for (const l of listeners.touchstart) l.fn({ touches: [{ clientX: x }] }); };
   assert.ok(listeners.touchstart.every(l => l.opts.capture === true), "the face is chosen before the drawer's own gesture");
   touch(400);
   assert.ok(classes.has("boxface") && tickets.dataset.side === "right", "a right-edge pull on a card with a box");
-  assert.equal(ctx.listSlack(), 433 - 89, "the card goes down only as far as the box needs");
+  // the card goes down only as far as the box's words need, and stands as far
+  // under their last line as it stands under the list's foot: what the drawer
+  // spares under the words' foot (81, less their own 16px of white), with the
+  // list's 7px of air, by which the list reaches past the drawer, given back
+  assert.equal(ctx.listSlack(), 433 - (81 - 16) + 7, "the card goes down only as far as the box's words need");
+  // words that run on scroll in a window that ends 8px over the box's foot, and
+  // the card stands as far under that window as under the list
+  body.scrollHeight = 600;
+  assert.equal(ctx.listSlack(), 433 - 81 + 7, "the card stands under the window the words scroll in");
+  body.scrollHeight = 60;
   touch(2);
   assert.ok(!classes.has("boxface") && tickets.dataset.side === "left", "the left edge brings the list");
   assert.equal(ctx.listSlack(), 7, "and the list's own drop");
@@ -752,6 +774,14 @@ test("control shift period does for the box what control shift comma does for th
   assert.ok(paneClasses.has("nudge"), "another animation's end took the dip off");
   paneListeners.animationend({ animationName: "cardnudge" });
   assert.ok(!paneClasses.has("nudge"), "the dip's end leaves it ready for the next press");
+  // the dip is big enough to be seen: 14px down, 2.4px past home, in .44s (at
+  // 7px in .32s it went by unseen on the phone)
+  const sheet = read("m.html");
+  const dip = sheet.slice(sheet.indexOf("@keyframes cardnudge{"), sheet.indexOf("#pane.nudge{"));
+  assert.match(dip, /24%\{translate:0 calc\(14 \* var\(--u\)\);/);
+  assert.match(dip, /60%\{translate:0 calc\(-2\.4 \* var\(--u\)\);/);
+  assert.match(sheet, /#pane\.nudge\{animation:cardnudge \.44s\}/);
+  assert.match(sheet, /@media \(prefers-reduced-motion:reduce\)\{ #pane\.nudge\{animation:none\} \}/);
   // the period brings the box from the right, and again shuts it
   ctx.shownId = "a";
   assert.equal(press("boxDrawer"), true);
@@ -763,49 +793,58 @@ test("control shift period does for the box what control shift comma does for th
   press("cardsDrawer");
   assert.deepEqual(calls, ["show list from the left"]);
   // with the list out, the period swaps it for the box and the card stays down:
-  // the drawer stays out, and first the list goes off to the left and fades as
-  // it does when it shuts, at its own height, the card and the window still
+  // the drawer stays out and holds still, both faces are on show, and they
+  // cross. the list goes off to the left and fades as it does when it shuts,
+  // and at the same moment the box sets out from the right as the drawer does
+  // when it opens, so one or the other is always at least half in and the
+  // space over the card is never empty; the card and the window glide to the
+  // box's own drop from the same moment
   press("boxDrawer", ctx.menuShortcutActions);
   assert.deepEqual(calls, [], "the drawer was shut or opened again");
   assert.equal(ctx.menuOut(), ctx.tickets);
-  let going = live();
-  assert.deepEqual(going.map(a => a.part), ["drawer"], "only the drawer moves while the list goes");
+  assert.ok(classes.has("boxface") && classes.has("swapface") && ctx.tickets.dataset.side === "right",
+    "the drawer takes its new face as the crossing starts, with both faces on show");
+  const part = name => live().find(a => a.part === name);
   // (the stand-in spring is straight, 100ms long: the first millisecond with no
   // more than 2% of the way to go is the 99th)
-  assert.deepEqual(ends(going[0], "transform"), ["translate3d(0px, -120px, 0px)", "translate3d(-297px, -120px, 0px)"]);
-  assert.deepEqual(ends(going[0], "opacity"), [.999, .01]);
-  assert.ok(!classes.has("boxface"), "the face changed before the list had gone");
-  // once it is all but gone, the box comes in from the right as the drawer does
-  // when it opens, and the card and the window glide to the box's own drop
+  for (const name of ["list names", "list rows"]) {
+    const going = part(name);
+    assert.deepEqual(ends(going, "transform"), ["translate3d(0px, 0px, 0px)", "translate3d(-297px, 0px, 0px)"], name);
+    assert.deepEqual(ends(going, "opacity"), [.999, .01], name);
+    assert.deepEqual([going.opts.duration, going.opts.delay || 0, going.opts.fill], [99, 0, "both"], name);
+  }
+  let coming = part("box");
+  assert.deepEqual(ends(coming, "transform"), ["translate3d(300px, 0px, 0px)", "translate3d(0px, 0px, 0px)"]);
+  assert.deepEqual(ends(coming, "opacity"), [0, .999]);
+  assert.deepEqual([coming.opts.delay || 0, coming.opts.fill], [0, "backwards"], "the box waited for the list to go");
+  assert.deepEqual(ends(part("drawer"), "transform"), ["translate3d(0px, -120px, 0px)", "translate3d(0px, -90px, 0px)"]);
+  assert.deepEqual(ends(part("window"), "transform"), ["translate3d(0px, 120px, 0px)", "translate3d(0px, 90px, 0px)"]);
+  assert.deepEqual(ends(part("card"), "transform"), ["translate(0px, 120px)", "translate(0px, 90px)"]);
+  assert.ok(["drawer", "window", "card"].every(name => !part(name).opts.delay), "the card glides from the moment the box sets out");
   await finishAll();
-  assert.ok(classes.has("boxface") && ctx.tickets.dataset.side === "right");
-  let coming = live();
-  assert.deepEqual(coming.map(a => a.part), ["drawer", "window", "card"]);
-  assert.deepEqual(ends(coming[0], "transform"), ["translate3d(300px, -120px, 0px)", "translate3d(0px, -90px, 0px)"]);
-  assert.deepEqual(ends(coming[0], "opacity"), [0, .999]);
-  assert.deepEqual(ends(coming[1], "transform"), ["translate3d(0px, 120px, 0px)", "translate3d(0px, 90px, 0px)"]);
-  assert.deepEqual(ends(coming[2], "transform"), ["translate(0px, 120px)", "translate(0px, 90px)"]);
-  assert.ok(going.every(a => a.cancelled), "the list's going was left playing");
-  await finishAll();
+  assert.ok(!classes.has("swapface") && classes.has("boxface"), "the list was left on show once the box was in");
+  assert.equal(live().length, 0, "something was left playing");
   assert.deepEqual(calls, ["settled"], "the drawer was not settled once the box was in");
-  // and the comma swaps back the other way: the box goes off to the right, the
-  // list comes in from the left, the card back to the list's drop
+  // and the comma swaps back the other way: the box goes off to the right while
+  // the list comes in from the left, the card back to the list's drop
   press("cardsDrawer", ctx.menuShortcutActions);
-  going = live();
-  assert.deepEqual(ends(going[0], "transform"), ["translate3d(0px, -90px, 0px)", "translate3d(297px, -90px, 0px)"]);
+  assert.ok(!classes.has("boxface") && classes.has("swapface") && ctx.tickets.dataset.side === "left");
+  assert.deepEqual(ends(part("box"), "transform"), ["translate3d(0px, 0px, 0px)", "translate3d(297px, 0px, 0px)"]);
+  coming = part("list rows");
+  assert.deepEqual(ends(coming, "transform"), ["translate3d(-300px, 0px, 0px)", "translate3d(0px, 0px, 0px)"]);
+  assert.equal(coming.opts.delay || 0, 0, "the list waited for the box to go");
+  assert.deepEqual(ends(part("card"), "transform"), ["translate(0px, 90px)", "translate(0px, 120px)"]);
   await finishAll();
-  assert.ok(!classes.has("boxface") && ctx.tickets.dataset.side === "left");
-  coming = live();
-  assert.deepEqual(ends(coming[0], "transform"), ["translate3d(-300px, -90px, 0px)", "translate3d(0px, -120px, 0px)"]);
-  assert.deepEqual(ends(coming[2], "transform"), ["translate(0px, 90px)", "translate(0px, 120px)"]);
-  await finishAll();
-  // a run or a key that comes while the list is going stops the swap where it
-  // stands, and the box does not follow
+  assert.ok(!classes.has("swapface") && live().length === 0);
+  // a run or a key that comes while the faces cross stops the swap, with the
+  // new face alone in place
   press("boxDrawer", ctx.menuShortcutActions);
-  going = live();
+  const crossing = live();
   ctx.stopList();
   await tick();
-  assert.ok(going.every(a => a.cancelled) && live().length === 0 && !classes.has("boxface"));
+  assert.ok(crossing.every(a => a.cancelled) && live().length === 0 && classes.has("boxface") && !classes.has("swapface"));
+  press("cardsDrawer", ctx.menuShortcutActions);
+  await finishAll();
   // with reduced motion the face changes where it stands, the card still down
   ctx.LIST_CALM = { matches: true };
   press("boxDrawer", ctx.menuShortcutActions);
