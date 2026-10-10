@@ -1065,7 +1065,9 @@ LOGGER = logging.getLogger("facilitator")
 LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
 LOGGER.propagate = False
 if not LOGGER.handlers:
-    _to_file = DatedRotatingHandler(LOG_DIR, "server", ".log")
+    # delayed at errors only, so such a board's folder gains a file only when
+    # something goes wrong; the other levels open it at start as they always did
+    _to_file = DatedRotatingHandler(LOG_DIR, "server", ".log", delay=(LOG_LEVEL == "error"))
     _to_file.setFormatter(JsonLineFormatter())
     LOGGER.addHandler(_to_file)
     # A watching terminal sees INFO and above, in human form: JSON in a terminal
@@ -1481,6 +1483,9 @@ def _notice_valid(page: str, report: dict) -> bool:
     return True
 
 
+# the page reports that still reach the client file when the level is error: the
+# page's throws, and the phone marker someone asked for by hand
+CLIENT_ERROR_KINDS = ("error", "rejection", "incident")
 CLIENT_LOGGER = logging.getLogger("facilitator.client")
 CLIENT_LOGGER.setLevel(logging.INFO)
 CLIENT_LOGGER.propagate = False
@@ -1497,6 +1502,8 @@ _client_seen: dict = {}   # key -> [when its minute started, written, dropped]
 def _client_event(kind: str, box: str = "", /, **fields) -> None:
     """One line in the client file. Its own logger and its own file: page
     reports are not board events and must never be read as if they were."""
+    if LOG_LEVEL == "error" and kind not in CLIENT_ERROR_KINDS:
+        return
     CLIENT_LOGGER.info(kind, extra={"box": box, "fields": fields})
 
 
@@ -1564,6 +1571,8 @@ def _client_batch(page: str, reports: list, who: dict) -> tuple:
             for stale in [k for k, w in _client_seen.items() if now - w[0] >= CLIENT_WINDOW]:
                 del _client_seen[stale]
         for report in reports:
+            if LOG_LEVEL == "error" and report["kind"] not in CLIENT_ERROR_KINDS:
+                continue
             key = _client_key(page, report)
             window = _client_seen.get(key)
             if window is None or now - window[0] >= CLIENT_WINDOW:
