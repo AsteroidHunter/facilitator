@@ -1060,10 +1060,12 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .magicbox.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
 /* its top bar is the card's own: as tall, as white, and parted from what the
    box holds by the same hairline. at its right stand the Mac's three window
-   lights in the Mac's order: the red one puts the box away, and the yellow and
-   green ones, for shrinking it and for full size, are greyed until they have
-   work. as on the Mac, the red one shows its cross while the pointer is over
-   the lights or the red one has the keys; a finger's tap reaches past it */
+   lights, mirrored for that side: green, yellow and red from the left, so the
+   red one is outermost as on a Mac window's left. the red one puts the box
+   away, and the yellow and green ones, for shrinking it and for full size, are
+   greyed until they have work. as on the Mac, the red one shows its cross
+   while the pointer is over the lights or the red one has the keys; a
+   finger's tap reaches past it */
 .magicbox .mbbar{flex:none; display:flex; align-items:center; justify-content:flex-end;
   height:var(--cardbar-h); padding:0 12px; background:var(--card);
   box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
