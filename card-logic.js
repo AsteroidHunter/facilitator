@@ -688,8 +688,10 @@ const RESPONSE_TAP_MS = 300;
 // CSS pixels per second: the speed at the first frame, and the top speed
 const RESPONSE_SCROLL_SPEED = 150;
 const RESPONSE_SCROLL_TOP = 1800;
-// how long the key is held for the speed to go from the first to the top
-const RESPONSE_RAMP_MS = 2400;
+// how long the key is held at the first speed before the speed starts to rise
+const RESPONSE_HOLD_MS = 1700;
+// how long the rise then takes to go from the first speed to the top
+const RESPONSE_RAMP_MS = 24000;
 // after letting go the speed falls by a factor of e every this long, so the
 // motion goes on for about the speed it had times this (180px from the top
 // speed), and is over once it is under RESPONSE_EASE_END pixels a second
@@ -726,13 +728,14 @@ function dropResponseScroll(){
 }
 
 // How far the response has gone, in pixels, once the key has been held for
-// held milliseconds: the first speed all along, and on top of it the rise to the
-// top speed along its S. The S is the smoothstep 3x^2 - 2x^3 over the ramp, so
-// the rise adds up to x^3 - x^4/2, then to a straight run at the top speed.
-// The distance for a frame is the difference of two of these, so it does not
-// depend on how many frames the time is cut into.
+// held milliseconds: the first speed all along, and on top of it, once the
+// hold-off is over, the rise to the top speed along its S. The S is the
+// smoothstep 3x^2 - 2x^3 over the ramp, so the rise adds up to x^3 - x^4/2,
+// then to a straight run at the top speed. The distance for a frame is the
+// difference of two of these, so it does not depend on how many frames the
+// time is cut into.
 function responseHeldPath(held){
-  const x = held / RESPONSE_RAMP_MS;
+  const x = Math.max(0, held - RESPONSE_HOLD_MS) / RESPONSE_RAMP_MS;
   const rise = x < 1 ? x * x * x * (1 - x / 2) : x - 0.5;
   return (RESPONSE_SCROLL_SPEED * held +
     (RESPONSE_SCROLL_TOP - RESPONSE_SCROLL_SPEED) * RESPONSE_RAMP_MS * rise) / 1000;
@@ -740,7 +743,7 @@ function responseHeldPath(held){
 
 // the speed, in pixels a second, once the key has been held for held milliseconds
 function responseHeldSpeed(held){
-  const x = Math.min(1, held / RESPONSE_RAMP_MS);
+  const x = Math.min(1, Math.max(0, held - RESPONSE_HOLD_MS) / RESPONSE_RAMP_MS);
   return RESPONSE_SCROLL_SPEED + (RESPONSE_SCROLL_TOP - RESPONSE_SCROLL_SPEED) * x * x * (3 - 2 * x);
 }
 
