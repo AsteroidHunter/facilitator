@@ -49,7 +49,7 @@ After reading the separate `/fresh` result as described below, answer with a com
 
 ## The magic box
 
-Each card can have one magic box, for what a reply carries badly: a picture or a chart, a page you made, a website. On the Mac board it stands beside the card; on the phone it comes down above the card, the way the card list does, when the owner pulls it out from the screen's edge. Open one yourself whenever it would help the owner follow the card; nobody has to ask for it. The box waits on its card: it shows only when the owner is on that card, it never moves the board to the card, and it never takes the keys, so opening one never pulls the owner out of what they are typing. Use the `facilitator` command, which finds the board's port itself:
+Each card can have one magic box, for what a reply carries badly: a picture or a chart, a page you made, a website. Open one yourself whenever it would help the owner follow the card; nobody has to ask for it. The box waits on its card: it shows only when the owner is on that card, it never moves the board to the card, and it never takes the keys, so opening one never pulls the owner out of what they are typing. Use the `facilitator` command, which finds the board's port itself:
 
     facilitator magic m12 markdown --file notes.md --title "Release notes"
     facilitator magic m12 text "plain words, shown as typed"
@@ -63,8 +63,6 @@ Each card can have one magic box, for what a reply carries badly: a picture or a
 
 - One box per card. A new one replaces what the box held and opens it; a closed box keeps what it held until it is replaced.
 - The box is display only: nothing in it comes back to you. It wears the card's own edge, white face and shadow, under a white top bar with the Mac's three window lights. The red one lets the owner close the box (`show` then says `"open": false`, and filling it again opens it); the yellow and green ones are greyed and do nothing yet. A `--title` is kept with the box and `show` prints it, but the board does not draw it.
-- The box takes the size of what it shows, inside the largest box the window has room for (on the Mac nine tenths of the card's height and a little wider than a phone screen, smaller in a narrow window; on the phone the card list's own space): a picture its own shape and never past its own size, words their own height and then they scroll, a page or a website the whole of it. A box smaller than that space stands at its top, not in its middle, and on the phone the card goes down only as far as the box needs.
-- Whichever of the card and the box the owner last clicked or focused into wears the card's full shadow and the other a faint one; a box comes in with the card standing up.
 - `text` is shown as typed and `markdown` as a card shows a reply. Both, and `html`, are limited to 1 MiB; a picture to 10 MiB (PNG, JPEG, GIF, WebP, or SVG without script).
 - An `html` page runs its own script, sealed off from the board and with no network at all: no fetches, no forms, no outside pictures or fonts. Its buttons, fields, sliders and drawings work. It cannot focus anything until the owner has clicked or typed in it, and if a page or a website takes the keys anyway the board puts them straight back where the owner was. Put pictures and styles inline (`data:` addresses, `<style>`).
 - `url` and web pictures take https addresses on the public internet only; this computer, the home network and the tailnet are refused. The board asks the site first. A site that allows it is shown live (`"shown": "frame"`); one that refuses to be framed, as Google, GitHub and MDN do, is shown as a square with the site's name and a new-page mark in a box in the middle, which opens the site in a new page when clicked, on the Mac in the owner's own Chrome (`"shown": "preview"`, `reason` saying why). The owner's logins never show in the box. A site shown live has no way from the box to open it in the owner's browser. Wikimedia serves only its standard thumbnail widths (330px and others); another width is refused with a 400, which the board passes on.
@@ -117,7 +115,7 @@ and kill it when the work ends. The server also watches the other direction: an 
 
 ## Who can reach the board
 
-Only your own Mac can use the board: its address works only on this Mac, and it refuses any request another website sets off. Another site may open the board's page, which is how the Spotify sign-in comes back, but cannot change anything or show the board inside its own page. The phone reaches the board only through the phone link, which needs the phone password. The files the board keeps about your work, attachments and logs included, can be read only by your Mac account.
+Only your own Mac can use the board: its address works only on this Mac, and it refuses any request another website sets off. Another site may open the board's page, which is how the Spotify sign-in comes back, but cannot change anything or show the board inside its own page. The phone reaches the board only through the phone link, which needs the phone password. A magic box can be filled only from the Mac itself; a signed-in phone can see one and close it. The files the board keeps about your work, attachments and logs included, can be read only by your Mac account.
 
 ## Owner routing
 
@@ -186,6 +184,10 @@ The keys with Command or Control also work from a card's typing box and title. T
 
 A link in a reply opens a small menu with Copy link and Open in browser (an ordinary Chrome window on the Mac, the phone's browser on the phone); an attachment's link adds Download. A click or tap on a picture shows it large, and any click, tap or Escape puts it back. On the phone, hold a finger on a picture for its menu.
 
+## Seeing a card's magic box
+
+An agent can open a magic box beside a card to show you a picture, a chart, a page it made or a website. It shows only while you are on that card, and it never takes your keys. On the Mac board it stands beside the card. On the phone, on a card that has one, a pull in from the right edge brings it down above the card, the way the card list comes in (the squid still opens the settings). The box takes the size of what it shows, and long text scrolls inside it. Whichever of the card and the box you last clicked into is the one raised. The red light in its top bar closes it until an agent fills it again; the yellow and green ones do nothing yet. A website that will not be shown inside the box appears as a square with its name, and a click on it opens the site in a new page, on the Mac in your own Chrome.
+
 ## The settings page
 
 On the Mac board, the squid at the right end of the top bar opens the settings page over the board; the red button at its top left, Escape, or a click outside closes it. Its sections:
@@ -195,7 +197,7 @@ On the Mac board, the squid at the right end of the top bar opens the settings p
 - Improvements: "Share daily usage counts", on unless you turn it off (see "Usage counts").
 - Profile: your onboarding answers, which you can change, the "Feedback emails" switch, and your time zone.
 
-On the phone the settings are in a drawer: pull it in from the right edge, or tap the squid on the bottom row. Its sections are Editor, Appearance, Notifications, Improvements and Profile. "Cards waiting on you" and "Share daily usage counts" are shared with the Mac; the profile is only shown, since it is changed on the Mac. The power mark at the bottom of the drawer signs the phone out. A tap beside the drawer, or a swipe to the right, puts it away.
+On the phone the settings are in a drawer: tap the squid on the bottom row, or pull it in from the right edge (on a card with a magic box, that pull brings the box instead). Its sections are Editor, Appearance, Notifications, Improvements and Profile. "Cards waiting on you" and "Share daily usage counts" are shared with the Mac; the profile is only shown, since it is changed on the Mac. The power mark at the bottom of the drawer signs the phone out. A tap beside the drawer, or a swipe to the right, puts it away.
 
 A new install starts with a white background and plain typing. To change those starting points wherever nobody has chosen, set `"background_default"` (a colour such as `"#ffffff"`) or `"compose_format_default": true` in `run.config.json` and run `facilitator restart`. A choice made on the settings page always wins.
 
