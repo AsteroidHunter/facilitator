@@ -467,17 +467,29 @@ test("a site that will not be framed comes square, with its name and a new-page 
 
 test("whichever of the card and the box is held stands up and the other settles, and nothing else changes", () => {
   const html = read("index.html");
-  const settled = html.match(/body\.focus\.minifocus main\{box-shadow:([^}]*)\}/)[1];
-  // the card settles only while an open box is held and drawn, at the settled
-  // rule's own weight, ahead of the lowered card's rule, so a lowered card
-  // stays level
-  const rule = "  body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main{box-shadow:" + settled + "}";
+  // the lighter shadow, one value for the card and the box: both of the raised
+  // shadow's layers at about half strength, never so weak that the one that is
+  // not selected looks to have lost its shadow (the old .06 did)
+  const lighter = html.match(/\n  body\.focus\{--shade-lighter:([^}]*)\}/)[1];
+  const layers = s => [...s.matchAll(/(\d+)px (\d+)px rgba\(60,45,20,([.\d]+)\)/g)].map(m => [+m[2], +m[3]]);
+  const raisedLayers = layers(html.match(/\n  #magicbox\.held\{box-shadow:([^}]*)\}/)[1]);
+  const lighterLayers = layers(lighter);
+  assert.equal(lighterLayers.length, raisedLayers.length, "as many layers as the raised shadow");
+  lighterLayers.forEach(([blur, alpha], i) => {
+    assert.equal(blur, raisedLayers[i][0], "the same reach as the raised layer");
+    assert.ok(alpha >= raisedLayers[i][1] * .45 && alpha <= raisedLayers[i][1] * .65, `layer ${i} is not about half the raised one`);
+  });
+  assert.ok(lighterLayers[0][1] > .06, "no fainter than the settled shadow that all but vanished");
+  // the card steps back to it only while an open box is held and drawn, at the
+  // settled rule's own weight, ahead of the lowered card's rule, so a lowered
+  // card stays level
+  const rule = "  body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main{box-shadow:var(--shade-lighter)}";
   assert.ok(html.includes(rule));
   assert.ok(html.indexOf(rule) < html.indexOf("  body.focus.lowered main{box-shadow:none}"));
   // both ease over the card's own timing, and the shadow is all they change
   const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
   assert.match(card, /transition:box-shadow \.2s;/);
-  assert.match(html, /\n  #magicbox\{background:var\(--card\); border-radius:7px;\s*box-shadow:0 2px 18px rgba\(60,45,20,\.06\); transition:box-shadow \.2s\}/);
+  assert.match(html, /\n  #magicbox\{background:var\(--card\); border-radius:7px;\s*box-shadow:var\(--shade-lighter\); transition:box-shadow \.2s\}/);
   const style = html.slice(0, html.indexOf("</style>"));
   const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
   assert.deepEqual(rules.map(r => r[1].trim()), ["body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main", "#magicbox.held"],
