@@ -207,9 +207,15 @@ A new install starts with a white background and plain typing. To change those s
 
 Each Mac board asks a few questions once, the first time it opens (or on an older board with no profile yet), and they cover the board until they are done. The phone is never blocked by them.
 
-The questions are real cards: Welcome, What should we call you?, What's your email?, What will you mostly use Facilitator for?, Which agent do you use most?, and You're all set!. Tab goes to the reply box, Enter sends, and each reply teaches the next board key. Only a name is needed. The email card says that the email, the answers and the time zone go to PostHog so Facilitator's maker can ask for feedback, and giving an email is saying yes to that. The time zone is read from the Mac.
+It is a run of real cards: Welcome (the Facilitator mark, one line about the app, and the right arrow for the next card), one card titled "Let's onboard you onto the Facilitator!", and four short cards: 101: Orchestrator Agent, 101: Cards & atomizing ideas, 101: Ticket box and 101: Hotkeys. Right arrow, or Control + Shift + right while typing, goes to the next card.
 
-The onboarding also makes a sample project, a folder named `facilitator-sample` in your home folder (an existing one is never touched), and opens it as your first project. Marking the last card Done saves your answers and shows the sample project's board.
+The onboarding card asks its questions one after another as its replies: What should we call you?, What's your email?, What will you mostly use Facilitator for? and Which agent do you use most?. Tab goes to the reply box and Enter sends; each answer brings the next question. Only a name is needed: Enter with the box empty skips any other question. The email question says that the email, the answers and the time zone go to PostHog so Facilitator's maker can ask for feedback, and giving an email is saying yes to that. The time zone is read from the Mac. The last reply lists every answer and says how to change one and how to go to the next card.
+
+Each reply is a page of the card's history and belongs to the question on it. To change an answer, go back to its question with Control + Shift + up and send a new one: it replaces the old answer, and the card returns to where you were and says what changed. Control + Shift + down steps forward again.
+
+With the first answer a faint keyboard comes in behind the foot of the card and stays for the rest of the onboarding. It lights the keys a card teaches: left Control, left Shift and up as the way back is first shown, left Control, Shift and right on the onboarding card's last reply, and each chord in turn on 101: Hotkeys.
+
+The onboarding also makes a sample project, a folder named `facilitator-sample` in your home folder (an existing one is never touched), and opens it as your first project. Marking the last card, 101: Hotkeys, Done (Control + Shift + Backspace or its cross) saves your answers and shows the sample project's board; without a name it goes back to the first question instead.
 
 Your answers are your profile, kept on the Mac where only your account can read them, and changed in Settings, Profile on the Mac. What leaves the Mac is under "Usage counts".
 

@@ -146,15 +146,25 @@ test("a board that already has a profile opens as a board", async t => {
   assert.equal(json(await board.call("GET", "/profile")).complete, true);
 });
 
-test("the onboarding is the mock's run with the work in the person's own words and the email card's PostHog line", () => {
-  for (const title of ["Welcome!", "What should we call you?", "What's your email?",
-                       "What will you mostly use Facilitator for?", "Which agent do you use most?", "You're all set!"])
+test("the onboarding is Welcome, one onboarding card of four questions with the email's PostHog line, and four 101 cards", () => {
+  for (const title of ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Orchestrator Agent",
+                       "101: Cards & atomizing ideas", "101: Ticket box", "101: Hotkeys"])
     assert.ok(ONBOARDING.includes(`title: "${title}"`), title);
-  assert.match(ONBOARDING, /\{ id: "work", title: "What will you mostly use Facilitator for\?", field: "work", noun: "answer" \}/,
+  // the questions are the onboarding card's replies, each tied to the field it fills
+  for (const [field, ask] of [["name", "What should we call you?"], ["email", "What's your email?"],
+                              ["work", "What will you mostly use Facilitator for?"], ["agent", "Which agent do you use most?"]])
+    assert.ok(ONBOARDING.includes(`{ field: "${field}", ask: "${ask}"`), field);
+  assert.match(ONBOARDING, /\{ field: "work", ask: "What will you mostly use Facilitator for\?", noun: "answer" \}/,
                "the work question offers choices");
+  assert.match(ONBOARDING, /\{ field: "name", [^}]*needed: true \}/, "the name is not the one answer needed");
   assert.ok(ONBOARDING.includes('const EMAIL_ASK = "Your email, your answers here and your time zone go to PostHog, " +\n' +
                                 '                    "so Facilitator\'s maker can ask you for feedback. You can skip this one.";'));
-  assert.match(ONBOARDING, /\{ id: "email", [^}]*ask: EMAIL_ASK \}/);
+  assert.match(ONBOARDING, /\{ field: "email", [^}]*note: EMAIL_ASK \}/);
+  // the keyboard lights the step back after the first answer and the next card on the last page
+  assert.ok(ONBOARDING.includes('pulse(["ctrl", "shift", "up"], LIGHT)'));
+  assert.ok(ONBOARDING.includes('pulse(["ctrl", "shift", "right"], LIGHT)'));
+  assert.doesNotMatch(ONBOARDING, /#432BFF/i);
+  assert.doesNotMatch(ONBOARDING, /—/, "an em dash");
   assert.doesNotMatch(ONBOARDING, /avatar|picture step|\.\.\/facilitator\//i);
   assert.doesNotMatch(ONBOARDING, /var\(--accent|purple|#7c3aed|#8b5cf6/i);
   for (const file of ["/card-markdown.js", "/card-logic.js", "/card-tokens.css"])
