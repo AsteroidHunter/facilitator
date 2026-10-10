@@ -304,6 +304,13 @@
   #fatcaret{background:var(--card); mix-blend-mode:difference}
   #fatcaretlift{background:var(--ink); mix-blend-mode:color-dodge}
   #fatcaret.on, #fatcaretlift.on{display:block}   /* static; no blink */
+  /* in the answer, where the caret selects and never types (replyCaret in
+     card-logic.js), the block is silver and lies over the letter rather than
+     turning it white: the lower layer multiplies, so paper takes the silver and
+     the letter keeps its ink, and the upper layer is not drawn
+     (card-tokens.css, "the answer's read-only caret") */
+  #fatcaret.ro{background:var(--read-caret); mix-blend-mode:multiply}
+  #fatcaretlift.ro{visibility:hidden}
   .fc-hide{caret-color:transparent}   /* only tracked editors drop the native caret */
   textarea::placeholder{color:#B4AA99}
   .sendbtn{
@@ -12930,6 +12937,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     cur = el;
     isField = !!el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
     if (cur) cur.classList.add("fc-hide");
+    // the answer's read-only caret wears the block's silver form
+    const ro = !!cur && cur.classList.contains("reply");
+    for (const c of cells) c.classList.toggle("ro", ro);
     queue();
   });
   document.addEventListener("focusout", () => {
