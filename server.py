@@ -743,8 +743,8 @@ the shipped seed.example.json holds a title and no boxes, so a new install
 opens with no project. Real discussion content never ships in this code.
 
 Once a day, unless the usagecounts setting is "0", a thread of the server's own
-sends one message of counts about the day before to PostHog (usage_counts.py;
-README.md, "Usage counts", lists every field). The thread is no route and
+sends one message of counts about the day before to PostHog (usage_counts.py
+lists every field). The thread is no route and
 answers nothing; usage-counts.json beside state.json holds the last day it dealt
 with, and usage-install.json beside it holds the install's random id, which
 every message carries, and the email and the profile's answers when the person
@@ -6856,8 +6856,8 @@ def _post_spotify_session(q: Query, text: str):
 
 # ---- the daily usage counts -------------------------------------------------------
 # Once a day the board sends one small message of counts about the day before
-# to the Facilitator project in PostHog: usage_counts.py says what, and the
-# README's "Usage counts" lists every field. It runs on a thread of its own,
+# to the Facilitator project in PostHog: usage_counts.py says what and lists
+# every field. It runs on a thread of its own,
 # never on a request. The switch is one of the board's settings, usagecounts,
 # on unless it says "0", so the Mac's settings page and the phone's drawer both
 # turn it off. usage-counts.json holds only the last day already dealt with;
