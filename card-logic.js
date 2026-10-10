@@ -689,7 +689,7 @@ const RESPONSE_TAP_MS = 300;
 const RESPONSE_SCROLL_SPEED = 150;
 const RESPONSE_SCROLL_TOP = 1800;
 // how long the key is held at the first speed before the speed starts to rise
-const RESPONSE_HOLD_MS = 1700;
+const RESPONSE_HOLD_MS = 1110;
 // how long the rise then takes to go from the first speed to the top
 const RESPONSE_RAMP_MS = 2667;
 // after letting go the speed falls by a factor of e every this long, so the

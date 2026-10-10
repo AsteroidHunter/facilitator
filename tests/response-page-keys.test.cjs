@@ -198,12 +198,12 @@ test("control+shift+s no longer scrolls or bounces and leaves the key alone", as
   }
 });
 
-test("the speed stays at 150 px/s for 1.7 seconds, then rises along an S to 1800 px/s over 2.667 seconds and holds there", async () => {
+test("the speed stays at 150 px/s for 1.11 seconds, then rises along an S to 1800 px/s over 2.667 seconds and holds there", async () => {
   const { held, speed } = await logic();
   near(speed(0), 150, "the first speed is the steady pace it replaces");
-  near(speed(1700), 150, "and it stays there for the first 1.7 seconds");
-  near(speed(3033.5), 975, "half way along the ramp is half way up");
-  near(speed(4367), 1800, "the top speed");
+  near(speed(1110), 150, "and it stays there for the first 1.11 seconds");
+  near(speed(2443.5), 975, "half way along the ramp is half way up");
+  near(speed(3777), 1800, "the top speed");
   near(speed(9000), 1800, "and it holds");
   let last = 0;
   for (let ms = 0; ms <= 5000; ms += 10) {
@@ -214,13 +214,13 @@ test("the speed stays at 150 px/s for 1.7 seconds, then rises along an S to 1800
   // in the 60ms after the hold-off and the last 60ms the speed moves a quarter of
   // what an even ramp would
   const even = (1800 - 150) / 2667 * 60;
-  assert.ok(speed(1760) - speed(1700) < even / 4, "a jolt at the start of the rise");
-  assert.ok(speed(4367) - speed(4307) < even / 4, "a jolt at the top");
+  assert.ok(speed(1170) - speed(1110) < even / 4, "a jolt at the start of the rise");
+  assert.ok(speed(3777) - speed(3717) < even / 4, "a jolt at the top");
   // the distance is 150px/s all along with the rise on top of it
   near(held(0), 0);
-  near(held(1700), 255, "the hold-off");
-  near(held(4367), 2855.325, "the ramp");
-  near(held(10000), 12994.725, "a 10 second hold");
+  near(held(1110), 166.5, "the hold-off");
+  near(held(3777), 2766.825, "the ramp");
+  near(held(10000), 13968.225, "a 10 second hold");
   // the distance is the area under the speed, however the time is cut into frames
   let area = 0;
   for (let ms = 0; ms < 10000; ms += 1) area += (speed(ms) + speed(ms + 1)) / 2 / 1000;
@@ -262,13 +262,13 @@ test("holding the chord scrolls down from the first frame at the old pace and le
 
 test("letting go eases the speed off without a jolt, never backwards, to a stop within half a second", async () => {
   const f = await setup({ scrollHeight: 100000, scrollTop: 0 });
-  // a 4.38 second hold, which is the top speed
-  f.press(); f.time.run(218);
+  // a 3.78 second hold, which is the top speed
+  f.press(); f.time.run(188);
   const before = f.view.scrollTop;
   f.time.run(1);
   const lastHeld = f.view.scrollTop - before;
   const letGo = f.view.scrollTop;
-  near(letGo, f.held(4380));
+  near(letGo, f.held(3780));
   f.release("S");
   const steps = [];
   let last = letGo;
@@ -342,8 +342,8 @@ test("an up press speeds up and eases off upward, as a down one does downward", 
   f.press(); f.time.run(1); f.release("S");
   f.time.elapse(100);
   const start = f.view.scrollTop;
-  f.press(); f.time.run(219);
-  near(f.view.scrollTop, start - f.held(4380), "the climb");
+  f.press(); f.time.run(189);
+  near(f.view.scrollTop, start - f.held(3780), "the climb");
   const letGo = f.view.scrollTop;
   f.release("S");
   easeOut(f);
