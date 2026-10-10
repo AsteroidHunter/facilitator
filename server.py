@@ -164,7 +164,7 @@ Endpoints:
                                is a 404. Lets an agent working in another project
                                show a picture on the board without writing a file
                                into this repo
-  POST /magic?box=ID&kind=K[&title=T] -> fill the card's side note, shown
+  POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the box
                                beside the card on the Mac board (and above
                                it on the phone, pulled in from the right edge),
                                and open it, in place of whatever it held.
@@ -177,7 +177,7 @@ Endpoints:
                                https address, which the board downloads once)
                                or url (one https address). The body is the
                                content: text and pages up to 1 MiB, pictures up
-                               to 10 MiB (413). T is a title kept with the note
+                               to 10 MiB (413). T is a title kept with the box
                                (the board does not draw it), 120 characters at
                                most. A web address
                                is asked for by the board first: https only,
@@ -240,7 +240,7 @@ Endpoints:
   GET  /mac-phone-view.js   -> the Mac's retained phone-view host and draft handoff;
                                /m on the local board port allows only same-origin
                                framing, while the root and bridge remain unframeable
-  GET  /magic-box.js        -> where a card's side note stands beside the card, and
+  GET  /magic-box.js        -> where a card's magic box stands beside the card, and
                                the sealed page an agent's html is shown in
   GET  /manifest.json, /sw.js -> what makes the board page installable as a Mac
                                app: its web app manifest, whose name the
@@ -5376,7 +5376,7 @@ def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes |
             _magic_write(_magic_file(bid, rev), json.dumps(record).encode())
         except OSError as e:
             _error("magicfail", bid, reason=e.strerror or type(e).__name__)
-            return 500, {"error": "the side note could not be written"}
+            return 500, {"error": "the box could not be written"}
         box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now}
         _magic_sweep_due.append(bid)
         # the transcript keeps that a box was opened and what kind, never what
@@ -5403,7 +5403,7 @@ def _post_magic(q: Query, body: bytes):
     if len(title) > MAGIC_TITLE_MAX:
         return 400, {"error": f"title over {MAGIC_TITLE_MAX} characters"}
     if not body.strip():
-        return 400, {"error": "the side note would be empty"}
+        return 400, {"error": "the box would be empty"}
     picture, host = None, None
     # the web is asked here, before the board's lock is taken, since a site
     # can take seconds to answer and the board must not wait on it
@@ -5411,7 +5411,7 @@ def _post_magic(q: Query, body: bytes):
         if kind == "url":
             address = _magic_one_address(body)
             if address is None:
-                return 400, {"error": "a website side note takes one web address on one line"}
+                return 400, {"error": "a website box takes one web address on one line"}
             record, host = _magic_website(address)
         elif kind == "image":
             ext = _magic_picture_ext(body)
@@ -5446,7 +5446,7 @@ def _magic_flag(q: Query, opened: bool):
             return 400, {"error": "bad box"}
         magic = box.get("magic")
         if not magic:
-            return 404, {"error": "this card has no side note"}
+            return 404, {"error": "this card has no magic box"}
         if magic.get("open") != opened:
             magic["open"] = opened
             action = "reopen" if opened else "close"
@@ -5481,7 +5481,7 @@ def _magic_record(bid: str):
 
 
 def _magic_missing(status: int):
-    return status, {"error": "bad box" if status == 400 else "this card has no side note"}
+    return status, {"error": "bad box" if status == 400 else "this card has no magic box"}
 
 
 def _get_magic(q: Query, _):
@@ -5523,12 +5523,12 @@ def _get_magic_img(q: Query, _):
         box = _box(bid)
         magic = (box or {}).get("magic") or {}
         if magic.get("kind") != "image":
-            return 404, {"error": "this card's side note holds no picture"}
+            return 404, {"error": "this card's box holds no picture"}
         try:
             ext = json.loads(_magic_file(bid, magic["rev"]).read_bytes())["ext"]
             data = _magic_file(bid, magic["rev"], ext).read_bytes()
         except (OSError, ValueError, KeyError):
-            return 404, {"error": "this card's side note holds no picture"}
+            return 404, {"error": "this card's box holds no picture"}
     return Response(data, media_type=IMG_TYPES[ext],
                     headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
                              "Content-Security-Policy": "sandbox"})
