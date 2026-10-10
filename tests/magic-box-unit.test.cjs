@@ -636,6 +636,12 @@ function phoneBoxScript(page) {
     classList: { contains: c => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
       remove: c => classes.delete(c), add: c => classes.add(c) },
     getAnimations: () => drawer.runs, animate: animate("drawer"), querySelector: () => null };
+  // what the drawer's lift reads (--tik-lift): the drawer's and its window's tops, the page's
+  // top and padding, and the notch's foot (a probe the box script makes once)
+  Object.assign(tickets, { style: { top: "0px", setProperty(name, value) { this[name] = value; } },
+    getBoundingClientRect: () => ({ top: 0 }) });
+  const pageEl = { style: { paddingTop: "0px" }, getBoundingClientRect: () => ({ top: 0 }) };
+  const notch = { style: {}, getBoundingClientRect: () => ({ height: 0 }) };
   const settings = { dataset: { side: "right" } };
   // the box, 89px tall, whose words (16px of white under their last line) end
   // 8px over its foot, where the window they scroll in ends; and the list's
@@ -652,10 +658,10 @@ function phoneBoxScript(page) {
     classList: { add: c => paneClasses.add(c), remove: c => paneClasses.delete(c), contains: c => paneClasses.has(c) },
     addEventListener: (type, fn) => { paneListeners[type] = fn; } };
   const ctx = {
-    document: { getElementById: id => parts[id], body: { classList: { add() {} } } },
+    document: { getElementById: id => parts[id], createElement: () => notch, body: { classList: { add() {} }, append() {} } },
     getComputedStyle: el => el.style,
-    tickets, settings, innerWidth: 402, homeOpen: false, shownId: "a", activeOwner: "p",
-    tikwin: { getAnimations: () => [], animate: animate("window") }, cardPane, tikArrows: [],
+    tickets, settings, innerWidth: 402, homeOpen: false, shownId: "a", activeOwner: "p", page: pageEl,
+    tikwin: { getAnimations: () => [], animate: animate("window"), style: { top: "0px" } }, cardPane, tikArrows: [],
     // the page's run machinery, as far as the swap uses it: a straight spring of
     // 100ms, the drawer's 300px travel, the card's drop (120px under the list,
     // 90px under the box) and a stop that cancels what is playing
@@ -688,12 +694,12 @@ function phoneBoxScript(page) {
     fitList: now => { if (now) ctx.listDrop = classes.has("boxface") ? 90 : 120; }, poll() {},
     fetch: url => { calls.push(url); return new Promise(() => {}); },
     apply: () => calls.push("apply"), select: () => calls.push("select"), deselect: () => calls.push("deselect"),
-    openDrawer: () => calls.push("list"), listSlack: () => 7,
+    openDrawer: () => calls.push("list"), listSlack: () => 7, drawerPane: () => null,
     phoneShortcutActions: {}, menuShortcutActions: {},
     addEventListener: (type, fn, opts) => { (listeners[type] = listeners[type] || []).push({ fn, opts }); },
   };
   vm.runInContext(src, vm.createContext(ctx));
-  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners, body };
+  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners, body, pageEl, notch };
 }
 
 test("on the phone the box comes down in the card list's own drawer, from the right, pulled the other way from the list", () => {
@@ -921,4 +927,50 @@ test("people and agents know it as a side note: the pages' labels, the command, 
   // the routes and the stored folder keep their names
   assert.match(server, /Route\("\/magic", _endpoint\(_post_magic/);
   assert.match(server, /MAGIC_DIR = HERE \/ "magic-boxes"/);
+});
+
+test("the drawer goes up by half the difference of its two gaps, so they are equal, and is never lowered", () => {
+  const { ctx, tickets, pageEl, notch } = phoneBoxScript(read("m.html"));
+  const lift = () => { ctx.fitList(true); return tickets.style["--tik-lift"]; };
+  ctx.drawerFace(true);
+  // the box's words end 65px under its top; the card stands 40 + 90 down the page and the
+  // drawer's top at 50. above: from the notch's foot (30) to 50 is 20; below: 130 - 50 - 65 is 15
+  pageEl.style.paddingTop = "40px"; tickets.style.top = "50px"; notch.getBoundingClientRect = () => ({ height: 30 });
+  assert.equal(lift(), "2.50px");
+  notch.getBoundingClientRect = () => ({ height: 5 });
+  assert.equal(lift(), "15.00px", "a notch higher up leaves more to take");
+  tickets.style.top = "20px"; notch.getBoundingClientRect = () => ({ height: 30 });
+  assert.equal(lift(), "0.00px", "a drawer already nearer the notch than the card is not lowered");
+  const page = read("m.html");
+  assert.equal((page.match(/\(var\(--list-drop, 0px\) \+ var\(--tik-lift, 0px\)\)/g) || []).length, 2, "both sides' transforms carry the lift");
+  assert.match(page, /padding-top:max\(0px, calc\(env\(safe-area-inset-top, 0px\) - \$\{NOTCH_GAP\}px\)\)/, "the notch's foot is read from the safe area");
+});
+
+test("a pull from the right edge on a card with no box dips the card once, and nothing else does", () => {
+  const { ctx, listeners, paneClasses } = phoneBoxScript(read("m.html"));
+  const fire = (type, e) => { for (const l of listeners[type] || []) l.fn(e); };
+  const at = (x, y = 400) => ({ touches: [{ clientX: x, clientY: y }], timeStamp: 0 });
+  const dipped = () => { const d = paneClasses.has("nudge"); paneClasses.clear(); return d; };
+  const pull = (x0, x1, y1) => { fire("touchstart", at(x0)); fire("touchmove", at(x1, y1)); fire("touchend", { timeStamp: 0 }); return dipped(); };
+  ctx.shownId = "b";
+  assert.ok(pull(398, 300), "a swipe leftwards from the right edge");
+  assert.ok(pull(398, 300), "and again, a dip each swipe");
+  fire("touchstart", at(398)); fire("touchmove", at(300)); assert.ok(dipped());
+  fire("touchmove", at(250)); assert.ok(!dipped(), "one dip a swipe");
+  fire("touchend", { timeStamp: 0 });
+  fire("touchstart", at(398)); fire("touchend", { timeStamp: 0 });
+  assert.ok(!dipped(), "a tap at the edge");
+  assert.ok(!pull(398, 400), "a pull rightwards");
+  assert.ok(!pull(398, 396, 520), "a pull downwards");
+  assert.ok(!pull(398, 394), "a finger that has not gone 6px");
+  assert.ok(!pull(10, 100), "the left edge's pull");
+  assert.ok(!pull(300, 200), "a swipe that does not begin at the edge");
+  ctx.homeOpen = true;
+  assert.ok(!pull(398, 300), "Home is on show");
+  ctx.homeOpen = false; ctx.shownId = "a";
+  assert.ok(!pull(398, 300), "a card with a box brings the drawer out and does not dip");
+  ctx.shownId = "b";
+  const mouse = (type, x) => fire(type, { button: 0, clientX: x, clientY: 400, timeStamp: 5000 });
+  mouse("mousedown", 398); mouse("mousemove", 300); mouse("mouseup", 300);
+  assert.ok(dipped(), "the mouse follows the same rule, once its touch's leftovers are past");
 });

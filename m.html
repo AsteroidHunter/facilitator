@@ -1128,7 +1128,7 @@
        left, which is half of what the column leaves, a share of its own width.
        down: what the window has gone down, taken back */
     transform:translate3d(calc((var(--list-v) - 1) * (var(--pg-l) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
-      calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0);
+      calc(-1 * var(--list-v) * (var(--list-drop, 0px) + var(--tik-lift, 0px))), 0);
     visibility:hidden; --menuwait:var(--drawer-run-ms, var(--drawer-ms));
     transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), opacity var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), visibility 0s linear var(--menuwait);
   }
@@ -1160,7 +1160,7 @@
   #tickets.swapface > #mbface{display:flex; flex:none; position:absolute; top:0; left:0; right:0; margin:0 auto}
   #tickets[data-side="right"]{
     transform:translate3d(calc((1 - var(--list-v)) * (var(--pg-r) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
-      calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0)}
+      calc(-1 * var(--list-v) * (var(--list-drop, 0px) + var(--tik-lift, 0px))), 0)}
   /* The arrows fade once more on top of the drawer's own fade, on its fraction
      and clock, reversals included: --list-v is written on the two arrows as on
      the drawer's parts, and runs there. It is not inherited, so a change of it
@@ -7650,13 +7650,36 @@ function phoneMagicClose(){
 // drawer's own gesture, which then takes the drawer from whichever side it
 // stands on: the left edge's strip the card list, the right edge's the box. on
 // a card with no box the drawer stays on the left, and a pull from the right
-// edge does nothing
+// edge brings nothing out but dips the card, as the key does there (edgeDip)
 for (const type of ["touchstart", "mousedown"]) addEventListener(type, e => {
   const at = e.touches ? e.touches[0] : e;
   if (!at || (type === "mousedown" && e.button !== 0)) return;
   if (at.clientX <= MAGIC_EDGE) drawerFace(false);
   else if (at.clientX >= innerWidth - MAGIC_EDGE) drawerFace(!!phoneMagicCard());
+  if (type === "touchstart") edgeDipUntil = Infinity;
+  if (type === "touchstart" || !(e.timeStamp <= edgeDipUntil)) edgeDipBegin(at, e);
 }, { capture: true, passive: true });
+// the dip for a pull from the right edge on a card with no box: once a swipe,
+// when the finger has gone 6px leftwards, the drawer's own start, and further
+// across than down. a tap at the edge, a pull that goes down or rightwards, a
+// card with a box (the drawer comes out), a press on the typing row or with a
+// menu out, and the left edge's pull dip nothing. the mouse follows the same
+// rule, and the mouse events a touch leaves behind are let be
+let edgeDip = null, edgeDipUntil = -Infinity;
+const edgeDipBegin = (at, e) => {
+  edgeDip = at.clientX >= innerWidth - MAGIC_EDGE && !homeOpen && shownId && !phoneMagicCard()
+    && !menuOut() && !e.target?.closest?.(".bottombar") ? { x: at.clientX, y: at.clientY } : null;
+};
+const edgeDipMove = at => {
+  if (!edgeDip) return;
+  const dx = edgeDip.x - at.clientX, dy = Math.abs(at.clientY - edgeDip.y);
+  if (dx >= 6 && dx > dy){ edgeDip = null; cardNudge(); }
+  else if (dy >= 6 && dy > Math.abs(dx)) edgeDip = null;
+};
+addEventListener("touchmove", e => { if (e.touches[0]) edgeDipMove(e.touches[0]); }, { passive: true });
+for (const type of ["touchend", "touchcancel"]) addEventListener(type, e => { edgeDip = null; edgeDipUntil = e.timeStamp + 700; }, { passive: true });
+addEventListener("mousemove", e => { if (e.timeStamp > edgeDipUntil) edgeDipMove(e); }, { passive: true });
+addEventListener("mouseup", () => { edgeDip = null; }, { passive: true });
 // control+shift+period does for the box what control+shift+comma does for the
 // list, and the two keys share this one rule: the face asked for comes out,
 // and the key again puts it back. the settings go as it comes, as they always
@@ -7807,6 +7830,46 @@ function drawerSwapFirstFrame(playing){
     keys.cardsDrawer = e => drawerKey(e, false);
     keys.boxDrawer = e => drawerKey(e, true);
   }
+  // the drawer's two gaps, for the card list and the box alike: above, from the
+  // foot of the notch (or the island) to the drawer's top; below, from the foot
+  // of what it shows to the card's top. the card is where it is, so the drawer
+  // goes up by half the difference and the two are equal (--tik-lift, taken
+  // from the transform with the drop; the drawer keeps its size). a web page
+  // cannot see the notch, only the safe area, which ends at the status bar's
+  // foot: the notch's foot stands NOTCH_GAP above that on the iPhone 13 mini
+  // (notch 37.5, inset 50) and the iPhone 17 (island 50.7, inset 62), read off
+  // their screens with the device mask drawn. in a browser tab, where the page
+  // starts under the status bar and the inset is nothing, the page's own top
+  // stands for it. the foot of the list is its last ticket; a section that
+  // fills the list runs under the card and has no gap below, so it is not lifted
+  const NOTCH_GAP = 12;
+  let notchProbe = null;
+  const notchFoot = () => {
+    if (!notchProbe){
+      notchProbe = document.createElement("div");
+      notchProbe.style.cssText = `position:fixed; top:0; left:0; visibility:hidden; pointer-events:none; padding-top:max(0px, calc(env(safe-area-inset-top, 0px) - ${NOTCH_GAP}px))`;
+      document.body.append(notchProbe);
+    }
+    return notchProbe.getBoundingClientRect().height;
+  };
+  const drawerFoot = () => {
+    if (tickets.classList.contains("boxface")) return phoneMagicFoot();
+    const pane = drawerPane(), shown = pane ? [...pane.children].filter(el => el.offsetParent) : [];
+    if (!shown.length || !listSpare()) return 0;
+    return shown[shown.length - 1].getBoundingClientRect().bottom - tickets.getBoundingClientRect().top;
+  };
+  const fitBase = fitList;
+  fitList = function(now){
+    fitBase(now);
+    const foot = drawerFoot();
+    let lift = 0;
+    if (foot > 0){
+      const at = page.getBoundingClientRect().top, px = (el, name) => parseFloat(getComputedStyle(el)[name]) || 0;
+      const top = at + px(tikwin, "top") + px(tickets, "top"), card = at + px(page, "paddingTop") + listDrop;
+      lift = Math.max(0, (top - notchFoot() - (card - top - foot)) / 2);
+    }
+    tickets.style.setProperty("--tik-lift", lift.toFixed(2) + "px");
+  };
 }
 </script>
 </body>
