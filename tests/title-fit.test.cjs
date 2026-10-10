@@ -1,7 +1,8 @@
 // A card's big title keeps to two lines: past two lines at the sheet's size it
 // shrinks to the largest size that keeps two, down to 20px, and once two lines at
-// 20px are full a key adds nothing and a paste puts in the words that fit. A title
-// the reader did not type is cut at the foot of its second line, its words kept.
+// 20px are full on the Mac's card or the phone's, whichever fills first, a key adds
+// nothing and a paste puts in the words that fit, the same on both pages. A title
+// longer than that is cut at the foot of its second line, its words kept.
 // The shared fitTitle, the typing limit and editTitle run out of card-logic.js, and
 // the Mac's pasteIntoTitle out of index.html, over a small document whose lines
 // are broken by a fixed rule (a letter is 0.56em, a space 0.28em, words wrap
@@ -26,10 +27,11 @@ function between(source, start, end) {
 }
 
 // the two big titles: the Mac's open card (30px on a 1.25 line) and the phone's
-// (24 of its page pixels at 0.985, on a whole 30px line). widths are the words' room
+// (24 of its page pixels at 0.985, on a whole 30px line). widths are the words' room,
+// the Mac card's and a 375 point phone's, as the two pages lay them out
 const SHEETS = {
-  mac: { fontSize: 30, lineHeight: 37.5, width: 480 },
-  phone: { fontSize: 24 * 0.985, lineHeight: 30, width: 366 },
+  mac: { fontSize: 30, lineHeight: 37.5, width: 429.07 },
+  phone: { fontSize: 24 * 0.985, lineHeight: 30, width: 332.6 },
 };
 const LETTER = 0.56, SPACE = 0.28;
 
@@ -106,6 +108,7 @@ function world(sheet) {
       n.parentNode = this;
       return n;
     }
+    replaceChild(n, old) { this.insertBefore(n, old); old.remove(); return old; }
     contains(n) { for (; n; n = n.parentNode) if (n === this) return true; return false; }
     cloneNode(deep) {
       const c = new Elem(this.tagName, this.sheet);
@@ -240,6 +243,7 @@ function world(sheet) {
     Date, setTimeout, clearTimeout, setInterval, clearInterval, console,
     document: {
       get activeElement() { return doc.activeElement; },
+      get body() { return body; },
       createRange: () => new Range(),
       createElement: tag => new Elem(tag),
       createTextNode: data => new Text(data),
@@ -314,15 +318,20 @@ function world(sheet) {
     size: size(), lines: lines(), inline: title.style.getPropertyValue("font-size") !== "",
     cut: title.style.getPropertyValue("max-height"), overflow: title.style.getPropertyValue("overflow"),
   });
-  // the lines `text` takes at `px` in this title
-  const linesAt = (text, px) => {
+  // the lines `text` takes at `px` in this title, or in a room of another width
+  const linesAt = (text, px, room) => {
     const probe = title.cloneNode(false);
     probe.textContent = text;
-    probe.style.cssText = `font-size:${px}px; line-height:${px * sheet.lineHeight / sheet.fontSize}px`;
+    probe.style.cssText = `font-size:${px}px; line-height:${px * sheet.lineHeight / sheet.fontSize}px` +
+      (room ? `; width:${room}px` : "");
     return lineBoxes(probe).length;
   };
+  // the two cards the limit holds a title to, as the shared file states them, and
+  // whether a text sits on two lines at 20px on both
+  const cards = vm.runInContext("TITLE_CARDS", context), spare = vm.runInContext("TITLE_SPARE", context);
+  const fitsBoth = text => cards.every(c => linesAt(text, 20, c.room - spare) <= 2);
   return { context, title, box, el, sel, caretAt, lineStarts, caretAtEnd, input, type, key, lines, size, shown, linesAt,
-    observers, posts, execs, put, Text, Elem };
+    cards, fitsBoth, observers, posts, execs, put, Text, Elem, body: () => body };
 }
 
 const WORDS = ("the reply about the board keeps its title on two lines while the owner types more words into it " +
@@ -363,16 +372,17 @@ for (const [name, sheet] of Object.entries(SHEETS)) {
     assert.equal(w.shown().cut, "", "a title that fits is not cut");
   });
 
-  test(`${name}: typing shrinks the title a little at a time down to 20px, then letters add nothing`, () => {
+  test(`${name}: typing shrinks the title a little at a time, and letters stop where either card is full at 20px`, () => {
     const w = world(sheet);
     w.title.textContent = wordsFor(w, 2, sheet.fontSize);
     w.context.editTitle("7");
     w.caretAtEnd();
     const sizes = [w.size()];
-    let refused = 0;
+    let refused = 0, stop = null;
     for (const ch of " " + words(60)) {
+      const before = w.title.textContent;
       const e = w.input("insertText", ch);
-      if (e.defaultPrevented) { refused++; continue; }
+      if (e.defaultPrevented) { refused++; stop = stop || { before, ch }; continue; }
       sizes.push(w.size());
       assert.ok(w.lines() <= 2, `a third line after ${JSON.stringify(w.title.textContent)}`);
     }
@@ -388,10 +398,15 @@ for (const [name, sheet] of Object.entries(SHEETS)) {
     assert.ok(between20.some(s => Math.abs(s * 4 - Math.round(s * 4)) > 0.01), "not a grid of fixed steps: " + between20.join(" "));
     assert.ok(refused > 0, "letters past the limit were refused");
     const full = w.title.textContent;
-    // full: one more letter would need less than 20px, so it stands within a letter's worth of 20
-    assert.ok(w.size() >= 20 && w.size() < 21, `the smallest size is 20, got ${w.size()}`);
-    assert.ok(w.linesAt(full.trimEnd() + "x", 20) > 2, "one more letter does not fit at 20px");
+    // full: it sits on two lines at 20px on both cards, and the first key held back
+    // would not have, where it was typed
+    assert.ok(w.fitsBoth(full), "the title kept fits both cards at 20px");
+    assert.ok(w.fitsBoth(stop.before) && !w.fitsBoth(stop.before + stop.ch), "the key held back did not fit both cards at 20px");
     assert.equal(w.lines(), 2);
+    // the phone's card, the narrower, is the one that fills: the phone shows the full
+    // title within a letter's worth of 20px, and the Mac with room to spare
+    if (name === "phone") assert.ok(w.size() >= 20 && w.size() < 21, `the phone at its smallest, got ${w.size()}`);
+    else assert.ok(w.size() > 22, `the Mac card still above 20px, got ${w.size()}`);
     // more letters change nothing, and no message is added anywhere
     assert.equal(w.type("xyz"), 0);
     assert.equal(w.title.textContent, full);
@@ -406,7 +421,7 @@ for (const [name, sheet] of Object.entries(SHEETS)) {
     w.context.editTitle("7");
     w.caretAtEnd();
     w.type(" " + words(60));
-    assert.ok(w.size() < 21);
+    assert.equal(w.type("x"), 0, "the limit is reached");
     for (const k of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
       const e = w.key(k);
       assert.equal(e.defaultPrevented, false, k);
@@ -450,7 +465,8 @@ for (const [name, sheet] of Object.entries(SHEETS)) {
     const next = paste.slice(text.length - "Short name".length);
     assert.match(next, /^ \S/, "the cut falls between two words");
     assert.equal(w.lines(), 2);
-    assert.ok(w.linesAt(text + next.match(/^ \S+/)[0], 20) > 2, "the next word would not fit at 20px");
+    assert.ok(w.fitsBoth(text), "what went in fits both cards at 20px");
+    assert.ok(!w.fitsBoth(text + next.match(/^ \S+/)[0]), "the next word would not fit both cards at 20px");
     // a paste that fits goes in by the editor's own hand
     const v = world(sheet);
     v.title.textContent = "Short";
@@ -591,6 +607,153 @@ test("the phone starts from its own title size, the Mac from 30px, and both stop
   }
 });
 
+// ---- one limit on both pages ---------------------------------------------------
+// the same keys typed on the Mac page and on the phone page stop at the same letter,
+// whichever card fills first; the limit is read off the two cards in the shared file
+// and not off the page or window in hand
+function typedOn(sheet, start, keys) {
+  const w = world(sheet);
+  w.title.textContent = start;
+  w.context.editTitle("7");
+  w.caretAtEnd();
+  const kept = [];
+  for (const ch of keys) kept.push(!w.input("insertText", ch).defaultPrevented);
+  return { w, text: w.title.textContent, kept };
+}
+
+test("the same keys typed on the Mac and on the phone stop at the same letter, many texts", () => {
+  const texts = [];
+  for (let k = 0; k < WORDS.length; k++) texts.push(WORDS.slice(k).concat(WORDS.slice(0, k)).join(" "));
+  texts.push("Investigate Intermittent Synchronization Failures Between Workspace Configuration Services Again");
+  texts.push("a b c d e f g h i j k l m n o p q r s t u v w x y z a b c d e f g h i j k l m n o p q r s t u v w x y z");
+  for (const t of texts) {
+    const onMac = typedOn(SHEETS.mac, "", t), onPhone = typedOn(SHEETS.phone, "", t);
+    assert.equal(onMac.text, onPhone.text, `stopped at the same letter: ${JSON.stringify(t.slice(0, 30))}`);
+    assert.deepEqual(onMac.kept, onPhone.kept, "the same keys refused");
+    assert.ok(onMac.kept.includes(false), "the limit was reached");
+    // what either page let in fits two lines at 20px or more on both pages
+    for (const sheet of [SHEETS.mac, SHEETS.phone]) {
+      const v = world(sheet);
+      v.title.textContent = onMac.text;
+      v.context.fitTitle(v.title);
+      assert.equal(v.lines(), 2);
+      assert.equal(v.shown().cut, "", "never cut");
+      assert.ok(v.size() >= 20);
+    }
+  }
+});
+
+test("the limit is the narrower card's: a Mac title stops where the phone's card is full, not at the Mac's own", () => {
+  const onMac = typedOn(SHEETS.mac, "", words(40));
+  // on the Mac's own card alone there was room for more
+  const w = world(SHEETS.mac);
+  assert.ok(w.linesAt(onMac.text.trimEnd() + " " + words(2), 20) <= 2, "the Mac card alone would take more words");
+  // the phone's card at 20px is the one that is full
+  const phone = w.cards.find(c => c.card === "phone");
+  assert.ok(w.linesAt(onMac.text, 20, phone.room) <= 2);
+  assert.ok(w.linesAt(onMac.text.trimEnd() + "x", 20, phone.room) > 2);
+});
+
+test("the same paste on the Mac and on the phone puts in the same words", () => {
+  for (const start of ["Short name", "For the board", ""]) {
+    const paste = " " + words(40);
+    const results = [SHEETS.mac, SHEETS.phone].map(sheet => {
+      const w = world(sheet);
+      w.title.textContent = start;
+      w.context.editTitle("7");
+      w.caretAtEnd();
+      w.input("insertFromPaste", null, { getData: () => paste });
+      return w.title.textContent;
+    });
+    assert.equal(results[0], results[1], `the same words went in after ${JSON.stringify(start)}`);
+    assert.ok(results[0].length > start.length, "some went in");
+  }
+});
+
+test("his 78 character title fits the Mac card uncut, takes no more letters there, and can be cut down", () => {
+  const his = "For non-new cards and cards with a title, first tab should land on compose bar";
+  assert.equal(his.length, 78);
+  const onMac = world(SHEETS.mac);
+  onMac.title.textContent = his;
+  onMac.context.fitTitle(onMac.title);
+  // the model's widths make it fit the Mac card above 20px and not the phone's at 20px,
+  // as the two pages draw it
+  assert.ok(onMac.size() > 20 && onMac.shown().cut === "", `on the Mac at ${onMac.size()}px, uncut`);
+  assert.ok(!onMac.fitsBoth(his), "past the phone's two lines at 20px");
+  onMac.context.editTitle("7");
+  onMac.caretAtEnd();
+  assert.equal(onMac.type("s"), 0, "no letter goes in on the Mac");
+  assert.equal(onMac.input("deleteContentBackward").defaultPrevented, false, "but it can be cut down");
+  const onPhone = world(SHEETS.phone);
+  onPhone.title.textContent = his;
+  onPhone.context.fitTitle(onPhone.title);
+  assert.equal(onPhone.size(), 20);
+  assert.notEqual(onPhone.shown().cut, "", "cut at the foot of the second line on the phone, as before");
+  onPhone.context.editTitle("7");
+  onPhone.caretAtEnd();
+  assert.equal(onPhone.type("s"), 0, "no letter goes in on the phone");
+});
+
+test("an emoji is measured at the wider width WebKit draws it, so a title let in on the Mac fits the phone", () => {
+  const w = world(SHEETS.mac);
+  const copy = new w.Elem("span", SHEETS.mac);
+  copy.appendChild(new w.Text("go 🚀 now 👍🏽 and 🇺🇸 then 👨‍👩‍👧 ok ❤️"));
+  w.context.titleWidestEmoji(copy);
+  const boxes = copy.childNodes.filter(n => n.nodeType === 1);
+  assert.equal(boxes.length, 5, "one box for each emoji, a family or a flag or a toned hand is one");
+  for (const b of boxes) assert.match(b.style.cssText, /display:inline-block; width:1\.25em/);
+  assert.equal(copy.childNodes.filter(n => n.nodeType === 3).map(n => n.data).join("|"), "go | now | and | then | ok ",
+    "the words around them are kept");
+  // words with no emoji are left as they are
+  const plain = new w.Elem("span", SHEETS.mac);
+  plain.appendChild(new w.Text("plain words, 3 digits and a dash - only"));
+  w.context.titleWidestEmoji(plain);
+  assert.equal(plain.childNodes.length, 1);
+  // the limit lays out its copies with them, at the card's edge
+  const lw = between(logic, "function titleLinesWith(t, r, text, card){", "\n}\n");
+  assert.match(lw, /titleWidestEmoji\(copy\);/);
+  assert.match(lw, /titleEdge\(card\) \+ "px; font-size:" \+ TITLE_MIN \+ "px/);
+});
+
+test("each card's edge is its room less the spare, halfway between two sixty-fourths of a pixel", () => {
+  // both engines lay lines out in sixty-fourths and round a width half of one apart:
+  // an edge on a sixty-fourth is where a line can end exactly, and the two disagree
+  const { context, cards } = world(SHEETS.mac);
+  const edge = card => vm.runInContext(`titleEdge(${JSON.stringify(card)})`, context);
+  assert.equal(vm.runInContext("TITLE_SPARE", context), 0.1);
+  const [macEdge, phoneEdge] = cards.map(c => edge({ ...c }));
+  assert.equal(phoneEdge, 332.5078125);
+  assert.equal(macEdge, 428.9765625);
+  for (const [e, c] of [[macEdge, cards[0]], [phoneEdge, cards[1]]]) {
+    assert.equal((e * 64) % 1, 0.5, "halfway between two sixty-fourths");
+    // the half step over the room less the spare, cut down to a sixty-fourth: at most
+    // a hundred-and-twenty-eighth over it, so at least 0.092px of the room stays spare
+    assert.ok(Math.abs(e - (c.room - 0.1)) < 1 / 64, "within a sixty-fourth of the room less the spare");
+    assert.ok(c.room - e >= 0.1 - 1 / 128, "at least 0.092px spare");
+  }
+});
+
+test("the two cards are stated once, the phone's narrower, and both pages draw the title in the face the limit measures", () => {
+  const { cards } = world(SHEETS.mac);
+  assert.deepEqual(JSON.parse(JSON.stringify(cards.map(c => [c.card, c.room, c.wrap]))),
+    [["mac", 429.07, "normal"], ["phone", 332.6, "anywhere"]]);
+  // the limit's rooms are the ones the model's two pages are given
+  assert.equal(SHEETS.mac.width, cards[0].room);
+  assert.equal(SHEETS.phone.width, cards[1].room);
+  // both sheets: weight 625 in the shared Inter, the phone breaking a long word anywhere
+  assert.match(between(phone, ".title{", "}"), /font:625 [^;]*var\(--inter\)/);
+  assert.match(between(phone, ".title{", "}"), /overflow-wrap:anywhere/);
+  const macTitle = between(mac, "body.focus .box.sel .title{", "}");
+  assert.match(macTitle, /font:625 30px\/1\.25 var\(--inter\)/);
+  assert.doesNotMatch(macTitle, /overflow-wrap/);
+  // the Mac card's room holds in every window: the stage is a fixed 1440 wide and scales
+  assert.match(mac, /--cw:1440px; --ch:900px;/);
+  // and the limit goes through both cards, never the page's own title
+  const room = between(logic, "function titleRoomAt(t, text, r){", "\n}\n");
+  assert.match(room, /titleFitsCards\(t, r, part\)/);
+  assert.match(between(logic, "function titleFitsCards(t, r, text){", "\n}\n"), /TITLE_CARDS\.every/);
+});
+
 test("the cut and the scroll go by the lines as laid out, where an engine rounds a line (WebKit: 25.38px at 25px)", () => {
   const w = world({ ...SHEETS.phone, round: Math.floor });
   w.title.textContent = words(70);
@@ -673,7 +836,7 @@ test("the Mac's paste cuts a long paste at the last whole word that fits", () =>
   assert.equal(w.title.textContent, "Short name " + put);
   assert.equal(w.lines(), 2);
   assert.ok(w.size() >= 20);
-  assert.ok(w.linesAt(w.title.textContent + next.match(/^ \S+/)[0], 20) > 2, "the next word would not fit at 20px");
+  assert.ok(!w.fitsBoth(w.title.textContent + next.match(/^ \S+/)[0]), "the next word would not fit both cards at 20px");
 });
 
 test("both pages fit the title where its words or its card change, and the RUNBOOK asks for two lines", () => {
