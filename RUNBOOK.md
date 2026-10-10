@@ -95,6 +95,8 @@ Follow the current host's permission rules and the user's authorization in this 
 
 The board writes its own dated log files into `facilitator-internal/logs`, a folder beside this one that never goes into the repository, and they record only what the board did, never anyone's words, keys, file paths or email addresses.
 
+A new install logs errors only (`"log_level": "error"` in `run.config.example.json`), so for the server, bridge and phone logs the folder gains a file only when something goes wrong; a `run.config.json` with no `log_level` keeps logging at info, and `FACILITATOR_LOG_LEVEL` or `"log_level": "debug"` turns on full diagnostics.
+
 ## Real work
 
 Real work ships from boxes: delegate bounded builds and scans when delegation is available and authorized, and report results in the ordering box. Follow the actual session's authorization for pushes and destructive operations. After work is finished and verified, stage and commit its changes when authorized.

@@ -216,8 +216,52 @@ test("the level comes from the config file, and the environment variable beats i
 
     const overridden = await freshLogDir("override");
     await probe(write, { FACILITATOR_LOG_DIR: overridden, FACILITATOR_LOG_LEVEL: "error" });
-    assert.deepEqual(await eventsIn(overridden), [],
+    assert.deepEqual((await readdir(overridden)).filter(name => name.startsWith("server-")), [],
       "the variable did not beat the config file");
+  } finally {
+    await rm(config, { force: true });
+  }
+});
+
+test("a board started from the example config logs errors only, and one with no log_level keeps info", async () => {
+  const config = path.join(appDir, "run.config.json");
+  const write = [
+    "import server",
+    "print(server.LOG_LEVEL)",
+    "server._info('user', 'm1')",
+    "server._client_event('notifycheck', page='/')",
+    "server._client_event('error', page='/', message='boom')",
+  ].join("\n");
+  try {
+    await writeFile(config, await readFile(path.join(ROOT, "run.config.example.json"), "utf8"));
+    const fresh = await freshLogDir("example");
+    const run = await probe(write, { FACILITATOR_LOG_DIR: fresh });
+    assert.match(run.stdout, /^error$/m, "the example config does not say errors only");
+    assert.deepEqual((await readdir(fresh)).filter(name => name.startsWith("server-")), [],
+      "a quiet board made a server file with nothing in it");
+    const clientLines = (await readFile(path.join(fresh, `client-${today()}.jsonl`), "utf8")).trim().split("\n");
+    assert.deepEqual(clientLines.map(line => JSON.parse(line).kind), ["error"],
+      "the client file took more than the page's errors");
+
+    const bridged = await freshLogDir("examplebridge");
+    await execFileAsync("python3", ["-c", [
+      "import importlib.machinery, importlib.util",
+      `loader = importlib.machinery.SourceFileLoader('facilitator_cli', ${JSON.stringify(path.join(ROOT, "facilitator"))})`,
+      "spec = importlib.util.spec_from_loader('facilitator_cli', loader)",
+      "cli = importlib.util.module_from_spec(spec)",
+      "loader.exec_module(cli)",
+      "cli.bridge_log('shareon', port=1)",
+      "cli.bridge_log('sharefail', level='error', port=1)",
+    ].join("\n")], { env: { ...process.env, FACILITATOR_LOG_DIR: bridged, FACILITATOR_LOG_LEVEL: "error" } });
+    const bridgeLines = (await readFile(path.join(bridged, `bridge-${today()}.log`), "utf8")).trim().split("\n");
+    assert.deepEqual(bridgeLines.map(line => JSON.parse(line).kind), ["sharefail"]);
+
+    await writeFile(config, JSON.stringify({ port: 1, lanes: [] }));
+    const kept = await freshLogDir("nokey");
+    const second = await probe("import server; print(server.LOG_LEVEL); server._info('user', 'm1')",
+      { FACILITATOR_LOG_DIR: kept });
+    assert.match(second.stdout, /^info$/m);
+    assert.deepEqual((await eventsIn(kept)).map(e => e.kind), ["user"]);
   } finally {
     await rm(config, { force: true });
   }

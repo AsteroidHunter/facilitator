@@ -259,6 +259,14 @@ def bridge_log(kind, level="info", **fields):
     code the phone scans, where it is needed; in a file that outlives the run it
     is a machine's name and nothing needs it."""
     try:
+        named = os.environ.get("FACILITATOR_LOG_LEVEL")
+        if not named:
+            try:
+                named = json.loads(CONFIG.read_text()).get("log_level")
+            except Exception:
+                named = None
+        if str(named or "").strip().lower() == "error" and level != "error":
+            return   # the same rule as the server's: errors only writes only errors
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         now = time.time()
         line = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now))
