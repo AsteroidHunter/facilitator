@@ -383,7 +383,7 @@ test("signed in, /m carries the shared card sheet's own text in place of its lin
   assert.equal((await request(port + 1, "/card-tokens.css", { Cookie: cookie })).text, sheet);
   assert.ok((await request(port, "/")).text.includes(SHEET_LINK), "the desktop page stopped linking the sheet");
   const worker = await readFile(path.join(ROOT, "m-sw.js"), "utf8");
-  assert.match(worker, /const SHELL = \[[^\]]*"\/card-tokens\.css"/, "the phone's worker stopped keeping the sheet");
+  assert.doesNotMatch(worker, /const SHELL\b|"\/card-tokens\.css"/, "the phone's worker keeps or asks for the sheet itself");
   // a page open is asked of the server every time; the worker keeps no copy of
   // it and only stands the server-down screen in when the server cannot answer
   assert.match(worker, /if \(request\.mode === "navigate"\) \{\s*if \(url\.pathname === "\/m"\) event\.respondWith\(openPage\(request\)\);\s*return;\s*\}/,

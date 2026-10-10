@@ -4,37 +4,36 @@
    The page navigation must reach the server, because the server may return
    either the board or the sign-in page. It is never kept and never answered
    from a copy; only when the server cannot answer it is the white "server
-   down" screen (below) put in its place. Static renderer files and the splash
-   picture can be kept; readings and commands always go straight to the server.
-   Every fetch the worker makes itself has a deadline. The page open's is on
-   its first answer only: a Mac that has said nothing at all for 8 seconds gets
-   the down screen, and one that has started answering is waited for however
-   slow the rest of the page is, since a slow page is still a page.
+   down" screen (below) put in its place. Readings and commands always go
+   straight to the server. The page open's wait is on its first answer only: a
+   Mac that has said nothing at all for 8 seconds gets the down screen, and one
+   that has started answering is waited for however slow the rest of the page
+   is, since a slow page is still a page.
+
+   The page's own code (the shared scripts and the sheet) is not asked for here
+   at all: the browser asks the server for each file itself and waits for it
+   however long it takes, and there is no kept copy of it to fall back to, so
+   the page runs on the latest files or does not start (m.html then shows the
+   down screen). Only the squid and the editor bundle below are kept.
 
    No board data is kept anywhere here. The page's startup screen waits for a
    live reading before it shows the board, so a stored copy could not shorten a
    start; it could only make one look connected when it was not. */
 
 /* New cache name drops previously kept authenticated pages and manifests. */
-const CACHE = "facilitator-m-12";
-const SHELL = ["/card-markdown.js", "/card-tokens.css", "/card-logic.js",
-               "/compose-format.js"];
+const CACHE = "facilitator-m-13";
 /* The squid the page paints the phone's own launch image from. It is kept
-   so a page already open through a short interruption can still paint it.
-   It is asked for on its own rather
-   than added to the list above, because addAll is all-or-nothing and a build
-   whose image had not landed yet would lose the whole shell with it. */
+   so a page already open through a short interruption can still paint it. */
 const SPLASH = "/m-splash-squid.png";
 /* The vendored editor the composer's typed formatting is drawn with, kept on
    the same terms as the squid and for the same two reasons. It is one prebuilt
    file of about 1.6 MB that never changes between rebuilds, so asking the board
    for it on every open would spend that much of the phone's connection each
    time for a file that is always the same; and it is asked for on its own so a
-   build where it is missing cannot take the whole shell down with it. A rebuilt
+   build where it is missing cannot take anything else down with it. A rebuilt
    bundle arrives with the cache name above. */
 const VENDORED = "/cm-markdown.js";
-const KEPT = [...SHELL, SPLASH, VENDORED];
-const SHELL_DEADLINE_MS = 8000;   // static files wait this long before the kept copy
+const SPLASH_DEADLINE_MS = 8000;   // the squid waits this long before the kept copy
 
 /* A record of each push, and of each tap on a notification, kept in the
    worker's own database because the board may be out of reach when one happens
@@ -380,7 +379,6 @@ self.addEventListener("install", event => {
   event.waitUntil((async () => {
     try {
       const cache = await caches.open(CACHE);
-      await cache.addAll(SHELL).catch(() => {});
       await cache.add(SPLASH).catch(() => {});
       await cache.add(VENDORED).catch(() => {});
     } catch (error) {}
@@ -416,17 +414,18 @@ self.addEventListener("fetch", event => {
     if (url.pathname === "/m") event.respondWith(openPage(request));
     return;
   }
-  /* The one thing read from the copy before the server is asked. Everything
-     else here is network first, because everything else can change under an
-     installed app and a stale copy of it would be wrong. This file cannot: it
+  /* The one thing read from the copy before the server is asked. The squid
+     below is network first, because it can change under an installed app and
+     a stale copy of it would be wrong. This file cannot: it
      is a vendored build that arrives with a new cache name or not at all, and
      reading it from the copy is what keeps the composer's formatting from
-     costing 1.6 MB of the phone's connection on every open. */
+     costing 1.6 MB of the phone's connection on every open. Its first
+     download is waited for however long it takes. */
   if (url.pathname === VENDORED) {
     event.respondWith((async () => {
       const kept = await caches.match(request);
       if (kept) return kept;
-      const fresh = await bounded(request, SHELL_DEADLINE_MS);
+      const fresh = await fetch(request);
       if (fresh.ok) {
         const cache = await caches.open(CACHE);
         cache.put(request, fresh.clone()).catch(() => {});
@@ -435,10 +434,10 @@ self.addEventListener("fetch", event => {
     })());
     return;
   }
-  if (!KEPT.includes(url.pathname)) return;   // live data: never intercepted
+  if (url.pathname !== SPLASH) return;   // the page's code and live data: never intercepted
   event.respondWith((async () => {
     try {
-      const fresh = await bounded(request, SHELL_DEADLINE_MS);
+      const fresh = await bounded(request, SPLASH_DEADLINE_MS);
       if (fresh.ok) {
         const cache = await caches.open(CACHE);
         cache.put(request, fresh.clone()).catch(() => {});

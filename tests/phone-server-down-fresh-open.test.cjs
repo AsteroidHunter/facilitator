@@ -209,7 +209,7 @@ async function installedApp() {
   await page.waitForFunction(() => lastState !== null && document.querySelector("article.box.sel"), { timeout: 20000 });
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null, { timeout: 20000 });
   await page.waitForFunction(async () => (await caches.keys()).length > 0 &&
-    (await (await caches.open((await caches.keys())[0])).keys()).length >= 5, { timeout: 20000 });
+    (await (await caches.open((await caches.keys())[0])).keys()).length >= 1, { timeout: 20000 });
   return page;
 }
 
