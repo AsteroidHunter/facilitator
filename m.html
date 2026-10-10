@@ -170,6 +170,10 @@
   @property --shift{syntax:"<percentage>"; inherits:false; initial-value:100%}
   @property --panel-depth{syntax:"<number>"; inherits:true; initial-value:0}
   @property --listfade{syntax:"<length>"; inherits:true; initial-value:0px}
+  /* the magic box's fuzz, the list's own depth, written in this page's scaled
+     pixels: registered for the same reason, so the box's view (card-logic.js)
+     reads it in pixels */
+  @property --mb-fade{syntax:"<length>"; inherits:false; initial-value:0px}
   /* the page: the card and the row of buttons under it, on the paper, as one
      surface. the card list is laid on it above the card, and pulling the list
      out drops the card by the list's height; the settings cross over it with
@@ -1115,10 +1119,13 @@
      the list, which comes in from the left. the box
      hangs from the drawer's top at its own size (MagicBox.fit), so the card
      goes down only as far as it needs, as it does for a short section. it
-     wears the card's raised shadow, being what is looked at while it is out */
-  #mbface{display:none}
+     wears the card's raised shadow, being what is looked at while it is out.
+     its bar stands at its foot (.barfoot), next to the card under it, and its
+     lengths are the page's own, scaled as the card's are */
+  #mbface{display:none; --mb-inset:calc(16 * var(--u));
+    --mb-x:calc(24 * var(--u)); --mb-bar:calc(var(--mb-x) + 2 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u))}
   #tickets.boxface > #tikhead, #tickets.boxface > #tiklist{display:none}
-  #tickets.boxface > #mbface{display:flex; flex:none; align-self:center; --mb-inset:calc(16 * var(--u))}
+  #tickets.boxface > #mbface{display:flex; flex:none; align-self:center}
   #tickets[data-side="right"]{
     transform:translate3d(calc((1 - var(--list-v)) * (var(--pg-r) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
       calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0)}
@@ -1655,13 +1662,9 @@ for (const type of ["gesturestart", "gesturechange"])
     <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
     <!-- the card's magic box, which this same drawer brings down in place of the
          list when it is pulled out for the box -->
-    <section id="mbface" class="magicbox held" aria-label="magic box">
+    <section id="mbface" class="magicbox held barfoot" aria-label="magic box">
       <div class="mbbar">
-        <span class="mblights">
-          <span class="mblight" aria-hidden="true"></span>
-          <span class="mblight" aria-hidden="true"></span>
-          <button type="button" class="mblight mbclose" aria-label="Close the magic box"><i></i></button>
-        </span>
+        <button type="button" class="mbclose" aria-label="Close the magic box"></button>
       </div>
       <div class="mbbody"></div>
     </section>
@@ -7584,8 +7587,8 @@ function phoneMagicFit(){
   if (tickets.classList.contains("boxface")) fitList();
 }
 addEventListener("resize", () => phoneMagicFit());
-// the red light: the drawer goes back and the box is put away, as the board's
-// red light does; what it held is kept, and the card's agent brings it back by
+// the cross: the drawer goes back and the box is put away, as the board's
+// cross does; what it held is kept, and the card's agent brings it back by
 // filling it again
 function phoneMagicClose(){
   const id = PB.id;

@@ -3661,11 +3661,7 @@
      over the card by its z-index when the window has no room beside it -->
 <section id="magicbox" class="magicbox">
   <div class="mbbar">
-    <span class="mblights">
-      <span class="mblight" aria-hidden="true"></span>
-      <span class="mblight" aria-hidden="true"></span>
-      <button type="button" class="mblight mbclose" aria-label="Close the magic box"><i></i></button>
-    </span>
+    <button type="button" class="mbclose" aria-label="Close the magic box"></button>
   </div>
   <div class="mbbody"></div>
 </section>
@@ -8256,7 +8252,7 @@ function magicOpenSite(url){
     fetch("/open-in-browser", { method: "POST", body: url }).catch(() => {});
   else window.open(url, "_blank", "noopener,noreferrer");
 }
-// the red light: the box put away, as `facilitator magic close` does. what it
+// the cross: the box put away, as `facilitator magic close` does. what it
 // held is kept, and the card's agent brings it back by filling it again. it
 // goes at once, and the board's next reading agrees
 function magicClose(){

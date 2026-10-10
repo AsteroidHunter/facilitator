@@ -63,8 +63,8 @@
       with no network), image (a picture file, or one https address the
       board downloads once) or url (one https website: shown live when it
       allows that, as a square holding the site's name, which opens it in a
-      new page, when it does not). The box shows the content under a top
-      bar whose red light lets the owner close it; --title is kept with it.
+      new page, when it does not). The box shows the content beside a short
+      bar whose cross lets the owner close it; --title is kept with it.
       CONTENT is
       the words or the address; --file sends a file's contents and - reads
       standard input. close hides the box and keeps it, reopen shows it
