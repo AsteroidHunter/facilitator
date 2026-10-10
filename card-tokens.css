@@ -117,7 +117,7 @@
   --hist-glyph-w:11px; --hist-glyph-h:7px;
   --bar-mark:10px; --cardspin-s:11px;
   --chip-scale:1.2;
-  --ink-sun:.975; --ink-dock:.96653; --ink-moon:.74841; --ink-done:.8014;
+  --mass-dock:.465; --mass-moon:-1.829;
   --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
   --spin-fade:.26s;
 }
@@ -142,18 +142,25 @@
 .topbar:has(> .dockbtn[aria-disabled="true"]) .sunbtn svg{opacity:1}
 .dockbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
 
-/* The sun, the cloud and the moon are drawn --chip-scale times --bar-mark, and the
-   cross is grown the same way, its bars (--bar-mark long, --cross-t thick, the
-   shape it always had) both --chip-scale times, so it stands to the moon as it
-   did before they grew. each stands in a seat of --bar-sq, the
-   rectangle a hover or a press paints, the same size for all four. the board's
-   seats keep one fixed step (--bar-gap-chips in index.html). the phone
-   page spaces its seats by the width of the marks instead, so the air between
-   neighbouring marks is the same all along its bar, and reads the widths of the
-   ink from here: --ink-sun, --ink-dock, --ink-moon and --ink-done are the widths
-   of the ink as shares of the drawn size, read off the paths with their strokes
-   (the cross's from its two bars laid at 45 degrees: (length + thickness) over
-   the square root of two, the same share of the scaled mark at any size) */
+/* The sun, the cloud and the moon are drawn --chip-scale times --bar-mark; the
+   cross is drawn as it always was, its bars --bar-mark long and --cross-t thick.
+   each stands in a seat of --bar-sq, the rectangle a hover or a press paints, the
+   same size for all four, an even step apart on each page (--bar-gap-chips in
+   index.html, --bar-gap in m.html).
+   the marks are not the same shape, so the middle of a seat is not the middle of
+   the mark's mass: the sun's ink and the cross's are symmetric, so their centres
+   of mass are their seats' middles, but the cloud's ink lies a little to the right
+   of its box's middle and the moon's a good deal to the left. --mass-dock and
+   --mass-moon are those distances, the ink's centre of mass less the box's middle,
+   in the marks' own 24 unit view box, measured by drawing each mark and weighing
+   its pixels. the cloud's and the moon's seats are moved by the same amount the
+   other way, so the four centres of mass stand an even step apart: the seats
+   of the sun and the cross keep their places and the two between take the
+   spaces. a spinner that stands in the cloud's seat moves with it */
+.topbar{--chip-w:calc(var(--bar-mark) * var(--chip-scale))}
+.topbar > .dockbtn{position:relative; left:calc(var(--mass-dock) * -1 / 24 * var(--chip-w))}
+.topbar > .arcbtn{position:relative; left:calc(var(--mass-moon) * -1 / 24 * var(--chip-w))}
+.topbar:has(> .dockbtn[aria-disabled="true"]) > .cardspin{position:relative; left:calc(var(--mass-dock) * -1 / 24 * var(--chip-w))}
 
 /* The head and the ticket border boxes share the pane's side insets. Each
    triangle points at that edge from inside the box. Exclude the head's top

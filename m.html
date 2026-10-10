@@ -671,11 +671,13 @@
      for a finger, and the sun, the cloud, the moon and the cross draw their marks across
      inside it at --bar-mark, the one mark size both pages share
      (card-tokens.css, with --cross-t, the cross's thickness, and --cardspin-s,
-     the spinner's own size). --bar-ink-gap is the air between one mark and the
-     next, edge to edge, the same for every pair: card-tokens.css moves the four
-     squares apart by what each pair's widths ask for. --bar-tail is how far the
-     cross's square ends short of the bar's right edge */
-  :root, #page{--bar-sq:calc(28 * var(--u)); --bar-ink-gap:calc(23.5 * var(--u)); --bar-tail:calc(6 * var(--u))}
+     the spinner's own size). --bar-gap is the gap between neighbouring
+     squares, its own value and never worked out from the square: with the squares
+     it makes one even step from each mark's seat to the next, and card-tokens.css
+     moves the cloud's and the moon's seats by how far their ink's centre of mass
+     lies from their middle, so the four marks' centres of mass are an even step
+     apart. --bar-tail is how far the cross's square ends short of the bar's right edge */
+  :root, #page{--bar-sq:calc(28 * var(--u)); --bar-gap:calc(5.63 * var(--u)); --bar-tail:calc(6 * var(--u))}
   /* the bar is a grid of five columns, the history control and then the four
      chips, so the working spinner can stand in the sun's own cell and share its
      centre by construction. the first column takes the room that is left,
@@ -683,32 +685,13 @@
   .topbar{
     --hist-cell:var(--bar-sq);
     display:grid; align-items:center; flex:none; position:relative;
-    grid-template-columns:minmax(0, 1fr) repeat(4, auto);
+    grid-template-columns:minmax(0, 1fr) repeat(4, var(--bar-sq));
     grid-template-rows:minmax(0, 1fr);
     grid-template-areas:"hist sun dock moon cross";
-    column-gap:0;
+    column-gap:var(--bar-gap);
     height:var(--cardbar-h); padding:0 var(--bar-tail) 0 calc(var(--pad-x)*2/3);
     background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
-    --chip-w:calc(var(--bar-mark) * var(--chip-scale));
-    --seat-gap-dock:calc(var(--bar-ink-gap) + (var(--ink-sun) + var(--ink-dock)) / 2 * var(--chip-w) - var(--bar-sq));
-    --seat-gap-moon:calc(var(--bar-ink-gap) + (var(--ink-dock) + var(--ink-moon)) / 2 * var(--chip-w) - var(--bar-sq));
-    --seat-gap-done:calc(var(--bar-ink-gap) + (var(--ink-moon) + var(--ink-done)) / 2 * var(--chip-w) - var(--bar-sq));
   }
-  /* the marks are not the same width, so seats an equal step apart would leave
-     unequal air between the marks themselves. a seat's margin is its distance
-     from the seat before it, worked out from the two marks' widths and
-     --bar-ink-gap, so the grid's columns (auto) take the margin with the seat. a
-     spinner that stands in the cloud's cell takes the same margin and so keeps
-     the cell's centre, the seat's centre */
-  .topbar > .dockbtn{margin-left:var(--seat-gap-dock)}
-  .topbar > .arcbtn{margin-left:var(--seat-gap-moon)}
-  /* the cross is grown as the other marks were (see its bars below), and the gap
-     rule above gives its seat the new width's room. the sun, the cloud and the
-     moon stay where they stood: the cross's seat takes that room from the right
-     instead, by half what its width grew from the .6678 share it had, which the
-     negative margin gives back to the grid's last column */
-  .topbar > .xbtn{margin-left:var(--seat-gap-done); margin-right:calc((.6678 - var(--ink-done)) / 2 * var(--chip-w))}
-  .topbar:has(> .dockbtn[aria-disabled="true"]) > .cardspin{margin-left:var(--seat-gap-dock)}
   /* the history control keeps its own width on a card with nothing older, and
      only its marks go. the seats and the chevrons are sized by --hist-cell,
      --hist-glyph-w and --hist-glyph-h */
@@ -753,8 +736,7 @@
   .box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}
   .xbtn::before, .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
-    width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--cross-t) * var(--chip-scale));
-    background:#1e1e1e; border-radius:calc(var(--cross-t) * var(--chip-scale));
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
   }
   .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
