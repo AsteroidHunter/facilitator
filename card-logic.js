@@ -4956,11 +4956,20 @@ const SUN_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stro
   '<circle cx="12" cy="12" r="4.35"></circle>' +
   '<path d="M12 1.5L12 3.45M12 20.55L12 22.5M1.5 12L3.45 12M20.55 12L22.5 12' +
   'M4.58 4.58L5.95 5.95M18.05 18.05L19.42 19.42M4.58 19.42L5.95 18.05M18.05 5.95L19.42 4.58"></path></svg>';
-// The sun's lower right is covered by the cloud, with no extra fill colour.
+// The sun partly covered by the cloud, with no extra fill colour, drawn in the
+// sun's own way: stroke 2.4 and round caps, rays 1.95 long on the same 45 degree
+// spokes, one ray wherever a spoke clears the cloud (five of them here). the ring
+// (radius 3.8, centre 10.95 11.38) is one arc that stops on the cloud's own
+// centre line, so its round ends lie inside the cloud's stroke and no line of
+// the sun reaches into the cloud. the cloud is the old outline at 0.8 so the
+// sun has the room to show its ring and the fifth ray; the whole is centred on
+// the 24 box, as the sun is. the marks keep 1.2 of air from the ring, where the
+// full size sun keeps 1.8, since a sun with 1.8 would not fit the box beside a cloud
 const DOCK_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" ' +
   'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<path d="M12.8 10.7a4.35 4.35 0 1 0-5.9 3.4M8 1.5v1.7M1.5 8h1.7M3.4 3.4l1.2 1.2M12.6 3.4l-1.2 1.2M3.4 12.6l1.2-1.2"></path>' +
-  '<path d="M9 21h10a3.5 3.5 0 0 0 .7-6.9 5 5 0 0 0-9.6-1.5A4.3 4.3 0 0 0 9 21Z"></path></svg>';
+  '<path d="M12.89 14.64A3.8 3.8 0 1 1 14.18 13.37"></path>' +
+  '<path d="M5.72 16.61L4.34 17.99M3.55 11.38L1.6 11.38M5.72 6.14L4.34 4.76M10.95 3.97L10.95 2.03M16.19 6.14L17.57 4.76"></path>' +
+  '<path d="M11.694 21.975H19.694A2.8 2.8 0 0 0 20.254 16.455A4 4 0 0 0 12.574 15.255A3.44 3.44 0 0 0 11.694 21.975Z"></path></svg>';
 // Done's sunset: the last sliver of sun on a horizon line, wide rays above it
 // and two reflection dashes below. the paths and the stroke are the chosen
 // drawing as it stands on the 24 box, 2.4 wide, so every proportion in it, the
