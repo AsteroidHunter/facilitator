@@ -1021,6 +1021,71 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .app-link-status{font:12px var(--sans); color:var(--ink); max-width:240px; padding:6px 10px}
 .app-link-status:empty{display:none}
 
+/* ---- a card's magic box -------------------------------------------------- */
+/* what an agent put beside a card (POST /magic), in the card's own white face,
+   edge, 7px corners and shadow: on the board beside the card (index.html says
+   where it stands) and on the phone in the drawer above the card (m.html).
+   the shadow says which of the box and the card is being worked in: the one
+   held wears the card's raised shadow and the other the faint one the card
+   settles to under magic box 2, eased over the card's own .2s. a box comes in
+   settled, since the card is what was being worked in */
+.magicbox{display:flex; flex-direction:column; overflow:hidden;
+  background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+  box-shadow:0 2px 18px rgba(60,45,20,.06); transition:box-shadow .2s}
+.magicbox.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+/* its top bar is the card's own: as tall, as white, and parted from what the
+   box holds by the same hairline. at its right stand the Mac's three window
+   lights in the Mac's order: the red one puts the box away, and the yellow and
+   green ones, for shrinking it and for full size, are greyed until they have
+   work. as on the Mac, the red one shows its cross while the pointer is over
+   the lights or the red one has the keys; a finger's tap reaches past it */
+.magicbox .mbbar{flex:none; display:flex; align-items:center; justify-content:flex-end;
+  height:var(--cardbar-h); padding:0 12px; background:var(--card);
+  box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
+.magicbox .mblights{display:flex; gap:8px}
+.magicbox .mblight{position:relative; width:12px; height:12px; padding:0; border:none; border-radius:50%;
+  background:#DCDCDC; box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
+.magicbox .mbclose{background:#FF5F57; cursor:pointer}
+.magicbox .mbclose::after{content:""; position:absolute; inset:-8px}
+.magicbox .mbclose:focus-visible{outline:2px solid var(--line); outline-offset:1px}
+.magicbox .mbclose i::before, .magicbox .mbclose i::after{content:""; position:absolute; left:50%; top:50%;
+  width:6.5px; height:1.2px; margin:-0.6px 0 0 -3.25px; border-radius:1px; background:rgba(77,0,0,.7);
+  opacity:0; transform:rotate(45deg)}
+.magicbox .mbclose i::after{transform:rotate(-45deg)}
+.magicbox .mblights:hover .mbclose i::before, .magicbox .mblights:hover .mbclose i::after,
+.magicbox .mbclose:focus-visible i::before, .magicbox .mbclose:focus-visible i::after{opacity:1}
+.magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto}
+/* words run the box's full width in the card's own body size, off its edges
+   by --mb-inset, which each page sets to its card answer's own inset */
+.magicbox .mbtext{padding:var(--mb-inset, 16px); font-size:15px; line-height:1.55; color:var(--ink)}
+.magicbox .mbtext.plain{white-space:pre-wrap}
+/* a picture fills the box, which takes the picture's own shape; a page or a
+   site fills the body edge to edge on its own white */
+.magicbox .mbimg{display:block; width:100%; height:100%; object-fit:contain}
+.magicbox .mbframe{display:block; width:100%; height:100%; border:0; background:var(--card)}
+/* the clear cover over a page or a site while the pointer is not over the box
+   (the board's magicPointer): the pointer lands on it, so the board knows it
+   came, and it comes off at once, before any click */
+.magicbox .mbcover{position:absolute; inset:0}
+.magicbox.over .mbcover{display:none}
+/* a site that will not be framed: the box comes square, and in its middle a
+   smaller box with the site's name and the mark for opening it in a new page,
+   which it does when clicked. a breath of the board's ink over the card's
+   white, whatever colour the board is, with the card's edge and the 7px of
+   things let into the card, deepening by half the one press shade under the
+   pointer and by all of it while pressed */
+.magicbox .mbaway{display:flex; align-items:center; justify-content:center; height:100%; padding:24px}
+.magicbox .mbopen{--mbtile:color-mix(in srgb, var(--ink) 4%, var(--card));
+  display:inline-flex; align-items:center; justify-content:center; gap:10px;
+  max-width:100%; min-width:58%; padding:18px 22px; cursor:pointer;
+  background:var(--mbtile); border:var(--edge) solid var(--line); border-radius:7px;
+  color:var(--ink); font:625 17px/1.3 var(--inter); transition:background .12s}
+.magicbox .mbopen:hover{background:color-mix(in srgb, #000 calc(var(--press) / 2), var(--mbtile))}
+.magicbox .mbopen:active{background:color-mix(in srgb, #000 var(--press), var(--mbtile))}
+.magicbox .mbopen:focus-visible{outline:2px solid var(--line); outline-offset:2px}
+.magicbox .mbopen span{min-width:0; overflow-wrap:anywhere; text-align:center}
+.magicbox .mbopen svg{flex:none; width:15px; height:15px; color:var(--sub)}
+
 /* a card's picture opened full screen (openCardPicture in card-logic.js). the
    veil is the board's ink written opaque and brought to .62 by the fade, as the
    desktop's picture panel zoom does it. it stands over everything either page

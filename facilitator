@@ -56,13 +56,16 @@
   facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
   facilitator magic CARD close|reopen|show
       fill a card's magic box, the box beside the card on the Mac
-      board, and open it in place of what it held, so an agent can show the
-      owner what words carry badly without being asked. KIND is text (shown
-      as typed), markdown, html (a page of its own, run sealed off with no
-      network), image (a picture file, or one https address the board
-      downloads once) or url (one https website: shown live when it allows
-      that, as a preview whose address opens in Chrome when it does not).
-      The box shows only the content; --title is kept with it. CONTENT is
+      board and above it on the phone, and open it in place of what it held,
+      so an agent can show the owner what words carry badly without being
+      asked. It waits on its card and never takes the keys. KIND is text
+      (shown as typed), markdown, html (a page of its own, run sealed off
+      with no network), image (a picture file, or one https address the
+      board downloads once) or url (one https website: shown live when it
+      allows that, as a square holding the site's name, which opens it in a
+      new page, when it does not). The box shows the content under a top
+      bar whose red light lets the owner close it; --title is kept with it.
+      CONTENT is
       the words or the address; --file sends a file's contents and - reads
       standard input. close hides the box and keeps it, reopen shows it
       again, show prints what the board says it holds. Prints the board's

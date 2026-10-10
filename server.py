@@ -161,8 +161,11 @@ Endpoints:
                                show a picture on the board without writing a file
                                into this repo
   POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the box
-                               beside the card on the Mac board, and open
-                               it, in place of whatever it held. K is text
+                               beside the card on the Mac board (and above
+                               it on the phone, pulled out from the edge),
+                               and open it, in place of whatever it held.
+                               It waits on its card and never takes the
+                               keys. K is text
                                (shown as typed), markdown (the card's renderer),
                                html (a whole page, run in a sealed frame with
                                no network), image (the picture's bytes: PNG,
@@ -180,9 +183,9 @@ Endpoints:
                                again, no cookies. A website that lets this page
                                frame it is shown live (shown: frame); one that
                                refuses, or answers with an error or something
-                               not a page, is shown as a preview of its title,
-                               description and address, the address opening it
-                               in Chrome (shown: preview, reason in fixed
+                               not a page, is shown as a square with the site's
+                               name in a box in its middle, which opens it in
+                               a new page (shown: preview, reason in fixed
                                words).
                                Answers {ok, box, kind, rev, shown[, reason,
                                url]}, never words from the site itself. 400 for
@@ -3854,6 +3857,9 @@ def _phone_box(b: dict) -> dict:
         "answered": _answered_out(b.get("answered")),
         "writing": _state["busy"].get(ow) == b["id"],
         "bg": _hb_live(b), "state": _shown(b),
+        # the card's magic box, only on a card that has one, as the board's
+        # reading carries it: the phone shows it in the card list's drawer
+        **({"magic": b["magic"]} if b.get("magic") else {}),
         # the ready-to-test marker, a durable per-card flag; the page paints it
         # only while the card is actually awaiting the reader
         "testing": bool(b.get("testing", False)),

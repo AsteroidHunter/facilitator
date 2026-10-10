@@ -6520,3 +6520,145 @@ function settingsOverlay(host, source, opts){
   });
   return { open: openOverlay, close, isOpen: () => open, page, root: veil };
 }
+
+// ---- a card's magic box -----------------------------------------------------
+// what a card's agent put beside it (POST /magic), drawn the same on the board,
+// where the box stands beside the card, and on the phone, where it comes down
+// above the card the way the card list does. each page makes one view of its
+// box element (.magicbox, with a top bar .mbbar and a body .mbbody), says where
+// the box stands and how big, and asks the view what it shows wants (want, for
+// MagicBox.place or MagicBox.fit, magic-box.js). hooks.placed is called when
+// what it shows has a size it did not have, and hooks.openSite(url) opens a
+// site that will not be framed in a new page. the box shows what it holds and
+// nothing else: its title is kept by the board and not drawn
+
+// the mark for opening in a new page: a page with an arrow leaving it at the top
+// right, drawn in the line's own colour
+const MAGIC_NEW_PAGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 2.5h4v4"/>' +
+  '<path d="M13.5 2.5 7.5 8.5"/><path d="M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/></svg>';
+// a site's name as the site gives it, or its address's host without "www."
+function magicSiteName(box){
+  const site = ((box.preview || {}).site || "").trim();
+  let host = "";
+  try { host = new URL(box.url || "").hostname; } catch (e) {}
+  return (site && site !== host ? site : host.replace(/^www\./, "")) || site || box.url || "";
+}
+function magicView(el, hooks = {}){
+  const view = { el, body: el.querySelector(".mbbody"), bar: el.querySelector(".mbbar"), url: "", natural: null, page: null };
+  const placed = () => { if (hooks.placed) hooks.placed(); };
+  // everything in it gone, so a frame that was showing stops running
+  view.clear = () => {
+    view.url = ""; view.page = null; view.natural = null;
+    delete view.body.dataset.kind;
+    view.body.textContent = "";
+  };
+  view.draw = box => {
+    view.clear();
+    view.url = box.kind === "url" ? box.url || "" : "";
+    view.body.dataset.kind = box.kind;
+    if (box.kind === "text" || box.kind === "markdown"){
+      const prose = h("div", "mbtext cardmd" + (box.kind === "text" ? " plain" : ""));
+      if (box.kind === "text") prose.textContent = box.text || "";
+      else prose.innerHTML = fmt(box.text || "");
+      view.body.appendChild(prose);
+    } else if (box.kind === "image"){
+      // the board's own copy, served sandboxed, so the picture's site never
+      // sees the owner's browser
+      const img = h("img", "mbimg");
+      img.alt = box.title || "";
+      img.addEventListener("load", placed);
+      img.src = box.src;
+      view.body.appendChild(img);
+      // the box takes the picture's own shape, read off a copy of it that is
+      // never laid out: a drawing (SVG) on the page answers with the size it is
+      // drawn at, which would hold the box at whatever size it last had. a
+      // picture that cannot be read has no size of its own and takes the whole box
+      const own = new Image();
+      own.onload = own.onerror = () => {
+        if (!img.isConnected) return;
+        view.natural = [own.naturalWidth, own.naturalHeight];
+        placed();
+      };
+      own.src = box.src;
+    } else if (box.kind === "html"){
+      page(box.html || "", 0);
+    } else if (box.kind === "url" && box.shown === "frame"){
+      const frame = h("iframe", "mbframe");
+      frame.setAttribute("credentialless", "");
+      frame.credentialless = true;
+      frame.setAttribute("sandbox", MagicBox.SITE_SANDBOX);
+      frame.setAttribute("referrerpolicy", "no-referrer");
+      frame.src = box.url;
+      view.body.append(frame, h("div", "mbcover"));
+    } else if (box.kind === "url"){
+      // a site that will not be framed: a smaller box in the middle with the
+      // site's name and the mark for a new page, which opens it there
+      const away = h("div", "mbaway"), open = h("button", "mbopen");
+      const name = magicSiteName(box);
+      open.type = "button";
+      open.setAttribute("aria-label", "Open " + name + " in a new page");
+      open.appendChild(h("span", "", name));
+      open.insertAdjacentHTML("beforeend", MAGIC_NEW_PAGE);
+      open.addEventListener("click", () => { if (view.url && hooks.openSite) hooks.openSite(view.url); });
+      away.appendChild(open);
+      view.body.appendChild(away);
+    }
+  };
+  // an agent's page in its sealed frame. each time the page finishes loading it
+  // says so with a word only it and the board know (MagicBox.pageDoc). a load
+  // the word does not follow is the page sending its frame somewhere else,
+  // which it may not: a fresh frame with the page takes its place, and a page
+  // that keeps leaving is taken down after three tries. the frame cannot be
+  // looked into, so the word is how the board knows what is in it
+  const page = (html, tries) => {
+    view.body.textContent = "";
+    view.page = null;
+    if (tries > 3) return;
+    const frame = h("iframe", "mbframe");
+    frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    const run = view.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries };
+    frame.addEventListener("load", () => {
+      run.loads++;
+      // the word is posted from the page's own load, so it lands a moment
+      // after the frame's; half a second is long past it on a page that stayed
+      setTimeout(() => {
+        if (view.page === run && frame.isConnected && run.said < run.loads) page(html, tries + 1);
+      }, 500);
+    });
+    frame.srcdoc = MagicBox.pageDoc(html, run.word);
+    view.body.append(frame, h("div", "mbcover"));
+  };
+  addEventListener("message", e => {
+    const run = view.page;
+    if (run && e.source === run.frame.contentWindow && e.data === run.word) run.said++;
+  });
+  // what the box shows asks for (MagicBox's want), or nothing for a page or a
+  // site, which take the whole room. room: the largest box there is room for,
+  // which a page lays the words out at. scale: screen pixels to the page's own,
+  // the board's stage scale. a picture asks for its own size, as many of the
+  // page's pixels as it has pixels on screen, so it is never drawn past its
+  // sharpness, with the top bar as its head; words for their own height at the
+  // room's width; a site that will not be framed for a square. the edge and the
+  // top bar are added, so what is under the bar is the size it asks for
+  view.want = (room, scale = 1) => {
+    const kind = view.body.dataset.kind, edges = el.offsetWidth - el.clientWidth, head = view.bar.offsetHeight;
+    if (kind === "image"){
+      const [w, h] = view.natural || [0, 0];
+      return w && h ? { width: w / scale + edges, height: h / scale + edges, head } : null;
+    }
+    if (view.body.querySelector(".mbaway")) return { height: room.width };
+    const words = view.body.querySelector(".mbtext");
+    if (!words) return null;
+    el.style.width = room.width + "px";
+    return { height: words.offsetHeight + edges + head };
+  };
+  // a picture still on its way: the box is kept hidden, so it never shows at
+  // the wrong size first
+  view.waiting = () => {
+    const img = view.body.dataset.kind === "image" && view.body.querySelector(".mbimg");
+    return !!img && (!img.complete || !view.natural);
+  };
+  return view;
+}

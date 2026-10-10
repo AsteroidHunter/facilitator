@@ -151,15 +151,22 @@ test("a card that is removed takes its box with it", async () => {
   assert.ok(!(await files()).some(name => name.startsWith(made.id + "-")));
 });
 
-test("another website cannot fill a box, and the phone bridge never answers one", async () => {
+test("another website cannot fill a box; through the phone's bridge a signed-in phone only reads and closes one", async () => {
   const refused = await board.call("POST", "/magic?box=0&kind=text", "from elsewhere",
     { Origin: "https://elsewhere.example", "Sec-Fetch-Site": "cross-site" });
   assert.equal(refused.status, 403);
   const gate = fs.readFileSync(path.join(ROOT, "bridge_gate.py"), "utf8");
-  const local = gate.match(/LOCAL_ONLY = frozenset\(\{([^}]*)\}\)/);
-  for (const route of ["/magic", "/magic/close", "/magic/reopen", "/magic/body", "/magic/img"]) {
-    assert.ok(local[1].includes(`"${route}"`), route);
+  const local = gate.match(/LOCAL_ONLY = frozenset\(\{([^}]*)\}\)/)[1];
+  // filling, reading back and reopening are the agents' on the Mac: never answered through the bridge
+  for (const route of ["/magic", "/magic/reopen"]) {
+    assert.ok(local.includes(`"${route}"`), route);
     const phone = await fetch(`http://127.0.0.1:${board.port + 1}${route}?box=0`);
     assert.equal(phone.status, 404, `${route} through the phone's port`);
+  }
+  // what a box holds, its picture and its red light are the phone's too, signed in only
+  for (const [route, method] of [["/magic/body", "GET"], ["/magic/img", "GET"], ["/magic/close", "POST"]]) {
+    assert.ok(!local.includes(`"${route}"`), route);
+    const phone = await fetch(`http://127.0.0.1:${board.port + 1}${route}?box=0`, { method });
+    assert.equal(phone.status, 401, `${route} through the phone's port with no session`);
   }
 });

@@ -189,17 +189,33 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   const html = read("index.html");
   const fn = html.slice(html.indexOf("function magicPlace(){"), html.indexOf("MB.el.classList.toggle(\"floating\""));
   assert.match(fn, /left: lim\.left - FRAME_CLEAR, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR/);
-  assert.match(fn, /MagicBox\.place\(rect, fit, bar, magicWant\(most, S\)\)/);
+  assert.match(fn, /MagicBox\.place\(rect, fit, bar, MB\.view\.want\(most, S\)\)/);
+  assert.match(fn, /visibility: MB\.view\.waiting\(\) \? "hidden" : ""/);
   assert.match(html, /const FRAME_CLEAR = 16;/);
-  // a picture asks for as many stage pixels as it has pixels on screen, its
-  // size read once off a copy that is never laid out, with the top bar as its
-  // head; words for their own height and the bar; a refused site for a square
-  const want = html.slice(html.indexOf("function magicWant("), html.indexOf("function magicPlace(){"));
-  assert.match(want, /head = MB\.bar\.offsetHeight/);
-  assert.match(want, /const \[w, h\] = MB\.natural \|\| \[0, 0\];\s*return w && h \? \{ width: w \/ S \+ edges, height: h \/ S \+ edges, head \} : null;/);
-  assert.match(want, /if \(MB\.body\.querySelector\("\.mbaway"\)\) return \{ height: most\.width \};/);
+  // what it shows asks for, in the shared view (card-logic.js): a picture as
+  // many of the page's pixels as it has pixels on screen, its size read once off
+  // a copy that is never laid out, with the top bar as its head; words their
+  // own height and the bar; a refused site a square
+  const view = read("card-logic.js");
+  const want = view.slice(view.indexOf("view.want = (room, scale = 1) => {"), view.indexOf("view.waiting = () => {"));
+  assert.match(want, /head = view\.bar\.offsetHeight/);
+  assert.match(want, /const \[w, h\] = view\.natural \|\| \[0, 0\];\s*return w && h \? \{ width: w \/ scale \+ edges, height: h \/ scale \+ edges, head \} : null;/);
+  assert.match(want, /if \(view\.body\.querySelector\("\.mbaway"\)\) return \{ height: room\.width \};/);
   assert.match(want, /height: words\.offsetHeight \+ edges \+ head/);
-  assert.match(html, /const own = new Image\(\);[\s\S]{0,200}MB\.natural = \[own\.naturalWidth, own\.naturalHeight\];/);
+  assert.match(view, /const own = new Image\(\);[\s\S]{0,200}view\.natural = \[own\.naturalWidth, own\.naturalHeight\];/);
+  assert.match(html, /MB\.view = magicView\(MB\.el, \{ placed: \(\) => magicPlace\(\), openSite: magicOpenSite \}\);/);
+});
+
+test("in any room, what the box shows is fitted the same way: the phone's drawer is such a room", () => {
+  const fitted = api().fit, fit = (room, want) => ({ ...fitted(room, want) });   // a plain object, outside the script's realm
+  const room = { width: 360, height: 420 };
+  assert.deepEqual(fit(room, null), room, "a page or a site takes the whole room");
+  assert.deepEqual(fit(room, { height: 150 }), { width: 360, height: 150 }, "words their own height");
+  assert.deepEqual(fit(room, { height: 900 }), room, "and no taller than the room");
+  assert.deepEqual(fit(room, { width: 200, height: 120, head: 34 }), { width: 200, height: 154 }, "a small picture its own size");
+  const wide = fit(room, { width: 3600, height: 1800, head: 34 });
+  assert.ok(close(wide.width, 360) && close(wide.height, 180 + 34), "a wide one as wide as the room, the bar kept");
+  assert.deepEqual(fit(room, { height: room.width }), { width: 360, height: 360 }, "a refused site a square");
 });
 
 test("a picture's top bar keeps its height while the picture under it is fitted to what is left", () => {
@@ -224,65 +240,77 @@ test("the box's edge and shadow are no setting: no switch, and no key for one", 
   }
 });
 
-test("the box wears the card's own edge, face, corners and shadow, under a white top bar with the Mac's three lights", () => {
-  const html = read("index.html");
-  const sheet = html.slice(html.indexOf("  #magicbox{display:none}"), html.indexOf("  /* on the chat lane's tab"));
+// the box's look, kept once in the shared sheet for both pages
+const boxSheet = () => { const css = read("card-tokens.css"); return css.slice(css.indexOf("/* ---- a card's magic box")); };
+
+test("the box wears the card's own edge, face, corners and shadow, under a white top bar with the Mac's three lights, on both pages", () => {
+  const html = read("index.html"), sheet = boxSheet();
   const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
-  const on = sheet.slice(sheet.indexOf("  body.focus #magicbox.on{"), sheet.indexOf("}", sheet.indexOf("  body.focus #magicbox.on{")));
+  const box = sheet.match(/\n\.magicbox\{([^}]*)\}/)[1];
   assert.match(card, /border:var\(--edge\) solid var\(--line\); background:#fff; border-radius:7px;/);
-  assert.match(on, /background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:7px;/);
+  assert.match(box, /background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:7px;/);
   // as it comes, the faint shadow the card settles to under magic box 2; held,
   // the card's own raised one
-  const faint = on.match(/box-shadow:([^;]*);/)[1];
+  const faint = box.match(/box-shadow:([^;]*);/)[1];
   assert.ok(html.includes("body.focus.minifocus main{box-shadow:" + faint + "}"), "the card's own settled shadow");
-  const raised = sheet.match(/body\.focus #magicbox\.on\.held\{box-shadow:([^}]*)\}/)[1];
+  const raised = sheet.match(/\.magicbox\.held\{box-shadow:([^}]*)\}/)[1];
   assert.ok(card.includes("box-shadow:" + raised + ";"), "the card's own raised shadow");
   assert.ok(!/mask-image/.test(sheet), "nothing in the box fades");
+  // the board only says where it stands, and its words' inset
+  const on = html.slice(html.indexOf("  body.focus #magicbox.on{"), html.indexOf("}", html.indexOf("  body.focus #magicbox.on{")));
+  assert.match(on, /display:flex; position:fixed; z-index:1; --mb-inset:calc\(var\(--pad-x\)\*2\/3\)/);
+  assert.ok(!/#magicbox \.mb/.test(html), "no look of its own on the board");
   // the bar: as tall as the card's, white, the card's hairline under it, its
   // lights at the right
-  const bar = sheet.match(/#magicbox \.mbbar\{([^}]*)\}/)[1];
+  const bar = sheet.match(/\.magicbox \.mbbar\{([^}]*)\}/)[1];
   assert.match(bar, /justify-content:flex-end/);
   assert.match(bar, /height:var\(--cardbar-h\)/);
   assert.match(bar, /background:var\(--card\)/);
   assert.match(bar, /box-shadow:inset 0 calc\(-1 \* var\(--edge-drawn\)\) 0 var\(--line\)/);
-  // three lights in the Mac's order: the red one a button that closes the box,
-  // the other two greyed and no buttons at all
-  const section = html.slice(html.indexOf('<section id="magicbox">'), html.indexOf("</section>", html.indexOf('<section id="magicbox">')));
-  const lights = [...section.matchAll(/<(button|span) [^>]*class="mblight(?: [^"]*)?"[^>]*>/g)];
-  assert.deepEqual(lights.map(m => m[1]), ["button", "span", "span"]);
-  assert.match(lights[0][0], /class="mblight mbclose" aria-label="Close the magic box"/);
-  for (const m of lights.slice(1)) assert.match(m[0], /aria-hidden="true"/);
-  assert.match(sheet, /#magicbox \.mblight\{[^}]*background:#DCDCDC/);
-  assert.match(sheet, /#magicbox \.mbclose\{background:#FF5F57; cursor:pointer\}/);
-  assert.ok(section.indexOf("mbbar") < section.indexOf("mbbody"), "the bar stands above what the box holds");
+  // three lights in the Mac's order, on the board and on the phone alike: the
+  // red one a button that closes the box, the other two greyed and no buttons
+  for (const [page, open] of [[html, '<section id="magicbox" class="magicbox">'], [read("m.html"), '<section id="mbface" class="magicbox held"']]) {
+    const section = page.slice(page.indexOf(open), page.indexOf("</section>", page.indexOf(open)));
+    assert.ok(section.length > 0, open);
+    const lights = [...section.matchAll(/<(button|span) [^>]*class="mblight(?: [^"]*)?"[^>]*>/g)];
+    assert.deepEqual(lights.map(m => m[1]), ["button", "span", "span"]);
+    assert.match(lights[0][0], /class="mblight mbclose" aria-label="Close the magic box"/);
+    for (const m of lights.slice(1)) assert.match(m[0], /aria-hidden="true"/);
+    assert.ok(section.indexOf("mbbar") < section.indexOf("mbbody"), "the bar stands above what the box holds");
+  }
+  assert.match(sheet, /\.magicbox \.mblight\{[^}]*background:#DCDCDC/);
+  assert.match(sheet, /\.magicbox \.mbclose\{background:#FF5F57; cursor:pointer\}/);
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
 
 test("the red light puts the box away as the agent's close does, and the board keeps what it held", () => {
   const html = read("index.html");
   assert.match(html, /MB\.el\.querySelector\("\.mbclose"\)\.addEventListener\("click", \(\) => magicClose\(\)\)/);
-  const fn = html.slice(html.indexOf("function magicClose(){"), html.indexOf("function magicWant("));
+  const fn = html.slice(html.indexOf("function magicClose(){"), html.indexOf("function magicPlace(){"));
   assert.match(fn, /if \(b && b\.magic\) b\.magic\.open = false;\s*magicOff\(\);/);
   assert.match(fn, /fetch\("\/magic\/close\?box=" \+ encodeURIComponent\(id\), \{ method: "POST" \}\)/);
 });
 
 test("a site that will not be framed comes square, with its name and a new-page mark in a box in the middle", () => {
-  const html = read("index.html");
-  const nameFn = html.slice(html.indexOf("function magicSiteName("), html.indexOf("// the site in the owner's own browser"));
+  const view = read("card-logic.js");
+  const nameFn = view.slice(view.indexOf("function magicSiteName("), view.indexOf("function magicView("));
   const ctx = vm.createContext({ URL });
   vm.runInContext(nameFn, ctx);
   assert.equal(ctx.magicSiteName({ url: "https://www.google.com/", preview: { site: "www.google.com" } }), "google.com");
   assert.equal(ctx.magicSiteName({ url: "https://github.com/x", preview: { site: "GitHub" } }), "GitHub");
   assert.equal(ctx.magicSiteName({ url: "https://www.example.org/" }), "example.org");
-  const draw = html.slice(html.indexOf("function magicDraw("), html.indexOf("function magicPage("));
+  const draw = view.slice(view.indexOf("view.draw = box => {"), view.indexOf("const page = (html, tries) => {"));
   assert.match(draw, /const away = h\("div", "mbaway"\), open = h\("button", "mbopen"\);/);
   assert.match(draw, /open\.setAttribute\("aria-label", "Open " \+ name \+ " in a new page"\);/);
   assert.match(draw, /open\.insertAdjacentHTML\("beforeend", MAGIC_NEW_PAGE\);/);
-  assert.match(draw, /open\.addEventListener\("click", magicOpenSite\);/);
-  const sheet = html.slice(html.indexOf("  #magicbox{display:none}"), html.indexOf("  /* on the chat lane's tab"));
+  assert.match(draw, /open\.addEventListener\("click", \(\) => \{ if \(view\.url && hooks\.openSite\) hooks\.openSite\(view\.url\); \}\);/);
+  // the board opens it in the owner's browser on the Mac, the phone in a new page
+  assert.match(read("index.html"), /function magicOpenSite\(url\)\{/);
+  assert.match(read("m.html"), /openSite: url => window\.open\(url, "_blank", "noopener,noreferrer"\)/);
+  const sheet = boxSheet();
   assert.match(sheet, /--mbtile:color-mix\(in srgb, var\(--ink\) 4%, var\(--card\)\)/, "its own fill, whatever colour the board is");
-  assert.match(sheet, /#magicbox \.mbopen:hover\{background:color-mix\(in srgb, #000 calc\(var\(--press\) \/ 2\), var\(--mbtile\)\)\}/);
-  assert.match(sheet, /#magicbox \.mbopen:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mbtile\)\)\}/);
+  assert.match(sheet, /\.magicbox \.mbopen:hover\{background:color-mix\(in srgb, #000 calc\(var\(--press\) \/ 2\), var\(--mbtile\)\)\}/);
+  assert.match(sheet, /\.magicbox \.mbopen:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mbtile\)\)\}/);
 });
 
 test("whichever of the card and the box is held stands up and the other settles, and nothing else changes", () => {
@@ -296,12 +324,13 @@ test("whichever of the card and the box is held stands up and the other settles,
   assert.ok(html.indexOf(rule) < html.indexOf("  body.focus.lowered main{box-shadow:none}"));
   // both ease over the card's own timing, and the shadow is all they change
   const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
-  const on = html.slice(html.indexOf("  body.focus #magicbox.on{"), html.indexOf("}", html.indexOf("  body.focus #magicbox.on{")));
   assert.match(card, /transition:box-shadow \.2s;/);
-  assert.match(on, /transition:box-shadow \.2s;/);
+  assert.match(boxSheet().match(/\n\.magicbox\{([^}]*)\}/)[1], /transition:box-shadow \.2s$/);
   const style = html.slice(0, html.indexOf("</style>"));
-  const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
-  assert.equal(rules.length, 2, "the box's rule and the card's");
+  const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g),
+    ...boxSheet().matchAll(/\n([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
+  assert.deepEqual(rules.map(r => r[1].trim()), ["body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main", ".magicbox.held"],
+    "the card's rule and the box's");
   for (const [, , body] of rules) assert.match(body, /^box-shadow:[^;]*$/);
   // the box goes off the page settled; the agent's next revision keeps it held
   assert.match(html, /function magicOff\(\)\{\s*if \(!MB\.el\) return;\s*MB\.el\.classList\.remove\("on", "held", "over"\);/);
@@ -372,9 +401,9 @@ test("clicking or focusing into the box holds it, and a page in it never takes t
   fire("pointerdown", { target: cover }); assert.equal(held(), false);
   fire("pointerover", { target: cover }); assert.equal(MB.over, false);
   // every frame comes with its cover, which is gone while the pointer is over the box
-  assert.equal((html.match(/MB\.body\.append\(frame, h\("div", "mbcover"\)\);/g) || []).length, 2);
-  assert.match(html, /#magicbox \.mbcover\{position:absolute; inset:0\}/);
-  assert.match(html, /#magicbox\.over \.mbcover\{display:none\}/);
+  assert.equal((read("card-logic.js").match(/view\.body\.append\(frame, h\("div", "mbcover"\)\);/g) || []).length, 2);
+  assert.match(boxSheet(), /\.magicbox \.mbcover\{position:absolute; inset:0\}/);
+  assert.match(boxSheet(), /\.magicbox\.over \.mbcover\{display:none\}/);
 });
 
 test("an agent's page cannot focus anything until the owner has just clicked or typed in it", () => {
@@ -421,13 +450,13 @@ test("an agent's page gets the sealing policy first, before anything it wrote", 
   for (const flag of ["allow-popups", "allow-top-navigation", "allow-modals"]) assert.ok(!SITE_SANDBOX.includes(flag), flag);
 });
 
-test("the page builds its frames from those lists, and a site's frame carries no logins", () => {
-  const html = read("index.html");
-  assert.match(html, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
-  assert.match(html, /frame\.srcdoc = MagicBox\.pageDoc\(html, page\.word\)/);
-  assert.match(html, /frame\.setAttribute\("credentialless", ""\)/);
-  assert.match(html, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
-  assert.equal((html.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);
+test("the shared view builds its frames from those lists, and a site's frame carries no logins", () => {
+  const view = read("card-logic.js");
+  assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
+  assert.match(view, /frame\.srcdoc = MagicBox\.pageDoc\(html, run\.word\)/);
+  assert.match(view, /frame\.setAttribute\("credentialless", ""\)/);
+  assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
+  assert.equal((view.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);
 });
 
 test("the board's own policy holds nothing a sealed page would inherit and be stopped by", () => {
@@ -441,10 +470,62 @@ test("the board's own policy holds nothing a sealed page would inherit and be st
   assert.ok(!/default-src|script-src|style-src|connect-src|img-src/.test(framing));
 });
 
-test("the page loads the box's script and keeps the box out of the regions", () => {
+test("on the phone the box comes down in the card list's own drawer, from the side its pull names", () => {
+  const page = read("m.html");
+  // the drawer wears the box in place of the list, and comes in from the right for it
+  assert.match(page, /#tickets\.boxface > #tikhead, #tickets\.boxface > #tiklist\{display:none\}/);
+  assert.match(page, /#tickets\[data-side="right"\]\{\s*transform:translate3d\(calc\(\(1 - var\(--list-v\)\) \* \(var\(--pg-r\)/);
+  assert.match(page, /else if \(x >= innerWidth - EDGE\)\{ panel = tickets\.dataset\.side === "right" \? tickets : settings; opening = true; \}/);
+  assert.match(page, /const direction = flick\(\) \* menuSign\(panel\);/, "a flick opens the way the drawer comes in");
+  assert.match(page, /travel = menuTravel\(tickets\) \* menuSign\(tickets\);/, "its slide comes from its own side");
+  assert.equal((page.match(/const MAGIC_PULL = /g) || []).length, 1, "one switch for the pull");
+  assert.match(read("server.py"), /def _phone_box[\s\S]*?\*\*\(\{"magic": b\["magic"\]\} if b\.get\("magic"\) else \{\}\),/, "the phone's reading carries the box");
+  // the box's own script, run against stand-ins for the page
+  const start = page.indexOf("<script>\n// ---- the card's magic box, in the card list's drawer");
+  const src = page.slice(start + "<script>".length, page.indexOf("</script>", start));
+  const classes = new Set(), listeners = {}, calls = [];
+  const tickets = { dataset: { side: "left" }, clientWidth: 346, clientHeight: 433,
+    classList: { contains: c => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) } };
+  const box = { offsetHeight: 89, style: {}, querySelector: () => ({ addEventListener() {} }) };
+  const ctx = {
+    document: { getElementById: () => box }, tickets, innerWidth: 402, homeOpen: false, shownId: "a", activeOwner: "p",
+    lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
+    magicView: () => ({ body: {}, want: () => ({ height: 89 }), waiting: () => false, draw() {}, clear() {} }),
+    MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
+    drawerOpen: () => false, closeDrawer() {}, fitList() {}, poll() {},
+    fetch: url => { calls.push(url); return new Promise(() => {}); },
+    apply: () => calls.push("apply"), select: () => calls.push("select"), deselect: () => calls.push("deselect"),
+    openDrawer: () => calls.push("list"), listSlack: () => 7,
+    addEventListener: (type, fn, opts) => { (listeners[type] = listeners[type] || []).push({ fn, opts }); },
+  };
+  vm.runInContext(src, vm.createContext(ctx));
+  const touch = x => { for (const l of listeners.touchstart) l.fn({ touches: [{ clientX: x }] }); };
+  assert.ok(listeners.touchstart.every(l => l.opts.capture === true), "the face is chosen before the drawer's own gesture");
+  touch(400);
+  assert.ok(classes.has("boxface") && tickets.dataset.side === "right", "a right-edge pull on a card with a box");
+  assert.equal(ctx.listSlack(), 433 - 89, "the card goes down only as far as the box needs");
+  touch(2);
+  assert.ok(!classes.has("boxface") && tickets.dataset.side === "left", "the left edge brings the list");
+  assert.equal(ctx.listSlack(), 7, "and the list's own drop");
+  ctx.shownId = "b";
+  touch(400);
+  assert.ok(!classes.has("boxface") && tickets.dataset.side === "left", "a card with no box: the settings, as before");
+  ctx.shownId = "a"; touch(400); classes.add("open");
+  touch(2);
+  assert.ok(classes.has("boxface"), "while out it keeps the face it went out with");
+  classes.delete("open"); classes.add("boxface");
+  ctx.openDrawer();
+  assert.ok(!classes.has("boxface") && calls.at(-1) === "list", "the cards button always brings the list");
+  ctx.apply({});
+  assert.ok(calls.includes("apply") && calls.some(c => String(c).startsWith("/magic/body?box=a")),
+    "every reading is the page's own, and then the box is read for the card on screen");
+});
+
+test("both pages load the box's script, and the board keeps the box out of the regions", () => {
   const html = read("index.html");
   assert.match(html, /<script src="\/magic-box\.js"><\/script>/);
-  assert.match(html, /<section id="magicbox">/);
+  assert.match(read("m.html"), /<script src="\/card-logic\.js"><\/script>\s*<script src="\/magic-box\.js"><\/script>/);
+  assert.match(html, /<section id="magicbox" class="magicbox">/);
   const fit = html.match(/const FIT_REGIONS = \[([^\]]*)\]/)[1];
   const regions = html.match(/const REGION_SEL = "([^"]*)"/)[1];
   assert.ok(!fit.includes("magicbox") && !regions.includes("magicbox"));
