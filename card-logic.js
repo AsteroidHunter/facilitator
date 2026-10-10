@@ -5363,9 +5363,10 @@ function serverNow(){
 // size, stand exactly as the sheet draws them. a title that would run on to a third
 // line takes the largest size at which it sits on two, measured and not stepped,
 // down to TITLE_MIN at the smallest, and grows back as words go. typing stops at two
-// full lines at TITLE_MIN: a key that would start a third adds nothing, and a paste
-// puts in the words that fit. a title the reader did not type (one an agent set, or
-// the name a first message gave) can be longer than that: it takes TITLE_MIN and is
+// full lines at TITLE_MIN, on the Mac's card or the phone's, whichever fills first,
+// the same on both pages (TITLE_CARDS): a key that would start a third adds nothing,
+// and a paste puts in the words that fit. a title longer than that (typed before the
+// limit, set by an agent, or the name a first message gave) takes TITLE_MIN and is
 // cut at the foot of its second line, with nothing written after it, and the title
 // the board stores is left as it is. renamed, it keeps that same two line box at the
 // same size: the words past the cut come into it as the caret goes to them, the box
@@ -5507,12 +5508,68 @@ function watchTitle(el){
   titleWatch.observe(el.box);
 }
 
-// the lines a title would take at `size` with `text` in place of the range r inside
-// it, laid out in a copy beside it: the title's own element, classes, editing state
-// and words, so the copy breaks its lines as the title would, while the title, its
-// caret and its undo are left alone. a line break goes in as the editor puts one in,
-// and one at the end stands the caret on a line of its own, which counts
-function titleLinesWith(t, r, text, size){
+// ---- one limit for the Mac and the phone ------------------------------------------
+// a title takes words only while they sit on two lines at TITLE_MIN on both cards
+// it is shown on, the Mac board's open card and the phone app's card, whichever
+// fills first, so a title typed on either page fits two lines at 20px or more on the
+// other. the two rooms are numbers of the two sheets, written once here where both
+// pages read them, and not read off the page in hand, which would give the limit of
+// whatever window or phone the title happened to be typed on:
+//   mac: the conversation card at the size it starts at. the board lays its stage
+//     out at 1440 by 900 and scales it to the window, so this room is the same in
+//     every window: the title's 459.8px less its two 15.36px side insets
+//   phone: the card on a 375 point wide phone, the narrowest phone the app runs on
+//     (every iPhone that runs iOS 26 is 375 or wider) and the owner's own: WebKit
+//     lays the title out 356.25px wide there, less its two 11.82px side insets. a
+//     wider phone has more room
+// both cards set the title in the same face and weight, and wrap a word too long for
+// a line as their sheets do: the phone breaks it anywhere, the Mac lets it run.
+// Chrome on the Mac and WebKit on the phone lay the same words out within a fiftieth
+// of a pixel of each other (0.016px at most over 244 lines of titles), so each room
+// keeps TITLE_SPARE of it unused, and a title one of them lets in fits on the other.
+// both lay lines out in sixty-fourths of a pixel and round a width half of one apart,
+// so the edge is set halfway between two sixty-fourths (titleEdge): no line ends on
+// it, and both judge every title alike
+const TITLE_CARDS = [
+  { card: "mac", room: 429.07, wrap: "normal" },
+  { card: "phone", room: 332.6, wrap: "anywhere" },
+];
+const TITLE_SPARE = 0.1;
+const titleEdge = card => (Math.floor((card.room - TITLE_SPARE) * 64) + 0.5) / 64;
+
+// an emoji is drawn a quarter wider by WebKit than by Chrome (25px against 20 at 20px,
+// the same for faces, hands, flags and families), so the copy gives each one the
+// wider width, a box 1.25em wide that breaks a line as an emoji does: a title let in
+// on the Mac then fits on the phone
+const TITLE_EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{20e3}/u;
+function titleWidestEmoji(copy){
+  if (typeof Intl !== "object" || typeof Intl.Segmenter !== "function") return;
+  const texts = [];
+  (function walk(n){ for (const c of [...n.childNodes]) if (c.nodeType === 3) texts.push(c); else walk(c); })(copy);
+  for (const node of texts){
+    if (!TITLE_EMOJI.test(node.data)) continue;
+    const part = document.createDocumentFragment();
+    let run = "";
+    for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(node.data)){
+      if (!TITLE_EMOJI.test(segment)){ run += segment; continue; }
+      if (run) part.appendChild(document.createTextNode(run));
+      run = "";
+      const box = document.createElement("span");
+      box.style.cssText = "display:inline-block; width:1.25em; height:1em";
+      part.appendChild(box);
+    }
+    if (run) part.appendChild(document.createTextNode(run));
+    node.parentNode.replaceChild(part, node);
+  }
+}
+
+// the lines a title would take on a card's room at TITLE_MIN with `text` in place of
+// the range r inside it, laid out in a copy at the page's top level: the title's own
+// element, editing state, font and words, so the copy breaks its lines as the title
+// would, at the card's width and with its wrapping, while the title, its caret and
+// its undo are left alone. a line break goes in as the editor puts one in, and one
+// at the end stands the caret on a line of its own, which counts
+function titleLinesWith(t, r, text, card){
   const cs = getComputedStyle(t);
   const copy = t.cloneNode(true);
   const twin = n => {
@@ -5530,19 +5587,34 @@ function titleLinesWith(t, r, text, size){
     if (line || (i && i === all.length - 1)) part.appendChild(document.createTextNode(line || "\u200b"));
   });
   cut.insertNode(part);
+  titleWidestEmoji(copy);
+  // no class, so neither page's own title rules reach it: everything that places a
+  // line break is written out, the face from the title as the page draws it
+  copy.removeAttribute("class");
   copy.removeAttribute("tabindex");
   copy.setAttribute("aria-hidden", "true");
-  copy.style.cssText = "position:absolute; left:0; top:0; visibility:hidden; pointer-events:none; margin:0;" +
-    " max-height:none; overflow:visible; width:" + cs.width + "; font-size:" + size + "px; line-height:" +
-    size * parseFloat(cs.lineHeight) / parseFloat(cs.fontSize) + "px";
-  t.parentNode.insertBefore(copy, t.nextSibling);
+  const face = typeof cs.getPropertyValue !== "function" ? "" : ["font-family", "font-weight", "font-style",
+    "font-stretch", "letter-spacing", "word-spacing", "font-kerning", "font-feature-settings",
+    "font-variation-settings", "font-optical-sizing", "text-rendering", "text-transform"]
+    .map(p => p + ":" + cs.getPropertyValue(p) + ";").join(" ");
+  copy.style.cssText = "display:block; position:fixed; left:0; top:0; visibility:hidden; pointer-events:none;" +
+    " margin:0; padding:0; border:0; box-sizing:content-box; max-height:none; overflow:visible; " + face +
+    " white-space:normal; word-break:normal; hyphens:manual; overflow-wrap:" + card.wrap + "; width:" +
+    titleEdge(card) + "px; font-size:" + TITLE_MIN + "px; line-height:" + TITLE_MIN * 1.25 + "px";
+  document.body.appendChild(copy);
   const lines = titleLines(copy);
   copy.remove();
   return lines;
 }
 
+// whether a title would still fit with `text` in place of the range r: two lines at
+// TITLE_MIN on every card it is shown on
+function titleFitsCards(t, r, text){
+  return TITLE_CARDS.every(card => titleLinesWith(t, r, text, card) <= TITLE_LINES);
+}
+
 // how much of `text` a title being renamed takes in place of the range r, or of the
-// selection when no range is given: titleRoom, measured at TITLE_MIN
+// selection when no range is given: titleRoom, by the one limit of both cards
 function titleRoomAt(t, text, r){
   if (!r){
     const sel = getSelection();
@@ -5553,7 +5625,7 @@ function titleRoomAt(t, text, r){
   const taken = document.createRange();
   taken.setStart(r.startContainer, r.startOffset);
   taken.setEnd(r.endContainer, r.endOffset);
-  return titleRoom(part => titleLinesWith(t, r, part, TITLE_MIN) <= TITLE_LINES, text, taken.toString().length);
+  return titleRoom(part => titleFitsCards(t, r, part), text, taken.toString().length);
 }
 
 // the typing limit, on beforeinput in a title being renamed: what would put words
