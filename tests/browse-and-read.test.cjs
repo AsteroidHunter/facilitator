@@ -573,14 +573,18 @@ test("a double click on the ticket list, a gap in it or a ticket does not lower 
   assert.equal(d.body.classList.contains("lowered"), false, "choosing a ticket left the card lowered");
 });
 
-test("a click on the open project's tab unselects the card on screen; another tab, or home, switches", () => {
+// a click on a project's row in the Mac pill's list, or on its faint name
+// beside the pill: the page's own chooseProject, with the list's shutting stubbed
+function chooser(d) {
+  vm.runInContext(between(HTML.desktop, "function chooseProject(ow){", "function projOpen(){") +
+    "\ncloseProjMenu = () => {};", d.sandbox);
+  return ow => vm.runInContext("chooseProject", d.sandbox)(ow);
+}
+
+test("a click on the open project's row unselects the card on screen; another project, or home, switches", () => {
   const d = loaded();
-  const click = between(HTML.desktop, '      t.addEventListener("click", () => {', "\n      oval.appendChild(t);");
-  let handler = null;
-  d.sandbox.tabDrag = null;
-  const wire = vm.runInContext(`(function(t, ow){\n${click}\n})`, d.sandbox);
-  wire({ addEventListener: (type, fn) => { if (type === "click") handler = fn; } }, "lane");
-  assert.ok(handler, "the tab has no click handler");
+  const choose = chooser(d);
+  const handler = () => choose("lane");
   const tabs = [];
   vm.runInContext("setTab = owner => { tabsSet.push(owner); }", Object.assign(d.sandbox, { tabsSet: tabs }));
   d.press("Enter");
@@ -592,20 +596,12 @@ test("a click on the open project's tab unselects the card on screen; another ta
   // browsed already: the click is the tab's own, as it always was
   handler();
   assert.deepEqual(tabs, ["lane"]);
-  // another project's tab switches
-  const other = vm.runInContext(`(function(t, ow){\n${click}\n})`, d.sandbox);
-  let otherHandler = null;
-  other({ addEventListener: (type, fn) => { if (type === "click") otherHandler = fn; } }, "other");
+  // another project switches
   d.press("Enter");
-  otherHandler();
+  choose("other");
   assert.deepEqual(tabs, ["lane", "other"]);
-  assert.equal(d.browsing(), false, "a click on another tab unselected the card");
-  // a tab pulled or slid is no click at all
-  d.sandbox.tabDrag = { pulled: true };
-  handler();
-  assert.equal(d.browsing(), false);
-  d.sandbox.tabDrag = null;
-  // the open tab from the home page leaves home, as a tab does
+  assert.equal(d.browsing(), false, "a click on another project unselected the card");
+  // the open project from the home page leaves home, as any project does
   vm.runInContext("homeOpen = true", d.sandbox);
   handler();
   assert.deepEqual(tabs, ["lane", "other", "lane"], "the open tab did not leave home");
@@ -866,7 +862,7 @@ test("a lowered card is raised again by a project switch, home, a ticket, the ar
   assert.equal(lowered(loaded()), false);
 });
 
-test("Escape lets go of the caret and the card but does not lower it; the open project's tab does not either", () => {
+test("Escape lets go of the caret and the card but does not lower it; the open project's row does not either", () => {
   const d = loaded();
   d.press("Enter");
   d.press("Escape", { target: d.els.a.ta });
@@ -880,15 +876,12 @@ test("Escape lets go of the caret and the card but does not lower it; the open p
   d.homeico.click();
   assert.equal(d.browsing(), true);
   assert.equal(lowered(d), false, "the house lowered the card");
-  const click = between(HTML.desktop, '      t.addEventListener("click", () => {', "\n      oval.appendChild(t);");
-  let handler = null;
-  d.sandbox.tabDrag = null;
-  vm.runInContext(`(function(t, ow){\n${click}\n})`, d.sandbox)({ addEventListener: (type, fn) => { if (type === "click") handler = fn; } }, "lane");
+  const choose = chooser(d);
   vm.runInContext("homeOpen = false; setTab = () => {}", d.sandbox);
   d.press("Enter");
-  handler();
-  assert.equal(d.browsing(), true, "a click on the open tab did not let go of the card");
-  assert.equal(lowered(d), false, "a click on the open tab lowered the card");
+  choose("lane");
+  assert.equal(d.browsing(), true, "a click on the open project's row did not let go of the card");
+  assert.equal(lowered(d), false, "a click on the open project's row lowered the card");
 });
 
 test("one click, however many, does nothing to the card; only a dblclick on the paper lowers it", () => {

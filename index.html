@@ -115,32 +115,18 @@
     color:var(--sub); cursor:pointer; transition:color .2s}
 
   /* ---- the app's enclosure ----------------------------------------------- */
-  /* the workspace stands on a pane of the board's glass (.qn-glass in
-     card-tokens.css, worn by #appframe), one rounded rectangle under everything
-     on the canvas, and the bar over it holds the controls in glass pieces of
-     their own (the bar's glass, below). the bar has no face, no line and no
-     corners of its own; the one thing joining the two is the open project's
-     lens, whose sides run down into the pane's top edge (the joint, below the
-     seat's rules), drawn over the pane rather than cut into it.
-     the pane keeps the rectangle the workspace outline had, to the pixel, since
+  /* the ticket list and the card stand on the board's own background: the
+     workspace pane they stood on is not drawn (20261010, too many boxes and
+     edges on screen). its box is still laid out, painting nothing, because
      the stage fits itself into it (frameLimits) and the home page and the new
      project page measure from it: --app-inset in from the window's sides and
      foot, and its top on the bar's own 1px bottom row. its border is still the
-     edge's width, gone clear, so the inner box the stage is fitted to is the
-     box it always was.
-     the face is the glass's, with its white at .35 rather than the .77 the
-     bar's pieces wear, so a coloured board still shows through the whole
-     workspace, lightened, rather than only round its edge; on a white board
-     the two are the same white. the edge is drawn the way the phone's bottom
-     row draws its buttons (see the bar's glass): the grey ring on all four
-     sides is the top rim too, under the glass's bottom rim, inner glow and
-     soft outer shadow. it is drawn without the glass's backdrop blur: one
-     standing backdrop filter the size of the window makes chrome compose every
-     frame of the window itself (see the picture zoom), and behind the pane there
-     is only the flat paper, which a blur would leave exactly as it was.
+     edge's width, clear, so the inner box the stage is fitted to is the box it
+     always was and every region stays on the pixel it was placed on. the bar
+     over it holds the controls in glass pieces of their own (the bar's glass,
+     below) and has no face, no line and no corners of its own.
      it sits under every layer of the page and takes no pointer, so nothing on
-     the canvas moves or stops answering. #stage keeps its own top at --bar-h,
-     so every region stays on the pixel it was placed on */
+     the canvas moves or stops answering. #stage keeps its own top at --bar-h */
   body.focus .bar{
     margin:var(--app-inset) var(--app-inset) 0;
     /* the bar keeps its 1px bottom row, clear, so the row the pane's top is
@@ -154,8 +140,7 @@
     top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
     left:var(--app-inset); right:var(--app-inset); bottom:var(--app-inset);
     border:var(--edge) solid transparent; border-radius:7px;
-    backdrop-filter:none; -webkit-backdrop-filter:none; --qn-tint:.35;
-    pointer-events:none; z-index:-1;
+    visibility:hidden; pointer-events:none; z-index:-1;
   }
 
   /* ---- layout ----------------------------------------------------------- */
@@ -1777,7 +1762,7 @@
      them for the whole gesture, so there is nothing behind them left to blur
      that anyone can see. the bar's own rules are untouched, so the resting look
      is the resting look */
-  body.p3zoom .bar .qn-glass, body.focus.p3zoom #tabrow .projectlens{backdrop-filter:none; -webkit-backdrop-filter:none}
+  body.p3zoom .bar .qn-glass{backdrop-filter:none; -webkit-backdrop-filter:none}
   /* ---- the file navigator, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
@@ -2884,22 +2869,21 @@
      every resize, and transitioning that would set the whole app sliding */
   body.focus #stage{transition:opacity .18s ease, visibility .18s ease}
   body.focus.pageblank #stage{visibility:hidden; opacity:0; pointer-events:none}
-  /* in-app project tabs: the board filtered to one project per tab; labels
-     come from the lane directories at runtime, never from this file. the names
-     sit on one glass oval in the bar, the open one under a smaller glass seat
-     (the bar's glass, below). Pulling one out is the drag itself: grab a name
-     and tug it downward. */
+  /* the bar's projects: the board filtered to one project at a time; labels
+     come from the lane directories at runtime, never from this file. the open
+     project is a glass pill beside the house that opens the list of every open
+     project, and a few faint names after it switch with one click (the bar's
+     glass, below). */
   /* fixed bar height in focus mode, 40px and its 1px bottom row. the glass
      pieces are 32px and stand at the top of it, --app-inset under the window's
      top as the pane is in from the window's sides, on one centre line, and the
      7px of padding is shared: 1px over them, so they stand 7px from the
      window's top, and 6px under them, which leaves 6px of paper between their
      foot and the pane's top edge, 6.5px on a 2x screen, where the pane's line
-     sits half a pixel lower. the paper above and below the open name's lens is
-     as near equal as the screen can draw it: the two add to 13px, 13.5px on a
-     2x screen, an odd number of device pixels on both of the Mac's densities,
-     so the row moves down the whole pixel that leaves them one device pixel
-     apart and not a fraction that every edge would be drawn blurred on. the padding
+     sits half a pixel lower. the two add to 13px, 13.5px on a 2x screen, an
+     odd number of device pixels on both of the Mac's densities, so the row
+     moves down the whole pixel that leaves them one device pixel apart and
+     not a fraction that every edge would be drawn blurred on. the padding
      moves the row and nothing else: the bar's height, so the pane's top, the
      stage's and every page's own top, stand where they did. the pieces stand
      8px apart, the phone's own gap, and the bar has no side padding, so the
@@ -3018,96 +3002,19 @@
     content:attr(data-label); display:block; height:0; overflow:hidden;
     visibility:hidden; font-weight:600;
   }
-  .ptab.tearing{opacity:.45}
-  /* a held tab rides the pointer sideways: it lifts on the selected row's own
-     shadow and must paint over whatever it crosses */
-  .ptab.dragging{color:var(--ink); background:var(--seat); border-color:var(--line);
-    z-index:2; box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
-  /* the others glide aside on the board's one 220ms curve, never teleport */
-  .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  /* the bare plus opens a fresh project tab after the project names */
-  /* the not-yet-named tab while its folder is being chosen: upright, in the
-     board's own bold (the weight an unread tab takes) */
-  .ptab.draft{color:var(--ink); background:var(--seat); border-color:var(--line);
-    font-weight:600}
-  /* closing a project tab: no bare cross under a moving pointer, and no mark
-     waiting on the tab either. a pointer that simply rests on one tab for two and
-     a half unbroken seconds opens a band on that tab's right, and the cross lives in
-     that band and nowhere else. skimming the bar opens nothing, so a mis-aimed
-     click can never throw a project out, and a tab nobody is resting on carries
-     no mark at all: it is its label plus its own 16px on each side and nothing
-     more, the width it had before any of this existed.
-     20260825: this replaces a chevron and its one-item menu. the chevron was
-     right that a bare cross under a travelling pointer is dangerous, and wrong
-     about the cure: a mark has to be visible to be found, so every tab the
-     pointer crossed grew one, and a menu charges a second click for a single
-     word. the dwell buys the same safety with time instead of ink.
-     20260824: edit mode is for boxes and for nothing else */
-  /* the band is new room, not the tab's own padding: the label keeps its 16px
-     of air on both sides while the band is open, so the name never shifts
-     inside its tab and only the tabs after it move, which is the movement that
-     was asked for. it opens and shuts on the board's own curve */
-  .ptab.armed{padding-right:26px}   /* the tab's own 16, then the 24px band */
-  /* the numbers are measured off the label, never guessed. sideways the button
-     is the band: 24px wide, flush to both of the band's edges, so the ink's air
-     is equal by construction and not by adjustment. the arms are the region
-     cross's own two bars on the board's 1.4px line, shortened from 12px to 10px
-     to sit against 13px type, and a 10px bar 1.4px thick turned 45 degrees
-     spans (10 + 1.4)/sqrt2 = 8.06px, which leaves (24 - 8.06)/2 = 7.97px of
-     clear air on the label side and 7.97px on the border side. read back off
-     the rendered pixels at 3x those two came out 8.27 and 8.40, a difference of
-     0.125px that is the tab's own fractional width meeting the pixel grid and
-     nothing else.
-     downward it is hung on the word and not on the tab. the label is 13px on a
-     16px line, its baseline 21px under the tab's top, its ascenders topping out
-     at 11.33px and its x-height 6.79px, so the word's own band runs 11.33 to 21
-     and its middle is 16.17px, while the lowercase band alone would put the
-     middle at 17.61px. the arms centre in their 28px box, so the box is placed
-     by its middle: ink centre = 1px border + top + 14.
-     the aim was taken by looking, at 3x, in 0.5px steps. starting on the
-     lowercase middle (top 2.5px, ink centre 18) the ink hung 0.67px below the
-     baseline, which reads as a cross sitting on the line. 2.0 and 1.5 both
-     landed at 17 with 2.0px of air above and 0.33px below, still low. 1.0
-     lands the ink at 16, 1.0px under the ascenders and 1.33px over the
-     baseline, and that is what reads level. the paint grid moves this ink a
-     whole css pixel at a time here, so 16 is as close to 16.17 as it goes, and
-     the same 1px holds at every pixel ratio: off by 0.00 at 1x, 0.25 at 2x and
-     0.17 at 3x */
-  .ptabx{
-    position:absolute; right:3px; top:2.5px;
-    width:24px; height:28px; padding:0;
-    background:none; border:none; cursor:pointer; color:var(--sub);
-    opacity:0; visibility:hidden;
-    transition:opacity 180ms, color .18s, visibility 0s linear 180ms;
-  }
-  .ptab.armed .ptabx{opacity:1; visibility:visible;
-    transition:opacity 180ms, color .18s, visibility 0s}
-  .ptabx:hover{color:var(--ink)}
-  /* the last tab stays: the board must always have a lane to sit on. the cross
-     says so by going pale before the click rather than swallowing it */
-  .ptabx.off{cursor:default}
-  .ptab.armed .ptabx.off{opacity:.3}
-  .ptabx.off:hover{color:var(--sub)}
-  :is(.ptabx, .lenscross)::before, :is(.ptabx, .lenscross)::after{content:""; position:absolute; left:50%; top:50%;
-    width:10px; height:1.4px; background:currentColor; border-radius:1px}
-  :is(.ptabx, .lenscross)::before{transform:translate(-50%,-50%) rotate(45deg)}
-  :is(.ptabx, .lenscross)::after{transform:translate(-50%,-50%) rotate(-45deg)}
-  /* a closed tab is simply not in the bar, and it is nowhere else either: the
-     plus button's folder flow is the one way back to it */
-  .ptab.closed{display:none}
   #projnote{display:none; flex:none; font:12px var(--mono); color:var(--must);
     background:var(--must-bg); border-radius:4px; padding:3px 10px}
   #projnote.show{display:inline-block}
 
   /* ---- the bar's glass ---------------------------------------------------- */
   /* the bar's controls are drawn as the phone's bottom row draws its buttons
-     (#dock in m.html): the speaker and squid keep the board's glass (.qn-glass),
-     while Home and plus are bare marks. All four keep 32px hit areas, the row's
-     48px at two thirds, so each mark keeps the share of its area it has on the phone (the
-     squid's 20px in 32 is the phone's 30 in 48, and the 15px house and speaker
-     are the phone's 22px ticket in 48). the project names stand on the page,
-     with a lens of the same height over the selected name. Its material uses
-     this same glass, with clean enlarged text inside and refraction at the rim.
+     (#dock in m.html): the house at the left, and the speaker and squid at the
+     right, are glass circles (.qn-glass), and the open project is a glass pill
+     beside the house. All keep 32px hit areas, the row's 48px at two thirds,
+     so each mark keeps the share of its area it has on the phone (the squid's
+     20px in 32 is the phone's 30 in 48, and the 15px house and speaker are the
+     phone's 22px ticket in 48). the faint names after the pill stand on the
+     page, as the unselected tabs did.
      the rest of this sheet loads before the glass's, so every rule here is
      scoped by the page to outrank the glass's own corner.
      the glass's numbers are registered here as the phone registers them, so a
@@ -3118,8 +3025,8 @@
      highlight on the first row and its faint dark band two rows deep are left
      out, so the grey ring is the top edge as it is the sides', and the rest of
      the stack, the bottom rim, the inner glow and the outer shadow, is the
-     glass's own. the workspace's pane wears the same edge */
-  body.focus :is(.bar .qn-glass, #appframe){
+     glass's own */
+  body.focus .bar .qn-glass{
     box-shadow:
       inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
       inset 0 0 0 1px var(--qn-ring),
@@ -3129,17 +3036,15 @@
       0 1px 3px rgba(0,0,0,.07),
       0 8px 20px rgba(0,0,0,.06)}
   /* the controls: the mark centred, in the sub ink and the full ink under a
-     pointer as the bare marks were, and the house in the full ink while home
-     is up */
-  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus){
+     pointer */
+  body.focus :is(#homeico, #chimebtn, #setbtn){
     flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;
     margin:0; padding:0; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
     color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
-  body.focus :is(#homeico, #chimebtn, #setbtn, #tabbar .ptabplus):hover,
-  body.focus.home #homeico{color:var(--ink)}
-  body.focus :is(#homeico, #chimebtn, #tabbar .ptabplus) svg{display:block; flex:none}
+  body.focus :is(#homeico, #chimebtn, #setbtn):hover{color:var(--ink)}
+  body.focus :is(#homeico, #chimebtn) svg{display:block; flex:none}
   /* the speaker still holds the right edge, and "Install app" stays between it
      and the squid as it was */
   body.focus .bar #chimebtn{margin-left:auto}
@@ -3148,104 +3053,92 @@
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#chimebtn, #setbtn, #tabbar .ptabplus).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#homeico, #chimebtn, #setbtn, #projpill).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
-  /* Home is a plain focusable button. The shared selection lens supplies its
-     glass only while Home is selected, just as it does for a project name. */
-  body.focus #homeico{background:none; border:none; box-shadow:none}
-  /* Bare names share only a layout wrapper. The one lens paints above their
-     pixels but takes no input: the buttons keep their clicks and drags. */
-  body.focus #tabbar .taboval{position:relative; flex:none; display:flex; align-items:center;
-    height:32px}
-  body.focus #tabbar .ptab{position:relative; z-index:1; top:0;
-    display:flex; align-items:center; height:32px; padding:0 14px;
+  /* Home stays pressed while the home page is up: the press's whiter face and
+     brighter edge, held, with the house in the full ink */
+  body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
+  /* the pill: the open project's name and a small chevron, on the house's
+     glass and at its height, a capsule as the phone's project button is. a
+     long name is cut short with an ellipsis. while the list is open the
+     chevron turns over. a project's own window has no list, so its pill is
+     only its name */
+  body.focus #projpill{flex:none; position:relative; box-sizing:border-box; height:32px; max-width:260px;
+    margin:0; padding:0 10px 0 14px; border-radius:16px;
+    display:flex; align-items:center; gap:6px;
+    font:500 13px/16px var(--sans); color:var(--ink); cursor:pointer; -webkit-user-select:none; user-select:none;
+    transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+  body.focus #projpill[hidden]{display:none}
+  body.focus #projname{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  body.focus #projpill svg{display:block; flex:none; color:var(--sub); transition:transform .18s var(--gentle)}
+  body.focus #projpill[aria-expanded="true"] svg{transform:rotate(180deg)}
+  body.focus #projpill:disabled{cursor:default; padding-right:14px}
+  body.focus #projpill:disabled svg{display:none}
+  /* the suggestions: a few open projects after the pill, placed as the
+     unselected tabs were, on the page and in their type, and fainter. a
+     project holding a reply not yet read is in the board's bold, as its tab
+     was, and every word holds room for its bold self (.plabel). they come in
+     on a short fade */
+  body.focus #tabbar .psug{flex:none; display:flex; align-items:center; height:32px; margin:0; padding:0 14px;
     border:none; border-radius:10px; background:none;
-    transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
-  body.focus #tabbar .ptab.closed{display:none}
-  body.focus #tabbar .ptab::before, body.focus #tabbar .ptab::after{content:none}
-  body.focus #tabbar :is(.ptab.on, .ptab.draft, .ptab.dragging){background:none; border:none; box-shadow:none}
-  body.focus #tabbar .ptab.dragging{z-index:2}
-  body.focus #tabbar .ptab.gliding{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1), color .18s}
-  body.focus #tabbar .ptab.armed{padding-right:26px}
-  body.focus #tabbar .ptabx{top:4px; height:24px}
-  /* Use the controls' actual glass material. The native backdrop is visible
-     only around the rim: the opaque, matching face inside replaces its pixels
-     before clean enlarged text is painted, so the original ink cannot ghost.
-     on a project's name the lens turns 10px at all four corners, 3px rounder
-     than the workspace's own 7px, a box and not a capsule (LENS_CORNER in the
-     script says the same).
-     over the house it is the house's circle, half its 32px, as it always was:
-     the seat takes .round while it is set down on Home or carried over the
-     house (placeSeat and seatGlide) and a name takes it off again. the
-     script reads each lens's corner from here, so its maps, mask and joint
-     follow whichever it wears */
-  body.focus #tabrow .projectlens{position:absolute; left:0; top:0; height:32px;
-    box-sizing:border-box; border-radius:10px; z-index:3; pointer-events:none;
-    backdrop-filter:var(--lens-filter); -webkit-backdrop-filter:var(--lens-filter)}
-  body.focus #tabrow .tabseat.round .projectlens{border-radius:16px}
-  body.focus #tabrow .lensclear{position:absolute; inset:0; border-radius:inherit;
-    --qn-tint:inherit; --qn-edge:inherit; --qn-ring:inherit;
-    background-color:color-mix(in srgb, var(--paper), #fff calc(var(--qn-tint) * 100%));
-    background-image:inherit; box-shadow:inherit;
-    backdrop-filter:none; -webkit-backdrop-filter:none;
-    mask:var(--lens-center-mask);
-    pointer-events:none; overflow:hidden}
-  body.focus #tabrow .lensglyph{position:absolute; left:0; top:0; margin:0; padding:0;
-    border:0; transform-origin:0 0; pointer-events:none}
-  body.focus #tabrow .lenscross{background:none}
-  /* The outer seat moves and sizes the lens. Only the inner lens grows on
-     press: its map stays in local coordinates, separate from the slide.
-     Fade the lens itself, never an ancestor that would cut off its backdrop. */
-  body.focus #tabrow .tabseat{position:absolute; left:0; top:0; height:32px; width:0;
-    z-index:3; pointer-events:none;
-    transition:transform .28s var(--gentle), width .28s var(--gentle),
-      translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  body.focus #tabrow .tabseat.still{transition:translate 220ms cubic-bezier(0.25, 1, 0.5, 1)}
-  body.focus #tabrow .seatlens{width:100%;
-    transition:transform .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .18s var(--gentle)}
-  /* a drag's release slides and resizes the seat (it is not .still), and a lens
-     going back to the house, or off it, turns between a name's corner and the
-     circle over the same .28s as it changes size. a lens carried onto the house
-     or off it glides and turns the same way (seatGlide, in the script). a click
-     sets it down at once (.still) */
-  body.focus #tabrow .tabseat:not(.still) .seatlens{
-    transition:transform .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .18s var(--gentle), border-radius .28s var(--gentle)}
-  body.focus #tabrow .tabseat.gone .seatlens{opacity:0}
-  body.focus #tabrow .tabseat.pressed .seatlens{transform:scale(1.1); --qn-edge:3.5;
-    transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle)}
-  /* a lens held down as it is carried, or still held as it is let go, turns
-     its corner as a lens not held does */
-  body.focus #tabrow .tabseat.pressed:not(.still) .seatlens{
-    transition:transform .38s cubic-bezier(.2,.8,.2,1), --qn-edge .38s ease-out, opacity .18s var(--gentle), border-radius .28s var(--gentle)}
-  body.focus #tabrow :is(.tabseat.carried, .tabheld){z-index:4}
-  /* the joint: the open project's lens joined to the workspace's pane, as the
-     seated tab's open bottom once was (the seat's joint, in the script). one
-     svg over the bar and the pane's top edge, taking no pointer. it stands
-     beside the bar rather than in it, fixed, at the bar's own level and after
-     it: fixed inside the sticky bar it was cut off at the body's foot, which
-     is the bar's foot (seen in WebKit), and the joint reaches past it into the
-     pane. it paints
-     over the lens's foot and the pane's top line where the two are joined: a
-     face that is the lens's own clean face (.lensclear: the glass's white over
-     the paper) going over into the white of the pane's lit top edge and
-     fading into the pane under its line, and the glass's 1px ring, a 2px
-     stroke kept to its inner half by the face. a name carried in a reorder
-     keeps its own lens over the joint (the script cuts it out). no blur,
-     filter or mask: the outline is drawn afresh only while it moves */
-  #seatjoin{display:none}
-  body.focus #seatjoin{display:block; position:fixed; left:0; top:0; width:100%;
-    height:calc(var(--app-inset) + var(--bar-h) + 12px); overflow:visible;
-    pointer-events:none; z-index:10}
-  #seatjoin .ring{fill:none; stroke-width:2px; stroke-linejoin:round}
-  #seatjoin .jl{stop-color:color-mix(in srgb, var(--paper), #fff calc(var(--qn-tint) * 100%))}
-  #seatjoin .jp{stop-color:color-mix(in srgb, var(--paper), #fff 93%)}
-  #seatjoin .jp.gone{stop-opacity:0}
-  /* the plus: a bare mark after the names, its two bars the house's line,
-     in the ink at three quarters as the typed plus was, and full under a
-     pointer */
-  body.focus #tabbar .ptabplus{background:none; border:none; box-shadow:none;
-    color:color-mix(in srgb, var(--ink) 75%, transparent)}
-  body.focus #tabbar .ptabplus:hover{color:var(--ink)}
+    font:500 13px/16px var(--sans); color:color-mix(in srgb, var(--sub) 55%, transparent);
+    cursor:pointer; -webkit-user-select:none; user-select:none;
+    transition:color .18s; animation:psugin .22s var(--gentle)}
+  body.focus #tabbar .psug:hover{color:var(--ink)}
+  body.focus #tabbar .psug.unread .plabel{font-weight:600}
+  @keyframes psugin{from{opacity:0}}
+  /* the list: every open project in the board's order, the open one checked,
+     the unread ones heavier, then "Open a new folder". the phone's project
+     list (#projmenu in m.html) on the Mac: the same glass, standing just
+     under the pill from its left edge. resting on a row fades in a cross at
+     its right end that closes that project; a row held and dragged up or
+     down reorders the projects, and one dragged out of the list opens in its
+     own window. it fades in and out, and a long list scrolls inside it */
+  #projmenu{display:none}
+  body.focus #projmenu{display:flex; flex-direction:column; position:fixed; z-index:40; left:0; top:0;
+    box-sizing:border-box; min-width:220px; max-width:320px; max-height:calc(100vh - 60px);
+    padding:6px; border-radius:14px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
+    -webkit-user-select:none; user-select:none;
+    visibility:hidden; opacity:0; transform:translateY(-4px) scale(.98); transform-origin:0 0;
+    transition:opacity .14s ease-out, transform .14s ease-out, visibility 0s linear .14s}
+  body.focus #projmenu::-webkit-scrollbar{display:none}
+  body.focus.projopen #projmenu{visibility:visible; opacity:1; transform:none;
+    transition:opacity .16s ease-out, transform .22s cubic-bezier(.2,.9,.25,1), visibility 0s}
+  #projlist{flex:none; display:flex; flex-direction:column}
+  #projmenu .projrow{position:relative; flex:none; display:flex; align-items:center; gap:8px;
+    box-sizing:border-box; width:100%; min-height:32px; margin:0; padding:0 34px 0 8px;
+    border:none; border-radius:9px; background:transparent;
+    font:500 13px/16px var(--sans); color:var(--ink); text-align:left; cursor:pointer;
+    transition:background-color .12s ease-out}
+  #projmenu .projrow:is(:hover, .hot, :focus-visible){background:color-mix(in srgb, var(--ink) 6%, transparent); outline:none}
+  #projmenu .pmark{flex:none; display:flex; align-items:center; justify-content:center; width:16px; height:16px; color:var(--sub)}
+  #projmenu .pmark svg{display:block}
+  #projmenu .projrow:not(.on) .pcheck{visibility:hidden}
+  #projmenu .pname{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  #projmenu .projrow.unread .pname{font-weight:600}
+  /* the cross: one at a time, on the row under the pointer, never a column of
+     them. it is out of the row's flow, so the names never move, and the row
+     keeps room for it on its right. the last project stays open, and its
+     cross says so by going pale */
+  #projmenu .projx{position:absolute; right:4px; top:50%; width:24px; height:24px; margin-top:-12px;
+    border-radius:6px; color:var(--sub); cursor:pointer;
+    opacity:0; visibility:hidden; transition:opacity .16s, color .18s, visibility 0s linear .16s}
+  #projmenu .projrow.hot .projx{opacity:1; visibility:visible; transition:opacity .16s, color .18s, visibility 0s}
+  #projmenu .projx:hover{color:var(--ink)}
+  #projmenu .projx.off{cursor:default}
+  #projmenu .projrow.hot .projx.off{opacity:.3}
+  #projmenu .projx.off:hover{color:var(--sub)}
+  #projmenu .projx::before, #projmenu .projx::after{content:""; position:absolute; left:50%; top:50%;
+    width:10px; height:1.4px; background:currentColor; border-radius:1px}
+  #projmenu .projx::before{transform:translate(-50%,-50%) rotate(45deg)}
+  #projmenu .projx::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  /* a row held and carried lifts on a shadow; the others glide aside on the
+     board's one 220ms curve. carried out of the list it fades, to say that
+     letting go there opens it in a window of its own */
+  #projmenu.carrying .projrow{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  #projmenu .projrow.lifted{z-index:1; background:var(--card); box-shadow:0 4px 14px rgba(0,0,0,.14); transition:none}
+  #projmenu .projrow.tearing{opacity:.45}
+  #projsep{flex:none; height:var(--edge); margin:4px 8px; background:var(--line)}
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
      white well listing the open folders, the current one bold, then the
@@ -3373,9 +3266,9 @@
   /* home: the house at the head of the bar opens the home page, a blank page
      above every project holding the token panel and nothing else (its own
      sheet, home-widgets.css). the house is a glass circle at the bar's left
-     end (the bar's glass). while home is up the house is the one marked, in
-     the full ink, no project's name is under the seat, the board fades out the
-     way a blank page's does, and any project's name brings its board back */
+     end (the bar's glass). while home is up the house stays pressed, in the
+     full ink, the board fades out the way a blank page's does, and choosing
+     any project brings its board back */
   #homeico{display:none}
   /* the right half of the page's frame (the rectangle drawn under the bar, inset
      --app-inset on each side) holds the token box and the limits box as one
@@ -3608,7 +3501,8 @@
 
 <div class="bar">
   <span id="tabrow">
-  <button id="homeico" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
+  <button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
+  <button id="projpill" class="qn-glass" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 9 7 7 7-7"/></svg></button>
   <span id="tabbar"></span>
   </span>
   <span id="projnote"></span>
@@ -3616,6 +3510,13 @@
   <button id="chimebtn" class="qn-glass" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
   <button id="installbtn" type="button" hidden>Install app</button>
   <button id="setbtn" class="qn-glass" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
+</div>
+<!-- the pill's list: every open project, which renderTabs draws into
+     #projlist, then the folder chooser -->
+<div id="projmenu" class="qn-glass" aria-label="Projects">
+  <div id="projlist"></div>
+  <div id="projsep"></div>
+  <button id="projnew" class="projrow" type="button"><span class="pmark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span><span class="pname">Open a new folder</span></button>
 </div>
 
 <!-- the settings, one group to a section: the page in card-logic.js builds the
@@ -3677,7 +3578,7 @@
   </div>
 </div>
 
-<div id="appframe" class="qn-glass" aria-hidden="true"></div>
+<div id="appframe" aria-hidden="true"></div>
 
 <div id="offline"></div>
 <nav id="toc"></nav>
@@ -4058,6 +3959,11 @@ function setTab(owner){
   if (LOCKED && owner !== LOCKED) return;
   if (homeOpen) setHome(false);   // a project tab leaves home for its board
   if (draft) endDraft();   // an unfinished new tab disappears on switching away
+  // the project being left leads the faint suggestions beside the pill
+  if (owner !== activeOwner && validActiveOwnerIds.has(activeOwner)){
+    projLeft = activeOwner;
+    try { localStorage.setItem("projleft", activeOwner); } catch (err) {}
+  }
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
   // the tab's card is shown, not selected: switching tabs is looking, the way
@@ -4093,8 +3999,6 @@ function deselect(){
   magicSync();   // no card on screen, so no magic box either
 }
 
-let tabDrag = null;   // horizontal intent is latched at press; a downward tug still tears out
-let tabGlide = null;  // the settle timer after a drop; the bar may not repaint under it
 // the tabs the reader has closed: the reader's view of the bar, never anything about the lanes
 // themselves. it rides in the board's own tab record beside the order, so the
 // bar a tab was closed in is the bar the phone draws too, and a closed tab is
@@ -4138,25 +4042,46 @@ function seedSeenOnce(st){
   try { localStorage.setItem(SEEN_SEEDED, "1"); } catch (err) {}
   setSeenMany(marks);
 }
+// ---- the project pill, its list and the faint suggestions ---------------------
+// the bar names the open project on a glass pill beside the house, and a click
+// on the pill opens the list of every open project in the board's order, the
+// phone's project list on the Mac. after the pill stand a few faint names,
+// open projects worth one click, so switching stays quick without a row of
+// every project. the list and the names are built again only when the
+// projects, their names or the suggestions change, so a poll that changes
+// nothing touches only the marks
+const projPill = document.getElementById("projpill");
+const projName = document.getElementById("projname");
+const projMenu = document.getElementById("projmenu");
+const projList = document.getElementById("projlist");
+const PROJ_CHECK = '<svg class="pcheck" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17.5 19 7"/></svg>';
+// the project last left (setTab), which always leads the suggestions. it is
+// this browser's own, like the open project, so a reload keeps it
+let projLeft = null;
+try { projLeft = localStorage.getItem("projleft"); } catch (err) {}
+let projCarry = null;    // the press on a row of the list, before and during its carry
+let projCarried = false; // a carry just ended: the release is not a choice
 function renderTabs(st){
   if (!FOCUS || !st) return;
-  if (tabDrag?.mode === "reorder" || tabDrag?.mode === "select" || tabGlide) return;   // a live drag owns the bar; the repaint lands after the drop
+  if (projCarry?.rects) return;   // a row being carried owns the list; the repaint lands after the drop
   // a board with no project to show opens on the home page, where one is added.
-  // asked once per load, so leaving home by the plus is not undone on the next paint
+  // asked once per load, so leaving home for a new folder is not undone on the next paint
   if (!homeChecked){
     homeChecked = true;
     if (!LOCKED && !draft && !homeOpen && !allRowsOf(st).length) setHome(true);
   }
-  // a tab closed while the reader was on it, or closed in another window: the board
-  // steps to the first tab still in the bar. it may never sit on a lane the bar
-  // is not showing. setTab repaints on its own, and the paint below is the same
-  // paint either way, so this falls through rather than returning
+  // a project closed while the reader was on it, or closed in another window:
+  // the board steps to the first project still open. it may never sit on a
+  // lane the bar is not showing. setTab repaints on its own, and the paint
+  // below is the same paint either way, so this falls through rather than
+  // returning
   if (!LOCKED && !draft){
     let open = rowsOf(st);
-    // the bar may not be empty while lanes exist: Close refuses to take
-    // the last tab, but the lane behind that last tab can still go away on the
-    // server, and then the first lane left takes its tab back. an unread reply
-    // never does this, only an empty bar does
+    // the list may not be empty while lanes exist: Close refuses to take the
+    // last project, but the lane behind it can still go away on the server,
+    // and then the first lane left comes back. an unread reply never does
+    // this, only an empty list does
     if (!open.length && allRowsOf(st).length){
       const rec = tabRecord(st), first = allRowsOf(st)[0];
       writeTabs({ order: rec.order.length ? rec.order : allRowsOf(st),
@@ -4165,708 +4090,282 @@ function renderTabs(st){
     }
     if (open.length && tabClosed(activeOwner, st)) setTab(open[0]);
   }
+  const owners = LOCKED ? [LOCKED] : rowsOf(st);
+  const name = draft ? "New Project" : owners.includes(activeOwner) ? labelOf(st, activeOwner) : "";
+  if (projName.textContent !== name) projName.textContent = name;
+  projPill.hidden = !name;
+  // a project's own window shows its name and nothing to choose
+  projPill.disabled = !!LOCKED;
+  const others = owners.some(ow => ow !== activeOwner && laneUnread(st, ow));
+  projPill.setAttribute("aria-label", name + (others ? ", unread replies elsewhere" : "") + (LOCKED ? "" : ", choose a project"));
+  renderProjList(st, owners);
+  renderSuggestions(st);
+}
+// the list's rows: a check for the open project (none while home is up), the
+// name, heavier while it holds a reply not yet read, and the cross that fades
+// in on the row under the pointer
+function renderProjList(st, owners){
+  const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
+  if (projList.dataset.sig !== sig){
+    projList.dataset.sig = sig;
+    projList.textContent = "";
+    for (const ow of owners){
+      const row = h("button", "projrow");
+      row.type = "button";
+      row.dataset.owner = ow;
+      const mark = h("span", "pmark");
+      mark.innerHTML = PROJ_CHECK;
+      row.appendChild(mark);
+      row.appendChild(h("span", "pname", labelOf(st, ow)));
+      row.appendChild(projCloseMark(ow));
+      projList.appendChild(row);
+    }
+  }
+  // closing a project rebuilds the list, so the cross that is suddenly the
+  // only one left learns here that it goes pale
+  const alone = owners.length < 2;
+  for (const row of projList.querySelectorAll(".projrow")){
+    const ow = row.dataset.owner, on = ow === activeOwner && !homeOpen && !draft;
+    row.classList.toggle("on", on);
+    row.setAttribute("aria-current", String(on));
+    row.classList.toggle("unread", laneUnread(st, ow));
+    const kill = row.querySelector(".projx");
+    kill.classList.toggle("off", alone);
+    kill.title = alone ? "the last project stays open" : "close project";
+  }
+}
+// the faint names: open projects holding a reply not yet read that were active
+// in the last SUGGEST_DAYS days, the most recent first. when there are none,
+// the SUGGEST_FEW with the most unread replies and then the most recent
+// activity. the project just left always leads, and never more than
+// SUGGEST_MAX show. a project's activity is the newest message on any of its
+// cards, the reader's or an agent's
+const SUGGEST_MAX = 4, SUGGEST_DAYS = 7, SUGGEST_FEW = 3;
+function laneUnreadCount(st, ow){
+  return st.boxes.filter(b => b.owner === ow && b.id !== "q" && cardState(b) === "yours" &&
+    (seenReplies[b.id] || 0) < (b.replies || 0)).length;
+}
+function laneActiveAt(st, ow){
+  let at = 0;
+  for (const b of st.boxes) if (b.owner === ow && b.id !== "q") at = Math.max(at, b.ts || 0, b.agentTs || 0);
+  return at;
+}
+function suggestedProjects(st, active, left, now = Date.now() / 1000){
+  const lanes = rowsOf(st).filter(ow => ow !== active)
+    .map(ow => ({ ow, unread: laneUnreadCount(st, ow), at: laneActiveAt(st, ow) }));
+  let picked = lanes.filter(p => p.unread && now - p.at <= SUGGEST_DAYS * 86400).sort((a, b) => b.at - a.at);
+  if (!picked.length)
+    picked = lanes.filter(p => p.at).sort((a, b) => b.unread - a.unread || b.at - a.at).slice(0, SUGGEST_FEW);
+  let out = picked.map(p => p.ow);
+  if (left && lanes.some(p => p.ow === left)) out = [left, ...out.filter(ow => ow !== left)];
+  return out.slice(0, SUGGEST_MAX);
+}
+function renderSuggestions(st){
   const bar = document.getElementById("tabbar");
-  // every lane is built, the closed ones included: they are held back by the
-  // stylesheet, not by the bar's contents, so closing one is a class flip and
-  // never a rebuild, and the drag's measured rects survive it
-  const owners = LOCKED ? [LOCKED] : allRowsOf(st);
-  const sig = owners.join(",") + (draft ? "|draft" : "") + (LOCKED ? "|locked" : "");
+  const owners = LOCKED || draft ? [] : suggestedProjects(st, activeOwner, projLeft);
+  const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (bar.dataset.sig !== sig){
-    // the tabs go with the bar, so a dwell counted on one of them may not
-    // outlive it
-    disarmTab();
     bar.dataset.sig = sig;
     bar.textContent = "";
-    // The bare names keep one layout wrapper. Reuse the lens across rebuilds
-    // so a poll never restarts its motion.
-    const oval = h("span", "taboval");
-    bar.appendChild(oval);
-    seatWatch.disconnect();
     for (const ow of owners){
-      const t = h("button", "ptab");
-      t.dataset.owner = ow;
+      const b = h("button", "psug");
+      b.type = "button";
+      b.dataset.owner = ow;
       const lbl = h("span", "plabel", labelOf(st, ow));
       lbl.dataset.label = lbl.textContent;   // the hidden line that holds this word's bold width
-      t.appendChild(lbl);
-      if (!LOCKED){
-        t.appendChild(tabKillMark(ow));
-        // the dwell is counted on the tab itself, so it runs wherever on the
-        // tab the pointer happens to be resting, the cross's own band included. crossing
-        // into a child of the tab is not leaving the tab, so the band opening
-        // under the pointer cannot cancel the rest that opened it
-        t.addEventListener("mouseenter", () => tabDwell(t));
-        t.addEventListener("mouseleave", () => { if (tabArm?.el === t) disarmTab(); });
-        t.addEventListener("mousedown", e => {
-          if (e.button !== 0 || tabGlide) return;
-          beginTabDrag(t, ow, e);
-        });
-      }
-      // a press on the open project's name is a press on the seat under it
-      t.addEventListener("pointerdown", e => { if (e.button === 0 && t.classList.contains("on")) seatPress.press(); });
-      t.addEventListener("click", () => {
-        if (tabDrag?.pulled || ["reorder", "select", "selected"].includes(tabDrag?.mode)) return;   // the drag owns its release
-        // the open project's own tab lets go of the selected card on screen,
-        // which stays there browsed; any other tab switches to its lane
-        if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing) unselectShown();
-        else setTab(ow);
-      });
-      oval.appendChild(t);
-      seatWatch.observe(t, { box: "border-box" });
+      b.appendChild(lbl);
+      b.addEventListener("click", () => chooseProject(ow));
+      bar.appendChild(b);
     }
-    if (draft){
-      const t = h("button", "ptab draft");
-      t.appendChild(h("span", "plabel", "New Project"));
-      oval.appendChild(t);
-      seatWatch.observe(t, { box: "border-box" });
-    }
-    // the bare plus follows the names and, like the seat, is kept from one
-    // rebuild to the next
-    if (!LOCKED) bar.appendChild(tabPlus);
   }
-  // closing a tab is a class flip and never a rebuild, so the crosses learn
-  // here and not where they were built: the tab that is suddenly the only one
-  // left has to go pale on the same paint that emptied the bar around it
-  const alone = rowsOf(st).length < 2;
-  for (const t of bar.querySelectorAll(".ptab:not(.draft)")){
-    t.classList.toggle("on", t.dataset.owner === activeOwner && !homeOpen);
-    const kill = t.querySelector(".ptabx");
-    if (kill){
-      kill.classList.toggle("off", alone);
-      kill.title = alone ? "the last project tab stays open" : "close project";
-    }
-    // the tab the reader is sitting on is bolded on the same terms as the rest: being
-    // parked on a lane is not the same as having opened its cards
-    t.classList.toggle("unread", laneUnread(st, t.dataset.owner));
-    // a closed lane holding a reply the reader has not opened stays closed: the bold is
-    // still marked on the tab, and the tab is still out of the bar. nothing
-    // here can put a tab back; only the plus button's folder flow does that
-    t.classList.toggle("closed", tabClosed(t.dataset.owner, st));
-    const lbl = t.querySelector(".plabel");
-    const want = labelOf(st, t.dataset.owner);
-    if (lbl.textContent !== want){ lbl.textContent = want; lbl.dataset.label = want; }
-  }
-  seatSoon();
+  for (const b of bar.querySelectorAll(".psug")) b.classList.toggle("unread", laneUnread(st, b.dataset.owner));
 }
-// ---- the seat ----------------------------------------------------------------
-// Clean text in the center and true backdrop refraction at the rim. Skia's
-// displacement sampler uses nearest-neighbor source pixels, so it must never
-// supply the visible center glyphs. The copied face is opaque there; its ink
-// is ordinary text, positioned from the live labels, not a filtered bitmap.
-const LENS_ZOOM = 1.075, LENS_BEND_WIDTH = 2.5, LENS_CLEAR_DEPTH = 3.5;
-// on a project's name the lens is a box with rounded corners, 10px, 3px
-// rounder than the workspace's own 7px (the sheet's .projectlens says the
-// same), not a capsule. over the house it is the house's circle, a 16px corner
-// on its 32px (the sheet's .round). the rim's maps, the clean middle's mask
-// and the joint take their curve from the corner the lens wears, read from its
-// computed style (paintLenses), which is a name's LENS_CORNER when nothing
-// says otherwise
-const LENS_CORNER = 10;
-function lensRadius(width, height = 32, corner = LENS_CORNER){
-  return Math.min(Number.isFinite(corner) ? corner : LENS_CORNER, width / 2, height / 2);
+// a project chosen by a click on its row or its faint name. the open project's
+// own row, with home shut, lets go of the selected card on screen, which stays
+// there browsed, as a click on its tab did; any other switches to its lane,
+// leaving home for it
+function chooseProject(ow){
+  closeProjMenu();
+  if (ow === activeOwner && !homeOpen && !draft && selectedId && !browsing) unselectShown();
+  else setTab(ow);
 }
-function lensDepth(x, y, width, height = 32, corner = LENS_CORNER){
-  const radius = lensRadius(width, height, corner);
-  const axis = Math.max(radius, Math.min(width - radius, x));
-  const axisY = Math.max(radius, Math.min(height - radius, y));
-  return radius - Math.hypot(x - axis, y - axisY);
+function projOpen(){ return document.body.classList.contains("projopen"); }
+function openProjMenu(){
+  if (projOpen() || LOCKED || !lastState) return;
+  renderTabs(lastState);
+  // just under the pill, from its left edge
+  const r = projPill.getBoundingClientRect();
+  projMenu.style.left = Math.max(0, r.left) + "px";
+  projMenu.style.top = (r.bottom + 6) + "px";
+  document.body.classList.add("projopen");
+  projPill.setAttribute("aria-expanded", "true");
+  projList.querySelector(".projrow.on")?.scrollIntoView({ block: "nearest" });
 }
-function lensCenterAlpha(depth){
-  const t = Math.max(0, Math.min(1, (depth - LENS_BEND_WIDTH) / (LENS_CLEAR_DEPTH - LENS_BEND_WIDTH)));
-  return t * t * (3 - 2 * t);
+function closeProjMenu(){
+  endProjCarry();
+  if (!projOpen()) return;
+  document.body.classList.remove("projopen");
+  projPill.setAttribute("aria-expanded", "false");
+  for (const row of projList.querySelectorAll(".projrow.hot")) row.classList.remove("hot");
 }
-function lensOffset(x, y, width, height = 32, zoom = LENS_ZOOM, corner = LENS_CORNER){
-  const cx = width / 2, cy = height / 2, radius = lensRadius(width, height, corner);
-  const axis = Math.max(radius, Math.min(width - radius, x));
-  const axisY = Math.max(radius, Math.min(height - radius, y));
-  const nx = x - axis, ny = y - axisY, length = Math.hypot(nx, ny), depth = radius - length;
-  const t = Math.max(0, Math.min(1, depth / LENS_BEND_WIDTH));
-  // The .7px bump has zero slope at both ends. Its maximum derivative is
-  // below one before zoom is applied, including the full press: no fold.
-  const rim = .7 * 16 * t * t * (1 - t) * (1 - t);
-  // The rim samples the already enlarged backdrop, so its source offset is
-  // divided by zoom. This composition stays monotonic as the pill presses.
-  return [(cx - x) * (1 - 1 / zoom) - (length ? nx / length * rim / zoom : 0),
-          (cy - y) * (1 - 1 / zoom) - (length ? ny / length * rim / zoom : 0)];
-}
-const lensMaps = new Map();
-function lensMap(width, corner = LENS_CORNER){
-  const density = Math.max(1, Math.min(3, devicePixelRatio || 1)), height = 32;
-  const radius = lensRadius(width, height, corner);
-  const key = [width.toFixed(3), density, radius.toFixed(2)].join(":");
-  if (lensMaps.has(key)) return lensMaps.get(key);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.ceil(width * density); canvas.height = Math.ceil(height * density);
-  const ctx = canvas.getContext("2d"), pw = canvas.width, ph = canvas.height;
-  const zoom = ctx.createImageData(pw, ph), rim = ctx.createImageData(pw, ph);
-  const span = Math.max(width, height);
-  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++){
-    const px = (x + .5) * width / pw, py = (y + .5) * height / ph, i = (y * pw + x) * 4;
-    const nx = px - Math.max(radius, Math.min(width - radius, px));
-    const ny = py - Math.max(radius, Math.min(height - radius, py));
-    const length = nx ? Math.hypot(nx, ny) : Math.abs(ny), depth = radius - length;
-    const t = Math.max(0, Math.min(1, depth / LENS_BEND_WIDTH));
-    const bend = length ? .7 * 16 * t * t * (1 - t) * (1 - t) / length : 0;
-    // The component transfer below makes byte 128 exactly neutral. The
-    // remaining 254 levels encode [-.5,.5], including fractional dimensions.
-    zoom.data[i] = Math.round(128 + 254 * (width / 2 - px) / span);
-    zoom.data[i + 1] = Math.round(128 + 254 * (height / 2 - py) / span);
-    rim.data[i] = Math.round(128 - 254 * nx * bend / 2);
-    rim.data[i + 1] = Math.round(128 - 254 * ny * bend / 2);
-    zoom.data[i + 2] = rim.data[i + 2] = 128;
-    zoom.data[i + 3] = rim.data[i + 3] = 255;
-  }
-  const url = pixels => { ctx.putImageData(pixels, 0, 0); return canvas.toDataURL(); };
-  const map = { zoom: url(zoom), rim: url(rim), span };
-  if (lensMaps.size >= 64) lensMaps.delete(lensMaps.keys().next().value);
-  lensMaps.set(key, map);
-  return map;
-}
-// Native CSS gradients keep the clean center opaque during width changes;
-// a newly generated PNG mask could be transparent for a frame while decoding.
-// The box's four corners are a quarter turn each, a radial gradient about the
-// corner's centre, and its sides are two bands, one running across the top and
-// foot and one down the two ends; the bands meet where every depth is past the
-// ramp. Each corner's box runs 1px over into the bands beside it, so the cut
-// edges, fractional on the right and foot, leave no seam. Both bounds are
-// exact: no coverage through depth 2.5, full coverage from depth 3.5 inward.
-function lensCenterMask(width, corner = LENS_CORNER){
-  const r = lensRadius(width, 32, corner), px = n => n + "px";
-  const ramp = Array.from({ length:9 }, (_, i) => {
-    const depth = LENS_BEND_WIDTH + i / 8;
-    return { depth, alpha: lensCenterAlpha(depth) };
-  });
-  const color = a => "rgba(0,0,0," + a + ")";
-  const turn = at => "radial-gradient(circle at " + at + "," +
-    [...ramp].reverse().map(s => color(s.alpha) + " " + (r - s.depth) + "px").join(",") + ")";
-  const band = side => "linear-gradient(to " + side + "," +
-    ramp.map(s => color(s.alpha) + " " + s.depth + "px").concat(
-      [...ramp].reverse().map(s => color(s.alpha) + " calc(100% - " + s.depth + "px)")).join(",") + ")";
-  const box = px(r + 1) + " " + px(r + 1), near = px(r), far = "1px";
-  return turn(near + " " + near) + " left top/" + box + " no-repeat," +
-    turn(far + " " + near) + " right top/" + box + " no-repeat," +
-    turn(near + " " + far) + " left bottom/" + box + " no-repeat," +
-    turn(far + " " + far) + " right bottom/" + box + " no-repeat," +
-    band("bottom") + " " + px(r) + " 0/calc(100% - " + px(r * 2) + ") 100% no-repeat," +
-    band("right") + " 0 " + px(r) + "/100% calc(100% - " + px(r * 2) + ") no-repeat";
-}
-// Map a live label's viewport rectangle into the lens's local coordinates.
-// This includes current slide/width/reorder transforms and the current press
-// scale, rather than using an animation's final target or the active owner.
-function lensCopyGeometry(source, lens, width){
-  const sx = lens.width / width, sy = lens.height / 32, zoom = LENS_ZOOM * sy;
-  const cx = lens.left + lens.width / 2, cy = lens.top + lens.height / 2;
-  return { x: (cx + (source.left - cx) * zoom - lens.left) / sx,
-    y: (cy + (source.top - cy) * zoom - lens.top) / sy,
-    sx: zoom / sx, sy: zoom / sy, zoom };
-}
-const lensSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-lensSvg.setAttribute("width", "0"); lensSvg.setAttribute("height", "0");
-lensSvg.setAttribute("aria-hidden", "true");
-lensSvg.style.position = "absolute";
-document.body.appendChild(lensSvg);
-let lensId = 0;
-function resizeLens(el, width, zoom = LENS_ZOOM, corner = LENS_CORNER){
-  if (!width) return;
-  const map = lensMap(width, corner), lens = el.lens;
-  if (lens.width !== width){
-    for (const image of lens.images) image.setAttribute("width", width);
-    lens.width = width;
-  }
-  if (lens.map !== map){
-    lens.images[0].setAttribute("href", map.zoom);
-    lens.images[1].setAttribute("href", map.rim);
-    const mask = lensCenterMask(width, corner);
-    if (lens.mask !== mask){ lens.clear.style.setProperty("--lens-center-mask", mask); lens.mask = mask; }
-    lens.map = map;
-  }
-  // Pressing changes this scalar only; no new PNGs or DOM copies per frame.
-  const scale = map.span * (1 - 1 / zoom);
-  if (lens.scale !== scale){ lens.zoom.setAttribute("scale", scale); lens.scale = scale; }
-}
-const lensWatch = new ResizeObserver(() => paintLenses());
-const liveLenses = new Set();
-let lensFrame = 0;
-function queueLensPaint(){
-  if (!lensFrame) lensFrame = requestAnimationFrame(paintLenses);
-}
-// Preserve the house's existing vector artwork. This visual copy has no
-// identity, listeners or focus target; the original Home button owns input.
-function lensIconCopy(source){
-  const icon = source.cloneNode(true);
-  for (const node of [icon, ...icon.querySelectorAll("*")]){
-    node.removeAttribute("id"); node.removeAttribute("tabindex");
-    for (const name of node.getAttributeNames()) if (/^on/i.test(name)) node.removeAttribute(name);
-  }
-  icon.setAttribute("aria-hidden", "true"); icon.setAttribute("focusable", "false");
-  icon.style.display = "block";
-  return icon;
-}
-function paintLenses(){
-  if (lensFrame) cancelAnimationFrame(lensFrame);
-  lensFrame = 0;
-  const bar = document.getElementById("tabrow");
-  if (!bar || document.visibilityState === "hidden") return;
-  // Read every source before writing any copy. Only plain visual spans are
-  // made; the real tab and close buttons remain the sole interactive objects.
-  const sources = [...bar.querySelectorAll("#homeico svg, .ptab:not(.closed) .plabel, .ptab:not(.closed) .ptabx")].map(el => {
-    const rect = el.getBoundingClientRect(), style = getComputedStyle(el);
-    const control = el.closest(".ptab") || el.closest("#homeico");
-    const opacity = Number(style.opacity) * Number(getComputedStyle(control).opacity);
-    return { el, rect, style, opacity, cross: el.classList.contains("ptabx"), icon:el.tagName.toLowerCase() === "svg" };
-  }).filter(s => s.rect.width && s.rect.height && s.style.visibility !== "hidden");
-  // each lens's corner is read from the sheet (a name's 7px, the house's circle),
-  // mid-turn too while a lens slides back onto the house or off it
-  const lenses = [...liveLenses].filter(el => el.isConnected).map(el => {
-    const style = getComputedStyle(el);
-    return { el, rect: el.getBoundingClientRect(), width: parseFloat(style.width), corner: parseFloat(style.borderTopLeftRadius) };
-  });
-  const joint = jointMeasure();
-  for (const { el, rect, width, corner } of lenses){
-    if (!width || !rect.width || !rect.height) continue;
-    const lens = el.lens, kept = new Set();
-    resizeLens(el, width, LENS_ZOOM * rect.height / 32, corner);
-    for (const s of sources){
-      const g = lensCopyGeometry(s.rect, rect, width);
-      // Copy all visible names, including those beyond this lens: the mask is
-      // the only crop, so glyph overhangs enter the rim without popping in.
-      let copy = lens.copies.get(s.el);
-      if (!copy){
-        copy = h("span", "lensglyph" + (s.cross ? " lenscross" : ""));
-        if (s.icon) copy.appendChild(lensIconCopy(s.el));
-        lens.clear.appendChild(copy); lens.copies.set(s.el, copy);
-      }
-      kept.add(s.el);
-      if (!s.cross && !s.icon && copy.textContent !== s.el.textContent) copy.textContent = s.el.textContent;
-      for (const key of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch", "lineHeight", "letterSpacing", "fontFeatureSettings", "fontVariationSettings", "whiteSpace", "textTransform", "color"])
-        if (copy.style[key] !== s.style[key]) copy.style[key] = s.style[key];
-      const values = { opacity:String(s.opacity), width:s.rect.width + "px", height:s.rect.height + "px",
-        transform:"translate(" + g.x + "px," + g.y + "px) scale(" + g.sx + "," + g.sy + ")" };
-      for (const [key, value] of Object.entries(values)) if (copy.style[key] !== value) copy.style[key] = value;
-    }
-    for (const [source, copy] of lens.copies) if (!kept.has(source)){ copy.remove(); lens.copies.delete(source); }
-  }
-  jointPaint(joint, jointClock());
-  // CSS owns the motion; sample its current geometry once per frame while it
-  // is running. A mutation/resize starts this again; resting pills do no work.
-  // The joint runs on its own clock and asks for frames until it rests.
-  if (bar.getAnimations({ subtree: true }).some(a => a.playState === "running") ||
-      tabDrag?.mode === "select" || tabDrag?.mode === "reorder" || tabGlide || jointBusy()) queueLensPaint();
-}
-const lensChanges = new MutationObserver(records => {
-  if (records.some(r => !r.target.closest?.(".lensclear"))) queueLensPaint();
+// a click on the pill opens the list and shuts it while it is open. opened by a
+// key, the open project's row takes the focus
+projPill.addEventListener("click", e => {
+  if (projOpen()){ closeProjMenu(); return; }
+  openProjMenu();
+  if (projOpen() && e.detail === 0)
+    (projList.querySelector(".projrow.on") || projMenu.querySelector(".projrow"))?.focus({ preventScroll: true });
 });
-const lensBar = document.getElementById("tabrow");
-lensChanges.observe(lensBar, { subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:["class", "style"] });
-// Pseudo-class color changes do not produce DOM mutations. Mirror them too,
-// including an immediately applied hover under reduced motion.
-for (const type of ["transitionrun", "pointerover", "pointerout"])
-  lensBar.addEventListener(type, queueLensPaint, { passive:true });
-addEventListener("resize", queueLensPaint, { passive:true });
-document.addEventListener("visibilitychange", () => { if (document.visibilityState !== "hidden") queueLensPaint(); });
-function makeLens(cls){
-  const el = h("span", "projectlens qn-glass " + cls), id = "project-lens-" + (++lensId);
-  el.setAttribute("aria-hidden", "true");
-  const filter = document.createElementNS(lensSvg.namespaceURI, "filter");
-  filter.id = id;
-  filter.setAttribute("x", "0"); filter.setAttribute("y", "0");
-  filter.setAttribute("width", "100%"); filter.setAttribute("height", "100%");
-  filter.setAttribute("filterUnits", "objectBoundingBox");
-  filter.setAttribute("primitiveUnits", "userSpaceOnUse");
-  filter.setAttribute("color-interpolation-filters", "sRGB");
-  const neutral = name => '<feComponentTransfer in="' + name + '" result="' + name + '-neutral">' +
-    '<feFuncR type="linear" slope="' + (255 / 254) + '" intercept="' + (-1 / 254) + '"/>' +
-    '<feFuncG type="linear" slope="' + (255 / 254) + '" intercept="' + (-1 / 254) + '"/></feComponentTransfer>';
-  filter.innerHTML = '<feImage x="0" y="0" height="32" preserveAspectRatio="none" result="zoom-map"/>' + neutral("zoom-map") +
-    '<feDisplacementMap in="SourceGraphic" in2="zoom-map-neutral" xChannelSelector="R" yChannelSelector="G" result="enlarged"/>' +
-    '<feImage x="0" y="0" height="32" preserveAspectRatio="none" result="rim-map"/>' + neutral("rim-map") +
-    '<feDisplacementMap in="enlarged" in2="rim-map-neutral" scale="2" xChannelSelector="R" yChannelSelector="G"/>';
-  lensSvg.appendChild(filter);
-  const clear = h("span", "lensclear qn-glass");
-  clear.setAttribute("aria-hidden", "true"); clear.inert = true;
-  el.appendChild(clear);
-  el.lens = { filter, images: [...filter.querySelectorAll("feImage")], zoom: filter.querySelector("feDisplacementMap"), clear, copies: new Map() };
-  el.style.setProperty("--lens-filter", "url(#" + id + ")");
-  liveLenses.add(el); lensWatch.observe(el);
-  return el;
-}
-function removeLens(el){
-  liveLenses.delete(el); lensWatch.unobserve(el); el.lens.filter.remove(); el.remove();
-}
-const HOME_SEAT = Symbol("home");
-const tabSeat = { el: h("span", "tabseat still gone"), face: makeLens("seatlens"), owner: null, x: null, w: null, drawn: false };
-tabSeat.el.setAttribute("aria-hidden", "true");
-tabSeat.el.appendChild(tabSeat.face);
-document.getElementById("tabrow").appendChild(tabSeat.el);
-function placeSeat(){
-  queueLensPaint();
-  const seat = tabSeat, el = seat.el, oval = el.parentNode;
-  if (!oval || tabDrag?.mode === "reorder" || tabDrag?.mode === "select" || tabGlide) return;
-  const on = homeOpen ? document.getElementById("homeico") : oval.querySelector(".ptab.on, .ptab.draft");
-  const r = on && on.getBoundingClientRect();
-  if (!r || !r.width){ el.classList.add("gone"); seat.owner = null; seat.returning = false; return; }
-  const o = oval.getBoundingClientRect(), x = r.left - o.left, w = r.width;
-  const owner = homeOpen ? HOME_SEAT : on.classList.contains("draft") ? DRAFT : on.dataset.owner;
-  // on the house the lens is its circle, on a name that name's 10px corners
-  el.classList.toggle("round", owner === HOME_SEAT);
-  // only a drag's release slides the lens, the rest of the way from where it
-  // was let go. a click or a key that chooses another name sets it down there
-  // at once, with its joint
-  const slide = seat.returning, moved = seat.owner !== null && owner !== seat.owner;
-  seat.returning = false;
-  if (!slide && owner === seat.owner && x === seat.x && w === seat.w) return;
-  el.classList.toggle("still", !slide);
-  if (slide) tabJoint.leave = true;
-  el.style.transform = "translateX(" + x + "px)";
-  el.style.width = w + "px";
-  if (!seat.drawn){
-    seat.drawn = true;
-    el.style.transition = "none"; seat.face.style.transition = "none";
-    requestAnimationFrame(() => {
-      seat.face.style.transition = "";
-      if (!tabDrag && !tabGlide) el.style.transition = "";
-    });
-  }
-  el.classList.remove("gone");
-  seat.owner = owner; seat.x = x; seat.w = w;
-  if (moved && !slide){
-    // the joint is whole under the new name and the lens's copies are cut for
-    // it in this same frame, so neither shows the old name for a frame
-    tabJoint.snap = true;
-    if (lensFrame) paintLenses();
-  }
-}
-// ---- the seat's joint ---------------------------------------------------------
-// the open project's lens and the workspace's pane read as one piece of glass,
-// as the seated tab's open bottom once did: the lens's sides run straight down
-// into the pane and flare out into its top edge. Home's lens is never joined.
-// the joint is drawn over the two by an svg of its own (#seatjoin): a face and
-// the glass's 1px ring along one outline, found row by row from a field, the
-// way the sent bubbles' merge finds theirs (sentGooPath in card-logic.js): the
-// distance to the lens's box (10px corners), run on down into the pane, and to the pane's
-// top edge, a bulge on each where they face, and a polynomial smooth minimum.
-// the join is the merge's shapes on MERGE_EASE (card-logic.js): the lens's
-// foot and the pane's top bow toward each other, touch in the middle, a neck
-// forms and widens, and the sides straighten into the tab. the split is the
-// same shapes in reverse, quicker to start: the neck narrows to a thread and
-// parts, and what is left on the lens and on the pane draws back into each.
-// the pane's side stays where the neck stood while the lens moves: the neck
-// leans after the lens, and a lens pulled JOINT_TEAR px off breaks the thread
-// at once. choosing another project by a click or a key sets the lens down on
-// that name with its joint whole, nothing parting or forming (snap, in
-// jointPaint). a drag's release changes the page and slides the lens the rest
-// of the way, and the new joint starts forming in that same frame, under the
-// lens as it slides, once the old one has gone: the page, the landing and the
-// join are one motion. the join takes the .28s slide and the 700ms it used to
-// take after the slide together, so it ends when it did and runs slower and
-// earlier. reduced motion shows the joint, or none, where the lens stands,
-// with nothing moving
-const JOINT_JOIN_MS = 980, JOINT_SPLIT_MS = 560;
-const JOINT_TEAR = 24, JOINT_LEAN = 8;
-// the face covers the lens's rim this deep, the depth at which its clean face
-// is whole (LENS_CLEAR_DEPTH) and a little more, and fades into the pane below
-// its line over JOINT_FADE px
-const JOINT_RIM = 4, JOINT_FADE = 2.5;
-const JOINT_JOIN = sentCurve(MERGE_EASE), JOINT_SPLIT = sentCurve([.25, .1, .25, 1]);
-const jointMotion = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
-const jointStill = () => !!jointMotion?.matches;
-const jointClock = () => typeof performance === "object" ? performance.now() : Date.now();
-function jointSmin(a, b, k){
-  if (!(k > 0)) return Math.min(a, b);
-  const h = Math.max(k - Math.abs(a - b), 0) / k;
-  return Math.min(a, b) - h * h * k / 4;
-}
-// a bulge across, highest in its middle and gone at its ends, flat at both
-function jointHump(u){
-  const a = Math.abs(u);
-  return a >= 1 ? 0 : 1 - sentSmooth(a);
-}
-// the lens's corner as it stands: the one it wears (lens.corner, read in
-// jointMeasure; a name's 7px of LENS_CORNER when a box says none), grown with
-// the press and never more than half a side
-function jointRadius(lens){
-  const scale = (lens.bottom - lens.top) / 32;
-  return lensRadius((lens.right - lens.left) / scale, 32, lens.corner) * scale;
-}
-// the shape at the join's own time tau, 0 apart and 1 joined: how far each
-// side bulges toward the other, the union's reach, the bulges' half width and
-// how far the lens's box runs on down
-function jointShape(tau, lens, paneTop){
-  const r = jointRadius(lens), half = (lens.right - lens.left) / 2;
-  // the bulges are whole by the time they touch: nothing travels here, so a
-  // drop that crept for longer than the merge's would only read as a wait
-  const swell = sentSmooth(tau / .2) * (1 - sentSmooth((tau - .6) / .35));
-  const widen = sentSmooth((tau - .25) / .45), settle = sentSmooth((tau - .6) / .4);
-  return { bulge: 3.2 * swell,
-    reach: 6 * sentSmooth((tau - .1) / .2) + 22 * sentSmooth((tau - .2) / .4) * (1 - settle) + 4 * settle,
-    half: 10 + Math.max(0, half * .35 - 10) * widen,
-    run: (paneTop + 2 + r - lens.bottom) * sentSmooth((tau - .5) / .45) };
-}
-// one moment: the lens and the pane as they stand (viewport px, the pane's box
-// on its ring's outer edge), where the neck meets the pane and how far it leans
-function jointMoment(tau, lens, pane, foot, lean){
-  return { ...jointShape(tau, lens, pane.top), tau, lens, r: jointRadius(lens),
-    pane, paneTop: pane.top, foot, lean };
-}
-// how far a point stands outside the joined shape: below nothing, inside
-function jointField(x, y, g){
-  const L = g.lens, cy = L.top + g.r, cx = (L.left + L.right) / 2;
-  const lx = g.lean ? x + g.lean * sentSmooth((y - L.bottom) / (g.paneTop - L.bottom)) : x;
-  const lens = sentBoxDistance(lx, y, { left: L.left, top: L.top, right: L.right, bottom: L.bottom + g.run }, g.r)
-    - (g.bulge ? g.bulge * jointHump((lx - cx) / g.half) * sentSmooth((y - cy) / g.r) : 0);
-  const pane = sentBoxDistance(x, y, g.pane, g.pane.corner)
-    - (g.bulge ? g.bulge * jointHump((x - g.foot) / g.half) : 0);
-  return jointSmin(lens, pane, g.reach);
-}
-// the join's time at which the two first touch, under a lens 32 high over the
-// Mac's 7px of paper, and the split's progress at which they part again
-const JOINT_TOUCH = (() => {
-  const lens = { left: 0, top: 0, right: 120, bottom: 32 }, pane = { left: -200, top: 39, right: 320, bottom: 400, corner: 7 };
-  let lo = 0, hi = 1;
-  for (let i = 0; i < 30; i++){
-    const m = (lo + hi) / 2;
-    if (jointField(60, 35.5, jointMoment(m, lens, pane, 60, 0)) < 0) hi = m; else lo = m;
-  }
-  return hi;
-})();
-function jointInverse(curve, y){
-  let lo = 0, hi = 1;
-  for (let i = 0; i < 30; i++){ const m = (lo + hi) / 2; if (curve(m) < y) lo = m; else hi = m; }
-  return (lo + hi) / 2;
-}
-const JOINT_PINCH = jointInverse(JOINT_SPLIT, 1 - JOINT_TOUCH);
-// the outline of one moment, row by row from the lens's middle to the pane's
-// top edge: the spans inside the shape on each row, threaded into loops. a
-// loop that starts on the first row is the lens's; one that reaches the last
-// row runs on into the pane. the face is each loop with the lens's clean
-// middle taken out (the lens draws that itself) and, under a loop that runs
-// into the pane, the pane's line covered and faded out below. the ring is the
-// loops' sides, closed round a loop's tip where it ends in the open
-function jointOutline(g){
-  const L = g.lens, top = L.top + g.r, yP = g.paneTop, cx = (L.left + L.right) / 2;
-  const pad = g.reach + JOINT_LEAN + 12;
-  const left = Math.min(L.left, g.foot - g.half) - pad, right = Math.max(L.right, g.foot + g.half) + pad;
-  const ys = [];
-  for (let y = top; y < yP - 1; y += .5) ys.push(y);
-  for (const d of [1, .75, .5, .375, .25, .125, .0625]) if (yP - d > top) ys.push(yP - d);
-  // the spans on one row where the field is under level, each end found to a
-  // hundredth of a pixel. the neck's middle is sampled too, so a thread
-  // thinner than the coarse step is never lost
-  const spans = (y, level) => {
-    const lean = g.lean * sentSmooth((y - L.bottom) / (yP - L.bottom));
-    const xs = [cx, g.foot, cx - lean];
-    for (let x = left; x < right; x += 3) xs.push(x);
-    xs.push(right);
-    xs.sort((a, b) => a - b);
-    const out = [], under = x => jointField(x, y, g) < level;
-    let from = null, px = xs[0], pin = under(px);
-    if (pin) from = px;
-    for (let i = 1; i < xs.length; i++){
-      const x = xs[i], inn = under(x);
-      if (inn !== pin){
-        let a = px, b = x;
-        for (let n = 0; n < 9; n++){ const m = (a + b) / 2; if (under(m) === pin) a = m; else b = m; }
-        const edge = (a + b) / 2;
-        if (inn) from = edge; else { out.push([from, edge]); from = null; }
-      }
-      px = x; pin = inn;
-    }
-    if (from !== null) out.push([from, right]);
-    return out;
-  };
-  const loops = [];
-  let open = [];
-  ys.forEach((y, i) => {
-    const row = spans(y, 0), next = [];
-    for (const s of row){
-      const meets = (a, b) => a[0] < b[1] && b[0] < a[1];
-      const above = open.filter(o => meets(o.last, s));
-      let loop = above.length === 1 && row.filter(t => meets(above[0].last, t)).length === 1 ? above[0] : null;
-      if (!loop){
-        // a new piece, or pieces running together or parting: a loop of its
-        // own from here, starting on the row above so no seam shows
-        for (const o of above) o.ran = true;
-        loop = { rows: above.length ? [[ys[i - 1], s[0], s[1]]] : [], top: i === 0 ? "lens" : above.length ? "ran" : "tip" };
-        loops.push(loop);
-      }
-      loop.rows.push([y, s[0], s[1]]); loop.last = s; next.push(loop);
-    }
-    for (const o of open) if (!next.includes(o)) o.bottom = o.ran ? "ran" : "tip";
-    open = next;
-  });
-  for (const o of open) o.bottom = "pane";
-  const P = (x, y) => x.toFixed(2) + " " + y.toFixed(2);
-  // a straight side kept to its two ends, as sentGooPath keeps it
-  const line = pts => "M" + pts.filter((p, i) => i === 0 || i === pts.length - 1 ||
-    !(Math.abs(pts[i - 1][0] - p[0]) < 1e-3 && Math.abs(pts[i + 1][0] - p[0]) < 1e-3)).map(([x, y]) => P(x, y)).join("L");
-  const ri = g.r - JOINT_RIM, last = ys[ys.length - 1];
-  let face = "", ring = "";
-  for (const loop of loops){
-    const down = loop.rows.map(([y, l]) => [l, y]), side = loop.rows.map(([y, , r]) => [r, y]);
-    face += line(down.concat(side.slice().reverse()));
-    // round the lens's clean middle and back, so the face is one band: down
-    // the middle's right side, round its foot's two corners (the lens's own
-    // corner, RIM in) and up its left
-    if (loop.top === "lens" && ri > 0){
-      const xr = L.right - JOINT_RIM, xl = L.left + JOINT_RIM, foot = L.bottom - JOINT_RIM, arc = (x, y) => "A" + ri + " " + ri + " 0 0 1 " + P(x, y);
-      face += "L" + P(xr, top) + "V" + (foot - ri).toFixed(2) + arc(xr - ri, foot) +
-        "H" + (xl + ri).toFixed(2) + arc(xl, foot - ri) + "V" + top.toFixed(2);
-    }
-    face += "Z";
-    const headOpen = loop.top !== "tip", footOpen = loop.bottom !== "tip";
-    if (headOpen && footOpen) ring += line(down) + line(side);
-    else if (headOpen) ring += line(down.concat(side.slice().reverse()));
-    else if (footOpen) ring += line(down.slice().reverse().concat(side));
-    else ring += line(down.concat(side.slice().reverse())) + "Z";
-  }
-  // the pane's line, covered where the joint stands on it, and faded below
-  if (loops.some(o => o.bottom === "pane"))
-    for (const [a, b] of spans(yP, -.15))
-      face += "M" + P(a, last) + "V" + (yP + JOINT_FADE).toFixed(2) + "H" + b.toFixed(2) + "V" + last.toFixed(2) + "Z";
-  return { face, ring, loops, top, bottom: yP + JOINT_FADE };
-}
-const JOINT_NS = "http://www.w3.org/2000/svg";
-const tabJoint = (() => {
-  const make = (tag, attrs, parent) => {
-    const el = document.createElementNS(JOINT_NS, tag);
-    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-    if (parent) parent.appendChild(el);
-    return el;
-  };
-  const svg = make("svg", { id: "seatjoin", "aria-hidden": "true", focusable: "false", opacity: "0" });
-  const defs = make("defs", {}, svg);
-  const shade = make("linearGradient", { id: "seatjoinshade", gradientUnits: "userSpaceOnUse", x1: "0", x2: "0" }, defs);
-  const stops = ["jl", "jl", "jp", "jp", "jp gone"].map(cls => make("stop", { class: cls }, shade));
-  const clip = make("clipPath", { id: "seatjoinclip" }, defs);
-  // all but a name carried in a reorder, whose own lens stays on top
-  const keep = make("clipPath", { id: "seatjoinkeep" }, defs);
-  const kept = make("path", { "clip-rule": "evenodd" }, keep);
-  const group = make("g", {}, svg);
-  const face = make("path", { id: "seatjoinface", class: "face", fill: "url(#seatjoinshade)" }, group);
-  make("use", { href: "#seatjoinface" }, clip);
-  const ring = make("path", { class: "ring", "clip-path": "url(#seatjoinclip)" }, group);
-  return { svg, shade, stops, group, kept, face, ring, tau: 0, run: null, foot: null, at: null, drawn: false, ok: false, key: "", outline: null, leave: false, snap: false };
-})();
-// beside the bar, after it (see #seatjoin in the sheet)
-document.getElementById("tabrow").closest(".bar").after(tabJoint.svg);
-// the lens and the pane as the page stands, read with the lenses' own reads
-function jointMeasure(){
-  const frame = document.getElementById("appframe");
-  const box = frame && frame.getBoundingClientRect(), lens = tabSeat.face.getBoundingClientRect();
-  if (!box || !box.width || !lens.width) return null;
-  const style = getComputedStyle(frame), dpr = devicePixelRatio || 1, lensStyle = getComputedStyle(tabSeat.face);
-  // the pane's clear border is drawn a whole device pixel wide or more
-  const edge = parseFloat(style.borderTopWidth) || 0, drawn = edge ? Math.max(1, Math.floor(edge * dpr + 1e-6)) / dpr : 0;
-  const ring = (lensStyle.getPropertyValue?.("--qn-ring") || "").trim() || "#c7c7cc";
-  const carried = tabDrag?.held?.isConnected ? tabDrag.held.getBoundingClientRect() : null;
-  return { lens: { left: lens.left, top: lens.top, right: lens.right, bottom: lens.bottom, corner: parseFloat(lensStyle.borderTopLeftRadius) }, ring,
-    held: carried && carried.width ? { left: carried.left, top: carried.top, right: carried.right, bottom: carried.bottom } : null,
-    pane: { left: box.left + drawn, top: box.top + drawn, right: box.right - drawn, bottom: box.bottom - drawn,
-      corner: Math.max(0, (parseFloat(style.borderTopLeftRadius) || 0) - drawn) } };
-}
-// the seat stands on a project's name, or is sliding onto it from a drag's
-// release, and nothing is carrying it there
-function jointWanted(){
-  const seat = tabSeat;
-  if (!seat.drawn || seat.owner === null || seat.owner === HOME_SEAT || seat.el.classList.contains("gone")) return false;
-  return tabDrag?.mode !== "select";
-}
-function jointBusy(){
-  const j = tabJoint;
-  return !!j.run || (j.drawn && j.ok && (jointWanted() ? j.tau < 1 : j.tau > 0));
-}
-function jointSplitStep(dt, cx){
-  const j = tabJoint;
-  if (j.run?.kind !== "split") j.run = { kind: "split", p: jointInverse(JOINT_SPLIT, 1 - j.tau), foot: j.foot ?? cx };
-  // a thread broken by the pull snaps back twice as fast
-  const pull = Math.abs(cx - j.run.foot), rate = pull >= JOINT_TEAR ? 2 : 1;
-  j.run.p = Math.min(1, Math.max(j.run.p + rate * dt / JOINT_SPLIT_MS, JOINT_PINCH * Math.min(1, pull / JOINT_TEAR)));
-  j.tau = 1 - JOINT_SPLIT(j.run.p);
-  if (j.run.p >= 1){ j.tau = 0; j.run = null; }
-}
-// one step of the joint's clock, and the outline drawn where it now stands
-function jointPaint(m, now){
-  const j = tabJoint, seat = tabSeat;
-  const ok = !!m && m.pane.top > m.lens.bottom && m.pane.top - m.lens.bottom < 32 &&
-    m.lens.right - m.lens.left >= m.lens.bottom - m.lens.top && !seat.el.classList.contains("gone");
-  const want = ok && jointWanted(), dt = j.at === null ? 0 : Math.max(0, now - j.at);
-  j.at = now; j.ok = ok;
-  const cx = ok ? (m.lens.left + m.lens.right) / 2 : null;
-  // a lens let go by a drag parts from where it was joined, whether or not
-  // its slide has shown yet; one sent back where it stood joins again there
-  if (j.leave){
-    j.leave = false;
-    if (ok && j.drawn && !jointStill() && j.tau > 0 && j.run?.kind !== "split")
-      j.run = { kind: "split", p: jointInverse(JOINT_SPLIT, 1 - j.tau), foot: j.foot ?? cx };
-  }
-  // a lens set down on a name by a click or a key has its joint whole there,
-  // or none on Home, as reduced motion has it
-  const snap = j.snap;
-  j.snap = false;
-  if (!ok || !j.drawn || snap || jointStill()){
-    j.run = null; j.tau = want ? 1 : 0; j.foot = cx;
-    if (ok && seat.drawn) j.drawn = true;
-  } else if (want && !(j.run?.kind === "split" && j.tau > 0 && Math.abs(cx - j.run.foot) > 1)){
-    if (j.tau < 1){
-      if (j.run?.kind !== "join") j.run = { kind: "join", q: jointInverse(JOINT_JOIN, j.tau) };
-      j.run.q = Math.min(1, j.run.q + dt / JOINT_JOIN_MS);
-      j.tau = JOINT_JOIN(j.run.q);
-      if (j.run.q >= 1){ j.tau = 1; j.run = null; }
-    } else j.run = null;
-    j.foot = cx;
-  } else if (j.tau > 0) jointSplitStep(dt, cx);   // a joint left behind goes before the next one forms
-  else j.run = null;
-  if (!jointBusy()) j.at = null;
-  if (!ok || !(j.tau > 0)){
-    if (j.key){ j.face.setAttribute("d", ""); j.ring.setAttribute("d", ""); j.svg.setAttribute("opacity", "0"); j.key = ""; j.outline = null; }
+// the list's own clicks: a row chooses its project, the last row opens the
+// Mac's folder chooser as the home page's button does. the release that ends
+// a carry is not a choice
+projMenu.addEventListener("click", e => {
+  const row = e.target.closest?.(".projrow");
+  if (!row || projCarried) return;
+  if (row.id === "projnew"){ closeProjMenu(); pickFolder(menuPick); return; }
+  if (row.dataset.owner) chooseProject(row.dataset.owner);
+});
+// the cross on the row under the pointer, and on that row alone
+projMenu.addEventListener("mouseover", e => {
+  const row = projCarry?.rects ? null : e.target.closest?.("#projlist .projrow");
+  for (const r of projList.querySelectorAll(".projrow.hot")) if (r !== row) r.classList.remove("hot");
+  row?.classList.add("hot");
+});
+projMenu.addEventListener("mouseleave", () => {
+  for (const r of projList.querySelectorAll(".projrow.hot")) r.classList.remove("hot");
+});
+// a press anywhere else, Escape, the house or a project's key shuts the list.
+// while it is open the up and down arrows walk its rows rather than the cards
+document.addEventListener("pointerdown", e => {
+  if (projOpen() && !projMenu.contains(e.target) && !projPill.contains(e.target)) closeProjMenu();
+}, true);
+addEventListener("keydown", e => {
+  if (!projOpen()) return;
+  if (e.key === "Escape"){
+    e.preventDefault(); e.stopImmediatePropagation();
+    closeProjMenu();
+    projPill.focus({ preventScroll: true });
     return;
   }
-  const foot = j.run?.kind === "split" ? j.run.foot : cx;
-  const lean = Math.max(-JOINT_LEAN, Math.min(JOINT_LEAN, cx - foot)) * sentSmooth((j.tau - .05) / .2);
-  const H = m.held;
-  const key = [j.tau, m.lens.left, m.lens.top, m.lens.right, m.lens.bottom, m.lens.corner, m.pane.top, m.pane.left, m.pane.right, foot, lean, m.ring,
-    H ? [H.left, H.top, H.right, H.bottom].join(" ") : ""].join(",");
-  if (key === j.key) return;
-  j.key = key;
-  const out = j.outline = jointOutline(jointMoment(j.tau, m.lens, m.pane, foot, lean));
-  j.face.setAttribute("d", out.face);
-  j.ring.setAttribute("d", out.ring);
-  j.ring.setAttribute("stroke", m.ring);
-  // a name carried in a reorder over the open one keeps its own lens on top:
-  // its box, corners and all, is cut out of the joint for as long as it is carried
-  if (H){
-    const r = jointRadius(H), f = v => v.toFixed(2), arc = (x, y) => "A" + f(r) + " " + f(r) + " 0 0 1 " + f(x) + " " + f(y);
-    j.kept.setAttribute("d", "M-1 -1H" + f(m.pane.right + 64) + "V" + f(out.bottom + 8) + "H-1Z" +
-      "M" + f(H.left + r) + " " + f(H.top) + "H" + f(H.right - r) + arc(H.right, H.top + r) + "V" + f(H.bottom - r) +
-      arc(H.right - r, H.bottom) + "H" + f(H.left + r) + arc(H.left, H.bottom - r) + "V" + f(H.top + r) +
-      arc(H.left + r, H.top) + "Z");
-    j.group.setAttribute("clip-path", "url(#seatjoinkeep)");
-  } else j.group.removeAttribute("clip-path");
-  // the lens's clean face down to its foot, the pane's lit edge from its line
-  const span = out.bottom - out.top, at = y => Math.max(0, Math.min(1, (y - out.top) / span)).toFixed(4);
-  j.shade.setAttribute("y1", out.top.toFixed(2)); j.shade.setAttribute("y2", out.bottom.toFixed(2));
-  [out.top, m.lens.bottom, m.pane.top, m.pane.top + 1, out.bottom].forEach((y, i) => j.stops[i].setAttribute("offset", at(y)));
-  // the joint comes in while its bulges are still slight, and goes the same way
-  j.svg.setAttribute("opacity", sentSmooth(j.tau / .12).toFixed(3));
+  if ((e.key !== "ArrowDown" && e.key !== "ArrowUp") || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const rows = [...projMenu.querySelectorAll(".projrow")], step = e.key === "ArrowDown" ? 1 : -1;
+  const at = rows.indexOf(document.activeElement);
+  rows[at < 0 ? (step > 0 ? 0 : rows.length - 1) : (at + step + rows.length) % rows.length]?.focus({ preventScroll: true });
+}, true);
+// the cross, built with every row and held out of its flow. its presses stop
+// here, so the row under it never reads one as a choice or as the start of a
+// carry: the cross closes the project and does nothing else
+function projCloseMark(ow){
+  const b = h("span", "projx");
+  b.setAttribute("role", "button");
+  b.setAttribute("aria-label", "close project");
+  b.title = "close project";
+  b.addEventListener("mousedown", ev => ev.stopPropagation());
+  b.addEventListener("click", ev => {
+    ev.preventDefault(); ev.stopPropagation();   // never a switch on the way
+    if (b.classList.contains("off")) return;     // closeTab refuses this too
+    closeTab(ow);
+  });
+  return b;
 }
-// the bar is painted in the middle of the board's own repaint, and a measure
-// taken there would make the browser work out every style the repaint has
-// half written, which starts transitions the repaint never meant (the stage's
-// own fade among them). so a repaint only asks for the seat, and it is placed
-// at the start of the next frame, once the repaint is whole
-let seatFrame = 0;
-function seatSoon(){
-  if (!seatFrame) seatFrame = requestAnimationFrame(() => { seatFrame = 0; placeSeat(); });
+// ---- carrying a project along the list -----------------------------------------
+// a row held down and dragged up or down reorders the projects, as on the
+// phone, and the order goes to the board, so the phone follows on its next
+// poll. dragged out past the list's edge it fades, and let go there it opens
+// in a window of its own, as a tab tugged down out of the bar did
+const ROW_PULL = 24;   // px past the list's edge that make a carried row a window of its own
+function endProjCarry(){
+  const t = projCarry;
+  if (!t) return;
+  projCarry = null;
+  for (const el of (t.rows || [])) el.style.transform = "";
+  t.el.classList.remove("lifted", "tearing");
+  projMenu.classList.remove("carrying");
 }
-// a name that changes size moves the seat's name or the names before it. the
-// whole box is watched, since the close band is padding. the watch is answered
-// after the layout it reports, so it places the seat at once
-const seatWatch = new ResizeObserver(() => placeSeat());
-const tabPlus = h("button", "ptabplus");
-tabPlus.type = "button";
-tabPlus.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
-tabPlus.title = "new project tab";
-tabPlus.setAttribute("aria-label", "new project tab");
-tabPlus.addEventListener("click", () => plusClick());
+// the press has moved: the resting spots are measured once, the held row
+// lifts, and every swap reads against those fixed midpoints
+function liftRow(){
+  const t = projCarry;
+  t.rows = [...projList.querySelectorAll(".projrow")];
+  t.idx = t.rows.indexOf(t.el);
+  if (t.idx < 0){ projCarry = null; return; }   // the list rebuilt under the pointer
+  t.rects = t.rows.map(el => el.getBoundingClientRect());
+  t.slot = t.idx;
+  for (const r of projList.querySelectorAll(".projrow.hot")) r.classList.remove("hot");
+  projMenu.classList.add("carrying");
+  t.el.classList.add("lifted");
+}
+function moveRow(y){
+  const t = projCarry, r = t.rects, i = t.idx;
+  const raw = y - t.y;
+  // the held row pins at the ends of the list
+  const dy = Math.max(r[0].top - r[i].top, Math.min(r[r.length - 1].bottom - r[i].bottom, raw));
+  t.el.style.transform = "translateY(" + dy + "px)";
+  const center = r[i].top + r[i].height / 2 + raw;
+  let slot = 0;
+  for (let j = 0; j < r.length; j++)
+    if (j !== i && center > r[j].top + r[j].height / 2) slot++;
+  if (slot === t.slot) return;
+  t.slot = slot;
+  const shift = r[i].height;   // the rows stand edge to edge
+  for (let j = 0; j < t.rows.length; j++){
+    if (j === i) continue;
+    const move = j < i ? (j >= slot ? shift : 0) : (j <= slot ? -shift : 0);
+    t.rows[j].style.transform = move ? "translateY(" + move + "px)" : "";
+  }
+}
+function dropRow(e){
+  const t = projCarry;
+  if (!t?.rects){ projCarry = null; return; }   // a press that never moved is the row's own click
+  projCarried = true;
+  setTimeout(() => { projCarried = false; }, 0);
+  if (t.out){
+    endProjCarry();
+    if (!e) return;   // let go outside the window: nothing opens
+    closeProjMenu();
+    open(location.pathname + "?project=" + t.ow, "_blank",
+         "popup=yes,width=1100,height=850,left=" + Math.max(0, e.screenX - 200) + ",top=" + Math.max(0, e.screenY - 20));
+    return;
+  }
+  if (t.slot === t.idx){ endProjCarry(); return; }   // put back where it was
+  const strip = t.rows.map(el => el.dataset.owner);
+  strip.splice(t.slot, 0, strip.splice(t.idx, 1)[0]);
+  // closed projects sat out of the carry, so the strip is not the whole order:
+  // the held lane is lifted out of the full order and set down behind the
+  // visible lane it now follows, which leaves every closed lane where it was
+  const rec = tabRecord(lastState);
+  const order = (lastState ? allRowsOf(lastState) : strip).filter(ow => ow !== t.ow);
+  const prev = strip[strip.indexOf(t.ow) - 1];
+  order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, t.ow);
+  endProjCarry();
+  writeTabs({ order, closed: rec.closed });
+  projList.dataset.sig = "";
+  if (lastState) renderTabs(lastState);
+}
+projList.addEventListener("mousedown", e => {
+  if (e.button !== 0 || LOCKED) return;
+  const el = e.target.closest?.(".projrow");
+  if (!el) return;
+  projCarry = { el, ow: el.dataset.owner, x: e.clientX, y: e.clientY, rects: null, out: false };
+});
+addEventListener("mousemove", e => {
+  const t = projCarry;
+  if (!t) return;
+  if (!e.buttons){ dropRow(null); return; }   // let go outside the window
+  if (!t.rects){
+    if (Math.abs(e.clientX - t.x) < 5 && Math.abs(e.clientY - t.y) < 5) return;
+    liftRow();
+    if (!projCarry) return;
+  }
+  const m = projMenu.getBoundingClientRect();
+  const out = e.clientX < m.left - ROW_PULL || e.clientX > m.right + ROW_PULL ||
+    e.clientY < m.top - ROW_PULL || e.clientY > m.bottom + ROW_PULL;
+  if (out !== t.out){ t.out = out; t.el.classList.toggle("tearing", out); }
+  moveRow(out ? t.y : e.clientY);   // pulled out, the others go back to their places
+});
+addEventListener("mouseup", e => { if (projCarry) dropRow(e); });
+addEventListener("blur", () => endProjCarry());
 // ---- the press on the bar's glass --------------------------------------------
 // the phone's row press (glassPress in m.html): a piece of the bar's glass
 // takes .pressed while the pointer holds it, for at least GLASS_PRESS_MIN so a
@@ -4889,11 +4388,7 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-const seatPress = glassPress(tabSeat.el);
-document.getElementById("homeico").addEventListener("pointerdown", e => {
-  if (e.button === 0 && homeOpen) seatPress.press();
-});
-for (const btn of [document.getElementById("chimebtn"), document.getElementById("setbtn"), tabPlus]){
+for (const btn of ["homeico", "projpill", "chimebtn", "setbtn"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -4903,58 +4398,19 @@ for (const type of ["pointerup", "pointercancel"])
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") for (const glass of glassPresses) glass.drop();
 });
-// the cross, built with every tab and held out of the layout entirely: it is
-// absolutely placed, so an unarmed tab measures the same to the thousandth of a
-// pixel as it did before any of this existed, and hidden it paints nothing. the
-// presses stop here, so the tab under it never reads one as a switch or as the
-// start of a drag: the cross closes the project and does nothing else
-function tabKillMark(ow){
-  const b = h("button", "ptabx");
-  b.title = "close project";
-  b.addEventListener("mousedown", ev => ev.stopPropagation());
-  b.addEventListener("pointerdown", ev => ev.stopPropagation());
-  b.addEventListener("click", ev => {
-    ev.preventDefault(); ev.stopPropagation();   // never a tab switch on the way
-    if (b.classList.contains("off")) return;     // closeTab refuses this too
-    disarmTab();   // the band shuts with the tab it belonged to
-    closeTab(ow);
-  });
-  return b;
-}
-// the dwell. one timer for the whole bar, so one tab is armed by construction
-// and moving from tab to tab can never add up: the new tab clears whatever the
-// old one had counted and starts its own 1.7 seconds from zero.
-// leaving a tab throws its count away, so nothing short of 1.7
-// unbroken seconds on one tab opens anything
-const TAB_DWELL = 1700;
-let tabArm = null;   // { el, timer } the tab counting, or the tab already armed
-function disarmTab(){
-  if (!tabArm) return;
-  clearTimeout(tabArm.timer);
-  tabArm.el.classList.remove("armed");
-  tabArm = null;
-}
-function tabDwell(t){
-  if (LOCKED || tabDrag || tabGlide) return;   // a hand on the bar is not a rest
-  disarmTab();
-  tabArm = { el: t, timer: setTimeout(() => {
-    if (tabArm?.el !== t) return;   // the rest ended while the clock ran out
-    t.classList.add("armed");
-  }, TAB_DWELL) };
-}
-// closing a tab works exactly as putting a box away works: the bar's record is
-// written and nothing else. no card and no lane moves, so the tab that comes
-// back brings its project back as it was, cards, layout and pictures included.
-// the record is the board's, so the phone's bar loses the tab on its next poll
+// closing a project works exactly as putting a box away works: the bar's record
+// is written and nothing else. no card and no lane moves, so the project that
+// comes back brings itself back as it was, cards, layout and pictures included.
+// the record is the board's, so the phone's list loses it on its next poll
 function closeTab(ow){
   if (LOCKED || !lastState || tabClosed(ow)) return;
   const open = rowsOf(lastState);
-  if (open.length < 2) return;   // the last tab stays: the board must always have a lane to sit on
+  if (open.length < 2) return;   // the last project stays: the board must always have a lane to sit on
   const rec = tabRecord(lastState);
   writeTabs({ order: rec.order.length ? rec.order : allRowsOf(lastState),
               closed: [...rec.closed, ow] });
-  // the active tab was closed: the board takes the neighbour to its right,
-  // or the one to its left at the end of the bar
+  // the open project was closed: the board takes the one after it in the
+  // list, or the one before it at the end
   if (activeOwner === ow){
     const i = open.indexOf(ow);
     const next = open[i + 1] || open[i - 1];
@@ -4962,9 +4418,9 @@ function closeTab(ow){
   }
   renderTabs(lastState);
 }
-// the one way back, and the way the reader already knows: the plus button's folder flow
-// lands here holding the lane whose folder was chosen. the key is dropped, the tab
-// is in the bar in its own place again, and the board steps onto it
+// the way back: the home page's rows and the folder chooser land here holding
+// the lane whose folder was chosen. the key is dropped, the project is in the
+// list in its own place again, and the board steps onto it
 function reopenTab(ow){
   if (lastState){
     const rec = tabRecord(lastState);
@@ -4974,309 +4430,11 @@ function reopenTab(ow){
   setTab(ow);   // this ends the choosing tab and lands on the card left here
   if (lastState) renderTabs(lastState);
 }
-// Horizontal intent is captured before a hover timer can change the cross.
-// The first clear direction then chooses that intent or the existing tear-out.
-function beginTabDrag(el, ow, e){
-  tabDrag = { ow, el, x: e.clientX, y: e.clientY, mode: null, pulled: false,
-    horizontal: el.classList.contains("armed") ? "reorder" : "select" };
-  if (tabArm) clearTimeout(tabArm.timer);
-}
-// the house holds the lens while Home is open, and the lens is taken off it as
-// it is taken off a name: pressed on the house and carried sideways, it leaves
-// as a name's lens and a release over a project opens that project. the house
-// has no reorder and no tear-out, so a first pull downward does nothing
-document.getElementById("homeico").addEventListener("mousedown", e => {
-  if (e.button !== 0 || !homeOpen || LOCKED || tabGlide) return;
-  beginTabDrag(document.getElementById("homeico"), null, e);
-  tabDrag.home = true;
-});
-// a drag that began on the house is not a click on it, even if it ends there
-document.getElementById("homeico").addEventListener("click", e => {
-  if (tabDrag?.home && tabDrag.mode === "selected") e.stopImmediatePropagation();
-});
-function shutTabBands(){
-  const all = [...document.querySelectorAll("#tabbar .ptab")];
-  for (const el of all){ el.style.transition = "none"; el.classList.remove("armed"); }
-  document.getElementById("tabbar").getBoundingClientRect();
-  for (const el of all) el.style.transition = "";
-}
-function startTabSelection(){
-  const t = tabDrag;
-  shutTabBands();
-  const r = t.el.getBoundingClientRect();
-  if (!r.width || !t.el.isConnected){ tabDrag = null; return; }
-  placeSeat();
-  t.mode = "select";
-  t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")].filter(el => el.getBoundingClientRect().width);
-  t.rects = t.tabs.map(el => el.getBoundingClientRect());
-  if (!t.rects.length){ tabDrag = null; return; }
-  const rowLeft = tabSeat.el.parentNode.getBoundingClientRect().left;
-  t.left = r.left - rowLeft;
-  t.source = r;
-  // the house is in the same row, so the lens can be carried onto it. it is a
-  // target only while it is on the bar (the narrow view keeps its own button)
-  const house = document.getElementById("homeico").getBoundingClientRect();
-  t.house = house.width ? house : null;
-  t.houseLeft = t.house ? t.house.left - rowLeft : 0;
-  // a drag from a name starts off the house; one from the house starts on it
-  t.onHouse = !!t.home;
-  const el = tabSeat.el;
-  el.classList.add("still", "carried"); el.classList.remove("gone");
-  el.classList.toggle("round", t.onHouse);   // a name's own lens, whatever the seat wore on Home
-  el.style.transition = "none";
-  el.style.translate = "";
-  el.style.width = r.width + "px";
-  el.style.transform = "translateX(" + t.left + "px)";
-}
-function tabHit(r, e){
-  return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-}
-// the name nearest an x: the one it is over or, between the house and the
-// names, the first
-function nearestTab(rects, x){
-  let near = rects[0], gap = Infinity;
-  for (const r of rects){
-    const d = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
-    if (d < gap){ gap = d; near = r; }
-  }
-  return near;
-}
-// a carried lens goes onto the house, or off it, the way a drag's release
-// slides it onto a name: from where it is seen, over the release's .28s on
-// --gentle, its width and its corner turning on the way. its place is written
-// at once to transform, so it goes on following the pointer, and the rest of
-// the way is a translate that runs out on that same curve
-const SEAT_GLIDE = "width .28s var(--gentle), translate .28s var(--gentle)";
-function seatGlide(el, x, w, round){
-  const from = el.getBoundingClientRect().left - el.parentNode.getBoundingClientRect().left;
-  el.style.transition = "width .28s var(--gentle)";   // a width already turning goes on from where it is
-  el.style.transform = "translateX(" + x + "px)";
-  el.style.translate = (from - x) + "px 0px";
-  el.style.width = w + "px";
-  el.classList.toggle("round", round);
-  el.classList.remove("still");   // the lens's corner turns with the width, as on a release
-  el.getBoundingClientRect();
-  el.style.transition = SEAT_GLIDE;
-  el.style.translate = "0px 0px";
-}
-function moveTabSelection(e){
-  const t = tabDrag, first = t.rects[0], last = t.rects[t.rects.length - 1];
-  const el = tabSeat.el;
-  // over the house the lens takes Home's circle, the shape a click on Home
-  // gives; a release here opens Home. off it the name lens is shown again
-  const onHouse = !!t.house && tabHit(t.house, e);
-  const crossed = onHouse !== t.onHouse;
-  // a lens taken off the house has no name of its own to wear: it is the
-  // width of the name nearest the pointer as it leaves, held until it is back
-  if (crossed && t.home && !onHouse){
-    const w = nearestTab(t.rects, e.clientX).width;
-    t.source = { left: t.house.left, right: t.house.left + w, width: w };
-  }
-  const source = t.source;
-  const x = onHouse ? t.houseLeft :
-    t.left + Math.max(first.left - source.left, Math.min(last.right - source.right, e.clientX - t.x));
-  if (!crossed){ el.style.transform = "translateX(" + x + "px)"; return; }
-  t.onHouse = onHouse;
-  // the circle with the house's width, the name's corners with its own
-  seatGlide(el, x, onHouse ? t.house.width : source.width, onHouse);
-}
-function finishTabSelection(e){
-  const t = tabDrag;
-  if (t?.mode !== "select") return;
-  const home = !!e && !!t.house && tabHit(t.house, e);
-  const index = e && !home ? t.rects.findIndex(r => tabHit(r, e)) : -1;
-  const owner = index < 0 ? null : t.tabs[index].dataset.owner;
-  // Keep a completed gesture until its synthetic click has passed, but allow
-  // the release's one setTab/apply to repaint the bar normally.
-  t.mode = "selected";
-  const el = tabSeat.el;
-  el.getBoundingClientRect();   // commit the dragged position before settling
-  el.style.transition = ""; el.classList.remove("carried", "still");
-  tabSeat.x = null; tabSeat.returning = true;
-  // Home opens through the house's own click, so an unfinished new project
-  // tab is put away exactly as a click on the house puts it away
-  if (home){ if (!homeOpen) document.getElementById("homeico").click(); }
-  else if (owner && validActiveOwnerIds.has(owner) && !tabClosed(owner) &&
-      (owner !== activeOwner || homeOpen || draft)) setTab(owner);
-  if (lastState) renderTabs(lastState);
-  placeSeat();
-}
-addEventListener("mousemove", e => {
-  if (!tabDrag) return;
-  if (tabDrag.mode === "selected"){ if (!e.buttons) tabDrag = null; return; }
-  if (!e.buttons){
-    if (tabDrag.mode === "reorder") dropReorder();
-    else if (tabDrag.mode === "select") finishTabSelection(null);
-    else tabDrag.el.classList.remove("tearing");
-    tabDrag = null;
-    return;
-  }
-  const dx = e.clientX - tabDrag.x, dy = e.clientY - tabDrag.y;
-  if (!tabDrag.mode){
-    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-    disarmTab();
-    if (Math.abs(dx) > Math.abs(dy)){
-      if (tabDrag.horizontal === "reorder") startReorder();
-      else startTabSelection();
-    } else if (tabDrag.home){ tabDrag = null; return; }
-    else tabDrag.mode = "tear";
-  }
-  if (!tabDrag) return;
-  if (tabDrag.mode === "reorder") moveReorder(e);
-  else if (tabDrag.mode === "select") moveTabSelection(e);
-  else if (!tabDrag.pulled && dy > 40){
-    tabDrag.pulled = true;
-    tabDrag.el.classList.add("tearing");
-  }
-});
-addEventListener("mouseup", e => {
-  const grip = tabDrag;
-  if (!grip) return;
-  const hoverOwner = e.target?.closest?.("#tabbar .ptab")?.dataset.owner;
-  if (tabDrag?.mode === "reorder") dropReorder();
-  else if (tabDrag?.mode === "select") finishTabSelection(e);
-  else if (tabDrag?.pulled){
-    tabDrag.el.classList.remove("tearing");
-    open(location.pathname + "?project=" + tabDrag.ow, "_blank",
-         "popup=yes,width=1100,height=850,left=" + Math.max(0, e.screenX - 200) + ",top=" + Math.max(0, e.screenY - 20));
-  }
-  setTimeout(() => {
-    if (tabDrag !== grip) return;
-    tabDrag = null;
-    // A click cancels the old dwell clock. Resting here afterwards starts a
-    // fresh one, even when the pointer has not left and re-entered the name.
-    const over = [...document.querySelectorAll("#tabbar .ptab")].find(t => t.dataset.owner === hoverOwner);
-    if (over?.matches(":hover")) tabDwell(over);
-  }, 0);
-});
-function cancelTabSelection(){
-  if (tabDrag?.mode !== "select") return;
-  finishTabSelection(null);
-}
-addEventListener("blur", cancelTabSelection);
-addEventListener("pointercancel", cancelTabSelection);
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") cancelTabSelection();
-});
-addEventListener("keydown", e => {
-  if (e.key === "Escape" && tabDrag?.mode === "select"){
-    cancelTabSelection(); e.preventDefault(); e.stopImmediatePropagation();
-  }
-}, true);
 
-// the sideways lock: the resting spots are measured once, the held tab lifts,
-// and every swap reads against those fixed midpoints
-function startReorder(){
-  const t = tabDrag;
-  shutTabBands();
-  // the strip is what the bar is actually showing: a closed tab is in the bar's
-  // markup but takes no room, so it would put a zero-width rect in the middle of
-  // the measured line and every midpoint after it would read wrong
-  t.tabs = [...document.querySelectorAll("#tabbar .ptab:not(.draft)")]
-    .filter(el => el.getBoundingClientRect().width);
-  t.idx = t.tabs.indexOf(t.el);
-  if (t.idx < 0){ tabDrag = null; return; }   // the bar rebuilt under the grip; the drag dies quietly
-  placeSeat();   // the band that just shut may have moved the seat's name
-  t.mode = "reorder";
-  t.rects = t.tabs.map(el => el.getBoundingClientRect());
-  t.gap = parseFloat(getComputedStyle(t.el.parentNode).columnGap) || 0;   // the oval's own flex gap
-  t.slot = t.idx;
-  t.el.classList.add("dragging");
-  for (const el of t.tabs) if (el !== t.el) el.classList.add("gliding");
-  // the seat stays with the open project's name: it rides the pointer with the
-  // held name when that is the open one, and glides aside with it otherwise,
-  // on the names' own curve. a held name that is not the open one wears a seat
-  // of its own while it is carried
-  t.on = t.tabs.findIndex(el => el.classList.contains("on"));
-  if (t.on === t.idx){
-    tabSeat.el.style.transition = "none";
-    tabSeat.el.classList.add("carried");
-  } else {
-    const o = t.el.parentNode.getBoundingClientRect();
-    t.held = makeLens("tabheld");
-    t.held.style.left = (t.rects[t.idx].left - o.left) + "px";
-    t.held.style.width = t.rects[t.idx].width + "px";
-    t.el.parentNode.appendChild(t.held);
-  }
-}
-function moveReorder(e){
-  const t = tabDrag, r = t.rects, i = t.idx;
-  const raw = e.clientX - t.x;
-  // the strip contains only what you see: the held tab pins at the ends,
-  // and the plus, the rule and a draft tab are never part of the drag
-  const dx = Math.max(r[0].left - r[i].left,
-             Math.min(r[r.length - 1].right - r[i].right, raw));
-  t.el.style.transform = "translate(" + dx + "px, -2px)";
-  if (t.held) t.held.style.transform = t.el.style.transform;
-  else tabSeat.el.style.translate = dx + "px -2px";
-  // the claim follows the pointer, never the pinned tab: a clamped center
-  // cannot pass an edge midpoint when the held tab is at least as wide as
-  // the edge tab, which walled off the first and last slots. counting the
-  // resting midpoints the pointer center has passed is monotone and yields
-  // every slot from 0 to the last, ends included, past the strip included
-  const center = r[i].left + r[i].width / 2 + raw;
-  let slot = 0;
-  for (let j = 0; j < r.length; j++)
-    if (j !== i && center > r[j].left + r[j].width / 2) slot++;
-  if (slot === t.slot) return;
-  t.slot = slot;
-  const shift = r[i].width + t.gap;
-  for (let j = 0; j < t.tabs.length; j++){
-    if (j === i) continue;
-    const move = j < i ? (j >= slot ? shift : 0) : (j <= slot ? -shift : 0);
-    t.tabs[j].style.transform = move ? "translateX(" + move + "px)" : "";
-    if (j === t.on) tabSeat.el.style.translate = move ? move + "px 0px" : "";
-  }
-}
-// the drop: the held tab glides the last stretch down into its slot, the
-// order is written down, and only after the glide does the bar repaint
-function dropReorder(){
-  const t = tabDrag, r = t.rects, i = t.idx, slot = t.slot;
-  let left = r[i].left;
-  if (slot > i) for (let j = i + 1; j <= slot; j++) left += r[j].width + t.gap;
-  if (slot < i) for (let j = slot; j < i; j++) left -= r[j].width + t.gap;
-  const strip = t.tabs.map(el => el.dataset.owner);
-  strip.splice(slot, 0, strip.splice(i, 1)[0]);
-  // closed tabs sat out of the drag, so the strip is not the whole order: the
-  // held lane is lifted out of the full order and set down behind the visible
-  // lane it now follows, which leaves every closed lane exactly where it was.
-  // with nothing closed the full order is the strip and this writes what it
-  // always wrote
-  const order = (lastState ? allRowsOf(lastState) : strip).filter(ow => ow !== t.ow);
-  const prev = strip[strip.indexOf(t.ow) - 1];
-  order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, t.ow);
-  writeTabs({ order, closed: tabRecord(lastState).closed });
-  t.el.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
-  t.el.style.transform = "translate(" + (left - r[i].left) + "px, 0)";
-  // the held name's seat glides down into the slot with it
-  if (t.held){
-    t.held.style.transition = t.el.style.transition;
-    t.held.style.transform = t.el.style.transform;
-  } else {
-    tabSeat.el.style.transition = "translate 220ms cubic-bezier(0.25, 1, 0.5, 1)";
-    tabSeat.el.style.translate = (left - r[i].left) + "px 0px";
-  }
-  tabGlide = setTimeout(() => {   // a timer, not transitionend: a zero-length glide fires no event
-    tabGlide = null;
-    t.el.classList.remove("dragging");
-    t.el.style.transition = ""; t.el.style.transform = "";
-    for (const el of t.tabs){ el.classList.remove("gliding"); el.style.transform = ""; }
-    if (t.held) removeLens(t.held);
-    // the seat is set down where it now stands, on its name's new place
-    tabSeat.el.style.transition = "none";
-    tabSeat.el.style.translate = "";
-    tabSeat.el.classList.remove("carried");
-    tabSeat.x = null;
-    document.getElementById("tabbar").dataset.sig = "";
-    if (lastState) renderTabs(lastState);
-    placeSeat();   // in the same frame as the translate it replaces
-    tabSeat.el.getBoundingClientRect();
-    tabSeat.el.style.transition = "";
-  }, 240);
-}
-
-// the plus tab: a fresh tab in a choosing state. It becomes a real lane only
-// when a folder is picked; switching away first drops it, no half-made lanes.
+// the new project tab: a fresh tab in a choosing state. It becomes a real lane
+// only when a folder is picked; switching away first drops it, no half-made
+// lanes. The bar's plus that opened it is gone: "Open a new folder" in the
+// pill's list goes straight to the folder chooser (pickFolder).
 const DRAFT = "__new__";
 let draft = null;   // {path} while the new tab is choosing its folder
 function projNote(msg){
@@ -5289,22 +4447,6 @@ function projNote(msg){
 function endDraft(){
   draft = null;
   document.body.classList.remove("choosing");
-}
-function plusClick(){
-  // a live server from before /project and /dirs serves no projects list in
-  // /state; the flow would only 404 there, so say what is missing instead
-  if (!lastState || !("projects" in lastState)){
-    projNote("new projects need the server restart");
-    return;
-  }
-  if (homeOpen) setHome(false);
-  draft = { screen: "home", from: activeOwner };
-  activeOwner = DRAFT;   // never saved: a reload forgets the unfinished tab
-  void document.body.offsetWidth;   // home's picker goes before the new tab shows it, so it rises and is drawn afresh
-  document.body.classList.add("choosing");
-  renderHome(lastState);
-  renderTabs(lastState);
-  apply(lastState);
 }
 // the picker's panel, on the new tab and on the home page alike: every project
 // the board holds as a row by its display name. on the new tab the open
@@ -5334,8 +4476,10 @@ function renderHome(st, onHome = !draft && homeOpen){
 }
 // the house leaves an unfinished new tab behind, back on the tab it came from,
 // and fills the picker's rows for the home page. this runs before the home
-// block's own listener opens the page
+// block's own listener opens the page. it shuts the pill's list too, which a
+// press on the house does already but Command + ` does not
 document.getElementById("homeico").addEventListener("click", () => {
+  closeProjMenu();
   if (homeOpen) return;
   if (draft){
     const back = draft.from;
@@ -5347,13 +4491,14 @@ document.getElementById("homeico").addEventListener("click", () => {
 // the start button hands folder choosing to the system: GET /pickdir opens
 // the desktop chooser and answers with the chosen path, which then creates
 // the lane the same way the old in-page browser did. the home page asks the
-// same way and ends the same way, on the new project's own board
-const homePick = { picking: false };
-document.getElementById("npstart").addEventListener("click", async () => {
-  const slot = draft || (homeOpen ? homePick : null);
+// same way and ends the same way, on the new project's own board, and so does
+// "Open a new folder" at the foot of the pill's list, from wherever it is
+const homePick = { picking: false }, menuPick = { picking: false };
+document.getElementById("npstart").addEventListener("click", () => pickFolder(draft || (homeOpen ? homePick : null)));
+async function pickFolder(slot){
   if (!slot || slot.picking) return;   // one chooser at a time
   slot.picking = true;
-  const here = () => slot === homePick ? homeOpen : !!draft;
+  const here = () => slot === menuPick || (slot === homePick ? homeOpen : !!draft);
   try {
     const x = await fetch("/pickdir").catch(() => null);
     if (!here()) return;   // the page was left while the chooser sat open
@@ -5399,20 +4544,24 @@ document.getElementById("npstart").addEventListener("click", async () => {
       return;
     }
     endDraft();
+    if (validActiveOwnerIds.has(activeOwner)){
+      projLeft = activeOwner;   // the project left leads the suggestions, as in setTab
+      try { localStorage.setItem("projleft", activeOwner); } catch (err) {}
+    }
     activeOwner = pr.id; localStorage.setItem("activeproj", pr.id);
     await poll();   // the new lane arrives with its tab label and directory
     // home stays up until the lane is drawn, so the old board never shows
-    if (slot === homePick && homeOpen) setHome(false);
+    if ((slot === homePick || slot === menuPick) && homeOpen) setHome(false);
   } finally {
     slot.picking = false;
   }
-});
+}
 
 // ---- the home page ---------------------------------------------------------
 // The house at the head of the bar opens it: one blank page above every
 // project, holding the token panel (home-widgets.js) and nothing else. Being on
 // it is this browser's own, like the open tab, so a reload comes back to it.
-// Any project tab leaves it for that project's board, and so does the plus.
+// Choosing any project leaves it for that project's board, and so does a new folder.
 // The counts are asked for when home opens and every few minutes while it
 // stays open and in view; the panel keeps its last drawing while it asks.
 // The limits box under it (the same file) is asked for every minute over the
@@ -5531,7 +4680,7 @@ function setHome(on){
     if (at && at !== document.body && document.getElementById("stage").contains(at)) at.blur();
     homeShow();
   }
-  if (lastState) renderTabs(lastState);   // no project tab is seated while home is up
+  if (lastState) renderTabs(lastState);   // no project is checked in the pill's list while home is up
   magicSync();   // a magic box goes with the board, and comes back with it
 }
 // the house is a place, like a tab: pressing it while home is up changes nothing
@@ -11439,11 +10588,12 @@ const boardShortcutActions = {
     if (!ownerReady || draft) return;
     newCard(activeOwner);
   },
+  // command+1 to 9: the projects in the pill's list, in its order
   tab(e, shortcut){
     if (!lastState) return;
     const owners = LOCKED ? [LOCKED] : rowsOf(lastState);
     const ow = owners[shortcut.value];
-    if (ow){ e.preventDefault(); setTab(ow); }
+    if (ow){ e.preventDefault(); closeProjMenu(); setTab(ow); }
   },
   // command+backtick: the house's click. the key is cancelled on the home page
   // and in a typing box too, so it types nothing

@@ -540,5 +540,7 @@ test("the Mac material remains byte-for-byte identical after removing the phone 
   const material = tokens.slice(start, tokens.indexOf("/* the one warning", start)).replace(", #tickets .trow.drawer-pick", "");
   assert.equal(createHash("sha256").update(material).digest("hex"),
     "7de1f01af29c6aa0cdacf17a7f0cb92e53a322b8e59561bef5fcdc372cc540dc");
-  assert.match(mac, /h\("span", "projectlens qn-glass " \+ cls\)/);
+  // the Mac's bar pieces and the pill's list still wear that one material
+  for (const id of ["homeico", "projpill", "chimebtn", "setbtn"]) assert.match(mac, new RegExp(`<button id="${id}" class="qn-glass"`));
+  assert.match(mac, /<div id="projmenu" class="qn-glass"/);
 });

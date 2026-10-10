@@ -1,5 +1,6 @@
-// Run the desktop's real shortcut listener, tab click, ordering and setTab in
-// a VM. Painting, card selection and Home rendering are stubbed; no browser.
+// Run the desktop's real shortcut listener, project choice (a row of the pill's
+// list or a faint name), ordering and setTab in a VM. Painting, card selection
+// and Home rendering are stubbed; no browser.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { readFileSync } = require("node:fs");
@@ -34,7 +35,7 @@ function fixture(overrides = {}) {
     endDraft() { context.draft = false; calls.push("end-draft"); },
     applySavedLayout() { calls.push("layout"); }, panelPoll() { calls.push("panel"); },
     chatPoll() { calls.push("chat"); }, fileNavPoll() { calls.push("files"); },
-    apply() { calls.push("apply"); },
+    apply() { calls.push("apply"); }, closeProjMenu() {},
     ...overrides,
   });
   const run = source => vm.runInContext(source, context);
@@ -44,14 +45,12 @@ function fixture(overrides = {}) {
   run(between("function rowsOf(state){", "function nav("));
   run(between("function onBoardPage(state){", "async function addPage(){"));
   run(between("const boardShortcutTyping =", "// releases, other keys"));
+  run(between("function chooseProject(ow){", "function projOpen(){"));
   return { context,
     snapshot: () => ({ home: context.homeOpen, owner: context.activeOwner, selected: context.selectedId,
       browsing: context.browsing, stored: store.get("activeproj"), calls: [...calls] }),
-    click(owner) {
-      context.ow = owner;
-      context.t = { addEventListener(type, fn) { assert.equal(type, "click"); fn(); } };
-      run(between('t.addEventListener("click", () => {\n        if (tabDrag?', '      oval.appendChild(t);'));
-    },
+    // a click on the project's row in the pill's list, or on its faint name
+    click(owner) { context.chooseProject(owner); },
     key(key, extra = {}) {
       const e = { key, metaKey: true, ctrlKey: false, shiftKey: false, altKey: false,
         target: { closest: () => null }, defaultPrevented: false,
