@@ -1149,8 +1149,8 @@
      from the right edge, and then comes in from the right, the other way from
      the list, which comes in from the left. the box
      hangs from the drawer's top at its own size (MagicBox.fit), so the card
-     goes down only as far as it needs, as it does for a short section. it
-     wears the card's raised shadow, being what is looked at while it is out.
+     goes down only as far as it needs, as it does for a short section. like
+     the list, it paints no panel and casts no shadow of its own.
      its bar stands at its foot (.barfoot), next to the card under it, and its
      lengths are the page's own, scaled as the card's are. its lead puts the
      first line's capitals 17px under the box's top, as the card's title's
@@ -1696,7 +1696,7 @@ for (const type of ["gesturestart", "gesturechange"])
     <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
     <!-- the card's magic box, which this same drawer brings down in place of the
          list when it is pulled out for the box -->
-    <section id="mbface" class="magicbox held barfoot" aria-label="magic box">
+    <section id="mbface" class="magicbox barfoot" aria-label="magic box">
       <div class="mbbar">
         <button type="button" class="mbclose" aria-label="Close the magic box"></button>
       </div>
