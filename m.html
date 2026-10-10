@@ -7613,20 +7613,20 @@ for (const type of ["touchstart", "mousedown"]) addEventListener(type, e => {
 // control+shift+period does for the box what control+shift+comma does for the
 // list, and the two keys share this one rule: the face asked for comes out,
 // and the key again puts it back. the settings go as it comes, as they always
-// did for the list; the drawer out with its other face goes back first, and
-// comes out again with this one once it has landed, since it cannot change
-// face on the way. typing or not, the key types nothing, and coming out takes
-// the caret out of its box (runMenu). on a card with no box the period does
-// nothing, and still types nothing: left alone, the phone types a period into
-// the reply box and corrects the word before it
+// did for the list. the drawer out with its other face changes face with the
+// card left down (drawerSwapFace); still going back with its other face, it
+// comes out again with this one once it has landed. typing or not, the key
+// types nothing, and coming out takes the caret out of its box (runMenu). on
+// a card with no box the period does nothing, and still types nothing: left
+// alone, the phone types a period into the reply box and corrects the word
+// before it
 let drawerSwap = 0;
 function drawerKey(e, box){
   e.preventDefault();
   if (box && !phoneMagicCard()) return;
   const swap = ++drawerSwap, same = tickets.classList.contains("boxface") === box;
-  if (same && menuOut() === tickets){ closeDrawer(); return; }
-  if (same || (menuOut() !== tickets && !listMoving())){ drawerFace(box); showMenu(tickets); return; }
-  if (menuOut() === tickets) closeDrawer();
+  if (menuOut() === tickets){ if (same) closeDrawer(); else drawerSwapFace(box, swap); return; }
+  if (same || !listMoving()){ drawerFace(box); showMenu(tickets); return; }
   // the drawer's movement, as settleTicketDrawer reads it: its hiding, which
   // waits out the whole run and more, is not waited for, since by then the
   // drawer is off the page and faded and its face can change unseen
@@ -7637,6 +7637,87 @@ function drawerKey(e, box){
     drawerFace(box);
     showMenu(tickets);
   });
+}
+// the drawer out with one face and asked for the other, the card already down:
+// the card stays down. the face that is out goes as the drawer goes when it
+// shuts, across to its own side and fading, on the shutting run's spring, with
+// its height held. once it is all but gone (DRAWER_SWAP_LEFT of the way still
+// to go, and faded to as little) the drawer changes face, and the other comes
+// in from its own side as the drawer does when it opens, on the opening run's
+// spring, while the card and the window glide from the old face's drop to the
+// new one's on the refit's own spring (fitList). both halves are played as
+// keyframes on the parts they move, as playList plays a run, and held to the
+// first frame that is drawn. a run, a pull or a key that comes meanwhile stops
+// it where it stands (stopList), as it stops a run. with reduced motion, or
+// no keyframes to play, the face changes where it stands
+const DRAWER_SWAP_LEFT = .02;   // share of the travel left when the face changes
+const DRAWER_SWAP_STEP = 8;     // ms between the keyframes each half is played through
+function drawerSwapFace(box, swap){
+  const showFace = () => {
+    tickets.classList.toggle("boxface", box);
+    tickets.dataset.side = box ? "right" : "left";
+    if (box) phoneMagicFit();
+    else if (lastState) renderTickets(lastState, "drawer", true);
+    fitList(true);
+    if (!box) tickets.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+  };
+  stopList();
+  ++ticketDrawerRun;
+  tickets.classList.remove("drawer-settled");
+  if (!LIST_KEYED || LIST_CALM?.matches){ showFace(); settleTicketDrawer(); return; }
+  document.body.classList.add("listkeys");   // the stylesheet's own runs stand aside
+  const from = listDrop, px = Math.max(listDrop || 0, innerWidth || 0), px3 = n => +n.toFixed(3) + "px";
+  const frames = (ms, at) => {
+    const keys = [];
+    for (let t = 0; ; t = Math.min(ms, t + DRAWER_SWAP_STEP)){
+      keys.push({ offset: ms ? t / ms : 1, ...at(t) });
+      if (t >= ms) return keys;
+    }
+  };
+  const play = (el, keys, ms, fill) => el.animate(keys, { duration: ms, easing: "linear", fill, id: "list-run" });
+  // going: the shutting run, cut where the face is all but gone, and held there
+  const shut = listSpring(1, 0, 0, px), away = menuTravel(tickets) * menuSign(tickets);
+  let cut = shut.ms;
+  for (let t = 0; t < shut.ms; t++) if (shut.at(t) <= DRAWER_SWAP_LEFT){ cut = t; break; }
+  const going = [
+    play(tickets, frames(cut, t => ({ transform: `translate3d(${px3((shut.at(t) - 1) * away)}, ${px3(-from)}, 0px)`,
+      opacity: Math.min(shut.at(t), LIST_FADE_TOP) })), cut, "both"),
+    ...tikArrows.map(el => play(el, frames(cut, t => ({ "--list-v": shut.at(t) })), cut, "both")),
+  ];
+  listPlay = going; listRun = null;
+  drawerSwapFirstFrame(going);
+  going[0].finished.then(() => {
+    if (swap !== drawerSwap || listPlay !== going || menuOut() !== tickets || (box && !phoneMagicCard())) return;
+    // coming: the other face on the opening run, and the card to its drop
+    showFace();
+    const to = listDrop, open = listSpring(0, 1, 0, px), toward = menuTravel(tickets) * menuSign(tickets);
+    const refit = Math.abs(to - from) >= .5 ? listSpring(0, 1, 0, Math.abs(to - from)) : null;
+    const ms = Math.max(open.ms, refit ? refit.ms : 0);
+    const drop = t => refit ? from + (to - from) * refit.at(t) : to;
+    const coming = [
+      play(tickets, frames(ms, t => ({ transform: `translate3d(${px3((open.at(t) - 1) * toward)}, ${px3(-drop(t))}, 0px)`,
+        opacity: Math.min(open.at(t), LIST_FADE_TOP) })), ms, "backwards"),
+      play(tikwin, frames(ms, t => ({ transform: `translate3d(0px, ${px3(drop(t))}, 0px)` })), ms, "backwards"),
+      play(cardPane, frames(ms, t => ({ transform: `translate(0px, ${px3(drop(t))})` })), ms, "backwards"),
+      ...tikArrows.map(el => play(el, frames(ms, t => ({ "--list-v": open.at(t) })), ms, "backwards")),
+    ];
+    for (const a of going) a.cancel();
+    listPlay = coming;
+    listRun = Object.assign(open, { keyed: true, played: true, until: performance.now() + ms + LIST_SETUP_MS });
+    drawerSwapFirstFrame(coming);
+    coming[0].finished.then(() => { if (listPlay === coming) settleTicketDrawer(); }, () => {});
+  }, () => {});
+}
+// keyframes wait for their first frame to be drawn, as playList's do, and
+// stand at their start meanwhile
+function drawerSwapFirstFrame(playing){
+  const now = document.timeline?.currentTime;
+  if (now == null || typeof requestAnimationFrame !== "function") return;
+  for (const a of playing) a.startTime = now + 60000;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const at = document.timeline.currentTime;
+    if (listPlay === playing && at != null) for (const a of playing) a.startTime = at;
+  }));
 }
 // the page's own script, reached through the names it already has: every
 // reading, every card put on show or taken off it, the cards button, which
