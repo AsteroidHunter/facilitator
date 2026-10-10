@@ -2,8 +2,8 @@
 // nine tenths of the card's height and 1.14 times the width of an iPhone 13
 // mini screen as tall as the card, smaller when the room right of the card is
 // short, in the middle of that room so the gap to the card and the gap to the
-// workspace's edge are equal, level with the card's middle, and over the card's
-// edge rather than off the workspace when the window has no room; inside that
+// workspace's edge are equal, level with the card's middle, and not shown at
+// all, never over the card, when the window has no room for it; inside that
 // largest box, a picture in its own shape and never past its own size, words
 // at their own height, hung from that box's top, under a top bar that keeps
 // its height. Its look, read from the page's source: no edge, face or shadow
@@ -26,7 +26,7 @@ function api() {
   vm.runInContext(read("magic-box.js"), scope);
   return scope.MagicBox;
 }
-const { CELL, TALL, WIDE, SHAPE, place } = api();
+const { TALL, WIDE, SHAPE, place } = api();
 const PHONE = 375 / 812;
 const close = (a, b, by = 1e-6) => Math.abs(a - b) < by;
 // the card where a new board puts it (index.html --frame-*), in stage pixels
@@ -34,14 +34,14 @@ const CARD = { left: 1440 * 0.324, top: 900 * 0.0832, width: 1440 * 0.352, heigh
 const RIGHT = c => c.left + c.width;
 const MIDDLE = r => r.top + r.height / 2;
 // the workspace in a window w wide, as magicPlace hands it over: the frame's
-// inner edges 6.5px in from the window's sides, the stage centred while the
-// window is wider than it, and the fit's clearance of 16 as the least gap
-const fitAt = (w, more = {}) => ({ scale: 1, tx: Math.max(0, (w - 1440) / 2), left: 6.5, right: w - 6.5, clear: 16, ...more });
+// inner right edge 6.5px in from the window's side, the stage centred while
+// the window is wider than it, and the fit's clearance of 16 as the least gap
+const fitAt = (w, more = {}) => ({ scale: 1, tx: Math.max(0, (w - 1440) / 2), right: w - 6.5, clear: 16, ...more });
 const edgeOf = fit => (fit.right - fit.tx) / fit.scale;
 // a box beside its card: its own shape, the two gaps equal, the middles level
 function besideRight(at, card, fit) {
   const gapCard = at.left - RIGHT(card), gapEdge = edgeOf(fit) - (at.left + at.width);
-  assert.equal(at.floating, false);
+  assert.equal(at.shown, true);
   assert.ok(close(at.width / at.height, SHAPE), `shape ${at.width / at.height}`);
   assert.ok(close(gapCard, gapEdge), `gaps ${gapCard} and ${gapEdge}`);
   assert.ok(gapCard >= fit.clear / fit.scale - 1e-6, `gap ${gapCard} under the clearance`);
@@ -62,7 +62,7 @@ test("the shape: an iPhone 13 mini screen as tall as the card, 5% off each end, 
 
 test("in the Mac's 1512 window: nine tenths of the card's height, 1.14 times the phone's width", () => {
   const fit = fitAt(1512);
-  const at = place(CARD, fit, 34);
+  const at = place(CARD, fit);
   const phone = { height: CARD.height, width: CARD.height * PHONE };   // the box as it was
   assert.ok(close(at.height / phone.height, 0.9), `height ${at.height / phone.height}`);
   assert.ok(close(at.width / phone.width, 1.14), `width ${at.width / phone.width}`);
@@ -74,7 +74,7 @@ test("in the Mac's 1512 window: nine tenths of the card's height, 1.14 times the
 
 test("a narrower window shrinks it, keeping the shape and the middle, with the least gap either side", () => {
   const fit = fitAt(1280);
-  const at = place(CARD, fit, 34);
+  const at = place(CARD, fit);
   assert.ok(at.height < TALL * CARD.height, `height ${at.height}`);
   assert.ok(close(besideRight(at, CARD, fit), 16), "both gaps are the clearance");
   assert.ok(close(at.width, edgeOf(fit) - RIGHT(CARD) - 32));
@@ -84,7 +84,7 @@ test("at every window width the gaps stay equal, and the box only grows as the w
   let last = 0;
   for (let w = 1235; w <= 1700; w += 7) {
     const fit = fitAt(w);
-    const at = place(CARD, fit, 34);
+    const at = place(CARD, fit);
     besideRight(at, CARD, fit);
     assert.ok(at.width >= last - 1e-6, `smaller at ${w}`);
     last = at.width;
@@ -95,53 +95,69 @@ test("at every window width the gaps stay equal, and the box only grows as the w
 test("a card made shorter or moved takes its box with it", () => {
   const fit = fitAt(1280);
   for (const card of [{ ...CARD, height: 520 }, { ...CARD, top: 180, height: 520 }, { ...CARD, left: 300 }]) {
-    const at = place(card, fit, 34);
+    const at = place(card, fit);
     besideRight(at, card, fit);
   }
-  const shorter = place({ ...CARD, height: 480 }, fit, 34);
+  const shorter = place({ ...CARD, height: 480 }, fit);
   assert.ok(close(shorter.height, TALL * 480), "a short enough card has a box nine tenths as tall as itself");
 });
 
 test("the room is read through the stage's scale and shift, in both panes", () => {
-  const scaled = { scale: 0.8, tx: 20, left: 6.5, right: 1100, clear: 16 };
-  const at = place(CARD, scaled, 34);
+  const scaled = { scale: 0.8, tx: 20, right: 1100, clear: 16 };
+  const at = place(CARD, scaled);
   // (1100 - 20) / .8 = 1350 on the stage, and the clearance is 16 screen pixels
   assert.ok(close(besideRight(at, CARD, scaled), 20), "16 on screen is 20 on a stage drawn at .8");
-  const pane = { scale: 0.9, tx: -300, left: 0, right: 1000, clear: 16 };   // the right pane
-  besideRight(place(CARD, pane, 34), CARD, pane);
+  const pane = { scale: 0.9, tx: -300, right: 1000, clear: 16 };   // the right pane
+  besideRight(place(CARD, pane), CARD, pane);
 });
 
-test("with less than half the card's height beside it, it floats over the card's edge", () => {
-  const fit = fitAt(1100);
-  const at = place(CARD, fit, 34);
-  assert.equal(at.floating, true);
-  assert.ok(close(at.width / at.height, SHAPE));
-  assert.ok(at.height <= TALL * CARD.height + 1e-6, "no taller than it would be beside the card");
-  assert.ok(close(edgeOf(fit) - (at.left + at.width), 16), "the clearance in from the workspace's edge");
-  assert.ok(at.left < RIGHT(CARD) && at.left > CARD.left, "over the card's right part");
-  assert.ok(at.top > CARD.top + 34 && at.top - (CARD.top + 34) < 2 * CELL, "under the card's top bar");
-  assert.ok(close(MIDDLE(at), MIDDLE(CARD)), "level with the card's middle");
+test("with less than half the card's height of room beside it, it is not shown, and never stands over the card", () => {
+  const at = place(CARD, fitAt(1100));
+  assert.equal(at.shown, false);
   // a window just wider than the threshold keeps it beside the card
   const just = fitAt(1240);
-  besideRight(place(CARD, just, 34), CARD, just);
+  besideRight(place(CARD, just), CARD, just);
+  // the threshold is half the card's height, exactly: one pixel either side
+  // of the window where the box would be that tall
+  const half = CARD.height / 2, at1 = RIGHT(CARD) + half * SHAPE + 2 * 16 + 6.5;
+  assert.equal(place(CARD, fitAt(at1 + 1)).shown, true);
+  assert.equal(place(CARD, fitAt(at1 - 1)).shown, false);
+  // at every width from a phone's to past the full size, a box that is shown
+  // stands right of the card with the clearance between them, and one that
+  // is not shown asks for nothing it cannot have
+  let seen = 0, gone = 0;
+  for (let w = 400; w <= 1700; w += 3) {
+    const fit = fitAt(w), at = place(CARD, fit);
+    if (at.shown) {
+      seen++;
+      assert.ok(at.left >= RIGHT(CARD) + 16 - 1e-6, `over the card at ${w}`);
+      assert.ok(at.height >= half - 1e-6, `too small to read at ${w}`);
+      besideRight(at, CARD, fit);
+    } else {
+      gone++;
+      assert.ok(Number.isFinite(at.width) && at.width >= 0 && Number.isFinite(at.left), `odd numbers at ${w}`);
+    }
+  }
+  assert.ok(seen && gone, "both sides of the threshold were crossed");
 });
 
-test("in a window narrower than the box it never starts left of the workspace", () => {
-  const fit = { scale: 1, tx: 0, left: 600, right: 700, clear: 16 };
-  const at = place(CARD, fit, 34);
-  assert.equal(at.floating, true);
-  assert.ok(at.left >= 616 - 1e-6 && at.left + at.width <= 684 + 1e-6, `${at.left} to ${at.left + at.width}`);
-  assert.ok(close(at.width / at.height, SHAPE));
-  assert.ok(close(MIDDLE(at), MIDDLE(CARD)));
+test("the room is all it asks: the same card shows again in a wider window, and in a narrower one hides", () => {
+  // place() keeps nothing between calls: what it says comes from the card and
+  // the window alone, so the box is back the moment the window is wide enough
+  const narrow = place(CARD, fitAt(1100)), wide = place(CARD, fitAt(1512)), again = place(CARD, fitAt(1100));
+  assert.deepEqual([narrow.shown, wide.shown, again.shown], [false, true, false]);
+  const tiny = place(CARD, { scale: 1, tx: 0, right: 700, clear: 16 });
+  assert.equal(tiny.shown, false);
+  assert.ok(tiny.width >= 0, "never a size below nothing");
 });
 
 // what the box shows, inside the largest box there is room for
-const SIZED = (want, fit = fitAt(1512)) => ({ most: place(CARD, fit, 34), at: place(CARD, fit, 34, want), fit });
+const SIZED = (want, fit = fitAt(1512)) => ({ most: place(CARD, fit), at: place(CARD, fit, want), fit });
 function sizedRight({ most, at, fit }) {
   assert.ok(at.width <= most.width + 1e-6 && at.height <= most.height + 1e-6, "never larger than the largest box");
   assert.ok(close(at.top, most.top), "its top on the largest box's top, not centred up and down");
-  assert.equal(at.floating, most.floating);
-  if (!at.floating) {
+  assert.equal(at.shown, most.shown);
+  if (at.shown) {
     const gapCard = at.left - RIGHT(CARD), gapEdge = edgeOf(fit) - (at.left + at.width);
     assert.ok(close(gapCard, gapEdge), `gaps ${gapCard} and ${gapEdge}`);
   }
@@ -150,7 +166,7 @@ function sizedRight({ most, at, fit }) {
 
 test("a wide picture gets a wide, short box and a tall one a tall, narrow box, in its own shape", () => {
   const wide = sizedRight(SIZED({ width: 2000, height: 1000 }));
-  assert.ok(close(wide.width / wide.height, 2) && close(wide.width, place(CARD, fitAt(1512), 34).width), "as wide as there is room");
+  assert.ok(close(wide.width / wide.height, 2) && close(wide.width, place(CARD, fitAt(1512)).width), "as wide as there is room");
   const tall = sizedRight(SIZED({ width: 600, height: 2400 }));
   assert.ok(close(tall.width / tall.height, 0.25) && close(tall.height, TALL * CARD.height), "as tall as there is room");
   const square = sizedRight(SIZED({ width: 1500, height: 1500 }));
@@ -161,11 +177,11 @@ test("a picture is never drawn past its own size, and a small one keeps its size
   const small = sizedRight(SIZED({ width: 200, height: 120 }));
   assert.deepEqual([small.width, small.height], [200, 120]);
   // the gaps are equal for the narrower width too
-  assert.ok(small.left - RIGHT(CARD) > place(CARD, fitAt(1512), 34).left - RIGHT(CARD));
+  assert.ok(small.left - RIGHT(CARD) > place(CARD, fitAt(1512)).left - RIGHT(CARD));
 });
 
 test("words take their own height up to the largest box, then scroll; a page or a site takes all of it", () => {
-  const most = place(CARD, fitAt(1512), 34);
+  const most = place(CARD, fitAt(1512));
   const short = sizedRight(SIZED({ height: 180 }));
   assert.deepEqual([short.width, short.height], [most.width, 180], "the full width, their own height");
   const long = sizedRight(SIZED({ height: 5000 }));
@@ -175,22 +191,29 @@ test("words take their own height up to the largest box, then scroll; a page or 
   assert.ok(close(short.top - CARD.top, 0.05 * CARD.height));
   assert.ok(short.top + short.height < MIDDLE(CARD), "well above the card's middle");
   assert.equal(short.left, most.left);
-  assert.deepEqual(place(CARD, fitAt(1512), 34, null), most, "a page or a site asks for nothing");
+  assert.deepEqual(place(CARD, fitAt(1512), null), most, "a page or a site asks for nothing");
 });
 
-test("in a narrow window the picture is fitted inside the smaller box, and in no room it floats the same way", () => {
-  sizedRight(SIZED({ width: 2000, height: 1000 }, fitAt(1280)));
-  const afloat = sizedRight(SIZED({ width: 2000, height: 1000 }, fitAt(1100)));
-  assert.equal(afloat.floating, true);
-  assert.ok(close(edgeOf(fitAt(1100)) - (afloat.left + afloat.width), 16), "the clearance in from the workspace's edge");
+test("in a narrow window the picture is fitted inside the smaller box, and in no room it is not shown either", () => {
+  assert.equal(sizedRight(SIZED({ width: 2000, height: 1000 }, fitAt(1280))).shown, true);
+  assert.equal(sizedRight(SIZED({ width: 2000, height: 1000 }, fitAt(1100))).shown, false);
 });
 
 test("the page hands the box the workspace's own edges, the fit's clearance and what it shows", () => {
   const html = read("index.html");
-  const fn = html.slice(html.indexOf("function magicPlace(){"), html.indexOf("MB.el.classList.toggle(\"floating\""));
-  assert.match(fn, /left: lim\.left - FRAME_CLEAR, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR/);
-  assert.match(fn, /MagicBox\.place\(rect, fit, bar, MB\.view\.want\(most, S\)\)/);
+  const start = html.indexOf("function magicPlace(){"), fn = html.slice(start, html.indexOf("\n}\n", start));
+  assert.match(fn, /const fit = \{ scale: S, tx: stageTx, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR \};/);
+  // no room beside the card: hidden where it is, before anything is sized
+  // or asked of what it shows, and nothing else is done with it
+  assert.match(fn, /const most = MagicBox\.place\(rect, fit\);\n  if \(!most\.shown\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n/);
+  assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\)\)/);
   assert.match(fn, /visibility: MB\.view\.waiting\(\) \? "hidden" : ""/);
+  assert.ok(!/floating|--cardbar-h/.test(fn), "a float is left in the placing");
+  // still open: hiding it closes nothing and takes nothing off the page, and
+  // every fit and every reading of the board place it again
+  assert.ok(!/magicOff|magicClose|classList\.remove/.test(fn), "hiding it puts it away");
+  assert.match(html, /magicSync\(\);      \/\/ and the card's magic box follows the card/);
+  assert.match(html, /function magicSync\(\)\{[\s\S]*?else magicPlace\(\);\n\}/);
   assert.match(html, /const FRAME_CLEAR = 16;/);
   // what it shows asks for, in the shared view (card-logic.js): a picture as
   // many of the page's pixels as it has pixels on screen, its size read once off
@@ -219,11 +242,11 @@ test("in any room, what the box shows is fitted the same way: the phone's drawer
 });
 
 test("a picture's top bar keeps its height while the picture under it is fitted to what is left", () => {
-  const fit = fitAt(1512), most = place(CARD, fit, 34), bar = 34;
-  const tall = place(CARD, fit, 34, { width: 600, height: 2400, head: bar });
+  const fit = fitAt(1512), most = place(CARD, fit), bar = 34;
+  const tall = place(CARD, fit, { width: 600, height: 2400, head: bar });
   assert.ok(close(tall.height, most.height), "as tall as the largest box, bar and all");
   assert.ok(close((tall.height - bar) / tall.width, 4), "the picture keeps its own shape under the bar");
-  const small = place(CARD, fit, 34, { width: 200, height: 120, head: bar });
+  const small = place(CARD, fit, { width: 200, height: 120, head: bar });
   assert.deepEqual([small.width, small.height], [200, 120 + bar], "a small picture keeps its size, the bar above it");
   assert.ok(close(small.top, most.top), "and hangs from the largest box's top");
 });
@@ -256,12 +279,11 @@ test("the box has no frame, face or shadow: a short bar parted from what it hold
   assert.ok(!/background|border|radius|box-shadow/.test(box), "the box draws a frame of its own");
   assert.ok(!/box-shadow/.test(block), "something in the box casts a shadow");
   assert.ok(!/\.magicbox\.held|body\.lowered \.magicbox/.test(block), "a shadow state is left");
-  // the board only says where it stands and its words' inset; floated over
-  // the card for want of room, it stands on the board's own paper, so the
-  // card's words do not show through it, still with no edge or shadow
+  // the board only says where it stands and its words' inset. it never
+  // floats over the card, so it has no paper of its own for that either
   const on = html.slice(html.indexOf("  body.focus #magicbox.on{"), html.indexOf("}", html.indexOf("  body.focus #magicbox.on{")));
   assert.match(on, /display:flex; position:fixed; z-index:1; --mb-inset:calc\(var\(--pad-x\)\*2\/3\)/);
-  assert.match(html, /  body\.focus #magicbox\.on\.floating\{background:var\(--paper\)\}/);
+  assert.ok(!/#magicbox[^{]*\.floating|\.magicbox[^{]*\.floating/.test(html), "a floating box is left");
   assert.ok(!/#magicbox \.mb/.test(html), "no look of its own on the board");
   // the bar: nothing of its own, the cross's seat with the same gap over and
   // under it as at the box's side, so the cross's middle stands as far from
@@ -456,13 +478,12 @@ test("clicking into the box moves no shadow, the card's or its own", () => {
   assert.ok(html.includes("  body.focus.lowered main{box-shadow:none}"));
   assert.ok(!/#magicbox[^{]*main\s*\{/.test(style), "the card's shadow still answers to its box");
   // and neither page gives its box a shadow, an edge or a face: no rule there
-  // whose subject, the last part of the selector, is the box sets one, but
-  // the board's floating box, which stands on the board's own paper
+  // whose subject, the last part of the selector, is the box sets one
   const subjects = selectors => selectors.split(",").map(s => s.trim().split(/\s+/).pop());
   for (const [name, page] of [["index.html", html], ["m.html", phone]]) {
     const own = [...code(page.slice(0, page.indexOf("</style>"))).matchAll(/([^{}]*)\{([^}]*)\}/g)]
       .filter(m => /box-shadow|border|background/.test(m[2]) && subjects(m[1]).some(s => /^(#magicbox|#mbface|\.magicbox)\b/.test(s)));
-    assert.deepEqual(own.map(m => m[1].trim()), name === "index.html" ? ["body.focus #magicbox.on.floating"] : [],
+    assert.deepEqual(own.map(m => m[1].trim()), [],
       name + " dresses its box itself");
   }
 });
