@@ -12,7 +12,7 @@ To install, run `./install.sh` in the downloaded folder. It needs Claude Code or
 
 From the agent conversation that owns your lane, repeat the current two-call production protocol. The installed `facilitator` skill resolves the lane and its `scripts/onboard.py wait` helper makes both calls for each claim. In every command here, `$PORT` is the board's port: the `port` that `scripts/onboard.py inspect` reports, which is the `port` in `run.config.json` (8877 unless `facilitator run` has moved the board to another pair). Read it fresh rather than remembering it, since a board that moved stays on its new port, and set it once in your shell (`PORT=8877`, say) or write the number in:
 
-    curl --max-time 60 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=50&agent=claude"
+    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=claude"
     curl -sS -X POST "http://127.0.0.1:$PORT/ack?owner=facilitator&token=<the ack field>"
 
 `agent=` states your name; the board's card rows show each lane's live agent name, or offline, from exactly this. It returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, or `{"idle": true}` on timeout.
@@ -121,8 +121,8 @@ Only your own Mac can use the board: its address works only on this Mac, and it 
 
 Two agents share one board. Every box carries an owner tag: `facilitator` (discussion about this tool, served by this repo's agent) or a project lane such as `example` (the project under discussion, served by its own agent). `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to facilitator. The server always registers the `facilitator` owner, so that default answers on a board whose `lanes` list is empty, but nothing is drawn for it until a card or a project gives it a tab: a fresh install's `run.config.example.json` has `"lanes": []` and `"navigator_lanes": []`, and no board begins with a lane nobody made. A lane is added to `run.config.json` by hand as `{"owner": "myproject", "tmux": "<tmux session>", "dir": "~/projects/myproject", "instruction": "<what to type to attach its agent>", "prompt": "<what a new agent session starts with>"}`: `owner` is required, `tmux` and `instruction` are what `facilitator run --attach` uses, `dir` and `prompt` are what `--spawn` uses, and `dir` is also the folder the board shows for that lane. A project added from the home page needs no lane entry. Nothing rewrites an existing `run.config.json`, so a board that has lanes keeps them. Two meta sections sit on top, tool-meta first, each with its own plus button; user-created boxes inherit the section's owner; the writing indicator and the offline banner name the agent. Every meta box carries the owner's remove cross, any standing card the seed placed included (box `0` for the tool lane, for instance); a lane with its standing box removed just works from its remaining boxes, and notes that would have gone there go to an open box or the project docs. The two loops, side by side:
 
-    curl --max-time 60 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=50&agent=claude"
-    curl --max-time 60 -sS "http://127.0.0.1:$PORT/wait?owner=example&timeout=50&agent=claude"
+    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=claude"
+    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=example&timeout=420&agent=claude"
 
 Each lane confirms its own claims against its own owner: `POST /ack?owner=facilitator&token=...` and `POST /ack?owner=example&token=...`. A token belongs to one lane's claim and is refused (409) anywhere else.
 

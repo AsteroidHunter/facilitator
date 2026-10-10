@@ -13,6 +13,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 RUNBOOK = REPO / "RUNBOOK.md"
+LISTEN_SECONDS = 420
+CLIENT_SLACK = 10
 
 
 def output(status, **fields):
@@ -142,7 +144,7 @@ def wait(args):
         return
     query = urllib.parse.urlencode({"owner": owner, "timeout": args.timeout, "agent": args.agent})
     try:
-        claim = request("GET", f"/wait?{query}", timeout=args.timeout + 10)
+        claim = request("GET", f"/wait?{query}", timeout=args.timeout + CLIENT_SLACK)
         if not isinstance(claim, dict):
             output("protocol_error", detail="invalid wait response")
             return
@@ -173,8 +175,10 @@ def main():
     wait_parser = commands.add_parser("wait", help="receive and immediately confirm one claim")
     wait_parser.add_argument("--owner", required=True)
     wait_parser.add_argument("--agent", default="agent")
-    wait_parser.add_argument("--timeout", type=int, choices=range(1, 541), default=50,
-                             metavar="SECONDS")
+    wait_parser.add_argument("--timeout", type=int, choices=range(1, 541), default=LISTEN_SECONDS,
+                             metavar="SECONDS",
+                             help=f"seconds to listen in one request, 1 to 540 (default {LISTEN_SECONDS}, "
+                                  f"7 minutes); the client deadline is {CLIENT_SLACK} seconds longer")
     args = parser.parse_args()
     (inspect if args.command == "inspect" else wait)(args)
 

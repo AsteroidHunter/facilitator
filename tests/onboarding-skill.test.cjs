@@ -216,3 +216,58 @@ test('an active waiter is detected, and a stopped board is reported without star
     assert.equal((await f.run(f.project, 'inspect')).status, 'down');
   } finally { await f.close(); }
 });
+
+// The listen length is written in several places that must agree: the helper's
+// default, its client deadline and help text, the skill's instruction and the
+// RUNBOOK's loop. These pin them together.
+const LISTEN = 420;
+
+test('the helper listens 420 seconds by default in one request, with its client deadline 10 seconds above', async () => {
+  const helperPath = path.join(ROOT, '.agents/skills/facilitator/scripts/onboard.py');
+  const probe = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("onboard", ${JSON.stringify(helperPath)})
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+calls = []
+mod.board = lambda: ({"busy": {"garden": None}, "listening": {}}, None)
+def fake(method, route, *, timeout=3):
+    calls.append([method, route, timeout])
+    return {"idle": True}
+mod.request = fake
+sys.argv = ["onboard.py", "wait", "--owner", "garden", "--agent", "codex"]
+mod.main()
+sys.argv = ["onboard.py", "wait", "--owner", "garden", "--timeout", "90"]
+mod.main()
+print(json.dumps(calls))`;
+  const { stdout } = await exec(PYTHON, ['-c', probe], { timeout: 30000 });
+  const calls = JSON.parse(stdout.trim().split('\n').pop());
+  assert.equal(calls.length, 2, 'each wait is one request');
+  assert.equal(calls[0][0], 'GET');
+  assert.equal(new URL('http://x' + calls[0][1]).searchParams.get('timeout'), String(LISTEN));
+  assert.equal(calls[0][2], LISTEN + 10);
+  assert.equal(new URL('http://x' + calls[1][1]).searchParams.get('timeout'), '90');
+  assert.equal(calls[1][2], 100);
+  for (const bad of ['0', '541']) {
+    await assert.rejects(exec(PYTHON, [helperPath, 'wait', '--owner', 'garden', '--timeout', bad], { timeout: 30000 }));
+  }
+  const help = (await exec(PYTHON, [helperPath, 'wait', '--help'], { timeout: 30000 })).stdout;
+  assert.match(help, /default 420/);
+  assert.doesNotMatch(help, /default 50\b/);
+});
+
+test('the skill and the RUNBOOK loop state the 7 minute listen and no longer the 50 second one', async () => {
+  const skill = await fs.readFile(path.join(ROOT, '.agents/skills/facilitator/SKILL.md'), 'utf8');
+  assert.match(skill, /up to 7 minutes \(420 seconds\) in one request/);
+  assert.match(skill, /430-second client deadline/);
+  assert.match(skill, /Claude Code, call Bash with the tool `timeout` set to 600000/);
+  assert.match(skill, /In Codex[^.]*still-running session[^.]*\bwrite_stdin\b/);
+  assert.doesNotMatch(skill, /50 seconds|60-second/);
+  const runbook = await fs.readFile(path.join(ROOT, 'RUNBOOK.md'), 'utf8');
+  const loops = runbook.match(/curl --max-time \d+ -sS "[^"]*\/wait\?[^"]*"/g);
+  assert.equal(loops.length, 3);
+  for (const line of loops) {
+    assert.match(line, /--max-time 430 /);
+    assert.match(line, /[?&]timeout=420&/);
+  }
+  assert.doesNotMatch(runbook, /timeout=50\b/);
+});
