@@ -142,26 +142,12 @@
 
 /* The four marks are drawn --chip-scale times --bar-mark (the sunset a further
    --done-scale, see DONE_ICON), and each stands in a seat of --bar-sq, the
-   rectangle a hover or a press paints, the same size for all four. the marks are
-   not the same width, though, so seats an equal step apart would leave unequal
-   air between the marks themselves. each page names the air it wants,
-   --bar-ink-gap, from one mark's edge to the next one's, and the seats are
-   moved apart by what each pair's widths ask for: --ink-sun, --ink-dock,
-   --ink-moon and --ink-done are the widths of the ink as shares of the drawn
-   size, read off the paths with their strokes. a seat's margin is its distance
-   from the seat before it, so the grid's columns (auto) take the margin with the
-   seat, and a spinner that stands in the cloud's cell takes the same margin and
-   so keeps the cell's centre, the seat's centre */
-.topbar{
-  --chip-w:calc(var(--bar-mark) * var(--chip-scale));
-  --seat-gap-dock:calc(var(--bar-ink-gap) + (var(--ink-sun) + var(--ink-dock)) / 2 * var(--chip-w) - var(--bar-sq));
-  --seat-gap-moon:calc(var(--bar-ink-gap) + (var(--ink-dock) + var(--ink-moon)) / 2 * var(--chip-w) - var(--bar-sq));
-  --seat-gap-done:calc(var(--bar-ink-gap) + (var(--ink-moon) + var(--ink-done)) / 2 * var(--chip-w) - var(--bar-sq));
-}
-.topbar > .dockbtn{margin-left:var(--seat-gap-dock)}
-.topbar > .arcbtn{margin-left:var(--seat-gap-moon)}
-.topbar > .xbtn{margin-left:var(--seat-gap-done)}
-.topbar:has(> .dockbtn[aria-disabled="true"]) > .cardspin{margin-left:var(--seat-gap-dock)}
+   rectangle a hover or a press paints, the same size for all four. the board's
+   seats keep the step they always had (--bar-gap-chips in index.html). the phone
+   page spaces its seats by the width of the marks instead, so the air between
+   neighbouring marks is the same all along its bar, and reads the widths of the
+   ink from here: --ink-sun, --ink-dock, --ink-moon and --ink-done are the widths
+   of the ink as shares of the drawn size, read off the paths with their strokes */
 
 /* The head and the ticket border boxes share the pane's side insets. Each
    triangle points at that edge from inside the box. Exclude the head's top

@@ -169,17 +169,17 @@
   /* the card's own top bar */
   :root{
     --bar-sq:24px;
-    --bar-gap-hist:4px; --bar-ink-gap:16px; --bar-lead:2px; --bar-tail:5px;
+    --bar-gap-hist:4px; --bar-gap-chips:1px; --bar-lead:2px; --bar-tail:5px;
     --histpos-room:2px; --pathline-h:15px;
   }
   .topbar{display:none}
   body.focus .box.sel .topbar{
     --hist-cell:var(--bar-sq);
     display:grid; align-items:center; flex:none; position:relative;
-    grid-template-columns:minmax(0, 1fr) repeat(4, auto);
+    grid-template-columns:minmax(0, 1fr) repeat(4, var(--bar-sq));
     grid-template-rows:minmax(0, 1fr);
     grid-template-areas:"hist sun dock moon cross";
-    column-gap:0;
+    column-gap:var(--bar-gap-chips);
     height:var(--cardbar-h);
     margin:calc(var(--ch)*-0.022) calc(var(--pad-x)*-1)
            calc(var(--ch)*0.022 + var(--pathline-h) - var(--cardbar-h));
