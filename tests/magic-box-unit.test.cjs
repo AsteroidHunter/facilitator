@@ -351,6 +351,26 @@ test("what the box holds keeps white at its far edge, and words that scroll diss
   assert.match(logic, /head = view\.bar\.offsetHeight \+ \(parseFloat\(air\.marginTop\) \|\| 0\) \+ \(parseFloat\(air\.marginBottom\) \|\| 0\);/);
 });
 
+test("the words start as far under the bar as the card's title does under its own, a heading first or not", () => {
+  const sheet = boxSheet(), phone = read("m.html");
+  // the first line keeps no top margin of its own: a heading's would add a
+  // line's worth of white over it
+  assert.match(sheet, /\.magicbox \.mbtext > :first-child\{margin-top:0\}/);
+  // the words' top padding is the lead less what white the box already keeps
+  // over them, so the first line stands --mb-lead under the bar's foot, or
+  // under the box's top where the bar stands at the foot
+  assert.match(sheet, /\.magicbox \.mbtext\{[^}]*padding-top:calc\(var\(--mb-lead\) - var\(--mb-air-head\)\);/);
+  // measured on the simulators: the card's title's capitals stand 19.2px under
+  // the card's bar on the board and 17.4px on the phone; a first line's
+  // capitals stand 6.1px (a heading) to 6.5px (plain words) under its top
+  const box = sheet.match(/\n\.magicbox\{([^}]*)\}/)[1];
+  const lead = +box.match(/--mb-lead:(\d+(?:\.\d+)?)px;/)[1];
+  assert.ok(Math.abs(lead + 6.1 - 19.2) < .6 && Math.abs(lead + 6.5 - 19.2) < .6, "the board's lead does not put the first line where the card's title stands");
+  const own = phone.match(/  #mbface\{display:none;([^}]*)\}/)[1];
+  const phoneLead = +own.match(/--mb-lead:calc\((\d+(?:\.\d+)?) \* var\(--u\)\)/)[1] * .984;
+  assert.ok(Math.abs(phoneLead + 6.1 - 17.4) < .6 && Math.abs(phoneLead + 6.5 - 17.4) < .6, "the phone's lead does not put the first line where the card's title stands");
+});
+
 // the view's two bands, worked on a stand-in body: none at rest, the top one as
 // the words scroll, capped at the fuzz's depth, and none at the end of the scroll
 test("the box's bands follow the words' scroll, capped at the fuzz's depth", () => {

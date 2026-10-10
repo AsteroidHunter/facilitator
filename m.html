@@ -1152,9 +1152,12 @@
      goes down only as far as it needs, as it does for a short section. it
      wears the card's raised shadow, being what is looked at while it is out.
      its bar stands at its foot (.barfoot), next to the card under it, and its
-     lengths are the page's own, scaled as the card's are */
+     lengths are the page's own, scaled as the card's are. its lead puts the
+     first line's capitals 17px under the box's top, as the card's title's
+     stand under the card's own bar here (measured) */
   #mbface{display:none; --mb-inset:calc(16 * var(--u));
-    --mb-x:calc(20 * var(--u)); --mb-gap:calc(5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u))}
+    --mb-x:calc(20 * var(--u)); --mb-gap:calc(5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u));
+    --mb-lead:calc(11.5 * var(--u))}
   #tickets.boxface > #tikhead, #tickets.boxface > #tiklist{display:none}
   #tickets.boxface > #mbface{display:flex; flex:none; align-self:center}
   #tickets[data-side="right"]{
