@@ -4009,8 +4009,8 @@ function syncSent(el, batch, arrive){
   drawn.forEach(({ panel, born }, i) => {
     stackAnswered(panel, panel.sentMsgs);
     // a bubble standing where the one above it stands waits to join it, and its
-    // word with it; a merge under way holds both its bubbles' words itself
-    if (!merging || (panel !== merging.a && panel !== merging.b))
+    // word with it; a merge under way holds its bubbles' words itself
+    if (!merging || !merging.panels.includes(panel))
       panel.markHeld = i > 0 && sentStands(drawn[i - 1].panel.sentMsgs) === sentStands(panel.sentMsgs);
     sentMarks(panel, panel.sentMsgs, !born);
     fitAnswered(panel);
@@ -4116,6 +4116,13 @@ function sentCoalesce(el){
       sentCoalesce(el);
       return;
     }
+    // three or more standing in one place fall together, once none is busy
+    const column = sentColumnOf(panels, i - 1);
+    if (column.length > 2 && column.every(sentMotionVisible)){
+      if (column.some(sentBusy)) return;
+      sentColumnMove(el, column);
+      return;
+    }
     if (sentBusy(a) || sentBusy(b)) return;
     sentMove(el, a, b);
     return;
@@ -4146,7 +4153,7 @@ function sentJoin(el, a, b){
 // under it as it falls, if the two still stand in one place and nothing else
 // has taken them
 function sentMove(el, a, b){
-  const run = el.sentMerge = { a, b, stage:"move", timers:[], shifts:[] };
+  const run = el.sentMerge = { a, b, panels:[a, b], stage:"move", timers:[], shifts:[] };
   a.markHeld = b.markHeld = true;
   a.classList.add("coalesce");
   const msgs = a.sentMsgs.concat(b.sentMsgs);
@@ -4177,6 +4184,7 @@ function sentMove(el, a, b){
       sentCoalesce(el);
       return;
     }
+    if (sentColumnGrown(el, run)) return;
     sentMerge(el, run);
   });
 }
@@ -4187,7 +4195,7 @@ function sentMoveBack(el){
   if (!run) return;
   sentMergeStop(el);
   const panels = sentPanels(el);
-  for (const one of [run.a, run.b]){
+  for (const one of run.panels){
     if (!one.isConnected) continue;
     const i = panels.indexOf(one);
     one.markHeld = i > 0 && sentStands(panels[i - 1].sentMsgs) === sentStands(one.sentMsgs);
@@ -4203,7 +4211,7 @@ function sentMergeStop(el){
   if (run.stage === "merge"){ sentMergeLand(el); return; }
   el.sentMerge = null;
   for (const timer of run.timers) clearTimeout(timer);
-  for (const one of [run.a, run.b]) one.classList.remove("coalesce", "markout", "markmove");
+  for (const one of run.panels) one.classList.remove("coalesce", "markout", "markmove");
 }
 
 // the merge itself. the joined bubble is laid out at once, where it will
@@ -4371,6 +4379,322 @@ function sentMergeLand(el){
   panel.classList.remove("coalesce");
   setMark(panel, panel.dataset.tag || "", true);
   if (el.sentRoom && panel.isConnected) el.sentRoom();
+}
+
+// ---- a column falling together -----------------------------------------------------------
+// three or more bubbles side by side standing in one place do not join two at
+// a time (the owner's word): once the word under each has gone they all let go
+// at the same moment and fall the way stacked blocks dropped together fall.
+// each falls from rest on the same steady pull (COLUMN_PULL), so while they all
+// fall they keep the room between them; the bubble at the foot stands where it
+// is, as the later bubble of a pair does, and the one just above it lands on it
+// first; each one above lands on the one below a moment later, the moments
+// coming closer as the ones higher up have gathered more speed, so the column
+// settles from the foot up. each lands with its head at the joined bubble's
+// head and stops there, as a dropped block stops, and its joint with what it
+// landed on settles over COLUMN_SETTLE_MS, as a pair's joint does over the
+// last fifth of its merge. the outline is each neighbouring pair's own
+// (sentGooPath), on a grey face of its own, the faces together their union.
+// the words ride on copies of the bubbles. the top bubble's go to the joined
+// bubble's head. those of a bubble in the middle land there with it and are
+// gone from there before the one above lands: to their own place in the
+// joined bubble, or, where its cut hides them, faded out from the moment their
+// bubble touches what it lands on, so no two messages ever stand at the joined
+// head together. the foot's go as a pair's later words do, as the one over
+// it sinks onto them (in a column its words are always under the cut). the joined
+// bubble's copy comes up once the top one has landed. two bubbles keep the
+// pair's fall (sentMerge)
+const COLUMN_PULL = 1.25e-3;      // px per ms, per ms, in the joined bubble's own px
+// a column so tall its top would take longer than this falls on a harder pull instead
+const COLUMN_LONGEST_MS = 900;
+const COLUMN_SETTLE_MS = 200;
+// the bubbles from the i-th down that stand where it stands
+function sentColumnOf(panels, i){
+  const stands = sentStands(panels[i].sentMsgs);
+  let j = i;
+  while (j + 1 < panels.length && sentStands(panels[j + 1].sentMsgs) === stands) j++;
+  return panels.slice(i, j + 1);
+}
+// a move whose run has more bubbles standing with it than when it began, three
+// or more and none busy, starts again as a column, so the newcomers' words go
+// first too. answers whether it did
+function sentColumnGrown(el, run){
+  const panels = sentPanels(el), at = panels.indexOf(run.a);
+  if (at < 0) return false;
+  const column = sentColumnOf(panels, at);
+  if (column.length <= run.panels.length || column.length < 3 ||
+      column.some(one => sentBusy(one) || !sentMotionVisible(one))) return false;
+  sentMergeStop(el);
+  sentColumnMove(el, column);
+  return true;
+}
+// the column's words go first, all at once, as a pair's do (sentMove)
+function sentColumnMove(el, panels){
+  const a = panels[0], b = panels[panels.length - 1];
+  const run = el.sentMerge = { a, b, panels, stage:"move", timers:[], shifts:[] };
+  for (const one of panels) one.markHeld = true;
+  a.classList.add("coalesce");
+  const msgs = panels.flatMap(one => one.sentMsgs);
+  const tag = sentTagOf(msgs);
+  const faded = msgs.every(sentUndelivered);
+  for (const one of panels) one.classList.toggle("undelivered", faded);
+  const later = (ms, fn) => run.timers.push(setTimeout(() => { if (el.sentMerge === run) fn(); }, ms));
+  const going = panels.filter(one => one.dataset.mark && (one !== b || one.dataset.mark !== tag));
+  for (const one of going){
+    one.classList.remove("markin");
+    one.classList.add("markout", "markmove");
+  }
+  later(MERGE_OUT_MS, () => {
+    for (const one of going){
+      one.classList.remove("markout", "markmove");
+      showMark(one, "", false);
+    }
+    const now = sentPanels(el), at = now.indexOf(a), stands = sentStands(a.sentMsgs);
+    if (at < 0 || panels.some((one, i) => now[at + i] !== one || sentStands(one.sentMsgs) !== stands || sentBusy(one))){
+      sentMoveBack(el);
+      return;
+    }
+    if (stillMotion() || !panels.every(sentMotionVisible)){
+      sentMergeStop(el);
+      for (const one of panels.slice(1)) sentJoin(el, a, one);
+      if (el.sentRoom) el.sentRoom();
+      sentCoalesce(el);
+      return;
+    }
+    if (sentColumnGrown(el, run)) return;
+    sentColumnMerge(el, run);
+  });
+}
+// the column's fall, drawn as a pair's merge is drawn (sentMerge): the joined
+// bubble laid out at once where it will stand, and hidden, with a layer in it
+// carrying the faces, the words, the word under them, the joined bubble's copy
+// and the seat's ground
+function sentColumnMerge(el, run){
+  const { a, panels } = run;
+  run.stage = "merge";
+  const n = panels.length, foot = panels[n - 1];
+  const starts = panels.map(one => one.getBoundingClientRect());
+  const froms = panels.map(one => sentRows(one)[0].getBoundingClientRect());
+  const look = getComputedStyle(a);
+  const fill = look.backgroundColor;
+  const ground = look.getPropertyValue("--card").trim() || "#fff";
+  const r = parseFloat(look.borderTopLeftRadius) || 0;
+  const word = sentTagOf(panels.flatMap(one => one.sentMsgs));
+  const comes = !!word && foot.dataset.mark !== word;
+  const seatFrom = el.sentwrap.getBoundingClientRect();
+  const around = sentPanels(el).filter(one => !panels.includes(one))
+    .filter(node => sentMotionVisible(node)).map(node => ({ node, rect:node.getBoundingClientRect() }));
+  const copies = panels.map(one => sentSnapshot(one, true));
+  // each bubble's first message among the joined bubble's rows
+  const firsts = [];
+  panels.reduce((count, one) => { firsts.push(count); return count + one.sentMsgs.length; }, 0);
+  for (const one of panels.slice(1)) sentJoin(el, a, one);
+  const M = a.getBoundingClientRect(), s = sentScale(a, M);
+  const rows = sentRows(a);
+  const cut = a.querySelector(".answclip").getBoundingClientRect();
+  const seatTo = el.sentwrap.getBoundingClientRect();
+  const mCopy = sentSnapshot(a, true);
+  // the joined bubble's own px
+  const x = v => (v - M.left) / s.x, y = v => (v - M.top) / s.y;
+  const W = M.width / s.x, H = M.height / s.y;
+  const B0 = starts.map(R => ({ left:x(R.left), top:y(R.top), right:x(R.right), bottom:y(R.bottom) }));
+  const head = rows[0].getBoundingClientRect();
+  // where each bubble's words stand once it has landed at the joined head, and
+  // their own place in the joined bubble, or null where its cut hides them
+  const offset = i => ({ x:(froms[i].left - starts[i].left) / s.x, y:(froms[i].top - starts[i].top) / s.y });
+  const landed = panels.map((one, i) => ({ x:x(head.left) - offset(i).x, y:y(head.top) - offset(i).y }));
+  const homes = panels.map((one, i) => {
+    if (!i) return landed[0];
+    const row = rows[firsts[i]];
+    if (!row) return null;
+    const R = row.getBoundingClientRect(), pad = parseFloat(getComputedStyle(row).paddingTop) || 0;
+    if (R.top + pad * s.y >= cut.bottom - 1) return null;
+    return { x:x(R.left) - offset(i).x, y:y(R.top) + pad - offset(i).y };
+  });
+  const plan = sentColumnPlan(B0, W, H, r);
+  const { falls, last, end } = plan;
+  // the layer
+  const layer = document.createElement("div");
+  layer.className = "sentgoo";
+  layer.setAttribute("aria-hidden", "true");
+  layer.style.width = W + "px";
+  layer.style.height = H + "px";
+  layer.style.visibility = "visible";
+  const ext = { left:Math.min(0, ...B0.map(b => b.left)) - 4, top:Math.min(0, ...B0.map(b => b.top)) - 4,
+    right:Math.max(W, ...B0.map(b => b.right)) + 4, bottom:Math.max(H, ...B0.map(b => b.bottom)) + 4 };
+  const faces = falls.map(() => {
+    const face = document.createElement("div");
+    face.className = "sentgoo-face";
+    Object.assign(face.style, { left:ext.left + "px", top:ext.top + "px", width:(ext.right - ext.left) + "px",
+      height:(ext.bottom - ext.top) + "px", background:fill });
+    return face;
+  });
+  const holder = (copy, clear) => {
+    const wrap = document.createElement("div");
+    wrap.className = "sentgoo-words";
+    if (clear) copy.style.background = "transparent";
+    wrap.appendChild(copy);
+    return wrap;
+  };
+  const words = copies.map(copy => holder(copy, true)), joined = holder(mCopy, false);
+  joined.style.opacity = "0";
+  layer.append(...faces, ...words);
+  let mark = null;
+  if (word){
+    mark = document.createElement("div");
+    mark.className = comes ? "sentgoo-mark markin" : "sentgoo-mark";
+    mark.textContent = word;
+    layer.appendChild(mark);
+  }
+  layer.appendChild(joined);
+  // the seat's ground over the room above, which the seat no longer covers
+  const rise = (seatFrom.top - seatTo.top) / s.y;
+  const floor = document.createElement("div");
+  floor.className = "sentgoo-ground";
+  floor.style.background = ground;
+  run.seatPosition = el.sentwrap.style.position;
+  if (getComputedStyle(el.sentwrap).position === "static") el.sentwrap.style.position = "relative";
+  el.sentwrap.prepend(floor);
+  run.visibility = a.style.visibility;
+  a.style.visibility = "hidden";
+  a.classList.add("coalesce");
+  a.appendChild(layer);
+  Object.assign(run, { layer, floor, end });
+  const mix = (p, q, f) => p + (q - p) * f;
+  const put = ms => {
+    const state = sentColumnShape(plan, ms);
+    state.boxes.forEach((box, i) => {
+      if (i < n - 1) faces[i].style.clipPath = 'path("' +
+        sentGooPath(box, state.boxes[i + 1], r, state.joints[i].k, state.joints[i].bow, ext) + '")';
+    });
+    words.forEach((holderOf, i) => {
+      const start = B0[i], home = homes[i];
+      // sunk onto it by the one above, and its share of its own fall
+      const over = i ? state.joints[i - 1].sunk : 0;
+      let at, strength = 1;
+      if (i === n - 1){
+        const to = home || { x:start.left, y:start.top };
+        at = { x:mix(start.left, to.x, state.ewFoot), y:mix(start.top, to.y, over) };
+        if (!home) strength = 1 - over;
+      } else {
+        const fall = state.joints[i];
+        const down = { x:mix(start.left, landed[i].x, fall.ew), y:mix(start.top, landed[i].y, fall.share) };
+        at = down;
+        if (i){
+          // a middle bubble's words leave the joined head before the one above lands
+          // there: to their own place in the joined bubble from their own landing,
+          // or, where its cut hides them, gone from their own touch
+          const mine = falls[i], above = falls[i - 1];
+          const clear = from => sentSmooth((ms - from) / Math.max(1, above.lands - from));
+          if (home){
+            const go = clear(mine.lands);
+            at = { x:mix(down.x, home.x, go), y:mix(down.y, home.y, go) };
+          } else strength = 1 - clear(mine.touch);
+        }
+      }
+      holderOf.style.transform = "translate(" + at.x + "px," + at.y + "px)";
+      if (strength < 1 || holderOf.style.opacity) holderOf.style.opacity = String(strength);
+    });
+    if (mark) mark.style.top = state.boxes[n - 1].bottom + "px";
+    joined.style.opacity = String(sentSmooth((ms - last) / COLUMN_SETTLE_MS));
+    const left = Math.min(0, rise * (1 - state.joints[0].share));
+    floor.style.top = left + "px";
+    floor.style.height = -left + "px";
+    const held = -left * s.y;
+    if (Math.abs(held - (run.held || 0)) >= .5 || (!held && run.held)){
+      run.held = held;
+      if (el.sentRoom) el.sentRoom();
+    }
+  };
+  // the bubbles above the column come down with its top one, on the same pull
+  for (const { node, rect } of around){
+    if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
+    const now = node.getBoundingClientRect(), scale = sentScale(node, now);
+    const dx = (rect.left - now.left) / scale.x, dy = (rect.top - now.top) / scale.y;
+    if (Math.abs(dx) <= .5 && Math.abs(dy) <= .5) continue;
+    const transform = getComputedStyle(node).transform || "none";
+    run.shifts.push(node.animate(
+      [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
+      { duration:falls[0].lands, easing:"cubic-bezier(" + COLUMN_EASE.join(",") + ")" }));
+  }
+  put(0);   // the bubbles as they stood, before any frame
+  const t0 = performance.now();
+  const step = now => {
+    run.raf = 0;
+    if (el.sentMerge !== run) return;
+    if (!a.isConnected || !sentMotionVisible(el.sentwrap) || stillMotion()){ sentMergeLand(el); sentCoalesce(el); return; }
+    const ms = Math.max(0, Math.min(end, now - t0));
+    put(ms);
+    // the joined bubble takes over on the frame after the last one is drawn
+    run.raf = requestAnimationFrame(ms < end ? step : () => { sentMergeLand(el); sentCoalesce(el); });
+  };
+  run.raf = requestAnimationFrame(step);
+}
+// a fall from rest on a steady pull, as a css curve: the distance is the square
+// of the time, exactly
+const COLUMN_EASE = [1 / 3, 0, 2 / 3, 1 / 3];
+// the column's fall worked out once, from where its bubbles stand (B0, top to
+// foot, in the joined bubble's own px) and the joined bubble's width, height
+// and corner. the foot stands, flowed out to the joined width; each bubble
+// over it falls from rest until its head is the joined head, the one landing
+// on the foot sunk into it by a corner each way past the foot's head, as a
+// pair's is. for each: its drop, the room under it, where its foot meets what
+// it lands on (under: the foot's head, or the joined head the one under it
+// has landed at), the box it ends as (U1), the moment it lands and the moment
+// its foot touches. last is when the top one lands, end when it has settled
+function sentColumnPlan(B0, W, H, r){
+  const n = B0.length, L0 = B0[n - 1];
+  const L1 = { left:0, top:Math.max(0, Math.min(L0.top, H - 2 * r)), right:W, bottom:H };
+  const falls = B0.slice(0, -1).map((U0, i) => {
+    const onFoot = i === n - 2, tall = U0.bottom - U0.top;
+    return { U0, tall, drop:Math.max(0, -U0.top), gap:Math.max(0, B0[i + 1].top - U0.bottom),
+      under:onFoot ? L0.top : 0,
+      U1:{ left:0, top:0, right:W, bottom:Math.min(H, Math.max(tall, (onFoot ? L1.top : 0) + 2 * r)) } };
+  });
+  const longest = Math.max(1, ...falls.map(f => f.drop));
+  const pull = Math.max(COLUMN_PULL, 2 * longest / (COLUMN_LONGEST_MS * COLUMN_LONGEST_MS));
+  const after = d => Math.sqrt(2 * Math.max(0, d) / pull);   // ms to fall d from rest
+  for (const f of falls){
+    f.lands = after(f.drop);
+    f.touch = Math.min(f.lands, after(f.under - f.tall - f.U0.top));
+  }
+  const last = Math.max(...falls.map(f => f.lands));
+  return { falls, L0, L1, W, r, pull, last, end:last + COLUMN_SETTLE_MS };
+}
+// the column at ms into its fall. for each bubble over the foot: its box, how
+// far it has fallen as a share of its drop (share), how far it has flowed out
+// to the joined width (ew, whole by its landing), how far its foot has sunk
+// into what it landed on (sunk: from the touch to the end of its settling),
+// and its joint with what is
+// under it, bulging as the room between them closes (bow) and reaching across
+// as they meet (k), let go as it settles, as a pair's are (sentMergeShape).
+// the foot flows out as the one landing on it falls and settles
+function sentColumnShape({ falls, L0, L1, r, pull }, ms){
+  const mix = (p, q, f) => p + (q - p) * f;
+  const boxes = [], joints = [];
+  for (const f of falls){
+    const fallen = ms >= f.lands ? f.drop : Math.min(f.drop, .5 * pull * ms * ms);
+    const sunk = sentSmooth((ms - f.touch) / (f.lands - f.touch + COLUMN_SETTLE_MS));
+    // flowed out by its landing, so the top one's words stand in their joined place
+    // before the joined bubble's copy comes up over them, as a pair's do
+    const ew = sentSmooth(ms / Math.max(1, f.lands));
+    const top = f.U0.top + fallen;
+    boxes.push({ left:mix(f.U0.left, f.U1.left, ew), right:mix(f.U0.right, f.U1.right, ew), top,
+      bottom:top + f.tall + (f.U1.bottom - f.U1.top - f.tall) * sunk });
+    joints.push({ share:f.drop > 0 ? fallen / f.drop : 1, ew, sunk, settle:sentSmooth((ms - f.lands) / COLUMN_SETTLE_MS) });
+  }
+  const onFoot = falls[falls.length - 1], footSunk = joints[joints.length - 1].sunk;
+  const ewFoot = sentSmooth(ms / (onFoot.lands + COLUMN_SETTLE_MS));
+  boxes.push({ left:mix(L0.left, L1.left, ewFoot), right:mix(L0.right, L1.right, ewFoot),
+    top:mix(L0.top, L1.top, footSunk), bottom:mix(L0.bottom, L1.bottom, footSunk) });
+  falls.forEach((f, i) => {
+    const room = Math.max(0, boxes[i + 1].top - (boxes[i].top + f.tall));
+    const near = f.gap > 0 ? 1 - Math.min(1, room / f.gap) : 1;
+    const bulge = Math.max(4, .3 * f.gap), reach = Math.max(1.5 * r, 1.65 * f.gap);
+    joints[i].bow = bulge * sentSmooth(near / .8) * (1 - sentSmooth(joints[i].sunk / .55));
+    joints[i].k = reach * sentSmooth((near - .45) / .5) * (1 - joints[i].settle);
+  });
+  return { boxes, joints, ewFoot };
 }
 
 // the two bubbles at one moment t (0 to 1) of their merge: the earlier box U

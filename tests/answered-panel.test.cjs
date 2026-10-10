@@ -3605,6 +3605,169 @@ test("the answer's band comes down with the falling bubble's head rather than dr
   assert.equal(context.sentBand(el, measured()), measured(), "the band is still held once the fall has landed");
 });
 
+// ---- a column falling together ----------------------------------------------------------
+// bubbles standing apart, each in a place of its own from the one before it
+// (Read and Delivered taking turns), laid out; then a reading that puts them
+// where stands says, so those standing together become one column
+const V = ["Invented one.", "Invented two.", "Invented three.", "Invented four.", "Invented five."];
+function columnScene(count, stands, first = null) {
+  const s = fallScene();
+  s.draw(V.slice(0, count).map((text, i) => at(text, first ? first[i] : i % 2 ? "sent" : "delivered")));
+  assert.equal(s.bubbles().length, count, "the bubbles did not stand apart");
+  s.draw(V.slice(0, count).map((text, i) => at(text, stands[i])));
+  return s;
+}
+// the merge's pictures of each bubble's words, in the layer, top first, and where one stands across
+const wordCopies = layer => layer.querySelectorAll(".sentgoo-words").filter(one =>
+  one.querySelectorAll(".answmsg").length === 1);
+const across = node => Number(/translate\(([-\d.e]+)px/.exec(node.style.transform)[1]);
+
+test("three, four or five bubbles standing in one place fall together: one pause for all their words, then all let go on one frame", () => {
+  for (const count of [3, 4, 5]) {
+    const s = columnScene(count, Array(count).fill("delivered")), { el, bubbles, pending, ringFor, frame } = s;
+    const run = el.sentMerge;
+    assert.ok(run && run.stage === "move", `${count} bubbles standing together did not begin to come together`);
+    assert.equal(run.panels.length, count, `${count} bubbles began to join ${run.panels.length} at a time`);
+    // every word over the foot goes on the one clock (the foot's too where it said
+    // something else), and nothing falls before it rings
+    const going = bubbles().map(one => one.classList.contains("markout"));
+    assert.ok(going.slice(0, -1).every(Boolean), "the words over the column did not all go together");
+    assert.equal(going.at(-1), count % 2 === 0, "the foot's word went, or stayed, against what it says");
+    assert.deepEqual(pending().filter(t => t.ms >= s.merge.OUT_MS && t.ms <= 2000).map(t => t.ms), [s.merge.OUT_MS]);
+    ringFor(s.merge.OUT_MS);
+    assert.equal(el.sentMerge.stage, "merge");
+    const [joined] = bubbles();
+    const layer = joined.querySelector(".sentgoo");
+    assert.equal(layer.querySelectorAll(".sentgoo-face").length, count - 1, "the outline is not drawn a joint at a time");
+    const copies = wordCopies(layer);
+    assert.equal(copies.length, count, "not every bubble's words are carried");
+    const from = copies.map(shifted);
+    frame(40);
+    const moved = copies.map((one, i) => shifted(one) - from[i]);
+    // all of them over the foot start down on the same frame, the same way, and the foot stands
+    for (let i = 0; i < count - 1; i++) {
+      assert.ok(moved[i] > 0, `bubble ${i + 1} of ${count} had not let go 40ms in`);
+      assert.ok(Math.abs(moved[i] - moved[0]) < 1e-9, `bubble ${i + 1} of ${count} fell another way than the top one`);
+    }
+    assert.equal(moved[count - 1], 0, "the bubble at the foot moved");
+    for (let ms = 40; ms <= 1400 && el.sentMerge; ms += 17) frame(ms);
+    frame(1417);
+    assert.ok(el.sentMerge === null, `the column of ${count} did not land`);
+    assert.equal(bubbles().length, 1, `${count} bubbles did not end as one`);
+    assert.deepEqual(bubbles()[0].querySelector(".answstack").children.map(row => row.dataset.text), V.slice(0, count));
+    assert.deepEqual(marks(bubbles()), ["Read"]);
+    assert.equal(joined.style.visibility, "");
+  }
+});
+
+test("in a column, the one over the foot lands first and each one above a moment later, from the foot up", () => {
+  const s = columnScene(5, Array(5).fill("delivered")), { el, bubbles, ringFor, frame } = s;
+  ringFor(s.merge.OUT_MS);
+  const copies = wordCopies(bubbles()[0].querySelector(".sentgoo"));
+  const stopped = Array(5).fill(null);
+  for (let ms = 17; ms <= 1400 && el.sentMerge; ms += 2) {
+    frame(ms);
+    // the moment each one's words reach the joined head (0 here), where its fall stops
+    copies.forEach((one, i) => { if (stopped[i] === null && i < 4 && shifted(one) >= -1e-6) stopped[i] = ms; });
+  }
+  // the moment each one landed, top first: each later than the one under it
+  for (let i = 0; i < 3; i++) assert.ok(stopped[i] > stopped[i + 1], `bubble ${i + 1} stopped before bubble ${i + 2} under it`);
+  // and the moments come closer as the ones above have gathered speed
+  const gaps = [stopped[2] - stopped[3], stopped[1] - stopped[2], stopped[0] - stopped[1]];
+  assert.ok(gaps[0] > gaps[1] && gaps[1] > gaps[2], `the landings did not come closer: ${gaps}`);
+});
+
+test("no two messages ever stand at the joined head together: a middle bubble's words have left it before the one above lands", () => {
+  const s = columnScene(5, Array(5).fill("delivered")), { el, bubbles, ringFor, frame } = s;
+  // the top one laid out narrow, as a short message stands, so its words have to travel across too
+  const [first] = bubbles(), row = s.context.sentRows(first)[0];
+  rect(first, 260, first.rect.top, 60, first.rect.bottom - first.rect.top);
+  rect(row, 278, row.rect.top, 24, row.rect.bottom - row.rect.top);
+  ringFor(s.merge.OUT_MS);
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  const copies = wordCopies(layer), joined = layer.querySelectorAll(".sentgoo-words").at(-1);
+  const strength = one => Number(one.style.opacity || 1);
+  const landedAt = Array(5).fill(null), seen = [];
+  for (let ms = 17; ms <= 1400 && el.sentMerge; ms += 2) {
+    frame(ms);
+    seen.push({ ms, x: copies.map(across), y: copies.map(shifted), strength: copies.map(strength), joined: Number(joined.style.opacity) });
+    // landed: at the joined head (0 here) or past it, on the way to its own place
+    copies.forEach((one, i) => { if (i < 4 && landedAt[i] === null && shifted(one) >= -1e-6) landedAt[i] = seen.length - 1; });
+  }
+  const end = seen.at(-1);
+  // the top's words stand in their joined place, across as well as down, on the frame it lands,
+  // which is before the joined bubble's copy comes up over them
+  const top = seen[landedAt[0]];
+  assert.ok(top, "the top bubble never landed");
+  assert.equal(top.x[0], end.x[0], "the top's words were still on their way across when it landed");
+  assert.equal(top.y[0], end.y[0]);
+  assert.ok(seen.slice(0, landedAt[0]).every(f => f.joined === 0), "the joined bubble's copy came up before the top landed");
+  // the second message's first line stands in the joined bubble's preview here; the others are under its cut
+  assert.ok(end.y[1] > 0 && end.strength[1] === 1, "the second message's words did not go to their place");
+  for (let i = 1; i <= 3; i++) {
+    const at = seen[landedAt[i - 1]];
+    assert.ok(at, `bubble ${i} never landed`);
+    if (i === 1) assert.equal(at.y[1], end.y[1], "the second message's words were still on their way when the top one landed");
+    else assert.equal(at.strength[i], 0, `bubble ${i + 1}'s words were still at the joined head when bubble ${i} landed`);
+  }
+});
+
+test("only the bubbles standing together fall together: a column stops where the place changes", () => {
+  // three Read, then two Delivered: the three fall as one column, then the two as a pair
+  const s = columnScene(5, ["delivered", "delivered", "delivered", "sent", "sent"]), { el, bubbles, ringFor, frame } = s;
+  assert.deepEqual([...el.sentMerge.panels.map(one => one.querySelector(".answmsg").dataset.text)], V.slice(0, 3));
+  const [, , , fourth, fifth] = bubbles();
+  ringFor(s.merge.OUT_MS);
+  assert.ok(!fourth.querySelector(".sentgoo") && fourth.style.visibility !== "hidden", "a Delivered bubble fell with the Read ones");
+  for (let ms = 17; ms <= 1400 && el.sentMerge && el.sentMerge.panels.length === 3; ms += 17) frame(ms);
+  frame(1417);
+  // the pair after it is a pair's merge, as before
+  assert.equal(bubbles().length, 3);
+  const run = el.sentMerge;
+  assert.ok(run && run.panels.length === 2 && run.a === fourth && run.b === fifth, "the two Delivered bubbles do not join as a pair");
+  ringFor(s.merge.OUT_MS);
+  assert.equal(fourth.querySelectorAll(".sentgoo-face").length, 1);
+  // and a bubble not delivered yet, between them, splits a column in two
+  const t = columnScene(5, ["delivered", "delivered", "local", "delivered", "delivered"]);
+  assert.equal(t.el.sentMerge.panels.length, 2, "a bubble not delivered was let into a column of Read ones");
+});
+
+test("two bubbles standing together keep the pair's fall, and a pair whose pause ends with a third beside it falls as a column", () => {
+  const s = columnScene(2, ["delivered", "delivered"]), { el, ringFor } = s;
+  assert.equal(el.sentMerge.panels.length, 2);
+  ringFor(s.merge.OUT_MS);
+  assert.equal(s.bubbles()[0].querySelectorAll(".sentgoo-face").length, 1, "a pair is not drawn as a pair's merge");
+  // a pair's move under way when the bubble under them, not delivered yet, comes to stand where they stand
+  const t = columnScene(3, ["delivered", "delivered", "local"], ["delivered", "sent", "local"]);
+  assert.equal(t.el.sentMerge.panels.length, 2);
+  t.draw(V.slice(0, 3).map(text => at(text, "delivered")));
+  const third = t.bubbles()[2];
+  assert.equal(third.className.split(" ").filter(c => /^(markout|sentflight|motion)$/.test(c)).length, 0,
+    `the third is busy: ${third.className}`);
+  t.ringFor(t.merge.OUT_MS);
+  const run = t.el.sentMerge;
+  assert.equal(run.stage, "move", "the pair fell without the third");
+  assert.equal(run.panels.length, 3, "the pause did not start again for the whole column");
+  t.ringFor(t.merge.OUT_MS);
+  assert.equal(t.el.sentMerge.stage, "merge");
+  assert.equal(t.bubbles()[0].querySelectorAll(".sentgoo-face").length, 2);
+});
+
+test("a column with no motion to show becomes one bubble at once, and a reading that changes its messages lands it", () => {
+  const s = columnScene(4, ["sent", "delivered", "sent", "delivered"]);
+  s.context.stillness = true;
+  s.draw(V.slice(0, 4).map(text => at(text, "sent")));
+  assert.equal(s.bubbles().length, 1, "four bubbles did not become one at once with no motion");
+  const t = columnScene(4, Array(4).fill("delivered"));
+  t.ringFor(t.merge.OUT_MS);
+  t.frame(200);
+  assert.equal(t.el.sentMerge.stage, "merge");
+  t.draw(V.slice(0, 4).map(text => at(text, "read")));
+  assert.ok(t.el.sentMerge === null, "a reading that changed the falling column's messages did not land it");
+  assert.equal(t.bubbles().length, 1);
+  assert.equal(t.bubbles()[0].querySelector(".sentgoo"), null, "the column's layer was left behind");
+});
+
 test("two bubbles neither delivered wait as long as the word takes to fade, then fall the same way", () => {
   const s = fallScene(), { el, bubbles, pending, ringFor, frame } = s;
   s.draw([at(W[0], "local")]);
