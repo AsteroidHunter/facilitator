@@ -2382,8 +2382,10 @@ function makeBox(b){
   card.sentRoom = () => card.bandWrite && card.bandWrite();
   // Tab on the card walks the title, the text box and the card and nothing else (cardTab), and
   // no other part of the card is a stop of the browser's own Tab (quietStops);
-  // with a menu out the menu keeps the key (keepTabInMenu)
+  // with a menu out the menu keeps the key (keepTabInMenu). a press on the card starts
+  // that walk afresh (cardTabAfresh)
   box.addEventListener("keydown", e => { if (!menuOut()) cardTab(e, b.id, focusBoxAtEnd); });
+  box.addEventListener("pointerdown", () => cardTabAfresh(card), true);
   quietStops(card);
   // the title keeps to two lines as the card shows and turns (watchTitle), and
   // once more when the web faces land, which change the width of every word
@@ -3366,6 +3368,7 @@ function select(id, opts){
   if (!shown){ endPhoneTrace(trace, { box: id }); return; }
   const chosen = !opts?.browse && !opts?.hop;
   cancelAutoNext();
+  cardTabAfresh(shown);
   if (hist && hist.id !== id) histExit(hist.id);
   selectedId = id; shownId = id; localStorage.setItem("selbox", id);
   setBrowsing(!chosen);

@@ -5934,6 +5934,7 @@ function select(id, opts){
   if (!els[id]) return;
   const chosen = !opts?.browse && !opts?.hop;
   cancelAutoNext();
+  cardTabAfresh(els[id]);
   if (hist && hist.id !== id) histExit(hist.id);   // every card opens on its live reply
   selectedId = id; shownId = id; localStorage.setItem("selbox", id);
   setBrowsing(!chosen);
@@ -6882,8 +6883,10 @@ function makeBox(b, i, state){
     watchReading(els[b.id]);
 
     // Tab on the card walks the title, the text box and the card and nothing else (cardTab),
-    // and no other part of the card is a stop of the browser's own Tab (quietStops)
+    // and no other part of the card is a stop of the browser's own Tab (quietStops); a
+    // press on the card starts that walk afresh (cardTabAfresh)
     box.addEventListener("keydown", e => cardTab(e, b.id, el => el.ta.focus()));
+    box.addEventListener("pointerdown", () => cardTabAfresh(els[b.id]), true);
     quietStops(els[b.id]);
     watchTitle(els[b.id]);
 }
