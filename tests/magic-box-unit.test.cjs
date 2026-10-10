@@ -9,8 +9,8 @@
 // its height. Its look, read from the page's source: the card's own edge, face,
 // corners and shadow, always, a white top bar with the Mac's three lights, and
 // a site that will not be framed as a square with its name in the middle;
-// whichever of the card and the box is held stands up and the other settles.
-// And the page's wiring: the box is never one of the regions the fit, the
+// whichever of the card and the box is held stands up and the other settles,
+// and a box beside a lowered card sits level with it. And the page's wiring: the box is never one of the regions the fit, the
 // layout or edit mode work on, a click or the focus says which of the two is
 // held, and a page in the box never takes the keys by itself.
 const assert = require("node:assert/strict");
@@ -337,6 +337,44 @@ test("whichever of the card and the box is held stands up and the other settles,
   // the box goes off the page settled; the agent's next revision keeps it held
   assert.match(html, /function magicOff\(\)\{\s*if \(!MB\.el\) return;\s*MB\.el\.classList\.remove\("on", "held", "over"\);/);
   assert.match(html, /const held = id === MB\.id && MB\.el\.classList\.contains\("held"\);\s*magicOff\(\);\s*MB\.el\.classList\.toggle\("held", held\);/);
+});
+
+// a selector's weight, for the plain ones these rules use: ids, then classes,
+// then elements
+const weight = selector => [(selector.match(/#[\w-]+/g) || []).length, (selector.match(/\.[\w-]+/g) || []).length,
+  (selector.replace(/[#.][\w-]+/g, "").match(/[a-z][\w-]*/g) || []).length];
+const heavier = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+test("a box never wears a shadow its card does not: beside a lowered card it sits level, held or not, on both pages", () => {
+  const sheet = boxSheet(), html = read("index.html"), phone = read("m.html"), logic = read("card-logic.js");
+  // one rule in the shared sheet, for the board and the phone alike, taking the
+  // shadow and nothing else: the edge stays
+  const level = sheet.match(/\n(body\.lowered \.magicbox)\{([^}]*)\}/);
+  assert.ok(level, "no rule for a box beside a lowered card");
+  assert.equal(level[2], "box-shadow:none");
+  // it outweighs every other rule that gives the box a shadow, held or not
+  const shading = [...sheet.matchAll(/\n([^\n{]*\.magicbox[^\n{ ]*)\{([^}]*box-shadow:[^}]*)\}/g)]
+    .map(m => m[1]).filter(s => s !== level[1]);
+  assert.deepEqual(shading, [".magicbox", ".magicbox.held"], "the box's shadows");
+  for (const s of shading) assert.ok(heavier(weight(level[1]), weight(s)) > 0, level[1] + " does not outweigh " + s);
+  // and neither page gives its box a shadow of its own: no rule there whose
+  // subject, the last part of the selector, is the box sets one
+  const subjects = selectors => selectors.split(",").map(s => s.trim().split(/\s+/).pop());
+  for (const [name, page] of [["index.html", html], ["m.html", phone]]) {
+    const style = page.slice(0, page.indexOf("</style>")).replace(/\/\*[\s\S]*?\*\//g, "");
+    const own = [...style.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+      .filter(m => /box-shadow/.test(m[2]) && subjects(m[1]).some(s => /#(magicbox|mbface)\b|\.magicbox\b/.test(s)));
+    assert.deepEqual(own.map(m => m[1].trim()), [], name + " shades its box itself");
+  }
+  // body.lowered is the one state in which each page's card has no shadow while
+  // its box can be on screen: the board's card and the phone's both drop theirs
+  // for it, and the same shared functions put it on and take it off
+  assert.ok(html.includes("  body.focus.lowered main{box-shadow:none}"));
+  assert.ok(phone.includes("  body.lowered main{box-shadow:none}"));
+  assert.match(phone, /<section id="mbface" class="magicbox held"/);
+  assert.match(html, /<section id="magicbox" class="magicbox">/);
+  assert.match(logic, /function setLowered\(on\)\{ document\.body\.classList\.toggle\("lowered", !!on\); \}/);
+  for (const page of [html, phone]) assert.match(page, /function setBrowsing\(on\)\{[^}]*setLowered\(false\);/);
 });
 
 test("clicking or focusing into the box holds it, and a page in it never takes the keys by itself", () => {
