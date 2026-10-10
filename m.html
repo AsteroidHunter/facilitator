@@ -548,16 +548,17 @@
   /* a key the card has nothing for, control+shift+period on a card with no
      magic box: the whole card dips a little and springs back up, a touch past
      where it stood and home, the way words pulled past their end spring back,
-     so the press is seen to have been heard. small and quick. it is drawn on
-     the card's own translate, which stands apart from the transform its drop
-     is written in, so it dips from wherever it stands (cardNudge) */
+     so the press is seen to have been heard. 14px down and 2.4px past home in
+     .44s: at half that (7px in .32s) it went by unseen on the phone. it is
+     drawn on the card's own translate, which stands apart from the transform
+     its drop is written in, so it dips from wherever it stands (cardNudge) */
   @keyframes cardnudge{
     0%{translate:0 0; animation-timing-function:cubic-bezier(.2,.7,.3,1)}
-    24%{translate:0 calc(7 * var(--u)); animation-timing-function:cubic-bezier(.45,0,.4,1)}
-    60%{translate:0 calc(-1.2 * var(--u)); animation-timing-function:cubic-bezier(.45,0,.4,1)}
+    24%{translate:0 calc(14 * var(--u)); animation-timing-function:cubic-bezier(.45,0,.4,1)}
+    60%{translate:0 calc(-2.4 * var(--u)); animation-timing-function:cubic-bezier(.45,0,.4,1)}
     100%{translate:0 0}
   }
-  #pane.nudge{animation:cardnudge .32s}
+  #pane.nudge{animation:cardnudge .44s}
   @media (prefers-reduced-motion:reduce){ #pane.nudge{animation:none} }
   #empty{display:none; flex:1; align-items:center; justify-content:center;
     font:italic 400 calc(17 * var(--u)) var(--serif); color:var(--sub); padding:calc(20 * var(--u)); text-align:center}
@@ -1168,6 +1169,11 @@
     --mb-lead:calc(11.5 * var(--u))}
   #tickets.boxface > #tikhead, #tickets.boxface > #tiklist{display:none}
   #tickets.boxface > #mbface{display:flex; flex:none; align-self:center}
+  /* while the drawer changes face (drawerSwapFace) both faces are on show and
+     each is moved on its own: the list in its place, and the box laid over it
+     from the drawer's top, centred, where it hangs when it is out alone */
+  #tickets.swapface > #tikhead, #tickets.swapface > #tiklist{display:flex}
+  #tickets.swapface > #mbface{display:flex; flex:none; position:absolute; top:0; left:0; right:0; margin:0 auto}
   #tickets[data-side="right"]{
     transform:translate3d(calc((1 - var(--list-v)) * (var(--pg-r) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
       calc(-1 * var(--list-v) * var(--list-drop, 0px)), 0)}
@@ -4420,10 +4426,12 @@ function listSpring(from, to, speed, px){
 }
 // stop the list's keyframes where they are shown: its parts go to what is
 // written on them. a refit stopped on its way has the drop it has reached
-// written first, so whatever moves the list next leaves from where it stands
+// written first, so whatever moves the list next leaves from where it stands.
+// a change of face stopped on its way ends with the new face alone in place
 function stopList(){
   const run = listRun, at = listPlay[0]?.playState === "running" ? Math.max(0, Number(listPlay[0].currentTime) || 0) : null;
   if (run?.fit && at != null) dropList(run.fit[0] + (run.fit[1] - run.fit[0]) * run.at(at));
+  tickets.classList.remove("swapface");
   for (const a of listPlay) a.cancel();
   listPlay = [];
 }
@@ -7628,6 +7636,20 @@ function phoneMagicFit(){
   if (tickets.classList.contains("boxface")) fitList();
 }
 addEventListener("resize", () => phoneMagicFit());
+// how far down the box what it shows reaches, from the box's top: the foot of
+// the words' last line, or the foot of the window they scroll in when they
+// run on past it, or the box's own foot for a picture, a page or a site. the
+// white the box keeps under its words is its own, and the card may stand over
+// it (listSlack, below), as the window it is seen through ends at the card
+function phoneMagicFoot(){
+  const box = PB.el.getBoundingClientRect(), body = PB.view.body;
+  if (!box.height) return PB.el.offsetHeight;
+  const k = PB.el.offsetHeight / box.height;   // a scale the page is drawn at, undone
+  const words = body.querySelector(".mbtext");
+  if (words && body.scrollHeight <= body.clientHeight + 1)
+    return (words.getBoundingClientRect().bottom - box.top) * k - (parseFloat(getComputedStyle(words).paddingBottom) || 0);
+  return (body.getBoundingClientRect().bottom - box.top) * k;
+}
 // the cross: the drawer goes back and the box is put away, as the board's
 // cross does; what it held is kept, and the card's agent brings it back by
 // filling it again
@@ -7688,20 +7710,29 @@ function cardNudge(){
 }
 cardPane.addEventListener("animationend", e => { if (e.animationName === "cardnudge") cardPane.classList.remove("nudge"); });
 // the drawer out with one face and asked for the other, the card already down:
-// the card stays down. the face that is out goes as the drawer goes when it
-// shuts, across to its own side and fading, on the shutting run's spring, with
-// its height held. once it is all but gone (DRAWER_SWAP_LEFT of the way still
-// to go, and faded to as little) the drawer changes face, and the other comes
-// in from its own side as the drawer does when it opens, on the opening run's
-// spring, while the card and the window glide from the old face's drop to the
-// new one's on the refit's own spring (fitList). both halves are played as
-// keyframes on the parts they move, as playList plays a run, and held to the
-// first frame that is drawn. a run, a pull or a key that comes meanwhile stops
-// it where it stands (stopList), as it stops a run. with reduced motion, or
-// no keyframes to play, the face changes where it stands
-const DRAWER_SWAP_LEFT = .02;   // share of the travel left when the face changes
-const DRAWER_SWAP_STEP = 8;     // ms between the keyframes each half is played through
+// the card stays down, the drawer holds still, and the two faces cross in it,
+// both on show the while (#tickets.swapface), each moved on its own. the face
+// that is out goes as the drawer goes when it shuts, across to its own side
+// and fading, on the shutting run's spring, cut once it is all but gone
+// (DRAWER_SWAP_LEFT of the way still to go, and faded to as little). at the
+// same moment the other sets out from its own side as the drawer does when it
+// opens, on the opening run's spring, the mirror of the shutting one, so one
+// face or the other is always at least half in and the space over the card is
+// never empty (a face only half gone is already all but unseen: set out any
+// later, the other left the space bare for 135ms on the Simulator, against
+// 537ms when it waited for the first to go). the card and the window glide
+// from the old face's drop to the new one's on the refit's own spring
+// (fitList), from the same moment. the drawer changes face as the
+// crossing starts, so the new face's drop and the new side are what the card
+// and the next run read. all of it is played as keyframes on the parts it
+// moves, as playList plays a run, and held to the first frame that is drawn.
+// a run, a pull or a key that comes meanwhile stops it (stopList), with the
+// new face alone in place. with reduced motion, or no keyframes to play, the
+// face changes where it stands
+const DRAWER_SWAP_LEFT = .02;   // share of the leaving face's travel left when it is cut
+const DRAWER_SWAP_STEP = 8;     // ms between the keyframes each part is played through
 function drawerSwapFace(box, swap){
+  const listFace = [document.getElementById("tikhead"), document.getElementById("tiklist")];
   const showFace = () => {
     tickets.classList.toggle("boxface", box);
     tickets.dataset.side = box ? "right" : "left";
@@ -7724,37 +7755,41 @@ function drawerSwapFace(box, swap){
     }
   };
   const play = (el, keys, ms, fill) => el.animate(keys, { duration: ms, easing: "linear", fill, id: "list-run" });
-  // going: the shutting run, cut where the face is all but gone, and held there
-  const shut = listSpring(1, 0, 0, px), away = menuTravel(tickets) * menuSign(tickets);
+  // the leaving face: its parts and its way out, read before the face changes
+  const goingParts = box ? listFace : [PB.el], comingParts = box ? [PB.el] : listFace;
+  const away = menuTravel(tickets) * menuSign(tickets);
+  const shut = listSpring(1, 0, 0, px);
   let cut = shut.ms;
   for (let t = 0; t < shut.ms; t++) if (shut.at(t) <= DRAWER_SWAP_LEFT){ cut = t; break; }
-  const going = [
-    play(tickets, frames(cut, t => ({ transform: `translate3d(${px3((shut.at(t) - 1) * away)}, ${px3(-from)}, 0px)`,
-      opacity: Math.min(shut.at(t), LIST_FADE_TOP) })), cut, "both"),
-    ...tikArrows.map(el => play(el, frames(cut, t => ({ "--list-v": shut.at(t) })), cut, "both")),
+  showFace();
+  tickets.classList.add("swapface");
+  // the arriving face, its way in, and the card to its drop
+  const to = listDrop, open = listSpring(0, 1, 0, px), toward = menuTravel(tickets) * menuSign(tickets);
+  const refit = Math.abs(to - from) >= .5 ? listSpring(0, 1, 0, Math.abs(to - from)) : null;
+  const ms = Math.max(open.ms, refit ? refit.ms : 0);
+  const drop = t => refit ? from + (to - from) * refit.at(t) : to;
+  const face = (v, travel) => ({ transform: `translate3d(${px3((v - 1) * travel)}, 0px, 0px)`, opacity: Math.min(v, LIST_FADE_TOP) });
+  const playing = [
+    ...goingParts.map(el => play(el, frames(cut, t => face(shut.at(t), away)), cut, "both")),
+    ...comingParts.map(el => play(el, frames(ms, t => face(open.at(t), toward)), ms, "backwards")),
+    play(tickets, frames(ms, t => ({ transform: `translate3d(0px, ${px3(-drop(t))}, 0px)` })), ms, "backwards"),
+    play(tikwin, frames(ms, t => ({ transform: `translate3d(0px, ${px3(drop(t))}, 0px)` })), ms, "backwards"),
+    play(cardPane, frames(ms, t => ({ transform: `translate(0px, ${px3(drop(t))})` })), ms, "backwards"),
+    // the list's arrows fade with the list, going or coming
+    ...tikArrows.map(el => box ? play(el, frames(cut, t => ({ "--list-v": shut.at(t) })), cut, "both")
+      : play(el, frames(ms, t => ({ "--list-v": open.at(t) })), ms, "backwards")),
   ];
-  listPlay = going; listRun = null;
-  drawerSwapFirstFrame(going);
-  going[0].finished.then(() => {
-    if (swap !== drawerSwap || listPlay !== going || menuOut() !== tickets || (box && !phoneMagicCard())) return;
-    // coming: the other face on the opening run, and the card to its drop
-    showFace();
-    const to = listDrop, open = listSpring(0, 1, 0, px), toward = menuTravel(tickets) * menuSign(tickets);
-    const refit = Math.abs(to - from) >= .5 ? listSpring(0, 1, 0, Math.abs(to - from)) : null;
-    const ms = Math.max(open.ms, refit ? refit.ms : 0);
-    const drop = t => refit ? from + (to - from) * refit.at(t) : to;
-    const coming = [
-      play(tickets, frames(ms, t => ({ transform: `translate3d(${px3((open.at(t) - 1) * toward)}, ${px3(-drop(t))}, 0px)`,
-        opacity: Math.min(open.at(t), LIST_FADE_TOP) })), ms, "backwards"),
-      play(tikwin, frames(ms, t => ({ transform: `translate3d(0px, ${px3(drop(t))}, 0px)` })), ms, "backwards"),
-      play(cardPane, frames(ms, t => ({ transform: `translate(0px, ${px3(drop(t))})` })), ms, "backwards"),
-      ...tikArrows.map(el => play(el, frames(ms, t => ({ "--list-v": open.at(t) })), ms, "backwards")),
-    ];
-    for (const a of going) a.cancel();
-    listPlay = coming;
-    listRun = Object.assign(open, { keyed: true, played: true, until: performance.now() + ms + LIST_SETUP_MS });
-    drawerSwapFirstFrame(coming);
-    coming[0].finished.then(() => { if (listPlay === coming) settleTicketDrawer(); }, () => {});
+  // the drawer itself stays the whole way out: a run that cuts in leaves from there
+  listPlay = playing;
+  listRun = null;
+  drawerSwapFirstFrame(playing);
+  Promise.all(playing.map(a => a.finished)).then(() => {
+    if (listPlay !== playing || swap !== drawerSwap) return;
+    // the leaving face is put away first, so it is never seen at rest again
+    tickets.classList.remove("swapface");
+    for (const a of playing) a.cancel();
+    listPlay = [];
+    settleTicketDrawer();
   }, () => {});
 }
 // keyframes wait for their first frame to be drawn, as playList's do, and
@@ -7770,17 +7805,20 @@ function drawerSwapFirstFrame(playing){
 }
 // the page's own script, reached through the names it already has: every
 // reading, every card put on show or taken off it, the cards button, which
-// always brings the list, the drawer's drop, which out for the box is what the
-// drawer leaves under it, and the two drawer keys, with the drawers shut and
-// with one out
+// always brings the list, the drawer's drop, and the two drawer keys, with the
+// drawers shut and with one out. out for the box, the drop leaves the card as
+// far under what the box shows (phoneMagicFoot) as the list leaves it under
+// the list's own foot: the drawer's spare under that, and the list's air
+// (--list-air, by which the list reaches past the drawer's foot) given back
 {
   const applyReading = apply, selectCard = select, deselectCard = deselect, openList = openDrawer, listSpare = listSlack;
   apply = function(state){ applyReading(state); phoneMagicSync(); };
   select = function(id, opts){ selectCard(id, opts); phoneMagicSync(); };
   deselect = function(){ deselectCard(); phoneMagicSync(); };
   openDrawer = function(){ drawerFace(false); openList(); };
+  const listAir = () => -parseFloat(getComputedStyle(document.getElementById("tiklist")).marginBottom) || 0;
   listSlack = () => tickets.classList.contains("boxface")
-    ? Math.max(0, tickets.clientHeight - PB.el.offsetHeight) : listSpare();
+    ? Math.max(0, tickets.clientHeight - phoneMagicFoot() + listAir()) : listSpare();
   for (const keys of [phoneShortcutActions, menuShortcutActions]){
     keys.cardsDrawer = e => drawerKey(e, false);
     keys.boxDrawer = e => drawerKey(e, true);
