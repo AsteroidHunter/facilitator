@@ -223,7 +223,12 @@
   }
   body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
-    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
+    width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--cross-t) * var(--chip-scale));
+    background:#1e1e1e; border-radius:calc(var(--cross-t) * var(--chip-scale));
+  }
+  body.focus .box.sel .xbtn{
+    left:calc(-1 * var(--bar-mark) * var(--chip-scale) *
+      ((var(--ink-sun) + 2 * var(--ink-dock) + var(--ink-moon)) / 4 - (var(--ink-moon) + var(--ink-done)) / 2));
   }
   body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
