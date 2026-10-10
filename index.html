@@ -237,6 +237,7 @@
   .title:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
   .body{padding:8px 14px 13px}
   .reply{color:var(--ink)}
+  .reply[contenteditable]{outline:none}   /* the response with its caret in it (replyCaret) */
   .reply p{margin:0 0 9px}
   .reply p:last-child, .reply ul:last-child, .reply ol:last-child{margin-bottom:0}
   .reply ul, .reply ol{margin:0 0 9px; padding-left:20px}
@@ -887,6 +888,10 @@
      --boxband, read off the scroller's foot, grew with it and masked the answer
      out */
   body.focus .box.sel .replyview::after{content:""; flex:none; height:calc(var(--answ-slack, 0px) + var(--boxband, 0px) + var(--replyfade, 0px))}
+  /* the response's caret (replyCaret in card-logic.js) is brought into view by the
+     browser's own scroll as it moves; this keeps it clear of the fade under the
+     title and of the band the sent panel and the typing row lay over the foot */
+  body.focus .box.sel .replyview{scroll-padding-block:var(--replyfade) calc(var(--boxband, 0px) + var(--replyfade))}
   /* ---- the messages waiting for a reply ------------------------------------ */
   /* the card starts with no panel at the foot at all. the board only carries
      sent messages while they are unanswered, so the first send brings the
@@ -11123,6 +11128,14 @@ const boardShortcutActions = {
     e.preventDefault();
     histStep(selectedId, shortcut.value);
   },
+  // control+option+up and down: the title, the response's caret and the typing
+  // box of the card on screen, top to bottom (cardPlace). a held key goes once
+  place(e, shortcut){
+    const card = !draft && boardResponseCard();
+    if (!card) return;
+    e.preventDefault();
+    if (!e.repeat) cardPlace(card.id, shortcut.value, el => el.ta.focus());
+  },
   create(e){
     e.preventDefault();
     if (!ownerReady || draft) return;
@@ -12771,8 +12784,15 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // pane of its own, which the file navigator's editor does, is bounded by
     // that pane and not by its own height: measured against itself a caret
     // scrolled out of sight still counts as inside, and the block then hangs
-    // over whatever is drawn under the panel
-    const clip = (el.closest(".cm-scroller") || el).getBoundingClientRect();
+    // over whatever is drawn under the panel. the response's caret (replyCaret) is
+    // bounded the same way by the answer's own scroller, less the band the sent
+    // panel and the typing row lay over its foot
+    const pane = el.closest(".cm-scroller, .replyview") || el;
+    let clip = pane.getBoundingClientRect();
+    if (pane.classList.contains("replyview")){
+      const band = (parseFloat(getComputedStyle(pane).getPropertyValue("--boxband")) || 0) * scaleX;
+      clip = { left: clip.left, top: clip.top, right: clip.right, bottom: clip.bottom - band };
+    }
     // the file navigator's editor first, then the composer's own if this is the
     // element it owns; either returns null and falls through to the range below
     if (fileNavView && el === fileNavView.contentDOM && fileNavView.hasFocus){

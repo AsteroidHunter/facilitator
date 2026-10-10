@@ -766,6 +766,7 @@
     font-size:calc(17 * var(--u)); line-height:calc(1.55 * var(--ln));
     padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) 0 calc(var(--pad-x)*2/3);
   }
+  .reply[contenteditable]{outline:none}   /* the response with its caret in it (replyCaret) */
   /* the card's two fades, the desktop's rules at phone size and with the phone's
      own seat in front of them. the depths, the stops and the compositing are the
      desktop's to the number; what the desktop writes as body.focus .box.sel is
@@ -841,6 +842,10 @@
      and --boxband, read off the scroller's foot, grew with it and masked the
      answer out */
   .replyview::after{content:""; flex:none; height:calc(var(--answ-slack, 0px) + var(--boxband, 0px) + var(--replyfade, 0px))}
+  /* the response's caret (replyCaret in card-logic.js) is brought into view by the
+     browser's own scroll as it moves; this keeps it clear of the fade under the
+     title and of the band the sent panel and the typing row lay over the foot */
+  .box.sel .replyview{scroll-padding-block:var(--replyfade) calc(var(--boxband, 0px) + var(--replyfade))}
   .box.histview .replyview{opacity:.8}
 
   /* ---- the foot: the sent panel over the typing row ------------------------ */
@@ -6705,6 +6710,15 @@ const phoneShortcutActions = {
   history(e, shortcut){
     e.preventDefault();
     histStep(selectedId, shortcut.value);
+  },
+  // control+option+up and down: the title, the response's caret and the reply box
+  // of the card on screen, top to bottom (cardPlace), never with a menu out or
+  // mid-swipe. a held key goes once
+  place(e, shortcut){
+    const card = phoneResponseCard();
+    if (!card) return;
+    e.preventDefault();
+    if (!e.repeat) cardPlace(card.id, shortcut.value, focusBoxAtEnd);
   },
   create(e){
     e.preventDefault();

@@ -603,9 +603,13 @@
   // The editor reaches a shifted bracket under its unshifted name, and outside
   // a Mac its stock keymap has control+shift+\ for the matching bracket, which
   // this shadows; they are claimed so no editor update can take them either.
+  // Control+Option with Up or Down steps between the card's title, response and
+  // row (cardPlace in card-logic.js); outside a Mac the stock keymap adds a caret
+  // above or below on it, which this shadows.
   const PAGE_CHORDS = ["Shift-Ctrl-ArrowUp", "Shift-Ctrl-ArrowDown",
                        "Shift-Ctrl-ArrowLeft", "Shift-Ctrl-ArrowRight",
-                       "Shift-Ctrl-[", "Shift-Ctrl-]", "Shift-Ctrl-\\"]
+                       "Shift-Ctrl-[", "Shift-Ctrl-]", "Shift-Ctrl-\\",
+                       "Alt-Ctrl-ArrowUp", "Alt-Ctrl-ArrowDown"]
     .map(key => ({ key, run: () => true }));
 
   // Keep Option/Alt with Up/Down available for native caret movement and

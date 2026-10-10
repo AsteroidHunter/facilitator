@@ -426,6 +426,17 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "ArrowUp" || e.key === "ArrowDown")
       ? (e.key === "ArrowUp" ? 1 : -1) : null,
   },
+  // control+option+up and down step between the card's title, its response and
+  // its typing box, the order they stand in (cardPlace): up is -1, down 1. no
+  // text, editor or browser here gives the chord a meaning; Apple's screen
+  // reader takes it while it is on. a held key's repeats are recognized so the
+  // page can keep them from the browser
+  {
+    action: "place", mini: false,
+    match: e => e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && !e.isComposing &&
+      (e.key === "ArrowUp" || e.key === "ArrowDown")
+      ? (e.key === "ArrowUp" ? -1 : 1) : null,
+  },
   // command+z and control+z are the editor's undo and nothing of ours. The card
   // pages had a return-to-the-previous-card on that chord until 20260910; it
   // took the key away from the text being typed, so it is gone with no
@@ -635,12 +646,13 @@ const SECTION_KEY_HINTS = {
 };
 
 // Where the chord may come from: anywhere nothing is being typed, the card's
-// own composer in either shape (its textarea, or the editor that holds it), and
-// the card's own title while it is renamed. Every other field keeps the chord.
+// own composer in either shape (its textarea, or the editor that holds it), the
+// card's own title while it is renamed, and its response while the caret stands
+// in it (replyCaret). Every other field keeps the chord.
 function sectionChordSource(target, el){
   if (!cardShortcutEditing(target)) return true;
   if (!el || !el.ta) return false;
-  if (target === el.ta || (el.titleEl && el.titleEl.contains(target))) return true;
+  if (target === el.ta || target === el.reply || (el.titleEl && el.titleEl.contains(target))) return true;
   const editor = target.closest(".cm-editor");
   return !!editor && editor.contains(el.ta);
 }
@@ -777,13 +789,15 @@ function responseScrollBounce(view, dir){
 // Where the chord may come from: the page itself, the card's own composer
 // (its textarea, or the editor standing in for it), the card's own title while
 // it is renamed, and anything else that is not a field, as the page itself is:
-// the response, a button on the card, or one on the bars around it, which a
-// click leaves focused. The sent box, the answered panel, another card, a panel
-// the page names in keyPanels and every other field keep the chord.
+// the response, with its caret in it or not, a button on the card, or one on the
+// bars around it, which a click leaves focused. The sent box, the answered
+// panel, another card, a panel the page names in keyPanels and every other
+// field keep the chord.
 function responseScrollSource(target, el){
   const doc = el.replyview.ownerDocument;
   if (!target || target === doc || target === doc.body || target === doc.documentElement) return true;
   if (el.ta && target === el.ta) return true;
+  if (el.reply && target === el.reply) return true;
   if (el.titleEl && el.titleEl.contains(target)) return true;
   const editor = typeof target.closest === "function" && target.closest(".cm-editor");
   if (editor) return !!el.ta && editor.contains(el.ta);
@@ -5022,6 +5036,8 @@ function turnHolding(el, id){
   if (now - (el.readAt || 0) < READ_QUIET_MS) return true;
   if (el.ta && now - (el.ta.typedAt || 0) < TYPE_QUIET_MS) return true;
   if (typeof boxHasSelection === "function" && boxHasSelection(el.replyview || el.reply)) return true;
+  // and the reader's caret standing in the answer (replyCaret), as a selection there does
+  if (el.reply && typeof document === "object" && document.activeElement === el.reply) return true;
   // and a sent bubble part way through its own run, its flight or a merge is let finish it
   if (el.sentMerge) return true;
   if (sentPanels(el).some(one => one.classList.contains("motion") || one.classList.contains("sentflight"))) return true;
@@ -6242,6 +6258,128 @@ function quietStops(el){
   new MutationObserver(list => {
     for (const m of list) for (const n of m.addedNodes) quiet(n);
   }).observe(el.box, { childList: true, subtree: true });
+}
+
+// ---- the response's caret and the card's three places ---------------------------
+// the response takes a caret the reader moves and selects with and never types
+// with. while the caret stands in it the answer is editable, so the browser draws
+// its own caret there and every key it has for text is the system's own: shift
+// with the arrows, with option a word at a time and with command to a line's or
+// the answer's ends, command+a for the answer alone, command+c. nothing typed,
+// pasted, dropped, cut, deleted, formatted or undone changes the answer (each
+// beforeinput is refused, and so is a cut), no on-screen keyboard is asked for,
+// and the answer is plain prose again the moment the caret leaves it
+const REPLY_CARET = { contenteditable: "true", inputmode: "none", spellcheck: "false", autocorrect: "off",
+  autocapitalize: "off", writingsuggestions: "false", role: "textbox", "aria-multiline": "true",
+  "aria-readonly": "true" };
+
+let replyCaretCard = null;   // the card whose answer was last made editable
+
+// the caret into the card's response: where it stood when the reader last left the
+// answer, or else at the first line on show (replyCaretStart)
+function replyCaret(el){
+  const r = el.reply;
+  readOnlyReply(el);
+  el.cycleStop = false;   // a place the reader chose, not the loop's card stop
+  // a card hidden with the caret in its answer can lose the focus with no blur
+  // to say so; its answer is made plain here instead
+  if (replyCaretCard && replyCaretCard !== el) replyCaretOff(replyCaretCard);
+  replyCaretCard = el;
+  for (const [name, value] of Object.entries(REPLY_CARET)) r.setAttribute(name, value);
+  r.focus({ preventScroll: true });
+  const kept = el.replyMark;
+  const at = kept && r.contains(kept.startContainer) && r.contains(kept.endContainer) ? kept : replyCaretStart(el);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(at);
+}
+
+// the first line of the answer the reader can see: its first letter when the answer
+// has not been scrolled, else the line under the top of the scroller, read at the
+// start of the prose's own column. a caret between the answer's blocks rather than
+// in its words has no spot of its own to be drawn at (the Mac board's block caret
+// is drawn off that spot), so the head is the first letter and not the edge
+function replyCaretStart(el){
+  const r = el.reply, view = el.replyview;
+  const head = document.createRange();
+  head.selectNodeContents(r);
+  head.collapse(true);
+  const words = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+  for (let t = words.nextNode(); t; t = words.nextNode()){
+    const at = t.data.search(/\S/);
+    if (at >= 0){ head.setStart(t, at); head.collapse(true); break; }
+  }
+  if (!view || view.scrollTop < 1 || typeof document.caretRangeFromPoint !== "function") return head;
+  const vr = view.getBoundingClientRect(), rr = r.getBoundingClientRect(), cs = getComputedStyle(r);
+  const x = rr.left + (parseFloat(cs.paddingLeft) || 0) + 1;
+  const step = (parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5 || 24) / 2;
+  for (let y = Math.max(vr.top, rr.top) + step; y < vr.bottom; y += step){
+    const at = document.caretRangeFromPoint(x, y);
+    if (at && r.contains(at.startContainer)) return at;
+  }
+  return head;
+}
+
+// the answer kept as it is while its caret stands in it, wired the first time the
+// caret goes in. a word an input method is composing cannot be refused (the
+// browser does not let that input be cancelled), so the answer is put back as it
+// was once the word ends. where the caret stands is kept as it moves, for the next
+// time the reader comes back (by the time the answer hears its blur the focus has
+// taken the selection along). leaving the answer takes the editing off again; a
+// window put behind another keeps the caret, as a text field does
+let replyCaretKept = false;
+function readOnlyReply(el){
+  const r = el.reply;
+  if (!replyCaretKept){
+    replyCaretKept = true;
+    document.addEventListener("selectionchange", () => {
+      const on = replyCaretCard, sel = getSelection();
+      if (on && document.activeElement === on.reply && sel.rangeCount && on.reply.contains(sel.getRangeAt(0).startContainer))
+        on.replyMark = sel.getRangeAt(0).cloneRange();
+    });
+  }
+  if (r.readOnlyKept) return;
+  r.readOnlyKept = true;
+  r.addEventListener("beforeinput", e => { if (r.isContentEditable) e.preventDefault(); });
+  r.addEventListener("cut", e => { if (r.isContentEditable) e.preventDefault(); });
+  let before = null;
+  r.addEventListener("compositionstart", () => { if (r.isContentEditable) before = r.innerHTML; });
+  r.addEventListener("compositionend", () => {
+    const html = before;
+    before = null;
+    if (html !== null) setTimeout(() => { if (r.innerHTML !== html) r.innerHTML = html; });
+  });
+  r.addEventListener("blur", () => {
+    if (!r.isContentEditable || document.activeElement === r || !document.hasFocus()) return;
+    replyCaretOff(el);
+  });
+}
+function replyCaretOff(el){
+  for (const name of Object.keys(REPLY_CARET)) el.reply.removeAttribute(name);
+}
+
+// control+option+up and down move between the card's three places, the order they
+// stand in from the top: the title, the response and the typing box. up goes from
+// the box to the response to the title, down comes back, and the keys stop at
+// either end. with nothing focused, or on a spot of the card that is none of the
+// three (a button, a link), the reader stands between the response and the box:
+// up lands in the response and down in the box. the title is opened as Tab opens
+// it (editTitle) and the box takes the caret as the page's Tab puts it there
+// (toBox); leaving the title keeps its name and leaving the box keeps a half-typed
+// message, as Tab does. answers true when it moved the focus
+function cardPlace(id, step, toBox){
+  const el = els[id];
+  if (!el) return false;
+  const live = document.activeElement;
+  const at = live && el.titleEl.contains(live) ? 0 : live && live === el.reply ? 1 : el.field.focused() ? 2 : 1.5;
+  const to = at === 1.5 ? (step < 0 ? 1 : 2) : at + step;
+  if (to < 0 || to > 2 || to === at) return false;
+  if (to === 0){
+    if (el.titleEl.isContentEditable) el.titleEl.focus();
+    else editTitle(id);
+  } else if (to === 1) replyCaret(el);
+  else toBox(el);
+  return true;
 }
 
 // after a send, move to the next YELLOW card: one awaiting the reader's read, never a

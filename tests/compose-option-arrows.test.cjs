@@ -206,6 +206,28 @@ for (const platform of Object.keys(PLATFORMS)) {
     }
   });
 
+  // the card's place key (Control+Option with Up or Down, cardPlace in
+  // card-logic.js). The stock keymap leaves it alone on a Mac and adds a caret
+  // above or below with it elsewhere; the composer claims it for the page the
+  // way it claims the arrow chords, so it goes on to the page on every platform
+  test(`${platform}: the composer claims Control and Option with Up or Down for the page and changes no text`, () => {
+    const { C, api } = load(platform);
+    const composer = resolve(composerState(C, api), C, platform);
+    const page = composer.get(chordName({ key: "ArrowUp", ctrl: true, shift: true })).runs[0];
+    for (const key of ["ArrowUp", "ArrowDown"]) {
+      const chord = { key, alt: true, ctrl: true };
+      const name = chordName(chord);
+      const stock = press(stockState(C), C, platform, chord);
+      if (platform === "mac") assert.equal(stock.outcome, "unbound", `stock ${name} is bound on a Mac`);
+      else assert.equal(stock.outcome, "needs-layout", `stock ${name} adds no caret off a Mac`);
+      const result = press(composerState(C, api), C, platform, chord);
+      assert.equal(result.outcome, "ran", `${name} was not taken`);
+      assert.deepEqual(result.reached, [composer.get(name).runs[0]], `${name} ran on past the page's claim`);
+      assert.equal(composer.get(name).runs[0].toString(), page.toString(), `${name} is not claimed the way the arrow chords are`);
+      assert.equal(result.text, TEXT, `${name} changed the message`);
+    }
+  });
+
   test(`${platform}: every caret and selection chord reaches the same commands as the stock keymap and changes no text`, () => {
     const { C, api } = load(platform);
     const composer = resolve(composerState(C, api), C, platform);
