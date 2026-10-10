@@ -545,6 +545,20 @@
      way, and the hairline edge stays. its magic box, brought out in the drawer,
      sits level with it (body.lowered .magicbox, card-tokens.css) */
   body.lowered main{box-shadow:none}
+  /* a key the card has nothing for, control+shift+period on a card with no
+     magic box: the whole card dips a little and springs back up, a touch past
+     where it stood and home, the way words pulled past their end spring back,
+     so the press is seen to have been heard. small and quick. it is drawn on
+     the card's own translate, which stands apart from the transform its drop
+     is written in, so it dips from wherever it stands (cardNudge) */
+  @keyframes cardnudge{
+    0%{translate:0 0; animation-timing-function:cubic-bezier(.2,.7,.3,1)}
+    24%{translate:0 calc(7 * var(--u)); animation-timing-function:cubic-bezier(.45,0,.4,1)}
+    60%{translate:0 calc(-1.2 * var(--u)); animation-timing-function:cubic-bezier(.45,0,.4,1)}
+    100%{translate:0 0}
+  }
+  #pane.nudge{animation:cardnudge .32s}
+  @media (prefers-reduced-motion:reduce){ #pane.nudge{animation:none} }
   #empty{display:none; flex:1; align-items:center; justify-content:center;
     font:italic 400 calc(17 * var(--u)) var(--serif); color:var(--sub); padding:calc(20 * var(--u)); text-align:center}
   main.blank #empty{display:flex}
@@ -7617,13 +7631,13 @@ for (const type of ["touchstart", "mousedown"]) addEventListener(type, e => {
 // card left down (drawerSwapFace); still going back with its other face, it
 // comes out again with this one once it has landed. typing or not, the key
 // types nothing, and coming out takes the caret out of its box (runMenu). on
-// a card with no box the period does nothing, and still types nothing: left
-// alone, the phone types a period into the reply box and corrects the word
-// before it
+// a card with no box the period types nothing either (left alone, the phone
+// types a period into the reply box and corrects the word before it), and
+// the card dips and comes back up, so the press is seen to have been heard
 let drawerSwap = 0;
 function drawerKey(e, box){
   e.preventDefault();
-  if (box && !phoneMagicCard()) return;
+  if (box && !phoneMagicCard()){ cardNudge(); return; }
   const swap = ++drawerSwap, same = tickets.classList.contains("boxface") === box;
   if (menuOut() === tickets){ if (same) closeDrawer(); else drawerSwapFace(box, swap); return; }
   if (same || !listMoving()){ drawerFace(box); showMenu(tickets); return; }
@@ -7638,6 +7652,14 @@ function drawerKey(e, box){
     showMenu(tickets);
   });
 }
+// the card's dip (#pane.nudge, the sheet's cardnudge), from the top again on
+// every press
+function cardNudge(){
+  cardPane.classList.remove("nudge");
+  void cardPane.offsetWidth;
+  cardPane.classList.add("nudge");
+}
+cardPane.addEventListener("animationend", e => { if (e.animationName === "cardnudge") cardPane.classList.remove("nudge"); });
 // the drawer out with one face and asked for the other, the card already down:
 // the card stays down. the face that is out goes as the drawer goes when it
 // shuts, across to its own side and fading, on the shutting run's spring, with
