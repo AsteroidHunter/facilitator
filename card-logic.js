@@ -449,13 +449,13 @@ const CARD_SHORTCUT_DEFINITIONS = [
     action: "tab", mini: false,
     match: e => e.metaKey && /^[1-9]$/.test(e.key) ? +e.key - 1 : null,
   },
-  // control+backtick opens the home page, as the house does. the physical key
-  // (Backquote, left of 1) so any layout has it; no command or option. the mac
-  // gives control+backtick to nothing a card needs, so, like the other control
-  // keys, it works from a typing box too
+  // command+backtick opens the home page, as the house does. the physical key
+  // (Backquote, left of 1) so any layout has it; no control or option. like
+  // the other command keys it works from a typing box too. the mac's own use
+  // of it, cycling windows, is taken before a page sees the key
   {
     action: "home", mini: false,
-    match: e => e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing &&
+    match: e => e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing &&
       e.code === "Backquote" ? true : null,
   },
   {

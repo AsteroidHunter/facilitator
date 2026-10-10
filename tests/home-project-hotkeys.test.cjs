@@ -126,49 +126,50 @@ test("Mac Home respects a locked project and closes an unfinished draft through 
   assert.equal(f.context.draft, false);
 });
 
-// Control + ` is the house's click, matched by the physical key
+// Command + ` is the house's click, matched by the physical key
 function homeFixture(overrides = {}) {
   const clicks = [];
   const f = fixture({ homeOpen: false, document: { getElementById: id => ({ click() { clicks.push(id); } }) }, ...overrides });
   return { f, clicks };
 }
-const ctrlBackquote = (extra = {}) => ({ key: "`", code: "Backquote", metaKey: false, ctrlKey: true, ...extra });
+const cmdBackquote = (extra = {}) => ({ key: "`", code: "Backquote", metaKey: true, ctrlKey: false, ...extra });
 
-test("Control+` clicks the house, on any layout, and types nothing", () => {
+test("Command+` clicks the house, on any layout, and types nothing", () => {
   for (const extra of [{}, { key: "²" }, { key: "Dead" }, { key: "<", code: "Backquote" },
     { target: { closest: () => ({}) } }]) {
     const { f, clicks } = homeFixture();
-    assert.equal(f.key("`", ctrlBackquote(extra)).defaultPrevented, true);
+    assert.equal(f.key("`", cmdBackquote(extra)).defaultPrevented, true);
     assert.deepEqual(clicks, ["homeico"]);
   }
 });
 
-test("Control+` on the home page does nothing but is still kept from the page", () => {
+test("Command+` on the home page does nothing but is still kept from the page", () => {
   const { f, clicks } = homeFixture({ homeOpen: true });
-  assert.equal(f.key("`", ctrlBackquote()).defaultPrevented, true);
+  assert.equal(f.key("`", cmdBackquote()).defaultPrevented, true);
   assert.deepEqual(clicks, []);
 });
 
-test("Control+` needs Control and the Backquote key, and leaves Command and Option alone", () => {
-  for (const extra of [{ ctrlKey: false }, { metaKey: true }, { altKey: true }, { code: "Digit1" }, { code: undefined }]) {
+test("Command+` needs Command and the Backquote key; Control alone and with Command, and Option, do nothing", () => {
+  for (const extra of [{ metaKey: false }, { metaKey: false, ctrlKey: true }, { ctrlKey: true }, { altKey: true },
+    { code: "Digit1" }, { code: undefined }]) {
     const { f, clicks } = homeFixture();
-    assert.equal(f.key("`", ctrlBackquote(extra)).defaultPrevented, false, JSON.stringify(extra));
+    assert.equal(f.key("`", cmdBackquote(extra)).defaultPrevented, false, JSON.stringify(extra));
     assert.deepEqual(clicks, []);
   }
 });
 
-test("Control+` keeps the same guards as the project keys", () => {
+test("Command+` keeps the same guards as the project keys", () => {
   for (const overrides of [{ pageWarn: {} }, { pageMenu: {} }, { setOpen: true }, { FOCUS: false }]) {
     const { f, clicks } = homeFixture(overrides);
-    assert.equal(f.key("`", ctrlBackquote()).defaultPrevented, false);
+    assert.equal(f.key("`", cmdBackquote()).defaultPrevented, false);
     assert.deepEqual(clicks, []);
   }
 });
 
-test("Control+` opens Home from a blank page too", () => {
+test("Command+` opens Home from a blank page too", () => {
   const { f, clicks } = homeFixture();
   f.context.lastState.pages = { alpha: [{ id: "blank", kind: "blank" }] };
   f.context.curPage = () => ({ kind: "blank" });
-  assert.equal(f.key("`", ctrlBackquote()).defaultPrevented, true);
+  assert.equal(f.key("`", cmdBackquote()).defaultPrevented, true);
   assert.deepEqual(clicks, ["homeico"]);
 });
