@@ -170,29 +170,6 @@
 #tiklabels{display:flex; transition:transform .24s var(--gentle)}
 #tiklabels .tikpair{display:flex; flex:0 0 100%; min-width:0; gap:calc(4 * var(--u))}
 #tikhead .tvb{min-width:0}
-/* The symbol before each section name (paintSectionSymbols in card-logic.js): the
-   card bar's own drawing, in the name's colour (currentColor), so it fades and
-   bolds with the name. everything is a share of the name's font size, so it
-   follows the page's size. the marks are in the bar's own proportions: the sun,
-   the cloud and the moon in a box --m (.8em), the sunset in --done-scale times
-   that, as it is on the bar. the box is centred on the middle of the capitals
-   (.35em above the baseline) and hangs from a zero-height box that sits on the
-   baseline, so the symbol cannot grow the name's line or move anything under it.
-   the air to the name is .42em from the ink's edge, whatever the mark's width: the
-   margin is .42em less the room the drawing leaves inside its box */
-#tikhead .tvsym{
-  --m:.8em; --k:1; --sym-ink:var(--ink-sun); --h:calc(var(--m) * var(--k));
-  display:inline-block; position:relative; width:var(--h); height:0; flex:none;
-  margin-right:calc(.42em - (var(--k) - var(--sym-ink)) / 2 * var(--m));
-  pointer-events:none;
-}
-#tikhead .tvsym.docked{--sym-ink:var(--ink-dock)}
-#tikhead .tvsym.deferred{--sym-ink:var(--ink-moon)}
-#tikhead .tvsym.done{--k:var(--done-scale); --sym-ink:var(--ink-done)}
-#tikhead .tvsym svg{
-  position:absolute; left:0; bottom:calc(.35em - var(--h) / 2);
-  display:block; width:var(--h); height:var(--h); overflow:visible;
-}
 @media (prefers-reduced-motion: reduce){#tiklabels{transition:none}}
 #tikhead .tik-page{
   position:absolute; right:calc((var(--bar-mark) - var(--bar-sq)) / 2); left:auto;

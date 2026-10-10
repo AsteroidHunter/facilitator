@@ -5418,29 +5418,6 @@ const DONE_ICON = '<svg viewBox="0 2.8 24 24" width="12" height="12" fill="none"
   '<path d="M12 9.2V7.4M16.3 10.4L17.5 9M7.7 10.4L6.5 9"></path>' +
   '<path d="M8 19H16M10.5 22.2H13.5"></path></svg>';
 
-// the card bar's moon, for the section names (the pages draw their own bar moon)
-const TIK_MOON_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none" aria-hidden="true">' +
-  '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
-// each section name in the card list wears the symbol its section has on the
-// card bar, just before the name: the sun before Doing, the sun and cloud before
-// Docked, the moon before Deferred and the sunset before Done. the symbol is
-// drawn from the same constants as the bar's, in the name's own colour and so
-// faded or bold with it, and it is sized and seated by the sheet (.tvsym in
-// card-tokens.css). the name's own text and buttons are not touched, and a name
-// that already wears its symbol is left as it is
-function paintSectionSymbols(){
-  const icons = { todo: SUN_ICON, docked: DOCK_ICON, deferred: TIK_MOON_ICON, done: DONE_ICON };
-  for (const view of TICKET_VIEWS){
-    const name = document.getElementById("tv-" + view);
-    if (!name || name.querySelector(".tvsym")) continue;
-    const mark = document.createElement("span");
-    mark.className = "tvsym " + view;
-    mark.setAttribute("aria-hidden", "true");
-    mark.innerHTML = icons[view];
-    name.insertBefore(mark, name.firstChild);
-  }
-}
-
 function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === "true"; }
 
 // the sun, built the same on every surface; each page seats it and dresses it
