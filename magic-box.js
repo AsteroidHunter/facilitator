@@ -105,6 +105,12 @@
     "if (h > 0 && h !== say.h) { say.h = h; parent.postMessage(W + ' ' + h, '*'); } };" +
     "addEventListener('load', () => { say(); if (window.ResizeObserver) new ResizeObserver(say).observe(document.body); });" +
     "document.addEventListener('load', say, true);";
+  // the Mac's box shows no scrollbar inside a page, the board's rule for every
+  // scroller (card-tokens.css) restated for the frame, which the board's sheet
+  // does not reach, and a page never scrolls sideways: whatever is wider than
+  // the box is clipped, so a few pixels of overflow cost nothing. It stands
+  // ahead of the agent's own styles, which may still say otherwise
+  const CALM = "<style>*{scrollbar-width:none}*::-webkit-scrollbar{display:none}html{overflow-x:hidden}</style>";
   // word: when given, the page tells the board it is still itself each time it
   // finishes loading, by posting the word to it. A page that has sent its frame
   // elsewhere loads without saying it, and the board puts the page back.
@@ -115,7 +121,7 @@
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
       (sized ? ';(() => { const W = ' + W + '; ' + PAGE_HEIGHT + ' })()' : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
-      '<meta name="referrer" content="no-referrer"><script>' + KEYS_GUARD + '</script>' + hello +
+      '<meta name="referrer" content="no-referrer">' + (sized ? CALM : "") + '<script>' + KEYS_GUARD + '</script>' + hello +
       String(html == null ? "" : html);
   }
   // a website runs as itself, on its own origin, which is never the board's;

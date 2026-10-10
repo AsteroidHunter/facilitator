@@ -1469,6 +1469,11 @@
   #magicbox .mbbar::after{display:none}
   #magicbox .mbclose{background:var(--card)}
   #magicbox .mbclose:hover, #magicbox .mbclose:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  /* no scrollbar anywhere in the box, its words or a page's frame, which has its
+     own rule (MagicBox.pageDoc); the content still scrolls, and never sideways */
+  #magicbox, #magicbox *{scrollbar-width:none}
+  #magicbox::-webkit-scrollbar, #magicbox *::-webkit-scrollbar{display:none}
+  #magicbox .mbbody{overflow-x:hidden}
   #magicbox .mbtext{padding:var(--mb-lead) var(--mb-inset, 16px) var(--mb-inset, 16px)}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
