@@ -1112,3 +1112,10 @@ test("a pull from the right edge on a card with no box dips the card once, and n
   mouse("mousedown", 398); mouse("mousemove", 300); mouse("mouseup", 300);
   assert.ok(dipped(), "the mouse follows the same rule, once its touch's leftovers are past");
 });
+
+test("the Mac box's words can be selected and copied, and command+a picks only them", () => {
+  const html = read("index.html");
+  const optIn = html.match(/\.reply, \.mreply[^{]*\{\s*-webkit-user-select:text; user-select:text;/);
+  assert.ok(optIn && /#magicbox \.mbtext/.test(optIn[0]), "the box's words opt back in to selection");
+  assert.ok(/getSelection\(\)\.selectAllChildren\(words\)/.test(html), "command+a selects the box's words alone");
+});
