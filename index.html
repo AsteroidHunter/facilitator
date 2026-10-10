@@ -467,7 +467,8 @@
   body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
   /* and it sits level with the board once it is lowered, by a double click on
      the empty board and nothing else. browsed to or selected, it stands up
-     either way. its edge line stays */
+     either way. its edge line stays. its magic box sits level with it, held
+     or not (body.lowered .magicbox, card-tokens.css) */
   body.focus.lowered main{box-shadow:none}
   body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column}
   body.focus #sections > div:not(.bucket){display:contents}

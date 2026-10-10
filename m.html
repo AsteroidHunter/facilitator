@@ -538,7 +538,8 @@
   body.listout #page{touch-action:none}
   /* a card sits level with the page once it is lowered, by a double tap on the
      empty page and nothing else. browsed to or selected, it stands up either
-     way, and the hairline edge stays */
+     way, and the hairline edge stays. its magic box, brought out in the drawer,
+     sits level with it (body.lowered .magicbox, card-tokens.css) */
   body.lowered main{box-shadow:none}
   #empty{display:none; flex:1; align-items:center; justify-content:center;
     font:italic 400 calc(17 * var(--u)) var(--serif); color:var(--sub); padding:calc(20 * var(--u)); text-align:center}

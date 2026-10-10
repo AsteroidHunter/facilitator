@@ -1058,6 +1058,11 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
   background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
   box-shadow:0 2px 18px rgba(60,45,20,.06); transition:box-shadow .2s}
 .magicbox.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+/* and never a shadow its card does not wear: with the card lowered to sit
+   level with the page (body.lowered, from a double click or a double tap on
+   the empty page; card-logic.js), the box sits level too, held or not, and
+   keeps its edge. raised again, the card and the box are as above */
+body.lowered .magicbox{box-shadow:none}
 /* its top bar is the card's own: as tall, as white, and parted from what the
    box holds by the same hairline. at its right stand the Mac's three window
    lights, mirrored for that side: green, yellow and red from the left, so the
