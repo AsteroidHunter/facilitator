@@ -134,7 +134,7 @@ A ticket is green while an agent is working on its card, grey while your message
 
 Docked, Deferred and Done list the latest arrival first. Doing lists new cards on top, then the cards waiting on you, oldest first (Settings, Appearance, "Cards waiting on you" turns them to newest first), then the cards queued or being worked on.
 
-Each card has four buttons in its top bar: a sun for Doing, a sun behind a cloud for Docked, a moon for Deferred and a checkmark for Done; the one for the card's own section is faded. The keys are Control + Shift + [ for Doing, Control + Shift + ] for Docked, Control + Shift + \ for Deferred and Control + Shift + Backspace or Delete for Done, and they work while typing. When you are not typing, [, ] and \ alone do the first three. Plain Backspace and Delete never mark a card Done. After you move the card on screen, the next card in the section it left shows. A new message from you brings a Docked or Deferred card back to Doing.
+Each card has four buttons in its top bar: a sun for Doing, a sun behind a cloud for Docked, a moon for Deferred and a cross for Done; the one for the card's own section is faded. The keys are Control + Shift + [ for Doing, Control + Shift + ] for Docked, Control + Shift + \ for Deferred and Control + Shift + Backspace or Delete for Done, and they work while typing. When you are not typing, [, ] and \ alone do the first three. Plain Backspace and Delete never mark a card Done. After you move the card on screen, the next card in the section it left shows. A new message from you brings a Docked or Deferred card back to Doing.
 
 ## The board's settings
 

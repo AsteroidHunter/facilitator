@@ -388,9 +388,14 @@
   body.focus .box.sel .xbtn{
     position:absolute; top:9px; right:9px; left:auto; z-index:4;
     width:16px; height:16px; border-radius:50%;
-    background:#FF9F98; color:#1e1e1e; font-size:0; padding:0; border:none;
-    display:inline-flex; align-items:center; justify-content:center;
+    background:#FF9F98; font-size:0; padding:0; border:none;
   }
+  body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
+    content:""; position:absolute; left:50%; top:50%;
+    width:9px; height:1.2px; background:#1e1e1e; border-radius:1px;
+  }
+  body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
+  body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
   body.focus .box.sel .xbtn:hover{background:#F8837A}
   body.focus .box.sel .num{display:none}
   body.focus .box.sel .title{
@@ -1888,10 +1893,6 @@ function statusOf(b){
 }
 
 function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-// Done's checkmark, the same drawing as DONE_ICON in card-logic.js, which this page does not load
-const DONE_ICON = '<svg viewBox="0 -0.6 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
-  'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<path d="M1.5 11.1L9 18.6L22.5 4.2"></path></svg>';
 
 // One renderer and one URL policy serve every card and document surface.
 function fmt(t){ return CardMarkdown.render(t || ""); }
@@ -1969,9 +1970,8 @@ function makeBox(b, i, state){
     box.id = "box-" + b.id;
 
     const head = h("div", "head");
-    // the done mark renders on every card, not just meta boxes, so all cards share one design
-    const x = h("button", "xbtn");
-    x.innerHTML = DONE_ICON;
+    // the remove cross now renders on every card, not just meta boxes, so all cards share one design
+    const x = h("button", "xbtn", "×");
     x.setAttribute("aria-label", "done");
     x.title = "done (an empty card is removed instead)";
     x.addEventListener("click", async e => {
