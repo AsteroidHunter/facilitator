@@ -14,6 +14,10 @@ One page, one state file. The human types into per-item boxes; messages queue
 FIFO; the agent (Claude, in the terminal session that launched this) drains the
 queue one box at a time via GET /wait (long-poll) and answers via POST /reply.
 
+Every page, script and sheet the board reads from its files (/, /page, /m and the
+shared files they load) is gzip compressed on either port when the request's
+Accept-Encoding takes gzip; pictures go as they are.
+
 Endpoints:
   GET  /                    -> index.html, the card board
   GET  /page                -> page.html, the same lanes drawn as one typed page
@@ -3994,15 +3998,30 @@ def _takes_gzip(accept: str) -> bool:
     return star
 
 
-def _phone_answer(body: bytes, gzip_ok: bool) -> Response:
-    """The phone's reading, gzip compressed when the phone takes it and it is
-    long enough to be worth it. Vary says the bytes depend on what was
-    accepted, so nothing between the board and the phone keeps one for another."""
+def _phone_answer(body: bytes, gzip_ok: bool, ctype: str = "application/json") -> Response:
+    """The phone's reading (or a page or file, by its ctype), gzip compressed
+    when the phone takes it and it is long enough to be worth it. Vary says the
+    bytes depend on what was accepted, so nothing between the board and the
+    phone keeps one for another."""
     headers = {"Cache-Control": "no-store", "Vary": "Accept-Encoding"}
     if gzip_ok and len(body) >= PHONE_GZIP_MIN:
         body = gzip.compress(body, compresslevel=6, mtime=0)
         headers["Content-Encoding"] = "gzip"
-    return Response(body, status_code=200, media_type="application/json", headers=headers)
+    return Response(body, status_code=200, media_type=ctype, headers=headers)
+
+
+# what the board sends as it is read from its files: pages, scripts and sheets.
+# Pictures, fonts and the like are already compressed and go out as they are
+PACKED_TYPES = ("text/", "application/javascript")
+
+
+def _packed(q: Query, body: bytes, ctype: str):
+    """A page, script or sheet of the board's, as the answer route takes it: the
+    plain (200, body, ctype), or the same gzip compressed (as a reading is) when
+    the browser takes gzip, on the board's port and the phone's alike."""
+    if ctype.startswith(PACKED_TYPES):
+        return _phone_answer(body, _takes_gzip(q.accept_encoding), ctype)
+    return 200, body, ctype
 
 
 def _ui_state() -> dict:
@@ -4190,20 +4209,20 @@ def _snapshot(payload: dict) -> tuple[bytes, str]:
     return json.dumps(payload).encode(), "application/json"
 
 
-def _file(p: Path, ctype: str):
+def _file(q: Query, p: Path, ctype: str):
     if p.is_file():
-        return 200, p.read_bytes(), ctype
+        return _packed(q, p.read_bytes(), ctype)
     return 404, {"error": "not found"}
 
 
 def _get_root(q: Query, _):
-    return 200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8"
+    return _packed(q, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
 
 
 def _get_page(q: Query, _):
     # the second UI: the same lanes and the same cards drawn as one typed
     # page, in its own file so editing it can never touch the card board
-    return 200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8"
+    return _packed(q, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
 
 
 def _get_compose_format(q: Query, _):
@@ -4214,7 +4233,7 @@ def _get_compose_format(q: Query, _):
     if not p.is_file():
         return 404, {"error": "not found"}
     lead = b"globalThis.COMPOSE_FORMAT_DEFAULT=" + (b"true" if COMPOSE_FORMAT_DEFAULT else b"false") + b";"
-    return 200, lead + p.read_bytes(), "application/javascript; charset=utf-8"
+    return _packed(q, lead + p.read_bytes(), "application/javascript; charset=utf-8")
 
 
 def _sweep_clocks() -> None:
@@ -4655,11 +4674,11 @@ def _get_phone_page(q: Query, _):
     try:
         sheet = (HERE / "card-tokens.css").read_bytes()
     except OSError:
-        return 200, page, ctype
+        return _packed(q, page, ctype)
     if b"</style" in sheet.lower():
-        return 200, page, ctype   # it would close the element it is put in
+        return _packed(q, page, ctype)   # it would close the element it is put in
     inline = b'<style data-sheet="/card-tokens.css">\n' + sheet + b"</style>"
-    return 200, page.replace(PHONE_SHEET_LINK, inline, 1), ctype
+    return _packed(q, page.replace(PHONE_SHEET_LINK, inline, 1), ctype)
 
 
 def _app_name(title: str) -> str:
@@ -6786,7 +6805,7 @@ def _get_board_settings_js(q: Query, _):
     # profile itself: a board somebody has been through it on gets no word here
     if _profile_needed():
         lead += "globalThis.BOARD_ONBOARDING=true;"
-    return 200, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8"
+    return _packed(q, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8")
 
 
 def _post_settings(q: Query, text: str):
@@ -7984,7 +8003,7 @@ async def _lifespan(app):
 
 
 def _static(name: str, ctype: str):
-    return _endpoint(lambda q, _: _file(HERE / name, ctype))
+    return _endpoint(lambda q, _: _file(q, HERE / name, ctype))
 
 
 ROUTES = [
@@ -8032,9 +8051,9 @@ ROUTES = [
     # beside this one (the icons under assets/). Served with the no-store
     # every answer carries, so a changed page or worker is picked up on the
     # next open rather than a cache later
-    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
+    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(q, p, c)), methods=["GET"])
       for path, (p, c) in PHONE_FILES.items() if path not in ("/m", "/m-manifest.json")],
-    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
+    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(q, p, c)), methods=["GET"])
       for path, (p, c) in OMNI_FILES.items()],
     Route("/push/key", _endpoint(_get_push_key), methods=["GET"]),
     Route("/navfiles", _endpoint(_get_navfiles), methods=["GET"]),
