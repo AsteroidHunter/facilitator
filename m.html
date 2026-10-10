@@ -1104,8 +1104,9 @@
   #tickets.live{visibility:visible; --menuwait:0s; will-change:transform}
   /* the card's magic box (.magicbox, card-tokens.css) comes down in this same
      drawer in place of the list, on the same window, place, fraction, travel,
-     spring and fade: the drawer wears it when it is pulled out for the box
-     (MAGIC_PULL), and then comes in from the side the pull comes from. the box
+     spring and fade: the drawer wears it when it is pulled out for the box,
+     from the right edge, and then comes in from the right, the other way from
+     the list, which comes in from the left. the box
      hangs from the drawer's top at its own size (MagicBox.fit), so the card
      goes down only as far as it needs, as it does for a short section. it
      wears the card's raised shadow, being what is looked at while it is out */
@@ -4525,9 +4526,9 @@ let suppressCardDrawerClick = false;
 page.addEventListener("click", e => {
   if (e.target === page && drawerOpen() && !suppressCardDrawerClick) closeDrawer();
 });
-// the two circles at the ends of the row bring the same two menus a pull from
-// that side does: the ticket the card list, and again to shut it, the gear the
-// settings
+// the two circles at the ends of the row: the ticket brings the card list, as
+// a pull from the left edge does, and again shuts it; the gear brings the
+// settings, which nothing else does
 document.getElementById("tikbtn").addEventListener("click", () => { if (drawerOpen()) closeDrawer(); else openDrawer(); });
 document.getElementById("setbtn").addEventListener("click", () => showMenu(settings));
 let cancelMenuDrag;
@@ -4586,9 +4587,11 @@ let cancelMenuDrag;
     // words, never a pull: the send square reaches into the right edge's strip
     else if (target?.closest?.(".bottombar")){ panel = null; return; }
     else if (x <= EDGE){ panel = tickets; opening = true; }
-    // the drawer stands on the right only when it is to come in from there with
-    // the card's magic box (MAGIC_PULL, which set it as this touch began)
-    else if (x >= innerWidth - EDGE){ panel = tickets.dataset.side === "right" ? tickets : settings; opening = true; }
+    // the right edge's strip brings the card's magic box, in the drawer, which
+    // stands on the right only for the box (set as this touch began). the
+    // settings come out with their circle alone, so on a card with no box a
+    // pull from there does nothing
+    else if (x >= innerWidth - EDGE && tickets.dataset.side === "right"){ panel = tickets; opening = true; }
     else { panel = null; return; }
     if (!menuAvailable(panel)){ panel = null; live = false; return; }
     if (out === tickets && target === page){
@@ -7431,19 +7434,12 @@ if (parent === window) {
 // the card on screen's magic box (POST /magic) comes down in the card list's own
 // drawer, drawn by the view both pages share (card-logic.js, and .magicbox in
 // card-tokens.css): the same window, place, travel, spring and fade, and the
-// card goes down only as far as the box needs (listSlack). it never comes by
-// itself: it waits on its card until a pull brings it (MAGIC_PULL), and goes
-// back when its card leaves the screen or the box is put away. it stands apart
-// from the page's own script and reaches into it only through the few names
-// it wraps at the foot here
-// the pull that brings it down, and the one thing to change once it is settled.
-// "right": a pull in from the right edge's strip brings the box, coming in from
-// the right, on a card that has one, and the settings on a card that has none
-// (the gear brings the settings either way). "left": a pull in from the left
-// edge's strip brings the box, coming in from the left, on a card that has one,
-// and the card list on a card that has none (the cards button brings the list
-// either way). null: no pull brings it
-const MAGIC_PULL = "right";
+// card goes down only as far as the box needs (listSlack). the list comes in
+// from the left, pulled in from the left edge; the box comes in from the right,
+// pulled in from the right edge, the other way. it never comes by itself: it
+// waits on its card, and goes back when its card leaves the screen or the box
+// is put away. it stands apart from the page's own script and reaches into it
+// only through the few names it wraps at the foot here
 const MAGIC_EDGE = 28;   // the pull's own strip, EDGE in the drawer's gesture
 const PB = { el: document.getElementById("mbface"), id: null, rev: 0, asked: 0 };
 PB.view = magicView(PB.el, { placed: () => phoneMagicFit(),
@@ -7456,14 +7452,14 @@ function phoneMagicCard(){
   const b = lastState.boxes.find(x => x.id === shownId);
   return b && b.owner === activeOwner && !b.done && b.magic && b.magic.open ? b : null;
 }
-// which face the drawer comes out with: the card list, or the magic box from the
-// side MAGIC_PULL names. chosen as it starts out, never while it is out or
+// which face the drawer comes out with: the card list from the left, or the
+// magic box from the right. chosen as it starts out, never while it is out or
 // still going back, so it keeps the face it went out with. the box is fitted
 // as its face is put on, since words hidden have no height to read
 function drawerFace(box){
   if (tickets.classList.contains("live") || tickets.classList.contains("open")) return;
   tickets.classList.toggle("boxface", box);
-  tickets.dataset.side = box && MAGIC_PULL === "right" ? "right" : "left";
+  tickets.dataset.side = box ? "right" : "left";
   if (box) phoneMagicFit();
 }
 function phoneMagicSync(){
@@ -7518,12 +7514,14 @@ function phoneMagicClose(){
 }
 // a pull's face is chosen as the touch or the press comes down, ahead of the
 // drawer's own gesture, which then takes the drawer from whichever side it
-// stands on
+// stands on: the left edge's strip the card list, the right edge's the box. on
+// a card with no box the drawer stays on the left, and a pull from the right
+// edge does nothing
 for (const type of ["touchstart", "mousedown"]) addEventListener(type, e => {
   const at = e.touches ? e.touches[0] : e;
   if (!at || (type === "mousedown" && e.button !== 0)) return;
-  const left = at.clientX <= MAGIC_EDGE, right = at.clientX >= innerWidth - MAGIC_EDGE;
-  if (left || right) drawerFace(MAGIC_PULL === (left ? "left" : "right") && !!phoneMagicCard());
+  if (at.clientX <= MAGIC_EDGE) drawerFace(false);
+  else if (at.clientX >= innerWidth - MAGIC_EDGE) drawerFace(!!phoneMagicCard());
 }, { capture: true, passive: true });
 // the page's own script, reached through the names it already has: every
 // reading, every card put on show or taken off it, the cards button, which
