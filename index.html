@@ -49,7 +49,7 @@
      text and fields opt back in; buttons inside those areas stay unselectable.
      Keep this here, outside the styles shared with the phone. */
   body, button{-webkit-user-select:none; user-select:none}
-  .reply, .mreply, .answmsg, .cm-content, input, textarea,
+  .reply, .mreply, .answmsg, #magicbox .mbtext, .cm-content, input, textarea,
   [contenteditable=""], [contenteditable="true" i], [contenteditable="plaintext-only" i]{
     -webkit-user-select:text; user-select:text;
   }
@@ -8581,6 +8581,15 @@ function magicFocusCame(){
   else into.blur();
 }
 addEventListener("blur", () => setTimeout(magicFocusCame));
+// command+a in the held box picks the box's words alone, not the whole board's
+addEventListener("keydown", e => {
+  const words = MB.el?.classList.contains("held") && MB.body.querySelector(".mbtext");
+  if (!words || !(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "a") return;
+  const t = e.target;
+  if (t?.closest?.("input, textarea, [contenteditable]") && !MB.el.contains(t)) return;
+  e.preventDefault();
+  getSelection().selectAllChildren(words);
+});
 
 // the dormant quick-chat panel, bound to one lane, one card and one listener.
 // Those bindings named a project's own lane, so they are cleared here: with no
