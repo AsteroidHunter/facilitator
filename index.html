@@ -654,22 +654,9 @@
     width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
     background:var(--card); font-size:0; padding:0; border:none;
   }
-  /* the cross is grown as the sun, the cloud and the moon beside it were, by
-     --chip-scale, its bars' length and thickness together, so it stands to the
-     moon as it always did */
   body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
     content:""; position:absolute; left:50%; top:50%;
-    width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--cross-t) * var(--chip-scale));
-    background:#1e1e1e; border-radius:calc(var(--cross-t) * var(--chip-scale));
-  }
-  /* the cross's seat stands back from the moon's by what makes the air between
-     the moon and the cross the mean of the air between the sun and the cloud and
-     between the cloud and the moon (the marks differ in width, so those two
-     differ a little): pitch cancels, leaving the marks' widths, in --ink-* shares
-     of the scaled mark. the other three seats do not move */
-  body.focus .box.sel .xbtn{
-    left:calc(-1 * var(--bar-mark) * var(--chip-scale) *
-      ((var(--ink-sun) + 2 * var(--ink-dock) + var(--ink-moon)) / 4 - (var(--ink-moon) + var(--ink-done)) / 2));
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
   }
   body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
   body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
