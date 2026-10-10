@@ -41,7 +41,7 @@ function theSwitch(html) {
 
 const VIEWS = {
   mac: { source: MAC, setsrc: () => between(MAC, '<div id="setsrc"', '<div id="appframe"'),
-         sections: ["appearance", "editor", "improvements", "profile"] },
+         sections: ["profile", "appearance", "editor", "improvements"] },
   phone: { source: PHONE, setsrc: () => between(PHONE, '<div id="setsrc">', '<div id="setfoot">'),
            sections: ["editor", "appearance", "notifications", "improvements", "profile", "diagnostics"] },
 };
@@ -58,7 +58,11 @@ for (const [name, view] of Object.entries(VIEWS)) {
     assert.match(tag, /\brole="switch"/, "not the settings' switch look");
     assert.match(tag, /\schecked(?=[\s>])/, "the switch is not on before anything is read");
     assert.match(improvements.html, /<div class="setrow">/, "the switch is not in a settings row");
-    assert.match(improvements.html, /README/, "the section does not say where every field is listed");
+    if (name === "mac") {
+      assert.match(improvements.html, /We collect basic usage counts to gauge the product's retention rate\. Personal data such as the contents of a card or project names are never collected\./);
+    } else {
+      assert.match(improvements.html, /README/, "the section does not say where every field is listed");
+    }
   });
 }
 

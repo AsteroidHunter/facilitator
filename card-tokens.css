@@ -1041,6 +1041,60 @@
 .sp-page[data-narrow][data-view="list"] .sp-panes{display:none}
 .sp-page[data-narrow][data-view="pane"] .sp-list{display:none}
 
+/* ---- the Mac's page (.sp-mac) ---------------------------------------------
+   the desktop's page is plain white paper, a quarter narrower than it was, and
+   it comes and goes by fading. its veil is always laid out and only hidden, so
+   it has something to fade from and to: the dimming fades by its colour, the
+   page by its opacity (the page is opaque white now, so there is no glass
+   behind it for an opacity to cut off), and the veil stays hidden, and out of
+   the keyboard's and the pointer's reach, until the fade out has run */
+.sp-veil{display:block; visibility:hidden; pointer-events:none; --qn-veil:24%;
+  background-color:color-mix(in srgb, var(--ink) 0%, transparent);
+  transition:background-color .26s ease, visibility 0s linear .26s}
+.sp-veil.open{visibility:visible; pointer-events:auto; animation:none;
+  background-color:color-mix(in srgb, var(--ink) var(--qn-veil), transparent);
+  transition:background-color .26s ease, visibility 0s}
+.sp-veil .sp-page.sp-mac{left:23.75%; right:23.75%; background:#fff; backdrop-filter:none;
+  -webkit-backdrop-filter:none; opacity:0; transition:opacity .26s ease;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.1), 0 1px 3px rgba(0,0,0,.08), 0 12px 32px rgba(0,0,0,.14)}
+.sp-veil.open .sp-page.sp-mac{opacity:1}
+.sp-mac::before{display:none}
+@media (prefers-reduced-motion: reduce){
+  .sp-veil, .sp-veil.open, .sp-veil .sp-page.sp-mac{transition-duration:0s}
+}
+.sp-mac .sp-head{border-bottom-color:rgba(0,0,0,.08)}
+.sp-mac .sp-body{grid-template-columns:210px minmax(0, 1fr)}
+.sp-mac .sp-list{border-right-color:rgba(0,0,0,.08)}
+/* a section: its mark, then its name, and the chosen one on a light grey, half
+   the press shade the page used to hold it in */
+.sp-mac .sp-item{justify-content:flex-start; gap:10px; padding:8px 10px; border-radius:7px}
+.sp-mac .sp-item:hover, .sp-mac .sp-item.on{background:color-mix(in srgb, #000 4.5%, #fff)}
+.sp-mac .sp-ico{flex:none; display:flex; color:var(--sub)}
+.sp-mac .sp-ico svg{display:block}
+.sp-mac .sp-item.on .sp-ico{color:var(--ink)}
+.sp-mac .sp-next{margin-left:auto}
+.sp-mac .sp-panes{padding:28px 32px 40px}
+/* a section's choices lie in one rounded light grey box, a thin line between
+   one choice and the next */
+.sp-mac .sp-box{background:color-mix(in srgb, #000 3.5%, #fff); border-radius:12px; padding:0 18px}
+.sp-mac .sp-box .setrow{border-top:none; padding:14px 0}
+.sp-mac .sp-box .setrow + .setrow, .sp-mac .sp-box .setprofile + .setrow{border-top:1px solid rgba(0,0,0,.08)}
+.sp-mac .setrow .setfield{border-color:rgba(0,0,0,.12)}
+.sp-mac .setrow input[type="checkbox"]{background:#D6D6D6}
+.sp-mac .setrow input[type="checkbox"]:checked{background:var(--ink)}
+/* the profile's top: a square picture, as tall as the name and the email
+   together, which each take half its height beside it */
+.sp-mac .setprofile{--half:52px; display:flex; align-items:stretch; gap:18px; padding:14px 0}
+.sp-mac .setpic{flex:none; box-sizing:border-box; width:calc(2 * var(--half)); height:calc(2 * var(--half));
+  border-radius:10px; overflow:hidden; background:#E4E4E4; color:#B4B4B4}
+.sp-mac .setpic svg{display:block; width:100%; height:100%}
+.sp-mac .setpair{flex:1; min-width:0}
+.sp-mac .setpair .setrow{box-sizing:border-box; height:var(--half); padding:0}
+.sp-mac .setprofile .setfield{flex:0 1 240px}
+.sp-mac[data-narrow] .sp-panes{padding:0 20px 32px}
+.sp-mac[data-narrow] .sp-item{padding:15px 20px; border-radius:0}
+.sp-mac[data-narrow] .sp-item.on{background:none}
+
 /* The link menu uses the board's existing page-menu shape and ink press shade. */
 html.app-link-policy a[href], html.app-link-policy .cardmd img,
 html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-touch-callout:none}

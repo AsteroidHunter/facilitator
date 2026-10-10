@@ -192,12 +192,12 @@ An agent can open a magic box beside a card to show you a picture, a chart, a pa
 
 ## The settings page
 
-On the Mac board, the squid at the right end of the top bar opens the settings page over the board; the red button at its top left, Escape, or a click outside closes it. Its sections:
+On the Mac board, the squid at the right end of the top bar opens the settings page over the board; the red button at its top left, Escape, or a click outside closes it. The page is plain white, about half the window's width, and fades in and out over about a quarter of a second while the board behind it dims and undims with it. A line icon stands beside each section's name, the chosen section is on a light grey, and a section's choices lie in one rounded light grey box, with no second heading over them. Its sections, in this order:
 
+- Profile: a plain square picture (nothing to click yet) as tall as the Name and Email rows together, with Name beside its upper half and Email beside its lower half, then Work, Main agent and your time zone, written out as in "Pacific Time (Los Angeles), UTC−7". The email is the yes to feedback emails and there is no switch for it (see "Usage counts").
 - Appearance: the background colour, and "Cards waiting on you", which lists the cards waiting on you newest first instead of oldest first.
 - Editor: "Format text while typing", off unless you turn it on.
 - Improvements: "Share daily usage counts", on unless you turn it off (see "Usage counts").
-- Profile: your onboarding answers, which you can change, the "Feedback emails" switch, and your time zone.
 
 On the phone the settings are in a drawer, and only the squid on the bottom row opens it: no pull and no key does. A pull from the right edge brings a card's magic box, and on a card without one it does nothing. Its sections are Editor, Appearance, Notifications, Improvements and Profile. "Cards waiting on you" and "Share daily usage counts" are shared with the Mac; the profile is only shown, since it is changed on the Mac. The power mark at the bottom of the drawer signs the phone out. A tap beside the drawer, or a swipe to the right, puts it away.
 
@@ -217,7 +217,7 @@ With the first answer a faint keyboard comes in behind the foot of the card and 
 
 The onboarding also makes a sample project, a folder named `facilitator-sample` in your home folder (an existing one is never touched), and opens it as your first project. Marking the last card, 101: Hotkeys, Done (Control + Shift + Backspace or its cross) saves your answers and shows the sample project's board; without a name it goes back to the first question instead.
 
-Your answers are your profile, kept on the Mac where only your account can read them, and changed in Settings, Profile on the Mac. What leaves the Mac is under "Usage counts".
+Your answers are your profile, kept on the Mac where only your account can read them, and changed in Settings, Profile on the Mac: a field is saved when you leave it, and giving an email there is the same yes as giving one in the onboarding, while clearing the email takes the yes back. What leaves the Mac is under "Usage counts".
 
 ## Usage counts
 
@@ -226,8 +226,8 @@ Once a day the board sends one message of counts about the day before to the Fac
 What leaves the Mac, exactly:
 
 - Every used day, unless the switch is off: one message of counts, the app version and the main macOS version number, under the install id. Never a word anybody typed, a name, a card title, a folder or a path.
-- Only after a yes to feedback emails (an email given in the onboarding, or the Feedback emails switch in Settings, Profile), and only while the switch is on: your email, name, what you will mostly use Facilitator for, your main agent and your time zone, each only if given. They go once, at the yes; after that, an answer you change goes again on its own, and one you clear is removed there.
-- Taking the yes back sends nothing more, and the Mac forgets your email and answers; what PostHog already holds stays there. A later yes sends them all again.
+- Only after a yes to feedback emails (an email given, in the onboarding or in Settings, Profile; there is no switch for it), and only while the "Share daily usage counts" switch is on: your email, name, what you will mostly use Facilitator for, your main agent and your time zone, each only if given. They go once, at the yes; after that, an answer you change goes again on its own, and one you clear is removed there.
+- Taking the yes back, by clearing the email in Settings, Profile, sends nothing more, and the Mac forgets your email and answers; what PostHog already holds stays there. A later yes sends them all again.
 - With the switch off nothing leaves, the profile included.
 - Without the yes, the profile never leaves the Mac.
 
