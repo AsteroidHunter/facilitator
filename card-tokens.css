@@ -1054,39 +1054,72 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    held wears the card's raised shadow and the other the faint one the card
    settles to under magic box 2, eased over the card's own .2s. a box comes in
    settled, since the card is what was being worked in */
-.magicbox{display:flex; flex-direction:column; overflow:hidden;
+.magicbox{display:flex; flex-direction:var(--mb-flow); overflow:hidden;
   background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
-  box-shadow:0 2px 18px rgba(60,45,20,.06); transition:box-shadow .2s}
+  box-shadow:0 2px 18px rgba(60,45,20,.06); transition:box-shadow .2s;
+  /* its own lengths, in the board's pixels; the phone gives them in its own
+     (m.html). --mb-x is the cross's seat and --mb-bar the bar, the seat and
+     a pixel of air over and under it, shorter than the card's own bar.
+     --mb-air is the white the box keeps between what it holds and its far
+     edge, and --mb-fade the depth of the fuzz, the ticket list's own 22px.
+     --mb-flow and the two airs say which end the bar stands at */
+  --mb-x:24px; --mb-bar:calc(var(--mb-x) + 2px); --mb-air:8px; --mb-fade:22px;
+  --mb-flow:column; --mb-air-head:0px; --mb-air-foot:var(--mb-air)}
+/* on the phone (.barfoot, m.html) and in a portrait window the bar stands at
+   the box's foot, and the white goes to the top, now the far edge */
+.magicbox.barfoot{--mb-flow:column-reverse; --mb-air-head:var(--mb-air); --mb-air-foot:0px}
+@media (orientation:portrait){
+  .magicbox{--mb-flow:column-reverse; --mb-air-head:var(--mb-air); --mb-air-foot:0px}
+}
 .magicbox.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
 /* and never a shadow its card does not wear: with the card lowered to sit
    level with the page (body.lowered, from a double click or a double tap on
    the empty page; card-logic.js), the box sits level too, held or not, and
    keeps its edge. raised again, the card and the box are as above */
 body.lowered .magicbox{box-shadow:none}
-/* its top bar is the card's own: as tall, as white, and parted from what the
-   box holds by the same hairline. at its right stand the Mac's three window
-   lights, mirrored for that side: green, yellow and red from the left, so the
-   red one is outermost as on a Mac window's left. the red one puts the box
-   away, and the yellow and green ones, for shrinking it and for full size, are
-   greyed until they have work. as on the Mac, the red one shows its cross
-   while the pointer is over the lights or the red one has the keys; a
-   finger's tap reaches past it */
+/* its bar: white, with no line between it and what the box holds, which
+   dissolves as it goes under it (the fuzz, below). at its right, one cross
+   puts the box away: the card bar's own kind of mark (MAGIC_CROSS,
+   card-logic.js) at the card bar's mark size, in the card bar's kind of
+   seat, which wears the one press shade. a finger's tap reaches past it */
 .magicbox .mbbar{flex:none; display:flex; align-items:center; justify-content:flex-end;
-  height:var(--cardbar-h); padding:0 12px; background:var(--card);
-  box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
-.magicbox .mblights{display:flex; gap:8px}
-.magicbox .mblight{position:relative; width:12px; height:12px; padding:0; border:none; border-radius:50%;
-  background:#DCDCDC; box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
-.magicbox .mbclose{background:#FF5F57; cursor:pointer}
-.magicbox .mbclose::after{content:""; position:absolute; inset:-8px}
+  height:var(--mb-bar); padding:0 var(--bar-tail, 5px); background:var(--card)}
+.magicbox .mbclose{position:relative; flex:none; display:grid; place-items:center;
+  width:var(--mb-x); height:var(--mb-x); padding:0; border:none; border-radius:var(--sq);
+  background:var(--card); color:#1e1e1e; cursor:pointer}
+.magicbox .mbclose:hover, .magicbox .mbclose:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
 .magicbox .mbclose:focus-visible{outline:2px solid var(--line); outline-offset:1px}
-.magicbox .mbclose i::before, .magicbox .mbclose i::after{content:""; position:absolute; left:50%; top:50%;
-  width:6.5px; height:1.2px; margin:-0.6px 0 0 -3.25px; border-radius:1px; background:rgba(77,0,0,.7);
-  opacity:0; transform:rotate(45deg)}
-.magicbox .mbclose i::after{transform:rotate(-45deg)}
-.magicbox .mblights:hover .mbclose i::before, .magicbox .mblights:hover .mbclose i::after,
-.magicbox .mbclose:focus-visible i::before, .magicbox .mbclose:focus-visible i::after{opacity:1}
-.magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto}
+.magicbox .mbclose svg{width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--bar-mark) * var(--chip-scale))}
+.magicbox .mbclose::after{content:""; position:absolute; inset:-8px}
+/* what it holds stops short of the far edge by --mb-air of white, so nothing
+   touches it; a picture is the exception, which fills its box to the edge in
+   its own shape. words that scroll dissolve at both ends of their scroll as
+   the ticket list's sections do, under the same ramp: --upband is how far
+   they have scrolled and --downband how far they still can, each capped at
+   --mb-fade by the view (card-logic.js), so an end with nothing past it
+   stays at full ink and words that fit wear no fuzz at all */
+.magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto;
+  margin:var(--mb-air-head) 0 var(--mb-air-foot)}
+.magicbox .mbbody[data-kind="image"]{margin:0}
+.magicbox .mbbody:is([data-kind="text"], [data-kind="markdown"]){
+  -webkit-mask-image:linear-gradient(to bottom,
+    rgba(0,0,0,0) 0,
+    rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+    rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+    rgba(0,0,0,1) var(--upband, 0px),
+    rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+    rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+    rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+    rgba(0,0,0,0) 100%);
+  mask-image:linear-gradient(to bottom,
+    rgba(0,0,0,0) 0,
+    rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+    rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+    rgba(0,0,0,1) var(--upband, 0px),
+    rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+    rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+    rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+    rgba(0,0,0,0) 100%)}
 /* words run the box's full width in the card's own body size, off its edges
    by --mb-inset, which each page sets to its card answer's own inset */
 .magicbox .mbtext{padding:var(--mb-inset, 16px); font-size:15px; line-height:1.55; color:var(--ink)}

@@ -7184,6 +7184,11 @@ function settingsOverlay(host, source, opts){
 const MAGIC_NEW_PAGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 2.5h4v4"/>' +
   '<path d="M13.5 2.5 7.5 8.5"/><path d="M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/></svg>';
+// the cross on the box's bar that puts it away: a mark of the card bar's own
+// family (SUN_ICON and the rest), on the same 24 grid in the same 2.4 stroke
+// with round ends, its ink about as wide as the moon's
+const MAGIC_CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+  'stroke-linecap="round" aria-hidden="true"><path d="M4.5 4.5L19.5 19.5M19.5 4.5L4.5 19.5"></path></svg>';
 // a site's name as the site gives it, or its address's host without "www."
 function magicSiteName(box){
   const site = ((box.preview || {}).site || "").trim();
@@ -7194,11 +7199,30 @@ function magicSiteName(box){
 function magicView(el, hooks = {}){
   const view = { el, body: el.querySelector(".mbbody"), bar: el.querySelector(".mbbar"), url: "", natural: null, page: null };
   const placed = () => { if (hooks.placed) hooks.placed(); };
+  const cross = el.querySelector(".mbclose");
+  if (cross) cross.innerHTML = MAGIC_CROSS;
+  // the words' two fuzzes, the ticket list's own (tickBands): how far they have
+  // scrolled, --upband, and how far they still can, --downband, in whole
+  // pixels and capped at the box's --mb-fade. a number is only written when it
+  // changes, and they are read again whenever the box or the words change size,
+  // since either moves how far the words can scroll without a scroll event
+  const bands = () => {
+    const b = view.body;
+    if (view.fade == null) view.fade = parseFloat(getComputedStyle(el).getPropertyValue("--mb-fade")) || 0;
+    const up = Math.min(Math.round(b.scrollTop), view.fade);
+    const down = Math.min(Math.max(0, Math.round(b.scrollHeight - b.clientHeight - b.scrollTop)), view.fade);
+    if (up !== view.up){ view.up = up; b.style.setProperty("--upband", up + "px"); }
+    if (down !== view.down){ view.down = down; b.style.setProperty("--downband", down + "px"); }
+  };
+  view.body.addEventListener("scroll", bands, { passive: true });
+  const sized = typeof ResizeObserver === "function" ? new ResizeObserver(bands) : null;
+  if (sized) sized.observe(view.body);
   // everything in it gone, so a frame that was showing stops running
   view.clear = () => {
-    view.url = ""; view.page = null; view.natural = null;
+    view.url = ""; view.page = null; view.natural = null; view.fade = null;
     delete view.body.dataset.kind;
     view.body.textContent = "";
+    bands();
   };
   view.draw = box => {
     view.clear();
@@ -7209,6 +7233,8 @@ function magicView(el, hooks = {}){
       if (box.kind === "text") prose.textContent = box.text || "";
       else prose.innerHTML = fmt(box.text || "");
       view.body.appendChild(prose);
+      if (sized) sized.observe(prose);
+      bands();
     } else if (box.kind === "image"){
       // the board's own copy, served sandboxed, so the picture's site never
       // sees the owner's browser
@@ -7287,10 +7313,13 @@ function magicView(el, hooks = {}){
   // the board's stage scale. a picture asks for its own size, as many of the
   // page's pixels as it has pixels on screen, so it is never drawn past its
   // sharpness, with the top bar as its head; words for their own height at the
-  // room's width; a site that will not be framed for a square. the edge and the
-  // top bar are added, so what is under the bar is the size it asks for
+  // room's width; a site that will not be framed for a square. the edge, the
+  // bar and the white kept at the far edge are added, so what is beside the
+  // bar is the size it asks for
   view.want = (room, scale = 1) => {
-    const kind = view.body.dataset.kind, edges = el.offsetWidth - el.clientWidth, head = view.bar.offsetHeight;
+    const air = getComputedStyle(view.body);
+    const kind = view.body.dataset.kind, edges = el.offsetWidth - el.clientWidth,
+      head = view.bar.offsetHeight + (parseFloat(air.marginTop) || 0) + (parseFloat(air.marginBottom) || 0);
     if (kind === "image"){
       const [w, h] = view.natural || [0, 0];
       return w && h ? { width: w / scale + edges, height: h / scale + edges, head } : null;
