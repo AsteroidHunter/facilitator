@@ -151,8 +151,8 @@ test('Docked uses the sun stroke and a covering cloud, with no added colour', ()
     assert.match(icon, /fill="none" stroke="currentColor"/);
     assert.doesNotMatch(icon, /--accent|#[0-9a-f]{3,8}/i);
   }
-  assert.match(dock, /M9 21h10a3\.5/); // closed cloud outline covers lower-right sun arc
-  assert.match(dock, /a4\.35 4\.35/); // sun keeps the existing ring radius
+  assert.match(dock, /H19\.694A2\.8 2\.8[^"]*Z"/); // closed cloud outline covers the lower right of the sun
+  assert.match(dock, /A3\.8 3\.8 0 1 1/); // the sun's ring is one arc that ends on the cloud's outline
 });
 
 test('done chord uses physical Backspace and Delete; plain deletion never moves a card', () => {
