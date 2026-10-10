@@ -1049,8 +1049,10 @@ async function drawerKeys() {
   const state = { view: "todo" };
   f.doc.querySelector = selector => panes[/data-view="([^"]+)"/.exec(selector)?.[1]] || null;
   f.doc.activeElement = f.doc.body;
+  // the drawer's face (boxface when it is out for the magic box) and the box
+  const face = new Set(), PB = { id: null, view: { body: null } };
   Object.assign(f.context, { homeOpen: false, curView: () => state.view,
-    drawerOpen: () => f.open.has("listout") });
+    drawerOpen: () => f.open.has("listout"), tickets: { classList: { contains: v => face.has(v) } }, PB });
   vm.runInContext(text.slice(text.indexOf("function drawerPane(){"), text.indexOf("// Tab walks the menu")), f.context);
   const menu = vm.runInContext("menuShortcutActions", f.context);
   const card = vm.runInContext("phoneShortcutActions", f.context);
@@ -1062,7 +1064,7 @@ async function drawerKeys() {
   };
   const openDrawer = () => { f.open.add("listout"); f.open.add("menuout"); };
   openDrawer();
-  return { ...f, panes, state, press, openDrawer };
+  return { ...f, panes, state, press, openDrawer, face, PB };
 }
 
 test("PWA Ctrl+S scrolls only the open ticket section, from the existing speed, and eases off on release", async () => {
@@ -1162,4 +1164,136 @@ test("a short PWA ticket list keeps the shared edge feedback and leaves the card
   near(f.view.scrollTop, 1000);
   assert.equal(f.panes.todo.children[0].animations.length, 1);
   assert.equal(f.time.pending(), 0);
+});
+
+// the words in a magic box: its body is the scroller and its parts are what
+// bounces. Both pages hand it to the same motion as a stand-in for a card.
+function boxBody(doc, { clientHeight = 300, scrollHeight = 1500, scrollTop = 200 } = {}) {
+  const body = Object.assign(node(doc.body), { ownerDocument: doc, clientHeight, scrollHeight, writes: [] });
+  let top = scrollTop;
+  Object.defineProperty(body, "scrollTop", { get: () => top, set: v => { top = v; body.writes.push(v); } });
+  body.children = [node(body)];
+  return body;
+}
+
+test("PWA drawer out for the magic box scrolls the box's words, not the list or the card", async () => {
+  const f = await drawerKeys();
+  f.face.add("boxface");
+  f.PB.id = "c1";
+  const words = f.PB.view.body = boxBody(f.doc);
+  assert.equal(f.press().defaultPrevented, true);
+  f.time.run(5);
+  near(words.scrollTop, 200 + f.held(100));
+  const letGo = words.scrollTop;
+  f.release("S");
+  easeOut(f);
+  assertEased(words.scrollTop - letGo, f.speed(100), "the box");
+  near(f.panes.todo.scrollTop, 600, "the list");
+  near(f.view.scrollTop, 1000, "card behind the drawer");
+  // a tap then a hold goes up
+  f.time.elapse(100);
+  f.press(); f.time.run(1); f.release("S");
+  f.time.elapse(100);
+  const down = words.scrollTop;
+  f.press(); f.time.run(2);
+  assert.ok(words.scrollTop < down, "the double tap did not go up");
+});
+
+test("PWA drawer motion on the box stops when the drawer takes the list's face or the box goes", async () => {
+  for (const [name, leave] of Object.entries({
+    list: f => f.face.delete("boxface"),
+    gone: f => { f.PB.id = null; },
+    close: f => f.open.clear(),
+  })) {
+    const f = await drawerKeys();
+    f.face.add("boxface");
+    f.PB.id = "c1";
+    const words = f.PB.view.body = boxBody(f.doc);
+    f.press(); f.time.run(1);
+    leave(f); f.time.run(5);
+    near(words.scrollTop, 200 + f.held(20), name);
+    assert.equal(f.time.pending(), 0, name);
+  }
+});
+
+test("PWA drawer box with nothing to scroll bounces its content and leaves the card still", async () => {
+  const f = await drawerKeys();
+  f.face.add("boxface");
+  f.PB.id = "c1";
+  const picture = f.PB.view.body = boxBody(f.doc, { scrollHeight: 300, scrollTop: 0 });
+  assert.equal(f.press().defaultPrevented, true);
+  f.time.run(3);
+  assert.deepEqual(picture.writes, []);
+  assert.equal(picture.children[0].animations.length, 1);
+  near(f.view.scrollTop, 1000);
+  assert.equal(f.time.pending(), 0);
+});
+
+// the desktop board: the magic box is held once clicked into, and then it, not
+// the card's answer, takes the chord
+async function boxPage() {
+  const box = { classList: new Set(["on", "held"]), isConnected: true };
+  box.classList.contains = v => box.classList.has(v);
+  const MB = { el: box, id: "c1", body: null };
+  const f = await page("index.html", calls => ({
+    FOCUS: true, boardKeysLive: () => true, miniFocused: false, p3Zoom: null,
+    nav: dir => calls.push(["nav", dir]), MB,
+  }));
+  MB.body = boxBody(f.doc);
+  // a click into the box leaves the page itself focused, not the card's composer
+  f.doc.activeElement = f.doc.body;
+  return { ...f, MB, box, words: MB.body, press: (over = {}, at = f.doc.body) => f.press(over, at) };
+}
+
+test("desktop control+s scrolls the held magic box, and gives the answer back when it is not held", async () => {
+  const f = await boxPage();
+  assert.equal(f.press().defaultPrevented, true);
+  f.time.run(5);
+  near(f.words.scrollTop, 200 + f.held(100));
+  near(f.view.scrollTop, 1000, "the card's answer");
+  const letGo = f.words.scrollTop;
+  f.release("S");
+  easeOut(f);
+  assertEased(f.words.scrollTop - letGo, f.speed(100), "the box");
+  near(f.view.scrollTop, 1000, "the card's answer");
+  // a click on the card takes the held look off the box
+  f.box.classList.delete("held");
+  f.time.elapse(1000);
+  const still = f.words.writes.length;
+  f.press(); f.time.run(2); f.release("S");
+  near(f.view.scrollTop, 1000 + f.held(40), "the answer again");
+  assert.equal(f.words.writes.length, still, "the box moved with the card's chord");
+});
+
+test("desktop double s on the held magic box goes up, and a click on the card ends the motion", async () => {
+  const f = await boxPage();
+  f.press(); f.time.run(1); f.release("S");
+  f.time.elapse(100);
+  const tap = f.words.scrollTop;
+  f.press(); f.time.run(2);
+  near(f.words.scrollTop, tap - f.held(40));
+  f.box.classList.delete("held");
+  const at = f.words.scrollTop;
+  f.time.run(5);
+  near(f.words.scrollTop, at, "it carried on after the box lost the hold");
+  assert.equal(f.time.pending(), 0);
+  near(f.view.scrollTop, 1000);
+});
+
+test("desktop magic box keeps the board's guards, and a box with nothing to scroll bounces", async () => {
+  const f = await boxPage();
+  f.open.add("setopen");
+  assert.equal(f.press().defaultPrevented, false);
+  assert.equal(f.time.pending(), 0);
+  f.open.clear();
+  f.MB.id = null;
+  assert.equal(f.press().defaultPrevented, false, "a box that is not loaded");
+  f.MB.id = "c1";
+  const picture = f.MB.body = boxBody(f.doc, { scrollHeight: 300, scrollTop: 0 });
+  f.MB.scroller = null;
+  assert.equal(f.press().defaultPrevented, true);
+  f.time.run(3);
+  assert.deepEqual(picture.writes, []);
+  assert.equal(picture.children[0].animations.length, 1);
+  near(f.view.scrollTop, 1000);
 });

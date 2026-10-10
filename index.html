@@ -11305,6 +11305,21 @@ function boardResponseCard(){
       el.wtmenu?.classList.contains("open")) return null;
   return { id: selectedId, owner: activeOwner, el };
 }
+// the magic box in place of the card's response, while the owner has clicked
+// into it (#magicbox.held; a click on the card gives the keys back): its words
+// scroll by the same motion. The same guards as the response's apply, and the
+// motion stops the moment the box is not held or not showing. A picture, a page
+// in its sealed frame and a website have nothing the board can scroll, so they
+// take the shared edge feedback
+function boardMagicHeld(){
+  return typeof MB === "object" && !!MB.el && MB.el.classList.contains("held");
+}
+function boardMagicScrollCard(){
+  const card = boardResponseCard();
+  if (!card || !boardMagicHeld() || !MB.el.classList.contains("on") || MB.id === null) return null;
+  if (!MB.scroller) MB.scroller = { replyview: MB.body, box: MB.el };
+  return { id: "magic:" + MB.id, owner: card.owner, el: MB.scroller };
+}
 // the boxes beside the card with work of their own: a button focused in one
 // (a file in the navigator, the player's, the small card's) keeps control+s,
 // where a button on the card or on the bars around it counts as the page
@@ -11451,7 +11466,7 @@ const boardShortcutActions = {
     if (to) setView(to);
   },
   responseScroll(e){
-    responseScrollKey(e, boardResponseCard);
+    responseScrollKey(e, boardMagicHeld() ? boardMagicScrollCard : boardResponseCard);
   },
 };
 
