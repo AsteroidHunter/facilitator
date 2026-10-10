@@ -1437,16 +1437,16 @@
      comes back when the room does. off the board (home, edit mode) it is not
      drawn.
      on the board it has a box (the phone's drawer wears none): the card's own
-     white face, 7px corners and shadow, but no edge line, with a white bar at
-     its top and no line under it, and its words kept the card answer's inset
-     off its sides. the shadow says which of the box and the card is being
+     white face, edge line, 7px corners and shadow, with a white bar at its top
+     and no line under it, and its words kept the card answer's inset off its
+     sides. the shadow says which of the box and the card is being
      worked in: the one held wears the card's raised shadow and the other the
      lighter one (--shade-lighter, above), eased over the card's own .2s. a box
      comes in with the lighter one, since the card is what was being worked in */
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
-  #magicbox{background:var(--card); border-radius:7px;
+  #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:var(--shade-lighter); transition:box-shadow .2s}
   #magicbox.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   /* and never a shadow its card does not wear: with the card lowered to sit
@@ -1454,12 +1454,13 @@
      board; card-logic.js), the box sits level too, held or not. raised again,
      the card and the box are as above */
   body.lowered #magicbox.on{box-shadow:none}
-  /* it rises out of the page as it comes and sinks back into it as it goes
-     (magicRise): --rise runs from 0, flat with the page with nothing on it, to
+  /* it rises out of the page when it first comes on a card and sinks back into
+     it when it is put away (magicRise); coming back with its card it is simply
+     there. --rise runs from 0, flat with the page with nothing on it, to
      1, where both shadows above are reached and what it holds is at its full
      strength. the shadow's offset, reach and strength and what it holds all
-     follow it together, and its lines too (#mblines). risen, the class comes
-     off and the rules above hold it, with the same numbers */
+     follow it together, and its lines too (#mblines, #mbtabs). risen, the
+     class comes off and the rules above hold it, with the same numbers */
   #magicbox.rising{--rise:0; transition:none;
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.05 * var(--rise)))}
@@ -1467,15 +1468,18 @@
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
-  /* the one or two thin lines that tie the box to its card, as the owner's
-     sketches have them: the card's own edge colour, a little uneven as if drawn
-     by hand, running only across and up or down, behind the card and the box so
-     they never cross their words. the routes are picked and drawn by
+  /* the one or two lines that tie the box to its card, copied from the owner's
+     three sketches (magicRoute): the card's own edge colour, 2px drawn as
+     Figma's Drone brush draws it, running only across and up or down, behind
+     the card and the box so they never cross their words. the small tabs one
+     sketch puts where its line meets each edge stand over the card and the
+     box, across the edge (#mbtabs, after the card). both are drawn by
      magicLines, in the stage's pixels, from the svg's corner at the stage's */
-  #mblines{display:none}
-  body.focus #mblines.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
+  #mblines, #mbtabs{display:none}
+  body.focus :is(#mblines, #mbtabs).on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none}
-  body.focus.home #mblines.on, body.focus.editmode #mblines.on{display:none}
+  body.focus #mbtabs.on{z-index:2}
+  body.focus:is(.home, .editmode) :is(#mblines, #mbtabs).on{display:none}
   #magicbox .mbbar{background:var(--card)}
   #magicbox .mbbar::after{display:none}
   #magicbox .mbclose{background:var(--card)}
@@ -3748,6 +3752,9 @@
   <div id="sections"></div>
   <div id="carousel"></div>
 </main>
+<!-- the small tabs on the edges where a line meets them, over the card and
+     the box -->
+<svg id="mbtabs" aria-hidden="true"></svg>
 </div>
 
 <!-- the new-project landing lives outside the stage: it centers on the real
@@ -8253,8 +8260,9 @@ panelPoll(); setInterval(panelPoll, 4000);
 // holds under its own top bar and nothing else: its title is kept by the board
 // and not drawn here. it never takes the keys or moves the board when it comes:
 // it waits on its card, and only a click or a Tab puts the owner in it
-const MB = { el: document.getElementById("magicbox"), lines: document.getElementById("mblines"), id: null, rev: 0, asked: 0,
-  rise: { t: 0, dir: 0, fast: 1, raf: 0, last: 0, then: null }, plans: new Map() };
+const MB = { el: document.getElementById("magicbox"), lines: document.getElementById("mblines"),
+  tabs: document.getElementById("mbtabs"), id: null, rev: 0, asked: 0,
+  rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null }, plans: new Map(), last: -1, known: null };
 if (MB.el){
   // what it holds is drawn by the view both pages share (card-logic.js), and
   // an agent's page says its own height, which the box takes
@@ -8275,11 +8283,15 @@ function magicCard(shut){
 }
 function magicSync(){
   if (!MB.el) return;
-  // a card's lines are its own while its box stays open, and new ones are
-  // picked when it opens again
-  if (lastState) for (const id of MB.plans.keys()){
-    const b = lastState.boxes.find(x => x.id === id);
-    if (!(b && b.magic && b.magic.open)) MB.plans.delete(id);
+  // which cards' boxes are open, at this reading of the board and the one
+  // before it. a box that opened between the two on the card on screen is
+  // new, and rises in; one that was open already (the owner coming back to
+  // its card, or to the board) is simply there. a card's lines are its own
+  // while its box stays open, and new ones are picked when it opens again
+  const was = MB.known;
+  if (lastState){
+    MB.known = new Set(lastState.boxes.filter(x => x.magic && x.magic.open).map(x => x.id));
+    for (const id of MB.plans.keys()) if (!MB.known.has(id)) MB.plans.delete(id);
   }
   const b = magicCard();
   if (!b){
@@ -8290,7 +8302,7 @@ function magicSync(){
     else magicOff();
     return;
   }
-  if (MB.id !== b.id || MB.rev !== b.magic.rev) magicLoad(b.id, b.magic.rev);
+  if (MB.id !== b.id || MB.rev !== b.magic.rev) magicLoad(b.id, b.magic.rev, !!was && !was.has(b.id));
   else {
     // opened again while it was sinking: it rises back from where it is
     if (MB.rise.then) magicRise(1);
@@ -8298,30 +8310,33 @@ function magicSync(){
   }
 }
 // the box off the page with everything in it, so a frame that was showing
-// stops running the moment its card is not the one on screen. it comes back
-// flat with the page, to rise again
+// stops running the moment its card is not the one on screen. it is left
+// risen: whether the next one rises in is magicLoad's to say
 function magicOff(){
   if (!MB.el) return;
-  MB.el.classList.remove("on", "held", "over");
+  MB.el.classList.remove("on", "held", "over", "rising");
   MB.over = false;   // a box taken away is left by the pointer without a word
   magicRiseStop();
-  magicRiseSet(0);
-  MB.el.classList.add("rising");
+  magicRiseSet(1);
   MB.lines.classList.remove("on");
+  MB.tabs.classList.remove("on");
   if (MB.id === null) return;
   MB.id = null; MB.rev = 0; MB.asked++;
   if (MB.words) MB.words.disconnect();
   MB.view.clear();
 }
-async function magicLoad(id, rev){
-  // the agent's next revision keeps the box held, and as far risen as it
-  // was; another card's comes settled, and flat
+// fresh: the box has just opened on the card on screen (magicSync)
+async function magicLoad(id, rev, fresh){
+  // the agent's next revision keeps the box held; another card's comes
+  // settled. a box new on the card on screen rises in from flat, and one
+  // still rising or sinking carries on from where it is; any other is shown
+  // risen at once
   const held = id === MB.id && MB.el.classList.contains("held");
-  const risen = id === MB.id ? MB.rise.t : 0;
+  const t = id === MB.id && MB.rise.raf ? MB.rise.t : fresh ? 0 : 1;
   magicOff();
   MB.el.classList.toggle("held", held);
-  magicRiseSet(risen);
-  MB.el.classList.toggle("rising", risen < 1);
+  magicRiseSet(t);
+  MB.el.classList.toggle("rising", t < 1);
   const asked = ++MB.asked;
   MB.id = id; MB.rev = rev;
   let box = null;
@@ -8364,7 +8379,8 @@ function magicClose(){
   magicSink();
   fetch("/magic/close?box=" + encodeURIComponent(id), { method: "POST" }).then(() => poll(), () => {});
 }
-// the box rising out of the page and sinking back into it. t runs from 0,
+// the box rising out of the page as it first comes on a card, and sinking back
+// into it as it is put away. t runs from 0,
 // flat, to 1, risen, over RISE_MS, and --rise, which the box's shadow and what
 // it holds follow (#magicbox.rising), and the lines' strength are t eased in
 // and out, so it starts and settles calmly. a click, a key or a scroll in the
@@ -8375,7 +8391,7 @@ function magicRiseSet(t){
   MB.rise.t = t;
   const p = t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
   MB.el.style.setProperty("--rise", p.toFixed(4));
-  MB.lines.style.opacity = p.toFixed(4);
+  MB.lines.style.opacity = MB.tabs.style.opacity = p.toFixed(4);
 }
 function magicRise(dir, then = null){
   const r = MB.rise;
@@ -8423,6 +8439,7 @@ function magicSink(){
 function magicPlace(){
   if (!MB.el || !MB.el.classList.contains("on")) return;
   MB.lines.classList.remove("on");
+  MB.tabs.classList.remove("on");
   const card = document.querySelector("main"), stage = document.getElementById("stage");
   if (!card || !stage) return;
   const S = stageScale || 1, sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
@@ -8437,91 +8454,115 @@ function magicPlace(){
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
     height: at.height + "px", visibility: MB.view.waiting() ? "hidden" : "" });
   if (MB.el.style.visibility === "hidden") return;
-  // shown: its lines to the card, and the rise the first time it shows
-  magicLines(rect, at, { top: -sr.y / S, bottom: (innerHeight - sr.y) / S });
+  // shown: its lines to the card, kept under the workspace's top edge, and
+  // the rise if it is new on the card
+  const frame = document.getElementById("appframe"), fr = frame && frame.getBoundingClientRect();
+  const top = fr && fr.height > 1 ? fr.top + (parseFloat(getComputedStyle(frame).borderTopWidth) || 0) : 0;
+  magicLines(rect, at, (top - sr.y) / S);
   if (MB.rise.t < 1 && !MB.rise.raf) magicRise(1);
 }
-// the lines from the card to its box: one or two, picked at random when the
-// box opens on a card (magicPlan) and kept for that card while it stays open,
-// then laid out again from the card's and the box's rectangles each time
-// either moves or changes size. every route runs across and up or down only,
-// in the gap between the two, or over (or under) them both:
-//   side: out of the card's right side, across, and into the box's top (or its
-//     foot), or straight into its side where the two stand level
-//   over: up out of the card's top edge, across above both, and down into the
-//     box's top, a small square where it meets each edge
-//   behind: the same from behind the card, rising past its top edge, and into
-//     the box from behind it
-// under is the same route upside down. with two lines one goes over and one
-// under, so they never cross. view: the window's top and foot on the stage,
-// which a route over or under keeps inside, turning over when it cannot
-function magicPlan(){
-  const r = Math.random, two = r() < .5, kinds = ["side", "over", "behind"];
-  const pick = up => ({ kind: kinds[Math.floor(r() * kinds.length)], up, a: r(), b: r(), c: r(), dot: r() < .5 });
-  const first = pick(r() < .5);
-  return two ? [first, pick(!first.up)] : [first];
-}
-function magicLines(card, box, view){
-  if (!MB.plans.has(MB.id)) MB.plans.set(MB.id, magicPlan());
+// the lines from the card to its box, copied from the owner's three sketches
+// (m1127, ref1 to ref3). each place a line starts, turns or ends is a share
+// of the card's or the box's own width or height, read off the sketch, so it
+// lands where the sketch has it on any card and any box. a line's ends run a
+// few pixels on behind the card and the box, so it seems to come out of and
+// go into their edges. top: the workspace's top edge, which no line crosses.
+// a template that does not fit the card and the box as they stand gives null
+//   0, ref1: two lines out of the card's right side. one leaves it 9.6% down
+//     the card, runs across, and goes down into the box's top 49.2% across
+//     it; the other leaves it 91.9% down, runs across, and goes up into the
+//     box's foot 12.4% across it. the sketch stands the box's top 18.8% down
+//     the card, so the first line passes 50.9% of the way from the card's top
+//     to the box's; where the box stands higher, as the board stands it, the
+//     line keeps that share of the room above the box, and the low line the
+//     same below it (17.9% of the way up from the card's foot to the box's)
+//   1, ref2: up out of the card's top edge 88.7% across it, 4.1% of the
+//     card's height above it across, and down into the box's top 5.9% across
+//     it, a small tab across each edge where the line meets it
+//   2, ref3: up from behind the card, past its top edge 22.1% across it, 6.0%
+//     of the card's height above it across, and down into the box's top
+//     43.6% across it
+function magicRoute(k, card, box, top){
   const C = { l: card.left, t: card.top, r: card.left + card.width, b: card.top + card.height, w: card.width, h: card.height };
   const B = { l: box.left, t: box.top, r: box.left + box.width, b: box.top + box.height, w: box.width, h: box.height };
-  const mix = (lo, hi, f) => lo + (hi - lo) * f, room = 14;
-  const paths = [], dots = [];
-  for (const p of MB.plans.get(MB.id)){
-    // up or down, and where that is: the top of the card and the box, or
-    // their foot, read as if both were turned over for a route under them
-    let up = p.up;
-    const fits = u => u ? Math.min(C.t, B.t) - view.top > room + 6 : view.bottom - Math.max(C.b, B.b) > room + 6;
-    if (p.kind !== "side" && !fits(up)) up = !up;
-    const s = up ? 1 : -1, cEdge = up ? C.t : C.b, bEdge = up ? B.t : B.b;
-    if (p.kind === "side" || !fits(up)){
-      // the card's side between its edge and the box's, or level with the box
-      const lo = cEdge + s * 10, hi = bEdge - s * 10;
-      if (s * (hi - lo) > 6){
-        const y = mix(lo, hi, p.a), x = mix(B.l + .12 * B.w, B.l + .55 * B.w, p.b);
-        paths.push([[C.r, y], [x, y], [x, bEdge]]);
-        if (p.dot) dots.push([x, bEdge]);
-      } else {
-        const y = mix(Math.max(C.t, B.t) + 20, Math.min(C.b, B.b) - 20, p.a);
-        paths.push([[C.r, y], [B.l, y]]);
-      }
-      continue;
-    }
-    const most = up ? Math.min(C.t, B.t) - view.top - 6 : view.bottom - Math.max(C.b, B.b) - 6;
-    const over = (up ? Math.min(C.t, B.t) : Math.max(C.b, B.b)) - s * Math.min(most, mix(18, 48, p.c));
-    if (p.kind === "over"){
-      const x1 = mix(C.l + .55 * C.w, C.l + .9 * C.w, p.a), x2 = mix(B.l + .06 * B.w, B.l + .45 * B.w, p.b);
-      paths.push([[x1, cEdge], [x1, over], [x2, over], [x2, bEdge]]);
-      if (p.dot) dots.push([x1, cEdge], [x2, bEdge]);
-    } else {
-      // from and into a point well behind each, so only the line between shows
-      const x1 = mix(C.l + .2 * C.w, C.l + .55 * C.w, p.a), x2 = mix(B.l + .25 * B.w, B.l + .7 * B.w, p.b);
-      paths.push([[x1, cEdge + s * 24], [x1, over], [x2, over], [x2, bEdge + s * 24]]);
-    }
+  const tuck = 4;
+  if (k === 0){
+    const above = B.t - C.t, below = C.b - B.b;
+    // room for each line to clear the card's round corner and still turn
+    if (above < 16 || below < 16) return null;
+    const ya = C.t + Math.min(.0959 * C.h, .509 * above), xa = B.l + .492 * B.w;
+    const yb = C.b - Math.min(.0814 * C.h, .179 * below), xb = B.l + .124 * B.w;
+    return { paths: [[[C.r - tuck, ya], [xa, ya], [xa, B.t + tuck]], [[C.r - tuck, yb], [xb, yb], [xb, B.b - tuck]]], tabs: [] };
   }
+  const [from, high, into] = k === 1 ? [.887, .0413, .059] : [.2205, .0601, .436];
+  const y = C.t - high * C.h, x1 = C.l + from * C.w, x2 = B.l + into * B.w;
+  // above the workspace's top edge, or a box whose top stands too near or
+  // over the line to go down into it
+  if (y < top + 4 || B.t - y < 12) return null;
+  return { paths: [[[x1, C.t + tuck], [x1, y], [x2, y], [x2, B.t + tuck]]],
+    tabs: k === 1 ? [[x1, C.t], [x2, B.t]] : [] };
+}
+// which template a card's box draws: one picked at random as the box opens on
+// the card, never the one the box before it drew, and kept for the card while
+// its box stays open. one that does not fit gives way to the nearest that
+// does, ref2 and ref3 being the nearest each other; none fitting, no line
+const MAGIC_NEAR = [[0, 1, 2], [1, 2, 0], [2, 1, 0]];
+function magicLines(card, box, top){
+  if (!MB.plans.has(MB.id)){
+    const free = [0, 1, 2].filter(k => k !== MB.last);
+    MB.last = free[Math.floor(Math.random() * free.length)];
+    MB.plans.set(MB.id, MB.last);
+  }
+  let route = null, drawn = -1;
+  for (const k of MAGIC_NEAR[MB.plans.get(MB.id)]) if ((route = magicRoute(k, card, box, top))){ drawn = k; break; }
+  MB.lines.dataset.route = drawn;
+  if (!route) return;
   // the card's own edge colour, read off the card, so the lines are always it
   const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
-  MB.lines.innerHTML = '<g fill="none" stroke="' + ink + '" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round">' +
-    paths.map(pts => '<path d="' + magicHand(pts) + '"/>').join("") + "</g>" +
-    dots.map(([x, y]) => '<rect x="' + (x - 1.75) + '" y="' + (y - 1.75) + '" width="3.5" height="3.5" fill="' + ink + '"/>').join("");
+  MB.lines.innerHTML = route.paths.map((pts, i) => {
+    const line = magicDrone(pts, 1127 + 7 * drawn + i);
+    return '<path d="' + line.core + '" fill="none" stroke="' + ink + '" stroke-width="' + DRONE.core +
+      '" stroke-linejoin="round" stroke-linecap="round"/><path d="' + line.dabs + '" fill="' + ink + '"/>';
+  }).join("");
+  // the tabs, as ref2 draws them: 6.6 by 3.3, centred across the edge's line
+  const edge = parseFloat(getComputedStyle(document.querySelector("main")).borderTopWidth) || 0;
+  MB.tabs.innerHTML = route.tabs.map(([x, y]) => '<rect x="' + (x - 3.3).toFixed(2) + '" y="' + (y + edge / 2 - 1.65).toFixed(2) +
+    '" width="6.6" height="3.3" rx="1" fill="' + ink + '"/>').join("");
   MB.lines.classList.add("on");
+  MB.tabs.classList.toggle("on", route.tabs.length > 0);
 }
-// a line through the corners pts, a little uneven as a pen draws it: every
-// few pixels it strays a fraction of a pixel to one side or the other, by a
-// sum of waves of where it is, so the same line is always drawn the same.
-// the corners stay where they are
-function magicHand(pts){
-  const wave = v => Math.sin(v * .37) * .3 + Math.sin(v * 1.13 + 1.7) * .18 + Math.sin(v * 2.9 + .4) * .08;
-  let d = "M" + pts[0][0].toFixed(1) + " " + pts[0][1].toFixed(1);
+// a line through the corners pts drawn as Figma's Drone brush draws it at a
+// weight of 2: round dabs scattered along it a little over two pixels apart,
+// each its own size, over a thin core, so its path stays straight and only its
+// edges bead, softly. matched to the stroke in ref1, which measures (in board
+// pixels) 1.96 wide on average, from 1.1 to 3.0, a bead every 3; these give
+// 1.94, 1.25 to 2.9 and a bead every 3. the dabs come from a fixed sequence
+// for each line, so the same line is always drawn the same
+const DRONE = { core: 1.25, r: .9, rj: .6, gap: 2, gj: 1.4, off: .3 };
+function magicDrone(pts, seed){
+  let s = seed >>> 0;
+  const rnd = () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(s ^ s >>> 15, s | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+  const f2 = v => v.toFixed(2);
+  let core = "M" + f2(pts[0][0]) + " " + f2(pts[0][1]), dabs = "", run = 0, next = 0;
   for (let i = 1; i < pts.length; i++){
-    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], len = Math.hypot(x1 - x0, y1 - y0) || 1, n = Math.max(1, Math.round(len / 5));
-    for (let k = 1; k <= n; k++){
-      const f = k / n, off = k === n ? 0 : wave(x0 + y0 + len * f);
-      const x = x0 + (x1 - x0) * f + (y1 - y0) / len * off, y = y0 + (y1 - y0) * f - (x1 - x0) / len * off;
-      d += "L" + x.toFixed(1) + " " + y.toFixed(1);
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], len = Math.hypot(x1 - x0, y1 - y0);
+    core += "L" + f2(x1) + " " + f2(y1);
+    if (!len) continue;
+    const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+    for (; next <= run + len; next += DRONE.gap + rnd() * DRONE.gj){
+      const along = next - run, r = DRONE.r + rnd() * DRONE.rj, o = (rnd() - .5) * DRONE.off;
+      const cx = x0 + ux * along - uy * o, cy = y0 + uy * along + ux * o;
+      dabs += "M" + f2(cx - r) + " " + f2(cy) + "a" + f2(r) + " " + f2(r) + " 0 1 0 " + f2(2 * r) + " 0a" +
+        f2(r) + " " + f2(r) + " 0 1 0 " + f2(-2 * r) + " 0";
     }
+    run += len;
   }
-  return d;
+  return { core, dabs };
 }
 if (MB.el){
   // the card moves under the box when it is dragged or sized, and gets shorter
