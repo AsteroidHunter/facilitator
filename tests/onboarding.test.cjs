@@ -148,7 +148,7 @@ test("a board that already has a profile opens as a board", async t => {
 
 test("the onboarding is Welcome, one onboarding card of four questions with the email's PostHog line, and four 101 cards", () => {
   for (const title of ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Orchestrator Agent",
-                       "101: Cards & atomizing ideas", "101: Ticket box", "101: Hotkeys"])
+                       "101: Cards & atomizing ideas", "101: Tickets", "101: Hotkeys"])
     assert.ok(ONBOARDING.includes(`title: "${title}"`), title);
   // the questions are the onboarding card's replies, each tied to the field it fills
   for (const [field, ask] of [["name", "What should we call you?"], ["email", "What's your email?"],

@@ -207,7 +207,7 @@ A new install starts with a white background and plain typing. To change those s
 
 Each Mac board asks a few questions once, the first time it opens (or on an older board with no profile yet), and they cover the board until they are done. The phone is never blocked by them.
 
-It is a run of real cards: Welcome (the Facilitator mark, one line about the app, and the right arrow for the next card), one card titled "Let's onboard you onto the Facilitator!", and four short cards: 101: Orchestrator Agent, 101: Cards & atomizing ideas, 101: Ticket box and 101: Hotkeys. Right arrow, or Control + Shift + right while typing, goes to the next card.
+It is a run of real cards: Welcome (the Facilitator mark, one line about the app, and the right arrow for the next card), one card titled "Let's onboard you onto the Facilitator!", and four short cards: 101: Orchestrator Agent, 101: Cards & atomizing ideas, 101: Tickets and 101: Hotkeys. Right arrow, or Control + Shift + right while typing, goes to the next card. The ticket list beside the card stays hidden until 101: Tickets, then fades in and stays.
 
 The onboarding card asks its questions one after another as its replies: What should we call you?, What's your email?, What will you mostly use Facilitator for? and Which agent do you use most?. Tab goes to the reply box and Enter sends; each answer brings the next question. Only a name is needed: Enter with the box empty skips any other question. The email question says that the email, the answers and the time zone go to PostHog so Facilitator's maker can ask for feedback, and giving an email is saying yes to that. The time zone is read from the Mac. The last reply lists every answer and says how to change one and how to go to the next card.
 

@@ -23,7 +23,7 @@
      keeps inline, and so cannot be loaded, is copied below, each piece under
      the name it has there. The card is the board's own size, 506.88 by 748.8,
      the board's 1440 by 900 design at full size, centred on the empty paper.
-     From the onboarding card on, the board's ticket list stands beside it, one
+     From 101: Tickets on, the board's ticket list stands beside it, one
      ticket per card, where the board's stage puts the two. An answer is
      replied to the moment its send's flight lands, with no Delivered, Read or
      working stage between. ?hint=title, ?hint=box or ?hint=bar puts the Tab
@@ -560,7 +560,7 @@
   /* the keyboard behind the onboarding card's foot: the hotkey map's keyboard
      (facilitator-mocks/mock-hotkey-map-20261008.html), drawn at its own size and
      shown at --kb-scale of it, keys, gaps, legends and corners together, every
-     key faint. it is centred under the card, whose last 72px (the 120px of the
+     key faint. it is centred under the card, whose last 90px (the 120px of the
      full size keyboard) stand over its function row, its number row and the
      top of its letters. the card and the ticket list stay where they always
      stand, centred in the window; where that leaves too little paper under the
@@ -568,7 +568,7 @@
      window's foot. --card-h and --card-top are the card's own height and top
      (body.focus main above), read here for the keyboard and the ticket list */
   body.focus{
-    --kb-scale:.6; --kb-under:72px; --kb-h:calc(336px * var(--kb-scale));
+    --kb-scale:.75; --kb-under:90px; --kb-h:calc(336px * var(--kb-scale));
     --card-h:min(calc(var(--ch)*var(--frame-h)), calc(100vh - 32px));
     --card-top:calc((100vh - var(--card-h)) / 2);
     --card-mid:50vw;
@@ -628,8 +628,9 @@
   body.focus main{transition:box-shadow .2s, opacity .18s ease}
   body.obdone main{opacity:0; pointer-events:none}
 
-  /* from the onboarding card on (obboard) the board's ticket list stands beside
-     the card, the two where the board's stage puts them: the list at --tik-x
+  /* from the onboarding card on (obboard) the card stands where the board's
+     stage puts it, and from 101: Tickets on (obtickets) the board's ticket list
+     stands beside it, the two in their places: the list at --tik-x
      and --tik-y, the card at --frame-x, as copied above. index.html keeps --ox
      and --oy at 0 and moves its whole stage with fitStage's transform; this
      page has no stage, so it writes the stage's place into them. across, it is
@@ -646,11 +647,14 @@
   body.obboard #obstage{justify-items:start}
   body.obboard main{margin-left:var(--frame-x)}
   body.obboard{--card-mid:calc(var(--frame-x) + min(var(--frame-w), 100vw - 32px) / 2)}
-  /* the list comes and goes on the board's own dissolve, the stage's .18s ease
-     on strength and visibility (#stage in index.html, and homefade,
+  /* the list stays hidden until 101: Tickets, the card about it, first comes
+     on screen, then phases in gently over .9s and stays, back on the earlier
+     cards too. at the end it goes on the board's own dissolve, the stage's .18s
+     ease on strength and visibility (#stage in index.html, and homefade,
      which brings the board in from the home page) */
   body.focus #tickets{transition:opacity .18s ease, visibility .18s ease}
-  body.focus:not(.obboard) #tickets, body.obdone #tickets{visibility:hidden; opacity:0; pointer-events:none}
+  body.focus.obtickets:not(.obdone) #tickets{transition:opacity .9s ease, visibility 0s}
+  body.focus:not(.obtickets) #tickets, body.obdone #tickets{visibility:hidden; opacity:0; pointer-events:none}
 </style>
 </head>
 <body class="focus">
@@ -842,6 +846,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const SHOW_CHIPS = true;
   // the card from which on the board's ticket list stands beside the card
   const BOARD_FROM = "onboard";
+  // the card the ticket list first fades in on, and stays from
+  const LIST_FROM = "tickets";
 
   // the words. a key's name is bold wherever a card names one, and nothing
   // else on these cards is; its words are held together, so a key is never
@@ -896,7 +902,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
       say: "A card holds one idea, one bug or one question, with its own thread of replies. " +
            "When a thought holds several things, split it into several cards, so each can be worked on, " +
            "answered and closed on its own. Small cards also let your agent work on many of them at once." },
-    { id: "tickets", title: "101: Ticket box",
+    { id: "tickets", title: "101: Tickets",
       say: "The list beside the card has a ticket for every card, in four sections: Doing for what is active, " +
            "Docked for the current sprint, Deferred for a later sprint, and Done. " +
            "A yellow ticket is waiting on you and a green one is being worked on. Click a ticket to open its card." },
@@ -1575,9 +1581,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
     at = i;
     selectedId = card.spec.id;
     for (const c of cards) c.el.box.classList.toggle("sel", c === card);
-    // from the onboarding card on, the card stands at its place on the board
-    // and the ticket list comes in beside it; the card's own ticket is lifted
+    // from the onboarding card on, the card stands at its place on the board;
+    // the ticket list fades in beside it once 101: Tickets is first shown, and
+    // stays. the card's own ticket is lifted
     document.body.classList.toggle("obboard", i >= cards.findIndex(c => c.spec.id === BOARD_FROM));
+    if (card.spec.id === LIST_FROM) document.body.classList.add("obtickets");
     paintTickets();
     openAtHead(el);
     el.tick();
