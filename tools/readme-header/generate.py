@@ -13,8 +13,8 @@ Everything is lifted from the product source so the banner cannot drift:
   m-gate.html, drawn in a square box with contain semantics, as that page does.
 - name: the text of `.name` in m-gate.html.
 - version: the text of `#npversion` in index.html. This is the app's single
-  version source of truth (RUNBOOK), the same string bridge_gate.py reads to
-  fill the gate's version label, so there is never a second version string.
+  version source of truth, the same string bridge_gate.py reads to fill the
+  gate's version label, so there is never a second version string.
 
 Style matches the installation header (tokens from card-tokens.css): the name is
 Inter weight 650 in ink #211D17, the version is IBM Plex Mono in sub #75695A
@@ -48,7 +48,7 @@ from pathlib import Path
 
 # --- The app's own sources ---------------------------------------------------
 # Version: the exact convention bridge_gate.py uses, so the banner shares the
-# app's one version source of truth (RUNBOOK, index.html #npversion).
+# app's one version source of truth (index.html #npversion).
 VERSION_RE = re.compile(r'id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)<')
 # Logo and name: the installation header's own lockup in m-gate.html.
 LOGO_RE = re.compile(r'class="identity">\s*<img[^>]*\ssrc="(data:image/png;base64,[^"]+)"')
