@@ -1,6 +1,6 @@
 // The Mac settings page's time zone, in plain words: the stored zone id is
-// shown with the browser's own name for it, its city and its offset now, never
-// with underscores. The function is read out of index.html and run as it is.
+// shown with the browser's own name for it and its offset now, never with
+// underscores and with no city. The function is read out of index.html and run as it is.
 // No browser and no server.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
@@ -14,10 +14,11 @@ const end = MAC.indexOf("const showProfile", start);
 assert.ok(start >= 0 && end > start, "zoneWords is not in the page");
 const zoneWords = vm.runInNewContext("(" + MAC.slice(start + "const zoneWords = ".length, end).trim().replace(/;$/, "") + ")", { Intl, Date });
 
-test("a zone reads as its name, its city and its offset", () => {
-  assert.match(zoneWords("America/Los_Angeles"), /^Pacific Time \(Los Angeles\), UTC−[78]$/);
-  assert.match(zoneWords("America/Phoenix"), /^Mountain (Standard )?Time \(Phoenix\), UTC−7$/);
-  assert.match(zoneWords("Asia/Kolkata"), /^India Standard Time \(Kolkata\), UTC\+5:30$/);
+test("a zone reads as its name and its offset, with no city in brackets", () => {
+  assert.match(zoneWords("America/Los_Angeles"), /^Pacific Time, UTC−[78]$/);
+  assert.match(zoneWords("America/Phoenix"), /^Mountain (Standard )?Time, UTC−7$/);
+  assert.match(zoneWords("Asia/Kolkata"), /^India Standard Time, UTC\+5:30$/);
+  assert.doesNotMatch(zoneWords("America/Los_Angeles"), /[()]|Los Angeles/);
 });
 
 test("no zone shows an underscore, and the zone with no city or offset still reads", () => {

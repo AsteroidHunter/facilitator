@@ -1076,9 +1076,9 @@
 .sp-mac .sp-panes{padding:28px 32px 40px}
 /* a section's choices lie in one rounded light grey box, a thin line between
    one choice and the next */
-.sp-mac .sp-box{background:color-mix(in srgb, #000 3.5%, #fff); border-radius:12px; padding:0 18px}
+.sp-mac .sp-box{background:color-mix(in srgb, #000 2.2%, #fff); border-radius:12px; padding:0 18px}
 .sp-mac .sp-box .setrow{border-top:none; padding:14px 0}
-.sp-mac .sp-box .setrow + .setrow, .sp-mac .sp-box .setprofile + .setrow{border-top:1px solid rgba(0,0,0,.08)}
+.sp-mac .sp-box .setrow + .setrow, .sp-mac .sp-box .setprofile + .setrow{border-top:1px solid rgba(0,0,0,.055)}
 .sp-mac .setrow .setfield{border-color:rgba(0,0,0,.12)}
 .sp-mac .setrow input[type="checkbox"]{background:#D6D6D6}
 .sp-mac .setrow input[type="checkbox"]:checked{background:var(--ink)}
