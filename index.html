@@ -497,19 +497,19 @@
      the moon and the cross draw their marks across inside it, at --bar-mark,
      the one mark size both pages share (card-tokens.css, with --cross-t, the
      cross's thickness, and --cardspin-s, the spinner's own size).
-     the gap between neighbouring squares is its own value and is never worked
-     out from the square: --bar-gap-hist between the two arrows and
-     --bar-gap-chips between the sun, the cloud, the moon and the cross. the arrow marks
-     stand 28 apart and the chip marks 25, so squares this size leave those two
-     gaps. --bar-lead is how far in the first arrow's square starts, and
-     --bar-tail how far the cross's square ends short of the bar's right edge;
-     with the gaps they hold every mark on the pixel it already stood on.
+     the gap between the two arrows is its own value, --bar-gap-hist, never worked
+     out from the square. between the sun, the cloud, the moon and the sunset the
+     page names the air between the marks themselves, --bar-ink-gap, and
+     card-tokens.css moves the four squares apart by what each pair's widths ask
+     for, so that air is the same all along the bar. --bar-lead is how far in the
+     first arrow's square starts, and --bar-tail how far the sunset's square ends
+     short of the bar's right edge.
      --histpos-room is what the "n of m" count keeps ahead of it beyond the
      arrows' gap, and --pathline-h the height of the path line the bar replaced,
      which the bar's bottom margin hands back */
   :root{
     --bar-sq:24px;
-    --bar-gap-hist:4px; --bar-gap-chips:1px; --bar-lead:2px; --bar-tail:5px;
+    --bar-gap-hist:4px; --bar-ink-gap:16px; --bar-lead:2px; --bar-tail:5px;
     --histpos-room:2px; --pathline-h:15px;
   }
   .topbar{display:none}
@@ -520,10 +520,10 @@
   body.focus .box.sel .topbar{
     --hist-cell:var(--bar-sq);
     display:grid; align-items:center; flex:none; position:relative;
-    grid-template-columns:minmax(0, 1fr) repeat(4, var(--bar-sq));
+    grid-template-columns:minmax(0, 1fr) repeat(4, auto);
     grid-template-rows:minmax(0, 1fr);
     grid-template-areas:"hist sun dock moon cross";
-    column-gap:var(--bar-gap-chips);
+    column-gap:0;
     height:var(--cardbar-h);
     /* the bar runs edge to edge: the negative side and top margins eat the
        pane's own padding and the pane's rounded corners clip the two ends.
@@ -646,7 +646,7 @@
     background:var(--card); color:#1e1e1e; font-size:0; padding:0; border:none;
     display:inline-flex; align-items:center; justify-content:center;
   }
-  body.focus .box.sel .xbtn svg{width:calc(var(--bar-mark) * var(--done-scale)); height:calc(var(--bar-mark) * var(--done-scale))}
+  body.focus .box.sel .xbtn svg{width:calc(var(--bar-mark) * var(--chip-scale) * var(--done-scale)); height:calc(var(--bar-mark) * var(--chip-scale) * var(--done-scale))}
   body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the sun is the moon's twin on this bar: the same white seat, the same
      rounding and the same dark mark, so the four chips stay one family and the
@@ -663,7 +663,7 @@
   body.focus .box.sel .sunbtn{grid-area:sun}
   body.focus .box.sel .dockbtn{grid-area:dock}
   body.focus .box.sel .arcbtn{grid-area:moon}
-  body.focus .box.sel :is(.arcbtn, .sunbtn, .dockbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
+  body.focus .box.sel :is(.arcbtn, .sunbtn, .dockbtn) svg{width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--bar-mark) * var(--chip-scale))}
   body.focus .box.sel .arcbtn:hover, body.focus .box.sel .sunbtn:hover, body.focus .box.sel .dockbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the working spinner takes the sun's place on a green card, and fades with
      the sun's mark, by the shared sheet's rules (card-tokens.css): the bar's

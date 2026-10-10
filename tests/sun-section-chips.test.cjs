@@ -234,8 +234,8 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
       // its moon carries no size of its own and the sun's shared one is overruled
       assert.doesNotMatch(/<svg [^>]*>/.exec(el.arc.innerHTML)?.[0] || "", /\s(width|height)=/, "the moon glyph carries a size of its own");
       const rule = name === "phone card"
-        ? /\n  :is\(\.arcbtn, \.sunbtn, \.dockbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/
-        : /body\.focus \.box\.sel :is\(\.arcbtn, \.sunbtn, \.dockbtn\) svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/;
+        ? /\n  :is\(\.arcbtn, \.sunbtn, \.dockbtn\) svg\{width:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\); height:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\)\}/
+        : /body\.focus \.box\.sel :is\(\.arcbtn, \.sunbtn, \.dockbtn\) svg\{width:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\); height:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\)\}/;
       assert.match(surface.html, rule);
     } else {
       assert.ok(size(el.arc.innerHTML), "the moon glyph changed size");

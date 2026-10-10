@@ -651,10 +651,11 @@
      for a finger, and the sun, the cloud, the moon and the sunset draw their marks across
      inside it at --bar-mark, the one mark size both pages share
      (card-tokens.css, with --cross-t, the cross's thickness, and --cardspin-s,
-     the spinner's own size). --bar-gap is the gap between neighbouring
-     squares, its own value and never worked out from the square, and
-     --bar-tail how far the cross's square ends short of the bar's right edge */
-  :root, #page{--bar-sq:calc(28 * var(--u)); --bar-gap:calc(9 * var(--u)); --bar-tail:calc(6 * var(--u))}
+     the spinner's own size). --bar-ink-gap is the air between one mark and the
+     next, edge to edge, the same for every pair: card-tokens.css moves the four
+     squares apart by what each pair's widths ask for. --bar-tail is how far the
+     sunset's square ends short of the bar's right edge */
+  :root, #page{--bar-sq:calc(28 * var(--u)); --bar-ink-gap:calc(27 * var(--u)); --bar-tail:calc(6 * var(--u))}
   /* the bar is a grid of five columns, the history control and then the four
      chips, so the working spinner can stand in the sun's own cell and share its
      centre by construction. the first column takes the room that is left,
@@ -662,10 +663,10 @@
   .topbar{
     --hist-cell:var(--bar-sq);
     display:grid; align-items:center; flex:none; position:relative;
-    grid-template-columns:minmax(0, 1fr) repeat(4, var(--bar-sq));
+    grid-template-columns:minmax(0, 1fr) repeat(4, auto);
     grid-template-rows:minmax(0, 1fr);
     grid-template-areas:"hist sun dock moon cross";
-    column-gap:var(--bar-gap);
+    column-gap:0;
     height:var(--cardbar-h); padding:0 var(--bar-tail) 0 calc(var(--pad-x)*2/3);
     background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
   }
@@ -700,7 +701,7 @@
   .dockbtn{grid-area:dock}
   .arcbtn{grid-area:moon}
   .xbtn{grid-area:cross}
-  :is(.arcbtn, .sunbtn, .dockbtn) svg{width:var(--bar-mark); height:var(--bar-mark)}
+  :is(.arcbtn, .sunbtn, .dockbtn) svg{width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--bar-mark) * var(--chip-scale))}
   .sunbtn:active, .dockbtn:active, .arcbtn:active, .xbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* the board has not answered the last tap on this chip: the mark is lighter
      until it has. the seat, the press and the tap are all untouched, because a
@@ -712,7 +713,7 @@
   .box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
   .box :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:active{background:var(--card)}
   .xbtn{color:#1e1e1e}
-  .xbtn svg{width:calc(var(--bar-mark) * var(--done-scale)); height:calc(var(--bar-mark) * var(--done-scale))}
+  .xbtn svg{width:calc(var(--bar-mark) * var(--chip-scale) * var(--done-scale)); height:calc(var(--bar-mark) * var(--chip-scale) * var(--done-scale))}
 
   .head{flex:none; padding:var(--titleair) 0 0}
   .title{
