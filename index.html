@@ -460,8 +460,9 @@
     top:calc(var(--oy) + var(--ch)*var(--frame-y)); height:calc(var(--ch)*var(--frame-h));
     border:var(--edge) solid var(--line); background:#fff; border-radius:7px;
     /* raised while it holds the keys, the same lift the small card gets. it
-       settles back the moment magic box 2 is clicked into, or its own magic
-       box, so exactly one of the two is ever standing up */
+       settles back the moment magic box 2 is clicked into, so exactly one of
+       the two is ever standing up. the card's own magic box has no shadow
+       and moves none: clicking into it leaves the card as it is */
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     transition:box-shadow .2s;
     padding:calc(var(--ch)*0.022) var(--pad-x);
@@ -469,14 +470,9 @@
   }
   /* it settles while the composer in magic box 2 holds the keys */
   body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
-  /* and while its magic box is held (magicHold), but not where the box is not
-     drawn (home, edit mode). the box is named inside :where so this weighs
-     what the rule above does, and the lowered card below still sits level */
-  body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
   /* and it sits level with the board once it is lowered, by a double click on
      the empty board and nothing else. browsed to or selected, it stands up
-     either way. its edge line stays. its magic box sits level with it, held
-     or not (body.lowered .magicbox, card-tokens.css) */
+     either way. its edge line stays */
   body.focus.lowered main{box-shadow:none}
   body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column}
   body.focus #sections > div:not(.bucket){display:contents}
@@ -1415,15 +1411,18 @@
   #magic3 [hidden]{display:none}
   /* a card's magic box, beside the card on screen. its look is the shared
      sheet's (.magicbox, card-tokens.css), which the phone's drawer wears too;
-     its words stand off its edges by the card's answer's own inset. where it
-     stands and how big it is is magic-box.js's: at most nine tenths of the
+     its words end the card's answer's own inset short of their foot. where
+     it stands and how big it is is magic-box.js's: at most nine tenths of the
      card's height and a little wider than an iPhone 13 mini's screen, level
      with the card's middle; inside that a picture in its own shape and words
      at their own height, in the middle of the room right of the card and hung
      from that largest box's top. floated over the card's edge when the window
-     has no room. off the board (home, edit mode) it is not drawn */
+     has no room, where it stands on the board's own paper so the card's words
+     do not show through it, still with no edge or shadow. off the board
+     (home, edit mode) it is not drawn */
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
+  body.focus #magicbox.on.floating{background:var(--paper)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
@@ -8220,7 +8219,7 @@ function magicSync(){
 // stops running the moment its card is not the one on screen
 function magicOff(){
   if (!MB.el) return;
-  MB.el.classList.remove("on", "held", "over");
+  MB.el.classList.remove("on", "over");
   MB.over = false;   // a box taken away is left by the pointer without a word
   if (MB.id === null) return;
   MB.id = null; MB.rev = 0; MB.asked++;
@@ -8228,10 +8227,7 @@ function magicOff(){
   MB.view.clear();
 }
 async function magicLoad(id, rev){
-  // the agent's next revision keeps the box held; another card's comes settled
-  const held = id === MB.id && MB.el.classList.contains("held");
   magicOff();
-  MB.el.classList.toggle("held", held);
   const asked = ++MB.asked;
   MB.id = id; MB.rev = rev;
   let box = null;
@@ -8306,22 +8302,10 @@ if (MB.el){
   // box with them
   if (window.ResizeObserver) MB.words = new ResizeObserver(() => magicPlace());
 }
-// which of the two is being worked in, the card or its box. clicking or
-// focusing into the box hands it over; clicking anywhere else, or the focus
-// going into the card to type, hands it back, as magic box 2 takes and gives
-// back the keys (miniHold). the box's held class is all there is to it: the
-// one held stands up on the card's shadow and the other settles
-function magicHold(inside){
-  if (MB.el) MB.el.classList.toggle("held", inside && MB.el.classList.contains("on"));
-}
-addEventListener("pointerdown", e => magicHold(!!MB.el?.contains(e.target)), true);
-addEventListener("focusin", e => {
-  if (MB.el?.contains(e.target)) magicHold(true);
-  else {
-    MB.back = e.target;   // where the owner was, for a page that takes the keys
-    if (e.target.closest?.("main")) magicHold(false);
-  }
-}, true);
+// where the owner was, for a page that takes the keys (below): every focus
+// that lands outside the box. clicking or focusing into the box moves no
+// shadow, the card's or its own: the box has none
+addEventListener("focusin", e => { if (MB.el && !MB.el.contains(e.target)) MB.back = e.target; }, true);
 // a page or a site in the box never takes the keys by itself: one that focuses
 // its own field as it loads, or at any time after, would pull the owner out of
 // whatever they are typing. a click inside the frame never reaches the board
@@ -8350,7 +8334,7 @@ addEventListener("keydown", e => { if (e.key === "Tab") MB.tabbed = Date.now(); 
 function magicFocusCame(){
   const into = document.activeElement;
   if (!MB.el || !MB.el.contains(into)) return;
-  if (MB.over || Date.now() - MB.tabbed < 1000){ magicHold(true); return; }
+  if (MB.over || Date.now() - MB.tabbed < 1000) return;
   if (MB.back && MB.back.isConnected && !MB.el.contains(MB.back)) MB.back.focus({ preventScroll: true });
   else into.blur();
 }
