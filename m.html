@@ -6845,12 +6845,16 @@ function drawerRows(){
 // guard then stops on a close, a section/project change, or a drawer drag just
 // as it stops on a card change. The card behind the list is never the target.
 const drawerScrollers = new WeakMap();
+// Out for the card's magic box, the drawer's target is the words in the box
+// instead (a picture or a page in a frame has nothing the page can scroll, so
+// it takes the shared edge feedback).
 function phoneDrawerScrollCard(){
   if (homeOpen || !drawerOpen() || document.body.classList.contains("menudrag")) return null;
-  const pane = drawerPane();
+  const boxed = tickets.classList.contains("boxface");
+  const pane = boxed ? (PB.id === null ? null : PB.view.body) : drawerPane();
   if (!pane) return null;
   if (!drawerScrollers.has(pane)) drawerScrollers.set(pane, { replyview: pane });
-  return { id: curView(), owner: activeOwner, el: drawerScrollers.get(pane) };
+  return { id: boxed ? "magic:" + PB.id : curView(), owner: activeOwner, el: drawerScrollers.get(pane) };
 }
 
 // while a drawer is out these are its own keys. with the card list out a chord
