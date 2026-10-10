@@ -20,21 +20,21 @@ function fixture(html, isPhone = false) {
   };
   const buttons = Array.from({ length: 4 }, element);
   const document = { visibilityState: "visible",
-    getElementById: id => buttons[["homeico", "chimebtn", "setbtn"].indexOf(id)],
+    getElementById: id => buttons[["homeico", "projpill", "chimebtn", "setbtn"].indexOf(id)],
     querySelectorAll: () => buttons,
     addEventListener(type, fn) { (documentEvents[type] ||= []).push(fn); },
   };
-  const context = vm.createContext({ document, tabPlus: buttons[3], tabSeat: { el: element() }, homeOpen:false,
+  const context = vm.createContext({ document, homeOpen:false,
     performance: { now: () => now },
     setTimeout(fn, ms) { const id = next++; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout: id => timers.delete(id),
     addEventListener(type, fn) { (global[type] ||= []).push(fn); },
   });
   const start = html.indexOf(isPhone ? "const PRESS_MIN = 120;" : "const GLASS_PRESS_MIN = 120;");
-  const end = html.indexOf(isPhone ? "// ---- the capsule: a tap opens the list" : "// the cross, built with every tab", start);
+  const end = html.indexOf(isPhone ? "// ---- the capsule: a tap opens the list" : "// closing a project works exactly", start);
   assert.ok(start >= 0 && end > start);
   vm.runInContext(html.slice(start, end), context);
-  return { buttons: isPhone ? buttons : buttons.slice(1), home:buttons[0], seat:context.tabSeat.el,
+  return { buttons, home:buttons[0], pill:buttons[1],
     homeOpen(value) { context.homeOpen = value; },
     tick(ms) {
       const until = now + ms;
@@ -94,14 +94,20 @@ test("Mac secondary clicks do not press the circle or cancel the button's own ev
   button.fire("pointerdown", { ...event, button: 0 }); assert.equal(pressed(button), true);
 });
 
-test("Home presses the shared lens only while Home is selected", () => {
-  const f = fixture(mac);
-  f.home.fire("pointerdown", { button:0 }); assert.equal(pressed(f.seat), false);
-  assert.equal(pressed(f.home), false, "the bare house retained a separate glass press");
-  f.homeOpen(true); f.home.fire("pointerdown", { button:2 }); assert.equal(pressed(f.seat), false);
-  f.home.fire("pointerdown", { button:0 }); assert.equal(pressed(f.seat), true);
-  f.fire("pointerup"); f.tick(119); assert.equal(pressed(f.seat), true);
-  f.tick(1); assert.equal(pressed(f.seat), false);
+test("Home and the project pill press as their own glass, with Home open or not", () => {
+  for (const open of [false, true]) {
+    const f = fixture(mac);
+    f.homeOpen(open);
+    for (const button of [f.home, f.pill]) {
+      button.fire("pointerdown", { button:2 }); assert.equal(pressed(button), false);
+      button.fire("pointerdown", { button:0 }); assert.equal(pressed(button), true);
+    }
+    f.fire("pointerup"); f.tick(119); assert.ok(pressed(f.home) && pressed(f.pill));
+    f.tick(1); assert.ok(!pressed(f.home) && !pressed(f.pill));
+  }
+  // and Home open holds the press's face on the house, without the press's grow
+  const held = mac.match(/body\.focus\.home #homeico\{([^}]+)\}/)[1];
+  assert.match(held, /--qn-tint:\.95; --qn-edge:3/); assert.doesNotMatch(held, /transform/);
 });
 
 function rules(html) {

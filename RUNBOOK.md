@@ -148,13 +148,17 @@ The Mac board has a Spotify player, but it is off on a new board and no button t
 
 ## The Mac board's top bar
 
-Along the top of the Mac board, from the left: the house, which opens the home page; the name of every open project; and a plus, which opens a new tab for choosing a project's folder. At the right end, the speaker mutes the reply chime and the squid opens the settings page. While Chrome offers to install the board as an app, an "Install app" button stands between them.
+Along the top of the Mac board, from the left: a round glass Home button, which opens the home page and stays pressed while it is open; a glass pill with the open project's name; and a few faint project names. At the right end, the speaker mutes the reply chime and the squid opens the settings page. While Chrome offers to install the board as an app, an "Install app" button stands between them. The ticket list and the card stand straight on the board's background, with no box around them.
 
-A glass lens marks the open project, or the house while the home page is open. Click a name, or press Command + 1 to 9, to switch projects; you can also drag the lens onto another name or the house. Rest the pointer on a name and a cross appears that closes the project; while it shows, dragging the name reorders the projects. Dragging a name downward pulls the project out into a window of its own.
+Click the pill to open the list of every open project, in your order, with the open one checked and the ones holding unread replies in bold. Click a project to switch to it. Rest the pointer on a row and a cross fades in at its right end that closes that project (the last one stays open). Hold a row and drag it up or down to reorder the projects; drag it out of the list and let go to open that project in a window of its own. "Open a new folder", the last row, opens the Mac's folder chooser and adds the folder as a project. Escape or a click outside closes the list. Closed projects come back from the home page.
+
+The faint names beside the pill are open projects with unread replies that were active in the last 7 days, newest first. When there are none, they are the 3 with the most unread replies, then the most recently active. The project you just left is always first, and there are never more than 4. Click one to switch to it: it moves into the pill and the project you left appears first beside it.
+
+Command + 1 to 9 opens the projects in the list's order.
 
 ## The home page
 
-The house at the left of the top bar opens the home page, above every project. A board with no project open starts there. The phone has the same page, opened from Home at the top of its project list.
+The Home button at the left of the top bar opens the home page, above every project. A board with no project open starts there. The phone has the same page, opened from Home at the top of its project list.
 
 The left half lists your projects. Click one to open its board (a closed one opens again). "Open a new folder" opens the Mac's folder chooser and adds the folder as a project.
 
@@ -178,7 +182,7 @@ The keys, on the Mac board and on the phone with a paired keyboard:
 - Control + U: clear a ticket's ready-to-test corner.
 - Control + Shift + [ , ] , \ and Backspace or Delete: move the card to Doing, Docked, Deferred or Done.
 - Control + Shift + ' and ;: the next or previous section of the ticket list.
-- Command + T: a new card. Command + 1 to 9: switch project. Command + ` (the key left of 1): the home page, as the house does; it works while typing and does nothing on the home page.
+- Command + T: a new card. Command + 1 to 9: switch project, in the order of the pill's list. Command + ` (the key left of 1): the home page, as the Home button does; it works while typing and does nothing on the home page.
 - Tab: steps from the card's title to its typing box to the card itself, and round; Shift + Tab goes the other way. On a card that already has a title, the first Tab goes to the typing box, and so does the first Tab after you come back to the card or click it.
 - Control + Option + up and down: move between the card's title, its answer and its typing box, top to bottom. Up goes from the typing box to the answer to the title, down comes back, and they stop at either end; with nothing focused, up goes to the answer and down to the typing box. In the answer a caret stands that types nothing, drawn in silver where a typing box's caret is solid, and what you select there is silver too: Shift with the arrows selects, with Option a word at a time and with Command to the end of a line or of the answer; Command + A selects the whole answer and nothing else; Command + C copies. Escape or a click elsewhere leaves it. While Apple's screen reader is on, it takes these keys.
 - On the phone, Control + Shift + comma opens and shuts the card list; with it out, up and down walk the tickets, Enter selects the lifted one and shuts the list, and Escape just shuts it.

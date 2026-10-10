@@ -813,20 +813,21 @@ test("the board's markup, sheet and routes carry the home page", () => {
   assert.match(HTML, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>/);
   assert.doesNotMatch(HTML, /#homeico\{[^}]*#C9BFAE/, "the house is no longer greyed out");
   // the house's circle takes the ink under a pointer, as the bar's other circles
-  // do, and while home is up
-  assert.match(HTML, /body\.focus :is\(#homeico[^)]*\):hover,\s*body\.focus\.home #homeico\{color:var\(--ink\)\}/);
+  // do, and while home is up, when it also stays pressed
+  assert.match(HTML, /body\.focus :is\(#homeico[^)]*\):hover\{color:var\(--ink\)\}/);
+  assert.match(HTML, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
   assert.match(HTML, /body\.focus\.home #stage\{visibility:hidden; opacity:0; pointer-events:none\}/);
   assert.match(HTML, /body\.focus\.home #home\{display:block;/);
   // shared widget assets load before the page script can open Home
   assert.match(HTML, /<script src="\/home-widgets\.js">/);
   assert.match(HTML, /<link[^>]*home-widgets\.css/);
-  // every project tab leaves home, the plus does too, no tab is seated while it
-  // is up, and the board's keys are off
+  // every project leaves home, a new folder does too, no project is checked in
+  // the pill's list while it is up, and the board's keys are off
   const setTab = HTML.slice(HTML.indexOf("function setTab("), HTML.indexOf("\n}\n", HTML.indexOf("function setTab(")));
   assert.match(setTab, /if \(LOCKED && owner !== LOCKED\) return;\n  if \(homeOpen\) setHome\(false\);/);
-  const plus = HTML.slice(HTML.indexOf("function plusClick("), HTML.indexOf("\n}\n", HTML.indexOf("function plusClick(")));
-  assert.match(plus, /if \(homeOpen\) setHome\(false\);\n  draft = /);
-  assert.match(HTML, /t\.classList\.toggle\("on", t\.dataset\.owner === activeOwner && !homeOpen\);/);
+  const pick = HTML.slice(HTML.indexOf("async function pickFolder("), HTML.indexOf("\n}\n", HTML.indexOf("async function pickFolder(")));
+  assert.match(pick, /if \(\(slot === homePick \|\| slot === menuPick\) && homeOpen\) setHome\(false\);/);
+  assert.match(HTML, /const ow = row\.dataset\.owner, on = ow === activeOwner && !homeOpen && !draft;\n    row\.classList\.toggle\("on", on\);/);
   assert.match(HTML, /function boardKeysLive\(\)\{ return [^}]*!homeOpen && onBoardPage\(\); \}/);
   // the server hands out both files and the counts
   for (const route of ["/home-widgets.js", "/home-widgets.css", "/tokens/daily"])
