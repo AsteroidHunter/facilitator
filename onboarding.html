@@ -758,7 +758,7 @@ function paintTicketPane(pane, pool, view, state, laneSig){
                       ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       (testReady(b) ? "T" : "") +
-                      Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
+                      Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60) + (b.agent || "")).join(",") +
               "|" + selectedTask;
   if (pane.dataset.sig === sig) return;
   pane.dataset.sig = sig;
@@ -786,9 +786,9 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const ttl = h("div", "ttl", b.title);
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
-    meta.appendChild(h("span", "tage", busy ? spinGlyph(b.id, b) : s === "done" ? "done" : shortAge(b.agentTs)));
+    meta.appendChild(h("span", "tage", busy ? spinGlyph(b.id, b) : shortAge(b.agentTs)));
     const ag = state.agents?.[b.owner];
-    meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
+    meta.appendChild(h("span", "teng", b.agent || (ag ? (ag.alive ? ag.name : "offline") : "")));
     inner.appendChild(meta);
     r.appendChild(inner);
     r.dataset.id = b.id;

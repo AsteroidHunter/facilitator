@@ -1817,6 +1817,19 @@ def _agent_kind(owner: str) -> str:
     return agent_names.agent_kind(_agent_names.get(owner))
 
 
+def _agent_class(owner: str) -> str:
+    """The model's class name (opus, sonnet, astra, ...) of the agent the lane's
+    listener last said it was, or empty when none has said. This is the name a
+    card's ticket shows for the agent that answered it, stored on the card
+    (agent_names.agent_class). A copy of the board without agent_names.py, as
+    the tests' fixtures make, stores nothing."""
+    try:
+        import agent_names
+    except ImportError:
+        return ""
+    return agent_names.agent_class(_agent_names.get(owner))
+
+
 # ---- waking the listeners --------------------------------------------------------
 # The agents' long polls wait on the event loop, not on the condition above.
 # Every change to the board comes through _notify: it moves a version number
@@ -3848,7 +3861,7 @@ def _phone_box(b: dict) -> dict:
         # already taken toward the answer still to come (_pending_states)
         "pendingStates": _pending_states(b),
         "notedTexts": _noted_texts(b),
-        "agentTs": b.get("agent_ts", 0), "seen": b.get("seen", 0), "turnTs": b.get("turn_ts", 0),
+        "agentTs": b.get("agent_ts", 0), "agent": b.get("agent", ""), "seen": b.get("seen", 0), "turnTs": b.get("turn_ts", 0),
         # the card's last COMPLETED reply: its own name, when it was completed,
         # and the messages it was given, which is what the box above the answer
         # is drawn from. replyKind says what wrote the words the card is
@@ -4077,6 +4090,9 @@ def _ui_state() -> dict:
                 # been moved; the bar reads the lane's standing branch then
                 "worktree": b.get("worktree", ""),
                 "agentTs": b.get("agent_ts", 0),
+                # the class name of the agent whose reply last landed on the
+                # card, empty for a card no named agent has answered
+                "agent": b.get("agent", ""),
                 # the card's last COMPLETED reply, which is what the box over
                 # the answer is drawn from: the board's own name for it, when
                 # it was completed, and the exact messages it was given. the
@@ -4894,6 +4910,14 @@ def _wait_poll(owner: str):
                 # delivers it
                 _hand_over(box, box["pending"])
                 _state["busy_ts"][owner] = time.time()
+                # who took it: the name this lane's listener gave on the /wait
+                # that won the claim, kept on the card until the reply lands so a
+                # progress note or a later listener cannot change who is credited
+                claimant = _agent_class(owner)
+                if claimant:
+                    box["claim_agent"] = claimant
+                else:
+                    box.pop("claim_agent", None)
                 # every claim is provisional: the token below is what
                 # POST /ack has to name, and until it does this claim is
                 # on the 90 second clock. A lane holds one claim, so one
@@ -5841,6 +5865,12 @@ def _post_reply(q: Query, text: str):
         # what lets a card opened later age the box over its answer by the
         # answer's own clock
         box["reply_ts"] = now
+        # which agent this reply is from, as its class name: the one that took
+        # the claim, or the lane's listener now when the reply came unclaimed.
+        # a reply nobody named leaves the card as it was
+        answerer = box.pop("claim_agent", None) or _agent_class(ow)
+        if answerer:
+            box["agent"] = answerer
         if _hb_live(box):
             box["state"] = "deferred"
         else:
