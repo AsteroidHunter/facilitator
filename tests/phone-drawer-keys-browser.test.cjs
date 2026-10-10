@@ -334,6 +334,8 @@ test("no key opens the settings: the period under any chord, and the old and new
       await chord(page, "Period", modifiers, 300);
       await none("Period under " + (modifiers.join("+") || "no modifier") + " opened the settings");
     }
+    // control and shift on the period are the card's magic box: taken, so nothing is
+    // typed, and on this card, which has no box, nothing comes out
     for (const x of [{ metaKey: true }, { ctrlKey: true }, { metaKey: true, ctrlKey: true }, {}]) {
       for (const key of [">", ".", "Dead"]) {
         const taken = await page.evaluate((k, extra) => {
@@ -341,7 +343,8 @@ test("no key opens the settings: the period under any chord, and the old and new
           window.dispatchEvent(e);
           return e.defaultPrevented;
         }, key, x);
-        assert.equal(taken, false, `Period reading ${key} with ${JSON.stringify(x)} was taken by the page`);
+        const box = Object.keys(x).length === 1 && x.ctrlKey;
+        assert.equal(taken, box, `Period reading ${key} with ${JSON.stringify(x)} was ${box ? "left" : "taken"} by the page`);
         await none("Period reading " + key + " opened the settings");
       }
     }
