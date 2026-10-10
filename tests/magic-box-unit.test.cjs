@@ -716,11 +716,16 @@ test("control shift period does for the box what control shift comma does for th
   const finishAll = async () => { for (const a of live()) { a.done = true; a.finish(); } await tick(); };
   const ends = (a, prop) => [a.keys[0][prop], a.keys.at(-1)[prop]].map(v => typeof v === "number" ? +v.toFixed(3) : v);
   // on a card with no box the period brings nothing and still takes the key,
-  // so the phone types no period into the reply box
+  // so the phone types no period into the reply box; the card dips instead
   ctx.shownId = "b";
   assert.equal(press("boxDrawer"), true, "the key was left to type a period on a card with no box");
   assert.deepEqual(calls, []);
   assert.equal(ctx.menuOut(), null);
+  assert.ok(paneClasses.has("nudge"), "the card did not dip");
+  paneListeners.animationend({ animationName: "something else" });
+  assert.ok(paneClasses.has("nudge"), "another animation's end took the dip off");
+  paneListeners.animationend({ animationName: "cardnudge" });
+  assert.ok(!paneClasses.has("nudge"), "the dip's end leaves it ready for the next press");
   // the period brings the box from the right, and again shuts it
   ctx.shownId = "a";
   assert.equal(press("boxDrawer"), true);
