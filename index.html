@@ -3667,7 +3667,7 @@
   <div data-section="improvements" data-label="Improvements">
     <div class="setrow">
       <label class="setlabel" for="setusage"><span>Share daily usage counts</span>
-        <small class="sethelp">We collect basic usage counts to gauge the product's retention rate. Personal data such as the contents of a card or project names are never collected.</small></label>
+        <small class="sethelp">We collect basic usage counts to gauge the product's retention rate. Personal data such as the contents of a card or project names is <em>never</em> collected.</small></label>
       <input type="checkbox" role="switch" id="setusage" checked>
     </div>
   </div>
@@ -12247,7 +12247,7 @@ function setEditMode(on){
   const timeZone = document.getElementById("settz");
   let profileKept = null;
   // the stored zone (an id like America/Los_Angeles) in plain words, from the
-  // browser's own names: "Pacific Time (Los Angeles), UTC−7", the offset being
+  // browser's own names: "Pacific Time, UTC−7", the offset being
   // today's. a zone the browser cannot name shows as its id without underscores
   const zoneWords = zone => {
     if (!zone) return "";
@@ -12255,11 +12255,10 @@ function setEditMode(on){
       const part = style => new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: style })
         .formatToParts(new Date()).find(x => x.type === "timeZoneName").value;
       const name = part("longGeneric");
-      const city = zone.includes("/") ? zone.split("/").pop().replace(/_/g, " ") : "";
       const off = /GMT(?:([+-])(\d{2}):(\d{2}))?$/.exec(part("longOffset"));
       const utc = off && off[1] && off[2] + off[3] !== "0000" ? "UTC" + (off[1] === "-" ? "−" : "+") + Number(off[2]) + (off[3] === "00" ? "" : ":" + off[3]) : "UTC";
       if (name.startsWith("GMT")) return utc;   // a zone the browser names only by its offset
-      return (city && !name.includes(city) ? name + " (" + city + ")" : name) + ", " + utc;
+      return name + ", " + utc;
     } catch (err) { return zone.replace(/_/g, " "); }
   };
   const showProfile = (p, only) => {

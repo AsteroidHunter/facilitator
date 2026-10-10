@@ -59,7 +59,7 @@ for (const [name, view] of Object.entries(VIEWS)) {
     assert.match(tag, /\schecked(?=[\s>])/, "the switch is not on before anything is read");
     assert.match(improvements.html, /<div class="setrow">/, "the switch is not in a settings row");
     if (name === "mac") {
-      assert.match(improvements.html, /We collect basic usage counts to gauge the product's retention rate\. Personal data such as the contents of a card or project names are never collected\./);
+      assert.match(improvements.html, /We collect basic usage counts to gauge the product's retention rate\. Personal data such as the contents of a card or project names is <em>never<\/em> collected\./);
     } else {
       assert.match(improvements.html, /README/, "the section does not say where every field is listed");
     }
