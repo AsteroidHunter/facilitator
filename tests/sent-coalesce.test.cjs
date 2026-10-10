@@ -173,6 +173,99 @@ function loops(d) {
     .map(p => p.trim().split(/\s+/).map(Number)).map(([x, y]) => [x + EXT.left, y + EXT.top]));
 }
 
+// a column as the phone stands one (the simulator's numbers): bubbles 52.5px
+// tall (a long one 99px) 25.6px apart, laid out up from the foot, in the joined
+// bubble's own px, the joined bubble 99px tall and 260px wide, its corner 18px
+function columnOf(talls, widths = talls.map(() => 150)) {
+  const W = 260, H = 99, gap = 25.6;
+  const B0 = [];
+  let foot = H;
+  for (let i = talls.length - 1; i >= 0; i--) {
+    B0.unshift({ left:W - widths[i], top:foot - talls[i], right:W, bottom:foot });
+    foot -= talls[i] + gap;
+  }
+  return { B0, W, H, r:18 };
+}
+
+test("a column all lets go at once, keeps the room between its bubbles while they all fall, and falls as things fall: from rest, its distance the square of the time", () => {
+  const { context } = load();
+  const { B0, W, H, r } = columnOf([52.5, 52.5, 99, 52.5, 52.5]);
+  const plan = context.sentColumnPlan(B0, W, H, r);
+  const at = ms => context.sentColumnShape(plan, ms);
+  const first = Math.min(...plan.falls.map(f => f.lands));
+  // the first frame is the column as it stood, and the foot never moves down or up
+  at(0).boxes.forEach((box, i) => assert.deepEqual(plain({ top:box.top, bottom:box.bottom }), { top:B0[i].top, bottom:B0[i].bottom }));
+  for (const ms of [first / 4, first / 2, first * .99]) {
+    const tops = at(ms).boxes.map(box => box.top);
+    const fallen = tops.slice(0, -1).map((top, i) => top - B0[i].top);
+    assert.ok(fallen.every(d => d > 0 && Math.abs(d - fallen[0]) < 1e-9), `the bubbles over the foot did not fall as one at ${ms}ms`);
+    assert.equal(tops.at(-1), B0.at(-1).top, "the foot moved");
+    assert.ok(Math.abs(fallen[0] - .5 * plan.pull * ms * ms) < 1e-9, "the fall is not from rest on a steady pull");
+  }
+  // twice the time, four times the way
+  const d = ms => at(ms).boxes[0].top - B0[0].top;
+  assert.ok(Math.abs(d(first / 2) - 4 * d(first / 4)) < 1e-9);
+  assert.equal(load().run("COLUMN_PULL"), 1.25e-3);
+});
+
+test("in a column the one over the foot lands first and each one above a moment later, at the joined head, where it stops", () => {
+  const { context, run } = load();
+  for (const talls of [[52.5, 52.5, 52.5], [52.5, 52.5, 52.5, 52.5, 52.5], [99, 52.5, 99, 52.5, 52.5]]) {
+    const { B0, W, H, r } = columnOf(talls);
+    const plan = context.sentColumnPlan(B0, W, H, r);
+    const lands = plan.falls.map(f => f.lands);
+    for (let i = 0; i < lands.length - 1; i++) assert.ok(lands[i] > lands[i + 1], `bubble ${i + 1} lands before bubble ${i + 2} under it (${lands})`);
+    // with bubbles of one height the landings come closer as the ones above gather speed
+    if (talls.every(h => h === talls[0])) {
+      const gaps = lands.slice(0, -1).map((t, i) => t - lands[i + 1]).reverse();
+      for (let i = 0; i < gaps.length - 1; i++) assert.ok(gaps[i] > gaps[i + 1], `the landings did not come closer (${gaps})`);
+    }
+    plan.falls.forEach((f, i) => {
+      // its foot touches what it lands on before its head lands, never after
+      assert.ok(f.touch <= f.lands);
+      const before = context.sentColumnShape(plan, f.lands - 1).boxes[i].top;
+      const after = [f.lands, f.lands + 50, plan.end].map(ms => context.sentColumnShape(plan, ms).boxes[i].top);
+      assert.ok(before < 0, `bubble ${i + 1} reached the joined head early`);
+      assert.deepEqual(after, [0, 0, 0], `bubble ${i + 1} did not stop at the joined head`);
+    });
+    assert.equal(plan.end, plan.last + run("COLUMN_SETTLE_MS"));
+  }
+});
+
+test("a tall column falls on a harder pull rather than taking longer than COLUMN_LONGEST_MS", () => {
+  const { context, run } = load();
+  const { B0, W, H, r } = columnOf(Array(10).fill(99));
+  const plan = context.sentColumnPlan(B0, W, H, r);
+  assert.ok(plan.pull > run("COLUMN_PULL"));
+  assert.ok(Math.abs(plan.last - run("COLUMN_LONGEST_MS")) < 1e-6, `a ten-bubble column takes ${plan.last}ms`);
+  // and the five short ones keep the steady pull
+  const five = columnOf(Array(5).fill(52.5));
+  assert.equal(context.sentColumnPlan(five.B0, five.W, five.H, five.r).pull, run("COLUMN_PULL"));
+});
+
+test("a column's outline is exactly its bubbles on the first frame and exactly the joined bubble once it has settled", () => {
+  const { context } = load();
+  const { B0, W, H, r } = columnOf([52.5, 99, 52.5, 52.5], [90, 260, 150, 120]);
+  const plan = context.sentColumnPlan(B0, W, H, r);
+  const ext = { left:-4, top:B0[0].top - 4, right:W + 4, bottom:H + 4 };
+  const path = state => state.boxes.slice(0, -1).map((box, i) =>
+    context.sentGooPath(box, state.boxes[i + 1], r, state.joints[i].k, state.joints[i].bow, ext));
+  const start = context.sentColumnShape(plan, 0);
+  const box = b => context.sentBoxPath(b, r, v => (v - ext.left).toFixed(2), v => (v - ext.top).toFixed(2));
+  assert.deepEqual(plain(path(start)), B0.slice(0, -1).map((b, i) => box(b) + box(B0[i + 1])), "the first frame is not the bubbles as they stood");
+  const end = context.sentColumnShape(plan, plan.end);
+  for (const b of end.boxes) {
+    assert.ok(b.left === 0 && b.right === W && b.top >= 0 && b.bottom <= H, `a box stands outside the joined bubble once settled: ${JSON.stringify(b)}`);
+    assert.ok(Math.abs(b.left) < 1e-9);
+  }
+  assert.equal(Math.min(...end.boxes.map(b => b.top)), 0);
+  assert.equal(Math.max(...end.boxes.map(b => b.bottom)), H);
+  assert.ok(end.joints.every(j => j.k === 0 && j.bow === 0), "the joints have not let go once settled");
+  // the bubbles over the column come down on the fall's own curve, which is the square of the time
+  const curve = context.sentCurve(plain(load().run("COLUMN_EASE")));
+  for (const f of [.1, .3, .5, .8]) assert.ok(Math.abs(curve(f) - f * f) < 1e-6);
+});
+
 test("the outline is exactly the two bubbles on the first frame and exactly the joined bubble on the last", () => {
   const { context } = load();
   const s = spec();
