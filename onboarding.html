@@ -7,9 +7,13 @@
 <link rel="icon" href="data:,">
 <!-- the server writes the board's version in here (#npversion in index.html) -->
 <meta name="facilitator-version" content="">
-<!-- Facilitator's first run, as a run of real cards, one per profile question:
-     Welcome, the name, the email, the work, the main agent, and
-     the closing card, each answer's reply teaching the next key. The Mac board
+<!-- Facilitator's first run, as a run of real cards: Welcome, one onboarding
+     card whose questions (the name, the email, the work, the main agent) come
+     one after another as its replies, and four short 101 cards. Each reply is
+     a page of the onboarding card's history and knows the field it asks for,
+     so a step back with Control + Shift + up and a send there changes that
+     answer. A faint keyboard behind the card's foot comes in with the first
+     answer and lights the keys the card teaches. The Mac board
      lays this page over itself in a frame of its own while the board has no
      complete profile (GET /profile in server.py), so nobody uses the board
      before going through it. The card's look and motion are the board's own,
@@ -18,13 +22,14 @@
      history or the ticket list's sections shows here too. What index.html
      keeps inline, and so cannot be loaded, is copied below, each piece under
      the name it has there. The card is the board's own size, 506.88 by 748.8,
-     the board's 1440 by 900 design at full size, centred on the empty paper.
-     From the email card on, the board's ticket list stands beside it, one
+     the board's 1440 by 900 design at full size, seated on the empty paper
+     with room under it for the keyboard, and shortened on a short window.
+     From the onboarding card on, the board's ticket list stands beside it, one
      ticket per card, where the board's stage puts the two. An answer is
      replied to the moment its send's flight lands, with no Delivered, Read or
      working stage between. ?hint=title, ?hint=box or ?hint=bar puts the Tab
      hint elsewhere (the default is ?hint=reply).
-     The answers stay in this page until the closing card is marked done; then
+     The answers stay in this page until the last card is marked done; then
      they are saved as the profile (POST /profile), the frame goes and the
      board opens on the sample project this page opened at its start
      (POST /onboarding/sample, then POST /project as "Open a new folder" does).
@@ -536,17 +541,61 @@
   /* nothing on the paper but the card, in the middle of the window */
   #obstage{position:fixed; inset:0; display:grid; place-items:center}
 
-  /* the Welcome card's first line: the product's own lockup, the mark beside
-     the word and the version under it (the new-project landing's #npbrand in
-     index.html), at a size that sits over the card's 18px answer */
-  .obbrand{display:flex; align-items:center; gap:6px; margin:0 0 26px;
+  /* the Welcome card: the product's own lockup, the mark beside the word and
+     the version under it (the new-project landing's #npbrand in index.html),
+     then the blurb and the key, all of it centred on the card. the lockup is
+     drawn in ems off its font size, which fitWelcome below sets as large as the
+     card's width allows */
+  #box-welcome .reply{flex:1 0 auto; display:flex; flex-direction:column; justify-content:center;
+    padding-right:calc(var(--pad-x)*2/3)}
+  .obwelcome{display:flex; flex-direction:column; align-items:center; text-align:center}
+  .obbrand{display:flex; align-items:center; gap:.214em; margin:0 0 .8em;
     font:700 28px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
-  .obbrand .squidmark{height:22px}
+  .obbrand .squidmark{height:.786em}
   .obbrandcopy{position:relative; display:inline-block}
   .obbrandname{display:block}
-  .obversion{position:absolute; top:calc(100% - 1px); left:1px;
-    font:500 10px/1.1 var(--inter); letter-spacing:.035em;
+  .obversion{position:absolute; top:calc(100% - .036em); left:.036em;
+    font:500 .357em/1.1 var(--inter); letter-spacing:.035em;
     color:var(--sub); opacity:.5; white-space:nowrap}
+
+  /* the keyboard behind the onboarding card's foot: the hotkey map's keyboard
+     (facilitator-mocks/mock-hotkey-map-20261008.html) at its own size, every key
+     faint, centred under the card so the card's last 120px stand over its
+     function row, its number row and the top of its letters. the card is
+     seated to leave the 216px of keyboard under it and 14px of paper below on
+     every card, so nothing moves when the keyboard comes in; a window too short
+     for both shortens the card down to 560px and then lets the keyboard rise
+     behind it, never off the window's foot */
+  body.focus{
+    --kb-under:120px; --kb-h:336px; --kb-out:230px;
+    --card-h:max(min(calc(var(--ch)*var(--frame-h)), calc(100vh - 16px - var(--kb-out))),
+                 min(560px, calc(100vh - 32px)));
+    --card-top:calc(16px + max(0px, (100vh - 16px - var(--kb-out) - var(--card-h)) / 2));
+    --card-mid:50vw;
+  }
+  #obstage{align-items:start}
+  body.focus main{height:var(--card-h); margin-top:var(--card-top)}
+  #obkeys{position:fixed; pointer-events:none;
+    left:var(--card-mid); transform:translateX(-50%);
+    top:min(calc(var(--card-top) + var(--card-h) - var(--kb-under)), calc(100vh - 14px - var(--kb-h)));
+    opacity:0; transition:opacity var(--keys-in, .4s) ease}
+  #obkeys.on{opacity:1}
+  #obkeys .obkey{position:absolute; border-radius:7px; font-family:var(--sans);
+    background:rgba(28,40,60,.05); color:rgba(28,40,60,.32);
+    transition:background-color var(--lit-ms, .6s) ease, color var(--lit-ms, .6s) ease}
+  #obkeys .obkey.lit{background:#1E63C4; color:#fff}
+  #obkeys .c{position:absolute; inset:0; display:flex; align-items:center; justify-content:center}
+  #obkeys .letter{font:500 15px/1 var(--sans)}
+  #obkeys .fk{font:500 10px/1 var(--mono); letter-spacing:.02em}
+  #obkeys .word{position:absolute; bottom:8px; font:400 10.5px/1 var(--sans); letter-spacing:.01em}
+  #obkeys .word.l{left:9px} #obkeys .word.r{right:9px}
+  #obkeys .sym{position:absolute; top:8px; font:13px/1 -apple-system, var(--sans)}
+  #obkeys .sym.l{left:9px} #obkeys .sym.r{right:9px}
+  #obkeys svg{display:block}
+  /* the first answer's next page holds its bracketed way back until the turn
+     has landed, then fades it in */
+  .reply .obheld{opacity:0}
+  .reply .obheld.obin{opacity:1; transition:opacity .6s ease}
 
   /* the other places the Tab hint can stand (?hint=), each shown only while
      the card's question is unanswered (obwait). the ghost after the title's
@@ -581,7 +630,7 @@
   body.focus main{transition:box-shadow .2s, opacity .18s ease}
   body.obdone main{opacity:0; pointer-events:none}
 
-  /* from the email card on (obboard) the board's ticket list stands beside
+  /* from the onboarding card on (obboard) the board's ticket list stands beside
      the card, the two where the board's stage puts them: the list at --tik-x
      and --tik-y, the card at --frame-x, as copied above. index.html keeps --ox
      and --oy at 0 and moves its whole stage with fitStage's transform; this
@@ -589,15 +638,15 @@
      fitStage's own place at full size in index.html: centred in a window
      1440 wide or more, where the card stands exactly where it stood alone, and
      against the window's left edge in a narrower one. down, the card stays
-     centred as on the cards before, which is where the board's stage, centred
-     under its bar, puts it (this page has no bar), and the stage's top is read
-     back from the card's */
+     where it stood on the Welcome card, seated over the keyboard as above, and
+     the stage's top is read back from the card's */
   body.focus{
     --ox:max(0px, calc((100vw - var(--cw)) / 2));
-    --oy:calc((100vh - min(var(--ch)*var(--frame-h), 100vh - 32px)) / 2 - var(--ch)*var(--frame-y));
+    --oy:calc(var(--card-top) - var(--ch)*var(--frame-y));
   }
   body.obboard #obstage{justify-items:start}
   body.obboard main{margin-left:var(--frame-x)}
+  body.obboard{--card-mid:calc(var(--frame-x) + min(var(--frame-w), 100vw - 32px) / 2)}
   /* the list comes and goes on the board's own dissolve, the stage's .18s ease
      on strength and visibility (#stage in index.html, and homefade,
      which brings the board in from the home page) */
@@ -789,11 +838,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const HINT_SPOTS = ["reply", "title", "box", "bar"];
   const asked = new URLSearchParams(location.search).get("hint") || (/hint=(\w+)/.exec(location.hash) || [])[1];
   const HINT = HINT_SPOTS.includes(asked) ? asked : "reply";
-  // the four chips a card in Doing wears, drawn; only the closing card's cross
+  // the four chips a card in Doing wears, drawn; only the last card's cross
   // is wired, to the done it makes on the board
   const SHOW_CHIPS = true;
   // the card from which on the board's ticket list stands beside the card
-  const BOARD_FROM = "email";
+  const BOARD_FROM = "onboard";
 
   // the words. a key's name is bold wherever a card names one, and nothing
   // else on these cards is; its words are held together, so a key is never
@@ -803,41 +852,81 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const WELCOME = BLURB + "\n\nPress " + key("→") + " for the next card.";
   const TAB_HINT = "Press " + key("Tab") + " to answer.";
   const TAB_HINT_PLAIN = "Press Tab to answer";
-  // what each answer's reply teaches, one key new on each card, in the order
-  // the cards come. every key is one the board answers (CARD_SHORTCUT_DEFINITIONS
-  // in card-logic.js, and RUNBOOK.md's "Browsing and selecting cards")
-  const TEACH = {
-    name: "Press " + key("Control + Shift + →") + " for the next card.",
-    email: "Press " + key("Escape") + " to leave the reply box, then " + key("→") + " for the next card.",
-    work: "To change an earlier answer, go back with " + key("Control + Shift + ←") + " and send it again. " +
-          "Press " + key("Control + Shift + ↑") + " to see this card's earlier replies, and " +
-          key("Control + Shift + ↓") + " to come back. " + key("Control + Shift + →") + " goes on.",
-    agent: "Press " + key("Control + Shift + Enter") + " for the card that has waited longest for you. " +
-           "With words in the reply box, it sends them first.",
-  };
+  const SKIP_HINT = "Press " + key("Enter") + " with the box empty to skip.";
+  // the way back to an earlier question: in brackets on the two questions
+  // after the first, and as a plain line on the last page
+  const BACK = "go back to it with " + key("Control + Shift + ↑") + " and send a new one";
+  const BACK_ASIDE = "(To change an earlier answer, " + BACK + ".)";
+  const BACK_LINE = "To change an answer, " + BACK + ".";
+  const NEXT = "Press " + key("Control + Shift + →") + " for the next card.";
   const FINISH = "Press " + key("Control + Shift + Backspace") + " to mark this card done and open your board.";
-  // what the email card says before it is answered: who gets the address and
-  // the answers that go with it, why, and that it may be left unanswered
+  // what the email question says: who gets the address and the answers that
+  // go with it, why, and that it may be left unanswered
   const EMAIL_ASK = "Your email, your answers here and your time zone go to PostHog, " +
                     "so Facilitator's maker can ask you for feedback. You can skip this one.";
   // the main agent's choices. what anyone types that is not one of them is kept
   // as typed. the work question has none: its answer is the person's own words
   const AGENTS = ["Claude Code", "Codex"];
   const numbered = list => list.map((one, i) => (i + 1) + ". " + one).join("\n");
-  // field is where the answer is kept, noun what a correction calls it
+  // the onboarding card's questions, one reply of the card each, in order.
+  // field is where the answer is kept, noun what a correction calls it, and
+  // only the name is needed
+  const QUESTIONS = [
+    { field: "name", ask: "What should we call you?", noun: "name", needed: true },
+    { field: "email", ask: "What's your email?", noun: "email", note: EMAIL_ASK },
+    { field: "work", ask: "What will you mostly use Facilitator for?", noun: "answer" },
+    { field: "agent", ask: "Which agent do you use most?", noun: "main agent",
+      choices: AGENTS, note: numbered(AGENTS) + "\n\nSend a number or a name." },
+  ];
+  // the replies that carry the bracketed way back: the one after the first
+  // answer, where it fades in late, and the one after that
+  const ASIDE_ON = [1, 2];
+  // the cards: the Welcome, the one onboarding card, and the four 101 cards.
+  // the last one's done ends the run. lights are the chords the keyboard
+  // lights on a card, one after another, as the left Control, the left Shift
+  // and the keys named
   const CARDS = [
     { id: "welcome", title: "Welcome!" },
-    { id: "name", title: "What should we call you?", field: "name", noun: "name" },
-    { id: "email", title: "What's your email?", field: "email", noun: "email", ask: EMAIL_ASK },
-    { id: "work", title: "What will you mostly use Facilitator for?", field: "work", noun: "answer" },
-    { id: "agent", title: "Which agent do you use most?", field: "agent", noun: "main agent",
-      choices: AGENTS, ask: numbered(AGENTS) + "\n\nSend a number or a name." },
-    { id: "done", title: "You're all set!", closing: true },
+    { id: "onboard", title: "Let's onboard you onto the Facilitator!", questions: QUESTIONS },
+    { id: "orchestrator", title: "101: Orchestrator Agent",
+      say: "Your orchestrator agent is the agent you talk to through this board, such as Claude Code or Codex. " +
+           "It reads each card, answers you on it, and hands bounded pieces of the work to helper agents, " +
+           "staying responsible for the card while they run. You talk to one agent, and it keeps the helpers busy " +
+           "and checks what they bring back." },
+    { id: "cards", title: "101: Cards & atomizing ideas",
+      say: "A card holds one idea, one bug or one question, with its own thread of replies. " +
+           "When a thought holds several things, split it into several cards, so each can be worked on, " +
+           "answered and closed on its own. Small cards also let your agent work on many of them at once." },
+    { id: "tickets", title: "101: Ticket box",
+      say: "The list beside the card has a ticket for every card, in four sections: Doing for what is active, " +
+           "Docked for the current sprint, Deferred for a later sprint, and Done. " +
+           "A yellow ticket is waiting on you and a green one is being worked on. Click a ticket to open its card." },
+    { id: "hotkeys", title: "101: Hotkeys", closing: true,
+      say: key("Control + Shift + ←") + " and " + key("→") + " move between cards, and " +
+           key("Control + Shift + ↑") + " and " + key("↓") + " step through a card's older and newer replies. " +
+           key("Control + Shift + Enter") + " goes to the card that has waited longest on you, and " +
+           key("Control + Shift + Backspace") + " marks a card done.",
+      lights: [["ctrl", "shift", "left", "right"], ["ctrl", "shift", "up", "down"],
+               ["ctrl", "shift", "return"], ["ctrl", "shift", "delete"]] },
   ];
 
-  // the answers, held in this page until the closing card is marked done,
+  // the timings. the keyboard fades in over the first answer's whole way in,
+  // the send's flight and then the page turn to the next question
+  // (SENT_FLIGHT_MS and TURN_GLIDE_MS in card-logic.js), so the two end together.
+  // the bracketed way back waits for the turn to land and a breath more, then
+  // fades in over .6s (.obheld in the sheet) as the three keys light. a light
+  // fades in, holds and fades out; the 101: Hotkeys card's chords are shorter
+  const KEYS_IN_MS = SENT_FLIGHT_MS + TURN_GLIDE_MS;
+  const KEYS_LATE_MS = 400;   // the keyboard on a 101 card reached before any answer
+  const ASIDE_WAIT_MS = TURN_GLIDE_MS + 200;
+  const LIGHT = { inMs: 600, holdMs: 1500, outMs: 700 };
+  const LIGHT_SHORT = { inMs: 400, holdMs: 1000, outMs: 400 };
+  const LIGHTS_FROM_MS = 500;   // the first chord on 101: Hotkeys, after the card shows
+  const LIGHTS_GAP_MS = 200;    // and between its chords
+
+  // the answers, held in this page until the last card is marked done,
   // when they are saved as the board's profile. the time zone is not asked:
-  // it is read off the machine the page runs on, and shown on the closing card
+  // it is read off the machine the page runs on, and shown on the last page
   const profile = { name: null, email: null, work: null, agent: null, timeZone: null };
   try { profile.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (e) {}
   window.onboardingProfile = profile;
@@ -857,6 +946,103 @@ for (const pane of document.querySelectorAll(".tikpane")){
   } catch (e) {}
   const sections = document.getElementById("sections");
   let caretQueue = () => {};
+
+  // ---- the keyboard ---------------------------------------------------------------
+  // the hotkey map's keyboard (facilitator-mocks/mock-hotkey-map-20261008.html),
+  // drawn the way it draws it: its layout rows, one legend a key, the shifted
+  // characters left off. a key that comes twice is told apart by its side,
+  // the right one named with -r (shift-r), so a light picks the left one
+  const KB_U = 60, KB_FN = 36, KB_GAP = 8, KB_HALF = 4;
+  const KB_ROWS = [
+    { fn: true, keys: [{ k: "esc", w: 1.5, word: "esc", a: "l" }, ...[...Array(12)].map((_, i) => ({ k: "f" + (i + 1), fk: "F" + (i + 1) })), { k: "touchid" }] },
+    { keys: [..."`1234567890-=".split("").map(c => ({ k: c, main: c })), { k: "delete", w: 1.5, word: "delete", a: "r" }] },
+    { keys: [{ k: "tab", w: 1.5, word: "tab", a: "l" }, ..."QWERTYUIOP".split("").map(c => ({ k: c.toLowerCase(), letter: c })),
+             { k: "[", main: "[" }, { k: "]", main: "]" }, { k: "\\", main: "\\" }] },
+    { keys: [{ k: "caps", w: 1.75, word: "caps lock", a: "l" }, ..."ASDFGHJKL".split("").map(c => ({ k: c.toLowerCase(), letter: c })),
+             { k: ";", main: ";" }, { k: "'", main: "'" }, { k: "return", w: 1.75, word: "return", a: "r" }] },
+    { keys: [{ k: "shift", w: 2.25, word: "shift", a: "l" }, ..."ZXCVBNM".split("").map(c => ({ k: c.toLowerCase(), letter: c })),
+             { k: ",", main: "," }, { k: ".", main: "." }, { k: "/", main: "/" }, { k: "shift", w: 2.25, word: "shift", a: "r" }] },
+    { keys: [{ k: "fn", sym: "fn", a: "r" }, { k: "ctrl", sym: "⌃", word: "control", a: "r" }, { k: "opt", sym: "⌥", word: "option", a: "r" },
+             { k: "cmd", w: 1.25, sym: "⌘", word: "command", a: "r" }, { k: "space", w: 5 },
+             { k: "cmd", w: 1.25, sym: "⌘", word: "command", a: "l" }, { k: "opt", sym: "⌥", word: "option", a: "l" },
+             { k: "left", arrow: "left", half: "bottom" }, { k: "up", arrow: "up", half: "top" },
+             { k: "down", arrow: "down", half: "bottom", sameColumn: true }, { k: "right", arrow: "right", half: "bottom" }] },
+  ];
+  const ARROW = { left: "M7 1 L1 5 L7 9 Z", right: "M1 1 L7 5 L1 9 Z", up: "M1 7 L5 1 L9 7 Z", down: "M1 1 L5 7 L9 1 Z" };
+  const arrowSvg = (dir, size) => {
+    const wide = dir === "up" || dir === "down";
+    const w = wide ? 10 : 8, ht = wide ? 8 : 10;
+    return '<svg width="' + w * size / 8 + '" height="' + ht * size / 8 + '" viewBox="0 0 ' + w + " " + ht +
+           '"><path d="' + ARROW[dir] + '" fill="currentColor"/></svg>';
+  };
+  const keyboard = h("div");
+  keyboard.id = "obkeys";
+  keyboard.setAttribute("aria-hidden", "true");
+  {
+    const seen = new Set();
+    let y = 0;
+    for (const row of KB_ROWS){
+      const rh = row.fn ? KB_FN : KB_U;
+      let x = 0, colX = 0;
+      for (const k of row.keys){
+        const w = k.w || 1;
+        const kx = k.sameColumn ? colX : x;
+        if (!k.sameColumn){ colX = x; x += w; }
+        let top = y + KB_GAP / 2, height = rh - KB_GAP;
+        if (k.half === "top") height = rh / 2 - KB_GAP / 2 - KB_HALF / 2;
+        if (k.half === "bottom"){ top = y + rh / 2 + KB_HALF / 2; height = rh / 2 - KB_GAP / 2 - KB_HALF / 2; }
+        const one = h("div", "obkey");
+        one.dataset.k = seen.has(k.k) ? k.k + "-r" : k.k;
+        seen.add(k.k);
+        Object.assign(one.style, { left: kx * KB_U + KB_GAP / 2 + "px", top: top + "px",
+                                   width: w * KB_U - KB_GAP + "px", height: height + "px" });
+        const legend = k.arrow ? '<span class="c">' + arrowSvg(k.arrow, 7) + "</span>" :
+                       k.fk ? '<span class="c fk">' + k.fk + "</span>" :
+                       k.main || k.letter ? '<span class="c letter">' + (k.main || k.letter).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]) + "</span>" : "";
+        one.innerHTML = legend + (k.sym ? '<span class="sym ' + k.a + '">' + k.sym + "</span>" : "") +
+                        (k.word ? '<span class="word ' + k.a + '">' + k.word + "</span>" : "");
+        keyboard.appendChild(one);
+      }
+      y += rh;
+    }
+    keyboard.style.width = Math.max(...KB_ROWS.map(r => r.keys.filter(k => !k.sameColumn).reduce((a, k) => a + (k.w || 1), 0))) * KB_U + "px";
+    keyboard.style.height = y + "px";
+    document.body.insertBefore(keyboard, document.getElementById("obstage"));
+  }
+  // the keyboard comes in once and then stays, on every card after
+  function showKeys(ms){
+    if (keyboard.classList.contains("on")) return;
+    keyboard.style.setProperty("--keys-in", ms + "ms");
+    keyboard.classList.add("on");
+  }
+  // the lights, and every wait that leads to one, are kept so a move to
+  // another card can call them all off
+  let lightTimers = [];
+  function later(fn, ms){ lightTimers.push(setTimeout(fn, ms)); }
+  function setLit(names, on, ms){
+    for (const name of names){
+      const one = keyboard.querySelector('.obkey[data-k="' + name + '"]');
+      if (!one) continue;
+      one.style.setProperty("--lit-ms", ms + "ms");
+      one.classList.toggle("lit", on);
+    }
+  }
+  // a chord lights after delay and goes out after its hold; it answers when it is out
+  function pulse(names, t, delay = 0){
+    later(() => setLit(names, true, t.inMs), delay);
+    later(() => setLit(names, false, t.outMs), delay + t.inMs + t.holdMs);
+    return delay + t.inMs + t.holdMs + t.outMs;
+  }
+  // a light called off fades out, and a bracketed line still held shows
+  function unlight(){
+    for (const t of lightTimers) clearTimeout(t);
+    lightTimers = [];
+    for (const one of keyboard.querySelectorAll(".obkey.lit")){
+      one.style.setProperty("--lit-ms", LIGHT.outMs + "ms");
+      one.classList.remove("lit");
+    }
+    for (const line of document.querySelectorAll(".obheld:not(.obin)")) line.classList.add("obin");
+  }
 
   // ---- one card, built the way makeBox builds one (in index.html) ------
   function makeCard(spec){
@@ -965,48 +1151,86 @@ for (const pane of document.querySelectorAll(".tikpane")){
     el.reply.innerHTML = fmt(raw);
   }
 
-  // every card's words were written when the run began: the question, the
-  // Welcome and the closing card are each an agent's reply waiting on the reader
+  // ---- the onboarding card's pages ------------------------------------------------
+  // each reply of the onboarding card is a page of its history, and each page
+  // knows the field its question fills (null on the last page, which asks
+  // nothing). a page is its head, which says what the answer before it was,
+  // and the question; the last page is what was kept and the keys. the pages
+  // are drawn from the answers as they stand, so a page stepped back to says
+  // the answer as it is now
+  function pageRaw(card, i){
+    const page = card.pages[i], q = QUESTIONS[i];
+    const parts = [page.head];
+    if (q){
+      parts.push(q.ask, q.note, q.needed ? "" : SKIP_HINT);
+      // the Tab hint only while the first question is the newest page; stepped back to, the caret is in the box
+      if (!i && HINT === "reply" && card.pages.length === 1) parts.push(TAB_HINT);
+      if (ASIDE_ON.includes(i)) parts.push(BACK_ASIDE);
+    } else parts.push(keptRaw(), BACK_LINE, NEXT);
+    return parts.filter(Boolean).join("\n\n");
+  }
+  function keptRaw(){
+    const rows = [["Name", profile.name], ["Email", profile.email],
+                  ["Work", profile.work], ["Main agent", profile.agent]];
+    const list = rows.map(([k, v]) => "- " + k + ": " + (v == null ? "not answered" : plain(v)));
+    if (profile.timeZone) list.push("- Time zone: " + plain(profile.timeZone) + ", from your Mac");
+    return "Here is what you told us:\n\n" + list.join("\n");
+  }
+
+  // every card's words were written when the run began: each is an agent's
+  // reply waiting on the reader
   const RUN_BEGAN = Date.now() / 1000;
   const cards = CARDS.map(spec => {
-    const card = { spec, el: makeCard(spec), value: null, pending: [], replyTimer: 0, held: null, replies: 0, pages: [] };
+    const card = { spec, el: makeCard(spec), pending: [], replyTimer: 0, held: null, replies: 0, pages: [] };
     const el = card.el;
     lastState.boxes.push({ id: spec.id, replyKind: "agent", replyId: null, answered: null, writing: false,
                            owner: activeOwner, title: spec.title, ball: "you", replies: 1, pending: 0,
                            agentTs: RUN_BEGAN, ts: RUN_BEGAN });
-    if (!spec.field){
-      // the Welcome and closing cards ask nothing, so their reply boxes take nothing
-      el.ta.disabled = true;
-      el.ta.tabIndex = -1;
-      if (spec.closing){
-        // the cross on the closing card marks it done, as Control + Shift + Backspace does
-        el.x.addEventListener("click", finish);
-        return card;
-      }
-      // the Welcome card: the lockup, the blurb and the key
-      el.reply.dataset.raw = WELCOME;
-      el.reply.innerHTML = '<div class="obbrand"><span class="squidmark"><img src="' + LOGO + '" alt=""></span>' +
-        '<span class="obbrandcopy"><span class="obbrandname">Facilitator</span>' +
-        '<span class="obversion">' + VERSION + "</span></span></div>" + fmt(WELCOME);
+    if (spec.questions){
+      // the first question is the card's first page
+      card.pages.push({ field: QUESTIONS[0].field, head: null, meta: null });
+      el.box.classList.add("obwait");
+      render(el, pageRaw(card, 0));
+      wireQuestion(card);
       return card;
     }
-    el.box.classList.add("obwait");
-    const ask = [spec.ask, HINT === "reply" ? TAB_HINT : ""].filter(Boolean).join("\n\n");
-    render(el, ask);
-    // the question as first asked is the card's first page, so a history
-    // step can come back to it. an empty one is not a page
-    if (ask) card.pages.push({ raw: ask, meta: null });
-    wireQuestion(card);
+    // the other cards ask nothing, so their reply boxes take nothing
+    el.ta.disabled = true;
+    el.ta.tabIndex = -1;
+    if (spec.say){
+      render(el, [spec.say, spec.closing ? FINISH : NEXT].join("\n\n"));
+      // the cross on the last card marks it done, as Control + Shift + Backspace does
+      if (spec.closing) el.x.addEventListener("click", finish);
+      return card;
+    }
+    // the Welcome card: the lockup, the blurb and the key
+    el.reply.dataset.raw = WELCOME;
+    el.reply.innerHTML = '<div class="obwelcome"><div class="obbrand"><span class="squidmark"><img src="' + LOGO + '" alt=""></span>' +
+      '<span class="obbrandcopy"><span class="obbrandname">Facilitator</span>' +
+      '<span class="obversion">' + VERSION + "</span></span></div>" + fmt(WELCOME) + "</div>";
     return card;
   });
+  const onboard = cards.find(c => c.spec.questions);
   let at = 0, finished = false;
   const boxOf = card => lastState.boxes.find(b => b.id === card.spec.id);
 
-  // ---- a question card --------------------------------------------------------
+  // the Welcome card's lockup as large as the card's width allows, with a
+  // little air either side
+  function fitWelcome(){
+    const el = cards[0].el, brand = el.reply.querySelector(".obbrand");
+    if (!brand || !el.reply.clientWidth) return;
+    brand.style.fontSize = "";
+    const cs = getComputedStyle(el.reply);
+    const room = el.reply.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const wide = brand.getBoundingClientRect().width;
+    if (wide > 0) brand.style.fontSize = (parseFloat(getComputedStyle(brand).fontSize) * room * 0.9 / wide) + "px";
+  }
+
+  // ---- the onboarding card's question ----------------------------------------------
   function wireQuestion(card){
     const el = card.el, t = el.titleEl, ta = el.ta;
     // the title holds the caret the way the board's title does while it is
-    // being named (editTitle in card-logic.js), but the question is not the
+    // being named (editTitle in card-logic.js), but the title is not the
     // reader's to change: whatever is typed into it is refused, and the hint
     // is called back to instead
     t.setAttribute("contenteditable", "plaintext-only");
@@ -1033,17 +1257,17 @@ for (const pane of document.querySelectorAll(".tikpane")){
       }
     });
     ta.addEventListener("input", () => { el.tick(); noteTyping(ta); });
-    // Enter sends and Shift + Enter is a new line; Control + Shift + Enter sends
-    // what the box holds and then moves on, or only moves with the box empty
-    // (composerEnter in index.html). Control + Enter alone is the system's
+    // Enter sends and Shift + Enter is a new line. Control + Shift + Enter
+    // with the box empty only moves (composerEnter in index.html); with words
+    // in it, it sends them and stays, since the card that has waited longest is
+    // this one while it has questions left. Control + Enter alone is the system's
     ta.addEventListener("keydown", e => {
       const now = controlShiftEnter(e);
       if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || e.isComposing || bareControlEnter(e)) return;
       e.preventDefault();
       if (e.repeat) return;
+      if (now && !ta.value.trim()){ advance(); return; }
       sendFrom(card);
-      // the board moves once it has the message, which here it has at the press
-      if (now) advance();
     });
     for (const node of [el.send, el.clip])
       node.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
@@ -1055,11 +1279,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
     paintHint(card);
   }
 
-  // the ghost after the question (?hint=title) needs 24px and its own width
+  // the ghost after the title (?hint=title) needs 24px and its own width
   // after the last letter; a last line that leaves less sends it under the line
   const ghostPen = document.createElement("canvas").getContext("2d");
   function seatGhost(card){
-    if (HINT !== "title" || !card.spec.field) return;
+    if (HINT !== "title" || !card.spec.questions) return;
     const t = card.el.titleEl, text = t.firstChild;
     if (!text || text.nodeType !== 3 || !text.length || !t.getClientRects().length) return;
     const rg = document.createRange();
@@ -1073,16 +1297,17 @@ for (const pane of document.querySelectorAll(".tikpane")){
     card.el.box.classList.toggle("obghostdown", room < 24 + ghostPen.measureText("Tab to answer").width);
   }
 
-  // the hint stands while the question is unanswered, wherever it stands
+  // the Tab hint stands while the first question is unanswered, wherever it stands
+  function waiting(card){ return !!card.spec.questions && card.pages.length === 1 && profile.name == null; }
   function paintHint(card){
-    const el = card.el, wait = !!card.spec.field && card.value == null;
+    const el = card.el, wait = waiting(card);
     el.box.classList.toggle("obwait", wait);
     if (HINT === "box") el.ta.placeholder = wait && document.activeElement !== el.ta ? TAB_HINT_PLAIN + " here" : "";
     if (HINT === "bar") el.barHint.textContent = wait ? TAB_HINT_PLAIN : "";
   }
   function nudge(card){
     const el = card.el;
-    if (HINT === "reply"){ printReply(el); return; }
+    if (HINT === "reply" || !waiting(card)){ printReply(el); return; }
     const node = HINT === "title" ? el.titleEl : HINT === "box" ? el.ta : el.barHint;
     node.classList.remove("obnudge");
     void node.offsetWidth;   // a nudge still going starts again
@@ -1103,23 +1328,39 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // the answer a message gives: on a choice, a number or the choice's own
   // words (or its first word) pick it. anything else is kept as it was typed,
   // so nothing is refused
-  function readAnswer(card, text){
-    const spec = card.spec, line = said(text), low = line.toLowerCase();
-    if (spec.choices){
+  function readAnswer(q, text){
+    const line = said(text), low = line.toLowerCase();
+    if (q.choices){
       const n = /^#?(\d+)$/.exec(line);
-      if (n && +n[1] >= 1 && +n[1] <= spec.choices.length) return spec.choices[+n[1] - 1];
-      const hit = spec.choices.find(c => c.toLowerCase() === low) ||
-                  spec.choices.find(c => c.toLowerCase().split(" ")[0] === low);
+      if (n && +n[1] >= 1 && +n[1] <= q.choices.length) return q.choices[+n[1] - 1];
+      const hit = q.choices.find(c => c.toLowerCase() === low) ||
+                  q.choices.find(c => c.toLowerCase().split(" ")[0] === low);
       if (hit) return hit;
     }
     return line;
   }
 
   // ---- sending, and the answer ---------------------------------------------------
+  // the page of the card's history on show: the newest, or the one stepped
+  // back to with Control + Shift + ↑
+  function pageOnShow(card){
+    return hist && hist.id === card.spec.id ? card.pages.length - 1 - hist.step : card.pages.length - 1;
+  }
   function sendFrom(card){
     const el = card.el;
+    const page = card.pages[pageOnShow(card)];
     const text = el.ta.value.trim();
-    if (!text) return false;
+    // the last page asks nothing: a send there calls its lines back instead
+    if (!page.field){ printReply(el); return false; }
+    const q = QUESTIONS.find(one => one.field === page.field);
+    if (!text){
+      // an empty send skips a question that may be skipped, or clears its answer
+      if (q.needed || card.pending.length) return false;
+      answer(card, [], page.field);
+      return true;
+    }
+    // the first answer brings the keyboard in, over its flight and the turn
+    if (card.pages.length === 1) showKeys(KEYS_IN_MS);
     // the board's own order (doSend in index.html): the flight is armed off the
     // row before the row is emptied, the message comes into the sent panel at
     // the press, faded, and the flight plays once it has its seat there
@@ -1130,6 +1371,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
     motion?.play();
     el.metaNote.textContent = "";
     caretQueue();
+    // the message answers the question on show as it is sent
+    item.field = page.field;
     card.pending.push(item);
     // nothing stands between the send and its answer: no Delivered, no Read
     // and no working spinner. the send ends the typing, so the two quiet
@@ -1150,27 +1393,53 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const look = () => {
       card.replyTimer = 0;
       if (el.sentMotions && el.sentMotions.size){ card.replyTimer = requestAnimationFrame(look); return; }
-      answer(card);
+      const batch = card.pending.splice(0);
+      if (batch.length) answer(card, batch, batch[batch.length - 1].field);
     };
     look();
   }
 
-  // the newest message is the answer. a card answered before says it has
-  // changed it, which is the whole of correcting one: send it again
-  function answer(card){
-    const batch = card.pending.splice(0);
-    if (!batch.length) return;
+  // the newest message is the answer to the question that was on show when it
+  // was sent. an answer to the newest question moves the card on to the next
+  // page. an answer sent from an older page replaces that answer, and the card
+  // comes back to the newest page, saying what changed; the page after the
+  // corrected question says the new answer from then on
+  function answer(card, batch, field){
     for (const m of batch) sentSettled(card.el);   // each message is the board's as it is answered
-    const value = readAnswer(card, batch[batch.length - 1].text);
-    const first = card.value == null;
-    card.value = value;
-    profile[card.spec.field] = value;
+    const qi = QUESTIONS.findIndex(q => q.field === field), q = QUESTIONS[qi];
+    const text = batch.length ? batch[batch.length - 1].text : "";
+    const value = text ? readAnswer(q, text) : null;
+    profile[field] = value;
     paintHint(card);
-    const words = plain(value);
-    const head = first ? "Got it, " + words + "." : "Changed your " + card.spec.noun + " to " + words + ".";
-    const raw = [head, TEACH[card.spec.field]].filter(Boolean).join("\n\n");
-    land(card, { id: card.spec.id, replyKind: "agent", replyId: card.spec.id + "." + (++card.replies),
-                 answered: batch.map(m => ({ text: m.text })), raw });
+    const words = value == null ? null : plain(value);
+    const gotIt = words == null ? "Skipped." : "Got it, " + words + ".";
+    const meta = { id: card.spec.id + "." + (++card.replies), answered: batch.map(m => ({ text: m.text })) };
+    const live = card.pages.length - 1;
+    let after = null;
+    if (qi === live){
+      const next = QUESTIONS[qi + 1];
+      card.pages.push({ field: next ? next.field : null, head: gotIt, meta });
+      if (!qi) after = () => asideLater(card);
+      else if (!next) after = () => later(() => pulse(["ctrl", "shift", "right"], LIGHT), ASIDE_WAIT_MS);
+    } else {
+      const next = card.pages[qi + 1];
+      if (qi + 1 < live) Object.assign(next, { head: gotIt, meta: { id: next.meta.id, answered: meta.answered } });
+      Object.assign(card.pages[live], {
+        head: words == null ? "Cleared your " + q.noun + "." : "Changed your " + q.noun + " to " + words + ".", meta });
+    }
+    dropHistory(card);
+    land(card, { id: card.spec.id, replyKind: "agent", replyId: meta.id, answered: meta.answered, after });
+  }
+  // the first answer's next page holds its bracketed way back until the turn
+  // has landed and the keyboard is in, then fades it in as the left Control,
+  // the left Shift and the up arrow light
+  function asideLater(card){
+    const line = card.el.reply.lastElementChild;
+    if (line) line.classList.add("obheld");
+    later(() => {
+      if (line) line.classList.add("obin");
+      pulse(["ctrl", "shift", "up"], LIGHT);
+    }, ASIDE_WAIT_MS);
   }
 
   // the board's pass over a card whose answer has changed (apply in
@@ -1181,9 +1450,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const turn = turnBegin(el, b);
     if (turn === TURN_HELD){ card.held = b; return; }
     card.held = null;
-    card.pages.push({ raw: b.raw, meta: { id: b.replyId, answered: b.answered } });
     keepHistory(card);
-    render(el, b.raw);
+    render(el, pageRaw(card, card.pages.length - 1));
     if (!turn) headOnSwap(el, b);
     el.sentItems = [];
     syncSent(el, el.sentItems);
@@ -1193,9 +1461,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const box = boxOf(card), now = Date.now() / 1000;
     Object.assign(box, { replyId: b.replyId, answered: b.answered, replies: box.replies + 1, agentTs: now, ts: now });
     seenReplies[card.spec.id] = box.replies;
+    if (b.after) b.after();
     turnGo(el, turn);
     caretQueue();
-    drawClosing(true);
     paintTickets();
   }
   // a new answer held back while the reader was busy with the card is drawn
@@ -1209,7 +1477,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // (setDesktopHistoryAvailability in index.html)
   function keepHistory(card){
     const el = card.el, older = card.pages.slice(0, -1);
-    const list = older.map(p => p.raw);
+    const list = older.map((p, i) => pageRaw(card, i));
     list.meta = older.map(p => p.meta || {});
     histCache[card.spec.id] = Promise.resolve(list);
     const has = list.length > 0;
@@ -1221,31 +1489,26 @@ for (const pane of document.querySelectorAll(".tikpane")){
     el.histDown.disabled = true;
   }
   function stepHistory(card, dir){
-    if (!card.spec.field || card.spec.id !== selectedId) return;
+    if (!card.spec.questions || card.spec.id !== selectedId) return;
     histStep(card.spec.id, dir);
   }
   function leaveHistory(){
     if (!hist) return;
     histExit(hist.id);
   }
+  // an answer sent from an older page brings the card back to the newest one:
+  // the step back ends where it stands, with the older page still drawn, so the
+  // turn pictures the page the answer was sent from
+  function dropHistory(card){
+    if (!hist || hist.id !== card.spec.id) return;
+    hist = null;
+    const el = card.el;
+    el.box.classList.remove("histview");
+    el.histPos.textContent = "";
+    el.histUp.disabled = false;
+    el.histDown.disabled = true;
+  }
 
-  // ---- the closing card ---------------------------------------------------------
-  // what was kept, and the key that ends the run. it is
-  // drawn when it is shown and again when an answer lands while it is
-  function closingRaw(){
-    const rows = [["Name", profile.name], ["Email", profile.email],
-                  ["Work", profile.work], ["Main agent", profile.agent]];
-    const list = rows.map(([k, v]) => "- " + k + ": " + (v == null ? "not answered" : plain(v)));
-    if (profile.timeZone) list.push("- Time zone: " + plain(profile.timeZone) + ", from your Mac");
-    return [list.join("\n"), FINISH].join("\n\n");
-  }
-  function drawClosing(print){
-    const card = cards.find(c => c.spec.closing), el = card.el;
-    const raw = closingRaw();
-    if (el.reply.dataset.raw === raw) return;
-    render(el, raw);
-    if (print && cards[at] === card && !finished) printReply(el);
-  }
   // ---- the end: the profile, and the board ------------------------------------
   // the run opens the sample project as its project at the start: the folder
   // made the first time it is missing (POST /onboarding/sample), then its tab,
@@ -1267,21 +1530,23 @@ for (const pane of document.querySelectorAll(".tikpane")){
     }
   })();
   // the same rule as the board's (clean_email in usage_counts.py): an email
-  // answer that is not an address is kept on the closing card as typed, and
+  // answer that is not an address is kept on the last page as typed, and
   // saved as no email, with no yes
   const ADDRESS = /^[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+$/;
   const address = text => text && text.length <= 254 && ADDRESS.test(text) ? text : null;
-  // the closing card closed: the answers are saved as the profile, an email
+  // the last card closed: the answers are saved as the profile, an email
   // given being the yes to feedback mail, and the card goes, the ticket list
   // with it. the board then takes the frame away onto the sample project. the
-  // profile needs a name, so the key without one goes to the name card, and a
-  // save that does not land calls the key back, to be pressed again
+  // profile needs a name, so the key without one goes to the onboarding card's
+  // first question, and a save that does not land calls the key back, to be
+  // pressed again
   let saving = false;
   async function finish(){
     if (finished || saving) return;
     if (!profile.name){
-      show(cards.findIndex(c => c.spec.id === "name"));
-      nudge(cards[at]);
+      show(cards.indexOf(onboard));
+      leaveHistory();
+      nudge(onboard);
       return;
     }
     saving = true;
@@ -1294,6 +1559,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     saving = false;
     if (!saved){ printReply(cards[at].el); return; }
     finished = true;
+    unlight();
     document.body.classList.add("obdone");
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     caretQueue();
@@ -1306,25 +1572,31 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function show(i){
     const card = cards[i], el = card.el;
     if (hist && hist.id !== card.spec.id) leaveHistory();
+    if (card !== cards[at]) unlight();
     at = i;
     selectedId = card.spec.id;
     for (const c of cards) c.el.box.classList.toggle("sel", c === card);
-    // from the email card on, the card stands at its place on the board and
-    // the ticket list comes in beside it; the card's own ticket is lifted
+    // from the onboarding card on, the card stands at its place on the board
+    // and the ticket list comes in beside it; the card's own ticket is lifted
     document.body.classList.toggle("obboard", i >= cards.findIndex(c => c.spec.id === BOARD_FROM));
     paintTickets();
-    if (card.spec.closing) drawClosing(false);
     openAtHead(el);
     el.tick();
     if (el.bandWrite) el.bandWrite();
     seatGhost(card);
-    // where the caret lands: nowhere on the Welcome and closing cards, so the
-    // plain arrows are free; at the end of the question on a card still to be
-    // answered; in the reply box on one answered or on its way, where the
-    // reader left it
-    if (!card.spec.field){
+    if (!i) fitWelcome();
+    // a 101 card reached before any answer still stands over the keyboard
+    if (i > cards.indexOf(onboard)) showKeys(KEYS_LATE_MS);
+    if (card.spec.lights){
+      let t = LIGHTS_FROM_MS;
+      for (const chord of card.spec.lights) t = pulse(chord, LIGHT_SHORT, t) + LIGHTS_GAP_MS;
+    }
+    // where the caret lands: nowhere on the cards that ask nothing, so the
+    // plain arrows are free; at the end of the title while the first question
+    // is unanswered; in the reply box after, where the reader left it
+    if (!card.spec.questions){
       if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-    } else if (card.value == null && !card.pending.length) caretToTitleEnd(el.titleEl);
+    } else if (waiting(card) && !card.pending.length) caretToTitleEnd(el.titleEl);
     else el.ta.focus({ preventScroll: true });
     caretQueue();
   }
@@ -1338,7 +1610,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     sel.addRange(range);
   }
   // a step either way, answered or not: no question has to be answered to
-  // move on. past the closing card there is no card, and its key is called
+  // move on. past the last card there is no card, and its key is called
   // back to instead. once done there is nowhere to go: the board is opening
   function go(step){
     if (finished) return;
@@ -1348,15 +1620,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
     show(next);
   }
   // Control + Shift + Enter: the card that has waited longest for the reader
-  // (jumpNextYellow in card-logic.js). every card here has waited since the
-  // run began, so the list's own order breaks the tie: the first question
-  // still unanswered and not on its way, and once none is, the closing card
+  // (jumpNextYellow in card-logic.js): the onboarding card while it has
+  // questions left, and then the last card
   function advance(){
     if (finished) return;
     const from = cards[at];
-    const waiting = cards.find(c => c !== from && c.spec.field && c.value == null && !c.pending.length) ||
-                    cards.find(c => c !== from && c.spec.closing);
-    if (waiting) show(cards.indexOf(waiting));
+    const left = onboard.pages.length <= QUESTIONS.length;
+    const target = left && from !== onboard ? onboard : cards.find(c => c.spec.closing);
+    if (target !== from) show(cards.indexOf(target));
   }
 
   // ---- the ticket list ------------------------------------------------------------
@@ -1428,9 +1699,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // and answered as the board answers them (boardShortcutActions in
   // index.html): Control + Shift + an arrow from anywhere, a plain arrow,
   // Enter and Control + Shift + Enter only where nothing is being typed, Escape out
-  // of the reply box, Control + Shift + ↑ and ↓ through the card's older
-  // replies, and the done chord on the closing card. Tab goes between the
-  // question and the reply box
+  // of the reply box, Control + Shift + ↑ and ↓ through the onboarding card's
+  // pages, and the done chord on the last card. Tab goes between the
+  // title and the reply box
   document.addEventListener("keydown", e => {
     const card = cards[at], el = card.el;
     const key = cardShortcut(e);
@@ -1449,7 +1720,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
         if (typing) e.target.blur();
         return;
       case "enter":
-        if (typing || finished || !card.spec.field) break;
+        if (typing || finished || !card.spec.questions) break;
         if (e.target.closest && e.target.closest("button, a, select, summary, [role], [tabindex]")) break;
         e.preventDefault();
         el.ta.focus({ preventScroll: true });
@@ -1467,7 +1738,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     }
     if (e.key === "Tab" && !e.metaKey && !e.ctrlKey && !e.altKey){
       e.preventDefault();
-      if (!card.spec.field || finished) return;
+      if (!card.spec.questions || finished) return;
       if (document.activeElement === el.ta) caretToTitleEnd(el.titleEl);
       else el.ta.focus({ preventScroll: true });
     }
@@ -1649,8 +1920,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
       document.fonts.addEventListener("loadingdone", queue);
   }
 
-  addEventListener("resize", () => seatGhost(cards[at]));
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => seatGhost(cards[at]));
+  const refit = () => { seatGhost(cards[at]); if (!at) fitWelcome(); };
+  addEventListener("resize", refit);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
   show(0);
 })();
 </script>
