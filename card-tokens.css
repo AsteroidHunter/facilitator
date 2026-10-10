@@ -117,8 +117,7 @@
   --hist-glyph-w:11px; --hist-glyph-h:7px;
   --bar-mark:10px; --cardspin-s:11px;
   --chip-scale:1.2;
-  --cross-scale:1.4;
-  --ink-sun:.975; --ink-dock:.96653; --ink-moon:.74841; --ink-done:calc(.6678 * var(--cross-scale));
+  --ink-sun:.975; --ink-dock:.96653; --ink-moon:.74841; --ink-done:.6678;
   --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
   --spin-fade:.26s;
 }
@@ -143,10 +142,9 @@
 .topbar:has(> .dockbtn[aria-disabled="true"]) .sunbtn svg{opacity:1}
 .dockbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
 
-/* The sun, the cloud and the moon are drawn --chip-scale times --bar-mark and the
-   cross's bars --cross-scale times it (their thickness the same --cross-weight
-   share of their length as ever; a cross is two thin bars, so it takes more length
-   than a solid mark to read as big), and each stands in a seat of --bar-sq, the
+/* The sun, the cloud and the moon are drawn --chip-scale times --bar-mark; the
+   cross is drawn as it always was, its bars --bar-mark long and --cross-t thick,
+   and is not scaled. each stands in a seat of --bar-sq, the
    rectangle a hover or a press paints, the same size for all four. the board's
    seats keep one fixed step (--bar-gap-chips in index.html). the phone
    page spaces its seats by the width of the marks instead, so the air between
@@ -154,7 +152,7 @@
    ink from here: --ink-sun, --ink-dock, --ink-moon and --ink-done are the widths
    of the ink as shares of the drawn size, read off the paths with their strokes
    (the cross's from its two bars laid at 45 degrees: (length + thickness) over
-   the square root of two) */
+   the square root of two, as a share of the scaled mark) */
 
 /* The head and the ticket border boxes share the pane's side insets. Each
    triangle points at that edge from inside the box. Exclude the head's top
