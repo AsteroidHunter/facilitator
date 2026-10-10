@@ -121,7 +121,8 @@ function fixture(mode, extra = []) {
       ctx.lastState = state;
     },
     command(key, typing = false) {
-      const e = { key, ctrlKey: true, target: typing ? composer : body, preventDefault() { this.defaultPrevented = true; } };
+      // Control + R, and Control + Shift + Enter: Control + Enter alone is no command
+      const e = { key, ctrlKey: true, shiftKey: key === 'Enter', target: typing ? composer : body, preventDefault() { this.defaultPrevented = true; } };
       ctx.dispatchCardShortcut(e, vm.runInContext(desktop ? 'boardShortcutActions' : 'phoneShortcutActions', ctx));
       return e;
     },
@@ -215,7 +216,7 @@ for (const mode of modes) {
       assert.equal(f.ctx.selectedId, 'reply');
     }
   });
-  for (const key of ['r', 'Enter']) test(`${mode}: Control ${key} follows Doing after the reply`, async () => {
+  for (const key of ['r', 'Enter']) test(`${mode}: Control ${key === 'Enter' ? 'Shift Enter' : key} follows Doing after the reply`, async () => {
     const f = fixture(mode, [card('stay-docked', { docked: true, state: 'yours', ball: 'you' })]);
     await f.send(); f.update();
     Object.assign(f.ctx.lastState.boxes.find(b => b.id === 'after'), { state: 'yours', ball: 'you' });

@@ -1,7 +1,7 @@
 // Option+Enter on the Mac board, the phone page and the typed page, driven headless against their
 // own fixture server. The key sends nothing and moves nothing: the page leaves it uncancelled, so the
 // text box does with it what it does by default, a new line in a plain box. Enter, Shift+Enter,
-// Command+Enter, Control+Enter and double Enter are checked beside it so they are seen unchanged.
+// Command+Enter, Control+Shift+Enter and double Enter are checked beside it so they are seen unchanged.
 //
 // A synthetic key carries no operating system key binding, so Option+Enter is sent as a raw key
 // event with the edit command the Mac gives that key attached ("insertNewline"). Whether the page
@@ -302,7 +302,7 @@ for (const { name, viewport, route } of COMPOSERS) {
       }
     });
 
-    test(`${name}, ${editor} box: Enter, Shift+Enter, Command+Enter, Control+Enter and double Enter are as they were`, async () => {
+    test(`${name}, ${editor} box: Enter, Shift+Enter, Command+Enter, Control+Shift+Enter and double Enter are as they were`, async () => {
       const ids = await board(`${name}-${editor}-keys`);
       const page = await open(viewport, route);
       try {
@@ -338,9 +338,19 @@ for (const { name, viewport, route } of COMPOSERS) {
         await rearm(page, ids);
         from = page.posts.length;
         await type(page, "control");
-        await chord(page, "Enter", "Control");
+        await chord(page, "Enter", "Control", "Shift");
         await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
         assert.deepEqual(posted(page, from, "/send").map(s => s.body), ["control"]);
+
+        // Control+Enter alone is the system's: nothing sent, nothing moved
+        await selectCard(page, ids.source);
+        await rearm(page, ids);
+        from = page.posts.length;
+        await type(page, "bare control");
+        await chord(page, "Enter", "Control");
+        await settle(800);
+        assert.equal(posted(page, from, "/send").length, 0, "Control+Enter sent");
+        assert.equal(await shown(), ids.source, "Control+Enter moved the board");
 
         await rearm(page, ids);
         from = page.posts.length;
@@ -435,7 +445,7 @@ test("Mac board small card: Option+Enter sends nothing and is left to the box, t
     await page.click(field);
     await page.keyboard.type("by Control");
     from = page.posts.length;
-    await chord(page, "Enter", "Control");
+    await chord(page, "Enter", "Control", "Shift");
     await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
     assert.deepEqual(posted(page, from, "/send").map(s => s.body), ["by Control"]);
     assert.deepEqual(page.problems, []);
@@ -493,7 +503,7 @@ test("Mac board chat thread: Option+Enter sends nothing and is left to the box, 
     await page.click(field);
     await page.keyboard.type("by Control");
     from = page.posts.length;
-    await chord(page, "Enter", "Control");
+    await chord(page, "Enter", "Control", "Shift");
     await settle(800);
     assert.equal(posted(page, from, "/send").length, 1);
     // the fixture's chat box is not a real card, so the board answers each real send with a 400

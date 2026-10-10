@@ -8,7 +8,7 @@ const { test } = require("node:test");
 const { macPage } = require("./hotkey-pages.cjs");
 
 const PAGES = ["blank", "new project"];
-const CARD_KEYS = ["cmd+t", "ctrl+shift+right", "right", "ctrl+shift+up", "escape", "enter", "ctrl+enter",
+const CARD_KEYS = ["cmd+t", "ctrl+shift+right", "right", "ctrl+shift+up", "escape", "enter", "ctrl+shift+enter", "ctrl+enter",
   "ctrl+r", "ctrl+s", "ctrl+u", "ctrl+shift+]", "]"];
 
 test("Command + number chooses a project on a blank page and on the new project page", () => {

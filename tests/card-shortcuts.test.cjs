@@ -390,22 +390,31 @@ test("the four chips' tooltips carry the section keys", async () => {
   }
 });
 
-// ---- control+enter and control+r ----------------------------------------------------
+// ---- control+shift+enter and control+r ----------------------------------------------------
 const NOT_BARE_CONTROL = [
   {}, { metaKey: true }, { shiftKey: true }, { altKey: true },
   { ctrlKey: true, shiftKey: true }, { ctrlKey: true, metaKey: true }, { ctrlKey: true, altKey: true },
 ];
 
-test("control enter is the move key and no other modifier set is", async () => {
+const NOT_CONTROL_SHIFT = [
+  {}, { ctrlKey: true }, { shiftKey: true }, { metaKey: true }, { altKey: true },
+  { ctrlKey: true, metaKey: true }, { ctrlKey: true, altKey: true },
+  { ctrlKey: true, shiftKey: true, metaKey: true }, { ctrlKey: true, shiftKey: true, altKey: true },
+];
+
+test("control shift enter is the move key and no other modifier set is", async () => {
   const { resolve } = await shortcuts();
-  assert.deepEqual(plain(resolve(event("Enter", { ctrlKey: true }))), { action: "advance", value: true });
+  const chord = { ctrlKey: true, shiftKey: true };
+  assert.deepEqual(plain(resolve(event("Enter", chord))), { action: "advance", value: true });
   // a held key's repeats are still recognized, so a page can keep them from the browser
-  assert.deepEqual(plain(resolve(event("Enter", { ctrlKey: true, repeat: true }))), { action: "advance", value: true });
-  for (const held of NOT_BARE_CONTROL) assert.notEqual(resolve(event("Enter", held))?.action, "advance", JSON.stringify(held));
+  assert.deepEqual(plain(resolve(event("Enter", { ...chord, repeat: true }))), { action: "advance", value: true });
+  for (const held of NOT_CONTROL_SHIFT) assert.notEqual(resolve(event("Enter", held))?.action, "advance", JSON.stringify(held));
+  // control enter alone is the system's, and no card key at all
+  assert.equal(resolve(event("Enter", { ctrlKey: true })), null);
   // a composer that took the key, or an input method's own Enter, is not asked again
-  assert.equal(resolve(event("Enter", { ctrlKey: true, defaultPrevented: true })), null);
-  assert.equal(resolve(event("Enter", { ctrlKey: true, isComposing: true })), null);
-  assert.equal(resolve(event("Enter", { ctrlKey: true }), "mini"), null);
+  assert.equal(resolve(event("Enter", { ...chord, defaultPrevented: true })), null);
+  assert.equal(resolve(event("Enter", { ...chord, isComposing: true })), null);
+  assert.equal(resolve(event("Enter", chord), "mini"), null);
 });
 
 test("option enter is no card key, alone or with control, command or shift", async () => {
@@ -413,13 +422,18 @@ test("option enter is no card key, alone or with control, command or shift", asy
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const context = vm.createContext({ Date, setInterval, clearInterval, setTimeout, clearTimeout });
   vm.runInContext(source, context, { filename: "card-logic.js" });
-  const controlEnter = vm.runInContext("controlEnter", context);
+  const controlShiftEnter = vm.runInContext("controlShiftEnter", context);
+  const bareControlEnter = vm.runInContext("bareControlEnter", context);
   for (const held of [{ altKey: true }, { altKey: true, ctrlKey: true }, { altKey: true, metaKey: true },
                       { altKey: true, shiftKey: true }, { altKey: true, ctrlKey: true, shiftKey: true }]) {
     assert.equal(resolve(event("Enter", held)), null, JSON.stringify(held));
-    assert.equal(controlEnter(event("Enter", held)), false, JSON.stringify(held));
+    assert.equal(controlShiftEnter(event("Enter", held)), false, JSON.stringify(held));
+    assert.equal(bareControlEnter(event("Enter", held)), false, JSON.stringify(held));
   }
-  assert.equal(controlEnter(event("Enter", { ctrlKey: true })), true);
+  assert.equal(controlShiftEnter(event("Enter", { ctrlKey: true, shiftKey: true })), true);
+  assert.equal(controlShiftEnter(event("Enter", { ctrlKey: true })), false);
+  assert.equal(bareControlEnter(event("Enter", { ctrlKey: true })), true);
+  assert.equal(bareControlEnter(event("Enter", { ctrlKey: true, shiftKey: true })), false);
 });
 
 test("every page's Enter send and title save leaves out the Option key", async () => {
@@ -448,15 +462,16 @@ test("control r is the random jump key and no other modifier set is", async () =
   assert.equal(resolve(event("t", { ctrlKey: true })), null);
 });
 
-test("dispatch hands control enter and control r to the page's own action and leaves the event alone", async () => {
+test("dispatch hands control shift enter and control r to the page's own action and leaves the event alone", async () => {
   const { dispatch } = await shortcuts();
   const seen = [];
   const actions = {
     advance(received) { seen.push(["advance", received.key]); },
     random(received) { seen.push(["random", received.key]); },
   };
-  const enter = event("Enter", { ctrlKey: true });
+  const enter = event("Enter", { ctrlKey: true, shiftKey: true });
   const random = event("r", { ctrlKey: true });
+  assert.equal(dispatch(event("Enter", { ctrlKey: true }), actions), false, "control enter alone was dispatched");
   assert.equal(dispatch(enter, actions), true);
   assert.equal(dispatch(random, actions), true);
   assert.deepEqual(seen, [["advance", "Enter"], ["random", "r"]]);

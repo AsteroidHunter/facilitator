@@ -1064,8 +1064,10 @@ test("Enter is recognized only bare, and only the two full pages answer it", () 
   assert.equal(resolve(key("Enter")), "enter");
   for (const m of ["metaKey", "shiftKey", "altKey", "repeat", "isComposing", "defaultPrevented"])
     assert.equal(resolve(key("Enter", { [m]: true })), null, `Enter with ${m}`);
-  // with control held it is the move key, never the select key
-  assert.equal(resolve(key("Enter", { ctrlKey: true })), "advance", "Enter with ctrlKey");
+  // with control and shift held it is the move key, never the select key, and
+  // control alone is the system's
+  assert.equal(resolve(key("Enter", { ctrlKey: true, shiftKey: true })), "advance", "Enter with ctrlKey and shiftKey");
+  assert.equal(resolve(key("Enter", { ctrlKey: true })), null, "Enter with ctrlKey alone");
   assert.equal(resolve(key("Enter"), "mini"), null, "the small card took Enter");
   // the phone browses too, so its table answers Enter
   assert.match(between(HTML.phone, "const phoneShortcutActions = {", "\n};"), /\n  enter\(e\)\{/);

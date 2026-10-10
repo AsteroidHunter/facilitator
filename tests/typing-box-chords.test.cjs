@@ -16,7 +16,7 @@ const MAC_FIXED = [
   ["title", "cmd+2", ["tab two"]],
   ["title", "ctrl+shift+right", ["navigate 1"]],
   ["title", "ctrl+shift+up", ["history c1 1"]],
-  ["title", "ctrl+enter", ["advance c1"]],
+  ["title", "ctrl+shift+enter", ["advance c1"]],
   ["title", "ctrl+r", ["random c2"]],
   ["title", "ctrl+s", ["scroll"]],
   ["title", "ctrl+u", ["fetch /testing?box=c1 POST"]],
@@ -24,13 +24,13 @@ const MAC_FIXED = [
   ["small card box", "cmd+2", ["tab two"]],
   ["small card box", "escape", []],
   ["small card title", "cmd+2", ["tab two"]],
-  ["small card title", "ctrl+enter", ["advance c1"]],
+  ["small card title", "ctrl+shift+enter", ["advance c1"]],
   ["small card title", "ctrl+shift+]", ["section m1 docked"]],
   ["goal editor", "cmd+t", ["create one"]],
   ["goal editor", "cmd+2", ["tab two"]],
   ["goal editor", "ctrl+shift+right", ["navigate 1"]],
   ["goal editor", "ctrl+shift+up", ["history c1 1"]],
-  ["goal editor", "ctrl+enter", ["goal saved the goal", "advance c1"]],
+  ["goal editor", "ctrl+shift+enter", ["goal saved the goal", "advance c1"]],
   ["goal editor", "ctrl+r", ["random c2"]],
 ];
 
@@ -39,7 +39,7 @@ const PHONE_FIXED = [
   ["title", "cmd+2", ["tab two"]],
   ["title", "ctrl+shift+right", ["navigate 1"]],
   ["title", "ctrl+shift+up", ["history c1 1"]],
-  ["title", "ctrl+enter", ["advance c1"]],
+  ["title", "ctrl+shift+enter", ["advance c1"]],
   ["title", "ctrl+r", ["browse c2"]],
   ["title", "ctrl+s", ["scroll"]],
   ["title", "ctrl+u", ["fetch /testing?box=c1 POST"]],
@@ -78,12 +78,12 @@ test("the other section chords and done come from a renamed title too, on both p
   }
 });
 
-test("control+enter keeps the name first: the title commits and the caret leaves it", () => {
+test("control+shift+enter keeps the name first: the title commits and the caret leaves it", () => {
   for (const make of [macPage, phonePage]) {
     const f = make();
     f.places.title();
     f.a.parts.title.textContent = "  Renamed  ";
-    const { e, calls } = f.send(f.a.parts.title, "ctrl+enter");
+    const { e, calls } = f.send(f.a.parts.title, "ctrl+shift+enter");
     assert.equal(f.a.parts.title.isContentEditable, false, "the title is still being typed in");
     assert.equal(f.a.parts.title.textContent, "Renamed");
     assert.deepEqual(calls, ["fetch /title?box=c1 POST", "advance c1"]);
@@ -91,9 +91,24 @@ test("control+enter keeps the name first: the title commits and the caret leaves
   }
   // the small card's title hands the keys back to the large card before the move
   const f = macPage();
-  f.press("small card title", "ctrl+enter");
+  f.press("small card title", "ctrl+shift+enter");
   assert.equal(f.ctx.miniFocused, false);
   assert.equal(f.mtitle.isContentEditable, false);
+});
+
+// control+enter alone is the system's: on an iPhone with a keyboard it opens the
+// copy menu, so no box and no page answers it, and nothing cancels it
+test("control+enter alone is bound nowhere: no box, title or page takes it", () => {
+  for (const place of ["title", "small card box", "small card title", "goal editor", "small card clicked"]) {
+    const f = macPage();
+    const { e, calls } = f.press(place, "ctrl+enter");
+    assert.deepEqual(calls, [], `${place}`);
+    assert.equal(e.defaultPrevented, false, `${place} cancelled control+enter`);
+  }
+  const f = phonePage();
+  const { e, calls } = f.press("title", "ctrl+enter");
+  assert.deepEqual(calls, [], "phone title");
+  assert.equal(e.defaultPrevented, false, "the phone's title cancelled control+enter");
 });
 
 test("the small card box's Escape takes the caret out, as the large card's does, and lets go of nothing", () => {
@@ -171,8 +186,8 @@ test("the small card answers its own set: older replies, Control + R, S and U st
   assert.deepEqual(macPage().press("small card clicked", "ctrl+shift+up").calls, ["history c1 1"]);
 });
 
-test("the small card's box keeps its own Enter and Control + Enter", () => {
-  for (const key of ["enter", "ctrl+enter"]) {
+test("the small card's box keeps its own Enter and Control + Shift + Enter", () => {
+  for (const key of ["enter", "ctrl+shift+enter"]) {
     const f = macPage();
     f.places["small card box"]();
     f.mta.value = "hello";

@@ -461,13 +461,13 @@ const CARD_SHORTCUT_DEFINITIONS = [
       !e.repeat && !e.isComposing && !e.defaultPrevented &&
       (e.key === "u" || e.key === "U") ? true : null,
   },
-  // control+enter moves to the card that has waited longest, as the second
-  // Enter of a double Enter does. a composer sends what it holds and takes the
-  // key itself, so only a press nothing else answered gets here. a held key's
-  // repeats are recognized so the page can keep them from the browser
+  // control+shift+enter moves to the card that has waited longest, as the
+  // second Enter of a double Enter does. a composer sends what it holds and
+  // takes the key itself, so only a press nothing else answered gets here. a
+  // held key's repeats are recognized so the page can keep them from the browser
   {
     action: "advance", mini: false,
-    match: e => controlEnter(e) && !e.isComposing && !e.defaultPrevented ? true : null,
+    match: e => controlShiftEnter(e) && !e.isComposing && !e.defaultPrevented ? true : null,
   },
   // control+r jumps to a random card in the list whose ticket is neither green
   // nor grey
@@ -550,9 +550,16 @@ function pageChord(e){
   return (e.metaKey || e.ctrlKey) && e.key !== "Enter" && e.key !== "Escape" && e.key !== "Tab";
 }
 
-// control and enter and nothing else: shift keeps its new line, command sends
-// as plain Enter does, and option does nothing of the page's
-function controlEnter(e){
+// control and shift and enter and nothing else: command sends as plain Enter
+// does, and option does nothing of the page's
+function controlShiftEnter(e){
+  return e.key === "Enter" && e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey;
+}
+
+// control and enter alone is not the page's: on an iPhone with a keyboard the
+// system opens its copy menu on it and the page never hears the Enter, so the
+// move is on control+shift+enter and this key goes to the system untouched
+function bareControlEnter(e){
   return e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
 }
 
@@ -6124,9 +6131,11 @@ function editTitle(id, opts){
     fitTitle(t);
   };
   t.onkeydown = e => {
-    // control+enter keeps the name as Enter does, then goes on to the page's own
-    // control+enter, the move to the card that has waited longest
-    if (controlEnter(e)){ commit(); el.ta.focus(); return; }
+    // control+shift+enter keeps the name as Enter does, then goes on to the
+    // page's own control+shift+enter, the move to the card that has waited
+    // longest. control+enter alone is the system's
+    if (bareControlEnter(e)) return;
+    if (controlShiftEnter(e)){ commit(); el.ta.focus(); return; }
     // the name keeps the keys it is typed with; a command of the page's goes on
     if (!pageChord(e)) e.stopPropagation();
     if (e.key === "Enter" && !e.altKey){ e.preventDefault(); commit(); el.ta.focus(); }

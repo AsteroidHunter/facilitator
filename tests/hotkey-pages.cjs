@@ -178,6 +178,7 @@ const KEYS = {
   "escape": { key: "Escape", code: "Escape" },
   "enter": { key: "Enter", code: "Enter" },
   "ctrl+enter": { key: "Enter", code: "Enter", ctrlKey: true },
+  "ctrl+shift+enter": { key: "Enter", code: "Enter", ctrlKey: true, shiftKey: true },
   "ctrl+r": { key: "r", code: "KeyR", ctrlKey: true },
   "ctrl+s": { key: "s", code: "KeyS", ctrlKey: true },
   "ctrl+u": { key: "u", code: "KeyU", ctrlKey: true },
