@@ -7831,7 +7831,8 @@ function drawerSwapFirstFrame(playing){
     keys.boxDrawer = e => drawerKey(e, true);
   }
   // the drawer's two gaps, for the card list and the box alike: above, from the
-  // foot of the notch (or the island) to the drawer's top; below, from the foot
+  // foot of the notch (or the island) to the first thing the drawer draws, the
+  // drawers having no edge of their own to see (DRAWN_TOP); below, from the foot
   // of what it shows to the card's top. the card is where it is, so the drawer
   // goes up by half the difference and the two are equal (--tik-lift, taken
   // from the transform with the drop; the drawer keeps its size). a web page
@@ -7843,6 +7844,11 @@ function drawerSwapFirstFrame(playing){
   // stands for it. the foot of the list is its last ticket; a section that
   // fills the list runs under the card and has no gap below, so it is not lifted
   const NOTCH_GAP = 12;
+  // how far under the drawer's top its first mark starts, in the page's px as it
+  // is laid out (the same on every phone): the top of "Doing" and the section
+  // arrows for the list, the top of the cross in its bar for the box, read off
+  // the screens of both phones (14.86 and 14.88, 10.16 and 10.03)
+  const DRAWN_TOP = { list: 14.9, box: 10.1 };
   let notchProbe = null;
   const notchFoot = () => {
     if (!notchProbe){
@@ -7866,7 +7872,8 @@ function drawerSwapFirstFrame(playing){
     if (foot > 0){
       const at = page.getBoundingClientRect().top, px = (el, name) => parseFloat(getComputedStyle(el)[name]) || 0;
       const top = at + px(tikwin, "top") + px(tickets, "top"), card = at + px(page, "paddingTop") + listDrop;
-      lift = Math.max(0, (top - notchFoot() - (card - top - foot)) / 2);
+      const drawn = top + DRAWN_TOP[tickets.classList.contains("boxface") ? "box" : "list"];
+      lift = Math.max(0, (drawn - notchFoot() - (card - top - foot)) / 2);
     }
     tickets.style.setProperty("--tik-lift", lift.toFixed(2) + "px");
   };
