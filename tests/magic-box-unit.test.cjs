@@ -499,11 +499,13 @@ function phoneBoxScript(page) {
       if (p === settings) { classes.delete("open"); drawer.settings = true; calls.push("settings"); return; }
       drawer.settings = false; classes.add("open"); calls.push("show " + face());
     },
-    // shutting the drawer starts its run back, which lands when the test says
+    // shutting the drawer starts its run back, which lands when the test says,
+    // and its hiding, which outlasts the run and is not to be waited for
     closeDrawer: () => {
       classes.delete("open"); calls.push("close " + face());
       let land;
-      drawer.runs = [{ id: "list-run", finished: new Promise(r => { land = r; }) }];
+      drawer.runs = [{ id: "list-run", finished: new Promise(r => { land = r; }) },
+        { transitionProperty: "visibility", finished: new Promise(() => {}) }];
       drawer.land = async () => { land(); drawer.runs = []; await new Promise(r => setImmediate(r)); };
     },
     listMoving: () => drawer.runs.length > 0,
