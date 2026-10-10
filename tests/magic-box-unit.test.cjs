@@ -650,7 +650,7 @@ function phoneBoxScript(page) {
     getBoundingClientRect: () => ({ top: 0, bottom: 89, height: 89 }) };
   const words = { getBoundingClientRect: () => ({ bottom: 81 }), style: { paddingBottom: "16px" } };
   const body = { scrollHeight: 60, clientHeight: 60, querySelector: () => words, getBoundingClientRect: () => ({ bottom: 81 }) };
-  const parts = { mbface: box, tikhead: { animate: animate("list names") },
+  const parts = { mbface: box, tikhead: { animate: animate("list names"), style: {} },
     tiklist: { animate: animate("list rows"), style: { marginBottom: "-7px" } } };
   const face = () => (classes.has("boxface") ? "box" : "list") + " from the " + tickets.dataset.side;
   const paneClasses = new Set(), paneListeners = {};
@@ -668,7 +668,7 @@ function phoneBoxScript(page) {
     LIST_KEYED: true, LIST_CALM: { matches: false }, LIST_FADE_TOP: .999, LIST_SETUP_MS: 200,
     listSpring: (from, to) => ({ ms: 100, at: t => from + (to - from) * Math.min(1, t / 100), velocity: () => 0 }),
     menuTravel: () => 300, menuSign: p => p.dataset.side === "right" ? -1 : 1,
-    listDrop: 120, listPlay: [], listRun: null, ticketDrawerRun: 0, performance: { now: () => 0 },
+    listDrop: 120, listRoom: 400, listPlay: [], listRun: null, ticketDrawerRun: 0, performance: { now: () => 0 },
     stopList: () => { classes.delete("swapface"); for (const a of ctx.listPlay) a.cancel(); ctx.listPlay = []; },
     settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
@@ -726,15 +726,18 @@ test("on the phone the box comes down in the card list's own drawer, from the ri
   assert.ok(listeners.touchstart.every(l => l.opts.capture === true), "the face is chosen before the drawer's own gesture");
   touch(400);
   assert.ok(classes.has("boxface") && tickets.dataset.side === "right", "a right-edge pull on a card with a box");
-  // the card goes down only as far as the box's words need, and stands as far
-  // under their last line as it stands under the list's foot: what the drawer
-  // spares under the words' foot (81, less their own 16px of white), with the
-  // list's 7px of air, by which the list reaches past the drawer, given back
-  assert.equal(ctx.listSlack(), 433 - (81 - 16) + 7, "the card goes down only as far as the box's words need");
+  // the card goes down only as far as the box's words need, and stands A under
+  // their last line (81, less their own 16px of white), as it stands A under the
+  // list's foot. here, with nothing drawn and the notch at 0: the list's first mark
+  // (14.9 under the drawer's top) is A = 14.9 under it, and the box, whose own mark
+  // is 10.1 under its top, is moved down 4.8 to the list's. what the drawer spares
+  // under that is the room (400) less the card's drop
+  const under = foot => 400 - (foot + 14.9 + (14.9 - 10.1));
+  assert.ok(Math.abs(ctx.listSlack() - under(81 - 16)) < 1e-9, "the card goes down only as far as the box's words need");
   // words that run on scroll in a window that ends 8px over the box's foot, and
   // the card stands as far under that window as under the list
   body.scrollHeight = 600;
-  assert.equal(ctx.listSlack(), 433 - 81 + 7, "the card stands under the window the words scroll in");
+  assert.ok(Math.abs(ctx.listSlack() - under(81)) < 1e-9, "the card stands under the window the words scroll in");
   body.scrollHeight = 60;
   touch(2);
   assert.ok(!classes.has("boxface") && tickets.dataset.side === "left", "the left edge brings the list");
@@ -929,19 +932,31 @@ test("people and agents know it as a side note: the pages' labels, the command, 
   assert.match(server, /MAGIC_DIR = HERE \/ "magic-boxes"/);
 });
 
-test("the drawer goes up by half the difference of its two gaps, so they are equal, and is never lowered", () => {
-  const { ctx, tickets, pageEl, notch } = phoneBoxScript(read("m.html"));
+test("both faces start at one height, with one gap above and below: the list is lifted by half its difference, the box follows", () => {
+  const { ctx, tickets, pageEl, notch, body } = phoneBoxScript(read("m.html"));
   const lift = () => { ctx.fitList(true); return tickets.style["--tik-lift"]; };
-  ctx.drawerFace(true);
-  // the box's words end 65px under its top; the card stands 40 + 90 down the page and the
-  // drawer's top at 50, the note's cross drawn 10.1 under it. above: from the notch's foot (30) to
-  // 60.1 is 30.1; below: 130 - 50 - 65 is 15
+  // the page's top 0 and padding 40, the room 400, the drawer's top at 50, the notch's foot at 30;
+  // the list's last ticket ends 360 under the drawer's top with 7 spare under it, so the card
+  // stands at 40 + 400 - 7 = 433. the list's first mark (14.9 under its top) is 34.9 under the
+  // notch and its foot 23 above the card: it goes up 5.95 and both gaps are A = 28.95
   pageEl.style.paddingTop = "40px"; tickets.style.top = "50px"; notch.getBoundingClientRect = () => ({ height: 30 });
-  assert.equal(lift(), "7.55px");
-  notch.getBoundingClientRect = () => ({ height: 5 });
-  assert.equal(lift(), "20.05px", "a notch higher up leaves more to take");
-  tickets.style.top = "20px"; notch.getBoundingClientRect = () => ({ height: 30 });
-  assert.equal(lift(), "0.00px", "a drawer already nearer the notch than the card is not lowered");
+  let ticketsEnd = 360;
+  ctx.drawerPane = () => ({ children: [{ offsetParent: {}, getBoundingClientRect: () => ({ bottom: ticketsEnd }) }] });
+  assert.equal(lift(), "5.95px");
+  ticketsEnd = 100;
+  assert.equal(lift(), "0.00px", "a list already nearer the notch than the card is not lowered");
+  ticketsEnd = 360;
+  // the box takes the list's place: its mark (10.1 under its top) at the list's, so it is 4.8
+  // lower in its own terms, 5.95 - 4.8 of lift. its words end 65 under its top and the card
+  // stands A = 28.95 under them: a drop of 50 - 1.15 + 65 + 28.95 - 40, the spare 400 less that
+  ctx.drawerFace(true);
+  assert.equal(lift(), "1.15px");
+  const marks = { list: 50 + 14.9 - 5.95, box: 50 + 10.1 - 1.15 };
+  assert.ok(Math.abs(marks.list - marks.box) < 1e-9, "one top for both faces");
+  assert.ok(Math.abs(ctx.listSlack() - (400 - (50 - 1.15 + 65 + 28.95 - 40))) < 1e-9, "the card stands A under the box's words");
+  // a box tall enough to need the card further down than the room allows stops it there
+  body.scrollHeight = 600; body.getBoundingClientRect = () => ({ bottom: 380 });
+  assert.equal(ctx.listSlack(), 0, "the card goes down no further than the room, as before");
   const page = read("m.html");
   assert.equal((page.match(/\(var\(--list-drop, 0px\) \+ var\(--tik-lift, 0px\)\)/g) || []).length, 2, "both sides' transforms carry the lift");
   assert.match(page, /padding-top:max\(0px, calc\(env\(safe-area-inset-top, 0px\) - \$\{NOTCH_GAP\}px\)\)/, "the notch's foot is read from the safe area");
