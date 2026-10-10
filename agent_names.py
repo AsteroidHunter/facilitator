@@ -16,3 +16,21 @@ def agent_kind(name) -> str:
         if any(word in said for word in words):
             return agent
     return "other"
+
+
+# the class a card's ticket names, first match wins. astra is checked before
+# codex and gpt so a name carrying both is the more specific one
+CLASSES = (("opus", ("opus",)), ("sonnet", ("sonnet",)), ("astra", ("astra",)),
+           ("haiku", ("haiku",)), ("codex", ("codex", "gpt")))
+
+
+def agent_class(name) -> str:
+    """The model's class name for an agent's stated name: opus, sonnet, astra,
+    haiku or codex when the name says so ("claude-opus" is opus), otherwise the
+    name as it was given ("claude-code" stays), lower-cased and trimmed. Empty
+    when no name was given."""
+    said = str(name or "").strip().lower()
+    for agent, words in CLASSES:
+        if any(word in said for word in words):
+            return agent
+    return said

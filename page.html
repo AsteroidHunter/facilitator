@@ -2937,7 +2937,7 @@ function renderCarousel(state){
                       // the marker rides the signature so a mark or a clear
                       // repaints the row
                       (testReady(b) ? "T" : "") +
-                      Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60)).join(",") +
+                      Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60) + (b.agent || "")).join(",") +
               "|" + selectedTask;
   if (tik.dataset.sig !== sig){
     tik.dataset.sig = sig;
@@ -2969,10 +2969,10 @@ function renderCarousel(state){
       const ttl = h("div", "ttl", b.title);
       inner.appendChild(ttl);
       const meta = h("div", "tmeta");
-      meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : s === "done" ? "done" : shortAge(b.agentTs)));
-      // the tag is the lane's live truth, never a stored per-card value
+      meta.appendChild(h("span", "tage", busy ? SPIN_FRAMES[spinFrame] : shortAge(b.agentTs)));
+      // the agent whose reply landed on the card, else the lane's live agent
       const ag = state.agents?.[b.owner];
-      meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
+      meta.appendChild(h("span", "teng", b.agent || (ag ? (ag.alive ? ag.name : "offline") : "")));
       inner.appendChild(meta);
       r.appendChild(inner);
       r.dataset.id = b.id;
