@@ -5,8 +5,9 @@ const vm = require("node:vm");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
-// 150 CSS pixels a second, so a 20ms frame moves 3
-const STEP = 3;
+// A hold starts at 150 CSS pixels a second, so its first 20ms frame moves 3, and
+// speeds up from there. f.held(ms) is the distance after ms of holding, from the
+// page's own path; the test of the speed below pins that path to its numbers.
 
 // a hand-driven clock and frame queue, so every frame lands at a known time
 function clock() {
@@ -51,6 +52,7 @@ async function logic(globals = {}) {
     resolve: get("cardShortcut"),
     dispatch: get("dispatchCardShortcut"),
     responseScrollKey: get("responseScrollKey"),
+    held: get("responseHeldPath"), speed: get("responseHeldSpeed"),
   };
 }
 
@@ -157,6 +159,19 @@ async function setup(opts, globals) {
 const near = (actual, expected, label) =>
   assert.ok(Math.abs(actual - expected) < 1e-6, `${label || ""} ${actual} is not ${expected}`);
 
+// frames of 20ms until the motion has ended (the ease after letting go), and how many it took
+function easeOut(f, most = 100) {
+  let frames = 0;
+  while (f.time.pending() && frames < most) { f.time.run(1); frames++; }
+  assert.equal(f.time.pending(), 0, "the motion never ended");
+  return frames;
+}
+
+// Letting go at speed carries the response on by about that speed times 0.1s
+// (a little less, as the motion is over once it is under 10px/s)
+const assertEased = (glide, speed, label = "") =>
+  assert.ok(glide > speed * 0.1 * 0.9 && glide <= speed * 0.1 + 1e-9, `${label} eased ${glide}px from ${speed}px/s`);
+
 test("control+s with either case is the response scroll chord and nothing looser is", async () => {
   const { resolve } = await logic();
   for (const key of ["s", "S"]) assert.equal(resolve(chord(null, { key })).action, "responseScroll");
@@ -183,64 +198,168 @@ test("control+shift+s no longer scrolls or bounces and leaves the key alone", as
   }
 });
 
-test("holding the chord scrolls down slowly from the first frame and letting go of s stops it", async () => {
+test("the speed starts at 150 px/s, rises along an S to 1800 px/s over 1.2 seconds and holds there", async () => {
+  const { held, speed } = await logic();
+  near(speed(0), 150, "the first speed is the steady pace it replaces");
+  near(speed(600), 975, "half way along the ramp is half way up");
+  near(speed(1200), 1800, "the top speed");
+  near(speed(5000), 1800, "and it holds");
+  let last = 0;
+  for (let ms = 0; ms <= 1400; ms += 10) {
+    assert.ok(speed(ms) >= last, `the speed fell at ${ms}ms`);
+    last = speed(ms);
+  }
+  // gentle at both ends, so nothing jolts as the key goes down or the top is reached:
+  // in the first and the last 60ms the speed moves a quarter of what an even ramp would
+  const even = (1800 - 150) / 1200 * 60;
+  assert.ok(speed(60) - speed(0) < even / 4, "a jolt at the start");
+  assert.ok(speed(1200) - speed(1140) < even / 4, "a jolt at the top");
+  // the distance is 150px/s all along with the rise on top of it
+  near(held(0), 0);
+  near(held(1200), 1170, "the ramp");
+  near(held(3000), 4410, "a 3 second hold");
+  // the distance is the area under the speed, however the time is cut into frames
+  let area = 0;
+  for (let ms = 0; ms < 3000; ms += 1) area += (speed(ms) + speed(ms + 1)) / 2 / 1000;
+  assert.ok(Math.abs(area - held(3000)) < 0.05, `${area} against ${held(3000)}`);
+  const a = await setup(), b = await setup();
+  a.press(); a.time.run(20, 20);
+  b.press(); b.time.run(8, 50);
+  near(a.view.scrollTop, b.view.scrollTop, "400ms in 20 frames and in 8");
+  near(a.view.scrollTop, 1000 + a.held(400));
+});
+
+test("holding the chord scrolls down from the first frame at the old pace and letting go of s eases it off", async () => {
   const f = await setup();
   const e = f.press();
   assert.equal(e.defaultPrevented, true);
   assert.deepEqual(f.view.writes, []);
   f.time.run(1);
-  near(f.view.scrollTop, 1000 + STEP, "first frame");
+  near(f.view.scrollTop, 1000 + f.held(20), "first frame");
+  assert.ok(f.view.scrollTop - 1000 > 2.99 && f.view.scrollTop - 1000 < 3.02, "the first frame is the old 3px");
   f.time.run(4);
-  // 100ms in, well inside the double tap window, the motion is already 15px
-  near(f.view.scrollTop, 1015, "after 100ms");
+  // 100ms in, well inside the double tap window, the motion is 16px: the 15px
+  // of the old steady pace and a little more from the speed rising
+  near(f.view.scrollTop, 1000 + f.held(100), "after 100ms");
+  assert.ok(f.view.scrollTop - 1000 > 16 && f.view.scrollTop - 1000 < 16.2, `${f.view.scrollTop - 1000}`);
+  const letGo = f.view.scrollTop;
   f.release("S");
-  assert.equal(f.time.pending(), 0);
+  // not over: it eases off, going on for about the speed it had times 0.1s
+  assert.equal(f.time.pending(), 1);
+  easeOut(f);
+  assertEased(f.view.scrollTop - letGo, f.speed(100), "a tap");
   const writes = f.view.writes.length;
   f.time.run(50);
   f.time.elapse(1000);
   f.time.run(5);
   assert.equal(f.view.writes.length, writes);
-  near(f.view.scrollTop, 1015);
   assert.equal(f.doc.activeElement, f.a.parts.content);
   assert.equal(f.timers(), 0);
 });
 
-test("letting go of control, or adding shift, stops the motion and forgets the tap", async () => {
+test("letting go eases the speed off without a jolt, never backwards, to a stop within half a second", async () => {
+  const f = await setup({ scrollHeight: 20000, scrollTop: 0 });
+  // a 1.2 second hold, which is the top speed
+  f.press(); f.time.run(59);
+  const before = f.view.scrollTop;
+  f.time.run(1);
+  const lastHeld = f.view.scrollTop - before;
+  const letGo = f.view.scrollTop;
+  near(letGo, f.held(1200));
+  f.release("S");
+  const steps = [];
+  let last = letGo;
+  while (f.time.pending() && steps.length < 100) {
+    f.time.run(1);
+    steps.push(f.view.scrollTop - last);
+    last = f.view.scrollTop;
+  }
+  assert.equal(f.time.pending(), 0);
+  assert.ok(steps.every(s => s >= 0), "it went backwards");
+  assert.ok(steps.every((s, i) => i === 0 || s <= steps[i - 1] + 1e-9), "it sped up while easing");
+  assert.ok(steps[0] <= lastHeld && steps[0] > 0.8 * lastHeld, `the first eased step ${steps[0]} against ${lastHeld}`);
+  assertEased(last - letGo, 1800, "from the top speed");
+  assert.ok(steps.length * 20 <= 600, `it took ${steps.length * 20}ms`);
+});
+
+test("adding shift stops the motion at once, letting go of control eases it off, and both forget the tap", async () => {
   const stops = {
-    Control: f => f.release("Control"),
-    Shift: f => f.fire("keydown", chord(null, { key: "Shift", shiftKey: true })),
+    Control: { stop: f => f.release("Control"), eases: true },
+    Shift: { stop: f => f.fire("keydown", chord(null, { key: "Shift", shiftKey: true })), eases: false },
   };
-  for (const [key, stop] of Object.entries(stops)) {
+  for (const [key, { stop, eases }] of Object.entries(stops)) {
     const f = await setup();
     f.press(); f.time.run(3);
     stop(f);
-    assert.equal(f.time.pending(), 0, key);
+    assert.equal(f.time.pending(), eases ? 1 : 0, key);
     const top = f.view.scrollTop;
     f.time.run(10);
-    assert.equal(f.view.scrollTop, top, key);
+    if (eases) {
+      assert.ok(f.view.scrollTop > top, key);
+      easeOut(f);
+    } else {
+      assert.equal(f.view.scrollTop, top, key);
+    }
     // a tap, a modifier changed, and a quick press again is a fresh down
     f.press(); f.time.run(1); f.release("S");
     stop(f);
     f.time.elapse(100);
     const before = f.view.scrollTop;
     f.press(); f.time.run(2);
-    near(f.view.scrollTop, before + 2 * STEP, key);
+    near(f.view.scrollTop, before + f.held(40), key);
+  }
+});
+
+test("a key up with another modifier held stops the motion at once", async () => {
+  for (const over of [{ shiftKey: true }, { altKey: true }, { metaKey: true }]) {
+    const f = await setup();
+    f.press(); f.time.run(3);
+    f.fire("keyup", { key: "s", ctrlKey: true, ...over });
+    assert.equal(f.time.pending(), 0, JSON.stringify(over));
   }
 });
 
 test("a tap then a quick press and hold scrolls up, and the press after that goes down", async () => {
   const f = await setup();
   f.press(); f.time.run(2); f.release("S");
-  near(f.view.scrollTop, 1000 + 2 * STEP, "the tap's small down");
+  near(f.view.scrollTop, 1000 + f.held(40), "the tap's small down");
   f.time.elapse(200);
   assert.equal(f.press().defaultPrevented, true);
   f.time.run(5);
-  near(f.view.scrollTop, 1000 + 2 * STEP - 5 * STEP, "held up");
+  near(f.view.scrollTop, 1000 + f.held(40) - f.held(100), "held up");
   f.release("S");
   f.time.elapse(100);
   const top = f.view.scrollTop;
   f.press(); f.time.run(3);
-  near(f.view.scrollTop, top + 3 * STEP, "third press");
+  near(f.view.scrollTop, top + f.held(60), "third press");
+});
+
+test("an up press speeds up and eases off upward, as a down one does downward", async () => {
+  const f = await setup({ scrollHeight: 20000, scrollTop: 10000 });
+  f.press(); f.time.run(1); f.release("S");
+  f.time.elapse(100);
+  const start = f.view.scrollTop;
+  f.press(); f.time.run(60);
+  near(f.view.scrollTop, start - f.held(1200), "the climb");
+  const letGo = f.view.scrollTop;
+  f.release("S");
+  easeOut(f);
+  assertEased(letGo - f.view.scrollTop, 1800, "upward");
+});
+
+test("a press while the motion is still easing off ends the ease and starts from the first speed", async () => {
+  const f = await setup({ scrollHeight: 20000, scrollTop: 0 });
+  f.press(); f.time.run(60); f.release("S");
+  // still easing, and going fast
+  f.time.run(2);
+  assert.equal(f.time.pending(), 1);
+  const at = f.view.scrollTop;
+  // not a double tap: more than 300ms after the first press
+  f.time.elapse(400);
+  f.press();
+  f.time.run(1);
+  near(f.view.scrollTop, at + f.held(20), "the new hold begins at the first speed");
+  assert.equal(f.time.pending(), 1);
 });
 
 test("a second press after the double tap window goes down", async () => {
@@ -249,7 +368,7 @@ test("a second press after the double tap window goes down", async () => {
   f.time.elapse(300);
   const top = f.view.scrollTop;
   f.press(); f.time.run(2);
-  near(f.view.scrollTop, top + 2 * STEP);
+  near(f.view.scrollTop, top + f.held(40));
 });
 
 test("a long hold followed by a quick new press is not a double tap", async () => {
@@ -258,7 +377,7 @@ test("a long hold followed by a quick new press is not a double tap", async () =
   f.time.elapse(50);
   const top = f.view.scrollTop;
   f.press(); f.time.run(2);
-  near(f.view.scrollTop, top + 2 * STEP);
+  near(f.view.scrollTop, top + f.held(40));
 });
 
 test("a held key's repeats neither restart nor turn the motion", async () => {
@@ -269,7 +388,7 @@ test("a held key's repeats neither restart nor turn the motion", async () => {
     f.time.run(1);
     assert.equal(f.time.pending(), 1);
   }
-  near(f.view.scrollTop, 1000 + 21 * STEP, "down");
+  near(f.view.scrollTop, 1000 + f.held(21 * 20), "down, with the speed rising through every repeat");
   f.release("S");
   f.time.elapse(300);
   f.press(); f.time.run(1); f.release("S");
@@ -277,18 +396,21 @@ test("a held key's repeats neither restart nor turn the motion", async () => {
   const top = f.view.scrollTop;
   f.press(); f.time.run(1);
   for (let i = 0; i < 10; i++) { f.press({ repeat: true }); f.time.run(1); }
-  near(f.view.scrollTop, top - 11 * STEP, "up");
+  near(f.view.scrollTop, top - f.held(11 * 20), "up");
   f.release("S");
-  // a repeat after release starts nothing
+  // a repeat after release starts nothing new and does not turn the ease round
+  const letGo = f.view.scrollTop;
   f.press({ repeat: true });
-  assert.equal(f.time.pending(), 0);
+  easeOut(f);
+  assert.ok(f.view.scrollTop < letGo, "the ease did not go on upward");
 });
 
 test("a stalled frame moves at most one clamped step", async () => {
   const f = await setup();
   f.press();
   f.time.run(1, 5000);
-  near(f.view.scrollTop, 1000 + 7.5);
+  near(f.view.scrollTop, 1000 + f.held(50));
+  assert.ok(f.view.scrollTop - 1000 > 7.5 && f.view.scrollTop - 1000 < 7.7);
 });
 
 test("the motion stops at either end and still takes the chord there", async () => {
@@ -296,7 +418,7 @@ test("the motion stops at either end and still takes the chord there", async () 
   end.press(); end.time.run(10);
   assert.equal(end.view.scrollTop, 1600);
   assert.equal(end.view.writes.length, 2);
-  near(end.view.writes[0], 1599);
+  near(end.view.writes[0], 1596 + end.held(20));
   assert.equal(end.time.pending(), 0);
   end.release("S");
   end.time.elapse(300);
@@ -388,6 +510,22 @@ test("a hold that reaches either end bounces once there and a scroll short of it
   const mid = await setup();
   mid.press(); mid.time.run(20); mid.release("S");
   assert.deepEqual(bounces(mid), []);
+  easeOut(mid);
+  assert.deepEqual(bounces(mid), [], "an ease that ends in the middle bounced");
+});
+
+test("an ease that carries the response to its end stops there and bounces once", async () => {
+  // 150px to go: a 400ms hold covers about 121 and the ease about 55 more
+  const f = await setup({ scrollTop: 1450 });
+  f.press(); f.time.run(20);
+  assert.ok(f.view.scrollTop < 1600);
+  f.release("S");
+  assert.deepEqual(bounces(f), []);
+  easeOut(f);
+  assert.equal(f.view.scrollTop, 1600);
+  assert.deepEqual(bounces(f), ["0 -7px"]);
+  assertBounceShape(f.a.el.reply.animations[0]);
+  assert.equal(f.time.pending(), 0);
 });
 
 test("reduced motion gets no bounce and the keys work as before", async () => {
@@ -397,7 +535,7 @@ test("reduced motion gets no bounce and the keys work as before", async () => {
   edge.release("S"); edge.time.elapse(50);
   // the tap still turns the next press into an up
   edge.press(); edge.time.run(2);
-  near(edge.view.scrollTop, 1600 - 2 * STEP);
+  near(edge.view.scrollTop, 1600 - edge.held(40));
 
   const short = await setup({ scrollHeight: 300, scrollTop: 0 }, REDUCED);
   short.press();
@@ -407,6 +545,25 @@ test("reduced motion gets no bounce and the keys work as before", async () => {
   held.press(); held.time.run(10);
   assert.equal(held.view.scrollTop, 1600);
   assert.deepEqual(bounces(held), []);
+});
+
+test("reduced motion still speeds up while held but lets go with no ease, as it has no bounce", async () => {
+  const f = await setup({ scrollHeight: 20000, scrollTop: 0 }, REDUCED);
+  f.press(); f.time.run(60);
+  near(f.view.scrollTop, f.held(1200), "it speeds up");
+  const top = f.view.scrollTop;
+  f.release("S");
+  assert.equal(f.time.pending(), 0);
+  f.time.run(5);
+  assert.equal(f.view.scrollTop, top);
+  // control let go does the same
+  f.time.elapse(400);
+  f.press(); f.time.run(10);
+  const again = f.view.scrollTop;
+  f.release("Control");
+  assert.equal(f.time.pending(), 0);
+  f.time.run(5);
+  assert.equal(f.view.scrollTop, again);
 });
 
 test("modified, composing and already handled keys leave the response and the key alone", async () => {
@@ -450,7 +607,7 @@ test("the composer being typed in, in either shape, the card's own title, the re
       f.doc.activeElement = target;
       assert.equal(f.press({}, target).defaultPrevented, true, `${composer} ${where}`);
       f.time.run(2);
-      near(f.view.scrollTop, 1000 + 2 * STEP, `${composer} ${where}`);
+      near(f.view.scrollTop, 1000 + f.held(40), `${composer} ${where}`);
       assert.equal(f.doc.activeElement, target);
     }
   }
@@ -508,7 +665,7 @@ test("losing the window or hiding the page stops the motion and forgets the tap"
     f.time.elapse(50);
     const top = f.view.scrollTop;
     f.press(); f.time.run(1);
-    near(f.view.scrollTop, top + STEP, type);
+    near(f.view.scrollTop, top + f.held(20), type);
   }
 });
 
@@ -520,7 +677,7 @@ test("a second press on a different card is its own down, not an up on either", 
   f.time.elapse(100);
   f.press({}, f.b.parts.content); f.time.run(2);
   assert.equal(f.a.el.replyview.writes.length, 1);
-  near(f.b.el.replyview.scrollTop, 1000 + 2 * STEP);
+  near(f.b.el.replyview.scrollTop, 1000 + f.held(40));
 });
 
 // the page's own guard and action table, run as written against the helper
@@ -555,7 +712,6 @@ test("desktop panels, menus, the small card and a picture keep the chord and sto
   }));
   const blockers = {
     setopen: () => f.open.add("setopen"),
-    drawer: () => f.open.add("resp-drawer-open"),
     worktree: () => { f.a.el.wtmenu = { classList: { contains: v => v === "open" } }; },
     mini: () => { f.context.miniFocused = true; },
     picture: () => { f.context.p3Zoom = {}; },
@@ -579,11 +735,15 @@ test("desktop panels, menus, the small card and a picture keep the chord and sto
     assert.equal(f.time.pending(), 0, name);
     clear(); f.release("S"); f.time.elapse(1000);
   }
-  // a release lands even while the board's keys are held elsewhere
+  // a release lands even while the board's keys are held elsewhere: the next
+  // frame finds the keys held elsewhere and ends the motion without a step
   f.press(); f.time.run(1);
   f.context.boardKeysLive = () => false;
   f.release("S");
+  const writes = f.view.writes.length;
+  f.time.run(1);
   assert.equal(f.time.pending(), 0);
+  assert.equal(f.view.writes.length, writes);
   clear(); f.time.elapse(1000);
   // history and card steps are untouched, and scrolling still works after them
   assert.equal(f.press({ key: "ArrowUp", shiftKey: true }).defaultPrevented, true);
@@ -591,10 +751,11 @@ test("desktop panels, menus, the small card and a picture keep the chord and sto
   assert.deepEqual(f.calls, [["history", "c1", 1], ["nav", -1]]);
   const top = f.view.scrollTop;
   f.press(); f.time.run(2); f.release("S");
-  near(f.view.scrollTop, top + 2 * STEP);
+  near(f.view.scrollTop, top + f.held(40));
   f.time.elapse(100);
   f.press(); f.time.run(3); f.release("S");
-  near(f.view.scrollTop, top - STEP);
+  near(f.view.scrollTop, top + f.held(40) - f.held(60));
+  easeOut(f);
   assert.equal(f.timers(), 0);
 });
 
@@ -617,8 +778,12 @@ test("a phone drawer or a swipe keeps the chord and stops a motion", async () =>
   f.time.elapse(100);
   f.press(); f.time.run(2);
   f.release("Control");
-  assert.equal(f.time.pending(), 0);
-  near(f.view.scrollTop, top - STEP);
+  // letting go of control eases the climb off, upward, and the tap is forgotten
+  const letGo = f.view.scrollTop;
+  near(letGo, top + f.held(20) - f.held(40));
+  assert.equal(f.time.pending(), 1);
+  easeOut(f);
+  assert.ok(f.view.scrollTop < letGo);
   f.press({ key: "ArrowDown", shiftKey: true });
   f.press({ key: "ArrowRight", shiftKey: true });
   assert.deepEqual(f.calls, [["history", "c1", -1], ["step", 1]]);
@@ -897,16 +1062,19 @@ async function drawerKeys() {
   return { ...f, panes, state, press, openDrawer };
 }
 
-test("PWA Ctrl+S scrolls only the open ticket section at the existing speed and stops on release", async () => {
+test("PWA Ctrl+S scrolls only the open ticket section, from the existing speed, and eases off on release", async () => {
   const f = await drawerKeys();
   assert.equal(f.press().defaultPrevented, true);
   f.time.run(5);
-  near(f.panes.todo.scrollTop, 615);
+  near(f.panes.todo.scrollTop, 600 + f.held(100));
   near(f.panes.deferred.scrollTop, 600);
   near(f.view.scrollTop, 1000, "card behind the list");
-  f.release("S"); f.time.run(10);
-  near(f.panes.todo.scrollTop, 615);
-  assert.equal(f.time.pending(), 0);
+  const letGo = f.panes.todo.scrollTop;
+  f.release("S");
+  easeOut(f);
+  assertEased(f.panes.todo.scrollTop - letGo, f.speed(100), "the list");
+  near(f.panes.deferred.scrollTop, 600);
+  near(f.view.scrollTop, 1000, "card behind the list");
 });
 
 test("PWA drawer double S reverses within 300ms and held repeats never reverse or restart it", async () => {
@@ -916,13 +1084,17 @@ test("PWA drawer double S reverses within 300ms and held repeats never reverse o
     f.time.elapse(elapsed - 20);
     f.press(); f.time.run(1);
     const direction = elapsed < 300 ? -1 : 1;
-    near(f.panes.todo.scrollTop, 603 + STEP * direction);
+    const tap = 600 + f.held(20);
+    near(f.panes.todo.scrollTop, tap + f.held(20) * direction);
     f.press({ repeat: true }); f.time.run(2);
-    near(f.panes.todo.scrollTop, 603 + STEP * direction * 3);
-    f.release("Control"); f.time.run(5);
-    assert.equal(f.time.pending(), 0);
+    near(f.panes.todo.scrollTop, tap + f.held(60) * direction);
+    f.release("Control");
+    const letGo = f.panes.todo.scrollTop;
+    easeOut(f);
+    assert.ok((f.panes.todo.scrollTop - letGo) * direction > 0, "it did not ease on in its own direction");
+    const stopped = f.panes.todo.scrollTop;
     f.press(); f.time.run(1);
-    near(f.panes.todo.scrollTop, 606 + STEP * direction * 3, "new Control hold goes down");
+    near(f.panes.todo.scrollTop, stopped + f.held(20), "new Control hold goes down");
   }
 });
 
@@ -932,15 +1104,17 @@ test("PWA drawer accepts Ctrl+S from its buttons, leaves typing alone, and setti
   f.doc.activeElement = button;
   assert.equal(f.press().defaultPrevented, true);
   f.time.run(1); f.release("Control");
-  near(f.panes.todo.scrollTop, 603);
+  near(f.panes.todo.scrollTop, 600 + f.held(20));
   f.doc.activeElement = f.a.parts.content;
   assert.equal(f.press().defaultPrevented, false);
   f.open.delete("listout");
   f.doc.activeElement = button;
   assert.equal(f.press().defaultPrevented, false);
+  // the ease still under way finds the list gone and ends without a step
   f.time.run(5);
-  near(f.panes.todo.scrollTop, 603);
+  near(f.panes.todo.scrollTop, 600 + f.held(20));
   near(f.view.scrollTop, 1000);
+  assert.equal(f.time.pending(), 0);
 });
 
 test("PWA drawer motion stops when its section, project, focus, visibility or drawer changes", async () => {
@@ -957,7 +1131,7 @@ test("PWA drawer motion stops when its section, project, focus, visibility or dr
     const f = await drawerKeys();
     f.press(); f.time.run(1);
     leave(f); f.time.run(5);
-    near(f.panes.todo.scrollTop, 603, name);
+    near(f.panes.todo.scrollTop, 600 + f.held(20), name);
     near(f.panes.done.scrollTop, 600, name);
     near(f.view.scrollTop, 1000, name);
     assert.equal(f.time.pending(), 0, name);
@@ -969,11 +1143,11 @@ test("closing the PWA drawer returns Ctrl+S and double S to the response without
   f.press(); f.time.run(1); f.release("S");
   f.open.clear();
   f.press(); f.time.run(1); f.release("S");
-  near(f.panes.todo.scrollTop, 603);
-  near(f.view.scrollTop, 1003);
+  near(f.panes.todo.scrollTop, 600 + f.held(20));
+  near(f.view.scrollTop, 1000 + f.held(20));
   f.press(); f.time.run(2); f.release("Control");
-  near(f.view.scrollTop, 997);
-  near(f.panes.todo.scrollTop, 603);
+  near(f.view.scrollTop, 1000 + f.held(20) - f.held(40));
+  near(f.panes.todo.scrollTop, 600 + f.held(20));
 });
 
 test("a short PWA ticket list keeps the shared edge feedback and leaves the card still", async () => {

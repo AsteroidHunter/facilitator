@@ -888,8 +888,14 @@ test("Ctrl+S and double S scroll the PWA list while open, then the response when
     assert.ok(up.list < down.list, "the second S did not scroll the list up");
     assert.equal(up.response, start.response);
     await page.keyboard.up("Control");
-    await settle(150);
-    assert.deepEqual(await scrollTops(page), up, "a released key left a scroll running");
+    // letting go eases the motion off, going on the way it was going for about half a second, and then
+    // nothing moves
+    await settle(900);
+    const eased = await scrollTops(page);
+    assert.ok(eased.list <= up.list, "the ease after letting go went the wrong way");
+    assert.equal(eased.response, up.response);
+    await settle(300);
+    assert.deepEqual(await scrollTops(page), eased, "a released key left a scroll running");
     await shot(page, "scroll-list-after-double-s");
 
     // A held-key repeat must not change direction or restart the motion.

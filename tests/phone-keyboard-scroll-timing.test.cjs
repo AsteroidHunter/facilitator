@@ -21,7 +21,12 @@ function phone({ enabled = true, surface = "reply", longtasks = false, writeDela
     c.document.body.classList.toggle = () => {};
     c.document.visibilityState = "visible";
     c.localStorage = { getItem: () => enabled ? "on" : null };
-    c.cancelAnimationFrame = () => {};
+    // a real cancel, as in a browser: a frame cancelled never runs. The motion eases off after a
+    // release, so a new press has an ease to cancel
+    const cancelled = new Set(), queue = c.requestAnimationFrame;
+    let frameId = 0;
+    c.requestAnimationFrame = fn => { const id = ++frameId; queue(time => { if (!cancelled.has(id)) fn(time); }); return id; };
+    c.cancelAnimationFrame = id => { cancelled.add(id); };
     if (longtasks) c.PerformanceObserver = class {
       static supportedEntryTypes = ["longtask"];
       constructor(fn) { this.fn = fn; this.disconnected = false; observers.push(this); }
@@ -46,10 +51,13 @@ function phone({ enabled = true, surface = "reply", longtasks = false, writeDela
     start() { f.context.responseScrollKey({ target: f.document.body, repeat: false, preventDefault() {} },
       surface === "list" ? f.context.phoneDrawerScrollCard : () => f.context.currentCard); },
     stop() { f.context.responseScrollKeyUp({ key: "s", ctrlKey: true }); },
+    // letting go eases the motion off, and it has ended once its last frame has run
+    ease(frames = 100) { for (let i = 0; i < frames && exec("responseScrolling !== null"); i++) this.advance(16); },
     mode(value) { exec(`phoneDeveloperMode = ${value}; tracePhone("setEnabled", phoneDeveloperMode);
       responseScrollTiming = phoneDeveloperMode ? phoneKeyboardTiming : null;`); },
-    async save() { const pending = f.history.mark("shortcut"); time += 20000; f.now(time); await f.run();
-      assert.equal((await pending).status, "saved"); return latest(f); },
+    // between runs after the mark is made and before the recovery window is over, for an ease to end in
+    async save(between) { const pending = f.history.mark("shortcut"); if (between) between(); time += 20000; f.now(time);
+      await f.run(); assert.equal((await pending).status, "saved"); return latest(f); },
   };
 }
 
@@ -74,10 +82,13 @@ for (const surface of ["reply", "list"]) test(`${surface}: a real keyboard hold 
   assert.ok(/if \(data\)\{\s+const timing = phoneDeveloperMode \? tracePhone\("jobStart", "board"\)/.test(html), "board handling has its own job span");
   for (const name of ["json", "board"]) { const token = f.history.jobStart(name); f.history.jobEnd(token); }
   f.advance(17, 1030); f.stop();
-  const report = await f.save(), rows = report.timing.rows;
+  // the ease after letting go takes more steps, which the recorder keeps until the motion ends
+  const report = await f.save(() => f.ease()), rows = report.timing.rows;
   assert.equal(report.v, 6); assert.equal(report.timing.longtasks, false);
   assert.ok(rows.every(row => row[2] === surface));
-  assert.deepEqual(rows.filter(row => row[1] === "step").map(row => row[4]), f.writes);
+  assert.ok(f.writes.length > 2, "the ease took no steps");
+  // the recorder keeps a position to a hundredth of a pixel
+  assert.deepEqual(rows.filter(row => row[1] === "step").map(row => row[4]), f.writes.map(v => Math.round(v * 100) / 100));
   const step = rows.find(row => row[1] === "step");
   assert.equal(step[0], -17); assert.equal(step[3], -17); assert.equal(step[5], -17); assert.equal(step[6], -17);
   assert.ok(rows.some(row => row[1] === "frame" && row[3] === -3));
@@ -264,19 +275,26 @@ test("online and offline events during a hold keep recording its steps and jobs"
   const f = phone(); f.at(1000); f.start(); f.advance(); f.fire("offline");
   f.advance(); f.fire("online"); const job = f.history.jobStart("board"); f.history.jobEnd(job);
   f.advance(); f.stop();
-  const rows = (await f.save()).timing.rows;
-  assert.equal(rows.filter(row => row[1] === "step").length, 3);
+  const rows = (await f.save(() => f.ease())).timing.rows;
+  // the three held steps, and the ease's after them
+  assert.ok(rows.filter(row => row[1] === "step").length > 3);
   assert.equal(rows.filter(row => row[1] === "end").length, 1);
   assert.ok(rows.some(row => row[1] === "job-end" && row[3] === "board"));
 });
 
 test("a double press still reverses direction, and a broken optional recorder cannot change motion", async () => {
   const f = phone(); f.at(1000); f.start(); f.advance(); f.stop();
+  // the first press eases on for a frame, and the second, quick press takes over from there and goes up
   f.advance(30); f.start(); f.advance(); f.stop();
-  const rows = (await f.save()).timing.rows;
-  assert.deepEqual(rows.filter(row => row[1] === "step").map(row => row[4]), [102.4, 100]);
+  const rows = (await f.save(() => f.ease())).timing.rows;
+  const steps = rows.filter(row => row[1] === "step").map(row => row[4]);
+  assert.ok(steps[0] > 100 && steps[1] > steps[0], "the first press goes down and eases on down");
+  assert.ok(Math.abs(steps[1] - steps[2] - f.context.responseHeldPath(16)) < 0.011, "the second press goes up from there");
+  assert.ok(steps.slice(3).every((p, i) => p <= (steps[2 + i] ?? p) + 1e-9), "the up press eased off downward");
   f.exec('responseScrollTiming = () => { throw new Error("broken recorder"); };');
-  f.at(25000); f.start(); f.advance(); f.stop(); assert.equal(f.top(), 102.4);
+  const before = f.top();
+  f.at(25000); f.start(); f.advance(); f.stop();
+  assert.ok(Math.abs(f.top() - (before + f.context.responseHeldPath(16))) < 1e-9);
 });
 
 test("an older advertised schema keeps timing locally and reports any omitted evidence", async () => {
