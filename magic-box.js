@@ -21,8 +21,9 @@
   // box shows asks for, in stage pixels:
   // {width, height} for a picture (its own shape, and at most its own size so it
   // is never drawn past its sharpness), {height} for words (their own height at
-  // the box's full width), nothing for a page or a site, which have no size of
-  // their own and take the whole of it. A picture's want may carry head, the
+  // the box's full width) and for an agent's page that has said its height,
+  // nothing for a site or a page that has not, which take the whole of it. A
+  // picture's want may carry head, the
   // height of the box's own top bar: the bar keeps its height while the
   // picture under it is fitted to what is left.
   // The whole box keeps its shape. It is at full size when that leaves at least
@@ -91,12 +92,28 @@
     "const win = window.focus;" +
     "Object.defineProperty(window, 'focus', { value: function focus() { if (asked()) return win.call(window); } });" +
     "})();";
+  // the page's own height, for a board that sizes the box to it: how far down
+  // its words and pictures reach, with the body's own white under them, which
+  // does not grow with the frame, so a box made shorter to fit it measures the
+  // same again. Said as the word, a space and the height in the page's pixels,
+  // once it has loaded and again whenever it changes (a picture arriving)
+  const PAGE_HEIGHT = "const say = () => { const b = document.body; if (!b) return;" +
+    "const r = document.createRange(); r.selectNodeContents(b);" +
+    "const s = getComputedStyle(b), d = getComputedStyle(document.documentElement), n = v => parseFloat(v) || 0;" +
+    "const h = Math.ceil(r.getBoundingClientRect().bottom + scrollY + n(s.paddingBottom) + n(s.borderBottomWidth) +" +
+    " n(s.marginBottom) + n(d.paddingBottom) + n(d.borderBottomWidth));" +
+    "if (h > 0 && h !== say.h) { say.h = h; parent.postMessage(W + ' ' + h, '*'); } };" +
+    "addEventListener('load', () => { say(); if (window.ResizeObserver) new ResizeObserver(say).observe(document.body); });" +
+    "document.addEventListener('load', say, true);";
   // word: when given, the page tells the board it is still itself each time it
   // finishes loading, by posting the word to it. A page that has sent its frame
-  // elsewhere loads without saying it, and the board puts the page back
-  function pageDoc(html, word) {
-    const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' +
-      JSON.stringify(String(word)).replace(/</g, "\\u003c") + ', "*"))</script>' : "";
+  // elsewhere loads without saying it, and the board puts the page back.
+  // sized: the page says its own height too (PAGE_HEIGHT); the Mac's box asks
+  // for it, the phone's drawer does not
+  function pageDoc(html, word, sized) {
+    const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
+    const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
+      (sized ? ';(() => { const W = ' + W + '; ' + PAGE_HEIGHT + ' })()' : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
       '<meta name="referrer" content="no-referrer"><script>' + KEYS_GUARD + '</script>' + hello +
       String(html == null ? "" : html);

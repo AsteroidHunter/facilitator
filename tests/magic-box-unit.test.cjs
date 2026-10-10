@@ -214,9 +214,9 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   assert.ok(!/floating|--cardbar-h/.test(fn), "a float is left in the placing");
   // still open: hiding it closes nothing and takes nothing off the page, and
   // every fit and every reading of the board place it again
-  assert.ok(!/magicOff|magicClose|classList\.remove/.test(fn), "hiding it puts it away");
+  assert.ok(!/magicOff|magicClose|MB\.el\.classList\.remove/.test(fn), "hiding it puts it away");
   assert.match(html, /magicSync\(\);      \/\/ and the card's magic box follows the card/);
-  assert.match(html, /function magicSync\(\)\{[\s\S]*?else magicPlace\(\);\n\}/);
+  assert.match(html, /function magicSync\(\)\{[\s\S]*?\n  else \{[\s\S]*?\n    magicPlace\(\);\n  \}\n\}/);
   assert.match(html, /const FRAME_CLEAR = 16;/);
   // what it shows asks for, in the shared view (card-logic.js): a picture as
   // many of the page's pixels as it has pixels on screen, its size read once off
@@ -229,7 +229,25 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   assert.match(want, /if \(view\.body\.querySelector\("\.mbaway"\)\) return \{ height: room\.width \};/);
   assert.match(want, /height: words\.offsetHeight \+ edges \+ head/);
   assert.match(view, /const own = new Image\(\);[\s\S]{0,200}view\.natural = \[own\.naturalWidth, own\.naturalHeight\];/);
-  assert.match(html, /MB\.view = magicView\(MB\.el, \{ placed: \(\) => magicPlace\(\), openSite: magicOpenSite \}\);/);
+  assert.match(html, /MB\.view = magicView\(MB\.el, \{ placed: \(\) => magicPlace\(\), openSite: magicOpenSite, sized: true \}\);/);
+  // an agent's page asks for the height it said, on the board that asks for it
+  // (the phone's drawer does not), and is kept hidden a moment while it says it
+  assert.match(want, /if \(kind === "html"\) return hooks\.sized && view\.page && view\.page\.height \? \{ height: view\.page\.height \+ edges \+ head \} : null;/);
+  assert.ok(!/PB\.view = magicView\([^)]*sized/.test(read("m.html")), "the phone asks a page its height");
+  assert.match(read("m.html"), /PB\.view = magicView\(PB\.el, \{ placed: \(\) => phoneMagicFit\(\),/);
+});
+
+test("a page says its own height only when asked, and the phone's page is as it was", () => {
+  const box = api();
+  const plain = box.pageDoc("<p>x</p>", "w");
+  assert.ok(plain.endsWith('<script>addEventListener("load", () => parent.postMessage("w", "*"))</script><p>x</p>'));
+  assert.ok(!/ResizeObserver/.test(plain));
+  const sized = box.pageDoc("<p>x</p>", "w", true);
+  assert.match(sized, /parent\.postMessage\(W \+ ' ' \+ h, '\*'\)/);
+  assert.match(sized, /new ResizeObserver\(say\)\.observe\(document\.body\)/);
+  // the measure is how far the page's own contents reach, not the frame's height
+  assert.match(sized, /r\.selectNodeContents\(b\)/);
+  assert.ok(!/scrollHeight|innerHeight|clientHeight/.test(sized));
 });
 
 test("in any room, what the box shows is fitted the same way: the phone's drawer is such a room", () => {
@@ -439,8 +457,40 @@ test("the cross puts the box away as the agent's close does, and the board keeps
   const html = read("index.html");
   assert.match(html, /MB\.el\.querySelector\("\.mbclose"\)\.addEventListener\("click", \(\) => magicClose\(\)\)/);
   const fn = html.slice(html.indexOf("function magicClose(){"), html.indexOf("function magicPlace(){"));
-  assert.match(fn, /if \(b && b\.magic\) b\.magic\.open = false;\s*magicOff\(\);/);
+  // it sinks away first (the rise backwards), and is then taken off the page
+  assert.match(fn, /if \(b && b\.magic\) b\.magic\.open = false;\s*magicSink\(\);/);
   assert.match(fn, /fetch\("\/magic\/close\?box=" \+ encodeURIComponent\(id\), \{ method: "POST" \}\)/);
+  assert.match(html, /function magicSink\(\)\{[\s\S]*?magicRise\(-1, \(\) => \{ const id = MB\.id; magicOff\(\); MB\.plans\.delete\(id\); \}\);/);
+  // and the agent's own close sinks it the same way, while anything else takes it off at once
+  assert.match(html, /const shut = magicCard\(true\);\s*if \(shut && shut\.id === MB\.id\) magicSink\(\);\s*else magicOff\(\);/);
+});
+
+test("the box rises out of the page as it comes, its lines with it, and faster once the owner is at it", () => {
+  const html = read("index.html");
+  assert.match(html, /const RISE_MS = 1000, RISE_FAST = 3;/);
+  // what it holds follows the rise, and the lines' strength too
+  assert.match(html, /\n  #magicbox\.rising > \*\{opacity:var\(--rise\)\}/);
+  assert.match(html, /MB\.el\.style\.setProperty\("--rise", p\.toFixed\(4\)\);\s*MB\.lines\.style\.opacity = p\.toFixed\(4\);/);
+  // a click, a key or a scroll in the box while it rises hurries the rest
+  assert.match(html, /if \(MB\.el && MB\.rise\.dir > 0 && MB\.el\.contains\(e\.target\)\) MB\.rise\.fast = RISE_FAST;/);
+  assert.match(html, /for \(const type of \["pointerdown", "keydown", "wheel"\]\) addEventListener\(type, magicHurry/);
+  // the lines are behind the card: ahead of it on the page, and never the accent
+  assert.ok(html.indexOf('<svg id="mblines"') < html.indexOf("<main>"));
+  const lines = html.slice(html.indexOf("function magicLines("), html.indexOf("function magicHand("));
+  assert.match(lines, /getComputedStyle\(document\.querySelector\("main"\)\)\.borderTopColor/);
+  assert.ok(!/--accent|#432BFF/i.test(lines));
+});
+
+test("the lines' hand drawn path keeps its corners and strays under a pixel", () => {
+  const html = read("index.html");
+  const src = html.slice(html.indexOf("function magicHand("), html.indexOf("\n}\n", html.indexOf("function magicHand(")) + 3);
+  const ctx = vm.createContext({});
+  vm.runInContext(src, ctx);
+  const d = ctx.magicHand([[10, 50], [10, 10], [200, 10], [200, 90]]);
+  const pts = d.slice(1).split("L").map(p => p.split(" ").map(Number));
+  for (const c of [[10, 50], [10, 10], [200, 10], [200, 90]]) assert.ok(pts.some(([x, y]) => x === c[0] && y === c[1]), "corner " + c);
+  for (const [x, y] of pts) assert.ok(Math.min(Math.abs(x - 10), Math.abs(x - 200), Math.abs(y - 10)) < .6, "strays " + [x, y]);
+  assert.equal(ctx.magicHand([[0, 0], [0, 30]]), ctx.magicHand([[0, 0], [0, 30]]), "the same line is drawn the same");
 });
 
 test("a site that will not be framed comes square, with its name and a new-page mark in a box in the middle", () => {
@@ -492,15 +542,20 @@ test("whichever of the card and the box is held stands up and the other settles,
   assert.match(html, /\n  #magicbox\{background:var\(--card\); border-radius:7px;\s*box-shadow:var\(--shade-lighter\); transition:box-shadow \.2s\}/);
   const style = html.slice(0, html.indexOf("</style>"));
   const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
-  assert.deepEqual(rules.map(r => r[1].trim()), ["body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main", "#magicbox.held"],
-    "the card's rule and the box's");
-  for (const [, , body] of rules) assert.match(body, /^box-shadow:[^;]*$/);
+  assert.deepEqual(rules.map(r => r[1].trim()), ["body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main", "#magicbox.held",
+    "#magicbox.rising.held"], "the card's rule and the box's, and the box's as it rises");
+  for (const [, , body] of rules) assert.match(body.trim(), /^box-shadow:[^;]*$/);
+  // risen, the rising one is the held one exactly
+  const rising = html.match(/\n  #magicbox\.rising\.held\{\s*box-shadow:([^}]*)\}/)[1];
+  assert.equal(rising.replace(/calc\(([^)]*?) \* var\(--rise\)\)/g, "$1").replace(/\s+/g, " ").trim(),
+    html.match(/\n  #magicbox\.held\{box-shadow:([^}]*)\}/)[1]);
   // the box's raised shadow is the card's own, the settled one the card's own settled
   const raised = html.match(/\n  #magicbox\.held\{box-shadow:([^}]*)\}/)[1];
   assert.ok(card.includes("box-shadow:" + raised + ";"), "the card's own raised shadow");
   // the box goes off the page settled; the agent's next revision keeps it held
   assert.match(html, /function magicOff\(\)\{\s*if \(!MB\.el\) return;\s*MB\.el\.classList\.remove\("on", "held", "over"\);/);
-  assert.match(html, /const held = id === MB\.id && MB\.el\.classList\.contains\("held"\);\s*magicOff\(\);\s*MB\.el\.classList\.toggle\("held", held\);/);
+  // and as far risen as it was, so it does not rise again
+  assert.match(html, /const held = id === MB\.id && MB\.el\.classList\.contains\("held"\);\s*const risen = id === MB\.id \? MB\.rise\.t : 0;\s*magicOff\(\);\s*MB\.el\.classList\.toggle\("held", held\);\s*magicRiseSet\(risen\);/);
 });
 
 // a selector's weight, for the plain ones these rules use: ids, then classes,
@@ -529,7 +584,8 @@ test("the Mac's box has the card's face and shadow and no edge line; the phone's
   const level = style.match(/\n  (body\.lowered #magicbox\.on)\{box-shadow:none\}/);
   assert.ok(level, "no rule for a box beside a lowered card");
   const shading = [...style.matchAll(/\n  ((?:body\.lowered )?#magicbox[^\n{ ]*)\{[^}]*box-shadow:[^}]*\}/g)].map(m => m[1]).filter(s => s !== level[1]);
-  assert.deepEqual(shading, ["#magicbox", "#magicbox.held"], "the box's shadows");
+  // the two, and the same two scaled by the rise as it comes and goes
+  assert.deepEqual(shading, ["#magicbox", "#magicbox.held", "#magicbox.rising", "#magicbox.rising.held"], "the box's shadows");
   for (const s of shading) assert.ok(heavier(weight(level[1]), weight(s)) > 0, level[1] + " does not outweigh " + s);
   assert.ok(html.includes("  body.focus.lowered main{box-shadow:none}"));
   // the phone wears no box: no rule for #mbface or the shared sheet gives it a face, edge or shadow
@@ -659,7 +715,7 @@ test("an agent's page gets the sealing policy first, before anything it wrote", 
 test("the shared view builds its frames from those lists, and a site's frame carries no logins", () => {
   const view = read("card-logic.js");
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
-  assert.match(view, /frame\.srcdoc = MagicBox\.pageDoc\(html, run\.word\)/);
+  assert.match(view, /frame\.srcdoc = MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized\)/);
   assert.match(view, /frame\.setAttribute\("credentialless", ""\)/);
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
   assert.equal((view.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);
