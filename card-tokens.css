@@ -1095,7 +1095,8 @@
 .sp-mac .setpair{flex:1; min-width:0}
 .sp-mac .setpair .setrow{box-sizing:border-box; height:var(--half); padding:0}
 .sp-mac .setprofile .setfield{flex:0 1 240px}
-.sp-mac[data-narrow] .sp-panes{padding:0 20px 32px}
+/* the box stands as far under the title bar as it does in from the sides, 20px */
+.sp-mac[data-narrow] .sp-panes{padding:20px 20px 32px}
 .sp-mac[data-narrow] .sp-item{padding:15px 20px; border-radius:0}
 .sp-mac[data-narrow] .sp-item.on{background:none}
 /* an action under a choice (the phone's notification buttons) has the same thin line */
