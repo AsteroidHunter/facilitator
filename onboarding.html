@@ -569,12 +569,13 @@
   /* ---- the magic box, copied from index.html's own sheet -------------------
      the box the keyboard stands in, beside the card, is the board's magic box:
      its look is the shared sheet's (.magicbox, card-tokens.css) and where it
-     stands is MagicBox.place (magic-box.js), both loaded from the board. the
-     board's face, shadow and rise, and its lines to the card, live only in
-     index.html's inline style, so they are copied here rule for rule under the
-     names they have there. left out: the cross (the onboarding owns the box),
-     the held shadow (nothing here is worked in), the lowered card, home and
-     edit mode, and the box's words and pages */
+     stands and how a picture fills it are magic-box.js's, both loaded from the
+     board. the board's face, shadow and rise, and its line to the card, live
+     only in index.html's inline style, so they are copied here rule for rule
+     under the names they have there. left out: the cross (the onboarding owns
+     the box), the held shadow (nothing here is worked in), the lines' tabs
+     (this page's one line has none), the lowered card, home and edit mode,
+     and the box's words and pages */
   body.focus{--shade-lighter:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)}
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
@@ -584,18 +585,17 @@
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.05 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
-  #mblines, #mbtabs{display:none}
-  body.focus :is(#mblines, #mbtabs).on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
+  #mblines{display:none}
+  body.focus #mblines.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none}
-  body.focus #mbtabs.on{z-index:2}
   #magicbox .mbbar{background:var(--card)}
   #magicbox .mbbar::after{display:none}
   #magicbox, #magicbox *{scrollbar-width:none}
   #magicbox::-webkit-scrollbar, #magicbox *::-webkit-scrollbar{display:none}
   #magicbox .mbbody{overflow:hidden}
   /* once the last card is done the box and its lines go with the card */
-  :is(#magicbox, #mblines, #mbtabs){transition:opacity .18s ease}
-  body.obdone :is(#magicbox, #mblines, #mbtabs){opacity:0 !important; pointer-events:none}
+  :is(#magicbox, #mblines){transition:opacity .18s ease}
+  body.obdone :is(#magicbox, #mblines){opacity:0 !important; pointer-events:none}
 
   /* the keyboard in the box: the hotkey map's keyboard
      (facilitator-mocks/mock-hotkey-map-20261008.html), drawn at its own size,
@@ -691,7 +691,6 @@
   <div class="mbbody" data-kind="image"></div>
 </section>
 <div id="obstage"><main><div id="sections"></div></main></div>
-<svg id="mbtabs" aria-hidden="true"></svg>
 <!-- the ticket list, as index.html has it -->
 <div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
 <script>
@@ -1047,19 +1046,22 @@ for (const pane of document.querySelectorAll(".tikpane")){
   }
 
   // ---- the magic box the keyboard stands in -----------------------------------
-  // the board's magic box beside the card (#magicbox in index.html), seated by
-  // the board's own MagicBox.place (magic-box.js): in the room right of the
-  // card, level with the card's middle, the gaps to the card and to the
-  // window's edge alike and at least FRAME_CLEAR, and never over the card. the
-  // keyboard is shown in it the way the board shows a picture, in its own shape
-  // under the bar, as large as the box allows, with KB_AIR of its own pixels
-  // round it. a window with no room beside the card does not show the box, as
-  // the board does not, and shows it again once the room is back
+  // the board's magic box beside the card (#magicbox in index.html), on the
+  // board's rule for where a box stands: in the room right of the card, the
+  // gaps to the card and to the window's edge alike and at least FRAME_CLEAR,
+  // never over the card, and hung from the top the board's largest box has
+  // (MagicBox.TALL of the card's height, level with its middle). it is wider
+  // than the board's own box, which keeps an iPhone's shape: as wide as that
+  // room allows, so both gaps are FRAME_CLEAR. the keyboard is shown in it the
+  // way the board shows a picture (MagicBox.fit), in its own shape under the
+  // bar, filling the box's width, with KB_AIR of its own pixels round it, and
+  // the box's height follows. a window with no room beside the card for the
+  // board's box does not show it (MagicBox.place's shown), and shows it again
+  // once the room is back
   const FRAME_CLEAR = 16;   // index.html's
   const KB_AIR = 28;
   const BOX = { el: document.getElementById("magicbox"), lines: document.getElementById("mblines"),
-                tabs: document.getElementById("mbtabs"), on: false,
-                rise: { t: 0, raf: 0, last: 0 } };
+                on: false, rise: { t: 0, raf: 0, last: 0 } };
   BOX.bar = BOX.el.querySelector(".mbbar");
   BOX.body = BOX.el.querySelector(".mbbody");
   BOX.body.appendChild(keyboard);
@@ -1070,17 +1072,19 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const rect = { left: r.left, top: r.top, width: r.width, height: r.height };
     const fit = { scale: 1, tx: 0, right: innerWidth, clear: FRAME_CLEAR };
     BOX.lines.classList.remove("on");
-    BOX.tabs.classList.remove("on");
     if (!MagicBox.place(rect, fit).shown){ BOX.el.style.visibility = "hidden"; return; }
     const edge = parseFloat(getComputedStyle(BOX.el).borderTopWidth) || 0;
-    const at = MagicBox.place(rect, fit, { width: KB_W + 2 * KB_AIR, height: KB_H + 2 * KB_AIR,
-                                           head: BOX.bar.offsetHeight + 2 * edge });
+    const right = rect.left + rect.width, room = innerWidth - right;
+    const size = MagicBox.fit({ width: room - 2 * FRAME_CLEAR, height: innerHeight },
+                              { width: KB_W + 2 * KB_AIR, height: KB_H + 2 * KB_AIR, head: BOX.bar.offsetHeight + 2 * edge });
+    const at = { left: right + (room - size.width) / 2, top: rect.top + rect.height * (1 - MagicBox.TALL) / 2,
+                 width: size.width, height: size.height };
     Object.assign(BOX.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
                                   height: at.height + "px", visibility: "" });
     const s = (at.width - 2 * edge) / (KB_W + 2 * KB_AIR);
     keyboard.style.setProperty("--kb-fit", s.toFixed(4));
     keyboard.style.left = keyboard.style.top = (KB_AIR * s).toFixed(2) + "px";
-    magicLines(rect, at, 0);
+    magicLines(rect, at);
   }
   // the box comes in once, rising as the board's does on its first showing,
   // and then stays, on every card after
@@ -1096,15 +1100,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
 
   // copied from index.html, where these live inline: the rise (RISE_MS,
   // magicRiseSet, magicRise, magicRiseStep), here only ever rising, and the
-  // lines to the card (MAGIC_NEAR, magicRoute, magicLines, DRONE, magicDrone).
-  // the line template is the one the board works out for a box that never
-  // chose one (magicChosen), from this box's own name
+  // line's drawing (magicLines, DRONE, magicDrone). the line itself is this
+  // page's own shape (magicRoute below), not one of the board's templates
   const RISE_MS = 1000;
   function magicRiseSet(t){
     BOX.rise.t = t;
     const p = t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
     BOX.el.style.setProperty("--rise", p.toFixed(4));
-    BOX.lines.style.opacity = BOX.tabs.style.opacity = p.toFixed(4);
+    BOX.lines.style.opacity = p.toFixed(4);
   }
   function magicRise(){
     BOX.el.classList.add("rising");
@@ -1119,45 +1122,31 @@ for (const pane of document.querySelectorAll(".tikpane")){
     r.raf = 0;
     BOX.el.classList.remove("rising");
   }
-  const MAGIC_NEAR = [[0, 1, 2], [1, 2, 0], [2, 1, 0]];
-  function magicChosen(id){
-    let h = 0;
-    for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-    return h % 3;
+  // the one line from the card to the keyboard's box, a flipped L: out of the
+  // card's right side LINE_FROM of the card's height above its foot, across,
+  // and up into the box's foot LINE_INTO of the box's width in from its left
+  // end (the board's ref1 sketch puts its low line's foot 12.4% in). its ends
+  // run a few pixels on behind the card and the box, as the board's lines do.
+  // a box whose foot stands too near or under the line, with no room for the
+  // line to turn, gives null and no line
+  const LINE_FROM = .2, LINE_INTO = .124;
+  function magicRoute(card, box){
+    const C = { r: card.left + card.width, b: card.top + card.height, h: card.height };
+    const B = { l: box.left, b: box.top + box.height, w: box.width };
+    const tuck = 4, y = C.b - LINE_FROM * C.h, x = B.l + LINE_INTO * B.w;
+    if (y - B.b < 16 || x - C.r < 16) return null;
+    return [[C.r - tuck, y], [x, y], [x, B.b - tuck]];
   }
-  function magicRoute(k, card, box, top){
-    const C = { l: card.left, t: card.top, r: card.left + card.width, b: card.top + card.height, w: card.width, h: card.height };
-    const B = { l: box.left, t: box.top, r: box.left + box.width, b: box.top + box.height, w: box.width, h: box.height };
-    const tuck = 4;
-    if (k === 0){
-      const above = B.t - C.t, below = C.b - B.b;
-      if (above < 16 || below < 16) return null;
-      const ya = C.t + Math.min(.0959 * C.h, .509 * above), xa = B.l + .492 * B.w;
-      const yb = C.b - Math.min(.0814 * C.h, .179 * below), xb = B.l + .124 * B.w;
-      return { paths: [[[C.r - tuck, ya], [xa, ya], [xa, B.t + tuck]], [[C.r - tuck, yb], [xb, yb], [xb, B.b - tuck]]], tabs: [] };
-    }
-    const [from, high, into] = k === 1 ? [.887, .0413, .059] : [.2205, .0601, .436];
-    const y = C.t - high * C.h, x1 = C.l + from * C.w, x2 = B.l + into * B.w;
-    if (y < top + 4 || B.t - y < 12) return null;
-    return { paths: [[[x1, C.t + tuck], [x1, y], [x2, y], [x2, B.t + tuck]]],
-      tabs: k === 1 ? [[x1, C.t], [x2, B.t]] : [] };
-  }
-  function magicLines(card, box, top){
-    let route = null, drawn = -1;
-    for (const k of MAGIC_NEAR[magicChosen("onboarding-keys")]) if ((route = magicRoute(k, card, box, top))){ drawn = k; break; }
-    BOX.lines.dataset.route = drawn;
-    if (!route) return;
+  function magicLines(card, box){
+    const pts = magicRoute(card, box);
+    BOX.lines.dataset.route = pts ? "flipped-l" : "none";
+    if (!pts) return;
+    // the card's own edge colour, read off the card, so the line is always it
     const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
-    BOX.lines.innerHTML = route.paths.map((pts, i) => {
-      const line = magicDrone(pts, 1127 + 7 * drawn + i);
-      return '<path d="' + line.core + '" fill="none" stroke="' + ink + '" stroke-width="' + DRONE.core +
-        '" stroke-linejoin="round" stroke-linecap="round"/><path d="' + line.dabs + '" fill="' + ink + '"/>';
-    }).join("");
-    const edge = parseFloat(getComputedStyle(document.querySelector("main")).borderTopWidth) || 0;
-    BOX.tabs.innerHTML = route.tabs.map(([x, y]) => '<rect x="' + (x - 3.3).toFixed(2) + '" y="' + (y + edge / 2 - 1.65).toFixed(2) +
-      '" width="6.6" height="3.3" rx="1" fill="' + ink + '"/>').join("");
+    const line = magicDrone(pts, 1127);
+    BOX.lines.innerHTML = '<path d="' + line.core + '" fill="none" stroke="' + ink + '" stroke-width="' + DRONE.core +
+      '" stroke-linejoin="round" stroke-linecap="round"/><path d="' + line.dabs + '" fill="' + ink + '"/>';
     BOX.lines.classList.add("on");
-    BOX.tabs.classList.toggle("on", route.tabs.length > 0);
   }
   const DRONE = { core: 1.25, r: .9, rj: .6, gap: 2, gj: 1.4, off: .3 };
   function magicDrone(pts, seed){
