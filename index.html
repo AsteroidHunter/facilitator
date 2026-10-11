@@ -469,7 +469,7 @@
   body.focus{--shade-lighter:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)}
   /* and while its magic box is held (magicHold), but not where the box is not
      drawn (home, edit mode). body.mbheld says the box is .on.held, kept in step
-     with the box's own classes (after magicFocusCame). it is a class and not
+     with the box's own classes (just before magicHold). it is a class and not
      a :has() on the body, since a :has() there restyled the whole page every
      time any element's "on" or "held" changed, the scroll's caret among them.
      the mark is inside :where so this weighs what the rule above does, and
@@ -7769,6 +7769,10 @@ if (MB.el){
   // box with them
   if (window.ResizeObserver) MB.words = new ResizeObserver(() => magicPlace());
 }
+// the body says when the box is on and held (body.mbheld), for the card's
+// lighter shadow, read off the box's own classes whatever changes them
+if (MB.el) new MutationObserver(() => document.body.classList.toggle("mbheld",
+  MB.el.classList.contains("on") && MB.el.classList.contains("held"))).observe(MB.el, { attributeFilter: ["class"] });
 // which of the two is being worked in, the card or its box. clicking or
 // focusing into the box hands it over; clicking anywhere else, or the focus
 // going into the card to type, hands it back, as magic box 2 takes and gives
@@ -7827,10 +7831,6 @@ addEventListener("keydown", e => {
   e.preventDefault();
   getSelection().selectAllChildren(words);
 });
-// the body says when the box is on and held (body.mbheld), for the card's
-// lighter shadow, read off the box's own classes whatever changes them
-if (MB.el) new MutationObserver(() => document.body.classList.toggle("mbheld",
-  MB.el.classList.contains("on") && MB.el.classList.contains("held"))).observe(MB.el, { attributeFilter: ["class"] });
 
 // the dormant quick-chat panel, bound to one lane, one card and one listener.
 // Those bindings named a project's own lane, so they are cleared here: with no
