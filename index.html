@@ -2920,7 +2920,8 @@
   body.focus #offline{top:41px}
   #tabrow, #tabbar{display:none}
   body.focus #tabrow{position:relative; display:flex; align-items:center; gap:8px; height:32px; flex:none}
-  body.focus #tabbar{display:flex; align-items:center; gap:8px; height:32px; flex:none}
+  /* the faint names' gaps are set to read as the house's 8px does when drawn (see .psug) */
+  body.focus #tabbar{display:flex; align-items:center; gap:5.5px; margin-left:-2px; height:32px; flex:none}
   /* seated tabs per the 20260809 mockup: the active one's bottom opens into
      the canvas. 20260827: the top two corners now take the cards' own 7px, so
      a seated tab is rounded on the same terms as the shell around it and the
@@ -3091,31 +3092,53 @@
   /* the pill: the open project's name alone, on the house's glass and at its
      height, a capsule as the phone's project button is. the project names,
      here, beside it and in the list, are 14px, a step over the 13px the tabs
-     had. a long name is cut short with an ellipsis. a project's own window has
-     no list, so its pill opens nothing */
+     had, and they are Plex's regular 400, or its bold 700 while the project
+     holds a reply not yet read: two steps apart (the tabs' 500 and 600 were
+     one), so which is which shows at a glance. both weights are in the font
+     link at the head. a name holds room for its bold self, so a reply landing
+     moves nothing. a long name is cut short with an ellipsis. a project's own
+     window has no list, so its pill opens nothing */
   body.focus #projpill{flex:none; position:relative; box-sizing:border-box; height:32px; max-width:260px;
     margin:0; padding:0 14px; border-radius:16px;
     display:flex; align-items:center;
-    font:500 14px/17px var(--sans); color:var(--ink); cursor:pointer; -webkit-user-select:none; user-select:none;
+    font:400 14px/17px var(--sans); color:var(--ink); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
   body.focus #projpill[hidden]{display:none}
   body.focus #projname{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  body.focus #projpill.unread #projname{font-weight:700}
+  body.focus #projname[data-label]::after{content:attr(data-label); display:block; height:0; overflow:hidden;
+    visibility:hidden; font-weight:700}
   body.focus #projpill:disabled{cursor:default}
-  /* the suggestions: a few open projects after the pill, placed as the
-     unselected tabs were, on the page and in their type, and fainter. a
-     project holding a reply not yet read is in the board's bold, as its tab
-     was, and every word holds room for its bold self (.plabel). they come in
-     on a short fade */
-  body.focus #tabbar .psug{flex:none; display:flex; align-items:center; height:32px; margin:0; padding:0 14px;
+  /* the suggestions: a few open projects after the pill, in the names' type
+     and fainter. every gap along the row reads the same as drawn, the house's
+     to the pill: its 8px box gap draws as 7.2px, since each glass ring's ink
+     stands 0.4px inside its box. a word's ink stands about 1px inside its own
+     box at each end (more after an r), so the pill's gap to the first name is
+     6px of box (#tabbar's -2px margin) and a name's gap to the next 5.5px
+     (#tabbar's gap), and they draw within about a pixel of the house's 7.2px
+     (measured at 1512 by 982 and 1652 by 861). the names carry no side
+     padding of their own (the tabs' 14px made the pill's gap read three
+     times the house's), and sit at the left of their boxes. each name's hit
+     area reaches 3px past its word on either side and gives the room back in
+     margin, so almost nothing between them is dead and nothing is drawn wider.
+     a project holding a reply not yet read is in the bold 700, the rest in
+     the regular 400. these words do not hold room for their bold selves, as
+     the pill's does: that room is empty on a regular word and drew as a wider
+     gap after it, so a reply landing may move the names after it by a few
+     pixels, and the pill and the house never move. they come in on a short
+     fade */
+  body.focus #tabbar .psug{flex:none; display:flex; align-items:center; justify-content:flex-start; height:32px;
+    margin:0 -3px; padding:0 3px; text-align:left;
     border:none; border-radius:10px; background:none;
-    font:500 14px/17px var(--sans); color:color-mix(in srgb, var(--sub) 55%, transparent);
+    font:400 14px/17px var(--sans); color:color-mix(in srgb, var(--sub) 55%, transparent);
     cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:color .18s; animation:psugin .22s var(--gentle)}
   body.focus #tabbar .psug:hover{color:var(--ink)}
-  body.focus #tabbar .psug.unread .plabel{font-weight:600}
+  body.focus #tabbar .psug.unread .plabel{font-weight:700}
   @keyframes psugin{from{opacity:0}}
-  /* the list: every open project in the board's order, the unread ones
-     heavier, then "Open a new folder", names only, with no mark on any row.
+  /* the list: every open project in the board's order, each with its number,
+     the unread ones in the bold, then "Open a new folder" with its plus. no
+     row is marked as the open one (the pill says which).
      the phone's project list (#projmenu in m.html) on the Mac: the same
      glass, standing just under the pill from its left edge. resting on a row
      fades in a cross at its right end that closes that project; a row held
@@ -3148,14 +3171,23 @@
   body.focus.projopen #projmenu{visibility:visible; opacity:1; transform:none;
     transition:opacity .16s ease-out, transform .22s cubic-bezier(.2,.9,.25,1), visibility 0s}
   #projlist{flex:none; display:flex; flex-direction:column}
-  #projmenu .projrow{position:relative; flex:none; display:flex; align-items:center;
+  #projmenu .projrow{position:relative; flex:none; display:flex; align-items:center; gap:10px;
     box-sizing:border-box; width:100%; min-height:32px; margin:0; padding:0 34px 0 12px;
     border:none; border-radius:9px; background:transparent;
-    font:500 14px/17px var(--sans); color:var(--ink); text-align:left; cursor:pointer;
+    font:400 14px/17px var(--sans); color:var(--ink); text-align:left; cursor:pointer;
     transition:background-color .12s ease-out}
   #projmenu .projrow:is(:hover, .hot, :focus-visible){background:color-mix(in srgb, var(--ink) 6%, transparent); outline:none}
+  /* each project's number, the one Command + 1 to 9 opens it by, in the
+     board's monospace and the sub ink, a little greyer than the names, in a
+     column as wide as the longest number (--pnum, set with the rows) and
+     right aligned, as numbers are. the plus of "Open a new folder" is the
+     monospace face's own plus in the same column and grey, one digit wide,
+     so the plus and the numbers line up by the face's own measure. the
+     numbers never take a project's bold */
+  #projmenu .pnum{flex:none; width:var(--pnum, 1ch); text-align:right;
+    font:400 14px/17px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums}
   #projmenu .pname{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  #projmenu .projrow.unread .pname{font-weight:600}
+  #projmenu .projrow.unread .pname{font-weight:700}
   /* the cross: one at a time, on the row under the pointer, never a column of
      them. it is out of the row's flow, so the names never move, and the row
      keeps room for it on its right. the last project stays open, and its
@@ -3573,7 +3605,7 @@
 <div id="projmenu" class="qn-glass" aria-label="Projects">
   <div id="projlist"></div>
   <div id="projsep"></div>
-  <button id="projnew" class="projrow" type="button"><span class="pname">Open a new folder</span></button>
+  <button id="projnew" class="projrow" type="button"><span class="pnum" aria-hidden="true">+</span><span class="pname">Open a new folder</span></button>
 </div>
 
 <!-- the settings, one group to a section: the page in card-logic.js builds the
@@ -4151,8 +4183,10 @@ function renderTabs(st){
   }
   const owners = LOCKED ? [LOCKED] : rowsOf(st);
   const name = draft ? "New Project" : owners.includes(activeOwner) ? labelOf(st, activeOwner) : "";
-  if (projName.textContent !== name) projName.textContent = name;
+  if (projName.textContent !== name){ projName.textContent = name; projName.dataset.label = name; }
   projPill.hidden = !name;
+  // the open project's name takes the bold as every other name does
+  projPill.classList.toggle("unread", !draft && owners.includes(activeOwner) && laneUnread(st, activeOwner));
   // a project's own window shows its name and nothing to choose
   projPill.disabled = !!LOCKED;
   const others = owners.some(ow => ow !== activeOwner && laneUnread(st, ow));
@@ -4160,18 +4194,25 @@ function renderTabs(st){
   renderProjList(st, owners);
   renderSuggestions(st);
 }
-// the list's rows: the name, heavier while it holds a reply not yet read, and
-// the cross that fades in on the row under the pointer. the open project's row
+// the list's rows: the project's number, the name, bold while it holds a reply
+// not yet read, and the cross that fades in on the row under the pointer. the
+// numbers are rebuilt with the rows, so a reorder renumbers them. the open project's row
 // (none while home is up) is marked for assistive tech only (aria-current)
 function renderProjList(st, owners){
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (projList.dataset.sig !== sig){
     projList.dataset.sig = sig;
     projList.textContent = "";
-    for (const ow of owners){
+    // the number column is as wide as the longest number, the plus row's too
+    projMenu.style.setProperty("--pnum", String(owners.length).length + "ch");
+    for (const [i, ow] of owners.entries()){
       const row = h("button", "projrow");
       row.type = "button";
       row.dataset.owner = ow;
+      // its place in the list, which is its Command + number up to 9
+      const num = h("span", "pnum", String(i + 1));
+      num.setAttribute("aria-hidden", "true");
+      row.appendChild(num);
       row.appendChild(h("span", "pname", labelOf(st, ow)));
       row.appendChild(projCloseMark(ow));
       projList.appendChild(row);
@@ -4227,9 +4268,8 @@ function renderSuggestions(st){
       const b = h("button", "psug");
       b.type = "button";
       b.dataset.owner = ow;
-      const lbl = h("span", "plabel", labelOf(st, ow));
-      lbl.dataset.label = lbl.textContent;   // the hidden line that holds this word's bold width
-      b.appendChild(lbl);
+      // no data-label: a faint name holds no room for its bold self (see .psug)
+      b.appendChild(h("span", "plabel", labelOf(st, ow)));
       b.addEventListener("click", () => chooseProject(ow));
       bar.appendChild(b);
     }
