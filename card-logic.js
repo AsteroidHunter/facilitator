@@ -232,23 +232,42 @@ function installCardPageGuard(win = window){
 
 // ---- a card's picture, opened full screen ---------------------------------------
 // a picture in a card, in its reply or in the messages sent and answered, opens
-// on a plain click or tap as large as the settings' own place holds (the room,
-// #picfull .picfull-room in card-tokens.css), centred over the board dimmed and
-// clear of every edge of the screen, and the next click or tap anywhere, or
-// Escape, puts it back. it looks and moves as the picture panel's zoom on the
-// desktop board does (p3Zoom): the veil is the board's ink at .62, and the
-// picture grows out of its place and shrinks back into it over 300ms on the
-// curve the tabs glide on. what grows is a copy laid over the board, with the
-// card's own picture hidden where it stands, so nothing in the card moves: its
-// scroll, its fold and its layout are as they were when the copy lands back on
-// it. the boxes beside the card keep the menu for their pictures
+// on a plain click or tap as large as its room holds (#picfull .picfull-room in
+// card-tokens.css: the settings window's place on the desktop, the whole screen
+// inside its safe areas on the phone), centred over the board dimmed. it looks
+// and moves as the picture panel's zoom on the desktop board does (p3Zoom): the
+// veil is the board's ink at .62, and the picture grows out of its place and
+// shrinks back into it over 300ms on the curve the tabs glide on. what grows is
+// a copy laid over the board, with the card's own picture hidden where it
+// stands, so nothing in the card moves: its scroll, its fold and its layout are
+// as they were when the copy lands back on it.
+// open, it zooms: two fingers or a trackpad pinch (a wheel with ctrlKey, as
+// Chrome sends it) zoom about the pinch, from its fitted size to four times
+// that; zoomed, one finger, a dragged mouse or a two-finger scroll moves it,
+// never so far that an edge comes in past the room's; a double tap or double
+// click goes from fitted to twice at that point and back. at its fitted size a
+// tap or a click puts it back, once the moment for a second tap has passed;
+// zoomed, it takes Escape. the boxes beside the card keep the menu for their
+// pictures
 const CARD_PICTURES = ".reply.cardmd img.shot, .answmsg.cardmd img.shot";
 const CARD_PICTURE_MS = 300;
 const CARD_PICTURE_EASE = "cubic-bezier(0.25, 1, 0.5, 1)";
 const CARD_PICTURE_VEIL = 0.62;
-// never more than twice the picture's own size: a small picture still comes up
-// large enough to read, and none is blown up to where its pixels show
+// never fitted at more than twice the picture's own size: a small picture still
+// comes up large enough to read, and none is blown up to where its pixels show
 const CARD_PICTURE_MOST = 2;
+// zoomed no further than four times its fitted size; a double tap takes it to twice
+const CARD_PICTURE_ZOOM_MOST = 4;
+const CARD_PICTURE_ZOOM_TAP = 2;
+// a second tap this soon after the first, and this near it, is a double tap
+const CARD_PICTURE_DOUBLE_MS = 300;
+const CARD_PICTURE_DOUBLE_SLOP = 40;
+// a trackpad pinch's wheel zooms by e^(-deltaY / 100); one wheel event counts
+// for no more than 60 of that, so a mouse wheel with control held does not leap
+const CARD_PICTURE_WHEEL_ZOOM = 0.01;
+const CARD_PICTURE_WHEEL_MOST = 60;
+// once it has landed on the card's picture, the copy fades off it this fast
+const CARD_PICTURE_SETTLE_MS = 120;
 // a finger held this long, moving no further than the slop, is a long press
 const CARD_PICTURE_HOLD_MS = 500;
 const CARD_PICTURE_SLOP = 10;
@@ -264,8 +283,7 @@ function cardPictureFit(w, h, box){
   const s = Math.min(box.w / w, box.h / h, CARD_PICTURE_MOST);
   return { x: box.x + (box.w - w * s) / 2, y: box.y + (box.h - h * s) / 2, w: w * s, h: h * s };
 }
-// the room it may fill, measured where the sheet lays it out: the settings'
-// own place on this page, at this window's size
+// the room it may fill, measured where the sheet lays it out, at this window's size
 function cardPictureBox(layer){
   const r = layer.querySelector(".picfull-room").getBoundingClientRect();
   return { x: r.left, y: r.top, w: r.width, h: r.height };
@@ -278,16 +296,97 @@ function cardPictureRect(img){
   const r = img.isConnected ? img.getBoundingClientRect() : null;
   return r && r.width && r.height ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
 }
+// the part of the card's picture the card shows: its box cut by every box
+// around it that clips (the answer's scroller, a folded bubble, the card) and by
+// the window, or null where none of it shows. it is all the copy may cover as
+// it leaves the card and comes back: past it stand the card's title, its head
+// and its bubbles, drawn over the picture's hidden part
+function cardPictureSeen(img){
+  const home = cardPictureRect(img);
+  if (!home) return null;
+  const win = img.ownerDocument.defaultView;
+  let l = home.x, t = home.y, r = home.x + home.w, b = home.y + home.h;
+  for (let n = img.parentElement; n && n !== img.ownerDocument.body; n = n.parentElement){
+    const cs = win.getComputedStyle(n);
+    if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+    const c = n.getBoundingClientRect();
+    l = Math.max(l, c.left); t = Math.max(t, c.top); r = Math.min(r, c.right); b = Math.min(b, c.bottom);
+  }
+  l = Math.max(l, 0); t = Math.max(t, 0); r = Math.min(r, win.innerWidth); b = Math.min(b, win.innerHeight);
+  return r - l > 0.5 && b - t > 0.5 ? { x: l, y: t, w: r - l, h: b - t } : null;
+}
+// the clip that, on the copy placed at `at` and laid over `home`, leaves only
+// `seen` showing, in the copy's own pixels before its transform
+function cardPictureClip(seen, home, at){
+  const sx = at.w / home.w, sy = at.h / home.h;
+  return "inset(" + [(seen.y - home.y) * sy, (home.x + home.w - seen.x - seen.w) * sx,
+    (home.y + home.h - seen.y - seen.h) * sy, (seen.x - home.x) * sx].map(v => Math.max(0, v) + "px").join(" ") + ")";
+}
+const CARD_PICTURE_WHOLE = "inset(0px 0px 0px 0px)";
 // the transform that lays the copy, placed at `to`, over `from`
 function cardPictureOver(from, to){
   return "translate(" + (from.x - to.x) + "px, " + (from.y - to.y) + "px) scale(" +
     (from.w / to.w) + ", " + (from.h / to.h) + ")";
 }
 const cardPictureStill = win => !!win.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const cardPictureZoomed = z => z.at.w > z.to.w + 0.5;
+// the copy at r, kept in the room: across and down, a picture smaller than the
+// room stands centred in it, and a larger one never brings an edge in past the
+// room's
+function cardPictureHeld(z, r){
+  const box = cardPictureBox(z.layer);
+  const axis = (p, size, start, room) => size <= room ? start + (room - size) / 2
+    : Math.min(start, Math.max(start + room - size, p));
+  return { x: axis(r.x, r.w, box.x, box.w), y: axis(r.y, r.h, box.y, box.h), w: r.w, h: r.h };
+}
+// the motion of the moment run out at once, so a gesture starts from where the
+// copy stands
+function cardPictureSettle(z){
+  if (!z.grow) return;
+  z.grow.finish(); z.grow.cancel(); z.grow = null;
+  z.dim.finish();
+}
+// the copy at r, there at once or, with `glide`, carried there from where it was
+function cardPictureMove(z, r, glide){
+  const was = z.at;
+  z.at = cardPictureHeld(z, r);
+  cardPicturePlace(z.big, z.at);
+  if (!glide) return;
+  const win = z.layer.ownerDocument.defaultView;
+  z.grow = z.big.animate([{ transform: cardPictureOver(was, z.at) }, { transform: "none" }],
+    { duration: cardPictureStill(win) ? 0 : CARD_PICTURE_MS, easing: CARD_PICTURE_EASE });
+}
+// zoomed to s times its fitted size, the picture's point under (x, y) kept there
+function cardPictureZoom(z, s, x, y, glide){
+  const w = z.to.w * Math.min(CARD_PICTURE_ZOOM_MOST, Math.max(1, s)), k = w / z.at.w;
+  cardPictureMove(z, { x: x - (x - z.at.x) * k, y: y - (y - z.at.y) * k, w, h: z.to.h * w / z.to.w }, glide);
+}
+// a tap or a click on the open picture. the second of two close together takes
+// it from fitted to twice its size at that point, or back from any zoom; a lone
+// one at its fitted size puts it back once the moment for a second has passed,
+// and a lone one while it is zoomed does nothing
+function cardPictureTap(z, x, y){
+  const prior = z.tapped;
+  z.tapped = null;
+  if (prior && Date.now() - prior.t < CARD_PICTURE_DOUBLE_MS &&
+      Math.hypot(x - prior.x, y - prior.y) < CARD_PICTURE_DOUBLE_SLOP){
+    clearTimeout(prior.timer);
+    cardPictureSettle(z);
+    if (cardPictureZoomed(z)) cardPictureMove(z, z.to, true);
+    else cardPictureZoom(z, CARD_PICTURE_ZOOM_TAP, x, y, true);
+    return;
+  }
+  const tapped = z.tapped = { t: Date.now(), x, y, timer: null };
+  if (!cardPictureZoomed(z)) tapped.timer = setTimeout(() => {
+    if (z.tapped === tapped) z.tapped = null;
+    closeCardPicture();
+  }, CARD_PICTURE_DOUBLE_MS);
+}
 
-// the layer, built the first time a picture is opened and kept afterwards. the
-// whole of it is the way out, and no press on it reaches the board under it:
-// not a tap that would pick or swipe a card, not a scroll, not a menu
+// the layer, built the first time a picture is opened and kept afterwards. no
+// press on it reaches the board under it: not a tap that would pick or swipe a
+// card, not a scroll, not a menu. it reads them itself: touches for the
+// fingers, the mouse's drag and click, and the wheel
 function cardPictureLayer(doc){
   let layer = doc.getElementById("picfull");
   if (layer) return layer;
@@ -298,12 +397,83 @@ function cardPictureLayer(doc){
   const room = doc.createElement("div");
   room.className = "picfull-room";
   layer.append(veil, room);
-  for (const type of ["pointerdown", "mousedown", "touchstart", "touchmove", "touchend", "wheel", "contextmenu"])
-    layer.addEventListener(type, e => {
-      e.stopPropagation();
-      if (type === "touchmove" || type === "wheel" || type === "contextmenu") e.preventDefault();
-    }, { passive: false });
-  layer.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); closeCardPicture(); });
+  const on = (type, fn) => layer.addEventListener(type, e => {
+    e.stopPropagation();
+    if (type !== "pointerdown" && type !== "mousedown") e.preventDefault();
+    const z = cardPictureShown;
+    if (z && !z.closing) fn(e, z);
+  }, { passive: false });
+  const points = e => [...e.touches].map(t => ({ x: t.clientX, y: t.clientY }));
+  const middle = p => ({ x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 });
+  // the fingers: two pinch about their middle, which carries the picture with
+  // it; one moves a zoomed picture, and one put down and lifted without moving,
+  // with no second joining it, is a tap. the touches are cancelled, so no click
+  // follows them and a tap counts once
+  on("touchstart", (e, z) => {
+    cardPictureSettle(z);
+    const p = points(e);
+    if (p.length >= 2)
+      z.touch = { pinch: true, spread: Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) || 1, mid: middle(p), from: z.at };
+    else if (p.length === 1)
+      z.touch = { pinch: false, start: p[0], last: p[0], tap: !z.touch };
+  });
+  on("touchmove", (e, z) => {
+    const p = points(e), g = z.touch;
+    if (!g) return;
+    if (g.pinch && p.length >= 2){
+      const mid = middle(p);
+      const s = g.from.w / z.to.w * Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) / g.spread;
+      const w = z.to.w * Math.min(CARD_PICTURE_ZOOM_MOST, Math.max(1, s)), k = w / g.from.w;
+      cardPictureMove(z, { x: mid.x - (g.mid.x - g.from.x) * k, y: mid.y - (g.mid.y - g.from.y) * k, w, h: z.to.h * w / z.to.w });
+    } else if (!g.pinch && p.length === 1){
+      if (Math.hypot(p[0].x - g.start.x, p[0].y - g.start.y) > CARD_PICTURE_SLOP) g.tap = false;
+      if (!g.tap && cardPictureZoomed(z)) cardPictureMove(z, { ...z.at, x: z.at.x + p[0].x - g.last.x, y: z.at.y + p[0].y - g.last.y });
+      g.last = p[0];
+    }
+  });
+  const lift = (e, z) => {
+    const p = points(e), g = z.touch;
+    // the finger left of two goes on moving the picture from where it is
+    if (p.length === 1){ z.touch = { pinch: false, start: p[0], last: p[0], tap: false }; return; }
+    if (p.length) return;
+    z.touch = null;
+    if (g && !g.pinch && g.tap && e.type === "touchend") cardPictureTap(z, g.last.x, g.last.y);
+  };
+  on("touchend", lift);
+  on("touchcancel", lift);
+  // the mouse: held down and dragged it moves a zoomed picture, and the click
+  // that ends a drag is not a click on it
+  on("pointerdown", (e, z) => {
+    if (e.pointerType !== "mouse" || e.button) return;
+    cardPictureSettle(z);
+    z.drag = { start: { x: e.clientX, y: e.clientY }, last: { x: e.clientX, y: e.clientY }, moved: false };
+  });
+  on("pointermove", (e, z) => {
+    const d = z.drag;
+    if (!d || e.pointerType !== "mouse") return;
+    if (!(e.buttons & 1)){ z.drag = null; return; }
+    if (Math.hypot(e.clientX - d.start.x, e.clientY - d.start.y) > CARD_PICTURE_SLOP) d.moved = true;
+    if (d.moved && cardPictureZoomed(z)) cardPictureMove(z, { ...z.at, x: z.at.x + e.clientX - d.last.x, y: z.at.y + e.clientY - d.last.y });
+    d.last = { x: e.clientX, y: e.clientY };
+  });
+  on("click", (e, z) => {
+    const dragged = z.drag?.moved;
+    z.drag = null;
+    if (!dragged) cardPictureTap(z, e.clientX, e.clientY);
+  });
+  // the wheel: with ctrlKey it is a trackpad pinch (or control and the wheel)
+  // and zooms about the pointer; without, it moves a zoomed picture as a page
+  // would scroll
+  on("wheel", (e, z) => {
+    cardPictureSettle(z);
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? doc.defaultView.innerHeight : 1;
+    if (e.ctrlKey){
+      const d = Math.max(-CARD_PICTURE_WHEEL_MOST, Math.min(CARD_PICTURE_WHEEL_MOST, e.deltaY * unit));
+      cardPictureZoom(z, z.at.w / z.to.w * Math.exp(-d * CARD_PICTURE_WHEEL_ZOOM), e.clientX, e.clientY);
+    } else if (cardPictureZoomed(z))
+      cardPictureMove(z, { ...z.at, x: z.at.x - e.deltaX * unit, y: z.at.y - e.deltaY * unit });
+  });
+  for (const type of ["mousedown", "contextmenu"]) on(type, () => {});
   doc.body.appendChild(layer);
   return layer;
 }
@@ -318,60 +488,78 @@ function openCardPicture(img, back){
   big.className = "picfull-img";
   big.src = img.currentSrc || img.src; big.alt = img.alt; big.draggable = false;
   big.style.borderRadius = win.getComputedStyle(img).borderRadius;
-  const from = cardPictureRect(img);
+  const from = cardPictureRect(img), seen = from && cardPictureSeen(img);
   layer.appendChild(big);
   layer.classList.add("on");
   const to = cardPictureFit(img.naturalWidth, img.naturalHeight, cardPictureBox(layer));
   cardPicturePlace(big, to);
   img.classList.add("picfull-from");
-  const z = cardPictureShown = { img, big, layer, veil, to, back, closing: false };
+  const z = cardPictureShown = { img, big, layer, veil, to, at: to, back, closing: false,
+    touch: null, drag: null, tapped: null };
   // it stands at full size now; the transform carries it back over the card's
-  // picture and lets go, which is what lands it exactly
+  // picture, cut to the part of it the card shows, and lets go, which is what
+  // lands it exactly
   const timing = { duration: cardPictureStill(win) ? 0 : CARD_PICTURE_MS, easing: CARD_PICTURE_EASE, fill: "both" };
-  z.grow = big.animate([{ transform: cardPictureOver(from || to, to) }, { transform: "none" }], timing);
+  z.grow = z.opening = big.animate([
+    { transform: cardPictureOver(from || to, to), clipPath: seen ? cardPictureClip(seen, from, to) : CARD_PICTURE_WHOLE },
+    { transform: "none", clipPath: CARD_PICTURE_WHOLE }], timing);
   z.dim = veil.animate([{ opacity: 0 }, { opacity: CARD_PICTURE_VEIL }], timing);
   win.addEventListener("resize", refitCardPicture);
   return true;
 }
-// a window resized or a phone turned while it is open: it takes the new screen
+// a window resized or a phone turned while it is open: it takes the new screen,
+// at its fitted size
 function refitCardPicture(){
   const z = cardPictureShown;
   if (!z || z.closing) return;
-  z.grow.finish();
-  z.to = cardPictureFit(z.img.naturalWidth, z.img.naturalHeight, cardPictureBox(z.layer));
+  cardPictureSettle(z);
+  z.at = z.to = cardPictureFit(z.img.naturalWidth, z.img.naturalHeight, cardPictureBox(z.layer));
   cardPicturePlace(z.big, z.to);
 }
 function closeCardPicture(){
   const z = cardPictureShown;
   if (!z || z.closing) return;
   z.closing = true;
+  clearTimeout(z.tapped?.timer);
   const doc = z.layer.ownerDocument, win = doc.defaultView;
   win.removeEventListener("resize", refitCardPicture);
-  // focus goes back inside the press or the key that closes, which is what
-  // lets a phone bring its keyboard back with it
+  // focus goes back with the press or the key that closes, which is what lets a
+  // phone bring its keyboard back with it
   if (z.back && z.back !== doc.body && z.back.isConnected && doc.activeElement !== z.back)
     z.back.focus({ preventScroll: true });
-  // home is where the card's picture stands now, so a card that moved under
-  // the copy is still met exactly. a picture the card has drawn again since has
-  // no place left, and the copy only fades
-  const home = cardPictureRect(z.img);
-  // both starting values are read above the cancels, which drop them to the
+  // home is where the card's picture stands now, so a card that moved under the
+  // copy is still met exactly, and the copy is cut down to the part of it the
+  // card shows on the way, so it never covers what the card draws over the
+  // rest. a picture the card has drawn again since, or keeps out of sight, has
+  // no place to come to, and the copy only fades where it is
+  const home = cardPictureRect(z.img), seen = home && cardPictureSeen(z.img);
+  // the starting values are read above the cancels, which drop them to the
   // sheet's. caught halfway out it turns round from where it is, and takes only
   // the time it has spent getting there
   const cs = win.getComputedStyle(z.big);
-  const start = { transform: cs.transform, opacity: cs.opacity };
+  const start = { transform: cs.transform, clipPath: cs.clipPath && cs.clipPath !== "none" ? cs.clipPath : CARD_PICTURE_WHOLE, opacity: cs.opacity };
   const dim = win.getComputedStyle(z.veil).opacity;
-  const part = z.grow.playState === "running" ? Math.max(0.4, (z.grow.currentTime || 0) / CARD_PICTURE_MS) : 1;
-  const timing = { duration: cardPictureStill(win) ? 0 : CARD_PICTURE_MS * part, easing: CARD_PICTURE_EASE, fill: "both" };
-  z.grow.cancel(); z.dim.cancel();
-  z.grow = z.big.animate([start, home ? { transform: cardPictureOver(home, z.to), opacity: 1 }
-    : { transform: start.transform, opacity: 0 }], timing);
+  const part = z.grow && z.grow === z.opening && z.grow.playState === "running"
+    ? Math.max(0.4, (z.grow.currentTime || 0) / CARD_PICTURE_MS) : 1;
+  const still = cardPictureStill(win);
+  const timing = { duration: still ? 0 : CARD_PICTURE_MS * part, easing: CARD_PICTURE_EASE, fill: "both" };
+  z.grow?.cancel(); z.dim.cancel();
+  z.grow = z.big.animate([start, seen ? { transform: cardPictureOver(home, z.at), clipPath: cardPictureClip(seen, home, z.at), opacity: 1 }
+    : { transform: start.transform, clipPath: start.clipPath, opacity: 0 }], timing);
   z.dim = z.veil.animate([{ opacity: dim }, { opacity: 0 }], timing);
-  z.grow.onfinish = () => {
+  const done = () => {
     z.big.remove(); z.dim.cancel();
     z.img.classList.remove("picfull-from");
     z.layer.classList.remove("on");
     cardPictureShown = null;
+  };
+  // landed, the card's own picture is shown under the copy, which fades off it,
+  // so the fades the card wears where it cuts the picture come in softly
+  z.grow.onfinish = () => {
+    if (!seen) return done();
+    z.img.classList.remove("picfull-from");
+    z.grow = z.big.animate([{ opacity: 1 }, { opacity: 0 }], { duration: still ? 0 : CARD_PICTURE_SETTLE_MS, fill: "both" });
+    z.grow.onfinish = done;
   };
 }
 
