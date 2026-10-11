@@ -7638,10 +7638,16 @@ async function phoneMagicLoad(id, rev){
   phoneMagicFit();
 }
 // the box at its own size in the drawer: the drawer's width and height are the
-// room it is fitted to, and a picture still on its way keeps it hidden
+// room it is fitted to, its height no more than leaves the gap under it equal
+// to the gap over it with the card at its lowest (phoneMagicCap, below), so
+// longer words scroll inside it under its fade; a picture still on its way
+// keeps it hidden
+let phoneMagicCap = () => Infinity;
 function phoneMagicFit(){
-  const room = { width: tickets.clientWidth, height: tickets.clientHeight };
+  const cap = phoneMagicCap();
+  const room = { width: tickets.clientWidth, height: Math.min(tickets.clientHeight, cap) };
   if (!room.width || !room.height) return;
+  PB.cap = cap;
   const at = MagicBox.fit(room, PB.view.want(room));
   Object.assign(PB.el.style, { width: at.width + "px", height: at.height + "px",
     visibility: PB.view.waiting() ? "hidden" : "" });
@@ -7862,14 +7868,17 @@ function drawerSwapFirstFrame(playing){
   // instant, as the swap does, with nothing drawn between), and the card's drop
   // leaves A under the box's bottom edge, so the two faces have one top and one gap
   // above and below. the card goes down no further than the room, as before, so
-  // a box tall enough to need more stops the card short of A: the gap below is
-  // what is left. a web page cannot see the notch, only the safe area, which ends at the status bar's
+  // the box is never taller than reaches A over the card's top at its lowest
+  // (phoneMagicCap): a longer one scrolls inside it, and the gap below stays A
+  // at every length. a web page cannot see the notch, only the safe area, which ends at the status bar's
   // foot: the notch's foot stands NOTCH_GAP above that on the iPhone 13 mini
   // (notch 37.5, inset 50) and the iPhone 17 (island 50.7, inset 62), read off
   // their screens with the device mask drawn. in a browser tab, where the page
   // starts under the status bar and the inset is nothing, the page's own top
-  // stands for it. the foot of the list is its last ticket; a section that
-  // fills the list runs under the card and has no gap below, so it is not lifted
+  // stands for it. the foot of the list is the last thing it shows: its last
+  // ticket, or for a section that fills the list the end of the window its
+  // tickets scroll in, where they fade out. that end stands over the card too,
+  // so a full list is lifted to equal gaps as a short one is
   const NOTCH_GAP = 12;
   // how far under the drawer's top its first mark starts, in the page's px as it
   // is laid out (the same on every phone): the top of "Doing" and the section
@@ -7886,7 +7895,8 @@ function drawerSwapFirstFrame(playing){
     }
     return notchProbe.getBoundingClientRect().height;
   };
-  // the list's foot (its last ticket, from the drawer's top) and what it leaves
+  // the list's foot (its last ticket, or the foot of the window the tickets
+  // scroll in if that is higher, from the drawer's top) and what it leaves
   // spare under it, 0 for a section that fills the list. with the box out the
   // list is not laid out, so it is put back in place for the reading, the box
   // out of the way, and put away again: styles only, with no frame drawn between
@@ -7897,12 +7907,15 @@ function drawerSwapFirstFrame(playing){
     const had = put.map(el => el.style.display);
     if (out){ put[0].style.display = put[1].style.display = "flex"; put[2].style.display = "none"; }
     const spare = listSpare(), pane = drawerPane(), shown = pane ? [...pane.children].filter(el => el.offsetParent) : [];
-    const foot = shown.length && spare ? shown[shown.length - 1].getBoundingClientRect().bottom - tickets.getBoundingClientRect().top : 0;
+    const end = document.getElementById("tiklist").getBoundingClientRect().bottom;
+    const foot = shown.length ? Math.min(shown[shown.length - 1].getBoundingClientRect().bottom, end) - tickets.getBoundingClientRect().top : 0;
     put.forEach((el, i) => { el.style.display = had[i]; });
     return { foot, spare };
   };
-  // where the drawer stands with the face it has: its lift, and for the box the
-  // spare room under its bottom edge that puts the card's top A under it (listSlack)
+  // where the drawer stands with the face it has: its lift, for the box the
+  // spare room under its bottom edge that puts the card's top A under it
+  // (listSlack), and with either face the most the box may be tall: from its
+  // top edge to A over the card's top with the card as low as it goes
   const place = () => {
     const box = tickets.classList.contains("boxface");
     const at = page.getBoundingClientRect().top, px = (el, name) => parseFloat(getComputedStyle(el)[name]) || 0;
@@ -7913,21 +7926,28 @@ function drawerSwapFirstFrame(playing){
       const card = pageTop + listRoom - list.spare;
       lift = Math.max(0, (top + DRAWN_TOP.list - notch - (card - top - list.foot)) / 2);
     }
-    if (!box) return { lift, slack: null };
-    const gap = top + DRAWN_TOP.list - lift - notch, foot = phoneMagicFoot();
+    const gap = top + DRAWN_TOP.list - lift - notch;
     const boxLift = lift - (DRAWN_TOP.list - DRAWN_TOP.box);
-    if (!(foot > 0)) return { lift: boxLift, slack: null };
+    const most = Math.max(0, pageTop + listRoom - gap - (top - boxLift));
+    if (!box) return { lift, slack: null, most };
+    const foot = phoneMagicFoot();
+    if (!(foot > 0)) return { lift: boxLift, slack: null, most };
     // the card's top at foot + gap: its drop, and the room it leaves of the most it may have
-    return { lift: boxLift, slack: Math.max(0, listRoom - (top - boxLift + foot + gap - pageTop)) };
+    return { lift: boxLift, slack: Math.max(0, listRoom - (top - boxLift + foot + gap - pageTop)), most };
   };
+  phoneMagicCap = () => place().most;
   listSlack = () => {
     const box = tickets.classList.contains("boxface"), at = box ? place().slack : null;
     return at !== null ? at : box ? Math.max(0, tickets.clientHeight - phoneMagicFoot() + listAir()) : listSpare();
   };
   const fitBase = fitList;
+  // the box is fitted again when the list under it moves its top (a new reading
+  // with the box out), so its height keeps to the gaps; fitted, it is the same
   fitList = function(now){
     fitBase(now);
-    tickets.style.setProperty("--tik-lift", place().lift.toFixed(2) + "px");
+    const at = place();
+    tickets.style.setProperty("--tik-lift", at.lift.toFixed(2) + "px");
+    if (tickets.classList.contains("boxface") && !(Math.abs(at.most - PB.cap) <= .5)) phoneMagicFit();
   };
 }
 </script>
