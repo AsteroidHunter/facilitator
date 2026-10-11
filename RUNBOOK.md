@@ -206,7 +206,7 @@ On the Mac board, the squid at the right end of the top bar opens the settings p
 - Appearance: the background colour, and "Cards waiting on you", which lists the cards waiting on you newest first instead of oldest first.
 - Editor: "Format text while typing", off unless you turn it on.
 - Improvements: "Share daily usage counts", on unless you turn it off (see "Usage counts").
-- Bin: the cards the garbage can beside the tickets deleted, newest first, each with its title, its project and when it was deleted, and a Restore that puts it back in its own place and section, whole. A card is deleted for good after 30 days here, and nothing empties the Bin sooner.
+- Bin: the cards the garbage can beside the tickets deleted, newest first, each with its title, its project and when it was deleted, and a small grey restore icon (an arrow curling back, titled Restore) that fades in at the row's right end while the pointer is on or near the row and puts the card back in its own place and section, whole. A card is deleted for good after 30 days here, and nothing empties the Bin sooner.
 
 On the phone the settings are in a drawer, and only the squid on the bottom row opens it: no pull and no key does. A pull from the right edge brings a card's magic box, and on a card without one it does nothing. Its sections are Editor, Appearance, Notifications, Improvements and Profile. "Cards waiting on you" and "Share daily usage counts" are shared with the Mac; the profile is only shown, since it is changed on the Mac. The power mark at the bottom of the drawer signs the phone out. A tap beside the drawer, or a swipe to the right, puts it away.
 

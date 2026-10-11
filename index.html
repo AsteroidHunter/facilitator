@@ -3539,7 +3539,16 @@
   .sp-mac .sp-box .binnote{margin:0; padding:14px 0 2px}
   .sp-mac .binrow .setlabel{cursor:default}
   .sp-mac .binrow .bintitle{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .sp-mac .binrow .sp-btn{flex:none}
+  /* the restore icon: the list's quiet grey, hidden until the pointer is on the
+     row or near it (the row's own padding), then fading in over .2s at its
+     right end and out again when the pointer leaves. a keyboard focus shows it too */
+  .sp-mac .binrow .binrestore{flex:none; display:flex; align-items:center; justify-content:center;
+    width:30px; height:30px; padding:0; margin:0; border:none; border-radius:var(--sq);
+    color:var(--sub); background:transparent; cursor:pointer;
+    opacity:0; transition:opacity .2s ease, background-color .15s}
+  .sp-mac .binrow:hover .binrestore, .sp-mac .binrow:focus-within .binrestore{opacity:1}
+  .sp-mac .binrow .binrestore:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
+  .sp-mac .binrow .binrestore:disabled{opacity:.4; cursor:default}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 <link id="homesheet" rel="stylesheet" href="/home-widgets.css">
@@ -11673,6 +11682,11 @@ function setEditMode(on){
   // can beside the tickets deleted, newest first, read from the board each time
   // the page opens. Restore puts a card back in its own place and section
   const binList = document.getElementById("binlist");
+  // the common undo arrow curling back up out of the bin: the can's own line
+  // drawing with an arrow rising from its mouth
+  const BIN_RESTORE_ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M9 14 4.5 9.5 9 5"/><path d="M4.5 9.5H15a5 5 0 0 1 0 10h-3"/></svg>';
   const binAgo = ts => {
     const s = Math.max(0, Date.now() / 1000 - ts);
     const say = (n, unit) => n + " " + unit + (n === 1 ? "" : "s") + " ago";
@@ -11695,8 +11709,11 @@ function setEditMode(on){
       const words = h("div", "setlabel");
       words.append(h("span", "bintitle", c.title || "Untitled"),
         h("small", "sethelp", (lastState ? labelOf(lastState, c.owner) : c.owner) + ", deleted " + binAgo(c.ts)));
-      const restore = h("button", "sp-btn", "Restore");
+      const restore = h("button", "binrestore");
       restore.type = "button";
+      restore.title = "Restore";
+      restore.setAttribute("aria-label", "Restore");
+      restore.innerHTML = BIN_RESTORE_ICON;
       restore.addEventListener("click", async () => {
         restore.disabled = true;
         await fetch("/bin/restore?box=" + encodeURIComponent(c.id), { method: "POST" }).catch(() => {});
