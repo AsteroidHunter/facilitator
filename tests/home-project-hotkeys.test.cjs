@@ -125,50 +125,58 @@ test("Mac Home respects a locked project and closes an unfinished draft through 
   assert.equal(f.context.draft, false);
 });
 
-// Command + ` is the house's click, matched by the physical key
+// Command + 0 is the house's click, matched by the physical key
 function homeFixture(overrides = {}) {
   const clicks = [];
   const f = fixture({ homeOpen: false, document: { getElementById: id => ({ click() { clicks.push(id); } }) }, ...overrides });
   return { f, clicks };
 }
-const cmdBackquote = (extra = {}) => ({ key: "`", code: "Backquote", metaKey: true, ctrlKey: false, ...extra });
+const cmd0 = (extra = {}) => ({ key: "0", code: "Digit0", metaKey: true, ctrlKey: false, ...extra });
 
-test("Command+` clicks the house, on any layout, and types nothing", () => {
-  for (const extra of [{}, { key: "²" }, { key: "Dead" }, { key: "<", code: "Backquote" },
+test("Command+0 clicks the house, on any layout, and types nothing", () => {
+  for (const extra of [{}, { key: "à" }, { key: "Dead" }, { key: "p", code: "Digit0" },
     { target: { closest: () => ({}) } }]) {
     const { f, clicks } = homeFixture();
-    assert.equal(f.key("`", cmdBackquote(extra)).defaultPrevented, true);
+    assert.equal(f.key("0", cmd0(extra)).defaultPrevented, true);
     assert.deepEqual(clicks, ["homeico"]);
   }
 });
 
-test("Command+` on the home page does nothing but is still kept from the page", () => {
+test("Command+0 on the home page does nothing but is still kept from the page", () => {
   const { f, clicks } = homeFixture({ homeOpen: true });
-  assert.equal(f.key("`", cmdBackquote()).defaultPrevented, true);
+  assert.equal(f.key("0", cmd0()).defaultPrevented, true);
   assert.deepEqual(clicks, []);
 });
 
-test("Command+` needs Command and the Backquote key; Control alone and with Command, and Option, do nothing", () => {
+test("Command+0 needs Command and the Digit0 key; Control, Option and Shift with it do nothing", () => {
   for (const extra of [{ metaKey: false }, { metaKey: false, ctrlKey: true }, { ctrlKey: true }, { altKey: true },
-    { code: "Digit1" }, { code: undefined }]) {
+    { shiftKey: true }, { code: "Digit1" }, { code: undefined }]) {
     const { f, clicks } = homeFixture();
-    assert.equal(f.key("`", cmdBackquote(extra)).defaultPrevented, false, JSON.stringify(extra));
+    assert.equal(f.key("0", cmd0(extra)).defaultPrevented, false, JSON.stringify(extra));
     assert.deepEqual(clicks, []);
   }
 });
 
-test("Command+` keeps the same guards as the project keys", () => {
+test("Command+` and Control+` do nothing on the board", () => {
+  for (const extra of [{}, { metaKey: false, ctrlKey: true }]) {
+    const { f, clicks } = homeFixture();
+    assert.equal(f.key("`", { key: "`", code: "Backquote", ...extra }).defaultPrevented, false);
+    assert.deepEqual(clicks, []);
+  }
+});
+
+test("Command+0 keeps the same guards as the project keys", () => {
   for (const overrides of [{ pageWarn: {} }, { pageMenu: {} }, { setOpen: true }, { FOCUS: false }]) {
     const { f, clicks } = homeFixture(overrides);
-    assert.equal(f.key("`", cmdBackquote()).defaultPrevented, false);
+    assert.equal(f.key("0", cmd0()).defaultPrevented, false);
     assert.deepEqual(clicks, []);
   }
 });
 
-test("Command+` opens Home from a blank page too", () => {
+test("Command+0 opens Home from a blank page too", () => {
   const { f, clicks } = homeFixture();
   f.context.lastState.pages = { alpha: [{ id: "blank", kind: "blank" }] };
   f.context.curPage = () => ({ kind: "blank" });
-  assert.equal(f.key("`", cmdBackquote()).defaultPrevented, true);
+  assert.equal(f.key("0", cmd0()).defaultPrevented, true);
   assert.deepEqual(clicks, ["homeico"]);
 });
