@@ -22,7 +22,9 @@
      history or the ticket list's sections shows here too. What index.html
      keeps inline, and so cannot be loaded, is copied below, each piece under
      the name it has there. The card is the board's own size, 506.88 by 748.8,
-     the board's 1440 by 900 design at full size, centred on the empty paper.
+     the board's 1440 by 900 design at full size, its top where it stands
+     centred on the empty paper, and cut from the bottom by 10 to 20 percent
+     so the keyboard under it shows (#obkeys below).
      From 101: Tickets on, the board's ticket list stands beside it, one
      ticket per card, where the board's stage puts the two. An answer is
      replied to the moment its send's flight lands, with no Delivered, Read or
@@ -560,22 +562,33 @@
   /* the keyboard behind the onboarding card's foot: the hotkey map's keyboard
      (facilitator-mocks/mock-hotkey-map-20261008.html), drawn at its own size and
      shown at --kb-scale of it, keys, gaps, legends and corners together, every
-     key faint. it is centred under the card, whose last 90px (the 120px of the
-     full size keyboard) stand over its function row, its number row and the
-     top of its letters. the card and the ticket list stay where they always
-     stand, centred in the window; where that leaves too little paper under the
-     card, the keyboard rises behind the card instead, 10px clear of the
-     window's foot. --card-h and --card-top are the card's own height and top
-     (body.focus main above), read here for the keyboard and the ticket list */
+     key faint, centred under the card. the onboarding cards keep the board's
+     card width and the top the board's full height card has, centred in the
+     window (--card-h and --card-top, body.focus main above, which the ticket
+     list is read from too), and are cut from the bottom so the card's foot
+     crosses the middle of the keyboard's top letter row (Q to P): the keyboard's
+     function row, number row and half that row, .375 of its height, stand
+     under the card (--kb-under), and the rows below it stay in view. the cut
+     is what puts the keyboard's foot --kb-foot above the window's bottom, held
+     between 10 and 20 percent of the card's full height: on a window tall
+     enough to need less than 10 percent the keyboard stands higher than that,
+     and on one short enough to need more than 20 percent it stands lower */
   body.focus{
-    --kb-scale:.75; --kb-under:90px; --kb-h:calc(336px * var(--kb-scale));
+    --kb-scale:.75; --kb-h:calc(336px * var(--kb-scale));
+    --kb-under:calc(var(--kb-h) * .375); --kb-foot:12px;
     --card-h:min(calc(var(--ch)*var(--frame-h)), calc(100vh - 32px));
     --card-top:calc((100vh - var(--card-h)) / 2);
+    --ob-cut:clamp(calc(var(--ch)*var(--frame-h)*.1),
+                   calc(var(--card-top) + var(--card-h) - (100vh - var(--kb-foot) - var(--kb-h) + var(--kb-under))),
+                   calc(var(--ch)*var(--frame-h)*.2));
+    --ob-h:calc(var(--card-h) - var(--ob-cut));
     --card-mid:50vw;
   }
+  #obstage{align-items:start}
+  body.focus main{height:var(--ob-h); margin-top:var(--card-top)}
   #obkeys{position:fixed; pointer-events:none;
     left:var(--card-mid); transform:translateX(-50%) scale(var(--kb-scale)); transform-origin:top center;
-    top:min(calc(var(--card-top) + var(--card-h) - var(--kb-under)), calc(100vh - 10px - var(--kb-h)));
+    top:calc(var(--card-top) + var(--ob-h) - var(--kb-under));
     opacity:0; transition:opacity var(--keys-in, .4s) ease}
   #obkeys.on{opacity:1}
   #obkeys .obkey{position:absolute; border-radius:7px; font-family:var(--sans);
