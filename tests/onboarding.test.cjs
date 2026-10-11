@@ -278,18 +278,26 @@ test("the Profile section is in Settings on the Mac, editable, and on the phone,
   assert.doesNotMatch(mac, /setemailyes|Feedback emails|role="switch"|sethelp|avatar/i);
   // the picture: an empty square the page fills from the board's stored number, one of twelve drawings, 19 to 30
   assert.match(mac, /<div class="setpic" id="setpic" aria-hidden="true"><\/div>/);
-  const drawings = MAC.slice(MAC.indexOf("const PICTURES = {"), MAC.indexOf('const picture = document.getElementById("setpic")'));
+  // the twelve drawings and the time zone's words are the shared page's, in card-logic.js, for the Mac and the phone
+  const LOGIC = fs.readFileSync(path.join(ROOT, "card-logic.js"), "utf8");
+  const drawings = LOGIC.slice(LOGIC.indexOf("const SETTINGS_PICTURES = {"), LOGIC.indexOf("function settingsZoneWords"));
   assert.deepEqual([...drawings.matchAll(/^\s+(\d+): '/gm)].map(m => m[1]), Array.from({ length: 12 }, (_, i) => String(19 + i)));
   assert.doesNotMatch(drawings, /setmono|&gt;_/, "the old prompt is still drawn");
-  assert.ok(MAC.includes("if (PICTURES[p.picture]) picture.innerHTML = PICTURES[p.picture];"));
+  assert.doesNotMatch(MAC, /const PICTURES = |const zoneWords/, "the Mac page keeps its own copy");
+  assert.ok(MAC.includes("if (SETTINGS_PICTURES[p.picture]) picture.innerHTML = SETTINGS_PICTURES[p.picture];"));
   assert.doesNotMatch(mac, /setpic[^>]*>[^<]*<(?!\/div)/, "the square holds something before a picture is read");
   assert.doesNotMatch(MAC.slice(MAC.indexOf("const profileFields"), MAC.indexOf("const view = settingsOverlay")), /picture:/,
     "the page sends a picture");
   assert.ok(MAC.includes('const change = { [key]: input.value };'));
   assert.ok(MAC.includes('if (key === "email") change.emailYes = input.value.trim() !== "";'));
   assert.ok(MAC.includes('fetch("/profile", { method: "POST", body: JSON.stringify({ ...change, timeZone: hereZone() }) })'));
-  const phone = PHONE.slice(PHONE.indexOf('<div data-section="profile" data-label="Profile">'), PHONE.indexOf('<div data-section="diagnostics"'));
-  for (const id of ["pfname", "pfemail", "pfyes", "pfwork", "pfagent", "pftz"]) assert.ok(phone.includes(`id="${id}"`), id);
+  const phone = PHONE.slice(PHONE.indexOf('<div data-section="profile" data-label="Profile">'), PHONE.indexOf('<div data-section="appearance"'));
+  for (const id of ["pfpic", "pfname", "pfemail", "pfwork", "pfagent", "pftz"]) assert.ok(phone.includes(`id="${id}"`), id);
   assert.doesNotMatch(phone, /<input/, "the phone writes the profile");
+  // the phone's Profile is the Mac's: the picture beside the name and email with no label, no feedback switch or
+  // status, no note and no subtitles, and the picture and the time zone drawn by the shared code
+  assert.doesNotMatch(phone, /pfyes|Feedback emails|sethelp|setnote|avatar/i);
+  assert.match(phone, /<div class="setpic" id="pfpic" aria-hidden="true" hidden><\/div>/);
+  assert.ok(PHONE.includes("settingsZoneWords(p.timeZone)") && PHONE.includes("SETTINGS_PICTURES[p.picture]"));
   assert.doesNotMatch(mac + phone, /--accent|purple/);
 });
