@@ -637,6 +637,16 @@ const CARD_SHORTCUT_DEFINITIONS = [
     action: "tab", mini: false,
     match: e => e.metaKey && /^[1-9]$/.test(e.key) ? +e.key - 1 : null,
   },
+  // command+0 opens the home page, as the house does, just before command+1 to
+  // 9 pick the projects. the physical key (Digit0) so any layout has it; no
+  // control, option or shift. like the other command keys it works from a typing
+  // box too. chrome's own command+0, reset zoom, is blocked on the board
+  // (chromeShortcutBlocked in index.html), so the key is free to take
+  {
+    action: "home", mini: false,
+    match: e => e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing &&
+      e.code === "Digit0" ? true : null,
+  },
   {
     action: "escape", mini: false,
     match: e => e.key === "Escape" ? true : null,

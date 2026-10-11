@@ -125,46 +125,58 @@ test("Mac Home respects a locked project and closes an unfinished draft through 
   assert.equal(f.context.draft, false);
 });
 
-// The house button is the only way to Home: no key opens it. Command+0 (Chrome's
-// reset zoom, which the page guard blocks), Command+H (the Mac hides the app with
-// it), Command+` and Control+` all go unanswered here, on a board and on a blank
-// page, while typing or not.
-const HOME_CANDIDATES = [
-  { key: "0", code: "Digit0", metaKey: true }, { key: "h", code: "KeyH", metaKey: true },
-  { key: "`", code: "Backquote", metaKey: true }, { key: "`", code: "Backquote", metaKey: false, ctrlKey: true },
-  { key: "0", code: "Digit0", metaKey: false, ctrlKey: true },
-];
-function noHomeFixture(overrides = {}) {
+// Command + 0 is the house's click, matched by the physical key
+function homeFixture(overrides = {}) {
   const clicks = [];
   const f = fixture({ homeOpen: false, document: { getElementById: id => ({ click() { clicks.push(id); } }) }, ...overrides });
   return { f, clicks };
 }
+const cmd0 = (extra = {}) => ({ key: "0", code: "Digit0", metaKey: true, ctrlKey: false, ...extra });
 
-test("no key opens Home: Command+0, Command+H, Command+` and Control+` are left alone", () => {
-  for (const typing of [false, true]) {
-    for (const keys of HOME_CANDIDATES) {
-      const { f, clicks } = noHomeFixture();
-      const before = f.snapshot();
-      const typed = typing ? { target: { closest: () => ({}) } } : {};
-      assert.equal(f.key(keys.key, { ctrlKey: false, ...keys, ...typed }).defaultPrevented, false, JSON.stringify(keys));
-      assert.deepEqual(clicks, []);
-      assert.deepEqual(f.snapshot(), before);
-    }
+test("Command+0 clicks the house, on any layout, and types nothing", () => {
+  for (const extra of [{}, { key: "à" }, { key: "Dead" }, { key: "p", code: "Digit0" },
+    { target: { closest: () => ({}) } }]) {
+    const { f, clicks } = homeFixture();
+    assert.equal(f.key("0", cmd0(extra)).defaultPrevented, true);
+    assert.deepEqual(clicks, ["homeico"]);
   }
 });
 
-test("no key opens Home from a blank page either", () => {
-  for (const keys of HOME_CANDIDATES) {
-    const { f, clicks } = noHomeFixture();
-    f.context.lastState.pages = { alpha: [{ id: "blank", kind: "blank" }] };
-    f.context.curPage = () => ({ kind: "blank" });
-    assert.equal(f.key(keys.key, { ...keys, ctrlKey: false, ...keys }).defaultPrevented, false, JSON.stringify(keys));
+test("Command+0 on the home page does nothing but is still kept from the page", () => {
+  const { f, clicks } = homeFixture({ homeOpen: true });
+  assert.equal(f.key("0", cmd0()).defaultPrevented, true);
+  assert.deepEqual(clicks, []);
+});
+
+test("Command+0 needs Command and the Digit0 key; Control, Option and Shift with it do nothing", () => {
+  for (const extra of [{ metaKey: false }, { metaKey: false, ctrlKey: true }, { ctrlKey: true }, { altKey: true },
+    { shiftKey: true }, { code: "Digit1" }, { code: undefined }]) {
+    const { f, clicks } = homeFixture();
+    assert.equal(f.key("0", cmd0(extra)).defaultPrevented, false, JSON.stringify(extra));
     assert.deepEqual(clicks, []);
   }
 });
 
-test("the shared key table has no home action", () => {
-  const f = fixture();
-  assert.equal(f.context.cardShortcut({ key: "0", code: "Digit0", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }), null);
-  assert.equal(vm.runInContext('CARD_SHORTCUT_DEFINITIONS.some(d => d.action === "home")', f.context), false);
+test("Command+` and Control+` do nothing on the board", () => {
+  for (const extra of [{}, { metaKey: false, ctrlKey: true }]) {
+    const { f, clicks } = homeFixture();
+    assert.equal(f.key("`", { key: "`", code: "Backquote", ...extra }).defaultPrevented, false);
+    assert.deepEqual(clicks, []);
+  }
+});
+
+test("Command+0 keeps the same guards as the project keys", () => {
+  for (const overrides of [{ pageWarn: {} }, { pageMenu: {} }, { setOpen: true }, { FOCUS: false }]) {
+    const { f, clicks } = homeFixture(overrides);
+    assert.equal(f.key("0", cmd0()).defaultPrevented, false);
+    assert.deepEqual(clicks, []);
+  }
+});
+
+test("Command+0 opens Home from a blank page too", () => {
+  const { f, clicks } = homeFixture();
+  f.context.lastState.pages = { alpha: [{ id: "blank", kind: "blank" }] };
+  f.context.curPage = () => ({ kind: "blank" });
+  assert.equal(f.key("0", cmd0()).defaultPrevented, true);
+  assert.deepEqual(clicks, ["homeico"]);
 });
