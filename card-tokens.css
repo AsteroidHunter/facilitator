@@ -1085,9 +1085,13 @@
 /* the profile's top: a square picture, as tall as the name and the email
    together, which each take half its height beside it */
 .sp-mac .setprofile{--half:52px; display:flex; align-items:stretch; gap:18px; padding:14px 0}
-.sp-mac .setpic{flex:none; box-sizing:border-box; width:calc(2 * var(--half)); height:calc(2 * var(--half));
-  border-radius:10px; overflow:hidden; background:#E4E4E4; color:#B4B4B4}
-.sp-mac .setpic svg{display:block; width:100%; height:100%}
+/* the picture is one of the onboarding mock's three marks, drawn as it drew
+   them: the mark half the picture's side on the answered bubble's grey, in the
+   ink, the type at .34 of the side for the prompt */
+.sp-mac .setpic{--av:calc(2 * var(--half)); flex:none; box-sizing:border-box; width:var(--av); height:var(--av);
+  display:grid; place-items:center; border-radius:10px; overflow:hidden; background:var(--bubble-fill); color:var(--ink)}
+.sp-mac .setpic svg{display:block; width:calc(var(--av) * .5); height:calc(var(--av) * .5)}
+.sp-mac .setmono{font:500 calc(var(--av) * .34)/1 var(--mono); white-space:pre}
 .sp-mac .setpair{flex:1; min-width:0}
 .sp-mac .setpair .setrow{box-sizing:border-box; height:var(--half); padding:0}
 .sp-mac .setprofile .setfield{flex:0 1 240px}

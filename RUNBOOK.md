@@ -200,7 +200,7 @@ An agent can open a magic box beside a card to show you a picture, a chart, a pa
 
 On the Mac board, the squid at the right end of the top bar opens the settings page over the board; the red button at its top left, Escape, or a click outside closes it. The page is plain white, about half the window's width, and fades in and out over about a quarter of a second while the board behind it dims and undims with it. A line icon stands beside each section's name, the chosen section is on a light grey, and a section's choices lie in one rounded light grey box, with no second heading over them. Its sections, in this order:
 
-- Profile: a plain square picture (nothing to click yet) as tall as the Name and Email rows together, with Name beside its upper half and Email beside its lower half, then Work, Main agent and your time zone, written out as in "Pacific Time, UTC−7". The email is the yes to feedback emails and there is no switch for it (see "Usage counts").
+- Profile: a square picture (a four-point star, a smile or a `>_` prompt, drawn at random the first time Settings asks on this Mac, then kept in the profile for good and never sent anywhere; nothing to click yet) as tall as the Name and Email rows together, with Name beside its upper half and Email beside its lower half, then Work, Main agent and your time zone, written out as in "Pacific Time, UTC−7". The email is the yes to feedback emails and there is no switch for it (see "Usage counts").
 - Appearance: the background colour, and "Cards waiting on you", which lists the cards waiting on you newest first instead of oldest first.
 - Editor: "Format text while typing", off unless you turn it on.
 - Improvements: "Share daily usage counts", on unless you turn it off (see "Usage counts").

@@ -10,7 +10,7 @@ const vm = require("node:vm");
 
 const MAC = readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 const start = MAC.indexOf("const zoneWords = zone => {");
-const end = MAC.indexOf("const showProfile", start);
+const end = MAC.indexOf("// the picture in Profile", start);
 assert.ok(start >= 0 && end > start, "zoneWords is not in the page");
 const zoneWords = vm.runInNewContext("(" + MAC.slice(start + "const zoneWords = ".length, end).trim().replace(/;$/, "") + ")", { Intl, Date });
 

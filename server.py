@@ -447,13 +447,17 @@ Endpoints:
                                onboarding and the Profile section in Settings
                                reach the same link through POST /profile
   GET  /profile             -> {name, email, emailYes, work, agent, timeZone,
-                               complete}: who uses this board, kept in
+                               picture, complete}: who uses this board, kept in
                                profile.json beside state.json, owner-only, and
                                sent nowhere unless the person said yes to
                                feedback mail (see POST). A missing or
                                unreadable file answers every field null
                                and complete false; complete
-                               is true once a name is kept. Answered to the
+                               is true once a name is kept. picture is 3, 4
+                               or 5, drawn at random by the first GET from a
+                               page on this Mac once a name is kept and then
+                               kept; null before that, and for the phone until
+                               then. It is never sent anywhere. Answered to the
                                Mac's pages and, through the bridge, to a
                                signed-in phone, which shows it in its Settings
   POST /profile             -> body = {"<field>": <value>, ...}, any of the
@@ -6991,6 +6995,11 @@ def _post_usage_email(q: Query, text: str):
 PROFILE_PATH = HERE / "profile.json"
 PROFILE_BODY_MAX = 8192
 PROFILE_TEXT_MAX = {"name": 200, "work": 2000, "agent": 100}
+# the picture the Mac's Settings page shows in Profile: one of three, by the
+# number the page draws it by, drawn by chance the first time a page on this
+# Mac asks for the profile and kept in profile.json for good. It is never set
+# by a request and never part of what the usage sender tells PostHog
+PROFILE_PICTURES = (3, 4, 5)
 TIME_ZONE_MAX = 64
 TIME_ZONE = re.compile(r"[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+){0,3}")
 PROFILE_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -7028,7 +7037,8 @@ def _profile_read() -> dict:
     unreadable or not a profile reads as an empty one, which is a board the
     onboarding has not been through; a field that does not pass its own rule
     reads as not given."""
-    rec = {"name": None, "email": None, "email_yes": False, "work": None, "agent": None, "time_zone": None}
+    rec = {"name": None, "email": None, "email_yes": False, "work": None, "agent": None, "time_zone": None,
+           "picture": None}
     try:
         raw = json.loads(PROFILE_PATH.read_text())
     except (OSError, ValueError):
@@ -7040,6 +7050,8 @@ def _profile_read() -> dict:
     rec["email"] = _clean_email(raw.get("email"))
     rec["email_yes"] = raw.get("email_yes") is True and rec["email"] is not None
     rec["time_zone"] = _clean_time_zone(raw.get("time_zone"))
+    picture = raw.get("picture")
+    rec["picture"] = picture if type(picture) is int and picture in PROFILE_PICTURES else None
     return rec
 
 
@@ -7086,7 +7098,8 @@ def _profile_write(rec: dict) -> None:
 
 def _profile_answer(rec: dict) -> dict:
     return {"name": rec["name"], "email": rec["email"], "emailYes": rec["email_yes"], "work": rec["work"],
-            "agent": rec["agent"], "timeZone": rec["time_zone"], "complete": _profile_complete(rec)}
+            "agent": rec["agent"], "timeZone": rec["time_zone"], "picture": rec["picture"],
+            "complete": _profile_complete(rec)}
 
 
 def _profile_person(rec: dict) -> dict:
@@ -7114,7 +7127,15 @@ def _profile_link(rec: dict) -> bool:
 
 def _get_profile(q: Query, _):
     with _profile_lock:
-        return 200, _profile_answer(_profile_read())
+        rec = _profile_read()
+        if q.local and rec["picture"] is None and _profile_complete(rec):
+            # the first page on this Mac to need the picture draws it, once
+            rec["picture"] = random.choice(PROFILE_PICTURES)
+            try:
+                _profile_write(rec)
+            except SaveFailed:
+                rec["picture"] = None   # not kept, so not shown as if it were
+        return 200, _profile_answer(rec)
 
 
 def _post_profile(q: Query, text: str):

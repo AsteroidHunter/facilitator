@@ -3530,7 +3530,7 @@
 <div id="setsrc" hidden>
   <div data-section="profile" data-label="Profile">
     <div class="setprofile">
-      <div class="setpic" aria-hidden="true"><svg viewBox="0 0 100 100"><circle cx="50" cy="38" r="17" fill="currentColor"/><path d="M14 100c0-22 16-36 36-36s36 14 36 36z" fill="currentColor"/></svg></div>
+      <div class="setpic" id="setpic" aria-hidden="true"></div>
       <div class="setpair">
         <div class="setrow">
           <label class="setlabel" for="setname"><span>Name</span></label>
@@ -11457,9 +11457,19 @@ function setEditMode(on){
       return name + ", " + utc;
     } catch (err) { return zone.replace(/_/g, " "); }
   };
+  // the picture in Profile: one of three drawings, by the number the board
+  // keeps with the profile (picture in GET /profile, drawn once by the board
+  // and never changed). it is only shown
+  const PICTURES = {
+    3: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 14.2 9.8 20 12 14.2 14.2 12 20 9.8 14.2 4 12 9.8 9.8Z" fill="currentColor"/></svg>',
+    4: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="8.6" cy="10" r="1.15" fill="currentColor" stroke="none"/><circle cx="15.4" cy="10" r="1.15" fill="currentColor" stroke="none"/><path d="M8 14.6c2.1 2.4 5.9 2.4 8 0"/></svg>',
+    5: '<span class="setmono">&gt;_</span>',
+  };
+  const picture = document.getElementById("setpic");
   const showProfile = (p, only) => {
     if (!p) return;
     profileKept = p;
+    if (PICTURES[p.picture]) picture.innerHTML = PICTURES[p.picture];
     for (const [key, input] of Object.entries(profileFields))
       if (!only || input === only) input.value = p[key] || "";
     timeZone.textContent = zoneWords(p.timeZone);

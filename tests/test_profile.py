@@ -163,7 +163,7 @@ class Case(unittest.TestCase):
 class File(Case):
     def test_a_missing_or_broken_file_is_a_board_the_onboarding_has_not_been_through(self):
         empty = {"name": None, "email": None, "emailYes": False, "work": None, "agent": None,
-                 "timeZone": None, "complete": False}
+                 "timeZone": None, "picture": None, "complete": False}
         self.assertEqual(self.call("GET", "/profile"), (200, empty))
         for content in ("", "not json", "[]", '"x"', "{}", '{"name": ""}', '{"name": "   "}', '{"name": 5}',
                         json.dumps({"name": "x" * 201}), json.dumps({"name": "a\x00b"})):
@@ -176,14 +176,17 @@ class File(Case):
         (self.app / "profile.json").write_text(json.dumps({
             "name": "Ada", "email": "not an address", "email_yes": True, "work": 5, "agent": "x" * 101,
             "time_zone": "Mars Base"}))
-        self.assertEqual(self.call("GET", "/profile")[1], {
+        answer = self.call("GET", "/profile")[1]
+        self.assertIn(answer.pop("picture"), S.PROFILE_PICTURES)
+        self.assertEqual(answer, {
             "name": "Ada", "email": None, "emailYes": False, "work": None, "agent": None,
             "timeZone": None, "complete": True})
 
     def test_it_is_written_whole_owner_only_beside_the_state_and_kept_from_git(self):
         self.assertEqual(self.call("POST", "/profile", ANSWERS)[0], 200)
         self.assertEqual(self.kept(), {"name": "Ada Lovelace", "email": EMAIL, "email_yes": True,
-                                       "work": ANSWERS["work"], "agent": "Claude Code", "time_zone": "Europe/London"})
+                                       "work": ANSWERS["work"], "agent": "Claude Code", "time_zone": "Europe/London",
+                                       "picture": None})
         self.assertEqual((self.app / "profile.json").stat().st_mode & 0o777, 0o600)
         self.assertFalse((self.app / "profile.json.tmp").exists())
         self.assertEqual(S.HERE / "profile.json", ROOT / "profile.json")
@@ -258,6 +261,62 @@ class Routes(Case):
     def test_the_endpoint_list_names_the_routes(self):
         for line in ("GET  /profile", "POST /profile", "GET  /onboarding", "POST /onboarding/sample"):
             self.assertIn(line, S.__doc__)
+
+
+class Picture(Case):
+    """The picture Settings, Profile shows on the Mac: one of three, drawn by
+    chance the first time a page on this Mac asks, kept in profile.json."""
+
+    def test_one_of_the_three_is_drawn_once_and_kept_for_good(self):
+        self.call("POST", "/profile", ANSWERS)
+        self.assertIsNone(self.kept()["picture"], "drawn before any page needed it")
+        first = self.call("GET", "/profile")[1]["picture"]
+        self.assertIn(first, (3, 4, 5))
+        self.assertEqual(S.PROFILE_PICTURES, (3, 4, 5))
+        self.assertEqual(self.kept()["picture"], first)
+        for _ in range(30):
+            self.assertEqual(self.call("GET", "/profile")[1]["picture"], first)
+        # a restart reads it back from the file, and a change to the profile keeps it
+        self.assertEqual(S._profile_read()["picture"], first)
+        self.call("POST", "/profile", {"name": "Ada Byron", "email": ""})
+        self.assertEqual(self.kept()["picture"], first)
+        self.assertEqual(self.call("GET", "/profile")[1]["picture"], first)
+
+    def test_each_of_the_three_can_come_up(self):
+        seen = set()
+        for pick in (3, 4, 5):
+            (self.app / "profile.json").unlink(missing_ok=True)
+            self.call("POST", "/profile", ANSWERS)
+            with mock.patch.object(S.random, "choice", lambda seq, pick=pick: pick):
+                seen.add(self.call("GET", "/profile")[1]["picture"])
+        self.assertEqual(seen, {3, 4, 5})
+
+    def test_nothing_is_drawn_without_a_name_or_for_the_phone(self):
+        self.assertIsNone(self.call("GET", "/profile")[1]["picture"])
+        self.assertFalse((self.app / "profile.json").exists())
+        self.call("POST", "/profile", ANSWERS)
+        self.assertIsNone(self.call("GET", "/profile", port=S.BRIDGE_PORT)[1]["picture"])
+        self.assertIsNone(self.kept()["picture"])
+
+    def test_a_request_cannot_set_it_and_a_stored_one_that_is_not_one_of_the_three_is_ignored(self):
+        self.call("POST", "/profile", ANSWERS)
+        for value in (3, 1, "3", None):
+            self.assertEqual(self.call("POST", "/profile", {"picture": value}), (400, {"error": "bad profile"}))
+        self.assertIsNone(self.kept()["picture"])
+        for stored in (1, 2, 6, True, "3", 4.0, None):
+            (self.app / "profile.json").write_text(json.dumps({"name": "Ada", "picture": stored}))
+            if stored is not None:
+                self.assertIsNone(S._profile_read()["picture"], repr(stored))
+
+    def test_it_is_not_part_of_what_goes_to_posthog(self):
+        self.sender()
+        self.call("POST", "/profile", ANSWERS)
+        picture = self.call("GET", "/profile")[1]["picture"]
+        self.assertIn(picture, (3, 4, 5))
+        self.call("POST", "/profile", {"work": "Something else"})
+        self.assertNotIn("picture", S._profile_person(S._profile_read()))
+        self.assertTrue(self.net.bodies, "nothing was sent at all, so this proves nothing")
+        self.assertNotIn("picture", json.dumps(self.net.bodies))
 
 
 class Gate(Case):
