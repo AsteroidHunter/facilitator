@@ -87,6 +87,43 @@ test("closing hides the box and keeps it; reopening shows it again", async () =>
   assert.deepEqual(Object.keys(described.body).sort(), ["box", "kind", "open", "rev", "shown", "title", "ts"]);
 });
 
+test("a box's lines are chosen once as it opens and kept with it; each new box gets another than the box before it", async () => {
+  const close = id => fetch(`${board.origin}/magic/close?box=${encodeURIComponent(id)}`, { method: "POST" });
+  const lines = async id => (await card(id)).magic.lines;
+  // a fill that opens a closed or empty box chooses; one of the three
+  await close("0");
+  await open("0", "text", "a new box");
+  const chosen = await lines("0");
+  assert.ok([0, 1, 2].includes(chosen), "lines " + chosen);
+  // the agent's next revisions, a close and a reopen keep them
+  await open("0", "markdown", "revised");
+  await open("0", "html", "<p>revised again</p>");
+  assert.equal(await lines("0"), chosen);
+  await close("0");
+  assert.equal(await lines("0"), chosen, "a closed box keeps its lines");
+  await fetch(`${board.origin}/magic/reopen?box=0`, { method: "POST" });
+  assert.equal(await lines("0"), chosen);
+  // and a restart
+  await board.restart();
+  assert.equal(await lines("0"), chosen);
+  // new boxes, on one card and another of its own: never the previous new box's
+  const other = (await (await fetch(`${board.origin}/create?owner=facilitator`, { method: "POST", body: "" })).json()).id;
+  const seen = [chosen];
+  for (let i = 0; i < 12; i++) {
+    const id = i % 2 ? other : "0";
+    await close(id);
+    await open(id, "text", "new box " + i);
+    seen.push(await lines(id));
+  }
+  for (let i = 1; i < seen.length; i++) assert.notEqual(seen[i], seen[i - 1], "the same lines twice in a row: " + seen);
+  for (const k of [0, 1, 2]) assert.ok(seen.includes(k), "never " + k + ": " + seen);
+  await close(other);
+  await fetch(`${board.origin}/close?box=${other}`, { method: "POST" });
+  // an agent reading its box back is not told
+  const described = await json(await fetch(`${board.origin}/magic?box=0`));
+  assert.ok(!("lines" in described.body));
+});
+
 test("what is wrong is refused and nothing is kept for it", async () => {
   const before = await card("0");
   const refusals = [

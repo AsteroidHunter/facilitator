@@ -7248,12 +7248,14 @@ function magicView(el, hooks = {}){
   if (sized) sized.observe(view.body);
   // everything in it gone, so a frame that was showing stops running
   view.clear = () => {
-    view.url = ""; view.page = null; view.natural = null; view.fade = null;
+    view.url = ""; view.page = null; view.natural = null; view.fade = null; view.known = false;
     delete view.body.dataset.kind;
     view.body.textContent = "";
     bands();
   };
-  view.draw = box => {
+  // seen: a picture the page has already fetched and read, {src, natural}, so
+  // the box is sized and shown at once rather than when the picture arrives
+  view.draw = (box, seen) => {
     view.clear();
     view.url = box.kind === "url" ? box.url || "" : "";
     view.body.dataset.kind = box.kind;
@@ -7270,8 +7272,9 @@ function magicView(el, hooks = {}){
       const img = h("img", "mbimg");
       img.alt = box.title || "";
       img.addEventListener("load", placed);
-      img.src = box.src;
+      img.src = seen && seen.src || box.src;
       view.body.appendChild(img);
+      if (seen && seen.natural){ view.natural = seen.natural; view.known = true; return; }
       // the box takes the picture's own shape, read off a copy of it that is
       // never laid out: a drawing (SVG) on the page answers with the size it is
       // drawn at, which would hold the box at whatever size it last had. a
@@ -7337,7 +7340,10 @@ function magicView(el, hooks = {}){
     view.body.append(frame, h("div", "mbcover"));
   };
   // hooks.sized: the page also says its own height, the word, a space and the
-  // height in its pixels (MagicBox.pageDoc), and the box is sized to it
+  // height in its pixels (MagicBox.pageDoc), and the box is sized to it.
+  // hooks.heard(height, width) is told each height it says and the width it
+  // was laid out at, and hooks.pageHeight(width) answers with a height already
+  // known for the page at a width, which the box takes at once (view.want)
   const PAGE_WAIT = 1000;
   addEventListener("message", e => {
     const run = view.page;
@@ -7345,6 +7351,7 @@ function magicView(el, hooks = {}){
     if (e.data === run.word) run.said++;
     else if (hooks.sized && e.data.startsWith(run.word + " ")){
       const tall = Math.ceil(+e.data.slice(run.word.length + 1));
+      if (tall > 0 && hooks.heard) hooks.heard(tall, run.frame.clientWidth);
       if (tall > 0 && tall !== run.height){ run.height = tall; placed(); }
     }
   });
@@ -7366,8 +7373,14 @@ function magicView(el, hooks = {}){
       return w && h ? { width: w / scale + edges, height: h / scale + edges, head } : null;
     }
     if (view.body.querySelector(".mbaway")) return { height: room.width };
-    // an agent's page that has said its height, laid out at the box's width
-    if (kind === "html") return hooks.sized && view.page && view.page.height ? { height: view.page.height + edges + head } : null;
+    // an agent's page that has said its height, laid out at the box's width,
+    // or whose height at that width is already known
+    if (kind === "html"){
+      const run = view.page;
+      if (!hooks.sized || !run) return null;
+      if (!run.height && hooks.pageHeight) run.height = hooks.pageHeight(room.width - edges) || 0;
+      return run.height ? { height: run.height + edges + head } : null;
+    }
     const words = view.body.querySelector(".mbtext");
     if (!words) return null;
     el.style.width = room.width + "px";
@@ -7375,12 +7388,13 @@ function magicView(el, hooks = {}){
   };
   // a picture still on its way, or a page that has not yet said its height on
   // a board that sizes the box to it: the box is kept hidden, so it never
-  // shows at the wrong size first
+  // shows at the wrong size first. a picture whose size is already known
+  // (seen) is shown at once
   view.waiting = () => {
     const run = view.page;
     if (hooks.sized && run && view.body.dataset.kind === "html" && !run.height && Date.now() - run.since < PAGE_WAIT) return true;
     const img = view.body.dataset.kind === "image" && view.body.querySelector(".mbimg");
-    return !!img && (!img.complete || !view.natural);
+    return !!img && (!view.natural || !img.complete && !view.known);
   };
   return view;
 }
