@@ -354,3 +354,75 @@ test("the house, the pill and the right-hand circles keep their places: no plus,
   const css = html.slice(html.indexOf("/* ---- the bar's glass"), html.indexOf("/* ---- new-project tab"));
   assert.doesNotMatch(css, /--accent|#432BFF/i);
 });
+
+// ---- round 2 (20261010): the owner's five notes ------------------------------
+const sheet = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
+const tokens = readFileSync(path.join(root, "card-tokens.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+// the last rule written for exactly this selector (the settings sheet says .sp-veil.open twice; the later one dims)
+const rule = (text, selector) => {
+  const at = text.lastIndexOf("\n  " + selector + "{") >= 0 ? text.lastIndexOf("\n  " + selector + "{") + 3 : text.lastIndexOf("\n" + selector + "{") + 1;
+  assert.ok(at > 0, selector + " has no rule");
+  return text.slice(at + selector.length + 1, text.indexOf("}", at)).replace(/\s+/g, " ").trim();
+};
+const decl = (block, property) => (block.match(new RegExp("(?:^|[;\\s])" + property + ":([^;]+)")) || [])[1]?.trim();
+
+test("nothing below the bar clips its glass's shadows: only the root keeps the page from scrolling", () => {
+  assert.match(sheet, /html:has\(body\.focus\)\{overflow:hidden\}/);
+  assert.doesNotMatch(sheet, /body\.focus\s*(,[^{]*)?\{[^}]*overflow:\s*(hidden|clip)/, "the body clips the bar's shadows at its foot again");
+  assert.doesNotMatch(sheet, /body\.focus \.bar\{[^}]*overflow/);
+});
+
+test("the pill is the name alone and the list's rows have no check mark", () => {
+  const pill = html.match(/<button id="projpill"[^>]*>([\s\S]*?)<\/button>/)[1];
+  assert.equal(pill, '<span id="projname"></span>', "the pill carries more than its name");
+  const list = html.slice(html.indexOf('<div id="projmenu"'), html.indexOf("</div>\n", html.indexOf('<div id="projsep"')) + 20);
+  assert.doesNotMatch(list, /<svg/, "the list carries a mark");
+  assert.doesNotMatch(html, /PROJ_CHECK|pcheck|class="pmark"|"pmark"/);
+  // the open project's row still says so, to assistive tech only
+  const f = fixture();
+  assert.equal(f.row("marlow").attributes["aria-current"], "true");
+  assert.equal(f.row("marlow").children.length, 2, "the open row holds more than its name and its cross");
+});
+
+test("project names are one step larger, 14px, in the pill, the faint names and the list alike", () => {
+  for (const selector of ["body.focus #projpill", "body.focus #tabbar .psug", "#projmenu .projrow"])
+    assert.equal(decl(rule(sheet, selector), "font"), "500 14px/17px var(--sans)", selector);
+  // and the row stays 32px high
+  assert.equal(decl(rule(sheet, "body.focus #projpill"), "height"), "32px");
+  assert.equal(decl(rule(sheet, "body.focus #tabbar .psug"), "height"), "32px");
+});
+
+test("the open list dims the board exactly as the settings page does, and the dim fades away on close", () => {
+  const shut = rule(sheet, "body.focus #projshade"), open = rule(sheet, "body.focus.projopen #projshade");
+  const veil = rule(tokens, ".sp-veil"), veilOpen = rule(tokens, ".sp-veil.open");
+  const strength = decl(veil, "--qn-veil");
+  assert.equal(strength, "24%");
+  // the same colour and strength, open and shut
+  assert.equal(decl(open, "background-color"), decl(veilOpen, "background-color").replace("var(--qn-veil)", strength));
+  assert.equal(decl(shut, "background-color"), decl(veil, "background-color"));
+  // the same fade, in and out, and hidden from the pointer once it has faded out
+  assert.equal(decl(shut, "transition"), decl(veil, "transition"));
+  assert.equal(decl(open, "transition"), decl(veilOpen, "transition"));
+  for (const [a, b] of [[shut, veil], [open, veilOpen]]) {
+    assert.equal(decl(a, "visibility"), decl(b, "visibility")); assert.equal(decl(a, "pointer-events"), decl(b, "pointer-events"));
+  }
+  // over the whole window and the bar, under the list
+  assert.equal(decl(shut, "position"), "fixed"); assert.equal(decl(shut, "inset"), "0");
+  assert.equal(Number(decl(shut, "z-index")), Number(decl(rule(sheet, "body.focus #projmenu"), "z-index")) - 1);
+  assert.ok(Number(decl(shut, "z-index")) > 10, "the bar is not under the dim");
+  assert.ok(html.indexOf('<div id="projshade"></div>') < html.indexOf('<div id="projmenu"'));
+  // a press on the dim shuts the list (the capture listener: a press outside the list and the pill)
+  const f = fixture(); f.open();
+  f.doc("pointerdown", { target: { nodeType: 1 } }); assert.equal(f.isOpen(), false);
+});
+
+test("the list's top edge is one line: it wears the bar's rim, not the glass's doubled top", () => {
+  assert.match(sheet, /body\.focus :is\(\.bar \.qn-glass, #projmenu\)\{\s*box-shadow:/);
+  const rim = sheet.slice(sheet.indexOf("body.focus :is(.bar .qn-glass, #projmenu){"));
+  const stack = rim.slice(0, rim.indexOf("}"));
+  assert.doesNotMatch(stack, /inset 0 1px 0 rgba\(255,255,255/, "the white first row over the ring");
+  assert.doesNotMatch(stack, /inset 0 2px 0 rgba\(0,0,0/, "the dark band a row inside the ring");
+  assert.match(stack, /inset 0 0 0 1px var\(--qn-ring\)/);
+  // and that rule outranks the glass's own (an id beats the class)
+  assert.match(tokens, /\.qn-glass\{\s*border:none;[^}]*inset 0 2px 0 rgba\(0,0,0,\.045\)/);
+});
