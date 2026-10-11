@@ -1143,7 +1143,8 @@
      the list, which comes in from the left. the box
      hangs from the drawer's top at its own size (MagicBox.fit), so the card
      goes down only as far as it needs, as it does for a short section. like
-     the list, it paints no panel and casts no shadow of its own.
+     the list, the drawer paints no panel and casts no shadow of its own; the
+     box does (below).
      its bar stands at its top with the cross at its right, as on the board,
      and its lengths are the page's own, scaled as the card's are. its lead
      puts the first line's capitals 17px under the bar's line, as the card's
@@ -1151,6 +1152,18 @@
   #mbface{display:none; --mb-inset:calc(16 * var(--u));
     --mb-x:calc(20 * var(--u)); --mb-gap:calc(5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u));
     --mb-lead:calc(11.5 * var(--u))}
+  /* the box is dressed as the board's is (#magicbox, index.html): the card's
+     white face, its edge line and 7px corners, and its shadow, here the lighter
+     one the board's box wears while its card is the one being worked in, which
+     on the phone is always (the box is read, never typed into). its bar is white
+     with no line under it, and its words keep the card answer's inset off its
+     sides. a lowered card (body.lowered main) leaves its box level too. no line
+     runs between the box and the card */
+  #mbface{background:var(--card); border:var(--edge) solid var(--line); border-radius:calc(7 * var(--u));
+    box-shadow:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)}
+  body.lowered #mbface{box-shadow:none}
+  #mbface .mbbar::after{display:none}
+  #mbface .mbtext{padding:var(--mb-lead) var(--mb-inset) var(--mb-inset)}
   #tickets.boxface > #tikhead, #tickets.boxface > #tiklist{display:none}
   #tickets.boxface > #mbface{display:flex; flex:none; align-self:center}
   /* while the drawer changes face (drawerSwapFace) both faces are on show and
@@ -7624,19 +7637,12 @@ function phoneMagicFit(){
   if (tickets.classList.contains("boxface")) fitList();
 }
 addEventListener("resize", () => phoneMagicFit());
-// how far down the box what it shows reaches, from the box's top: the foot of
-// the words' last line, or the foot of the window they scroll in when they
-// run on past it, or the box's own foot for a picture, a page or a site. the
-// white the box keeps under its words is its own, and the card may stand over
-// it (listSlack, below), as the window it is seen through ends at the card
+// how far down the box reaches, from the box's top: its own foot, the bottom
+// edge it is drawn with, whatever it holds. the box has an edge line, so the
+// white it keeps under its words is drawn and the card may not stand over it
+// (listSlack, below)
 function phoneMagicFoot(){
-  const box = PB.el.getBoundingClientRect(), body = PB.view.body;
-  if (!box.height) return PB.el.offsetHeight;
-  const k = PB.el.offsetHeight / box.height;   // a scale the page is drawn at, undone
-  const words = body.querySelector(".mbtext");
-  if (words && body.scrollHeight <= body.clientHeight + 1)
-    return (words.getBoundingClientRect().bottom - box.top) * k - (parseFloat(getComputedStyle(words).paddingBottom) || 0);
-  return (body.getBoundingClientRect().bottom - box.top) * k;
+  return PB.el.offsetHeight;
 }
 // the cross: the drawer goes back and the box is put away, as the board's
 // cross does; what it held is kept, and the card's agent brings it back by
@@ -7818,7 +7824,7 @@ function drawerSwapFirstFrame(playing){
 // reading, every card put on show or taken off it, the cards button, which
 // always brings the list, the drawer's drop, and the two drawer keys, with the
 // drawers shut and with one out. out for the box, the drop leaves the card as
-// far under what the box shows (phoneMagicFoot) as the list leaves it under
+// far under the box's bottom edge (phoneMagicFoot) as the list leaves it under
 // the list's own foot: the drawer's spare under that, and the list's air
 // (--list-air, by which the list reaches past the drawer's foot) given back
 {
@@ -7833,16 +7839,17 @@ function drawerSwapFirstFrame(playing){
     keys.boxDrawer = e => drawerKey(e, true);
   }
   // the drawer's gaps, for the card list and the box alike: above, from the
-  // foot of the notch (or the island) to the first thing the drawer draws, the
-  // drawers having no edge of their own to see (DRAWN_TOP); below, from the foot
-  // of what it shows to the card's top. the card list is placed first: the card
+  // foot of the notch (or the island) to the first thing the drawer draws (the
+  // list has no edge of its own to see, so its first mark; the box has one, so
+  // its top edge: DRAWN_TOP); below, from the foot of what it shows (the box's
+  // bottom edge) to the card's top. the card list is placed first: the card
   // is where its drop puts it, so the list goes up by half the difference of its
   // two gaps and they are equal, both A (--tik-lift, taken from the transform
   // with the drop; the drawer keeps its size). the box then takes the list's
-  // place, not its own: its first mark starts at the height the list's does,
+  // place, not its own: its top edge stands at the height the list's first mark does,
   // whatever the list is showing (read with the list put back in place for an
   // instant, as the swap does, with nothing drawn between), and the card's drop
-  // leaves A under what the box shows, so the two faces have one top and one gap
+  // leaves A under the box's bottom edge, so the two faces have one top and one gap
   // above and below. the card goes down no further than the room, as before, so
   // a box tall enough to need more stops the card short of A: the gap below is
   // what is left. a web page cannot see the notch, only the safe area, which ends at the status bar's
@@ -7855,9 +7862,10 @@ function drawerSwapFirstFrame(playing){
   const NOTCH_GAP = 12;
   // how far under the drawer's top its first mark starts, in the page's px as it
   // is laid out (the same on every phone): the top of "Doing" and the section
-  // arrows for the list, the top of the cross in its bar for the box, read off
-  // the screens of both phones (14.86 and 14.88, 10.16 and 10.03)
-  const DRAWN_TOP = { list: 14.9, box: 10.1 };
+  // arrows for the list (read off the screens of both phones, 14.86 and 14.88),
+  // and for the box its own top edge, drawn from the box's top, so nothing
+  // under it: the box's edge line is the first mark it draws
+  const DRAWN_TOP = { list: 14.9, box: 0 };
   let notchProbe = null;
   const notchFoot = () => {
     if (!notchProbe){
@@ -7883,7 +7891,7 @@ function drawerSwapFirstFrame(playing){
     return { foot, spare };
   };
   // where the drawer stands with the face it has: its lift, and for the box the
-  // spare room under its words that puts the card's top A under them (listSlack)
+  // spare room under its bottom edge that puts the card's top A under it (listSlack)
   const place = () => {
     const box = tickets.classList.contains("boxface");
     const at = page.getBoundingClientRect().top, px = (el, name) => parseFloat(getComputedStyle(el)[name]) || 0;

@@ -7,12 +7,13 @@
 // largest box, a picture in its own shape and never past its own size, words
 // at their own height, hung from that box's top, under a top bar that keeps
 // its height. Its look, read from the page's source: on the Mac the card's own
-// face, corners and shadow but no edge line, under a white bar with no line
-// under it; on the phone no box at all, a short bar parted from what it shows
-// by the ticket list's own line; one cross, and a site that will not be framed
+// face, edge line, corners and shadow, under a white bar with no line under it;
+// on the phone the same face, edge and corners with the lighter shadow, the
+// same white bar, and its drawn top and bottom edges as the drawer's gaps;
+// one cross, and a site that will not be framed
 // as a square with its name in the middle; on the Mac whichever of the card
 // and the box is held stands up and the other settles, and a box beside a
-// lowered card sits level with it. And the page's wiring: the box is never one
+// lowered card sits level with it, on the phone too. And the page's wiring: the box is never one
 // of the regions the fit, the layout or edit mode work on, a click or the focus
 // says which of the two is held, and a page in the box never takes the keys by
 // itself. People and agents know it as the magic box, `facilitator magic`.
@@ -774,14 +775,32 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   assert.deepEqual(shading, ["#magicbox", "#magicbox.held", "#magicbox.rising", "#magicbox.rising.held"], "the box's shadows");
   for (const s of shading) assert.ok(heavier(weight(level[1]), weight(s)) > 0, level[1] + " does not outweigh " + s);
   assert.ok(html.includes("  body.focus.lowered main{box-shadow:none}"));
-  // the phone wears no box: no rule for #mbface or the shared sheet gives it a face, edge or shadow
+  // the shared sheet dresses no box: each page does its own
   const sheet = code(boxBlock());
   assert.ok(!/box-shadow|\.held/.test(sheet), "the shared sheet shades the box");
   assert.ok(!/\.magicbox\{[^}]*(background|border)/.test(sheet.replace(/\s+/g, " ")), "the shared sheet dresses the box");
+  // the phone's box is dressed as the board's: the card's white face, edge line and 7px
+  // corners (in the phone's units, as its card is), and the board's lighter shadow
+  const sty = code(phone.slice(0, phone.indexOf("</style>")));
+  const dress = sty.match(/\n  #mbface\{background:var\(--card\); ([^}]*)\}/);
+  assert.ok(dress, "the phone's box has no face");
+  assert.match(dress[1], /^border:var\(--edge\) solid var\(--line\); border-radius:calc\(7 \* var\(--u\)\);\s*box-shadow:0 2px 18px rgba\(60,45,20,\.10\), 0 1px 3px rgba\(60,45,20,\.05\)$/);
+  assert.ok(style.includes("--shade-lighter:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)"), "the board's lighter shadow is not the one the phone wears");
+  assert.ok(!/outline/.test(dress[1]));
+  // the only edge any phone rule draws on the box, and the white bar without its line
   const subjects = selectors => selectors.split(",").map(s => s.trim().split(/\s+/).pop());
-  const own = [...code(phone.slice(0, phone.indexOf("</style>"))).matchAll(/([^{}]*)\{([^}]*)\}/g)]
-    .filter(m => /box-shadow|border|background/.test(m[2]) && subjects(m[1]).some(s => /^(#mbface|\.magicbox)\b/.test(s)));
-  assert.deepEqual(own.map(m => m[1].trim()), [], "the phone dresses its box itself");
+  const own = [...sty.matchAll(/([^{}]*)\{([^}]*)\}/g)].filter(m => /box-shadow|border|background/.test(m[2]) && /^\s*(body\.lowered )?#mbface\s*$/.test(m[1]));
+  assert.deepEqual(own.map(m => m[1].trim()), ["#mbface", "body.lowered #mbface"], "the phone dresses its box in these two rules");
+  assert.ok((own[0][2].match(/border(?!-radius)[\w-]*:/g) || []).length === 1, "one edge");
+  assert.match(sty, /\n  #mbface \.mbbar::after\{display:none\}/, "no line under the bar");
+  // its words keep the card answer's inset off its sides, as the board's do
+  assert.match(sty, /\n  #mbface \.mbtext\{padding:var\(--mb-lead\) var\(--mb-inset\) var\(--mb-inset\)\}/);
+  // a lowered card's box sits level on the phone too, and outweighs the shadow it takes off
+  assert.match(sty, /\n  body\.lowered #mbface\{box-shadow:none\}/);
+  assert.ok(heavier(weight("body.lowered #mbface"), weight("#mbface")) > 0);
+  assert.ok(sty.includes("  body.lowered main{box-shadow:none}"));
+  // no line is drawn between the card and the box on the phone
+  assert.ok(!/mblines|mbtabs/.test(phone), "the phone draws lines between its card and its box");
   assert.match(phone, /<section id="mbface" class="magicbox" aria-label="magic box">/);
 });
 
@@ -1004,7 +1023,7 @@ function phoneBoxScript(page) {
     addEventListener: (type, fn, opts) => { (listeners[type] = listeners[type] || []).push({ fn, opts }); },
   };
   vm.runInContext(src, vm.createContext(ctx));
-  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners, body, pageEl, notch };
+  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners, body, pageEl, notch, box };
 }
 
 test("on the phone the box comes down in the card list's own drawer, from the right, pulled the other way from the list", () => {
@@ -1031,18 +1050,18 @@ test("on the phone the box comes down in the card list's own drawer, from the ri
   assert.ok(listeners.touchstart.every(l => l.opts.capture === true), "the face is chosen before the drawer's own gesture");
   touch(400);
   assert.ok(classes.has("boxface") && tickets.dataset.side === "right", "a right-edge pull on a card with a box");
-  // the card goes down only as far as the box's words need, and stands A under
-  // their last line (81, less their own 16px of white), as it stands A under the
-  // list's foot. here, with nothing drawn and the notch at 0: the list's first mark
-  // (14.9 under the drawer's top) is A = 14.9 under it, and the box, whose own mark
-  // is 10.1 under its top, is moved down 4.8 to the list's. what the drawer spares
-  // under that is the room (400) less the card's drop
-  const under = foot => 400 - (foot + 14.9 + (14.9 - 10.1));
-  assert.ok(Math.abs(ctx.listSlack() - under(81 - 16)) < 1e-9, "the card goes down only as far as the box's words need");
-  // words that run on scroll in a window that ends 8px over the box's foot, and
-  // the card stands as far under that window as under the list
+  // the card goes down only as far as the box needs, and stands A under its
+  // bottom edge (89), as it stands A under the list's foot. here, with nothing
+  // drawn and the notch at 0: the list's first mark (14.9 under the drawer's top)
+  // is A = 14.9 under it, and the box, whose own first mark is its top edge, is
+  // moved down 14.9 to the list's. what the drawer spares under that is the room
+  // (400) less the card's drop
+  const under = foot => 400 - (foot + 14.9 + (14.9 - 0));
+  assert.ok(Math.abs(ctx.listSlack() - under(89)) < 1e-9, "the card goes down only as far as the box's bottom edge needs");
+  // words that run on scroll in a window inside the box change nothing: the
+  // card stands as far under the box's edge as under the list
   body.scrollHeight = 600;
-  assert.ok(Math.abs(ctx.listSlack() - under(81)) < 1e-9, "the card stands under the window the words scroll in");
+  assert.ok(Math.abs(ctx.listSlack() - under(89)) < 1e-9, "the card stands under the box's edge, not the window the words scroll in");
   body.scrollHeight = 60;
   touch(2);
   assert.ok(!classes.has("boxface") && tickets.dataset.side === "left", "the left edge brings the list");
@@ -1241,7 +1260,7 @@ test("people and agents know it as the magic box: the pages' labels, the command
 });
 
 test("both faces start at one height, with one gap above and below: the list is lifted by half its difference, the box follows", () => {
-  const { ctx, tickets, pageEl, notch, body } = phoneBoxScript(read("m.html"));
+  const { ctx, tickets, pageEl, notch, box } = phoneBoxScript(read("m.html"));
   const lift = () => { ctx.fitList(true); return tickets.style["--tik-lift"]; };
   // the page's top 0 and padding 40, the room 400, the drawer's top at 50, the notch's foot at 30;
   // the list's last ticket ends 360 under the drawer's top with 7 spare under it, so the card
@@ -1254,16 +1273,20 @@ test("both faces start at one height, with one gap above and below: the list is 
   ticketsEnd = 100;
   assert.equal(lift(), "0.00px", "a list already nearer the notch than the card is not lowered");
   ticketsEnd = 360;
-  // the box takes the list's place: its mark (10.1 under its top) at the list's, so it is 4.8
-  // lower in its own terms, 5.95 - 4.8 of lift. its words end 65 under its top and the card
-  // stands A = 28.95 under them: a drop of 50 - 1.15 + 65 + 28.95 - 40, the spare 400 less that
+  // the box takes the list's place: its top edge (the first mark it draws, 0 under its top) at
+  // the list's mark, so it is 14.9 lower in its own terms, 5.95 - 14.9 of lift. its bottom edge
+  // is 89 under its top (its drawn foot, the white under its words included) and the card
+  // stands A = 28.95 under that: a drop of 50 + 8.95 + 89 + 28.95 - 40, the spare 400 less that
   ctx.drawerFace(true);
-  assert.equal(lift(), "1.15px");
-  const marks = { list: 50 + 14.9 - 5.95, box: 50 + 10.1 - 1.15 };
+  assert.equal(lift(), "-8.95px");
+  const marks = { list: 50 + 14.9 - 5.95, box: 50 + 0 + 8.95 };
   assert.ok(Math.abs(marks.list - marks.box) < 1e-9, "one top for both faces");
-  assert.ok(Math.abs(ctx.listSlack() - (400 - (50 - 1.15 + 65 + 28.95 - 40))) < 1e-9, "the card stands A under the box's words");
+  assert.ok(Math.abs(ctx.listSlack() - (400 - (50 + 8.95 + 89 + 28.95 - 40))) < 1e-9, "the card stands A under the box's bottom edge");
+  // whatever the words do inside it, the foot is the box's: a scrolling body changes nothing
+  box.offsetHeight = 300;
+  assert.ok(Math.abs(ctx.listSlack() - (400 - (50 + 8.95 + 300 + 28.95 - 40))) < 1e-9, "the box's own foot, not its words'");
   // a box tall enough to need the card further down than the room allows stops it there
-  body.scrollHeight = 600; body.getBoundingClientRect = () => ({ bottom: 380 });
+  box.offsetHeight = 433;
   assert.equal(ctx.listSlack(), 0, "the card goes down no further than the room, as before");
   const page = read("m.html");
   assert.equal((page.match(/\(var\(--list-drop, 0px\) \+ var\(--tik-lift, 0px\)\)/g) || []).length, 2, "both sides' transforms carry the lift");
