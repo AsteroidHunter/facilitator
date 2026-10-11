@@ -466,11 +466,13 @@ Endpoints:
                                feedback mail (see POST). A missing or
                                unreadable file answers every field null
                                and complete false; complete
-                               is true once a name is kept. picture is 3, 4
-                               or 5, drawn at random by the first GET from a
-                               page on this Mac once a name is kept and then
-                               kept; null before that, and for the phone until
-                               then. It is never sent anywhere. Answered to the
+                               is true once a name is kept. picture is a
+                               number from 19 to 30, drawn at random by the
+                               first GET from a page on this Mac once a name
+                               is kept (and again, once, for a kept 3 to 5 of
+                               the earlier set) and then kept; null before
+                               that, and for the phone until then. It is
+                               never sent anywhere. Answered to the
                                Mac's pages and, through the bridge, to a
                                signed-in phone, which shows it in its Settings
   POST /profile             -> body = {"<field>": <value>, ...}, any of the
@@ -7152,11 +7154,13 @@ def _post_usage_email(q: Query, text: str):
 PROFILE_PATH = HERE / "profile.json"
 PROFILE_BODY_MAX = 8192
 PROFILE_TEXT_MAX = {"name": 200, "work": 2000, "agent": 100}
-# the picture the Mac's Settings page shows in Profile: one of three, by the
-# number the page draws it by, drawn by chance the first time a page on this
-# Mac asks for the profile and kept in profile.json for good. It is never set
-# by a request and never part of what the usage sender tells PostHog
-PROFILE_PICTURES = (3, 4, 5)
+# the picture the Mac's Settings page shows in Profile: one of twelve, by the
+# number the page draws it by (19 to 30), drawn by chance the first time a page
+# on this Mac asks for the profile and kept in profile.json for good. A kept
+# number outside the twelve (the earlier set, 3 to 5) reads as none, so the next
+# such ask draws afresh from these. It is never set by a request and never part
+# of what the usage sender tells PostHog
+PROFILE_PICTURES = tuple(range(19, 31))
 TIME_ZONE_MAX = 64
 TIME_ZONE = re.compile(r"[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+){0,3}")
 PROFILE_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")

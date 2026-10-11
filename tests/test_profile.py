@@ -264,15 +264,17 @@ class Routes(Case):
 
 
 class Picture(Case):
-    """The picture Settings, Profile shows on the Mac: one of three, drawn by
-    chance the first time a page on this Mac asks, kept in profile.json."""
+    """The picture Settings, Profile shows on the Mac: one of twelve (19 to 30),
+    drawn by chance the first time a page on this Mac asks, kept in profile.json."""
 
-    def test_one_of_the_three_is_drawn_once_and_kept_for_good(self):
+    TWELVE = tuple(range(19, 31))
+
+    def test_one_of_the_twelve_is_drawn_once_and_kept_for_good(self):
         self.call("POST", "/profile", ANSWERS)
         self.assertIsNone(self.kept()["picture"], "drawn before any page needed it")
         first = self.call("GET", "/profile")[1]["picture"]
-        self.assertIn(first, (3, 4, 5))
-        self.assertEqual(S.PROFILE_PICTURES, (3, 4, 5))
+        self.assertIn(first, self.TWELVE)
+        self.assertEqual(S.PROFILE_PICTURES, self.TWELVE)
         self.assertEqual(self.kept()["picture"], first)
         for _ in range(30):
             self.assertEqual(self.call("GET", "/profile")[1]["picture"], first)
@@ -282,14 +284,32 @@ class Picture(Case):
         self.assertEqual(self.kept()["picture"], first)
         self.assertEqual(self.call("GET", "/profile")[1]["picture"], first)
 
-    def test_each_of_the_three_can_come_up(self):
+    def test_each_of_the_twelve_can_come_up_and_none_of_the_old_three_can(self):
         seen = set()
-        for pick in (3, 4, 5):
+        for pick in self.TWELVE:
             (self.app / "profile.json").unlink(missing_ok=True)
             self.call("POST", "/profile", ANSWERS)
             with mock.patch.object(S.random, "choice", lambda seq, pick=pick: pick):
                 seen.add(self.call("GET", "/profile")[1]["picture"])
-        self.assertEqual(seen, {3, 4, 5})
+        self.assertEqual(seen, set(self.TWELVE))
+        for _ in range(200):   # the real draw, over many boards
+            (self.app / "profile.json").unlink(missing_ok=True)
+            self.call("POST", "/profile", ANSWERS)
+            self.assertNotIn(self.call("GET", "/profile")[1]["picture"], (3, 4, 5))
+
+    def test_a_profile_that_holds_one_of_the_old_three_is_drawn_afresh_once_and_then_keeps_it(self):
+        for old in (3, 4, 5):
+            self.call("POST", "/profile", ANSWERS)
+            data = self.kept()
+            data["picture"] = old
+            (self.app / "profile.json").write_text(json.dumps(data))
+            self.assertIsNone(S._profile_read()["picture"])
+            fresh = self.call("GET", "/profile")[1]["picture"]
+            self.assertIn(fresh, self.TWELVE)
+            self.assertEqual(self.kept()["picture"], fresh)
+            for _ in range(10):
+                self.assertEqual(self.call("GET", "/profile")[1]["picture"], fresh)
+            (self.app / "profile.json").unlink()
 
     def test_nothing_is_drawn_without_a_name_or_for_the_phone(self):
         self.assertIsNone(self.call("GET", "/profile")[1]["picture"])
@@ -298,12 +318,12 @@ class Picture(Case):
         self.assertIsNone(self.call("GET", "/profile", port=S.BRIDGE_PORT)[1]["picture"])
         self.assertIsNone(self.kept()["picture"])
 
-    def test_a_request_cannot_set_it_and_a_stored_one_that_is_not_one_of_the_three_is_ignored(self):
+    def test_a_request_cannot_set_it_and_a_stored_one_that_is_not_one_of_the_twelve_is_ignored(self):
         self.call("POST", "/profile", ANSWERS)
-        for value in (3, 1, "3", None):
+        for value in (19, 3, 1, "19", None):
             self.assertEqual(self.call("POST", "/profile", {"picture": value}), (400, {"error": "bad profile"}))
         self.assertIsNone(self.kept()["picture"])
-        for stored in (1, 2, 6, True, "3", 4.0, None):
+        for stored in (1, 3, 4, 5, 18, 31, True, "19", 20.0, None):
             (self.app / "profile.json").write_text(json.dumps({"name": "Ada", "picture": stored}))
             if stored is not None:
                 self.assertIsNone(S._profile_read()["picture"], repr(stored))
@@ -312,7 +332,7 @@ class Picture(Case):
         self.sender()
         self.call("POST", "/profile", ANSWERS)
         picture = self.call("GET", "/profile")[1]["picture"]
-        self.assertIn(picture, (3, 4, 5))
+        self.assertIn(picture, self.TWELVE)
         self.call("POST", "/profile", {"work": "Something else"})
         self.assertNotIn("picture", S._profile_person(S._profile_read()))
         self.assertTrue(self.net.bodies, "nothing was sent at all, so this proves nothing")
