@@ -497,3 +497,20 @@ test("unread names are Plex's 600 and the rest its 400, in the pill, the faint n
   assert.equal(f.ids.projpill.classes.has("unread"), false, "facilitator has nothing unread");
   assert.equal(f.ids.projname.dataset.label, "facilitator");
 });
+
+// ---- round 5 (20261010): the right-hand pair ------------------------------------
+test("the speaker and the squid stand the house's gap to the pill apart, and the squid the house's inset from its edge", () => {
+  const houseToPill = parseFloat(decl(rule(sheet, "body.focus #tabrow"), "gap"));
+  const barGap = parseFloat(decl(rule(sheet, "body.focus .bar"), "gap"));
+  const squid = parseFloat(decl(rule(sheet, "body.focus .bar #setbtn"), "margin-left"));
+  assert.equal(barGap + squid, houseToPill, "speaker to squid is not house to pill");
+  assert.equal(houseToPill, 17);
+  // the bar is inset the same on both sides and has no side padding, so the squid is as far from the right
+  // edge as the house is from the left
+  assert.match(sheet, /body\.focus \.bar\{\s*margin:var\(--app-inset\) var\(--app-inset\) 0;/);
+  assert.equal(decl(rule(sheet, "body.focus .bar"), "padding"), "1px 0 6px");
+  // the squid is the bar's last piece, and the speaker still holds the right end with an auto margin
+  const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
+  assert.ok(bar.lastIndexOf('id="setbtn"') > bar.lastIndexOf('id="chimebtn"'));
+  assert.equal(decl(rule(sheet, "body.focus .bar #chimebtn"), "margin-left"), "auto");
+});

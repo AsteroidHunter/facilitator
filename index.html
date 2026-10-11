@@ -3125,6 +3125,11 @@
   /* the speaker still holds the right edge, and "Install app" stays between it
      and the squid as it was */
   body.focus .bar #chimebtn{margin-left:auto}
+  /* the speaker and the squid stand the house's gap to the pill apart, 17px
+     of box that draws as 16px (#tabrow's gap): the bar's own 8px and 9px more
+     before the squid. the squid stays the bar's inset from the window's right
+     edge, as the house is from its left (20261010) */
+  body.focus .bar #setbtn{margin-left:9px}
   /* the glass's own press, the phone's: a little larger and a whiter face,
      held long enough that a quick click still shows it (glassPress, in the
      script). it rises over .3s and falls back over .5s, both eased. keep the
