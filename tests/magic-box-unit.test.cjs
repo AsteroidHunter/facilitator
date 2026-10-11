@@ -989,11 +989,12 @@ function phoneBoxScript(page) {
     tikwin: { getAnimations: () => [], animate: animate("window"), style: { top: "0px" } }, cardPane, tikArrows: [],
     // the page's run machinery, as far as the swap uses it: a straight spring of
     // 100ms, the drawer's 300px travel, the card's drop (120px under the list,
-    // 90px under the box) and a stop that cancels what is playing
+    // 90px under the box), the drawer's lift (10px with the list, 4px with the
+    // box, both written by the page's fitList) and a stop that cancels what is playing
     LIST_KEYED: true, LIST_CALM: { matches: false }, LIST_FADE_TOP: .999, LIST_SETUP_MS: 200,
     listSpring: (from, to) => ({ ms: 100, at: t => from + (to - from) * Math.min(1, t / 100), velocity: () => 0 }),
     menuTravel: () => 300, menuSign: p => p.dataset.side === "right" ? -1 : 1,
-    listDrop: 120, listRoom: 400, listPlay: [], listRun: null, ticketDrawerRun: 0, performance: { now: () => 0 },
+    listDrop: 120, listLift: 10, listRoom: 400, listPlay: [], listRun: null, ticketDrawerRun: 0, performance: { now: () => 0 },
     stopList: () => { classes.delete("swapface"); for (const a of ctx.listPlay) a.cancel(); ctx.listPlay = []; },
     settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
@@ -1016,7 +1017,7 @@ function phoneBoxScript(page) {
       drawer.land = async () => { land(); drawer.runs = []; await new Promise(r => setImmediate(r)); };
     },
     listMoving: () => drawer.runs.length > 0,
-    fitList: now => { if (now) ctx.listDrop = classes.has("boxface") ? 90 : 120; }, poll() {},
+    fitList: now => { if (now){ ctx.listDrop = classes.has("boxface") ? 90 : 120; ctx.listLift = classes.has("boxface") ? 4 : 10; } }, poll() {},
     fetch: url => { calls.push(url); return new Promise(() => {}); },
     apply: () => calls.push("apply"), select: () => calls.push("select"), deselect: () => calls.push("deselect"),
     openDrawer: () => calls.push("list"), listSlack: () => ctx.spareRoom ?? 7, drawerPane: () => null,
@@ -1140,10 +1141,13 @@ test("control shift period does for the box what control shift comma does for th
     "the drawer takes its new face as the crossing starts, with both faces on show");
   const part = name => live().find(a => a.part === name);
   // (the stand-in spring is straight, 100ms long: the first millisecond with no
-  // more than 2% of the way to go is the 99th)
+  // more than 2% of the way to go is the 99th). the drawer stands at the box's
+  // lift (4) from the first frame, so the box comes in at the height it rests
+  // at, and the list going is let down by as much as the drawer went up from
+  // the list's (10), 6px, so it leaves from where it stood
   for (const name of ["list names", "list rows"]) {
     const going = part(name);
-    assert.deepEqual(ends(going, "transform"), ["translate3d(0px, 0px, 0px)", "translate3d(-297px, 0px, 0px)"], name);
+    assert.deepEqual(ends(going, "transform"), ["translate3d(0px, -6px, 0px)", "translate3d(-297px, -6px, 0px)"], name);
     assert.deepEqual(ends(going, "opacity"), [.999, .01], name);
     assert.deepEqual([going.opts.duration, going.opts.delay || 0, going.opts.fill], [99, 0, "both"], name);
   }
@@ -1151,7 +1155,8 @@ test("control shift period does for the box what control shift comma does for th
   assert.deepEqual(ends(coming, "transform"), ["translate3d(300px, 0px, 0px)", "translate3d(0px, 0px, 0px)"]);
   assert.deepEqual(ends(coming, "opacity"), [0, .999]);
   assert.deepEqual([coming.opts.delay || 0, coming.opts.fill], [0, "backwards"], "the box waited for the list to go");
-  assert.deepEqual(ends(part("drawer"), "transform"), ["translate3d(0px, -120px, 0px)", "translate3d(0px, -90px, 0px)"]);
+  assert.deepEqual(ends(part("drawer"), "transform"), ["translate3d(0px, -124px, 0px)", "translate3d(0px, -94px, 0px)"],
+    "the drawer carries the box's lift from the first frame to the last");
   assert.deepEqual(ends(part("window"), "transform"), ["translate3d(0px, 120px, 0px)", "translate3d(0px, 90px, 0px)"]);
   assert.deepEqual(ends(part("card"), "transform"), ["translate(0px, 120px)", "translate(0px, 90px)"]);
   assert.ok(["drawer", "window", "card"].every(name => !part(name).opts.delay), "the card glides from the moment the box sets out");
@@ -1163,10 +1168,11 @@ test("control shift period does for the box what control shift comma does for th
   // the list comes in from the left, the card back to the list's drop
   press("cardsDrawer", ctx.menuShortcutActions);
   assert.ok(!classes.has("boxface") && classes.has("swapface") && ctx.tickets.dataset.side === "left");
-  assert.deepEqual(ends(part("box"), "transform"), ["translate3d(0px, 0px, 0px)", "translate3d(297px, 0px, 0px)"]);
+  assert.deepEqual(ends(part("box"), "transform"), ["translate3d(0px, 6px, 0px)", "translate3d(297px, 6px, 0px)"]);
   coming = part("list rows");
   assert.deepEqual(ends(coming, "transform"), ["translate3d(-300px, 0px, 0px)", "translate3d(0px, 0px, 0px)"]);
   assert.equal(coming.opts.delay || 0, 0, "the list waited for the box to go");
+  assert.deepEqual(ends(part("drawer"), "transform"), ["translate3d(0px, -100px, 0px)", "translate3d(0px, -130px, 0px)"]);
   assert.deepEqual(ends(part("card"), "transform"), ["translate(0px, 90px)", "translate(0px, 120px)"]);
   await finishAll();
   assert.ok(!classes.has("swapface") && live().length === 0);
@@ -1260,16 +1266,24 @@ test("people and agents know it as the magic box: the pages' labels, the command
   assert.match(server, /MAGIC_DIR = HERE \/ "magic-boxes"/);
 });
 
+// a section of the list as the box script reads it, laid out from the drawer's top (no padding of
+// its own here): its tickets end `end` under that top, and one longer than its window, which ends
+// at `window`, scrolls. the script reads the section, never a row, which may be drawn lifted
+const section = (end, window = Infinity) => ({ children: [{ offsetParent: {} }], style: {},
+  scrollHeight: end, clientHeight: Math.min(end, window), scrollTop: 0,
+  getBoundingClientRect: () => ({ top: 0, bottom: Math.min(end, window) }) });
+
 test("both faces start at one height, with one gap above and below: the list is lifted by half its difference, the box follows", () => {
   const { ctx, tickets, pageEl, notch, box } = phoneBoxScript(read("m.html"));
-  const lift = () => { ctx.fitList(true); return tickets.style["--tik-lift"]; };
+  // the lift as the page's fitList writes it, read from the box script that says how far
+  const lift = () => { ctx.fitList(true); return ctx.listLiftAt().toFixed(2) + "px"; };
   // the page's top 0 and padding 40, the room 400, the drawer's top at 50, the notch's foot at 30;
   // the list's last ticket ends 360 under the drawer's top with 7 spare under it, so the card
   // stands at 40 + 400 - 7 = 433. the list's first mark (14.9 under its top) is 34.9 under the
   // notch and its foot 23 above the card: it goes up 5.95 and both gaps are A = 28.95
   pageEl.style.paddingTop = "40px"; tickets.style.top = "50px"; notch.getBoundingClientRect = () => ({ height: 30 });
   let ticketsEnd = 360;
-  ctx.drawerPane = () => ({ children: [{ offsetParent: {}, getBoundingClientRect: () => ({ bottom: ticketsEnd }) }] });
+  ctx.drawerPane = () => section(ticketsEnd);
   assert.equal(lift(), "5.95px");
   ticketsEnd = 100;
   assert.equal(lift(), "0.00px", "a list already nearer the notch than the card is not lowered");
@@ -1293,13 +1307,39 @@ test("both faces start at one height, with one gap above and below: the list is 
   box.offsetHeight = 433;
   assert.equal(ctx.listSlack(), 0, "the card goes down no further than the room, as before");
   const page = read("m.html");
-  assert.equal((page.match(/\(var\(--list-drop, 0px\) \+ var\(--tik-lift, 0px\)\)/g) || []).length, 2, "both sides' transforms carry the lift");
+  // both sides' transforms carry the lift whole, however far out the drawer is, so it comes in
+  // at the height it rests at and never rises or sinks as it comes or goes
+  assert.equal((page.match(/calc\(-1 \* \(var\(--list-v\) \* var\(--list-drop, 0px\) \+ var\(--tik-lift, 0px\)\)\)/g) || []).length, 2,
+    "both sides' transforms carry the whole lift");
+  assert.ok(!/var\(--list-v\) \* \(var\(--list-drop, 0px\) \+ var\(--tik-lift, 0px\)\)/.test(page), "a transform scales the lift with the drawer");
   assert.match(page, /padding-top:max\(0px, calc\(env\(safe-area-inset-top, 0px\) - \$\{NOTCH_GAP\}px\)\)/, "the notch's foot is read from the safe area");
+});
+
+test("the drawer's lift is worked out before any run and every run carries it, so a drawer never moves once it has landed", () => {
+  const page = read("m.html");
+  const fit = page.slice(page.indexOf("function fitList(now){"), page.indexOf("fitList(true);", page.indexOf("function fitList(now){")));
+  // with the drop, before the run is planned, and a refit glides it as it glides the drop
+  assert.match(fit, /const lifted = listLift;\s*liftList\(listLiftAt\(\)\);\s*const drop = room - listSlack\(\)/);
+  assert.match(fit, /fit: \[was, drop\], lift: \[lifted, listLift\]/);
+  // the run out or back, and a refit, as keyframes: the drawer's transform is the stylesheet's,
+  // the lift included, so where the keyframes end is where the sheet takes over
+  const play = page.slice(page.indexOf("function playList(){"), page.indexOf("function paintMenu("));
+  assert.match(play, /const place = run\.fit \? at => \[1, from \+ \(to - from\) \* at, up \+ \(upTo - up\) \* at\] : v => \[v, from, listLift\];/);
+  assert.match(play, /play\(tickets, \(v, drop, lift\) => \(\{ transform: `translate3d\(\$\{px\(\(v - 1\) \* travel\)\}, \$\{px\(-\(v \* drop \+ lift\)\)\}, 0px\)`/);
+  // the faces' swap: the drawer at the new face's lift from the first frame, the face going let
+  // down by the lift's change (see the keys' test for the numbers)
+  const swap = page.slice(page.indexOf("function drawerSwapFace("), page.indexOf("function drawerSwapFirstFrame("));
+  assert.match(swap, /const lifted = listLift;\s*showFace\(\);/);
+  assert.match(swap, /play\(tickets, frames\(ms, t => \(\{ transform: `translate3d\(0px, \$\{px3\(-\(drop\(t\) \+ listLift\)\)\}, 0px\)` \}\)\), ms, "backwards"\)/);
+  assert.match(swap, /goingParts\.map\(el => play\(el, frames\(cut, t => face\(shut\.at\(t\), away, listLift - lifted\)\), cut, "both"\)\)/);
+  // the box script says how far and no longer writes the lift after the drop
+  assert.match(page, /listLiftAt = \(\) => place\(\)\.lift;/);
+  assert.ok(!/setProperty\("--tik-lift", at\.lift/.test(page), "the lift is written after the drop again");
 });
 
 test("a full list is lifted as a short one is, and the gap under either face is .88 of the gap over it at every length", () => {
   const { ctx, tickets, pageEl, notch, box, parts } = phoneBoxScript(read("m.html"));
-  const lift = () => { ctx.fitList(true); return tickets.style["--tik-lift"]; };
+  const lift = () => { ctx.fitList(true); return ctx.listLiftAt().toFixed(2) + "px"; };
   const tiklist = parts.tiklist;
   // as above: the page's top 0 and padding 40, the room 400, the drawer's top at 50, the notch's
   // foot at 30. now a section that fills the list: nothing spare, so the card stands at 440, and
@@ -1308,7 +1348,7 @@ test("a full list is lifted as a short one is, and the gap under either face is 
   // goes up (34.9 - 10) / 2 = 12.45 and its first mark is A = 22.45 under the notch
   pageEl.style.paddingTop = "40px"; tickets.style.top = "50px"; notch.getBoundingClientRect = () => ({ height: 30 });
   ctx.spareRoom = 0; parts.listEnd = 380;
-  ctx.drawerPane = () => ({ children: [{ offsetParent: {}, getBoundingClientRect: () => ({ bottom: 500 }) }] });
+  ctx.drawerPane = () => section(500, 380);
   assert.equal(lift(), "12.45px");
   // the card stays at its lowest and the window reaches .12 of A further down, so its foot is
   // .88 of A over the card: 440 - .88 * 22.45 - (50 - 12.45 + 380) = 2.694
@@ -1319,7 +1359,7 @@ test("a full list is lifted as a short one is, and the gap under either face is 
   // a short section is read as before, its last ticket over the window's foot, and lifted as
   // before; the card comes up .12 of A = 28.95 from where it stood: 7 + .12 * 28.95 spare
   ctx.spareRoom = 7; parts.listEnd = 1e9;
-  ctx.drawerPane = () => ({ children: [{ offsetParent: {}, getBoundingClientRect: () => ({ bottom: 360 }) }] });
+  ctx.drawerPane = () => section(360);
   assert.equal(lift(), "5.95px");
   const shortSlack = ctx.listSlack();
   assert.ok(Math.abs(shortSlack - (7 + .12 * 28.95)) < 1e-9, `the card .88 of A under a short list: ${shortSlack}`);
@@ -1329,7 +1369,7 @@ test("a full list is lifted as a short one is, and the gap under either face is 
   // over the card at its lowest (440): 440 - .88 * 22.45 - 52.45 = 367.794, short of the
   // drawer's 433, so the words scroll inside it
   ctx.spareRoom = 0; parts.listEnd = 380;
-  ctx.drawerPane = () => ({ children: [{ offsetParent: {}, getBoundingClientRect: () => ({ bottom: 500 }) }] });
+  ctx.drawerPane = () => section(500, 380);
   const rooms = [];
   ctx.MagicBox = { fit: (room, want) => { rooms.push(room.height); return { width: room.width, height: Math.min(room.height, 2000) }; } };
   ctx.drawerFace(true);

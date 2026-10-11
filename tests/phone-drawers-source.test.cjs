@@ -76,8 +76,10 @@ test("the card goes down 55% of the screen and the box comes in, both on the one
   assert.match(card, /transform:translate\(0, calc\(var\(--list-v\) \* var\(--list-drop, 0px\)\)\)/,
     "the card's drop is not the fraction times the drop");
   const box = rulesFor(/^#tickets$/).map(r => r.body).join(";");
-  // across, its right edge comes in from the page's left edge; down, it takes back what the window goes down
-  assert.match(box, /transform:translate3d\(calc\(\(var\(--list-v\) - 1\) \* \(var\(--pg-l\) \+ 100% \* \(1 \+ var\(--list-share\)\) \/ \(2 \* var\(--list-share\)\)\)\),\s*calc\(-1 \* var\(--list-v\) \* var\(--list-drop, 0px\)\), 0\)/,
+  // across, its right edge comes in from the page's left edge; down, it takes back what the window
+  // goes down, and stands at its whole lift (--tik-lift, from the magic box's script) however far
+  // out it is, so it holds still up and down
+  assert.match(box, /transform:translate3d\(calc\(\(var\(--list-v\) - 1\) \* \(var\(--pg-l\) \+ 100% \* \(1 \+ var\(--list-share\)\) \/ \(2 \* var\(--list-share\)\)\)\),\s*calc\(-1 \* \(var\(--list-v\) \* var\(--list-drop, 0px\) \+ var\(--tik-lift, 0px\)\)\), 0\)/,
     "the box does not come in from the left on the card's fraction, holding still up and down");
   // nine tenths of the card's column and of the room the card may drop, in the
   // middle of each (the window it is laid in starts a room above the page); the
