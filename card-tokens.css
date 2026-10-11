@@ -645,6 +645,12 @@
   font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub); white-space:nowrap}
 .sentgoo > .sentgoo-mark.markin{animation:markin var(--answ-come) var(--sent-ease) backwards}
 .sentgoo-ground{position:absolute; left:0; right:0; pointer-events:none}
+/* when the joined bubble is cut, its foot stands still through the merge
+   (card-logic.js: sentMergeFoot): the copies of the words are drawn in a window
+   cut at the joined bubble's cut, and its fuzz and its arrow (a copy of its
+   strip) stand over them where the joined bubble has them */
+.sentgoo-cut > *{position:absolute; transform-origin:0 0}
+.sentgoo > .sentgoo-fuzz{height:var(--answ-fade)}
 
 /* ---- the delivery marks -------------------------------------------------- */
 /* where a sent message stands (card-logic.js names the stages). a message the

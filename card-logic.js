@@ -4451,7 +4451,9 @@ function sentMergeStop(el){
 // it if anything moves it. the room the two give up above them is held by the
 // seat's own ground, which comes down with the earlier bubble's head, and the
 // other bubbles the merge moves glide there on the fall's own curve. the word
-// the move brings in under the later bubble comes in here, on the mark's run
+// the move brings in under the later bubble comes in here, on the mark's run.
+// a joined bubble that is cut has its cut, fuzz and arrow stand still under
+// the words the whole way (sentMergeFoot)
 function sentMerge(el, run){
   const { a, b } = run;
   run.stage = "merge";
@@ -4471,6 +4473,9 @@ function sentMerge(el, run){
     .filter(node => sentMotionVisible(node)).map(node => ({ node, rect:node.getBoundingClientRect() }));
   const aCopy = sentSnapshot(a, true), bCopy = sentSnapshot(b, true);
   const count = a.sentMsgs.length;
+  // the later bubble's foot, and the earlier one's cut under its head if it is cut
+  const bFoot = sentFootOf(b), aFoot = sentFootOf(a);
+  const aCut = aFoot.cut ? A.height / sentScale(a, A).y - aFoot.rise : null;
   sentJoin(el, a, b);
   const M = a.getBoundingClientRect(), s = sentScale(a, M);
   const rows = sentRows(a);
@@ -4524,7 +4529,18 @@ function sentMerge(el, run){
   };
   const aWords = holder(aCopy, true), bWords = holder(bCopy, true), joined = holder(mCopy, false);
   joined.style.opacity = "0";
-  layer.append(face, aWords, bWords);
+  // the joined bubble's cut, fuzz and arrow, standing still under the words. an
+  // earlier bubble that is cut over a later one that is not brings the arrow down
+  const carried = aCut !== null && !bFoot.cut;
+  const foot = sentMergeFoot(a, ext, bFoot, carried);
+  const aClip = foot && aCut !== null && !carried ? aCopy.querySelector(".answclip") : null;
+  if (foot){
+    foot.quiet(bCopy);
+    if (!carried) foot.hold(aWords);
+    foot.hold(bWords);
+    layer.append(face, ...foot.nodes);
+    if (carried) layer.appendChild(aWords);
+  } else layer.append(face, aWords, bWords);
   let mark = null;
   if (word){
     mark = document.createElement("div");
@@ -4551,11 +4567,20 @@ function sentMerge(el, run){
   const put = t => {
     const { U, L, k, bow, ey, ew, sunk } = sentMergeShape(spec, t);
     face.style.clipPath = 'path("' + sentGooPath(U, L, r, k, bow, ext) + '")';
-    aWords.style.transform = "translate(" + mix(aStart.x, aEnd.x, ew) + "px," + mix(aStart.y, aEnd.y, ey) + "px)";
+    const ay = mix(aStart.y, aEnd.y, ey);
+    aWords.style.transform = "translate(" + mix(aStart.x, aEnd.x, ew) + "px," + ay + "px)";
     // the later words keep their line until the earlier bubble lands on them
     bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, sunk) + "px)";
-    // later words the joined bubble's cut hides go as the earlier foot sinks over them
-    if (hidden) bWords.style.opacity = String(1 - sunk);
+    // later words the joined bubble's cut hides go as the earlier foot sinks over
+    // them, and are not drawn under it, where its arrow passes
+    if (hidden){
+      bWords.style.opacity = String(1 - sunk);
+      bWords.style.clipPath = "inset(" + Math.max(0, U.bottom - bStart.y) + "px 0 0 0)";
+    }
+    if (foot){
+      foot.place(L, sunk);
+      if (aClip) foot.under(aClip, ay + aCut);
+    }
     if (mark) mark.style.top = L.bottom + "px";
     joined.style.opacity = String(sentSmooth((t - MERGE_TRAVEL) / (1 - MERGE_TRAVEL)));
     const left = Math.min(0, rise * (1 - ey));
@@ -4591,6 +4616,81 @@ function sentMerge(el, run){
     run.raf = requestAnimationFrame(t < 1 ? step : () => { sentMergeLand(el); sentCoalesce(el); });
   };
   run.raf = requestAnimationFrame(step);
+}
+// a bubble's foot as it stands, read before a merge takes it: whether it is
+// cut, and how far its cut stands over its foot, in its own px
+function sentFootOf(panel){
+  const R = panel.getBoundingClientRect(), s = sentScale(panel, R);
+  const clip = panel.querySelector(".answclip").getBoundingClientRect();
+  return { cut:panel.classList.contains("more") && !panel.classList.contains("open"), rise:(R.bottom - clip.bottom) / s.y };
+}
+// the joined bubble's foot through a merge, when the joined bubble is cut: the
+// line its words go under (its cut), the fuzz over that line and the arrow under
+// it, drawn once in the merge's layer where the joined bubble has them, so they
+// stand still through the merge rather than ride the copies of the words. the
+// copies were drawn whole and each with its own cut, so the later words, which
+// travel down to their place in the joined bubble, took their fuzz and their
+// arrow a line under the joined bubble's foot, and words a cut hides stood on
+// its arrow until the joined copy came up. the copies are drawn in a window
+// cut at that line (hold), so no word is drawn over the arrow or under the
+// bubble, and the copy of the bubble at the foot gives up its own fuzz and
+// arrow (quiet). from is the bubble at the foot as it stood (sentFootOf): a cut
+// one's foot is the joined one's already, and stays as it is; one that was not
+// cut takes the joined foot as p goes from 0 to 1, the line coming up from its
+// words' foot as the fuzz and the arrow come in. a copy with a cut of its own
+// gives up its fuzz as its cut comes down into the joined one's (under), so
+// the two are never drawn over each other. carried is a foot brought down by
+// the bubble on top, cut over a bubble at the foot that was not: its own arrow
+// is the one that lands at the joined foot, so the arrow here stays out of
+// sight and that copy is drawn over the fuzz, whole, with its own cut. ext is
+// the layer's reach, all in the joined bubble's own px. null when the joined
+// bubble is not cut
+function sentMergeFoot(a, ext, from, carried){
+  if (!a.classList.contains("more") || a.classList.contains("open")) return null;
+  const clip = a.querySelector(".answclip");
+  const M = a.getBoundingClientRect(), s = sentScale(a, M);
+  const rise = (M.bottom - clip.getBoundingClientRect().bottom) / s.y;
+  const fade = parseFloat(getComputedStyle(clip, "::after").height) || 0;
+  const win = document.createElement("div");
+  win.className = "sentgoo-cut";
+  Object.assign(win.style, { left:ext.left + "px", top:ext.top + "px", width:(ext.right - ext.left) + "px",
+    height:(ext.bottom - ext.top) + "px" });
+  const fuzz = document.createElement("div");
+  fuzz.className = "sentgoo-fuzz";
+  const strip = a.querySelector(".answfoot").cloneNode(true);
+  // the arrow's own head under the strip's head: it comes in only as the line
+  // the words go under clears it, so no word is drawn over it on its way in
+  const chev = a.querySelector(".answchev");
+  const head = (rise - (chev ? chev.getBoundingClientRect().height / s.y : 0)) / 2;
+  const cleared = from.cut || rise <= from.rise ? 0 : Math.max(0, Math.min(1, (rise - head - from.rise) / (rise - from.rise)));
+  let line = 0;
+  return {
+    nodes:[win, fuzz, strip],
+    hold(holder){
+      Object.assign(holder.style, { left:-ext.left + "px", top:-ext.top + "px" });
+      win.appendChild(holder);
+    },
+    quiet(copy){
+      const own = copy.querySelector(".answfoot"), cut = copy.querySelector(".answclip");
+      if (own) own.style.visibility = "hidden";
+      if (cut) cut.style.setProperty("--answ-shade", "0");
+    },
+    // L is the box at the foot of the merge at this frame
+    place(L, p){
+      const k = from.cut ? 1 : Math.max(0, Math.min(1, p));
+      line = L.bottom - (from.rise + (rise - from.rise) * k);
+      win.style.clipPath = "inset(0 0 " + Math.max(0, ext.bottom - line) + "px 0)";
+      const across = { left:L.left + "px", width:(L.right - L.left) + "px" };
+      Object.assign(fuzz.style, across, { top:(line - fade) + "px", opacity:String(k) });
+      const shown = carried ? 0 : k >= 1 ? 1 : Math.max(0, (k - cleared) / (1 - cleared));
+      Object.assign(strip.style, across, { top:(L.bottom - rise) + "px", opacity:String(shown) });
+    },
+    // a copy's own cut (its .answclip) standing at y this frame
+    under(cut, y){
+      const into = fade > 0 ? Math.max(0, Math.min(1, (y - (line - fade)) / fade)) : 1;
+      cut.style.setProperty("--answ-shade", String(1 - into));
+    }
+  };
 }
 // the merge has landed, or is cut short: the layer and the ground go, and the
 // joined bubble stands where they were drawn, with the word its record has now
@@ -4715,6 +4815,9 @@ function sentColumnMerge(el, run){
   const around = sentPanels(el).filter(one => !panels.includes(one))
     .filter(node => sentMotionVisible(node)).map(node => ({ node, rect:node.getBoundingClientRect() }));
   const copies = panels.map(one => sentSnapshot(one, true));
+  // the foot bubble's foot, and each bubble's cut under its head if it is cut
+  const feet = panels.map(sentFootOf);
+  const cuts = panels.map((one, i) => feet[i].cut ? starts[i].height / sentScale(one, starts[i]).y - feet[i].rise : null);
   // each bubble's first message among the joined bubble's rows
   const firsts = [];
   panels.reduce((count, one) => { firsts.push(count); return count + one.sentMsgs.length; }, 0);
@@ -4768,7 +4871,18 @@ function sentColumnMerge(el, run){
   };
   const words = copies.map(copy => holder(copy, true)), joined = holder(mCopy, false);
   joined.style.opacity = "0";
-  layer.append(...faces, ...words);
+  // the joined bubble's cut, fuzz and arrow, standing still under the words, as a
+  // pair's do. a top bubble that is cut over a foot that is not brings the arrow down
+  const carried = cuts[0] !== null && !feet[n - 1].cut;
+  const still = sentMergeFoot(a, ext, feet[n - 1], carried);
+  const clips = copies.map((copy, i) => still && i < n - 1 && cuts[i] !== null && !(carried && !i) ?
+    copy.querySelector(".answclip") : null);
+  if (still){
+    still.quiet(copies[n - 1]);
+    words.forEach((one, i) => { if (!(carried && !i)) still.hold(one); });
+    layer.append(...faces, ...still.nodes);
+    if (carried) layer.appendChild(words[0]);
+  } else layer.append(...faces, ...words);
   let mark = null;
   if (word){
     mark = document.createElement("div");
@@ -4797,6 +4911,7 @@ function sentColumnMerge(el, run){
       if (i < n - 1) faces[i].style.clipPath = 'path("' +
         sentGooPath(box, state.boxes[i + 1], r, state.joints[i].k, state.joints[i].bow, ext) + '")';
     });
+    if (still) still.place(state.boxes[n - 1], state.joints[n - 2].sunk);
     words.forEach((holderOf, i) => {
       const start = B0[i], home = homes[i];
       // sunk onto it by the one above, and its share of its own fall
@@ -4805,7 +4920,11 @@ function sentColumnMerge(el, run){
       if (i === n - 1){
         const to = home || { x:start.left, y:start.top };
         at = { x:mix(start.left, to.x, state.ewFoot), y:mix(start.top, to.y, over) };
-        if (!home) strength = 1 - over;
+        // words the joined cut hides are not drawn under the one sinking over them
+        if (!home){
+          strength = 1 - over;
+          holderOf.style.clipPath = "inset(" + Math.max(0, state.boxes[n - 2].bottom - at.y) + "px 0 0 0)";
+        }
       } else {
         const fall = state.joints[i];
         const down = { x:mix(start.left, landed[i].x, fall.ew), y:mix(start.top, landed[i].y, fall.share) };
@@ -4824,6 +4943,7 @@ function sentColumnMerge(el, run){
       }
       holderOf.style.transform = "translate(" + at.x + "px," + at.y + "px)";
       if (strength < 1 || holderOf.style.opacity) holderOf.style.opacity = String(strength);
+      if (clips[i]) still.under(clips[i], at.y + cuts[i]);
     });
     if (mark) mark.style.top = state.boxes[n - 1].bottom + "px";
     joined.style.opacity = String(sentSmooth((ms - last) / COLUMN_SETTLE_MS));
