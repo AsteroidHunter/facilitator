@@ -1382,10 +1382,10 @@
      pointer is over or beside, faded in and out over .2s. it hangs off the
      holder, outside the list's clip, and takes no room in it, so no row, name
      or arrow moves. the mark is the section chips' kind of line drawing, in
-     their black, on no seat until the pointer is on it */
+     the list's quiet grey (--sub, the age's), on no seat until the pointer is on it */
   .bincan{position:absolute; left:0; top:0; z-index:2; width:24px; height:24px; padding:0; margin:0;
     display:flex; align-items:center; justify-content:center;
-    color:#1e1e1e; background:transparent; border:none; border-radius:var(--sq); cursor:pointer;
+    color:var(--sub); background:transparent; border:none; border-radius:var(--sq); cursor:pointer;
     opacity:0; pointer-events:none; transition:opacity .2s ease, background-color .15s}
   .bincan.on{opacity:1; pointer-events:auto}
   .bincan:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
@@ -10354,6 +10354,8 @@ function binCanMake(){
 function binCanRow(x, y){
   if (!FOCUS || !lastState || Date.now() < binCanRestUntil || tikTravelIntent != null) return null;
   if (document.body.matches(".editmode, .choosing, .setopen")) return null;
+  // only the Done section has a can: a card is marked done, then deleted from there
+  if (curView() !== "done") return null;
   const pane = document.querySelector('#tiksheet .tikpane[data-view="' + curView() + '"]');
   if (!pane) return null;
   const clip = pane.getBoundingClientRect();
