@@ -192,7 +192,7 @@ The keys, on the Mac board and on the phone with a paired keyboard:
 
 The keys with Command or Control also work from a card's typing box and title. The board turns off Chrome shortcuts that would get in the way, such as Save Page, Print, zoom and new tabs; Command + F still finds and Command + R still reloads.
 
-A link in a reply opens a small menu with Copy link and Open in browser (an ordinary Chrome window on the Mac, the phone's browser on the phone); an attachment's link adds Download. A click or tap on a picture shows it large, and any click, tap or Escape puts it back. On the phone, hold a finger on a picture for its menu.
+A link in a reply opens a small menu with Copy link and Open in browser (an ordinary Chrome window on the Mac, the phone's browser on the phone); an attachment's link adds Download. A click or tap on a picture shows it large: on the phone as large as the screen holds, on the Mac in the Settings window's place. Pinch it, on the phone's screen or the Mac's trackpad, to zoom up to four times; zoomed, drag it or scroll with two fingers to look around. A double tap or double click zooms to twice at that point and back. At its fitted size a click or tap puts it back; zoomed, Escape does, which works at any size. On the phone, hold a finger on a picture for its menu.
 
 ## Seeing a card's magic box
 

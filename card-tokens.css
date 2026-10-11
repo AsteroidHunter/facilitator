@@ -1256,19 +1256,19 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 #picfull{display:none; position:fixed; inset:0; z-index:9000;
   cursor:zoom-out; -webkit-tap-highlight-color:transparent}
 #picfull.on{display:block}
+/* the fingers' pinches, pans and double taps on it are the picture's, read by
+   the layer itself, and never the page's: the page does not zoom or scroll */
+#picfull, #picfull *{touch-action:none}
 #picfull .picfull-veil{position:absolute; inset:0; background:var(--ink); opacity:0; will-change:opacity}
-/* the room the picture is fitted in, which is the settings' own place, so the
-   picture never meets an edge of the screen. down, it stands --sp-inset in from
-   the top and the bottom, as the desktop's settings window does. across, it is
-   as wide as the settings stand, centred: on the desktop that is what the inset
-   leaves, so the room is the settings window exactly. the phone's settings are a
-   drawer of their own width (--settings-w in m.html) running the full height, so
-   there the room takes the drawer's width and the desktop window's top and
-   bottom */
-#picfull .picfull-room{position:absolute; top:var(--sp-inset); bottom:var(--sp-inset); left:0; right:0;
-  width:var(--settings-w, calc(100% - 2 * var(--sp-inset))); margin:0 auto}
+/* the room the picture is fitted in. on the desktop it is the settings' own
+   place, so the picture never meets an edge of the window: --sp-inset in from
+   the top and the bottom, and as wide as the inset leaves, centred, which is the
+   settings window exactly. the phone sets --picfull-inset and --picfull-w
+   (m.html) so the room is its whole screen inside the safe areas */
+#picfull .picfull-room{position:absolute; inset:var(--picfull-inset, var(--sp-inset) 0);
+  width:var(--picfull-w, calc(100% - 2 * var(--sp-inset))); margin:0 auto}
 #picfull .picfull-img{position:absolute; display:block; max-width:none; max-height:none; margin:0;
-  transform-origin:0 0; will-change:transform; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none}
+  transform-origin:0 0; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none}
 
 /* ---- the files picked for the next message: a tray over the typing row ---- */
 /* one 64px square per file, standing from the pick on, with the upload's ring
