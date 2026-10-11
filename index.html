@@ -5309,28 +5309,18 @@ function setBrowsing(on){
 // shows it without selecting it (browse, below). the hop a close or a snooze
 // makes to the next card shows it browsed, since the board picked that card
 // and the reader did not
-// of the cards built, only the card on show wears the typing editor: every row
-// is attached held (makeBox), so loading the board puts no editor on the
-// thousand cards nobody can see. the card on show is given its editor in the
-// same turn it is shown, before it is drawn, and a card that has left the
-// screen takes its editor off, its words, caret and undo kept with the row
-// (ComposeFormat want), as the phone's rows do (wearEditor in m.html). a row
-// still holding the caret keeps its editor until a later pass finds it let go
-const editorsWorn = new Set();
+// a card wears the typing editor once it has been shown: every row is attached
+// held (makeBox), so loading the board puts no editor on the thousand cards
+// nobody has looked at. the card on show is given its editor in the same turn
+// it is shown, before it is drawn, as the phone's rows are (wearEditor in
+// m.html), and keeps it, so going back to a card costs nothing. the phone takes
+// a card's editor off again as it leaves reach; the Mac has the room to keep the
+// few a sitting opens
 function wearShownEditor(){
   const el = selectedId && els[selectedId];
-  if (el){
-    editorsWorn.add(selectedId);
-    const was = el.field.formatted();
-    if (el.field.want(true) && !was) el.tick();
-  }
-  for (const id of [...editorsWorn]){
-    if (id === selectedId) continue;
-    const other = els[id];
-    if (other && other.field.focused()) continue;
-    if (other) other.field.want(false);
-    editorsWorn.delete(id);
-  }
+  if (!el) return;
+  const was = el.field.formatted();
+  if (el.field.want(true) && !was) el.tick();
 }
 function select(id, opts){
   if (!els[id]) return;
@@ -6165,8 +6155,8 @@ function makeBox(b, i, state){
     // public face whichever of the two it is wearing and the handle is what
     // carries a listener across a change of face. enter is the card's own
     // command here, so only shift enter is a new line for the list to carry.
-    // the row is held: it wears the editor only while its card is the one on
-    // show (wearShownEditor), as the phone's rows do
+    // the row is held: it wears the editor once its card has been shown
+    // (wearShownEditor), as the phone's rows do
     const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });
 
     // the row's own autosize: back to auto, then up to the content, and the css
@@ -10289,7 +10279,7 @@ function renderMiniCards(state){
       compose.append(ta, send);
       // the small card's row carries the same typed formatting the big one
       // does, with the same two keys: enter sends and shift enter breaks. held,
-      // as the big one's rows are: only the small card on show wears the editor
+      // as the big one's rows are: a small card wears the editor once it is shown
       const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });
       // answers true once the board has the message, false when it did not
       // arrive, and null when there was nothing to send
@@ -10358,10 +10348,12 @@ function renderMiniCards(state){
     // one card at a time; the rest stay built so their half-typed messages
     // survive a walk away and back
     el.box.classList.toggle("off", b.id !== miniId);
-    // the editor on the small card on show and off the rest, whose words, caret
-    // and undo stay with their rows; a row still holding the caret keeps it
-    const wasFormatted = el.field.formatted();
-    if (el.field.want(b.id === miniId || el.field.focused()) && !wasFormatted) el.tick();
+    // the editor on the small card on show, which keeps it once it has been
+    // shown, as the large card's rows do (wearShownEditor)
+    if (b.id === miniId){
+      const wasFormatted = el.field.formatted();
+      if (el.field.want(true) && !wasFormatted) el.tick();
+    }
     readOnArrival(el, b, b.id === miniId && ComposeFormat.focused(el.ta));
     if (!el.title.isContentEditable && el.title.textContent !== (b.title || "")){
       el.title.textContent = b.title || "";
