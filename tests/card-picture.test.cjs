@@ -435,6 +435,22 @@ test('zoomed, one finger moves it, never so far that an edge comes in past the r
   assert.ok(!g.state().closing);
 });
 
+test('every touch on the open picture is cancelled, so the page under it never zooms or scrolls', () => {
+  const { f } = opened();
+  f.boardHeard.length = 0;
+  // the layer listens for itself, not passively, so its cancels hold
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel', 'wheel'])
+    assert.ok(f.layer().listeners.some(l => l.type === type && l.passive === false), type);
+  const one = [[700, 490]], two = [[650, 490], [750, 490]];
+  for (const zoomed of [false, true]) {
+    if (zoomed) f.wheel(700, 490, 0, -60, true);
+    for (const [type, points] of [['touchstart', one], ['touchmove', [[720, 500]]], ['touchend', []],
+      ['touchstart', two], ['touchmove', [[600, 490], [800, 490]]], ['touchend', [[800, 490]]], ['touchend', []]])
+      assert.equal(f.touch(type, points).defaultPrevented, true, (zoomed ? 'zoomed ' : 'fitted ') + type + ' ' + points.length);
+  }
+  assert.deepEqual(f.boardHeard, [], 'and none of it reaches the board');
+});
+
 test('a tap: at its fitted size it closes, zoomed it does not, and Escape always does', () => {
   const tap = (f, x, y) => { f.touch('touchstart', [[x, y]]); return f.touch('touchend', [], [[x, y]]); };
   const { f } = opened();
@@ -669,9 +685,9 @@ test('the sheet: the board ink veil, over the board and under the menu, the touc
   assert.match(block, /#picfull\{display:none; position:fixed; inset:0; z-index:9000/);
   assert.match(block, /\.picfull-veil\{[^}]*background:var\(--ink\); opacity:0/);
   assert.match(block, /\.picfull-from\{visibility:hidden\}/);
-  // the phone's page sets touch-action:manipulation on everything; the layer's
-  // id outweighs it, so a pinch or a double tap on it is never the page's
-  assert.match(block, /#picfull, #picfull \*\{touch-action:none\}/);
+  // the phone's page keeps touch-action:manipulation on everything, the layer
+  // included: it declares none of its own, and cancels its touches instead
+  assert.doesNotMatch(block.replace(/\/\*[\s\S]*?\*\//g, ''), /touch-action/);
   assert.match(read('m.html'), /\*\{touch-action:manipulation\}/);
   // the room and the settings read the same inset on the desktop, so they never part
   assert.match(css, /:root\{--sp-inset:15%\}\n\.sp-veil \.sp-page\{position:absolute; inset:var\(--sp-inset\);/,

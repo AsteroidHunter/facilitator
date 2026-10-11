@@ -1256,9 +1256,11 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 #picfull{display:none; position:fixed; inset:0; z-index:9000;
   cursor:zoom-out; -webkit-tap-highlight-color:transparent}
 #picfull.on{display:block}
-/* the fingers' pinches, pans and double taps on it are the picture's, read by
-   the layer itself, and never the page's: the page does not zoom or scroll */
-#picfull, #picfull *{touch-action:none}
+/* the fingers' pinches, pans and double taps on it are the picture's, and never
+   the page's. it declares no touch-action of its own: the phone's touch-action
+   stays manipulation everywhere (tests/phone-page-zoom.test.cjs), and the
+   layer's own touch listeners cancel every touch on it (cardPictureLayer), so
+   the page neither zooms nor scrolls under it */
 #picfull .picfull-veil{position:absolute; inset:0; background:var(--ink); opacity:0; will-change:opacity}
 /* the room the picture is fitted in. on the desktop it is the settings' own
    place, so the picture never meets an edge of the window: --sp-inset in from
