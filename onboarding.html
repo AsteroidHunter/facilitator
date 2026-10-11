@@ -12,19 +12,18 @@
      one after another as its replies, and four short 101 cards. Each reply is
      a page of the onboarding card's history and knows the field it asks for,
      so a step back with Control + Shift + up and a send there changes that
-     answer. A faint keyboard behind the card's foot comes in with the first
-     answer and lights the keys the card teaches. The Mac board
+     answer. A faint keyboard in the board's magic box beside the card rises in
+     with the first answer and lights the keys the card teaches. The Mac board
      lays this page over itself in a frame of its own while the board has no
      complete profile (GET /profile in server.py), so nobody uses the board
      before going through it. The card's look and motion are the board's own,
-     loaded from the board: the shared sheet, the markdown and the card logic,
-     so a change to the bubbles, the send motion, the page turn, the reply
-     history or the ticket list's sections shows here too. What index.html
+     loaded from the board: the shared sheet, the markdown, the card logic and
+     the magic box's placing, so a change to the bubbles, the send motion, the
+     page turn, the reply history, the ticket list's sections or where the
+     magic box stands shows here too. What index.html
      keeps inline, and so cannot be loaded, is copied below, each piece under
      the name it has there. The card is the board's own size, 506.88 by 748.8,
-     the board's 1440 by 900 design at full size, its top where it stands
-     centred on the empty paper, and cut from the bottom by 10 to 20 percent
-     so the keyboard under it shows (#obkeys below).
+     the board's 1440 by 900 design at full size, centred on the empty paper.
      From 101: Tickets on, the board's ticket list stands beside it, one
      ticket per card, where the board's stage puts the two. An answer is
      replied to the moment its send's flight lands, with no Delivered, Read or
@@ -38,6 +37,7 @@
      answers and the time zone go to PostHog then, as that person's details. -->
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
+<script src="/magic-box.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -559,38 +559,50 @@
     font:500 .357em/1.1 var(--inter); letter-spacing:.035em;
     color:var(--sub); opacity:.5; white-space:nowrap}
 
-  /* the keyboard behind the onboarding card's foot: the hotkey map's keyboard
-     (facilitator-mocks/mock-hotkey-map-20261008.html), drawn at its own size and
-     shown at --kb-scale of it, keys, gaps, legends and corners together, every
-     key faint, centred under the card. the onboarding cards keep the board's
-     card width and the top the board's full height card has, centred in the
-     window (--card-h and --card-top, body.focus main above, which the ticket
-     list is read from too), and are cut from the bottom so the card's foot
-     crosses the middle of the keyboard's top letter row (Q to P): the keyboard's
-     function row, number row and half that row, .375 of its height, stand
-     under the card (--kb-under), and the rows below it stay in view. the cut
-     is what puts the keyboard's foot --kb-foot above the window's bottom, held
-     between 10 and 20 percent of the card's full height: on a window tall
-     enough to need less than 10 percent the keyboard stands higher than that,
-     and on one short enough to need more than 20 percent it stands lower */
+  /* the card's own height and top, centred in the window (body.focus main
+     above), which the ticket list is read from */
   body.focus{
-    --kb-scale:.75; --kb-h:calc(336px * var(--kb-scale));
-    --kb-under:calc(var(--kb-h) * .375); --kb-foot:12px;
     --card-h:min(calc(var(--ch)*var(--frame-h)), calc(100vh - 32px));
     --card-top:calc((100vh - var(--card-h)) / 2);
-    --ob-cut:clamp(calc(var(--ch)*var(--frame-h)*.1),
-                   calc(var(--card-top) + var(--card-h) - (100vh - var(--kb-foot) - var(--kb-h) + var(--kb-under))),
-                   calc(var(--ch)*var(--frame-h)*.2));
-    --ob-h:calc(var(--card-h) - var(--ob-cut));
-    --card-mid:50vw;
   }
-  #obstage{align-items:start}
-  body.focus main{height:var(--ob-h); margin-top:var(--card-top)}
-  #obkeys{position:fixed; pointer-events:none;
-    left:var(--card-mid); transform:translateX(-50%) scale(var(--kb-scale)); transform-origin:top center;
-    top:calc(var(--card-top) + var(--ob-h) - var(--kb-under));
-    opacity:0; transition:opacity var(--keys-in, .4s) ease}
-  #obkeys.on{opacity:1}
+
+  /* ---- the magic box, copied from index.html's own sheet -------------------
+     the box the keyboard stands in, beside the card, is the board's magic box:
+     its look is the shared sheet's (.magicbox, card-tokens.css) and where it
+     stands is MagicBox.place (magic-box.js), both loaded from the board. the
+     board's face, shadow and rise, and its lines to the card, live only in
+     index.html's inline style, so they are copied here rule for rule under the
+     names they have there. left out: the cross (the onboarding owns the box),
+     the held shadow (nothing here is worked in), the lowered card, home and
+     edit mode, and the box's words and pages */
+  body.focus{--shade-lighter:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)}
+  #magicbox{display:none}
+  body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
+  #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+    box-shadow:var(--shade-lighter); transition:box-shadow .2s}
+  #magicbox.rising{--rise:0; transition:none;
+    box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
+      0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.05 * var(--rise)))}
+  #magicbox.rising > *{opacity:var(--rise)}
+  #mblines, #mbtabs{display:none}
+  body.focus :is(#mblines, #mbtabs).on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
+    overflow:visible; pointer-events:none}
+  body.focus #mbtabs.on{z-index:2}
+  #magicbox .mbbar{background:var(--card)}
+  #magicbox .mbbar::after{display:none}
+  #magicbox, #magicbox *{scrollbar-width:none}
+  #magicbox::-webkit-scrollbar, #magicbox *::-webkit-scrollbar{display:none}
+  #magicbox .mbbody{overflow:hidden}
+  /* once the last card is done the box and its lines go with the card */
+  :is(#magicbox, #mblines, #mbtabs){transition:opacity .18s ease}
+  body.obdone :is(#magicbox, #mblines, #mbtabs){opacity:0 !important; pointer-events:none}
+
+  /* the keyboard in the box: the hotkey map's keyboard
+     (facilitator-mocks/mock-hotkey-map-20261008.html), drawn at its own size,
+     every key faint, and shown at the share of it that fits the box's width
+     with KB_AIR round it (placeBox below sets --kb-fit) */
+  #obkeys{position:absolute; left:0; top:0; pointer-events:none;
+    transform:scale(var(--kb-fit, 1)); transform-origin:0 0}
   #obkeys .obkey{position:absolute; border-radius:7px; font-family:var(--sans);
     background:rgba(28,40,60,.05); color:rgba(28,40,60,.32);
     transition:background-color var(--lit-ms, .6s) ease, color var(--lit-ms, .6s) ease}
@@ -659,7 +671,6 @@
   }
   body.obboard #obstage{justify-items:start}
   body.obboard main{margin-left:var(--frame-x)}
-  body.obboard{--card-mid:calc(var(--frame-x) + min(var(--frame-w), 100vw - 32px) / 2)}
   /* the list stays hidden until 101: Tickets, the card about it, first comes
      on screen, then phases in gently over .9s and stays, back on the earlier
      cards too. at the end it goes on the board's own dissolve, the stage's .18s
@@ -671,7 +682,16 @@
 </style>
 </head>
 <body class="focus">
+<!-- the lines from the card to the keyboard's magic box, ahead of the card so
+     they are drawn behind it, and the box, as index.html has them; the box's
+     bar has no cross, since the onboarding owns the box -->
+<svg id="mblines" aria-hidden="true"></svg>
+<section id="magicbox" class="magicbox" aria-hidden="true">
+  <div class="mbbar"></div>
+  <div class="mbbody" data-kind="image"></div>
+</section>
 <div id="obstage"><main><div id="sections"></div></main></div>
+<svg id="mbtabs" aria-hidden="true"></svg>
 <!-- the ticket list, as index.html has it -->
 <div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
 <script>
@@ -928,14 +948,13 @@ for (const pane of document.querySelectorAll(".tikpane")){
                ["ctrl", "shift", "return"], ["ctrl", "shift", "delete"]] },
   ];
 
-  // the timings. the keyboard fades in over the first answer's whole way in,
-  // the send's flight and then the page turn to the next question
-  // (SENT_FLIGHT_MS and TURN_GLIDE_MS in card-logic.js), so the two end together.
-  // the bracketed way back waits for the turn to land and a breath more, then
-  // fades in over .6s (.obheld in the sheet) as the three keys light. a light
-  // fades in, holds and fades out; the 101: Hotkeys card's chords are shorter
-  const KEYS_IN_MS = SENT_FLIGHT_MS + TURN_GLIDE_MS;
-  const KEYS_LATE_MS = 400;   // the keyboard on a 101 card reached before any answer
+  // the timings. the keyboard's magic box rises in as the first answer is
+  // sent, over the board's own rise (RISE_MS below), so it has risen by the
+  // time the page turn to the next question lands (SENT_FLIGHT_MS and
+  // TURN_GLIDE_MS in card-logic.js). the bracketed way back waits for the turn
+  // to land and a breath more, then fades in over .6s (.obheld in the sheet) as
+  // the three keys light. a light fades in, holds and fades out; the 101:
+  // Hotkeys card's chords are shorter
   const ASIDE_WAIT_MS = TURN_GLIDE_MS + 200;
   const LIGHT = { inMs: 600, holdMs: 1500, outMs: 700 };
   const LIGHT_SHORT = { inMs: 400, holdMs: 1000, outMs: 400 };
@@ -1025,13 +1044,146 @@ for (const pane of document.querySelectorAll(".tikpane")){
     }
     keyboard.style.width = Math.max(...KB_ROWS.map(r => r.keys.filter(k => !k.sameColumn).reduce((a, k) => a + (k.w || 1), 0))) * KB_U + "px";
     keyboard.style.height = y + "px";
-    document.body.insertBefore(keyboard, document.getElementById("obstage"));
   }
-  // the keyboard comes in once and then stays, on every card after
-  function showKeys(ms){
-    if (keyboard.classList.contains("on")) return;
-    keyboard.style.setProperty("--keys-in", ms + "ms");
-    keyboard.classList.add("on");
+
+  // ---- the magic box the keyboard stands in -----------------------------------
+  // the board's magic box beside the card (#magicbox in index.html), seated by
+  // the board's own MagicBox.place (magic-box.js): in the room right of the
+  // card, level with the card's middle, the gaps to the card and to the
+  // window's edge alike and at least FRAME_CLEAR, and never over the card. the
+  // keyboard is shown in it the way the board shows a picture, in its own shape
+  // under the bar, as large as the box allows, with KB_AIR of its own pixels
+  // round it. a window with no room beside the card does not show the box, as
+  // the board does not, and shows it again once the room is back
+  const FRAME_CLEAR = 16;   // index.html's
+  const KB_AIR = 28;
+  const BOX = { el: document.getElementById("magicbox"), lines: document.getElementById("mblines"),
+                tabs: document.getElementById("mbtabs"), on: false,
+                rise: { t: 0, raf: 0, last: 0 } };
+  BOX.bar = BOX.el.querySelector(".mbbar");
+  BOX.body = BOX.el.querySelector(".mbbody");
+  BOX.body.appendChild(keyboard);
+  const KB_W = parseFloat(keyboard.style.width), KB_H = parseFloat(keyboard.style.height);
+  function placeBox(){
+    if (!BOX.on) return;
+    const r = document.querySelector("main").getBoundingClientRect();
+    const rect = { left: r.left, top: r.top, width: r.width, height: r.height };
+    const fit = { scale: 1, tx: 0, right: innerWidth, clear: FRAME_CLEAR };
+    BOX.lines.classList.remove("on");
+    BOX.tabs.classList.remove("on");
+    if (!MagicBox.place(rect, fit).shown){ BOX.el.style.visibility = "hidden"; return; }
+    const edge = parseFloat(getComputedStyle(BOX.el).borderTopWidth) || 0;
+    const at = MagicBox.place(rect, fit, { width: KB_W + 2 * KB_AIR, height: KB_H + 2 * KB_AIR,
+                                           head: BOX.bar.offsetHeight + 2 * edge });
+    Object.assign(BOX.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
+                                  height: at.height + "px", visibility: "" });
+    const s = (at.width - 2 * edge) / (KB_W + 2 * KB_AIR);
+    keyboard.style.setProperty("--kb-fit", s.toFixed(4));
+    keyboard.style.left = keyboard.style.top = (KB_AIR * s).toFixed(2) + "px";
+    magicLines(rect, at, 0);
+  }
+  // the box comes in once, rising as the board's does on its first showing,
+  // and then stays, on every card after
+  function showBox(){
+    if (BOX.on) return;
+    BOX.on = true;
+    BOX.el.classList.add("on");
+    magicRiseSet(0);
+    placeBox();
+    magicRise();
+  }
+  addEventListener("resize", placeBox);
+
+  // copied from index.html, where these live inline: the rise (RISE_MS,
+  // magicRiseSet, magicRise, magicRiseStep), here only ever rising, and the
+  // lines to the card (MAGIC_NEAR, magicRoute, magicLines, DRONE, magicDrone).
+  // the line template is the one the board works out for a box that never
+  // chose one (magicChosen), from this box's own name
+  const RISE_MS = 1000;
+  function magicRiseSet(t){
+    BOX.rise.t = t;
+    const p = t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
+    BOX.el.style.setProperty("--rise", p.toFixed(4));
+    BOX.lines.style.opacity = BOX.tabs.style.opacity = p.toFixed(4);
+  }
+  function magicRise(){
+    BOX.el.classList.add("rising");
+    if (!BOX.rise.raf){ BOX.rise.last = performance.now(); BOX.rise.raf = requestAnimationFrame(magicRiseStep); }
+  }
+  function magicRiseStep(now){
+    const r = BOX.rise;
+    const t = Math.min(1, r.t + (now - r.last) / RISE_MS);
+    r.last = now;
+    magicRiseSet(t);
+    if (t < 1){ r.raf = requestAnimationFrame(magicRiseStep); return; }
+    r.raf = 0;
+    BOX.el.classList.remove("rising");
+  }
+  const MAGIC_NEAR = [[0, 1, 2], [1, 2, 0], [2, 1, 0]];
+  function magicChosen(id){
+    let h = 0;
+    for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return h % 3;
+  }
+  function magicRoute(k, card, box, top){
+    const C = { l: card.left, t: card.top, r: card.left + card.width, b: card.top + card.height, w: card.width, h: card.height };
+    const B = { l: box.left, t: box.top, r: box.left + box.width, b: box.top + box.height, w: box.width, h: box.height };
+    const tuck = 4;
+    if (k === 0){
+      const above = B.t - C.t, below = C.b - B.b;
+      if (above < 16 || below < 16) return null;
+      const ya = C.t + Math.min(.0959 * C.h, .509 * above), xa = B.l + .492 * B.w;
+      const yb = C.b - Math.min(.0814 * C.h, .179 * below), xb = B.l + .124 * B.w;
+      return { paths: [[[C.r - tuck, ya], [xa, ya], [xa, B.t + tuck]], [[C.r - tuck, yb], [xb, yb], [xb, B.b - tuck]]], tabs: [] };
+    }
+    const [from, high, into] = k === 1 ? [.887, .0413, .059] : [.2205, .0601, .436];
+    const y = C.t - high * C.h, x1 = C.l + from * C.w, x2 = B.l + into * B.w;
+    if (y < top + 4 || B.t - y < 12) return null;
+    return { paths: [[[x1, C.t + tuck], [x1, y], [x2, y], [x2, B.t + tuck]]],
+      tabs: k === 1 ? [[x1, C.t], [x2, B.t]] : [] };
+  }
+  function magicLines(card, box, top){
+    let route = null, drawn = -1;
+    for (const k of MAGIC_NEAR[magicChosen("onboarding-keys")]) if ((route = magicRoute(k, card, box, top))){ drawn = k; break; }
+    BOX.lines.dataset.route = drawn;
+    if (!route) return;
+    const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
+    BOX.lines.innerHTML = route.paths.map((pts, i) => {
+      const line = magicDrone(pts, 1127 + 7 * drawn + i);
+      return '<path d="' + line.core + '" fill="none" stroke="' + ink + '" stroke-width="' + DRONE.core +
+        '" stroke-linejoin="round" stroke-linecap="round"/><path d="' + line.dabs + '" fill="' + ink + '"/>';
+    }).join("");
+    const edge = parseFloat(getComputedStyle(document.querySelector("main")).borderTopWidth) || 0;
+    BOX.tabs.innerHTML = route.tabs.map(([x, y]) => '<rect x="' + (x - 3.3).toFixed(2) + '" y="' + (y + edge / 2 - 1.65).toFixed(2) +
+      '" width="6.6" height="3.3" rx="1" fill="' + ink + '"/>').join("");
+    BOX.lines.classList.add("on");
+    BOX.tabs.classList.toggle("on", route.tabs.length > 0);
+  }
+  const DRONE = { core: 1.25, r: .9, rj: .6, gap: 2, gj: 1.4, off: .3 };
+  function magicDrone(pts, seed){
+    let s = seed >>> 0;
+    const rnd = () => {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = Math.imul(s ^ s >>> 15, s | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+    const f2 = v => v.toFixed(2);
+    let core = "M" + f2(pts[0][0]) + " " + f2(pts[0][1]), dabs = "", run = 0, next = 0;
+    for (let i = 1; i < pts.length; i++){
+      const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], len = Math.hypot(x1 - x0, y1 - y0);
+      core += "L" + f2(x1) + " " + f2(y1);
+      if (!len) continue;
+      const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+      for (; next <= run + len; next += DRONE.gap + rnd() * DRONE.gj){
+        const along = next - run, r = DRONE.r + rnd() * DRONE.rj, o = (rnd() - .5) * DRONE.off;
+        const cx = x0 + ux * along - uy * o, cy = y0 + uy * along + ux * o;
+        dabs += "M" + f2(cx - r) + " " + f2(cy) + "a" + f2(r) + " " + f2(r) + " 0 1 0 " + f2(2 * r) + " 0a" +
+          f2(r) + " " + f2(r) + " 0 1 0 " + f2(-2 * r) + " 0";
+      }
+      run += len;
+    }
+    return { core, dabs };
   }
   // the lights, and every wait that leads to one, are kept so a move to
   // another card can call them all off
@@ -1377,8 +1529,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
       answer(card, [], page.field);
       return true;
     }
-    // the first answer brings the keyboard in, over its flight and the turn
-    if (card.pages.length === 1) showKeys(KEYS_IN_MS);
+    // the first answer brings the keyboard's box in, rising as it flies
+    if (card.pages.length === 1) showBox();
     // the board's own order (doSend in index.html): the flight is armed off the
     // row before the row is emptied, the message comes into the sent panel at
     // the press, faded, and the flight plays once it has its seat there
@@ -1605,8 +1757,10 @@ for (const pane of document.querySelectorAll(".tikpane")){
     if (el.bandWrite) el.bandWrite();
     seatGhost(card);
     if (!i) fitWelcome();
-    // a 101 card reached before any answer still stands over the keyboard
-    if (i > cards.indexOf(onboard)) showKeys(KEYS_LATE_MS);
+    // a 101 card reached before any answer still has the keyboard's box beside
+    // it; the box follows the card wherever it stands
+    if (i > cards.indexOf(onboard)) showBox();
+    placeBox();
     if (card.spec.lights){
       let t = LIGHTS_FROM_MS;
       for (const chord of card.spec.lights) t = pulse(chord, LIGHT_SHORT, t) + LIGHTS_GAP_MS;
