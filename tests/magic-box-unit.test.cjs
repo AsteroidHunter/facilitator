@@ -633,18 +633,53 @@ test("whichever of the card and the box is held stands up and the other settles,
   // the card steps back to it only while an open box is held and drawn, at the
   // settled rule's own weight, ahead of the lowered card's rule, so a lowered
   // card stays level
-  const rule = "  body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main{box-shadow:var(--shade-lighter)}";
+  // the box being on and held is a mark on the body (body.mbheld) and not a
+  // :has() there, which restyled the whole page whenever any element's "on" or
+  // "held" changed, the caret's on every frame of a scroll
+  const rule = "  body.focus:not(.home, .editmode):where(.mbheld) main{box-shadow:var(--shade-lighter)}";
   assert.ok(html.includes(rule));
   assert.ok(html.indexOf(rule) < html.indexOf("  body.focus.lowered main{box-shadow:none}"));
+  assert.ok(html.indexOf("  body.focus.minifocus main{") < html.indexOf(rule), "after the settled rule, which it weighs the same as");
+  // each :has() and the compound it hangs off, read back over any brackets
+  const sheet = code(html.slice(0, html.indexOf("</style>")));
+  const anchors = [...sheet.matchAll(/:has\(/g)].map(m => {
+    let i = m.index, depth = 0;
+    for (; i > 0; i--){
+      const ch = sheet[i - 1];
+      if (ch === ")") depth++;
+      else if (ch === "(") depth--;
+      else if (!depth && /[\s{},>+~]/.test(ch)) break;
+    }
+    return sheet.slice(i, m.index);
+  });
+  assert.ok(anchors.length > 0);
+  assert.deepEqual(anchors.filter(a => /^body\b/.test(a)), [], "a :has() on the body");
   // both ease over the card's own timing, and the shadow is all they change
   const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
   assert.match(card, /transition:box-shadow \.2s;/);
   assert.match(html, /\n  #magicbox\{background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:7px;\s*box-shadow:var\(--shade-lighter\); transition:box-shadow \.2s\}/);
   const style = html.slice(0, html.indexOf("</style>"));
   const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
-  assert.deepEqual(rules.map(r => r[1].trim()), ["body.focus:not(.home, .editmode):has(:where(#magicbox.on.held)) main", "#magicbox.held",
-    "#magicbox.rising.held"], "the card's rule and the box's, and the box's as it rises");
-  for (const [, , body] of rules) assert.match(body.trim(), /^box-shadow:[^;]*$/);
+  assert.deepEqual(rules.map(r => r[1].trim()), ["#magicbox.held", "#magicbox.rising.held"], "the box's, and the box's as it rises");
+  for (const [, , body] of [...rules, [, , rule.slice(rule.indexOf("{") + 1, -1)]]) assert.match(body.trim(), /^box-shadow:[^;]*$/);
+  // the mark follows the box's own classes, whatever changes them: on only
+  // while the box is both on and held
+  const mirror = html.match(/\nif \(MB\.el\) new MutationObserver\([\s\S]*?\);\n/)[0];
+  const boxClasses = new Set(), bodyClasses = new Set();
+  let seen = null, watched = null;
+  const toggle = set => (c, yes) => (yes ? set.add(c) : set.delete(c));
+  vm.runInContext(mirror, vm.createContext({
+    MB: { el: { classList: { contains: c => boxClasses.has(c) } } },
+    document: { body: { classList: { toggle: toggle(bodyClasses) } } },
+    MutationObserver: class { constructor(fn){ seen = fn; } observe(el, opts){ watched = opts; } },
+  }));
+  assert.equal(JSON.stringify(watched), JSON.stringify({ attributeFilter: ["class"] }), "the box's class and nothing else");
+  const mark = (...on) => { boxClasses.clear(); on.forEach(c => boxClasses.add(c)); seen(); return bodyClasses.has("mbheld"); };
+  assert.equal(mark("on", "held"), true, "on and held");
+  assert.equal(mark("on"), false, "on, not held");
+  assert.equal(mark("held"), false, "held while off the page, as a new revision loads");
+  assert.equal(mark("on", "held", "rising"), true, "held as it rises");
+  assert.equal(mark(), false, "taken off");
   // risen, the rising one is the held one exactly
   const rising = html.match(/\n  #magicbox\.rising\.held\{\s*box-shadow:([^}]*)\}/)[1];
   assert.equal(rising.replace(/calc\(([^)]*?) \* var\(--rise\)\)/g, "$1").replace(/\s+/g, " ").trim(),
