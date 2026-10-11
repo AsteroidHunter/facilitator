@@ -6986,6 +6986,8 @@ const SETTINGS_ICONS = {
   appearance: '<path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.9-.8 1.9-1.7 0-.5-.2-.9-.5-1.3-.3-.4-.4-.8-.4-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.2-4-8-9-8z"/><path d="M7.5 11h.01M10 7.5h.01M14.5 7.5h.01"/>',
   editor: '<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M14.5 6.5l3 3"/>',
   improvements: '<path d="M3.5 17l6-6 4 4 7-7.5"/><path d="M14.5 7.5h6v6"/>',
+  // the garbage can the Mac board shows beside a ticket
+  bin: '<path d="M3.5 6.5h17"/><path d="M9 6.5V4h6v2.5"/><path d="M6 6.5l1.1 14h9.8l1.1-14"/><path d="M10 10.5v6M14 10.5v6"/>',
 };
 function settingsIcon(id){
   const mark = h("span", "sp-ico");

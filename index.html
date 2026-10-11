@@ -1373,6 +1373,19 @@
     transform:translateY(-1px); z-index:1;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
   }
+  /* the garbage can (binCanAt below): in the paper left of the ticket the
+     pointer is over or beside, faded in and out over .2s. it hangs off the
+     holder, outside the list's clip, and takes no room in it, so no row, name
+     or arrow moves. the mark is the section chips' kind of line drawing, in
+     their black, on no seat until the pointer is on it */
+  .bincan{position:absolute; left:0; top:0; z-index:2; width:24px; height:24px; padding:0; margin:0;
+    display:flex; align-items:center; justify-content:center;
+    color:#1e1e1e; background:transparent; border:none; border-radius:var(--sq); cursor:pointer;
+    opacity:0; pointer-events:none; transition:opacity .2s ease, background-color .15s}
+  .bincan.on{opacity:1; pointer-events:auto}
+  .bincan:hover{background:color-mix(in srgb, #000 var(--press), transparent)}
+  .bincan svg{display:block; width:15px; height:15px}
+  body:is(.editmode, .choosing, .setopen) .bincan{display:none}
   /* past capacity the panel contains itself: internal scroll, no overhang */
   body.focus #tickets.scroll{overflow-y:auto; overflow-x:hidden}
   #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
@@ -3498,6 +3511,13 @@
   #onboard{position:fixed; inset:0; width:100%; height:100%; margin:0; padding:0; border:none;
     z-index:2147483647; background:transparent; transition:opacity .18s ease}
   #onboard.gone{opacity:0; pointer-events:none}
+  /* the settings page's Bin: the line saying how long cards are kept, then a
+     row to a deleted card, its title over its project and when it was
+     deleted, and Restore on the right */
+  .sp-mac .sp-box .binnote{margin:0; padding:14px 0 2px}
+  .sp-mac .binrow .setlabel{cursor:default}
+  .sp-mac .binrow .bintitle{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .sp-mac .binrow .sp-btn{flex:none}
 </style>
 <link rel="stylesheet" href="/card-tokens.css">
 <link id="homesheet" rel="stylesheet" href="/home-widgets.css">
@@ -3580,6 +3600,10 @@
         <small class="sethelp">We collect basic usage counts to gauge the product's retention rate. Personal data such as the contents of a card or project names is <em>never</em> collected.</small></label>
       <input type="checkbox" role="switch" id="setusage" checked>
     </div>
+  </div>
+  <div data-section="bin" data-label="Bin">
+    <p class="setnote binnote">Deleted cards stay here for 30 days, then they are deleted for good.</p>
+    <div id="binlist"></div>
   </div>
 </div>
 
@@ -10270,6 +10294,136 @@ function renderCarousel(state){
     }
   }
   syncSpinner();
+  binCanFollow();
+}
+
+// ---- the garbage can ----------------------------------------------------------
+// a small can fades in just left of the ticket the pointer is over, or over the
+// paper beside it, and fades out when the pointer leaves. a click deletes that
+// card at once, with no menu and no question: it goes to the Bin (POST /bin in
+// server.py), kept there 30 days, and the settings page's Bin brings it back.
+// two cans take turns, so going to another ticket fades one out where it was
+// while the other fades in beside the new one. there is no key for it yet
+const BIN_CAN_GAP = 8;         // paper between the can and the ticket's left edge
+const BIN_CAN_REACH = 12;      // how far left of the can the pointer still counts as beside the ticket
+const BIN_CAN_REST_MS = 400;   // the rows glide up after a delete: no can until the pointer moves after this
+const BIN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M3.5 6.5h17"/><path d="M9 6.5V4h6v2.5"/><path d="M6 6.5l1.1 14h9.8l1.1-14"/><path d="M10 10.5v6M14 10.5v6"/></svg>';
+const binCans = [];
+let binCanShown = null;      // { can, id }: the can beside a ticket now
+let binCanPointer = null;    // { x, y }: where the pointer last was, in the window
+let binCanRestUntil = 0;
+// cards this page has deleted, kept off every reading until one asked after the
+// board's answer no longer has them: id -> when the board answered, 0 while out
+const binGone = new Map();
+
+function binCanMake(){
+  const host = document.getElementById("tickets");
+  for (let i = 0; i < 2; i++){
+    const can = h("button", "bincan");
+    can.type = "button";
+    can.tabIndex = -1;
+    can.title = "Delete (kept in the Bin for 30 days)";
+    can.setAttribute("aria-label", "Delete card");
+    can.innerHTML = BIN_ICON;
+    can.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      if (can.classList.contains("on") && can.dataset.id) binCard(can.dataset.id);
+    });
+    host.appendChild(can);
+    binCans.push(can);
+  }
+}
+
+// the ticket the pointer at x, y is over or beside, in the section on show
+function binCanRow(x, y){
+  if (!FOCUS || !lastState || Date.now() < binCanRestUntil || tikTravelIntent != null) return null;
+  if (document.body.matches(".editmode, .choosing, .setopen")) return null;
+  const pane = document.querySelector('#tiksheet .tikpane[data-view="' + curView() + '"]');
+  if (!pane) return null;
+  const clip = pane.getBoundingClientRect();
+  const size = binCans[0] ? binCans[0].offsetWidth : 24;
+  for (const row of pane.querySelectorAll(":scope > .trow")){
+    const r = row.getBoundingClientRect();
+    const mid = (r.top + r.bottom) / 2;
+    if (mid < clip.top || mid > clip.bottom) continue;   // scrolled out under the fade
+    if (y < r.top - 3 || y > r.bottom + 3) continue;
+    if (x >= r.left - BIN_CAN_GAP - size - BIN_CAN_REACH && x <= r.right) return row;
+  }
+  return null;
+}
+
+function binCanShow(row){
+  const id = row ? row.dataset.id : null;
+  if (binCanShown && binCanShown.id === id){ binCanPlace(binCanShown.can, row); return; }
+  const was = binCanShown;
+  if (was) was.can.classList.remove("on");
+  binCanShown = null;
+  if (!row) return;
+  if (!binCans.length) binCanMake();
+  const can = was ? binCans[(binCans.indexOf(was.can) + 1) % binCans.length] : binCans[0];
+  // a can still fading out elsewhere is put in its new place unseen first
+  can.style.transition = "none";
+  can.classList.remove("on");
+  binCanPlace(can, row);
+  void can.offsetWidth;
+  can.style.transition = "";
+  can.dataset.id = id;
+  can.classList.add("on");
+  binCanShown = { can, id };
+}
+
+function binCanPlace(can, row){
+  const hr = can.parentElement.getBoundingClientRect(), r = row.getBoundingClientRect();
+  const size = can.offsetWidth;
+  can.style.left = (r.left - hr.left - BIN_CAN_GAP - size) + "px";
+  can.style.top = (r.top - hr.top + (r.height - size) / 2) + "px";
+}
+
+// the pointer, a scroll of the list or a redraw: the can follows the ticket
+function binCanFollow(){
+  binCanShow(binCanPointer ? binCanRow(binCanPointer.x, binCanPointer.y) : null);
+}
+if (FOCUS){
+  addEventListener("pointermove", e => {
+    if (e.pointerType === "touch") return;
+    binCanPointer = { x: e.clientX, y: e.clientY };
+    binCanFollow();
+  }, { passive: true });
+  document.documentElement.addEventListener("pointerleave", () => { binCanPointer = null; binCanFollow(); });
+  addEventListener("blur", () => { binCanPointer = null; binCanFollow(); });
+  document.getElementById("tiksheet")?.addEventListener("scroll", binCanFollow, { capture: true, passive: true });
+}
+
+// one card to the Bin: gone from the list at once, and when it was the card on
+// screen, the next card in its section shows, as when a card is moved to
+// another section. a delete the board refuses puts the card back
+async function binCard(id){
+  const { order, section } = cardDeparture(lastState, id);
+  binGone.set(id, 0);
+  binCanRestUntil = Date.now() + BIN_CAN_REST_MS;
+  binCanPointer = null;
+  binCanFollow();
+  selectNextCard(id, order, section);
+  if (lastState){
+    lastState.boxes = lastState.boxes.filter(b => b.id !== id);
+    try { apply(lastState); }
+    catch (err){ if (typeof reportProblem === "function") reportProblem("render", err); }
+  }
+  let ok = false;
+  try { ok = (await fetch("/bin?box=" + encodeURIComponent(id), { method: "POST" })).ok; } catch (err) {}
+  if (ok) binGone.set(id, Date.now());
+  else binGone.delete(id);
+  poll();
+}
+
+// a reading asked before the board answered a delete may still carry the card
+function binHide(state){
+  if (!binGone.size || !Array.isArray(state.boxes)) return;
+  for (const [id, answered] of binGone)
+    if (answered && state.fetchedAt >= answered && !state.boxes.some(b => b.id === id)) binGone.delete(id);
+  state.boxes = state.boxes.filter(b => !binGone.has(b.id));
 }
 
 function ord(n){ return n + ({1:"st",2:"nd",3:"rd"}[n % 10 > 3 || [11,12,13].includes(n % 100) ? 0 : n % 10] || "th"); }
@@ -10463,6 +10617,8 @@ async function poll(){
     // reload, as it was when the browser kept them
     if (settingsStore.notice) settingsStore.notice(state.settingsRev);
     const caretBefore = focusedCaretContext();
+    // a card this page has just put in the Bin stays out of the reading
+    binHide(state);
     // a card this page is holding a click for is shown the way it was left, and
     // this reading's own word for it is kept aside to go back to
     holdFlags(state);
@@ -11489,6 +11645,46 @@ function setEditMode(on){
       if (key === "email") change.emailYes = input.value.trim() !== "";
       saveProfile(change, input);
     });
+  // the Bin (GET /bin and POST /bin/restore in server.py): the cards the garbage
+  // can beside the tickets deleted, newest first, read from the board each time
+  // the page opens. Restore puts a card back in its own place and section
+  const binList = document.getElementById("binlist");
+  const binAgo = ts => {
+    const s = Math.max(0, Date.now() / 1000 - ts);
+    const say = (n, unit) => n + " " + unit + (n === 1 ? "" : "s") + " ago";
+    if (s < 60) return "just now";
+    if (s < 3600) return say(Math.floor(s / 60), "minute");
+    if (s < 86400) return say(Math.floor(s / 3600), "hour");
+    return say(Math.floor(s / 86400), "day");
+  };
+  const showBin = cards => {
+    binList.textContent = "";
+    if (!cards.length){
+      const row = h("div", "setrow binrow");
+      row.appendChild(h("span", "sethelp", "Nothing in the Bin."));
+      binList.appendChild(row);
+      return;
+    }
+    for (const c of cards){
+      const row = h("div", "setrow binrow");
+      row.dataset.id = c.id;
+      const words = h("div", "setlabel");
+      words.append(h("span", "bintitle", c.title || "Untitled"),
+        h("small", "sethelp", (lastState ? labelOf(lastState, c.owner) : c.owner) + ", deleted " + binAgo(c.ts)));
+      const restore = h("button", "sp-btn", "Restore");
+      restore.type = "button";
+      restore.addEventListener("click", async () => {
+        restore.disabled = true;
+        await fetch("/bin/restore?box=" + encodeURIComponent(c.id), { method: "POST" }).catch(() => {});
+        readBin();
+        poll();
+      });
+      row.append(words, restore);
+      binList.appendChild(row);
+    }
+  };
+  const readBin = () => fetch("/bin").then(r => r.ok ? r.json() : null)
+    .then(b => { if (b) showBin(b.cards); }, () => {});
   const view = settingsOverlay(document.body, document.getElementById("setsrc"), {
     onOpen(){
       setOpen = true;
@@ -11498,6 +11694,7 @@ function setEditMode(on){
       usage.checked = sharing();
       showWait();
       readProfile();
+      readBin();
     },
     onClose(){
       setOpen = false;
