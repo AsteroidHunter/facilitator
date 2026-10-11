@@ -118,7 +118,8 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   assert.equal(identify.body.distinct_id, install.install_id);
   const kept = JSON.parse(fs.readFileSync(path.join(board.app, "profile.json"), "utf8"));
   assert.deepEqual(kept, { name: "Ada Lovelace", email: "ada@example.org", email_yes: true,
-                           work: "A research tool for my lab", agent: "Claude Code", time_zone: "America/Phoenix" });
+                           work: "A research tool for my lab", agent: "Claude Code", time_zone: "America/Phoenix",
+                           picture: null });   // drawn by the first page that needs it, never sent
   assert.equal(fs.statSync(path.join(board.app, "profile.json")).mode & 0o777, 0o600);
 
   // an edit in Settings while the yes holds goes once, alone; the yes taken back sends nothing more
@@ -275,6 +276,13 @@ test("the Profile section is in Settings on the Mac, editable, and on the phone,
     assert.ok(mac.includes(`id="${id}"`), id);
   // no switch and no subtitles: the email is the yes, and clearing it takes the yes back
   assert.doesNotMatch(mac, /setemailyes|Feedback emails|role="switch"|sethelp|avatar/i);
+  // the picture: an empty square the page fills from the board's stored number, one of three drawings
+  assert.match(mac, /<div class="setpic" id="setpic" aria-hidden="true"><\/div>/);
+  const drawings = MAC.slice(MAC.indexOf("const PICTURES = {"), MAC.indexOf('const picture = document.getElementById("setpic")'));
+  assert.deepEqual([...drawings.matchAll(/^\s+(\d): '/gm)].map(m => m[1]), ["3", "4", "5"]);
+  assert.ok(MAC.includes("if (PICTURES[p.picture]) picture.innerHTML = PICTURES[p.picture];"));
+  assert.doesNotMatch(MAC.slice(MAC.indexOf("const profileFields"), MAC.indexOf("const view = settingsOverlay")), /picture:/,
+    "the page sends a picture");
   assert.ok(MAC.includes('const change = { [key]: input.value };'));
   assert.ok(MAC.includes('if (key === "email") change.emailYes = input.value.trim() !== "";'));
   assert.ok(MAC.includes('fetch("/profile", { method: "POST", body: JSON.stringify({ ...change, timeZone: hereZone() }) })'));
