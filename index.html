@@ -381,7 +381,9 @@
   #loading.down .globe{border-color:#A8442A}
   #loading.down .coast{stroke:#A8442A}
   #loading.down .earth{animation-play-state:paused}
-  body:has(#loading) #offline{z-index:100003}
+  /* the curtain is first in the body and the banner a later child of it, so a
+     sibling rule lifts the banner while the curtain is there, with no :has() */
+  #loading ~ #offline{z-index:100003}
 
   @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
   /* the globe keeps turning for the reason the phone gives: a still globe is the
