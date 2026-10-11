@@ -3616,6 +3616,125 @@ test("the answer's band comes down with the falling bubble's head rather than dr
   assert.equal(context.sentBand(el, measured()), measured(), "the band is still held once the fall has landed");
 });
 
+// ---- the joined bubble's cut, fuzz and arrow stand still through a merge -----------------
+// the stand-in lays nothing out, so which bubble is cut is written by hand, as a
+// browser's measure would set it: the earlier bubble cut or not (topCut), the
+// later one cut or not (bottomCut), and the joined one always, its cut 40px deep
+// from 12px under its head, so 35px over its foot (the joined bubble stands at
+// 393 to 480)
+const JOINED_TOP = 393, JOINED_CUT = 12 + 40;
+function cutScene(topCut, bottomCut) {
+  const s = fallScene(), { context, el, bubbles } = s;
+  const join = context.sentJoin;
+  context.sentJoin = (one, a, b) => {
+    join(one, a, b);
+    a.classList.add("more");
+    const clip = a.querySelector(".answclip");
+    rect(clip, clip.rect.left, clip.rect.top, clip.rect.width, 40);
+  };
+  const cut = (panel, on) => panel.classList.toggle("more", on);
+  s.draw([at(W[0], "sent")]);
+  cut(bubbles()[0], topCut);
+  flySecond(s, [at(W[0], "sent"), at(W[1], "local")], [at(W[0], "sent"), at(W[1], "sent")]);
+  cut(bubbles()[0], topCut);
+  cut(bubbles()[1], bottomCut);
+  s.ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  const kid = name => layer.children.find(one => one.classList.contains(name));
+  const win = kid("sentgoo-cut"), fuzz = kid("sentgoo-fuzz"), strip = kid("answfoot");
+  // the line the words go under, in the joined bubble's own px
+  const line = () => parseFloat(win.style.top) + parseFloat(win.style.height) -
+    Number(/^inset\(0 0 ([-\d.e]+)px 0\)$/.exec(win.style.clipPath)[1]);
+  // the copies of the earlier and the later words, told by their words (the
+  // joined bubble's copy carries both)
+  const copyOf = text => layer.querySelectorAll(".sentgoo-words").find(one =>
+    one.querySelectorAll(".answmsg").map(row => row.dataset.text).join("|") === text);
+  const copies = [copyOf(W[0]), copyOf(W[1])];
+  assert.ok(copies.every(Boolean), "a bubble's words are not drawn in the merge");
+  return { ...s, layer, win, fuzz, strip, line, copies };
+}
+
+test("a joined bubble that is cut keeps the later bubble's arrow and fuzz exactly where they stood, the whole way", () => {
+  for (const topCut of [false, true]) {
+    const s = cutScene(topCut, true), { frame, win, fuzz, strip, line, copies } = s;
+    assert.ok(win && fuzz && strip, "the merge draws no cut, fuzz or arrow of its own");
+    const [, later] = copies;
+    // the later bubble's own fuzz and arrow give way to the ones that stand still
+    assert.equal(later.querySelector(".answfoot").style.visibility, "hidden", "the later copy still carries its arrow");
+    assert.equal(later.querySelector(".answclip").style.getPropertyValue("--answ-shade"), "0",
+      "the later copy still carries its fuzz");
+    const first = { line: line(), strip: strip.style.top, fuzz: fuzz.style.top };
+    assert.equal(first.line, JOINED_CUT, "the words do not go under the joined bubble's cut");
+    assert.equal(parseFloat(first.strip), JOINED_CUT, "the arrow does not stand in the joined bubble's strip");
+    for (let ms = 17; ms <= s.merge.MS; ms += 17) {
+      frame(ms);
+      assert.equal(strip.style.opacity, "1", `the arrow faded at ${ms}ms`);
+      assert.equal(fuzz.style.opacity, "1", `the fuzz faded at ${ms}ms`);
+      assert.equal(strip.style.top, first.strip, `the arrow moved at ${ms}ms`);
+      assert.equal(fuzz.style.top, first.fuzz, `the fuzz moved at ${ms}ms`);
+      assert.equal(line(), first.line, `the cut moved at ${ms}ms`);
+    }
+  }
+});
+
+test("every copy of words a merge draws stands in a window cut at the joined bubble's cut, so none is drawn over its arrow or under it", () => {
+  for (const [topCut, bottomCut] of [[false, false], [false, true], [true, true]]) {
+    const s = cutScene(topCut, bottomCut), { frame, win, line, copies } = s;
+    for (const copy of copies) assert.ok(copy.parentNode === win, "a copy of words is drawn outside the window");
+    let last = Infinity;
+    for (let ms = 17; ms <= s.merge.MS; ms += 17) {
+      frame(ms);
+      assert.ok(line() <= last + 1e-9, `the cut went down at ${ms}ms`);
+      last = line();
+    }
+    assert.ok(Math.abs(line() - JOINED_CUT) < 1e-9, "the words do not stand under the joined cut once landed");
+  }
+});
+
+test("over a later bubble that was not cut, the joined arrow comes in only once the cut has cleared it, and is whole on landing", () => {
+  const s = cutScene(false, false), { frame, strip, fuzz, line } = s;
+  assert.equal(strip.style.opacity, "0", "an arrow stood under a bubble that had none");
+  assert.equal(fuzz.style.opacity, "0", "fuzz stood on a bubble that had none");
+  // the arrow's head stands half the strip under the strip's head, less half the
+  // arrow's own height, which the stand-in gives none
+  const head = JOINED_CUT + (87 - JOINED_CUT) / 2;
+  let last = 0;
+  for (let ms = 17; ms <= s.merge.MS; ms += 17) {
+    frame(ms);
+    const shown = Number(strip.style.opacity);
+    assert.ok(shown >= last - 1e-12, `the arrow went back at ${ms}ms`);
+    if (shown > 0) assert.ok(line() <= head + 1e-9, `the arrow showed at ${ms}ms with words drawn over it`);
+    last = shown;
+  }
+  assert.equal(strip.style.opacity, "1", "the arrow is not whole on landing");
+  assert.equal(fuzz.style.opacity, "1", "the fuzz is not whole on landing");
+});
+
+test("a cut earlier bubble over a later one that was not brings its own arrow down, drawn over the fuzz, and no second one comes in", () => {
+  const s = cutScene(true, false), { frame, layer, fuzz, strip, copies } = s;
+  const [earlier, later] = copies;
+  assert.ok(earlier.parentNode === layer, "the earlier copy, with its arrow, is cut by the window");
+  assert.ok(layer.children.indexOf(earlier) > layer.children.indexOf(fuzz), "the earlier copy is drawn under the fuzz");
+  assert.notEqual(earlier.querySelector(".answfoot").style.visibility, "hidden", "the earlier copy lost its arrow");
+  assert.ok(later.parentNode === s.win, "the later copy is drawn outside the window");
+  for (let ms = 17; ms <= s.merge.MS; ms += 17) {
+    frame(ms);
+    assert.equal(strip.style.opacity, "0", `a second arrow came in at ${ms}ms`);
+  }
+});
+
+test("a joined bubble that is not cut is drawn as it was, with no cut, fuzz or arrow of the merge's own", () => {
+  const s = fallScene(), { el, bubbles } = s;
+  s.draw([at(W[0], "sent")]);
+  flySecond(s, [at(W[0], "sent"), at(W[1], "local")], [at(W[0], "sent"), at(W[1], "sent")]);
+  s.ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  for (const name of ["sentgoo-cut", "sentgoo-fuzz", "answfoot"])
+    assert.ok(!layer.children.some(one => one.classList.contains(name)), `a joined bubble not cut drew ${name}`);
+});
+
 // ---- a column falling together ----------------------------------------------------------
 // bubbles standing apart, each in a place of its own from the one before it
 // (Read and Delivered taking turns), laid out; then a reading that puts them
@@ -3632,6 +3751,40 @@ function columnScene(count, stands, first = null) {
 const wordCopies = layer => layer.querySelectorAll(".sentgoo-words").filter(one =>
   one.querySelectorAll(".answmsg").length === 1);
 const across = node => Number(/translate\(([-\d.e]+)px/.exec(node.style.transform)[1]);
+
+test("a column whose foot is cut keeps the foot's arrow and fuzz still while the bubbles over it fall, and no word goes under the joined cut", () => {
+  const s = fallScene(), { context, el, bubbles, frame } = s;
+  const join = context.sentJoin;
+  context.sentJoin = (one, a, b) => {
+    join(one, a, b);
+    a.classList.add("more");
+    const clip = a.querySelector(".answclip");
+    rect(clip, clip.rect.left, clip.rect.top, clip.rect.width, 40);
+  };
+  s.draw(V.slice(0, 3).map((text, i) => at(text, i % 2 ? "sent" : "delivered")));
+  assert.equal(bubbles().length, 3);
+  bubbles()[2].classList.add("more");
+  s.draw(V.slice(0, 3).map(text => at(text, "delivered")));
+  bubbles()[2].classList.add("more");
+  s.ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge", "the column did not fall");
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  const kid = name => layer.children.find(one => one.classList.contains(name));
+  const win = kid("sentgoo-cut"), fuzz = kid("sentgoo-fuzz"), strip = kid("answfoot");
+  assert.ok(win && fuzz && strip, "the column draws no cut, fuzz or arrow of its own");
+  const words = layer.querySelectorAll(".sentgoo-words").filter(one => one.querySelectorAll(".answmsg").length === 1);
+  assert.equal(words.length, 3);
+  assert.ok(words.every(one => one.parentNode === win), "a bubble's words are drawn outside the window");
+  const first = { strip: strip.style.top, fuzz: fuzz.style.top, cut: win.style.clipPath };
+  for (let ms = 17; ms <= el.sentMerge.end; ms += 17) {
+    frame(ms);
+    if (!el.sentMerge) break;
+    assert.equal(strip.style.opacity, "1", `the foot's arrow faded at ${ms}ms`);
+    assert.equal(strip.style.top, first.strip, `the foot's arrow moved at ${ms}ms`);
+    assert.equal(fuzz.style.top, first.fuzz, `the foot's fuzz moved at ${ms}ms`);
+    assert.equal(win.style.clipPath, first.cut, `the cut moved at ${ms}ms`);
+  }
+});
 
 test("three, four or five bubbles standing in one place fall together: one pause for all their words, then all let go on one frame", () => {
   for (const count of [3, 4, 5]) {
