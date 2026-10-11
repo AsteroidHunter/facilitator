@@ -276,11 +276,13 @@ test("the Profile section is in Settings on the Mac, editable, and on the phone,
     assert.ok(mac.includes(`id="${id}"`), id);
   // no switch and no subtitles: the email is the yes, and clearing it takes the yes back
   assert.doesNotMatch(mac, /setemailyes|Feedback emails|role="switch"|sethelp|avatar/i);
-  // the picture: an empty square the page fills from the board's stored number, one of three drawings
+  // the picture: an empty square the page fills from the board's stored number, one of twelve drawings, 19 to 30
   assert.match(mac, /<div class="setpic" id="setpic" aria-hidden="true"><\/div>/);
   const drawings = MAC.slice(MAC.indexOf("const PICTURES = {"), MAC.indexOf('const picture = document.getElementById("setpic")'));
-  assert.deepEqual([...drawings.matchAll(/^\s+(\d): '/gm)].map(m => m[1]), ["3", "4", "5"]);
+  assert.deepEqual([...drawings.matchAll(/^\s+(\d+): '/gm)].map(m => m[1]), Array.from({ length: 12 }, (_, i) => String(19 + i)));
+  assert.doesNotMatch(drawings, /setmono|&gt;_/, "the old prompt is still drawn");
   assert.ok(MAC.includes("if (PICTURES[p.picture]) picture.innerHTML = PICTURES[p.picture];"));
+  assert.doesNotMatch(mac, /setpic[^>]*>[^<]*<(?!\/div)/, "the square holds something before a picture is read");
   assert.doesNotMatch(MAC.slice(MAC.indexOf("const profileFields"), MAC.indexOf("const view = settingsOverlay")), /picture:/,
     "the page sends a picture");
   assert.ok(MAC.includes('const change = { [key]: input.value };'));
