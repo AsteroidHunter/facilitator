@@ -250,7 +250,7 @@ test("the Mac browser guard lets Home dispatch project keys and keeps card keys 
   assert.equal(f.send(f.body, cmd("2", "Digit2")).defaultPrevented, true);
   assert.deepEqual(f.state.calls, [["tab", "two"]]);
   assert.equal(f.send(f.body, cmd("t", "KeyT")).defaultPrevented, false);
-  // no key opens Home (home-project-hotkeys); Command+` is the Mac's alone
+  // Command+0 is the home key (home-project-hotkeys); Command+` is the Mac's alone
   assert.equal(f.send(f.body, cmd("`", "Backquote")).defaultPrevented, false);
   assert.deepEqual(f.state.calls, [["tab", "two"]]);
 });
