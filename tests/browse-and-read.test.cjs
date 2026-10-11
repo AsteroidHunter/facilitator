@@ -155,7 +155,7 @@ function desktop() {
   const list = new Node(doc, "div", { id: "tiklist", parent: body });
   const els = {}, rows = [];
   // a card as makeBox builds its parts: the reply, the bar with its row and a
-  // chip
+  // chip, and the row's formatter handle, here wearing its plain face
   const addCard = (id, parent = sections) => {
     const box = new Node(doc, "div", { cls: ["box"], parent });
     const reply = new Node(doc, "div", { cls: ["replyview"], parent: box });
@@ -163,7 +163,8 @@ function desktop() {
     const bottombar = new Node(doc, "div", { cls: ["bottombar"], parent: box });
     const compose = new Node(doc, "div", { cls: ["compose"], parent: bottombar });
     const ta = new Node(doc, "textarea", { parent: compose });
-    els[id] = { box, ta, tick() {}, chip, reply, replyview: reply, bottombar, toc: { classList: classes() } };
+    const field = { formatted: () => false, want: () => false, focused: () => doc.activeElement === ta };
+    els[id] = { box, ta, field, tick() {}, chip, reply, replyview: reply, bottombar, toc: { classList: classes() } };
     const row = new Node(doc, "div", { cls: ["trow", "yours"], parent: list });
     row.dataset.id = id;
     rows.push(row);
@@ -621,7 +622,8 @@ test("the step that carries the caret selects, a tab switch browses, and the hop
   assert.deepEqual(d.seen, [{ b: 1 }]);
   // switching tabs is looking, like the arrows
   d.state.boxes.push(card("o1", { owner: "other" }));
-  d.els.o1 = { box: new Node(d.doc, "div"), ta: new Node(d.doc, "textarea"), toc: { classList: classes() }, tick() {} };
+  d.els.o1 = { box: new Node(d.doc, "div"), ta: new Node(d.doc, "textarea"), toc: { classList: classes() }, tick() {},
+    field: { formatted: () => false, want: () => false, focused: () => false } };
   d.sandbox.seenSync(d.state);
   d.get("setTab")("other");
   assert.equal(d.shown(), "o1");
@@ -789,7 +791,8 @@ function drawnRaised(d) {
 }
 function withOtherLane(d) {
   d.state.boxes.push(card("o1", { owner: "other" }));
-  d.els.o1 = { box: new Node(d.doc, "div"), ta: new Node(d.doc, "textarea"), toc: { classList: classes() }, tick() {} };
+  d.els.o1 = { box: new Node(d.doc, "div"), ta: new Node(d.doc, "textarea"), toc: { classList: classes() }, tick() {},
+    field: { formatted: () => false, want: () => false, focused: () => false } };
   d.sandbox.seenSync(d.state);
 }
 
@@ -1018,9 +1021,9 @@ test("on the board, a reply is read on the selected card and left on a browsed o
 
 // ---- each surface's wiring, as its page writes it -------------------------------------
 test("every composer is wired to the read rule after its formatter, on every surface", () => {
-  const desktopBox = between(HTML.desktop, "    const field = ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "    ta.addEventListener(\"keydown\", e => composerEnter(e, b.id));");
+  const desktopBox = between(HTML.desktop, "    const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });", "    ta.addEventListener(\"keydown\", e => composerEnter(e, b.id));");
   assert.match(desktopBox, /\n    readOnCompose\(ta, b\.id, useCard\);\n/, "the large card's composer");
-  const mini = between(HTML.desktop, "      ComposeFormat.attach(ta, { newline: e => e.shiftKey });", "      box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);");
+  const mini = between(HTML.desktop, "      const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });", "      box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);");
   assert.match(mini, /\n      readOnCompose\(ta, b\.id\);\n/, "the small card's composer");
   const phone = between(HTML.phone, "  const field = ComposeFormat.attach(ta, {", "  ta.addEventListener(\"keydown\", e => {");
   assert.match(phone, /\n  readOnCompose\(ta, b\.id, useCard\);\n/, "the phone's composer");

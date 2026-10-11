@@ -10339,7 +10339,7 @@ function renderMiniCards(state){
       // reading and typing here count for the card as they do on the large one
       readOnCompose(ta, b.id);
       box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);
-      el = miniEls[b.id] = { box, title, reply, ta, field, sun, dock, arc, x,
+      el = miniEls[b.id] = { box, title, reply, ta, sun, dock, arc, x, field,
                              answwrap, answ: null, answId: null,
                              sentwrap, sent: null, sentKey: "", sentItems: [],
                              tick: () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; } };
