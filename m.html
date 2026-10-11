@@ -1126,9 +1126,11 @@
     display:flex; flex-direction:column; overflow:visible; gap:calc(var(--line-gap) + var(--u));
     /* across: its right edge from the page's left edge, its own width and its
        left, which is half of what the column leaves, a share of its own width.
-       down: what the window has gone down, taken back */
+       down: what the window has gone down, taken back, and its lift
+       (--tik-lift), whole however far out it is, so it comes in at the
+       height it stands at and never rises or sinks as it comes or goes */
     transform:translate3d(calc((var(--list-v) - 1) * (var(--pg-l) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
-      calc(-1 * var(--list-v) * (var(--list-drop, 0px) + var(--tik-lift, 0px))), 0);
+      calc(-1 * (var(--list-v) * var(--list-drop, 0px) + var(--tik-lift, 0px))), 0);
     visibility:hidden; --menuwait:var(--drawer-run-ms, var(--drawer-ms));
     transition:transform var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), opacity var(--drawer-run-ms, var(--drawer-ms)) var(--drawer-run-ease, var(--drawer-tap)), visibility 0s linear var(--menuwait);
   }
@@ -1173,7 +1175,7 @@
   #tickets.swapface > #mbface{display:flex; flex:none; position:absolute; top:0; left:0; right:0; margin:0 auto}
   #tickets[data-side="right"]{
     transform:translate3d(calc((1 - var(--list-v)) * (var(--pg-r) + 100% * (1 + var(--list-share)) / (2 * var(--list-share)))),
-      calc(-1 * var(--list-v) * (var(--list-drop, 0px) + var(--tik-lift, 0px))), 0)}
+      calc(-1 * (var(--list-v) * var(--list-drop, 0px) + var(--tik-lift, 0px))), 0)}
   /* The arrows fade once more on top of the drawer's own fade, on its fraction
      and clock, reversals included: --list-v is written on the two arrows as on
      the drawer's parts, and runs there. It is not inherited, so a change of it
@@ -4323,6 +4325,17 @@ const PAGE_SINK = parseFloat(getComputedStyle(document.documentElement).getPrope
 const LIST_DROP = 0.55;
 let listRoom = 0, listDrop = 0;
 let listSlack = () => 0;   // measured with the sections, after the list's fades
+// how far the drawer stands lifted (--tik-lift), so its gaps over and under
+// come out as the faces want (the magic box's script, at the foot, says how
+// far: listLiftAt). it is worked out with the drop, before any run is
+// planned, so every run carries it from its first frame (playList,
+// drawerSwapFace) and the drawer never moves once it has landed
+let listLift = 0;
+let listLiftAt = () => 0;
+function liftList(px){
+  listLift = +px.toFixed(2);
+  tickets.style.setProperty("--tik-lift", listLift.toFixed(2) + "px");
+}
 function dropList(px){
   listDrop = +px.toFixed(2);
   for (const el of [cardPane, tikwin, tickets]) el.style.setProperty("--list-drop", listDrop + "px");
@@ -4332,12 +4345,14 @@ function fitList(now){
   if (!now && (!tickets.classList.contains("drawer-settled") || listPlay.some(a => a.playState === "running"))) return;
   const room = Math.round(document.body.clientHeight * LIST_DROP);
   if (room !== listRoom){ listRoom = room; page.style.setProperty("--list-room", room + "px"); }
-  const drop = room - listSlack(), was = listDrop;
-  if (!(Math.abs(drop - was) >= .5)) return;
+  const lifted = listLift;
+  liftList(listLiftAt());
+  const drop = room - listSlack(), was = listDrop, up = Math.abs(listLift - lifted);
+  if (!(Math.abs(drop - was) >= .5) && !(up >= .5)) return;
   if (now) return dropList(drop);
-  listRun = listSpring(0, 1, 0, Math.abs(drop - was));
+  listRun = listSpring(0, 1, 0, Math.max(Math.abs(drop - was), up));
   const keyed = LIST_KEYED && !LIST_CALM?.matches;
-  Object.assign(listRun, { keyed, fit: [was, drop], until: performance.now() + listRun.ms + (keyed ? LIST_SETUP_MS : 0) });
+  Object.assign(listRun, { keyed, fit: [was, drop], lift: [lifted, listLift], until: performance.now() + listRun.ms + (keyed ? LIST_SETUP_MS : 0) });
   document.body.classList.toggle("listkeys", keyed);
   if (LIST_EASED) for (const el of [cardPane, tickets, tikwin]){
     el.style.setProperty("--drawer-run-ms", listRun.ms + "ms");
@@ -4504,13 +4519,16 @@ function playList(){
   run.played = true;
   // across from the side it comes in from: the left, or the right with the magic box
   const [from, to] = run.fit || [listDrop, listDrop], travel = menuTravel(tickets) * menuSign(tickets);
-  // each point's fraction and drop
-  const place = run.fit ? at => [1, from + (to - from) * at] : v => [v, from];
+  // each point's fraction, drop and lift: a refit glides the lift with the
+  // drop, and a run out or back keeps the lift the drawer stands at, as the
+  // stylesheet does (#tickets), so the keyframes end where the sheet takes over
+  const [up, upTo] = run.fit && run.lift || [listLift, listLift];
+  const place = run.fit ? at => [1, from + (to - from) * at, up + (upTo - up) * at] : v => [v, from, listLift];
   const px = n => +n.toFixed(3) + "px";
   const play = (el, frame) => el.animate(run.points.map(([offset, at]) => ({ offset, ...frame(...place(at)) })),
     { duration: run.ms, easing: "linear", fill: "backwards", id: "list-run" });
   listPlay = [
-    play(tickets, (v, drop) => ({ transform: `translate3d(${px((v - 1) * travel)}, ${px(-v * drop)}, 0px)`,
+    play(tickets, (v, drop, lift) => ({ transform: `translate3d(${px((v - 1) * travel)}, ${px(-(v * drop + lift))}, 0px)`,
       ...run.fit ? {} : { opacity: Math.min(v, LIST_FADE_TOP) } })),
     play(tikwin, (v, drop) => ({ transform: `translate3d(0px, ${px(v * drop)}, 0px)` })),
     play(cardPane, (v, drop) => ({ transform: `translate(0px, ${px(v * drop)})` })),
@@ -7795,18 +7813,22 @@ function drawerSwapFace(box, swap){
   const shut = listSpring(1, 0, 0, px);
   let cut = shut.ms;
   for (let t = 0; t < shut.ms; t++) if (shut.at(t) <= DRAWER_SWAP_LEFT){ cut = t; break; }
+  const lifted = listLift;
   showFace();
   tickets.classList.add("swapface");
-  // the arriving face, its way in, and the card to its drop
+  // the arriving face, its way in, and the card to its drop. the drawer
+  // stands at the arriving face's lift from the first frame, so that face
+  // comes in at the height it will rest at; the leaving face is let down by
+  // as much as the drawer went up, so it leaves from where it stood
   const to = listDrop, open = listSpring(0, 1, 0, px), toward = menuTravel(tickets) * menuSign(tickets);
   const refit = Math.abs(to - from) >= .5 ? listSpring(0, 1, 0, Math.abs(to - from)) : null;
   const ms = Math.max(open.ms, refit ? refit.ms : 0);
   const drop = t => refit ? from + (to - from) * refit.at(t) : to;
-  const face = (v, travel) => ({ transform: `translate3d(${px3((v - 1) * travel)}, 0px, 0px)`, opacity: Math.min(v, LIST_FADE_TOP) });
+  const face = (v, travel, down = 0) => ({ transform: `translate3d(${px3((v - 1) * travel)}, ${px3(down)}, 0px)`, opacity: Math.min(v, LIST_FADE_TOP) });
   const playing = [
-    ...goingParts.map(el => play(el, frames(cut, t => face(shut.at(t), away)), cut, "both")),
+    ...goingParts.map(el => play(el, frames(cut, t => face(shut.at(t), away, listLift - lifted)), cut, "both")),
     ...comingParts.map(el => play(el, frames(ms, t => face(open.at(t), toward)), ms, "backwards")),
-    play(tickets, frames(ms, t => ({ transform: `translate3d(0px, ${px3(-drop(t))}, 0px)` })), ms, "backwards"),
+    play(tickets, frames(ms, t => ({ transform: `translate3d(0px, ${px3(-(drop(t) + listLift))}, 0px)` })), ms, "backwards"),
     play(tikwin, frames(ms, t => ({ transform: `translate3d(0px, ${px3(drop(t))}, 0px)` })), ms, "backwards"),
     play(cardPane, frames(ms, t => ({ transform: `translate(0px, ${px3(drop(t))})` })), ms, "backwards"),
     // the list's arrows fade with the list, going or coming
@@ -7914,7 +7936,11 @@ function drawerSwapFirstFrame(playing){
   // scroll in if that is higher, from the drawer's top) and what it leaves
   // spare under it, 0 for a section that fills the list; and for how far it
   // may reach, the window's foot and the last ticket's with the section
-  // scrolled to its top. all of it is read with the list's window at its own
+  // scrolled to its top. the last ticket's foot is the section's laid-out
+  // height less its padding, never the rows or the list as drawn, so neither the scroll
+  // that brings the card on show into view as the drawer opens nor a row
+  // lifted or picked (.trow.on, .drawer-pick) moves it between the drawer's
+  // coming out and its landing. all of it is read with the list's window at its own
   // length, without listReach, so the reach never moves the top. with the box
   // out the list is not laid out, so it is put back in place for the reading,
   // the box out of the way, and put away again: styles only, with no frame
@@ -7927,9 +7953,21 @@ function drawerSwapFirstFrame(playing){
     if (out){ put[0].style.display = put[1].style.display = "flex"; put[2].style.display = "none"; }
     if (reach) tiklist.style.marginBottom = "";
     const spare = listSpare(), pane = drawerPane(), shown = pane ? [...pane.children].filter(el => el.offsetParent) : [];
-    const at = tickets.getBoundingClientRect().top, end = tiklist.getBoundingClientRect().bottom - at;
-    const last = shown.length ? shown[shown.length - 1].getBoundingClientRect().bottom - at : 0;
-    const foot = shown.length ? Math.min(last, end) : 0, full = last + ((pane && pane.scrollTop) || 0);
+    // from the drawer's top as drawn, less the list's own shift while the faces
+    // cross (drawerSwapFace lets the list going down by the lift's change), so
+    // no run moves what is read. the tickets' foot is the section's own: its
+    // foot less its padding while it fits, and its whole height while it
+    // scrolls, read off the section and never off a row, which may be drawn
+    // lifted or picked
+    const transform = getComputedStyle(tiklist).transform;
+    const base = tickets.getBoundingClientRect().top + (transform && transform !== "none" ? new DOMMatrixReadOnly(transform).m42 : 0);
+    const end = tiklist.getBoundingClientRect().bottom - base;
+    let full = 0;
+    if (shown.length){
+      const box = pane.getBoundingClientRect(), padB = parseFloat(getComputedStyle(pane).paddingBottom) || 0;
+      full = (pane.scrollHeight > pane.clientHeight + 1 ? box.top + pane.scrollHeight : box.bottom) - padB - base;
+    }
+    const foot = shown.length ? Math.min(full, end) : 0;
     if (reach) tiklist.style.marginBottom = reach;
     put.forEach((el, i) => { el.style.display = had[i]; });
     return { foot, spare, end, full };
@@ -7975,10 +8013,12 @@ function drawerSwapFirstFrame(playing){
   const fitBase = fitList;
   // the box is fitted again when the list under it moves its top (a new reading
   // with the box out), so its height keeps to the gaps; fitted, it is the same
+  // the lift is the page's to write (liftList), with the drop and before any
+  // run is planned, so the runs carry it; this says how far it is
+  listLiftAt = () => place().lift;
   fitList = function(now){
     fitBase(now);
     const at = place();
-    tickets.style.setProperty("--tik-lift", at.lift.toFixed(2) + "px");
     if (at.reach !== undefined && Math.abs(at.reach - listReach) > .01) reachList(at.reach);
     if (tickets.classList.contains("boxface") && !(Math.abs(at.most - PB.cap) <= .5)) phoneMagicFit();
   };
