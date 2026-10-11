@@ -369,7 +369,12 @@
   /* the left bar stays; the right side shows exactly one box, chosen there.
      One shared measure sizes every element in the column; nothing is px-fixed. */
   body.focus{--col:min(42rem, 88vw)}
-  html:has(body.focus), body.focus{overflow:hidden}   /* the page never scrolls, either axis; the reply pane does */
+  /* the page never scrolls, either axis; the reply pane does. the root's clip
+     is enough for that: the body itself does not clip, because everything in it
+     but the bar is fixed, so its box ends at the bar's foot, and a body that
+     clipped cut the bar's glass shadows off along that line, which read as the
+     workspace's edge still running under the bar (20261010) */
+  html:has(body.focus){overflow:hidden}
   /* scrolls stop dead at the edges: no rubber band, no chained bounce, in
      the page or in any scrolling region (reply, card body, composer, list) */
   html, body{overscroll-behavior:none}
@@ -3043,8 +3048,11 @@
      highlight on the first row and its faint dark band two rows deep are left
      out, so the grey ring is the top edge as it is the sides', and the rest of
      the stack, the bottom rim, the inner glow and the outer shadow, is the
-     glass's own */
-  body.focus .bar .qn-glass{
+     glass's own. the pill's list wears the same: with the glass's full stack
+     the white first row covered the ring's top row and the dark band drew a
+     second line a pixel inside it, so its top edge looked like a second
+     rectangle standing behind the list (20261010) */
+  body.focus :is(.bar .qn-glass, #projmenu){
     box-shadow:
       inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
       inset 0 0 0 1px var(--qn-ring),
@@ -3076,22 +3084,19 @@
   /* Home stays pressed while the home page is up: the press's whiter face and
      brighter edge, held, with the house in the full ink */
   body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
-  /* the pill: the open project's name and a small chevron, on the house's
-     glass and at its height, a capsule as the phone's project button is. a
-     long name is cut short with an ellipsis. while the list is open the
-     chevron turns over. a project's own window has no list, so its pill is
-     only its name */
+  /* the pill: the open project's name alone, on the house's glass and at its
+     height, a capsule as the phone's project button is. the project names,
+     here, beside it and in the list, are 14px, a step over the 13px the tabs
+     had. a long name is cut short with an ellipsis. a project's own window has
+     no list, so its pill opens nothing */
   body.focus #projpill{flex:none; position:relative; box-sizing:border-box; height:32px; max-width:260px;
-    margin:0; padding:0 10px 0 14px; border-radius:16px;
-    display:flex; align-items:center; gap:6px;
-    font:500 13px/16px var(--sans); color:var(--ink); cursor:pointer; -webkit-user-select:none; user-select:none;
+    margin:0; padding:0 14px; border-radius:16px;
+    display:flex; align-items:center;
+    font:500 14px/17px var(--sans); color:var(--ink); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
   body.focus #projpill[hidden]{display:none}
   body.focus #projname{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  body.focus #projpill svg{display:block; flex:none; color:var(--sub); transition:transform .18s var(--gentle)}
-  body.focus #projpill[aria-expanded="true"] svg{transform:rotate(180deg)}
-  body.focus #projpill:disabled{cursor:default; padding-right:14px}
-  body.focus #projpill:disabled svg{display:none}
+  body.focus #projpill:disabled{cursor:default}
   /* the suggestions: a few open projects after the pill, placed as the
      unselected tabs were, on the page and in their type, and fainter. a
      project holding a reply not yet read is in the board's bold, as its tab
@@ -3099,19 +3104,35 @@
      on a short fade */
   body.focus #tabbar .psug{flex:none; display:flex; align-items:center; height:32px; margin:0; padding:0 14px;
     border:none; border-radius:10px; background:none;
-    font:500 13px/16px var(--sans); color:color-mix(in srgb, var(--sub) 55%, transparent);
+    font:500 14px/17px var(--sans); color:color-mix(in srgb, var(--sub) 55%, transparent);
     cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:color .18s; animation:psugin .22s var(--gentle)}
   body.focus #tabbar .psug:hover{color:var(--ink)}
   body.focus #tabbar .psug.unread .plabel{font-weight:600}
   @keyframes psugin{from{opacity:0}}
-  /* the list: every open project in the board's order, the open one checked,
-     the unread ones heavier, then "Open a new folder". the phone's project
-     list (#projmenu in m.html) on the Mac: the same glass, standing just
-     under the pill from its left edge. resting on a row fades in a cross at
-     its right end that closes that project; a row held and dragged up or
-     down reorders the projects, and one dragged out of the list opens in its
-     own window. it fades in and out, and a long list scrolls inside it */
+  /* the list: every open project in the board's order, the unread ones
+     heavier, then "Open a new folder", names only, with no mark on any row.
+     the phone's project list (#projmenu in m.html) on the Mac: the same
+     glass, standing just under the pill from its left edge. resting on a row
+     fades in a cross at its right end that closes that project; a row held
+     and dragged up or down reorders the projects, and one dragged out of the
+     list opens in its own window. it fades in and out, and a long list
+     scrolls inside it.
+     while it is open the board behind it dims exactly as it does under the
+     settings page (.sp-veil in card-tokens.css): the board's ink at 24%, its
+     colour fading in and out over .26s, over the whole window and the bar,
+     and hidden from the pointer once the fade out has run. the shade takes
+     the click that shuts the list, so that click reaches nothing under it */
+  #projshade{display:none}
+  body.focus #projshade{display:block; position:fixed; inset:0; z-index:39; visibility:hidden; pointer-events:none;
+    background-color:color-mix(in srgb, var(--ink) 0%, transparent);
+    transition:background-color .26s ease, visibility 0s linear .26s}
+  body.focus.projopen #projshade{visibility:visible; pointer-events:auto;
+    background-color:color-mix(in srgb, var(--ink) 24%, transparent);
+    transition:background-color .26s ease, visibility 0s}
+  @media (prefers-reduced-motion: reduce){
+    body.focus #projshade, body.focus.projopen #projshade{transition-duration:0s}
+  }
   #projmenu{display:none}
   body.focus #projmenu{display:flex; flex-direction:column; position:fixed; z-index:40; left:0; top:0;
     box-sizing:border-box; min-width:220px; max-width:320px; max-height:calc(100vh - 60px);
@@ -3123,15 +3144,12 @@
   body.focus.projopen #projmenu{visibility:visible; opacity:1; transform:none;
     transition:opacity .16s ease-out, transform .22s cubic-bezier(.2,.9,.25,1), visibility 0s}
   #projlist{flex:none; display:flex; flex-direction:column}
-  #projmenu .projrow{position:relative; flex:none; display:flex; align-items:center; gap:8px;
-    box-sizing:border-box; width:100%; min-height:32px; margin:0; padding:0 34px 0 8px;
+  #projmenu .projrow{position:relative; flex:none; display:flex; align-items:center;
+    box-sizing:border-box; width:100%; min-height:32px; margin:0; padding:0 34px 0 12px;
     border:none; border-radius:9px; background:transparent;
-    font:500 13px/16px var(--sans); color:var(--ink); text-align:left; cursor:pointer;
+    font:500 14px/17px var(--sans); color:var(--ink); text-align:left; cursor:pointer;
     transition:background-color .12s ease-out}
   #projmenu .projrow:is(:hover, .hot, :focus-visible){background:color-mix(in srgb, var(--ink) 6%, transparent); outline:none}
-  #projmenu .pmark{flex:none; display:flex; align-items:center; justify-content:center; width:16px; height:16px; color:var(--sub)}
-  #projmenu .pmark svg{display:block}
-  #projmenu .projrow:not(.on) .pcheck{visibility:hidden}
   #projmenu .pname{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   #projmenu .projrow.unread .pname{font-weight:600}
   /* the cross: one at a time, on the row under the pointer, never a column of
@@ -3527,7 +3545,7 @@
 <div class="bar">
   <span id="tabrow">
   <button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
-  <button id="projpill" class="qn-glass" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 9 7 7 7-7"/></svg></button>
+  <button id="projpill" class="qn-glass" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span></button>
   <span id="tabbar"></span>
   </span>
   <span id="projnote"></span>
@@ -3537,11 +3555,12 @@
   <button id="setbtn" class="qn-glass" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
 </div>
 <!-- the pill's list: every open project, which renderTabs draws into
-     #projlist, then the folder chooser -->
+     #projlist, then the folder chooser, over the shade that dims the board -->
+<div id="projshade"></div>
 <div id="projmenu" class="qn-glass" aria-label="Projects">
   <div id="projlist"></div>
   <div id="projsep"></div>
-  <button id="projnew" class="projrow" type="button"><span class="pmark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span><span class="pname">Open a new folder</span></button>
+  <button id="projnew" class="projrow" type="button"><span class="pname">Open a new folder</span></button>
 </div>
 
 <!-- the settings, one group to a section: the page in card-logic.js builds the
@@ -4083,8 +4102,6 @@ const projPill = document.getElementById("projpill");
 const projName = document.getElementById("projname");
 const projMenu = document.getElementById("projmenu");
 const projList = document.getElementById("projlist");
-const PROJ_CHECK = '<svg class="pcheck" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17.5 19 7"/></svg>';
 // the project last left (setTab), which always leads the suggestions. it is
 // this browser's own, like the open project, so a reload keeps it
 let projLeft = null;
@@ -4130,9 +4147,9 @@ function renderTabs(st){
   renderProjList(st, owners);
   renderSuggestions(st);
 }
-// the list's rows: a check for the open project (none while home is up), the
-// name, heavier while it holds a reply not yet read, and the cross that fades
-// in on the row under the pointer
+// the list's rows: the name, heavier while it holds a reply not yet read, and
+// the cross that fades in on the row under the pointer. the open project's row
+// (none while home is up) is marked for assistive tech only (aria-current)
 function renderProjList(st, owners){
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (projList.dataset.sig !== sig){
@@ -4142,9 +4159,6 @@ function renderProjList(st, owners){
       const row = h("button", "projrow");
       row.type = "button";
       row.dataset.owner = ow;
-      const mark = h("span", "pmark");
-      mark.innerHTML = PROJ_CHECK;
-      row.appendChild(mark);
       row.appendChild(h("span", "pname", labelOf(st, ow)));
       row.appendChild(projCloseMark(ow));
       projList.appendChild(row);
@@ -4709,7 +4723,7 @@ function setHome(on){
     if (at && at !== document.body && document.getElementById("stage").contains(at)) at.blur();
     homeShow();
   }
-  if (lastState) renderTabs(lastState);   // no project is checked in the pill's list while home is up
+  if (lastState) renderTabs(lastState);   // no row of the pill's list is the open one while home is up
   magicSync();   // a magic box goes with the board, and comes back with it
 }
 // the house is a place, like a tab: pressing it while home is up changes nothing
