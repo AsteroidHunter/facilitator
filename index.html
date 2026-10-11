@@ -368,15 +368,17 @@
   #loading .globe{
     position:absolute; left:50%; top:50%;
     box-sizing:border-box;
-    width:14vmin; height:14vmin; margin:-7vmin 0 0 -7vmin;
-    border:0.4vmin solid #000000; border-radius:50%; overflow:hidden;
+    /* half the phone's globe, rim and line with it (the owner's ask): still the
+       middle of the window */
+    width:7vmin; height:7vmin; margin:-3.5vmin 0 0 -3.5vmin;
+    border:0.2vmin solid #000000; border-radius:50%; overflow:hidden;
   }
   #loading .earth{
     position:absolute; left:0; top:0; width:400%; height:100%;
     animation:ld-spin 5200ms linear infinite;
     will-change:transform;
   }
-  #loading .coast{display:block; width:100%; height:100%; fill:none; stroke:#000000; stroke-width:0.2vmin}
+  #loading .coast{display:block; width:100%; height:100%; fill:none; stroke:#000000; stroke-width:0.1vmin}
   @keyframes ld-spin{from{transform:translateX(-50%)} to{transform:translateX(0)}}
   #loading.down .globe{border-color:#A8442A}
   #loading.down .coast{stroke:#A8442A}
