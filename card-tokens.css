@@ -1119,9 +1119,9 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    no shadow, so what it holds stands on the page's own paper, its ends
    dissolving as the ticket list's do, and clicking into it moves no shadow.
    a line across its bar, the ticket list's own, parts the bar from what the
-   box holds. the phone wears it so. the board gives its box the card's white
-   face and shadow, with no edge line and no line under the bar, in
-   index.html (#magicbox). the bar stands at the box's top everywhere: on the
+   box holds. each page dresses its box itself: the board gives it the card's
+   white face, edge line and shadow, with no line under the bar, in
+   index.html (#magicbox), and the phone the same in m.html (#mbface). the bar stands at the box's top everywhere: on the
    board, on the phone and in a portrait window alike */
 .magicbox{display:flex; flex-direction:column; overflow:hidden;
   /* its own lengths, in the board's pixels; the phone gives them in its own
