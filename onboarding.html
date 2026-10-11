@@ -1050,9 +1050,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // board's rule for where a box stands: in the room right of the card, the
   // gaps to the card and to the window's edge alike and at least FRAME_CLEAR,
   // never over the card, and hung from the top the board's largest box has
-  // (MagicBox.TALL of the card's height, level with its middle). it is wider
-  // than the board's own box, which keeps an iPhone's shape: as wide as that
-  // room allows, so both gaps are FRAME_CLEAR. the keyboard is shown in it the
+  // (MagicBox.TALL of the card's height, level with its middle). it is a
+  // little wider than the board's own box, which keeps an iPhone's shape: it
+  // takes BOX_SHARE of that room, the share 460px is of the room in the
+  // owner's 1652 by 861 window (572.56px right of the card), and never leaves
+  // less than FRAME_CLEAR either side. the keyboard is shown in it the
   // way the board shows a picture (MagicBox.fit), in its own shape under the
   // bar, filling the box's width, with KB_AIR of its own pixels round it, and
   // the box's height follows. a window with no room beside the card for the
@@ -1060,6 +1062,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // once the room is back
   const FRAME_CLEAR = 16;   // index.html's
   const KB_AIR = 28;
+  const BOX_SHARE = 460 / 572.56;
   const BOX = { el: document.getElementById("magicbox"), lines: document.getElementById("mblines"),
                 on: false, rise: { t: 0, raf: 0, last: 0 } };
   BOX.bar = BOX.el.querySelector(".mbbar");
@@ -1075,7 +1078,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     if (!MagicBox.place(rect, fit).shown){ BOX.el.style.visibility = "hidden"; return; }
     const edge = parseFloat(getComputedStyle(BOX.el).borderTopWidth) || 0;
     const right = rect.left + rect.width, room = innerWidth - right;
-    const size = MagicBox.fit({ width: room - 2 * FRAME_CLEAR, height: innerHeight },
+    const size = MagicBox.fit({ width: Math.min(room * BOX_SHARE, room - 2 * FRAME_CLEAR), height: innerHeight },
                               { width: KB_W + 2 * KB_AIR, height: KB_H + 2 * KB_AIR, head: BOX.bar.offsetHeight + 2 * edge });
     const at = { left: right + (room - size.width) / 2, top: rect.top + rect.height * (1 - MagicBox.TALL) / 2,
                  width: size.width, height: size.height };
