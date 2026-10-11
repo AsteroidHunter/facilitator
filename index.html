@@ -4647,8 +4647,7 @@ function renderHome(st, onHome = !draft && homeOpen){
 }
 // the house leaves an unfinished new tab behind, back on the tab it came from,
 // and fills the picker's rows for the home page. this runs before the home
-// block's own listener opens the page. it shuts the pill's list too, which a
-// press on the house does already but Command + 0 does not
+// block's own listener opens the page. it shuts the pill's list too
 document.getElementById("homeico").addEventListener("click", () => {
   closeProjMenu();
   if (homeOpen) return;
@@ -11090,12 +11089,6 @@ const boardShortcutActions = {
     const ow = owners[shortcut.value];
     if (ow){ e.preventDefault(); closeProjMenu(); setTab(ow); }
   },
-  // command+0: the house's click. the key is cancelled on the home page
-  // and in a typing box too, so it types nothing
-  home(e){
-    e.preventDefault();
-    if (!homeOpen) document.getElementById("homeico").click();
-  },
   // the first Escape leaves the composer, or any field; the next one unselects
   // the card, which stays on screen browsed. a key something else answered
   // first, a menu, a picture or the settings page, never gets this far, and
@@ -11170,9 +11163,6 @@ const boardShortcutActions = {
 const boardTabKeys = {
   tab(e, shortcut){
     if (!pageWarn && !pageMenu && !setOpen) boardShortcutActions.tab(e, shortcut);
-  },
-  home(e, shortcut){
-    if (!pageWarn && !pageMenu && !setOpen) boardShortcutActions.home(e, shortcut);
   },
 };
 
