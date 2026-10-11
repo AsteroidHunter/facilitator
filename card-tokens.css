@@ -446,7 +446,7 @@
   --answ-move:.33s; --answ-come:.4s; --answ-rise:10px; --answ-gone:.4s;
   --sent-ease:cubic-bezier(.22, 1, .36, 1);
   --answ-fill:var(--bubble-fill); --answ-tag:calc(17 * var(--u));
-  --answ-peek:calc(var(--answ-line) * 1.5); --answ-fade:calc(var(--answ-line) * .5);
+  --answ-peek:calc(var(--answ-line) * 1.5); --answ-fade:calc(var(--answ-line) * .75);
 }
 .answered.gap{--answ-peek:calc(var(--answ-line) * 2.5)}
 /* the cut. a batch longer than the preview shows its first lines and dissolves
@@ -457,14 +457,20 @@
    bubble, counted in the surface's own --answ-line. a batch of up to two lines
    is shown whole, with no cut, strip or fade (the script decides that,
    fitAnswered in card-logic.js). a longer one is cut at one and a half lines
-   (--answ-peek) and dissolves over the half line (--answ-fade). when its
-   second line is blank, a paragraph break after the first line or two messages
+   (--answ-peek) and dissolves over the last three quarters of a line
+   (--answ-fade), the half line the cut shows and the foot of the line over
+   it. when its second line is blank, a paragraph break after the first line or two messages
    joined by their blank line, the script sets .gap and the cut stands at two
    and a half lines instead, so the blank line is not all of what the preview
    shows.
    the dissolve is a strip of the panel's own grey, --answ-fade deep, laid over
    the foot of the cut and drawn once. on a flat grey panel it reads exactly as
-   the words dissolving into the grey, and all it ever does is fade: whole while
+   the words dissolving into the grey. the grey comes in on a smoothstep,
+   written out in tenths, with no slope where it starts or where it is whole,
+   so no line marks where the fuzz begins, and the tops of the cut line's
+   letters thin out into the grey rather than stop along the cut: a straight
+   ramp over the half line stopped them there, which read as a hard edge with
+   fuzz over it. all it ever does is fade: whole while
    a long batch stands cut, gone while it stands open. --answ-shade is that
    strength, which the sheet gives and the script holds inline for the length
    of a run only. no mask is drawn anywhere on the panel, so no frame of a run
@@ -479,8 +485,20 @@
 .answered.more:not(.open) .answclip{--answ-shade:1}
 .answclip::after{
   content:""; position:absolute; left:0; right:0; bottom:0; height:var(--answ-fade);
-  background:linear-gradient(to bottom, transparent, var(--answ-fill));
   opacity:var(--answ-shade); pointer-events:none;
+}
+.answclip::after, .sentgoo-fuzz{
+  background:linear-gradient(to bottom, transparent,
+    color-mix(in srgb, var(--answ-fill) 2.8%, transparent) 10%,
+    color-mix(in srgb, var(--answ-fill) 10.4%, transparent) 20%,
+    color-mix(in srgb, var(--answ-fill) 21.6%, transparent) 30%,
+    color-mix(in srgb, var(--answ-fill) 35.2%, transparent) 40%,
+    color-mix(in srgb, var(--answ-fill) 50%, transparent) 50%,
+    color-mix(in srgb, var(--answ-fill) 64.8%, transparent) 60%,
+    color-mix(in srgb, var(--answ-fill) 78.4%, transparent) 70%,
+    color-mix(in srgb, var(--answ-fill) 89.6%, transparent) 80%,
+    color-mix(in srgb, var(--answ-fill) 97.2%, transparent) 90%,
+    var(--answ-fill));
 }
 .answered.open .answclip{max-height:none}
 /* the run, the old box's fold carried over: its height moves over one length on
