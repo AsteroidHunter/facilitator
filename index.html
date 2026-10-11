@@ -10234,8 +10234,9 @@ function renderMiniCards(state){
       const send = h("button", "msend", "Send");
       compose.append(ta, send);
       // the small card's row carries the same typed formatting the big one
-      // does, with the same two keys: enter sends and shift enter breaks
-      ComposeFormat.attach(ta, { newline: e => e.shiftKey });
+      // does, with the same two keys: enter sends and shift enter breaks. held,
+      // as the big one's rows are: only the small card on show wears the editor
+      const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });
       // answers true once the board has the message, false when it did not
       // arrive, and null when there was nothing to send
       const fire = async () => {
@@ -10292,7 +10293,7 @@ function renderMiniCards(state){
       // reading and typing here count for the card as they do on the large one
       readOnCompose(ta, b.id);
       box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);
-      el = miniEls[b.id] = { box, title, reply, ta, sun, dock, arc, x,
+      el = miniEls[b.id] = { box, title, reply, ta, field, sun, dock, arc, x,
                              answwrap, answ: null, answId: null,
                              sentwrap, sent: null, sentKey: "", sentItems: [],
                              tick: () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; } };
@@ -10303,6 +10304,10 @@ function renderMiniCards(state){
     // one card at a time; the rest stay built so their half-typed messages
     // survive a walk away and back
     el.box.classList.toggle("off", b.id !== miniId);
+    // the editor on the small card on show and off the rest, whose words, caret
+    // and undo stay with their rows; a row still holding the caret keeps it
+    const wasFormatted = el.field.formatted();
+    if (el.field.want(b.id === miniId || el.field.focused()) && !wasFormatted) el.tick();
     readOnArrival(el, b, b.id === miniId && ComposeFormat.focused(el.ta));
     if (!el.title.isContentEditable && el.title.textContent !== (b.title || "")){
       el.title.textContent = b.title || "";
