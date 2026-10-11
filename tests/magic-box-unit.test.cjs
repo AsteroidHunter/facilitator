@@ -1051,13 +1051,13 @@ test("on the phone the box comes down in the card list's own drawer, from the ri
   assert.ok(listeners.touchstart.every(l => l.opts.capture === true), "the face is chosen before the drawer's own gesture");
   touch(400);
   assert.ok(classes.has("boxface") && tickets.dataset.side === "right", "a right-edge pull on a card with a box");
-  // the card goes down only as far as the box needs, and stands A under its
-  // bottom edge (89), as it stands A under the list's foot. here, with nothing
+  // the card goes down only as far as the box needs, and stands .88 of A under its
+  // bottom edge (89), as it does under the list's foot. here, with nothing
   // drawn and the notch at 0: the list's first mark (14.9 under the drawer's top)
   // is A = 14.9 under it, and the box, whose own first mark is its top edge, is
   // moved down 14.9 to the list's. what the drawer spares under that is the room
   // (400) less the card's drop
-  const under = foot => 400 - (foot + 14.9 + (14.9 - 0));
+  const under = foot => 400 - (foot + .88 * 14.9 + (14.9 - 0));
   assert.ok(Math.abs(ctx.listSlack() - under(89)) < 1e-9, "the card goes down only as far as the box's bottom edge needs");
   // words that run on scroll in a window inside the box change nothing: the
   // card stands as far under the box's edge as under the list
@@ -1277,15 +1277,17 @@ test("both faces start at one height, with one gap above and below: the list is 
   // the box takes the list's place: its top edge (the first mark it draws, 0 under its top) at
   // the list's mark, so it is 14.9 lower in its own terms, 5.95 - 14.9 of lift. its bottom edge
   // is 89 under its top (its drawn foot, the white under its words included) and the card
-  // stands A = 28.95 under that: a drop of 50 + 8.95 + 89 + 28.95 - 40, the spare 400 less that
+  // stands .88 of A = 28.95 under that: a drop of 50 + 8.95 + 89 + .88 * 28.95 - 40, the spare
+  // 400 less that
+  const below = .88 * 28.95;
   ctx.drawerFace(true);
   assert.equal(lift(), "-8.95px");
   const marks = { list: 50 + 14.9 - 5.95, box: 50 + 0 + 8.95 };
   assert.ok(Math.abs(marks.list - marks.box) < 1e-9, "one top for both faces");
-  assert.ok(Math.abs(ctx.listSlack() - (400 - (50 + 8.95 + 89 + 28.95 - 40))) < 1e-9, "the card stands A under the box's bottom edge");
+  assert.ok(Math.abs(ctx.listSlack() - (400 - (50 + 8.95 + 89 + below - 40))) < 1e-9, "the card stands .88 of A under the box's bottom edge");
   // whatever the words do inside it, the foot is the box's: a scrolling body changes nothing
   box.offsetHeight = 300;
-  assert.ok(Math.abs(ctx.listSlack() - (400 - (50 + 8.95 + 300 + 28.95 - 40))) < 1e-9, "the box's own foot, not its words'");
+  assert.ok(Math.abs(ctx.listSlack() - (400 - (50 + 8.95 + 300 + below - 40))) < 1e-9, "the box's own foot, not its words'");
   // a box tall enough to need the card further down than the room allows stops it there
   // (the box is never fitted so tall: see the next test)
   box.offsetHeight = 433;
@@ -1295,38 +1297,49 @@ test("both faces start at one height, with one gap above and below: the list is 
   assert.match(page, /padding-top:max\(0px, calc\(env\(safe-area-inset-top, 0px\) - \$\{NOTCH_GAP\}px\)\)/, "the notch's foot is read from the safe area");
 });
 
-test("a full list is lifted to equal gaps too, and the box is never taller than keeps the gap under it equal", () => {
+test("a full list is lifted as a short one is, and the gap under either face is .88 of the gap over it at every length", () => {
   const { ctx, tickets, pageEl, notch, box, parts } = phoneBoxScript(read("m.html"));
   const lift = () => { ctx.fitList(true); return tickets.style["--tik-lift"]; };
+  const tiklist = parts.tiklist;
   // as above: the page's top 0 and padding 40, the room 400, the drawer's top at 50, the notch's
   // foot at 30. now a section that fills the list: nothing spare, so the card stands at 440, and
   // its last ticket runs to 500, past the foot of the window the tickets scroll in, at 380. the
   // list's foot is that window's: 10 over the card, its first mark 34.9 under the notch, so it
-  // goes up (34.9 - 10) / 2 = 12.45 and both gaps are A = 22.45 (it was not lifted at all)
+  // goes up (34.9 - 10) / 2 = 12.45 and its first mark is A = 22.45 under the notch
   pageEl.style.paddingTop = "40px"; tickets.style.top = "50px"; notch.getBoundingClientRect = () => ({ height: 30 });
   ctx.spareRoom = 0; parts.listEnd = 380;
   ctx.drawerPane = () => ({ children: [{ offsetParent: {}, getBoundingClientRect: () => ({ bottom: 500 }) }] });
   assert.equal(lift(), "12.45px");
-  // a short section is read as before: its last ticket, over the window's foot
+  // the card stays at its lowest and the window reaches .12 of A further down, so its foot is
+  // .88 of A over the card: 440 - .88 * 22.45 - (50 - 12.45 + 380) = 2.694
+  assert.ok(Math.abs(ctx.listSlack()) < 1e-9, "the card at its lowest under a full list");
+  const reach = parseFloat(tiklist.style.marginBottom.match(/- ([\d.]+)px\)$/)[1]);
+  assert.ok(Math.abs(reach - .12 * 22.45) < .01, `the list's reach ${reach}`);
+  assert.equal(lift(), "12.45px", "read again with the reach on, the top does not move");
+  // a short section is read as before, its last ticket over the window's foot, and lifted as
+  // before; the card comes up .12 of A = 28.95 from where it stood: 7 + .12 * 28.95 spare
   ctx.spareRoom = 7; parts.listEnd = 1e9;
   ctx.drawerPane = () => ({ children: [{ offsetParent: {}, getBoundingClientRect: () => ({ bottom: 360 }) }] });
   assert.equal(lift(), "5.95px");
+  const shortSlack = ctx.listSlack();
+  assert.ok(Math.abs(shortSlack - (7 + .12 * 28.95)) < 1e-9, `the card .88 of A under a short list: ${shortSlack}`);
+  assert.equal(tiklist.style.marginBottom, "", "a short list reaches no further");
   // the box out over the full list, with words far taller than the drawer: its top edge at the
-  // list's first mark (50 + 14.9 - 12.45 = 52.45), and its height what leaves A = 22.45 over the
-  // card at its lowest (440): 440 - 22.45 - 52.45 = 365.1, short of the drawer's 433, so the
-  // words scroll inside it
+  // list's first mark (50 + 14.9 - 12.45 = 52.45), and its height what leaves .88 of A = 22.45
+  // over the card at its lowest (440): 440 - .88 * 22.45 - 52.45 = 367.794, short of the
+  // drawer's 433, so the words scroll inside it
   ctx.spareRoom = 0; parts.listEnd = 380;
   ctx.drawerPane = () => ({ children: [{ offsetParent: {}, getBoundingClientRect: () => ({ bottom: 500 }) }] });
   const rooms = [];
   ctx.MagicBox = { fit: (room, want) => { rooms.push(room.height); return { width: room.width, height: Math.min(room.height, 2000) }; } };
   ctx.drawerFace(true);
-  assert.ok(Math.abs(rooms.at(-1) - 365.1) < 1e-9, `the box's room ${rooms.at(-1)}`);
-  assert.ok(Math.abs(parseFloat(box.style.height) - 365.1) < 1e-9, "the box is fitted to it");
-  // so drawn, the card goes to its lowest and stands A under the box's bottom edge
+  assert.ok(Math.abs(rooms.at(-1) - 367.794) < 1e-9, `the box's room ${rooms.at(-1)}`);
+  assert.ok(Math.abs(parseFloat(box.style.height) - 367.794) < 1e-9, "the box is fitted to it");
+  // so drawn, the card goes to its lowest and stands .88 of A under the box's bottom edge
   box.offsetHeight = parseFloat(box.style.height);
   assert.ok(Math.abs(ctx.listSlack()) < 1e-9, "the card at its lowest");
   const boxTop = 50 - (12.45 - 14.9), cardTop = 40 + 400;
-  assert.ok(Math.abs((boxTop - 30) - (cardTop - (boxTop + box.offsetHeight))) < 1e-9, "one gap above and below");
+  assert.ok(Math.abs(.88 * (boxTop - 30) - (cardTop - (boxTop + box.offsetHeight))) < 1e-9, "the gap below .88 of the gap above");
   // a box that fits is its own height, under the cap
   ctx.MagicBox = { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, 89) }) };
   ctx.phoneMagicFit();
