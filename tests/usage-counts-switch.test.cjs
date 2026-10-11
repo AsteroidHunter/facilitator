@@ -41,7 +41,7 @@ function theSwitch(html) {
 
 const VIEWS = {
   mac: { source: MAC, setsrc: () => between(MAC, '<div id="setsrc"', '<div id="appframe"'),
-         sections: ["profile", "appearance", "editor", "improvements"] },
+         sections: ["profile", "appearance", "editor", "improvements", "bin"] },
   phone: { source: PHONE, setsrc: () => between(PHONE, '<div id="setsrc">', '<div id="setfoot">'),
            sections: ["editor", "appearance", "notifications", "improvements", "profile", "diagnostics"] },
 };

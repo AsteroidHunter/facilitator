@@ -138,6 +138,8 @@ Docked, Deferred and Done list the latest arrival first. Doing lists new cards o
 
 Each card has four buttons in its top bar: a sun for Doing, a sun behind a cloud for Docked, a moon for Deferred and a cross for Done; the one for the card's own section is faded. The keys are Control + Shift + [ for Doing, Control + Shift + ] for Docked, Control + Shift + \ for Deferred and Control + Shift + Backspace or Delete for Done, and they work while typing. When you are not typing, [, ] and \ alone do the first three. Plain Backspace and Delete never mark a card Done. After you move the card on screen, the next card in the section it left shows. A new message from you brings a Docked or Deferred card back to Doing.
 
+On the Mac board, a small garbage can fades in just left of a ticket when the pointer is over it or the paper beside it, and fades out when the pointer leaves; nothing in the list moves. One click on the can deletes that card at once, with no menu and no question: it leaves every section and goes to the Bin on the settings page (see "The settings page"), and if it was the card on screen, the next card in its section shows. There is no key for it yet, and the phone has no can. A card in the Bin keeps its thread, attachments, queued messages and magic box, but no agent is handed it and no page or phone shows it; a claim held on it is let go with its messages still waiting, and a reply sent to it is refused. After 30 days in the Bin the board deletes it for good, checked when the board starts and once a day.
+
 ## The board's settings
 
 The Mac board's settings (the background colour, the switches on the settings page, the chime's mute and where the board's boxes sit) belong to the board, not to one browser, so another browser, or the board after a port move, shows them the same. Each window keeps its own open card and project. The phone keeps its own settings, apart from the two it shares with the Mac (see "The settings page").
@@ -204,6 +206,7 @@ On the Mac board, the squid at the right end of the top bar opens the settings p
 - Appearance: the background colour, and "Cards waiting on you", which lists the cards waiting on you newest first instead of oldest first.
 - Editor: "Format text while typing", off unless you turn it on.
 - Improvements: "Share daily usage counts", on unless you turn it off (see "Usage counts").
+- Bin: the cards the garbage can beside the tickets deleted, newest first, each with its title, its project and when it was deleted, and a Restore that puts it back in its own place and section, whole. A card is deleted for good after 30 days here, and nothing empties the Bin sooner.
 
 On the phone the settings are in a drawer, and only the squid on the bottom row opens it: no pull and no key does. A pull from the right edge brings a card's magic box, and on a card without one it does nothing. Its sections are Editor, Appearance, Notifications, Improvements and Profile. "Cards waiting on you" and "Share daily usage counts" are shared with the Mac; the profile is only shown, since it is changed on the Mac. The power mark at the bottom of the drawer signs the phone out. A tap beside the drawer, or a swipe to the right, puts it away.
 
