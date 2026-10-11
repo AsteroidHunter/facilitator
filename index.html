@@ -7459,19 +7459,28 @@ panelPoll(); setInterval(panelPoll, 4000);
 // a card's magic box: the box beside the card on screen that the card's agent
 // filled (POST /magic, or `facilitator magic`). each card keeps its own and only
 // the one on screen is ever built, so at most one live frame is on the page. the
-// card's magic field says whether it has one, whether it is open and which
-// revision; what it holds is read from /magic/body when that revision moves.
-// MagicBox.place (magic-box.js) works out where it stands. the box shows what it
+// card's magic field says whether it has one, whether it is open, which
+// revision and which lines join it to its card; what it holds is read from
+// /magic/body when that revision moves, ahead of the owner coming to the card
+// (magicFetch), so flipping to a card shows its box in the same frame as the
+// card. MagicBox.place (magic-box.js) works out where it stands. the box shows what it
 // holds under its own top bar and nothing else: its title is kept by the board
 // and not drawn here. it never takes the keys or moves the board when it comes:
-// it waits on its card, and only a click or a Tab puts the owner in it
+// it waits on its card, and only a click or a Tab puts the owner in it.
+// bodies: card id -> {rev, box, wait}, what each open box holds; pictures and
+// heights: "id:rev" -> a picture fetched and read, {src, natural}, and a page's
+// height at a width, {w, h}
 const MB = { el: document.getElementById("magicbox"), lines: document.getElementById("mblines"),
   tabs: document.getElementById("mbtabs"), id: null, rev: 0, asked: 0,
-  rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null }, plans: new Map(), last: -1, known: null };
+  rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null }, known: null,
+  bodies: new Map(), pictures: new Map(), heights: new Map(), measuring: null };
 if (MB.el){
   // what it holds is drawn by the view both pages share (card-logic.js), and
-  // an agent's page says its own height, which the box takes
-  MB.view = magicView(MB.el, { placed: () => magicPlace(), openSite: magicOpenSite, sized: true });
+  // an agent's page says its own height, which the box takes, and which is
+  // kept for the next time the box shows at that width
+  MB.view = magicView(MB.el, { placed: () => magicPlace(), openSite: magicOpenSite, sized: true,
+    pageHeight: width => magicHeight(MB.id + ":" + MB.rev, width),
+    heard: (height, width) => { if (MB.id) MB.heights.set(MB.id + ":" + MB.rev, { w: width, h: height }); } });
   MB.body = MB.view.body;
   MB.el.querySelector(".mbclose").addEventListener("click", () => magicClose());
 }
@@ -7491,12 +7500,12 @@ function magicSync(){
   // which cards' boxes are open, at this reading of the board and the one
   // before it. a box that opened between the two on the card on screen is
   // new, and rises in; one that was open already (the owner coming back to
-  // its card, or to the board) is simply there. a card's lines are its own
-  // while its box stays open, and new ones are picked when it opens again
+  // its card, or to the board) is simply there. what every open box holds is
+  // fetched now, whichever card is on screen
   const was = MB.known;
   if (lastState){
     MB.known = new Set(lastState.boxes.filter(x => x.magic && x.magic.open).map(x => x.id));
-    for (const id of MB.plans.keys()) if (!MB.known.has(id)) MB.plans.delete(id);
+    magicAhead();
   }
   const b = magicCard();
   if (!b){
@@ -7531,7 +7540,7 @@ function magicOff(){
   MB.view.clear();
 }
 // fresh: the box has just opened on the card on screen (magicSync)
-async function magicLoad(id, rev, fresh){
+function magicLoad(id, rev, fresh){
   // the agent's next revision keeps the box held; another card's comes
   // settled. a box new on the card on screen rises in from flat, and one
   // still rising or sinking carries on from where it is; any other is shown
@@ -7544,19 +7553,118 @@ async function magicLoad(id, rev, fresh){
   MB.el.classList.toggle("rising", t < 1);
   const asked = ++MB.asked;
   MB.id = id; MB.rev = rev;
-  let box = null;
-  try {
-    const r = await fetch("/magic/body?box=" + encodeURIComponent(id), { cache: "no-store" });
-    if (r.ok) box = await r.json();
-  } catch (e) {}
-  // the card on screen or its box changed while this was in the air
-  if (asked !== MB.asked) return;
-  // nothing came: the next reading of the board asks again
-  if (!box){ MB.rev = 0; return; }
-  magicDraw(box);
+  // already here, as it is once the board has read it: drawn now, in the
+  // same frame as the card
+  const have = MB.bodies.get(id);
+  if (have && have.rev === rev && have.box){ magicDraw(have.box); return; }
+  magicFetch(id, rev).then(box => {
+    // the card on screen or its box changed while this was in the air
+    if (asked !== MB.asked) return;
+    // nothing came: the next reading of the board asks again
+    if (!box){ MB.rev = 0; return; }
+    magicDraw(box);
+  });
 }
+// what a card's box holds, fetched once for each revision and kept, and its
+// picture fetched and read with it. a newer revision than the one asked for
+// is kept as itself
+function magicFetch(id, rev){
+  const have = MB.bodies.get(id);
+  if (have && have.rev === rev) return have.wait;
+  const ask = { rev, box: null };
+  ask.wait = fetch("/magic/body?box=" + encodeURIComponent(id), { cache: "no-store" })
+    .then(r => r.ok ? r.json() : null).catch(() => null).then(box => {
+      if (MB.bodies.get(id) !== ask) return box;
+      if (!box){ MB.bodies.delete(id); return null; }
+      ask.rev = box.rev; ask.box = box;
+      if (box.kind === "image" && box.src) magicPicture(id + ":" + box.rev, box.src);
+      if (box.kind === "html") magicMeasure();
+      return box;
+    });
+  MB.bodies.set(id, ask);
+  return ask.wait;
+}
+// a box's picture as the page's own copy, decoded and its size read before
+// it is shown, so the box takes its shape at once (the view's seen)
+async function magicPicture(key, src){
+  if (MB.pictures.has(key)) return;
+  MB.pictures.set(key, null);
+  try {
+    const r = await fetch(src, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const url = URL.createObjectURL(await r.blob()), img = new Image();
+    img.src = url;
+    await img.decode().catch(() => {});
+    if (!MB.pictures.has(key)){ URL.revokeObjectURL(url); return; }
+    MB.pictures.set(key, { src: url, natural: [img.naturalWidth, img.naturalHeight], img });
+  } catch (e) { MB.pictures.delete(key); }
+}
+// a page's height known for a box at a width, to within a pixel and a half
+// (the box's edge rounds), or 0
+function magicHeight(key, width){
+  const seen = MB.heights.get(key);
+  return seen && Math.abs(seen.w - width) <= 1.5 ? seen.h : 0;
+}
+// at every reading of the board: what every open box holds is asked for, and
+// what the board no longer has a use for (a card gone, a revision passed) is let go
+function magicAhead(){
+  const live = new Set();
+  for (const x of lastState.boxes){
+    if (!x.magic) continue;
+    live.add(x.id + ":" + x.magic.rev);
+    if (x.magic.open) magicFetch(x.id, x.magic.rev);
+  }
+  for (const [id, have] of MB.bodies) if (!live.has(id + ":" + have.rev) && have.box) MB.bodies.delete(id);
+  for (const [key, seen] of MB.pictures) if (!live.has(key)){ if (seen) URL.revokeObjectURL(seen.src); MB.pictures.delete(key); }
+  for (const key of MB.heights.keys()) if (!live.has(key)) MB.heights.delete(key);
+  magicMeasure();
+}
+// a page's height measured before its card is first shown: the page laid out
+// once, unseen, in a sealed frame of its own at the width it will be shown at,
+// until it has said its height and then a moment more for anything that
+// arrives late. one page at a time, and the frame goes as soon as it is done.
+// it runs as the shown page does (MagicBox.pageDoc): no network, no keys
+const MEASURE_SETTLE = 300, MEASURE_MOST = 3000;
+function magicMeasure(){
+  if (!MB.el || MB.measuring) return;
+  const room = magicRoom();
+  if (!room) return;
+  const width = room.most.width - 2 * (parseFloat(getComputedStyle(MB.el).borderLeftWidth) || 0);
+  for (const [id, have] of MB.bodies){
+    const key = id + ":" + have.rev;
+    if (!have.box || have.box.kind !== "html" || magicHeight(key, width) || have.tried === width) continue;
+    have.tried = width;
+    const frame = document.createElement("iframe"), word = "magic-" + Math.random().toString(36).slice(2);
+    frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.setAttribute("aria-hidden", "true");
+    frame.tabIndex = -1;
+    frame.inert = true;
+    Object.assign(frame.style, { position: "fixed", left: "-10000px", top: "0", width: width + "px", height: "600px",
+      border: "0", visibility: "hidden", pointerEvents: "none" });
+    const done = () => {
+      if (MB.measuring !== m) return;
+      clearTimeout(m.settle); clearTimeout(m.most);
+      frame.remove();
+      MB.measuring = null;
+      magicMeasure();
+    };
+    const m = MB.measuring = { frame, word, key, width, settle: 0, most: setTimeout(done, MEASURE_MOST), done };
+    frame.srcdoc = MagicBox.pageDoc(have.box.html || "", word, true);
+    document.body.appendChild(frame);
+    return;
+  }
+}
+addEventListener("message", e => {
+  const m = MB.measuring;
+  if (!m || e.source !== m.frame.contentWindow || typeof e.data !== "string" || !e.data.startsWith(m.word + " ")) return;
+  const tall = Math.ceil(+e.data.slice(m.word.length + 1));
+  if (tall > 0) MB.heights.set(m.key, { w: m.width, h: tall });
+  clearTimeout(m.settle);
+  m.settle = setTimeout(m.done, MEASURE_SETTLE);
+});
 function magicDraw(box){
-  MB.view.draw(box);
+  MB.view.draw(box, box.kind === "image" ? MB.pictures.get(box.box + ":" + box.rev) : null);
   const words = MB.body.querySelector(".mbtext");
   if (words && MB.words) MB.words.observe(words);
   MB.el.classList.add("on");
@@ -7631,7 +7739,7 @@ for (const type of ["pointerdown", "keydown", "wheel"]) addEventListener(type, m
 function magicSink(){
   if (!MB.el || MB.rise.then) return;
   if (!MB.el.classList.contains("on") || MB.el.style.visibility === "hidden"){ magicOff(); return; }
-  magicRise(-1, () => { const id = MB.id; magicOff(); MB.plans.delete(id); });
+  magicRise(-1, magicOff);
 }
 // beside the card's own rectangle, read off the page the way the fit reads the
 // regions: screen pixels, less the stage's origin, over the stage's scale. the
@@ -7645,14 +7753,9 @@ function magicPlace(){
   if (!MB.el || !MB.el.classList.contains("on")) return;
   MB.lines.classList.remove("on");
   MB.tabs.classList.remove("on");
-  const card = document.querySelector("main"), stage = document.getElementById("stage");
-  if (!card || !stage) return;
-  const S = stageScale || 1, sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
-  if (r.width < 1 || card.classList.contains("region-off")){ MB.el.style.visibility = "hidden"; return; }
-  const lim = frameLimits();
-  const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
-  const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
-  const most = MagicBox.place(rect, fit);
+  const room = magicRoom();
+  if (!room){ MB.el.style.visibility = "hidden"; return; }
+  const { S, sr, rect, fit, most } = room;
   if (!most.shown){ MB.el.style.visibility = "hidden"; return; }
   // what it shows asks for, in stage pixels: the view's want (card-logic.js)
   const at = MagicBox.place(rect, fit, MB.view.want(most, S));
@@ -7665,6 +7768,18 @@ function magicPlace(){
   const top = fr && fr.height > 1 ? fr.top + (parseFloat(getComputedStyle(frame).borderTopWidth) || 0) : 0;
   magicLines(rect, at, (top - sr.y) / S);
   if (MB.rise.t < 1 && !MB.rise.raf) magicRise(1);
+}
+// the card's rectangle on the stage, the fit's edges and the largest box
+// there is room for beside it, or null with no card laid out to stand beside
+function magicRoom(){
+  const card = document.querySelector("main"), stage = document.getElementById("stage");
+  if (!card || !stage) return null;
+  const S = stageScale || 1, sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
+  if (r.width < 1 || card.classList.contains("region-off")) return null;
+  const lim = frameLimits();
+  const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
+  const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
+  return { S, sr, rect, fit, most: MagicBox.place(rect, fit) };
 }
 // the lines from the card to its box, copied from the owner's three sketches
 // (m1127, ref1 to ref3). each place a line starts, turns or ends is a share
@@ -7707,19 +7822,24 @@ function magicRoute(k, card, box, top){
   return { paths: [[[x1, C.t + tuck], [x1, y], [x2, y], [x2, B.t + tuck]]],
     tabs: k === 1 ? [[x1, C.t], [x2, B.t]] : [] };
 }
-// which template a card's box draws: one picked at random as the box opens on
-// the card, never the one the box before it drew, and kept for the card while
-// its box stays open. one that does not fit gives way to the nearest that
-// does, ref2 and ref3 being the nearest each other; none fitting, no line
+// which template a card's box draws: the one kept with the box (its magic
+// field's lines), which the board chose at random when the box opened, never
+// the one the box opened before it drew, and which stays the box's for good:
+// in every window, after a reload and after a restart. a box opened before
+// the board chose them has one worked out from its card's id, the same
+// everywhere. one that does not fit gives way to the nearest that does,
+// ref2 and ref3 being the nearest each other; none fitting, no line
 const MAGIC_NEAR = [[0, 1, 2], [1, 2, 0], [2, 1, 0]];
+function magicChosen(id){
+  const b = lastState && lastState.boxes.find(x => x.id === id), k = b && b.magic && b.magic.lines;
+  if (k === 0 || k === 1 || k === 2) return k;
+  let h = 0;
+  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h % 3;
+}
 function magicLines(card, box, top){
-  if (!MB.plans.has(MB.id)){
-    const free = [0, 1, 2].filter(k => k !== MB.last);
-    MB.last = free[Math.floor(Math.random() * free.length)];
-    MB.plans.set(MB.id, MB.last);
-  }
   let route = null, drawn = -1;
-  for (const k of MAGIC_NEAR[MB.plans.get(MB.id)]) if ((route = magicRoute(k, card, box, top))){ drawn = k; break; }
+  for (const k of MAGIC_NEAR[magicChosen(MB.id)]) if ((route = magicRoute(k, card, box, top))){ drawn = k; break; }
   MB.lines.dataset.route = drawn;
   if (!route) return;
   // the card's own edge colour, read off the card, so the lines are always it

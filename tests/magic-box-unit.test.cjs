@@ -205,10 +205,12 @@ test("in a narrow window the picture is fitted inside the smaller box, and in no
 test("the page hands the box the workspace's own edges, the fit's clearance and what it shows", () => {
   const html = read("index.html");
   const start = html.indexOf("function magicPlace(){"), fn = html.slice(start, html.indexOf("\n}\n", start));
-  assert.match(fn, /const fit = \{ scale: S, tx: stageTx, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR \};/);
+  const roomAt = html.indexOf("function magicRoom(){"), room = html.slice(roomAt, html.indexOf("\n}\n", roomAt));
+  assert.match(room, /const fit = \{ scale: S, tx: stageTx, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR \};/);
+  assert.match(room, /return \{ S, sr, rect, fit, most: MagicBox\.place\(rect, fit\) \};/);
   // no room beside the card: hidden where it is, before anything is sized
   // or asked of what it shows, and nothing else is done with it
-  assert.match(fn, /const most = MagicBox\.place\(rect, fit\);\n  if \(!most\.shown\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n/);
+  assert.match(fn, /const room = magicRoom\(\);\n  if \(!room\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n  const \{ S, sr, rect, fit, most \} = room;\n  if \(!most\.shown\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n/);
   assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\)\)/);
   assert.match(fn, /visibility: MB\.view\.waiting\(\) \? "hidden" : ""/);
   assert.ok(!/floating|--cardbar-h/.test(fn), "a float is left in the placing");
@@ -229,10 +231,11 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   assert.match(want, /if \(view\.body\.querySelector\("\.mbaway"\)\) return \{ height: room\.width \};/);
   assert.match(want, /height: words\.offsetHeight \+ edges \+ head/);
   assert.match(view, /const own = new Image\(\);[\s\S]{0,200}view\.natural = \[own\.naturalWidth, own\.naturalHeight\];/);
-  assert.match(html, /MB\.view = magicView\(MB\.el, \{ placed: \(\) => magicPlace\(\), openSite: magicOpenSite, sized: true \}\);/);
+  assert.match(html, /MB\.view = magicView\(MB\.el, \{ placed: \(\) => magicPlace\(\), openSite: magicOpenSite, sized: true,/);
   // an agent's page asks for the height it said, on the board that asks for it
-  // (the phone's drawer does not), and is kept hidden a moment while it says it
-  assert.match(want, /if \(kind === "html"\) return hooks\.sized && view\.page && view\.page\.height \? \{ height: view\.page\.height \+ edges \+ head \} : null;/);
+  // (the phone's drawer does not), or a height already known for it at the
+  // box's width, and is kept hidden a moment while it says it
+  assert.match(want, /if \(!hooks\.sized \|\| !run\) return null;\s*if \(!run\.height && hooks\.pageHeight\) run\.height = hooks\.pageHeight\(room\.width - edges\) \|\| 0;\s*return run\.height \? \{ height: run\.height \+ edges \+ head \} : null;/);
   assert.ok(!/PB\.view = magicView\([^)]*sized/.test(read("m.html")), "the phone asks a page its height");
   assert.match(read("m.html"), /PB\.view = magicView\(PB\.el, \{ placed: \(\) => phoneMagicFit\(\),/);
 });
@@ -460,7 +463,7 @@ test("the cross puts the box away as the agent's close does, and the board keeps
   // it sinks away first (the rise backwards), and is then taken off the page
   assert.match(fn, /if \(b && b\.magic\) b\.magic\.open = false;\s*magicSink\(\);/);
   assert.match(fn, /fetch\("\/magic\/close\?box=" \+ encodeURIComponent\(id\), \{ method: "POST" \}\)/);
-  assert.match(html, /function magicSink\(\)\{[\s\S]*?magicRise\(-1, \(\) => \{ const id = MB\.id; magicOff\(\); MB\.plans\.delete\(id\); \}\);/);
+  assert.match(html, /function magicSink\(\)\{[\s\S]*?magicRise\(-1, magicOff\);/);
   // and the agent's own close sinks it the same way, while anything else takes it off at once
   assert.match(html, /const shut = magicCard\(true\);\s*if \(shut && shut\.id === MB\.id\) magicSink\(\);\s*else magicOff\(\);/);
 });
@@ -488,6 +491,47 @@ test("the box rises out of the page as it first comes, its lines with it, and fa
   const lines = html.slice(html.indexOf("// the lines from the card to its box, copied"), html.indexOf("if (MB.el){", html.indexOf("function magicDrone(")));
   assert.match(lines, /const ink = getComputedStyle\(document\.querySelector\("main"\)\)\.borderTopColor;/);
   assert.ok(!/--accent|#432BFF|#D9D1BE/i.test(lines));
+});
+
+test("flipping to a card shows its box and lines in the same frame: what it holds is already on the page", () => {
+  const html = read("index.html"), view = read("card-logic.js");
+  // the switch draws from what the board holds, in the same task, with no
+  // fetch, no wait and no rise; only a box never read yet is fetched
+  const load = html.slice(html.indexOf("function magicLoad(id, rev, fresh){"), html.indexOf("function magicFetch("));
+  assert.ok(!/async|await/.test(load), "the switch waits on something");
+  assert.match(load, /const have = MB\.bodies\.get\(id\);\s*if \(have && have\.rev === rev && have\.box\)\{ magicDraw\(have\.box\); return; \}/);
+  // every reading of the board fetches what every open box holds, whichever
+  // card is on screen, once for each revision
+  assert.match(html, /MB\.known = new Set\([^;]*\);\s*magicAhead\(\);/);
+  assert.match(html, /if \(x\.magic\.open\) magicFetch\(x\.id, x\.magic\.rev\);/);
+  assert.match(html, /function magicFetch\(id, rev\)\{\s*const have = MB\.bodies\.get\(id\);\s*if \(have && have\.rev === rev\) return have\.wait;/);
+  // a picture fetched and read ahead, so the box takes its shape at once;
+  // the view shows it at once when its size is known
+  assert.match(html, /if \(box\.kind === "image" && box\.src\) magicPicture\(id \+ ":" \+ box\.rev, box\.src\);/);
+  assert.match(html, /MB\.view\.draw\(box, box\.kind === "image" \? MB\.pictures\.get\(box\.box \+ ":" \+ box\.rev\) : null\);/);
+  assert.match(view, /if \(seen && seen\.natural\)\{ view\.natural = seen\.natural; view\.known = true; return; \}/);
+  assert.match(view, /return !!img && \(!view\.natural \|\| !img\.complete && !view\.known\);/);
+  // a page's height said once is kept and taken at once the next time, and a
+  // page never shown is measured ahead in a sealed frame of its own, unseen,
+  // which runs as the shown one does and goes when it is done
+  assert.match(html, /heard: \(height, width\) => \{ if \(MB\.id\) MB\.heights\.set\(MB\.id \+ ":" \+ MB\.rev, \{ w: width, h: height \}\); \}/);
+  assert.match(view, /if \(tall > 0 && hooks\.heard\) hooks\.heard\(tall, run\.frame\.clientWidth\);/);
+  const measure = html.slice(html.indexOf("function magicMeasure(){"), html.indexOf("function magicDraw("));
+  assert.match(measure, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\);/);
+  assert.match(measure, /frame\.srcdoc = MagicBox\.pageDoc\(have\.box\.html \|\| "", word, true\);/);
+  assert.match(measure, /frame\.inert = true;/);
+  assert.match(measure, /visibility: "hidden", pointerEvents: "none"/);
+  assert.match(measure, /frame\.remove\(\);/);
+  assert.match(measure, /if \(!MB\.el \|\| MB\.measuring\) return;/, "more than one page measured at a time");
+  // the height is taken only at the width it was said at, within the pixel
+  // and a half the box's edge rounds to
+  const src = html.slice(html.indexOf("function magicHeight("), html.indexOf("\n}\n", html.indexOf("function magicHeight(")) + 3);
+  const ctx = vm.createContext({ MB: { heights: new Map([["c:2", { w: 393.2, h: 145 }]]) } });
+  vm.runInContext(src, ctx);
+  assert.equal(ctx.magicHeight("c:2", 393), 145);
+  assert.equal(ctx.magicHeight("c:2", 394.6), 145);
+  assert.equal(ctx.magicHeight("c:2", 360), 0);
+  assert.equal(ctx.magicHeight("c:3", 393), 0);
 });
 
 // the three templates and the stroke, run outside the page on stand-ins
@@ -533,31 +577,35 @@ test("each template puts its lines where its sketch has them, as shares of the c
   assert.equal(ctx.magicRoute(2, boardCard, { ...boardBox, top: 20 }, 0), null);
 });
 
-test("a box draws one template picked at random, never the one before it, kept while it is open, and the nearest that fits", () => {
+test("a box draws the template kept with it on the board, whatever the page has seen, and the nearest that fits", () => {
   const svg = () => ({ dataset: {}, innerHTML: "", classList: { add() {}, toggle() {} } });
-  const MB = { plans: new Map(), last: -1, id: null, lines: svg(), tabs: svg() };
-  const ctx = vm.createContext({ MB, Math, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)", borderTopWidth: "0.5px" }),
+  const MB = { id: null, lines: svg(), tabs: svg() };
+  const lastState = { boxes: [0, 1, 2].map(k => ({ id: "k" + k, magic: { open: true, rev: 3, lines: k } }))
+    .concat([{ id: "old", magic: { open: true, rev: 1 } }]) };
+  const ctx = vm.createContext({ MB, lastState, Math, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)", borderTopWidth: "0.5px" }),
     document: { querySelector: () => ({}) } });
   vm.runInContext(linesCode(), ctx);
   const card = { left: 467, top: 75, width: 507, height: 749 }, box = { left: 1024, top: 112.4, width: 394, height: 388 };
-  const seen = [];
-  for (let i = 0; i < 300; i++){
-    MB.id = "c" + i;
-    ctx.magicLines(card, box, 0);
-    seen.push(MB.plans.get(MB.id));
+  // the page picks nothing: what it draws is the box's own, as often as it draws it
+  assert.ok(!/Math\.random/.test(linesCode()), "the page picks the lines itself");
+  for (let round = 0; round < 3; round++) for (const k of [0, 1, 2]){
+    MB.id = "k" + k;
+    ctx.magicLines(card, round === 1 ? { ...box, height: 200 } : box, 0);
+    assert.equal(MB.lines.dataset.route, k, "box k" + k + " drew another template");
   }
-  assert.ok(seen.every((k, i) => i === 0 || k !== seen[i - 1]), "the same template twice in a row");
-  for (const k of [0, 1, 2]) assert.ok(seen.filter(x => x === k).length > 60, "template " + k + " is rarely picked");
-  // kept for its card while open, whatever the box does
-  MB.id = "c5"; const kept = MB.plans.get("c5");
-  ctx.magicLines(card, { ...box, height: 200 }, 0);
-  assert.equal(MB.plans.get("c5"), kept);
+  // a box kept from before the board chose them: one worked out from its
+  // card's id, the same every time and in every window
+  MB.id = "old";
+  const once = ctx.magicChosen("old");
+  ctx.magicLines(card, box, 0);
+  assert.equal(MB.lines.dataset.route, once);
+  assert.equal(ctx.magicChosen("old"), once);
   // a template that does not fit gives way to the nearest that does. ref1
   // with the box's top level with the card's has no room above the box, and
   // ref2 is drawn; with the box's top nearer ref2's line than it can go down
   // into, ref3, whose line runs higher; with the workspace's edge over both
   // lines, none is drawn, and no new shape either
-  MB.plans.set("c5", 0);
+  MB.id = "k0";
   ctx.magicLines(card, { ...box, top: 80 }, 0);
   assert.equal(MB.lines.dataset.route, 1);
   ctx.magicLines(card, { ...box, top: 50 }, 0);
@@ -601,7 +649,8 @@ test("a site that will not be framed comes square, with its name and a new-page 
   assert.equal(ctx.magicSiteName({ url: "https://www.google.com/", preview: { site: "www.google.com" } }), "google.com");
   assert.equal(ctx.magicSiteName({ url: "https://github.com/x", preview: { site: "GitHub" } }), "GitHub");
   assert.equal(ctx.magicSiteName({ url: "https://www.example.org/" }), "example.org");
-  const draw = view.slice(view.indexOf("view.draw = box => {"), view.indexOf("const page = (html, tries) => {"));
+  const draw = view.slice(view.indexOf("view.draw = (box, seen) => {"), view.indexOf("const page = (html, tries) => {"));
+  assert.ok(draw.length > 500);
   assert.match(draw, /const away = h\("div", "mbaway"\), open = h\("button", "mbopen"\);/);
   assert.match(draw, /open\.setAttribute\("aria-label", "Open " \+ name \+ " in a new page"\);/);
   assert.match(draw, /open\.insertAdjacentHTML\("beforeend", MAGIC_NEW_PAGE\);/);

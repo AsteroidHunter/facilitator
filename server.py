@@ -5516,6 +5516,24 @@ def _magic_one_address(body: bytes) -> str | None:
     return text if re.match(r"(?i)[a-z][a-z0-9+.-]*://", text) else None
 
 
+MAGIC_LINES = (0, 1, 2)
+
+
+def _magic_lines(old: dict | None) -> int:
+    """Which of the Mac board's three line templates (index.html, magicRoute) a
+    box draws to its card. Chosen once, as a fill opens a closed or empty box,
+    at random but never the one the box opened before it drew, and kept with
+    the box from then on: every revision while it stays open, a close and a
+    reopen, a reload, a restart and every window draw the same lines. Called
+    under the lock."""
+    old = old or {}
+    if old.get("lines") in MAGIC_LINES and old.get("open"):
+        return old["lines"]
+    lines = random.choice([k for k in MAGIC_LINES if k != _state.get("magic_lines_last")])
+    _state["magic_lines_last"] = lines
+    return lines
+
+
 def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes | None, note: dict):
     """The box's new content written and the card naming it, saved as one
     change. Run through _run_state_request, so a failure puts the board back."""
@@ -5533,7 +5551,7 @@ def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes |
         except OSError as e:
             _error("magicfail", bid, reason=e.strerror or type(e).__name__)
             return 500, {"error": "the box could not be written"}
-        box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now}
+        box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now, "lines": _magic_lines(box.get("magic"))}
         _magic_sweep_due.append(bid)
         # the transcript keeps that a box was opened and what kind, never what
         # it holds, the way a quick note is kept by its length
