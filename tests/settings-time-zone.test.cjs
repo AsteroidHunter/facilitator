@@ -1,6 +1,6 @@
 // The Mac settings page's time zone, in plain words: the stored zone id is
 // shown with the browser's own name for it and its offset now, never with
-// underscores and with no city. The function is read out of index.html and run as it is.
+// underscores and with no city. The function is read out of card-logic.js and run as it is.
 // No browser and no server.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
@@ -8,11 +8,12 @@ const path = require("node:path");
 const { test } = require("node:test");
 const vm = require("node:vm");
 
-const MAC = readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-const start = MAC.indexOf("const zoneWords = zone => {");
-const end = MAC.indexOf("// the picture in Profile", start);
-assert.ok(start >= 0 && end > start, "zoneWords is not in the page");
-const zoneWords = vm.runInNewContext("(" + MAC.slice(start + "const zoneWords = ".length, end).trim().replace(/;$/, "") + ")", { Intl, Date });
+// the shared settings code, which the Mac page and the phone's drawer both draw it with
+const LOGIC = readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8");
+const start = LOGIC.indexOf("function settingsZoneWords(zone){");
+const end = LOGIC.indexOf("\n}\n", start) + 3;
+assert.ok(start >= 0 && end > start, "settingsZoneWords is not in card-logic.js");
+const zoneWords = vm.runInNewContext(LOGIC.slice(start, end) + "\nsettingsZoneWords", { Intl, Date });
 
 test("a zone reads as its name and its offset, with no city in brackets", () => {
   assert.match(zoneWords("America/Los_Angeles"), /^Pacific Time, UTC−[78]$/);

@@ -1091,12 +1091,29 @@
 .sp-mac .setpic{--av:calc(2 * var(--half)); flex:none; box-sizing:border-box; width:var(--av); height:var(--av);
   display:grid; place-items:center; border-radius:10px; overflow:hidden; background:var(--bubble-fill); color:#1e1e1e}
 .sp-mac .setpic svg{display:block; width:calc(var(--av) * .5); height:calc(var(--av) * .5)}
+.sp-mac .setpic[hidden]{display:none}
 .sp-mac .setpair{flex:1; min-width:0}
 .sp-mac .setpair .setrow{box-sizing:border-box; height:var(--half); padding:0}
 .sp-mac .setprofile .setfield{flex:0 1 240px}
 .sp-mac[data-narrow] .sp-panes{padding:0 20px 32px}
 .sp-mac[data-narrow] .sp-item{padding:15px 20px; border-radius:0}
 .sp-mac[data-narrow] .sp-item.on{background:none}
+/* an action under a choice (the phone's notification buttons) has the same thin line */
+.sp-mac .sp-box .setact{border-top:1px solid rgba(0,0,0,.055)}
+.sp-mac .sp-box > .setact:first-child{border-top:none}
+/* narrow, which is the phone's drawer (289px at most) and a small window: the
+   picture stands above the name and the email, which take the width under it,
+   each a label with its value at the right */
+.sp-mac[data-narrow] .setprofile{--half:44px; flex-direction:column; align-items:center; gap:6px; padding-bottom:0}
+.sp-mac[data-narrow] .setpair{align-self:stretch; flex:none}
+.sp-mac[data-narrow] .setpair .setrow{height:auto; min-height:48px; padding:12px 0}
+.sp-mac[data-narrow] .setprofile .setfield{flex:0 1 auto}
+/* a shown value (.setstat, the phone's Profile rows): on a line of its own under
+   its label, the width of the box, so an email or a time zone is never broken
+   in the middle of a word */
+.sp-mac[data-narrow] .sp-box{padding:0 14px}
+.sp-mac[data-narrow] .setstat{flex-direction:column; align-items:flex-start; justify-content:center; gap:2px}
+.sp-mac[data-narrow] .setstat > .setvalue{flex:none; max-width:100%; text-align:left}
 
 /* The link menu uses the board's existing page-menu shape and ink press shade. */
 html.app-link-policy a[href], html.app-link-policy .cardmd img,

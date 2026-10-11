@@ -1754,18 +1754,30 @@ for (const type of ["gesturestart", "gesturechange"])
 <aside id="settings" aria-label="Settings" data-side="right">
   <div id="setpage">
     <div id="setsrc">
-      <div data-section="editor" data-label="Editor">
-        <div class="setrow">
-          <label class="setlabel" for="setformat"><span>Format text while typing</span>
-            <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type.</small></label>
-          <input type="checkbox" role="switch" id="setformat">
+      <div data-section="profile" data-label="Profile">
+        <div class="setprofile">
+          <div class="setpic" id="pfpic" aria-hidden="true" hidden></div>
+          <div class="setpair">
+            <div class="setrow setstat"><div class="setlabel"><span>Name</span></div><span id="pfname" class="setvalue"></span></div>
+            <div class="setrow setstat"><div class="setlabel"><span>Email</span></div><span id="pfemail" class="setvalue"></span></div>
+          </div>
         </div>
+        <div class="setrow setstat"><div class="setlabel"><span>Work</span></div><span id="pfwork" class="setvalue"></span></div>
+        <div class="setrow setstat"><div class="setlabel"><span>Main agent</span></div><span id="pfagent" class="setvalue"></span></div>
+        <div class="setrow setstat"><div class="setlabel"><span>Time zone</span></div><span id="pftz" class="setvalue"></span></div>
       </div>
       <div data-section="appearance" data-label="Appearance">
         <div class="setrow">
           <label class="setlabel" for="setwait"><span>Cards waiting on you</span>
             <small id="setwaitnote" class="sethelp" role="status" aria-live="polite">Oldest first</small></label>
           <input type="checkbox" role="switch" id="setwait" aria-describedby="setwaitnote">
+        </div>
+      </div>
+      <div data-section="editor" data-label="Editor">
+        <div class="setrow">
+          <label class="setlabel" for="setformat"><span>Format text while typing</span>
+            <small class="sethelp">Bold, italic, strikethrough, quotes and bullets are drawn in the composer as you type.</small></label>
+          <input type="checkbox" role="switch" id="setformat">
         </div>
       </div>
       <div data-section="notifications" data-label="Notifications">
@@ -1782,18 +1794,9 @@ for (const type of ["gesturestart", "gesturechange"])
       <div data-section="improvements" data-label="Improvements">
         <div class="setrow">
           <label class="setlabel" for="setusage"><span>Share daily usage counts</span>
-            <small class="sethelp">Once a day the board sends a few counts, like how many cards were made and messages sent, to help improve Facilitator. Never what you wrote, names or files. The README lists every field.</small></label>
+            <small class="sethelp">We collect basic usage counts to gauge the product's retention rate. Personal data such as the contents of a card or project names is <em>never</em> collected.</small></label>
           <input type="checkbox" role="switch" id="setusage" checked>
         </div>
-      </div>
-      <div data-section="profile" data-label="Profile">
-        <p class="setnote">Kept on your Mac, and changed in Settings there.</p>
-        <div class="setrow"><div class="setlabel"><span>Name</span><small id="pfname" class="sethelp"></small></div></div>
-        <div class="setrow"><div class="setlabel"><span>Email</span><small id="pfemail" class="sethelp"></small></div></div>
-        <div class="setrow"><div class="setlabel"><span>Feedback emails</span><small id="pfyes" class="sethelp"></small></div></div>
-        <div class="setrow"><div class="setlabel"><span>Work</span><small id="pfwork" class="sethelp"></small></div></div>
-        <div class="setrow"><div class="setlabel"><span>Main agent</span><small id="pfagent" class="sethelp"></small></div></div>
-        <div class="setrow"><div class="setlabel"><span>Time zone</span><small id="pftz" class="sethelp"></small></div></div>
       </div>
       <div data-section="diagnostics" data-label="Diagnostics">
         <div class="setact">
@@ -4277,6 +4280,7 @@ if (macHost) {
 }
 const settingsView = settingsPage(document.getElementById("setpage"), document.getElementById("setsrc"), {
   close: () => hideMenu(settings),
+  mac: true,   // the Mac page's look: marks, grey boxes, no second heading
   narrow: { matches: true },
 });
 if (macHost) {
@@ -7144,17 +7148,22 @@ function keyBytes(b64url){
 // wearing it by the time anybody types in it
 ComposeFormat.preload();
 // the profile the Mac keeps (GET /profile): shown here and changed only on the
-// Mac, where it lives and where the yes to feedback mail is answered. Read when
-// the page starts and again when its section is opened
+// Mac, where it lives. Read when the page starts and again when its section is
+// opened. The picture is the one the Mac drew for it (none until the Mac has
+// asked), shown and never named; the time zone is written out in plain words
 {
-  const shown = { name: "pfname", email: "pfemail", work: "pfwork", agent: "pfagent", timeZone: "pftz" };
+  const shown = { name: "pfname", email: "pfemail", work: "pfwork", agent: "pfagent" };
+  const picture = document.getElementById("pfpic");
   let asked = 0;
   const read = () => {
     const mine = ++asked;
     fetch("/profile").then(r => r.ok ? r.json() : null).then(p => {
       if (mine !== asked || !p) return;
       for (const [key, id] of Object.entries(shown)) document.getElementById(id).textContent = p[key] || "";
-      document.getElementById("pfyes").textContent = p.emailYes ? "On" : "Off";
+      document.getElementById("pftz").textContent = settingsZoneWords(p.timeZone);
+      const drawing = SETTINGS_PICTURES[p.picture];
+      picture.innerHTML = drawing || "";
+      picture.hidden = !drawing;
     }, () => {});
   };
   document.querySelector('#setpage .sp-item[data-section="profile"]')?.addEventListener("click", read);
