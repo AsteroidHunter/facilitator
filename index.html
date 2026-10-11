@@ -360,7 +360,11 @@
      turns it red, as on the phone, and the board's own banner saying the server
      is unreachable stands over it */
   #loading{position:fixed; inset:0; z-index:100002; background:#ffffff; opacity:1; transition:opacity 260ms ease}
-  #loading .scene{position:absolute; inset:0; animation:ld-appear 620ms ease-out 80ms both}
+  /* the phone fades its globe in; here it stands at full strength from the first
+     paint, because the board is built on the page's own thread straight after
+     that paint and a fade waiting on that thread would hold the globe unseen
+     for exactly the time it is there for. the turn runs off that thread */
+  #loading .scene{position:absolute; inset:0}
   #loading .globe{
     position:absolute; left:50%; top:50%;
     box-sizing:border-box;
@@ -373,7 +377,6 @@
     will-change:transform;
   }
   #loading .coast{display:block; width:100%; height:100%; fill:none; stroke:#000000; stroke-width:0.2vmin}
-  @keyframes ld-appear{from{opacity:0} to{opacity:1}}
   @keyframes ld-spin{from{transform:translateX(-50%)} to{transform:translateX(0)}}
   #loading.down .globe{border-color:#A8442A}
   #loading.down .coast{stroke:#A8442A}
@@ -384,7 +387,6 @@
   /* the globe keeps turning for the reason the phone gives: a still globe is the
      one saying the board could not be reached */
   @media (prefers-reduced-motion: reduce){
-    #loading .scene{animation:ld-appear 620ms ease-out 80ms both !important}
     #loading .earth{animation:ld-spin 5200ms linear infinite !important}
     #loading.down .earth{animation-play-state:paused !important}
     #loading{transition:opacity 260ms ease !important}
