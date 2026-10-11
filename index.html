@@ -5255,6 +5255,29 @@ function setBrowsing(on){
 // shows it without selecting it (browse, below). the hop a close or a snooze
 // makes to the next card shows it browsed, since the board picked that card
 // and the reader did not
+// of the cards built, only the card on show wears the typing editor: every row
+// is attached held (makeBox), so loading the board puts no editor on the
+// thousand cards nobody can see. the card on show is given its editor in the
+// same turn it is shown, before it is drawn, and a card that has left the
+// screen takes its editor off, its words, caret and undo kept with the row
+// (ComposeFormat want), as the phone's rows do (wearEditor in m.html). a row
+// still holding the caret keeps its editor until a later pass finds it let go
+const editorsWorn = new Set();
+function wearShownEditor(){
+  const el = selectedId && els[selectedId];
+  if (el){
+    editorsWorn.add(selectedId);
+    const was = el.field.formatted();
+    if (el.field.want(true) && !was) el.tick();
+  }
+  for (const id of [...editorsWorn]){
+    if (id === selectedId) continue;
+    const other = els[id];
+    if (other && other.field.focused()) continue;
+    if (other) other.field.want(false);
+    editorsWorn.delete(id);
+  }
+}
 function select(id, opts){
   if (!els[id]) return;
   const chosen = !opts?.browse && !opts?.hop;
@@ -5273,6 +5296,7 @@ function select(id, opts){
     els[k].box.classList.toggle("sel", k === id);
     els[k].toc.classList.toggle("t-sel", k === id);
   }
+  wearShownEditor();
   openAtHead(els[id]);
   // the card is laid out again now that it wears .sel. a draft it kept while it
   // was hidden may carry a stale inline height, since the guarded autosize
@@ -5401,6 +5425,7 @@ function applySelection(state){
   if (hist && hist.id !== selectedId) histExit(hist.id);   // selection moved without select()
   const moved = shownId !== selectedId;
   for (const k of Object.keys(els)) els[k].box.classList.toggle("sel", k === selectedId);
+  wearShownEditor();
   openAtHead(els[selectedId]);
   syncDesktopHistoryAvailability(selectedId);
   updatePwd(state);
@@ -5860,8 +5885,16 @@ function build(state){
     secEls[key] = { list, cnt };
   }
 
+  // the cards are made with the two lists out of the page and put back once. a
+  // card is display:none until it is shown, so nothing measured on one while it
+  // is made means anything, and each measure taken with the lists in the page
+  // laid the whole page out again: several times a card, thousands of times on
+  // a board of a thousand cards
+  const outside = [sections, toc].map(el => [el, el.parentNode, el.nextSibling]);
+  for (const [el] of outside) el.remove();
   state.boxes.forEach((b, i) => makeBox(b, i, state));
   addRows();
+  for (const [el, parent, next] of outside) parent.insertBefore(el, next);
   landFocus();
 }
 
@@ -6056,9 +6089,12 @@ function makeBox(b, i, state){
 
     const sec = statusOf(b);
     // slot in where the state array says this box belongs; during the initial
-    // build the next box does not exist yet, so this appends in order
-    const peers = state.boxes.filter(x => statusOf(x) === sec);
-    const nextB = peers[peers.findIndex(x => x.id === b.id) + 1];
+    // build the next box does not exist yet, so this appends in order. the next
+    // box of the section is looked for from this one on, not by sorting every
+    // box into its section for each card made
+    let nextB;
+    for (let k = state.boxes.indexOf(b) + 1; k < state.boxes.length && !nextB; k++)
+      if (statusOf(state.boxes[k]) === sec) nextB = state.boxes[k];
     const nextEl = nextB && els[nextB.id];
     if (nextEl && nextEl.box.parentNode === secEls[sec].list){
       secEls[sec].list.insertBefore(box, nextEl.box);
@@ -6074,8 +6110,10 @@ function makeBox(b, i, state){
     // wired before anything is hung on the field, because the field keeps one
     // public face whichever of the two it is wearing and the handle is what
     // carries a listener across a change of face. enter is the card's own
-    // command here, so only shift enter is a new line for the list to carry
-    const field = ComposeFormat.attach(ta, { newline: e => e.shiftKey });
+    // command here, so only shift enter is a new line for the list to carry.
+    // the row is held: it wears the editor only while its card is the one on
+    // show (wearShownEditor), as the phone's rows do
+    const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });
 
     // the row's own autosize: back to auto, then up to the content, and the css
     // max-height caps it. the square's seat, its coming and going, and the ramp
@@ -6494,8 +6532,9 @@ async function syncDesktopHistoryAvailability(id){
 }
 
 function apply(state){
+  const onBoard = new Set(state.boxes.map(b => b.id));
   for (const id of Object.keys(els)){    // deleted boxes leave the page
-    if (!state.boxes.some(b => b.id === id)){
+    if (!onBoard.has(id)){
       if (hist && hist.id === id) hist = null;
       delete histCache[id];
       // the row's typed formatting is held by the formatter as well as by this
