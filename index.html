@@ -2956,16 +2956,18 @@
      moves down the whole pixel that leaves them one device pixel apart and
      not a fraction that every edge would be drawn blurred on. the padding
      moves the row and nothing else: the bar's height, so the pane's top, the
-     stage's and every page's own top, stand where they did. the pieces stand
-     8px apart, the phone's own gap, and the bar has no side padding, so the
+     stage's and every page's own top, stand where they did. the bar's own
+     pieces stand 8px apart, the phone's own gap (the house, the pill and the
+     faint names have a wider gap of their own, see .psug), and the bar has no
+     side padding, so the
      house and the squid stand over the pane's own left and right edges */
   body.focus .bar{height:40px; padding:1px 0 6px; gap:8px}
   body.focus #toc, body.focus #tocgrip{top:41px}
   body.focus #offline{top:41px}
   #tabrow, #tabbar{display:none}
-  body.focus #tabrow{position:relative; display:flex; align-items:center; gap:8px; height:32px; flex:none}
-  /* the faint names' gaps are set to read as the house's 8px does when drawn (see .psug) */
-  body.focus #tabbar{display:flex; align-items:center; gap:5.5px; margin-left:-2px; height:32px; flex:none}
+  body.focus #tabrow{position:relative; display:flex; align-items:center; gap:17px; height:32px; flex:none}
+  /* the house, the pill and the faint names stand one gap apart as drawn, about 16px (see .psug) */
+  body.focus #tabbar{display:flex; align-items:center; gap:14.3px; margin-left:-2.2px; height:32px; flex:none}
   /* seated tabs per the 20260809 mockup: the active one's bottom opens into
      the canvas. 20260827: the top two corners now take the cards' own 7px, so
      a seated tab is rounded on the same terms as the shell around it and the
@@ -3136,12 +3138,12 @@
   /* the pill: the open project's name alone, on the house's glass and at its
      height, a capsule as the phone's project button is. the project names,
      here, beside it and in the list, are 14px, a step over the 13px the tabs
-     had, and they are Plex's regular 400, or its bold 700 while the project
-     holds a reply not yet read: two steps apart (the tabs' 500 and 600 were
-     one), so which is which shows at a glance. both weights are in the font
-     link at the head. a name holds room for its bold self, so a reply landing
-     moves nothing. a long name is cut short with an ellipsis. a project's own
-     window has no list, so its pill opens nothing */
+     had, and they are Plex's regular 400, or its semibold 600 while the
+     project holds a reply not yet read (700 read as too heavy, 20261010).
+     both weights are in the font link at the head. a name holds room for its
+     bold self, so a reply landing moves nothing. a long name is cut short
+     with an ellipsis. a project's own window has no list, so its pill opens
+     nothing */
   body.focus #projpill{flex:none; position:relative; box-sizing:border-box; height:32px; max-width:260px;
     margin:0; padding:0 14px; border-radius:16px;
     display:flex; align-items:center;
@@ -3149,36 +3151,36 @@
     transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
   body.focus #projpill[hidden]{display:none}
   body.focus #projname{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  body.focus #projpill.unread #projname{font-weight:700}
+  body.focus #projpill.unread #projname{font-weight:600}
   body.focus #projname[data-label]::after{content:attr(data-label); display:block; height:0; overflow:hidden;
-    visibility:hidden; font-weight:700}
+    visibility:hidden; font-weight:600}
   body.focus #projpill:disabled{cursor:default}
   /* the suggestions: a few open projects after the pill, in the names' type
-     and fainter. every gap along the row reads the same as drawn, the house's
-     to the pill: its 8px box gap draws as 7.2px, since each glass ring's ink
-     stands 0.4px inside its box. a word's ink stands about 1px inside its own
-     box at each end (more after an r), so the pill's gap to the first name is
-     6px of box (#tabbar's -2px margin) and a name's gap to the next 5.5px
-     (#tabbar's gap), and they draw within about a pixel of the house's 7.2px
-     (measured at 1512 by 982 and 1652 by 861). the names carry no side
-     padding of their own (the tabs' 14px made the pill's gap read three
-     times the house's), and sit at the left of their boxes. each name's hit
-     area reaches 3px past its word on either side and gives the room back in
-     margin, so almost nothing between them is dead and nothing is drawn wider.
-     a project holding a reply not yet read is in the bold 700, the rest in
-     the regular 400. these words do not hold room for their bold selves, as
+     and fainter. the house, the pill and the faint names stand one gap apart,
+     about 16px as drawn (7px read as far too close, 23px as too far, the
+     owner, 20261010). the glass rings draw 0.4px outside their boxes, so the
+     house's gap to the pill is 17px of box (#tabrow's gap); a word's ink
+     stands about 1px inside its own box at each end (more after an r), so
+     the pill's gap to the first name is 14.8px of box (#tabrow's 17 less
+     #tabbar's 2.2px margin) and a name's gap to the next 14.3px (#tabbar's
+     gap). the names carry no side padding of their own and sit at the left
+     of their boxes. each name's hit area reaches 7px past its word on either
+     side and gives the room back in margin, so little between them is dead
+     and nothing is drawn wider.
+     a project holding a reply not yet read is in the semibold 600, the rest
+     in the regular 400. these words do not hold room for their bold selves, as
      the pill's does: that room is empty on a regular word and drew as a wider
      gap after it, so a reply landing may move the names after it by a few
      pixels, and the pill and the house never move. they come in on a short
      fade */
   body.focus #tabbar .psug{flex:none; display:flex; align-items:center; justify-content:flex-start; height:32px;
-    margin:0 -3px; padding:0 3px; text-align:left;
+    margin:0 -7px; padding:0 7px; text-align:left;
     border:none; border-radius:10px; background:none;
     font:400 14px/17px var(--sans); color:color-mix(in srgb, var(--sub) 55%, transparent);
     cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:color .18s; animation:psugin .22s var(--gentle)}
   body.focus #tabbar .psug:hover{color:var(--ink)}
-  body.focus #tabbar .psug.unread .plabel{font-weight:700}
+  body.focus #tabbar .psug.unread .plabel{font-weight:600}
   @keyframes psugin{from{opacity:0}}
   /* the list: every open project in the board's order, each with its number,
      the unread ones in the bold, then "Open a new folder" with its plus. no
@@ -3215,7 +3217,7 @@
   body.focus.projopen #projmenu{visibility:visible; opacity:1; transform:none;
     transition:opacity .16s ease-out, transform .22s cubic-bezier(.2,.9,.25,1), visibility 0s}
   #projlist{flex:none; display:flex; flex-direction:column}
-  #projmenu .projrow{position:relative; flex:none; display:flex; align-items:center; gap:10px;
+  #projmenu .projrow{position:relative; flex:none; display:flex; align-items:center;
     box-sizing:border-box; width:100%; min-height:32px; margin:0; padding:0 34px 0 12px;
     border:none; border-radius:9px; background:transparent;
     font:400 14px/17px var(--sans); color:var(--ink); text-align:left; cursor:pointer;
@@ -3227,11 +3229,21 @@
      right aligned, as numbers are. the plus of "Open a new folder" is the
      monospace face's own plus in the same column and grey, one digit wide,
      so the plus and the numbers line up by the face's own measure. the
-     numbers never take a project's bold */
+     numbers never take a project's bold.
+     they stand as tall as the names: Plex Mono's figures are 9.94px tall at
+     14px and Plex Sans's tall letters (f, k, l, d, b, h) 10.36px, so at the
+     names' 14px the numbers looked a size smaller. the monospace face is set
+     at 14.6px, 14 times 10.36 over 9.94, on the names' 17px line, which puts
+     the figures' tops level with the names' tall letters (measured with the
+     page's own canvas and on the drawn rows, 20261010). the number and the
+     name stand in one line of their own (.pline) set on their shared
+     baseline, which the row centres: each centred on its own, the two faces
+     sat a device pixel apart */
+  #projmenu .pline{flex:1 1 auto; min-width:0; display:flex; align-items:baseline; gap:10px}
   #projmenu .pnum{flex:none; width:var(--pnum, 1ch); text-align:right;
-    font:400 14px/17px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums}
+    font:400 14.6px/17px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums}
   #projmenu .pname{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  #projmenu .projrow.unread .pname{font-weight:700}
+  #projmenu .projrow.unread .pname{font-weight:600}
   /* the cross: one at a time, on the row under the pointer, never a column of
      them. it is out of the row's flow, so the names never move, and the row
      keeps room for it on its right. the last project stays open, and its
@@ -3665,7 +3677,7 @@
 <div id="projmenu" class="qn-glass" aria-label="Projects">
   <div id="projlist"></div>
   <div id="projsep"></div>
-  <button id="projnew" class="projrow" type="button"><span class="pnum" aria-hidden="true">+</span><span class="pname">Open a new folder</span></button>
+  <button id="projnew" class="projrow" type="button"><span class="pline"><span class="pnum" aria-hidden="true">+</span><span class="pname">Open a new folder</span></span></button>
 </div>
 
 <!-- the settings, one group to a section: the page in card-logic.js builds the
@@ -4272,8 +4284,11 @@ function renderProjList(st, owners){
       // its place in the list, which is its Command + number up to 9
       const num = h("span", "pnum", String(i + 1));
       num.setAttribute("aria-hidden", "true");
-      row.appendChild(num);
-      row.appendChild(h("span", "pname", labelOf(st, ow)));
+      // the number and the name share one baseline (.pline)
+      const line = h("span", "pline");
+      line.appendChild(num);
+      line.appendChild(h("span", "pname", labelOf(st, ow)));
+      row.appendChild(line);
       row.appendChild(projCloseMark(ow));
       projList.appendChild(row);
     }

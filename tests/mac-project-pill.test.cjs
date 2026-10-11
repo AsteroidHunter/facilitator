@@ -175,7 +175,7 @@ test("the pill names the open project, and its list holds every open project in 
   assert.deepEqual(f.rows().filter(r => r.classes.has("unread")).map(r => r.dataset.owner), ["moonbase", "alder-workshop", "marlow"]);
   // "Open a new folder" is the list's last row, after the projects
   assert.equal(f.menu.children.at(-1), f.fresh);
-  assert.match(html, /<button id="projnew" class="projrow" type="button">[\s\S]*?<span class="pname">Open a new folder<\/span><\/button>/);
+  assert.match(html, /<button id="projnew" class="projrow" type="button">[\s\S]*?<span class="pname">Open a new folder<\/span>(<\/span>)?<\/button>/);
   // a closed project is not in the list, the faint names or the keys' order
   f.state.tabs.closed = ["wayside"]; f.context.renderTabs(f.state);
   assert.deepEqual(f.names(), ["facilitator", "moonbase", "alder-workshop", "marlow"]);
@@ -381,8 +381,10 @@ test("the pill is the name alone and the list's rows have no check mark", () => 
   // the open project's row still says so, to assistive tech only
   const f = fixture();
   assert.equal(f.row("marlow").attributes["aria-current"], "true");
-  assert.deepEqual(f.row("marlow").children.map(c => [...c.classes][0]), ["pnum", "pname", "projx"],
-    "the open row holds more than its number, its name and its cross");
+  assert.deepEqual(f.row("marlow").children.map(c => [...c.classes][0]), ["pline", "projx"],
+    "the open row holds more than its line and its cross");
+  assert.deepEqual(f.row("marlow").children[0].children.map(c => [...c.classes][0]), ["pnum", "pname"],
+    "the open row's line holds more than its number and its name");
 });
 
 test("project names are one step larger, 14px, in the pill, the faint names and the list alike", () => {
@@ -428,55 +430,63 @@ test("the list's top edge is one line: it wears the bar's rim, not the glass's d
   assert.match(tokens, /\.qn-glass\{\s*border:none;[^}]*inset 0 2px 0 rgba\(0,0,0,\.045\)/);
 });
 
-// ---- round 3 (20261010): spacing, numbers and weights -------------------------
-test("the gaps read as the house's 8px does when drawn: no side padding on the faint names, and box gaps set for their ink", () => {
+// ---- rounds 3 and 4 (20261010): spacing, numbers and weights ------------------
+test("the house, the pill and the faint names stand one gap apart, about 16px as drawn", () => {
   const sug = rule(sheet, "body.focus #tabbar .psug"), bar = rule(sheet, "body.focus #tabbar");
-  assert.equal(decl(sug, "padding"), "0 3px"); assert.equal(decl(sug, "margin"), "0 -3px");
+  assert.equal(decl(sug, "padding"), "0 7px"); assert.equal(decl(sug, "margin"), "0 -7px");
   assert.equal(decl(sug, "text-align"), "left", "a word centred in a wider box draws a wider gap");
-  assert.equal(decl(rule(sheet, "body.focus #tabrow"), "gap"), "8px", "house to pill");
-  assert.equal(decl(bar, "margin-left"), "-2px"); assert.equal(decl(bar, "gap"), "5.5px");
-  // pill to the first word: 8 + (-2) + (-3 + 3) = 6px of box; word to word: 3 - 3 + 5.5 - 3 + 3 = 5.5px.
-  // a ring draws 0.4px inside its box and a word about 1px inside its own at each end, so they draw near
-  // the house's 7.2px (measured on the simulator: 7.2 to 7.3, 6.6 to 7.2, and 8.8 after an r)
+  assert.equal(decl(rule(sheet, "body.focus #tabrow"), "gap"), "17px", "house to pill");
+  assert.equal(decl(bar, "margin-left"), "-2.2px"); assert.equal(decl(bar, "gap"), "14.3px");
+  // house to pill: 17px of box, and the rings draw 0.4px outside their boxes, so 16.2px drawn.
+  // pill to the first word: 17 + (-2.2) + (-7 + 7) = 14.8px of box; word to word: 7 - 7 + 14.3 - 7 + 7 = 14.3px;
+  // a word's ink stands about 1px inside its box at each end, so they draw near 16px (measured on the
+  // simulator: 15.4 to 16.9, and 17.6 to 18.4 after an r)
   // the faint names hold no room for a bold self (it drew as a gap after a regular word)
   const f = fixture();
   assert.ok(f.ids.tabbar.children.length > 0);
   for (const b of f.ids.tabbar.children) assert.equal(b.children[0].dataset.label, undefined);
 });
 
-test("each row has its number in the monospace face and a greyer ink, and the plus stands in the same column", () => {
-  const f = fixture();
-  assert.deepEqual(f.rows().map(r => r.children[0].textContent), ["1", "2", "3", "4", "5"]);
-  assert.ok(f.rows().every(r => r.children[0].classes.has("pnum") && r.children[0].attributes["aria-hidden"] === "true"));
+test("each row has its number in the monospace face and a greyer ink, as tall as the names, and the plus stands in the same column", () => {
+  const f = fixture(), numOf = r => r.querySelector(".pnum");
+  assert.deepEqual(f.rows().map(r => numOf(r).textContent), ["1", "2", "3", "4", "5"]);
+  assert.ok(f.rows().every(r => numOf(r).attributes["aria-hidden"] === "true"));
   assert.equal(f.menu.style["--pnum"], "1ch", "the column is as wide as the longest number");
   const num = rule(sheet, "#projmenu .pnum");
-  assert.equal(decl(num, "font"), "400 14px/17px var(--mono)");
+  // Plex Mono's figures are 9.94px tall at 14px, Plex Sans's tall letters 10.36px: the figures are set at
+  // 14 x 10.36 / 9.94 = 14.6px, on the names' 17px line, so they stand as tall as the names
+  assert.equal(decl(num, "font"), "400 14.6px/17px var(--mono)");
+  assert.ok(Math.abs(14 * 10.359 / 9.938 - 14.6) < .05);
+  // the number and the name share one baseline, and the row centres that line
+  const line = rule(sheet, "#projmenu .pline");
+  assert.equal(decl(line, "display"), "flex"); assert.equal(decl(line, "align-items"), "baseline");
   assert.equal(decl(num, "color"), "var(--sub)", "the numbers are not greyer than the names");
   assert.equal(decl(num, "width"), "var(--pnum, 1ch)"); assert.equal(decl(num, "text-align"), "right");
   assert.equal(decl(rule(sheet, "#projmenu .projrow"), "color"), "var(--ink)");
   // "Open a new folder" carries the monospace plus in that column
-  assert.match(html, /<button id="projnew" class="projrow" type="button"><span class="pnum" aria-hidden="true">\+<\/span><span class="pname">Open a new folder<\/span><\/button>/);
+  assert.match(html, /<button id="projnew" class="projrow" type="button"><span class="pline"><span class="pnum" aria-hidden="true">\+<\/span><span class="pname">Open a new folder<\/span><\/span><\/button>/);
   // a reorder renumbers: the numbers follow the list, as Command + 1 to 9 do
   f.open(); const held = f.row("facilitator");
   held.fire("mousedown", { clientX: 100, clientY: 60 });
   f.win("mousemove", { clientX: 100, clientY: 130 }); f.win("mouseup", { clientX: 100, clientY: 130 });
-  assert.deepEqual(f.rows().map(r => [r.children[0].textContent, r.dataset.owner]),
+  assert.deepEqual(f.rows().map(r => [numOf(r).textContent, r.dataset.owner]),
     [["1", "moonbase"], ["2", "alder-workshop"], ["3", "facilitator"], ["4", "wayside"], ["5", "marlow"]]);
   // ten projects make the column two digits wide
   const now = Date.now() / 1000;
   for (let i = 0; i < 6; i++) { f.state.boxes.push({ id: "x" + i, owner: "extra" + i, ball: "you", replies: 0, ts: now, agentTs: 0 }); }
   f.context.renderTabs(f.state);
-  assert.equal(f.rows().length, 11); assert.equal(f.rows()[10].children[0].textContent, "11"); assert.equal(f.menu.style["--pnum"], "2ch");
+  assert.equal(f.rows().length, 11); assert.equal(numOf(f.rows()[10]).textContent, "11"); assert.equal(f.menu.style["--pnum"], "2ch");
 });
 
-test("unread names are Plex's 700 and the rest its 400, in the pill, the faint names and the list, and both weights are loaded", () => {
-  assert.match(html, /family=IBM\+Plex\+Sans:wght@[^&"]*\b400\b[^&"]*\b700\b/, "the font link lacks 400 or 700");
+test("unread names are Plex's 600 and the rest its 400, in the pill, the faint names and the list, and both weights are loaded", () => {
+  assert.match(html, /family=IBM\+Plex\+Sans:wght@[^&"]*\b400\b[^&"]*\b600\b/, "the font link lacks 400 or 600");
   assert.match(html, /family=IBM\+Plex\+Mono:wght@[^&"]*\b400\b/);
-  assert.equal(decl(rule(sheet, "body.focus #projpill.unread #projname"), "font-weight"), "700");
-  assert.equal(decl(rule(sheet, "body.focus #tabbar .psug.unread .plabel"), "font-weight"), "700");
-  assert.equal(decl(rule(sheet, "#projmenu .projrow.unread .pname"), "font-weight"), "700");
+  assert.equal(decl(rule(sheet, "body.focus #projpill.unread #projname"), "font-weight"), "600");
+  assert.equal(decl(rule(sheet, "body.focus #tabbar .psug.unread .plabel"), "font-weight"), "600");
+  assert.equal(decl(rule(sheet, "#projmenu .projrow.unread .pname"), "font-weight"), "600");
+  assert.doesNotMatch(sheet.slice(sheet.indexOf("body.focus #projpill{"), sheet.indexOf("#projsep{")), /font-weight:700/, "a project name is still 700");
   // the pill's name holds room for its bold self, so a reply landing never moves the pill or the names after it
-  assert.equal(decl(rule(sheet, "body.focus #projname[data-label]::after"), "font-weight"), "700");
+  assert.equal(decl(rule(sheet, "body.focus #projname[data-label]::after"), "font-weight"), "600");
   // the pill takes the bold for its own project's unread replies, and holds its label for the bold width
   const f = fixture();
   assert.equal(f.ids.projpill.classes.has("unread"), true, "marlow holds an unread reply");
