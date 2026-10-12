@@ -1531,12 +1531,16 @@
      card's own shadow, its two layers at the strength a filter gives them (a
      filter's blur is the spread of the blur a box-shadow asks for, so half
      of it); the card lowered, it has none, as the box has none. it is drawn by
-     magicLine, in the stage's pixels, from the svg's corner at the stage's */
+     magicLine, in the stage's pixels, from the svg's corner at the stage's.
+     the shadow is on the group inside the svg, not on the svg: the svg is a
+     layer of its own over the box's scrolling words, and a filter on a layer
+     is blurred again on every frame the screen draws, each frame of a scroll
+     among them; on the group it is painted once with the line (m1216) */
   #mbline{display:none}
   body.focus #mbline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
-    overflow:visible; pointer-events:none; z-index:2;
-    filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
-  body.lowered #mbline.on{filter:none}
+    overflow:visible; pointer-events:none; z-index:2}
+  body.focus #mbline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
+  body.lowered #mbline.on > g{filter:none}
   body.focus:is(.home, .editmode) #mbline.on{display:none}
   #magicbox .mbbar{background:var(--card)}
   #magicbox .mbbar::after{display:none}
@@ -8007,11 +8011,12 @@ function magicLine(card, box){
     '" width="' + (w - ONE.rim) + '" height="' + (h - ONE.rim) + '" rx="1" fill="' + ink + '" stroke="' + ONE.rimInk +
     '" stroke-width="' + ONE.rim + '"/>';
   // the box's border is drawn inside its rectangle, as the card's is: each tab
-  // is set on the middle of the edge it stands on
-  MB.line.innerHTML = '<path d="M' + one.from.toFixed(2) + ' ' + one.y.toFixed(2) + 'L' + one.to.toFixed(2) + ' ' +
+  // is set on the middle of the edge it stands on. all of it is one group,
+  // which wears the shadow (#mbline.on > g)
+  MB.line.innerHTML = '<g><path d="M' + one.from.toFixed(2) + ' ' + one.y.toFixed(2) + 'L' + one.to.toFixed(2) + ' ' +
     one.y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + ONE.bar + '"/>' +
     tab(one.from - edge / 2 - ONE.cardTab.w / 2, ONE.cardTab.w, ONE.cardTab.h) +
-    tab(one.to + edge / 2 - ONE.boxTab.w, ONE.boxTab.w, ONE.boxTab.h);
+    tab(one.to + edge / 2 - ONE.boxTab.w, ONE.boxTab.w, ONE.boxTab.h) + '</g>';
   MB.line.classList.add("on");
 }
 if (MB.el){
