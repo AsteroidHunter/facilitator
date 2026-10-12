@@ -505,9 +505,10 @@
      far enough apart that the switch between them reads at a glance. the one
      being worked in wears the deeper one: lower and wider than the card's
      plain raised shadow above, which a card with no box keeps. the other
-     drops to a hairline, just enough that its edge still reads on the paper */
+     drops to the faintest soft shadow, a small spread and a hairline, still
+     there on the paper but far below the raised one */
   body.focus{--shade-deeper:0 6px 40px rgba(60,45,20,.30), 0 2px 6px rgba(60,45,20,.16);
-    --shade-lighter:0 1px 2px rgba(60,45,20,.06)}
+    --shade-lighter:0 3px 14px rgba(60,45,20,.10), 0 1px 2px rgba(60,45,20,.06)}
   /* the card, while its magic box stands beside it (body.mbon, kept in step with
      the box: on and not hidden for want of room, just before magicHold), is
      the deeper one until the box is held. it is a class and not a :has() on
@@ -1495,8 +1496,8 @@
      and no line under it, and its words kept the card answer's inset off its
      sides. the shadow says which of the box and the card is being
      worked in: the one held wears the deeper shadow (--shade-deeper, above) and
-     the other the hairline (--shade-lighter), eased over the card's own .2s. a
-     box comes in with the hairline, since the card is what was being worked in */
+     the other the faint one (--shade-lighter), eased over the card's own .2s. a
+     box comes in with the faint one, since the card is what was being worked in */
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
@@ -1518,7 +1519,8 @@
      class comes off and the rules above hold it, with the same numbers */
   #magicbox.rising{--rise:0; transition:none;
     border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent);
-    box-shadow:0 calc(1px * var(--rise)) calc(2px * var(--rise)) rgba(60,45,20,calc(.06 * var(--rise)))}
+    box-shadow:0 calc(3px * var(--rise)) calc(14px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
+      0 calc(1px * var(--rise)) calc(2px * var(--rise)) rgba(60,45,20,calc(.06 * var(--rise)))}
   #magicbox.rising.held{
     box-shadow:0 calc(6px * var(--rise)) calc(40px * var(--rise)) rgba(60,45,20,calc(.30 * var(--rise))),
       0 calc(2px * var(--rise)) calc(6px * var(--rise)) rgba(60,45,20,calc(.16 * var(--rise)))}
