@@ -483,7 +483,7 @@ test("the box's edge line fades in and out on the rise with everything else on t
   assert.match(html, /\n  #magicbox\.rising > \*\{opacity:var\(--rise\)\}/);
   assert.match(rising, /\{--rise:0; transition:none;/, "the rise starts flat and the box does not ease on its own");
   // a share of 0% is no line and 100% the line's own colour, as the shadow's alpha is
-  assert.match(rising, /box-shadow:0 calc\(1px \* var\(--rise\)\) calc\(2px \* var\(--rise\)\) rgba\(60,45,20,calc\(\.06 \* var\(--rise\)\)\)/);
+  assert.match(rising, /box-shadow:0 calc\(3px \* var\(--rise\)\) calc\(14px \* var\(--rise\)\) rgba\(60,45,20,calc\(\.10 \* var\(--rise\)\)\),\s*0 calc\(1px \* var\(--rise\)\) calc\(2px \* var\(--rise\)\) rgba\(60,45,20,calc\(\.06 \* var\(--rise\)\)\)/);
   // nothing else colours the edge, and the shadow's own layers are untouched
   assert.ok(!/border-color/.test(rules.filter(r => r !== rising).join("")), "another rule recolours the edge");
   // the box held after the rise is the rule without the class, the line unscaled
@@ -729,7 +729,8 @@ test("whichever of the card and the box is held stands up and the other settles,
   const html = read("index.html");
   // the two shadows, one value each for the card and the box: the deeper one is
   // lower and wider than the card's plain raised shadow in every layer, and the
-  // lighter one is a hairline, a single faint layer that only keeps the edge
+  // lighter one is the faintest soft shadow: a small spread over a hairline, there on
+  // the paper but far below the deeper one in blur and strength in each layer
   const vars = html.match(/\n  body\.focus\{--shade-deeper:([^;]*);\s*--shade-lighter:([^}]*)\}/);
   const deeper = vars[1], lighter = vars[2];
   const layers = s => [...s.matchAll(/(\d+)px (\d+)px rgba\(60,45,20,([.\d]+)\)/g)].map(m => [+m[1], +m[2], +m[3]]);
@@ -740,8 +741,13 @@ test("whichever of the card and the box is held stands up and the other settles,
   deeperLayers.forEach(([dy, blur, alpha], i) => {
     assert.ok(dy > plain[i][0] && blur > plain[i][1] && alpha > plain[i][2], `layer ${i} is not deeper, wider and stronger than the plain one`);
   });
-  assert.equal(lighterLayers.length, 1, "a hairline is one layer");
-  assert.ok(lighterLayers[0][1] <= 3 && lighterLayers[0][2] > 0 && lighterLayers[0][2] <= .08, "a faint, tight hairline that is not gone");
+  assert.equal(lighterLayers.length, 2, "a small soft spread and a hairline");
+  const [soft, hair] = lighterLayers;
+  assert.ok(soft[1] >= 8 && soft[1] <= 16 && soft[2] >= .06 && soft[2] <= .12, "the soft layer is a small, faint spread that is there");
+  assert.ok(hair[1] <= 3 && hair[2] > 0 && hair[2] <= .08, "the hairline under it is tight and faint");
+  lighterLayers.forEach(([dy, blur, alpha], i) => {
+    assert.ok(dy <= deeperLayers[i][0] && blur * 2 <= deeperLayers[i][1] && alpha * 2 <= deeperLayers[i][2], `layer ${i} of the lighter shadow is not far below the deeper one`);
+  });
   assert.ok(!/rgba?\((?!60,45,20)|#[0-9a-f]/i.test(deeper + lighter), "no colour but the card's shadow brown");
   // the card is the deeper one while an open box stands beside it, until the box is
   // held and the card steps back to the hairline; both at the settled rule's own
