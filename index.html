@@ -2957,17 +2957,18 @@
      not a fraction that every edge would be drawn blurred on. the padding
      moves the row and nothing else: the bar's height, so the pane's top, the
      stage's and every page's own top, stand where they did. the bar's own
-     pieces stand 8px apart, the phone's own gap (the house, the pill and the
-     faint names have a wider gap of their own, see .psug), and the bar has no
+     pieces stand 8px apart, the phone's own gap (the house and the pill have
+     a wider gap of their own, and the faint names their own room, see .psug), and the bar has no
      side padding, so the
      house and the squid stand over the pane's own left and right edges */
   body.focus .bar{height:40px; padding:1px 0 6px; gap:8px}
   body.focus #toc, body.focus #tocgrip{top:41px}
   body.focus #offline{top:41px}
   #tabrow, #tabbar{display:none}
-  body.focus #tabrow{position:relative; display:flex; align-items:center; gap:17px; height:32px; flex:none}
-  /* the house, the pill and the faint names stand one gap apart as drawn, about 16px (see .psug) */
-  body.focus #tabbar{display:flex; align-items:center; gap:14.3px; margin-left:-2.2px; height:32px; flex:none}
+  body.focus #tabrow{position:relative; display:flex; align-items:center; gap:11px; height:32px; flex:none}
+  /* the faint names start where the pill's glass ends: the margin takes back
+     #tabrow's gap, and the names carry their own room (see .psug) */
+  body.focus #tabbar{display:flex; align-items:center; gap:0; margin-left:-11px; height:32px; flex:none}
   /* seated tabs per the 20260809 mockup: the active one's bottom opens into
      the canvas. 20260827: the top two corners now take the cards' own 7px, so
      a seated tab is rounded on the same terms as the shell around it and the
@@ -3125,11 +3126,11 @@
   /* the speaker still holds the right edge, and "Install app" stays between it
      and the squid as it was */
   body.focus .bar #chimebtn{margin-left:auto}
-  /* the speaker and the squid stand the house's gap to the pill apart, 17px
-     of box that draws as 16px (#tabrow's gap): the bar's own 8px and 9px more
+  /* the speaker and the squid stand the house's gap to the pill apart, 11px
+     of box that draws as 10px (#tabrow's gap): the bar's own 8px and 3px more
      before the squid. the squid stays the bar's inset from the window's right
      edge, as the house is from its left (20261010) */
-  body.focus .bar #setbtn{margin-left:9px}
+  body.focus .bar #setbtn{margin-left:3px}
   /* the glass's own press, the phone's: a little larger and a whiter face,
      held long enough that a quick click still shows it (glassPress, in the
      script). it rises over .3s and falls back over .5s, both eased. keep the
@@ -3161,17 +3162,19 @@
     visibility:hidden; font-weight:600}
   body.focus #projpill:disabled{cursor:default}
   /* the suggestions: a few open projects after the pill, in the names' type
-     and fainter. the house, the pill and the faint names stand one gap apart,
-     about 16px as drawn (7px read as far too close, 23px as too far, the
-     owner, 20261010). the glass rings draw 0.4px outside their boxes, so the
-     house's gap to the pill is 17px of box (#tabrow's gap); a word's ink
-     stands about 1px inside its own box at each end (more after an r), so
-     the pill's gap to the first name is 14.8px of box (#tabrow's 17 less
-     #tabbar's 2.2px margin) and a name's gap to the next 14.3px (#tabbar's
-     gap). the names carry no side padding of their own and sit at the left
-     of their boxes. each name's hit area reaches 7px past its word on either
-     side and gives the room back in margin, so little between them is dead
-     and nothing is drawn wider.
+     and fainter. glass stands about 10px from glass as drawn (7px read as far
+     too close, 23px as too far, the owner, 20261010): the glass rings draw
+     0.4px outside their boxes, so the house's gap to the pill is 11px of box
+     (#tabrow's gap). every project name stands one distance from the next,
+     the pill's word to the first faint word and a faint word to the next:
+     each name has 14px of room on either side, the pill's own padding, and
+     the faint names have it without the glass, like unselected tabs. the
+     first faint name's box starts where the pill's glass ends (#tabbar's
+     margin takes back #tabrow's gap) and the names' boxes touch (#tabbar's gap
+     is 0), so a word stands about 28px of box from the next, and about 30px
+     drawn, since a word's ink stands about 1px inside its box at each end
+     (more after an r). each name sits at the left of its box, and its click
+     area is the whole padded box.
      a project holding a reply not yet read is in the semibold 600, the rest
      in the regular 400. these words do not hold room for their bold selves, as
      the pill's does: that room is empty on a regular word and drew as a wider
@@ -3179,7 +3182,7 @@
      pixels, and the pill and the house never move. they come in on a short
      fade */
   body.focus #tabbar .psug{flex:none; display:flex; align-items:center; justify-content:flex-start; height:32px;
-    margin:0 -7px; padding:0 7px; text-align:left;
+    margin:0; padding:0 14px; text-align:left;
     border:none; border-radius:10px; background:none;
     font:400 14px/17px var(--sans); color:color-mix(in srgb, var(--sub) 55%, transparent);
     cursor:pointer; -webkit-user-select:none; user-select:none;
