@@ -181,9 +181,86 @@ test("the pill names the open project, and its list holds every open project in 
   assert.deepEqual(f.names(), ["facilitator", "moonbase", "alder-workshop", "marlow"]);
 });
 
-test("while Home is open no row is checked, and the pill still names the project Home was opened from", () => {
+test("while Home is open no row is checked, and the pill reads Home", () => {
   const f = fixture({ homeOpen: true });
-  assert.deepEqual(f.checked(), []); assert.equal(f.pill(), "marlow");
+  assert.deepEqual(f.checked(), []); assert.equal(f.pill(), "Home");
+  assert.equal(f.ids.projpill.hidden, false); assert.equal(f.ids.projpill.disabled, false);
+  // Home is a place, not a project with replies: the pill is not bold, though marlow holds an unread reply
+  assert.equal(f.ids.projpill.classes.has("unread"), false);
+  assert.equal(f.ids.projname.dataset.label, "Home");
+  // the unread replies are all elsewhere, marlow's too
+  assert.match(f.ids.projpill.attributes["aria-label"], /^Home, unread replies elsewhere, choose a project$/);
+});
+
+test("a click on the Home pill opens the list, as on a project, with no row checked; the list shuts as before", () => {
+  const f = fixture({ homeOpen: true, activeOwner: "wayside" });
+  f.open(); assert.equal(f.isOpen(), true);
+  assert.equal(f.ids.projpill.attributes["aria-expanded"], "true");
+  assert.deepEqual(f.names(), ["facilitator", "moonbase", "alder-workshop", "wayside", "marlow"]);
+  assert.deepEqual(f.checked(), []);
+  assert.equal(f.row("wayside").attributes["aria-current"], "false");
+  f.open(); assert.equal(f.isOpen(), false, "a second click shuts it");
+});
+
+test("on Home the project you came from leads the faint names, one click away, and a click leaves Home for it", () => {
+  const f = fixture({ activeOwner: "wayside" });
+  // on its board the project is the pill, and not a faint name
+  assert.deepEqual(f.suggestions(), ["marlow", "moonbase"]);
+  f.context.setHome(true);
+  assert.equal(f.pill(), "Home");
+  assert.deepEqual(f.suggestions(), ["wayside", "marlow", "moonbase"], "the project left leads on Home");
+  // a long gone project that was left is first all the same, and the cap of 4 holds
+  const g = fixture({ homeOpen: true, activeOwner: "facilitator" });
+  assert.equal(g.suggestions()[0], "facilitator");
+  assert.ok(g.suggestions().length <= 4);
+  // one click on that faint name: the project's name is back in the pill, Home is down
+  f.ids.tabbar.children[0].fire("click");
+  assert.equal(f.context.homeOpen, false); assert.equal(f.context.activeOwner, "wayside");
+  assert.equal(f.pill(), "wayside"); assert.deepEqual(f.checked(), ["wayside"]);
+  assert.equal(f.ids.projname.dataset.label, "wayside");
+  assert.deepEqual(f.suggestions(), ["marlow", "moonbase"]);
+});
+
+test("leaving Home by another faint name, a list row or Command + 1 to 9 puts that project's name back in the pill", () => {
+  const home = over => { const f = fixture({ homeOpen: true, activeOwner: "wayside", ...over }); assert.equal(f.pill(), "Home"); return f; };
+  // another faint name
+  let f = home(); f.ids.tabbar.children[1].fire("click");
+  assert.equal(f.pill(), "marlow"); assert.equal(f.context.homeOpen, false); assert.deepEqual(f.checked(), ["marlow"]);
+  // a row of the list
+  f = home(); f.open(); f.row("moonbase").fire("click");
+  assert.equal(f.pill(), "moonbase"); assert.equal(f.context.homeOpen, false); assert.equal(f.isOpen(), false);
+  // the row of the project Home came from
+  f = home(); f.open(); f.row("wayside").fire("click");
+  assert.equal(f.pill(), "wayside"); assert.equal(f.context.homeOpen, false);
+  // Command + 1 to 9: the tab key's handler is setTab on the list's order
+  f = home(); f.context.setTab(f.context.rowsOf(f.state)[1]);
+  assert.equal(f.pill(), "moonbase"); assert.equal(f.context.homeOpen, false);
+  // and the pill takes its bold again when that project holds a reply not yet read
+  assert.equal(f.ids.projpill.classes.has("unread"), true);
+});
+
+test("the Home pill carries the board's own house before the word, drawn only while Home is up", () => {
+  const pill = html.match(/<button id="projpill"[^>]*>([\s\S]*?)<\/button>/)[1];
+  const house = html.match(/<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)<\/button>/)[1];
+  const ico = pill.match(/^(<svg id="projico"[\s\S]*?<\/svg>)<span id="projname"><\/span>$/);
+  assert.ok(ico, "the pill is the house and the name");
+  assert.equal(ico[1].replace(' id="projico"', ""), house, "the pill's house is not the Home button's drawing");
+  assert.match(ico[1], /aria-hidden="true"/);
+  assert.match(ico[1], /stroke="currentColor"/, "the house takes the word's colour");
+  // 15px beside the 14px word, 6px from it; the pill's flex centres it on the line
+  const base = rule(sheet, "body.focus #projico");
+  assert.equal(decl(base, "display"), "none"); assert.equal(decl(base, "flex"), "none");
+  assert.equal(decl(base, "margin-right"), "6px");
+  assert.equal(decl(rule(sheet, "body.focus.home #projico"), "display"), "block");
+  assert.match(sheet, /body\.focus #projpill\{[^}]*display:flex; align-items:center/);
+  assert.match(html, /<svg id="projico" width="15" height="15"/);
+  // the pill's own height, padding, corners and type are as they were
+  const p = rule(sheet, "body.focus #projpill");
+  assert.equal(decl(p, "height"), "32px"); assert.equal(decl(p, "padding"), "0 14px");
+  assert.equal(decl(p, "border-radius"), "16px"); assert.equal(decl(p, "font"), "400 14px/17px var(--sans)");
+  // Home's button stays pressed while Home is up, and the new rules bring no purple or new colour
+  assert.match(sheet, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
+  assert.doesNotMatch(base + rule(sheet, "body.focus.home #projico"), /#[0-9a-f]{3,6}\b|rgb|--accent/i);
 });
 
 test("a project's own window shows its name on a pill that opens nothing, and no faint names", () => {
@@ -372,9 +449,10 @@ test("nothing below the bar clips its glass's shadows: only the root keeps the p
   assert.doesNotMatch(sheet, /body\.focus \.bar\{[^}]*overflow/);
 });
 
-test("the pill is the name alone and the list's rows have no check mark", () => {
+test("the pill is the name, with the Home house before it only on Home, and the list's rows have no check mark", () => {
   const pill = html.match(/<button id="projpill"[^>]*>([\s\S]*?)<\/button>/)[1];
-  assert.equal(pill, '<span id="projname"></span>', "the pill carries more than its name");
+  assert.deepEqual([...pill.matchAll(/<(\w+)/g)].map(m => m[1]), ["svg", "path", "path", "span"], "the pill carries more than the house and its name");
+  assert.match(pill, /<span id="projname"><\/span>$/);
   const list = html.slice(html.indexOf('<div id="projmenu"'), html.indexOf("</div>\n", html.indexOf('<div id="projsep"')) + 20);
   assert.doesNotMatch(list, /<svg/, "the list carries a mark");
   assert.doesNotMatch(html, /PROJ_CHECK|pcheck|class="pmark"|"pmark"/);

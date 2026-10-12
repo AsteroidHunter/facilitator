@@ -3141,7 +3141,8 @@
   /* Home stays pressed while the home page is up: the press's whiter face and
      brighter edge, held, with the house in the full ink */
   body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
-  /* the pill: the open project's name alone, on the house's glass and at its
+  /* the pill: the open project's name alone (or the house and Home, while the
+     home page is up), on the house's glass and at its
      height, a capsule as the phone's project button is. the project names,
      here, beside it and in the list, are 14px, a step over the 13px the tabs
      had, and they are Plex's regular 400, or its semibold 600 while the
@@ -3156,6 +3157,12 @@
     font:400 14px/17px var(--sans); color:var(--ink); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
   body.focus #projpill[hidden]{display:none}
+  /* on the home page the pill reads Home with the board's house (the Home
+     button's drawing) before the word, as an icon in a label: 15px, the
+     house's own size, in the word's colour, centred on the line by the pill's
+     flex, 6px from the word */
+  body.focus #projico{display:none; flex:none; margin-right:6px}
+  body.focus.home #projico{display:block}
   body.focus #projname{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   body.focus #projpill.unread #projname{font-weight:600}
   body.focus #projname[data-label]::after{content:attr(data-label); display:block; height:0; overflow:hidden;
@@ -3670,7 +3677,7 @@
 <div class="bar">
   <span id="tabrow">
   <button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
-  <button id="projpill" class="qn-glass" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span></button>
+  <button id="projpill" class="qn-glass" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><svg id="projico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg><span id="projname"></span></button>
   <span id="tabbar"></span>
   </span>
   <span id="projnote"></span>
@@ -4262,14 +4269,17 @@ function renderTabs(st){
     if (open.length && tabClosed(activeOwner, st)) setTab(open[0]);
   }
   const owners = LOCKED ? [LOCKED] : rowsOf(st);
-  const name = draft ? "New Project" : owners.includes(activeOwner) ? labelOf(st, activeOwner) : "";
+  // while the home page is up the pill reads Home, with the house before the
+  // word (the sheet draws it), and a click on it opens the same list
+  const atHome = homeOpen && !LOCKED;
+  const name = atHome ? "Home" : draft ? "New Project" : owners.includes(activeOwner) ? labelOf(st, activeOwner) : "";
   if (projName.textContent !== name){ projName.textContent = name; projName.dataset.label = name; }
   projPill.hidden = !name;
-  // the open project's name takes the bold as every other name does
-  projPill.classList.toggle("unread", !draft && owners.includes(activeOwner) && laneUnread(st, activeOwner));
+  // the open project's name takes the bold as every other name does; Home does not
+  projPill.classList.toggle("unread", !atHome && !draft && owners.includes(activeOwner) && laneUnread(st, activeOwner));
   // a project's own window shows its name and nothing to choose
   projPill.disabled = !!LOCKED;
-  const others = owners.some(ow => ow !== activeOwner && laneUnread(st, ow));
+  const others = owners.some(ow => (atHome || ow !== activeOwner) && laneUnread(st, ow));
   projPill.setAttribute("aria-label", name + (others ? ", unread replies elsewhere" : "") + (LOCKED ? "" : ", choose a project"));
   renderProjList(st, owners);
   renderSuggestions(st);
@@ -4342,7 +4352,10 @@ function suggestedProjects(st, active, left, now = Date.now() / 1000){
 }
 function renderSuggestions(st){
   const bar = document.getElementById("tabbar");
-  const owners = LOCKED || draft ? [] : suggestedProjects(st, activeOwner, projLeft);
+  // on Home no project is open, so the one the reader came from (still the
+  // active one) is the project just left, and leads
+  const owners = LOCKED || draft ? [] : homeOpen ? suggestedProjects(st, null, activeOwner)
+    : suggestedProjects(st, activeOwner, projLeft);
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (bar.dataset.sig !== sig){
     bar.dataset.sig = sig;
