@@ -34,7 +34,7 @@ const { TALL, WIDE, SHAPE, place } = api();
 const PHONE = 375 / 812;
 const close = (a, b, by = 1e-6) => Math.abs(a - b) < by;
 // the card where a new board puts it (index.html --frame-*), in stage pixels
-const CARD = { left: 1440 * 0.324, top: 900 * 0.0832, width: 1440 * 0.352, height: 900 * 0.832 };
+const CARD = { left: 1440 * 0.324, top: 900 * 0.0576, width: 1440 * 0.352, height: 900 * 0.8448 };
 const RIGHT = c => c.left + c.width;
 const MIDDLE = r => r.top + r.height / 2;
 // the workspace in a window w wide, as magicPlace hands it over: the frame's
