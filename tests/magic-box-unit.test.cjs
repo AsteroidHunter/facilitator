@@ -322,7 +322,8 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   assert.match(bar, /align-items:center/);
   assert.match(bar, /height:var\(--mb-bar\)/);
   assert.match(bar, /padding:0 var\(--mb-gap\)/);
-  assert.ok(!/background|box-shadow|border/.test(bar), "the bar paints something of its own");
+  assert.ok(!/background|box-shadow|border(?!-radius)/.test(bar), "the bar paints something of its own");
+  assert.match(bar, /border-radius:calc\(var\(--mb-round\) - var\(--edge\)\) calc\(var\(--mb-round\) - var\(--edge\)\) 0 0/, "the bar keeps inside the box's rounder top corners");
   assert.match(box, /--mb-bar:calc\(var\(--mb-x\) \+ 2 \* var\(--mb-gap\)\);/);
   const own = phone.match(/  #mbface\{display:none;([^}]*)\}/)[1];
   assert.ok(!/--mb-bar/.test(own), "the phone sets its own bar, apart from the seat and the gap");
@@ -378,9 +379,14 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   assert.match(logic, /const cross = el\.querySelector\("\.mbclose"\);\s*if \(cross\) cross\.innerHTML = MAGIC_CROSS;/);
   assert.match(sheet, /\.magicbox \.mbclose svg\{width:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\); height:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\)\}/);
   const seat = sheet.match(/\.magicbox \.mbclose\{([^}]*)\}/)[1];
-  assert.match(seat, /width:var\(--mb-x\); height:var\(--mb-x\); padding:0; border:none; border-radius:var\(--sq\);/);
-  assert.match(seat, /background:transparent;/);
-  assert.match(sheet, /\.magicbox \.mbclose:hover, \.magicbox \.mbclose:active\{background:color-mix\(in srgb, #000 var\(--press\), transparent\)\}/);
+  assert.match(seat, /width:var\(--mb-x\); height:var\(--mb-x\); padding:0; border:none; border-radius:50%;/);
+  assert.match(seat, /background:var\(--mb-pink\); color:var\(--mb-pink-ink\);/);
+  assert.match(sheet, /\.magicbox \.mbclose:hover, \.magicbox \.mbclose:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mb-pink\)\)\}/);
+  // a soft pastel red circle (light, red over blue and green) with a darker red mark
+  const lum = h => { const [r, g, b] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); return { r, g, b, y: (0.299 * r + 0.587 * g + 0.114 * b) / 255 }; };
+  const pink = lum(box.match(/--mb-pink:(#[0-9A-Fa-f]{6});/)[1]), ink = lum(box.match(/--mb-pink-ink:(#[0-9A-Fa-f]{6})\s*$/)[1]);
+  assert.ok(pink.y > 0.75 && pink.r > pink.g + 30 && pink.r > pink.b + 30, "the circle is a pastel red");
+  assert.ok(ink.y < pink.y - 0.3 && ink.r > ink.g + 60 && ink.r > ink.b + 60, "the mark is a darker red");
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
 
@@ -782,7 +788,7 @@ test("whichever of the card and the box is held stands up and the other settles,
   // both ease over the card's own timing, and the shadow is all they change
   const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
   assert.match(card, /transition:box-shadow \.2s;/);
-  assert.match(html, /\n  #magicbox\{background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:7px;\s*box-shadow:var\(--shade-lighter\); transition:box-shadow \.2s\}/);
+  assert.match(html, /\n  #magicbox\{background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);\s*box-shadow:var\(--shade-lighter\); transition:box-shadow \.2s\}/);
   const style = html.slice(0, html.indexOf("</style>"));
   const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
   assert.deepEqual(rules.map(r => r[1].trim()), ["#magicbox.held", "#magicbox.rising.held"], "the box's, and the box's as it rises");
@@ -843,11 +849,12 @@ const heavier = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 test("the Mac's box has the card's face, edge and shadow; the phone's has no box; a lowered card's box sits level, held or not", () => {
   const html = read("index.html"), phone = read("m.html"), style = code(html.slice(0, html.indexOf("</style>")));
-  // the board's box: the card's white, edge line, 7px corners and shadow
+  // the board's box: the card's white, edge line and shadow, with corners twice the card's 7px
   const face = style.match(/\n  #magicbox\{background:var\(--card\); [^}]*\}/)[0];
   const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
   assert.match(card, /border:var\(--edge\) solid var\(--line\); background:#fff; border-radius:7px;/);
-  assert.match(face, /border:var\(--edge\) solid var\(--line\); border-radius:7px;/, "the card's own edge");
+  assert.match(face, /border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);/, "the card's own edge");
+  assert.equal(read("card-tokens.css").match(/\.magicbox\{[^}]*--mb-round:(\d+)px;/)[1], "14", "twice the card's 7px");
   assert.ok(!/outline/.test(face));
   // and that is the only edge any of the board's box rules draws, its colour
   // alone scaled by the rise while the box comes and goes
@@ -857,8 +864,7 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   // the bar is the card's white with no line under it, the cross's seat its white
   assert.match(style, /\n  #magicbox \.mbbar\{background:var\(--card\)\}/);
   assert.match(style, /\n  #magicbox \.mbbar::after\{display:none\}/);
-  assert.match(style, /\n  #magicbox \.mbclose\{background:var\(--card\)\}/);
-  assert.match(style, /\n  #magicbox \.mbclose:hover, #magicbox \.mbclose:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--card\)\)\}/);
+  assert.ok(!/#magicbox \.mbclose/.test(style), "the board leaves the cross's pastel circle to the sheet");
   // its words keep the card answer's inset off the sides, and --mb-lead under the bar
   assert.match(style, /\n  #magicbox \.mbtext\{padding:var\(--mb-lead\) var\(--mb-inset, 16px\) var\(--mb-inset, 16px\)\}/);
   // the lowered card's rule outweighs every rule that shades the box, held or not
@@ -873,13 +879,16 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   const sheet = code(boxBlock());
   assert.ok(!/box-shadow|\.held/.test(sheet), "the shared sheet shades the box");
   assert.ok(!/\.magicbox\{[^}]*(background|border)/.test(sheet.replace(/\s+/g, " ")), "the shared sheet dresses the box");
+  // the phone gives the same corners in its own units: twice the card's calc(7 * var(--u))
+  assert.match(phone, /#mbface\{display:none;[^}]*--mb-round:calc\(14 \* var\(--u\)\)/);
+  assert.match(phone, /\n  main\{[^}]*border-radius:calc\(7 \* var\(--u\)\)/);
   // the phone's box is dressed as the board's: the card's white face, edge line and 7px
   // corners (in the phone's units, as its card is), and the lighter shadow the board's
   // box wore before its two shadows were set further apart, which the phone keeps
   const sty = code(phone.slice(0, phone.indexOf("</style>")));
   const dress = sty.match(/\n  #mbface\{background:var\(--card\); ([^}]*)\}/);
   assert.ok(dress, "the phone's box has no face");
-  assert.match(dress[1], /^border:var\(--edge\) solid var\(--line\); border-radius:calc\(7 \* var\(--u\)\);\s*box-shadow:0 2px 18px rgba\(60,45,20,\.10\), 0 1px 3px rgba\(60,45,20,\.05\)$/);
+  assert.match(dress[1], /^border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);\s*box-shadow:0 2px 18px rgba\(60,45,20,\.10\), 0 1px 3px rgba\(60,45,20,\.05\)$/);
   assert.ok(!style.includes("--shade-lighter:0 2px 18px"), "the board's hairline is not the lighter shadow the phone still wears");
   assert.ok(!/outline/.test(dress[1]));
   // the only edge any phone rule draws on the box, and the white bar without its line
