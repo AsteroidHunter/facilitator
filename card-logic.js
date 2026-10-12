@@ -7607,14 +7607,18 @@ function magicView(el, hooks = {}){
   const cross = el.querySelector(".mbclose");
   if (cross) cross.innerHTML = MAGIC_CROSS;
   // the words' two fuzzes, the ticket list's own (tickBands): how far they have
-  // scrolled, --upband, and how far they still can, --downband, in whole
-  // pixels and capped at the box's --mb-fade. a number is only written when it
-  // changes, and they are read again whenever the box or the words change size,
-  // since either moves how far the words can scroll without a scroll event
+  // scrolled up under the bar, --upband, and how far they still can, --downband,
+  // in whole pixels and capped at the box's --mb-fade. the words start their
+  // lead under the bar, so the first lead's worth of scroll only closes that
+  // space and no word has gone under the bar yet: it is not counted. a number
+  // is only written when it changes, and they are read again whenever the box
+  // or the words change size, since either moves how far the words can scroll
+  // without a scroll event
   const bands = () => {
-    const b = view.body;
+    const b = view.body, words = b.querySelector(".mbtext");
     if (view.fade == null) view.fade = parseFloat(getComputedStyle(el).getPropertyValue("--mb-fade")) || 0;
-    const up = Math.min(Math.round(b.scrollTop), view.fade);
+    if (view.lead == null && words) view.lead = parseFloat(getComputedStyle(words).paddingTop) || 0;
+    const up = Math.min(Math.max(0, Math.round(b.scrollTop - (view.lead || 0))), view.fade);
     const down = Math.min(Math.max(0, Math.round(b.scrollHeight - b.clientHeight - b.scrollTop)), view.fade);
     if (up !== view.up){ view.up = up; b.style.setProperty("--upband", up + "px"); }
     if (down !== view.down){ view.down = down; b.style.setProperty("--downband", down + "px"); }
@@ -7624,7 +7628,7 @@ function magicView(el, hooks = {}){
   if (sized) sized.observe(view.body);
   // everything in it gone, so a frame that was showing stops running
   view.clear = () => {
-    view.url = ""; view.page = null; view.natural = null; view.fade = null; view.known = false;
+    view.url = ""; view.page = null; view.natural = null; view.fade = null; view.lead = null; view.known = false;
     delete view.body.dataset.kind;
     view.body.textContent = "";
     bands();
