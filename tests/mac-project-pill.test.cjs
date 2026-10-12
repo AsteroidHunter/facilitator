@@ -431,16 +431,21 @@ test("the list's top edge is one line: it wears the bar's rim, not the glass's d
 });
 
 // ---- rounds 3 and 4 (20261010): spacing, numbers and weights ------------------
-test("the house, the pill and the faint names stand one gap apart, about 16px as drawn", () => {
+test("glass stands about 10px from glass, and every project name the same distance from the next", () => {
   const sug = rule(sheet, "body.focus #tabbar .psug"), bar = rule(sheet, "body.focus #tabbar");
-  assert.equal(decl(sug, "padding"), "0 7px"); assert.equal(decl(sug, "margin"), "0 -7px");
+  assert.equal(decl(sug, "padding"), "0 14px", "the faint names have the pill's room, the whole box clickable");
+  assert.equal(decl(rule(sheet, "body.focus #projpill"), "padding"), "0 14px");
+  assert.equal(decl(sug, "margin"), "0");
   assert.equal(decl(sug, "text-align"), "left", "a word centred in a wider box draws a wider gap");
-  assert.equal(decl(rule(sheet, "body.focus #tabrow"), "gap"), "17px", "house to pill");
-  assert.equal(decl(bar, "margin-left"), "-2.2px"); assert.equal(decl(bar, "gap"), "14.3px");
-  // house to pill: 17px of box, and the rings draw 0.4px outside their boxes, so 16.2px drawn.
-  // pill to the first word: 17 + (-2.2) + (-7 + 7) = 14.8px of box; word to word: 7 - 7 + 14.3 - 7 + 7 = 14.3px;
-  // a word's ink stands about 1px inside its box at each end, so they draw near 16px (measured on the
-  // simulator: 15.4 to 16.9, and 17.6 to 18.4 after an r)
+  assert.equal(decl(sug, "border"), "none"); assert.equal(decl(sug, "background"), "none", "no glass on a faint name");
+  const houseToPill = parseFloat(decl(rule(sheet, "body.focus #tabrow"), "gap"));
+  assert.equal(houseToPill, 11, "house to pill");
+  // house to pill: 11px of box, and the rings draw 0.4px outside their boxes, so about 10px drawn.
+  // the first faint box starts where the pill's glass ends (the margin takes back #tabrow's gap) and the
+  // faint boxes touch, so pill word to first word and word to word are both 14 + 14 = 28px of box, about
+  // 30px drawn, a word's ink standing about 1px inside its box at each end
+  assert.equal(parseFloat(decl(bar, "margin-left")), -houseToPill, "the bar takes back #tabrow's gap");
+  assert.equal(parseFloat(decl(bar, "gap")), 0);
   // the faint names hold no room for a bold self (it drew as a gap after a regular word)
   const f = fixture();
   assert.ok(f.ids.tabbar.children.length > 0);
@@ -504,7 +509,7 @@ test("the speaker and the squid stand the house's gap to the pill apart, and the
   const barGap = parseFloat(decl(rule(sheet, "body.focus .bar"), "gap"));
   const squid = parseFloat(decl(rule(sheet, "body.focus .bar #setbtn"), "margin-left"));
   assert.equal(barGap + squid, houseToPill, "speaker to squid is not house to pill");
-  assert.equal(houseToPill, 17);
+  assert.equal(houseToPill, 11);
   // the bar is inset the same on both sides and has no side padding, so the squid is as far from the right
   // edge as the house is from the left
   assert.match(sheet, /body\.focus \.bar\{\s*margin:var\(--app-inset\) var\(--app-inset\) 0;/);
