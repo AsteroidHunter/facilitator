@@ -1520,7 +1520,7 @@
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
   /* the one or two lines that tie the box to its card, copied from the owner's
-     three sketches (magicRoute): the card's own edge colour, 2px drawn as
+     sketches (magicRoute): the card's own edge colour, 2px drawn as
      Figma's Drone brush draws it, running only across and up or down, behind
      the card and the box so they never cross their words. the small tabs one
      sketch puts where its line meets each edge stand over the card and the
@@ -7946,10 +7946,11 @@ function magicRoom(){
   const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
   return { S, sr, rect, fit, most: MagicBox.place(rect, fit) };
 }
-// the lines from the card to its box, copied from the owner's three sketches
-// (m1127, ref1 to ref3). each place a line starts, turns or ends is a share
-// of the card's or the box's own width or height, read off the sketch, so it
-// lands where the sketch has it on any card and any box. a line's ends run a
+// the lines from the card to its box, copied from the owner's sketches (m1127,
+// ref1 and ref2; his third, ref3, was taken out). each place a line starts,
+// turns or ends is a share of the card's or the box's own width or height,
+// read off the sketch, so it lands where the sketch has it on any card and
+// any box. a line's ends run a
 // few pixels on behind the card and the box, so it seems to come out of and
 // go into their edges. top: the workspace's top edge, which no line crosses.
 // a template that does not fit the card and the box as they stand gives null
@@ -7964,9 +7965,6 @@ function magicRoom(){
 //   1, ref2: up out of the card's top edge 88.7% across it, 4.1% of the
 //     card's height above it across, and down into the box's top 5.9% across
 //     it, a small tab across each edge where the line meets it
-//   2, ref3: up from behind the card, past its top edge 22.1% across it, 6.0%
-//     of the card's height above it across, and down into the box's top
-//     43.6% across it
 function magicRoute(k, card, box, top){
   const C = { l: card.left, t: card.top, r: card.left + card.width, b: card.top + card.height, w: card.width, h: card.height };
   const B = { l: box.left, t: box.top, r: box.left + box.width, b: box.top + box.height, w: box.width, h: box.height };
@@ -7979,28 +7977,29 @@ function magicRoute(k, card, box, top){
     const yb = C.b - Math.min(.0814 * C.h, .179 * below), xb = B.l + .124 * B.w;
     return { paths: [[[C.r - tuck, ya], [xa, ya], [xa, B.t + tuck]], [[C.r - tuck, yb], [xb, yb], [xb, B.b - tuck]]], tabs: [] };
   }
-  const [from, high, into] = k === 1 ? [.887, .0413, .059] : [.2205, .0601, .436];
-  const y = C.t - high * C.h, x1 = C.l + from * C.w, x2 = B.l + into * B.w;
+  const y = C.t - .0413 * C.h, x1 = C.l + .887 * C.w, x2 = B.l + .059 * B.w;
   // above the workspace's top edge, or a box whose top stands too near or
   // over the line to go down into it
   if (y < top + 4 || B.t - y < 12) return null;
   return { paths: [[[x1, C.t + tuck], [x1, y], [x2, y], [x2, B.t + tuck]]],
-    tabs: k === 1 ? [[x1, C.t], [x2, B.t]] : [] };
+    tabs: [[x1, C.t], [x2, B.t]] };
 }
 // which template a card's box draws: the one kept with the box (its magic
 // field's lines), which the board chose at random when the box opened, never
 // the one the box opened before it drew, and which stays the box's for good:
 // in every window, after a reload and after a restart. a box opened before
 // the board chose them has one worked out from its card's id, the same
-// everywhere. one that does not fit gives way to the nearest that does,
-// ref2 and ref3 being the nearest each other; none fitting, no line
-const MAGIC_NEAR = [[0, 1, 2], [1, 2, 0], [2, 1, 0]];
+// everywhere. one that does not fit gives way to the other; none fitting, no
+// line. a box kept with the third template, taken out since, draws the one
+// nearest it, the second
+const MAGIC_NEAR = [[0, 1], [1, 0]];
 function magicChosen(id){
   const b = lastState && lastState.boxes.find(x => x.id === id), k = b && b.magic && b.magic.lines;
-  if (k === 0 || k === 1 || k === 2) return k;
+  if (k === 0 || k === 1) return k;
+  if (k === 2) return 1;
   let h = 0;
   for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return h % 3;
+  return h % 2;
 }
 function magicLines(card, box, top){
   let route = null, drawn = -1;

@@ -90,11 +90,11 @@ test("closing hides the box and keeps it; reopening shows it again", async () =>
 test("a box's lines are chosen once as it opens and kept with it; each new box gets another than the box before it", async () => {
   const close = id => fetch(`${board.origin}/magic/close?box=${encodeURIComponent(id)}`, { method: "POST" });
   const lines = async id => (await card(id)).magic.lines;
-  // a fill that opens a closed or empty box chooses; one of the three
+  // a fill that opens a closed or empty box chooses; one of the two
   await close("0");
   await open("0", "text", "a new box");
   const chosen = await lines("0");
-  assert.ok([0, 1, 2].includes(chosen), "lines " + chosen);
+  assert.ok([0, 1].includes(chosen), "lines " + chosen);
   // the agent's next revisions, a close and a reopen keep them
   await open("0", "markdown", "revised");
   await open("0", "html", "<p>revised again</p>");
@@ -116,9 +116,25 @@ test("a box's lines are chosen once as it opens and kept with it; each new box g
     seen.push(await lines(id));
   }
   for (let i = 1; i < seen.length; i++) assert.notEqual(seen[i], seen[i - 1], "the same lines twice in a row: " + seen);
-  for (const k of [0, 1, 2]) assert.ok(seen.includes(k), "never " + k + ": " + seen);
+  // with two to choose from they take turns, and the third is never given again
+  for (const k of [0, 1]) assert.ok(seen.includes(k), "never " + k + ": " + seen);
+  assert.ok(seen.every(k => k === 0 || k === 1), "a layout that is gone: " + seen);
   await close(other);
   await fetch(`${board.origin}/close?box=${other}`, { method: "POST" });
+  // a box that kept the third before it was taken out is still one box with
+  // one layout: the second, through every revision, and never another
+  await close("0");
+  await open("0", "text", "opened before the change");
+  await board.restart(async () => {
+    const file = path.join(board.app, "state.json"), state = JSON.parse(fs.readFileSync(file, "utf8"));
+    state.boxes.find(b => b.id === "0").magic.lines = 2;
+    fs.writeFileSync(file, JSON.stringify(state));
+  });
+  assert.equal(await lines("0"), 2, "the board did not read the older box's lines");
+  await open("0", "markdown", "revised");
+  assert.equal(await lines("0"), 1, "a box with the third's lines is given the second's");
+  await open("0", "text", "revised again");
+  assert.equal(await lines("0"), 1);
   // an agent reading its box back is not told
   const described = await json(await fetch(`${board.origin}/magic?box=0`));
   assert.ok(!("lines" in described.body));
