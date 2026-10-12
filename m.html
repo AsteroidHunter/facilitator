@@ -253,6 +253,26 @@
   body.obstructed, body.lifting{top:var(--shell-top, 0px); height:var(--shell-h, 100%)}
   button{font-family:inherit; -webkit-appearance:none; appearance:none}
 
+  /* ---- what a long press can pick -------------------------------------------- */
+  /* only the card's words and the fields can be selected. every other piece of
+     the page is chrome, the ticket list, the card's bar, the row of buttons, the
+     project list, Home and Settings, and a long press on it picks no word, draws
+     no handles and brings up no callout; the taps and presses the script already
+     reads there are not touched. the callout, the sheet iOS opens on a link or a
+     picture, is written off on the page and given back with the words, so it
+     stays where it was. the card's words are the title, the answer and the
+     messages in the bubbles, all of them .cardmd, and the magic box's words,
+     which are .cardmd too. the fields opt in by name, since iOS will not let a
+     field under an unselectable ancestor take a caret. a button inside the
+     words, the fold's arrow or a code block's copy, stays unselectable. this
+     stands in this sheet and not card-tokens.css, which the desktop shares */
+  html, body, button{-webkit-user-select:none; user-select:none; -webkit-touch-callout:none}
+  .title, .cardmd, .cm-content, input, textarea,
+  [contenteditable=""], [contenteditable="true" i], [contenteditable="plaintext-only" i]{
+    -webkit-user-select:text; user-select:text; -webkit-touch-callout:default;
+  }
+  .answmark{-webkit-user-select:none; user-select:none}
+
   /* ---- the tab's type and seat, which the card list's visible names wear ------ */
   /* the desktop bar's seated tab at phone size. the project tabs that used to
      cross the top of this page wore it too; they are the project list now (the
