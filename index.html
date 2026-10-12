@@ -1510,8 +1510,8 @@
      there. --rise runs from 0, flat with the page with nothing on it, to
      1, where both shadows above are reached and what it holds is at its full
      strength. the shadow's offset, reach and strength and what it holds all
-     follow it together, and its edge line (the border) and its lines too
-     (#mblines, #mbtabs). risen, the
+     follow it together, and its edge line (the border) and its line too
+     (#mbline). risen, the
      class comes off and the rules above hold it, with the same numbers */
   #magicbox.rising{--rise:0; transition:none;
     border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent);
@@ -1521,18 +1521,21 @@
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
-  /* the one or two lines that tie the box to its card, copied from the owner's
-     sketches (magicRoute): the card's own edge colour, 2px drawn as
-     Figma's Drone brush draws it, running only across and up or down, behind
-     the card and the box so they never cross their words. the small tabs one
-     sketch puts where its line meets each edge stand over the card and the
-     box, across the edge (#mbtabs, after the card). both are drawn by
-     magicLines, in the stage's pixels, from the svg's corner at the stage's */
-  #mblines, #mbtabs{display:none}
-  body.focus :is(#mblines, #mbtabs).on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
-    overflow:visible; pointer-events:none}
-  body.focus #mbtabs.on{z-index:2}
-  body.focus:is(.home, .editmode) :is(#mblines, #mbtabs).on{display:none}
+  /* the one line that ties the box to its card, a small barbell copied from the
+     owner's mock (magicLine): the card's own edge colour, 2px drawn as Figma's
+     Drone brush draws it, straight across the gap from the card's right edge to
+     the box's left edge, with a small tab at each end. it stands over the card
+     and the box (#mbline, after the card), at their own level, and wears the
+     card's own shadow, its two layers at the strength a filter gives them (a
+     filter's blur is the spread of the blur a box-shadow asks for, so half
+     of it); the card lowered, it has none, as the box has none. it is drawn by
+     magicLine, in the stage's pixels, from the svg's corner at the stage's */
+  #mbline{display:none}
+  body.focus #mbline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
+    overflow:visible; pointer-events:none; z-index:2;
+    filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
+  body.lowered #mbline.on{filter:none}
+  body.focus:is(.home, .editmode) #mbline.on{display:none}
   #magicbox .mbbar{background:var(--card)}
   #magicbox .mbbar::after{display:none}
   #magicbox .mbclose{background:var(--card)}
@@ -3825,10 +3828,6 @@
   </div>
   <div class="mbbody"></div>
 </section>
-<!-- the lines from the card to its magic box, ahead of the card so they are
-     drawn behind it -->
-<svg id="mblines" aria-hidden="true"></svg>
-
 <main>
   <div id="rail" class="trio">
     <span id="rail-start"></span>
@@ -3839,9 +3838,9 @@
   <div id="sections"></div>
   <div id="carousel"></div>
 </main>
-<!-- the small tabs on the edges where a line meets them, over the card and
-     the box -->
-<svg id="mbtabs" aria-hidden="true"></svg>
+<!-- the line from the card to its magic box, a small barbell over the card
+     and the box -->
+<svg id="mbline" aria-hidden="true"></svg>
 </div>
 
 <!-- the new-project landing lives outside the stage: it centers on the real
@@ -7651,8 +7650,7 @@ panelPoll(); setInterval(panelPoll, 4000);
 // bodies: card id -> {rev, box, wait}, what each open box holds; pictures and
 // heights: "id:rev" -> a picture fetched and read, {src, natural}, and a page's
 // height at a width, {w, h}
-const MB = { el: document.getElementById("magicbox"), lines: document.getElementById("mblines"),
-  tabs: document.getElementById("mbtabs"), id: null, rev: 0, asked: 0,
+const MB = { el: document.getElementById("magicbox"), line: document.getElementById("mbline"), id: null, rev: 0, asked: 0,
   rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null }, known: null,
   bodies: new Map(), pictures: new Map(), heights: new Map(), measuring: null };
 if (MB.el){
@@ -7713,8 +7711,7 @@ function magicOff(){
   MB.over = false;   // a box taken away is left by the pointer without a word
   magicRiseStop();
   magicRiseSet(1);
-  MB.lines.classList.remove("on");
-  MB.tabs.classList.remove("on");
+  MB.line.classList.remove("on");
   if (MB.id === null) return;
   MB.id = null; MB.rev = 0; MB.asked++;
   if (MB.words) MB.words.disconnect();
@@ -7876,7 +7873,7 @@ function magicClose(){
 // the box rising out of the page as it first comes on a card, and sinking back
 // into it as it is put away. t runs from 0,
 // flat, to 1, risen, over RISE_MS, and --rise, which the box's shadow and what
-// it holds follow (#magicbox.rising), and the lines' strength are t eased in
+// it holds follow (#magicbox.rising), and the line's strength are t eased in
 // and out, so it starts and settles calmly. a click, a key or a scroll in the
 // box while it rises plays the rest RISE_FAST times as fast. then: what to do
 // once it is flat again, which is to take it off the page
@@ -7885,7 +7882,7 @@ function magicRiseSet(t){
   MB.rise.t = t;
   const p = t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
   MB.el.style.setProperty("--rise", p.toFixed(4));
-  MB.lines.style.opacity = MB.tabs.style.opacity = p.toFixed(4);
+  MB.line.style.opacity = p.toFixed(4);
 }
 function magicRise(dir, then = null){
   const r = MB.rise;
@@ -7932,22 +7929,18 @@ function magicSink(){
 // places it again, so it is back the moment the window gives it the room
 function magicPlace(){
   if (!MB.el || !MB.el.classList.contains("on")) return;
-  MB.lines.classList.remove("on");
-  MB.tabs.classList.remove("on");
+  MB.line.classList.remove("on");
   const room = magicRoom();
   if (!room){ MB.el.style.visibility = "hidden"; return; }
-  const { S, sr, rect, fit, most } = room;
+  const { S, rect, fit, most } = room;
   if (!most.shown){ MB.el.style.visibility = "hidden"; return; }
   // what it shows asks for, in stage pixels: the view's want (card-logic.js)
   const at = MagicBox.place(rect, fit, MB.view.want(most, S));
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
     height: at.height + "px", visibility: MB.view.waiting() ? "hidden" : "" });
   if (MB.el.style.visibility === "hidden") return;
-  // shown: its lines to the card, kept under the workspace's top edge, and
-  // the rise if it is new on the card
-  const frame = document.getElementById("appframe"), fr = frame && frame.getBoundingClientRect();
-  const top = fr && fr.height > 1 ? fr.top + (parseFloat(getComputedStyle(frame).borderTopWidth) || 0) : 0;
-  magicLines(rect, at, (top - sr.y) / S);
+  // shown: its line to the card, and the rise if it is new on the card
+  magicLine(rect, at);
   if (MB.rise.t < 1 && !MB.rise.raf) magicRise(1);
 }
 // the card's rectangle on the stage, the fit's edges and the largest box
@@ -7962,79 +7955,50 @@ function magicRoom(){
   const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
   return { S, sr, rect, fit, most: MagicBox.place(rect, fit) };
 }
-// the lines from the card to its box, copied from the owner's sketches (m1127,
-// ref1 and ref2; his third, ref3, was taken out). each place a line starts,
-// turns or ends is a share of the card's or the box's own width or height,
-// read off the sketch, so it lands where the sketch has it on any card and
-// any box. a line's ends run a
-// few pixels on behind the card and the box, so it seems to come out of and
-// go into their edges. top: the workspace's top edge, which no line crosses.
-// a template that does not fit the card and the box as they stand gives null
-//   0, ref1: two lines out of the card's right side. one leaves it 9.6% down
-//     the card, runs across, and goes down into the box's top 49.2% across
-//     it; the other leaves it 91.9% down, runs across, and goes up into the
-//     box's foot 12.4% across it. the sketch stands the box's top 18.8% down
-//     the card, so the first line passes 50.9% of the way from the card's top
-//     to the box's; where the box stands higher, as the board stands it, the
-//     line keeps that share of the room above the box, and the low line the
-//     same below it (17.9% of the way up from the card's foot to the box's)
-//   1, ref2: up out of the card's top edge 88.7% across it, 4.1% of the
-//     card's height above it across, and down into the box's top 5.9% across
-//     it, a small tab across each edge where the line meets it
-function magicRoute(k, card, box, top){
-  const C = { l: card.left, t: card.top, r: card.left + card.width, b: card.top + card.height, w: card.width, h: card.height };
-  const B = { l: box.left, t: box.top, r: box.left + box.width, b: box.top + box.height, w: box.width, h: box.height };
-  const tuck = 4;
-  if (k === 0){
-    const above = B.t - C.t, below = C.b - B.b;
-    // room for each line to clear the card's round corner and still turn
-    if (above < 16 || below < 16) return null;
-    const ya = C.t + Math.min(.0959 * C.h, .509 * above), xa = B.l + .492 * B.w;
-    const yb = C.b - Math.min(.0814 * C.h, .179 * below), xb = B.l + .124 * B.w;
-    return { paths: [[[C.r - tuck, ya], [xa, ya], [xa, B.t + tuck]], [[C.r - tuck, yb], [xb, yb], [xb, B.b - tuck]]], tabs: [] };
-  }
-  const y = C.t - .0413 * C.h, x1 = C.l + .887 * C.w, x2 = B.l + .059 * B.w;
-  // above the workspace's top edge, or a box whose top stands too near or
-  // over the line to go down into it
-  if (y < top + 4 || B.t - y < 12) return null;
-  return { paths: [[[x1, C.t + tuck], [x1, y], [x2, y], [x2, B.t + tuck]]],
-    tabs: [[x1, C.t], [x2, B.t]] };
+// the line from the card to its box, the one every box draws, copied from the
+// owner's mock (m1211, one-line-mock.png, a Mac window at 2x, so its pixels
+// halved are the board's). a small barbell: a short straight bar level across
+// the gap, from the card's right edge to the box's left edge, with an upright
+// tab at each end, to show the line stands at the card's and the box's own
+// level. what was read off the mock:
+//   the bar meets the box's left edge 12.3% of the box's height down from its
+//     top (37 of 300 mock pixels), and the same level at the card's edge
+//   the card's end is a tab 2 wide by 12 high, centred across the card's right
+//     edge; the box's end is a tab 3 wide by 6 high, in the gap against the
+//     box's left edge. as the 2px line's own size: 1 by 6 and 1.5 by 3. each
+//     tab has a thin darker rim (the mock's ends are outlined), inside its size
+// the line is the Drone stroke of today (below), in the card's edge colour. a
+// gap with no room for the two tabs and a bar between them, or a card too
+// short at that level to carry its tab on a straight edge, gives null
+const ONE = { down: .123, gap: 8, cardTab: { w: 2, h: 12 }, boxTab: { w: 3, h: 6 }, corner: 7,
+  rim: .5, rimInk: "rgba(60,45,20,.30)" };
+function magicOne(card, box){
+  const cr = card.left + card.width, y = box.top + ONE.down * box.height;
+  if (box.left - cr < ONE.gap) return null;
+  // the card's corners are round: its tab stands on the straight of its edge
+  const room = ONE.cardTab.h / 2 + ONE.corner;
+  if (y < card.top + room || y > card.top + card.height - room) return null;
+  return { y, from: cr, to: box.left };
 }
-// which template a card's box draws: the one kept with the box (its magic
-// field's lines), which the board chose at random when the box opened, never
-// the one the box opened before it drew, and which stays the box's for good:
-// in every window, after a reload and after a restart. a box opened before
-// the board chose them has one worked out from its card's id, the same
-// everywhere. one that does not fit gives way to the other; none fitting, no
-// line. a box kept with the third template, taken out since, draws the one
-// nearest it, the second
-const MAGIC_NEAR = [[0, 1], [1, 0]];
-function magicChosen(id){
-  const b = lastState && lastState.boxes.find(x => x.id === id), k = b && b.magic && b.magic.lines;
-  if (k === 0 || k === 1) return k;
-  if (k === 2) return 1;
-  let h = 0;
-  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return h % 2;
-}
-function magicLines(card, box, top){
-  let route = null, drawn = -1;
-  for (const k of MAGIC_NEAR[magicChosen(MB.id)]) if ((route = magicRoute(k, card, box, top))){ drawn = k; break; }
-  MB.lines.dataset.route = drawn;
-  if (!route) return;
-  // the card's own edge colour, read off the card, so the lines are always it
-  const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
-  MB.lines.innerHTML = route.paths.map((pts, i) => {
-    const line = magicDrone(pts, 1127 + 7 * drawn + i);
-    return '<path d="' + line.core + '" fill="none" stroke="' + ink + '" stroke-width="' + DRONE.core +
-      '" stroke-linejoin="round" stroke-linecap="round"/><path d="' + line.dabs + '" fill="' + ink + '"/>';
-  }).join("");
-  // the tabs, as ref2 draws them: 6.6 by 3.3, centred across the edge's line
-  const edge = parseFloat(getComputedStyle(document.querySelector("main")).borderTopWidth) || 0;
-  MB.tabs.innerHTML = route.tabs.map(([x, y]) => '<rect x="' + (x - 3.3).toFixed(2) + '" y="' + (y + edge / 2 - 1.65).toFixed(2) +
-    '" width="6.6" height="3.3" rx="1" fill="' + ink + '"/>').join("");
-  MB.lines.classList.add("on");
-  MB.tabs.classList.toggle("on", route.tabs.length > 0);
+function magicLine(card, box){
+  const one = magicOne(card, box);
+  if (!one) return;
+  const main = document.querySelector("main"), cs = getComputedStyle(main);
+  // the card's own edge colour, read off the card, so the line is always it
+  const ink = cs.borderTopColor, edge = parseFloat(cs.borderRightWidth) || 0;
+  const line = magicDrone([[one.from, one.y], [one.to, one.y]], 1211);
+  // a tab is the card's edge colour with a thin darker rim, as the mock's are;
+  // the rim is drawn inside the size asked for, so its outside is that size
+  const tab = (x, w, h) => '<rect x="' + (x + ONE.rim / 2).toFixed(2) + '" y="' + (one.y - h / 2 + ONE.rim / 2).toFixed(2) +
+    '" width="' + (w - ONE.rim) + '" height="' + (h - ONE.rim) + '" rx="1" fill="' + ink + '" stroke="' + ONE.rimInk +
+    '" stroke-width="' + ONE.rim + '"/>';
+  // the box's border is drawn inside its rectangle, as the card's is: each tab
+  // is set on the middle of the edge it stands on
+  MB.line.innerHTML = '<path d="' + line.core + '" fill="none" stroke="' + ink + '" stroke-width="' + DRONE.core +
+    '" stroke-linejoin="round" stroke-linecap="round"/><path d="' + line.dabs + '" fill="' + ink + '"/>' +
+    tab(one.from - edge / 2 - ONE.cardTab.w / 2, ONE.cardTab.w, ONE.cardTab.h) +
+    tab(one.to + edge / 2 - ONE.boxTab.w, ONE.boxTab.w, ONE.boxTab.h);
+  MB.line.classList.add("on");
 }
 // a line through the corners pts drawn as Figma's Drone brush draws it at a
 // weight of 2: round dabs scattered along it a little over two pixels apart,

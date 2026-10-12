@@ -87,42 +87,34 @@ test("closing hides the box and keeps it; reopening shows it again", async () =>
   assert.deepEqual(Object.keys(described.body).sort(), ["box", "kind", "open", "rev", "shown", "title", "ts"]);
 });
 
-test("a box's lines are chosen once as it opens and kept with it; each new box gets another than the box before it", async () => {
+test("a box keeps no line style: there is one line, so nothing is chosen, kept or alternated", async () => {
   const close = id => fetch(`${board.origin}/magic/close?box=${encodeURIComponent(id)}`, { method: "POST" });
-  const lines = async id => (await card(id)).magic.lines;
-  // a fill that opens a closed or empty box chooses; one of the two
+  const keys = async id => Object.keys((await card(id)).magic).sort();
+  // a fill that opens a closed or empty box names no layout, and nor does
+  // anything the box goes through after it
   await close("0");
   await open("0", "text", "a new box");
-  const chosen = await lines("0");
-  assert.ok([0, 1].includes(chosen), "lines " + chosen);
-  // the agent's next revisions, a close and a reopen keep them
+  assert.deepEqual(await keys("0"), ["kind", "open", "rev", "ts"]);
   await open("0", "markdown", "revised");
   await open("0", "html", "<p>revised again</p>");
-  assert.equal(await lines("0"), chosen);
   await close("0");
-  assert.equal(await lines("0"), chosen, "a closed box keeps its lines");
   await fetch(`${board.origin}/magic/reopen?box=0`, { method: "POST" });
-  assert.equal(await lines("0"), chosen);
-  // and a restart
+  assert.deepEqual(await keys("0"), ["kind", "open", "rev", "ts"]);
   await board.restart();
-  assert.equal(await lines("0"), chosen);
-  // new boxes, on one card and another of its own: never the previous new box's
+  assert.deepEqual(await keys("0"), ["kind", "open", "rev", "ts"]);
+  // new boxes on one card and another of its own: the same
   const other = (await (await fetch(`${board.origin}/create?owner=facilitator`, { method: "POST", body: "" })).json()).id;
-  const seen = [chosen];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 6; i++) {
     const id = i % 2 ? other : "0";
     await close(id);
     await open(id, "text", "new box " + i);
-    seen.push(await lines(id));
+    assert.deepEqual(await keys(id), ["kind", "open", "rev", "ts"], "box " + id);
   }
-  for (let i = 1; i < seen.length; i++) assert.notEqual(seen[i], seen[i - 1], "the same lines twice in a row: " + seen);
-  // with two to choose from they take turns, and the third is never given again
-  for (const k of [0, 1]) assert.ok(seen.includes(k), "never " + k + ": " + seen);
-  assert.ok(seen.every(k => k === 0 || k === 1), "a layout that is gone: " + seen);
   await close(other);
   await fetch(`${board.origin}/close?box=${other}`, { method: "POST" });
-  // a box that kept the third before it was taken out is still one box with
-  // one layout: the second, through every revision, and never another
+  // a box saved before this change with a style kept: the board still reads
+  // it (the page draws the one line whatever it says), and the box's next
+  // version leaves it behind
   await close("0");
   await open("0", "text", "opened before the change");
   await board.restart(async () => {
@@ -130,11 +122,10 @@ test("a box's lines are chosen once as it opens and kept with it; each new box g
     state.boxes.find(b => b.id === "0").magic.lines = 2;
     fs.writeFileSync(file, JSON.stringify(state));
   });
-  assert.equal(await lines("0"), 2, "the board did not read the older box's lines");
+  assert.equal((await card("0")).magic.lines, 2, "the board did not read the older box");
+  assert.equal((await card("0")).magic.open, true);
   await open("0", "markdown", "revised");
-  assert.equal(await lines("0"), 1, "a box with the third's lines is given the second's");
-  await open("0", "text", "revised again");
-  assert.equal(await lines("0"), 1);
+  assert.deepEqual(await keys("0"), ["kind", "open", "rev", "ts"], "a box's next version keeps the old style");
   // an agent reading its box back is not told
   const described = await json(await fetch(`${board.origin}/magic?box=0`));
   assert.ok(!("lines" in described.body));
