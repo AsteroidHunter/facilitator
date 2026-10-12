@@ -354,9 +354,9 @@ test("the drops are drawn with a clip path over a plain face, never a blur, filt
 
 test("the sent bubbles share the panel's preview, and the page turn hands them over to the panel behind with a fade", () => {
   // one preview, the sheet's own: a line and a half dissolving over the last
-  // three quarters of a line, two and a half when the second line is blank, on
+  // half line of them, two and a half when the second line is blank, on
   // every surface and for the panel over the answer and the sent bubbles alike
-  assert.match(code, /--answ-peek:calc\(var\(--answ-line\) \* 1\.5\); --answ-fade:calc\(var\(--answ-line\) \* \.75\);\n\}/);
+  assert.match(code, /--answ-peek:calc\(var\(--answ-line\) \* 1\.5\); --answ-fade:calc\(var\(--answ-line\) \* \.5\);\n\}/);
   assert.match(code, /\n\.answered\.gap\{--answ-peek:calc\(var\(--answ-line\) \* 2\.5\)\}/);
   assert.match(code, /\.answclip\{position:relative; max-height:var\(--answ-stop, var\(--answ-peek\)\);/);
   assert.doesNotMatch(code, /\.answered\.sent\{[^}]*--(?:answ-peek|answ-fade|sent-peek)/, "the sent bubbles are given a preview of their own");

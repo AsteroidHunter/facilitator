@@ -1349,11 +1349,11 @@ test("the sheet draws one grey panel with no frame, a blank line between message
     "the cut does not take the script's stop before the sheet's preview");
   // the preview is the sheet's own, for the panel over the answer and the sent
   // bubbles alike, counted in the surface's own line on every surface: one and a
-  // half lines dissolving over the last three quarters of a line, and two and a
+  // half lines dissolving over the last half line of them, and two and a
   // half when the second line is blank (the script sets .gap). no surface and no
   // panel types another
-  assert.match(panel, /--answ-peek:calc\(var\(--answ-line\) \* 1\.5\); --answ-fade:calc\(var\(--answ-line\) \* \.75\)/,
-    "the panel's preview is not one and a half lines dissolving over three quarters of a line");
+  assert.match(panel, /--answ-peek:calc\(var\(--answ-line\) \* 1\.5\); --answ-fade:calc\(var\(--answ-line\) \* \.5\)/,
+    "the panel's preview is not one and a half lines dissolving over the last half line");
   assert.ok(rules(TOKENS, ".answered.gap").some(one => /--answ-peek:calc\(var\(--answ-line\) \* 2\.5\)/.test(one)),
     "a panel with a blank second line is not cut at two and a half lines");
   assert.ok(!/--sent-peek/.test(TOKENS + DESKTOP + PHONE + LOGIC), "a sent preview of its own is still in the sources");
@@ -1367,16 +1367,22 @@ test("the sheet draws one grey panel with no frame, a blank line between message
   assert.match(strip, /position:absolute; left:0; right:0; bottom:0; height:var\(--answ-fade\);/,
     "the dissolve is not a strip the surface's own depth over the foot of the cut");
   assert.match(strip, /opacity:var\(--answ-shade\)/, "the strip's strength is not the one the run holds");
-  // its grey, shared with the merge's still foot: the panel's own, coming in on a
-  // smoothstep written out in tenths, from nothing and with no slope at its
-  // start to the whole grey at the cut, with no slope there either
+  // its grey, shared with the merge's still foot: the panel's own, coming in
+  // straight over the first three fifths of the strip, as the plain ramp did, so
+  // the cut line's top reads as it always did, then easing into the whole grey
+  // over the last two fifths and arriving at the cut with no slope: a cubic
+  // written out in twentieths, with the ramp's own slope where it takes over
   const fuzz = rule(TOKENS, ".answclip::after, .sentgoo-fuzz");
-  const smooth = x => x * x * (3 - 2 * x);
+  const ease = x => { const s = (x - .6) / .4; return .6 + .4 * (-(s ** 3) + s ** 2 + s); };
   const stops = [...fuzz.matchAll(/color-mix\(in srgb, var\(--answ-fill\) ([\d.]+)%, transparent\) (\d+)%/g)]
     .map(m => [Number(m[2]) / 100, Number(m[1]) / 100]);
-  assert.equal(stops.length, 9, "the fuzz is not written out in tenths");
+  assert.deepEqual(stops.map(one => one[0]), [.6, .65, .7, .75, .8, .85, .9, .95],
+    "the fuzz is not straight to three fifths and written out in twentieths after");
   for (const [at, strength] of stops)
-    assert.ok(Math.abs(strength - smooth(at)) < .0006, `the fuzz at ${at} is ${strength}, not the smoothstep's ${smooth(at)}`);
+    assert.ok(Math.abs(strength - ease(at)) < .0006, `the fuzz at ${at} is ${strength}, not the ease's ${ease(at)}`);
+  assert.equal(stops[0][1], .6, "the fuzz is not the plain ramp where it takes over");
+  assert.ok(stops.every(([at, strength]) => strength >= at - 1e-9), "the fuzz is lighter than the plain ramp somewhere");
+  assert.ok(1 - stops[stops.length - 1][1] < .02, "the fuzz is not nearly whole just above the cut");
   assert.match(fuzz, /background:linear-gradient\(to bottom, transparent,[^;]*,\s*var\(--answ-fill\)\);/,
     "the fuzz does not run from nothing to the panel's own grey");
   assert.match(rule(TOKENS, ".answclip"), /position:relative;.*--answ-shade:0/);
