@@ -805,17 +805,15 @@ test("the panel says so when the counts cannot be read or no logs were found", a
 
 // ---- the home page in the board --------------------------------------------------------
 test("the board's markup, sheet and routes carry the home page", () => {
-  const house = /<button id="homeico"[^>]*>/.exec(HTML);
-  assert.ok(house, "the house is a button");
+  // Home is the first row of the pill's list, a button with the house before its word;
+  // the bar has no round Home button
+  const house = /<button id="projhome" class="projrow"[^>]*>/.exec(HTML);
+  assert.ok(house, "Home is a button row");
   assert.match(house[0], /type="button"/);
-  assert.match(house[0], /aria-label="Home"/);
-  assert.doesNotMatch(house[0], /aria-hidden/);
+  assert.doesNotMatch(HTML, /homeico/, "the round Home button is still in the page");
   assert.match(HTML, /<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>/);
-  assert.doesNotMatch(HTML, /#homeico\{[^}]*#C9BFAE/, "the house is no longer greyed out");
-  // the house's circle takes the ink under a pointer, as the bar's other circles
-  // do, and while home is up, when it also stays pressed
-  assert.match(HTML, /body\.focus :is\(#homeico[^)]*\):hover\{color:var\(--ink\)\}/);
-  assert.match(HTML, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
+  // the bar's other circles take the ink under a pointer
+  assert.match(HTML, /body\.focus :is\(#chimebtn, #setbtn\):hover\{color:var\(--ink\)\}/);
   assert.match(HTML, /body\.focus\.home #stage\{visibility:hidden; opacity:0; pointer-events:none\}/);
   assert.match(HTML, /body\.focus\.home #home\{display:block;/);
   // shared widget assets load before the page script can open Home
@@ -841,7 +839,7 @@ function homeBlock({ serve = true, stored = {} } = {}) {
   assert.ok(start > 0 && end > start, "the home block was not found");
   const doc = makeDocument();
   const byId = {};
-  for (const id of ["homeico", "homeplot", "stage"]) byId[id] = new El(id === "homeico" ? "button" : "div", doc);
+  for (const id of ["projhome", "homeplot", "stage"]) byId[id] = new El(id === "projhome" ? "button" : "div", doc);
   doc.getElementById = id => byId[id] || null;
   const inside = new El("textarea", doc);
   byId.stage.appendChild(inside);
@@ -882,15 +880,14 @@ function homeBlock({ serve = true, stored = {} } = {}) {
   return { ctx, doc, byId, inside, store, fetched, tabs, timers, is };
 }
 
-test("the house opens its prepared widgets and a project tab leaves it", async () => {
+test("the Home row opens its prepared widgets and a project tab leaves it", async () => {
   const h = homeBlock();
   h.doc.activeElement = h.inside;              // typing in the board when home opens
   h.ctx.editMode = true;                       // and arranging it
   assert.equal(h.doc.head.children.length, 0, "nothing fetched on boot");
-  h.byId.homeico.click();
+  h.byId.projhome.click();
   assert.equal(h.is("homeOpen"), true);
   assert.ok(h.doc.body.classList.contains("home"));
-  assert.equal(h.byId.homeico.getAttribute("aria-pressed"), "true");
   assert.equal(h.store.getItem("homeopen"), "1");
   assert.equal(h.ctx.editMode, false, "the board's arranging goes with the board");
   assert.equal(h.doc.activeElement, h.doc.body, "and its typing");
@@ -904,8 +901,8 @@ test("the house opens its prepared widgets and a project tab leaves it", async (
   assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 365);
   assert.equal([...h.timers.values()].filter(t => t.ms === 5 * 60 * 1000).length, 1, "asks again every five minutes");
 
-  // the house is a place: pressing it again changes nothing
-  h.byId.homeico.click();
+  // Home is a place: pressing its row again changes nothing
+  h.byId.projhome.click();
   await settle();
   assert.deepEqual(h.fetched, ["/tokens/daily?days=371"]);
 
@@ -913,12 +910,11 @@ test("the house opens its prepared widgets and a project tab leaves it", async (
   h.ctx.setHome(false);
   assert.equal(h.is("homeOpen"), false);
   assert.ok(!h.doc.body.classList.contains("home"));
-  assert.equal(h.byId.homeico.getAttribute("aria-pressed"), "false");
   assert.equal(h.store.getItem("homeopen"), null);
   assert.equal(h.timers.size, 0, "no asking while home is shut");
 
   // back again: the same panel asks again, and nothing is fetched twice
-  h.byId.homeico.click();
+  h.byId.projhome.click();
   await settle();
   assert.equal(h.doc.head.children.length, 0);
   assert.equal(h.byId.homeplot.children.length, 1);
@@ -934,7 +930,7 @@ test("a reload comes back to home, and a failed widget download can be retried",
   assert.deepEqual(back.fetched, ["/tokens/daily?days=371"]);
 
   const old = homeBlock({ serve: false });
-  old.byId.homeico.click();
+  old.byId.projhome.click();
   await settle();
   assert.equal(old.is("homePanel"), null);
   assert.equal(old.is("homeLoad"), null, "connection recovery can retry the download");

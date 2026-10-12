@@ -81,7 +81,7 @@
     border-radius:4px; background:none; cursor:pointer; flex:none}
   #bgpick::-webkit-color-swatch-wrapper{padding:2px}
   #bgpick::-webkit-color-swatch{border:none; border-radius:2px}
-  /* the speaker is a mark like the house at the other end of the bar: 15px, the
+  /* the speaker is a 15px mark like the house in the Home row of the list: the
      same reach across its box and the same line, the sub ink, the full ink
      under a pointer, in a glass circle of its own (the bar's glass, below). a
      slash across it, with a clear gap round the slash, means the reply chime is
@@ -110,7 +110,7 @@
   .squidmark{display:block; height:20px; aspect-ratio:917 / 1126; overflow:hidden; flex:none}
   .squidmark img{display:block; width:135.99%; max-width:none; height:auto; margin:-7.52% 0 0 -17.99%}
   /* the squid stands in a glass circle at the bar's right end (the bar's
-     glass), mirroring the house at its left end */
+     glass), as far from the window's right edge as the pill is from its left */
   #setbtn{display:flex; align-items:center; padding:2px; flex:none;
     color:var(--sub); cursor:pointer; transition:color .2s}
 
@@ -2942,9 +2942,9 @@
   body.focus.pageblank #stage{visibility:hidden; opacity:0; pointer-events:none}
   /* the bar's projects: the board filtered to one project at a time; labels
      come from the lane directories at runtime, never from this file. the open
-     project is a glass pill beside the house that opens the list of every open
-     project, and a few faint names after it switch with one click (the bar's
-     glass, below). */
+     project is a glass pill at the bar's left that opens the list of Home and
+     every open project, and a few faint names after it switch with one click
+     (the bar's glass, below). */
   /* fixed bar height in focus mode, 40px and its 1px bottom row. the glass
      pieces are 32px and stand at the top of it, --app-inset under the window's
      top as the pane is in from the window's sides, on one centre line, and the
@@ -2957,10 +2957,10 @@
      not a fraction that every edge would be drawn blurred on. the padding
      moves the row and nothing else: the bar's height, so the pane's top, the
      stage's and every page's own top, stand where they did. the bar's own
-     pieces stand 8px apart, the phone's own gap (the house and the pill have
-     a wider gap of their own, and the faint names their own room, see .psug), and the bar has no
-     side padding, so the
-     house and the squid stand over the pane's own left and right edges */
+     pieces stand 8px apart, the phone's own gap (the speaker and the squid
+     have a wider gap of their own, and the faint names their own room, see
+     .psug), and the bar has no side padding, so the pill and the squid stand
+     over the pane's own left and right edges */
   body.focus .bar{height:40px; padding:1px 0 6px; gap:8px}
   body.focus #toc, body.focus #tocgrip{top:41px}
   body.focus #offline{top:41px}
@@ -3083,12 +3083,12 @@
 
   /* ---- the bar's glass ---------------------------------------------------- */
   /* the bar's controls are drawn as the phone's bottom row draws its buttons
-     (#dock in m.html): the house at the left, and the speaker and squid at the
-     right, are glass circles (.qn-glass), and the open project is a glass pill
-     beside the house. All keep 32px hit areas, the row's 48px at two thirds,
-     so each mark keeps the share of its area it has on the phone (the squid's
-     20px in 32 is the phone's 30 in 48, and the 15px house and speaker are the
-     phone's 22px ticket in 48). the faint names after the pill stand on the
+     (#dock in m.html): the open project is a glass pill at the left, and the
+     speaker and squid at the right are glass circles (.qn-glass). All keep
+     32px hit areas, the row's 48px at two thirds, so each mark keeps the
+     share of its area it has on the phone (the squid's 20px in 32 is the
+     phone's 30 in 48, and the 15px speaker is the phone's 22px ticket in 48).
+     there is no Home button: Home is the first row of the pill's list. the faint names after the pill stand on the
      page, as the unselected tabs did.
      the rest of this sheet loads before the glass's, so every rule here is
      scoped by the page to outrank the glass's own corner.
@@ -3115,35 +3115,32 @@
       0 8px 20px rgba(0,0,0,.06)}
   /* the controls: the mark centred, in the sub ink and the full ink under a
      pointer */
-  body.focus :is(#homeico, #chimebtn, #setbtn){
+  body.focus :is(#chimebtn, #setbtn){
     flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;
     margin:0; padding:0; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
     color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
-  body.focus :is(#homeico, #chimebtn, #setbtn):hover{color:var(--ink)}
-  body.focus :is(#homeico, #chimebtn) svg{display:block; flex:none}
+  body.focus :is(#chimebtn, #setbtn):hover{color:var(--ink)}
+  body.focus #chimebtn svg{display:block; flex:none}
   /* the speaker still holds the right edge, and "Install app" stays between it
      and the squid as it was */
   body.focus .bar #chimebtn{margin-left:auto}
-  /* the speaker and the squid stand the house's gap to the pill apart, 11px
-     of box that draws as 10px (#tabrow's gap): the bar's own 8px and 3px more
-     before the squid. the squid stays the bar's inset from the window's right
-     edge, as the house is from its left (20261010) */
+  /* the speaker and the squid stand 11px of box apart, which draws as 10px
+     (#tabrow's gap): the bar's own 8px and 3px more before the squid. the
+     squid stays the bar's inset from the window's right edge, as the pill is
+     from its left (20261010) */
   body.focus .bar #setbtn{margin-left:3px}
   /* the glass's own press, the phone's: a little larger and a whiter face,
      held long enough that a quick click still shows it (glassPress, in the
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #chimebtn, #setbtn, #projpill).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#chimebtn, #setbtn, #projpill).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
-  /* Home stays pressed while the home page is up: the press's whiter face and
-     brighter edge, held, with the house in the full ink */
-  body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
   /* the pill: the open project's name alone (or the house and Home, while the
-     home page is up), on the house's glass and at its
-     height, a capsule as the phone's project button is. the project names,
+     home page is up), on glass at the bar's left inset and 32px high, a
+     capsule as the phone's project button is. the project names,
      here, beside it and in the list, are 14px, a step over the 13px the tabs
      had, and they are Plex's regular 400, or its semibold 600 while the
      project holds a reply not yet read (700 read as too heavy, 20261010).
@@ -3158,7 +3155,7 @@
     transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
   body.focus #projpill[hidden]{display:none}
   /* on the home page the pill reads Home with the board's house (the Home
-     button's drawing) before the word, as an icon in a label: 15px, the
+     row's drawing) before the word, as an icon in a label: 15px, the
      house's own size, in the word's colour, centred on the line by the pill's
      flex, 6px from the word */
   body.focus #projico{display:none; flex:none; margin-right:6px}
@@ -3171,8 +3168,7 @@
   /* the suggestions: a few open projects after the pill, in the names' type
      and fainter. glass stands about 10px from glass as drawn (7px read as far
      too close, 23px as too far, the owner, 20261010): the glass rings draw
-     0.4px outside their boxes, so the house's gap to the pill is 11px of box
-     (#tabrow's gap). every project name stands one distance from the next,
+     0.4px outside their boxes, so the gap is 11px of box (#tabrow's gap). every project name stands one distance from the next,
      the pill's word to the first faint word and a faint word to the next:
      each name has 14px of room on either side, the pill's own padding, and
      the faint names have it without the glass, like unselected tabs. the
@@ -3186,7 +3182,7 @@
      in the regular 400. these words do not hold room for their bold selves, as
      the pill's does: that room is empty on a regular word and drew as a wider
      gap after it, so a reply landing may move the names after it by a few
-     pixels, and the pill and the house never move. they come in on a short
+     pixels, and the pill never moves. they come in on a short
      fade */
   body.focus #tabbar .psug{flex:none; display:flex; align-items:center; justify-content:flex-start; height:32px;
     margin:0; padding:0 14px; text-align:left;
@@ -3197,9 +3193,10 @@
   body.focus #tabbar .psug:hover{color:var(--ink)}
   body.focus #tabbar .psug.unread .plabel{font-weight:600}
   @keyframes psugin{from{opacity:0}}
-  /* the list: every open project in the board's order, each with its number,
-     the unread ones in the bold, then "Open a new folder" with its plus. no
-     row is marked as the open one (the pill says which).
+  /* the list: Home first, with the house, then every open project in the
+     board's order, each with its number, the unread ones in the bold, then
+     "Open a new folder" with its plus. no row is marked as the open one (the
+     pill says which), Home's included.
      the phone's project list (#projmenu in m.html) on the Mac: the same
      glass, standing just under the pill from its left edge. resting on a row
      fades in a cross at its right end that closes that project; a row held
@@ -3281,7 +3278,15 @@
   #projmenu.carrying .projrow{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
   #projmenu .projrow.lifted{z-index:1; background:var(--card); box-shadow:0 4px 14px rgba(0,0,0,.14); transition:none}
   #projmenu .projrow.tearing{opacity:.45}
-  #projsep{flex:none; height:var(--edge); margin:4px 8px; background:var(--line)}
+  #projsep, #homesep{flex:none; height:var(--edge); margin:4px 8px; background:var(--line)}
+  /* Home, the list's first row, as the phone's list has it: the board's house
+     in the number's column, centred on it (15px against a column a digit or
+     two wide, so it spills evenly on both sides), in the row's ink, and the
+     word on the names' own left edge. it has no number, no cross and no carry,
+     and it reads as the checked row while the home page is up */
+  #projmenu #projhome .pnum{display:flex; align-items:center; justify-content:center; height:17px; color:inherit}
+  #projmenu #projhome .pnum svg{display:block; flex:none}
+  #projmenu #projhome .pline{align-items:center}
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
      white well listing the open folders, the current one bold, then the
@@ -3406,13 +3411,11 @@
      editor is on */
   textarea.dropping, .cffield .cm-scroller.dropping{border-color:var(--accent) !important}
   body.focus .box.sel :is(textarea, .cffield .cm-scroller).dropping{background:var(--accent-soft)}
-  /* home: the house at the head of the bar opens the home page, a blank page
+  /* home: the first row of the pill's list opens the home page, a blank page
      above every project holding the token panel and nothing else (its own
-     sheet, home-widgets.css). the house is a glass circle at the bar's left
-     end (the bar's glass). while home is up the house stays pressed, in the
-     full ink, the board fades out the way a blank page's does, and choosing
-     any project brings its board back */
-  #homeico{display:none}
+     sheet, home-widgets.css). there is no Home button in the bar. while home
+     is up the pill reads Home, the board fades out the way a blank page's
+     does, and choosing any project brings its board back */
   /* the right half of the page's frame (the rectangle drawn under the bar, inset
      --app-inset on each side) holds the token box and the limits box as one
      unit. #homepair is a column as tall as the frame and 35% of its width,
@@ -3676,7 +3679,6 @@
 
 <div class="bar">
   <span id="tabrow">
-  <button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
   <button id="projpill" class="qn-glass" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><svg id="projico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg><span id="projname"></span></button>
   <span id="tabbar"></span>
   </span>
@@ -3690,6 +3692,8 @@
      #projlist, then the folder chooser, over the shade that dims the board -->
 <div id="projshade"></div>
 <div id="projmenu" class="qn-glass" aria-label="Projects">
+  <button id="projhome" class="projrow" type="button" aria-current="false"><span class="pline"><span class="pnum" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></span><span class="pname">Home</span></span></button>
+  <div id="homesep"></div>
   <div id="projlist"></div>
   <div id="projsep"></div>
   <button id="projnew" class="projrow" type="button"><span class="pline"><span class="pnum" aria-hidden="true">+</span><span class="pname">Open a new folder</span></span></button>
@@ -3853,7 +3857,7 @@
   </div>
 </div>
 
-<!-- the home page, opened by the house in the bar: blank but for the token
+<!-- the home page, opened by the first row of the pill's list: blank but for the token
      panel, which home-widgets.js builds from the last saved reading on load.
      Like the landing above it stands outside the stage -->
 <div id="homepair">
@@ -4223,8 +4227,8 @@ function seedSeenOnce(st){
   setSeenMany(marks);
 }
 // ---- the project pill, its list and the faint suggestions ---------------------
-// the bar names the open project on a glass pill beside the house, and a click
-// on the pill opens the list of every open project in the board's order, the
+// the bar names the open project on a glass pill at its left, and a click
+// on the pill opens the list, Home first and then every open project in the board's order, the
 // phone's project list on the Mac. after the pill stand a few faint names,
 // open projects worth one click, so switching stays quick without a row of
 // every project. the list and the names are built again only when the
@@ -4311,6 +4315,10 @@ function renderProjList(st, owners){
       projList.appendChild(row);
     }
   }
+  // Home is the first row and the checked one while the home page is up
+  const homeRow = document.getElementById("projhome");
+  homeRow.classList.toggle("on", homeOpen);
+  homeRow.setAttribute("aria-current", String(homeOpen));
   // closing a project rebuilds the list, so the cross that is suddenly the
   // only one left learns here that it goes pale
   const alone = owners.length < 2;
@@ -4426,7 +4434,7 @@ projMenu.addEventListener("mouseover", e => {
 projMenu.addEventListener("mouseleave", () => {
   for (const r of projList.querySelectorAll(".projrow.hot")) r.classList.remove("hot");
 });
-// a press anywhere else, Escape, the house or a project's key shuts the list.
+// a press anywhere else, Escape, the Home row or a project's key shuts the list.
 // while it is open the up and down arrows walk its rows rather than the cards
 document.addEventListener("pointerdown", e => {
   if (projOpen() && !projMenu.contains(e.target) && !projPill.contains(e.target)) closeProjMenu();
@@ -4580,7 +4588,7 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-for (const btn of ["homeico", "projpill", "chimebtn", "setbtn"].map(id => document.getElementById(id))){
+for (const btn of ["projpill", "chimebtn", "setbtn"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -4666,11 +4674,11 @@ function renderHome(st, onHome = !draft && homeOpen){
     box.appendChild(row);
   }
 }
-// the house leaves an unfinished new tab behind, back on the tab it came from,
+// the Home row leaves an unfinished new tab behind, back on the tab it came from,
 // and fills the picker's rows for the home page. this runs before the home
 // block's own listener opens the page. it shuts the pill's list too, which a
-// press on the house does already but Command + 0 does not
-document.getElementById("homeico").addEventListener("click", () => {
+// press on the row does already but Command + 0 does not
+document.getElementById("projhome").addEventListener("click", () => {
   closeProjMenu();
   if (homeOpen) return;
   if (draft){
@@ -4750,7 +4758,7 @@ async function pickFolder(slot){
 }
 
 // ---- the home page ---------------------------------------------------------
-// The house at the head of the bar opens it: one blank page above every
+// The first row of the pill's list opens it: one blank page above every
 // project, holding the token panel (home-widgets.js) and nothing else. Being on
 // it is this browser's own, like the open tab, so a reload comes back to it.
 // Choosing any project leaves it for that project's board, and so does a new folder.
@@ -4763,7 +4771,7 @@ async function pickFolder(slot){
 // box keeps its last answer in this browser and draws it as soon as it is made,
 // and its "Last updated" line is counted again every few seconds while home is up.
 // Both panels are made from saved readings on load, then renewed at idle
-// (homeWarm), so a press of the house finds both drawn.
+// (homeWarm), so a press of the Home row finds both drawn.
 const HOME_KEY = "homeopen";
 const HOME_EVERY = 5 * 60 * 1000;
 const LIMITS_EVERY = 60 * 1000;
@@ -4857,7 +4865,6 @@ function setHome(on){
     else localStorage.removeItem(HOME_KEY);
   } catch (err){}
   document.body.classList.toggle("home", homeOpen);
-  document.getElementById("homeico").setAttribute("aria-pressed", String(homeOpen));
   clearInterval(homeTimer);
   homeTimer = null;
   clearInterval(limitsTimer);
@@ -4875,8 +4882,8 @@ function setHome(on){
   if (lastState) renderTabs(lastState);   // no row of the pill's list is the open one while home is up
   magicSync();   // a magic box goes with the board, and comes back with it
 }
-// the house is a place, like a tab: pressing it while home is up changes nothing
-document.getElementById("homeico").addEventListener("click", () => { if (!homeOpen) setHome(true); });
+// Home is a place, like a tab: pressing its row while home is up changes nothing
+document.getElementById("projhome").addEventListener("click", () => { if (!homeOpen) setHome(true); });
 // put back once the whole script has run, since leaving the board touches
 // state declared further down
 document.addEventListener("DOMContentLoaded", () => {
@@ -5328,10 +5335,10 @@ document.addEventListener("dblclick", e => {
   const t = e.target;
   if (t === document.getElementById("stage") || t === document.body || t === document.documentElement) lowerShown();
 }, true);
-// the house leaves the board for the home page the way another tab does: the
+// the Home row leaves the board for the home page the way another tab does: the
 // card on screen is no longer selected, so coming back through a tab shows it
 // browsed, and a reply that landed meanwhile waits until the reader selects it
-document.getElementById("homeico")?.addEventListener("click", () => unselectShown());
+document.getElementById("projhome")?.addEventListener("click", () => unselectShown());
 
 // browsing: the card on screen was reached without being chosen, by the arrow
 // keys, a tab switch, a load or a fallback pick. selectedId still names it, so
@@ -11110,11 +11117,11 @@ const boardShortcutActions = {
     const ow = owners[shortcut.value];
     if (ow){ e.preventDefault(); closeProjMenu(); setTab(ow); }
   },
-  // command+0: the house's click. the key is cancelled on the home page
+  // command+0: the Home row's click. the key is cancelled on the home page
   // and in a typing box too, so it types nothing
   home(e){
     e.preventDefault();
-    if (!homeOpen) document.getElementById("homeico").click();
+    if (!homeOpen) document.getElementById("projhome").click();
   },
   // the first Escape leaves the composer, or any field; the next one unselects
   // the card, which stays on screen browsed. a key something else answered
