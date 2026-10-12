@@ -483,7 +483,7 @@ test("the box's edge line fades in and out on the rise with everything else on t
   assert.match(html, /\n  #magicbox\.rising > \*\{opacity:var\(--rise\)\}/);
   assert.match(rising, /\{--rise:0; transition:none;/, "the rise starts flat and the box does not ease on its own");
   // a share of 0% is no line and 100% the line's own colour, as the shadow's alpha is
-  assert.match(rising, /box-shadow:0 calc\(2px \* var\(--rise\)\) calc\(18px \* var\(--rise\)\) rgba\(60,45,20,calc\(\.10 \* var\(--rise\)\)\)/);
+  assert.match(rising, /box-shadow:0 calc\(1px \* var\(--rise\)\) calc\(2px \* var\(--rise\)\) rgba\(60,45,20,calc\(\.06 \* var\(--rise\)\)\)/);
   // nothing else colours the edge, and the shadow's own layers are untouched
   assert.ok(!/border-color/.test(rules.filter(r => r !== rising).join("")), "another rule recolours the edge");
   // the box held after the rise is the rule without the class, the line unscaled
@@ -722,29 +722,38 @@ test("a site that will not be framed comes square, with its name and a new-page 
 
 test("whichever of the card and the box is held stands up and the other settles, and nothing else changes", () => {
   const html = read("index.html");
-  // the lighter shadow, one value for the card and the box: both of the raised
-  // shadow's layers at about half strength, never so weak that the one that is
-  // not selected looks to have lost its shadow (the old .06 did)
-  const lighter = html.match(/\n  body\.focus\{--shade-lighter:([^}]*)\}/)[1];
-  const layers = s => [...s.matchAll(/(\d+)px (\d+)px rgba\(60,45,20,([.\d]+)\)/g)].map(m => [+m[2], +m[3]]);
-  const raisedLayers = layers(html.match(/\n  #magicbox\.held\{box-shadow:([^}]*)\}/)[1]);
-  const lighterLayers = layers(lighter);
-  assert.equal(lighterLayers.length, raisedLayers.length, "as many layers as the raised shadow");
-  lighterLayers.forEach(([blur, alpha], i) => {
-    assert.equal(blur, raisedLayers[i][0], "the same reach as the raised layer");
-    assert.ok(alpha >= raisedLayers[i][1] * .45 && alpha <= raisedLayers[i][1] * .65, `layer ${i} is not about half the raised one`);
+  // the two shadows, one value each for the card and the box: the deeper one is
+  // lower and wider than the card's plain raised shadow in every layer, and the
+  // lighter one is a hairline, a single faint layer that only keeps the edge
+  const vars = html.match(/\n  body\.focus\{--shade-deeper:([^;]*);\s*--shade-lighter:([^}]*)\}/);
+  const deeper = vars[1], lighter = vars[2];
+  const layers = s => [...s.matchAll(/(\d+)px (\d+)px rgba\(60,45,20,([.\d]+)\)/g)].map(m => [+m[1], +m[2], +m[3]]);
+  const plain = layers(html.slice(html.indexOf("  body.focus main{")).match(/box-shadow:([^;]*);/)[1]);
+  const deeperLayers = layers(deeper), lighterLayers = layers(lighter);
+  assert.deepEqual(plain, [[2, 18, .18], [1, 3, .10]], "the card with no box keeps the plain raised shadow");
+  assert.equal(deeperLayers.length, plain.length, "as many layers as the plain raised shadow");
+  deeperLayers.forEach(([dy, blur, alpha], i) => {
+    assert.ok(dy > plain[i][0] && blur > plain[i][1] && alpha > plain[i][2], `layer ${i} is not deeper, wider and stronger than the plain one`);
   });
-  assert.ok(lighterLayers[0][1] > .06, "no fainter than the settled shadow that all but vanished");
-  // the card steps back to it only while an open box is held and drawn, at the
-  // settled rule's own weight, ahead of the lowered card's rule, so a lowered
-  // card stays level
-  // the box being on and held is a mark on the body (body.mbheld) and not a
-  // :has() there, which restyled the whole page whenever any element's "on" or
-  // "held" changed, the caret's on every frame of a scroll
+  assert.equal(lighterLayers.length, 1, "a hairline is one layer");
+  assert.ok(lighterLayers[0][1] <= 3 && lighterLayers[0][2] > 0 && lighterLayers[0][2] <= .08, "a faint, tight hairline that is not gone");
+  assert.ok(!/rgba?\((?!60,45,20)|#[0-9a-f]/i.test(deeper + lighter), "no colour but the card's shadow brown");
+  // the card is the deeper one while an open box stands beside it, until the box is
+  // held and the card steps back to the hairline; both at the settled rule's own
+  // weight, ahead of the lowered card's rule, so a lowered card stays level. the
+  // deeper rule comes ahead of the settled one, which a card whose small card holds
+  // the keys still wears
+  // the box being on and held is a mark on the body (body.mbheld) and so is its
+  // standing beside the card (body.mbon), and not a :has() there, which restyled
+  // the whole page whenever any element's "on" or "held" changed, the caret's on
+  // every frame of a scroll
   const rule = "  body.focus:not(.home, .editmode):where(.mbheld) main{box-shadow:var(--shade-lighter)}";
+  const deepRule = "  body.focus:not(.home, .editmode):where(.mbon) main{box-shadow:var(--shade-deeper)}";
   assert.ok(html.includes(rule));
+  assert.ok(html.includes(deepRule));
   assert.ok(html.indexOf(rule) < html.indexOf("  body.focus.lowered main{box-shadow:none}"));
   assert.ok(html.indexOf("  body.focus.minifocus main{") < html.indexOf(rule), "after the settled rule, which it weighs the same as");
+  assert.ok(html.indexOf(deepRule) < html.indexOf("  body.focus.minifocus main{"), "ahead of the settled rule, which it weighs the same as");
   // each :has() and the compound it hangs off, read back over any brackets
   const sheet = code(html.slice(0, html.indexOf("</style>")));
   const anchors = [...sheet.matchAll(/:has\(/g)].map(m => {
@@ -766,7 +775,7 @@ test("whichever of the card and the box is held stands up and the other settles,
   const style = html.slice(0, html.indexOf("</style>"));
   const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
   assert.deepEqual(rules.map(r => r[1].trim()), ["#magicbox.held", "#magicbox.rising.held"], "the box's, and the box's as it rises");
-  for (const [, , body] of [...rules, [, , rule.slice(rule.indexOf("{") + 1, -1)]]) assert.match(body.trim(), /^box-shadow:[^;]*$/);
+  for (const [, , body] of [...rules, [, , rule.slice(rule.indexOf("{") + 1, -1)], [, , deepRule.slice(deepRule.indexOf("{") + 1, -1)]]) assert.match(body.trim(), /^box-shadow:[^;]*$/);
   // the mark follows the box's own classes, whatever changes them: on only
   // while the box is both on and held
   const mirror = html.match(/\nif \(MB\.el\) new MutationObserver\([\s\S]*?\);\n/)[0];
@@ -785,13 +794,30 @@ test("whichever of the card and the box is held stands up and the other settles,
   assert.equal(mark("held"), false, "held while off the page, as a new revision loads");
   assert.equal(mark("on", "held", "rising"), true, "held as it rises");
   assert.equal(mark(), false, "taken off");
-  // risen, the rising one is the held one exactly
-  const rising = html.match(/\n  #magicbox\.rising\.held\{\s*box-shadow:([^}]*)\}/)[1];
-  assert.equal(rising.replace(/calc\(([^)]*?) \* var\(--rise\)\)/g, "$1").replace(/\s+/g, " ").trim(),
-    html.match(/\n  #magicbox\.held\{box-shadow:([^}]*)\}/)[1]);
-  // the box's raised shadow is the card's own, the settled one the card's own settled
-  const raised = html.match(/\n  #magicbox\.held\{box-shadow:([^}]*)\}/)[1];
-  assert.ok(card.includes("box-shadow:" + raised + ";"), "the card's own raised shadow");
+  // the box stands in the page on the deeper shadow when held and the hairline when not
+  assert.match(html, /\n  #magicbox\.held\{box-shadow:var\(--shade-deeper\)\}/);
+  // risen, the rising ones are the held one and the settled one exactly
+  const unrise = s => s.replace(/calc\(([^)]*?) \* var\(--rise\)\)/g, "$1").replace(/\s+/g, " ").trim();
+  assert.equal(unrise(html.match(/\n  #magicbox\.rising\.held\{\s*box-shadow:([^}]*)\}/)[1]), deeper);
+  assert.equal(unrise(html.match(/\n  #magicbox\.rising\{[^}]*?box-shadow:([^}]*)\}/)[1]), lighter);
+  // the card's own plain raised shadow, with no box, is the one it has always worn
+  assert.ok(card.includes("box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);"), "the card's own raised shadow");
+  // the mark of a box beside the card: on, and not hidden for want of room, read off
+  // the box's class and style whatever changes them
+  const beside = html.match(/\nif \(MB\.el\) new MutationObserver\(\(\) => document\.body\.classList\.toggle\("mbon"[\s\S]*?\);\n/)[0];
+  const boxStyle = { visibility: "" };
+  let seenBeside = null, watchedBeside = null;
+  vm.runInContext(beside, vm.createContext({
+    MB: { el: { classList: { contains: c => boxClasses.has(c) }, style: boxStyle } },
+    document: { body: { classList: { toggle: toggle(bodyClasses) } } },
+    MutationObserver: class { constructor(fn){ seenBeside = fn; } observe(el, opts){ watchedBeside = opts; } },
+  }));
+  assert.equal(JSON.stringify(watchedBeside), JSON.stringify({ attributeFilter: ["class", "style"] }), "the box's class and style and nothing else");
+  const stands = (hidden, ...on) => { boxClasses.clear(); on.forEach(c => boxClasses.add(c)); boxStyle.visibility = hidden ? "hidden" : ""; seenBeside(); return bodyClasses.has("mbon"); };
+  assert.equal(stands(false, "on"), true, "on and shown");
+  assert.equal(stands(false, "on", "held"), true, "on, shown and held");
+  assert.equal(stands(true, "on"), false, "open but hidden for want of room: the card is as if it had none");
+  assert.equal(stands(false), false, "off the page");
   // the box goes off the page settled; the agent's next revision keeps it held
   assert.match(html, /function magicOff\(\)\{\s*if \(!MB\.el\) return;\s*MB\.el\.classList\.remove\("on", "held", "over", "rising"\);/);
   // and risen, unless it was still rising or sinking, or is new on the card
@@ -837,12 +863,13 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   assert.ok(!/box-shadow|\.held/.test(sheet), "the shared sheet shades the box");
   assert.ok(!/\.magicbox\{[^}]*(background|border)/.test(sheet.replace(/\s+/g, " ")), "the shared sheet dresses the box");
   // the phone's box is dressed as the board's: the card's white face, edge line and 7px
-  // corners (in the phone's units, as its card is), and the board's lighter shadow
+  // corners (in the phone's units, as its card is), and the lighter shadow the board's
+  // box wore before its two shadows were set further apart, which the phone keeps
   const sty = code(phone.slice(0, phone.indexOf("</style>")));
   const dress = sty.match(/\n  #mbface\{background:var\(--card\); ([^}]*)\}/);
   assert.ok(dress, "the phone's box has no face");
   assert.match(dress[1], /^border:var\(--edge\) solid var\(--line\); border-radius:calc\(7 \* var\(--u\)\);\s*box-shadow:0 2px 18px rgba\(60,45,20,\.10\), 0 1px 3px rgba\(60,45,20,\.05\)$/);
-  assert.ok(style.includes("--shade-lighter:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)"), "the board's lighter shadow is not the one the phone wears");
+  assert.ok(!style.includes("--shade-lighter:0 2px 18px"), "the board's hairline is not the lighter shadow the phone still wears");
   assert.ok(!/outline/.test(dress[1]));
   // the only edge any phone rule draws on the box, and the white bar without its line
   const subjects = selectors => selectors.split(",").map(s => s.trim().split(/\s+/).pop());
