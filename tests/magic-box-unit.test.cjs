@@ -568,7 +568,7 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
 // the one line and its stroke, run outside the page on stand-ins
 const linesCode = () => {
   const html = read("index.html");
-  return html.slice(html.indexOf("const ONE = {"), html.indexOf("if (MB.el){", html.indexOf("function magicDrone(")));
+  return html.slice(html.indexOf("const ONE = {"), html.indexOf("if (MB.el){", html.indexOf("function magicLine(")));
 };
 // the card and the box as the owner's mock has them (m1211, one-line-mock.png,
 // a window at 2x), halved to the board's pixels: the card's right edge at 506.5,
@@ -607,8 +607,8 @@ test("the one line is a barbell read off the owner's mock: level near the top of
   assert.ok(near(cx + cw / 2, one.from - .25, .01), "the card's tab is across its edge");
   assert.ok(near(bx + bw, one.to + .25, .01), "the box's tab stands against its edge, in the gap");
   assert.ok(near(cy + ch / 2, one.y, .01) && near(by + bh / 2, one.y, .01), "the tabs are level with the bar");
-  const core = MB.line.innerHTML.match(/<path d="M([\d.]+) ([\d.]+)L([\d.]+) ([\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="1\.25"/);
-  assert.ok(core, "the bar is the Drone stroke's core, straight, in the card's edge colour");
+  const core = MB.line.innerHTML.match(/<path d="M([\d.]+) ([\d.]+)L([\d.]+) ([\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="2"\/>/);
+  assert.ok(core, "the bar is one straight stroke 2 wide, in the card's edge colour");
   assert.ok(near(+core[2], one.y, .01) && near(+core[4], one.y, .01), "the bar is horizontal");
   assert.ok(near(+core[1], one.from, .01) && near(+core[3], one.to, .01), "the bar runs from the card's edge to the box's");
   // the same box, the same line, however often it is drawn
@@ -648,29 +648,18 @@ test("every box draws this one line: nothing is picked, kept or read from the bo
   assert.match(server, /box\["magic"\] = \{"open": True, "kind": kind, "rev": rev, "ts": now\}/);
 });
 
-test("the lines are drawn as the Drone brush draws them: a straight core through the corners, beaded by dabs, never a zig-zag", () => {
-  const ctx = vm.createContext({});
-  vm.runInContext(linesCode(), ctx);
-  const pts = [[10, 50], [10, 10], [300, 10], [300, 90]];
-  const line = ctx.magicDrone(pts, 7);
-  // the core runs straight through the corners and nowhere else
-  assert.equal(line.core, "M10.00 50.00L10.00 10.00L300.00 10.00L300.00 90.00");
-  // dabs a little over two pixels apart along the whole length, each of
-  // radius .9 to 1.5 and at most .15 off the line
-  const dabs = [...line.dabs.matchAll(/M([-\d.]+) ([-\d.]+)a([\d.]+)/g)].map(m => ({ x: +m[1] + +m[3], y: +m[2], r: +m[3] }));
-  const length = 40 + 290 + 80;
-  assert.ok(dabs.length > length / 3.4 && dabs.length < length / 2 + 2, dabs.length + " dabs");
-  for (const d of dabs){
-    assert.ok(d.r >= .9 && d.r <= 1.5, "radius " + d.r);
-    const off = Math.min(Math.abs(d.x - 10), Math.abs(d.x - 300), Math.abs(d.y - 10));
-    assert.ok(off <= .16, "a dab off the line by " + off);
-  }
-  // the weight of 2: a core under it and dabs a little over it, which on the
-  // simulator measured 1.95 wide on average against ref1's 1.96
-  const mean = dabs.reduce((s, d) => s + d.r, 0) / dabs.length;
-  assert.equal(vm.runInContext("DRONE.core", ctx), 1.25);
-  assert.ok(2 * mean > 2.2 && 2 * mean < 2.6, "dabs " + 2 * mean + " across");
-  assert.equal(ctx.magicDrone(pts, 7).dabs, line.dabs, "the same line is drawn the same");
+test("the line is a plain solid stroke: no brush, no dabs, no beads", () => {
+  const html = read("index.html");
+  for (const gone of ["magicDrone", "DRONE", "Drone"])
+    assert.ok(!html.includes(gone), gone + " is still in the page");
+  const { ctx, MB } = barbell();
+  ctx.magicLine(MOCK.card, MOCK.box);
+  // the bar is one path of two points and the two tabs, nothing else
+  const parts = MB.line.innerHTML.match(/<(path|rect|circle|ellipse)\b/g);
+  assert.deepEqual(parts, ["<path", "<rect", "<rect"], MB.line.innerHTML);
+  assert.equal(vm.runInContext("ONE.bar", ctx), 2);
+  assert.ok(!/\bM[^"]*[aAcCqQ]/.test(MB.line.innerHTML.match(/<path d="([^"]*)"/)[0]), "the bar's path is a straight line");
+  assert.ok(!/stroke-dasharray|stroke-linecap/.test(MB.line.innerHTML));
 });
 
 test("a site that will not be framed comes square, with its name and a new-page mark in a box in the middle", () => {
