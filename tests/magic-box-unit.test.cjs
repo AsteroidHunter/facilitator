@@ -604,7 +604,7 @@ test("the one line is a barbell read off the owner's mock: level with the middle
   assert.equal(one.y, box.top + .5 + 15);
   assert.ok(near(one.from * 2, 1013, 1.5) && near(one.to * 2, 1062, 1.5), JSON.stringify(one));
   // a short straight horizontal bar, and the tabs: 2 by 12 centred across the
-  // card's edge, 3 by 6 against the box's, both centred on the bar's level
+  // card's edge, 2 by 6 centred across the box's, both centred on the bar's level
   ctx.magicLine(card, box);
   assert.equal(MB.line.ons, 1);
   // each in the card's edge colour with a .5 rim drawn inside its size, so
@@ -613,9 +613,10 @@ test("the one line is a barbell read off the owner's mock: level with the middle
     .map(([, x, y, w, h]) => [+x - .25, +y - .25, +w + .5, +h + .5]);
   assert.equal(rects.length, 2, "two tabs: " + MB.line.innerHTML);
   const [[cx, cy, cw, ch], [bx, by, bw, bh]] = rects;
-  assert.deepEqual([cw, ch, bw, bh], [2, 12, 3, 6]);
+  assert.deepEqual([cw, ch, bw, bh], [2, 12, 2, 6]);
   assert.ok(near(cx + cw / 2, one.from - .25, .01), "the card's tab is across its edge");
-  assert.ok(near(bx + bw, one.to + .25, .01), "the box's tab stands against its edge, in the gap");
+  assert.ok(near(bx + bw / 2, one.to + .25, .01), "the box's tab is across its edge, as the card's is");
+  assert.equal(bw, cw, "the box's tab is as wide as the card's");
   assert.ok(near(cy + ch / 2, one.y, .01) && near(by + bh / 2, one.y, .01), "the tabs are level with the bar");
   const core = MB.line.innerHTML.match(/<path d="M([\d.]+) ([\d.]+)L([\d.]+) ([\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="2"\/>/);
   assert.ok(core, "the bar is one straight stroke 2 wide, in the card's edge colour");

@@ -7972,13 +7972,13 @@ function magicRoom(){
 //     bar (the short white bar at its top, read off the element), and the same
 //     level at the card's edge
 //   the card's end is a tab 2 wide by 12 high, centred across the card's right
-//     edge; the box's end is a tab 3 wide by 6 high, in the gap against the
-//     box's left edge. as the 2px line's own size: 1 by 6 and 1.5 by 3. each
-//     tab has a thin darker rim (the mock's ends are outlined), inside its size
+//     edge; the box's end is the same kind of tab, 2 wide, centred across the
+//     box's left edge, but only 6 high. each tab has a thin darker rim (the
+//     mock's ends are outlined), inside its size
 // the bar is a plain solid stroke 2 wide, in the card's edge colour. a
 // gap with no room for the two tabs and a bar between them, or a card too
 // short at that level to carry its tab on a straight edge, gives null
-const ONE = { gap: 8, bar: 2, cardTab: { w: 2, h: 12 }, boxTab: { w: 3, h: 6 }, corner: 7,
+const ONE = { gap: 8, bar: 2, cardTab: { w: 2, h: 12 }, boxTab: { w: 2, h: 6 }, corner: 7,
   rim: .5, rimInk: "rgba(60,45,20,.30)" };
 // the middle of the box's top bar, in stage pixels down from the box's top, as
 // the page lays it out: read off the two rectangles, screen pixels over the
@@ -8016,7 +8016,7 @@ function magicLine(card, box){
   MB.line.innerHTML = '<g><path d="M' + one.from.toFixed(2) + ' ' + one.y.toFixed(2) + 'L' + one.to.toFixed(2) + ' ' +
     one.y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + ONE.bar + '"/>' +
     tab(one.from - edge / 2 - ONE.cardTab.w / 2, ONE.cardTab.w, ONE.cardTab.h) +
-    tab(one.to + edge / 2 - ONE.boxTab.w, ONE.boxTab.w, ONE.boxTab.h) + '</g>';
+    tab(one.to + edge / 2 - ONE.boxTab.w / 2, ONE.boxTab.w, ONE.boxTab.h) + '</g>';
   MB.line.classList.add("on");
 }
 if (MB.el){
