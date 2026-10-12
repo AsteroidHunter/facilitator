@@ -976,6 +976,10 @@
   /* dimmed from the tap that opens the picker until the phone has taken it
      down (the picker's session, in the script): off at once, back on a fade */
   body.picking .clipbtn{opacity:.28; transition:none}
+  /* off while the card's name is being typed: the page's one disabled fade, and no press */
+  .clipbtn[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
+  .clipbtn[aria-disabled="true"]:active{transform:none}
+  .clipbtn[aria-disabled="true"]:active::before{opacity:0}
   .clipbtn::before{
     content:""; position:absolute; z-index:-1; left:0; right:0; top:50%; aspect-ratio:1;
     transform:translateY(-50%); border-radius:var(--sq); border:var(--edge) solid var(--line);
@@ -985,6 +989,11 @@
   .clipbtn:active{transform:translateY(1px)}
   .clipbtn:active::before{opacity:1}
   .clipfile{display:none}
+  /* the field the new-card plus focuses on its own tap, to hold the keyboard up until the card's name exists (titleCatch, in the script). it is on the page and painted, as a field has to be for the phone to raise a keyboard for it, but nothing of it shows or takes a touch. 16px keeps the phone from zooming to it */
+  #titlecatch{
+    position:fixed; top:0; left:0; width:1px; height:1px; margin:0; padding:0; border:0;
+    opacity:0; pointer-events:none; font-size:16px; caret-color:transparent; background:none;
+  }
   /* typing: the plus shrinks and fades, the text slides over its place; transform and opacity only, since a layout change on the focus frame makes iOS drop the keyboard */
   .bottombar.typing .clipbtn{
     opacity:0; transform:scale(.7); pointer-events:none;
@@ -1767,6 +1776,7 @@ for (const type of ["gesturestart", "gesturechange"])
   <!-- what the row stands on, over the card: see #dockbed in the sheet -->
   <div id="dockbed" aria-hidden="true"><i></i></div>
 </div>
+<input id="titlecatch" type="text" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done">
 <div id="scrim"></div>
 <!-- the places the project's capsule opens: Home, with the board's house, then
      the projects, which renderTabs draws into #projlist -->
@@ -2426,15 +2436,29 @@ function makeBox(b){
   // a tap that comes down while the last picker is still being taken down is
   // held whole, its click included (the file picker's session, after makeBox)
   let plusHeld = false;
+  // and while the card's name is being typed the plus is off: a picker opened over
+  // the name takes the keyboard down and floats in the middle of the page. the
+  // press is refused whole, so the name keeps the focus and the keyboard, and the
+  // click is judged by the press, since a name left between them (Enter, a tap
+  // elsewhere) would otherwise let that same tap through
+  let nameHeld = false;
   clip.addEventListener("pointerdown", e => {
     plusHeld = pickPhase === "closing";
-    if (plusHeld || ComposeFormat.focused(ta)) e.preventDefault();
+    nameHeld = titleEl.isContentEditable;
+    if (plusHeld || nameHeld || ComposeFormat.focused(ta)) e.preventDefault();
   });
+  // the dimmed look follows the name's editing, whichever way it starts or ends
+  const clipSync = () => {
+    if (titleEl.isContentEditable) clip.setAttribute("aria-disabled", "true");
+    else clip.removeAttribute("aria-disabled");
+  };
+  new MutationObserver(clipSync).observe(titleEl, { attributes: true, attributeFilter: ["contenteditable"] });
+  clipSync();
   // picked, pasted or dropped, a file goes into the tray and starts uploading
   wireAttachmentTransfer(ta, files => trayAdd(b.id, files));
   clip.addEventListener("click", () => {
-    const held = plusHeld;
-    plusHeld = false;
+    const held = plusHeld || nameHeld || titleEl.isContentEditable;
+    plusHeld = nameHeld = false;
     if (!held && pickPhase !== "closing") pickOpen(clipfile);
   });
   clipfile.addEventListener("cancel", pickSettle);
@@ -3103,6 +3127,7 @@ function markUnsure(op, why){
   op.advance = false;
   op.state = "unsure"; op.why = why; op.waiting = false;
   if (op.kind === "create"){
+    letGoTitleCatch();
     drawCreatePending();
     drawerNote("Could not confirm the card was made; it will show here if it was");
   } else {
@@ -3125,6 +3150,7 @@ function failOp(op, why, by){
   op.state = "failed"; op.why = why; op.by = by || "phone";
   if (op.kind === "create"){
     ops = ops.filter(o => o !== op);
+    letGoTitleCatch();
     drawCreatePending();
     drawerNote("The card could not be made: " + why);
   } else {
@@ -3159,7 +3185,7 @@ function landSend(op, result){
 // one asked for before a reload or a sleep is shown and left named as it is
 function landCreate(op, result){
   drawCreatePending();
-  if (!result.id) return;
+  if (!result.id){ letGoTitleCatch(); return; }
   if (Number.isSafeInteger(result.rev)){
     createRevFloor = createRevFloor == null ? result.rev : Math.max(createRevFloor, result.rev);
   }
@@ -3258,6 +3284,30 @@ function doSend(id, opts){
   endPhoneTrace(trace, { op: op.id, box: id }, null, true);
   return op;
 }
+// the Mac board puts the caret in a new card's name (editTitle, in card-logic.js).
+// the phone runs the same editTitle, but only once the board has answered, and the
+// phone raises its keyboard only for a focus made inside the tap itself, so a focus
+// made then lands with no keyboard under it. so the tap focuses a field that is
+// already on the page, titleCatch, which brings the keyboard up; once the card's
+// name is there editTitle moves the focus into it, and the phone leaves a keyboard
+// that is already up where it is when the focus hops between fields
+const titleCatch = document.getElementById("titlecatch");
+function catchTitle(){
+  try { titleCatch.focus({ preventScroll: true }); } catch (_) {}
+}
+// the card did not come, so nothing is left holding the keyboard up
+function letGoTitleCatch(){
+  titleCatch.value = "";
+  if (document.activeElement === titleCatch) titleCatch.blur();
+}
+// the card's name has been given the focus (or could not take it). what was typed
+// before it got there goes in the name, ahead of anything else
+function handOffTitleCatch(el){
+  const early = titleCatch.value;
+  letGoTitleCatch();
+  if (early && el && document.activeElement === el.titleEl && el.titleEl.isContentEditable) document.execCommand("insertText", false, early);
+}
+
 // one press, one card. a press while the card is still being made is the same
 // press: it wakes the try rather than minting another card, and the plus
 // breathes until the board answers. once the card is there the next press is
@@ -3265,9 +3315,10 @@ function doSend(id, opts){
 function createCard(){
   const trace = tracePhone("begin", "create");
   if (!validOwners.has(activeOwner)){ endPhoneTrace(trace); return; }
-  if (pendingCreate()){ wakeOps(); endPhoneTrace(trace); return; }
+  if (pendingCreate()){ catchTitle(); wakeOps(); endPhoneTrace(trace); return; }
   const op = mintOp("create", { owner: activeOwner });
   if (!op){ drawerNote("No card can be made while fifty messages are still unconfirmed on this phone"); endPhoneTrace(trace, { outcome: "failed" }); return; }
+  catchTitle();   // still inside the tap: the card's name does not exist until the board answers
   tracePhone("note", "operation", { op: op.id, outcome: "minted" });
   // pendingCreate above proves only one create can be live. Clear any record
   // left by an already-dead exceptional path before installing that one.
@@ -5493,6 +5544,7 @@ function apply(state){
     if (homeOpen) setHome(false);   // a card just made is named on its board
     select(id);
     editTitle(id);
+    handOffTitleCatch(els[id]);
   }
   endPhoneTrace(trace, { rev: state.rev }, null, true);
 }
