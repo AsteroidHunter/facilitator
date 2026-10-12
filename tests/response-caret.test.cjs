@@ -146,7 +146,8 @@ test("the place key wants exactly Control and Option: the neighbouring chords ke
     assert.equal(action(event(key, { ctrlKey: true, altKey: true, isComposing: true })), null);
     assert.equal(action(event(key)), "drawerWalk");
   }
-  for (const key of ["ArrowLeft", "ArrowRight"]) assert.equal(action(event(key, { ctrlKey: true, altKey: true })), null);
+  // left and right with the same two are the magic box's, not the place key's
+  for (const key of ["ArrowLeft", "ArrowRight"]) assert.equal(action(event(key, { ctrlKey: true, altKey: true })), "magicJump");
   // the small card has no response of this kind and no such key
   assert.equal(context.cardShortcut(event("ArrowUp", { ctrlKey: true, altKey: true }), "mini"), null);
 });
