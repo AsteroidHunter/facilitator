@@ -222,7 +222,7 @@ The onboarding card asks its questions one after another as its replies: What sh
 
 Each reply is a page of the card's history and belongs to the question on it. To change an answer, go back to its question with Control + Shift + up and send a new one: it replaces the old answer, and the card returns to where you were and says what changed. Control + Shift + down steps forward again.
 
-With the first answer a magic box rises in beside the card, as an agent's box does on the board, holding a faint keyboard, and it stays for the rest of the onboarding. It lights the keys a card teaches: left Control, left Shift and up as the way back is first shown, left Control, Shift and right on the onboarding card's last reply, and each chord in turn on 101: Hotkeys.
+With the first answer a faint keyboard comes in behind the foot of the card and stays for the rest of the onboarding. It lights the keys a card teaches: left Control, left Shift and up as the way back is first shown, left Control, Shift and right on the onboarding card's last reply, and each chord in turn on 101: Hotkeys.
 
 The onboarding also makes a sample project, a folder named `facilitator-sample` in your home folder (an existing one is never touched), and opens it as your first project. Marking the last card, 101: Hotkeys, Done (Control + Shift + Backspace or its cross) saves your answers and shows the sample project's board; without a name it goes back to the first question instead.
 
