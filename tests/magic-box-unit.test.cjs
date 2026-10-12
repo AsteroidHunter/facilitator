@@ -515,9 +515,13 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.match(rule, /z-index:2/);
   assert.match(html, /body\.focus #magicbox\.on\{display:flex; position:fixed; z-index:1;/, "the box's own level, under the line's");
   // it wears the card's own shadow, both layers, at the strength a filter gives
-  // them (half the blur), and none when the card is lowered, as the box has none
-  assert.match(rule, /filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)/);
-  assert.match(html, /\n  body\.lowered #mbline\.on\{filter:none\}/);
+  // them (half the blur), and none when the card is lowered, as the box has none.
+  // the shadow is on the group inside the svg and never on the svg, a layer of
+  // its own whose filter is blurred again on every frame of a scroll (m1216)
+  assert.ok(!/filter/.test(rule), "the svg's own layer wears the filter: " + rule);
+  assert.match(html, /\n  body\.focus #mbline\.on > g\{filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)\}/);
+  assert.match(html, /\n  body\.lowered #mbline\.on > g\{filter:none\}/);
+  assert.match(linesCode(), /MB\.line\.innerHTML = '<g><path d="'[\s\S]*?\+ '<\/g>';/);
   assert.match(html, /\n  body\.focus:is\(\.home, \.editmode\) #mbline\.on\{display:none\}/);
   const lines = linesCode();
   assert.match(lines, /const ink = cs\.borderTopColor/);
