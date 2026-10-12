@@ -105,6 +105,13 @@
     "if (h > 0 && h !== say.h) { say.h = h; parent.postMessage(W + ' ' + h, '*'); } };" +
     "addEventListener('load', () => { say(); if (window.ResizeObserver) new ResizeObserver(say).observe(document.body); });" +
     "document.addEventListener('load', say, true);";
+  // control+option+left typed in the page never reaches the board, since a
+  // sealed frame keeps its keys to itself, so the page says it to the board:
+  // the word, a space and "back". It stands ahead of the agent's own script, in
+  // capture on the window, which the agent's listeners cannot get in front of
+  const PAGE_BACK = "addEventListener('keydown', e => {" +
+    "if (e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && e.key === 'ArrowLeft') {" +
+    "e.preventDefault(); parent.postMessage(W + ' back', '*'); } }, true);";
   // the Mac's box shows no scrollbar inside a page, the board's rule for every
   // scroller (card-tokens.css) restated for the frame, which the board's sheet
   // does not reach, and a page never scrolls sideways: whatever is wider than
@@ -119,7 +126,7 @@
   function pageDoc(html, word, sized) {
     const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
-      (sized ? ';(() => { const W = ' + W + '; ' + PAGE_HEIGHT + ' })()' : "") + '</script>' : "";
+      (sized ? ';(() => { const W = ' + W + '; ' + PAGE_BACK + PAGE_HEIGHT + ' })()' : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
       '<meta name="referrer" content="no-referrer">' + (sized ? CALM : "") + '<script>' + KEYS_GUARD + '</script>' + hello +
       String(html == null ? "" : html);

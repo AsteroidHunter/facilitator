@@ -625,6 +625,17 @@ const CARD_SHORTCUT_DEFINITIONS = [
       (e.key === "ArrowUp" || e.key === "ArrowDown")
       ? (e.key === "ArrowUp" ? -1 : 1) : null,
   },
+  // control+option+right puts the owner into the card's magic box, as a click
+  // in it does, and control+option+left puts them back where they were on the
+  // card: left is -1, right 1. the same chord pair as the one above, so the
+  // same reasoning: no text, editor or browser here gives it a meaning, and
+  // Apple's screen reader takes it while it is on
+  {
+    action: "magicJump", mini: false,
+    match: e => e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && !e.isComposing &&
+      (e.key === "ArrowLeft" || e.key === "ArrowRight")
+      ? (e.key === "ArrowLeft" ? -1 : 1) : null,
+  },
   // command+z and control+z are the editor's undo and nothing of ours. The card
   // pages had a return-to-the-previous-card on that chord until 20260910; it
   // took the key away from the text being typed, so it is gone with no
@@ -7714,6 +7725,9 @@ function magicView(el, hooks = {}){
     const run = view.page;
     if (!run || e.source !== run.frame.contentWindow || typeof e.data !== "string") return;
     if (e.data === run.word) run.said++;
+    // control+option+left typed inside the page, which the board never hears
+    // from a sealed frame: the page relays it (MagicBox.pageDoc)
+    else if (hooks.back && e.data === run.word + " back") hooks.back();
     else if (hooks.sized && e.data.startsWith(run.word + " ")){
       const tall = Math.ceil(+e.data.slice(run.word.length + 1));
       if (tall > 0 && hooks.heard) hooks.heard(tall, run.frame.clientWidth);
