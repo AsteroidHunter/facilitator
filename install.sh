@@ -422,6 +422,10 @@ elif ! phone_client; then
   skipped 'Skipped the rest of the phone client: no answer was read.'
 fi
 
+# Asks only when Chrome's graphics acceleration is off, and says nothing when
+# it is on. Leaving it as it is never stops the install.
+FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _chrome-acceleration || true
+
 printf '\n'
 if out="$("$PY" "$REPO/shell_integration.py" install --quiet 2>&1)"; then
   ok 'facilitator command and agent skill installed'
