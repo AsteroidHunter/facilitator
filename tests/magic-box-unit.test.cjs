@@ -574,25 +574,31 @@ const linesCode = () => {
 // a window at 2x), halved to the board's pixels: the card's right edge at 506.5,
 // the box's left edge at 531 and its top at 151, 150 high
 const MOCK = { card: { left: 30, top: 23, width: 476.5, height: 682 }, box: { left: 531, top: 151, width: 297.5, height: 150 } };
-const barbell = () => {
+// the box's top bar as the page lays it out: a border, then the bar, 30 high
+// (--mb-bar), in screen pixels at the stage's scale. its rectangle is read off
+// the element, so the stand-in moves with whatever it is given
+const BAR = { edge: .5, height: 30 };
+const barbell = (scale = 1, bar = BAR) => {
   const svg = () => { const s = { innerHTML: "", ons: 0, classList: { add() { s.ons++; } } }; return s; };
-  const MB = { line: svg() };
-  const ctx = vm.createContext({ MB, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)", borderRightWidth: "0.5px" }),
+  const top = 151 * scale;
+  const el = { querySelector: sel => sel === ".mbbar" ? { getBoundingClientRect: () => ({ top: top + bar.edge * scale, height: bar.height * scale }) } : null,
+    getBoundingClientRect: () => ({ top }) };
+  const MB = { line: svg(), el };
+  const ctx = vm.createContext({ MB, stageScale: scale, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)", borderRightWidth: "0.5px" }),
     document: { querySelector: () => ({}) } });
   vm.runInContext(linesCode(), ctx);
   return { ctx, MB };
 };
 
-test("the one line is a barbell read off the owner's mock: level near the top of the box, across the gap, a tab at each end", () => {
+test("the one line is a barbell read off the owner's mock: level with the middle of the box's top bar, across the gap, a tab at each end", () => {
   const { ctx, MB } = barbell();
   const near = (a, b, d = 1) => Math.abs(a - b) <= d;
   const { card, box } = MOCK;
-  const one = ctx.magicOne(card, box);
-  // where it meets the box's left edge, as a share of the box's height down
-  // from its top (37 of 300 mock pixels)
-  const ONE = vm.runInContext("ONE", ctx);
-  assert.ok(near(ONE.down, 37 / 300, .005), "the share down the box: " + ONE.down);
-  assert.ok(near(one.y * 2, 339.5, 1.5) && near(one.from * 2, 1013, 1.5) && near(one.to * 2, 1062, 1.5), JSON.stringify(one));
+  const one = ctx.magicOne(card, box, ctx.magicBarMid());
+  // where it meets the box's left edge: the middle of the top bar, the box's
+  // border (.5) and half the bar's 30 down from the box's top
+  assert.equal(one.y, box.top + .5 + 15);
+  assert.ok(near(one.from * 2, 1013, 1.5) && near(one.to * 2, 1062, 1.5), JSON.stringify(one));
   // a short straight horizontal bar, and the tabs: 2 by 12 centred across the
   // card's edge, 3 by 6 against the box's, both centred on the bar's level
   ctx.magicLine(card, box);
@@ -615,20 +621,49 @@ test("the one line is a barbell read off the owner's mock: level near the top of
   const first = MB.line.innerHTML;
   ctx.magicLine(card, box);
   assert.equal(MB.line.innerHTML, first);
-  // at the same share of any box's height, tall or short
-  assert.ok(near(ctx.magicOne(card, { ...box, height: 600 }).y, box.top + .123 * 600, .01));
+  // the box's height has no say in it, tall or short
+  assert.equal(ctx.magicOne(card, { ...box, height: 600 }, ctx.magicBarMid()).y, one.y);
+  assert.equal(ctx.magicOne(card, { ...box, height: 90 }, ctx.magicBarMid()).y, one.y);
+});
+
+test("the line's level is the middle of the box's top bar as the page lays it out, whatever its height or the stage's scale", () => {
+  const html = read("index.html");
+  assert.ok(!/ONE\.down|down: \.123/.test(html), "a share of the box's height is still in the page");
+  const at = (scale, bar) => { const { ctx } = barbell(scale, bar); return ctx.magicOne(MOCK.card, MOCK.box, ctx.magicBarMid()).y; };
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  assert.ok(near(at(1), 151 + 15.5));
+  // the bar taller or shorter: the line follows its middle
+  assert.ok(near(at(1, { edge: .5, height: 40 }), 151 + 20.5));
+  assert.ok(near(at(1, { edge: .5, height: 24 }), 151 + 12.5));
+  // a stage drawn at another scale reads the same in the stage's own pixels
+  assert.ok(near(at(.5), 151 + 15.5) && near(at(2), 151 + 15.5));
+  // the tabs move with the bar's level
+  const { ctx, MB } = barbell(1, { edge: .5, height: 40 });
+  ctx.magicLine(MOCK.card, MOCK.box);
+  const ys = [...MB.line.innerHTML.matchAll(/<rect x="[-\d.]+" y="([-\d.]+)" width="[\d.]+" height="([\d.]+)"/g)].map(([, y, h]) => +y - .25 + (+h + .5) / 2);
+  assert.equal(ys.length, 2);
+  assert.ok(ys.every(y => Math.abs(y - (151 + 20.5)) < .01), ys.join());
+  // no top bar to read: no line
+  const bare = barbell();
+  bare.MB.el.querySelector = () => null;
+  assert.equal(bare.ctx.magicBarMid(), null);
+  bare.ctx.magicLine(MOCK.card, MOCK.box);
+  assert.equal(bare.MB.line.innerHTML, "");
 });
 
 test("with no room for it no line is drawn: a gap too narrow for two tabs and a bar, or a card too short to carry its tab", () => {
   const { ctx, MB } = barbell();
   const { card, box } = MOCK;
   const edge = card.left + card.width;
-  assert.equal(ctx.magicOne(card, { ...box, left: edge }), null, "no gap");
-  assert.equal(ctx.magicOne(card, { ...box, left: edge + 7.9 }), null);
-  assert.ok(ctx.magicOne(card, { ...box, left: edge + 8 }));
+  const mid = ctx.magicBarMid();
+  assert.equal(ctx.magicOne(card, { ...box, left: edge }, mid), null, "no gap");
+  assert.equal(ctx.magicOne(card, { ...box, left: edge + 7.9 }, mid), null);
+  assert.ok(ctx.magicOne(card, { ...box, left: edge + 8 }, mid));
   // a box standing past the card's foot or above its top: no edge to meet
-  assert.equal(ctx.magicOne(card, { ...box, top: card.top + card.height }), null);
-  assert.equal(ctx.magicOne(card, { ...box, top: card.top - 150 }), null);
+  assert.equal(ctx.magicOne(card, { ...box, top: card.top + card.height }, mid), null);
+  assert.equal(ctx.magicOne(card, { ...box, top: card.top - 150 }, mid), null);
+  // a card too short at the bar's level to carry its tab on a straight edge
+  assert.equal(ctx.magicOne({ ...card, top: box.top + mid - 8, height: 682 }, box, mid), null);
   ctx.magicLine(card, { ...box, left: edge });
   assert.equal(MB.line.innerHTML, "", "a line was drawn with no gap");
   assert.equal(MB.line.ons, 0);
