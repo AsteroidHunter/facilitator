@@ -446,7 +446,7 @@
   --answ-move:.33s; --answ-come:.4s; --answ-rise:10px; --answ-gone:.4s;
   --sent-ease:cubic-bezier(.22, 1, .36, 1);
   --answ-fill:var(--bubble-fill); --answ-tag:calc(17 * var(--u));
-  --answ-peek:calc(var(--answ-line) * 1.5); --answ-fade:calc(var(--answ-line) * .75);
+  --answ-peek:calc(var(--answ-line) * 1.5); --answ-fade:calc(var(--answ-line) * .5);
 }
 .answered.gap{--answ-peek:calc(var(--answ-line) * 2.5)}
 /* the cut. a batch longer than the preview shows its first lines and dissolves
@@ -457,20 +457,23 @@
    bubble, counted in the surface's own --answ-line. a batch of up to two lines
    is shown whole, with no cut, strip or fade (the script decides that,
    fitAnswered in card-logic.js). a longer one is cut at one and a half lines
-   (--answ-peek) and dissolves over the last three quarters of a line
-   (--answ-fade), the half line the cut shows and the foot of the line over
-   it. when its second line is blank, a paragraph break after the first line or two messages
+   (--answ-peek) and dissolves over the last half line of them
+   (--answ-fade). when its second line is blank, a paragraph break after the
+   first line or two messages
    joined by their blank line, the script sets .gap and the cut stands at two
    and a half lines instead, so the blank line is not all of what the preview
    shows.
    the dissolve is a strip of the panel's own grey, --answ-fade deep, laid over
    the foot of the cut and drawn once. on a flat grey panel it reads exactly as
-   the words dissolving into the grey. the grey comes in on a smoothstep,
-   written out in tenths, with no slope where it starts or where it is whole,
-   so no line marks where the fuzz begins, and the tops of the cut line's
-   letters thin out into the grey rather than stop along the cut: a straight
-   ramp over the half line stopped them there, which read as a hard edge with
-   fuzz over it. all it ever does is fade: whole while
+   the words dissolving into the grey. the grey comes in straight over the
+   first three fifths of the strip, so the top of the cut line reads as it
+   always did, and over the last two fifths it eases into the whole grey and
+   arrives with no slope (a cubic, written out in twentieths: its slope at
+   three fifths is the straight ramp's, and nothing at the cut). a straight
+   ramp all the way arrived at the cut at full slope, so every letter was
+   sliced off along that one line while still faintly there. a smoothstep
+   from the first line's foot (three quarters of a line) took the second
+   line's top away with it. all it ever does is fade: whole while
    a long batch stands cut, gone while it stands open. --answ-shade is that
    strength, which the sheet gives and the script holds inline for the length
    of a run only. no mask is drawn anywhere on the panel, so no frame of a run
@@ -489,15 +492,14 @@
 }
 .answclip::after, .sentgoo-fuzz{
   background:linear-gradient(to bottom, transparent,
-    color-mix(in srgb, var(--answ-fill) 2.8%, transparent) 10%,
-    color-mix(in srgb, var(--answ-fill) 10.4%, transparent) 20%,
-    color-mix(in srgb, var(--answ-fill) 21.6%, transparent) 30%,
-    color-mix(in srgb, var(--answ-fill) 35.2%, transparent) 40%,
-    color-mix(in srgb, var(--answ-fill) 50%, transparent) 50%,
-    color-mix(in srgb, var(--answ-fill) 64.8%, transparent) 60%,
-    color-mix(in srgb, var(--answ-fill) 78.4%, transparent) 70%,
-    color-mix(in srgb, var(--answ-fill) 89.6%, transparent) 80%,
-    color-mix(in srgb, var(--answ-fill) 97.2%, transparent) 90%,
+    color-mix(in srgb, var(--answ-fill) 60%, transparent) 60%,
+    color-mix(in srgb, var(--answ-fill) 65.6%, transparent) 65%,
+    color-mix(in srgb, var(--answ-fill) 71.9%, transparent) 70%,
+    color-mix(in srgb, var(--answ-fill) 78.5%, transparent) 75%,
+    color-mix(in srgb, var(--answ-fill) 85%, transparent) 80%,
+    color-mix(in srgb, var(--answ-fill) 90.9%, transparent) 85%,
+    color-mix(in srgb, var(--answ-fill) 95.6%, transparent) 90%,
+    color-mix(in srgb, var(--answ-fill) 98.8%, transparent) 95%,
     var(--answ-fill));
 }
 .answered.open .answclip{max-height:none}
