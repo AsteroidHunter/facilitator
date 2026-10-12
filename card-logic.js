@@ -2096,6 +2096,20 @@ function shortAge(ts){
   return Math.floor(sec / 86400) + "d";
 }
 
+// the time on a ticket, for the desktop list and the phone list alike. an open
+// ticket counts from the last message on the card, whoever sent it: the reader's
+// last (sent, still queued, or already answered) or the agent's last reply,
+// whichever is newer, so a new card with only the reader's message has a time
+// from the moment it was sent. a done ticket keeps counting from the agent's
+// last reply, as it has since the age was added to it
+function ticketTs(b){
+  if (b.done) return b.agentTs || 0;
+  let at = b.agentTs || 0;
+  for (const ts of b.pendingStamps || []) if (ts > at) at = ts;
+  for (const m of b.answered || []) if (m && m.ts > at) at = m.ts;
+  return at;
+}
+
 // ---- the card's row ---------------------------------------------------------------
 function attachmentNotice(ta, text){
   const parent = ta.closest(".pendwrap") || ta.closest(".c3bar") || ta.parentElement;
