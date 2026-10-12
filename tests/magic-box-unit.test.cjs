@@ -211,8 +211,11 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   assert.match(room, /return \{ S, sr, rect, fit, most: MagicBox\.place\(rect, fit\) \};/);
   // no room beside the card: hidden where it is, before anything is sized
   // or asked of what it shows, and nothing else is done with it
-  assert.match(fn, /const room = magicRoom\(\);\n  if \(!room\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n  const \{ S, sr, rect, fit, most \} = room;\n  if \(!most\.shown\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n/);
+  assert.match(fn, /const room = magicRoom\(\);\n  if \(!room\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n  const \{ S, rect, fit, most \} = room;\n  if \(!most\.shown\)\{ MB\.el\.style\.visibility = "hidden"; return; \}\n/);
   assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\)\)/);
+  // shown, it draws the line to the card from the card's and the box's own
+  // rectangles, with no workspace edge to keep it under
+  assert.match(fn, /magicLine\(rect, at\);\n  if \(MB\.rise\.t < 1/);
   assert.match(fn, /visibility: MB\.view\.waiting\(\) \? "hidden" : ""/);
   assert.ok(!/floating|--cardbar-h/.test(fn), "a float is left in the placing");
   // still open: hiding it closes nothing and takes nothing off the page, and
@@ -490,12 +493,12 @@ test("the box's edge line fades in and out on the rise with everything else on t
   assert.ok(!/#mbface[^{]*\.rising|#mbface[^{]*\{[^}]*--rise/.test(phone), "the phone's box has a rise of its own");
 });
 
-test("the box rises out of the page as it first comes, its lines with it, and faster once the owner is at it", () => {
+test("the box rises out of the page as it first comes, its line with it, and faster once the owner is at it", () => {
   const html = read("index.html");
   assert.match(html, /const RISE_MS = 1000, RISE_FAST = 3;/);
-  // what it holds follows the rise, and the lines' and tabs' strength too
+  // what it holds follows the rise, and the line's strength too, shadow and all
   assert.match(html, /\n  #magicbox\.rising > \*\{opacity:var\(--rise\)\}/);
-  assert.match(html, /MB\.el\.style\.setProperty\("--rise", p\.toFixed\(4\)\);\s*MB\.lines\.style\.opacity = MB\.tabs\.style\.opacity = p\.toFixed\(4\);/);
+  assert.match(html, /MB\.el\.style\.setProperty\("--rise", p\.toFixed\(4\)\);\s*MB\.line\.style\.opacity = p\.toFixed\(4\);/);
   // a click, a key or a scroll in the box while it rises hurries the rest
   assert.match(html, /if \(MB\.el && MB\.rise\.dir > 0 && MB\.el\.contains\(e\.target\)\) MB\.rise\.fast = RISE_FAST;/);
   assert.match(html, /for \(const type of \["pointerdown", "keydown", "wheel"\]\) addEventListener\(type, magicHurry/);
@@ -505,13 +508,19 @@ test("the box rises out of the page as it first comes, its lines with it, and fa
   assert.match(html, /magicLoad\(b\.id, b\.magic\.rev, !!was && !was\.has\(b\.id\)\)/);
   assert.match(html, /const t = id === MB\.id && MB\.rise\.raf \? MB\.rise\.t : fresh \? 0 : 1;/);
   assert.match(html, /function magicOff\(\)\{[\s\S]*?magicRiseStop\(\);\s*magicRiseSet\(1\);/);
-  // the lines are behind the card: ahead of it on the page; the tabs over the
-  // card and the box; the card's own edge colour, never the accent
-  assert.ok(html.indexOf('<svg id="mblines"') < html.indexOf("<main>"));
-  assert.ok(html.indexOf('<svg id="mbtabs"') > html.indexOf("</main>"));
-  assert.match(html, /body\.focus #mbtabs\.on\{z-index:2\}/);
-  const lines = html.slice(html.indexOf("// the lines from the card to its box, copied"), html.indexOf("if (MB.el){", html.indexOf("function magicDrone(")));
-  assert.match(lines, /const ink = getComputedStyle\(document\.querySelector\("main"\)\)\.borderTopColor;/);
+  // the line is over the card and the box, at their own level: after the card
+  // on the page and above the box; the card's own edge colour, never the accent
+  assert.ok(html.indexOf('<svg id="mbline"') > html.indexOf("</main>"));
+  const rule = html.slice(0, html.indexOf("</style>")).replace(/\/\*[\s\S]*?\*\//g, "").match(/\n  body\.focus #mbline\.on\{[^}]*\}/)[0];
+  assert.match(rule, /z-index:2/);
+  assert.match(html, /body\.focus #magicbox\.on\{display:flex; position:fixed; z-index:1;/, "the box's own level, under the line's");
+  // it wears the card's own shadow, both layers, at the strength a filter gives
+  // them (half the blur), and none when the card is lowered, as the box has none
+  assert.match(rule, /filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)/);
+  assert.match(html, /\n  body\.lowered #mbline\.on\{filter:none\}/);
+  assert.match(html, /\n  body\.focus:is\(\.home, \.editmode\) #mbline\.on\{display:none\}/);
+  const lines = linesCode();
+  assert.match(lines, /const ink = cs\.borderTopColor/);
   assert.ok(!/--accent|#432BFF|#D9D1BE/i.test(lines));
 });
 
@@ -556,105 +565,87 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
   assert.equal(ctx.magicHeight("c:3", 393), 0);
 });
 
-// the two templates and the stroke, run outside the page on stand-ins
+// the one line and its stroke, run outside the page on stand-ins
 const linesCode = () => {
   const html = read("index.html");
-  return html.slice(html.indexOf("function magicRoute("), html.indexOf("if (MB.el){", html.indexOf("function magicDrone(")));
+  return html.slice(html.indexOf("const ONE = {"), html.indexOf("if (MB.el){", html.indexOf("function magicDrone(")));
 };
-// a card and a box as each sketch has them, in its own pixels (m1127 round 2)
-const SKETCH = {
-  ref1: { card: { left: 92.8, top: 85.3, width: 885.6, height: 1267.8 }, box: { left: 1018, top: 324, width: 462, height: 453.5 } },
-  ref2: { card: { left: 45.6, top: 101.6, width: 669.7, height: 958.9 }, box: { left: 750, top: 274, width: 419, height: 345 } },
-};
-
-test("each template puts its lines where its sketch has them, as shares of the card and the box", () => {
-  const ctx = vm.createContext({});
-  vm.runInContext(linesCode(), ctx);
-  const near = (a, b, d = 1.5) => Math.abs(a - b) <= d;
-  // ref1, drawn on its own card and box, lands on the sketch's own pixels
-  let { card, box } = SKETCH.ref1;
-  const one = ctx.magicRoute(0, card, box, 0);
-  const [a, b] = one.paths;
-  assert.ok(near(a[0][1], 206.8) && near(a[1][0], 1245.2), "ref1's top line: " + JSON.stringify(a));
-  assert.ok(near(b[0][1], 1249.9) && near(b[1][0], 1075.5), "ref1's low line: " + JSON.stringify(b));
-  assert.ok(near(a[0][0], card.left + card.width, 4) && near(a[2][1], box.top, 4) && near(b[2][1], box.top + box.height, 4));
-  assert.equal(one.tabs.length, 0);
-  ({ card, box } = SKETCH.ref2);
-  const two = ctx.magicRoute(1, card, box, 0).paths[0];
-  assert.ok(near(two[0][0], 639.7) && near(two[1][1], 62) && near(two[2][0], 774.7), "ref2: " + JSON.stringify(two));
-  assert.equal(ctx.magicRoute(1, card, box, 0).tabs.length, 2, "ref2's two tabs");
-  // the third template, the line from behind the card's top on its left, is
-  // gone: its numbers are nowhere in the code, and there are two templates
-  assert.ok(!/\.2205|\.0601|\.436/.test(linesCode()), "ref3's numbers are still in the code");
-  assert.ok(!/ref3/.test(linesCode()), "ref3 is still in the code");
-  // on the board, whose box's top stands 5% down the card, ref1's top line
-  // keeps the sketch's share of the room above the box
-  const boardCard = { left: 467, top: 75, width: 507, height: 749 }, boardBox = { left: 1024, top: 112.4, width: 394, height: 388 };
-  const ya = ctx.magicRoute(0, boardCard, boardBox, 0).paths[0][0][1];
-  assert.ok(near((ya - 75) / (112.4 - 75), .509, .01));
-  // a template that cannot be drawn says so: no room above the box, or a
-  // line that would leave the workspace
-  assert.equal(ctx.magicRoute(0, boardCard, { ...boardBox, top: 80 }, 0), null);
-  assert.equal(ctx.magicRoute(1, boardCard, boardBox, 60), null);
-  assert.equal(ctx.magicRoute(1, boardCard, { ...boardBox, top: 50 }, 0), null);
-});
-
-test("a box draws the template kept with it on the board, whatever the page has seen, and the nearest that fits", () => {
-  const svg = () => ({ dataset: {}, innerHTML: "", classList: { add() {}, toggle() {} } });
-  const MB = { id: null, lines: svg(), tabs: svg() };
-  // k2 kept the third template, taken out since
-  const lastState = { boxes: [0, 1, 2].map(k => ({ id: "k" + k, magic: { open: true, rev: 3, lines: k } }))
-    .concat([{ id: "old", magic: { open: true, rev: 1 } }]) };
-  const ctx = vm.createContext({ MB, lastState, Math, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)", borderTopWidth: "0.5px" }),
+// the card and the box as the owner's mock has them (m1211, one-line-mock.png,
+// a window at 2x), halved to the board's pixels: the card's right edge at 506.5,
+// the box's left edge at 531 and its top at 151, 150 high
+const MOCK = { card: { left: 30, top: 23, width: 476.5, height: 682 }, box: { left: 531, top: 151, width: 297.5, height: 150 } };
+const barbell = () => {
+  const svg = () => { const s = { innerHTML: "", ons: 0, classList: { add() { s.ons++; } } }; return s; };
+  const MB = { line: svg() };
+  const ctx = vm.createContext({ MB, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)", borderRightWidth: "0.5px" }),
     document: { querySelector: () => ({}) } });
   vm.runInContext(linesCode(), ctx);
-  const card = { left: 467, top: 75, width: 507, height: 749 }, box = { left: 1024, top: 112.4, width: 394, height: 388 };
-  // the page picks nothing: what it draws is the box's own, as often as it draws it
-  assert.ok(!/Math\.random/.test(linesCode()), "the page picks the lines itself");
-  for (let round = 0; round < 3; round++) for (const k of [0, 1]){
-    MB.id = "k" + k;
-    ctx.magicLines(card, round === 1 ? { ...box, height: 200 } : box, 0);
-    assert.equal(MB.lines.dataset.route, k, "box k" + k + " drew another template");
-  }
-  // a box that kept the third template draws the nearest left, the second,
-  // every time and with the room as it is or not
-  MB.id = "k2";
-  assert.equal(ctx.magicChosen("k2"), 1);
-  for (const room of [box, { ...box, height: 200 }]){
-    ctx.magicLines(card, room, 0);
-    assert.equal(MB.lines.dataset.route, 1, "a box with the third's lines did not draw the second");
-  }
-  // a box kept from before the board chose them: one worked out from its
-  // card's id, from the two there are, the same every time and in every window
-  MB.id = "old";
-  const once = ctx.magicChosen("old");
-  ctx.magicLines(card, box, 0);
-  assert.equal(MB.lines.dataset.route, once);
-  assert.equal(ctx.magicChosen("old"), once);
-  const worked = new Set();
-  for (const id of ["0", "1", "1.1", "2", "m3", "m4", "box-5", "box-6", "7", "8"]){
-    const k = ctx.magicChosen(id);
-    assert.ok(k === 0 || k === 1, "an id gave template " + k);
-    worked.add(k);
-  }
-  assert.deepEqual([...worked].sort(), [0, 1], "ids all gave one template");
-  // a template that does not fit gives way to the other. ref1 with the box's
-  // top level with the card's has no room above the box, and ref2 is drawn;
-  // ref2 with the workspace's edge over its line, ref1; with the box's top
-  // nearer ref2's line than it can go down into, or the workspace's edge over
-  // both lines, none is drawn, and no new shape either
-  MB.id = "k0";
-  ctx.magicLines(card, { ...box, top: 80 }, 0);
-  assert.equal(MB.lines.dataset.route, 1);
-  MB.id = "k1";
-  ctx.magicLines(card, box, 60);
-  assert.equal(MB.lines.dataset.route, 0);
-  ctx.magicLines(card, { ...box, top: 50 }, 0);
-  assert.equal(MB.lines.dataset.route, -1);
-  ctx.magicLines(card, { ...box, top: 80 }, 50);
-  assert.equal(MB.lines.dataset.route, -1);
-  // each one's other is the other, and nothing is third
-  assert.equal(vm.runInContext("JSON.stringify(MAGIC_NEAR)", ctx), "[[0,1],[1,0]]");
+  return { ctx, MB };
+};
+
+test("the one line is a barbell read off the owner's mock: level near the top of the box, across the gap, a tab at each end", () => {
+  const { ctx, MB } = barbell();
+  const near = (a, b, d = 1) => Math.abs(a - b) <= d;
+  const { card, box } = MOCK;
+  const one = ctx.magicOne(card, box);
+  // where it meets the box's left edge, as a share of the box's height down
+  // from its top (37 of 300 mock pixels)
+  const ONE = vm.runInContext("ONE", ctx);
+  assert.ok(near(ONE.down, 37 / 300, .005), "the share down the box: " + ONE.down);
+  assert.ok(near(one.y * 2, 339.5, 1.5) && near(one.from * 2, 1013, 1.5) && near(one.to * 2, 1062, 1.5), JSON.stringify(one));
+  // a short straight horizontal bar, and the tabs: 2 by 12 centred across the
+  // card's edge, 3 by 6 against the box's, both centred on the bar's level
+  ctx.magicLine(card, box);
+  assert.equal(MB.line.ons, 1);
+  // each in the card's edge colour with a .5 rim drawn inside its size, so
+  // its outside (the rim's outer edge) is the size and place the mock gives
+  const rects = [...MB.line.innerHTML.matchAll(/<rect x="([-\d.]+)" y="([-\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="1" fill="rgb\(202, 202, 202\)" stroke="rgba\(60,45,20,\.30\)" stroke-width="0\.5"\/>/g)]
+    .map(([, x, y, w, h]) => [+x - .25, +y - .25, +w + .5, +h + .5]);
+  assert.equal(rects.length, 2, "two tabs: " + MB.line.innerHTML);
+  const [[cx, cy, cw, ch], [bx, by, bw, bh]] = rects;
+  assert.deepEqual([cw, ch, bw, bh], [2, 12, 3, 6]);
+  assert.ok(near(cx + cw / 2, one.from - .25, .01), "the card's tab is across its edge");
+  assert.ok(near(bx + bw, one.to + .25, .01), "the box's tab stands against its edge, in the gap");
+  assert.ok(near(cy + ch / 2, one.y, .01) && near(by + bh / 2, one.y, .01), "the tabs are level with the bar");
+  const core = MB.line.innerHTML.match(/<path d="M([\d.]+) ([\d.]+)L([\d.]+) ([\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="1\.25"/);
+  assert.ok(core, "the bar is the Drone stroke's core, straight, in the card's edge colour");
+  assert.ok(near(+core[2], one.y, .01) && near(+core[4], one.y, .01), "the bar is horizontal");
+  assert.ok(near(+core[1], one.from, .01) && near(+core[3], one.to, .01), "the bar runs from the card's edge to the box's");
+  // the same box, the same line, however often it is drawn
+  const first = MB.line.innerHTML;
+  ctx.magicLine(card, box);
+  assert.equal(MB.line.innerHTML, first);
+  // at the same share of any box's height, tall or short
+  assert.ok(near(ctx.magicOne(card, { ...box, height: 600 }).y, box.top + .123 * 600, .01));
+});
+
+test("with no room for it no line is drawn: a gap too narrow for two tabs and a bar, or a card too short to carry its tab", () => {
+  const { ctx, MB } = barbell();
+  const { card, box } = MOCK;
+  const edge = card.left + card.width;
+  assert.equal(ctx.magicOne(card, { ...box, left: edge }), null, "no gap");
+  assert.equal(ctx.magicOne(card, { ...box, left: edge + 7.9 }), null);
+  assert.ok(ctx.magicOne(card, { ...box, left: edge + 8 }));
+  // a box standing past the card's foot or above its top: no edge to meet
+  assert.equal(ctx.magicOne(card, { ...box, top: card.top + card.height }), null);
+  assert.equal(ctx.magicOne(card, { ...box, top: card.top - 150 }), null);
+  ctx.magicLine(card, { ...box, left: edge });
+  assert.equal(MB.line.innerHTML, "", "a line was drawn with no gap");
+  assert.equal(MB.line.ons, 0);
+});
+
+test("every box draws this one line: nothing is picked, kept or read from the box, and the old layouts are gone", () => {
+  const html = read("index.html"), server = read("server.py");
+  const code = linesCode();
+  assert.ok(!/Math\.random/.test(code), "the page picks the line itself");
+  assert.ok(!/magic\.lines|lastState/.test(code), "the page reads a stored style");
+  for (const gone of ["magicRoute", "magicLines", "magicChosen", "MAGIC_NEAR", "mblines", "mbtabs"])
+    assert.ok(!html.includes(gone), gone + " is still in the page");
+  assert.ok(!/\.2205|\.0601|\.436|\.0413|\.887|\.0959/.test(code), "an old layout's numbers are in the line's code");
+  for (const gone of ["MAGIC_LINES", "_magic_lines", "magic_lines_last"])
+    assert.ok(!server.includes(gone), gone + " is still in the server");
+  // what a box record keeps is no longer a style
+  assert.match(server, /box\["magic"\] = \{"open": True, "kind": kind, "rev": rev, "ts": now\}/);
 });
 
 test("the lines are drawn as the Drone brush draws them: a straight core through the corners, beaded by dabs, never a zig-zag", () => {
@@ -842,7 +833,7 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   assert.ok(heavier(weight("body.lowered #mbface"), weight("#mbface")) > 0);
   assert.ok(sty.includes("  body.lowered main{box-shadow:none}"));
   // no line is drawn between the card and the box on the phone
-  assert.ok(!/mblines|mbtabs/.test(phone), "the phone draws lines between its card and its box");
+  assert.ok(!/mbline/.test(phone), "the phone draws a line between its card and its box");
   assert.match(phone, /<section id="mbface" class="magicbox" aria-label="magic box">/);
 });
 
