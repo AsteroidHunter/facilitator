@@ -6855,6 +6855,15 @@ const phoneShortcutActions = {
     e.preventDefault();
     createCard();
   },
+  // command+0 in the installed app: the Home row's press, as the Mac board's key
+  // does, typing or not. a Safari tab leaves the key alone, since Safari on iPad
+  // resets the zoom with it. Home's own table has no entry for it, so on Home it
+  // does nothing. the key is kept from the page only when it is acted on
+  home(e){
+    if (homeOpen || !isInstalledWindow()) return;
+    e.preventDefault();
+    house.click();
+  },
   tab(e, shortcut){
     if (!lastState || (homeOpen && menuOut())) return;
     const ow = barOwners(lastState)[shortcut.value];

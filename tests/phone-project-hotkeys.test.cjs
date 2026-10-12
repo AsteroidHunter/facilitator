@@ -51,6 +51,8 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
   });
   vm.runInContext(logic, context);
   Object.assign(context, {
+    // a browser tab, where Command+0 is left to Safari (phone-home-key covers the installed app)
+    isInstalledWindow: () => false,
     phoneDeveloperMode: false, saveDiagnostic: source => calls.push(["diagnostic", source]),
     els, selectedId: selected, shownId: selected, browsing, activeOwner: "alpha", homeOpen: false, hist: null, phoneEnterAgain: null,
     lastSel: { alpha: selected, beta: "b2" }, validOwners: new Set(["alpha", "beta", "hidden", "empty"]),
