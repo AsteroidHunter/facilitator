@@ -34,8 +34,11 @@
      they are saved as the profile (POST /profile), the frame goes and the
      board opens on the sample project this page opened at its start
      (POST /onboarding/sample, then POST /project as "Open a new folder" does).
-     Only with an email given do they leave the Mac: the email, the name, the
-     answers and the time zone go to PostHog then, as that person's details. -->
+     The email is needed (Enter with the box empty, or an address with no @ or
+     no dot after it, keeps the question and asks for one); the other questions
+     but the name may be skipped. What leaves the Mac is the board's to say,
+     behind the "Share daily usage counts" switch in Settings (RUNBOOK.md,
+     Usage counts). -->
 <script src="/card-markdown.js"></script>
 <script src="/card-logic.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -878,20 +881,21 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const BACK_LINE = "To change an answer, " + BACK + ".";
   const NEXT = "Press " + key("Control + Shift + →") + " for the next card.";
   const FINISH = "Press " + key("Control + Shift + Backspace") + " to mark this card done and open your board.";
-  // what the email question says: who gets the address and the answers that
-  // go with it, why, and that it may be left unanswered
-  const EMAIL_ASK = "Your email, your answers here and your time zone go to PostHog, " +
-                    "so Facilitator's maker can ask you for feedback. You can skip this one.";
   // the main agent's choices. what anyone types that is not one of them is kept
   // as typed. the work question has none: its answer is the person's own words
   const AGENTS = ["Claude Code", "Codex"];
   const numbered = list => list.map((one, i) => (i + 1) + ". " + one).join("\n");
   // the onboarding card's questions, one reply of the card each, in order.
   // field is where the answer is kept, noun what a correction calls it, and
-  // only the name is needed
+  // only the name and the email are needed. check, where a question has one,
+  // gives the line that a send is asked again with (an empty box included), or
+  // nothing when the send is good
+  const EMAIL_EMPTY = "Please enter your email to go on.";
+  const EMAIL_BAD = "That does not look like an email. Please try name@example.com.";
+  const emailProblem = text => !text ? EMAIL_EMPTY : address(said(text)) ? "" : EMAIL_BAD;
   const QUESTIONS = [
     { field: "name", ask: "What should we call you?", noun: "name", needed: true },
-    { field: "email", ask: "What's your email?", noun: "email", note: EMAIL_ASK },
+    { field: "email", ask: "What's your email?", noun: "email", needed: true, check: emailProblem },
     { field: "work", ask: "What will you mostly use Facilitator for?", noun: "answer" },
     { field: "agent", ask: "Which agent do you use most?", noun: "main agent",
       choices: AGENTS, note: numbered(AGENTS) + "\n\nSend a number or a name." },
@@ -1180,7 +1184,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const page = card.pages[i], q = QUESTIONS[i];
     const parts = [page.head];
     if (q){
-      parts.push(q.ask, q.note, q.needed ? "" : SKIP_HINT);
+      parts.push(q.ask, q.note, q.check && card.asking, q.needed ? "" : SKIP_HINT);
       // the Tab hint only while the first question is the newest page; stepped back to, the caret is in the box
       if (!i && HINT === "reply" && card.pages.length === 1) parts.push(TAB_HINT);
       if (ASIDE_ON.includes(i)) parts.push(BACK_ASIDE);
@@ -1199,7 +1203,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // reply waiting on the reader
   const RUN_BEGAN = Date.now() / 1000;
   const cards = CARDS.map(spec => {
-    const card = { spec, el: makeCard(spec), pending: [], replyTimer: 0, held: null, replies: 0, pages: [] };
+    const card = { spec, el: makeCard(spec), pending: [], replyTimer: 0, held: null, replies: 0, pages: [], asking: null };
     const el = card.el;
     lastState.boxes.push({ id: spec.id, replyKind: "agent", replyId: null, answered: null, writing: false,
                            owner: activeOwner, title: spec.title, ball: "you", replies: 1, pending: 0,
@@ -1371,9 +1375,18 @@ for (const pane of document.querySelectorAll(".tikpane")){
     // the last page asks nothing: a send there calls its lines back instead
     if (!page.field){ printReply(el); return false; }
     const q = QUESTIONS.find(one => one.field === page.field);
+    if (!text && card.pending.length) return false;
+    // a send the question will not take keeps the question and asks again
+    const problem = q.check ? q.check(text) : "";
+    if (problem){
+      card.asking = problem;
+      render(el, pageRaw(card, pageOnShow(card)));
+      printReply(el);
+      return false;
+    }
     if (!text){
       // an empty send skips a question that may be skipped, or clears its answer
-      if (q.needed || card.pending.length) return false;
+      if (q.needed) return false;
       answer(card, [], page.field);
       return true;
     }
@@ -1425,6 +1438,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function answer(card, batch, field){
     for (const m of batch) sentSettled(card.el);   // each message is the board's as it is answered
     const qi = QUESTIONS.findIndex(q => q.field === field), q = QUESTIONS[qi];
+    card.asking = null;
     const text = batch.length ? batch[batch.length - 1].text : "";
     const value = text ? readAnswer(q, text) : null;
     profile[field] = value;
@@ -1547,9 +1561,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
       return null;
     }
   })();
-  // the same rule as the board's (clean_email in usage_counts.py): an email
-  // answer that is not an address is kept on the last page as typed, and
-  // saved as no email, with no yes
+  // the same rule as the board's (clean_email in usage_counts.py): the email
+  // question takes only an address, and the save carries no email, with no yes,
+  // for anything else
   const ADDRESS = /^[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+$/;
   const address = text => text && text.length <= 254 && ADDRESS.test(text) ? text : null;
   // the last card closed: the answers are saved as the profile, an email

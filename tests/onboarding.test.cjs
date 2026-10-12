@@ -147,7 +147,39 @@ test("a board that already has a profile opens as a board", async t => {
   assert.equal(json(await board.call("GET", "/profile")).complete, true);
 });
 
-test("the onboarding is Welcome, one onboarding card of four questions with the email's PostHog line, and four 101 cards", () => {
+// the onboarding's own email check, run in a vm, and the send that uses it, read as source
+test("the email is needed: an empty Enter and a malformed email keep the question and ask for one", () => {
+  const context = vm.createContext({});
+  const grab = (from, to) => ONBOARDING.slice(ONBOARDING.indexOf(from), ONBOARDING.indexOf(to));
+  vm.runInContext([
+    grab("  function said(text){", "  function plain(text)"),
+    grab("  const ADDRESS = ", "  // the last card closed"),
+    grab("  const EMAIL_EMPTY = ", "  const QUESTIONS = ["),
+  ].join("\n"), context);
+  const problem = text => vm.runInContext("emailProblem", context)(text);
+  const empty = problem(""), bad = problem("ada");
+  assert.ok(empty && bad && empty !== bad, "an empty box and a malformed email are not both asked for");
+  for (const line of [empty, bad]) {
+    assert.ok(line.length <= 70, "not one short line: " + line);
+    assert.doesNotMatch(line, /\n|PostHog|skip/i);
+  }
+  for (const text of ["ada", "ada@", "ada@example", "@example.org", "ada@.org", "ada example@x.org", "a@b@c.org", "x".repeat(250) + "@a.co"])
+    assert.equal(problem(text), bad, "taken as an email: " + text);
+  for (const text of ["ada@example.org", "a.b+c@sub.example.co.uk", "  ada@example.org.  "])
+    assert.equal(problem(text), "", "refused as an email: " + text);
+
+  // the send: an empty or malformed email never reaches answer(), and neither
+  // does an empty name; an empty work answer still skips
+  const send = ONBOARDING.slice(ONBOARDING.indexOf("  function sendFrom(card){"), ONBOARDING.indexOf("  // the answer comes the moment the send's flight"));
+  const order = [...send.matchAll(/q\.check\(text\)|return false|q\.needed|answer\(card, \[\], page\.field\)/g)].map(m => m[0]);
+  assert.deepEqual(order, ["return false", "return false", "q.check(text)", "return false", "q.needed", "return false", "answer(card, [], page.field)"]);
+  assert.match(send, /const problem = q\.check \? q\.check\(text\) : "";\s*if \(problem\)\{\s*card\.asking = problem;\s*render\(el, pageRaw\(card, pageOnShow\(card\)\)\);\s*printReply\(el\);\s*return false;/);
+  assert.ok(ONBOARDING.includes("card.asking = null;"), "an answer leaves the ask on the page");
+  // the line shows under the email question only, and no Enter-to-skip line stands under a needed one
+  assert.ok(ONBOARDING.includes('parts.push(q.ask, q.note, q.check && card.asking, q.needed ? "" : SKIP_HINT);'));
+});
+
+test("the onboarding is Welcome, one onboarding card of four questions with a needed email, and four 101 cards", () => {
   for (const title of ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Orchestrator Agent",
                        "101: Cards & atomizing ideas", "101: Tickets", "101: Hotkeys"])
     assert.ok(ONBOARDING.includes(`title: "${title}"`), title);
@@ -158,9 +190,11 @@ test("the onboarding is Welcome, one onboarding card of four questions with the 
   assert.match(ONBOARDING, /\{ field: "work", ask: "What will you mostly use Facilitator for\?", noun: "answer" \}/,
                "the work question offers choices");
   assert.match(ONBOARDING, /\{ field: "name", [^}]*needed: true \}/, "the name is not the one answer needed");
-  assert.ok(ONBOARDING.includes('const EMAIL_ASK = "Your email, your answers here and your time zone go to PostHog, " +\n' +
-                                '                    "so Facilitator\'s maker can ask you for feedback. You can skip this one.";'));
-  assert.match(ONBOARDING, /\{ field: "email", [^}]*note: EMAIL_ASK \}/);
+  // the email is needed like the name; the PostHog line and the skip are gone
+  assert.match(ONBOARDING, /\{ field: "email", [^}]*needed: true, check: emailProblem \}/, "the email is not needed");
+  assert.doesNotMatch(ONBOARDING, /EMAIL_ASK|go to PostHog|You can skip this one/);
+  assert.match(ONBOARDING, /\{ field: "work", [^}]*\}/);
+  assert.doesNotMatch(ONBOARDING.match(/\{ field: "(work|agent)", [^}]*\}/g).join(""), /needed/, "another question is needed");
   // the keyboard lights the step back after the first answer and the next card on the last page
   assert.ok(ONBOARDING.includes('pulse(["ctrl", "shift", "up"], LIGHT)'));
   assert.ok(ONBOARDING.includes('pulse(["ctrl", "shift", "right"], LIGHT)'));
