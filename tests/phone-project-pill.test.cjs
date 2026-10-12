@@ -61,7 +61,7 @@ function picker() {
 }
 
 test("tapping the name-only project pill still opens and closes its picker", () => {
-  assert.match(between('<button id="projbtn"', '\n'), /aria-haspopup="true"[^>]*aria-expanded="false"[^>]*aria-controls="projmenu"><span id="projname"><\/span><\/button>/);
+  assert.match(between('<button id="projbtn"', '\n'), /aria-haspopup="true"[^>]*aria-expanded="false"[^>]*aria-controls="projmenu"><svg id="projico"[^>]*aria-hidden="true">[\s\S]*?<\/svg><span id="projname"><\/span><\/button>/);
   const p = picker();
   assert.equal(p.open(), false);
   p.fire("pointerdown");
@@ -102,7 +102,7 @@ test("the row holds four glass buttons in the owner's order, a name-only project
     assert.match(cls, /\bqn-glass\b/, `${id} does not wear the board's glass`);
     assert.match(cls, /\bdockbtn\b/);
     if (id === "projbtn"){
-      assert.equal(inside, '<span id="projname"></span>', "the capsule holds only its name");
+      assert.match(inside, /^<svg id="projico"[^>]*>[\s\S]*?<\/svg><span id="projname"><\/span>$/, "the capsule holds more than the Home house and its name");
       continue;
     }
     if (id === "setbtn"){
@@ -115,7 +115,7 @@ test("the row holds four glass buttons in the owner's order, a name-only project
   }
   // the capsule is only the name; the ticket
   // is one outline with its side notches and no tear line
-  assert.deepEqual([...buttons[1][3].matchAll(/<(\w+)/g)].map(m => m[1]), ["span"], "the capsule carries more than the name");
+  assert.deepEqual([...buttons[1][3].matchAll(/<(\w+)/g)].map(m => m[1]), ["svg", "path", "path", "span"], "the capsule carries more than the house and the name");
   assert.equal([...buttons[0][3].matchAll(/<path\b/g)].length, 1, "the ticket is more than one outline");
   // the two ends are circles
   assert.match(buttons[0][2], /\bround\b/);
@@ -129,4 +129,22 @@ test("the row holds four glass buttons in the owner's order, a name-only project
   // nothing on the row or in the list can be long-pressed into a selection
   assert.match(sheet, /#dock\{[^}]*-webkit-user-select:none; user-select:none; -webkit-touch-callout:none/);
   assert.match(sheet, /#projmenu\{[^}]*-webkit-user-select:none; user-select:none; -webkit-touch-callout:none/);
+});
+
+test("while Home is up the capsule reads Home with the board's house before the word, sized to its text", () => {
+  const house = /<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)/.exec(PHONE)[1];
+  const capsule = /<button id="projbtn"[^>]*>(<svg id="projico"[\s\S]*?<\/svg>)<span id="projname">/.exec(PHONE)[1];
+  assert.equal(capsule.replace(' id="projico"', ""), house, "not the Home row's house");
+  assert.match(capsule, /stroke="currentColor"/);
+  // drawn only on Home, 15 units like the 15 unit text, 6 units from the word, no new colour
+  const shown = between("#dock #projico{", "}");
+  assert.match(shown, /display:none/);
+  assert.match(shown, /width:calc\(15 \* var\(--u\)\); height:calc\(15 \* var\(--u\)\)/);
+  assert.match(shown, /margin-right:calc\(6 \* var\(--u\)\)/);
+  assert.match(between("body.home #dock #projico{", "}"), /display:block/);
+  assert.doesNotMatch(shown, /#[0-9a-f]{3,6}\b|rgb|--accent/i);
+  // the capsule's text size and padding are as they were
+  assert.match(between("#dock #projbtn{", "}"), /font:500 calc\(15 \* var\(--u\)\)\/1\.2 var\(--sans\)/);
+  // and the name it reads while Home is up is still Home
+  assert.match(PHONE, /const name = homeOpen \? "Home" : labelOf\(st, activeOwner\);/);
 });
