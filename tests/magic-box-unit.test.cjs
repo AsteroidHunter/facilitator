@@ -521,7 +521,7 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.ok(!/filter/.test(rule), "the svg's own layer wears the filter: " + rule);
   assert.match(html, /\n  body\.focus #mbline\.on > g\{filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)\}/);
   assert.match(html, /\n  body\.lowered #mbline\.on > g\{filter:none\}/);
-  assert.match(linesCode(), /MB\.line\.innerHTML = '<g><path d="'[\s\S]*?\+ '<\/g>';/);
+  assert.match(linesCode(), /MB\.line\.innerHTML = '<g><path d="M'[\s\S]*?\+ '<\/g>';/);
   assert.match(html, /\n  body\.focus:is\(\.home, \.editmode\) #mbline\.on\{display:none\}/);
   const lines = linesCode();
   assert.match(lines, /const ink = cs\.borderTopColor/);
