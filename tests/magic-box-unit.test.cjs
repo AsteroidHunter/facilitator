@@ -412,7 +412,8 @@ test("what the box holds keeps white at its far edge, and words that scroll diss
   // the view writes the two bands as tickBands does, and reads them again as
   // the words scroll, are drawn, or change size
   const view = logic.slice(logic.indexOf("function magicView("), logic.indexOf("view.clear = () => {"));
-  assert.match(view, /const up = Math\.min\(Math\.round\(b\.scrollTop\), view\.fade\);/);
+  // the first lead of the scroll takes no word under the bar, so it is not counted
+  assert.match(view, /const up = Math\.min\(Math\.max\(0, Math\.round\(b\.scrollTop - \(view\.lead \|\| 0\)\)\), view\.fade\);/);
   assert.match(view, /const down = Math\.min\(Math\.max\(0, Math\.round\(b\.scrollHeight - b\.clientHeight - b\.scrollTop\)\), view\.fade\);/);
   assert.match(view, /view\.body\.addEventListener\("scroll", bands, \{ passive: true \}\);/);
   assert.match(logic, /view\.body\.appendChild\(prose\);\s*if \(sized\) sized\.observe\(prose\);\s*bands\(\);/);
@@ -421,7 +422,7 @@ test("what the box holds keeps white at its far edge, and words that scroll diss
   assert.match(logic, /head = view\.bar\.offsetHeight \+ \(parseFloat\(air\.marginTop\) \|\| 0\) \+ \(parseFloat\(air\.marginBottom\) \|\| 0\);/);
 });
 
-test("the words start as far under the bar as the card's title does under its own, a heading first or not", () => {
+test("the words start a card's own 12px under the bar, a heading first or not", () => {
   const sheet = boxSheet(), phone = read("m.html");
   // the first line keeps no top margin of its own: a heading's would add a
   // line's worth of white over it
@@ -429,15 +430,16 @@ test("the words start as far under the bar as the card's title does under its ow
   // the words' top padding is the lead, so the first line stands --mb-lead
   // under the bar's foot, its line, on both pages
   assert.match(sheet, /\.magicbox \.mbtext\{padding:var\(--mb-lead\) 0 /);
-  // measured on the simulators: the card's title's capitals stand 19.2px under
-  // the card's bar on the board and 17.4px on the phone; a first line's
-  // capitals stand 6.1px (a heading) to 6.5px (plain words) under its top
+  // measured on the simulators: a first line's capitals stand 6.1px (a
+  // heading) to 6.5px (plain words) under its top, and a card keeps 12px over
+  // its first line (.head's top padding), so the capitals stand 12px under
+  // the bar
   const box = sheet.match(/\n\.magicbox\{([^}]*)\}/)[1];
   const lead = +box.match(/--mb-lead:(\d+(?:\.\d+)?)px\b/)[1];
-  assert.ok(Math.abs(lead + 6.1 - 19.2) < .6 && Math.abs(lead + 6.5 - 19.2) < .6, "the board's lead does not put the first line where the card's title stands");
+  assert.ok(Math.abs(lead + 6.1 - 12) < .6 && Math.abs(lead + 6.5 - 12) < .6, "the board's lead does not put the first line's capitals 12px under the bar");
   const own = phone.match(/  #mbface\{display:none;([^}]*)\}/)[1];
   const phoneLead = +own.match(/--mb-lead:calc\((\d+(?:\.\d+)?) \* var\(--u\)\)/)[1] * .984;
-  assert.ok(Math.abs(phoneLead + 6.1 - 17.4) < .6 && Math.abs(phoneLead + 6.5 - 17.4) < .6, "the phone's lead does not put the first line where the card's title stands");
+  assert.ok(Math.abs(phoneLead + 6.1 - 12) < .6 && Math.abs(phoneLead + 6.5 - 12) < .6, "the phone's lead does not put the first line's capitals 12px under the bar");
 });
 
 // the view's two bands, worked on a stand-in body: none at rest, the top one as
@@ -447,19 +449,23 @@ test("the box's bands follow the words' scroll, capped at the fuzz's depth", () 
   const src = logic.slice(logic.indexOf("const MAGIC_CROSS = "), logic.indexOf("// a site's name as the site gives it"))
     + logic.slice(logic.indexOf("function magicView("), logic.indexOf("\n}\n", logic.indexOf("function magicView(")) + 3);
   const props = {}, listeners = {};
+  const words = {};   // the words keep a 6px lead over their first line
   const body = { dataset: {}, scrollTop: 0, scrollHeight: 600, clientHeight: 200, textContent: "",
     style: { setProperty: (k, v) => { props[k] = v; } },
-    addEventListener: (type, fn) => { listeners[type] = fn; }, appendChild() {}, querySelector: () => null };
+    addEventListener: (type, fn) => { listeners[type] = fn; }, appendChild() {}, querySelector: s => s === ".mbtext" ? words : null };
   const cross = { innerHTML: "" };
   const el = { querySelector: s => s === ".mbbody" ? body : s === ".mbclose" ? cross : {} };
-  const ctx = vm.createContext({ getComputedStyle: () => ({ getPropertyValue: () => "22px" }), addEventListener() {}, h() {}, MagicBox: {} });
+  const ctx = vm.createContext({ getComputedStyle: e => e === words ? { paddingTop: "6px" } : { getPropertyValue: () => "22px" },
+    addEventListener() {}, h() {}, MagicBox: {} });
   vm.runInContext(src, ctx);
   ctx.magicView(el);
   assert.match(cross.innerHTML, /^<svg viewBox="0 0 24 24"/, "the cross is drawn into the bar's button");
   listeners.scroll();
   assert.deepEqual({ ...props }, { "--upband": "0px", "--downband": "22px" }, "at the top: no band over the words' top, the full band at the foot");
-  body.scrollTop = 9; listeners.scroll();
-  assert.equal(props["--upband"], "9px", "the top band follows the scroll");
+  body.scrollTop = 6; listeners.scroll();
+  assert.equal(props["--upband"], "0px", "the lead's worth of scroll takes no word under the bar, so no band");
+  body.scrollTop = 15; listeners.scroll();
+  assert.equal(props["--upband"], "9px", "the top band follows the scroll past the lead");
   body.scrollTop = 120; listeners.scroll();
   assert.deepEqual({ ...props }, { "--upband": "22px", "--downband": "22px" }, "capped at the fuzz's depth");
   body.scrollTop = 400; listeners.scroll();

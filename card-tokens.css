@@ -1166,11 +1166,12 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
      --mb-air is the space the box keeps between what it holds and its far
      edge, and --mb-fade the depth of the fuzz, the ticket list's own 22px.
      --mb-lead is the space over the words' first line, from the bar's foot
-     to the top of that line, a heading's or plain words' alike: it is what
-     puts the first line's capitals as far under the bar as the card's
-     title's capitals stand under the card's own bar (19px on the board,
-     measured) */
-  --mb-x:20px; --mb-gap:5px; --mb-bar:calc(var(--mb-x) + 2 * var(--mb-gap)); --mb-air:8px; --mb-fade:22px; --mb-lead:13px;
+     to the top of that line, a heading's or plain words' alike: the first
+     line's capitals stand 6px lower still, so they stand 12px under the bar,
+     the 12px a card keeps over its own first line (.head's top padding). it
+     is also how far the words scroll before any has gone under the bar, so
+     the fuzz (below) counts from there */
+  --mb-x:20px; --mb-gap:5px; --mb-bar:calc(var(--mb-x) + 2 * var(--mb-gap)); --mb-air:8px; --mb-fade:22px; --mb-lead:6px;
   /* --mb-round is the corner the page gives the box, twice the card's 7px: the
      bar and what the box holds are rounded to it too, inside the edge line, so
      nothing of theirs pokes out of a corner. --mb-pink is the cross's circle,
@@ -1206,7 +1207,8 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    shape. words that scroll dissolve at both ends of their scroll as
    the ticket list's sections do, under the same ramp: --upband is how far
    they have scrolled and --downband how far they still can, each capped at
-   --mb-fade by the view (card-logic.js), so an end with nothing past it
+   --mb-fade by the view (card-logic.js, which does not count the first
+   --mb-lead of the scroll at the top), so an end with nothing past it
    stays at full ink and words that fit wear no fuzz at all */
 .magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto;
   margin:0 0 var(--mb-air)}
