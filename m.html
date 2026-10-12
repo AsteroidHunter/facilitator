@@ -5957,6 +5957,64 @@ for (const type of ["pointerdown", "touchstart", "keydown", "input"]){
   document.addEventListener(type, linkTouched, { capture: true, passive: true });
 }
 
+// ---- the last breath ----------------------------------------------------------
+// developer mode only. while the page is on screen, one small record in
+// localStorage is written over every ten seconds: when, the card open, the doing
+// word, whether a bubble merge is running, and this load's window id. hiding or
+// closing the page marks it closed. a page that starts and finds another window's
+// record never marked closed was stopped while on screen, and says so once. if
+// the notes stop soon after the last send the page's own script froze; if they
+// kept coming until the app was put away it was not the script. nothing runs per
+// frame: one timer and one write
+const BREATH_KEY = "phoneLastBreath", BREATH_EVERY = 10000;
+let breathTimer = 0, breathLive = false;
+function breathWrite(closed){
+  if (!phoneDeveloperMode){
+    // switched off: take our record away and write nothing more
+    if (breathLive){ breathLive = false; try { localStorage.removeItem(BREATH_KEY); } catch (_) {} }
+    return;
+  }
+  try {
+    const who = typeof reportWho === "function" ? reportWho() : { window: "", doing: "" };
+    let merging = false;
+    for (const id in els) if (els[id] && els[id].sentMerge){ merging = true; break; }
+    localStorage.setItem(BREATH_KEY, JSON.stringify({ at: Date.now(), box: selectedId || "",
+      doing: who.doing, merging, win: who.window, closed: !!closed }));
+    breathLive = true;
+  } catch (_) {}
+}
+function breathStart(){
+  if (breathTimer || document.hidden) return;
+  breathWrite(false);
+  breathTimer = setInterval(() => breathWrite(false), BREATH_EVERY);
+}
+function breathStop(){
+  clearInterval(breathTimer);
+  breathTimer = 0;
+  breathWrite(true);
+}
+function breathFind(){
+  if (!phoneDeveloperMode) return;
+  try {
+    const found = JSON.parse(localStorage.getItem(BREATH_KEY) || "null");
+    if (!found || found.closed || typeof found.win !== "string" || typeof found.at !== "number") return;
+    const who = typeof reportWho === "function" ? reportWho() : { window: "" };
+    if (found.win === who.window) return;
+    localStorage.removeItem(BREATH_KEY);
+    const ago = Math.max(0, Date.now() - found.at);
+    if (typeof reportProblem === "function")
+      reportProblem("slow", new Error("the page stopped while on screen: window " + found.win
+        + (found.box ? ", card " + found.box : "") + ", last note written " + Math.round(ago / 1000)
+        + " s before this page started"),
+        { late: ago, doing: String(found.doing || "idle") + (found.merging ? ", merge running" : "") });
+  } catch (_) {}
+}
+breathFind();
+breathStart();
+document.addEventListener("visibilitychange", () => { if (document.hidden) breathStop(); else breathStart(); });
+window.addEventListener("pagehide", breathStop);
+window.addEventListener("pageshow", breathStart);
+
 // ---- the typing row -----------------------------------------------------------
 // the row is measured on its twin, never by collapsing the row itself: a row
 // collapsed to be measured hands its scroll to the engine's clamp for the length
