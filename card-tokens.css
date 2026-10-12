@@ -446,34 +446,31 @@
   --answ-move:.33s; --answ-come:.4s; --answ-rise:10px; --answ-gone:.4s;
   --sent-ease:cubic-bezier(.22, 1, .36, 1);
   --answ-fill:var(--bubble-fill); --answ-tag:calc(17 * var(--u));
-  --answ-peek:calc(var(--answ-line) * 1.5); --answ-fade:calc(var(--answ-line) * .5);
+  --answ-peek:calc(var(--answ-line) * 2); --answ-fade:var(--answ-line);
 }
-.answered.gap{--answ-peek:calc(var(--answ-line) * 2.5)}
+.answered.gap{--answ-peek:calc(var(--answ-line) * 3)}
 /* the cut. a batch longer than the preview shows its first lines and dissolves
-   into the panel's own grey over the last half line of them, and an opened
+   into the panel's own grey over the last line of them, and an opened
    panel shows the whole batch in place, pushing the answer down rather than
    lying over it.
    the preview is the same for the panel over the answer and for each sent
    bubble, counted in the surface's own --answ-line. a batch of up to two lines
    is shown whole, with no cut, strip or fade (the script decides that,
-   fitAnswered in card-logic.js). a longer one is cut at one and a half lines
-   (--answ-peek) and dissolves over the last half line of them
-   (--answ-fade). when its second line is blank, a paragraph break after the
-   first line or two messages
-   joined by their blank line, the script sets .gap and the cut stands at two
-   and a half lines instead, so the blank line is not all of what the preview
-   shows.
+   fitAnswered in card-logic.js). a longer one is cut at two lines
+   (--answ-peek), the second shown whole, and dissolves over exactly that
+   second line (--answ-fade is one line). when its second line is blank, a
+   paragraph break after the first line or two messages
+   joined by their blank line, the script sets .gap and the cut stands at three
+   lines instead, so the blank line is not all of what the preview
+   shows, and it is the third line that dissolves.
    the dissolve is a strip of the panel's own grey, --answ-fade deep, laid over
    the foot of the cut and drawn once. on a flat grey panel it reads exactly as
-   the words dissolving into the grey. the grey comes in straight over the
-   first three fifths of the strip, so the top of the cut line reads as it
-   always did, and over the last two fifths it eases into the whole grey and
-   arrives with no slope (a cubic, written out in twentieths: its slope at
-   three fifths is the straight ramp's, and nothing at the cut). a straight
-   ramp all the way arrived at the cut at full slope, so every letter was
-   sliced off along that one line while still faintly there. a smoothstep
-   from the first line's foot (three quarters of a line) took the second
-   line's top away with it. all it ever does is fade: whole while
+   the words dissolving into the grey. the grey comes in straight from nothing
+   at the top of that line, where its letters are fully there, to the whole grey
+   at its foot, so the letters thin out steadily as the line goes down and no
+   letter is cut off in its middle. a cut that stood in the middle of the second
+   line left the dissolve half a line to work with and sliced the letters along
+   it. all it ever does is fade: whole while
    a long batch stands cut, gone while it stands open. --answ-shade is that
    strength, which the sheet gives and the script holds inline for the length
    of a run only. no mask is drawn anywhere on the panel, so no frame of a run
@@ -481,8 +478,8 @@
    --answ-stop is written by the script and by nothing else: the foot of the
    last line with text, when the preview's own cut would otherwise land in
    blank, a paragraph break or the air between two messages, when a batch
-   that fits ends on a blank tail, or when a batch of two lines is shown whole
-   under the shallower cut the sheet gives it. without it the cut is
+   that fits ends on a blank tail, or when a batch that fits stands a little
+   short of the cut the sheet gives it. without it the cut is
    --answ-peek */
 .answclip{position:relative; max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-shade:0}
 .answered.more:not(.open) .answclip{--answ-shade:1}
@@ -491,16 +488,7 @@
   opacity:var(--answ-shade); pointer-events:none;
 }
 .answclip::after, .sentgoo-fuzz{
-  background:linear-gradient(to bottom, transparent,
-    color-mix(in srgb, var(--answ-fill) 60%, transparent) 60%,
-    color-mix(in srgb, var(--answ-fill) 65.6%, transparent) 65%,
-    color-mix(in srgb, var(--answ-fill) 71.9%, transparent) 70%,
-    color-mix(in srgb, var(--answ-fill) 78.5%, transparent) 75%,
-    color-mix(in srgb, var(--answ-fill) 85%, transparent) 80%,
-    color-mix(in srgb, var(--answ-fill) 90.9%, transparent) 85%,
-    color-mix(in srgb, var(--answ-fill) 95.6%, transparent) 90%,
-    color-mix(in srgb, var(--answ-fill) 98.8%, transparent) 95%,
-    var(--answ-fill));
+  background:linear-gradient(to bottom, transparent, var(--answ-fill));
 }
 .answered.open .answclip{max-height:none}
 /* the run, the old box's fold carried over: its height moves over one length on

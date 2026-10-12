@@ -3007,19 +3007,18 @@ function answeredInk(stack){
   return boxes;
 }
 
-const ANSWERED_WHOLE_LINES = 2;   // the lines a batch shows whole, with no cut
-
 // whether the batch has text past the preview, and where the preview ends.
-// the sheet cuts a long batch half a line past a whole number of lines, so the
-// line the cut falls in is seen dissolving: one and a half lines down, or two
-// and a half when the batch's second line is blank (a paragraph break after
+// the sheet cuts a long batch at a whole number of lines and dissolves the last
+// of them, whole and from its top to its foot: two lines down, or three
+// when the batch's second line is blank (a paragraph break after
 // the first line, or two messages joined by their blank line), which is the
 // sheet's .gap and is set here, off the ink. the panel over the answer and
-// each sent bubble are cut the same way. a batch of up to two lines is no long
-// batch at all: it is shown whole, however shallow the sheet's cut, and stands
-// as tall as its text. the cut is kept only while a line of text really runs
-// through it with at least half of itself showing (to the pixel: the cut is a
-// rounded height and the phone's line is not a whole number of them): when it
+// each sent bubble are cut the same way. a batch of up to two lines (three
+// when its second line is blank) is no long batch at all: it is shown whole and
+// stands as tall as its text. the cut is kept only while the last line before
+// it has text, standing whole above it or running across it with at least half
+// of itself showing (to the pixel: the cut is a rounded height and the phone's
+// line is not a whole number of them): when it
 // lands in blank, a paragraph break, the air between two messages or a line
 // with nothing on it, the preview is stopped at the foot of the last line that
 // has text instead, and it is that line the cut dissolves. a batch with no
@@ -3056,13 +3055,18 @@ function fitAnswered(panel){
     cut = clip.clientHeight;   // the cut the sheet gives it now
   }
   const end = ink.reduce((low, box) => Math.max(low, box.bottom), 0);
-  // a batch holds two lines whole, and a little over them: a tall glyph or a
-  // small inline box is not a third line. a line that cannot be read leaves
+  // a batch holds the cut's lines whole, and a little over them: a tall glyph
+  // or a small inline box is not another line, and it is more than half a line
+  // past the cut that makes a long batch. a line that cannot be read leaves
   // the sheet's own cut to say
-  const more = line > 0 ? end > line * (ANSWERED_WHOLE_LINES + .5) : end > cut + 1;
+  const more = line > 0 ? end > cut + line / 2 : end > cut + 1;
   let stop = 0;
   if (more){
-    const through = ink.some(box => box.bottom > cut + 1 && box.top <= cut - line / 2 + 1);
+    // the line the cut dissolves is the last line of the preview: it stands
+    // whole above the cut when it has text, so the cut is kept while some text
+    // stands in the last line before it, or runs across it with at least half
+    // of itself showing
+    const through = ink.some(box => box.bottom > cut - line / 2 && box.top <= cut - line / 2 + 1);
     if (!through) stop = ink.reduce((low, box) => box.bottom <= cut + 1 ? Math.max(low, box.bottom) : low, 0);
   } else if (end && Math.abs(end - cut) > 1) stop = end;
   if (stop) clip.style.setProperty("--answ-stop", Math.round(stop * 100) / 100 + "px");
