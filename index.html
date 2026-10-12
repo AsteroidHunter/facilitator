@@ -501,23 +501,26 @@
     padding:calc(var(--ch)*0.022) var(--pad-x);
     display:flex; flex-direction:column; align-items:stretch;
   }
+  /* the two shadows of the card and its magic box, one raised and one settled,
+     far enough apart that the switch between them reads at a glance. the one
+     being worked in wears the deeper one: lower and wider than the card's
+     plain raised shadow above, which a card with no box keeps. the other
+     drops to a hairline, just enough that its edge still reads on the paper */
+  body.focus{--shade-deeper:0 6px 40px rgba(60,45,20,.30), 0 2px 6px rgba(60,45,20,.16);
+    --shade-lighter:0 1px 2px rgba(60,45,20,.06)}
+  /* the card, while its magic box stands beside it (body.mbon, kept in step with
+     the box: on and not hidden for want of room, just before magicHold), is
+     the deeper one until the box is held. it is a class and not a :has() on
+     the body, since a :has() there restyled the whole page every time any
+     element's "on" or "held" changed, the scroll's caret among them. the mark
+     is inside :where so this weighs what the rules below do */
+  body.focus:not(.home, .editmode):where(.mbon) main{box-shadow:var(--shade-deeper)}
   /* it settles while the composer in magic box 2 holds the keys */
   body.focus.minifocus main{box-shadow:0 2px 18px rgba(60,45,20,.06)}
-  /* the lighter shadow of the card and its magic box, for whichever of the two
-     is not the one being worked in. the .06 of the settled shadow above all but
-     vanishes on the paper (about 1.5% darker six pixels under the edge, against 4.6%
-     for the raised one), so a card that stepped back to it looked as if its
-     shadow had gone; this one keeps both of the raised shadow's layers at about
-     half its strength, so the card and the box each always show a shadow and the
-     deeper one still tells which is selected */
-  body.focus{--shade-lighter:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)}
-  /* and while its magic box is held (magicHold), but not where the box is not
-     drawn (home, edit mode). body.mbheld says the box is .on.held, kept in step
-     with the box's own classes (just before magicHold). it is a class and not
-     a :has() on the body, since a :has() there restyled the whole page every
-     time any element's "on" or "held" changed, the scroll's caret among them.
-     the mark is inside :where so this weighs what the rule above does, and
-     the lowered card below still sits level */
+  /* and the hairline while its magic box is held (magicHold), but not where the
+     box is not drawn (home, edit mode). body.mbheld says the box is .on.held,
+     kept in step with the box's own classes the same way. the lowered card
+     below still sits level */
   body.focus:not(.home, .editmode):where(.mbheld) main{box-shadow:var(--shade-lighter)}
   /* and it sits level with the board once it is lowered, by a double click on
      the empty board and nothing else. browsed to or selected, it stands up
@@ -1491,15 +1494,15 @@
      white face, edge line, 7px corners and shadow, with a white bar at its top
      and no line under it, and its words kept the card answer's inset off its
      sides. the shadow says which of the box and the card is being
-     worked in: the one held wears the card's raised shadow and the other the
-     lighter one (--shade-lighter, above), eased over the card's own .2s. a box
-     comes in with the lighter one, since the card is what was being worked in */
+     worked in: the one held wears the deeper shadow (--shade-deeper, above) and
+     the other the hairline (--shade-lighter), eased over the card's own .2s. a
+     box comes in with the hairline, since the card is what was being worked in */
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
   #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
     box-shadow:var(--shade-lighter); transition:box-shadow .2s}
-  #magicbox.held{box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  #magicbox.held{box-shadow:var(--shade-deeper)}
   /* and never a shadow its card does not wear: with the card lowered to sit
      level with the page (body.lowered, from a double click on the empty
      board; card-logic.js), the box sits level too, held or not. raised again,
@@ -1515,11 +1518,10 @@
      class comes off and the rules above hold it, with the same numbers */
   #magicbox.rising{--rise:0; transition:none;
     border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent);
-    box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
-      0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.05 * var(--rise)))}
+    box-shadow:0 calc(1px * var(--rise)) calc(2px * var(--rise)) rgba(60,45,20,calc(.06 * var(--rise)))}
   #magicbox.rising.held{
-    box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
-      0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
+    box-shadow:0 calc(6px * var(--rise)) calc(40px * var(--rise)) rgba(60,45,20,calc(.30 * var(--rise))),
+      0 calc(2px * var(--rise)) calc(6px * var(--rise)) rgba(60,45,20,calc(.16 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
   /* the one line that ties the box to its card, a small barbell copied from the
      owner's mock (magicLine): the card's own edge colour, a plain solid 2px,
@@ -8022,9 +8024,14 @@ if (MB.el){
   if (window.ResizeObserver) MB.words = new ResizeObserver(() => magicPlace());
 }
 // the body says when the box is on and held (body.mbheld), for the card's
-// lighter shadow, read off the box's own classes whatever changes them
+// hairline shadow, read off the box's own classes whatever changes them
 if (MB.el) new MutationObserver(() => document.body.classList.toggle("mbheld",
   MB.el.classList.contains("on") && MB.el.classList.contains("held"))).observe(MB.el, { attributeFilter: ["class"] });
+// and when it stands beside the card (body.mbon), for the card's deeper shadow:
+// on, and not hidden for want of room or a picture (magicPlace), which a
+// window too narrow for it leaves the card as if it had none
+if (MB.el) new MutationObserver(() => document.body.classList.toggle("mbon",
+  MB.el.classList.contains("on") && MB.el.style.visibility !== "hidden")).observe(MB.el, { attributeFilter: ["class", "style"] });
 // which of the two is being worked in, the card or its box. clicking or
 // focusing into the box hands it over; clicking anywhere else, or the focus
 // going into the card to type, hands it back, as magic box 2 takes and gives
