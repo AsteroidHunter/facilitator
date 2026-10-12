@@ -1492,7 +1492,8 @@
      comes back when the room does. off the board (home, edit mode) it is not
      drawn.
      on the board it has a box (the phone's drawer wears none): the card's own
-     white face, edge line, 7px corners and shadow, with a white bar at its top
+     white face, edge line and shadow, with corners twice the card's 7px (--mb-round, the
+     sheet's 14px), with a white bar at its top
      and no line under it, and its words kept the card answer's inset off its
      sides. the shadow says which of the box and the card is being
      worked in: the one held wears the deeper shadow (--shade-deeper, above) and
@@ -1501,7 +1502,7 @@
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
   body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
-  #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+  #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
     box-shadow:var(--shade-lighter); transition:box-shadow .2s}
   #magicbox.held{box-shadow:var(--shade-deeper)}
   /* and never a shadow its card does not wear: with the card lowered to sit
@@ -1546,8 +1547,6 @@
   body.focus:is(.home, .editmode) #mbline.on{display:none}
   #magicbox .mbbar{background:var(--card)}
   #magicbox .mbbar::after{display:none}
-  #magicbox .mbclose{background:var(--card)}
-  #magicbox .mbclose:hover, #magicbox .mbclose:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
   /* no scrollbar anywhere in the box, its words or a page's frame, which has its
      own rule (MagicBox.pageDoc); the content still scrolls, and never sideways */
   #magicbox, #magicbox *{scrollbar-width:none}

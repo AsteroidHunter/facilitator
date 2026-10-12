@@ -1187,15 +1187,15 @@
      title's stand under the card's own bar here (measured) */
   #mbface{display:none; --mb-inset:calc(16 * var(--u));
     --mb-x:calc(20 * var(--u)); --mb-gap:calc(5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u));
-    --mb-lead:calc(11.5 * var(--u))}
+    --mb-lead:calc(11.5 * var(--u)); --mb-round:calc(14 * var(--u))}
   /* the box is dressed as the board's is (#magicbox, index.html): the card's
-     white face, its edge line and 7px corners, and its shadow, here the lighter
+     white face, its edge line and corners twice the card's 7px (--mb-round), and its shadow, here the lighter
      one the board's box wears while its card is the one being worked in, which
      on the phone is always (the box is read, never typed into). its bar is white
      with no line under it, and its words keep the card answer's inset off its
      sides. a lowered card (body.lowered main) leaves its box level too. no line
      runs between the box and the card */
-  #mbface{background:var(--card); border:var(--edge) solid var(--line); border-radius:calc(7 * var(--u));
+  #mbface{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
     box-shadow:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)}
   body.lowered #mbface{box-shadow:none}
   #mbface .mbbar::after{display:none}
