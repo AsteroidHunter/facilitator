@@ -18,9 +18,11 @@ function fixture(html, isPhone = false) {
       addEventListener(type, fn) { (events[type] ||= []).push(fn); },
       fire(type, e = {}) { for (const fn of events[type] || []) fn(e); } };
   };
-  const buttons = Array.from({ length: 4 }, element);
+  // the Mac's bar has the pill and two circles, the phone's row four buttons
+  const ids = isPhone ? ["homeico", "projpill", "chimebtn", "setbtn"] : ["projpill", "chimebtn", "setbtn"];
+  const buttons = Array.from({ length: ids.length }, element);
   const document = { visibilityState: "visible",
-    getElementById: id => buttons[["homeico", "projpill", "chimebtn", "setbtn"].indexOf(id)],
+    getElementById: id => buttons[ids.indexOf(id)],
     querySelectorAll: () => buttons,
     addEventListener(type, fn) { (documentEvents[type] ||= []).push(fn); },
   };
@@ -34,7 +36,7 @@ function fixture(html, isPhone = false) {
   const end = html.indexOf(isPhone ? "// ---- the capsule: a tap opens the list" : "// closing a project works exactly", start);
   assert.ok(start >= 0 && end > start);
   vm.runInContext(html.slice(start, end), context);
-  return { buttons, home:buttons[0], pill:buttons[1],
+  return { buttons, pill:buttons[isPhone ? 1 : 0],
     homeOpen(value) { context.homeOpen = value; },
     tick(ms) {
       const until = now + ms;
@@ -94,20 +96,20 @@ test("Mac secondary clicks do not press the circle or cancel the button's own ev
   button.fire("pointerdown", { ...event, button: 0 }); assert.equal(pressed(button), true);
 });
 
-test("Home and the project pill press as their own glass, with Home open or not", () => {
+test("the project pill presses as its own glass, with Home open or not, and the Mac has no Home button to hold pressed", () => {
   for (const open of [false, true]) {
     const f = fixture(mac);
     f.homeOpen(open);
-    for (const button of [f.home, f.pill]) {
-      button.fire("pointerdown", { button:2 }); assert.equal(pressed(button), false);
-      button.fire("pointerdown", { button:0 }); assert.equal(pressed(button), true);
-    }
-    f.fire("pointerup"); f.tick(119); assert.ok(pressed(f.home) && pressed(f.pill));
-    f.tick(1); assert.ok(!pressed(f.home) && !pressed(f.pill));
+    assert.equal(f.buttons.length, 3, "the bar has more than the pill and its two circles");
+    const button = f.pill;
+    button.fire("pointerdown", { button:2 }); assert.equal(pressed(button), false);
+    button.fire("pointerdown", { button:0 }); assert.equal(pressed(button), true);
+    f.fire("pointerup"); f.tick(119); assert.ok(pressed(f.pill));
+    f.tick(1); assert.ok(!pressed(f.pill));
   }
-  // and Home open holds the press's face on the house, without the press's grow
-  const held = mac.match(/body\.focus\.home #homeico\{([^}]+)\}/)[1];
-  assert.match(held, /--qn-tint:\.95; --qn-edge:3/); assert.doesNotMatch(held, /transform/);
+  // no Home button, so no held press for it: the pill reads Home instead
+  assert.doesNotMatch(mac, /homeico/);
+  assert.doesNotMatch(mac, /body\.focus\.home #\w+\{[^}]*--qn-tint/);
 });
 
 function rules(html) {
@@ -134,7 +136,7 @@ function specificity(selector) {
 }
 function circleTransitions(html, isPhone) {
   const all = rules(html);
-  const idle = all.find(r => isPhone ? r.selector === "#dock .dockbtn" : r.selector.includes("#homeico") && r.values.width === "32px");
+  const idle = all.find(r => isPhone ? r.selector === "#dock .dockbtn" : r.selector.includes("#chimebtn") && r.values.width === "32px");
   const down = all.find(r => r.values.transform === "scale(1.06)" && r.selector.includes(".pressed"));
   assert.ok(idle && down, "the circle's idle and pressed rules must exist");
   const winner = [idle, down].sort((a, b) => compare(specificity(a.selector), specificity(b.selector)) || a.order - b.order).at(-1);

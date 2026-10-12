@@ -81,10 +81,15 @@ function fixture(over = {}) {
   const ids = {}, windowListeners = {}, docListeners = {}, writes = [], opens = [], fetches = [], calls = [];
   const make = (id, tag = "div", cls = "") => { const el = element(tag, cls); el.id = id; ids[id] = el; return el; };
   const body = make("body", "body", "focus");
-  for (const id of ["homeico", "projpill", "chimebtn", "setbtn"]) body.appendChild(make(id, "button", "qn-glass"));
+  for (const id of ["projpill", "chimebtn", "setbtn"]) body.appendChild(make(id, "button", "qn-glass"));
   ids.projpill.appendChild(make("projname", "span"));
   body.appendChild(make("tabbar", "span"));
   const menu = body.appendChild(make("projmenu", "div", "qn-glass"));
+  // Home, the list's first row: its house in the number's column, then its word
+  const homeRow = menu.appendChild(make("projhome", "button", "projrow"));
+  const homeLine = homeRow.appendChild(element("span", "pline"));
+  homeLine.appendChild(element("span", "pnum")); homeLine.appendChild(element("span", "pname", "Home"));
+  menu.appendChild(make("homesep"));
   const list = menu.appendChild(make("projlist"));
   menu.appendChild(make("projsep"));
   const fresh = menu.appendChild(make("projnew", "button", "projrow"));
@@ -135,6 +140,7 @@ function fixture(over = {}) {
     apply(st) { context.renderTabs(st); },
     setHome(on) { context.homeOpen = !!on; context.renderTabs(state); },
     endDraft() { context.draft = null; },
+    renderHome(st, readying) { calls.push("renderHome"); },
     projNote(msg) { calls.push("note " + msg); },
     poll: async () => { calls.push("poll"); state.boxes.push(card("g1", "garden")); state.tabs.order.push("garden"); context.validActiveOwnerIds.add("garden"); },
   });
@@ -146,6 +152,9 @@ function fixture(over = {}) {
   run(between("// ---- the project pill, its list and the faint suggestions", "// ---- the press on the bar's glass"));
   run(between("// closing a project works exactly", "// the new project tab:"));
   run(between("const homePick =", "// ---- the home page"));
+  // the Home row's two listeners: the one that readies the page, and the one that opens it
+  run(between("// the Home row leaves an unfinished new tab", "// the start button hands"));
+  run(between("// Home is a place, like a tab", "// put back once"));
   context.renderTabs(state);
   const rows = () => list.children;
   const row = ow => rows().find(r => r.dataset.owner === ow);
@@ -153,7 +162,7 @@ function fixture(over = {}) {
   const place = () => rows().forEach((r, i) => { r.rect = () => box(54, 51 + 32 * i, 208, 32); });
   place();
   const win = (type, extra = {}) => { for (const fn of windowListeners[type] || []) fn({ buttons: 1, button: 0, preventDefault() {}, stopImmediatePropagation() {}, ...extra }); };
-  return { context, state, ids, body, menu, list, fresh, writes, opens, fetches, calls, store, rows, row, place, win,
+  return { context, state, ids, body, menu, list, fresh, homeRow, writes, opens, fetches, calls, store, rows, row, place, win,
     get: code => vm.runInContext(code, context),
     open: () => ids.projpill.fire("click"),
     isOpen: () => body.classes.has("projopen"),
@@ -241,10 +250,11 @@ test("leaving Home by another faint name, a list row or Command + 1 to 9 puts th
 
 test("the Home pill carries the board's own house before the word, drawn only while Home is up", () => {
   const pill = html.match(/<button id="projpill"[^>]*>([\s\S]*?)<\/button>/)[1];
-  const house = html.match(/<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)<\/button>/)[1];
+  const house = html.match(/<button id="projhome"[^>]*>[\s\S]*?(<svg[\s\S]*?<\/svg>)/)[1];
   const ico = pill.match(/^(<svg id="projico"[\s\S]*?<\/svg>)<span id="projname"><\/span>$/);
   assert.ok(ico, "the pill is the house and the name");
-  assert.equal(ico[1].replace(' id="projico"', ""), house, "the pill's house is not the Home button's drawing");
+  assert.equal(ico[1].replace(' id="projico"', "").replace(' aria-hidden="true"', ""), house.replace(' aria-hidden="true"', ""),
+    "the pill's house is not the Home row's drawing");
   assert.match(ico[1], /aria-hidden="true"/);
   assert.match(ico[1], /stroke="currentColor"/, "the house takes the word's colour");
   // 15px beside the 14px word, 6px from it; the pill's flex centres it on the line
@@ -258,8 +268,8 @@ test("the Home pill carries the board's own house before the word, drawn only wh
   const p = rule(sheet, "body.focus #projpill");
   assert.equal(decl(p, "height"), "32px"); assert.equal(decl(p, "padding"), "0 14px");
   assert.equal(decl(p, "border-radius"), "16px"); assert.equal(decl(p, "font"), "400 14px/17px var(--sans)");
-  // Home's button stays pressed while Home is up, and the new rules bring no purple or new colour
-  assert.match(sheet, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
+  // the round Home button and its held press are gone; the new rules bring no purple or new colour
+  assert.doesNotMatch(sheet, /#homeico/);
   assert.doesNotMatch(base + rule(sheet, "body.focus.home #projico"), /#[0-9a-f]{3,6}\b|rgb|--accent/i);
 });
 
@@ -422,10 +432,13 @@ test("\"Open a new folder\" opens the Mac's folder chooser and lands on the new 
   assert.equal(f.context.homeOpen, false); assert.equal(f.store.get("projleft"), "mackie");
 });
 
-test("the house, the pill and the right-hand circles keep their places: no plus, no lens, no row of names", () => {
+test("the pill and the right-hand circles keep their places, and no Home button stands before the pill: no plus, no lens, no row of names", () => {
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
-  const order = ["homeico", "projpill", "tabbar", "chimebtn", "installbtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
+  const order = ["projpill", "tabbar", "chimebtn", "installbtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "the bar's order changed");
+  // the pill is the first piece of the bar: nothing but the row's own wrapper before it
+  assert.match(bar, /^<div class="bar">\s*<span id="tabrow">\s*<button id="projpill"/, "something stands before the pill");
+  assert.doesNotMatch(html, /homeico/);
   assert.doesNotMatch(html, /ptabplus|class="ptab"|"ptab"\)|tabKillMark|function placeSeat/);
   // nothing in the bar's new rules is the board's purple
   const css = html.slice(html.indexOf("/* ---- the bar's glass"), html.indexOf("/* ---- new-project tab"));
@@ -454,7 +467,9 @@ test("the pill is the name, with the Home house before it only on Home, and the 
   assert.deepEqual([...pill.matchAll(/<(\w+)/g)].map(m => m[1]), ["svg", "path", "path", "span"], "the pill carries more than the house and its name");
   assert.match(pill, /<span id="projname"><\/span>$/);
   const list = html.slice(html.indexOf('<div id="projmenu"'), html.indexOf("</div>\n", html.indexOf('<div id="projsep"')) + 20);
-  assert.doesNotMatch(list, /<svg/, "the list carries a mark");
+  // the one drawing in the list is Home's house, at the head of it; no row carries a check mark
+  assert.equal([...list.matchAll(/<svg/g)].length, 1, "the list carries a mark");
+  assert.ok(list.indexOf("<svg") > list.indexOf('id="projhome"') && list.indexOf("<svg") < list.indexOf('id="homesep"'), "the mark is not Home's house");
   assert.doesNotMatch(html, /PROJ_CHECK|pcheck|class="pmark"|"pmark"/);
   // the open project's row still says so, to assistive tech only
   const f = fixture();
@@ -596,4 +611,85 @@ test("the speaker and the squid stand the house's gap to the pill apart, and the
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
   assert.ok(bar.lastIndexOf('id="setbtn"') > bar.lastIndexOf('id="chimebtn"'));
   assert.equal(decl(rule(sheet, "body.focus .bar #chimebtn"), "margin-left"), "auto");
+});
+
+// ---- round 8 (20261012): no Home button; Home is the list's first row -------------
+test("there is no round Home button in the bar, and nothing is left that only served it", () => {
+  assert.doesNotMatch(html, /homeico/, "the Home button's id is still in the page");
+  // the bar's markup starts with the pill, with no Home title or label before it
+  const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
+  assert.doesNotMatch(bar, /title="Home"|aria-label="Home"/);
+  // the pill starts at the bar's left inset: the bar has no side padding and the row's first piece is the pill
+  assert.match(sheet, /body\.focus \.bar\{\s*margin:var\(--app-inset\) var\(--app-inset\) 0;/);
+  assert.equal(decl(rule(sheet, "body.focus .bar"), "padding"), "1px 0 6px");
+  // the glass gaps stay: 11px between the row's pieces, the speaker's and squid's 11px, the faint names' 28px of room
+  assert.equal(decl(rule(sheet, "body.focus #tabrow"), "gap"), "11px");
+  assert.equal(decl(rule(sheet, "body.focus #tabbar"), "margin-left"), "-11px");
+  assert.equal(decl(rule(sheet, "body.focus .bar #setbtn"), "margin-left"), "3px");
+  assert.equal(decl(rule(sheet, "body.focus .bar"), "gap"), "8px");
+  // the press goes to the pill and the right-hand circles alone
+  assert.match(html, /for \(const btn of \["projpill", "chimebtn", "setbtn"\]\.map\(/);
+  assert.match(sheet, /body\.focus :is\(#chimebtn, #setbtn, #projpill\)\.pressed\{/);
+});
+
+test("Home is the first row of the pill's list, with the house before the word, as the phone's list has it", () => {
+  const phone = readFileSync(path.join(root, "m.html"), "utf8");
+  const mac = html.match(/<button id="projhome" class="projrow"[^>]*>([\s\S]*?)<\/button>/);
+  assert.ok(mac, "no Home row");
+  const phoneHouse = phone.match(/<button id="homeico" class="projrow"[^>]*>(<svg[\s\S]*?<\/svg>)/)[1].replace(' aria-hidden="true"', "");
+  assert.equal(mac[1].match(/<svg[\s\S]*?<\/svg>/)[0].replace(' aria-hidden="true"', ""), phoneHouse, "not the phone's house");
+  assert.match(mac[1], /<span class="pname">Home<\/span>/);
+  // it heads the list: before the projects' rows and the separator after it, before "Open a new folder"
+  const menu = html.slice(html.indexOf('<div id="projmenu"'));
+  const at = id => menu.indexOf('id="' + id + '"');
+  assert.ok(at("projhome") > 0 && at("projhome") < at("homesep") && at("homesep") < at("projlist") && at("projlist") < at("projnew"));
+  const f = fixture();
+  assert.equal(f.menu.children[0], f.homeRow, "Home is not the first row");
+  assert.equal(f.menu.children.at(-1), f.fresh);
+  assert.deepEqual(f.names(), ["facilitator", "mindzone", "akashs-toolshed", "webpage", "mackie"], "the projects' rows changed");
+  // it has no number, no cross and no carry: it stands outside the list the rows are built into
+  assert.equal(f.list.contains(f.homeRow), false);
+  assert.equal(f.rows().length, 5);
+  f.open(); f.homeRow.fire("mousedown", { clientX: 100, clientY: 60 }); assert.equal(f.get("projCarry"), null);
+  // its look: the house in the number's column, in the row's ink, centred; the word on the names' own edge
+  assert.equal(decl(rule(sheet, "#projmenu #projhome .pnum"), "display"), "flex");
+  assert.equal(decl(rule(sheet, "#projmenu #projhome .pnum"), "justify-content"), "center");
+  assert.equal(decl(rule(sheet, "#projmenu #projhome .pnum"), "color"), "inherit");
+  assert.match(sheet, /#projsep, #homesep\{flex:none; height:var\(--edge\); margin:4px 8px;/);
+  assert.doesNotMatch(rule(sheet, "#projmenu #projhome .pnum") + rule(sheet, "#projmenu #projhome .pline"), /#[0-9a-f]{3,6}\b|rgb|--accent/i);
+});
+
+test("a click on the Home row opens Home and shuts the list; it reads checked while Home is up, and no project does", () => {
+  const f = fixture();
+  assert.equal(f.homeRow.attributes["aria-current"], "false"); assert.equal(f.homeRow.classes.has("on"), false);
+  f.open(); assert.equal(f.isOpen(), true);
+  f.homeRow.fire("click");
+  assert.equal(f.context.homeOpen, true, "Home did not open");
+  assert.equal(f.isOpen(), false, "the list stayed open");
+  assert.equal(f.pill(), "Home");
+  assert.equal(f.homeRow.classes.has("on"), true); assert.equal(f.homeRow.attributes["aria-current"], "true");
+  assert.deepEqual(f.checked(), [], "a project is checked as well");
+  assert.ok(f.calls.includes("renderHome"), "the page was not readied");
+  // reopened on Home the list shows Home checked and focuses it from the keys
+  f.ids.projpill.fire("click", { detail: 0 }); assert.equal(dom.active, f.homeRow);
+  f.win("keydown", { key: "ArrowDown" }); assert.equal(dom.active, f.row("facilitator"));
+  // another click on it while Home is up changes nothing
+  const readied = f.calls.filter(c => c === "renderHome").length; f.homeRow.fire("click");
+  assert.equal(f.context.homeOpen, true); assert.equal(f.calls.filter(c => c === "renderHome").length, readied, "the page was readied again");
+  // choosing a project leaves Home: it is checked and Home is not
+  f.row("mindzone").fire("click");
+  assert.equal(f.context.homeOpen, false); assert.deepEqual(f.checked(), ["mindzone"]);
+  assert.equal(f.homeRow.classes.has("on"), false); assert.equal(f.homeRow.attributes["aria-current"], "false");
+  assert.equal(f.pill(), "mindzone");
+});
+
+test("Command + 0 clicks the Home row, and nothing else answers for Home in the page's script", () => {
+  assert.match(html, /home\(e\)\{\s*e\.preventDefault\(\);\s*if \(!homeOpen\) document\.getElementById\("projhome"\)\.click\(\);/);
+  // the three listeners on the row, in their old order: ready the page, open it, let go of the card
+  const order = ['getElementById("projhome").addEventListener("click", () => {\n  closeProjMenu();',
+    'getElementById("projhome").addEventListener("click", () => { if (!homeOpen) setHome(true); });',
+    'getElementById("projhome")?.addEventListener("click", () => unselectShown());'].map(s => html.indexOf(s));
+  assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "the row's listeners are missing or out of order");
+  // the page's own state for Home is the list's: no aria-pressed on a button
+  assert.doesNotMatch(html, /aria-pressed", String\(homeOpen\)/);
 });

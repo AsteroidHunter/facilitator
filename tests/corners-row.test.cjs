@@ -38,12 +38,15 @@ test("the workspace pane paints nothing but keeps its 7px box, so the stage is f
   assert.match(html, /function frameLimits\(\)\{\s*const frame = document\.getElementById\("appframe"\)/);
 });
 
-test("the house, speaker and squid are glass circles, and the pill a glass capsule at their height", () => {
-  const circles = rules("body.focus :is(#homeico, #chimebtn, #setbtn)");
+test("the speaker and squid are glass circles, the pill a glass capsule at their height, and there is no Home button", () => {
+  const circles = rules("body.focus :is(#chimebtn, #setbtn)");
   assert.equal(decl(circles, "border-radius"), "50%");
   assert.equal(decl(circles, "width"), "32px"); assert.equal(decl(circles, "height"), "32px");
-  for (const id of ["homeico", "projpill", "chimebtn", "setbtn"])
+  for (const id of ["projpill", "chimebtn", "setbtn"])
     assert.match(html, new RegExp(`<button id="${id}" class="qn-glass"`), id + " is not glass");
+  // the round Home button is gone, with its rules; Home is a row of the pill's list
+  assert.doesNotMatch(html, /homeico/);
+  assert.match(html, /<div id="projmenu"[^>]*>\s*<button id="projhome" class="projrow"/);
   const pill = rules("body.focus #projpill");
   assert.equal(decl(pill, "height"), "32px");
   assert.equal(decl(pill, "border-radius"), "16px", "half its height: a capsule");

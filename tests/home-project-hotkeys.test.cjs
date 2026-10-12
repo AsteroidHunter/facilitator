@@ -125,7 +125,7 @@ test("Mac Home respects a locked project and closes an unfinished draft through 
   assert.equal(f.context.draft, false);
 });
 
-// Command + 0 is the house's click, matched by the physical key
+// Command + 0 is the Home row's click, matched by the physical key
 function homeFixture(overrides = {}) {
   const clicks = [];
   const f = fixture({ homeOpen: false, document: { getElementById: id => ({ click() { clicks.push(id); } }) }, ...overrides });
@@ -133,12 +133,12 @@ function homeFixture(overrides = {}) {
 }
 const cmd0 = (extra = {}) => ({ key: "0", code: "Digit0", metaKey: true, ctrlKey: false, ...extra });
 
-test("Command+0 clicks the house, on any layout, and types nothing", () => {
+test("Command+0 clicks the Home row, on any layout, and types nothing", () => {
   for (const extra of [{}, { key: "à" }, { key: "Dead" }, { key: "p", code: "Digit0" },
     { target: { closest: () => ({}) } }]) {
     const { f, clicks } = homeFixture();
     assert.equal(f.key("0", cmd0(extra)).defaultPrevented, true);
-    assert.deepEqual(clicks, ["homeico"]);
+    assert.deepEqual(clicks, ["projhome"]);
   }
 });
 
@@ -178,5 +178,5 @@ test("Command+0 opens Home from a blank page too", () => {
   f.context.lastState.pages = { alpha: [{ id: "blank", kind: "blank" }] };
   f.context.curPage = () => ({ kind: "blank" });
   assert.equal(f.key("0", cmd0()).defaultPrevented, true);
-  assert.deepEqual(clicks, ["homeico"]);
+  assert.deepEqual(clicks, ["projhome"]);
 });
