@@ -235,6 +235,12 @@
     doing = cut(what).slice(0, 40);
   };
 
+  // this load's window id and its last doing word, for the phone's last breath
+  // note, which has to say which window wrote it
+  window.reportWho = function () {
+    return { window: windowId, doing: doing };
+  };
+
   // What the phone says about its notifications when it opens or comes back:
   // fixed words and flags only, sent at once rather than at page hide, and held
   // (up to a batch) for the next try when the board does not answer. A board
