@@ -469,6 +469,27 @@ test("the cross puts the box away as the agent's close does, and the board keeps
   assert.match(html, /const shut = magicCard\(true\);\s*if \(shut && shut\.id === MB\.id\) magicSink\(\);\s*else magicOff\(\);/);
 });
 
+test("the box's edge line fades in and out on the rise with everything else on the box, and is plain once risen", () => {
+  const html = read("index.html"), phone = read("m.html");
+  // the box's own rules, with comments left out
+  const rules = html.slice(0, html.indexOf("</style>")).replace(/\/\*[\s\S]*?\*\//g, "").match(/\n  #magicbox[^{\n]*\{[^}]*\}/g);
+  const rising = rules.find(r => /^\s*#magicbox\.rising\{/.test(r));
+  const edge = rising.match(/border-color:color-mix\(in srgb, var\(--line\) calc\(var\(--rise\) \* 100%\), transparent\)/);
+  assert.ok(edge, "the edge line does not follow --rise");
+  // it is the same --rise the contents and the shadow follow, so the same time and curve
+  assert.match(html, /\n  #magicbox\.rising > \*\{opacity:var\(--rise\)\}/);
+  assert.match(rising, /\{--rise:0; transition:none;/, "the rise starts flat and the box does not ease on its own");
+  // a share of 0% is no line and 100% the line's own colour, as the shadow's alpha is
+  assert.match(rising, /box-shadow:0 calc\(2px \* var\(--rise\)\) calc\(18px \* var\(--rise\)\) rgba\(60,45,20,calc\(\.10 \* var\(--rise\)\)\)/);
+  // nothing else colours the edge, and the shadow's own layers are untouched
+  assert.ok(!/border-color/.test(rules.filter(r => r !== rising).join("")), "another rule recolours the edge");
+  // the box held after the rise is the rule without the class, the line unscaled
+  assert.match(html, /\n  #magicbox\{background:var\(--card\); border:var\(--edge\) solid var\(--line\);/);
+  // the phone's box fades inside the drawer, edge included, and has no rise of its own
+  assert.match(phone, /#tickets\{\s*\/\*[^*]*\*\/\s*opacity:var\(--list-v\);/);
+  assert.ok(!/#mbface[^{]*\.rising|#mbface[^{]*\{[^}]*--rise/.test(phone), "the phone's box has a rise of its own");
+});
+
 test("the box rises out of the page as it first comes, its lines with it, and faster once the owner is at it", () => {
   const html = read("index.html");
   assert.match(html, /const RISE_MS = 1000, RISE_FAST = 3;/);
@@ -776,9 +797,11 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   assert.match(card, /border:var\(--edge\) solid var\(--line\); background:#fff; border-radius:7px;/);
   assert.match(face, /border:var\(--edge\) solid var\(--line\); border-radius:7px;/, "the card's own edge");
   assert.ok(!/outline/.test(face));
-  // and that is the only edge any of the board's box rules draws
+  // and that is the only edge any of the board's box rules draws, its colour
+  // alone scaled by the rise while the box comes and goes
   const borders = style.match(/\n  #magicbox[^{]*\{[^}]*\}/g).join("").match(/border(?!-radius)[\w-]*:[^;}]*/g);
-  assert.deepEqual(borders, ["border:var(--edge) solid var(--line)"]);
+  assert.deepEqual(borders, ["border:var(--edge) solid var(--line)",
+    "border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent)"]);
   // the bar is the card's white with no line under it, the cross's seat its white
   assert.match(style, /\n  #magicbox \.mbbar\{background:var\(--card\)\}/);
   assert.match(style, /\n  #magicbox \.mbbar::after\{display:none\}/);

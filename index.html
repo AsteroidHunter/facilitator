@@ -1510,9 +1510,11 @@
      there. --rise runs from 0, flat with the page with nothing on it, to
      1, where both shadows above are reached and what it holds is at its full
      strength. the shadow's offset, reach and strength and what it holds all
-     follow it together, and its lines too (#mblines, #mbtabs). risen, the
+     follow it together, and its edge line (the border) and its lines too
+     (#mblines, #mbtabs). risen, the
      class comes off and the rules above hold it, with the same numbers */
   #magicbox.rising{--rise:0; transition:none;
+    border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent);
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.05 * var(--rise)))}
   #magicbox.rising.held{
