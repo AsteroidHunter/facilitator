@@ -86,7 +86,7 @@ const sandbox = {
 sandbox.window = sandbox; sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(read("card-logic.js"), sandbox);
-const { cardState, queueState, testReady, appendOmniRowArt, shortAge } = sandbox;
+const { cardState, queueState, testReady, appendOmniRowArt, shortAge, ticketTs } = sandbox;
 
 function functionSource(html, name, nextName) {
   const start = html.indexOf(`function ${name}(`);
@@ -100,22 +100,22 @@ function functionSource(html, name, nextName) {
 const SPIN = ["|", "/", "-", "\\"];
 const PAINT = {
   desktop: (pool, view, agents) => {
-    const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
+    const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
       "spinGlyph", "curView", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
       "select", "onFold", "unfoldTicket",
       `${functionSource(HTML.desktop, "paintTicketPane", "renderCarousel")}; return paintTicketPane;`,
-    )(queueState, cardState, h, {}, shortAge, () => SPIN[0], () => view, "none", null, testReady,
+    )(queueState, cardState, h, {}, shortAge, ticketTs, () => SPIN[0], () => view, "none", null, testReady,
       appendOmniRowArt, noop, noop, noop);
     const pane = new FakeElement("div");
     paint(pane, pool, view, { agents }, "lane");
     return pane.children;
   },
   phone: (pool, view, agents) => {
-    const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
+    const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
       "spinGlyph", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
       "select", "closeDrawer", "onFold", "unfoldTicket", "homeOpen", "setHome", "drawerOpen",
       `${functionSource(HTML.phone, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
-    )(queueState, cardState, h, {}, shortAge, () => SPIN[0], "none", testReady, appendOmniRowArt, noop,
+    )(queueState, cardState, h, {}, shortAge, ticketTs, () => SPIN[0], "none", testReady, appendOmniRowArt, noop,
       noop, noop, noop, noop, false, noop, () => false);
     const pane = new FakeElement("div");
     paint(pane, pool, view, { agents }, noop);

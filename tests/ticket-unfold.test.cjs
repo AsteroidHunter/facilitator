@@ -133,22 +133,22 @@ function pageHelpers() {
 
 // the phone's painter keeps its rows on the section it is handed, so a second
 // pass over the same section changes those rows in place
-const phonePainter = () => new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
+const phonePainter = () => new Function("queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
   "spinGlyph", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
   "select", "closeDrawer", "onFold", "unfoldTicket", "homeOpen", "setHome", "drawerOpen",
   `${functionSource(HTML.phone, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
-)(queueState, cardState, h, {}, () => "5m", () => SPIN[0], "none", testReady, appendOmniRowArt, sandbox.omniRowFace,
+)(queueState, cardState, h, {}, () => "5m", b => b.agentTs || 0, () => SPIN[0], "none", testReady, appendOmniRowArt, sandbox.omniRowFace,
   record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"), false, record("setHome"), () => false);
 
 // each surface's painter, handed one pool and the view it is drawing, answers
 // with the rows it drew
 const PAINT = {
   desktop: (pool, view = "todo") => {
-    const paint = new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
+    const paint = new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
       "spinGlyph", "curView", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
       "select", "onFold", "unfoldTicket",
       `${functionSource(HTML.desktop, "paintTicketPane", "renderCarousel")}; return paintTicketPane;`,
-    )(DateStub, queueState, cardState, h, {}, () => "5m", () => SPIN[0], () => view, "none", null, testReady,
+    )(DateStub, queueState, cardState, h, {}, () => "5m", b => b.agentTs || 0, () => SPIN[0], () => view, "none", null, testReady,
       appendOmniRowArt, record("select"), logic("onFold"), logic("unfoldTicket"));
     const pane = new FakeElement("div");
     paint(pane, pool, view, { agents: {} }, "lane");
