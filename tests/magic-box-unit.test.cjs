@@ -8,7 +8,7 @@
 // at their own height, hung from that box's top, under a top bar that keeps
 // its height. Its look, read from the page's source: on the Mac the card's own
 // face, edge line, corners and shadow, under a white bar with no line under it;
-// on the phone the same face, edge and corners with the lighter shadow, the
+// on the phone the same face, edge and corners with the board's faint shadow, the
 // same white bar, and its drawn top and bottom edges as the drawer's gaps;
 // one cross, and a site that will not be framed
 // as a square with its name in the middle; on the Mac whichever of the card
@@ -886,14 +886,17 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   // the phone gives the same corners in its own units: twice the card's calc(7 * var(--u))
   assert.match(phone, /#mbface\{display:none;[^}]*--mb-round:calc\(14 \* var\(--u\)\)/);
   assert.match(phone, /\n  main\{[^}]*border-radius:calc\(7 \* var\(--u\)\)/);
-  // the phone's box is dressed as the board's: the card's white face, edge line and 7px
-  // corners (in the phone's units, as its card is), and the lighter shadow the board's
-  // box wore before its two shadows were set further apart, which the phone keeps
+  // the phone's box is dressed as the board's: the card's white face, edge line and
+  // corners (in the phone's units, as its card is), and the faint shadow the board's
+  // box wears while its card is the one worked in (--shade-lighter), which on the
+  // phone, where the box is only read, is always
   const sty = code(phone.slice(0, phone.indexOf("</style>")));
   const dress = sty.match(/\n  #mbface\{background:var\(--card\); ([^}]*)\}/);
   assert.ok(dress, "the phone's box has no face");
-  assert.match(dress[1], /^border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);\s*box-shadow:0 2px 18px rgba\(60,45,20,\.10\), 0 1px 3px rgba\(60,45,20,\.05\)$/);
-  assert.ok(!style.includes("--shade-lighter:0 2px 18px"), "the board's hairline is not the lighter shadow the phone still wears");
+  assert.match(dress[1], /^border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);\s*box-shadow:0 3px 14px rgba\(60,45,20,\.10\), 0 1px 2px rgba\(60,45,20,\.06\)$/);
+  const faint = style.match(/--shade-lighter:([^;}]*)/)[1].trim();
+  assert.equal(dress[1].match(/box-shadow:([^;}]*)$/)[1].trim(), faint, "the phone's box does not wear the board's faint shadow");
+  assert.ok(!/shade-deeper|mbon|mbheld/.test(phone), "the phone raises the card or the box");
   assert.ok(!/outline/.test(dress[1]));
   // the only edge any phone rule draws on the box, and the white bar without its line
   const subjects = selectors => selectors.split(",").map(s => s.trim().split(/\s+/).pop());
