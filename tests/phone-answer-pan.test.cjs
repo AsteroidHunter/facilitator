@@ -42,6 +42,9 @@ function world() {
   const cards = { addEventListener: on("#cards"), clientWidth: 360 };
   const panel = side => ({ dataset: { side } });
   const tickets = panel("left"), settings = panel("right");
+  // This gesture fixture has no ticket panes, just like its document query below.
+  tickets.querySelectorAll = () => [];
+  tickets.addEventListener = () => {};   // the pick's end-of-slide listener; no slide runs here
   const document = {
     addEventListener: on("document"), body, activeElement: body,
     getElementById: id => id === "cards" ? cards : id === "pane" ? { classList: classList() } : null,
@@ -50,7 +53,7 @@ function world() {
   };
   const els = { m1: { box: boxes.m1 }, m2: { box: boxes.m2 } };
   const context = vm.createContext({
-    document, tickets, settings, innerWidth: 390, selectedId: "m1", hist: null,
+    phoneDeveloperMode: true, document, tickets, settings, innerWidth: 390, selectedId: "m1", hist: null,
     els,
     // the page builds the card coming in when it is not built yet
     ensureCard: id => els[id] || null,
@@ -58,6 +61,8 @@ function world() {
     setTimeout: (fn, ms) => { timers.push(fn); return timers.length; }, clearTimeout() {},
     matchMedia: () => ({ matches: false }),
     menuOut: () => null, dismissEditor() {}, closeProjects() {}, tracePhone() {}, traceFrameOpportunity() {},
+    menuAvailable: () => true, // this fixture exercises project gestures; Home has its own controller tests
+    cancelMenuDrag: null,
     phoneEnterRole: () => "other",
     menuTravel: () => 300, menuSign: p => p === settings ? -1 : 1,
     paintMenu: (p, at) => calls.push(["paint", p.dataset.side, Math.round(at * 100) / 100]),
@@ -108,10 +113,13 @@ test("the project's capsule and its list's carry are the page's only listeners t
   // the capsule in the row of buttons and the project list are boxes of their
   // own over the row, and hold no answer, so a pan over the answer never waits
   // on either
-  const cancellable = [...HTML.matchAll(/passive\s*:\s*false/g)];
+  // The dedicated pinch guard cancels GestureEvents, not ordinary touches.
+  // Its registration and event behavior are tested in phone-page-zoom.test.cjs.
+  const touchSource = HTML.replace(/<script id="page-zoom-guard">[\s\S]*?<\/script>/, "");
+  const cancellable = [...touchSource.matchAll(/passive\s*:\s*false/g)];
   assert.equal(cancellable.length, 2);
   // each from the start of the line its listener is added on
-  const owners = cancellable.map(m => HTML.slice(HTML.lastIndexOf("\n", HTML.lastIndexOf("addEventListener(", m.index)), m.index));
+  const owners = cancellable.map(m => touchSource.slice(touchSource.lastIndexOf("\n", touchSource.lastIndexOf("addEventListener(", m.index)), m.index));
   assert.match(owners[0], /projBtn\.addEventListener\("touchstart"/);
   assert.match(owners[1], /projList\.addEventListener\("touchmove"/);
 });

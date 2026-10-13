@@ -91,6 +91,18 @@ test("a settings write moves settingsRev and never the board's revision", async 
   assert.equal(phoneAfter.changed, false, "the phone was sent the board again for a settings write");
 });
 
+test("the usage counts switch is kept with the board's settings: off is 0, and on takes the key away", async () => {
+  assert.equal("usagecounts" in (await read()).values, false, "a new board starts with the switch set");
+  const off = await write({ usagecounts: "0" });
+  assert.equal(off.status, 200);
+  assert.equal((await read()).values.usagecounts, "0");
+  const js = await (await fetch(url("/board-settings.js"))).text();
+  assert.match(js, /"usagecounts": "0"/, "the Mac page is not handed the switch before it draws");
+  await write({ usagecounts: null });
+  assert.equal("usagecounts" in (await read()).values, false);
+  await write({ usagecounts: "0" });   // left off, so the restart below keeps it
+});
+
 test("the settings outlive a restart, owner-only, and a file that cannot be read is put aside", async () => {
   const kept = await read();
   const file = path.join(place.app, "settings.json");

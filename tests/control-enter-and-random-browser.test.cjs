@@ -1,6 +1,6 @@
-// Control+Enter and Control+R on the Mac board and the phone page, driven
-// headless against their own fixture server. Control+Enter is a double Enter
-// pressed at once: it sends what the box holds, then moves to the card that has
+// Control+Shift+Enter and Control+R on the Mac board and the phone page, driven
+// headless against their own fixture server. Control+Shift+Enter is a double
+// Enter pressed at once: it sends what the box holds, then moves to the card that has
 // waited longest, and with nothing typed, or outside a box, it only moves.
 // Control+R jumps to a random card in the list whose ticket is neither green
 // nor grey (queued).
@@ -258,14 +258,17 @@ after(async () => {
   if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
 });
 
+// on both pages a caret in the box goes on into the next card's box with the
+// move. caretFromOutside: a move made with no box holding the caret puts it in
+// one; the phone never does, since a focused box is what raises its keyboard
 const PAGES = [
-  { name: "desktop", viewport: DESKTOP, caretFollows: true },
-  { name: "phone", viewport: PHONE, caretFollows: false },
+  { name: "desktop", viewport: DESKTOP, caretFromOutside: true },
+  { name: "phone", viewport: PHONE, caretFromOutside: false },
 ];
 
-for (const { name, viewport, caretFollows } of PAGES) {
+for (const { name, viewport, caretFromOutside } of PAGES) {
   for (const editor of ["formatted", "plain"]) {
-    test(`${name} ${editor} row: control+enter with words sends once and lands where double Enter lands`, async () => {
+    test(`${name} ${editor} row: control+shift+enter with words sends once and lands where double Enter lands`, async () => {
       const ids = await board(`${name} ${editor} words`);
       const { page, problems } = await open(viewport);
       const sends = watchSends(page);
@@ -273,18 +276,18 @@ for (const { name, viewport, caretFollows } of PAGES) {
         await setEditor(page, editor === "formatted");
         await selectCard(page, ids.source);
         await type(page, "words for the agent");
-        await chord(page, "Enter", "Control");
+        await chord(page, "Enter", "Control", "Shift");
         await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
         await settle(250);
         const control = await landing(page);
-        assert.equal(sends.length, 1, "control+enter did not send exactly once");
+        assert.equal(sends.length, 1, "control+shift+enter did not send exactly once");
         assert.deepEqual([sends[0].box, sends[0].body], [ids.source, "words for the agent"]);
-        assert.equal(control.browsing, false, "control+enter left the card browsed");
+        assert.equal(control.browsing, false, "control+shift+enter left the card browsed");
         assert.equal(control.shown, ids.oldest);
-        assert.equal(control.caretIn, caretFollows ? ids.oldest : null, "the caret did not land as double Enter's does");
+        assert.equal(control.caretIn, ids.oldest, "the caret did not go on into the next card's box");
 
         const double = await doubleEnterLanding(page, ids, "words for the double Enter");
-        assert.deepEqual(control, double, "control+enter and double Enter landed differently");
+        assert.deepEqual(control, double, "control+shift+enter and double Enter landed differently");
         assert.equal(sends.length, 2);
         assert.equal(await page.evaluate(card => els[card].ta.value, ids.source), "", "the sent words stayed in the box");
         assert.deepEqual(problems, []);
@@ -294,7 +297,7 @@ for (const { name, viewport, caretFollows } of PAGES) {
     });
   }
 
-  test(`${name}: control+enter with an empty box, or no box, only moves, as double Enter's second press does`, async () => {
+  test(`${name}: control+shift+enter with an empty box, or no box, only moves, as double Enter's second press does`, async () => {
     const ids = await board(`${name} empty`);
     const { page, problems } = await open(viewport);
     const sends = watchSends(page);
@@ -305,26 +308,26 @@ for (const { name, viewport, caretFollows } of PAGES) {
 
       await selectCard(page, ids.source);
       await page.focus(SEL);
-      await chord(page, "Enter", "Control");
+      await chord(page, "Enter", "Control", "Shift");
       await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
       await settle(250);
-      assert.deepEqual(await landing(page), double, "an empty box's control+enter landed differently from double Enter");
+      assert.deepEqual(await landing(page), double, "an empty box's control+shift+enter landed differently from double Enter");
 
       await selectCard(page, ids.source);
       await page.focus(SEL);
       await page.keyboard.type("   ");
-      await chord(page, "Enter", "Control");
+      await chord(page, "Enter", "Control", "Shift");
       await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
       assert.equal(sends.length, 0, "an empty or blank box sent something");
 
       await selectCard(page, ids.source);
       assert.equal(await page.evaluate(() => document.activeElement === document.body), true, "a box still held the caret");
-      await chord(page, "Enter", "Control");
+      await chord(page, "Enter", "Control", "Shift");
       await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
       await settle(250);
       const outside = await landing(page);
       assert.equal(outside.browsing, false);
-      assert.equal(outside.caretIn, double.caretIn);
+      assert.equal(outside.caretIn, caretFromOutside ? double.caretIn : null);
       assert.equal(sends.length, 0);
       assert.deepEqual(problems, []);
     } finally {
@@ -332,18 +335,20 @@ for (const { name, viewport, caretFollows } of PAGES) {
     }
   });
 
-  test(`${name}: a held control+enter moves once`, async () => {
+  test(`${name}: a held control+shift+enter moves once`, async () => {
     const ids = await board(`${name} held`);
     const { page, problems } = await open(viewport);
     try {
       await selectCard(page, ids.source);
       await page.focus(SEL);
       await page.keyboard.down("Control");
+      await page.keyboard.down("Shift");
       await page.keyboard.down("Enter");
       await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
       await page.keyboard.down("Enter");
       await page.keyboard.down("Enter");
       await page.keyboard.up("Enter");
+      await page.keyboard.up("Shift");
       await page.keyboard.up("Control");
       await settle(300);
       assert.equal((await landing(page)).selected, ids.oldest, "a repeat of the held key moved on again");
@@ -353,7 +358,7 @@ for (const { name, viewport, caretFollows } of PAGES) {
     }
   });
 
-  test(`${name}: with nobody else waiting control+enter sends and stays, and empty it does nothing`, async () => {
+  test(`${name}: with nobody else waiting control+shift+enter sends and stays, and empty it does nothing`, async () => {
     const ids = await board(`${name} alone`);
     await api(`/send?box=${ids.oldest}`, "Answered, so no longer waiting.");
     await api(`/send?box=${ids.newer}`, "Answered, so no longer waiting.");
@@ -363,21 +368,21 @@ for (const { name, viewport, caretFollows } of PAGES) {
       await page.evaluate(() => poll());
       await selectCard(page, ids.source);
       await type(page, "nobody to move to");
-      await chord(page, "Enter", "Control");
+      await chord(page, "Enter", "Control", "Shift");
       await page.waitForFunction(() => document.querySelector("article.box.sel textarea").value === "", { timeout: 3000 });
       await noMoveFor(page, ids.source);
       assert.equal(sends.length, 1);
       await rearm(page, ids);
-      await chord(page, "Enter", "Control");
+      await chord(page, "Enter", "Control", "Shift");
       await noMoveFor(page, ids.source, 400);
-      assert.equal(sends.length, 1, "an empty control+enter sent");
+      assert.equal(sends.length, 1, "an empty control+shift+enter sent");
       assert.deepEqual(problems, []);
     } finally {
       await page.close();
     }
   });
 
-  test(`${name}: a refused control+enter send keeps the reader on the card`, async () => {
+  test(`${name}: a refused control+shift+enter send keeps the reader on the card`, async () => {
     const ids = await board(`${name} refused`);
     const { page, problems } = await open(viewport);
     try {
@@ -391,11 +396,11 @@ for (const { name, viewport, caretFollows } of PAGES) {
         };
       });
       await type(page, "this send is refused");
-      await chord(page, "Enter", "Control");
+      await chord(page, "Enter", "Control", "Shift");
       await settle(1200);
       const at = await landing(page);
       assert.equal(at.selected, ids.source, "a refused send moved the reader away from it");
-      if (caretFollows) {
+      if (name === "desktop") {
         // a refused send stays in the sent panel under its mark; the cross gives the words back
         assert.equal(await page.evaluate(card => {
           const held = (els[card] && els[card].sentHeld) || [];
@@ -407,6 +412,30 @@ for (const { name, viewport, caretFollows } of PAGES) {
       }
       await page.evaluate(() => { window.fetch = window.__nativeFetch; });
       assert.deepEqual(problems.filter(problem => !/status of 400/.test(problem)), []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test(`${name}: control+enter alone is the system's: it sends nothing, moves nothing and is not cancelled`, async () => {
+    const ids = await board(`${name} bare control`);
+    const { page, problems } = await open(viewport);
+    const sends = watchSends(page);
+    try {
+      await selectCard(page, ids.source);
+      await type(page, "left in the box");
+      await page.evaluate(() => {
+        window.__bareControlEnter = [];
+        window.addEventListener("keydown", e => {
+          if (e.key === "Enter") window.__bareControlEnter.push(e.defaultPrevented);
+        });
+      });
+      await chord(page, "Enter", "Control");
+      await settle(600);
+      assert.deepEqual(await page.evaluate(() => window.__bareControlEnter), [false], "control+enter was cancelled");
+      assert.equal(sends.length, 0, "control+enter sent");
+      assert.equal((await landing(page)).selected, ids.source, "control+enter moved the board");
+      assert.deepEqual(problems, []);
     } finally {
       await page.close();
     }
@@ -539,7 +568,7 @@ async function showMini(page) {
   await settle(200);
 }
 
-test("desktop small card: control+enter sends from it, hands the keys back and moves the board", async () => {
+test("desktop small card: control+shift+enter sends from it, hands the keys back and moves the board", async () => {
   const ids = await board("mini");
   const { page, problems } = await open(DESKTOP);
   const sends = watchSends(page);
@@ -552,7 +581,7 @@ test("desktop small card: control+enter sends from it, hands the keys back and m
     await page.click(field);
     await page.keyboard.type("typed in the small card");
     assert.equal(await page.evaluate(() => miniFocused), true);
-    await chord(page, "Enter", "Control");
+    await chord(page, "Enter", "Control", "Shift");
     await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
     await settle(250);
     assert.equal(sends.length, 1);
@@ -572,9 +601,9 @@ test("desktop small card: control+enter sends from it, hands the keys back and m
     assert.equal(sends.length, 2);
 
     await page.click(field);
-    await chord(page, "Enter", "Control");
+    await chord(page, "Enter", "Control", "Shift");
     await page.waitForFunction(card => selectedId === card, { timeout: 4000 }, ids.oldest);
-    assert.equal(sends.length, 2, "an empty control+enter in the small card sent");
+    assert.equal(sends.length, 2, "an empty control+shift+enter in the small card sent");
     assert.deepEqual(problems, []);
   } finally {
     await page.close();

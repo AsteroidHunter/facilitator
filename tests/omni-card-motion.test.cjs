@@ -59,6 +59,7 @@ function makeSandbox(){
     node.addEventListener = (type, fn) => { (node.listeners[type] = node.listeners[type] || []).push(fn); };
     node.fire = type => { for (const fn of node.listeners[type] || []) fn({ type }); };
     node.focus = () => { sandbox.document.activeElement = node; };
+    node.blur = () => { if (sandbox.document.activeElement === node) sandbox.document.activeElement = null; };
     node.querySelector = selector => selector.startsWith(".")
       ? node.children.find(child => child.classList && child.classList.contains(selector.slice(1))) || null : null;
     node.querySelectorAll = () => [];

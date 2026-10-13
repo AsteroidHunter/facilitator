@@ -321,7 +321,7 @@ test("install writes the default pair when it is free and the next free pair whe
   try {
     const free = await cli(place, [`cli.DEFAULT_PORT = ${base}`, "cli.ensure_config()"]);
     assert.equal(free.code, 0, free.stderr);
-    assert.ok(free.said.some(line => line.endsWith("Wrote run.config.json from run.config.example.json.")), free.said.join("\n"));
+    assert.ok(free.said.some(line => line.endsWith("Board settings created.")), free.said.join("\n"));
     assert.ok(!free.said.some(line => /in use/.test(line)), "a free default pair was called in use");
     assert.equal(fs.readFileSync(target, "utf8"), example.replace('"port": 8877', `"port": ${base}`));
 
@@ -330,8 +330,8 @@ test("install writes the default pair when it is free and the next free pair whe
     try {
       const busy = await cli(place, [`cli.DEFAULT_PORT = ${base}`, "cli.ensure_config()"]);
       assert.equal(busy.code, 0, busy.stderr);
-      assert.ok(busy.said.includes(`Ports ${base} and ${base + 1} are in use here, so it names ${base + 2} and ${base + 3}.`),
-                busy.said.join("\n"));
+      assert.ok(busy.said.some(line => line.endsWith("Board settings created.")), busy.said.join("\n"));
+      assert.ok(!busy.said.some(line => /in use/.test(line)), "the install announced the move to other ports");
       assert.equal(fs.readFileSync(target, "utf8"), example.replace('"port": 8877', `"port": ${base + 2}`));
       // a config that is already there is never touched
       fs.writeFileSync(target, '{"port": 1234, "lanes": []}');

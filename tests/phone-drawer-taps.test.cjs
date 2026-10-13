@@ -37,7 +37,7 @@ function fixture() {
     tap: (id, extra = {}) => rows[id].row.listeners.click({ detail: 1, ...extra }),
     reopen: () => {
       // runMenu clears this on either an open or a close, including a swipe.
-      assert.match(html, /function runMenu\(panel, v, release\)\{\s*lastTicketTap = null;/);
+      assert.match(html, /function runMenu\(panel, v, release, speed = 0\)\{\s*lastTicketTap = null;/);
       vm.runInContext("lastTicketTap = null", context);
       open = true;
     },
@@ -114,6 +114,6 @@ test("a ticket picked from home still selects immediately and a second tap close
   assert.equal(f.opened(), false);
 });
 
-test("ticket touch handling permits pan and pinch while leaving double taps to the row", () => {
+test("ticket rows allow pans and clicks while ancestors constrain page zoom", () => {
   assert.match(html, /\.trow\{[^}]*touch-action:manipulation;/);
 });

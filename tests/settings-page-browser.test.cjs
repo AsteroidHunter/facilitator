@@ -90,6 +90,7 @@ async function open(route, viewport, opts = {}) {
       if (sessionStorage.getItem("settings-page-check")) return;
       sessionStorage.setItem("settings-page-check", "1");
       localStorage.clear();
+      if (location.pathname === "/m") localStorage.setItem("phoneDeveloperMode", "on");
     } catch (error) {}
   });
   if (opts.before) await page.evaluateOnNewDocument(opts.before);
@@ -161,15 +162,10 @@ async function openIfShut(page) {
   if (!(await shown(page, ".sp-page"))) await openMac(page);
 }
 
-// the phone opens its settings drawer with a pull from the right edge
-async function openPhone(page, width = PHONE.width) {
-  const from = width - 6, y = 500;
-  await page.touchscreen.touchStart(from, y);
-  for (let step = 1; step <= 8; step++) {
-    await page.touchscreen.touchMove(from - 30 * step, y);
-    await settle(16);
-  }
-  await page.touchscreen.touchEnd();
+// the phone opens its settings drawer with the squid circle at the row's right
+// end, the only way in: no pull brings them
+async function openPhone(page) {
+  await page.tap("#setbtn");
   await page.waitForSelector("#settings.open", { timeout: 5000 });
   await settle(700);
 }
@@ -444,7 +440,7 @@ test("wide: sections stand on the left and the chosen one's settings on the righ
   const { page, problems } = await open("/", WIDE);
   try {
     await openMac(page);
-    assert.deepEqual(await labels(page), ["Appearance", "Editor"], "the sections are not the settings' own groups");
+    assert.deepEqual(await labels(page), ["Appearance", "Editor", "Improvements", "Profile"], "the sections are not the settings' own groups");
     assert.equal(await shown(page, ".sp-list"), true, "the list of sections is not showing");
     assert.equal(await shown(page, ".sp-panes"), true, "the settings are not showing beside the list");
     assert.equal(await shown(page, ".sp-back"), false, "a back mark shows where there is nothing to go back to");
@@ -831,7 +827,7 @@ test("narrow Mac: only the list, a section on tap, a way back, and a way out", a
   try {
     await openMac(page);
     assertSeventhTenths(await share(page), "at the tall window");
-    assert.deepEqual(await labels(page), ["Appearance", "Editor"]);
+    assert.deepEqual(await labels(page), ["Appearance", "Editor", "Improvements", "Profile"]);
     assert.equal(await shown(page, ".sp-list"), true, "the list is not showing");
     assert.equal(await shown(page, ".sp-panes"), false, "settings show beside a list that has no room");
     assert.equal(await shown(page, ".sp-back"), false, "the list has a back mark");
@@ -911,7 +907,7 @@ test("the same page changes layout when the window does", async () => {
 });
 
 // ---- the phone app ------------------------------------------------------------------
-// a pull from the right edge brings in the narrow white panel the phone has always had,
+// the squid circle brings in the narrow white panel the phone has always had,
 // and the settings page fills it; the row along the bottom holds its four buttons,
 // the gear at its right end among them
 
@@ -919,12 +915,16 @@ test("the same page changes layout when the window does", async () => {
 // notes and the status line are empty until there is something to say)
 const HELD = {
   editor: ["setformat"],
+  appearance: ["setwait", "setwaitnote"],
   notifications: ["notify", "notifynote"],
+  improvements: ["setusage"],
   diagnostics: ["savediagnostic", "diagnostichelp", "diagnosticstatus"],
 };
 const SECTIONS = {
   editor: ["setformat"],
+  appearance: ["setwait"],
   notifications: ["notify"],
+  improvements: ["setusage"],
   diagnostics: ["savediagnostic", "diagnostichelp"],
 };
 
@@ -956,7 +956,7 @@ function drawerView(page) {
   }, SECTIONS, HELD);
 }
 
-test("phone: a pull from the right edge brings in the drawer, in its own size and style, holding the page", async () => {
+test("phone: the squid circle brings in the drawer, in its own size and style, holding the page", async () => {
   const { page, problems } = await open("/m", PHONE);
   try {
     const wide = Math.min(PHONE.width * 0.714, 289);
@@ -1015,12 +1015,13 @@ test("phone: the drawer opens on the list of sections and each one opens inside 
     const list = await drawerView(page);
     assert.equal(list.view, "list");
     assert.equal(list.title, "Settings");
-    assert.deepEqual(list.items, ["Editor", "Notifications", "Diagnostics"]);
+    assert.deepEqual(list.items, ["Editor", "Appearance", "Notifications", "Improvements", "Profile", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows over the list");
     assert.equal(list.back, false, "the list has a way back");
     assert.equal(list.close, false, "the page carries window buttons or a close mark of its own");
     assert.deepEqual(list.anyShown, [], "a control shows before its section is opened");
-    const words = { editor: "Editor", notifications: "Notifications", diagnostics: "Diagnostics" };
+    const words = { editor: "Editor", appearance: "Appearance", notifications: "Notifications", improvements: "Improvements",
+                    diagnostics: "Diagnostics" };
     for (const [name, ids] of Object.entries(SECTIONS)) {
       await page.tap('.sp-item[data-section="' + name + '"]');
       await settle(80);
@@ -1066,7 +1067,7 @@ test("phone: the drawer stays narrow, with the list and sections, in a wide wind
     const box = await cover(page, "#settings");
     assert.equal(box.right - box.left, 289, "the drawer is not capped at 289px");
     const list = await drawerView(page);
-    assert.deepEqual(list.items, ["Editor", "Notifications", "Diagnostics"]);
+    assert.deepEqual(list.items, ["Editor", "Appearance", "Notifications", "Improvements", "Profile", "Diagnostics"]);
     assert.deepEqual(list.panes, [], "a section shows beside the list");
     await page.tap('.sp-item[data-section="notifications"]');
     await settle(80);
@@ -1294,11 +1295,13 @@ test("phone: the turn off mark stands at the foot of the drawer, the license bes
       const style = getComputedStyle(button);
       const link = document.getElementById("setlicense"), lb = link.getBoundingClientRect(), ls = getComputedStyle(link);
       return { below: Math.round(drawer.bottom - icon.bottom),
-               right: Math.round(drawer.right - icon.right),
+               centerOffset: (lb.left + box.right - drawer.left - drawer.right) / 2,
+               gap: box.left - lb.right,
+               cssGap: getComputedStyle(document.getElementById("setfootline")).columnGap,
                icon: [icon.width, icon.height], color: style.color, fill: style.backgroundColor, border: style.borderTopStyle,
                reached: document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2)?.closest("#signout") === button,
                license: { words: link.textContent, href: link.getAttribute("href"), target: link.target, rel: link.rel,
-                          left: Math.round(lb.left + parseFloat(ls.paddingLeft) - drawer.left), sameLine: Math.round((lb.top + lb.bottom - icon.top - icon.bottom) / 2),
+                          sameLine: Math.round((lb.top + lb.bottom - icon.top - icon.bottom) / 2),
                           color: ls.color, size: ls.fontSize, family: ls.fontFamily === getComputedStyle(document.getElementById("signoutnote")).fontFamily,
                           underline: ls.textDecorationLine,
                           reached: document.elementFromPoint((lb.left + lb.right) / 2, (lb.top + lb.bottom) / 2) === link } };
@@ -1306,9 +1309,10 @@ test("phone: the turn off mark stands at the foot of the drawer, the license bes
     const list = await foot();
     assert.deepEqual(list.icon, [16, 16], "the power mark is not 16px");
     assert.equal(list.below, 16, "the mark does not stand 16px up from the drawer's foot");
-    // one line: the license's name at the left margin, the mark at the right, the same margin
-    assert.ok(Math.abs(list.right - list.license.left) <= 1, "the mark and the license's words are not the same distance from the drawer's sides: " + JSON.stringify([list.right, list.license.left]));
-    assert.ok(list.right >= 16 && list.right <= 24, "the margin of the foot's line: " + list.right);
+    // one centered pair, with the small spacing token between their padded touch areas
+    assert.ok(Math.abs(list.centerOffset) <= 1, "the license and power button are not centered together: " + list.centerOffset);
+    assert.equal(list.cssGap, "8px", "the footer does not resolve the small spacing token to 8px");
+    assert.ok(Math.abs(list.gap - 8) <= 0.1, "the controls are spread apart instead of sharing the small gap: " + list.gap);
     assert.equal(list.license.sameLine, 0, "the license is not on the mark's line");
     assert.equal(list.license.words, "Facilitator License");
     assert.equal(list.license.href, "https://github.com/AsteroidHunter/facilitator/blob/main/LICENSE.md");

@@ -84,9 +84,11 @@ function loadCli(dir) {
 // the fingerprint in this checkout is made to match, "tampered" is other text
 // and "empty" is a download that came to nothing. sha256sum and shasum: the
 // path of that checking command on this machine, or null when it is missing.
-// npmFails: npm ci stops partway, after it has made the folder.
+// npmFails: npm ci stops partway, after it has made the folder. shFails: the
+// uv installer script, run by sh, prints its lines and then exits with an error;
+// either way it prints progress lines of its own, as the real one does.
 function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 0.11.18 (fake)",
-  installer = "good", sha256sum = "/fake/sha256sum", shasum = null, npmFails = false } = {}) {
+  installer = "good", sha256sum = "/fake/sha256sum", shasum = null, npmFails = false, shFails = false } = {}) {
   const served = { good: "INSTALLER", tampered: "b'#!/bin/sh\\necho changed\\n'", empty: "b''" }[installer];
   const tool = path => path ? JSON.stringify(path) : "None";
   return [
@@ -137,6 +139,7 @@ function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 
     `        return types.SimpleNamespace(returncode=0, stdout=${served}, stderr=b'')`,
     "    if argv and argv[0] == 'sh':",
     "        UVSTATE['uv'] = UV",
+    "        SH['capture'] = kw.get('capture_output')",
     "        env = kw.get('env') or {}",
     "        SH['no_modify'] = env.get('INSTALLER_NO_MODIFY_PATH')",
     "        SH['input'] = kw.get('input')",
@@ -147,7 +150,7 @@ function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 
     "            open(probe, 'wb').write(b'x')",
     "            SH['shim'] = open(shim).read()",
     "            SH['shim_says'] = REAL_RUN([shim, '-b', probe], capture_output=True, text=True).stdout",
-    "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
+    `        return types.SimpleNamespace(returncode=${shFails ? 1 : 0}, stdout=b'downloading uv\\ninstalling to /fake/home\\n', stderr=b'the fake installer could not write uv\\n')`,
     "    raise AssertionError('unexpected subprocess: ' + ' '.join(map(str, argv)))",
     "cli.subprocess.run = fake_run",
     up
@@ -241,13 +244,13 @@ test("install creates the environment and the config in one run, and no test pac
   assert.doesNotMatch(res.out, /npm|puppeteer|[Tt]est packages/, res.out);
   assert.equal(res.files.state, false, "install fabricated board data");
 
-  assert.match(res.out, /✓ Python \d+\.\d+\.\d+ runs this setup\./, res.out);
+  assert.doesNotMatch(res.out, /runs this setup/, "the version of the Python that runs the setup was printed:\n" + res.out);
   assert.match(res.out, /✓ uv found\./);
-  assert.match(res.out, /Creating the environment in \.venv on Python 3\.14\.\n✓ Environment created\./);
-  assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\./);
-  assert.match(res.out, /✓ Wrote run\.config\.json from run\.config\.example\.json\./);
-  assert.match(res.out, /✓ Wrote seed\.json from seed\.example\.json\./);
-  assert.match(res.out, /✓ Board installed\.\n\nConfig lives beside this command: run\.config\.json \(edit it\)\nand seed\.json\.\n$/);
+  assert.match(res.out, /Setting up the Python 3\.14 environment\.\n✓ Python 3\.14 environment ready\./);
+  assert.match(res.out, /Installing the packages Facilitator needs\.\n✓ Packages installed\./);
+  assert.match(res.out, /✓ Board settings created\.\n✓ Starting board created\.\n$/);
+  assert.doesNotMatch(res.out, /CPython|virtual environment|requirements\.txt|run\.config\.json|seed\.json|Board installed|Config lives|are in use here/,
+    "uv's own lines or a file name were printed:\n" + res.out);
   assert.doesNotMatch(res.out, /Start it with/, "install.sh ends with the next steps, so the board step does not repeat them");
   assert.doesNotMatch(res.out, /\n\n\n/, "two blank lines in a row");
 
@@ -323,7 +326,8 @@ test("install --dev adds the test packages from the lockfile, without running an
   assert.equal(res.npm_cwd, path.join(dir, "tests"), "npm ci did not run against tests/package.json");
   assert.deepEqual([res.files.root_node_modules, res.files.package_json, res.files.package_lock], [false, false, false],
     "the test packages went into the checkout's root");
-  assert.match(res.out, /Syncing packages to requirements\.txt\.\n✓ Packages synced\.\n[^]*Installing the test packages from tests\/package-lock\.json\.\n✓ Test packages installed\.\n✓ Board installed\./, res.out);
+  assert.match(res.out, /Installing the packages Facilitator needs\.\n✓ Packages installed\.\n[^]*Installing the packages the tests need\.\n✓ Packages for the tests installed\.\n$/, res.out);
+  assert.doesNotMatch(res.out, /npm|package-lock|Board installed/, "npm's own lines or a file name were printed:\n" + res.out);
   const lines = res.calls.map(c => c.join(" "));
   assert.ok(lines.indexOf(NPM_CI.join(" ")) > lines.findIndex(line => line.startsWith(`${UV} pip sync`)), "the test packages came before the board's own");
 });
@@ -471,6 +475,23 @@ test("when uv is missing and there is no brew, install uses the astral.sh script
   assert.equal(res.sh_no_modify, "1", "the installer was allowed to change a shell profile");
   assert.equal(res.calls.some(c => c[0] === "/fake/brew"), false);
   assert.ok(installed(res.files), "the install did not continue after uv was installed");
+});
+
+test("the uv installer's own lines are held back when it works and shown when it fails", async () => {
+  const dir = await freshClone();
+  const good = await run(dir, stubs({ uv: false }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(good.exit, null, good.out);
+  assert.equal(good.sh.capture, true, "the installer's output was not held back");
+  assert.doesNotMatch(good.out, /downloading uv|installing to/, good.out);
+  assert.match(good.out, /into your home\.\n✓ uv installed\./);
+
+  const other = await freshClone();
+  const bad = await run(other, stubs({ uv: false, shFails: true }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.ok(typeof bad.exit === "string", "the install went on after the uv installer failed");
+  assert.equal(bad.exit.trim(), "⚠ The uv installer did not finish.\n  Install uv yourself, then run ./install.sh again.");
+  assert.match(bad.out, /downloading uv\ninstalling to \/fake\/home\n$/, "what the installer printed was not shown");
+  assert.doesNotMatch(bad.out, /✓ uv installed\./);
+  assert.equal(bad.files.venv, false, "the environment was made");
 });
 
 const UV_PIN = "0.12.22";

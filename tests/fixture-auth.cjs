@@ -14,14 +14,26 @@ const ROOT = path.resolve(__dirname, '..');
 // it. tokens.py is left out on purpose: with it the server reads the real token
 // logs, so only the tests that open home copy it. The desktop pages load their
 // settings store, board-settings.js, before anything else.
+// A board with no profile lays the onboarding over everything until it is
+// done, so a copied board is given one that has been through it, as an owner's
+// board has; a test of the onboarding itself removes it (noProfile) before the
+// server starts. A profile already in place is left as it is.
+const PROFILE = { name: 'Fixture Owner', email: null, email_yes: false, work: null, agent: null, time_zone: null };
 function copyBridgeFiles(dir) {
   for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js',
-                      'home-widgets.css', 'home-widgets.js', 'board-settings.js'])
+                      'home-widgets.css', 'home-widgets.js', 'board-settings.js', 'mac-phone-view.js',
+                      'magic-box.js'])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
   const anchor = 'return shutil.which("codex", path=path)';
   const limits = fs.readFileSync(path.join(ROOT, 'limits.py'), 'utf8');
   if (!limits.includes(anchor)) throw new Error("the limits codex lookup's anchor moved");
   fs.writeFileSync(path.join(dir, 'limits.py'), limits.replace(anchor, 'return None'));
+  const profile = path.join(dir, 'profile.json');
+  if (!fs.existsSync(profile)) fs.writeFileSync(profile, JSON.stringify(PROFILE) + '\n', { mode: 0o600 });
+}
+
+function noProfile(dir) {
+  fs.rmSync(path.join(dir, 'profile.json'), { force: true });
 }
 
 function bind(server, port) {
@@ -56,4 +68,4 @@ async function freePortPair() {
   throw new Error('No adjacent free loopback ports for the fixture');
 }
 
-module.exports = { copyBridgeFiles, freePortPair };
+module.exports = { copyBridgeFiles, freePortPair, noProfile, PROFILE };

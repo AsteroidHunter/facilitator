@@ -13,28 +13,30 @@ function fixture(html, isPhone = false) {
   let now = 0, next = 1;
   const timers = new Map(), global = {}, documentEvents = {};
   const element = () => {
-    const classes = new Set(), events = {};
+    const classes = new Set(), events = {}, props = {};
     return { classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c) },
+      offsetWidth: 32, offsetHeight: 32, props, style: { setProperty: (name, value) => { props[name] = value; } },
       addEventListener(type, fn) { (events[type] ||= []).push(fn); },
       fire(type, e = {}) { for (const fn of events[type] || []) fn(e); } };
   };
   const buttons = Array.from({ length: 4 }, element);
   const document = { visibilityState: "visible",
-    getElementById: id => buttons[["homeico", "chimebtn", "setbtn"].indexOf(id)],
+    getElementById: id => buttons[["homeico", "projpill", "chimebtn", "setbtn"].indexOf(id)],
     querySelectorAll: () => buttons,
     addEventListener(type, fn) { (documentEvents[type] ||= []).push(fn); },
   };
-  const context = vm.createContext({ document, tabPlus: buttons[3], tabSeat: { el: element() },
+  const context = vm.createContext({ document, homeOpen:false,
     performance: { now: () => now },
     setTimeout(fn, ms) { const id = next++; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout: id => timers.delete(id),
     addEventListener(type, fn) { (global[type] ||= []).push(fn); },
   });
   const start = html.indexOf(isPhone ? "const PRESS_MIN = 120;" : "const GLASS_PRESS_MIN = 120;");
-  const end = html.indexOf(isPhone ? "// ---- the capsule: a tap opens the list" : "// the cross, built with every tab", start);
+  const end = html.indexOf(isPhone ? "// ---- the capsule: a tap opens the list" : "// closing a project works exactly", start);
   assert.ok(start >= 0 && end > start);
   vm.runInContext(html.slice(start, end), context);
-  return { buttons,
+  return { buttons, home:buttons[0], pill:buttons[1],
+    homeOpen(value) { context.homeOpen = value; },
     tick(ms) {
       const until = now + ms;
       for (;;) {
@@ -91,6 +93,61 @@ test("Mac secondary clicks do not press the circle or cancel the button's own ev
     stopPropagation() { assert.fail("press handler swallowed the action"); } };
   button.fire("pointerdown", event); assert.equal(pressed(button), false);
   button.fire("pointerdown", { ...event, button: 0 }); assert.equal(pressed(button), true);
+});
+
+test("Home and the project pill press as their own glass, with Home open or not", () => {
+  for (const open of [false, true]) {
+    const f = fixture(mac);
+    f.homeOpen(open);
+    for (const button of [f.home, f.pill]) {
+      button.fire("pointerdown", { button:2 }); assert.equal(pressed(button), false);
+      button.fire("pointerdown", { button:0 }); assert.equal(pressed(button), true);
+    }
+    f.fire("pointerup"); f.tick(119); assert.ok(pressed(f.home) && pressed(f.pill));
+    f.tick(1); assert.ok(!pressed(f.home) && !pressed(f.pill));
+  }
+  // and Home open holds the press's face on the house, without the press's grow
+  const held = mac.match(/body\.focus\.home #homeico\{([^}]+)\}/)[1];
+  assert.match(held, /--qn-tint:\.95; --qn-edge:3/); assert.doesNotMatch(held, /transform/);
+});
+
+test("the pill grows by the circles' few pixels, not by the same 6% of a wider box", () => {
+  const circle = 32 * 0.06;
+  for (const width of [60, 75, 93, 140, 260]) {
+    const f = fixture(mac);
+    f.pill.offsetWidth = width;
+    f.pill.fire("pointerdown", { button: 0 });
+    const across = Number(f.pill.props["--press-x"]);
+    assert.ok(Math.abs(width * (across - 1) - circle) < 1e-9, width + "px wide grows " + width * (across - 1) + "px");
+    assert.ok(Math.abs(32 * (1.06 - 1) - circle) < 1e-9);
+  }
+  const all = rules(mac);
+  const shared = all.find(r => r.selector.includes("#projpill") && r.selector.includes("#homeico") && r.selector.includes(".pressed"));
+  const pill = all.find(r => r.selector === "body.focus #projpill.pressed");
+  assert.ok(shared && pill, "the pill takes the circles' press rule and one rule for its grow");
+  assert.equal(pill.values.transform, "scale(var(--press-x, 1.06), 1.06)");
+  assert.equal(pill.values.transition, undefined, "the pill's rise and fall are the circles' own");
+  assert.ok(pill.order > shared.order && specificity(pill.selector).join() === specificity(shared.selector).join());
+});
+
+test("PWA: the capsule grows by the round buttons' few pixels, with its own face and timing as they were", () => {
+  for (const [width, height] of [[120, 48], [170, 48], [260, 48], [200, 52], [150, 44]]) {
+    const f = fixture(phone, true);
+    f.pill.offsetWidth = width; f.pill.offsetHeight = height;
+    f.pill.fire("pointerdown", { button: 0 });
+    const across = Number(f.pill.props["--press-x"]), circle = height * (1.06 - 1);
+    assert.ok(Math.abs(width * (across - 1) - circle) < 1e-9, width + "px wide grows " + width * (across - 1) + "px");
+  }
+  const all = rules(phone);
+  const round = all.find(r => r.selector === "#dock .dockbtn.pressed");
+  const capsule = all.find(r => r.selector === "#dock #projbtn.pressed");
+  assert.ok(round && capsule);
+  assert.equal(round.values.transform, "scale(1.06)");
+  assert.equal(capsule.values.transform, "scale(var(--press-x, 1.06), 1.06)");
+  assert.equal(capsule.values["--qn-tint"], ".97"); assert.equal(capsule.values["--qn-edge"], "3.5");
+  assert.equal(capsule.values.transition,
+    "transform .38s cubic-bezier(.2,.8,.2,1), --qn-tint .38s ease-out, --qn-edge .38s ease-out");
+  assert.ok(capsule.order > round.order && compare(specificity(capsule.selector), specificity(round.selector)) > 0);
 });
 
 function rules(html) {

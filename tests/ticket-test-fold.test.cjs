@@ -264,19 +264,19 @@ const SPIN = ["|", "/", "-", "\\"];
 // each surface's painter, handed one pool, answers with the rows it drew
 const PAINT = {
   "the desktop board": pool => {
-    const paint = new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
+    const paint = new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
       "spinGlyph", "curView", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
       `${functionSource(SURFACES["the desktop board"].html, "paintTicketPane", "renderCarousel")}; return paintTicketPane;`,
-    )(DateStub, queueState, cardState, h, {}, () => "5m", () => SPIN[0], () => "todo", "none", null, testReady, appendOmniRowArt);
+    )(DateStub, queueState, cardState, h, {}, () => "5m", b => b.agentTs || 0, () => SPIN[0], () => "todo", "none", null, testReady, appendOmniRowArt);
     const pane = new FakeElement("div");
     paint(pane, pool, "todo", { agents: {} }, "lane");
     return pane.children;
   },
   "the phone": pool => {
-    const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
+    const paint = new Function("queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
       "spinGlyph", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
       `${functionSource(SURFACES["the phone"].html, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
-    )(queueState, cardState, h, {}, () => "5m", () => SPIN[0], "none", testReady, appendOmniRowArt, sandbox.omniRowFace);
+    )(queueState, cardState, h, {}, () => "5m", b => b.agentTs || 0, () => SPIN[0], "none", testReady, appendOmniRowArt, sandbox.omniRowFace);
     const pane = new FakeElement("div");
     paint(pane, pool, "todo", { agents: {} }, noop);
     return pane.children;
@@ -336,6 +336,8 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     assert.doesNotMatch(css, /--fold-edge/, "the fold still keeps an edge width of its own");
     const foldSelectors = [".trow.testc", ".trow.testc.on", ".trow.testc::before", ".trow.testc::after",
       ".trow.testc > .trowin::before", ".trow.testc > .omni-sweep"];
+    const glassFoldSelectors = surface.file === "m.html"
+      ? ["#tickets .trow.drawer-pick.testc::after", "#tickets .trow.drawer-pick.testc > .trowin::before"] : [];
     // what the row itself may say: it hands its edge and shade to the face
     // and the filter and keeps its fill, so it never sets a fill, an opacity
     // or a colour of its own
@@ -344,7 +346,11 @@ for (const [where, surface] of Object.entries(SURFACES)) {
     for (const r of rules) {
       if (!r.sel.includes("testc")) continue;
       assert.deepEqual(r.at, [], `a ready-to-test rule sits inside ${r.at.join(" ")}`);
-      for (const s of r.sels) assert.ok(foldSelectors.includes(s), `testc is used by a rule that is not the fold: ${r.sel}`);
+      for (const s of r.sels) {
+        assert.ok(foldSelectors.includes(s) || glassFoldSelectors.includes(s), `testc is used by a rule that is not the fold: ${r.sel}`);
+        if (glassFoldSelectors.includes(s)) assert.deepEqual(declsOf(r.body), [["z-index", "2"]],
+          "the glass rule may only keep the existing fold above the pick");
+      }
       if (r.sels.includes(".trow.testc") || r.sels.includes(".trow.testc.on"))
         for (const [p] of declsOf(r.body)) assert.ok(rowMay.includes(p), `the ready-to-test row sets ${p} on itself`);
     }

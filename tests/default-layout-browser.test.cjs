@@ -23,18 +23,18 @@ const REGIONS = ["clockbox", "tickets", "magic1", "magic2", "magic3", "magic4", 
 const THREE = ["clockbox", "tickets", "main"];
 // the default places and sizes in stage pixels, the stage being 1440 by 900
 const DEFAULT_RECTS = {
-  clockbox:{ x:28.8, y:40.32, w:218.88, h:103.68 },
-  tickets:{ x:51.84, y:190.08, w:357.12, h:506.88 },
-  main:{ x:466.56, y:74.88, w:506.88, h:748.8 },
+  clockbox:{ x:28.8, y:28.8, w:218.88, h:103.68 },
+  tickets:{ x:40.32, y:167.04, w:368.64, h:518.4 },
+  main:{ x:466.56, y:51.84, w:506.88, h:760.32 },
 };
 // the same arrangement written out as a saved layout, with the other boxes put away
 const SAVED_SAME_AS_DEFAULT = {
-  "pos.facilitator.clockbox":JSON.stringify({ x:28.8, y:40.32 }),
+  "pos.facilitator.clockbox":JSON.stringify({ x:28.8, y:28.8 }),
   "size.facilitator.clockbox":JSON.stringify({ w:218.88, h:103.68 }),
-  "pos.facilitator.tickets":JSON.stringify({ x:51.84, y:190.08 }),
-  "size.facilitator.tickets":JSON.stringify({ w:357.12, h:506.88 }),
-  "pos.facilitator.main":JSON.stringify({ x:466.56, y:74.88 }),
-  "size.facilitator.main":JSON.stringify({ w:506.88, h:748.8 }),
+  "pos.facilitator.tickets":JSON.stringify({ x:40.32, y:167.04 }),
+  "size.facilitator.tickets":JSON.stringify({ w:368.64, h:518.4 }),
+  "pos.facilitator.main":JSON.stringify({ x:466.56, y:51.84 }),
+  "size.facilitator.main":JSON.stringify({ w:506.88, h:760.32 }),
   "hide.facilitator.magic1":"1", "hide.facilitator.magic2":"1", "hide.facilitator.magic3":"1",
   "hide.facilitator.rail":"1", "hide.facilitator.goalbox":"1",
 };
@@ -238,7 +238,7 @@ test("a saved layout wins over the default and is not rewritten", async () => {
     const rects = await stageRects(page);
     assertRects(rects, {
       clockbox:{ x:86.4, y:97.92, w:241.92, h:115.2 },
-      main:{ x:570.24, y:63.36, w:506.88, h:748.8 },
+      main:{ x:570.24, y:63.36, w:506.88, h:760.32 },
     }, "saved layout");
     const kept = await page.evaluate(keys => keys.map(k => settingsStore.getItem(k)), Object.keys(saved));
     assert.deepEqual(kept, Object.values(saved), "every saved key reads back as it was written");

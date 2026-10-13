@@ -807,10 +807,13 @@ describe("the quick note", { skip: "feature hidden for v0" }, () => {
   // edge of one, which is the player's own strength, to be set against the player
   const shipped = glass => {
     const vars = {};
-    for (const name of ["--qn-blur", "--qn-sat", "--qn-tint", "--qn-edge", "--qn-ring"]) vars[name] = cssValue(glass, name);
-    return text => text
-      .replace(/calc\(([\d.]+) \* var\(--qn-edge\)\)/g, (_, n) => n)
-      .replace(/var\((--qn-[a-z]+)\)/g, (_, name) => vars[name]);
+    for (const name of glass.match(/--qn-[\w-]+(?=:)/g)) vars[name] = cssValue(glass, name);
+    const resolve = text => text.replace(/var\((--qn-[\w-]+)\)/g, (_, name) => {
+      assert.ok(name in vars, `missing glass token ${name}`);
+      return resolve(vars[name]);
+    });
+    vars["--qn-edge"] = "1";
+    return text => resolve(text).replace(/calc\(([\d.]+) \* 1\)/g, (_, n) => n);
   };
 
   test("the note's glass ships at the values the owner tuned in the mock", () => {

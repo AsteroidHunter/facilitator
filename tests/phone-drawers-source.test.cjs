@@ -1,7 +1,7 @@
 // What the phone page's two drawers are made of, read out of m.html's source: no
 // browser. The card list is the ticket box on the page, above a card that goes
-// down 55% of the screen, the two on one fraction and moved by transform alone,
-// the box nine tenths of the space the drop opens and seen only above the card;
+// down at most 55% of the screen, the two on one fraction and moved by transform
+// alone, the box nine tenths of that room and seen only above the card;
 // the settings are the narrow panel off the right edge. None of what moves is laid
 // out again or timed by a script, and nothing the drawers add is purple.
 const assert = require("node:assert/strict");
@@ -13,6 +13,18 @@ const HTML = readFileSync(path.join(__dirname, "..", "m.html"), "utf8");
 const CSS = [...HTML.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
 const rules = [...CSS.matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map(m => ({ selector: m[1].trim().replace(/\s+/g, " "), body: m[2] }));
 const rulesFor = pattern => rules.filter(r => pattern.test(r.selector));
+// a list's entries, split on the commas outside any brackets, so a var() with a
+// var() fallback stays one entry
+function topLevel(list) {
+  const out = [""];
+  let depth = 0;
+  for (const c of list) {
+    if (c === "," && !depth) { out.push(""); continue; }
+    depth += c === "(" ? 1 : c === ")" ? -1 : 0;
+    out[out.length - 1] += c;
+  }
+  return out;
+}
 
 const MENUS = HTML.slice(HTML.indexOf("// ---- the two menus, and the one motion they share"),
   HTML.indexOf("// the list's fades, the board's own"));
@@ -64,23 +76,26 @@ test("the card goes down 55% of the screen and the box comes in, both on the one
   assert.match(card, /transform:translate\(0, calc\(var\(--list-v\) \* var\(--list-drop, 0px\)\)\)/,
     "the card's drop is not the fraction times the drop");
   const box = rulesFor(/^#tickets$/).map(r => r.body).join(";");
-  // across, its right edge comes in from the page's left edge; down, it takes back what the window goes down
-  assert.match(box, /transform:translate3d\(calc\(\(var\(--list-v\) - 1\) \* \(var\(--pg-l\) \+ 100% \* \(1 \+ var\(--list-share\)\) \/ \(2 \* var\(--list-share\)\)\)\),\s*calc\(-1 \* var\(--list-v\) \* var\(--list-drop, 0px\)\), 0\)/,
+  // across, its right edge comes in from the page's left edge; down, it takes back what the window
+  // goes down, and stands at its whole lift (--tik-lift, from the magic box's script) however far
+  // out it is, so it holds still up and down
+  assert.match(box, /transform:translate3d\(calc\(\(var\(--list-v\) - 1\) \* \(var\(--pg-l\) \+ 100% \* \(1 \+ var\(--list-share\)\) \/ \(2 \* var\(--list-share\)\)\)\),\s*calc\(-1 \* \(var\(--list-v\) \* var\(--list-drop, 0px\) \+ var\(--tik-lift, 0px\)\)\), 0\)/,
     "the box does not come in from the left on the card's fraction, holding still up and down");
-  // nine tenths of the card's column and of the drop, in the middle of each (the
-  // window it is laid in starts a drop above the page)
+  // nine tenths of the card's column and of the room the card may drop, in the
+  // middle of each (the window it is laid in starts a room above the page); the
+  // card drops only as far as the rows need, so the box's spare foot is under it
   assert.match(box, /--list-share:\.9;/, "the box is not nine tenths of the space");
   assert.match(box, /left:calc\(var\(--pg-l\) \+ \(100% - var\(--pg-l\) - var\(--pg-r\)\) \* \(1 - var\(--list-share\)\) \/ 2\);/);
   assert.match(box, /width:calc\(\(100% - var\(--pg-l\) - var\(--pg-r\)\) \* var\(--list-share\)\);/);
-  assert.match(box, /top:calc\(var\(--list-drop, 0px\) \+ var\(--pg-t\) \+ var\(--list-drop, 0px\) \* \(1 - var\(--list-share\)\) \/ 2\);/);
-  assert.match(box, /height:calc\(var\(--list-drop, 0px\) \* var\(--list-share\)\);/);
+  assert.match(box, /top:calc\(var\(--list-room, 0px\) \+ var\(--pg-t\) \+ var\(--list-room, 0px\) \* \(1 - var\(--list-share\)\) \/ 2\);/);
+  assert.match(box, /height:calc\(var\(--list-room, 0px\) \* var\(--list-share\)\);/);
   assert.doesNotMatch(box, /box-shadow:\s*[^n;]|background:\s*(?!transparent)/, "the box paints something of its own");
   // the window the box is seen through: under the card, clipping, its foot on the card's top edge
   const win = rulesFor(/^#tikwin$/).map(r => r.body).join(";");
   assert.match(win, /z-index:0/, "the box does not lie under the card");
   assert.match(win, /overflow:clip/, "the window does not clip the box");
   assert.match(win, /pointer-events:none/, "the window takes a touch");
-  assert.match(win, /top:calc\(-1 \* var\(--list-drop, 0px\)\);[\s\S]*height:calc\(var\(--pg-t\) \+ var\(--list-drop, 0px\)\)/,
+  assert.match(win, /top:calc\(-1 \* var\(--list-room, 0px\)\);[\s\S]*height:calc\(var\(--pg-t\) \+ var\(--list-room, 0px\)\)/,
     "the window does not end at the card's resting top");
   assert.match(win, /transform:translate3d\(0, calc\(var\(--list-v\) \* var\(--list-drop, 0px\)\), 0\)/,
     "the window's foot does not go down with the card");
@@ -90,7 +105,7 @@ test("the card goes down 55% of the screen and the box comes in, both on the one
   assert.match(MENUS, /cardPane\.style\.setProperty\("--list-v", num\);\s*tickets\.style\.setProperty\("--list-v", num\);\s*tikwin\.style\.setProperty\("--list-v", num\);/);
   // A tap on the card below closes the list. Row taps are exercised by the
   // behavioral checks in phone-drawer-taps.test.cjs.
-  assert.match(MENUS, /page\.addEventListener\("click", e => \{ if \(e\.target === page && drawerOpen\(\)\) closeDrawer\(\); \}\);/);
+  assert.match(MENUS, /page\.addEventListener\("click", e => \{\s*if \(e\.target === page && drawerOpen\(\) && !suppressCardDrawerClick\) closeDrawer\(\);\s*\}\);/);
 });
 
 test("what moves for the drawers is a transform or an opacity, and no script carries a frame", () => {
@@ -98,13 +113,22 @@ test("what moves for the drawers is a transform or an opacity, and no script car
   assert.ok(moving.length >= 11, `the scan found too few moving rules (${moving.length})`);
   for (const { selector, body } of moving) {
     for (const [, value] of body.matchAll(/(?:^|;)\s*transition\s*:([^;]*)/g)) {
-      for (const one of value.split(/,(?![^()]*\))/)) {
+      for (const one of topLevel(value)) {
         const property = one.trim().split(/\s+/)[0];
-        assert.match(property, /^(transform|opacity|visibility|margin-bottom)$/, `${selector} is timed on ${property}`);
+        assert.match(property, /^(transform|opacity|visibility|margin-bottom|--drawer-arrow-v)$/, `${selector} is timed on ${property}`);
       }
     }
   }
-  assert.doesNotMatch(MENUS, /requestAnimationFrame|setInterval|animate\(/, "the menus' script runs a frame loop");
+  // the slide is the browser's: transitions, or keyframes it is handed once.
+  // the one frame request starts a run from rest after its setup frame
+  // (playList) and asks for nothing again; nothing else asks for frames
+  assert.doesNotMatch(MENUS, /setInterval/, "the menus' script runs a timer loop");
+  const play = MENUS.slice(MENUS.indexOf("function playList(){"), MENUS.indexOf("// the one number, painted onto"));
+  assert.ok(play.length > 0, "playList is where the run from rest starts");
+  assert.doesNotMatch(MENUS.replace(play, ""), /requestAnimationFrame|animate\(/, "the menus' script runs a frame loop");
+  assert.equal((play.match(/\.animate\(/g) || []).length, 1, "the keyframes are handed over once");
+  assert.equal((play.match(/requestAnimationFrame\(\(\) =>/g) || []).length, 2);
+  assert.match(play, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => \{[^}]*\}\)\);/, "two frames' wait, then nothing more");
   // the row's bed casts no shadow, and its second sheet stands up for the whole slide:
   // raised as soon as the list is out, lowered over the last of the run home
   assert.equal(rulesFor(/#dockbed::after/).length, 0, "the row's bed draws a shadow along its edge");
@@ -124,16 +148,36 @@ test("what moves for the drawers is a transform or an opacity, and no script car
 
 test("the settings are the narrow panel off the right edge and the list uses no shade or page depth", () => {
   const settings = rulesFor(/^#settings$/).map(r => r.body).join(";");
-  assert.match(settings, /top:0; bottom:0; right:0; width:min\(71\.4vw, 289px\)/, "the settings are not the narrow panel on the right edge");
+  assert.match(settings, /top:0; bottom:0; right:0; width:var\(--settings-w\)/, "the settings are not the narrow panel on the right edge");
+  assert.match(CSS, /:root\{--settings-w:min\(71\.4vw, 289px\)\}/, "the settings are not 71.4% of the screen wide, capped at 289px");
   assert.doesNotMatch(settings, /left:0|width:100%/, "the settings are the screen's width");
   assert.match(settings, /border-left:var\(--edge\) solid var\(--line\); border-radius:12px 0 0 12px/, "the settings' edge or corners changed");
   assert.match(settings, /transform:translateX\(var\(--shift\)\)/);
   const shade = rulesFor(/^#settings::after$/).map(r => r.body).join(";");
   assert.match(shade, /box-shadow:-2px 0 6px rgba\(0,0,0,\.10\), -10px 0 26px rgba\(0,0,0,\.20\)/, "the settings' shade changed");
   // a pull on the settings is measured against the width they are drawn at, as before the card list moved
-  assert.match(MENUS, /function menuTravel\(panel\)\{\s*return panel === tickets \? tickets\.offsetLeft \+ tickets\.offsetWidth : panel\.getBoundingClientRect\(\)\.width;/);
+  // (and the card list from the page's left edge, or from its right when it comes in with the magic box)
+  assert.match(MENUS, /function menuTravel\(panel\)\{\s*if \(panel !== tickets\) return panel\.getBoundingClientRect\(\)\.width;\s*return tickets\.dataset\.side === "right" \? tikwin\.clientWidth - tickets\.offsetLeft : tickets\.offsetLeft \+ tickets\.offsetWidth;/);
   // the shade and the page's depth belong to the settings alone
   assert.match(MENUS, /\} else \{\s*\/\/ the settings come out on their list[\s\S]*?--scrimv[\s\S]*?--page-scale/);
   const list = MENUS.slice(MENUS.indexOf("if (panel === tickets){"), MENUS.indexOf("} else {", MENUS.indexOf("if (panel === tickets){")));
   assert.doesNotMatch(list, /scrim|--page-scale|--panel-depth/, "the list writes the settings' shade or the page's depth");
+});
+
+test("the license and power button form one centered group with the small spacing token", () => {
+  const row = rulesFor(/^#setfootline$/).map(r => r.body).join(";");
+  const declarations = Object.fromEntries(row.split(";").filter(part => part.trim()).map(part => {
+    const colon = part.indexOf(":");
+    return [part.slice(0, colon).trim(), part.slice(colon + 1).trim()];
+  }));
+  assert.equal(declarations.display, "flex");
+  assert.equal(declarations["align-self"], "stretch", "the row must span the footer to center its pair");
+  assert.equal(declarations["align-items"], "center");
+  assert.equal(declarations["justify-content"], "center", "the pair must stay together at the drawer's center");
+  assert.equal(declarations.gap, "var(--sp-s)", "use the existing small spacing token between the controls");
+  assert.match(CSS, /--sp-s\s*:\s*calc\(8 \* var\(--u\)\)/, "the small spacing token must remain eight page pixels");
+  const footer = HTML.match(/<div id="setfoot">([\s\S]*?)<\/aside>/)?.[1];
+  assert.ok(footer, "the drawer footer is missing");
+  assert.match(footer, /<div id="setfootline">\s*<a id="setlicense"[^>]*>Facilitator License<\/a>\s*<button id="signout"[\s\S]*?<\/button>\s*<\/div>/,
+    "the license and power button must share the centered row");
 });
