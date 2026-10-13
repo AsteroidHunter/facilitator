@@ -382,10 +382,8 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   assert.match(seat, /width:var\(--mb-x\); height:var\(--mb-x\); padding:0; border:none; border-radius:50%;/);
   assert.match(seat, /background:var\(--mb-pink\); color:#1e1e1e;/);
   assert.match(sheet, /\.magicbox \.mbclose:hover, \.magicbox \.mbclose:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mb-pink\)\)\}/);
-  // a soft pastel red circle (light, red over blue and green), and the mark keeps its ink
-  const lum = h => { const [r, g, b] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); return { r, g, b, y: (0.299 * r + 0.587 * g + 0.114 * b) / 255 }; };
-  const pink = lum(box.match(/--mb-pink:(#[0-9A-Fa-f]{6})\s*$/)[1]);
-  assert.ok(pink.y > 0.75 && pink.r > pink.g + 30 && pink.r > pink.b + 30, "the circle is a pastel red");
+  // the circle is the red of the close button at a macOS window's top left, and the mark keeps its ink
+  assert.match(box, /--mb-pink:#FF5F57\s*$/);
   assert.ok(!/--mb-pink-ink/.test(sheet + read("index.html") + read("m.html")), "no ink of its own for the mark");
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
@@ -870,7 +868,7 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   // the bar is the card's white with no line under it, the cross's seat its white
   assert.match(style, /\n  #magicbox \.mbbar\{background:var\(--card\)\}/);
   assert.match(style, /\n  #magicbox \.mbbar::after\{display:none\}/);
-  assert.ok(!/#magicbox \.mbclose/.test(style), "the board leaves the cross's pastel circle to the sheet");
+  assert.ok(!/#magicbox \.mbclose/.test(style), "the board leaves the cross's red circle to the sheet");
   // its words keep the card answer's inset off the sides, and --mb-lead under the bar
   assert.match(style, /\n  #magicbox \.mbtext\{padding:var\(--mb-lead\) var\(--mb-inset, 16px\) var\(--mb-inset, 16px\)\}/);
   // the lowered card's rule outweighs every rule that shades the box, held or not
