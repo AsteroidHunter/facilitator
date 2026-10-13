@@ -1185,9 +1185,17 @@
      goes down only as far as it needs, as it does for a short section. like
      the list, the drawer paints no panel and casts no shadow of its own; the
      box does (below).
-     its bar stands at its top with the cross at its right, as on the board,
-     and its lengths are the page's own, scaled as the card's are. its lead
-     puts the first line's capitals 12px under the bar's line, as on the board */
+     its lengths are the page's own, scaled as the card's are. its bar stands
+     at its foot, not its top as on the board: it comes after what the box
+     holds (the markup below), so the cross is at the box's bottom right
+     corner, --mb-gap in from the side and the bottom edge as the board's is
+     from the side and the top, and what the box shows starts at its top. the
+     box is turned over and its words are not: the white the board keeps at
+     its far edge (--mb-air, and --mb-inset over the words) is at the top
+     here, and the lead (--mb-lead, 6px as on the board) stands between the
+     words' last line and the bar. the view (magicView, card-logic.js) reads
+     the bar's side off the markup: the fuzz that counts only words gone
+     under the bar is at the foot, and the top has the ticket list's plain one */
   #mbface{display:none; --mb-inset:calc(16 * var(--u));
     --mb-x:calc(20 * var(--u)); --mb-gap:calc(5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u));
     --mb-lead:calc(6 * var(--u)); --mb-round:calc(14 * var(--u))}
@@ -1196,14 +1204,17 @@
      one the board's box wears while its card is the one being worked in, which
      on the phone is always (the box is read, never typed into), so the board's
      deeper one, and the card's own deeper one beside a box, are never worn here.
-     its bar is white with no line under it, and its words keep the card answer's
+     its bar is white with no line over it, and its words keep the card answer's
      inset off its sides. a lowered card (body.lowered main) leaves its box level
      too. no line runs between the box and the card */
   #mbface{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
     box-shadow:0 3px 14px rgba(60,45,20,.10), 0 1px 2px rgba(60,45,20,.06)}
   body.lowered #mbface{box-shadow:none}
   #mbface .mbbar::after{display:none}
-  #mbface .mbtext{padding:var(--mb-lead) var(--mb-inset) var(--mb-inset)}
+  #mbface .mbbar{border-radius:0 0 calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge))}
+  #mbface .mbbody{margin:var(--mb-air) 0 0; border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
+  #mbface .mbbody[data-kind="image"]{margin:0}
+  #mbface .mbtext{padding:var(--mb-inset) var(--mb-inset) var(--mb-lead)}
   #tickets.boxface > #tikhead, #tickets.boxface > #tiklist{display:none}
   #tickets.boxface > #mbface{display:flex; flex:none; align-self:center}
   /* while the drawer changes face (drawerSwapFace) both faces are on show and
@@ -1748,12 +1759,13 @@ for (const type of ["gesturestart", "gesturechange"])
     </div>
     <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
     <!-- the card's magic box, which this same drawer brings down in place of the
-         list when it is pulled out for the box -->
+         list when it is pulled out for the box. its bar comes after what it
+         holds, at its foot -->
     <section id="mbface" class="magicbox" aria-label="magic box">
+      <div class="mbbody"></div>
       <div class="mbbar">
         <button type="button" class="mbclose" aria-label="Close the magic box"></button>
       </div>
-      <div class="mbbody"></div>
     </section>
   </aside></div>
   <main id="pane" class="blank">

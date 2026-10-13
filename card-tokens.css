@@ -1153,8 +1153,9 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    a line across its bar, the ticket list's own, parts the bar from what the
    box holds. each page dresses its box itself: the board gives it the card's
    white face, edge line and shadow, with no line under the bar, in
-   index.html (#magicbox), and the phone the same in m.html (#mbface). the bar stands at the box's top everywhere: on the
-   board, on the phone and in a portrait window alike */
+   index.html (#magicbox), and the phone the same in m.html (#mbface). the bar stands at the box's top on the
+   board, in a portrait window too, and at its foot on the phone, where m.html
+   puts it after what the box holds and turns the far edge's white over */
 .magicbox{display:flex; flex-direction:column; overflow:hidden;
   /* its own lengths, in the board's pixels; the phone gives them in its own
      (m.html). --mb-x is the cross's seat and --mb-gap the space round it,
@@ -1207,8 +1208,9 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    shape. words that scroll dissolve at both ends of their scroll as
    the ticket list's sections do, under the same ramp: --upband is how far
    they have scrolled and --downband how far they still can, each capped at
-   --mb-fade by the view (card-logic.js, which does not count the first
-   --mb-lead of the scroll at the top), so an end with nothing past it
+   --mb-fade by the view (card-logic.js, which does not count the
+   --mb-lead of the scroll on the bar's side: the top here, the foot on the
+   phone), so an end with nothing past it
    stays at full ink and words that fit wear no fuzz at all */
 .magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto;
   margin:0 0 var(--mb-air)}
