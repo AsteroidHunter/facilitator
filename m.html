@@ -1192,14 +1192,15 @@
     --mb-x:calc(20 * var(--u)); --mb-gap:calc(5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u));
     --mb-lead:calc(6 * var(--u)); --mb-round:calc(14 * var(--u))}
   /* the box is dressed as the board's is (#magicbox, index.html): the card's
-     white face, its edge line and corners twice the card's 7px (--mb-round), and its shadow, here the lighter
+     white face, its edge line and corners twice the card's 7px (--mb-round), and its shadow, here the faint
      one the board's box wears while its card is the one being worked in, which
-     on the phone is always (the box is read, never typed into). its bar is white
-     with no line under it, and its words keep the card answer's inset off its
-     sides. a lowered card (body.lowered main) leaves its box level too. no line
-     runs between the box and the card */
+     on the phone is always (the box is read, never typed into), so the board's
+     deeper one, and the card's own deeper one beside a box, are never worn here.
+     its bar is white with no line under it, and its words keep the card answer's
+     inset off its sides. a lowered card (body.lowered main) leaves its box level
+     too. no line runs between the box and the card */
   #mbface{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
-    box-shadow:0 2px 18px rgba(60,45,20,.10), 0 1px 3px rgba(60,45,20,.05)}
+    box-shadow:0 3px 14px rgba(60,45,20,.10), 0 1px 2px rgba(60,45,20,.06)}
   body.lowered #mbface{box-shadow:none}
   #mbface .mbbar::after{display:none}
   #mbface .mbtext{padding:var(--mb-lead) var(--mb-inset) var(--mb-inset)}
