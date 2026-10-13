@@ -28,6 +28,19 @@ Endpoints:
                                profile is not complete (see GET /profile), so
                                a page open across a restart puts the
                                onboarding up without a reload
+  GET  /state?since=R[&delta=E] -> the same reading for a page that holds one
+                               (the Mac board's poll). since blank, or a reading
+                               this run cannot build on, is the whole reading
+                               with epoch beside it. With delta naming this
+                               run's epoch and the board still remembering
+                               what it sent at R (its last DESK_KEPT readings),
+                               only what differs comes: {delta: R, rev, epoch,
+                               count, gone, after or ids as on /m/state, keys:
+                               the reading's field names in order, only when
+                               they are not the ones held, set: the fields
+                               that differ, each whole, boxes: the cards that
+                               differ}. Laid over the reading held, that is
+                               the reading /state gives
   GET  /m/state[?since=R][&delta=E][&ops=A,B] -> what the phone reads: {rev,
                                changed, live, ...}. With since naming the
                                revision the phone already holds and nothing
@@ -3942,8 +3955,7 @@ def _op_status(op: str) -> dict:
 
 
 # ---- what the phone reads ------------------------------------------------------
-# The desktop reads the whole board every second and that is right for a page
-# on the same machine. The phone reads through a tunnel, so it names the
+# The phone reads through a tunnel, so it names the
 # revision it has and gets a short answer when nothing has changed, and when
 # something has, the cards with the fields the phone draws and none of the
 # rest. The live section rides on every answer because it is not part of the
@@ -4322,6 +4334,94 @@ def _ui_state() -> dict:
     }
 
 
+# ---- what the Mac board reads, lean ---------------------------------------------
+# The Mac page reads the whole board every 1.2 s, and on a board of about a
+# thousand cards that is 2.4 MB a time for the page to take in, almost all of it
+# what it already holds. So it reads the way the phone does: it names the
+# revision it holds (since) and the run that reading came from (delta, this
+# run's PHONE_EPOCH), and when the board still remembers what it sent at that
+# revision the answer is only what differs. The cards by the phone's rule, a
+# fingerprint of the bytes each was sent as and the phone's rebuild of the order
+# (_phone_delta); the reading's other fields by the same rule, each one whole.
+# What is kept is the desk's own, its cards being another shape than the
+# phone's. A field or card that read two ways at one revision (a heartbeat going
+# quiet, a listener coming, the clock) is sent to every page holding that
+# revision, so whatever made a change, the page cannot miss it.
+#
+# Unlike the phone's, the answer never stops at "nothing new": the cards and
+# fields are fingerprinted on every reading, since some of them move with no
+# save at all. /state with no since answers exactly as it always has, so no
+# other reader sees any of this.
+
+DESK_KEPT = 32           # readings whose cards and fields are remembered, the newest kept
+# rev -> [the card ids in board order, {id: fingerprint or None},
+# {field: fingerprint or None}, fingerprint of the fields' names in order or
+# None], or None for a revision never built on
+_desk_kept: dict = {}
+
+
+def _mark(text: str) -> bytes:
+    return hashlib.blake2b(text.encode(), digest_size=16).digest()
+
+
+def _desk_reading(reading: dict, since: int | None, epoch: str) -> bytes:
+    """The /state reading as the bytes sent to a page that named since: whole,
+    with epoch beside it, or, built on the reading the page holds, {delta: the
+    revision built on, rev, epoch, count, the order's gone, after or ids as the
+    phone's, keys: the reading's field names in order, only when they are not
+    the ones held, set: the fields that differ, boxes: the cards that differ}.
+    Callers hold _lock."""
+    rev = reading.get("rev", 0)
+    ids, texts, marks = [], [], {}
+    for b in reading["boxes"]:
+        text = json.dumps(b)
+        ids.append(b["id"])
+        texts.append(text)
+        marks[b["id"]] = _mark(text)
+    fields = {k: json.dumps(v) for k, v in reading.items() if k != "boxes"}
+    field_marks = {k: _mark(t) for k, t in fields.items()}
+    keys = list(reading)
+    keys_mark = _mark(json.dumps(keys))
+    base = _desk_kept.get(since) if since is not None and epoch == PHONE_EPOCH else None
+    _desk_keep(rev, ids, marks, field_marks, keys_mark)
+    if base is None or len(set(ids)) != len(ids):
+        # whole, in the order /state writes it, epoch last
+        rest = json.dumps({**{k: v for k, v in reading.items() if k != "boxes"}, "epoch": PHONE_EPOCH})
+        return ('{"boxes": [' + ", ".join(texts) + "], " + rest[1:]).encode()
+    out = {"delta": since, "rev": rev, "epoch": PHONE_EPOCH, **_phone_delta(since, (base[0], base[1]), ids)}
+    if base[3] != keys_mark:
+        out["keys"] = keys
+    changed = [json.dumps(k) + ": " + t for k, t in fields.items() if base[2].get(k) != field_marks[k]]
+    cards = [t for i, t in zip(ids, texts) if base[1].get(i) != marks[i]]
+    body = json.dumps(out)
+    return (body[:-1] + ', "set": {' + ", ".join(changed) + '}, "boxes": [' + ", ".join(cards) + "]}").encode()
+
+
+def _desk_keep(rev: int, ids: list[str], marks: dict, field_marks: dict, keys_mark: bytes) -> None:
+    """_phone_keep for the desk's readings, with the reading's fields and their
+    order kept beside the cards by the same rule: one that reads another way
+    at a revision already kept is marked unknown there."""
+    if rev not in _desk_kept:
+        _desk_kept[rev] = [ids, marks, dict(field_marks), keys_mark]
+        while len(_desk_kept) > DESK_KEPT:
+            del _desk_kept[next(iter(_desk_kept))]
+        return
+    kept = _desk_kept[rev]
+    if kept is None:
+        return
+    if kept[0] != ids:
+        _desk_kept[rev] = None
+        return
+    for i, mark in marks.items():
+        if kept[1][i] != mark:
+            kept[1][i] = None
+    for k in set(kept[2]) | set(field_marks):
+        if kept[2].get(k) != field_marks.get(k):
+            kept[2][k] = None
+    if kept[3] != keys_mark:
+        kept[3] = None
+
+
 # ---- the routes' locked work --------------------------------------------------
 # Each function below is one route's whole answer: it takes the parsed query
 # and the body, does its work under _lock where the board is touched, and hands
@@ -4410,7 +4510,16 @@ def _get_state(q: Query, _):
         # one showing it takes it away once the profile is saved anywhere
         if _profile_needed():
             reading["onboarding"] = True
-        return 200, *_snapshot(reading)
+        # a page that names since reads lean (_desk_reading), and a blank since
+        # is its first reading, so the blank is looked for in the raw query
+        named = parse_qs(q.raw, keep_blank_values=True)
+        if "since" not in named:
+            return 200, *_snapshot(reading)
+        try:
+            since = int(named["since"][0]) if named["since"][0] else None
+        except ValueError:
+            return 400, {"error": "bad revision"}
+        return 200, _desk_reading(reading, since, q.one("delta")), "application/json"
 
 
 def _get_phone_state(q: Query, _):
