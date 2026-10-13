@@ -79,8 +79,15 @@ async function board({ config } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "facilitator-tokens-"));
   const home = path.join(dir, "home");
   fs.mkdirSync(home);
+  // Keep the startup guard inside the fixture, as limits-fixture does. Never
+  // consult this machine's Tailscale app or its current Serve configuration.
+  const bin = path.join(dir, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, "tailscale"), '#!/bin/sh\ncase "$*" in\n  *"serve status"*) echo \'{}\' ;;\n  *"status"*) echo \'{"BackendState":"Stopped"}\' ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
   const source = fs.readFileSync(path.join(ROOT, "server.py"), "utf8");
-  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
+  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])")
+    .replace('TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
+             'TAILSCALE_APP = "/nonexistent/tailscale"');
   assert.notEqual(patched, source, "test server port was not patched");
   fs.writeFileSync(path.join(dir, "server.py"), patched);
   copyBridgeFiles(dir);
@@ -96,7 +103,7 @@ async function board({ config } = {}) {
     dir, home, origin, child: null,
     cache: path.join(dir, "tokens-cache.json"),
     async start(extra = {}) {
-      const env = { ...process.env, HOME: home, TZ: "UTC", FACILITATOR_TEST_PORT: new URL(origin).port,
+      const env = { ...process.env, HOME: home, TZ: "UTC", PATH: bin, FACILITATOR_TEST_PORT: new URL(origin).port,
                     FACILITATOR_LOG_DIR: path.join(dir, "logs"), ...extra };
       for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME"]) if (!(name in extra)) delete env[name];
       b.child = spawn(PYTHON, [path.join(dir, "server.py")], { cwd: dir, env, stdio: ["ignore", "pipe", "pipe"] });

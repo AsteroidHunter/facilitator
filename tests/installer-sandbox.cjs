@@ -11,7 +11,7 @@ const { promisify } = require("node:util");
 
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, "..");
-const COPIED = ["facilitator", "shell_integration.py", "install.sh", "bridge_auth.py", "requirements.txt",
+const COPIED = ["facilitator", "shell_integration.py", "install.sh", "installer-lib.sh", "bridge_auth.py", "requirements.txt",
   "run.config.example.json", "seed.example.json", "claude-statusline.py"];
 
 // answers questions on a pseudo terminal: each step is [text to wait for, keys to send]
@@ -69,13 +69,17 @@ async function script(file, text) {
 // scrypt).
 // uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
 // back an installer that puts it in the home folder), "curl-tampered" (the
-// same, but what it hands back is not what the checkout expects) or "absent". The fake's
+// same, but what it hands back is not what the checkout expects), "curl-fails"
+// (the installer it hands back prints a line and exits with an error) or "absent". The fake's
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
 // hands over to the real python, so what runs on .venv really runs. It says
 // it is uvVersion when asked. node: true puts a fake node and a fake npm on
 // PATH; npm ci makes tests/node_modules/puppeteer-core at the pinned version.
+// hang: "sync" makes the fake uv's package sync run for a minute, and "python"
+// does the same for its Python install, so a test can press Ctrl+C in the
+// middle of either.
 async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present",
-  venvPython = "3.14.0", uvVersion = "0.11.18", node = false } = {}) {
+  venvPython = "3.14.0", uvVersion = "0.11.18", node = false, hang = "" } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
@@ -119,10 +123,14 @@ fi
   };
   await script(path.join(tools, "python3"), wrappers[python]);
 
+  const syncStep = hang === "sync" ? 'echo "syncing (fake uv)"; sleep 60' : ":";
+  const pythonStep = hang === "python" ? 'echo "installing Python (fake uv)"; sleep 60'
+    : `echo "Installed Python ${venvPython} (fake uv)"`;
   const fakeUv = `#!/bin/sh
 echo "uv $*" >> "${log}"
 case "$1" in
   --version) echo "uv ${uvVersion} (fake)" ;;
+  pip) ${syncStep} ;;
   venv)
     mkdir -p .venv/bin
     printf 'home = /fake\\nversion_info = ${venvPython}\\n' > .venv/pyvenv.cfg
@@ -131,7 +139,7 @@ case "$1" in
     chmod +x .venv/bin/python .venv/bin/python3 ;;
   python)
     case "$2" in
-      install) echo "Installed Python ${venvPython} (fake uv)" ;;  # stdout keeps a piped run's text in order
+      install) ${pythonStep} ;;  # stdout keeps a piped run's text in order
       find) echo "${real}" ;;
     esac ;;
 esac
@@ -148,11 +156,18 @@ chmod +x "${target}"
 `);
   }
 
-  if (uv === "curl" || uv === "curl-tampered") {
+  if (uv === "curl" || uv === "curl-tampered" || uv === "curl-fails") {
     // the installer the fake curl hands back, and the fingerprint this copy of
     // the checkout is made to expect for it: "curl-tampered" serves something
-    // else under that fingerprint. The installer's own check is probed too.
-    const installer = `echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+    // else under that fingerprint, and "curl-fails" serves an installer that
+    // prints its lines and then stops with an error. Like the real one it
+    // prints progress lines of its own. The installer's own check is probed too.
+    const installer = uv === "curl-fails" ? `echo "installing to $HOME/.local/bin"
+echo "the fake uv installer could not write uv" >&2
+exit 1
+` : `echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+echo "downloading uv 0.12.22 (fake installer)"
+echo "installing to $HOME/.local/bin"
 printf x > "$HOME/probe.txt"
 echo "uv installer checks with $(sha256sum -b "$HOME/probe.txt" | awk '{printf $1}')" >> "${log}"
 mkdir -p "$HOME/.local/bin"
@@ -160,7 +175,7 @@ cat > "$HOME/.local/bin/uv" <<'FAKE'
 ${fakeUv}FAKE
 chmod +x "$HOME/.local/bin/uv"
 `;
-    const served = uv === "curl" ? installer : `echo "a changed uv installer ran" >> "${log}"\n`;
+    const served = uv === "curl-tampered" ? `echo "a changed uv installer ran" >> "${log}"\n` : installer;
     await fs.writeFile(path.join(dir, "served-installer.sh"), served);
     await script(path.join(tools, "curl"), `#!/bin/sh
 echo "curl $*" >> "${log}"
@@ -199,6 +214,18 @@ if [ -n "$out" ]; then cat "${path.join(dir, "served-installer.sh")}" > "$out"; 
     // stripped from the text unless color is set
     async terminal(steps, args = [], { color = false } = {}) {
       const job = JSON.stringify({ argv: ["bash", path.join(repo, "install.sh"), ...args], cwd: repo, env, steps, color });
+      const { stdout } = await exec("python3", ["-c", DRIVER, job], { env: process.env, timeout: 120000, maxBuffer: 1 << 24 });
+      return JSON.parse(stdout);
+    },
+    // the facilitator command of this copy of the checkout, on the same fake
+    // PATH and home: piped has no terminal, terminal answers on a pseudo one
+    async commandPiped(args) {
+      return exec("python3", [path.join(repo, "facilitator"), ...args], { cwd: repo, env }).then(
+        ({ stdout, stderr }) => ({ code: 0, text: stdout + stderr }),
+        error => ({ code: error.code, text: error.stdout + error.stderr }));
+    },
+    async commandTerminal(args, steps, { color = false } = {}) {
+      const job = JSON.stringify({ argv: ["python3", path.join(repo, "facilitator"), ...args], cwd: repo, env, steps, color });
       const { stdout } = await exec("python3", ["-c", DRIVER, job], { env: process.env, timeout: 120000, maxBuffer: 1 << 24 });
       return JSON.parse(stdout);
     },

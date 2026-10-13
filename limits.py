@@ -8,12 +8,16 @@ sign-in file or calls a web endpoint.
           answers, and is stopped. Codex does its own sign-in. It is started at
           most once every EVERY seconds, under a hard time limit, so a stuck
           codex cannot hold a request. When it is missing, signed out or too
-          slow, the newest limits Codex wrote into its own session logs are
-          used (tokens.TokenLedger keeps them). The first ask of a run is waited
-          for; after that a request is answered at once from the last reading,
-          and a reading EVERY seconds old is renewed in the background, so no
+          slow, the newest limits Codex wrote into its own session logs stand
+          in (tokens.TokenLedger keeps them), but only until codex has answered
+          once in this run: after that a failed ask keeps the last answer. A
+          reading from the logs is dated by the log record's own time, so the
+          page can say how old it is. The first ask of a run is waited for;
+          after that a request is answered at once from the last reading, and
+          a reading EVERY seconds old is renewed in the background, so no
           request waits on codex. A renewal that finds nothing keeps the last
-          reading, and the time it was taken stays what it was.
+          reading, and the time it was taken stays what it was. Each change of
+          source is handed to `note`, with the reason codex gave nothing.
   Claude  Claude Code hands its status line command the limits on stdin, and
           claude-statusline.py beside this file writes the two windows to a
           small file. That file is read here on every request.
@@ -118,15 +122,15 @@ def _snapshot(result) -> dict | None:
     return None
 
 
-def ask_codex(command: str, timeout: float = TIMEOUT) -> dict:
-    """The windows `codex app-server` reports, or {} when it will not start,
-    answers with an error, has no limits or does not answer within timeout."""
+def read_codex(command: str, timeout: float = TIMEOUT) -> tuple[dict, str | None]:
+    """(windows, None) from `codex app-server`, or ({}, why) where why is "not
+    started", "error", "no limits" or "timeout"."""
     try:
         proc = subprocess.Popen([command, "app-server"], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                 text=True, bufsize=1)
     except OSError:
-        return {}
+        return {}, "not started"
     lines: queue.Queue = queue.Queue()
 
     def pump() -> None:
@@ -145,16 +149,17 @@ def ask_codex(command: str, timeout: float = TIMEOUT) -> dict:
         proc.stdin.flush()
 
     def reply(wanted: int):
+        """The reply to request `wanted`, or the word that says why none came."""
         while True:
             left = deadline - time.monotonic()
             if left <= 0:
-                return None
+                return "timeout"
             try:
                 line = lines.get(timeout=left)
             except queue.Empty:
-                return None
+                return "timeout"
             if line is None:
-                return None
+                return "error"      # codex ended without answering
             try:
                 message = json.loads(line)
             except ValueError:
@@ -166,16 +171,21 @@ def ask_codex(command: str, timeout: float = TIMEOUT) -> dict:
         send({"method": "initialize", "id": 0,
               "params": {"clientInfo": {"name": "facilitator", "title": "Facilitator", "version": "1"}}})
         first = reply(0)
-        if not first or "error" in first:
-            return {}
+        if isinstance(first, str):
+            return {}, first
+        if "error" in first:
+            return {}, "error"
         send({"method": "initialized", "params": {}})
         send({"method": "account/rateLimits/read", "id": 1})
         second = reply(1)
-        if not second or "error" in second:
-            return {}
-        return codex_windows(_snapshot(second.get("result")))
+        if isinstance(second, str):
+            return {}, second
+        if "error" in second:
+            return {}, "error"
+        got = codex_windows(_snapshot(second.get("result")))
+        return (got, None) if got else ({}, "no limits")
     except (OSError, ValueError):
-        return {}
+        return {}, "error"
     finally:
         try:
             proc.stdin.close()
@@ -188,56 +198,84 @@ def ask_codex(command: str, timeout: float = TIMEOUT) -> dict:
             pass
 
 
+def ask_codex(command: str, timeout: float = TIMEOUT) -> dict:
+    """The windows `codex app-server` reports, or {} when it will not start,
+    answers with an error, has no limits or does not answer within timeout."""
+    return read_codex(command, timeout)[0]
+
+
 class Limits:
     """What the page's limits box shows. claude_file is where the status line
     script writes, logged() answers with the newest limits found in Codex's
     session logs (or None), and path is where `codex` is looked for (the
-    environment's PATH when None)."""
+    environment's PATH when None). note(old, new, why), when given, is called
+    each time the source changes, among "none", "log", "app-server" (codex
+    answered) and "kept" (codex did not, so its last answer stands), with why
+    codex gave nothing: "not started", "error", "no limits" or "timeout"."""
 
     def __init__(self, claude_file, logged=None, path: str | None = None,
-                 every: float = EVERY, timeout: float = TIMEOUT, clock=time.time):
+                 every: float = EVERY, timeout: float = TIMEOUT, clock=time.time,
+                 note=None):
         self.claude_file = Path(claude_file)
         self.logged = logged
         self.path = path
         self.every = every
         self.timeout = timeout
         self.clock = clock
+        self.note = note
         self.lock = threading.Lock()
         self.codex: dict = {}
         self.asked = None       # when codex was last asked, to space the asks
         self.fetched = None     # when the reading in self.codex was taken
+        self.live = False       # codex itself has answered in this run
         self.busy = False       # a background renewal is running
         self.worker = None
         self.source = "none"
 
-    def _ask(self) -> dict:
+    def _ask(self):
+        """(windows, source, taken, why): taken is the time of a reading from
+        the logs, which can be days old, and None for one taken now."""
         command = find_codex(self.path)
+        why = "not started"
         if command:
-            got = ask_codex(command, self.timeout)
+            got, why = read_codex(command, self.timeout)
             if got:
-                self.source = "app-server"
-                return got
+                return got, "app-server", None, None
+        if self.live:
+            return {}, "kept", None, why
         try:
-            got = codex_windows(self.logged()) if self.logged else {}
+            record = self.logged() if self.logged else None
+            got = codex_windows(record)
+            taken = _number(record.get("at")) if got else None
         except Exception:
-            got = {}
-        self.source = "log" if got else "none"
-        return got
+            got, taken = {}, None
+        return got, "log" if got else "none", taken, why
 
-    def _store(self, got: dict) -> None:
+    def _store(self, asked) -> None:
+        got, source, taken, why = asked
         now = self.clock()
-        if got or not self.codex:
+        if got:
             self.codex = got
-            self.fetched = now
+            self.fetched = now if taken is None else min(taken, now)
+            self.live = source == "app-server"
+        elif source == "none" and self.codex:
+            source = "log"      # nothing new in the logs: their last reading stays
+        old, self.source = self.source, source
+        # a first reading from codex is no switch; it is how a run is meant to go
+        if source != old and self.note and (old, source) != ("none", "app-server"):
+            try:
+                self.note(old, source, None if source == "app-server" else why)
+            except Exception:
+                pass
         self.asked = now
 
     def _renew(self) -> None:
         try:
-            got = self._ask()
+            asked = self._ask()
         except Exception:
-            got = {}
+            asked = {}, "kept" if self.live else "none", None, "error"
         with self.lock:
-            self._store(got)
+            self._store(asked)
             self.busy = False
 
     def idle(self, timeout: float = 30.0) -> None:

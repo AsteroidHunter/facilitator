@@ -77,7 +77,7 @@ older = [
     event("input", 50, action="response-scroll", part="touch-end", box="m12", count=0, ms=450),
     event("scroll", 500, action="response-scroll", phase="start", box="m12")]
 post = lambda r: s._post_clientlog(s.Query(), json.dumps({"page":"phone", "reports":[r]}).encode())
-assert s.INCIDENT_SCHEMA == 5
+assert s.INCIDENT_SCHEMA == 6
 assert post(report(5, "no-scroll", swipe)) == (200, {"ok":True, "written":1, "dropped":0})
 assert post(report(4, "manual", older)) == (200, {"ok":True, "written":1, "dropped":0})
 assert post(report(3, "manual", older)) == (200, {"ok":True, "written":1, "dropped":0})

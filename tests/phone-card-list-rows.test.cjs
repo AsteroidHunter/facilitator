@@ -112,9 +112,9 @@ function compareWithFreshDraw() {
       appendOmniRowArt(r, inner, b);
       inner.appendChild(h("div", "ttl", b.title));
       const meta = h("div", "tmeta");
-      meta.appendChild(h("span", "tage", busy ? "*" : s === "done" ? "done" : shortAge(b.agentTs)));
+      meta.appendChild(h("span", "tage", busy ? "*" : shortAge(ticketTs(b))));
       const ag = lastState.agents?.[b.owner];
-      meta.appendChild(h("span", "teng", ag ? (ag.alive ? ag.name : "offline") : ""));
+      meta.appendChild(h("span", "teng", b.agent || (ag ? (ag.alive ? ag.name : "offline") : "")));
       inner.appendChild(meta);
       r.appendChild(inner);
       r.dataset.id = b.id;

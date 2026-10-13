@@ -1206,7 +1206,7 @@ test("the settings come in from the right, holding the header, the list of secti
       };
     });
     assert.equal(made.header, "Settings", "the panel's header is not Settings");
-    assert.deepEqual(made.items, ["Editor", "Notifications", "Diagnostics"], "the panel does not list the sections");
+    assert.deepEqual(made.items, ["Editor", "Appearance", "Notifications", "Improvements", "Profile", "Diagnostics"], "the panel does not list the sections");
     assert.equal(made.gear, true, "a section in the list carries no mark");
     assert.equal(made.gearStroke, "currentColor", "the mark is not drawn in the card's line style");
     assert.equal(made.gearFill, "none");
@@ -1291,7 +1291,9 @@ test("the settings come in from the right, holding the header, the list of secti
   }
 });
 
-test("a pull from the right edge brings the settings in", async () => {
+// the settings come in with their circle alone: the right edge's pull is the
+// card's magic box, and the seeded cards have none, so it brings nothing
+test("a pull from the right edge brings no settings in, and their circle does", async () => {
   const { page, problems } = await openPhone("/m");
   try {
     await page.waitForSelector("article.box.sel", { timeout: 5000 });
@@ -1299,21 +1301,20 @@ test("a pull from the right edge brings the settings in", async () => {
     let midway = null;
     await pull(page, "right", 0.6, async () => {
       midway = await readMenu(page, "#settings");
-      await shot(page, "settings-half");
+      await shot(page, "settings-no-pull");
     });
-    assert.ok(midway.shift > 0 && midway.shift < midway.width, "settings does not follow the finger from the right");
-    assert.equal(midway.lift, 0, `settings left its line under the finger (${midway.lift})`);
-    assert.equal(midway.top, 0, `settings' head moved under the finger (${midway.top})`);
-    assert.equal(midway.fade, "1.00", `settings went see-through under the finger (${midway.fade})`);
-    assert.ok(midway.depth > 0.3 && midway.depth < 0.9, `the shade does not follow the finger (${midway.depth})`);
-    assert.ok(Math.abs(midway.depth - (1 - Math.abs(midway.shift) / midway.width)) < 0.03,
-      `the shade is not worth what the finger has pulled out (${midway.shift}px of ${midway.width}, shade ${midway.depth})`);
-    assert.equal(midway.pageMs, "0s", "the page's depth is on a clock while the finger holds settings");
-    assertPageDrewBack(midway, midway.out, "during a settings pull");
+    assert.equal(midway.open, false, "a pull from the right edge brought the settings");
+    assert.equal(midway.shift, midway.width, "the settings followed a finger from the right edge");
+    assert.equal(midway.pageScale, 1, "the page drew back under a pull that brings nothing");
+    const pulled = await readMenu(page, "#settings");
+    assert.equal(pulled.open, false, "a pull past the middle brought the settings in");
+    assert.equal(await page.evaluate(() => menuOut()), null, "a pull from the right edge brought a drawer");
+    await page.evaluate(() => document.getElementById("setbtn").click());
+    await settle(750);
     const out = await readMenu(page, "#settings");
-    assert.equal(out.open, true, "a pull past the middle did not bring the settings in");
+    assert.equal(out.open, true, "the circle did not bring the settings in");
     assert.equal(out.shift, 0);
-    assertPageDrewBack(out, 1, "after a settings pull");
+    assertPageDrewBack(out, 1, "after the circle brought the settings");
     // and a tap on what is left of the page shuts it again, the strip the page
     // has drawn back from included
     await page.touchscreen.tap(0, 0);

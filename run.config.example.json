@@ -1,6 +1,6 @@
 {
   "port": 8877,
-  "log_level": "info",
+  "log_level": "error",
   "app_fullscreen": true,
   "background_default": "#ffffff",
   "image_panel_lane": "",

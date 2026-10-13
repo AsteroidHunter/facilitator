@@ -79,7 +79,7 @@ SEEDED_REV = 41
 def _card(**over):
     card = {
         "id": CARD, "bucket": "meta", "title": "an invented card", "owner": "facilitator",
-        "done": False, "parked": False, "replies": 0, "seen": 0, "pending": [],
+        "done": False, "docked": False, "parked": False, "replies": 0, "seen": 0, "pending": [],
         "ball": "you", "ts": 1000.0, "state": "yours",
     }
     card.update(over)
@@ -125,6 +125,36 @@ class ParkRules(unittest.TestCase):
         self.park(v=1)
         self.assertTrue(self.box["parked"])
         self.assertFalse(self.box["done"], "parking a done card still takes the done off it")
+
+    def test_park_clears_a_restored_docked_card_and_its_time(self):
+        self.box.update(docked=True, docked_ts=900.0)
+        self.park(v=1)
+        self.assertFalse(self.box["docked"])
+        self.assertNotIn("docked_ts", self.box)
+
+    def test_done_clears_a_restored_docked_card_and_its_time(self):
+        self.box.update(docked=True, docked_ts=900.0)
+        self.server._post_done(Q(box=CARD, v=1), "")
+        self.assertTrue(self.box["done"])
+        self.assertFalse(self.box["docked"])
+        self.assertNotIn("docked_ts", self.box)
+
+    def test_close_clears_a_restored_docked_card_and_its_time(self):
+        self.box.update(docked=True, docked_ts=900.0, replies=1)
+        status, answer = self.server._post_close(Q(box=CARD), "")
+        self.assertEqual((status, answer["action"]), (200, "done"))
+        self.assertFalse(self.box["docked"])
+        self.assertNotIn("docked_ts", self.box)
+
+    def test_owner_message_clears_a_restored_docked_card_and_its_time(self):
+        self.box.update(docked=True, docked_ts=900.0)
+        self.server._state.update(next_mid=1, inbox=[], busy={"facilitator": None})
+        status, answer = self.server._post_send(Q(box=CARD), "Continue this card.")
+        self.assertEqual(status, 200)
+        self.assertTrue(answer["ok"])
+        self.assertFalse(self.box["docked"])
+        self.assertNotIn("docked_ts", self.box)
+        self.assertEqual(self.box["state"], "queued")
 
     def test_the_answer_names_the_state_it_leaves_and_the_new_revision(self):
         status, answer = self.park(v=1)

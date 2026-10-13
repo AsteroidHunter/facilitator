@@ -4,36 +4,36 @@
    The page navigation must reach the server, because the server may return
    either the board or the sign-in page. It is never kept and never answered
    from a copy; only when the server cannot answer it is the white "server
-   down" screen (below) put in its place. Static renderer files and the splash
-   picture can be kept; readings and commands always go straight to the server.
-   Every fetch the worker makes itself has a deadline, except the page open:
-   a slow page is still a page, and the browser gives up on a dead one itself.
+   down" screen (below) put in its place. Readings and commands always go
+   straight to the server. The page open's wait is on its first answer only: a
+   Mac that has said nothing at all for 8 seconds gets the down screen, and one
+   that has started answering is waited for however slow the rest of the page
+   is, since a slow page is still a page.
+
+   The page's own code (the shared scripts and the sheet) is not asked for here
+   at all: the browser asks the server for each file itself and waits for it
+   however long it takes, and there is no kept copy of it to fall back to, so
+   the page runs on the latest files or does not start (m.html then shows the
+   down screen). Only the squid and the editor bundle below are kept.
 
    No board data is kept anywhere here. The page's startup screen waits for a
    live reading before it shows the board, so a stored copy could not shorten a
    start; it could only make one look connected when it was not. */
 
 /* New cache name drops previously kept authenticated pages and manifests. */
-const CACHE = "facilitator-m-8";
-const SHELL = ["/card-markdown.js", "/card-tokens.css", "/card-logic.js",
-               "/compose-format.js"];
+const CACHE = "facilitator-m-13";
 /* The squid the page paints the phone's own launch image from. It is kept
-   so a page already open through a short interruption can still paint it.
-   It is asked for on its own rather
-   than added to the list above, because addAll is all-or-nothing and a build
-   whose image had not landed yet would lose the whole shell with it. */
+   so a page already open through a short interruption can still paint it. */
 const SPLASH = "/m-splash-squid.png";
 /* The vendored editor the composer's typed formatting is drawn with, kept on
    the same terms as the squid and for the same two reasons. It is one prebuilt
    file of about 1.6 MB that never changes between rebuilds, so asking the board
    for it on every open would spend that much of the phone's connection each
    time for a file that is always the same; and it is asked for on its own so a
-   build where it is missing cannot take the whole shell down with it. A rebuilt
+   build where it is missing cannot take anything else down with it. A rebuilt
    bundle arrives with the cache name above. */
 const VENDORED = "/cm-markdown.js";
-const KEPT = [...SHELL, SPLASH, VENDORED];
-const SHELL_DEADLINE_MS = 8000;   // static files wait this long before the kept copy
-const PUSH_DEADLINE_MS = 6000;    // wait at most this long for auth before dropping a push
+const SPLASH_DEADLINE_MS = 8000;   // the squid waits this long before the kept copy
 
 /* A record of each push, and of each tap on a notification, kept in the
    worker's own database because the board may be out of reach when one happens
@@ -43,7 +43,7 @@ const PUSH_DEADLINE_MS = 6000;    // wait at most this long for auth before drop
    worked, or when the page opens, and are removed once the board has taken
    them. The oldest are dropped past the cap. A cache would not do: the
    activate step above deletes every cache that is not CACHE. A record with no
-   kind is a push; a tap's is "notifytap". */
+   kind is a push; a tap's is "notifytapready" or "notifytap". */
 const PUSH_LOG_DB = "facilitator-m-push-log";
 const PUSH_LOG_STORE = "pushes";
 const PUSH_LOG_KEEP = 50;
@@ -60,14 +60,20 @@ const PUSH_LOG_DEADLINE_MS = 4000;
    network, so there is nothing else to have kept before the server goes away.
 
    An answer of 502, 503 or 504 is what a proxy in front of a stopped server
-   says; anything else, a refusal included, is the server answering. The page
-   asks for the manifest every few seconds, a small public file the board
-   serves, and reloads itself as soon as that is answered. */
+   says; anything else, a refusal included, is the server answering. A page
+   open that has had no answer at all for FIRST_ANSWER_MS gets the screen too:
+   a Mac that cannot be reached (Tailscale off, its Wi-Fi off, asleep) may
+   never fail the request, it just never answers. Under the words the screen
+   counts down to its next try, the same count m.html runs (downRetry below).
+   Each try asks for the page this screen stands in for, with the same time for
+   its answer to start, and only a page that comes back reloads the screen into
+   the app, so a broken page is never reloaded into over and over. */
 const DOWN_STATUS = [502, 503, 504];
-const DOWN_POLL_MS = 3000;
+const FIRST_ANSWER_MS = 8000;
 const DOWN_WORDS = "Is the Facilitator server down?";
 const DOWN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m6.5 8 3.5 3.5m0-3.5-3.5 3.5m7.5-3.5 3.5 3.5m0-3.5-3.5 3.5"/><path d="M8.5 17c1-1.2 2.2-1.8 3.5-1.8s2.5.6 3.5 1.8"/></svg>';
-const DOWN_MARKUP = '<div id="serverdown" role="alert"><p>' + DOWN_ICON + DOWN_WORDS + '</p></div>';
+const DOWN_RETRY = '<p class="retry" aria-live="off"><span class="spin" aria-hidden="true"></span>Retrying<span class="in"> in 3 seconds</span></p>';
+const DOWN_MARKUP = '<div id="serverdown" role="alert"><div class="say"><p>' + DOWN_ICON + DOWN_WORDS + '</p>' + DOWN_RETRY + '</div></div>';
 /* the page's first web font sheet, the one m.html asks for, so the words are in
    the same face and a copy the phone already holds is used */
 const DOWN_FONTS = "https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap";
@@ -79,7 +85,7 @@ const DOWN_PAGE = `<!doctype html>
 <meta name="theme-color" content="#FFFFFF">
 <title>facilitator</title>
 <style>
-  :root{--ink:#211D17; --sans:"IBM Plex Sans", -apple-system, sans-serif; --root-h:100%}
+  :root{--ink:#211D17; --sans:"IBM Plex Sans", -apple-system, sans-serif; --mono:"IBM Plex Mono", ui-monospace, monospace; --root-h:100%}
   @media (display-mode:standalone){ :root{--root-h:100vh} }
   *{box-sizing:border-box}
   html{height:var(--root-h); -webkit-text-size-adjust:100%}
@@ -96,8 +102,30 @@ const DOWN_PAGE = `<!doctype html>
     -webkit-user-select:none; user-select:none;
   }
   body.down #serverdown{display:flex}
-  #serverdown p{margin:0}
-  #serverdown svg{width:1em; height:1em; margin-right:.4em; vertical-align:-.15em}
+  /* the words and the count under them are two lines of one box, both starting
+     at its left edge with no indent, so the R of "Retrying" stands under the I
+     of "Is". the face and the spinner hang to the left of that edge, out of the
+     lines, so neither moves a letter by being there or not. the box's margin is
+     the face's width and its gap, so the words stand where they always stood */
+  #serverdown .say{position:relative; padding-left:1.4em; text-align:left}
+  #serverdown p{margin:0; position:relative}
+  #serverdown svg, #serverdown .spin{position:absolute; right:100%; top:.225em; width:1em; height:1em; margin-right:.4em}
+  /* the count is out of the flow where it stands, under the words, so the box
+     is one line tall and the words stay at the middle of the screen */
+  #serverdown .retry{position:absolute; white-space:nowrap}
+  /* the card spinner's mark, turn and fade (card-tokens.css .cardspin, and
+     Home's refresh marker), written out because this screen has no sheet */
+  #serverdown .spin{opacity:0}
+  #serverdown .spin::before{content:"|"; display:block; font:600 1em/1em var(--mono); text-align:center;
+    animation:downturn .8s steps(4) infinite}
+  @keyframes downturn{to{transform:rotate(180deg)}}
+  #serverdown .in, #serverdown .spin{transition:opacity .26s cubic-bezier(.42,.06,.38,1)}
+  #serverdown .trying .in{opacity:0}
+  #serverdown .trying .spin{opacity:1}
+  @media (prefers-reduced-motion: reduce){
+    #serverdown .spin::before{animation:none}
+    #serverdown .in, #serverdown .spin{transition:none}
+  }
 </style>
 </head>
 <body class="down">
@@ -116,28 +144,30 @@ ${DOWN_MARKUP}
     link.href = ${JSON.stringify(DOWN_FONTS)};
     document.head.appendChild(link);
   }
-  // ask the board every few seconds, and at once when the phone wakes or
-  // comes back online; the page it answers is the app, so reload into it
-  const DOWN_STATUS = ${JSON.stringify(DOWN_STATUS)};
-  let asking = false;
-  async function ask() {
-    if (asking) return;
-    asking = true;
+  // the count to each try, and at once when the phone wakes or comes back
+  // online. a try asks for this same page, as the reload would, with the same
+  // time for its answer to start; only a page that comes back is the app, so
+  // only then does the screen reload into it, still saying Retrying. the
+  // page's own words are not waited for: the reload asks for them again
+${downRetry}
+  const retry = downRetry(document.querySelector("#serverdown .retry"), async () => {
     const stop = new AbortController();
-    const timer = setTimeout(() => stop.abort(), 5000);
+    const timer = setTimeout(() => stop.abort(), ${FIRST_ANSWER_MS});
     try {
-      const answer = await fetch("/m-manifest.json", { cache: "no-store", signal: stop.signal });
-      if (!DOWN_STATUS.includes(answer.status)) location.reload();
+      const answer = await fetch(location.href, { cache: "no-store", signal: stop.signal });
+      if (!answer.ok) return false;
+      location.reload();
+      return true;
     } catch (error) {
-      // still down: try again at the next turn
+      return false;   // still down: the count starts again
     } finally {
       clearTimeout(timer);
-      asking = false;
+      stop.abort();
     }
-  }
-  setInterval(ask, ${DOWN_POLL_MS});
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) ask(); });
-  addEventListener("online", ask);
+  });
+  retry.start();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) retry.now(); });
+  addEventListener("online", () => retry.now());
 </script>
 </body>
 </html>
@@ -150,16 +180,70 @@ function downPage() {
   });
 }
 
-// The page open, asked of the server every time. A failed request or a proxy's
-// 502, 503 or 504 gets the down screen; every other answer is passed on as it came.
+// The page open, asked of the server every time. A failed request, a proxy's
+// 502, 503 or 504, or no answer at all within FIRST_ANSWER_MS gets the down
+// screen; every other answer is passed on as it came. The limit is on the answer
+// starting and is gone once it has: the body that follows is the browser's to
+// read, however slowly it comes. The request is passed on exactly as the
+// navigation made it (a signal would make it a script's fetch, which the board
+// tells apart), so a request cut off here is left to settle on its own.
 async function openPage(request) {
+  let timer = null;
+  const silence = new Promise(resolve => { timer = setTimeout(resolve, FIRST_ANSWER_MS, null); });
   let answer;
   try {
-    answer = await fetch(request);
+    answer = await Promise.race([fetch(request), silence]);
   } catch (error) {
     return downPage();
+  } finally {
+    clearTimeout(timer);
   }
+  if (answer === null) return downPage();
   return DOWN_STATUS.includes(answer.status) ? downPage() : answer;
+}
+
+/* THE WHITE SCREEN'S COUNT TO ITS NEXT TRY. Never run in the worker: the down
+   screen above carries its source, and m.html runs a copy of it, which
+   tests/phone-server-down-retry.test.cjs holds to being the same text.
+
+   Under the words the line reads "Retrying in 3 seconds", then 2, then
+   "1 second", a second apart. Just before zero the "in N seconds" fades out and
+   the spinner fades in to the left of "Retrying" (the CSS fade is FADE_MS), and
+   at zero ask() makes the try. A try that is answered resolves true and the
+   screen goes; one that is not resolves false and the count starts again, once
+   the spinner has made at least one whole turn, so a try refused at once is
+   still seen being made. now() skips what is left of a count. */
+function downRetry(line, ask){
+  const GAP_S = 3, FADE_MS = 260, TURN_MS = 800;
+  const words = line.querySelector(".in");
+  let timers = [], on = false, trying = null;
+  const at = (ms, then) => { timers.push(setTimeout(then, ms)); };
+  const clear = () => { for (const timer of timers) clearTimeout(timer); timers = []; };
+  const say = n => { words.textContent = " in " + n + (n === 1 ? " second" : " seconds"); };
+  function count(){
+    clear();
+    say(GAP_S);
+    line.classList.remove("trying");
+    for (let n = GAP_S - 1; n >= 1; n--) at((GAP_S - n) * 1000, () => say(n));
+    at(GAP_S * 1000 - FADE_MS, () => line.classList.add("trying"));
+    at(GAP_S * 1000, run);
+  }
+  async function run(){
+    clear();
+    line.classList.add("trying");
+    const mine = trying = {};
+    const began = Date.now();
+    let answered = false;
+    try { answered = await ask(); } catch (_) {}
+    if (trying !== mine) return;   // stopped, or started over, while it ran
+    trying = null;
+    if (!answered) at(Math.max(0, began + TURN_MS - Date.now()), count);
+  }
+  return {
+    start(){ if (!on){ on = true; count(); } },
+    stop(){ if (on){ on = false; trying = null; clear(); line.classList.remove("trying"); } },
+    now(){ if (on && !trying) run(); },
+  };
 }
 
 function bounded(request, ms) {
@@ -229,6 +313,19 @@ function tapReport(row) {
   return report;
 }
 
+function tapReadyReport(row) {
+  const report = {
+    kind: "notifytapready", stage: row.stage, tap: row.tap, box: row.box,
+    at: row.at, worker: row.worker,
+  };
+  if (row.stage === "ready") {
+    report.windows = pushLogWhole(row.windows, 1000);
+    report.visibility = row.visibility;
+    report.focused = row.focused;
+  }
+  return report;
+}
+
 // The oldest records go first, 20 to a request, and a request the board did not
 // take leaves its records where they are. Nothing here ever throws.
 let pushLogSending = null;
@@ -242,6 +339,7 @@ function pushLogFlush() {
         const now = Date.now();
         const reports = part.map(row => {
           if (row.kind === "notifytap") return tapReport(row);
+          if (row.kind === "notifytapready") return tapReadyReport(row);
           const report = { kind: "pushreceived", outcome: row.outcome };
           if (row.outcome === "skipped") report.reason = row.reason;
           report.ms = pushLogWhole(row.ms, 600000);
@@ -281,7 +379,6 @@ self.addEventListener("install", event => {
   event.waitUntil((async () => {
     try {
       const cache = await caches.open(CACHE);
-      await cache.addAll(SHELL).catch(() => {});
       await cache.add(SPLASH).catch(() => {});
       await cache.add(VENDORED).catch(() => {});
     } catch (error) {}
@@ -317,17 +414,18 @@ self.addEventListener("fetch", event => {
     if (url.pathname === "/m") event.respondWith(openPage(request));
     return;
   }
-  /* The one thing read from the copy before the server is asked. Everything
-     else here is network first, because everything else can change under an
-     installed app and a stale copy of it would be wrong. This file cannot: it
+  /* The one thing read from the copy before the server is asked. The squid
+     below is network first, because it can change under an installed app and
+     a stale copy of it would be wrong. This file cannot: it
      is a vendored build that arrives with a new cache name or not at all, and
      reading it from the copy is what keeps the composer's formatting from
-     costing 1.6 MB of the phone's connection on every open. */
+     costing 1.6 MB of the phone's connection on every open. Its first
+     download is waited for however long it takes. */
   if (url.pathname === VENDORED) {
     event.respondWith((async () => {
       const kept = await caches.match(request);
       if (kept) return kept;
-      const fresh = await bounded(request, SHELL_DEADLINE_MS);
+      const fresh = await fetch(request);
       if (fresh.ok) {
         const cache = await caches.open(CACHE);
         cache.put(request, fresh.clone()).catch(() => {});
@@ -336,10 +434,10 @@ self.addEventListener("fetch", event => {
     })());
     return;
   }
-  if (!KEPT.includes(url.pathname)) return;   // live data: never intercepted
+  if (url.pathname !== SPLASH) return;   // the page's code and live data: never intercepted
   event.respondWith((async () => {
     try {
-      const fresh = await bounded(request, SHELL_DEADLINE_MS);
+      const fresh = await bounded(request, SPLASH_DEADLINE_MS);
       if (fresh.ok) {
         const cache = await caches.open(CACHE);
         cache.put(request, fresh.clone()).catch(() => {});
@@ -359,36 +457,17 @@ self.addEventListener("fetch", event => {
 // generic notification so the browser sees the event was handled.
 self.addEventListener("push", event => {
   event.waitUntil((async () => {
-    // A push service can hold an encrypted title for hours after sign-out.
-    // The server may have accepted it while the session was still live, so
-    // ask again at delivery time and show nothing if the answer is unavailable.
-    // Each push is also noted (shown, or skipped and why) after the decision
-    // is made, so the note can never change it.
+    // Show the words already delivered, with no network or window check first.
+    // The server stops new sends after sign-out; an already queued title can
+    // still arrive. Record the display result only after trying to show it.
     const began = Date.now();
-    let answered = 0;
-    let skip = "";
-    try {
-      const status = await bounded("/auth/check", PUSH_DEADLINE_MS);
-      answered = Number(status.status) || 0;
-      if (!status.ok) skip = "check-failed";
-      else if (!(await status.json()).authenticated) skip = "not-signed-in";
-    } catch (error) {
-      skip = /^(TimeoutError|AbortError)$/.test(error?.name) ? "timeout"
-        : answered ? "other" : "check-failed";
-    }
-    const note = { at: began, ms: Date.now() - began, status: answered };
-    if (skip) {
-      await pushLogNote({ ...note, outcome: "skipped", reason: skip }, false);
-      return;
-    }
+    const note = () => ({ at: began, ms: Date.now() - began, status: 0 });
     let title = "facilitator";
     let box = "";
     try {
       const data = event.data?.json();
-      if (data && typeof data.box === "string" && typeof data.title === "string") {
-        title = data.title || title;
-        box = data.box;
-      }
+      if (typeof data?.title === "string" && data.title.trim()) title = data.title;
+      if (typeof data?.box === "string") box = data.box;
     } catch (error) {}
     try {
       await self.registration.showNotification(title, {
@@ -396,10 +475,10 @@ self.addEventListener("push", event => {
         data: { box, shown: Date.now() },
       });
     } catch (error) {
-      await pushLogNote({ ...note, outcome: "skipped", reason: "show-failed" }, true);
+      await pushLogNote({ ...note(), outcome: "skipped", reason: "show-failed" }, true);
       throw error;
     }
-    await pushLogNote({ ...note, outcome: "shown" }, true);
+    await pushLogNote({ ...note(), outcome: "shown" }, true);
   })());
 });
 
@@ -439,11 +518,32 @@ async function tapNote(notification, tap, box, began, seen) {
   } catch (error) {}
 }
 
+// Start the durable write before window lookup or focus. The event keeps it
+// alive independently of routing: neither storage nor upload holds up a tap.
+// The received stage has no window fields because lookup has not happened yet.
+async function tapReadyNote(tap, box, began, windows) {
+  try {
+    const record = {
+      kind: "notifytapready", stage: windows ? "ready" : "received", tap,
+      box: typeof box === "string" && box.length <= 32 && TAP_BOX.exec(box)?.[0] === box ? box : "",
+      at: began,
+    };
+    if (windows) {
+      const client = windows.find(client => new URL(client.url).pathname === "/m");
+      record.windows = tapWindows(windows);
+      record.visibility = client ? (client.visibilityState === "visible" ? "visible" : "hidden") : "none";
+      record.focused = client ? (client.focused ? "yes" : "no") : "none";
+    }
+    await pushLogNote(record, true);
+  } catch (error) {}
+}
+
 self.addEventListener("notificationclick", event => {
   event.notification.close();
   const box = event.notification.data && event.notification.data.box;
   const began = Date.now();
   const tap = tapId();
+  event.waitUntil(tapReadyNote(tap, box, began));
   const target = "/m" + (box ? "?box=" + encodeURIComponent(box) + "&tap=" + tap : "");
   event.waitUntil((async () => {
     // What was done, for the line the finally block keeps. "failed" stands until
@@ -456,6 +556,7 @@ self.addEventListener("notificationclick", event => {
       // target silently and prevent the URL fallback below.
       const windows = await self.clients.matchAll({ type: "window" });
       seen.windows = tapWindows(windows);
+      event.waitUntil(tapReadyNote(tap, box, began, windows));
       for (const client of windows) {
         if (new URL(client.url).pathname !== "/m") continue;
         try { await client.focus(); seen.focus = "ok"; } catch (error) { seen.focus = "rejected"; }

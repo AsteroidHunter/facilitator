@@ -4,7 +4,7 @@ const { test } = require("node:test");
 const vm = require("node:vm");
 const path = require("node:path");
 
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = process.env.PAGE_GUARD_SOURCE_ROOT || path.resolve(__dirname, "..");
 
 async function shortcuts() {
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
@@ -58,8 +58,7 @@ test("history, creation and tabs keep their modifier rules", async () => {
     { action: "history", value: 1 });
   assert.deepEqual(plain(resolve(event("ArrowDown", { ctrlKey: true, shiftKey: true }))),
     { action: "history", value: -1 });
-  assert.deepEqual(plain(resolve(event("t", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true }))),
-    { action: "create", value: true });
+  assert.equal(resolve(event("t", { metaKey: true, ctrlKey: true, shiftKey: true, altKey: true })), null);
   assert.deepEqual(plain(resolve(event("1", { metaKey: true }))),
     { action: "tab", value: 0 });
   assert.deepEqual(plain(resolve(event("9", { metaKey: true, shiftKey: true, altKey: true }))),
@@ -101,9 +100,9 @@ test("mini scope exposes only its established command subset", async () => {
     { action: "plainNavigate", value: -1 });
   // the section keys move the small card's own card as well
   assert.deepEqual(plain(resolve(event("}", { ctrlKey: true, shiftKey: true, code: "BracketRight" }), "mini")),
-    { action: "sectionChord", value: "deferred" });
+    { action: "sectionChord", value: "docked" });
   assert.deepEqual(plain(resolve(event("\\", { code: "Backslash" }), "mini")),
-    { action: "sectionKey", value: "done" });
+    { action: "sectionKey", value: "deferred" });
   assert.equal(resolve(event("Backspace"), "mini"), null);
   assert.equal(resolve(event("n", { ctrlKey: true }), "mini"), null);
   assert.equal(resolve(event("]", { metaKey: true, shiftKey: true }), "mini"), null);
@@ -228,12 +227,12 @@ test("dispatch calls only a supported action and leaves policy to it", async () 
 // the character shift makes of it
 const SECTION_KEYS = [
   { code: "BracketLeft", key: "[", shifted: "{", section: "doing" },
-  { code: "BracketRight", key: "]", shifted: "}", section: "deferred" },
-  { code: "Backslash", key: "\\", shifted: "|", section: "done" },
+  { code: "BracketRight", key: "]", shifted: "}", section: "docked" },
+  { code: "Backslash", key: "\\", shifted: "|", section: "deferred" },
 ];
 const CHORD = { ctrlKey: true, shiftKey: true };
 
-test("control shift with [, ] and \\ names doing, deferred and done, by physical key or by character", async () => {
+test("control shift with [, ] and \\ names doing, docked and deferred, by physical key or by character", async () => {
   const { resolve } = await shortcuts();
   for (const { code, key, shifted, section } of SECTION_KEYS) {
     const want = { action: "sectionChord", value: section };
@@ -313,13 +312,14 @@ test("dispatch hands each section key to its own action with the section", async
     assert.equal(dispatch(event(key, { code }), actions), true);
     assert.equal(dispatch(event(key, { code, repeat: true }), actions), false);
   }
-  assert.deepEqual(seen, [["chord", "doing"], ["key", "doing"], ["chord", "deferred"], ["key", "deferred"],
-                          ["chord", "done"], ["key", "done"]]);
+  assert.deepEqual(seen, [["chord", "doing"], ["key", "doing"], ["chord", "docked"], ["key", "docked"],
+                          ["chord", "deferred"], ["key", "deferred"]]);
 });
 
 // the typing rule the pages apply: the chord from the card's own composer in
-// either shape and from anywhere nothing is typed; never from a title or
-// another field. the keys alone only where nothing is typed at all
+// either shape, its own title being renamed and anywhere nothing is typed;
+// never from another card's title or another field. the keys alone only where
+// nothing is typed at all
 function tree() {
   const node = (parent, flags = {}) => ({
     parent, ...flags,
@@ -342,10 +342,11 @@ function tree() {
   const otherCm = node(body, { cm: true });
   const otherContent = node(otherCm, { field: true });
   const button = node(card);
-  return { body, title, content, ta, plainTa, other, otherContent, button, el: { ta } };
+  const otherTitle = node(node(body), { field: true });
+  return { body, title, content, ta, plainTa, other, otherContent, otherTitle, button, el: { ta, titleEl: title } };
 }
 
-test("the chord comes from the card's composer or from no field; the keys alone from no field only", async () => {
+test("the chord comes from the card's composer, its own title or no field; the keys alone from no field only", async () => {
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const context = vm.createContext({ Date, setTimeout, clearTimeout, setInterval, clearInterval });
   vm.runInContext(source, context, { filename: "card-logic.js" });
@@ -357,22 +358,27 @@ test("the chord comes from the card's composer or from no field; the keys alone 
   assert.equal(chordFrom(t.ta, t.el), true);
   // the plain composer is the card's textarea itself
   assert.equal(chordFrom(t.plainTa, { ta: t.plainTa }), true);
+  // the card's own title while it is renamed, as its composer
+  assert.equal(chordFrom(t.title, t.el), true);
   for (const target of [t.body, t.button, null]) assert.equal(chordFrom(target, t.el), true);
-  for (const target of [t.title, t.other, t.otherContent]) assert.equal(chordFrom(target, t.el), false);
+  for (const target of [t.otherTitle, t.other, t.otherContent]) assert.equal(chordFrom(target, t.el), false);
+  // a card that names no title of its own takes the chord from no title
+  assert.equal(chordFrom(t.title, { ta: t.ta }), false);
   assert.equal(chordFrom(t.content, null), false);
   // the keys alone: the page's typing check refuses every field and the composer
   for (const target of [t.content, t.ta, t.plainTa, t.title, t.other, t.otherContent]) assert.equal(editing(target), true);
   for (const target of [t.body, t.button]) assert.equal(editing(target), false);
 });
 
-test("the three chips' tooltips carry the section keys", async () => {
+test("the four chips' tooltips carry the section keys", async () => {
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const context = vm.createContext({ Date, setTimeout, clearTimeout, setInterval, clearInterval });
   vm.runInContext(source, context, { filename: "card-logic.js" });
   const hints = vm.runInContext("SECTION_KEY_HINTS", context);
   assert.equal(hints.doing, "Control + Shift + [, or [ when not typing");
-  assert.equal(hints.deferred, "Control + Shift + ], or ] when not typing");
-  assert.equal(hints.done, "Control + Shift + \\, or \\ when not typing");
+  assert.equal(hints.docked, "Control + Shift + ], or ] when not typing");
+  assert.equal(hints.deferred, "Control + Shift + \\, or \\ when not typing");
+  assert.equal(hints.done, "Control + Shift + Backspace or Delete");
   assert.match(source, /sun\.title = "move to doing\\n" \+ SECTION_KEY_HINTS\.doing;/);
   for (const page of ["index.html", "m.html"]) {
     const html = await readFile(path.join(ROOT, page), "utf8");
@@ -384,22 +390,31 @@ test("the three chips' tooltips carry the section keys", async () => {
   }
 });
 
-// ---- control+enter and control+r ----------------------------------------------------
+// ---- control+shift+enter and control+r ----------------------------------------------------
 const NOT_BARE_CONTROL = [
   {}, { metaKey: true }, { shiftKey: true }, { altKey: true },
   { ctrlKey: true, shiftKey: true }, { ctrlKey: true, metaKey: true }, { ctrlKey: true, altKey: true },
 ];
 
-test("control enter is the move key and no other modifier set is", async () => {
+const NOT_CONTROL_SHIFT = [
+  {}, { ctrlKey: true }, { shiftKey: true }, { metaKey: true }, { altKey: true },
+  { ctrlKey: true, metaKey: true }, { ctrlKey: true, altKey: true },
+  { ctrlKey: true, shiftKey: true, metaKey: true }, { ctrlKey: true, shiftKey: true, altKey: true },
+];
+
+test("control shift enter is the move key and no other modifier set is", async () => {
   const { resolve } = await shortcuts();
-  assert.deepEqual(plain(resolve(event("Enter", { ctrlKey: true }))), { action: "advance", value: true });
+  const chord = { ctrlKey: true, shiftKey: true };
+  assert.deepEqual(plain(resolve(event("Enter", chord))), { action: "advance", value: true });
   // a held key's repeats are still recognized, so a page can keep them from the browser
-  assert.deepEqual(plain(resolve(event("Enter", { ctrlKey: true, repeat: true }))), { action: "advance", value: true });
-  for (const held of NOT_BARE_CONTROL) assert.notEqual(resolve(event("Enter", held))?.action, "advance", JSON.stringify(held));
+  assert.deepEqual(plain(resolve(event("Enter", { ...chord, repeat: true }))), { action: "advance", value: true });
+  for (const held of NOT_CONTROL_SHIFT) assert.notEqual(resolve(event("Enter", held))?.action, "advance", JSON.stringify(held));
+  // control enter alone is the system's, and no card key at all
+  assert.equal(resolve(event("Enter", { ctrlKey: true })), null);
   // a composer that took the key, or an input method's own Enter, is not asked again
-  assert.equal(resolve(event("Enter", { ctrlKey: true, defaultPrevented: true })), null);
-  assert.equal(resolve(event("Enter", { ctrlKey: true, isComposing: true })), null);
-  assert.equal(resolve(event("Enter", { ctrlKey: true }), "mini"), null);
+  assert.equal(resolve(event("Enter", { ...chord, defaultPrevented: true })), null);
+  assert.equal(resolve(event("Enter", { ...chord, isComposing: true })), null);
+  assert.equal(resolve(event("Enter", chord), "mini"), null);
 });
 
 test("option enter is no card key, alone or with control, command or shift", async () => {
@@ -407,13 +422,18 @@ test("option enter is no card key, alone or with control, command or shift", asy
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const context = vm.createContext({ Date, setInterval, clearInterval, setTimeout, clearTimeout });
   vm.runInContext(source, context, { filename: "card-logic.js" });
-  const controlEnter = vm.runInContext("controlEnter", context);
+  const controlShiftEnter = vm.runInContext("controlShiftEnter", context);
+  const bareControlEnter = vm.runInContext("bareControlEnter", context);
   for (const held of [{ altKey: true }, { altKey: true, ctrlKey: true }, { altKey: true, metaKey: true },
                       { altKey: true, shiftKey: true }, { altKey: true, ctrlKey: true, shiftKey: true }]) {
     assert.equal(resolve(event("Enter", held)), null, JSON.stringify(held));
-    assert.equal(controlEnter(event("Enter", held)), false, JSON.stringify(held));
+    assert.equal(controlShiftEnter(event("Enter", held)), false, JSON.stringify(held));
+    assert.equal(bareControlEnter(event("Enter", held)), false, JSON.stringify(held));
   }
-  assert.equal(controlEnter(event("Enter", { ctrlKey: true })), true);
+  assert.equal(controlShiftEnter(event("Enter", { ctrlKey: true, shiftKey: true })), true);
+  assert.equal(controlShiftEnter(event("Enter", { ctrlKey: true })), false);
+  assert.equal(bareControlEnter(event("Enter", { ctrlKey: true })), true);
+  assert.equal(bareControlEnter(event("Enter", { ctrlKey: true, shiftKey: true })), false);
 });
 
 test("every page's Enter send and title save leaves out the Option key", async () => {
@@ -442,15 +462,16 @@ test("control r is the random jump key and no other modifier set is", async () =
   assert.equal(resolve(event("t", { ctrlKey: true })), null);
 });
 
-test("dispatch hands control enter and control r to the page's own action and leaves the event alone", async () => {
+test("dispatch hands control shift enter and control r to the page's own action and leaves the event alone", async () => {
   const { dispatch } = await shortcuts();
   const seen = [];
   const actions = {
     advance(received) { seen.push(["advance", received.key]); },
     random(received) { seen.push(["random", received.key]); },
   };
-  const enter = event("Enter", { ctrlKey: true });
+  const enter = event("Enter", { ctrlKey: true, shiftKey: true });
   const random = event("r", { ctrlKey: true });
+  assert.equal(dispatch(event("Enter", { ctrlKey: true }), actions), false, "control enter alone was dispatched");
   assert.equal(dispatch(enter, actions), true);
   assert.equal(dispatch(random, actions), true);
   assert.deepEqual(seen, [["advance", "Enter"], ["random", "r"]]);
@@ -518,6 +539,7 @@ test("the random pick has nothing to answer with when no card qualifies", async 
 const COMMA = { ctrlKey: true, shiftKey: true, code: "Comma" };
 const OLD_COMMA = { metaKey: true, shiftKey: true, code: "Comma" };
 const OLD_PERIOD = { metaKey: true, shiftKey: true, code: "Period" };
+const PERIOD = { ctrlKey: true, shiftKey: true, code: "Period" };
 
 test("control shift comma names the card list by the physical key, whatever character it types", async () => {
   const { resolve } = await shortcuts();
@@ -539,12 +561,30 @@ test("the card list chord needs control and shift alone, and ignores repeats and
   assert.equal(resolve(event(",", { metaKey: true, code: "Comma" })), null, "command comma alone is the browser's settings");
 });
 
-test("command shift comma and period, and every chord on the period, name nothing", async () => {
+test("control shift period names the magic box by the physical key, whatever character it types", async () => {
+  const { resolve } = await shortcuts();
+  for (const key of [">", ".", "Dead", "Unidentified"]) {
+    assert.deepEqual(plain(resolve(event(key, PERIOD))), { action: "boxDrawer", value: true }, key + " on Period");
+  }
+  assert.equal(resolve(event(".", { ctrlKey: true, shiftKey: true })), null, "a period with no physical key named is no chord");
+  assert.equal(resolve(event(">", { ctrlKey: true, shiftKey: true, code: "KeyZ" })), null);
+});
+
+test("the magic box chord needs control and shift alone, and ignores repeats and composition", async () => {
+  const { resolve } = await shortcuts();
+  for (const off of [{ ctrlKey: false }, { shiftKey: false }, { metaKey: true }, { altKey: true },
+                     { repeat: true }, { isComposing: true }]) {
+    assert.equal(resolve(event(">", { ...PERIOD, ...off })), null, "Period with " + JSON.stringify(off));
+  }
+});
+
+test("command shift comma and period, and every other chord on the period, name nothing", async () => {
   const { resolve } = await shortcuts();
   assert.equal(resolve(event("<", OLD_COMMA)), null, "the old card list chord is still named");
   assert.equal(resolve(event(">", OLD_PERIOD)), null, "the old settings chord is still named");
+  // control and shift alone are the magic box's (above)
   const held = [{}, { metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true },
-                { metaKey: true, shiftKey: true }, { ctrlKey: true, shiftKey: true },
+                { metaKey: true, shiftKey: true },
                 { metaKey: true, ctrlKey: true, shiftKey: true }, { altKey: true, shiftKey: true }];
   for (const modifiers of held) {
     for (const key of [">", ".", "Dead", "Unidentified"]) {
@@ -554,9 +594,10 @@ test("command shift comma and period, and every chord on the period, name nothin
   }
 });
 
-test("the card list key is not in the mini scope", async () => {
+test("the card list and magic box keys are not in the mini scope", async () => {
   const { resolve } = await shortcuts();
   assert.equal(resolve(event(",", COMMA), "mini"), null);
+  assert.equal(resolve(event(">", PERIOD), "mini"), null);
   assert.equal(resolve(event("ArrowDown"), "mini"), null);
 });
 

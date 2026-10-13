@@ -58,6 +58,13 @@ Facilitator is still in development and will be constantly updated. To update, r
 facilitator update
 ```
 
+## What leaves your Mac
+
+- Once a day, counts about the day before: messages sent, cards made and closed, projects added, agent replies and phone app openings, with the app version and the main macOS version number, under a random id made for your install. Never a word you typed, a card title, a folder or a path.
+- Your profile (the email you give when you set up, your name, what you use Facilitator for, your main agent and your time zone) goes only after you have given an email, and only while the daily counts switch is on.
+- The switch is "Share daily usage counts" in Settings, under Improvements. With it off, nothing leaves your Mac.
+- Nothing you type into a card or the magic box is ever sent.
+
 ## License
 
 This project is released under the [Facilitator License 1.0.0](LICENSE.md). Contributions are accepted under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).

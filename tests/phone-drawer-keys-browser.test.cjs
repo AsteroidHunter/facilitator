@@ -334,6 +334,8 @@ test("no key opens the settings: the period under any chord, and the old and new
       await chord(page, "Period", modifiers, 300);
       await none("Period under " + (modifiers.join("+") || "no modifier") + " opened the settings");
     }
+    // control and shift on the period are the card's magic box: taken, so nothing is
+    // typed, and on this card, which has no box, nothing comes out
     for (const x of [{ metaKey: true }, { ctrlKey: true }, { metaKey: true, ctrlKey: true }, {}]) {
       for (const key of [">", ".", "Dead"]) {
         const taken = await page.evaluate((k, extra) => {
@@ -341,7 +343,8 @@ test("no key opens the settings: the period under any chord, and the old and new
           window.dispatchEvent(e);
           return e.defaultPrevented;
         }, key, x);
-        assert.equal(taken, false, `Period reading ${key} with ${JSON.stringify(x)} was taken by the page`);
+        const box = Object.keys(x).length === 1 && x.ctrlKey;
+        assert.equal(taken, box, `Period reading ${key} with ${JSON.stringify(x)} was ${box ? "left" : "taken"} by the page`);
         await none("Period reading " + key + " opened the settings");
       }
     }
@@ -648,11 +651,11 @@ const calls = page => page.evaluate(() => { const c = window.__calls; window.__c
 const OLD_KEYS = [
   ["ArrowRight", []], ["ArrowLeft", []],
   ["ArrowRight", ["Control", "Shift"]], ["ArrowUp", ["Control", "Shift"]],
-  ["KeyT", ["Meta"]], ["Digit1", ["Meta"]], ["Enter", ["Control"]], ["KeyR", ["Control"]], ["KeyS", ["Control"]],
+  ["KeyT", ["Meta"]], ["Digit1", ["Meta"]], ["Enter", ["Control", "Shift"]], ["KeyR", ["Control"]], ["KeyS", ["Control"]],
   ["KeyU", ["Control"]], ["BracketLeft", []],
 ];
 
-test("the old bindings reach the card with no drawer out, and none of them does with one out", async () => {
+test("the old bindings reach the card with no drawer out, and only list actions do with it out", async () => {
   const { page } = await openPhone(ids.doing[5]);
   try {
     await page.evaluate(() => { document.activeElement && document.activeElement.blur(); });
@@ -668,7 +671,7 @@ test("the old bindings reach the card with no drawer out, and none of them does 
     const isStep = ([code, modifiers]) => STEPS.includes(code) && modifiers.length === 2;
     await chord(page, "Comma");
     await calls(page);
-    for (const key of OLD_KEYS.filter(k => !isStep(k) && k[0] !== "KeyS")) await chord(page, key[0], key[1], 120);
+    for (const key of OLD_KEYS.filter(k => !isStep(k) && k[0] !== "KeyS" && k[0] !== "Digit1")) await chord(page, key[0], key[1], 120);
     assert.deepEqual(await calls(page), [], "a key reached the card behind the open card list");
     await chord(page, "KeyS", ["Control"], 120);
     assert.deepEqual(await calls(page), ["responseScrollKey"], "the list did not take its scroll key");
@@ -888,8 +891,14 @@ test("Ctrl+S and double S scroll the PWA list while open, then the response when
     assert.ok(up.list < down.list, "the second S did not scroll the list up");
     assert.equal(up.response, start.response);
     await page.keyboard.up("Control");
-    await settle(150);
-    assert.deepEqual(await scrollTops(page), up, "a released key left a scroll running");
+    // letting go eases the motion off, going on the way it was going for about half a second, and then
+    // nothing moves
+    await settle(900);
+    const eased = await scrollTops(page);
+    assert.ok(eased.list <= up.list, "the ease after letting go went the wrong way");
+    assert.equal(eased.response, up.response);
+    await settle(300);
+    assert.deepEqual(await scrollTops(page), eased, "a released key left a scroll running");
     await shot(page, "scroll-list-after-double-s");
 
     // A held-key repeat must not change direction or restart the motion.

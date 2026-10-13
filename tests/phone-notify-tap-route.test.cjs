@@ -240,7 +240,7 @@ test("what the worker really sends for a tap is what the route takes, line for l
   };
   const posted = [];
   harness.windows.all = async () => [{
-    url: "https://board.test/m", focus: async () => {}, postMessage: message => posted.push(message),
+    url: "https://board.test/m", visibilityState: "hidden", focused: false, focus: async () => {}, postMessage: message => posted.push(message),
   }];
   await harness.click("m12", { title: "Private card title", data: { box: "m12", shown: harness.clock.now - 7000 } });
   harness.windows.all = async () => [];
@@ -252,7 +252,7 @@ test("what the worker really sends for a tap is what the route takes, line for l
   assert.deepEqual(answers.map(answer => answer.status), [200, 200, 200], "the board refused what the worker sent");
   assert.deepEqual(harness.idb.rows(), []);
   const fresh = await reportsSince();
-  assert.deepEqual(fresh.map(line => [line.kind, line.box, line.tap, line.route, line.focus, line.opened, line.age]), [
+  assert.deepEqual(fresh.filter(line => line.kind === "notifytap").map(line => [line.kind, line.box, line.tap, line.route, line.focus, line.opened, line.age]), [
     ["notifytap", "m12", "cafef00d", "message", "ok", undefined, 7],
     ["notifytap", "m12", "cafef00d", "open", "none", "client", 7],
     ["notifytap", undefined, "cafef00d", "open", "none", "rejected", undefined],
@@ -282,4 +282,58 @@ test("taps have a cap of ten a minute for each kind, and what it drops is counte
   const notices = (await reportsSince()).filter(line => line.kind === "dropped");
   assert.deepEqual(notices.map(line => [line.report, line.dropped]),
     [["notifytap", 2], ["notifyarrive", 3], ["notifyresult", 1]]);
+});
+
+const receivedReport = (over = {}) => ({ kind: "notifytapready", stage: "received", tap: "deadbeef", box: "m101",
+  at: 1_800_000_000_000, worker: "facilitator-m-9", ...over });
+const readyReport = (over = {}) => receivedReport({ stage: "ready", windows: 1, visibility: "visible", focused: "yes", ...over });
+
+test("early records preserve click time and accept only stage-specific fields", async () => {
+  await reportsSince();
+  const input = [receivedReport(), readyReport(), readyReport({ box: "", windows: 0, visibility: "none", focused: "none" })];
+  const answer = await send(phone(input));
+  assert.deepEqual(answer, { status: 200, body: { ok: true, written: 3, dropped: 0 } });
+  const fresh = await reportsSince();
+  assert.deepEqual(fresh, input.map(({ box, ...report }, i) => ({
+    ts: fresh[i].ts, level: "info", page: "phone", client: "phone", window: WINDOW,
+    ...report, ...(box ? { box } : {}),
+  })));
+  assert.ok(fresh.every(row => row.at === 1_800_000_000_000), "upload time replaced click time");
+});
+
+test("early records reject missing fields, unknown fields, values and inconsistent window state", async () => {
+  const count = (await reports()).length;
+  const bad = [
+    ...["title", "message", "key", "endpoint", "url", "n", "ago", "route", "ms"].map(name => readyReport({ [name]: "private" })),
+    ...Object.keys(receivedReport()).filter(name => name !== "kind").map(name => without(receivedReport(), name)),
+    ...["windows", "visibility", "focused"].map(name => without(readyReport(), name)),
+    receivedReport({ stage: "started" }), receivedReport({ stage: null }),
+    receivedReport({ windows: 0 }), receivedReport({ visibility: "none" }), receivedReport({ focused: "none" }),
+    readyReport({ visibility: "prerender" }), readyReport({ visibility: true }), readyReport({ focused: true }),
+    readyReport({ focused: "maybe" }), readyReport({ visibility: "none" }), readyReport({ focused: "none" }),
+    readyReport({ windows: 0 }), readyReport({ windows: -1 }), readyReport({ windows: 1001 }),
+    readyReport({ windows: true }), readyReport({ windows: "1" }), readyReport({ windows: 0.5 }),
+    ...[-1, 10000000000001, 0.5, "1800000000000", true, null].map(at => receivedReport({ at })),
+    ...["", "none", "deadbeef\n", "DEADBEEF", "https://private.test", 1234].map(tap => receivedReport({ tap })),
+    ...["m1\n", "m1\r", "private", "9".repeat(33), null, 101].map(box => receivedReport({ box })),
+    ...["", "x".repeat(65), "facilitator-m-9\n", "https://private.test", null].map(worker => receivedReport({ worker })),
+  ];
+  for (const row of bad) {
+    assert.equal((await send(phone([row]))).status, 400, JSON.stringify(row));
+  }
+  assert.equal((await send(phone([receivedReport(), readyReport({ title: "private" })]))).status, 400);
+  for (const page of ["board", "page"]) assert.equal((await send({ page, reports: [receivedReport()] })).status, 400);
+  assert.equal((await reports()).length, count, "refused reports reached the log");
+});
+
+test("both early stages share the new kind's ten-per-minute cap across windows", async () => {
+  await reportsSince();
+  const count = (await reports()).filter(row => row.kind === "notifytapready").length;
+  const room = 10 - count;
+  assert.equal(room, 1, "earlier valid reports did not arrive exactly once");
+  const batch = phone(Array.from({ length: room + 2 }, (_, i) => i % 2 ? readyReport() : receivedReport()));
+  batch.window = "fedcba9876543210";
+  assert.deepEqual((await send(batch)).body, { ok: true, written: room, dropped: 2 });
+  const fresh = await reportsSince();
+  assert.deepEqual(fresh.filter(row => row.kind === "dropped").map(row => [row.report, row.dropped]), [["notifytapready", 2]]);
 });

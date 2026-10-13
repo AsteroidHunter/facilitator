@@ -22,6 +22,9 @@
   --must:#A8442A; --must-bg:#F7EAE4;
   --could:#8A6D1F; --could-bg:#F5EFDD;
   --later:#5A6473; --later-bg:#EAEDF1;
+  /* the answer's read-only caret and its selection (see "the answer's read-only
+     caret" below) */
+  --read-caret:#A8A8A8; --read-select:#DCDCDC;
   --serif:"Newsreader", Georgia, serif;
   --sans:"IBM Plex Sans", -apple-system, sans-serif;
   --mono:"IBM Plex Mono", ui-monospace, monospace;
@@ -113,6 +116,8 @@
 :root{
   --hist-glyph-w:11px; --hist-glyph-h:7px;
   --bar-mark:10px; --cardspin-s:11px;
+  --chip-scale:1.2;
+  --mass-dock:.465; --mass-moon:-1.829;
   --cross-weight:calc(1.2 / 9); --cross-t:calc(var(--bar-mark) * var(--cross-weight));
   --spin-fade:.26s;
 }
@@ -130,6 +135,92 @@
 .topbar > .cardspin{grid-area:sun; place-self:center}
 .sunbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
 .topbar:has(> .cardspin.on) .sunbtn svg{opacity:0}
+/* A working docked card still needs its sun to return to Doing. Its spinner
+   shares the faded Docked chip's seat instead. */
+.topbar:has(> .dockbtn[aria-disabled="true"]) > .cardspin{grid-area:dock}
+.topbar:has(> .cardspin.on) .dockbtn[aria-disabled="true"] svg{opacity:0}
+.topbar:has(> .dockbtn[aria-disabled="true"]) .sunbtn svg{opacity:1}
+.dockbtn svg{transition:opacity var(--spin-fade) var(--gentle)}
+
+/* The sun, the cloud and the moon are drawn --chip-scale times --bar-mark; the
+   cross is drawn as it always was, its bars --bar-mark long and --cross-t thick.
+   each stands in a seat of --bar-sq, the rectangle a hover or a press paints, the
+   same size for all four, an even step apart on each page (--bar-gap-chips in
+   index.html, --bar-gap in m.html).
+   the marks are not the same shape, so the middle of a seat is not the middle of
+   the mark's mass: the sun's ink and the cross's are symmetric, so their centres
+   of mass are their seats' middles, but the cloud's ink lies a little to the right
+   of its box's middle and the moon's a good deal to the left. --mass-dock and
+   --mass-moon are those distances, the ink's centre of mass less the box's middle,
+   in the marks' own 24 unit view box, measured by drawing each mark and weighing
+   its pixels. the cloud's and the moon's seats are moved by the same amount the
+   other way, so the four centres of mass stand an even step apart: the seats
+   of the sun and the cross keep their places and the two between take the
+   spaces. a spinner that stands in the cloud's seat moves with it */
+.topbar{--chip-w:calc(var(--bar-mark) * var(--chip-scale))}
+.topbar > .dockbtn{position:relative; left:calc(var(--mass-dock) * -1 / 24 * var(--chip-w))}
+.topbar > .arcbtn{position:relative; left:calc(var(--mass-moon) * -1 / 24 * var(--chip-w))}
+.topbar:has(> .dockbtn[aria-disabled="true"]) > .cardspin{position:relative; left:calc(var(--mass-dock) * -1 / 24 * var(--chip-w))}
+
+/* The head and the ticket border boxes share the pane's side insets. Each
+   triangle points at that edge from inside the box. Exclude the head's top
+   padding from vertical centring.
+   Each arrow's button is a square of --bar-sq, like every other control on the
+   top row, and that square is its hit area. The triangle is drawn inside it, in
+   a --bar-mark box, centred, so the mark stands on the pixels it always did and
+   the square reaches past the box's edge by half the difference. Two pieces
+   are drawn inside the button: ::before is the pressed plate, which takes the
+   section names' pressed shade (#tikhead .tvb:active in each page) with the
+   same 80ms in and 160ms out, and ::after is the triangle, cut by a clip path
+   and made of the glass of .qn-glass, which the button itself no longer paints. */
+#tikhead{margin:0 var(--tik-inset-r) 0 var(--tik-inset-l)}
+#tiknames{
+  flex:1; min-width:0; margin:0 max(10%, calc((var(--bar-mark) + var(--bar-sq)) / 2)); overflow:clip;
+}
+#tiklabels{display:flex; transition:transform .24s var(--gentle)}
+#tiklabels .tikpair{display:flex; flex:0 0 100%; min-width:0; gap:calc(4 * var(--u))}
+#tikhead .tvb{min-width:0}
+@media (prefers-reduced-motion: reduce){#tiklabels{transition:none}}
+#tikhead .tik-page{
+  position:absolute; right:calc((var(--bar-mark) - var(--bar-sq)) / 2); left:auto;
+  top:calc(50% + 3 * var(--u)); transform:translateY(-50%);
+  width:var(--bar-sq); height:var(--bar-sq); min-width:0; min-height:0;
+  box-sizing:border-box; -webkit-appearance:none; appearance:none;
+  padding:0; margin:0; border:0; border-radius:0; cursor:pointer; outline:none;
+  background:none; box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none;
+  --qn-face:rgba(30,30,30,.77); --qn-edge:.6;
+}
+#tikhead .tik-page.back{left:calc((var(--bar-mark) - var(--bar-sq)) / 2); right:auto; transform:translateY(-50%) scaleX(-1)}
+#tikhead .tik-page::before{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  border-radius:calc(7 * var(--u));
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:box-shadow .16s ease-out;
+}
+#tikhead .tik-page::after{
+  content:""; position:absolute; left:50%; top:50%; pointer-events:none;
+  width:var(--bar-mark); height:var(--bar-mark);
+  margin:calc(var(--bar-mark) / -2) 0 0 calc(var(--bar-mark) / -2);
+  clip-path:polygon(0 0, 100% 50%, 0 100%);
+  border-radius:0;
+  background-color:var(--qn-face);
+  background-image:var(--qn-light);
+  backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
+  -webkit-backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(.9 * var(--qn-edge))),
+    var(--qn-edge-shadow),
+    inset 0 2px 0 rgba(0,0,0,.045),
+    var(--qn-inner-shadow),
+    var(--qn-depth-shadow);
+}
+#tikhead .tik-page[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
+#tikhead .tik-page:not([aria-disabled="true"]):active{--qn-edge:.35}
+#tikhead .tik-page:not([aria-disabled="true"]):active::before, #tikhead .tik-page:not([aria-disabled="true"]).pressed::before{
+  box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:box-shadow .08s ease-in;
+}
+#tikhead .tik-page:not([aria-disabled="true"]):focus-visible::after{background-color:var(--ink)}
 
 /* ---- the owner's grey ---------------------------------------------------- */
 /* --bubble-fill is the grey the owner's own words stand on: the panel of the
@@ -256,21 +347,50 @@
 .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
   color:var(--ink); background:var(--paper); border-radius:var(--sq);
   padding:1px calc(4 * var(--u)); white-space:pre-wrap}
-.cardmd .codeblockwrap{position:relative; margin:0 0 calc(9 * var(--u))}
+.cardmd .codeblockwrap{position:relative; isolation:isolate; margin:0 0 calc(9 * var(--u))}
 .cardmd .codeblock{margin:0; padding:calc(10 * var(--u)) calc(12 * var(--u)); border-radius:calc(8 * var(--u));
   background:#EFF1F4; border:0; font:calc(12.5 * var(--u))/1.5 var(--mono); color:var(--ink);
   white-space:pre; overflow-x:auto; user-select:text; -webkit-user-select:text}
-.cardmd .codeblockwrap[data-language] .codeblock{padding-top:calc(29 * var(--u))}
-.cardmd .codelang{position:absolute; top:calc(7 * var(--u)); left:calc(12 * var(--u)); max-width:calc(100% - 62 * var(--u));
+/* the wrapper, not the scrolling pre, anchors the copy button: an absolute
+   child of a scroller rides the scrolled content, so the button lives one
+   level up and stays pinned to the visible corner while the code scrolls.
+   The Mac and the phone draw a code block alike: the button sits at the top
+   right, centred on the line of a one line block and on the label of a block
+   with a language, and the padding and the label are the same. WebKit on the
+   phone paints a block that scrolls over an earlier positioned sibling, so the
+   button and the label are raised above it, in a stack of the wrapper's own so
+   they rise no higher than the block they sit on. The button centres itself on
+   its own height, so the Mac's small one and the phone's 32px one both land on
+   the line. A one line block pads 12 above and below and ends its scrolling
+   code at a border to the right of the button (padding would let a long line
+   run on under the button), so the button never covers the text */
+.cardmd .codeblockwrap[data-lines="1"] .codeblock{padding-top:calc(12 * var(--u)); padding-bottom:calc(12 * var(--u))}
+.cardmd .codeblockwrap[data-lines="1"]:not([data-language]) .codeblock{border-right:calc(46 * var(--u)) solid #EFF1F4}
+.cardmd .codeblockwrap[data-language] .codeblock{padding-top:calc(40 * var(--u))}
+.cardmd .codelang{position:absolute; top:calc(14.65 * var(--u)); left:calc(12 * var(--u)); z-index:1; max-width:calc(100% - 62 * var(--u));
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   color:var(--sub); font:calc(10.5 * var(--u))/1.4 var(--mono)}
 .cardmd .codeblockwrap .copybtn{position:absolute; top:calc(6 * var(--u)); right:calc(8 * var(--u)); padding:calc(4 * var(--u)) calc(6 * var(--u));
-  display:flex; align-items:center; color:var(--sub); background:#fff;
+  display:flex; align-items:center; color:var(--sub); background:#fff; z-index:1;
   box-shadow:0 1px 4px rgba(33,29,23,.18); border:0; border-radius:calc(5 * var(--u));
   cursor:pointer; user-select:none; -webkit-user-select:none; opacity:0;
   pointer-events:none; transition:opacity .15s}
+.cardmd .codeblockwrap[data-lines="1"]:not([data-language]) .copybtn{top:50%; transform:translateY(-50%)}
+.cardmd .codeblockwrap[data-language] .copybtn{top:calc(22 * var(--u)); transform:translateY(-50%)}
 .cardmd .codeblockwrap:hover .copybtn{opacity:1; pointer-events:auto}
 .cardmd .codeblockwrap .copybtn:hover{color:var(--ink)}
+/* the two things that differ: a touch screen has a tap area of 32 real pixels
+   (not --u: the phone scales that) round an icon that stays small, and it has
+   no hover to bring the button up. The button rests hidden and cannot be hit,
+   so it never catches a tap meant for the code, and the phone page sets
+   copyshown on the block while it is scrolled or tapped and takes it off
+   about two seconds after. A touch screen can leave :hover stuck on a tapped
+   block, so hover brings nothing up there */
+@media (hover: none){
+  .cardmd .codeblockwrap .copybtn{width:32px; height:32px; padding:0; justify-content:center; transition:opacity .25s}
+  .cardmd .codeblockwrap:hover .copybtn{opacity:0; pointer-events:none}
+  .cardmd .codeblockwrap.copyshown .copybtn{opacity:1; pointer-events:auto}
+}
 .cardmd blockquote{margin:0 0 calc(9 * var(--u)) calc(2 * var(--u)); padding:calc(2 * var(--u)) 0 calc(2 * var(--u)) calc(12 * var(--u));
   border-left:calc(3 * var(--u)) solid var(--line); color:var(--sub)}
 .cardmd .tablewrap{max-width:100%; overflow-x:auto; margin:0 0 calc(9 * var(--u))}
@@ -279,6 +399,16 @@
 .cardmd th{font-weight:650; background:var(--paper)}
 .cardmd .md-align-center{text-align:center}.cardmd .md-align-right{text-align:right}
 .cardmd hr{height:0; margin:calc(13 * var(--u)) 0; border:0; border-top:var(--edge) solid var(--line)}
+
+/* ---- the answer's read-only caret ---------------------------------------- */
+/* while the caret stands in the answer (replyCaret in card-logic.js) the caret and
+   the selection wear silver, lighter than the solid ones a typing box draws, so
+   the answer reads as a place to select in and not to type in. greys only.
+   --read-caret is the caret: the Mac board's block caret in the answer (index.html)
+   and the phone's own caret (m.html), which on an iPhone also tints the
+   selection and its handles. --read-select is the selection wherever the browser
+   takes the sheet's word for it, Chrome on the Mac; the words keep their ink */
+.reply[contenteditable]::selection, .reply[contenteditable] *::selection{background:var(--read-select); color:var(--ink)}
 
 /* ---- the messages the answer was given ---------------------------------- */
 /* One plain panel over the answer, holding the owner's messages that answer
@@ -291,10 +421,11 @@
    --answ-font and --answ-line are its type and one line of it. the drawing
      sets it in the title's face, a size under the answer and on a closer line;
    --answ-pad-y and --answ-pad-x are the air inside it, --answ-round its corner;
-   --answ-peek is how much of a long batch shows before it is opened, and
-     --answ-fade how deep the cut dissolves;
    --answ-strip is the height of the grey strip at the foot of a long batch
      that the arrow stands in.
+   How much of a long batch shows before it is opened is not a measure a
+   surface types: it is counted in the surface's own --answ-line and is one
+   rule for every surface and every panel (the cut, below).
    It hugs the right end of the column it stands in, the side the owner's own
    words stand on everywhere on the card, and is as wide as its longest line up
    to a little under the whole column, which is where the drawing stops it.
@@ -312,31 +443,52 @@
   padding:var(--answ-pad-y) var(--answ-pad-x);
   background:var(--answ-fill); border-radius:var(--answ-round);
   font:var(--answ-font); color:var(--ink); text-align:left;
-  --answ-move:.33s; --answ-come:.26s; --answ-rise:6px; --answ-gone:.4s;
+  --answ-move:.33s; --answ-come:.4s; --answ-rise:10px; --answ-gone:.4s;
+  --sent-ease:cubic-bezier(.22, 1, .36, 1);
   --answ-fill:var(--bubble-fill); --answ-tag:calc(17 * var(--u));
+  --answ-peek:calc(var(--answ-line) * 2); --answ-fade:var(--answ-line);
 }
+.answered.gap{--answ-peek:calc(var(--answ-line) * 3)}
 /* the cut. a batch longer than the preview shows its first lines and dissolves
-   into the panel's own grey over the last of them, the way the drawing's third
-   line fades, and an opened panel shows the whole batch in place, pushing the
-   answer down rather than lying over it.
+   into the panel's own grey over the last line of them, and an opened
+   panel shows the whole batch in place, pushing the answer down rather than
+   lying over it.
+   the preview is the same for the panel over the answer and for each sent
+   bubble, counted in the surface's own --answ-line. a batch of up to two lines
+   is shown whole, with no cut, strip or fade (the script decides that,
+   fitAnswered in card-logic.js). a longer one is cut at two lines
+   (--answ-peek), the second shown whole, and dissolves over exactly that
+   second line (--answ-fade is one line). when its second line is blank, a
+   paragraph break after the first line or two messages
+   joined by their blank line, the script sets .gap and the cut stands at three
+   lines instead, so the blank line is not all of what the preview
+   shows, and it is the third line that dissolves.
    the dissolve is a strip of the panel's own grey, --answ-fade deep, laid over
    the foot of the cut and drawn once. on a flat grey panel it reads exactly as
-   the words dissolving into the grey, and all it ever does is fade: whole while
+   the words dissolving into the grey. the grey comes in straight from nothing
+   at the top of that line, where its letters are fully there, to the whole grey
+   at its foot, so the letters thin out steadily as the line goes down and no
+   letter is cut off in its middle. a cut that stood in the middle of the second
+   line left the dissolve half a line to work with and sliced the letters along
+   it. all it ever does is fade: whole while
    a long batch stands cut, gone while it stands open. --answ-shade is that
    strength, which the sheet gives and the script holds inline for the length
    of a run only. no mask is drawn anywhere on the panel, so no frame of a run
    has a dissolve to draw again.
    --answ-stop is written by the script and by nothing else: the foot of the
    last line with text, when the preview's own cut would otherwise land in
-   blank, a paragraph break or the air between two messages, or when a batch
-   that fits ends on a blank tail. without it the cut is the surface's own
-   preview */
+   blank, a paragraph break or the air between two messages, when a batch
+   that fits ends on a blank tail, or when a batch that fits stands a little
+   short of the cut the sheet gives it. without it the cut is
+   --answ-peek */
 .answclip{position:relative; max-height:var(--answ-stop, var(--answ-peek)); overflow:hidden; --answ-shade:0}
 .answered.more:not(.open) .answclip{--answ-shade:1}
 .answclip::after{
   content:""; position:absolute; left:0; right:0; bottom:0; height:var(--answ-fade);
-  background:linear-gradient(to bottom, transparent, var(--answ-fill));
   opacity:var(--answ-shade); pointer-events:none;
+}
+.answclip::after, .sentgoo-fuzz{
+  background:linear-gradient(to bottom, transparent, var(--answ-fill));
 }
 .answered.open .answclip{max-height:none}
 /* the run, the old box's fold carried over: its height moves over one length on
@@ -410,21 +562,85 @@
 
 /* ---- the messages waiting for a reply ------------------------------------ */
 /* the same panel at the foot of the card, over the row the reader types in,
-   holding what has been sent and not answered yet. it is the panel above to the
-   letter: the same grey, the same cut to a preview with the same dissolve and
-   arrow, the same run to open it and cut it back. what is its own is its seat,
-   which each page gives it, how far it may open, and how it comes in.
+   holding what has been sent and not answered yet, as one or more bubbles in
+   one seat. each bubble is the panel above to the letter: the same grey, the
+   same cut to a preview with the same dissolve and arrow, the same run to open
+   it and cut it back. what is its own is its seat, which each page gives it,
+   how far it may open, and how it comes in. its preview is the panel's over
+   the answer, the cut above.
    open, a long batch stops at --sent-cap, which each large card writes as the
    room the panel may take over the answer, and the rest scrolls inside the cut.
    a surface that writes none gives the panel a seat that scrolls instead.
-   a send lands the panel cut to its preview, and it comes in the way the words
-   leave the row they were typed in: a short rise out of it and a fade, over
-   --answ-come on the card's gentle curve. a message sent into a panel already
-   standing comes in the same way on its own. both are strength and a
-   transform, so an arrival lays nothing out and draws nothing again */
+   a local send flies from the typing field to a bubble of its own in
+   card-logic.js over 650ms: a box that starts as the typing field moves
+   sideways, setting off on the first frame, then up, and compresses from the
+   field's width and height into the bubble's over its first 400ms, with
+   nothing growing past the bubble, shrinking and growing back, or passing its
+   landing. It is the bubble's own grey, whole from its first frame, so the
+   compress is seen as it happens, while the bubbles that stood before make
+   room on a quicker glide. It wears
+   the panel's own corners from its first frame and carries its words dark the
+   whole way. A send without measurable field geometry uses the small rise and
+   fade below.
+   Only a send changes the fold's timing; a manual fold keeps its own run. */
 .answered.sent.open .answclip{max-height:var(--sent-cap, none); overflow-y:auto; overscroll-behavior:contain}
+.answered.sent.sentflight{--answ-move:var(--answ-come); --gentle:var(--sent-ease)}
 @keyframes answarrive{from{opacity:0; transform:translate3d(0, var(--answ-rise), 0)}}
-.answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--gentle)}
+.answered.arrive, .answmsg.arrive{animation:answarrive var(--answ-come) var(--sent-ease)}
+/* A viewport shell crosses the composer's and panel's clipping boundaries.
+   It is cut where the card shows its foot, the boxes above the seat that clip
+   met (card-logic.js writes the cut on the shell, and holds a frame inside it
+   at the viewport's origin), so nothing of a tall row or of the bubble that
+   the card does not show is drawn by the flight either; a card that shows the
+   whole of both writes a cut that takes nothing.
+   Its real box moves and compresses, never scaled, and clips what stands
+   outside it; one copy of the words, laid out as the panel lays them out,
+   rides it and shrinks from the typing size without rewrapping.
+   The box is cut out of the face by four clips nested one in the next, each
+   rounding one corner and riding it on a transform, and the face and the words
+   stand on a ground held at the viewport's origin, so the whole flight is
+   transforms the browser runs on its own (card-logic.js hands it over before
+   the first frame): no frame of it waits for the page, or lays the page out.
+   The face is the panel's grey at full strength, written by the script
+   before the first frame. The shell is handed a layer of its own, so the
+   moving box is drawn by itself: a box drawn into the page's own layer has the
+   page under it, the answer and its masked fades included, painted again
+   wherever it moves, on every frame of the flight. The clips and the ground
+   take layers of their own from their animations alone: asked for up front
+   as well, they made the frame the send draws heavier, and on the iPhone
+   simulator it reached the screen later, its first frame 26 to 38ms into the
+   flight rather than 23 to 32 */
+.sentmorph{position:fixed; left:0; top:0; pointer-events:none; z-index:10000; will-change:transform}
+.sentmorph-view{position:absolute; left:0; top:0}
+.sentmorph-clip{position:absolute; left:0; top:0; overflow:hidden}
+.sentmorph-ground{position:absolute; left:0; top:0}
+.sentmorph-face{position:absolute}
+.sentmorph-source, .sentmorph-target{position:absolute; top:0; left:0; transform-origin:0 0}
+/* the earlier of two bubbles falling into the later one (card-logic.js:
+   sentMerge). the joined bubble is laid out and hidden, and this layer inside
+   it draws the merge in its own px: a grey face cut each frame by a clip path
+   to the two bubbles' outline, copies of the two bubbles' words riding on
+   transforms, the word that stands under them, and a copy of the joined bubble
+   that comes up at the end. the ground is the seat's own colour over the room
+   the two give up above them, under every bubble in the seat. nothing here
+   blurs, filters or masks */
+.sentgoo{position:absolute; left:0; top:0; pointer-events:none}
+.sentgoo > *{position:absolute; left:0; top:0; transform-origin:0 0}
+.sentgoo-words{will-change:transform, opacity}
+/* the word under the bubbles, drawn as the mark under a panel is drawn
+   (.answered[data-mark]::after, below), and placed by the script. a word that
+   comes in under the later bubble as the earlier one falls comes in on the
+   mark's own run */
+.sentgoo > .sentgoo-mark{left:auto; right:var(--answ-round); padding-top:calc(3 * var(--u));
+  font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub); white-space:nowrap}
+.sentgoo > .sentgoo-mark.markin{animation:markin var(--answ-come) var(--sent-ease) backwards}
+.sentgoo-ground{position:absolute; left:0; right:0; pointer-events:none}
+/* when the joined bubble is cut, its foot stands still through the merge
+   (card-logic.js: sentMergeFoot): the copies of the words are drawn in a window
+   cut at the joined bubble's cut, and its fuzz and its arrow (a copy of its
+   strip) stand over them where the joined bubble has them */
+.sentgoo-cut > *{position:absolute; transform-origin:0 0}
+.sentgoo > .sentgoo-fuzz{height:var(--answ-fade)}
 
 /* ---- the delivery marks -------------------------------------------------- */
 /* where a sent message stands (card-logic.js names the stages). a message the
@@ -439,15 +655,20 @@
    right, in the card's quiet mono, stepped in by the corner's own radius so it
    sits under the straight edge. the panel keeps room for it under itself, so
    nothing stands on it.
-   the panel takes its delivery on the fold's own run: the grey firms up with the
-   words, the room for the mark opens under the foot on the same curve, and the
-   mark comes in with a short rise and a fade. a mark giving way to the next one
+   a sent panel reserves the mark's room from the first frame, even while the
+   message is local, so receiving Delivered changes no geometry. The grey
+   firms up with the words, and the mark rises and fades on the send's curve.
+   a mark giving way to the next one
    fades out over half of that and the next comes in, so the two words are never
    on screen together (card-logic.js swaps the word between the two and says
    which is on show in data-mark; data-tag is where the board's record has it).
    the grey is a registered colour so that it can run at all. a page that
    builds the panel already marked draws it as it is: nothing here moves until
    the mark changes on a panel that is standing.
+   each sent bubble carries its own word while two bubbles stand in different
+   places. once the later one stands where the earlier one does, the earlier
+   one's word fades out, and the moment it is gone the earlier bubble falls
+   into the later one while the joined bubble's word comes in under it.
    once the reply to the messages lands, the word has nothing left to say: it
    fades out on its own, over --answ-gone and on the same curve, with nothing
    but its strength changing (markgone), and stays gone. the panel over a reply
@@ -455,7 +676,7 @@
    none. the room under the foot is kept either way (kept), so the reply under
    the panel stands where it stood with the word and nothing moves when it goes */
 @property --answ-fill{syntax:"<color>"; inherits:true; initial-value:transparent}
-@keyframes markin{from{opacity:0; transform:translate3d(0, calc(var(--answ-rise) / 2), 0)}}
+@keyframes markin{from{opacity:0; transform:translate3d(0, 3px, 0)}}
 .answered{transition:margin-bottom var(--answ-move) var(--gentle), --answ-fill var(--answ-move) var(--gentle)}
 .answered.undelivered{--answ-fill:color-mix(in srgb, var(--bubble-fill) 50%, var(--card, #fff))}
 .answmsg > *{transition:opacity var(--answ-move) var(--gentle)}
@@ -485,14 +706,32 @@
 .answcross{width:calc(16 * var(--u)); height:calc(16 * var(--u)); background:rgba(33,29,23,.72)}
 .answretry::after, .answcross::after{content:""; position:absolute; inset:calc(-6 * var(--u)) calc(-3 * var(--u))}
 .answered[data-mark], .answered.kept{margin-bottom:var(--answ-tag)}
+.answered.sent{margin-bottom:var(--answ-tag)}
+/* a bubble that follows another stands a step further down: the word's room
+   (--answ-tag) only holds its line, which left the word all but touching the
+   next bubble and closer to it than to its own. with the step the word has
+   about twice the clear room under it that it has over it, and reads as the
+   bubble's above. it is the later bubble's margin, which nothing transitions:
+   a send and a merge measure the bubbles before and after and glide them */
+.answered.sent + .answered.sent{margin-top:calc(9 * var(--u))}
 .answered[data-mark]::after{
   content:attr(data-mark); position:absolute; top:100%; right:var(--answ-round);
   padding-top:calc(3 * var(--u)); font:calc(10.5 * var(--u))/1.35 var(--mono); color:var(--sub);
   white-space:nowrap; pointer-events:none;
 }
-.answered.markin::after{animation:markin var(--answ-move) var(--gentle) backwards}
-.answered.markout::after{opacity:0; transition:opacity calc(var(--answ-move) / 2) var(--gentle)}
+.answered.markin::after{animation:markin var(--answ-come) var(--sent-ease) backwards}
+.answered.markout::after{opacity:0; transition:opacity calc(var(--answ-come) / 2) var(--sent-ease)}
+/* the word moving down to the later of two bubbles about to join (card-logic.js:
+   sentMove) goes out more gently than a word giving way to the next: 300ms,
+   on the card's even curve. the earlier bubble starts to fall the moment it
+   is gone, and the word comes in under the later bubble as it falls */
+.answered.markout.markmove::after{transition:opacity calc(var(--answ-come) * .75) var(--gentle)}
 .answered.markgone::after{opacity:0; transition:opacity var(--answ-gone) var(--gentle)}
+@media (prefers-reduced-motion: reduce){
+  .answered.arrive, .answmsg.arrive, .answered.markin::after{animation:none !important}
+  .answered.markout::after, .answered.markgone::after{transition:none !important}
+  .sentgoo > .sentgoo-mark.markin{animation:none !important}
+}
 
 /* ---- the page turn and the print ----------------------------------------- */
 /* the answer to the sent panel's messages lands on the card on show and the card
@@ -517,6 +756,13 @@
   height:var(--titleair, 0px); background:linear-gradient(to bottom, var(--card), transparent)}
 .turnpage{position:absolute; left:0; right:0; top:0; bottom:0; will-change:transform}
 .turnpage.gliding{transition:transform var(--turn-glide) var(--gentle)}
+/* the seat's picture gives way to the new page's panel behind it over the
+   second half of the glide. the sent bubbles and the panel over the answer
+   share one preview and stand on one head, though the bubbles may share the
+   messages out differently, so what is seen to change is only what differs at
+   their foot, and the sheet going takes nothing away */
+@keyframes turnhand{45%{opacity:1} to{opacity:0}}
+.turnpage.gliding > .sentwrap{animation:turnhand var(--turn-glide) var(--gentle) both}
 @keyframes cardprint{from{opacity:0; transform:translate3d(0, var(--print-rise), 0)}}
 .printing > *{animation:cardprint var(--print-move) var(--gentle) backwards}
 .printing > :nth-child(2){animation-delay:50ms}
@@ -531,7 +777,10 @@
 .cardmd .attachment{display:block; max-width:100%; margin:calc(8 * var(--u)) 0; overflow-wrap:anywhere}
 .cardmd .attachment audio, .cardmd .attachment video{display:block; width:100%; max-width:100%; max-height:calc(420 * var(--u)); border-radius:calc(6 * var(--u))}
 .cardmd .attachment-name{display:block; overflow-wrap:anywhere}
-.cardmd .attachment-links{display:flex; gap:calc(12 * var(--u)); font-size:.9em}
+/* a sent bubble shows a player with no name under it: the picture or the player
+   says what was sent. a document keeps its name, which is its link and all of
+   it there is to see */
+.answered.sent .attachment-video .attachment-name, .answered.sent .attachment-audio .attachment-name{display:none}
 .attachment-status{font-size:calc(12 * var(--u)); line-height:1.4; color:var(--must, #b73a3a); white-space:pre-wrap; overflow-wrap:anywhere}
 .attachment-status:empty{display:none}
 
@@ -579,11 +828,13 @@
    every value the owner may want to tune is a custom property here, so the
    mock's sliders move exactly these: --qn-blur, --qn-sat, --qn-tint and
    --qn-edge, the last scaling every white highlight in the lighting at once */
+/* .qn-glass resolves its material locally, so pressed glass still recomputes
+   its lighting from --qn-edge. The three shadow groups
+   also form the Mac lens's stack, which omits the top white/dark pair. */
 .qn-glass{--qn-ring:#c7c7cc;
   --qn-blur:15px; --qn-sat:180%; --qn-tint:.77; --qn-edge:2;
-  border:none; border-radius:9px;
-  background-color:rgba(255,255,255,var(--qn-tint));
-  background-image:
+  --qn-face:rgba(255,255,255,var(--qn-tint));
+  --qn-light:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.075 0 0 0 .0375'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"),
     radial-gradient(13px at 0 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
     radial-gradient(13px at 100% 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
@@ -593,18 +844,29 @@
       rgba(255,255,255,calc(.28 * var(--qn-edge))) 0%,
       rgba(255,255,255,calc(.11 * var(--qn-edge))) 42%,
       rgba(255,255,255,0) 84%);
+  --qn-edge-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring);
+  --qn-inner-shadow:
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge)));
+  --qn-depth-shadow:
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06);
+}
+.qn-glass{
+  border:none; border-radius:9px;
+  background-color:var(--qn-face);
+  background-image:var(--qn-light);
   backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
   -webkit-backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(.9 * var(--qn-edge))),
-    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
-    inset 0 0 0 1px var(--qn-ring),
+    var(--qn-edge-shadow),
     inset 0 2px 0 rgba(0,0,0,.045),
-    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
-    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
-    0 1px 2px -1px rgba(0,0,0,.18),
-    0 1px 3px rgba(0,0,0,.07),
-    0 8px 20px rgba(0,0,0,.06)}
+    var(--qn-inner-shadow),
+    var(--qn-depth-shadow)}
 /* the one warning the note has: words on it that could not be saved. the rim
    turns the board's own warning red while that is so and goes back the moment
    a save lands. no words, nothing that outlives the trouble */
@@ -646,13 +908,13 @@
 /* asked for less transparency, the note is a solid white card with the same
    rim and shadow: nothing shows through and nothing is blurred */
 @media (prefers-reduced-transparency: reduce){
-  .qn-glass{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none}
+  .qn-glass, #tikhead .tik-page::after{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none}
   .qn-card::before, .sp-page::before{display:none}
 }
 /* and a browser that cannot blur what is behind gets nearly solid white, since
    an unblurred board through a half clear face would sit under the words */
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  .qn-glass{background-color:rgba(255,255,255,.94)}
+  .qn-glass, #tikhead .tik-page::after{background-color:rgba(255,255,255,.94)}
 }
 
 /* ---- the settings page --------------------------------------------------- */
@@ -674,8 +936,12 @@
    as a second, grey line beneath the white one, and the two hide the grey ring
    that goes round the other three sides. both are left out here, so the ring is
    the top edge as well, and the rest of the stack, the bottom and side rims,
-   the inner glow and the outer shadow, is the note's own */
-.sp-veil .sp-page{position:absolute; inset:15%; border-radius:9px; overflow:hidden;
+   the inner glow and the outer shadow, is the note's own.
+   --sp-inset is the window's place on the desktop, how far in it stands from
+   every edge of the board's window. a picture opened full screen is fitted in
+   the same place (#picfull below), so the two never part */
+:root{--sp-inset:15%}
+.sp-veil .sp-page{position:absolute; inset:var(--sp-inset); border-radius:9px; overflow:hidden;
   box-shadow:
     inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
     inset 0 0 0 1px var(--qn-ring),
@@ -752,6 +1018,20 @@
 @media (prefers-reduced-motion: reduce){
   .sp-pane .setrow input[type="checkbox"], .sp-pane .setrow input[type="checkbox"]::before{transition:none}
 }
+/* a choice in words is a field: the card's white, the line's edge and the
+   board's own corner and type, with the ink's edge while it is typed in */
+.sp-pane .setrow .setfield{flex:0 1 280px; min-width:0; box-sizing:border-box; margin:0;
+  padding:7px 10px; font:14px/1.35 var(--sans); color:var(--ink); background:var(--card);
+  border:var(--edge) solid var(--line); border-radius:var(--sq); outline:none;
+  transition:border-color .18s}
+.sp-pane .setrow .setfield:focus{border-color:var(--ink)}
+/* a value that is only shown stands where a control would, in the sub ink,
+   and words with nothing to click are not drawn as clickable */
+.sp-pane .setrow .setvalue{flex:none; max-width:60%; font:14px/1.35 var(--sans); color:var(--sub);
+  text-align:right; overflow-wrap:anywhere}
+.sp-pane .setlabel:not(label){cursor:default}
+/* words that say what a whole section is, above its rows */
+.sp-pane .setnote{margin:0 0 6px; font:12px/1.5 var(--sans); color:var(--sub)}
 /* an action is a button with the words that go with it under it. it is the
    card's own kind of control, no border and the card's white for a fill, with
    the board's one press shade mixed into that fill */
@@ -774,3 +1054,304 @@
 .sp-page[data-narrow] .sp-panehead + .setrow, .sp-page[data-narrow] .sp-panehead + .setact{border-top:none}
 .sp-page[data-narrow][data-view="list"] .sp-panes{display:none}
 .sp-page[data-narrow][data-view="pane"] .sp-list{display:none}
+
+/* ---- the Mac's page (.sp-mac) ---------------------------------------------
+   the desktop's page is plain white paper, a quarter narrower than it was, and
+   it comes and goes by fading. its veil is always laid out and only hidden, so
+   it has something to fade from and to: the dimming fades by its colour, the
+   page by its opacity (the page is opaque white now, so there is no glass
+   behind it for an opacity to cut off), and the veil stays hidden, and out of
+   the keyboard's and the pointer's reach, until the fade out has run */
+.sp-veil{display:block; visibility:hidden; pointer-events:none; --qn-veil:24%;
+  background-color:color-mix(in srgb, var(--ink) 0%, transparent);
+  transition:background-color .26s ease, visibility 0s linear .26s}
+.sp-veil.open{visibility:visible; pointer-events:auto; animation:none;
+  background-color:color-mix(in srgb, var(--ink) var(--qn-veil), transparent);
+  transition:background-color .26s ease, visibility 0s}
+.sp-veil .sp-page.sp-mac{left:23.75%; right:23.75%; background:#fff; backdrop-filter:none;
+  -webkit-backdrop-filter:none; opacity:0; transition:opacity .26s ease;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.1), 0 1px 3px rgba(0,0,0,.08), 0 12px 32px rgba(0,0,0,.14)}
+.sp-veil.open .sp-page.sp-mac{opacity:1}
+.sp-mac::before{display:none}
+@media (prefers-reduced-motion: reduce){
+  .sp-veil, .sp-veil.open, .sp-veil .sp-page.sp-mac{transition-duration:0s}
+}
+.sp-mac .sp-head{border-bottom-color:rgba(0,0,0,.08)}
+.sp-mac .sp-body{grid-template-columns:210px minmax(0, 1fr)}
+.sp-mac .sp-list{border-right-color:rgba(0,0,0,.08)}
+/* a section: its mark, then its name, and the chosen one on a light grey, half
+   the press shade the page used to hold it in */
+.sp-mac .sp-item{justify-content:flex-start; gap:10px; padding:8px 10px; border-radius:7px}
+.sp-mac .sp-item:hover, .sp-mac .sp-item.on{background:color-mix(in srgb, #000 4.5%, #fff)}
+.sp-mac .sp-ico{flex:none; display:flex; color:var(--sub)}
+.sp-mac .sp-ico svg{display:block}
+.sp-mac .sp-item.on .sp-ico{color:var(--ink)}
+.sp-mac .sp-next{margin-left:auto}
+.sp-mac .sp-panes{padding:28px 32px 40px}
+/* a section's choices lie in one rounded light grey box, a thin line between
+   one choice and the next */
+.sp-mac .sp-box{background:color-mix(in srgb, #000 2.2%, #fff); border-radius:12px; padding:0 18px}
+.sp-mac .sp-box .setrow{border-top:none; padding:14px 0}
+.sp-mac .sp-box .setrow + .setrow, .sp-mac .sp-box .setprofile + .setrow{border-top:1px solid rgba(0,0,0,.055)}
+.sp-mac .setrow .setfield{border-color:rgba(0,0,0,.12)}
+.sp-mac .setrow input[type="checkbox"]{background:#D6D6D6}
+.sp-mac .setrow input[type="checkbox"]:checked{background:var(--ink)}
+/* the profile's top: a square picture, as tall as the name and the email
+   together, which each take half its height beside it */
+.sp-mac .setprofile{--half:52px; display:flex; align-items:stretch; gap:18px; padding:14px 0}
+/* the picture is one of twelve marks, drawn as the pictures page drew them:
+   the mark half the picture's side, in that page's ink, on the answered
+   bubble's grey, which fills the square */
+.sp-mac .setpic{--av:calc(2 * var(--half)); flex:none; box-sizing:border-box; width:var(--av); height:var(--av);
+  display:grid; place-items:center; border-radius:10px; overflow:hidden; background:var(--bubble-fill); color:#1e1e1e}
+.sp-mac .setpic svg{display:block; width:calc(var(--av) * .5); height:calc(var(--av) * .5)}
+.sp-mac .setpic[hidden]{display:none}
+.sp-mac .setpair{flex:1; min-width:0}
+.sp-mac .setpair .setrow{box-sizing:border-box; height:var(--half); padding:0}
+.sp-mac .setprofile .setfield{flex:0 1 240px}
+/* the box stands as far under the title bar as it does in from the sides, 20px */
+.sp-mac[data-narrow] .sp-panes{padding:20px 20px 32px}
+.sp-mac[data-narrow] .sp-item{padding:15px 20px; border-radius:0}
+.sp-mac[data-narrow] .sp-item.on{background:none}
+/* an action under a choice (the phone's notification buttons) has the same thin line */
+.sp-mac .sp-box .setact{border-top:1px solid rgba(0,0,0,.055)}
+.sp-mac .sp-box > .setact:first-child{border-top:none}
+/* narrow, which is the phone's drawer (289px at most) and a small window: the
+   picture stands above the name and the email, which take the width under it,
+   each a label with its value at the right */
+.sp-mac[data-narrow] .setprofile{--half:44px; flex-direction:column; align-items:center; gap:6px; padding-bottom:0}
+.sp-mac[data-narrow] .setpair{align-self:stretch; flex:none}
+.sp-mac[data-narrow] .setpair .setrow{height:auto; min-height:48px; padding:12px 0}
+.sp-mac[data-narrow] .setprofile .setfield{flex:0 1 auto}
+/* a shown value (.setstat, the phone's Profile rows): on a line of its own under
+   its label, the width of the box, so an email or a time zone is never broken
+   in the middle of a word */
+.sp-mac[data-narrow] .sp-box{padding:0 14px}
+.sp-mac[data-narrow] .setstat{flex-direction:column; align-items:flex-start; justify-content:center; gap:2px}
+.sp-mac[data-narrow] .setstat > .setvalue{flex:none; max-width:100%; text-align:left}
+
+/* The link menu uses the board's existing page-menu shape and ink press shade. */
+html.app-link-policy a[href], html.app-link-policy .cardmd img,
+html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-touch-callout:none}
+.app-link-menu{position:fixed; z-index:10000; min-width:150px; max-width:calc(100vw - 16px);
+  box-sizing:border-box; background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+  box-shadow:0 4px 16px rgba(60,45,20,.16); padding:4px; overflow:hidden}
+.app-link-menu button{display:block; width:100%; text-align:left; border:none; background:none;
+  font:13px var(--sans); color:var(--ink); padding:8px 10px; border-radius:5px; cursor:pointer}
+.app-link-menu button:hover, .app-link-menu button:focus-visible{
+  background:color-mix(in srgb, var(--ink) 8%, transparent); outline:none}
+.app-link-menu button:disabled{opacity:.5; cursor:default}
+.app-link-status{font:12px var(--sans); color:var(--ink); max-width:240px; padding:6px 10px}
+.app-link-status:empty{display:none}
+
+/* ---- a card's magic box -------------------------------------------------- */
+/* what an agent put beside a card (POST /magic): on the board beside the card
+   (index.html says where it stands) and on the phone in the drawer above the
+   card (m.html). as set here it has no frame: no edge, no face of its own and
+   no shadow, so what it holds stands on the page's own paper, its ends
+   dissolving as the ticket list's do, and clicking into it moves no shadow.
+   a line across its bar, the ticket list's own, parts the bar from what the
+   box holds. each page dresses its box itself: the board gives it the card's
+   white face, edge line and shadow, with no line under the bar, in
+   index.html (#magicbox), and the phone the same in m.html (#mbface). the bar stands at the box's top on the
+   board, in a portrait window too, and at its foot on the phone, where m.html
+   puts it after what the box holds and turns the far edge's white over */
+.magicbox{display:flex; flex-direction:column; overflow:hidden;
+  /* its own lengths, in the board's pixels; the phone gives them in its own
+     (m.html). --mb-x is the cross's seat and --mb-gap the space round it,
+     the same at the box's edge and at its side: the bar, --mb-bar, is the seat
+     and that gap over and under it, so the cross's middle stands as far from
+     the box's edge as from its side, and the seat stands clear of the line.
+     still shorter than the card's own bar.
+     --mb-air is the space the box keeps between what it holds and its far
+     edge, and --mb-fade the depth of the fuzz, the ticket list's own 22px.
+     --mb-lead is the space over the words' first line, from the bar's foot
+     to the top of that line, a heading's or plain words' alike: the first
+     line's capitals stand 6px lower still, so they stand 12px under the bar,
+     the 12px a card keeps over its own first line (.head's top padding). it
+     is also how far the words scroll before any has gone under the bar, so
+     the fuzz (below) counts from there */
+  --mb-x:17px; --mb-gap:6.5px; --mb-bar:calc(var(--mb-x) + 2 * var(--mb-gap)); --mb-air:8px; --mb-fade:22px; --mb-lead:6px;
+  /* --mb-round is the corner the page gives the box, twice the card's 7px: the
+     bar and what the box holds are rounded to it too, inside the edge line, so
+     nothing of theirs pokes out of a corner. --mb-pink is the cross's circle,
+     a soft red */
+  --mb-round:14px; --mb-pink:#FF7A72}
+/* its bar: nothing of its own but the line along its foot, the edge it
+   shares with what the box holds, which dissolves as it goes under it (the
+   fuzz, below).
+   the line is the ticket list's under its section names (#tikhead::after
+   in each page): the card's hairline, --edge of --line, drawn as a top edge
+   of no height so it takes nothing from the bar, across the whole width of
+   what the box holds, as that one runs across the tickets' own sides. at
+   the bar's right, one cross puts the box away: the card bar's own kind of
+   mark (MAGIC_CROSS, card-logic.js) at the card bar's mark size, in a
+   round seat, --mb-gap in from the box's side as it is from the box's edge
+   and from the line. the seat is a small circle of soft red with the mark
+   at its middle, the ink it always had; the pointer over it, and a press,
+   shade it with the one press shade. a finger's tap reaches past it */
+.magicbox .mbbar{flex:none; position:relative; display:flex; align-items:center; justify-content:flex-end;
+  height:var(--mb-bar); padding:0 var(--mb-gap); border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
+.magicbox .mbbar::after{content:""; position:absolute; pointer-events:none;
+  left:0; right:0; bottom:0; height:0;
+  border-top:var(--edge) solid var(--line)}
+.magicbox .mbclose{position:relative; flex:none; display:grid; place-items:center;
+  width:var(--mb-x); height:var(--mb-x); padding:0; border:none; border-radius:50%;
+  background:var(--mb-pink); color:#1e1e1e; cursor:pointer}
+.magicbox .mbclose:hover, .magicbox .mbclose:active{background:color-mix(in srgb, #000 var(--press), var(--mb-pink))}
+.magicbox .mbclose:focus-visible{outline:2px solid var(--line); outline-offset:1px}
+.magicbox .mbclose svg{width:var(--bar-mark); height:var(--bar-mark)}
+.magicbox .mbclose::after{content:""; position:absolute; inset:-8px}
+/* what it holds stops short of the far edge by --mb-air, so nothing runs to
+   it; a picture is the exception, which fills its box to the edge in its own
+   shape. words that scroll dissolve at both ends of their scroll as
+   the ticket list's sections do, under the same ramp: --upband is how far
+   they have scrolled and --downband how far they still can, each capped at
+   --mb-fade by the view (card-logic.js, which does not count the
+   --mb-lead of the scroll on the bar's side: the top here, the foot on the
+   phone), so an end with nothing past it
+   stays at full ink and words that fit wear no fuzz at all */
+.magicbox .mbbody{flex:1; min-height:0; position:relative; overflow:auto;
+  margin:0 0 var(--mb-air)}
+.magicbox .mbbody[data-kind="image"]{margin:0}
+.magicbox .mbbody:last-child{border-radius:0 0 calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge))}
+.magicbox .mbbody:is([data-kind="text"], [data-kind="markdown"]){
+  -webkit-mask-image:linear-gradient(to bottom,
+    rgba(0,0,0,0) 0,
+    rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+    rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+    rgba(0,0,0,1) var(--upband, 0px),
+    rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+    rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+    rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+    rgba(0,0,0,0) 100%);
+  mask-image:linear-gradient(to bottom,
+    rgba(0,0,0,0) 0,
+    rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+    rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+    rgba(0,0,0,1) var(--upband, 0px),
+    rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+    rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+    rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+    rgba(0,0,0,0) 100%)}
+/* words run the box's full width in the card's own body size, out to its
+   sides and so to the line's ends, with no frame to keep off; they end
+   --mb-inset short of their foot, which each page sets to its card answer's
+   own inset, and start --mb-lead under the bar: their first line, a heading
+   too, keeps no top margin of its own, which would add a line's worth of
+   space to it */
+.magicbox .mbtext{padding:var(--mb-lead) 0 var(--mb-inset, 16px);
+  font-size:15px; line-height:1.55; color:var(--ink)}
+.magicbox .mbtext > :first-child{margin-top:0}
+.magicbox .mbtext.plain{white-space:pre-wrap}
+/* a picture fills the box, which takes the picture's own shape; a page or a
+   site fills the body edge to edge on its own white */
+.magicbox .mbimg{display:block; width:100%; height:100%; object-fit:contain}
+.magicbox .mbframe{display:block; width:100%; height:100%; border:0; background:var(--card)}
+/* the clear cover over a page or a site while the pointer is not over the box
+   (the board's magicPointer): the pointer lands on it, so the board knows it
+   came, and it comes off at once, before any click */
+.magicbox .mbcover{position:absolute; inset:0}
+.magicbox.over .mbcover{display:none}
+/* a site that will not be framed: the box comes square, and in its middle a
+   smaller box with the site's name and the mark for opening it in a new page,
+   which it does when clicked. a breath of the board's ink over the card's
+   white, whatever colour the board is, with the card's edge and the 7px of
+   things let into the card, deepening by half the one press shade under the
+   pointer and by all of it while pressed */
+.magicbox .mbaway{display:flex; align-items:center; justify-content:center; height:100%; padding:24px}
+.magicbox .mbopen{--mbtile:color-mix(in srgb, var(--ink) 4%, var(--card));
+  display:inline-flex; align-items:center; justify-content:center; gap:10px;
+  max-width:100%; min-width:58%; padding:18px 22px; cursor:pointer;
+  background:var(--mbtile); border:var(--edge) solid var(--line); border-radius:7px;
+  color:var(--ink); font:625 17px/1.3 var(--inter); transition:background .12s}
+.magicbox .mbopen:hover{background:color-mix(in srgb, #000 calc(var(--press) / 2), var(--mbtile))}
+.magicbox .mbopen:active{background:color-mix(in srgb, #000 var(--press), var(--mbtile))}
+.magicbox .mbopen:focus-visible{outline:2px solid var(--line); outline-offset:2px}
+.magicbox .mbopen span{min-width:0; overflow-wrap:anywhere; text-align:center}
+.magicbox .mbopen svg{flex:none; width:15px; height:15px; color:var(--sub)}
+
+/* a card's picture opened full screen (openCardPicture in card-logic.js). the
+   veil is the board's ink written opaque and brought to .62 by the fade, as the
+   desktop's picture panel zoom does it. it stands over everything either page
+   draws and under the link menu */
+:is(.reply, .answmsg).cardmd img.shot:not([id^="magic"] *){cursor:zoom-in}
+.picfull-from{visibility:hidden}
+#picfull{display:none; position:fixed; inset:0; z-index:9000;
+  cursor:zoom-out; -webkit-tap-highlight-color:transparent}
+#picfull.on{display:block}
+/* the fingers' pinches, pans and double taps on it are the picture's, and never
+   the page's. it declares no touch-action of its own: the phone's touch-action
+   stays manipulation everywhere (tests/phone-page-zoom.test.cjs), and the
+   layer's own touch listeners cancel every touch on it (cardPictureLayer), so
+   the page neither zooms nor scrolls under it */
+#picfull .picfull-veil{position:absolute; inset:0; background:var(--ink); opacity:0; will-change:opacity}
+/* the room the picture is fitted in. on the desktop it is the settings' own
+   place, so the picture never meets an edge of the window: --sp-inset in from
+   the top and the bottom, and as wide as the inset leaves, centred, which is the
+   settings window exactly. the phone sets --picfull-inset and --picfull-w
+   (m.html) so the room is its whole screen inside the safe areas */
+#picfull .picfull-room{position:absolute; inset:var(--picfull-inset, var(--sp-inset) 0);
+  width:var(--picfull-w, calc(100% - 2 * var(--sp-inset))); margin:0 auto}
+#picfull .picfull-img{position:absolute; display:block; max-width:none; max-height:none; margin:0;
+  transform-origin:0 0; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none}
+
+/* ---- the files picked for the next message: a tray over the typing row ---- */
+/* one 64px square per file, standing from the pick on, with the upload's ring
+   over it. the squares carry the state alone: no words stand under them. the
+   tray is the typing row's width and the card's white, so the answer's fade
+   reads it as part of the foot. the squares' corners are the 7px of things
+   let into the card, and the cross hangs off the top right corner, which is
+   what the tray's top and right padding are for. --tray-gap is the clear
+   space between the squares' row and the line above the typing row */
+.tray{--tray-gap:calc(12 * var(--u)); display:none; flex-wrap:wrap; align-items:flex-start; gap:var(--sp-s); flex:none; position:relative;
+  margin:0 calc(var(--pad-x)*2/3); padding:var(--sp-s) calc(6 * var(--u)) var(--tray-gap) 0; background:var(--card)}
+.tray.on{display:flex}
+.tray.closing{overflow:hidden}
+.tsq{position:relative; flex:none; width:calc(64 * var(--u)); height:calc(64 * var(--u))}
+.tsq.leaving{position:absolute; pointer-events:none}
+.tsqface{position:absolute; inset:0; overflow:hidden; border-radius:calc(7 * var(--u));
+  background:#F3F1EC; box-shadow:inset 0 0 0 var(--edge-drawn) var(--line)}
+.tsq.tappable .tsqface{cursor:pointer}
+/* a file with no picture says its kind and its size, in the notes' type */
+.tsqkind{position:absolute; inset:0; display:grid; place-content:center; text-align:center;
+  font:600 calc(11 * var(--u))/1.25 var(--mono); letter-spacing:.04em; color:var(--sub)}
+.tsqkind small{display:block; font-weight:400; font-size:calc(9.5 * var(--u)); letter-spacing:0}
+/* with a ring or a mark to wear, a file with no picture keeps only its kind,
+   at the top, and the mark stands under it */
+.tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind{place-content:start center; padding-top:calc(8 * var(--u))}
+.tsq:not(.drawn):is(.up,.queued,.wait,.failed,.refused) .tsqkind small{display:none}
+.tsq:not(.drawn) :is(.tsqring, .tsqbang){top:62%}
+.tsqpic{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
+  opacity:0; transition:opacity .26s var(--gentle)}
+.tsq.drawn .tsqpic{opacity:1}
+/* a picture with see-through parts shows the face behind it, never the words */
+.tsq.drawn .tsqkind{visibility:hidden}
+/* over a picture, while it is on its way or held up, a shade the ring and
+   the mark read against */
+.tsqveil{position:absolute; inset:0; background:rgba(33,29,23,.38); opacity:0; transition:opacity .26s var(--gentle)}
+.tsq.drawn:is(.up,.queued,.wait,.failed,.refused) .tsqveil{opacity:1}
+/* the upload's ring: how much of the file has gone, or a quarter turning
+   while the phone cannot say */
+.tsqring{position:absolute; left:50%; top:50%; width:calc(24 * var(--u)); height:calc(24 * var(--u)); margin:calc(-12 * var(--u)) 0 0 calc(-12 * var(--u));
+  transform:rotate(-90deg); opacity:0; transition:opacity .26s var(--gentle); overflow:visible}
+.tsqring circle{fill:none; stroke-width:2.5}
+.tsqring .track{stroke:rgba(33,29,23,.14)}
+.tsqring .arc{stroke:var(--ink); stroke-linecap:round; stroke-dasharray:65.97; stroke-dashoffset:65.97;
+  transition:stroke-dashoffset .2s linear}
+.tsq.drawn .tsqring .track{stroke:rgba(255,255,255,.42)}
+.tsq.drawn .tsqring .arc{stroke:#fff}
+.tsq:is(.up,.queued,.wait) .tsqring{opacity:1}
+.tsq:is(.queued,.wait,.indet) .tsqring{animation:tsqturn .8s linear infinite}
+.tsq:is(.queued,.wait,.indet) .tsqring .arc{stroke-dashoffset:49.48; transition:none}
+@keyframes tsqturn{from{transform:rotate(-90deg)} to{transform:rotate(270deg)}}
+/* the file did not go: a mark in the card's own red, just there, no entrance */
+.tsqbang{position:absolute; left:50%; top:50%; width:calc(22 * var(--u)); height:calc(22 * var(--u)); margin:calc(-11 * var(--u)) 0 0 calc(-11 * var(--u));
+  border-radius:50%; background:var(--must); color:#fff; font:700 calc(13 * var(--u))/calc(22 * var(--u)) var(--sans);
+  text-align:center; display:none}
+.tsq:is(.failed,.refused) .tsqbang{display:block}
+.tsqx{position:absolute; top:calc(-6 * var(--u)); right:calc(-6 * var(--u)); z-index:1; width:calc(20 * var(--u)); height:calc(20 * var(--u)); padding:0;
+  border:none; border-radius:50%; background:rgba(33,29,23,.72); color:#fff;
+  display:grid; place-items:center; cursor:pointer}
+.tsqx::after{content:""; position:absolute; inset:calc(-8 * var(--u))}
+.tsqx svg{width:calc(8 * var(--u)); height:calc(8 * var(--u))}

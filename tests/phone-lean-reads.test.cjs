@@ -117,7 +117,7 @@ function page({ legacy = false, patches = [] } = {}){
     window: {},
     tracePhone: () => ({}), endPhoneTrace(){}, noteDoing(){}, askIds: () => [], reconcileOps(){},
     validateOwners(){}, holdFlags: state => state, apply(){}, renderTickets(){}, syncSelectedHistory(){},
-    startupTrouble(){}, startupAnswered(){}, startupRendered: async () => {}, wakeOps(){},
+    startupTrouble(){}, startupAnswered(){}, startupRendered: async () => {}, pageMended(){}, wakeOps(){},
     cardsMoving: () => false, stampText: () => "",
     reportProblem(kind, e){ problems.push(e.message); },
     async fetch(url, opts = {}){

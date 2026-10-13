@@ -156,7 +156,8 @@ function sectionTitles(text) {
 function assertNoPullOrEnvironmentOutput(text) {
   for (const gone of ["2. Pull", "3. Python environment", "pulls only forward", "syncs the .venv",
     "Moved forward", "No new commits upstream", "uv found", "Environment found", "Environment created",
-    "Creating the environment", "Syncing packages", "Packages synced", "uv noise"]) {
+    "Creating the environment", "Syncing packages", "Packages synced", "Setting up the Python 3.14 environment",
+    "Python 3.14 environment ready", "Installing the packages Facilitator needs", "Packages installed", "uv noise"]) {
     assert.ok(!text.includes(gone), `${gone} is not printed:\n${text}`);
   }
 }

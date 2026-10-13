@@ -133,22 +133,22 @@ function pageHelpers() {
 
 // the phone's painter keeps its rows on the section it is handed, so a second
 // pass over the same section changes those rows in place
-const phonePainter = () => new Function("queueState", "cardState", "h", "seenReplies", "shortAge",
+const phonePainter = () => new Function("queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
   "spinGlyph", "selectedId", "testReady", "appendOmniRowArt", "omniRowFace",
   "select", "closeDrawer", "onFold", "unfoldTicket", "homeOpen", "setHome", "drawerOpen",
   `${functionSource(HTML.phone, "paintPhonePane", "renderTickets")}; return paintPhonePane;`,
-)(queueState, cardState, h, {}, () => "5m", () => SPIN[0], "none", testReady, appendOmniRowArt, sandbox.omniRowFace,
+)(queueState, cardState, h, {}, () => "5m", b => b.agentTs || 0, () => SPIN[0], "none", testReady, appendOmniRowArt, sandbox.omniRowFace,
   record("select"), record("closeDrawer"), logic("onFold"), logic("unfoldTicket"), false, record("setHome"), () => false);
 
 // each surface's painter, handed one pool and the view it is drawing, answers
 // with the rows it drew
 const PAINT = {
   desktop: (pool, view = "todo") => {
-    const paint = new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
+    const paint = new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
       "spinGlyph", "curView", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
       "select", "onFold", "unfoldTicket",
       `${functionSource(HTML.desktop, "paintTicketPane", "renderCarousel")}; return paintTicketPane;`,
-    )(DateStub, queueState, cardState, h, {}, () => "5m", () => SPIN[0], () => view, "none", null, testReady,
+    )(DateStub, queueState, cardState, h, {}, () => "5m", b => b.agentTs || 0, () => SPIN[0], () => view, "none", null, testReady,
       appendOmniRowArt, record("select"), logic("onFold"), logic("unfoldTicket"));
     const pane = new FakeElement("div");
     paint(pane, pool, view, { agents: {} }, "lane");
@@ -269,11 +269,13 @@ test("control+u unfolds the selected card only while it wears the fold, from whe
   const unfoldSelected = logic("unfoldSelected");
   const body = { closest: () => null };
   const ta = { tagName: "TEXTAREA", closest: sel => (sel === ".cm-editor" ? null : ta) };
-  const title = { tagName: "INPUT", closest: sel => (sel === ".cm-editor" ? null : title) };
-  const el = { ta };
+  // the card's own title while it is renamed, and a field of another panel
+  const title = { tagName: "SPAN", closest: sel => (sel === ".cm-editor" ? null : title), contains: n => n === title };
+  const field = { tagName: "INPUT", closest: sel => (sel === ".cm-editor" ? null : field) };
+  const el = { ta, titleEl: title };
   const press = target => ({ target, prevented: false, preventDefault() { this.prevented = true; } });
   sandbox.lastState = { boxes: [card(), card({ id: "m2", testing: false })] };
-  for (const [target, where] of [[body, "the board"], [ta, "the card's own composer"]]) {
+  for (const [target, where] of [[body, "the board"], [ta, "the card's own composer"], [title, "the card's own title"]]) {
     calls.length = 0;
     const e = press(target);
     assert.equal(unfoldSelected(e, "m1", el), true, `control+u from ${where} did nothing`);
@@ -282,7 +284,7 @@ test("control+u unfolds the selected card only while it wears the fold, from whe
     assert.deepEqual(asked(), ["/testing?box=m1&v=0 POST"]);
   }
   calls.length = 0;
-  for (const [e, id, why] of [[press(title), "m1", "from a title being renamed"], [press(body), "m2", "on a card with no fold"],
+  for (const [e, id, why] of [[press(field), "m1", "from another panel's field"], [press(body), "m2", "on a card with no fold"],
     [press(body), null, "with no card selected"], [press(body), "gone", "on a card the board no longer has"]]) {
     assert.equal(unfoldSelected(e, id, el), false, `control+u acted ${why}`);
     assert.equal(e.prevented, false, `control+u was cancelled ${why}`);
@@ -460,10 +462,23 @@ const TOKENS = read("card-tokens.css");
 // each page's own sheet, then the shared one where the page links it
 const SHEETS = { desktop: styleOf(HTML.desktop) + "\n" + TOKENS, phone: styleOf(HTML.phone) + "\n" + TOKENS, page: styleOf(HTML.page) };
 
-test("no sheet draws on a ticket's inner layers but the fold, so an unfolded ticket wears no mark", () => {
+test("ticket inner layers carry only the fold and the phone drawer's keyboard glass", () => {
   for (const [where, css] of Object.entries(SHEETS)) {
     const layers = new Set(rulesOf(css).flatMap(r => r.sels).filter(s => /trowin::?(before|after)/.test(s)));
-    assert.deepEqual([...layers], [".trow.testc > .trowin::before"],
-      `${where}: something other than the fold draws on a ticket's inner layers`);
+    const expected = where === "phone" ? ["#tickets .trow.drawer-pick > .trowin::after",
+      "#tickets .trow.drawer-pick.testc > .trowin::before", ".trow.testc > .trowin::before"]
+      : [".trow.testc > .trowin::before"];
+    assert.deepEqual([...layers], expected,
+      `${where}: an unexpected mark draws on a ticket's inner layers`);
   }
+});
+
+test("the picked phone ticket keeps both fold layers above the glass without changing their shape", () => {
+  const rules = rulesOf(styleOf(HTML.phone));
+  const fold = rules.find(r => r.sels.includes("#tickets .trow.drawer-pick.testc > .trowin::before"));
+  assert.deepEqual(fold.sels, ["#tickets .trow.drawer-pick.testc::after", "#tickets .trow.drawer-pick.testc > .trowin::before"]);
+  assert.equal(fold.body.trim(), "z-index:2");
+  const face = rules.find(r => r.sels.includes("#tickets .trow.drawer-pick > .trowin::after"));
+  assert.match(face.body, /z-index:0/);
+  assert.match(face.body, /pointer-events:none/);
 });

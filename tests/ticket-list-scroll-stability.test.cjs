@@ -101,14 +101,20 @@ function paneRendererFrom(html, clock) {
   const pane = new FakeElement("div");
   const h = (tag, className, text) => new FakeElement(tag, className, text);
   const DateStub = { now: () => clock.now };
+  // the board's section repaints when the age a row shows turns, so its age
+  // reads the test's clock the way card-logic.js's shortAge reads the page's
+  const shortAge = ts => {
+    const sec = clock.now / 1000 - ts;
+    return sec < 60 ? "now" : sec < 3600 ? Math.floor(sec / 60) + "m" : Math.floor(sec / 3600) + "h";
+  };
   const source = functionSource(html, "paintTicketPane", "renderCarousel");
   const paintTicketPane = new Function(
-    "Date", "queueState", "cardState", "h", "seenReplies", "shortAge",
+    "Date", "queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
     "spinGlyph", "curView", "selectedId", "selectedTask",
     "testReady", "appendOmniRowArt",
     `${source}; return paintTicketPane;`,
   )(
-    DateStub, () => "queued", () => "queued", h, {}, () => "1m",
+    DateStub, () => "queued", () => "queued", h, {}, shortAge, b => b.agentTs || 0,
     () => "|", () => "todo", "m1", null,
     () => false, () => null,
   );

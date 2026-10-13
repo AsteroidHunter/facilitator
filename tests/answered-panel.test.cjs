@@ -23,6 +23,7 @@ const TOKENS = readFileSync(path.join(ROOT, "card-tokens.css"), "utf8");
 const DESKTOP = readFileSync(path.join(ROOT, "index.html"), "utf8");
 const PHONE = readFileSync(path.join(ROOT, "m.html"), "utf8");
 const markdown = require("../card-markdown.js");
+const { drawn } = require("./sent-flight-drawn.cjs");
 
 // ---- the stand-in dom ---------------------------------------------------------
 // just enough of an element for the panel: classes, attributes, children, a
@@ -46,6 +47,7 @@ function textNode(text) {
 }
 function inlineStyle() {
   const props = {};
+  const priorities = {};
   return {
     heights: [],
     // every transform written, in order, the way heights are kept
@@ -55,9 +57,12 @@ function inlineStyle() {
       if (value) props.transform = String(value); else delete props.transform;
       this.transforms.push(String(value));
     },
-    setProperty(name, value) { props[name] = String(value); },
-    removeProperty(name) { delete props[name]; },
+    setProperty(name, value, priority = "") { props[name] = String(value); priorities[name] = priority; },
+    removeProperty(name) { delete props[name]; delete priorities[name]; },
     getPropertyValue(name) { return props[name] || ""; },
+    getPropertyPriority(name) { return priorities[name] || ""; },
+    get opacity() { return props.opacity || ""; },
+    set opacity(value) { props.opacity = String(value); },
     get height() { return props.height || ""; },
     set height(value) {
       if (value) { props.height = String(value); this.heights.push(String(value)); }
@@ -70,6 +75,16 @@ function inlineStyle() {
 // stop the script wrote, else at the preview the test says the sheet cuts it
 // to. midRun stands for a run caught part way, so it only holds while a run
 // has its height written in
+// the cut the sheet gives a panel's batch, the panel over the answer and a sent
+// bubble alike, which the stand-in lays out only while a test names the panel's
+// line (sheetLine): two lines, or three once the script has
+// set .gap on the panel
+let sheetLine = 0;
+function sheetCut(node) {
+  const panel = node.parentNode;
+  if (!sheetLine || !node.classList.contains("answclip") || !panel || !panel.classList.contains("answered")) return 0;
+  return Math.round(sheetLine * (panel.classList.contains("gap") ? 3 : 2));
+}
 function laidOutHeight(node) {
   if (node.midRun != null && node.style.height) return node.midRun;
   if (node.style.height) return parseFloat(node.style.height);
@@ -86,15 +101,17 @@ function element(tag) {
   const listeners = {};
   const nodes = [];
   let html = "";
+  let held = 0;
   const el = {
     tagName: String(tag).toUpperCase(), nodeType: 1,
     parentNode: null, dataset: {}, style: inlineStyle(), id: "",
-    clientHeight: 0, scrollHeight: 0, scrollTop: 0, offsetWidth: 0, midRun: null, midShade: null, rect: null,
+    get clientHeight() { return held || sheetCut(el); }, set clientHeight(value) { held = value; },
+    scrollHeight: 0, scrollTop: 0, offsetWidth: 0, midRun: null, midShade: null, rect: null,
     get parentElement() { return el.parentNode; },
     get childNodes() { return nodes; },
     get children() { return nodes.filter(node => node.nodeType === 1); },
     getBoundingClientRect() {
-      if (el.rect) return { ...el.rect, left: 0, right: 0, width: 0, height: el.rect.bottom - el.rect.top };
+      if (el.rect) return { left: 0, right: 0, width: 0, ...el.rect, height: el.rect.bottom - el.rect.top };
       return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: laidOutHeight(el) };
     },
     // a copy of the node and, deep, of everything under it: its classes and its
@@ -192,6 +209,7 @@ function all(node) {
 // a selector list of plain tags, plain classes, a tag with a class, a data
 // attribute that is present, and a node under another
 function matchesOne(node, part) {
+  if (part === "*") return true;
   const attrs = [...part.matchAll(/\[data-([\w-]+)\]/g)].map(m => m[1].replace(/-(\w)/g, (_, c) => c.toUpperCase()));
   const [tag, ...cls] = part.replace(/\[[^\]]*\]/g, "").split(".");
   if (tag && node.tagName !== tag.toUpperCase()) return false;
@@ -326,10 +344,10 @@ function sandbox() {
     timers.delete(found[0]);
     found[1].fn();
   };
-  const frame = () => {
+  const frame = (now = 0) => {
     const due = [...frames.values()];
     frames.clear();
-    for (const fn of due) fn(0);
+    for (const fn of due) fn(now);
   };
   const waiting = () => frames.size;
   return { context, counts, run, pending, ring, ringFor, frame, waiting };
@@ -782,6 +800,468 @@ test("a cut that lands in blank stops at the foot of the last line with text", (
   }
 });
 
+// ---- the preview of a cut panel ------------------------------------------------------------
+// the panel over the answer and the sent bubbles are cut by one rule: up to two
+// lines a batch is shown whole; past them it is cut at two lines, or at
+// three when its second line is blank. the stand-in lays a panel out the
+// moment it is drawn, as a browser would, so a send is measured by the same call
+// that draws it: the words stand on the tops given, one entry per text node of the
+// column (a list of tops where the browser wrapped the node onto several lines,
+// none where it is not laid out), and the sheet's cut is the one the panel's own
+// class gives. the returned lay() moves the words to other tops
+function laidWords(context, tops, line) {
+  context.line = line;
+  const glyph = line * 6 / 7;
+  const placed = [...tops];
+  context.document.createRange = () => ({
+    node: null,
+    selectNodeContents(node) { this.node = node; },
+    getClientRects() {
+      let stack = this.node.parentNode;
+      while (stack && !stack.classList.contains("answstack")) stack = stack.parentNode;
+      const at = textsOf(stack).indexOf(this.node);
+      return [].concat(placed[at] ?? []).map(top =>
+        ({ top: top + (line - glyph) / 2, bottom: top + (line + glyph) / 2, height: glyph }));
+    },
+  });
+  sheetLine = line;
+  return next => placed.splice(0, placed.length, ...next);
+}
+function sentShown(texts, tops, { line = 21, arrive = false } = {}) {
+  const { context, run } = sandbox();
+  const lay = laidWords(context, tops, line);
+  const el = fullCard("c1");
+  context.syncSent(el, context.sentBatch(texts), arrive);
+  const panel = el.sent, clip = panel.querySelector(".answclip");
+  return { context, run, el, panel, clip, lay };
+}
+// the panel over the answer, drawn from a reply's batch the way the pages draw
+// it; mini draws it as the small card does, which has nobody to tell
+function answeredShown(texts, tops, { line = 21, mini = false } = {}) {
+  const { context, run } = sandbox();
+  const lay = laidWords(context, tops, line);
+  const id = mini ? "m1" : "c1";
+  const el = card(id);
+  const draw = (words, replyId) => context.syncAnswered(el,
+    context.liveAnswered({ ...liveBox(words.map((text, i) => ({ text, ts: 1760000000 + i }))), id, replyId }),
+    ...(mini ? [null] : []));
+  draw(texts, "reply-live");
+  const panel = el.answ, clip = panel.querySelector(".answclip");
+  let replies = 0;
+  return { context, run, el, panel, clip, lay,
+    // another reply's batch, taken into the panel already standing (the same
+    // reply again would touch nothing)
+    redraw: (words, next) => { lay(next); draw(words, "reply-next-" + (++replies)); } };
+}
+const cutOf = clip => clip.getBoundingClientRect().height;
+const gapOf = panel => panel.classList.contains("gap");
+const shown = fn => { try { fn(); } finally { sheetLine = 0; } };
+
+test("a sent bubble of one line is shown whole, with no cut, strip or fade", () => shown(() => {
+  const { context, panel, clip } = sentShown(["Invented one line."], [0]);
+  assert.equal(panel.classList.contains("more"), false, "one line was taken for a long batch");
+  assert.equal(gapOf(panel), false);
+  assert.equal(stopOf(panel), "21px", "the bubble does not stand as tall as its line");
+  assert.equal(cutOf(clip), 21);
+  assert.equal(context.answeredShade(panel), "0", "one line dissolves");
+  panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("open"), false, "one line took a press");
+}));
+
+test("a sent bubble of two lines is shown whole, with no fade over its second line", () => shown(() => {
+  const { context, panel, clip } = sentShown(["Invented line a\nInvented line b"], [0, 21]);
+  assert.equal(panel.classList.contains("more"), false, "two lines were taken for a long batch");
+  assert.equal(gapOf(panel), false);
+  assert.equal(stopOf(panel), "", "the sheet's cut is the foot of the second line, and needs no stop");
+  assert.equal(cutOf(clip), 42, "the second line is cut");
+  assert.equal(context.answeredShade(panel), "0", "two lines dissolve");
+  panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("open"), false, "two lines took a press");
+}));
+
+test("lines are the lines the browser wrapped, not the breaks typed", () => shown(() => {
+  // one paragraph with no break in it, wrapped onto two lines, and then onto three
+  const words = ["Invented words that run on past the width of the bubble and wrap."];
+  const two = sentShown(words, [[0, 21]]);
+  assert.equal(two.panel.classList.contains("more"), false, "two wrapped lines were taken for a long batch");
+  assert.equal(stopOf(two.panel), "", "the sheet's cut is the foot of the second line, and needs no stop");
+  assert.equal(cutOf(two.clip), 42);
+  const three = sentShown(words, [[0, 21, 42]]);
+  assert.equal(three.panel.classList.contains("more"), true, "three wrapped lines were shown whole");
+  assert.equal(gapOf(three.panel), false);
+  assert.equal(cutOf(three.clip), 42);
+}));
+
+test("a sent bubble past two lines is cut at two lines and dissolves over the second", () => shown(() => {
+  for (const [what, tops] of [["three lines", [0, 21, 42]], ["six lines", [0, 21, 42, 63, 84, 105]]]) {
+    const texts = tops.map((_, i) => "Invented line " + String.fromCharCode(97 + i));
+    const { context, panel, clip } = sentShown([texts.join("\n")], tops);
+    assert.equal(panel.classList.contains("more"), true, `${what}: the text past the cut was not marked`);
+    assert.equal(gapOf(panel), false, `${what}: the cut was deepened`);
+    assert.equal(stopOf(panel), "", `${what}: the cut was stopped short`);
+    assert.equal(cutOf(clip), 42, `${what}: the cut is not two lines`);
+    assert.equal(context.answeredShade(panel), "1", `${what}: the cut does not dissolve`);
+    assert.equal(context.fitAnswered(panel), false, `${what}: a second look changed the bubble`);
+  }
+}));
+
+test("a sent bubble whose second line is blank is cut at three lines, and dissolves over the third", () => shown(() => {
+  // a paragraph break after the first line: the second line is the air between,
+  // and a fourth line is past the cut
+  const { context, panel, clip } = sentShown(["Invented line a\n\nInvented line c\nInvented line d"], [0, 42, 63]);
+  assert.equal(panel.classList.contains("more"), true, "the fourth line was not marked as past the cut");
+  assert.equal(gapOf(panel), true, "a blank second line did not deepen the cut");
+  assert.equal(stopOf(panel), "", "the deeper cut was stopped short");
+  assert.equal(cutOf(clip), 63, "the cut is not three lines");
+  assert.equal(context.answeredShade(panel), "1", "the deeper cut does not dissolve");
+  assert.equal(context.fitAnswered(panel), false, "a second look changed the bubble");
+}));
+
+test("a blank second line and a third with nothing past it is shown whole: nothing is hidden, so nothing is cut or faded", () => shown(() => {
+  const { context, panel, clip } = sentShown(["Invented line a\n\nInvented line c"], [0, 42]);
+  assert.equal(gapOf(panel), true, "a blank second line did not deepen the cut");
+  assert.equal(panel.classList.contains("more"), false, "three lines with nothing past them were cut");
+  assert.equal(context.answeredShade(panel), "0", "a whole bubble dissolves");
+  assert.ok(cutOf(clip) <= 63, "the bubble is taller than its three lines");
+  panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("open"), false, "a bubble with nothing hidden took a press");
+}));
+
+test("two messages joined by their blank line are shown whole when short, and cut at three lines when a third line follows", () => shown(() => {
+  const short = sentShown(["Invented message one.", "Invented message two."], [0, 42]);
+  assert.equal(blocks(short.panel).length, 2, "the two messages are not two blocks in one bubble");
+  assert.equal(gapOf(short.panel), true);
+  assert.equal(short.panel.classList.contains("more"), false, "two short messages with nothing hidden were cut");
+  assert.equal(short.context.answeredShade(short.panel), "0");
+  const { context, panel, clip } = sentShown(["Invented message one.", "Invented message two.", "Invented message three."], [0, 42, 84]);
+  assert.equal(blocks(panel).length, 3);
+  assert.equal(panel.classList.contains("more"), true, "a third message past the cut was not marked");
+  assert.equal(gapOf(panel), true);
+  assert.equal(cutOf(clip), 63);
+  assert.equal(context.answeredShade(panel), "1");
+  // and opened, it is the whole of them; cut back, it returns to three lines
+  panel.querySelector(".answclip").scrollHeight = 105;
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  panel.fire("click", { target: panel });
+  landRun(panel);
+  assert.deepEqual(clip.style.heights, ["63px", "105px", "105px", "63px"], "the fold did not run between the cut and the whole");
+  assert.equal(cutOf(clip), 63, "the cut back bubble lost its deeper cut");
+}));
+
+test("a second line with words on it keeps the cut at two lines, in one message or two", () => shown(() => {
+  const one = sentShown(["Invented line a\nInvented line b\n\nInvented line d"], [0, 21, 63]);
+  assert.equal(gapOf(one.panel), false);
+  assert.equal(cutOf(one.clip), 42);
+  const two = sentShown(["Invented a\nInvented b", "Invented c"], [0, 21, 63]);
+  assert.equal(gapOf(two.panel), false, "a first message of two lines was taken for a blank second line");
+  assert.equal(cutOf(two.clip), 42);
+  assert.equal(two.panel.classList.contains("more"), true);
+  // a picture under the first line stands across the second
+  const pic = sentShown(["Invented line a", "Invented caption"], [0, null]);
+  const img = element("img");
+  img.rect = { top: 21, bottom: 121 };
+  pic.panel.querySelectorAll(".answmsg")[1].appendChild(img);
+  pic.context.fitAnswered(pic.panel);
+  assert.equal(gapOf(pic.panel), false, "a picture on the second line was taken for blank");
+}));
+
+test("the cut that lands in blank still stops at the last line with text, on a blank second line too", () => shown(() => {
+  // a, a blank line, another blank line's worth of air, then the next words
+  const { panel, clip } = sentShown(["Invented line a\n\n\nInvented line d"], [0, 63]);
+  assert.equal(gapOf(panel), true);
+  assert.equal(panel.classList.contains("more"), true);
+  assert.equal(stopOf(panel), "21px", "the cut in blank did not stop at the foot of the line with text");
+  assert.equal(cutOf(clip), 21);
+}));
+
+test("the cut follows the words: a message coming into a bubble fits it again, and one not laid out keeps its cut", () => shown(() => {
+  const { context, el, panel, clip, lay } = sentShown(["Invented line a"], [0]);
+  assert.equal(panel.classList.contains("more"), false);
+  assert.equal(gapOf(panel), false, "a bubble of one line has a blank second line");
+  assert.equal(cutOf(clip), 21);
+  // a second message comes into the bubble, a blank line under the first: the
+  // bubble stands at three lines, whole, with nothing past them to cut
+  lay([0, 42]);
+  context.syncSent(el, context.sentBatch(["Invented line a", "Invented line c"]));
+  assert.equal(el.sent, panel, "the message did not come into the bubble");
+  assert.equal(gapOf(panel), true);
+  assert.equal(panel.classList.contains("more"), false, "a bubble with nothing past its third line was cut");
+  // a third message comes in and there is more than the three lines: it is cut at three
+  lay([0, 42, 84]);
+  context.syncSent(el, context.sentBatch(["Invented line a", "Invented line c", "Invented line e"]));
+  assert.equal(panel.classList.contains("more"), true, "the bubble was not cut for the message");
+  assert.equal(gapOf(panel), true);
+  assert.equal(cutOf(clip), 63);
+  // a bubble that is not laid out (its seat hidden) measures nothing and says nothing
+  sheetLine = 0;
+  assert.equal(context.fitAnswered(panel), false, "a bubble not laid out said it had changed");
+  assert.equal(gapOf(panel), true, "a bubble not laid out lost its deeper cut");
+  sheetLine = 21;
+  // and a first message of two lines, shown whole, which a second message cuts
+  // at two lines, its own second line having words on it
+  const two = sentShown(["Invented line a\nInvented line b"], [0, 21]);
+  assert.equal(two.panel.classList.contains("more"), false);
+  assert.equal(cutOf(two.clip), 42);
+  two.lay([0, 21, 63]);
+  two.context.syncSent(two.el, two.context.sentBatch(["Invented line a\nInvented line b", "Invented line c"]));
+  assert.equal(two.el.sent, two.panel, "the message did not come into the bubble");
+  assert.equal(two.panel.classList.contains("more"), true);
+  assert.equal(gapOf(two.panel), false, "a second line with words on it deepened the cut");
+  assert.equal(cutOf(two.clip), 42);
+}));
+
+test("the phone's line is not a whole number of points, and the cut still stands where it should", () => shown(() => {
+  const line = 21 * .9;
+  const lines = n => Array.from({ length: n }, (_, i) => i * line);
+  // three lines: the cut stands under the second, which is shown whole
+  const three = sentShown(["Invented a\nInvented b\nInvented c"], lines(3), { line });
+  assert.equal(three.panel.classList.contains("more"), true);
+  assert.equal(stopOf(three.panel), "", "the second line was taken for blank (cut " + cutOf(three.clip) + ")");
+  assert.equal(cutOf(three.clip), Math.round(line * 2));
+  // a blank second line: the cut stands under the third
+  const gap = sentShown(["Invented a\n\nInvented c\nInvented d"], [0, 2 * line, 3 * line], { line });
+  assert.equal(gapOf(gap.panel), true);
+  assert.equal(gap.panel.classList.contains("more"), true);
+  assert.equal(stopOf(gap.panel), "", "the third line was taken for blank (cut " + cutOf(gap.clip) + ")");
+  assert.equal(cutOf(gap.clip), Math.round(line * 3));
+  // two lines still whole
+  const two = sentShown(["Invented a\nInvented b"], lines(2), { line });
+  assert.equal(two.panel.classList.contains("more"), false);
+  assert.equal(stopOf(two.panel), "");
+  assert.equal(cutOf(two.clip), Math.round(2 * line));
+}));
+
+test("a send is measured as it is drawn, so it lands on the preview it will keep", () => shown(() => {
+  for (const [what, words, tops, cut, gap, more] of [
+    ["one line", ["Invented one."], [0], 21, false, false],
+    ["two lines", ["Invented a\nInvented b"], [0, 21], 42, false, false],
+    ["three lines", ["Invented a\nInvented b\nInvented c"], [0, 21, 42], 42, false, true],
+    ["a blank second line", ["Invented a\n\nInvented c\nInvented d"], [0, 42, 63], 63, true, true],
+  ]) {
+    // the bubble has not been looked at again since the send drew it
+    const { context, panel, clip } = sentShown(words, tops, { arrive: true });
+    assert.equal(panel.classList.contains("arrive"), true, `${what}: the send did not come in as a send`);
+    assert.equal(panel.classList.contains("more"), more, `${what}: the bubble was drawn before it was fitted`);
+    assert.equal(gapOf(panel), gap, `${what}: the bubble was drawn before it was fitted`);
+    assert.equal(cutOf(clip), cut, `${what}: the landing height is not the preview's`);
+    // looking again changes nothing, so nothing moves after the landing
+    assert.equal(context.fitAnswered(panel), false, `${what}: the bubble moved after it landed`);
+    assert.equal(cutOf(clip), cut);
+  }
+  // a send standing in a bubble of its own beside the bubble before it, each of
+  // one line and whole, and the two coming together: the joined bubble is fitted
+  // as it is joined, to three lines
+  const { context, el, panel, clip } = sentShown(["Invented first."], [0, 42, 63]);
+  context.syncSent(el, [{ text: "Invented first." }, { text: "Invented second.\nInvented more.", stage: "local" }], true);
+  const [a, b] = context.sentPanels(el);
+  assert.equal(a, panel);
+  assert.ok(b && b !== a, "the send has no bubble of its own");
+  assert.equal(cutOf(a.querySelector(".answclip")), 21, "a bubble of one line was cut");
+  assert.equal(b.classList.contains("more"), false, "a send of two lines was cut");
+  context.sentJoin(el, a, b);
+  assert.equal(context.sentPanels(el).length, 1, "the two bubbles did not become one");
+  assert.equal(context.sentPanels(el)[0], a);
+  assert.equal(gapOf(a), true, "the joined bubble was not fitted as it joined");
+  assert.equal(a.classList.contains("more"), true);
+  assert.equal(cutOf(clip), 63, "the joined bubble does not stand at three lines");
+  // and the same two when they are on screen together at once, as a reading of
+  // the board brings them: the one bubble is fitted as it is drawn
+  const read = sentShown(["Invented first.", "Invented second.\nInvented more."], [0, 42, 63]);
+  assert.equal(read.context.sentPanels(read.el).length, 1, "a reading of two messages drew two bubbles");
+  assert.equal(cutOf(read.clip), 63);
+}));
+
+// ---- the same rule on the panel over the answer ------------------------------------------
+// the owner's messages shown there once the reply has answered them are cut the way
+// the sent bubbles are: whole to two lines, cut at two lines past them, or at
+// three with a blank second line, the dissolve over the last line shown, and opened
+// they show everything
+test("the panel over the answer shows one line whole, with no cut, strip or fade", () => shown(() => {
+  const { context, panel, clip } = answeredShown(["Invented one line."], [0]);
+  assert.equal(panel.classList.contains("sent"), false, "the stand-in drew a sent bubble");
+  assert.equal(panel.classList.contains("more"), false, "one line was taken for a long batch");
+  assert.equal(gapOf(panel), false);
+  assert.equal(stopOf(panel), "21px", "the panel does not stand as tall as its line");
+  assert.equal(cutOf(clip), 21);
+  assert.equal(context.answeredShade(panel), "0", "one line dissolves");
+  panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("open"), false, "one line took a press");
+}));
+
+test("the panel over the answer shows two lines whole, with no fade through the third", () => shown(() => {
+  const { context, panel, clip } = answeredShown(["Invented line a\nInvented line b"], [0, 21]);
+  assert.equal(panel.classList.contains("more"), false, "two lines were taken for a long batch");
+  assert.equal(gapOf(panel), false);
+  assert.equal(stopOf(panel), "", "the sheet's cut is the foot of the second line, and needs no stop");
+  assert.equal(cutOf(clip), 42, "the second line is cut");
+  assert.equal(context.answeredShade(panel), "0", "two lines dissolve");
+  panel.fire("click", { target: panel });
+  assert.equal(panel.classList.contains("open"), false, "two lines took a press");
+  // the same two lines when the browser wrapped one paragraph onto them
+  const wrapped = answeredShown(["Invented words that run on past the width of the panel and wrap."], [[0, 21]]);
+  assert.equal(wrapped.panel.classList.contains("more"), false, "two wrapped lines were taken for a long batch");
+  assert.equal(cutOf(wrapped.clip), 42);
+}));
+
+test("the panel over the answer is cut at two lines past two, and dissolves over the second", () => shown(() => {
+  const words = ["Invented line a\nInvented line b\nInvented line c"];
+  for (const [what, texts, tops] of [
+    ["three lines", words, [0, 21, 42]],
+    ["six lines", ["a\nb\nc\nd\ne\nf"], [0, 21, 42, 63, 84, 105]],
+    ["three wrapped lines", ["Invented words that run on and wrap onto a third line."], [[0, 21, 42]]],
+  ]) {
+    const { context, panel, clip } = answeredShown(texts, tops);
+    assert.equal(panel.classList.contains("more"), true, `${what}: the text past the cut was not marked`);
+    assert.equal(gapOf(panel), false, `${what}: the cut was deepened`);
+    assert.equal(stopOf(panel), "", `${what}: the cut was stopped short`);
+    assert.equal(cutOf(clip), 42, `${what}: the cut is not two lines`);
+    assert.equal(context.answeredShade(panel), "1", `${what}: the cut does not dissolve`);
+    assert.equal(context.fitAnswered(panel), false, `${what}: a second look changed the panel`);
+  }
+}));
+
+test("the panel over the answer is cut at three lines when its second line is blank, and whole when nothing is past them", () => shown(() => {
+  // a paragraph break after the first line, then one message joined to another
+  for (const [what, texts, tops] of [
+    ["a paragraph break", ["Invented line a\n\nInvented line c\nInvented line d"], [0, 42, 63]],
+    ["two short messages and a third", ["Invented message one.", "Invented message two.", "Invented message three."], [0, 42, 84]],
+  ]) {
+    const { context, panel, clip } = answeredShown(texts, tops);
+    assert.equal(panel.classList.contains("more"), true, `${what}: the text past the cut was not marked`);
+    assert.equal(gapOf(panel), true, `${what}: a blank second line did not deepen the cut`);
+    assert.equal(stopOf(panel), "", `${what}: the deeper cut was stopped short`);
+    assert.equal(cutOf(clip), 63, `${what}: the cut is not three lines`);
+    assert.equal(context.answeredShade(panel), "1", `${what}: the deeper cut does not dissolve`);
+    assert.equal(context.fitAnswered(panel), false, `${what}: a second look changed the panel`);
+  }
+  // three lines with nothing past them are shown whole: nothing is hidden
+  for (const texts of [["Invented line a\n\nInvented line c"], ["Invented message one.", "Invented message two."]]) {
+    const whole = answeredShown(texts, [0, 42]);
+    assert.equal(gapOf(whole.panel), true);
+    assert.equal(whole.panel.classList.contains("more"), false, "three lines with nothing past them were cut");
+    assert.equal(whole.context.answeredShade(whole.panel), "0");
+  }
+  // two messages are two blocks of one panel
+  assert.equal(blocks(answeredShown(["Invented one.", "Invented two."], [0, 42]).panel).length, 2);
+}));
+
+test("the panel over the answer opens to everything and cuts back to its preview, a deeper one too", () => shown(() => {
+  for (const [what, texts, tops, whole, cut] of [
+    ["two lines", ["Invented a\nInvented b\nInvented c"], [0, 21, 42], 63, 42],
+    ["three lines", ["Invented message one.", "Invented message two.", "Invented message three."], [0, 42, 84], 105, 63],
+  ]) {
+    const { panel, clip } = answeredShown(texts, tops);
+    clip.scrollHeight = whole;
+    panel.fire("click", { target: panel });
+    landRun(panel);
+    assert.equal(panel.classList.contains("open"), true, `${what}: the press did not open the panel`);
+    assert.equal(cutOf(clip), whole, `${what}: the opened panel does not show everything`);
+    panel.fire("click", { target: panel });
+    landRun(panel);
+    assert.equal(panel.classList.contains("open"), false, `${what}: the second press did not cut it back`);
+    assert.deepEqual(clip.style.heights, [cut + "px", whole + "px", whole + "px", cut + "px"], `${what}: the fold did not run between the cut and the whole`);
+    assert.equal(cutOf(clip), cut, `${what}: the cut back panel lost its cut`);
+  }
+}));
+
+test("the panel over the answer keeps two lines when its second line has words, and a blank landing stops at the text", () => shown(() => {
+  const words = answeredShown(["Invented line a\nInvented line b\n\nInvented line d"], [0, 21, 63]);
+  assert.equal(gapOf(words.panel), false);
+  assert.equal(cutOf(words.clip), 42);
+  const first = answeredShown(["Invented a\nInvented b", "Invented c"], [0, 21, 63]);
+  assert.equal(gapOf(first.panel), false, "a first message of two lines was taken for a blank second line");
+  assert.equal(cutOf(first.clip), 42);
+  // a blank second line with another blank line's worth of air after it: the
+  // three line cut lands in blank, and stops at the foot of the text
+  const blank = answeredShown(["Invented line a\n\n\nInvented line d"], [0, 63]);
+  assert.equal(gapOf(blank.panel), true);
+  assert.equal(blank.panel.classList.contains("more"), true);
+  assert.equal(stopOf(blank.panel), "21px", "the cut in blank did not stop at the foot of the line with text");
+  assert.equal(cutOf(blank.clip), 21);
+  // a picture under the first line stands across the second
+  const pic = answeredShown(["Invented line a", "Invented caption"], [0, null]);
+  const img = element("img");
+  img.rect = { top: 21, bottom: 121 };
+  pic.panel.querySelectorAll(".answmsg")[1].appendChild(img);
+  pic.context.fitAnswered(pic.panel);
+  assert.equal(gapOf(pic.panel), false, "a picture on the second line was taken for blank");
+}));
+
+test("another reply's batch taken into the panel brings its own cut, and one not laid out keeps its cut", () => shown(() => {
+  const { context, el, panel, clip, redraw } = answeredShown(["Invented line a\n\nInvented line c\nInvented line d"], [0, 42, 63]);
+  assert.equal(gapOf(panel), true);
+  assert.equal(cutOf(clip), 63);
+  // the next reply's batch is three lines in a row: the deeper cut goes
+  redraw(["Invented a\nInvented b\nInvented c"], [0, 21, 42]);
+  assert.equal(el.answ, panel, "the next reply drew another panel");
+  assert.equal(gapOf(panel), false, "the deeper cut stayed on words with a second line");
+  assert.equal(panel.classList.contains("more"), true);
+  assert.equal(cutOf(clip), 42);
+  // and then one line: shown whole
+  redraw(["Invented line a"], [0]);
+  assert.equal(panel.classList.contains("more"), false);
+  assert.equal(cutOf(clip), 21);
+  // and then a blank second line again
+  redraw(["Invented one.", "Invented two.", "Invented three."], [0, 42, 84]);
+  assert.equal(gapOf(panel), true);
+  assert.equal(cutOf(clip), 63);
+  // a panel that is not laid out (its seat hidden) measures nothing and says nothing
+  sheetLine = 0;
+  assert.equal(context.fitAnswered(panel), false, "a panel not laid out said it had changed");
+  assert.equal(gapOf(panel), true, "a panel not laid out lost its deeper cut");
+}));
+
+test("the panel over the answer holds its cut on the phone's fractional line and on the small card's", () => shown(() => {
+  const line = 21 * .9;
+  const lines = n => Array.from({ length: n }, (_, i) => i * line);
+  // the cut stands under the second line, which is shown whole
+  const three = answeredShown(["Invented a\nInvented b\nInvented c"], lines(3), { line });
+  assert.equal(three.panel.classList.contains("more"), true);
+  assert.equal(stopOf(three.panel), "", "the second line was taken for blank (cut " + cutOf(three.clip) + ")");
+  assert.equal(cutOf(three.clip), Math.round(line * 2));
+  const gap = answeredShown(["Invented a\n\nInvented c\nInvented d"], [0, 2 * line, 3 * line], { line });
+  assert.equal(gapOf(gap.panel), true);
+  assert.equal(gap.panel.classList.contains("more"), true);
+  assert.equal(stopOf(gap.panel), "", "the third line was taken for blank (cut " + cutOf(gap.clip) + ")");
+  assert.equal(cutOf(gap.clip), Math.round(line * 3));
+  const two = answeredShown(["Invented a\nInvented b"], lines(2), { line });
+  assert.equal(two.panel.classList.contains("more"), false);
+  // the small card draws the same panel on its own 17px line, and tells nobody
+  const mini = (texts, tops) => answeredShown(texts, tops, { line: 17, mini: true });
+  const small = mini(["Invented a\nInvented b\nInvented c"], [0, 17, 34]);
+  assert.equal(small.panel.classList.contains("more"), true);
+  assert.equal(cutOf(small.clip), 17 * 2);
+  const smallGap = mini(["Invented a\n\nInvented c\nInvented d"], [0, 34, 51]);
+  assert.equal(gapOf(smallGap.panel), true);
+  assert.equal(cutOf(smallGap.clip), 17 * 3);
+  const smallTwo = mini(["Invented a\nInvented b"], [0, 17]);
+  assert.equal(smallTwo.panel.classList.contains("more"), false);
+  assert.equal(stopOf(smallTwo.panel), "");
+  assert.equal(cutOf(smallTwo.clip), 34);
+}));
+
+test("a batch is cut the same in the panel over the answer and in a sent bubble", () => shown(() => {
+  for (const [what, texts, tops] of [
+    ["one line", ["Invented one."], [0]],
+    ["two lines", ["Invented a\nInvented b"], [0, 21]],
+    ["three lines", ["Invented a\nInvented b\nInvented c"], [0, 21, 42]],
+    ["a blank second line", ["Invented a\n\nInvented c"], [0, 42]],
+    ["a blank second line and a fourth", ["Invented a\n\nInvented c\nInvented d"], [0, 42, 63]],
+    ["two messages", ["Invented first.", "Invented second."], [0, 42]],
+    ["three messages", ["Invented first.", "Invented second.", "Invented third."], [0, 42, 84]],
+    ["a first message of two lines", ["Invented a\nInvented b", "Invented c"], [0, 21, 63]],
+  ]) {
+    const over = answeredShown(texts, tops);
+    const sent = sentShown(texts, tops);
+    assert.equal(cutOf(over.clip), cutOf(sent.clip), `${what}: the two are not cut at one height`);
+    for (const name of ["more", "gap"])
+      assert.equal(over.panel.classList.contains(name), sent.panel.classList.contains(name), `${what}: ${name} differs`);
+    assert.equal(stopOf(over.panel), stopOf(sent.panel), `${what}: the two do not stop alike`);
+    assert.equal(over.context.answeredShade(over.panel), sent.context.answeredShade(sent.panel), `${what}: the dissolve differs`);
+  }
+}));
+
 test("a line of text through the cut keeps the cut, and so does a picture", () => {
   const { context } = sandbox();
   const el = card("c1");
@@ -844,7 +1324,7 @@ test("the small card draws the same panel and tells nobody when it opens", () =>
   // and the page hands it the very same pass, with nobody to tell, and seats
   // the sent panel between its reply and its row
   assert.match(DESKTOP, /syncAnswered\(el, liveAnswered\(b\), null\);/);
-  assert.match(DESKTOP, /box\.append\(sun, arc, x, title, answwrap, reply, sentwrap, compose\);/);
+  assert.match(DESKTOP, /box\.append\(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose\);/);
 });
 
 test("nothing opens by itself: the clock, the stored word and the visit guard are gone", () => {
@@ -899,16 +1379,35 @@ test("the sheet draws one grey panel with no frame, a blank line between message
   assert.match(panel, /font:var\(--answ-font\)/);
   assert.ok(!/border:|box-shadow|outline/.test(panel), "the panel wears a frame or a shade");
   assert.match(rule(TOKENS, ".answclip"), /max-height:var\(--answ-stop, var\(--answ-peek\)\); overflow:hidden/,
-    "the cut does not take the script's stop before the surface's preview");
+    "the cut does not take the script's stop before the sheet's preview");
+  // the preview is the sheet's own, for the panel over the answer and the sent
+  // bubbles alike, counted in the surface's own line on every surface: two
+  // lines, the second shown whole and dissolving over its whole line, and three
+  // when the second line is blank (the script sets .gap), the third dissolving.
+  // no surface and no panel types another
+  assert.match(panel, /--answ-peek:calc\(var\(--answ-line\) \* 2\); --answ-fade:var\(--answ-line\)/,
+    "the panel's preview is not two lines dissolving over the second");
+  assert.ok(rules(TOKENS, ".answered.gap").some(one => /--answ-peek:calc\(var\(--answ-line\) \* 3\)/.test(one)),
+    "a panel with a blank second line is not cut at three lines");
+  assert.ok(!/--sent-peek/.test(TOKENS + DESKTOP + PHONE + LOGIC), "a sent preview of its own is still in the sources");
+  assert.ok(!rules(TOKENS, ".answered.sent").some(one => /--answ-(?:peek|fade)/.test(one)),
+    "the sent bubbles are given a preview other than the panel's");
+  assert.ok(!/--answ-(?:peek|fade):/.test(DESKTOP + PHONE), "a page types a preview of its own");
   assert.match(rule(TOKENS, ".answered.open .answclip"), /max-height:none/);
   // the dissolve: a strip of the panel's own grey, the surface's own depth,
   // laid over the foot of the cut and whole only while a long batch stands cut
   const strip = rule(TOKENS, ".answclip::after");
   assert.match(strip, /position:absolute; left:0; right:0; bottom:0; height:var\(--answ-fade\);/,
     "the dissolve is not a strip the surface's own depth over the foot of the cut");
-  assert.match(strip, /background:linear-gradient\(to bottom, transparent, var\(--answ-fill\)\);/,
-    "the dissolve is not the panel's own grey");
   assert.match(strip, /opacity:var\(--answ-shade\)/, "the strip's strength is not the one the run holds");
+  // its grey, shared with the merge's still foot: the panel's own, coming in
+  // straight from nothing at the top of the line, where its letters are whole,
+  // to the whole grey at its foot, with no stop written out between: the plain
+  // reading of a fade that gets steadily stronger down the line
+  const fuzz = rule(TOKENS, ".answclip::after, .sentgoo-fuzz");
+  assert.match(fuzz, /background:linear-gradient\(to bottom, transparent, var\(--answ-fill\)\);/,
+    "the fuzz is not a straight run from nothing to the panel's own grey");
+  assert.ok(!/color-mix/.test(fuzz), "the fuzz is bent by stops between its ends");
   assert.match(rule(TOKENS, ".answclip"), /position:relative;.*--answ-shade:0/);
   assert.match(rule(TOKENS, ".answered.more:not(.open) .answclip"), /--answ-shade:1/,
     "a cut batch does not dissolve");
@@ -969,7 +1468,7 @@ test("the sheet runs the fold on the old box's length and curve, turns the arrow
 
 test("each surface types the panel's measures and seats it in the answer's column", () => {
   const measures = ["--answ-font", "--answ-line", "--answ-pad-y", "--answ-pad-x", "--answ-round",
-    "--answ-peek", "--answ-fade", "--answ-strip"];
+    "--answ-strip"];
   for (const [where, css, selector] of [["the desktop card", DESKTOP, "  body.focus .box.sel"],
       ["the small card", DESKTOP, "  #magic2 .mbox"], ["the phone card", PHONE, "  .box"]]) {
     const at = css.indexOf("\n" + selector + "{\n    --answ-font:");
@@ -977,11 +1476,8 @@ test("each surface types the panel's measures and seats it in the answer's colum
     const body = css.slice(at, css.indexOf("}", at));
     for (const name of measures) assert.ok(body.includes(name + ":"), `${where} leaves ${name} unset`);
     assert.match(body, /var\(--inter\)/, `${where} does not set the panel in the title's face`);
-    // the cut and its dissolve are counted in the surface's own line
-    const line = String(designLength(body, "--answ-line"));
-    for (const name of ["--answ-peek", "--answ-fade"])
-      assert.match(body, new RegExp(name + ":calc\\(" + line.replace(".", "\\.") + "(?:px| \\* var\\(--u\\)) \\* "),
-        `${where}'s ${name} is not counted in its own ${line}px line`);
+    // the cut and its dissolve are the sheet's, counted in the surface's own line
+    assert.ok(!/--answ-(?:peek|fade)/.test(body), `${where} types a preview of its own`);
   }
   // the large card's seat stands in the answer's own column on both pages
   const column = "padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);";
@@ -1016,7 +1512,7 @@ function fullCard(id) {
 }
 const SENT = ["Invented first sent message.", "Invented second sent message with **emphasis**."];
 
-test("a send lands its message in the same panel at the card's foot, cut to its preview", () => {
+test("a send lands its message in a bubble of its own at the card's foot, cut to its preview", () => {
   const { context, counts, pending, ring } = sandbox();
   const el = fullCard("c1");
   el.sentRoom = context.roomSpy;
@@ -1040,7 +1536,7 @@ test("a send lands its message in the same panel at the card's foot, cut to its 
   assert.equal(panel.classList.contains("open"), false, "a send landed the panel open");
   assert.equal(counts.rooms, 1, "the card was not told the panel took its room");
   // the arrival is a dress the clock takes off again
-  assert.equal(pending().at(-1).ms, 320, "the arrival is not the sheet's own length");
+  assert.equal(pending().at(-1).ms, 460, "the arrival is not the sheet's own length");
   ring();
   assert.equal(panel.classList.contains("arrive"), false, "the arrival's dress stayed on");
   // the same list again touches no dom at all
@@ -1048,22 +1544,27 @@ test("a send lands its message in the same panel at the card's foot, cut to its 
   context.syncSent(el, context.sentBatch(SENT.slice(0, 1)));
   assert.ok(all(panel).every((node, i) => node === kids[i]), "a pass with the same list redrew the panel");
   assert.equal(counts.rooms, 1);
-  // a second send: the message already there is kept as it stands, and only
-  // the new one comes in
+  // a second send, while the first stands Delivered and the new one is still
+  // on its way: the bubble standing is kept as it stands, and the new message
+  // comes in under it, in a bubble of its own, the way the first came in
+  context.syncSent(el, [{ text: SENT[0], stage: "sent" }]);
   const first = panel.querySelector(".answmsg");
-  context.syncSent(el, context.sentBatch(SENT), true);
-  const now = panel.querySelector(".answstack").children;
-  assert.equal(now.length, 2);
-  assert.equal(now[0], first, "a send drew the message above it again");
-  assert.equal(now[0].classList.contains("arrive"), false, "the message already there came in again");
-  assert.equal(now[1].classList.contains("arrive"), true, "the new message did not come in");
+  context.syncSent(el, [{ text: SENT[0], stage: "sent" }, { text: SENT[1], stage: "local" }], true);
+  assert.deepEqual(panel.querySelector(".answstack").children, [first], "a send drew into the bubble above it");
+  assert.equal(first.classList.contains("arrive"), false, "the message already there came in again");
+  const bubbles = context.sentPanels(el);
+  assert.equal(bubbles.length, 2, "the new message has no bubble of its own");
+  assert.equal(bubbles[0], panel, "the bubble standing moved in the seat");
+  assert.equal(el.sent, bubbles[1], "the newest bubble is not the one at the foot");
+  assert.equal(bubbles[1].classList.contains("arrive"), true, "the new bubble did not come in");
+  assert.deepEqual(blocks(bubbles[1]).map(one => one.html), [markdown.render(SENT[1])]);
   assert.equal(panel.classList.contains("open"), false, "a send left the panel open");
-  // the answer lands, the board's list empties, and the panel goes with it
-  const watch = FakeResizeObserver.made[0];
+  // the answer lands, the board's list empties, and every bubble goes with it
+  const watches = FakeResizeObserver.made.slice(0, 2);
   context.syncSent(el, context.sentBatch([]));
   assert.equal(el.sent, null, "the panel outlived the list it was drawn from");
   assert.equal(el.sentwrap.children.length, 0);
-  assert.equal(watch.live, false, "the panel's size watch outlived the panel");
+  assert.ok(watches.every(watch => !watch.live), "a bubble's size watch outlived the bubble");
 });
 
 test("the sent panel opens on the same arrow and run, and a send cuts it back on that run", () => {
@@ -1082,16 +1583,24 @@ test("the sent panel opens on the same arrow and run, and a send cuts it back on
   landRun(panel);
   clip.style.heights.length = 0;
   const rooms = counts.rooms;
-  // a send while it stands open: the message goes in and the panel is cut back
-  // to its preview on the fold's own run, from where it stood
+  // a send while it stands open: the message comes in under it in a bubble of
+  // its own, and the open one is cut back to its preview on the fold's own run,
+  // from where it stood
   context.syncSent(el, context.sentBatch([...texts, "Invented message sent while it stood open."]), true);
   assert.equal(panel.classList.contains("open"), false, "a send left the panel standing open");
   assert.equal(panel.classList.contains("motion"), true, "the send cut the panel back without the fold's run");
   assert.deepEqual(clip.style.heights, ["240px", "58px"], "the cut back did not run from where the panel stood");
-  assert.equal(blocks(panel).length, 4, "the message did not go into the panel it cut back");
-  assert.equal(counts.rooms, rooms, "the card was told on the run's first frame");
+  assert.equal(blocks(panel).length, 3, "the message went into the panel it cut back");
+  assert.equal(context.sentPanels(el).length, 2, "the message has no bubble of its own");
+  // the card is told the new bubble took its room, and again once the run on
+  // the other has landed
+  assert.equal(counts.rooms, rooms + 1, "the card was not told the new bubble took its room");
   landRun(panel);
-  assert.equal(counts.rooms, rooms + 1, "the card was not told once the panel had landed");
+  assert.ok(counts.rooms >= rooms + 2, "the card was not told once the panel had landed");
+  // the two stand in one place (a board too old to say), and with the seat not
+  // laid out they become one at once once the run has landed
+  assert.equal(context.sentPanels(el).length, 1, "two bubbles standing in one place stayed apart");
+  assert.equal(blocks(panel).length, 4);
   // a reading that brings a message sent somewhere else is no arrival: a panel
   // the reader opened stays open
   panel.fire("click", { target: panel });
@@ -1100,32 +1609,33 @@ test("the sent panel opens on the same arrow and run, and a send cuts it back on
   assert.equal(panel.classList.contains("open"), true, "a reading cut the reader's open panel back");
   assert.equal(panel.classList.contains("motion"), false);
   assert.equal(blocks(panel).length, 5);
-  assert.equal(run("SENT_ARRIVE_MS"), 260, "the arrival is not the sheet's --answ-come");
+  assert.equal(run("SENT_ARRIVE_MS"), 400, "the arrival is not the sheet's --answ-come");
 });
 
-test("the band over the answer holds still while the sent panel runs", () => {
+test("the band over the answer follows the sent panel on every frame it runs, opening and cut back", () => {
+  // held at one end of the run, the answer's fade jumped up once the panel
+  // stood open and down as a cut back set off
   const { context } = sandbox();
   const el = fullCard("c1");
   context.syncSent(el, context.sentBatch(LIVE.map(m => m.text)));
   const panel = el.sent;
   const clip = layOutLong(panel, FakeResizeObserver.made[0]);
-  assert.equal(context.sentBand(el, 300), 300, "a panel at rest held the band");
-  // opening, 58px to 240px: the band stays where it stood before the run
+  assert.equal(context.sentBand(el, 118), 118, "a panel at rest held the band");
+  // opening, 58px to 240px
   panel.fire("click", { target: panel });
   clip.midRun = 100;
-  assert.equal(context.sentBand(el, 160), 118, "the opening run did not hold the band at its start");
+  assert.equal(context.sentBand(el, 160), 160, "the band did not follow the opening panel");
   clip.midRun = 180;
-  assert.equal(context.sentBand(el, 240), 118, "the band followed the panel on a frame of the run");
+  assert.equal(context.sentBand(el, 240), 240, "the band did not follow the opening panel");
   clip.midRun = null;
   landRun(panel);
-  assert.equal(context.sentBand(el, 300), 300, "the band stayed held once the run had landed");
-  // cutting back, 240px to 58px: the band goes to the far end at the start, so
-  // the words under the seat are back before it comes down over them
+  assert.equal(context.sentBand(el, 300), 300, "the band is not the open panel's once the run has landed");
+  // cutting back, 240px to 58px
   panel.fire("click", { target: panel });
   clip.midRun = 240;
-  assert.equal(context.sentBand(el, 300), 118, "cutting back did not put the band at its far end at once");
+  assert.equal(context.sentBand(el, 300), 300, "the band left the panel as the cut back set off");
   clip.midRun = 120;
-  assert.equal(context.sentBand(el, 180), 118);
+  assert.equal(context.sentBand(el, 180), 180, "the band did not follow the panel coming down");
   clip.midRun = null;
   // and a card with no sent panel is simply measured
   assert.equal(context.sentBand(fullCard("c2"), 77), 77);
@@ -1411,7 +1921,7 @@ test("every new motion is a transform or a fade, and nothing in a run is a mask"
   // is the room for the mark and the panel's grey: a panel cut back is never held
   // down by a margin that grows, its head stays where it is
   const transitions = [...part.matchAll(/transition:([^;}]+)/g)].map(m => m[1].trim());
-  for (const t of transitions)
+  for (const t of transitions.filter(t => !t.startsWith("none")))
     for (const one of t.split(","))
       assert.ok(/^(height|opacity|transform|margin-bottom|--answ-fill) /.test(one.trim()), `a run moves something other than height, strength or a transform: ${one}`);
   assert.equal(transitions.filter(t => t.startsWith("height")).length, 1, "a new run changes a height");
@@ -1427,7 +1937,7 @@ test("every new motion is a transform or a fade, and nothing in a run is a mask"
     const props = [...block.matchAll(/([a-z-]+):/g)].map(m => m[1]);
     assert.deepEqual([...new Set(props)].sort(), ["opacity", "transform"], `${name} moves more than strength and a transform`);
   }
-  assert.match(rule(TOKENS, ".answered.arrive, .answmsg.arrive"), /animation:answarrive var\(--answ-come\) var\(--gentle\)/);
+  assert.match(rule(TOKENS, ".answered.arrive, .answmsg.arrive"), /animation:answarrive var\(--answ-come\) var\(--sent-ease\)/);
   assert.match(rule(TOKENS, ".turnpage.gliding"), /transition:transform var\(--turn-glide\) var\(--gentle\)/);
   assert.match(rule(TOKENS, ".turnpage"), /will-change:transform/, "the picture is not on a layer of its own");
   assert.match(rule(TOKENS, ".printing > *"), /animation:cardprint var\(--print-move\) var\(--gentle\) backwards/);
@@ -1449,8 +1959,8 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
   for (const [where, text] of [["card-logic.js", LOGIC], ["card-tokens.css", TOKENS], ["index.html", DESKTOP], ["m.html", PHONE]])
     for (const name of retired)
       assert.ok(!text.includes(name), `${where} still carries the old sent box's ${name}`);
-  // the phone's file tray sits between the sent panel and the row
-  for (const [where, text, foot] of [["the desktop", DESKTOP, "meta, sentwrap, bottombar"],
+  // the file tray sits between the sent panel and the row, on both pages
+  for (const [where, text, foot] of [["the desktop", DESKTOP, "meta, sentwrap, tray, bottombar"],
     ["the phone", PHONE, "meta, sentwrap, tray, bottombar"]]) {
     assert.match(text, /const sentwrap = h\("div", "sentwrap"\);/, `${where} builds no seat for the sent panel`);
     assert.ok(text.includes(`pendwrap.append(${foot});`), `${where} does not seat it over the row`);
@@ -1547,25 +2057,37 @@ test("the sent panel reads the board's own record: faded until the board has it,
   assert.equal(panel.querySelector(".answmark"), null, "a message still on its way carries a mark");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply");
   // the board saved it: full ink, and Delivered under the panel. a message sent
-  // after it waits faded on its own, and the panel's grey is back
+  // after it, from somewhere else, that the board has not saved stands faded in
+  // a bubble of its own, since the two stand in different places
   const first = panel.querySelector(".answmsg");
   const rooms = counts.rooms;
   context.syncSent(el, [{ text: "Invented one.", stage: "sent" }, { text: "Invented two.", stage: "local" }]);
   assert.equal(panel.querySelector(".answmsg"), first, "a change of stage drew the message again");
   assert.equal(panel.classList.contains("undelivered"), false, "the panel stayed faded with a message saved");
-  assert.deepEqual(stagesOf(panel), [false, true], "the message not yet saved is not faded on its own");
+  assert.deepEqual(stagesOf(panel), [false]);
   assert.equal(panel.dataset.tag, "Delivered");
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, delivered");
+  const later = context.sentPanels(el)[1];
+  assert.ok(later && later !== panel, "a message standing somewhere else joined the Delivered bubble");
+  assert.deepEqual(stagesOf(later), [true], "the message not yet saved is not faded on its own");
+  assert.equal(later.dataset.tag, undefined, "a message not yet saved carries a word");
   assert.ok(counts.rooms > rooms, "the card was not told the mark took its room");
   // an agent picked it up, its listener confirmed the claim: Read, at full ink
   context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
   assert.equal(panel.dataset.tag, "Read", "a message an agent picked up was not called read");
   assert.deepEqual(stagesOf(panel), [false]);
   assert.equal(panel.getAttribute("aria-label"), "your messages waiting for a reply, read");
-  // the mark names the newest message that has got anywhere
+  assert.equal(context.sentPanels(el).length, 1, "the bubble whose message went stayed");
+  // each bubble names where its newest message stands: Read over Delivered
+  // stays two bubbles, each with its own word
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "sent" }]);
-  assert.equal(panel.dataset.tag, "Delivered", "a later message only saved was called read");
+  const [readOne, savedTwo] = context.sentPanels(el);
+  assert.equal(readOne.dataset.tag, "Read", "the earlier message lost its Read");
+  assert.equal(savedTwo && savedTwo.dataset.tag, "Delivered", "a later message only saved was called read");
+  // once both are read they are one bubble saying Read
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "delivered" }]);
+  assert.equal(context.sentPanels(el).length, 1, "two bubbles both read stayed apart");
+  assert.equal(el.sent, panel);
   assert.equal(panel.dataset.tag, "Read");
   context.syncSent(el, [{ text: "Invented one.", stage: "read" }, { text: "Invented two.", stage: "read" }]);
   assert.equal(panel.dataset.tag, "Read");
@@ -1598,7 +2120,7 @@ test("the sent panel reads the board's own record: faded until the board has it,
 // the two classes the sheet draws the run by
 const markOf = panel => [panel.dataset.tag, panel.dataset.mark, panel.classList.contains("markin"), panel.classList.contains("markout")];
 
-test("a mark comes in on a panel that is standing, and the card is told of its room once the run has landed", () => {
+test("a mark comes in on a panel that is standing without changing its reserved room", () => {
   const { context, counts, run, pending, ringFor } = sandbox();
   const el = fullCard("c1");
   el.sentRoom = context.roomSpy;
@@ -1606,19 +2128,19 @@ test("a mark comes in on a panel that is standing, and the card is told of its r
   const panel = el.sent;
   panel.isConnected = true;
   assert.deepEqual(markOf(panel), [undefined, undefined, false, false]);
-  assert.equal(run("MARK_IN_MS"), 330, "the mark does not come in over the fold's run");
-  assert.equal(run("MARK_OUT_MS"), 165, "the mark does not go out over half of it");
+  assert.equal(run("MARK_IN_MS"), 400, "the mark does not come in over the send's run");
+  assert.equal(run("MARK_OUT_MS"), 200, "the mark does not go out over half of it");
   // saved by the board: the word is on show and comes in at once, over the run
   context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
   assert.deepEqual(markOf(panel), ["Delivered", "Delivered", true, false], "the mark did not come in");
-  assert.ok(pending().some(t => t.ms === 350), "no clock ends the mark's run");
-  // the room's own run ends with the mark's: the card is told once, after
+  assert.ok(pending().some(t => t.ms === 420), "no clock ends the mark's run");
+  // The reserved room stays constant when the mark finishes painting.
   const rooms = counts.rooms;
-  ringFor(350);
+  ringFor(420);
   assert.equal(panel.classList.contains("markin"), false, "the mark's dress outlived its run");
-  assert.equal(counts.rooms, rooms + 1, "the card was not told once the room had opened");
+  assert.equal(counts.rooms, rooms, "a receipt changed the reserved room");
   // the same word again does nothing
-  const runs = () => pending().filter(t => t.ms === 165 || t.ms === 350).length;
+  const runs = () => pending().filter(t => t.ms === 200 || t.ms === 420).length;
   const armed = runs();
   context.syncSent(el, [{ text: "Invented one.", stage: "sent" }, { text: "Invented two.", stage: "local" }]);
   assert.deepEqual(markOf(panel), ["Delivered", "Delivered", false, false], "the same word ran again");
@@ -1634,25 +2156,25 @@ test("a mark giving way to the next goes out, is swapped while it is not seen, a
   const panel = el.sent;
   panel.isConnected = true;
   assert.deepEqual(markOf(panel), ["Delivered", "Delivered", false, false], "a panel drawn marked ran a mark in");
-  assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a panel drawn marked armed a run");
+  assert.ok(!pending().some(t => t.ms === 200 || t.ms === 420), "a panel drawn marked armed a run");
   // an agent picked it up: the record says Read at once, and the word on show is
   // still the old one while it fades out
   context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
   assert.deepEqual(markOf(panel), ["Read", "Delivered", false, true], "the old word was not faded out first");
   const rooms = counts.rooms;
-  ringFor(165);
+  ringFor(200);
   assert.deepEqual(markOf(panel), ["Read", "Read", true, false], "the new word did not come in when the old had gone");
-  ringFor(350);
+  ringFor(420);
   assert.deepEqual(markOf(panel), ["Read", "Read", false, false]);
   assert.equal(counts.rooms, rooms, "a word for a word moved the room");
-  // a word that goes with none after it: faded out, then the room closes with it
+  // A word that goes with none after it fades out, keeping its reserved room.
   context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
   assert.deepEqual(markOf(panel), [undefined, "Read", false, true]);
   const closing = counts.rooms;
-  ringFor(165);
+  ringFor(200);
   assert.deepEqual(markOf(panel), [undefined, undefined, false, false], "a word with nothing after it was left on show");
-  ringFor(350);
-  assert.equal(counts.rooms, closing + 1, "the card was not told the room closed");
+  ringFor(420);
+  assert.equal(counts.rooms, closing, "removing the mark changed the reserved room");
 });
 
 test("a change that lands while a mark is going out is not started again, and the last word is the one that lands", () => {
@@ -1661,13 +2183,13 @@ test("a change that lands while a mark is going out is not started again, and th
   context.syncSent(el, [{ text: "Invented one.", stage: "sent" }], true);
   const panel = el.sent;
   context.syncSent(el, [{ text: "Invented one.", stage: "delivered" }]);
-  assert.equal(pending().filter(t => t.ms === 165).length, 1);
+  assert.equal(pending().filter(t => t.ms === 200).length, 1);
   // the record moves again before the swap: no second run is armed, and the word
   // that lands is the record's when the swap is made
   context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
-  assert.equal(pending().filter(t => t.ms === 165).length, 1, "a second fade out was armed");
+  assert.equal(pending().filter(t => t.ms === 200).length, 1, "a second fade out was armed");
   assert.deepEqual(markOf(panel), [undefined, "Delivered", false, true]);
-  ringFor(165);
+  ringFor(200);
   assert.deepEqual(markOf(panel), [undefined, undefined, false, false], "an old target was swapped in");
   // a word still coming in when the next change has swapped it again: the clock
   // of the run before leaves the dress of the run that is on
@@ -1675,10 +2197,10 @@ test("a change that lands while a mark is going out is not started again, and th
   const two = fullCard("c1");
   again.syncSent(two, [{ text: "Invented one.", stage: "sent" }], true);
   again.syncSent(two, [{ text: "Invented one.", stage: "delivered" }]);
-  letGo(165);
+  letGo(200);
   again.syncSent(two, [{ text: "Invented one.", stage: "sent" }]);
-  letGo(165);
-  const clocks = waiting().filter(t => t.ms === 350);
+  letGo(200);
+  const clocks = waiting().filter(t => t.ms === 420);
   assert.equal(clocks.length, 2, "each run has its own clock");
   clocks[0].fn();
   assert.equal(two.sent.classList.contains("markin"), true, "an older run's clock took the newer run's dress off");
@@ -1697,7 +2219,7 @@ test("a reader who asked for no motion, or a panel that was not standing, is giv
   assert.deepEqual(markOf(el.sent), ["Read", "Read", false, false], "the mark was swapped with a run against the setting");
   context.syncSent(el, [{ text: "Invented one.", stage: "local" }]);
   assert.deepEqual(markOf(el.sent), [undefined, undefined, false, false]);
-  assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a clock stands behind a mark that did not run");
+  assert.ok(!pending().some(t => t.ms === 200 || t.ms === 420), "a clock stands behind a mark that did not run");
   // the panel over an answer is drawn with no word, and a page that draws it again keeps it so
   const { context: live } = sandbox();
   const card = fullCard("c2");
@@ -1742,7 +2264,7 @@ test("the page turn fades the sent panel's word out on the way up and keeps its 
   assert.equal(old.classList.contains("markgone"), true, "the old panel's word does not fade out");
   assert.equal(old.classList.contains("kept"), true, "the old panel gave up the room under it");
   assert.equal(old.classList.contains("markout") || old.classList.contains("markin"), false, "the word swapped instead of fading");
-  assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "the fade ran as a swap, with the swap's clocks");
+  assert.ok(!pending().some(t => t.ms === 200 || t.ms === 420), "the fade ran as a swap, with the swap's clocks");
   // the new page's panel stands behind it with no word, in the same room
   const fresh = page.children[0].querySelector(".answered");
   assert.equal(fresh.dataset.mark, undefined, "the new page's panel carries a word");
@@ -1790,7 +2312,7 @@ test("a panel drawn with its reply already there shows no Read, and a message se
   assert.deepEqual(markOf(el.answ), [undefined, undefined, false, false], "a panel drawn with its reply says read");
   assert.equal(el.answ.classList.contains("markgone"), false, "a panel drawn with its reply fades a word");
   assert.equal(el.answ.classList.contains("kept"), true);
-  assert.ok(!pending().some(t => t.ms === 165 || t.ms === 350), "a clock stands behind a word that was never drawn");
+  assert.ok(!pending().some(t => t.ms === 200 || t.ms === 420), "a clock stands behind a word that was never drawn");
   // a message sent after that reply: Delivered, then Read, as ever, under its own panel
   context.syncSent(el, [{ text: "Invented later message.", stage: "sent" }], true);
   assert.deepEqual(markOf(el.sent), ["Delivered", "Delivered", false, false], "a message after the reply lost Delivered");
@@ -1804,7 +2326,7 @@ test("a panel drawn with its reply already there shows no Read, and a message se
   assert.equal(old.answ.dataset.mark, undefined, "an older page says read");
 });
 
-test("both pages draw the marks from the shared files alone, and the sheet runs them on the fold's own curve and length", () => {
+test("both pages draw the marks from the shared files alone, and the sheet runs their entrance on the send's curve and length", () => {
   assert.ok(!/data-mark|data-tag|markin|markout|markgone/.test(DESKTOP + PHONE), "a page draws a mark of its own");
   assert.match(TOKENS, /@property --answ-fill\{syntax:"<color>"; inherits:true; initial-value:transparent\}/,
     "the panel's grey cannot run without being a colour");
@@ -1814,9 +2336,9 @@ test("both pages draw the marks from the shared files alone, and the sheet runs 
     "a run in progress dropped the room's and the grey's own run");
   const props = [...keyframes(TOKENS, "markin").matchAll(/([a-z-]+):/g)].map(m => m[1]);
   assert.deepEqual([...new Set(props)].sort(), ["opacity", "transform"], "the mark comes in on more than strength and a transform");
-  assert.match(rule(TOKENS, ".answered.markin::after"), /animation:markin var\(--answ-move\) var\(--gentle\) backwards/);
-  assert.match(rule(TOKENS, ".answered.markout::after"), /opacity:0; transition:opacity calc\(var\(--answ-move\) \/ 2\) var\(--gentle\)/);
-  assert.match(TOKENS, /--answ-move:\.33s/, "the fold's run is not the length the mark's clocks are set for");
+  assert.match(rule(TOKENS, ".answered.markin::after"), /animation:markin var\(--answ-come\) var\(--sent-ease\) backwards/);
+  assert.match(rule(TOKENS, ".answered.markout::after"), /opacity:0; transition:opacity calc\(var\(--answ-come\) \/ 2\) var\(--sent-ease\)/);
+  assert.match(TOKENS, /--answ-come:\.4s/, "the send's run is not the length the mark's clocks are set for");
   // the word that goes when the reply lands: about 0.4s, strength only, on the
   // card's curve, with the room under the panel kept at the length the word's was
   assert.match(TOKENS, /--answ-gone:\.4s/, "the word does not fade out over about 0.4s");
@@ -1881,19 +2403,22 @@ test("a send is faded from the press, Delivered once the board answers, and take
   assert.deepEqual([...el.sentItems.map(m => m.stage)], ["sent", "sent"]);
   assert.equal(el.sendsOut, 0);
   assert.equal((el.sentHeld || []).length, 0);
-  // a send the board did not take stays in the panel, held out of the board's readings
+  // a send the board did not take stays in the seat, held out of the board's
+  // readings: in a bubble of its own, since it stands nowhere the Delivered
+  // bubble stands
   const lost = context.sentLaunch(el, "Invented three.");
-  assert.equal(el.sent.querySelectorAll(".answmsg").length, 3);
+  assert.equal(el.sentwrap.querySelectorAll(".answmsg").length, 3);
+  assert.equal(context.sentPanels(el).length, 2, "a send not yet saved joined a Delivered bubble");
   context.sentFailed(el, lost, false);
   assert.equal(lost.stage, "local", "a send the board did not take was called sent");
   assert.deepEqual([...el.sentItems.map(m => m.text)], ["Invented one.", "Invented two."]);
   assert.deepEqual([...el.sentHeld.map(m => m.text)], ["Invented three."]);
-  assert.equal(el.sent.querySelectorAll(".answmsg").length, 3, "a send the board did not take left the panel");
+  assert.equal(el.sentwrap.querySelectorAll(".answmsg").length, 3, "a send the board did not take left the seat");
   assert.equal(el.sendsOut, 0);
   assert.ok(Number.isFinite(el.sendGuard));
   // the board's reading replaces its own list and the held send is still drawn
   context.syncSent(el, [{ text: "Invented one.", stage: "sent" }]);
-  assert.deepEqual(el.sent.querySelectorAll(".answmsg").map(row => row.dataset.text), ["Invented one.", "Invented three."],
+  assert.deepEqual(el.sentwrap.querySelectorAll(".answmsg").map(row => row.dataset.text), ["Invented one.", "Invented three."],
     "the board's reading took the held send away");
   // the only message failed: the panel stays, holding it
   const alone = fullCard("c2");
@@ -2567,4 +3092,995 @@ test("a panel whose own lane was scrolled comes down to its head on the run, not
   // the sheet runs the travel on the fold's own length and curve
   assert.match(rule(TOKENS, ".answered.motion"), /transition:transform var\(--answ-move\) var\(--gentle\)/);
   assert.match(rule(TOKENS, ".answered.motion .answstack"), /transition:transform var\(--answ-move\) var\(--gentle\)/);
+});
+
+// Synthetic viewport rectangles exercise the real send code and its frames.
+// They do not simulate layout or claim a rendered appearance.
+// the browser's animations, kept on the node so a test can read back what the
+// flight hands it: given to the scene's own nodes only, the typing field and
+// whatever the code makes, so no other test's stand-in learns to animate
+function animated(node) {
+  node.animations = [];
+  node.animate = (keys, options) => {
+    const run = { keys, options, playState: "running", cancel() { run.playState = "idle"; } };
+    node.animations.push(run);
+    return run;
+  };
+  return node;
+}
+function motionScene(formatted = false) {
+  const s = sandbox(), { context } = s;
+  const make = context.document.createElement;
+  context.document.createElement = tag => animated(make(tag));
+  context.navigator = { userAgentData: { brands: [] } };   // Chromium, as the Mac board's browser
+  const el = fullCard("motion");
+  animated(el.ta);
+  const body = element("body");
+  context.document.body = body;
+  body.appendChild(el.box);
+  el.box.appendChild(el.ta);
+  context.performance = { now: () => 0 };
+  const naturalStyle = context.getComputedStyle;
+  context.getComputedStyle = (node, pseudo) => {
+    const inherited = naturalStyle(node, pseudo);
+    const values = {
+      "--card": "#fff", "background-color": "rgb(243, 243, 243)",
+      "font-size": "17px", "line-height": "21px", "color": "rgb(33, 29, 23)",
+      "width": "200px", "height": "40px", "opacity": "1", "display": "block",
+    };
+    return {
+      ...inherited, display: node.hidden ? "none" : "block", visibility: "visible",
+      lineHeight: "21px", backgroundColor: "rgb(243, 243, 243)",
+      borderTopLeftRadius: "12px", borderTopRightRadius: "12px",
+      borderBottomLeftRadius: "12px", borderBottomRightRadius: "12px",
+      getPropertyValue: name => node.style.getPropertyValue(name) || values[name] || inherited.getPropertyValue(name),
+    };
+  };
+  const source = formatted ? animated(element("div")) : el.ta;
+  if (formatted) {
+    source.innerHTML = "<div><b>Invented formatted draft.</b></div>";
+    el.box.appendChild(source);
+    context.ComposeFormat = { fieldOf: () => ({ formatted: () => true, view: { scrollDOM: source } }) };
+  }
+  el.ta.value = "Invented draft.";
+  rect(source, 20, 300, 300, 60);
+  source.isConnected = true;
+  function insert(text = "Invented sent words.") {
+    const item = context.sentLaunch(el, text, "/invented");
+    rect(el.sent, 150, 210, 170, 45);
+    el.sent.isConnected = true;
+    const rows = el.sent.querySelectorAll(".answmsg");
+    for (const row of rows) { row.isConnected = true; rect(row, 160, 220, 150, 21); }
+    rect(el.sent.querySelector(".answclip"), 160, 220, 150, 21);
+    return item;
+  }
+  return { ...s, el, source, body, insert, shell: () => body.querySelector(".sentmorph") };
+}
+function rect(node, left, top, width, height, scale = 1) {
+  node.rect = { left, top, width, right: left + width, bottom: top + height };
+  node.offsetWidth = width / scale; node.offsetHeight = height / scale;
+}
+
+test("send morph starts at the typed field, carries one copy of the words at full strength, tracks its seat and hands off a frame after landing", () => {
+  for (const formatted of [false, true]) {
+    const s = motionScene(formatted), { context, el, source, frame } = s;
+    const motion = context.armSentMotion(el);
+    const shell = s.shell();
+    assert.ok(shell);
+    // the box the clips cut out at a moment of the flight, ms from the press
+    const at = ms => drawn(shell, ms);
+    assert.equal(at(0).left, 20);
+    assert.equal(at(0).top, 300);
+    assert.equal(at(0).width, 300);
+    assert.equal(shell.getAttribute("aria-hidden"), "true");
+    const item = s.insert();
+    motion.play();
+    assert.equal(el.sent.classList.contains("arrive"), false, "two entrances own the same bubble");
+    assert.equal(el.sent.style.opacity, "0", "real bubble must hold its layout while hidden");
+    // before the first frame: the start box, the typing box itself, which
+    // compresses into the bubble from there
+    assert.equal(at(0).left, 20);
+    assert.equal(at(0).top, 300);
+    assert.equal(at(0).width, 300, "the start box is not the typing box's width");
+    assert.equal(at(0).height, 60, "the start box is not the typing box's height");
+    assert.equal(!!shell.querySelector(".sentmorph-source"), false, "the typed words fly as a second copy");
+    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
+    // the first frame drawn is a frame into the flight: ms below are from the press
+    frame(1000 / 60);
+    frame(140);
+    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
+    frame(240);
+    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
+    context.sentLanded(el, item);
+    assert.equal(el.sent.dataset.tag, "Delivered");
+    assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
+    rect(el.sent, 140, 190, 180, 45);
+    frame(400);
+    assert.ok(s.shell(), "the flight landed before its 650ms");
+    assert.equal(el.sent.dataset.mark, undefined, "receipt must wait until the hidden bubble is visible");
+    frame(650);
+    assert.ok(Math.abs(at(650).top - 190) < 1e-9, "flight aimed at a stale seat");
+    assert.ok(Math.abs(at(650).width - 180) < 1e-9);
+    assert.equal(shell.querySelector(".sentmorph-target").style.opacity, "1");
+    assert.ok(s.shell(), "landing frame was removed before painting");
+    frame(667);
+    assert.equal(s.shell(), null);
+    assert.equal(el.sent.style.opacity, "");
+    assert.equal(el.sent.dataset.mark, "Delivered");
+    assert.equal(el.sent.classList.contains("markin"), true);
+    assert.equal(el.sentMotion, null);
+    assert.equal(source.style.opacity, "", "flight changed the live editor");
+  }
+});
+
+test("send morph shifts the bubbles standing on its own curve without replaying their entrance", () => {
+  const s = motionScene(), { context, el, frame } = s;
+  s.insert("Invented older message.");
+  const older = el.sent, first = older.querySelector(".answmsg");
+  let animation;
+  older.animate = (keys, options) => {
+    animation = { keys, options, cancelled: false, cancel() { this.cancelled = true; } };
+    return animation;
+  };
+  rect(older, 150, 210, 170, 45, .5);
+  const motion = context.armSentMotion(el);
+  s.insert("Invented newer message.");
+  assert.notEqual(el.sent, older, "the later send went into the bubble standing");
+  // the new bubble under it pushes the one standing up
+  rect(older, 150, 180, 170, 45, .5);
+  motion.play();
+  assert.equal(animation.keys[0].transform.trim(), "translate(0px,60px)", "viewport shift was not converted to local scale");
+  assert.equal(animation.options.duration, 340, "the glide is not the iPhone's length");
+  assert.equal(animation.options.easing, "cubic-bezier(.24,.1,.15,1)", "the glide is not the iPhone's curve");
+  assert.equal(older.querySelector(".answmsg"), first);
+  assert.equal(first.style.opacity, "", "an existing row was hidden");
+  assert.equal(older.style.opacity, "", "an existing bubble was hidden");
+  assert.equal(el.sent.style.opacity, "0", "the new bubble showed under its own flight");
+  frame(1000 / 60); frame(650); frame(667);
+  assert.equal(animation.cancelled, true);
+  assert.equal(s.shell(), null);
+});
+
+test("send morph lands a later send whole on a bubble of its own, never on a row of the bubble standing", () => {
+  // the flight is the first send's to the letter, only its seat is new: the
+  // later message's own bubble under the one standing
+  const s = motionScene(), { context, el, frame } = s;
+  s.insert("Invented first message.");
+  const older = el.sent, oldRow = older.querySelector(".answmsg");
+  const motion = context.armSentMotion(el);
+  s.insert("Invented second message.");
+  const fresh = el.sent;
+  assert.notEqual(fresh, older, "the later send has no bubble of its own");
+  assert.equal(older.querySelectorAll(".answmsg").length, 1, "the later send went into the bubble standing");
+  rect(fresh, 150, 262, 170, 45);
+  motion.play();
+  frame(1000 / 60);
+  frame(320);
+  assert.equal(s.shell().querySelector(".sentmorph-target").style.opacity, "1");
+  assert.equal(s.shell().style.opacity, "", "the box fades");
+  assert.equal(oldRow.style.opacity, "", "a row of the bubble standing was hidden");
+  frame(650);
+  const landed = drawn(s.shell(), 650);
+  assert.ok(Math.abs(landed.top - 262) < 1e-9, "the box did not land on the new bubble");
+  assert.ok(Math.abs(landed.height - 45) < 1e-9, "the box did not land whole");
+  assert.deepEqual([landed.words.x, landed.words.y, landed.words.k, landed.words.ky].map(v => Math.round(v * 1e9) / 1e9), [0, 0, 1, 1],
+    "the words did not land on the new bubble's own place");
+  frame(667);
+  assert.equal(s.shell(), null);
+  assert.equal(fresh.style.opacity, "");
+  assert.equal(older.style.opacity, "");
+});
+
+test("send morph never glides the answer, even when something moved it while the first panel took room", () => {
+  // the answer stands still under the bubbles; nothing the send does gives it
+  // a glide of its own
+  const s = motionScene(), { context, el, frame } = s;
+  el.reply.isConnected = true;
+  rect(el.reply, 20, 70, 300, 120);
+  let shift = null;
+  el.reply.animate = (keys, options) => {
+    shift = { keys, options, cancel() {} };
+    return shift;
+  };
+  const motion = context.armSentMotion(el);
+  s.insert();
+  rect(el.reply, 20, 50, 300, 120);
+  motion.play();
+  assert.equal(shift, null, "the answer glided with the send");
+  frame(1000 / 60); frame(650); frame(667);
+  assert.equal(s.shell(), null);
+  assert.equal(shift, null);
+});
+
+test("send morph cleans an unplayed send and preserves a preexisting inline opacity", () => {
+  const s = motionScene();
+  s.context.armSentMotion(s.el);
+  s.context.dropSent(s.el);
+  assert.equal(s.shell(), null);
+  const motion = s.context.armSentMotion(s.el);
+  s.insert();
+  s.el.sent.style.setProperty("opacity", ".8", "important");
+  motion.play(); motion.cancel();
+  assert.equal(s.el.sent.style.getPropertyValue("opacity"), ".8");
+  assert.equal(s.el.sent.style.getPropertyPriority("opacity"), "important");
+});
+
+test("send morph cancels cleanly on removal, hiding and a changed motion preference", () => {
+  for (const reason of ["remove", "hide", "reduce"]) {
+    const s = motionScene(), { context, el, frame } = s;
+    const first = context.armSentMotion(el);
+    s.insert(); first.play(); frame(100);
+    const panel = el.sent;
+    if (reason === "remove") context.dropSent(el);
+    else {
+      if (reason === "hide") panel.hidden = true;
+      else context.stillness = true;
+      frame(150);
+    }
+    assert.equal(s.shell(), null, reason);
+    assert.equal(panel.style.opacity, "", reason + " left real content hidden");
+    assert.equal(panel.classList.contains("sentflight"), false, reason);
+    assert.equal(el.sentMotion, null, reason);
+  }
+  const s = motionScene();
+  s.context.stillness = true;
+  assert.equal(s.context.armSentMotion(s.el), null);
+  assert.equal(s.shell(), null);
+});
+
+test("send morph keeps an earlier flight in the air through a rapid second send", () => {
+  const s = motionScene(), { context, el, frame } = s;
+  const first = context.armSentMotion(el);
+  // the first flight's first frame is drawn at 1/60s, so its ms are from its press
+  s.insert("Invented first flight."); first.play(); frame(1000 / 60); frame(100);
+  const firstShell = s.shell(), top = drawn(firstShell, 100).top;
+  context.performance.now = () => 100;
+  const firstBubble = el.sent;
+  const second = context.armSentMotion(el);
+  assert.equal(firstShell.parentNode, s.body, "second send removed an unfinished flight");
+  assert.equal(drawn(firstShell, 100).top, top, "second send teleported the first bubble");
+  assert.equal(firstBubble.style.opacity, "0", "second send exposed the first bubble at its destination");
+  const item = s.insert("Invented second flight."); second.play();
+  const secondBubble = el.sent;
+  assert.notEqual(secondBubble, firstBubble, "the second send has no bubble of its own");
+  // the second is Delivered while the first is still on its way: two places,
+  // two bubbles, and each word waits for its own bubble's landing. its first
+  // frame is drawn at 116.7, a frame after its press at 100
+  context.sentLanded(el, item);
+  assert.equal(s.body.querySelectorAll(".sentmorph").length, 2);
+  frame(100 + 1000 / 60);
+  frame(650); frame(667);
+  assert.equal(firstShell.parentNode, null);
+  assert.equal(firstBubble.style.opacity, "");
+  assert.equal(secondBubble.style.opacity, "0", "first landing exposed the second bubble early");
+  assert.equal(secondBubble.classList.contains("sentflight"), true);
+  assert.equal(secondBubble.dataset.mark, undefined, "receipt must wait until its own flight lands");
+  frame(750); frame(767);
+  assert.equal(s.shell(), null);
+  assert.equal(secondBubble.style.opacity, "");
+  assert.equal(secondBubble.classList.contains("sentflight"), false);
+  assert.equal(secondBubble.dataset.mark, "Delivered");
+  assert.equal(context.sentPanels(el).length, 2, "a Delivered bubble joined one still on its way");
+  assert.equal(el.sentMotions.size, 0);
+});
+
+// ---- one bubble for each send, and the merge ------------------------------------------
+// the owner's rule: a new message goes as
+// a bubble of its own and joins the one above it only once the two stand in the
+// same place, not delivered, Delivered or Read: the word under the earlier one
+// fades out, and the moment it is gone the earlier bubble falls into the new
+// one while the word comes in under it. the seat is laid out by hand, one bubble
+// over the next, so the merge runs on its own clocks and frames; a seat left
+// unlaid is one not on screen, where the two become one at once
+const W = ["Invented first.", "Invented second.", "Invented third."];
+const at = (text, stage) => ({ text, stage });
+function seatScene() {
+  const s = motionScene();
+  const bubbles = () => s.context.sentPanels(s.el);
+  const lay = () => {
+    let top = 300;
+    for (const panel of bubbles()) {
+      panel.isConnected = true;
+      rect(panel, 150, top, 170, 45);
+      for (const row of panel.querySelector(".answstack").children) { row.isConnected = true; rect(row, 168, top + 12, 134, 21); }
+      rect(panel.querySelector(".answclip"), 168, top + 12, 134, 21);
+      top += 62;
+    }
+    s.el.sentwrap.isConnected = true;
+    rect(s.el.sentwrap, 0, 300, 390, Math.max(1, top - 300));
+    // and the card on show, its answer laid out over the seat
+    s.el.replyview.rect = { top: 100, bottom: 700 };
+  };
+  const draw = (list, arrive) => { s.context.syncSent(s.el, list, arrive); lay(); };
+  // the merge's own lengths, read off the script
+  const merge = Object.fromEntries(["OUT_MS", "IN_MS", "MS"].map(k => [k, s.run("MERGE_" + k)]));
+  return { ...s, bubbles, lay, draw, merge };
+}
+const marks = panels => [...panels].map(panel => panel.dataset.mark || "");
+
+test("a second message stands in a bubble of its own, and joins only once it stands where the first stands, its word moving down first", () => {
+  const s = seatScene(), { context, el, ringFor, frame, bubbles, draw } = s;
+  draw([at(W[0], "sent")]);
+  const [first] = bubbles();
+  assert.deepEqual(marks(bubbles()), ["Delivered"]);
+  // sent, not yet saved by the board: its own bubble, faded, under the Delivered one
+  draw([at(W[0], "sent"), at(W[1], "local")], true);
+  assert.equal(bubbles().length, 2, "the second message went into the first bubble");
+  const second = bubbles()[1];
+  assert.equal(bubbles()[0], first);
+  assert.equal(second.classList.contains("undelivered"), true);
+  assert.deepEqual(marks(bubbles()), ["Delivered", ""]);
+  assert.equal(el.sentMerge || null, null, "bubbles standing in two places began to merge");
+  // the board has it: the two stand in one place. the word under the first goes
+  // out, gently, while nothing new stands under the second
+  draw([at(W[0], "sent"), at(W[1], "sent")]);
+  assert.equal(el.sentMerge.stage, "move", "two bubbles both Delivered did not begin to merge");
+  assert.equal(bubbles().length, 2, "the bubbles joined before the word moved");
+  assert.ok(first.classList.contains("markout") && first.classList.contains("markmove"), "the first word does not go out gently");
+  assert.equal(second.dataset.mark, undefined, "a word stood under the second while the first was still going");
+  assert.ok(first.classList.contains("coalesce"), "the refresh does not wait out the merge");
+  assert.equal(context.turnHolding(el, "motion"), true, "a page turn would cut the merge short");
+  // the moment the word is gone the first falls into the second, and the word
+  // comes in under it on the mark's own run as it falls
+  ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge", "the first did not start to fall as its word went");
+  assert.equal(bubbles().length, 1, "the two did not become one");
+  assert.equal(bubbles()[0], first, "the joined bubble is not the first one");
+  assert.deepEqual(first.querySelector(".answstack").children.map(row => row.dataset.text), [W[0], W[1]]);
+  const layer = first.querySelector(".sentgoo");
+  assert.ok(layer, "the merge has no layer to draw in");
+  assert.equal(first.style.visibility, "hidden", "the joined bubble showed before the merge was drawn");
+  assert.equal(layer.style.visibility, "visible");
+  const word = layer.querySelector(".sentgoo-mark");
+  assert.equal(word.textContent, "Delivered", "the word under the two is not the moved one");
+  assert.ok(word.classList.contains("markin"), "the word did not come in under the second as the first fell");
+  // the first frame drawn is the two bubbles as they stood, two shapes with their own corners
+  const face = layer.querySelector(".sentgoo-face");
+  assert.equal((face.style.clipPath.match(/M/g) || []).length, 2);
+  assert.equal((face.style.clipPath.match(/A/g) || []).length, 8);
+  frame(500);
+  assert.ok(first.querySelector(".sentgoo"), "the merge landed half way");
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.equal(el.sentMerge, null);
+  assert.equal(first.querySelector(".sentgoo"), null, "the merge's layer stayed");
+  assert.equal(el.sentwrap.querySelector(".sentgoo-ground"), null, "the seat's ground stayed");
+  assert.equal(first.style.visibility, "", "the joined bubble stayed hidden");
+  assert.equal(first.classList.contains("coalesce"), false);
+  assert.deepEqual(marks(bubbles()), ["Delivered"], "the joined bubble lost its word");
+  assert.equal(context.turnHolding(el, "motion"), false);
+});
+
+test("two bubbles standing in different places never merge, each keeping its own word, and join the moment they match", () => {
+  const s = seatScene(), { context, el, pending, bubbles, draw } = s;
+  draw([at(W[0], "delivered")]);
+  draw([at(W[0], "delivered"), at(W[1], "local")], true);
+  // Read over not delivered, then Read over Delivered: two bubbles, two words
+  for (const stage of ["local", "sent"]) {
+    draw([at(W[0], "delivered"), at(W[1], stage)]);
+    assert.equal(bubbles().length, 2, `Read and ${stage} joined`);
+    assert.equal(el.sentMerge || null, null, `Read and ${stage} began to merge`);
+    assert.ok(!bubbles().some(one => one.classList.contains("markmove")), "a word moved between bubbles that differ");
+    // every clock let go changes nothing
+    for (const timer of pending()) timer.fn();
+    assert.equal(bubbles().length, 2);
+  }
+  assert.deepEqual(marks(bubbles()), ["Read", "Delivered"]);
+  // not delivered under Delivered stays two as well
+  const t = seatScene();
+  t.draw([at(W[0], "sent")]);
+  t.draw([at(W[0], "sent"), at(W[1], "local")], true);
+  t.draw([at(W[0], "sent"), at(W[1], "local")].map(m => ({ ...m, state: "pending" })));
+  for (const timer of t.pending()) timer.fn();
+  assert.equal(t.bubbles().length, 2, "Delivered and not delivered joined");
+  // both Read: the words go, and the first falls into the second under Read
+  draw([at(W[0], "delivered"), at(W[1], "read")]);
+  assert.equal(el.sentMerge.stage, "move", "two bubbles both Read did not begin to merge");
+  const [first, second] = bubbles();
+  assert.ok(first.classList.contains("markout") && second.classList.contains("markout"),
+    "Read under the first and Delivered under the second do not both go out");
+  s.ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  assert.deepEqual(marks(bubbles()), ["Read"]);
+  assert.equal(first.querySelector(".sentgoo-mark").textContent, "Read");
+});
+
+test("a move whose bubbles stop matching before the fall gives each its own word back and merges nothing", () => {
+  const s = seatScene(), { context, el, ringFor, bubbles, draw } = s;
+  draw([at(W[0], "sent")]);
+  draw([at(W[0], "sent"), at(W[1], "local")], true);
+  draw([at(W[0], "sent"), at(W[1], "sent")]);
+  assert.equal(el.sentMerge.stage, "move");
+  // an agent picks up the second while the first word is going: Delivered over Read
+  draw([at(W[0], "sent"), at(W[1], "delivered")]);
+  ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge, null);
+  assert.equal(bubbles().length, 2, "bubbles that no longer match were merged");
+  assert.deepEqual([...bubbles()].map(one => one.dataset.tag), ["Delivered", "Read"]);
+  assert.equal(bubbles()[0].dataset.mark, "Delivered", "the first bubble's word did not come back");
+  assert.ok(!bubbles().some(one => one.classList.contains("coalesce")));
+});
+
+test("a reader who asked for no motion sees the two become one the moment they match, with nothing moving", () => {
+  const s = seatScene(), { context, el, pending, bubbles, draw } = s;
+  context.stillness = true;
+  draw([at(W[0], "sent")]);
+  draw([at(W[0], "sent"), at(W[1], "local")], true);
+  assert.equal(bubbles().length, 2, "a message not yet saved joined a Delivered bubble");
+  draw([at(W[0], "sent"), at(W[1], "sent")]);
+  assert.equal(bubbles().length, 1, "the two stayed apart against the rule");
+  const [one] = bubbles();
+  assert.deepEqual(one.querySelector(".answstack").children.map(row => row.dataset.text), [W[0], W[1]]);
+  assert.equal(one.dataset.mark, "Delivered");
+  assert.equal(el.sentMerge || null, null, "a merge ran against the setting");
+  assert.equal(one.querySelector(".sentgoo"), null, "a merge was drawn against the setting");
+  for (const name of ["markout", "markmove", "markin", "coalesce"])
+    assert.equal(one.classList.contains(name), false, `the joined bubble wears ${name}`);
+  assert.ok(!pending().some(t => t.ms === s.merge.OUT_MS), "a merge's clock stands behind a merge that did not run");
+});
+
+test("a bubble once joined stays one, whatever its messages do next", () => {
+  const { context } = sandbox();
+  const el = fullCard("c1");
+  context.syncSent(el, [at(W[0], "local")], true);
+  context.syncSent(el, [at(W[0], "local"), at(W[1], "local")], true);
+  // the seat is not on screen, so the two not yet delivered become one at once
+  assert.equal(context.sentPanels(el).length, 1);
+  // the first lands, the second not yet: the bubble stays one, saying Delivered
+  context.syncSent(el, [at(W[0], "sent"), at(W[1], "local")]);
+  assert.equal(context.sentPanels(el).length, 1, "a joined bubble came apart");
+  assert.equal(el.sent.dataset.tag, "Delivered");
+  assert.deepEqual(stagesOf(el.sent), [false, true]);
+  // a third, Delivered: the bubble stands where its newest message stands, not
+  // yet delivered, so the third stands apart until the second lands
+  context.syncSent(el, [at(W[0], "sent"), at(W[1], "local"), at(W[2], "sent")]);
+  assert.equal(context.sentPanels(el).length, 2);
+  context.syncSent(el, [at(W[0], "sent"), at(W[1], "sent"), at(W[2], "sent")]);
+  assert.equal(context.sentPanels(el).length, 1);
+});
+
+// a send flown into its seat the way a page sends it: armed, drawn as an
+// arrival, played and flown to its landing at 650ms. board is what the board
+// says of the messages while the send is in the air, drawn as a reading
+function flySecond(s, after, board) {
+  const motion = s.context.armSentMotion(s.el);
+  s.draw(after, true);
+  motion.play();
+  s.frame(1000 / 60);
+  if (board) s.draw(board);
+  s.frame(650);
+  s.frame(667);
+}
+// where a copy of words stands in the merge's layer
+const shifted = node => Number(/translate\([^,]+px,([^)]+)px\)/.exec(node.style.transform)[1]);
+// the seat laid out the way the pages lay it out, up from its foot: a bubble of
+// one message 45px tall, a joined one cut to its preview at 87px, its rows 42px
+// apart, 26px between two bubbles (the word's room and the step), and laid out
+// again the moment two bubbles join, as a browser would before the merge reads it
+function fallScene() {
+  const s = seatScene(), { context, el, bubbles } = s;
+  const lay = () => {
+    let foot = 480;
+    const panels = bubbles();
+    for (let i = panels.length - 1; i >= 0; i--) {
+      const panel = panels[i], rows = context.sentRows(panel);
+      const height = rows.length > 1 ? 87 : 45, top = foot - height;
+      panel.isConnected = true;
+      rect(panel, 150, top, 170, height);
+      rows.forEach((row, n) => { row.isConnected = true; rect(row, 168, top + 12 + 42 * n, 134, 21); });
+      rect(panel.querySelector(".answclip"), 168, top + 12, 134, Math.min(height - 24, 52));
+      foot = top - 26;
+    }
+    el.sentwrap.isConnected = true;
+    rect(el.sentwrap, 0, foot + 26, 390, Math.max(1, 480 - foot - 26));
+    el.replyview.rect = { top: 100, bottom: 700 };
+  };
+  const join = context.sentJoin;
+  context.sentJoin = (...args) => { join(...args); lay(); };
+  const draw = (list, arrive) => { context.syncSent(el, list, arrive); lay(); };
+  return { ...s, lay, draw };
+}
+
+test("the earlier bubble starts to fall the moment the word under it has faded, and only it moves", () => {
+  const s = fallScene(), { context, el, bubbles, pending, ringFor, frame } = s;
+  s.draw([at(W[0], "sent")]);
+  const [first] = bubbles();
+  // the second is Delivered while it flies: two bubbles both Delivered once it lands
+  flySecond(s, [at(W[0], "sent"), at(W[1], "local")], [at(W[0], "sent"), at(W[1], "sent")]);
+  assert.equal(bubbles().length, 2);
+  assert.equal(el.sentMerge.stage, "move", "the two did not begin to join as the second landed");
+  assert.ok(first.classList.contains("markout") && first.classList.contains("markmove"), "the first word is not fading out");
+  // one clock, the word's own fade (the sheet's 300ms), and nothing falls before it rings
+  assert.deepEqual(pending().filter(t => t.ms >= s.merge.OUT_MS && t.ms <= 1000).map(t => t.ms), [s.merge.OUT_MS]);
+  assert.equal(first.querySelector(".sentgoo"), null, "the first fell while its word was still there");
+  ringFor(s.merge.OUT_MS);
+  assert.equal(first.classList.contains("markout"), false, "the word is still going as the first falls");
+  assert.equal(el.sentMerge.stage, "merge", "the first did not start to fall as its word went");
+  // the first frame is the two where they stood; a frame later the first is on its way down and the second has not moved
+  const [upper, lower] = first.querySelectorAll(".sentgoo .sentgoo-words");
+  const from = shifted(upper), stays = shifted(lower);
+  frame(50);
+  assert.ok(shifted(upper) > from, "the first had not started down 50ms after its word went");
+  for (const ms of [100, 300, 500, 700, 800]) {
+    frame(ms);
+    assert.equal(shifted(lower), stays, `the second's words moved at ${ms}ms`);
+  }
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(bubbles().length, 1);
+  assert.deepEqual(marks(bubbles()), ["Delivered"]);
+  assert.equal(context.turnHolding(el, "motion"), false);
+});
+
+test("the answer's band comes down with the falling bubble's head rather than dropping on the fall's first frame", () => {
+  const s = fallScene(), { context, el, ringFor, frame } = s;
+  // what the page measures: the depth of the answer the seat stands over, from
+  // an answer whose foot is at 600, and what it writes, which sentBand says
+  const measured = () => 600 - el.sentwrap.rect.top;
+  const written = [];
+  el.sentRoom = () => { if (el.sentwrap.rect) written.push([measured(), context.sentBand(el, measured())]); };
+  s.draw([at(W[0], "sent")]);
+  flySecond(s, [at(W[0], "sent"), at(W[1], "local")], [at(W[0], "sent"), at(W[1], "sent")]);
+  const before = context.sentBand(el, measured());
+  written.length = 0;
+  ringFor(s.merge.OUT_MS);
+  // the seat already stands at its joined height, lower by the whole fall
+  const fall = before - measured();
+  assert.ok(fall > 20, `the seat did not come down for the fall (${fall}px)`);
+  assert.ok(written.length, "the page was not told of the band as the fall began");
+  assert.equal(written.at(-1)[1], before, "the band dropped the whole fall on its first frame");
+  let last = before;
+  for (let ms = 17; ms <= 1000; ms += 17) {
+    frame(ms);
+    const band = written.at(-1)[1];
+    assert.ok(band <= last && band >= measured(), `the band went back up or past the seat at ${ms}ms`);
+    assert.ok(last - band <= 4, `the band dropped ${last - band}px in one frame at ${ms}ms`);
+    last = band;
+  }
+  frame(s.merge.MS);
+  assert.equal(written.at(-1)[1], measured(), "the band is not the joined seat's on the fall's last frame");
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(context.sentBand(el, measured()), measured(), "the band is still held once the fall has landed");
+});
+
+// ---- the joined bubble's cut, fuzz and arrow stand still through a merge -----------------
+// the stand-in lays nothing out, so which bubble is cut is written by hand, as a
+// browser's measure would set it: the earlier bubble cut or not (topCut), the
+// later one cut or not (bottomCut), and the joined one always, its cut 40px deep
+// from 12px under its head, so 35px over its foot (the joined bubble stands at
+// 393 to 480)
+const JOINED_TOP = 393, JOINED_CUT = 12 + 40;
+function cutScene(topCut, bottomCut) {
+  const s = fallScene(), { context, el, bubbles } = s;
+  const join = context.sentJoin;
+  context.sentJoin = (one, a, b) => {
+    join(one, a, b);
+    a.classList.add("more");
+    const clip = a.querySelector(".answclip");
+    rect(clip, clip.rect.left, clip.rect.top, clip.rect.width, 40);
+  };
+  const cut = (panel, on) => panel.classList.toggle("more", on);
+  s.draw([at(W[0], "sent")]);
+  cut(bubbles()[0], topCut);
+  flySecond(s, [at(W[0], "sent"), at(W[1], "local")], [at(W[0], "sent"), at(W[1], "sent")]);
+  cut(bubbles()[0], topCut);
+  cut(bubbles()[1], bottomCut);
+  s.ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  const kid = name => layer.children.find(one => one.classList.contains(name));
+  const win = kid("sentgoo-cut"), fuzz = kid("sentgoo-fuzz"), strip = kid("answfoot");
+  // the line the words go under, in the joined bubble's own px
+  const line = () => parseFloat(win.style.top) + parseFloat(win.style.height) -
+    Number(/^inset\(0 0 ([-\d.e]+)px 0\)$/.exec(win.style.clipPath)[1]);
+  // the copies of the earlier and the later words, told by their words (the
+  // joined bubble's copy carries both)
+  const copyOf = text => layer.querySelectorAll(".sentgoo-words").find(one =>
+    one.querySelectorAll(".answmsg").map(row => row.dataset.text).join("|") === text);
+  const copies = [copyOf(W[0]), copyOf(W[1])];
+  assert.ok(copies.every(Boolean), "a bubble's words are not drawn in the merge");
+  return { ...s, layer, win, fuzz, strip, line, copies };
+}
+
+test("a joined bubble that is cut keeps the later bubble's arrow and fuzz exactly where they stood, the whole way", () => {
+  for (const topCut of [false, true]) {
+    const s = cutScene(topCut, true), { frame, win, fuzz, strip, line, copies } = s;
+    assert.ok(win && fuzz && strip, "the merge draws no cut, fuzz or arrow of its own");
+    const [, later] = copies;
+    // the later bubble's own fuzz and arrow give way to the ones that stand still
+    assert.equal(later.querySelector(".answfoot").style.visibility, "hidden", "the later copy still carries its arrow");
+    assert.equal(later.querySelector(".answclip").style.getPropertyValue("--answ-shade"), "0",
+      "the later copy still carries its fuzz");
+    const first = { line: line(), strip: strip.style.top, fuzz: fuzz.style.top };
+    assert.equal(first.line, JOINED_CUT, "the words do not go under the joined bubble's cut");
+    assert.equal(parseFloat(first.strip), JOINED_CUT, "the arrow does not stand in the joined bubble's strip");
+    for (let ms = 17; ms <= s.merge.MS; ms += 17) {
+      frame(ms);
+      assert.equal(strip.style.opacity, "1", `the arrow faded at ${ms}ms`);
+      assert.equal(fuzz.style.opacity, "1", `the fuzz faded at ${ms}ms`);
+      assert.equal(strip.style.top, first.strip, `the arrow moved at ${ms}ms`);
+      assert.equal(fuzz.style.top, first.fuzz, `the fuzz moved at ${ms}ms`);
+      assert.equal(line(), first.line, `the cut moved at ${ms}ms`);
+    }
+  }
+});
+
+test("every copy of words a merge draws stands in a window cut at the joined bubble's cut, so none is drawn over its arrow or under it", () => {
+  for (const [topCut, bottomCut] of [[false, false], [false, true], [true, true]]) {
+    const s = cutScene(topCut, bottomCut), { frame, win, line, copies } = s;
+    for (const copy of copies) assert.ok(copy.parentNode === win, "a copy of words is drawn outside the window");
+    let last = Infinity;
+    for (let ms = 17; ms <= s.merge.MS; ms += 17) {
+      frame(ms);
+      assert.ok(line() <= last + 1e-9, `the cut went down at ${ms}ms`);
+      last = line();
+    }
+    assert.ok(Math.abs(line() - JOINED_CUT) < 1e-9, "the words do not stand under the joined cut once landed");
+  }
+});
+
+test("over a later bubble that was not cut, the joined arrow comes in only once the cut has cleared it, and is whole on landing", () => {
+  const s = cutScene(false, false), { frame, strip, fuzz, line } = s;
+  assert.equal(strip.style.opacity, "0", "an arrow stood under a bubble that had none");
+  assert.equal(fuzz.style.opacity, "0", "fuzz stood on a bubble that had none");
+  // the arrow's head stands half the strip under the strip's head, less half the
+  // arrow's own height, which the stand-in gives none
+  const head = JOINED_CUT + (87 - JOINED_CUT) / 2;
+  let last = 0;
+  for (let ms = 17; ms <= s.merge.MS; ms += 17) {
+    frame(ms);
+    const shown = Number(strip.style.opacity);
+    assert.ok(shown >= last - 1e-12, `the arrow went back at ${ms}ms`);
+    if (shown > 0) assert.ok(line() <= head + 1e-9, `the arrow showed at ${ms}ms with words drawn over it`);
+    last = shown;
+  }
+  assert.equal(strip.style.opacity, "1", "the arrow is not whole on landing");
+  assert.equal(fuzz.style.opacity, "1", "the fuzz is not whole on landing");
+});
+
+test("a cut earlier bubble over a later one that was not brings its own arrow down, drawn over the fuzz, and no second one comes in", () => {
+  const s = cutScene(true, false), { frame, layer, fuzz, strip, copies } = s;
+  const [earlier, later] = copies;
+  assert.ok(earlier.parentNode === layer, "the earlier copy, with its arrow, is cut by the window");
+  assert.ok(layer.children.indexOf(earlier) > layer.children.indexOf(fuzz), "the earlier copy is drawn under the fuzz");
+  assert.notEqual(earlier.querySelector(".answfoot").style.visibility, "hidden", "the earlier copy lost its arrow");
+  assert.ok(later.parentNode === s.win, "the later copy is drawn outside the window");
+  for (let ms = 17; ms <= s.merge.MS; ms += 17) {
+    frame(ms);
+    assert.equal(strip.style.opacity, "0", `a second arrow came in at ${ms}ms`);
+  }
+});
+
+test("a joined bubble that is not cut is drawn as it was, with no cut, fuzz or arrow of the merge's own", () => {
+  const s = fallScene(), { el, bubbles } = s;
+  s.draw([at(W[0], "sent")]);
+  flySecond(s, [at(W[0], "sent"), at(W[1], "local")], [at(W[0], "sent"), at(W[1], "sent")]);
+  s.ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  for (const name of ["sentgoo-cut", "sentgoo-fuzz", "answfoot"])
+    assert.ok(!layer.children.some(one => one.classList.contains(name)), `a joined bubble not cut drew ${name}`);
+});
+
+// ---- a column falling together ----------------------------------------------------------
+// bubbles standing apart, each in a place of its own from the one before it
+// (Read and Delivered taking turns), laid out; then a reading that puts them
+// where stands says, so those standing together become one column
+const V = ["Invented one.", "Invented two.", "Invented three.", "Invented four.", "Invented five."];
+function columnScene(count, stands, first = null) {
+  const s = fallScene();
+  s.draw(V.slice(0, count).map((text, i) => at(text, first ? first[i] : i % 2 ? "sent" : "delivered")));
+  assert.equal(s.bubbles().length, count, "the bubbles did not stand apart");
+  s.draw(V.slice(0, count).map((text, i) => at(text, stands[i])));
+  return s;
+}
+// the merge's pictures of each bubble's words, in the layer, top first, and where one stands across
+const wordCopies = layer => layer.querySelectorAll(".sentgoo-words").filter(one =>
+  one.querySelectorAll(".answmsg").length === 1);
+const across = node => Number(/translate\(([-\d.e]+)px/.exec(node.style.transform)[1]);
+
+test("a column whose foot is cut keeps the foot's arrow and fuzz still while the bubbles over it fall, and no word goes under the joined cut", () => {
+  const s = fallScene(), { context, el, bubbles, frame } = s;
+  const join = context.sentJoin;
+  context.sentJoin = (one, a, b) => {
+    join(one, a, b);
+    a.classList.add("more");
+    const clip = a.querySelector(".answclip");
+    rect(clip, clip.rect.left, clip.rect.top, clip.rect.width, 40);
+  };
+  s.draw(V.slice(0, 3).map((text, i) => at(text, i % 2 ? "sent" : "delivered")));
+  assert.equal(bubbles().length, 3);
+  bubbles()[2].classList.add("more");
+  s.draw(V.slice(0, 3).map(text => at(text, "delivered")));
+  bubbles()[2].classList.add("more");
+  s.ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge", "the column did not fall");
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  const kid = name => layer.children.find(one => one.classList.contains(name));
+  const win = kid("sentgoo-cut"), fuzz = kid("sentgoo-fuzz"), strip = kid("answfoot");
+  assert.ok(win && fuzz && strip, "the column draws no cut, fuzz or arrow of its own");
+  const words = layer.querySelectorAll(".sentgoo-words").filter(one => one.querySelectorAll(".answmsg").length === 1);
+  assert.equal(words.length, 3);
+  assert.ok(words.every(one => one.parentNode === win), "a bubble's words are drawn outside the window");
+  const first = { strip: strip.style.top, fuzz: fuzz.style.top, cut: win.style.clipPath };
+  for (let ms = 17; ms <= el.sentMerge.end; ms += 17) {
+    frame(ms);
+    if (!el.sentMerge) break;
+    assert.equal(strip.style.opacity, "1", `the foot's arrow faded at ${ms}ms`);
+    assert.equal(strip.style.top, first.strip, `the foot's arrow moved at ${ms}ms`);
+    assert.equal(fuzz.style.top, first.fuzz, `the foot's fuzz moved at ${ms}ms`);
+    assert.equal(win.style.clipPath, first.cut, `the cut moved at ${ms}ms`);
+  }
+});
+
+test("three, four or five bubbles standing in one place fall together: one pause for all their words, then all let go on one frame", () => {
+  for (const count of [3, 4, 5]) {
+    const s = columnScene(count, Array(count).fill("delivered")), { el, bubbles, pending, ringFor, frame } = s;
+    const run = el.sentMerge;
+    assert.ok(run && run.stage === "move", `${count} bubbles standing together did not begin to come together`);
+    assert.equal(run.panels.length, count, `${count} bubbles began to join ${run.panels.length} at a time`);
+    // every word over the foot goes on the one clock (the foot's too where it said
+    // something else), and nothing falls before it rings
+    const going = bubbles().map(one => one.classList.contains("markout"));
+    assert.ok(going.slice(0, -1).every(Boolean), "the words over the column did not all go together");
+    assert.equal(going.at(-1), count % 2 === 0, "the foot's word went, or stayed, against what it says");
+    assert.deepEqual(pending().filter(t => t.ms >= s.merge.OUT_MS && t.ms <= 2000).map(t => t.ms), [s.merge.OUT_MS]);
+    ringFor(s.merge.OUT_MS);
+    assert.equal(el.sentMerge.stage, "merge");
+    const [joined] = bubbles();
+    const layer = joined.querySelector(".sentgoo");
+    assert.equal(layer.querySelectorAll(".sentgoo-face").length, count - 1, "the outline is not drawn a joint at a time");
+    const copies = wordCopies(layer);
+    assert.equal(copies.length, count, "not every bubble's words are carried");
+    const from = copies.map(shifted);
+    frame(40);
+    const moved = copies.map((one, i) => shifted(one) - from[i]);
+    // all of them over the foot start down on the same frame, the same way, and the foot stands
+    for (let i = 0; i < count - 1; i++) {
+      assert.ok(moved[i] > 0, `bubble ${i + 1} of ${count} had not let go 40ms in`);
+      assert.ok(Math.abs(moved[i] - moved[0]) < 1e-9, `bubble ${i + 1} of ${count} fell another way than the top one`);
+    }
+    assert.equal(moved[count - 1], 0, "the bubble at the foot moved");
+    for (let ms = 40; ms <= 1400 && el.sentMerge; ms += 17) frame(ms);
+    frame(1417);
+    assert.ok(el.sentMerge === null, `the column of ${count} did not land`);
+    assert.equal(bubbles().length, 1, `${count} bubbles did not end as one`);
+    assert.deepEqual(bubbles()[0].querySelector(".answstack").children.map(row => row.dataset.text), V.slice(0, count));
+    assert.deepEqual(marks(bubbles()), ["Read"]);
+    assert.equal(joined.style.visibility, "");
+  }
+});
+
+test("in a column, the one over the foot lands first and each one above a moment later, from the foot up", () => {
+  const s = columnScene(5, Array(5).fill("delivered")), { el, bubbles, ringFor, frame } = s;
+  ringFor(s.merge.OUT_MS);
+  const copies = wordCopies(bubbles()[0].querySelector(".sentgoo"));
+  const stopped = Array(5).fill(null);
+  for (let ms = 17; ms <= 1400 && el.sentMerge; ms += 2) {
+    frame(ms);
+    // the moment each one's words reach the joined head (0 here), where its fall stops
+    copies.forEach((one, i) => { if (stopped[i] === null && i < 4 && shifted(one) >= -1e-6) stopped[i] = ms; });
+  }
+  // the moment each one landed, top first: each later than the one under it
+  for (let i = 0; i < 3; i++) assert.ok(stopped[i] > stopped[i + 1], `bubble ${i + 1} stopped before bubble ${i + 2} under it`);
+  // and the moments come closer as the ones above have gathered speed
+  const gaps = [stopped[2] - stopped[3], stopped[1] - stopped[2], stopped[0] - stopped[1]];
+  assert.ok(gaps[0] > gaps[1] && gaps[1] > gaps[2], `the landings did not come closer: ${gaps}`);
+});
+
+test("no two messages ever stand at the joined head together: a middle bubble's words have left it before the one above lands", () => {
+  const s = columnScene(5, Array(5).fill("delivered")), { el, bubbles, ringFor, frame } = s;
+  // the top one laid out narrow, as a short message stands, so its words have to travel across too
+  const [first] = bubbles(), row = s.context.sentRows(first)[0];
+  rect(first, 260, first.rect.top, 60, first.rect.bottom - first.rect.top);
+  rect(row, 278, row.rect.top, 24, row.rect.bottom - row.rect.top);
+  ringFor(s.merge.OUT_MS);
+  const layer = bubbles()[0].querySelector(".sentgoo");
+  const copies = wordCopies(layer), joined = layer.querySelectorAll(".sentgoo-words").at(-1);
+  const strength = one => Number(one.style.opacity || 1);
+  const landedAt = Array(5).fill(null), seen = [];
+  for (let ms = 17; ms <= 1400 && el.sentMerge; ms += 2) {
+    frame(ms);
+    seen.push({ ms, x: copies.map(across), y: copies.map(shifted), strength: copies.map(strength), joined: Number(joined.style.opacity) });
+    // landed: at the joined head (0 here) or past it, on the way to its own place
+    copies.forEach((one, i) => { if (i < 4 && landedAt[i] === null && shifted(one) >= -1e-6) landedAt[i] = seen.length - 1; });
+  }
+  const end = seen.at(-1);
+  // the top's words stand in their joined place, across as well as down, on the frame it lands,
+  // which is before the joined bubble's copy comes up over them
+  const top = seen[landedAt[0]];
+  assert.ok(top, "the top bubble never landed");
+  assert.equal(top.x[0], end.x[0], "the top's words were still on their way across when it landed");
+  assert.equal(top.y[0], end.y[0]);
+  assert.ok(seen.slice(0, landedAt[0]).every(f => f.joined === 0), "the joined bubble's copy came up before the top landed");
+  // the second message's first line stands in the joined bubble's preview here; the others are under its cut
+  assert.ok(end.y[1] > 0 && end.strength[1] === 1, "the second message's words did not go to their place");
+  for (let i = 1; i <= 3; i++) {
+    const at = seen[landedAt[i - 1]];
+    assert.ok(at, `bubble ${i} never landed`);
+    if (i === 1) assert.equal(at.y[1], end.y[1], "the second message's words were still on their way when the top one landed");
+    else assert.equal(at.strength[i], 0, `bubble ${i + 1}'s words were still at the joined head when bubble ${i} landed`);
+  }
+});
+
+test("only the bubbles standing together fall together: a column stops where the place changes", () => {
+  // three Read, then two Delivered: the three fall as one column, then the two as a pair
+  const s = columnScene(5, ["delivered", "delivered", "delivered", "sent", "sent"]), { el, bubbles, ringFor, frame } = s;
+  assert.deepEqual([...el.sentMerge.panels.map(one => one.querySelector(".answmsg").dataset.text)], V.slice(0, 3));
+  const [, , , fourth, fifth] = bubbles();
+  ringFor(s.merge.OUT_MS);
+  assert.ok(!fourth.querySelector(".sentgoo") && fourth.style.visibility !== "hidden", "a Delivered bubble fell with the Read ones");
+  for (let ms = 17; ms <= 1400 && el.sentMerge && el.sentMerge.panels.length === 3; ms += 17) frame(ms);
+  frame(1417);
+  // the pair after it is a pair's merge, as before
+  assert.equal(bubbles().length, 3);
+  const run = el.sentMerge;
+  assert.ok(run && run.panels.length === 2 && run.a === fourth && run.b === fifth, "the two Delivered bubbles do not join as a pair");
+  ringFor(s.merge.OUT_MS);
+  assert.equal(fourth.querySelectorAll(".sentgoo-face").length, 1);
+  // and a bubble not delivered yet, between them, splits a column in two
+  const t = columnScene(5, ["delivered", "delivered", "local", "delivered", "delivered"]);
+  assert.equal(t.el.sentMerge.panels.length, 2, "a bubble not delivered was let into a column of Read ones");
+});
+
+test("two bubbles standing together keep the pair's fall, and a pair whose pause ends with a third beside it falls as a column", () => {
+  const s = columnScene(2, ["delivered", "delivered"]), { el, ringFor } = s;
+  assert.equal(el.sentMerge.panels.length, 2);
+  ringFor(s.merge.OUT_MS);
+  assert.equal(s.bubbles()[0].querySelectorAll(".sentgoo-face").length, 1, "a pair is not drawn as a pair's merge");
+  // a pair's move under way when the bubble under them, not delivered yet, comes to stand where they stand
+  const t = columnScene(3, ["delivered", "delivered", "local"], ["delivered", "sent", "local"]);
+  assert.equal(t.el.sentMerge.panels.length, 2);
+  t.draw(V.slice(0, 3).map(text => at(text, "delivered")));
+  const third = t.bubbles()[2];
+  assert.equal(third.className.split(" ").filter(c => /^(markout|sentflight|motion)$/.test(c)).length, 0,
+    `the third is busy: ${third.className}`);
+  t.ringFor(t.merge.OUT_MS);
+  const run = t.el.sentMerge;
+  assert.equal(run.stage, "move", "the pair fell without the third");
+  assert.equal(run.panels.length, 3, "the pause did not start again for the whole column");
+  t.ringFor(t.merge.OUT_MS);
+  assert.equal(t.el.sentMerge.stage, "merge");
+  assert.equal(t.bubbles()[0].querySelectorAll(".sentgoo-face").length, 2);
+});
+
+test("a column with no motion to show becomes one bubble at once, and a reading that changes its messages lands it", () => {
+  const s = columnScene(4, ["sent", "delivered", "sent", "delivered"]);
+  s.context.stillness = true;
+  s.draw(V.slice(0, 4).map(text => at(text, "sent")));
+  assert.equal(s.bubbles().length, 1, "four bubbles did not become one at once with no motion");
+  const t = columnScene(4, Array(4).fill("delivered"));
+  t.ringFor(t.merge.OUT_MS);
+  t.frame(200);
+  assert.equal(t.el.sentMerge.stage, "merge");
+  t.draw(V.slice(0, 4).map(text => at(text, "read")));
+  assert.ok(t.el.sentMerge === null, "a reading that changed the falling column's messages did not land it");
+  assert.equal(t.bubbles().length, 1);
+  assert.equal(t.bubbles()[0].querySelector(".sentgoo"), null, "the column's layer was left behind");
+});
+
+test("two bubbles neither delivered wait as long as the word takes to fade, then fall the same way", () => {
+  const s = fallScene(), { el, bubbles, pending, ringFor, frame } = s;
+  s.draw([at(W[0], "local")]);
+  const [first] = bubbles();
+  // nothing reaches the board while the second flies: both stand not delivered as it lands
+  flySecond(s, [at(W[0], "local"), at(W[1], "local")]);
+  assert.equal(bubbles().length, 2);
+  assert.deepEqual(marks(bubbles()), ["", ""], "a word stands under a message not delivered");
+  assert.equal(el.sentMerge.stage, "move", "the two did not begin to join as the second landed");
+  assert.ok(!bubbles().some(one => one.classList.contains("markout")), "a word goes out where there was none");
+  // the same clock as the word's fade, and nothing falls before it rings
+  assert.deepEqual(pending().filter(t => t.ms >= s.merge.OUT_MS && t.ms <= 1000).map(t => t.ms), [s.merge.OUT_MS]);
+  assert.equal(first.querySelector(".sentgoo"), null, "the first fell before the pause was out");
+  ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge", "the first did not start to fall after the pause");
+  assert.equal(first.querySelector(".sentgoo-mark"), null, "a word came in under messages not delivered");
+  const [upper] = first.querySelectorAll(".sentgoo .sentgoo-words");
+  const from = shifted(upper);
+  frame(50);
+  assert.ok(shifted(upper) > from, "the first had not started down 50ms after the pause");
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(bubbles().length, 1);
+  assert.equal(bubbles()[0].classList.contains("undelivered"), true, "the joined bubble lost its faded grey");
+});
+
+test("a third message sent while the first falls into the second leaves the fall going, and all three end as one bubble", () => {
+  const s = seatScene(), { context, el, bubbles, ringFor, frame } = s;
+  s.draw([at(W[0], "sent")]);
+  s.draw([at(W[0], "sent"), at(W[1], "local")], true);
+  s.draw([at(W[0], "sent"), at(W[1], "sent")]);
+  ringFor(s.merge.OUT_MS);
+  frame(300);
+  const run = el.sentMerge, [joined] = bubbles();
+  assert.equal(run.stage, "merge");
+  // the third, sent part way down: a bubble of its own under the falling one, and the fall goes on
+  s.draw([at(W[0], "sent"), at(W[1], "sent"), at(W[2], "local")], true);
+  assert.ok(el.sentMerge === run, "the send landed the fall part way down");
+  assert.ok(joined.querySelector(".sentgoo"), "the fall's layer went under the send");
+  assert.equal(joined.style.visibility, "hidden", "the joined bubble showed part way through the fall");
+  assert.equal(bubbles().length, 2);
+  assert.ok(bubbles()[0] === joined, "the falling bubble is not the first in the seat");
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the fall did not land");
+  assert.equal(joined.style.visibility, "");
+  // the third is not delivered yet, so it stands apart under Delivered
+  assert.equal(bubbles().length, 2);
+  // the board has it: the word under the joined bubble fades, and the joined bubble falls into it
+  s.draw([at(W[0], "sent"), at(W[1], "sent"), at(W[2], "sent")]);
+  assert.equal(el.sentMerge.stage, "move");
+  ringFor(s.merge.OUT_MS);
+  assert.equal(el.sentMerge.stage, "merge");
+  frame(s.merge.MS);
+  frame(s.merge.MS + 17);
+  assert.ok(el.sentMerge === null, "the second fall did not land");
+  assert.equal(bubbles().length, 1, "three messages did not end as one bubble");
+  assert.deepEqual(bubbles()[0].querySelector(".answstack").children.map(row => row.dataset.text), W);
+  assert.deepEqual(marks(bubbles()), ["Delivered"]);
+});
+
+test("a send made part way through a fall glides the falling bubble and the seat's ground up with the rest", () => {
+  const s = seatScene(), { context, el, bubbles, ringFor, frame } = s;
+  s.draw([at(W[0], "sent")]);
+  s.draw([at(W[0], "sent"), at(W[1], "local")], true);
+  s.draw([at(W[0], "sent"), at(W[1], "sent")]);
+  ringFor(s.merge.OUT_MS);
+  frame(300);
+  const run = el.sentMerge, [joined] = bubbles(), floor = run.floor;
+  // the stand-in reads a hidden node as hidden, as a browser does
+  const seen = context.getComputedStyle;
+  context.getComputedStyle = (node, pseudo) => ({ ...seen(node, pseudo),
+    visibility: node.style && node.style.visibility === "hidden" ? "hidden" : "visible" });
+  assert.equal(context.sentMotionVisible(joined), false, "the falling bubble is not hidden");
+  floor.isConnected = true;
+  rect(floor, 0, 290, 390, 10);
+  const motion = context.armSentMotion(el);
+  s.draw([at(W[0], "sent"), at(W[1], "sent"), at(W[2], "local")], true);
+  // the seat grows up from its foot: what stood moves up by the new bubble's room
+  rect(joined, 150, 238, 170, 45);
+  rect(floor, 0, 228, 390, 10);
+  const third = bubbles()[1];
+  rect(third, 150, 300, 170, 45);
+  for (const row of third.querySelector(".answstack").children) rect(row, 168, 312, 134, 21);
+  motion.play();
+  for (const node of [joined, floor]) {
+    const glide = node.animations.at(-1);
+    assert.ok(glide, "a node of the fall did not glide with the send");
+    assert.match(glide.keys[0].transform, /^translate\(0px,62px\)/);
+    assert.equal(glide.options.duration, s.run("SENT_GLIDE_MS"));
+  }
+  assert.ok(el.sentMerge === run, "the send landed the fall");
+  assert.ok(joined.querySelector(".sentgoo"));
+});
+
+test("a merge lands at once under a reading that changes its messages, or when the seat is taken away, and leaves nothing behind", () => {
+  const start = () => {
+    const s = seatScene();
+    s.draw([at(W[0], "sent")]);
+    s.draw([at(W[0], "sent"), at(W[1], "local")], true);
+    s.draw([at(W[0], "sent"), at(W[1], "sent")]);
+    s.ringFor(s.merge.OUT_MS);
+    s.frame(300);
+    assert.equal(s.el.sentMerge.stage, "merge");
+    return s;
+  };
+  // an agent picks up the first part way down: the fall lands, and the joined bubble is drawn as it is now
+  const s = start();
+  const [joined] = s.bubbles();
+  s.draw([at(W[0], "delivered"), at(W[1], "sent")]);
+  assert.ok(s.el.sentMerge === null, "a reading that changed the falling bubble's messages did not land the fall");
+  assert.equal(joined.querySelector(".sentgoo"), null, "the merge's layer stayed under a new pass");
+  assert.equal(s.el.sentwrap.querySelector(".sentgoo-ground"), null);
+  assert.equal(joined.style.visibility, "");
+  assert.equal(s.bubbles().length, 1);
+  assert.deepEqual(joined.querySelector(".answstack").children.map(row => row.dataset.text), [W[0], W[1]]);
+  // the answer lands mid merge: everything goes
+  const t = start();
+  t.context.dropSent(t.el);
+  assert.ok(t.el.sentMerge === null, "the seat taken away left the fall going");
+  assert.equal(t.el.sentwrap.children.length, 0, "the merge left its layer or ground in the seat");
 });

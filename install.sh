@@ -6,7 +6,6 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 CLAUDE_URL='https://code.claude.com/docs/en/overview'
 CODEX_URL='https://developers.openai.com/codex/cli'
 CHROME_URL='https://www.google.com/chrome/'
-TAILSCALE_URL='https://tailscale.com/download'
 # uv's own installer, locked to one release and run only when what comes back
 # has exactly this fingerprint; keep both in step with UV_PIN and
 # UV_INSTALL_SHA256 in facilitator.
@@ -33,64 +32,9 @@ elif [ "$#" -gt 0 ]; then
   exit 2
 fi
 
-# Colour only when stdout is a terminal, so pipes and logs stay plain.
-if [ -t 1 ]; then
-  BOLD=$'\033[1m'
-  DIM=$'\033[2m'
-  GREEN=$'\033[38;2;0;114;0m'
-  RESET=$'\033[0m'
-else
-  BOLD='' DIM='' GREEN='' RESET=''
-fi
-
-BANNER_ROWS=(
-  '##### ##### ##### ##### #     ##### ##### ##### ##### ##### #### '
-  '#     #   # #       #   #       #     #   #   #   #   #   # #   #'
-  '####  ##### #       #   #       #     #   #####   #   #   # #### '
-  '#     #   # #       #   #       #     #   #   #   #   #   # #  # '
-  '#     #   # ##### ##### ##### #####   #   #   #   #   ##### #   #'
-)
-
-# The banner is drawn here rather than by python3, which may not be there yet.
-banner() {
-  local row out ch i last r g b
-  for row in "${BANNER_ROWS[@]}"; do
-    out=''
-    last=$(( ${#row} - 1 ))
-    for (( i = 0; i <= last; i++ )); do
-      ch="${row:i:1}"
-      if [ "$ch" != '#' ]; then
-        out="${out} "
-      elif [ -n "$RESET" ]; then
-        r=$(( 190 + 55 * i / last ))
-        g=$(( 55 + 91 * i / last ))
-        b=$(( 30 + 45 * i / last ))
-        out="${out}"$'\033[38;2;'"${r};${g};${b}m█"
-      else
-        out="${out}█"
-      fi
-    done
-    printf '%s%s\n' "$out" "$RESET"
-  done
-  printf '%*s%s\n' $(( ${#BANNER_ROWS[0]} - 9 )) '' 'installer'
-}
-
-# True right after a section title: its blank line is already printed, so a
-# stop message does not add a second one.
-FRESH=0
-section() {
-  local title="$1" underline="" i=0
-  printf '\n%s%s%s\n' "$BOLD" "$title" "$RESET"
-  while [ "$i" -lt "${#title}" ]; do
-    underline="${underline}─"
-    i=$((i+1))
-  done
-  printf '%s\n\n' "$underline"
-  FRESH=1
-}
-ok() { FRESH=0; printf '%s✓%s %s\n' "$GREEN" "$RESET" "$1"; }
-skipped() { FRESH=0; printf '%s⊘%s %s\n' "$DIM" "$RESET" "$1"; }
-say() { FRESH=0; printf '%s\n' "$1"; }
+# The colours, banner, section titles, questions and the "Mobile app" step are
+# shared with `facilitator bridge setup`, so they live in one file.
+. "$REPO/installer-lib.sh"
 
 # stop <headline> [next step ...]: the problem, then each next step indented.
 stop() {
@@ -104,52 +48,17 @@ stop() {
   exit 1
 }
 
-# Single-key questions. A key that is not an answer is ignored. The terminal
-# is put back whatever ends the run.
-TTY_STATE=''
-restore_tty() {
-  if [ -n "$TTY_STATE" ]; then
-    stty "$TTY_STATE" 2>/dev/null || true
-    TTY_STATE=''
-  fi
-}
-trap restore_tty EXIT
-trap 'restore_tty; printf "\n"; exit 130' INT
-
-# ask_key <valid keys> <prompt>: the key goes in REPLY. Fails when the input
-# ends before a key arrives.
-ask_key() {
-  local valid="$1" key
-  TTY_STATE="$(stty -g 2>/dev/null)" || TTY_STATE=''
-  printf '%s' "$2"
-  while true; do
-    if ! IFS= read -rsn1 key; then
-      restore_tty
-      printf '\n'
-      return 1
-    fi
-    key="$(printf '%s' "$key" | tr 'A-Z' 'a-z')"
-    if [ -n "$key" ] && [[ "$valid" == *"$key"* ]]; then
-      restore_tty
-      printf '%s\n' "$key"
-      REPLY="$key"
-      return 0
-    fi
+# stop_plain <headline> [line ...]: like stop, but each line is flush left and
+# an empty one is a blank line, which splits the lines into groups.
+stop_plain() {
+  local headline="$1" line
+  shift
+  if [ "$FRESH" -eq 0 ]; then printf '\n' >&2; fi
+  printf '⚠ %s\n' "$headline" >&2
+  for line in "$@"; do
+    printf '%s\n' "$line" >&2
   done
-}
-
-# press_any_key <prompt>: waits for one key, whichever it is.
-press_any_key() {
-  local key
-  TTY_STATE="$(stty -g 2>/dev/null)" || TTY_STATE=''
-  printf '%s' "$1"
-  if ! IFS= read -rsn1 key; then
-    restore_tty
-    printf '\n'
-    return 1
-  fi
-  restore_tty
-  printf '\n'
+  exit 1
 }
 
 # Chrome is looked up by asking macOS, never by reading the Applications
@@ -213,7 +122,7 @@ sha256_of() {
 # sha256sum command exists, and macOS has shasum instead, so one is put first
 # on PATH for it.
 install_uv() {
-  local dir file got status=0
+  local dir file got out status=0
   if command -v brew >/dev/null 2>&1; then
     say 'uv is not installed. Installing it with Homebrew.'
     brew install uv || stop 'Homebrew could not install uv.' 'Install uv yourself, then run ./install.sh again.'
@@ -240,9 +149,13 @@ install_uv() {
       printf '#!/bin/sh\nexec %q -a 256 "$@"\n' "$(command -v shasum)" > "$dir/bin/sha256sum"
       chmod +x "$dir/bin/sha256sum"
     fi
-    PATH="$dir/bin:$PATH" INSTALLER_NO_MODIFY_PATH=1 sh "$file" || status=$?
+    # its own progress lines are held back and shown only if it fails
+    out="$(PATH="$dir/bin:$PATH" INSTALLER_NO_MODIFY_PATH=1 sh "$file" 2>&1)" || status=$?
     rm -rf "$dir"
-    [ "$status" -eq 0 ] || stop 'The uv installer did not finish.' 'Install uv yourself, then run ./install.sh again.'
+    if [ "$status" -ne 0 ]; then
+      printf '%s\n' "$out" >&2
+      stop 'The uv installer did not finish.' 'Install uv yourself, then run ./install.sh again.'
+    fi
   fi
 }
 
@@ -266,7 +179,7 @@ uv_new_enough() {
 # No python3 that is new enough: get uv, then a Python of uv's own. PY ends up
 # naming it. Nothing goes into the user's Python.
 bootstrap_python() {
-  local uv found=1
+  local uv out found=1
   say "No Python this setup can use was found (it needs $MIN_PYTHON or newer)."
   say 'uv will provide one for the private environment.'
   if ! uv="$(find_uv)"; then
@@ -281,7 +194,11 @@ bootstrap_python() {
   fi
   if [ "$found" -eq 0 ]; then ok 'uv installed.'; fi
   say "Installing Python $MANAGED_PYTHON with uv."
-  "$uv" python install --no-bin "$MANAGED_PYTHON" || stop 'uv could not install Python.' 'See the output above, then run ./install.sh again.'
+  # uv's own progress lines are held back and shown only if it fails
+  if ! out="$("$uv" python install --no-bin "$MANAGED_PYTHON" 2>&1)"; then
+    printf '%s\n' "$out" >&2
+    stop 'uv could not install Python.' 'See the output above, then run ./install.sh again.'
+  fi
   PY="$("$uv" python find --managed-python "$MANAGED_PYTHON")" || PY=''
   [ -n "$PY" ] && [ -x "$PY" ] || stop 'uv installed Python but it was not found.' 'See the output above, then run ./install.sh again.'
   ok "Python $MANAGED_PYTHON installed."
@@ -297,49 +214,6 @@ preflight() {
   fi
 }
 
-phone_client() {
-  local later=0
-  say 'The phone client puts your board on your phone, over Tailscale and'
-  say 'behind an app password.'
-  printf '\n'
-  ask_key yn 'Would you like to use the phone client? (y / n) ' || return 1
-  [ "$REPLY" = y ] || return 0
-
-  section '4.1 Tailscale'
-  say 'Tailscale connects your phone to the board on your Mac privately,'
-  say 'without opening it to the internet. It is free.'
-  printf '\n'
-  ask_key yn 'Is Tailscale installed on both your devices? (y / n) ' || return 1
-  if [ "$REPLY" = n ]; then
-    printf '\nWould you like to install it now or later?\n\n'
-    printf '  y - yes, I would like to install it now\n'
-    printf '  n - no, I will install it later\n\n'
-    ask_key yn 'answer: ' || return 1
-    if [ "$REPLY" = y ]; then
-      printf '\nGet Tailscale for your Mac and your phone: %s\n' "$TAILSCALE_URL"
-      printf 'On your phone, the App Store is the easiest place to get it.\n\n'
-      press_any_key 'Once installed, press any key.' || return 1
-    else
-      later=1
-      printf '\nThe phone client needs Tailscale on your Mac and your phone, with\n'
-      printf 'HTTPS certificates switched on for your Tailscale account.\n'
-    fi
-  fi
-  if [ "$later" -eq 0 ]; then
-    printf '\nAre HTTPS certificates switched on for your Tailscale account?\n\n'
-    printf '  y - yes!\n'
-    printf '  n - no / I do not know\n\n'
-    ask_key yn 'answer: ' || return 1
-    if [ "$REPLY" = n ]; then
-      printf '\nTurning on HTTPS certificates is a one time step and quite simple:\n\n'
-      printf 'Tailscale -> Network -> DNS -> Enable MagicDNS and allow HTTPS Certificates\n'
-    fi
-  fi
-
-  section '4.2 App password'
-  FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _password-setup || exit 1
-}
-
 banner
 
 section '1. Claude Code or Codex'
@@ -353,10 +227,12 @@ if command -v codex >/dev/null 2>&1; then
   agent_found=1
 fi
 if [ "$agent_found" -eq 0 ]; then
-  stop 'Neither Claude Code nor Codex was found.' \
+  stop_plain 'Neither Claude Code nor Codex was found.' \
+    '' \
     'Facilitator needs at least one of them. Install one:' \
-    "  Claude Code: $CLAUDE_URL" \
-    "  Codex: $CODEX_URL" \
+    "Claude Code: $CLAUDE_URL" \
+    "Codex: $CODEX_URL" \
+    '' \
     'Then run ./install.sh again. Nothing was changed.'
 fi
 
@@ -364,10 +240,12 @@ section '2. Chrome'
 if chrome_known; then
   ok 'Chrome found.'
 else
-  stop 'Chrome was not found.' \
+  stop_plain 'Chrome was not found.' \
+    '' \
     'Facilitator is meant to run as its own Chrome app window, not in a' \
     'browser tab. Install Chrome:' \
-    "  $CHROME_URL" \
+    "$CHROME_URL" \
+    '' \
     'Then run ./install.sh again. Nothing was changed.'
 fi
 
@@ -378,14 +256,7 @@ if usable_python3; then
 fi
 
 section '3. Python'
-say 'Setup builds a private Python environment in .venv with uv, installs'
-say 'the pinned packages, and writes run.config.json and seed.json from'
-say 'their examples when they are missing. Your own Python is not changed.'
-if [ -n "$DEV_FLAG" ]; then
-  say 'With --dev, the packages only the tests need are installed too.'
-else
-  say 'The packages only the tests need are left out; ./install.sh --dev adds them.'
-fi
+say 'Setup installs what Facilitator needs when it is missing.'
 printf '\n'
 FRESH=1
 if [ -z "$PY" ]; then
@@ -394,12 +265,11 @@ if [ -z "$PY" ]; then
 fi
 FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _install ${DEV_FLAG:+--dev}
 
-section '4. Phone client'
-if [ ! -t 0 ]; then
-  skipped 'Skipped the phone client: there is no interactive terminal.'
-elif ! phone_client; then
-  skipped 'Skipped the rest of the phone client: no answer was read.'
-fi
+mobile_app
+
+# Says Chrome's graphics acceleration is on, or when it is off offers to turn
+# it on. Leaving it as it is never stops the install.
+FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _chrome-acceleration || true
 
 printf '\n'
 if out="$("$PY" "$REPO/shell_integration.py" install --quiet 2>&1)"; then
@@ -413,5 +283,4 @@ fi
 printf '\n%s✦%s Facilitator is installed!\n\n' "$GREEN" "$RESET"
 printf '%sNext steps:%s\n\n' "$BOLD" "$RESET"
 printf '%s1.%s Start the board: facilitator run\n' "$BOLD" "$RESET"
-printf '%s2.%s Onboard your agent, in Claude Code: /facilitator onboard\n' "$BOLD" "$RESET"
-printf '   or in Codex: $facilitator onboard\n\n'
+printf '%s2.%s Complete the quick onboarding to start using the Facilitator!\n\n' "$BOLD" "$RESET"

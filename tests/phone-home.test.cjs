@@ -153,13 +153,13 @@ test("while home is up no project is checked, the capsule reads Home, the card i
   assert.match(between(PHONE, "function select(id, opts){", "\n}\n"), /\n  if \(chosen && !homeOpen\) markSeen\(id\);\n/);
   // a card picked in the list, a card just made and a notification's card
   // are each shown on their board; the list stays open under a pick
-  const pick = between(PHONE, 'r.addEventListener("click", e => {', "});");
-  assert.match(pick, /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(b\.id\);\n/);
-  assert.doesNotMatch(pick, /closeDrawer/, "a pick in the list shut it");
+  const pick = between(PHONE, "function pickTicket(id){", "\n}\n");
+  assert.match(pick, /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(id\);/);
+  assert.match(pick, /if \(twice\) closeDrawer\(\);/, "only a second ticket tap shuts the list");
   assert.match(between(PHONE, "if (pendingFocus && els[pendingFocus]){", "\n  }\n"), /if \(homeOpen\) setHome\(false\);[^\n]*\n\s+select\(id\);/);
   assert.match(between(PHONE, "function goToBox(id){", "\n}\n"), /^function goToBox\(id\)\{\n  if \(homeOpen\) setHome\(false\);/);
-  // the keys: only the diagnostic save answers on home
-  assert.match(PHONE, /const homeShortcutActions = \{ diagnostic: phoneShortcutActions\.diagnostic \};/);
+  // Home answers diagnostics and project switching, with no card actions.
+  assert.match(PHONE, /const homeShortcutActions = \{\s*diagnostic: phoneShortcutActions\.diagnostic,\s*tab: phoneShortcutActions\.tab,\s*\};/);
   assert.match(PHONE, /dispatchCardShortcut\(e, homeOpen \? homeShortcutActions : phoneShortcutActions\);/);
   // signing out forgets it with the open tab and card
   assert.match(PHONE, /\["pendops", "selbox", "activeproj", "homeopen"\]/);
@@ -232,6 +232,7 @@ function phoneHome({ stored = {}, want = null, serve = true, state = { rev: 1 },
                     removeItem: k => store.delete(k) },
     renderTabs: st => tabs.push(st),
     dismissEditor: () => blurred.push(true),
+    syncMenuAvailability() {}, // exercised with the real menu controller in phone-home-drawer.test.cjs
     unselectShown: () => unselected.push(true),
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },
     clearInterval: id => { timers.delete(id); },

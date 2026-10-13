@@ -14,13 +14,33 @@ One page, one state file. The human types into per-item boxes; messages queue
 FIFO; the agent (Claude, in the terminal session that launched this) drains the
 queue one box at a time via GET /wait (long-poll) and answers via POST /reply.
 
+Every page, script and sheet the board reads from its files (/, /page, /m and the
+shared files they load) is gzip compressed on either port when the request's
+Accept-Encoding takes gzip; pictures go as they are.
+
 Endpoints:
   GET  /                    -> index.html, the card board
   GET  /page                -> page.html, the same lanes drawn as one typed page
   GET  /state               -> full UI state (page polls this), with rev, the
                                board's revision: every saved change moves it,
                                and settingsRev, the settings' own revision
-                               (see /settings)
+                               (see /settings), and onboarding: true while the
+                               profile is not complete (see GET /profile), so
+                               a page open across a restart puts the
+                               onboarding up without a reload
+  GET  /state?since=R[&delta=E] -> the same reading for a page that holds one
+                               (the Mac board's poll). since blank, or a reading
+                               this run cannot build on, is the whole reading
+                               with epoch beside it. With delta naming this
+                               run's epoch and the board still remembering
+                               what it sent at R (its last DESK_KEPT readings),
+                               only what differs comes: {delta: R, rev, epoch,
+                               count, gone, after or ids as on /m/state, keys:
+                               the reading's field names in order, only when
+                               they are not the ones held, set: the fields
+                               that differ, each whole, boxes: the cards that
+                               differ}. Laid over the reading held, that is
+                               the reading /state gives
   GET  /m/state[?since=R][&delta=E][&ops=A,B] -> what the phone reads: {rev,
                                changed, live, ...}. With since naming the
                                revision the phone already holds and nothing
@@ -61,7 +81,7 @@ Endpoints:
                                in the middle. Only the literal "mini" is stored
                                (as the message's via field), so any other value
                                and any older caller land exactly as before.
-                               Sending to a parked card also brings it back to
+                               Sending to a docked or parked card brings it back to
                                Doing in the same saved update. op is an
                                operation id the caller minted before its first
                                try, 8 to 64 letters, digits, - or _: the result
@@ -74,8 +94,8 @@ Endpoints:
                                finds it rather than landing twice. A send with
                                no op lands as it always did and is never
                                deduplicated
-  POST /done?box=ID&v=1|0   -> mark a box done / not done
-  POST /close?box=ID        -> atomically close from the authoritative card:
+  POST /done?box=ID&v=1|0[&sid=S&seq=N] -> mark a box done / not done
+  POST /close?box=ID[&sid=S&seq=N] -> atomically close from the authoritative card:
                                a card with a reply, reply count, or pending
                                message is marked done; only a truly empty meta
                                card is removed
@@ -98,7 +118,14 @@ Endpoints:
                                The pages send v=0 when the reader unfolds the
                                ticket.
                                It adds no reply, consumes no claim and moves no card
-  POST /park?box=ID&v=1|0   -> park a box to Later / bring it back
+  POST /dock?box=ID&v=1|0[&after=T&sid=S&seq=N] -> move a card to Docked / Doing
+  POST /park?box=ID&v=1|0[&after=T&sid=S&seq=N] -> defer a card / bring it back.
+                               Docked keeps the card's working or reply color.
+                               Dock, park, done and close share an optional
+                               per-page sid/seq order; an older command cannot
+                               replace a newer one from that page. Dock and park
+                               refuse a move decided before an owner message
+                               newer than after, when that basis is supplied
   POST /context?box=ID      -> body = the box's two-line context strip (agent-kept)
   POST /title?box=ID        -> body = replacement title (agent keeps titles brief;
                                auto-names are just the chopped first message)
@@ -119,6 +146,19 @@ Endpoints:
   POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
                                that sends a nonempty meta card here closes it to
                                done instead, so old tabs cannot erase a thread
+  POST /bin?box=ID          -> move any card to the Bin, the Mac board's garbage
+                               can: it leaves every section, its lane's queue and
+                               any claim on it, and no reading or agent sees it.
+                               Its queued messages, thread, attachments and magic
+                               box are all kept. {ok, box, rev}
+  GET  /bin                 -> the Bin, newest first: {cards: [{id, title, owner,
+                               section, ts, until}], keepDays}, ts when it went
+                               in, until when it is deleted for good
+  POST /bin/restore?box=ID  -> put a card from the Bin back in its place and
+                               section, its queued messages back on the queue.
+                               A card BIN_KEEP_DAYS in the Bin is deleted for good,
+                               checked when the board starts and once a day. The
+                               three Bin routes are local only: the bridge refuses them
   POST /upload?name=F[&op=ID] -> body = raw attachment bytes; saves to the sibling internal
                                folder ../facilitator-internal/uploads/ (outside the
                                repo, never pushed), returns {"url": "/uploads/..."}
@@ -150,6 +190,56 @@ Endpoints:
                                is a 404. Lets an agent working in another project
                                show a picture on the board without writing a file
                                into this repo
+  POST /magic?box=ID&kind=K[&title=T] -> fill the card's magic box, the box
+                               beside the card on the Mac board (and above
+                               it on the phone, pulled in from the right edge),
+                               and open it, in place of whatever it held.
+                               It waits on its card and never takes the
+                               keys. K is text
+                               (shown as typed), markdown (the card's renderer),
+                               html (a whole page, run in a sealed frame with
+                               no network), image (the picture's bytes: PNG,
+                               JPEG, GIF, WebP, or SVG without script; or one
+                               https address, which the board downloads once)
+                               or url (one https address). The body is the
+                               content: text and pages up to 1 MiB, pictures up
+                               to 10 MiB (413). T is a title kept with the box
+                               (the board does not draw it), 120 characters at
+                               most. A web address
+                               is asked for by the board first: https only,
+                               every address its name resolves to public (this
+                               computer, the home network and the tailnet are
+                               refused, 400), at most 5 redirects each checked
+                               again, no cookies. A website that lets this page
+                               frame it is shown live (shown: frame); one that
+                               refuses, or answers with an error or something
+                               not a page, is shown as a square with the site's
+                               name in a box in its middle, which opens it in
+                               a new page (shown: preview, reason in fixed
+                               words).
+                               Answers {ok, box, kind, rev, shown[, reason,
+                               url]}, never words from the site itself. 400 for
+                               a card, kind, title or address that is wrong or
+                               an empty body, 415 for a body that is not the
+                               picture it should be, 502 for a site that could
+                               not be reached. The content is kept in
+                               magic-boxes/ beside state.json, owner-only; the
+                               card carries only magic: {open, kind, rev, ts},
+                               which /state sends for cards that have one; the
+                               transcript gets the kind and size, never the
+                               content. Local only: the phone bridge refuses
+                               every /magic route
+  POST /magic/close?box=ID  -> hide the box and keep what it holds; {ok, open}.
+                               404 when the card has no box
+  POST /magic/reopen?box=ID -> show it again; {ok, open}
+  GET  /magic?box=ID        -> {box, open, kind, title, rev, ts, shown}: what an
+                               agent may read back. 404 when there is no box
+  GET  /magic/body?box=ID   -> what the box holds, for the page, as JSON (with
+                               nosniff), never as a page: text, html, src for
+                               a picture, or url, shown, reason and preview
+                               {title, description, site} for a website
+  GET  /magic/img?box=ID    -> the box's picture, with nosniff and a sandbox
+                               policy, as a panel picture is served
   GET  /cm-markdown.js      -> the vendored CodeMirror 6 bundle beside index.html,
                                fetched the first time the file navigator opens a file
   GET  /card-markdown.js    -> the shared, finite card-prose renderer used by
@@ -173,6 +263,11 @@ Endpoints:
                                heatmap and line chart, the pill that switches
                                them, and their sheet, fetched by the board the
                                first time its home page opens
+  GET  /mac-phone-view.js   -> the Mac's retained phone-view host and draft handoff;
+                               /m on the local board port allows only same-origin
+                               framing, while the root and bridge remain unframeable
+  GET  /magic-box.js        -> where a card's magic box stands beside the card, and
+                               the sealed page an agent's html is shown in
   GET  /manifest.json, /sw.js -> what makes the board page installable as a Mac
                                app: its web app manifest, whose name the
                                installed app's bundle and dock icon are taken
@@ -312,9 +407,13 @@ Endpoints:
                                settings are what the reader arranges on the
                                desktop pages: each lane's box places, sizes,
                                hides and shows, the background colour, the
-                               outline's width, formatting while typing, the
-                               home chart, the typed page's tasks and the
-                               one-time layout passes, under the key names and
+                               outline's width, formatting while typing,
+                               whether the daily usage counts are shared
+                               (usagecounts, "0" when off), whether the cards
+                               waiting on the reader are listed newest first
+                               (waitnewest, "1" when so), the home chart,
+                               the typed page's tasks and the one-time layout
+                               passes, under the key names and
                                text values the browsers kept them under. They
                                live in settings.json beside state.json, so
                                every address the board is opened at shows the
@@ -322,7 +421,10 @@ Endpoints:
                                background_default, a #rrggbb colour, it is
                                written after them as
                                globalThis.BOARD_BGCOLOR_DEFAULT, the colour a
-                               page uses until a bgcolor is saved
+                               page uses until a bgcolor is saved. While the
+                               profile is not complete (GET /profile) it ends
+                               with globalThis.BOARD_ONBOARDING=true, which the
+                               board reads to put the onboarding up
   GET  /settings            -> {rev, values}: the same settings, for a page
                                whose /state says settingsRev has moved
   POST /settings[?seed=1]   -> body = {"<key>": "<value>" or null, ...}: sets
@@ -352,6 +454,75 @@ Endpoints:
                                above, and a 403 unless Origin is the page's own
                                loopback address. seed=1 is a browser's one-time
                                copy, applied only while none is kept
+  POST /usage/email         -> body = {"email": "<address>", "yes": true}: the
+                               onboarding's way to say that this person said
+                               yes to being emailed for feedback. Keeps the yes
+                               and the address in usage-install.json beside
+                               state.json and tells PostHog once that the
+                               install's random id belongs to that email (only
+                               the email, no name). Answers {ok, sent}: sent is
+                               false when the usagecounts switch is off or
+                               PostHog could not be reached, and it goes later.
+                               A 400 for a yes that is not true or something
+                               that is not an address, with nothing kept or
+                               sent. Local only like /spotify/session (a 404
+                               to anything else, a 403 unless Origin is the
+                               page's own loopback address), body capped at
+                               2048 bytes, and the address is never logged or
+                               answered back. Nothing calls it yet: the
+                               onboarding and the Profile section in Settings
+                               reach the same link through POST /profile
+  GET  /profile             -> {name, email, emailYes, work, agent, timeZone,
+                               picture, complete}: who uses this board, kept in
+                               profile.json beside state.json, owner-only, and
+                               sent nowhere unless the person said yes to
+                               feedback mail (see POST). A missing or
+                               unreadable file answers every field null
+                               and complete false; complete
+                               is true once a name is kept. picture is a
+                               number from 19 to 30, drawn at random by the
+                               first GET from a page on this Mac once a name
+                               is kept (and again, once, for a kept 3 to 5 of
+                               the earlier set) and then kept; null before
+                               that, and for the phone until then. It is
+                               never sent anywhere. Answered to the
+                               Mac's pages and, through the bridge, to a
+                               signed-in phone, which shows it in its Settings
+  POST /profile             -> body = {"<field>": <value>, ...}, any of the
+                               fields above but complete: sets those and keeps
+                               the rest. name, work and agent are text (name
+                               at most 200 characters and never empty, work
+                               2000, agent 100; null or blank clears work and
+                               agent), email an address or null, emailYes true
+                               or false, timeZone an IANA name the page read off
+                               the Mac. A yes needs an email, and clearing the
+                               email takes the yes with it. Every field is
+                               checked before anything is kept, and a refusal is
+                               a 400 naming the field and never its value. Once
+                               kept, with the yes on, the email, name, work,
+                               main agent and time zone go to
+                               usage_counts.Sender.link_person, which tells
+                               PostHog, as properties of the install's person,
+                               only what it has not been told: everything at the
+                               yes, then only an answer that changes. Without
+                               the yes nothing leaves, and a yes taken back is
+                               forgotten there (unlink_email) with nothing
+                               sent. Answers the stored profile with ok and
+                               sent (PostHog holds the person as saved). Local
+                               only like /usage/email, body capped at 8192
+                               bytes, and no log line holds a value
+  GET  /onboarding          -> onboarding.html, the onboarding the Mac board
+                               lays over itself while the profile is not
+                               complete, with the board's version written into
+                               it. Local only, and the one page besides /m that
+                               the board's own origin may frame
+  POST /onboarding/sample   -> makes the sample project the onboarding opens,
+                               ~/facilitator-sample, holding its internal folder
+                               and its wiki with one short example in each, the
+                               first time it is missing; one that exists, as a
+                               folder or anything else, is never touched.
+                               Answers {ok, path, made}; a 409 when something
+                               that is not a folder holds the name. Local only
   The five quick note routes below are OFF in this version
   (QUICK_NOTES_ON is False): each answers 404, the same as an unknown route,
   and /state carries no quicknotes. The notes already stored in state.json
@@ -469,8 +640,9 @@ Endpoints:
                                "weekly") {used, resets}: a whole percent from 0
                                to 100, 0 once the reset time has passed, and the
                                reset as epoch seconds or null, plus "fetched"
-                               (epoch seconds when Codex was last read, or
-                               null), "now" (this server's clock) and
+                               (epoch seconds when the Codex reading was taken,
+                               a session log's own time for one from the logs,
+                               or null), "now" (this server's clock) and
                                "refreshing" (a renewal is running). It answers
                                at once from the last reading; one five minutes
                                old is renewed in the background. limits.py
@@ -605,6 +777,23 @@ settings and the Spotify sign-in persist to settings.json beside it. A first-eve
 (no state.json) seeds the board title and boxes from seed.json if present;
 the shipped seed.example.json holds a title and no boxes, so a new install
 opens with no project. Real discussion content never ships in this code.
+
+Once a day, unless the usagecounts setting is "0", a thread of the server's own
+sends one message of counts about the day before to PostHog (usage_counts.py
+lists every field). The thread is no route and
+answers nothing; usage-counts.json beside state.json holds the last day it dealt
+with, and usage-install.json beside it holds the install's random id, which
+every message carries, and the email and the profile's answers when the person
+said yes to feedback mail (POST /profile). With the switch off nothing is sent
+at all.
+
+A Mac board whose profile.json is missing or has no name has not been through
+the onboarding: /board-settings.js says so in front of the store
+(globalThis.BOARD_ONBOARDING), and the board lays /onboarding over itself
+before it can be used. The profile stays on this Mac unless the person says
+yes to feedback mail: then its email, name, work answer, main agent and time
+zone go to PostHog once, as that person's properties, and again only when one
+of them changes, never on a daily message.
 """
 
 from __future__ import annotations
@@ -615,6 +804,8 @@ import contextlib
 import fcntl
 import gzip
 import hashlib
+import http.client
+import ipaddress
 import json
 import logging
 import logging.handlers
@@ -625,6 +816,7 @@ import secrets
 import shutil
 import signal
 import socket
+import ssl
 import stat
 import struct
 import subprocess
@@ -635,8 +827,9 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse, quote
+from urllib.parse import parse_qs, urljoin, urlparse, quote
 
 HERE = Path(__file__).resolve().parent
 
@@ -904,7 +1097,9 @@ LOGGER = logging.getLogger("facilitator")
 LOGGER.setLevel(LOG_LEVELS[LOG_LEVEL])
 LOGGER.propagate = False
 if not LOGGER.handlers:
-    _to_file = DatedRotatingHandler(LOG_DIR, "server", ".log")
+    # delayed at errors only, so such a board's folder gains a file only when
+    # something goes wrong; the other levels open it at start as they always did
+    _to_file = DatedRotatingHandler(LOG_DIR, "server", ".log", delay=(LOG_LEVEL == "error"))
     _to_file.setFormatter(JsonLineFormatter())
     LOGGER.addHandler(_to_file)
     # A watching terminal sees INFO and above, in human form: JSON in a terminal
@@ -1023,7 +1218,7 @@ def _log_file() -> Path:
 CLIENT_PAGES = ("board", "phone", "page")
 CLIENT_KINDS = ("error", "rejection", "fetch", "render", "slow", "incident",
                 "pushreceived", "notifycheck", "notifylost",
-                "notifytap", "notifyarrive", "notifyresult")
+                "notifytapready", "notifytap", "notifyarrive", "notifyresult")
 # the kind of window a page is open in, and its id for one page load: the same
 # page in the Chrome window, the Electron app and the Tauri app is otherwise
 # indistinguishable. Only these names and 16 hex characters are ever kept
@@ -1045,7 +1240,7 @@ INCIDENT_EVENTS = frozenset(("create", "select", "focus", "send", "operation", "
                             "render", "stage", "observer", "drawer", "viewport", "lifecycle", "problem", "freeze", "mark"))
 INCIDENT_EVENTS_V3 = INCIDENT_EVENTS | frozenset(("input", "scroll", "frame", "timer", "phase", "poll"))
 INCIDENT_EVENTS_V4 = INCIDENT_EVENTS_V3 | {"enter"}
-INCIDENT_SCHEMA = 5          # what /m/state offers the phone; every older version is still read
+INCIDENT_SCHEMA = 6          # what /m/state offers the phone; every older version is still read
 INCIDENT_REASONS = ("manual", "slow-ui", "slow-request", "invariant", "problem", "freeze")
 INCIDENT_REASONS_V5 = INCIDENT_REASONS + ("no-scroll",)
 INCIDENT_NUMBERS = {"ms": 600000, "seq": 1000000000, "status": 599, "serverMs": 600000,
@@ -1102,16 +1297,52 @@ def _incident_box(value) -> bool:
     return isinstance(value, str) and len(value) <= 32 and (not value or bool(INCIDENT_BOX.fullmatch(value)))
 
 
+def _incident_timing_valid(timing) -> bool:
+    """The packed keyboard trace: fixed words, bounded clocks and scroll offsets."""
+    if (not isinstance(timing, dict) or set(timing) != {"lost", "longtasks", "rows"}
+            or not _incident_integer(timing["lost"], 0, 1000000000)
+            or type(timing["longtasks"]) is not bool or not isinstance(timing["rows"], list)
+            or len(timing["rows"]) > 240):
+        return False
+    def number(value, low, high):
+        # Bounds also reject NaN and infinity; bool is not a clock reading.
+        return type(value) in (int, float) and low <= value <= high
+    previous = -120000
+    for row in timing["rows"]:
+        if (not isinstance(row, list) or len(row) < 3 or not number(row[0], previous, 20000)
+                or row[2] not in ("reply", "list")):
+            return False
+        previous = row[0]
+        kind = row[1]
+        if kind in ("start", "end"):
+            valid = len(row) == 3
+        elif kind == "step":
+            valid = (len(row) == 7 and number(row[4], 0, 1000000)
+                     and all(number(row[i], -120000, 20000) for i in (3, 5, 6)))
+        elif kind == "frame":
+            valid = len(row) == 4 and number(row[3], -120000, 20000)
+        elif kind in ("job-start", "job-end"):
+            valid = len(row) == 4 and row[3] in ("board", "json", "list", "reply", "glass")
+        elif kind == "longtask":
+            valid = len(row) == 4 and number(row[3], 0, 600000)
+        else:
+            valid = False
+        if not valid:
+            return False
+    return len(json.dumps(timing, separators=(",", ":"))) <= 6144
+
+
 def _incident_valid(page: str, report: dict) -> bool:
-    """No free text and no nested data except the bounded event list. Reject
+    """No free text; only bounded events and the packed keyboard timing rows. Reject
     unknown fields and bad types before any part of a batch reaches a log."""
     version = report.get("v")
     fields = {"kind", "v", "reason", "marked", "box", "lost", "suppressed", "events"}
-    if version in (2, 3, 4, 5): fields.add("build")
-    if version in (3, 4, 5): fields.update(("worker", "session"))
-    reasons = INCIDENT_REASONS_V5 if version == 5 else INCIDENT_REASONS
+    if version in (2, 3, 4, 5, 6): fields.add("build")
+    if version in (3, 4, 5, 6): fields.update(("worker", "session"))
+    if version == 6: fields.add("timing")
+    reasons = INCIDENT_REASONS_V5 if version in (5, 6) else INCIDENT_REASONS
     if (page != "phone" or set(report) != fields
-            or type(version) is not int or version not in (1, 2, 3, 4, 5)
+            or type(version) is not int or version not in (1, 2, 3, 4, 5, 6)
             or (version >= 2 and (not isinstance(report["build"], str) or not INCIDENT_BUILD.fullmatch(report["build"])))
             or (version >= 3 and (not isinstance(report["worker"], str) or not INCIDENT_BUILD.fullmatch(report["worker"])
                                   or not isinstance(report["session"], str) or not INCIDENT_SESSION.fullmatch(report["session"])))
@@ -1119,6 +1350,8 @@ def _incident_valid(page: str, report: dict) -> bool:
             or not _incident_integer(report["marked"], 0, 10000000000000)
             or not _incident_integer(report["lost"], 0, 1000000000)
             or not _incident_integer(report["suppressed"], 0, 1000000000)):
+        return False
+    if version == 6 and not _incident_timing_valid(report["timing"]):
         return False
     entries = report["events"]
     if not isinstance(entries, list) or not 1 <= len(entries) <= (128 if version >= 3 else 40):
@@ -1198,11 +1431,15 @@ NOTICE_FIELDS = {
     "pushreceived": ("outcome", "reason", "ms", "status", "ago", "n", "worker"),
     "notifycheck": ("source", "perm", "reg", "sub"),
     "notifylost": ("source", "reg"),
+    "notifytapready": ("stage", "tap", "box", "at", "worker", "windows", "visibility", "focused"),
     "notifytap": ("box", "tap", "windows", "route", "focus", "opened", "ms", "age"),
     "notifyarrive": ("tap", "box", "via", "reading", "found", "visible", "menu", "home", "hist"),
     "notifyresult": ("tap", "box", "shown", "covered", "pending"),
 }
 NOTICE_CHOICES = {
+    "stage": ("received", "ready"),
+    "visibility": ("visible", "hidden", "none"),
+    "focused": ("yes", "no", "none"),
     "outcome": ("shown", "skipped"),
     "reason": ("check-failed", "timeout", "not-signed-in", "show-failed", "other"),
     "source": ("start", "return"),
@@ -1218,7 +1455,7 @@ NOTICE_CHOICES = {
     "covered": ("cards", "settings", "projects", "none"),
 }
 NOTICE_NUMBERS = {"ms": 600000, "status": 599, "ago": 7776000, "n": 1000000000000,
-                  "windows": 1000, "age": 7776000}
+                  "windows": 1000, "age": 7776000, "at": 10000000000000}
 # a tap's id is eight hex characters made by the worker; a page opened with no
 # id, by an older worker, says "none"
 NOTICE_TAP = re.compile(r"(?:[a-f0-9]{8}|none)", re.ASCII)
@@ -1231,6 +1468,14 @@ def _notice_valid(page: str, report: dict) -> bool:
     age of the notification is left out when the worker could not tell."""
     allowed = NOTICE_FIELDS[report["kind"]]
     wanted = {"kind", *allowed}
+    if report["kind"] == "notifytapready":
+        if report.get("stage") == "received":
+            wanted.difference_update(("windows", "visibility", "focused"))
+        elif report.get("stage") == "ready":
+            no_window = report.get("windows") == 0
+            if ((report.get("visibility") == "none") != no_window
+                    or (report.get("focused") == "none") != no_window):
+                return False
     if report["kind"] == "pushreceived":
         if report.get("outcome") == "shown":
             wanted.discard("reason")
@@ -1260,7 +1505,7 @@ def _notice_valid(page: str, report: dict) -> bool:
                 return False
         elif name == "tap":
             if (not isinstance(value, str) or not NOTICE_TAP.fullmatch(value)
-                    or (value == "none" and report["kind"] == "notifytap")):
+                    or (value == "none" and report["kind"] in ("notifytap", "notifytapready"))):
                 return False
         elif name == "box":
             if not _incident_box(value):
@@ -1270,6 +1515,9 @@ def _notice_valid(page: str, report: dict) -> bool:
     return True
 
 
+# the page reports that still reach the client file when the level is error: the
+# page's throws, and the phone marker someone asked for by hand
+CLIENT_ERROR_KINDS = ("error", "rejection", "incident")
 CLIENT_LOGGER = logging.getLogger("facilitator.client")
 CLIENT_LOGGER.setLevel(logging.INFO)
 CLIENT_LOGGER.propagate = False
@@ -1286,6 +1534,8 @@ _client_seen: dict = {}   # key -> [when its minute started, written, dropped]
 def _client_event(kind: str, box: str = "", /, **fields) -> None:
     """One line in the client file. Its own logger and its own file: page
     reports are not board events and must never be read as if they were."""
+    if LOG_LEVEL == "error" and kind not in CLIENT_ERROR_KINDS:
+        return
     CLIENT_LOGGER.info(kind, extra={"box": box, "fields": fields})
 
 
@@ -1303,7 +1553,7 @@ def _client_fields(report: dict) -> dict:
     A page cannot write whatever it likes into a file on this machine."""
     if report["kind"] == "incident":
         names = ("v", "reason", "marked", "lost", "suppressed", "events")
-        return {k: report[k] for k in (*names, "build", "worker", "session") if k in report}
+        return {k: report[k] for k in (*names, "build", "worker", "session", "timing") if k in report}
     if report["kind"] in NOTICE_FIELDS:
         # a card's id is the line's own box, written beside the kind
         out = {k: report[k] for k in NOTICE_FIELDS[report["kind"]] if k in report and k not in ("ago", "box")}
@@ -1353,6 +1603,8 @@ def _client_batch(page: str, reports: list, who: dict) -> tuple:
             for stale in [k for k, w in _client_seen.items() if now - w[0] >= CLIENT_WINDOW]:
                 del _client_seen[stale]
         for report in reports:
+            if LOG_LEVEL == "error" and report["kind"] not in CLIENT_ERROR_KINDS:
+                continue
             key = _client_key(page, report)
             window = _client_seen.get(key)
             if window is None or now - window[0] >= CLIENT_WINDOW:
@@ -1471,6 +1723,21 @@ UPLOAD_STALL_TIMEOUT = 60.0     # seconds an upload may go with no bytes arrivin
 UPLOAD_TIME_LIMIT = 3600.0      # seconds a whole upload may take
 UPLOAD_RECEIPTS = 256           # finished uploads remembered by operation id, newest kept
 MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator will preview inline
+# a card's magic box: the box beside the card an agent fills. What it
+# holds lives here, beside state.json and as private as it, one file per card
+# named by the box's revision; state.json only says that a box exists
+MAGIC_DIR = HERE / "magic-boxes"
+MAGIC_KINDS = ("text", "markdown", "html", "image", "url")
+MAGIC_IMAGE_MAX = 10 * 1024 * 1024    # bytes of one picture in a box
+MAGIC_TITLE_MAX = 120                 # characters of a box's title
+# a website or a web picture is asked for by the board itself before anything
+# is shown, and these bound how long and how much: one step (connecting, or
+# one read) and the whole of it, redirects included
+MAGIC_FETCH_STEP = 8.0                # seconds
+MAGIC_FETCH_TOTAL = 15.0              # seconds
+MAGIC_REDIRECTS = 5
+MAGIC_PAGE_HEAD = 256 * 1024          # bytes of a page read for its preview
+MAGIC_ADDRESS_MAX = 8192              # bytes of one web address
 # the control bytes a real text file never carries: every C0 control except tab,
 # newline, carriage return and form feed. A file can decode as utf-8 and still be
 # binary (an ascii-only payload, or bytes that merely validate), so the navigator
@@ -1576,6 +1843,34 @@ _last_wait = {ow: 0.0 for ow in OWNERS}
 # the name each lane's agent last stated on its /wait call; None until stated
 _agent_names: dict = {ow: None for ow in OWNERS}
 
+
+def _agent_kind(owner: str) -> str:
+    """claude, codex or other: which agent the lane's listener said it was on
+    its last /wait, or other when none has said since the start. A reply's
+    transcript row carries this one word, never the name itself, so the daily
+    usage counts (usage_counts.py) can split replies by agent. The word lists
+    are agent_names.py's, the same ones the counts use; a copy of the board
+    without that file, as the tests' fixtures make, stores other."""
+    try:
+        import agent_names
+    except ImportError:
+        return "other"
+    return agent_names.agent_kind(_agent_names.get(owner))
+
+
+def _agent_class(owner: str) -> str:
+    """The model's class name (opus, sonnet, astra, ...) of the agent the lane's
+    listener last said it was, or empty when none has said. This is the name a
+    card's ticket shows for the agent that answered it, stored on the card
+    (agent_names.agent_class). A copy of the board without agent_names.py, as
+    the tests' fixtures make, stores nothing."""
+    try:
+        import agent_names
+    except ImportError:
+        return ""
+    return agent_names.agent_class(_agent_names.get(owner))
+
+
 # ---- waking the listeners --------------------------------------------------------
 # The agents' long polls wait on the event loop, not on the condition above.
 # Every change to the board comes through _notify: it moves a version number
@@ -1634,7 +1929,7 @@ def _sync_owner_registries() -> None:
     for p in _state.get("projects", []):
         if isinstance(p, dict) and p.get("id") and p["id"] not in kept:
             kept.append(p["id"])
-    for b in _state.get("boxes", []):
+    for b in _state.get("boxes", []) + [e.get("card") for e in _state.get("bin", []) if isinstance(e, dict)]:
         ow = b.get("owner") if isinstance(b, dict) else None
         if ow and ow not in kept:
             kept.append(ow)
@@ -1942,7 +2237,7 @@ def _seed_state() -> dict:
                 "reply": it.get("context", ""),
                 "reply_full": it.get("context", ""),
                 "reply_short": it.get("context", ""),
-                "pending": [], "done": False, "replies": 0,
+                "pending": [], "done": False, "docked": False, "replies": 0,
                 "owner": it.get("owner", "facilitator"),
             }
             for it in seed.get("items", [])
@@ -2201,14 +2496,14 @@ def _ensure_reply_schema_boundary() -> None:
 
 
 def _backfill_rest_stamps() -> None:
-    """Give each parked or done card that has no parked_ts or done_ts the time of
-    the latest park or done event the transcript holds for it, and its own ts
+    """Give each docked, parked or done card missing its section time the time of
+    the latest matching dock, park or done event, and its own ts
     when the transcript holds none. Only a missing stamp is filled and nothing
     else on a card is touched, so a start with every stamp in place reads no
     transcript and changes nothing. Callers hold _lock or run before serving."""
     missing = [(b, flag, stamp)
                for b in _state["boxes"]
-               for flag, stamp in (("parked", "parked_ts"), ("done", "done_ts"))
+               for flag, stamp in (("docked", "docked_ts"), ("parked", "parked_ts"), ("done", "done_ts"))
                if b.get(flag) and not isinstance(b.get(stamp), (int, float))]
     if not missing:
         return
@@ -2220,7 +2515,7 @@ def _backfill_rest_stamps() -> None:
                     event = json.loads(line)
                 except (TypeError, ValueError):
                     continue
-                if not isinstance(event, dict) or event.get("kind") not in ("park", "done"):
+                if not isinstance(event, dict) or event.get("kind") not in ("dock", "park", "done"):
                     continue
                 bid, ts = event.get("box"), event.get("ts")
                 if isinstance(bid, str) and isinstance(ts, (int, float)) and not isinstance(ts, bool):
@@ -2229,7 +2524,7 @@ def _backfill_rest_stamps() -> None:
         pass
     now = time.time()
     for b, flag, stamp in missing:
-        kind = "park" if flag == "parked" else "done"
+        kind = {"docked": "dock", "parked": "park", "done": "done"}[flag]
         b[stamp] = latest.get((b["id"], kind)) or b.get("ts") or now
 
 
@@ -2238,6 +2533,16 @@ def _migrate() -> None:
     _state.pop("paused", None)   # the pause switch is gone; drop what an older board saved
     _state.pop("end", None)   # the end switch is gone; drop what an older board saved
     _state.setdefault("title", "facilitator")
+    # the Bin (2026-10-10): a board from before it has none, and an entry that
+    # is not a card is dropped. Its cards stand with the board's own through
+    # every upgrade below, so one restored later is as current as the rest, and
+    # leave again before the save
+    entries = _state.get("bin")
+    _state["bin"] = [e for e in (entries if isinstance(entries, list) else [])
+                     if isinstance(e, dict) and isinstance(e.get("card"), dict)
+                     and isinstance(e["card"].get("id"), str)]
+    binned = {id(e["card"]) for e in _state["bin"]}
+    _state["boxes"].extend(e["card"] for e in _state["bin"])
     # owners come from data, not code: the built-in facilitator, the lanes named
     # in run.config.json, the stored project lanes, and any owner a saved card
     # already carries. Registered here, before the per-owner loops below lay out
@@ -2261,6 +2566,9 @@ def _migrate() -> None:
          if b["id"].startswith("m") and b["id"][1:].isdigit()] or [0]))
     for b in _state["boxes"]:
         b.setdefault("owner", "facilitator")
+        # Docked is a separate section flag; older cards begin in Doing and
+        # old pages still read their usual working/queued/reply machine state.
+        b.setdefault("docked", False)
     if not isinstance(_state.get("busy"), dict):  # scalar claim slots -> per-owner maps
         _state["busy"] = {ow: None for ow in OWNERS}
         _state["claimed"] = {ow: [] for ow in OWNERS}
@@ -2460,6 +2768,7 @@ def _migrate() -> None:
     # tabs to list by: cards saved before the board stamped them are filled once
     # from the transcript and from then on the routes keep the stamps
     _backfill_rest_stamps()
+    _state["boxes"] = [b for b in _state["boxes"] if id(b) not in binned]
     _save()
 
 
@@ -2479,6 +2788,7 @@ _last_durable: str | None = None
 # woken for a reply the board does not have.
 _transcript_due: list = []   # (event row, kind, box, chars, log fields), under _lock
 _push_due: list = []         # box ids whose turn is to be pushed once the save lands, under _lock
+_magic_sweep_due: list = []  # card ids whose older magic box files go once the save lands, under _lock
 
 
 def _side_effect_failure(kind: str, box: str = "", **fields) -> None:
@@ -2497,9 +2807,10 @@ def _commit_side_effects() -> None:
     installed, so a transcript that cannot be appended is written down as its
     own failure and never fails the save; the state stays the source of truth
     and the transcript is the record that follows it."""
-    global _transcript_due, _push_due
+    global _transcript_due, _push_due, _magic_sweep_due
     due, _transcript_due = _transcript_due, []
     pushes, _push_due = _push_due, []
+    swept, _magic_sweep_due = _magic_sweep_due, []
     if due:
         try:
             # Encode the batch before opening the file. A malformed internal
@@ -2522,6 +2833,11 @@ def _commit_side_effects() -> None:
             threading.Thread(target=_push_turn, args=(bid,), daemon=True).start()
         except Exception as e:
             _side_effect_failure("pushfail", bid, reason=type(e).__name__)
+    for bid in swept:
+        try:
+            _magic_sweep(bid)
+        except Exception as e:
+            _side_effect_failure("magicsweepfail", bid, reason=type(e).__name__)
 
 
 def _discard_side_effects() -> None:
@@ -2529,6 +2845,7 @@ def _discard_side_effects() -> None:
     just taken back, so none of it is written or sent."""
     _transcript_due.clear()
     _push_due.clear()
+    _magic_sweep_due.clear()
 
 
 def _restore_last_durable() -> None:
@@ -2683,11 +3000,11 @@ def _box_has_content(box: dict) -> bool:
 
 
 def _stamp_rest(box: dict, now: float) -> None:
-    """Keep parked_ts and done_ts in step with the parked and done flags: a stamp
+    """Keep docked_ts, parked_ts and done_ts in step with their flags: a stamp
     is written the moment its flag turns on, kept while the flag stays on, and
-    dropped when it turns off. The Deferred and Done tabs list by these times.
+    dropped when it turns off. Docked, Deferred and Done list by these times.
     Callers hold _lock, change the flags first and save after."""
-    for flag, stamp in (("parked", "parked_ts"), ("done", "done_ts")):
+    for flag, stamp in (("docked", "docked_ts"), ("parked", "parked_ts"), ("done", "done_ts")):
         if box.get(flag):
             box.setdefault(stamp, now)
         else:
@@ -2696,6 +3013,7 @@ def _stamp_rest(box: dict, now: float) -> None:
 
 def _mark_box_done(box: dict) -> str:
     box["done"] = True
+    box["docked"] = False
     box["parked"] = False
     box["testing"] = False   # a closed card is not awaiting a test
     _stamp_rest(box, time.time())
@@ -2720,6 +3038,9 @@ def _remove_empty_meta_box(box: dict) -> str:
         for note in _state.get("quicknotes", []):
             if note.get("card") == bid:
                 note["card"] = None
+    # its magic box goes with it, once the save that removes the card lands
+    if box.get("magic"):
+        _magic_sweep_due.append(bid)
     _log("delete", bid, box["title"])
     return "deleted"
 
@@ -2729,6 +3050,96 @@ def _close_box(box: dict) -> str:
     if box["bucket"] != "meta" or _box_has_content(box):
         return _mark_box_done(box)
     return _remove_empty_meta_box(box)
+
+
+# ---- the Bin ------------------------------------------------------------------
+# The garbage can beside a ticket on the Mac board moves the card into the Bin:
+# _state["bin"], newest first, each entry {card, ts, at}, where card is the
+# card's whole record, ts when it went in and at its place in _state["boxes"].
+# A card in the Bin is in no lane, queue or claim, so no agent is handed it and
+# no reading (/state, /m/state, /wait, /fresh, /unread) can show it. Its thread
+# stays in the transcript, its attachments in the uploads folder and its magic
+# box in MAGIC_DIR, so a restore brings it back whole, where it was. After
+# BIN_KEEP_DAYS it is deleted for good: checked when the board starts and every
+# BIN_CHECK_EVERY seconds after.
+BIN_KEEP_DAYS = 30
+BIN_KEEP = BIN_KEEP_DAYS * 86400
+BIN_CHECK_EVERY = 86400
+
+
+def _bin_entries() -> list:
+    """The Bin's entries, the list itself; a missing or malformed one reads empty."""
+    entries = _state.get("bin")
+    if not isinstance(entries, list):
+        entries = _state["bin"] = []
+    return entries
+
+
+def _binned(bid: str) -> dict | None:
+    return next((e for e in _bin_entries() if e["card"]["id"] == bid), None)
+
+
+def _bin_box(box: dict) -> None:
+    """Move one card from the board into the Bin. Its queued messages stay on
+    it, unanswered; a claim held on it is let go without consuming them, so the
+    agent holding it gets no answer through it and the messages are waiting
+    again when it comes back. Caller holds _lock and saves."""
+    bid = box["id"]
+    at = _state["boxes"].index(box)
+    _state["boxes"].remove(box)
+    if bid in _state["inbox"]:
+        _state["inbox"].remove(bid)
+    ow = box.get("owner", "facilitator")
+    if _state["busy"].get(ow) == bid:
+        _state["busy"][ow] = None
+        _state["claimed"][ow] = []
+        _state["ack"][ow] = None
+    _bin_entries().insert(0, {"card": box, "ts": time.time(), "at": at})
+    _log("bin", bid, box["title"])
+
+
+def _restore_binned(entry: dict) -> dict:
+    """Put one card from the Bin back on the board as it was, in its own place
+    and section; queued messages go back on its lane's queue. Caller holds
+    _lock and saves."""
+    _bin_entries().remove(entry)
+    card = entry["card"]
+    at = entry.get("at")
+    at = at if isinstance(at, int) and 0 <= at <= len(_state["boxes"]) else len(_state["boxes"])
+    _register_owner(card.get("owner", "facilitator"))
+    _state["boxes"].insert(at, card)
+    if card.get("pending") and card["id"] not in _state["inbox"]:
+        _state["inbox"].append(card["id"])
+    _log("restore", card["id"], card["title"])
+    return card
+
+
+def _bin_expire(now: float | None = None) -> list:
+    """Delete for good every card that has been in the Bin BIN_KEEP_DAYS or
+    more: its record, its quick note link and, once the save lands, its magic
+    box's files. Answers the ids it deleted. Caller holds _lock and saves."""
+    now = time.time() if now is None else now
+    entries = _bin_entries()
+    gone = [e for e in entries if now - e.get("ts", now) >= BIN_KEEP]
+    for e in gone:
+        entries.remove(e)
+        card = e["card"]
+        for note in _state.get("quicknotes", []):
+            if note.get("card") == card["id"]:
+                note["card"] = None
+        if card.get("magic"):
+            _magic_sweep_due.append(card["id"])
+        _log("expire", card["id"], card.get("title", ""))
+    return [e["card"]["id"] for e in gone]
+
+
+def _bin_clock() -> None:
+    """The Bin's daily check, for a board that stays up for days."""
+    while not _STOPPING.wait(BIN_CHECK_EVERY):
+        with _lock:
+            if _bin_expire():
+                _save()
+                _notify()
 
 
 def _ws(owner: str, wid: str) -> dict | None:
@@ -2819,7 +3230,8 @@ def _shown(b: dict) -> str:
     """The one value a card's color and sort come from: the masks first (the
     owner's shelf, then the lane's held claim), then the machine state. deferred
     wears working's green, rest wears queued grey, and note stays explicit for
-    the page to paint with working's green."""
+    the page to paint with working's green. Docked adds no mask: it keeps these
+    colors, and an older page that ignores the flag still puts it in Doing."""
     s = ("done" if b["done"] else "parked" if b.get("parked", False)
          else "working" if _state["busy"].get(b.get("owner", "facilitator")) == b["id"]
          else b["state"])
@@ -3543,8 +3955,7 @@ def _op_status(op: str) -> dict:
 
 
 # ---- what the phone reads ------------------------------------------------------
-# The desktop reads the whole board every second and that is right for a page
-# on the same machine. The phone reads through a tunnel, so it names the
+# The phone reads through a tunnel, so it names the
 # revision it has and gets a short answer when nothing has changed, and when
 # something has, the cards with the fields the phone draws and none of the
 # rest. The live section rides on every answer because it is not part of the
@@ -3578,6 +3989,7 @@ def _phone_box(b: dict) -> dict:
         "replyFull": b.get("reply_full", b.get("reply", "")),
         "done": b["done"], "replies": b["replies"], "olderReplies": _older_replies(b),
         "ball": b.get("ball", "you"),
+        "docked": b.get("docked", False), "dockedTs": b.get("docked_ts", 0),
         "parked": b.get("parked", False), "ts": b.get("ts", 0), "owner": ow,
         "parkedTs": b.get("parked_ts", 0), "doneTs": b.get("done_ts", 0),
         "pending": len(b["pending"]),
@@ -3590,7 +4002,7 @@ def _phone_box(b: dict) -> dict:
         # already taken toward the answer still to come (_pending_states)
         "pendingStates": _pending_states(b),
         "notedTexts": _noted_texts(b),
-        "agentTs": b.get("agent_ts", 0), "seen": b.get("seen", 0), "turnTs": b.get("turn_ts", 0),
+        "agentTs": b.get("agent_ts", 0), "agent": b.get("agent", ""), "seen": b.get("seen", 0), "turnTs": b.get("turn_ts", 0),
         # the card's last COMPLETED reply: its own name, when it was completed,
         # and the messages it was given, which is what the box above the answer
         # is drawn from. replyKind says what wrote the words the card is
@@ -3603,6 +4015,9 @@ def _phone_box(b: dict) -> dict:
         "answered": _answered_out(b.get("answered")),
         "writing": _state["busy"].get(ow) == b["id"],
         "bg": _hb_live(b), "state": _shown(b),
+        # the card's magic box, only on a card that has one, as the board's
+        # reading carries it: the phone shows it in the card list's drawer
+        **({"magic": b["magic"]} if b.get("magic") else {}),
         # the ready-to-test marker, a durable per-card flag; the page paints it
         # only while the card is actually awaiting the reader
         "testing": bool(b.get("testing", False)),
@@ -3737,15 +4152,30 @@ def _takes_gzip(accept: str) -> bool:
     return star
 
 
-def _phone_answer(body: bytes, gzip_ok: bool) -> Response:
-    """The phone's reading, gzip compressed when the phone takes it and it is
-    long enough to be worth it. Vary says the bytes depend on what was
-    accepted, so nothing between the board and the phone keeps one for another."""
+def _phone_answer(body: bytes, gzip_ok: bool, ctype: str = "application/json") -> Response:
+    """The phone's reading (or a page or file, by its ctype), gzip compressed
+    when the phone takes it and it is long enough to be worth it. Vary says the
+    bytes depend on what was accepted, so nothing between the board and the
+    phone keeps one for another."""
     headers = {"Cache-Control": "no-store", "Vary": "Accept-Encoding"}
     if gzip_ok and len(body) >= PHONE_GZIP_MIN:
         body = gzip.compress(body, compresslevel=6, mtime=0)
         headers["Content-Encoding"] = "gzip"
-    return Response(body, status_code=200, media_type="application/json", headers=headers)
+    return Response(body, status_code=200, media_type=ctype, headers=headers)
+
+
+# what the board sends as it is read from its files: pages, scripts and sheets.
+# Pictures, fonts and the like are already compressed and go out as they are
+PACKED_TYPES = ("text/", "application/javascript")
+
+
+def _packed(q: Query, body: bytes, ctype: str):
+    """A page, script or sheet of the board's, as the answer route takes it: the
+    plain (200, body, ctype), or the same gzip compressed (as a reading is) when
+    the browser takes gzip, on the board's port and the phone's alike."""
+    if ctype.startswith(PACKED_TYPES):
+        return _phone_answer(body, _takes_gzip(q.accept_encoding), ctype)
+    return 200, body, ctype
 
 
 def _ui_state() -> dict:
@@ -3774,9 +4204,11 @@ def _ui_state() -> dict:
                 # is no answer to this
                 "olderReplies": _older_replies(b),
                 "ball": b.get("ball", "you"),
+                "docked": b.get("docked", False),
                 "parked": b.get("parked", False),
-                # when the card was deferred and when it was marked done, which
-                # is what the Deferred and Done tabs list by; 0 while it is not
+                # Each resting section lists by when the card entered it;
+                # its time is 0 while the card is outside that section.
+                "dockedTs": b.get("docked_ts", 0),
                 "parkedTs": b.get("parked_ts", 0),
                 "doneTs": b.get("done_ts", 0),
                 "ts": b.get("ts", 0),
@@ -3799,6 +4231,9 @@ def _ui_state() -> dict:
                 # been moved; the bar reads the lane's standing branch then
                 "worktree": b.get("worktree", ""),
                 "agentTs": b.get("agent_ts", 0),
+                # the class name of the agent whose reply last landed on the
+                # card, empty for a card no named agent has answered
+                "agent": b.get("agent", ""),
                 # the card's last COMPLETED reply, which is what the box over
                 # the answer is drawn from: the board's own name for it, when
                 # it was completed, and the exact messages it was given. the
@@ -3832,6 +4267,10 @@ def _ui_state() -> dict:
                 # paints it only while the card is actually awaiting the reader
                 "testing": bool(b.get("testing", False)),
                 "queuePos": qpos.get(b["id"], 0),
+                # the card's magic box, only on a card that has one: whether it
+                # is open, what kind it holds and its revision. what it holds
+                # is read from /magic/body, so this reading stays small
+                **({"magic": b["magic"]} if b.get("magic") else {}),
             }
             for b in st["boxes"]
         ],
@@ -3895,6 +4334,94 @@ def _ui_state() -> dict:
     }
 
 
+# ---- what the Mac board reads, lean ---------------------------------------------
+# The Mac page reads the whole board every 1.2 s, and on a board of about a
+# thousand cards that is 2.4 MB a time for the page to take in, almost all of it
+# what it already holds. So it reads the way the phone does: it names the
+# revision it holds (since) and the run that reading came from (delta, this
+# run's PHONE_EPOCH), and when the board still remembers what it sent at that
+# revision the answer is only what differs. The cards by the phone's rule, a
+# fingerprint of the bytes each was sent as and the phone's rebuild of the order
+# (_phone_delta); the reading's other fields by the same rule, each one whole.
+# What is kept is the desk's own, its cards being another shape than the
+# phone's. A field or card that read two ways at one revision (a heartbeat going
+# quiet, a listener coming, the clock) is sent to every page holding that
+# revision, so whatever made a change, the page cannot miss it.
+#
+# Unlike the phone's, the answer never stops at "nothing new": the cards and
+# fields are fingerprinted on every reading, since some of them move with no
+# save at all. /state with no since answers exactly as it always has, so no
+# other reader sees any of this.
+
+DESK_KEPT = 32           # readings whose cards and fields are remembered, the newest kept
+# rev -> [the card ids in board order, {id: fingerprint or None},
+# {field: fingerprint or None}, fingerprint of the fields' names in order or
+# None], or None for a revision never built on
+_desk_kept: dict = {}
+
+
+def _mark(text: str) -> bytes:
+    return hashlib.blake2b(text.encode(), digest_size=16).digest()
+
+
+def _desk_reading(reading: dict, since: int | None, epoch: str) -> bytes:
+    """The /state reading as the bytes sent to a page that named since: whole,
+    with epoch beside it, or, built on the reading the page holds, {delta: the
+    revision built on, rev, epoch, count, the order's gone, after or ids as the
+    phone's, keys: the reading's field names in order, only when they are not
+    the ones held, set: the fields that differ, boxes: the cards that differ}.
+    Callers hold _lock."""
+    rev = reading.get("rev", 0)
+    ids, texts, marks = [], [], {}
+    for b in reading["boxes"]:
+        text = json.dumps(b)
+        ids.append(b["id"])
+        texts.append(text)
+        marks[b["id"]] = _mark(text)
+    fields = {k: json.dumps(v) for k, v in reading.items() if k != "boxes"}
+    field_marks = {k: _mark(t) for k, t in fields.items()}
+    keys = list(reading)
+    keys_mark = _mark(json.dumps(keys))
+    base = _desk_kept.get(since) if since is not None and epoch == PHONE_EPOCH else None
+    _desk_keep(rev, ids, marks, field_marks, keys_mark)
+    if base is None or len(set(ids)) != len(ids):
+        # whole, in the order /state writes it, epoch last
+        rest = json.dumps({**{k: v for k, v in reading.items() if k != "boxes"}, "epoch": PHONE_EPOCH})
+        return ('{"boxes": [' + ", ".join(texts) + "], " + rest[1:]).encode()
+    out = {"delta": since, "rev": rev, "epoch": PHONE_EPOCH, **_phone_delta(since, (base[0], base[1]), ids)}
+    if base[3] != keys_mark:
+        out["keys"] = keys
+    changed = [json.dumps(k) + ": " + t for k, t in fields.items() if base[2].get(k) != field_marks[k]]
+    cards = [t for i, t in zip(ids, texts) if base[1].get(i) != marks[i]]
+    body = json.dumps(out)
+    return (body[:-1] + ', "set": {' + ", ".join(changed) + '}, "boxes": [' + ", ".join(cards) + "]}").encode()
+
+
+def _desk_keep(rev: int, ids: list[str], marks: dict, field_marks: dict, keys_mark: bytes) -> None:
+    """_phone_keep for the desk's readings, with the reading's fields and their
+    order kept beside the cards by the same rule: one that reads another way
+    at a revision already kept is marked unknown there."""
+    if rev not in _desk_kept:
+        _desk_kept[rev] = [ids, marks, dict(field_marks), keys_mark]
+        while len(_desk_kept) > DESK_KEPT:
+            del _desk_kept[next(iter(_desk_kept))]
+        return
+    kept = _desk_kept[rev]
+    if kept is None:
+        return
+    if kept[0] != ids:
+        _desk_kept[rev] = None
+        return
+    for i, mark in marks.items():
+        if kept[1][i] != mark:
+            kept[1][i] = None
+    for k in set(kept[2]) | set(field_marks):
+        if kept[2].get(k) != field_marks.get(k):
+            kept[2][k] = None
+    if kept[3] != keys_mark:
+        kept[3] = None
+
+
 # ---- the routes' locked work --------------------------------------------------
 # Each function below is one route's whole answer: it takes the parsed query
 # and the body, does its work under _lock where the board is touched, and hands
@@ -3927,20 +4454,20 @@ def _snapshot(payload: dict) -> tuple[bytes, str]:
     return json.dumps(payload).encode(), "application/json"
 
 
-def _file(p: Path, ctype: str):
+def _file(q: Query, p: Path, ctype: str):
     if p.is_file():
-        return 200, p.read_bytes(), ctype
+        return _packed(q, p.read_bytes(), ctype)
     return 404, {"error": "not found"}
 
 
 def _get_root(q: Query, _):
-    return 200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8"
+    return _packed(q, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
 
 
 def _get_page(q: Query, _):
     # the second UI: the same lanes and the same cards drawn as one typed
     # page, in its own file so editing it can never touch the card board
-    return 200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8"
+    return _packed(q, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
 
 
 def _get_compose_format(q: Query, _):
@@ -3951,7 +4478,7 @@ def _get_compose_format(q: Query, _):
     if not p.is_file():
         return 404, {"error": "not found"}
     lead = b"globalThis.COMPOSE_FORMAT_DEFAULT=" + (b"true" if COMPOSE_FORMAT_DEFAULT else b"false") + b";"
-    return 200, lead + p.read_bytes(), "application/javascript; charset=utf-8"
+    return _packed(q, lead + p.read_bytes(), "application/javascript; charset=utf-8")
 
 
 def _sweep_clocks() -> None:
@@ -3976,7 +4503,23 @@ def _get_state(q: Query, _):
         # and an expired working flag drops out of green (handing over
         # a deferred turn) within about that same second
         _sweep_clocks()
-        return 200, *_snapshot(_ui_state())
+        reading = _ui_state()
+        # while no profile is kept, every reading says so: a page loaded before
+        # the profile went missing, a window left open across a restart above
+        # all, learns it here within a second and puts the onboarding up, and
+        # one showing it takes it away once the profile is saved anywhere
+        if _profile_needed():
+            reading["onboarding"] = True
+        # a page that names since reads lean (_desk_reading), and a blank since
+        # is its first reading, so the blank is looked for in the raw query
+        named = parse_qs(q.raw, keep_blank_values=True)
+        if "since" not in named:
+            return 200, *_snapshot(reading)
+        try:
+            since = int(named["since"][0]) if named["since"][0] else None
+        except ValueError:
+            return 400, {"error": "bad revision"}
+        return 200, _desk_reading(reading, since, q.one("delta")), "application/json"
 
 
 def _get_phone_state(q: Query, _):
@@ -4238,10 +4781,12 @@ def _get_tokens_daily(q: Query, _):
 # and of Codex as a percent used, for the tools that have a number to show.
 # Claude's come from the file claude-statusline.py writes beside this one
 # (gitignored); Codex's from its own app server, at most once in five minutes,
-# or from its session logs. limits.py is loaded when the page first asks. The
-# first ask waits for Codex; every later one is answered at once from the last
-# reading, with the time it was taken, while a stale reading is renewed in the
-# background (`refreshing` says so).
+# or, until it has answered once in this run, from its session logs, dated by
+# their own time. limits.py is loaded when the page first asks. The first ask
+# waits for Codex; every later one is answered at once from the last reading,
+# with the time it was taken, while a stale reading is renewed in the
+# background (`refreshing` says so). Each change of source writes one
+# `limitsource` info line.
 CLAUDE_LIMITS = HERE / "claude-limits.json"
 _limits = None
 _limits_lock = threading.Lock()
@@ -4252,7 +4797,9 @@ def _get_limits(q: Query, _):
     global _limits
     with _limits_lock:
         if _limits is None:
-            _limits = limits.Limits(CLAUDE_LIMITS, lambda: _ledger().latest_limits())
+            _limits = limits.Limits(
+                CLAUDE_LIMITS, lambda: _ledger().latest_limits(),
+                note=lambda old, new, why: _info("limitsource", old=old, new=new, reason=why))
         reader = _limits
     shown = reader.answer()
     _debug("limits", source=reader.source,
@@ -4381,11 +4928,11 @@ def _get_phone_page(q: Query, _):
     try:
         sheet = (HERE / "card-tokens.css").read_bytes()
     except OSError:
-        return 200, page, ctype
+        return _packed(q, page, ctype)
     if b"</style" in sheet.lower():
-        return 200, page, ctype   # it would close the element it is put in
+        return _packed(q, page, ctype)   # it would close the element it is put in
     inline = b'<style data-sheet="/card-tokens.css">\n' + sheet + b"</style>"
-    return 200, page.replace(PHONE_SHEET_LINK, inline, 1), ctype
+    return _packed(q, page.replace(PHONE_SHEET_LINK, inline, 1), ctype)
 
 
 def _app_name(title: str) -> str:
@@ -4601,6 +5148,14 @@ def _wait_poll(owner: str):
                 # delivers it
                 _hand_over(box, box["pending"])
                 _state["busy_ts"][owner] = time.time()
+                # who took it: the name this lane's listener gave on the /wait
+                # that won the claim, kept on the card until the reply lands so a
+                # progress note or a later listener cannot change who is credited
+                claimant = _agent_class(owner)
+                if claimant:
+                    box["claim_agent"] = claimant
+                else:
+                    box.pop("claim_agent", None)
                 # every claim is provisional: the token below is what
                 # POST /ack has to name, and until it does this claim is
                 # on the 90 second clock. A lane holds one claim, so one
@@ -4744,6 +5299,506 @@ def _svg_carries_script(path: Path) -> bool:
     return False
 
 
+# ---- the magic box -----------------------------------------------------------------
+# One box per card, beside it on the Mac board, that the card's agent fills with
+# text, markdown, a page of its own or a picture. The card carries magic =
+# {open, kind, rev, ts} and nothing more, since /state is read every second;
+# what the box holds is one file in MAGIC_DIR named by the card and the
+# revision. A save that fails leaves the card naming the file it had, and the
+# files of older revisions go only once the save that replaced them has landed
+# (_magic_sweep). Nothing a box holds is ever served as a page from this
+# address: the words travel as JSON, a picture with the upload's sandbox, and
+# the page puts an agent's page in a sealed frame of its own.
+
+_MAGIC_SAFE_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,63}")
+# tried in this order: an SVG is the loosest check, so it comes last
+MAGIC_PICTURES = (".png", ".jpg", ".gif", ".webp", ".svg")
+
+
+def _magic_stem(bid: str) -> str:
+    """The card's part of its box's file names: the id itself when it is a
+    plain name, a hash of it otherwise, so no id can name a place outside the
+    folder."""
+    if _MAGIC_SAFE_ID.fullmatch(bid):
+        return bid
+    return "h" + hashlib.sha256(bid.encode()).hexdigest()[:24]
+
+
+def _magic_file(bid: str, rev: int, ext: str = ".json") -> Path:
+    return MAGIC_DIR / f"{_magic_stem(bid)}-{rev}{ext}"
+
+
+def _magic_write(path: Path, data: bytes) -> None:
+    """One file of a box, whole or not at all, readable by this account alone."""
+    MAGIC_DIR.mkdir(mode=0o700, exist_ok=True)
+    try:
+        os.chmod(MAGIC_DIR, 0o700)
+    except OSError:
+        pass   # a volume that keeps no modes still takes the write
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        with open(tmp, "wb", opener=_private_opener) as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _magic_sweep(bid: str) -> None:
+    """Every file of a card's box but the revision the card names now, and all
+    of them for a card the board no longer has. Callers hold _lock."""
+    box = _box(bid)
+    if box is None:   # a card in the Bin keeps its box until it is deleted for good
+        entry = _binned(bid)
+        box = entry["card"] if entry else None
+    keep = (box.get("magic") or {}).get("rev") if box else None
+    mine = re.compile(re.escape(_magic_stem(bid)) + r"-([0-9]+)\.[a-z]+")
+    try:
+        names = os.listdir(MAGIC_DIR)
+    except OSError:
+        return
+    for name in names:
+        hit = mine.fullmatch(name)
+        if hit and int(hit.group(1)) != keep:
+            (MAGIC_DIR / name).unlink(missing_ok=True)
+
+
+def _magic_picture_ext(data: bytes) -> str | None:
+    """Which picture the bytes are, read from their start the way an upload's
+    are, or None."""
+    head = data[:UPLOAD_HEAD]
+    return next((ext for ext in MAGIC_PICTURES if UPLOAD_KINDS[ext][1](head)), None)
+
+
+# A website, or a picture on one, is asked for by the board before the box
+# shows anything. Only https, and only places on the public internet: a name
+# that resolves to this computer, the home network, the tailnet or any other
+# address that is not global is refused, at every hop of every redirect. The
+# connection goes to the address that was checked, never to a second lookup of
+# the name, which could answer differently. Nothing is sent with the request
+# but the request: no cookies, no sign-in, nothing of the owner's.
+
+class _MagicRefused(Exception):
+    def __init__(self, status: int, words: str) -> None:
+        super().__init__(words)
+        self.status, self.words = status, words
+
+
+MAGIC_LOCAL_NAMES = (".local", ".localhost", ".internal", ".home.arpa", ".lan", ".ts.net")
+_MAGIC_SHARED_SPACE = ipaddress.ip_network("100.64.0.0/10")   # the tailnet's addresses
+MAGIC_NOT_PUBLIC = "addresses on this computer or the home network cannot be shown"
+# the page is asked for as a browser asks for it, so the site answers with the
+# framing headers it would send the owner's Chrome
+MAGIC_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 facilitator-board")
+
+
+def _magic_public(ip: str) -> bool:
+    """True for an address on the public internet. An IPv4 address written
+    inside an IPv6 one is judged as the IPv4 address it carries."""
+    try:
+        addr = ipaddress.ip_address(ip.split("%")[0])
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address):
+        if addr.ipv4_mapped is not None:
+            addr = addr.ipv4_mapped
+        elif addr.sixtofour is not None or addr.teredo is not None:
+            return False
+    return addr.is_global and not addr.is_multicast and addr not in _MAGIC_SHARED_SPACE
+
+
+def _magic_address(text: str, resolve=None):
+    """(the address, its host, its port, the addresses it resolves to) for an
+    https address that names a public place, or _MagicRefused in plain words."""
+    text = text.strip()
+    if not text or len(text) > MAGIC_ADDRESS_MAX or re.search(r"[\x00-\x20\x7f\\]", text):
+        raise _MagicRefused(400, "that is not one web address")
+    try:
+        url = urlparse(text)
+        port = url.port or 443
+    except ValueError:
+        raise _MagicRefused(400, "that is not one web address") from None
+    if url.scheme != "https":
+        raise _MagicRefused(400, "only https addresses can be shown")
+    if url.username or url.password:
+        raise _MagicRefused(400, "an address with a name or password in it cannot be shown")
+    host = (url.hostname or "").rstrip(".").lower()
+    if not host:
+        raise _MagicRefused(400, "that is not one web address")
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is None and (host == "localhost" or host.endswith(MAGIC_LOCAL_NAMES) or "." not in host):
+        raise _MagicRefused(400, MAGIC_NOT_PUBLIC)
+    if literal is not None:
+        ips = [str(literal)]
+    else:
+        try:
+            found = (resolve or socket.getaddrinfo)(host, port, type=socket.SOCK_STREAM)
+        except (OSError, UnicodeError):
+            raise _MagicRefused(502, "that site's name could not be found") from None
+        ips = list(dict.fromkeys(info[4][0] for info in found))
+    if not ips or not all(_magic_public(ip) for ip in ips):
+        raise _MagicRefused(400, MAGIC_NOT_PUBLIC)
+    return text, host, port, ips
+
+
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    """An https connection made to an address already checked, with the
+    certificate checked against the name. The name is never looked up again,
+    so the place that was checked is the place connected to."""
+
+    def __init__(self, host: str, ip: str, port: int, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout, context=ssl.create_default_context())
+        self._pinned = ip
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self._pinned, self.port), self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        except BaseException:
+            sock.close()
+            raise
+
+
+def _magic_fetch(url: str, limit: int, *, resolve=None, connect=None):
+    """(final address, its host, status, headers, the first limit bytes, whether
+    that was all of it) for an https address. Every hop is checked by
+    _magic_address before it is asked, and redirects are followed here, at
+    most MAGIC_REDIRECTS of them. Refusals and failures as _MagicRefused."""
+    deadline = time.monotonic() + MAGIC_FETCH_TOTAL
+    for _hop in range(MAGIC_REDIRECTS + 1):
+        url, host, port, ips = _magic_address(url, resolve)
+        parts = urlparse(url)
+        path = (parts.path or "/") + ("?" + parts.query if parts.query else "")
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise _MagicRefused(502, "that site took too long to answer")
+        conn = None
+        try:
+            conn = (connect or _PinnedHTTPS)(host, ips[0], port, min(MAGIC_FETCH_STEP, left))
+            conn.request("GET", path, headers={
+                "User-Agent": MAGIC_AGENT, "Accept-Language": "en",
+                "Accept": "text/html,application/xhtml+xml,image/*;q=0.9,*/*;q=0.8",
+                "Accept-Encoding": "identity"})
+            res = conn.getresponse()
+            where = res.getheader("Location")
+            if res.status in (301, 302, 303, 307, 308) and where:
+                url = urljoin(url, where.strip())
+                continue
+            got = bytearray()
+            while len(got) <= limit:
+                if time.monotonic() > deadline:
+                    raise _MagicRefused(502, "that site took too long to answer")
+                chunk = res.read(min(65536, limit + 1 - len(got)))
+                if not chunk:
+                    break
+                got += chunk
+            return url, host, res.status, res.headers, bytes(got[:limit]), len(got) <= limit
+        except (OSError, http.client.HTTPException, UnicodeError, ValueError):
+            raise _MagicRefused(502, "that site could not be reached") from None
+        finally:
+            if conn is not None:
+                conn.close()
+    raise _MagicRefused(502, f"that site redirected more than {MAGIC_REDIRECTS} times")
+
+
+def _magic_frameable(headers) -> tuple[bool, str]:
+    """Whether a site lets this board show it in a frame, by the rule
+    browsers keep: an enforced policy's frame-ancestors wins over
+    X-Frame-Options, and the board's page is http://127.0.0.1, so only a
+    source of * or http: lets it in. With no frame-ancestors anywhere,
+    X-Frame-Options DENY or SAMEORIGIN refuses; any other value is ignored, as
+    browsers ignore it. The reason is fixed words, never the header's own
+    text, since what a site says goes back to no agent."""
+    named = False
+    for value in headers.get_all("Content-Security-Policy") or []:
+        for policy in value.split(","):
+            for directive in policy.split(";"):
+                words = directive.split()
+                if words and words[0].lower() == "frame-ancestors":
+                    named = True
+                    if not any(w.lower() in ("*", "http:") for w in words[1:]):
+                        return False, "Content-Security-Policy frame-ancestors"
+                    break
+    if named:
+        return True, ""
+    said = {v.strip().lower() for value in headers.get_all("X-Frame-Options") or [] for v in value.split(",")}
+    for word in ("deny", "sameorigin"):
+        if word in said:
+            return False, "X-Frame-Options " + word.upper()
+    return True, ""
+
+
+class _MagicPreview(HTMLParser):
+    """The few things a preview shows, out of the head of a page: its title
+    and its description, from the page's own tags and its Open Graph ones."""
+    WANTED = ("og:title", "og:description", "og:site_name", "description")
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.found: dict = {}
+        self.title: list = []
+        self._in_title = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "title":
+            self._in_title = True
+        elif tag == "meta":
+            a = {k.lower(): v or "" for k, v in attrs}
+            name = (a.get("property") or a.get("name") or "").lower()
+            if name in self.WANTED and "content" in a:
+                self.found.setdefault(name, a["content"])
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title.append(data)
+
+
+def _magic_plain(text: str, cap: int) -> str:
+    """One line of plain words: controls gone, spaces collapsed, at most cap
+    characters, an ellipsis where it was cut."""
+    words = " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", text or "").split())
+    return words if len(words) <= cap else words[:cap - 1].rstrip() + "…"
+
+
+def _magic_preview(page: bytes, headers, host: str) -> dict:
+    """{title, description, site} for a preview, as plain text."""
+    charset = headers.get_content_charset() if headers is not None else None
+    if not charset:
+        named = re.search(rb"<meta[^>]+charset=[\"']?([A-Za-z0-9_-]+)", page[:4096], re.IGNORECASE)
+        charset = named.group(1).decode("ascii") if named else "utf-8"
+    try:
+        text = page.decode(charset, "replace")
+    except LookupError:
+        text = page.decode("utf-8", "replace")
+    reader = _MagicPreview()
+    try:
+        reader.feed(text)
+        reader.close()
+    except Exception:
+        pass   # a page too broken to read keeps whatever was read before it broke
+    found = reader.found
+    return {"title": _magic_plain(found.get("og:title") or "".join(reader.title), 200),
+            "description": _magic_plain(found.get("og:description") or found.get("description", ""), 500),
+            "site": _magic_plain(found.get("og:site_name") or host, 80)}
+
+
+def _magic_website(text: str, **fetching) -> tuple[dict, str]:
+    """A website's record, shown in a frame when it allows that and as a
+    preview when it does not, and its host."""
+    url, host, status, headers, page, _whole = _magic_fetch(text, MAGIC_PAGE_HEAD, **fetching)
+    html_page = headers.get_content_type() in ("text/html", "application/xhtml+xml")
+    if not 200 <= status < 300:
+        framed, reason = False, f"the site answered {status}"
+    elif not html_page:
+        framed, reason = False, "not a web page"
+    else:
+        framed, reason = _magic_frameable(headers)
+    preview = _magic_preview(page, headers, host) if html_page else {"title": "", "description": "", "site": host}
+    return {"url": url, "shown": "frame" if framed else "preview", "reason": reason, "preview": preview}, host
+
+
+def _magic_web_picture(text: str, **fetching) -> tuple[bytes, str]:
+    """A picture on the web, downloaded once, so its site never sees the
+    owner's browser; and its host."""
+    _url, host, status, _headers, data, whole = _magic_fetch(text, MAGIC_IMAGE_MAX, **fetching)
+    if not 200 <= status < 300:
+        raise _MagicRefused(502, f"the picture's site answered {status}")
+    if not whole:
+        raise _MagicRefused(413, "the picture is larger than 10 MiB")
+    return data, host
+
+
+def _magic_one_address(body: bytes) -> str | None:
+    """The body as one web address on one line, or None."""
+    text = body.decode("utf-8", "replace").strip()
+    if not text or len(body) > MAGIC_ADDRESS_MAX or "\n" in text:
+        return None
+    return text if re.match(r"(?i)[a-z][a-z0-9+.-]*://", text) else None
+
+
+def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes | None, note: dict):
+    """The box's new content written and the card naming it, saved as one
+    change. Run through _run_state_request, so a failure puts the board back."""
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        rev = int((box.get("magic") or {}).get("rev", 0)) + 1
+        now = time.time()
+        record = {"box": bid, "kind": kind, "title": title, "rev": rev, "ts": now, **record}
+        try:
+            if picture is not None:
+                _magic_write(_magic_file(bid, rev, record["ext"]), picture)
+            _magic_write(_magic_file(bid, rev), json.dumps(record).encode())
+        except OSError as e:
+            _error("magicfail", bid, reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the box could not be written"}
+        box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now}
+        _magic_sweep_due.append(bid)
+        # the transcript keeps that a box was opened and what kind, never what
+        # it holds, the way a quick note is kept by its length
+        _log("magic", bid, "", log_fields=note, **note)
+        _save()
+        _notify()
+        answer = {"ok": True, "box": bid, "kind": kind, "rev": rev, "shown": record.get("shown", "inline")}
+        for key in ("reason", "url"):
+            if record.get(key):
+                answer[key] = record[key]
+        return 200, answer
+
+
+def _post_magic(q: Query, body: bytes):
+    """Fill a card's box and open it, in place of whatever it held."""
+    bid, kind = q.one("box"), q.one("kind")
+    title = " ".join(q.one("title").split())
+    with _lock:
+        if _box(bid) is None:
+            return 400, {"error": "bad box"}
+    if kind not in MAGIC_KINDS:
+        return 400, {"error": "kind must be one of " + ", ".join(MAGIC_KINDS)}
+    if len(title) > MAGIC_TITLE_MAX:
+        return 400, {"error": f"title over {MAGIC_TITLE_MAX} characters"}
+    if not body.strip():
+        return 400, {"error": "the box would be empty"}
+    picture, host = None, None
+    # the web is asked here, before the board's lock is taken, since a site
+    # can take seconds to answer and the board must not wait on it
+    try:
+        if kind == "url":
+            address = _magic_one_address(body)
+            if address is None:
+                return 400, {"error": "a website box takes one web address on one line"}
+            record, host = _magic_website(address)
+        elif kind == "image":
+            ext = _magic_picture_ext(body)
+            address = None if ext else _magic_one_address(body)
+            if address is not None:
+                body, host = _magic_web_picture(address)
+                ext = _magic_picture_ext(body)
+            if ext is None:
+                return 415, {"error": "that is not a PNG, JPEG, GIF, WebP or SVG picture"}
+            if ext == ".svg" and _SVG_SCRIPT.search(body):
+                return 415, {"error": "that SVG carries script"}
+            record, picture = {"ext": ext}, body
+        else:
+            if len(body) > MAX_TEXT_BODY:
+                return 413, {"error": "text and pages are limited to 1 MiB"}
+            words = body.decode("utf-8", "replace").strip()
+            record = {"html": words} if kind == "html" else {"text": words}
+    except _MagicRefused as refused:
+        return refused.status, {"error": refused.words}
+    # the host of a website or a web picture, never the rest of its address
+    note = {"action": "open", "magic": kind, "bytes": len(body), "title_chars": len(title),
+            **({"host": host} if host else {})}
+    return _run_state_request(_magic_store, bid, kind, title, record, picture, note)
+
+
+def _magic_flag(q: Query, opened: bool):
+    """Hide a card's box or show it again; what it holds is kept either way."""
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        magic = box.get("magic")
+        if not magic:
+            return 404, {"error": "this card has no magic box"}
+        if magic.get("open") != opened:
+            magic["open"] = opened
+            action = "reopen" if opened else "close"
+            _log("magic", bid, "", log_fields={"action": action}, action=action)
+            _save()
+            _notify()
+        return 200, {"ok": True, "box": bid, "open": opened, "rev": magic["rev"]}
+
+
+def _post_magic_close(q: Query, _):
+    return _magic_flag(q, False)
+
+
+def _post_magic_reopen(q: Query, _):
+    return _magic_flag(q, True)
+
+
+def _magic_record(bid: str):
+    """(status, the card's magic field, its stored record): read under the lock,
+    so the file read is the revision the card names."""
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, None, None
+        magic = dict(box["magic"]) if box.get("magic") else None
+        if magic is None:
+            return 404, None, None
+        try:
+            return 200, magic, json.loads(_magic_file(bid, magic["rev"]).read_bytes())
+        except (OSError, ValueError):
+            return 404, None, None
+
+
+def _magic_missing(status: int):
+    return status, {"error": "bad box" if status == 400 else "this card has no magic box"}
+
+
+def _get_magic(q: Query, _):
+    """What an agent may read back about a box: never what a website said."""
+    bid = q.one("box")
+    status, magic, record = _magic_record(bid)
+    if record is None:
+        return _magic_missing(status)
+    out = {"box": bid, "open": magic["open"], "kind": record["kind"], "title": record.get("title", ""),
+           "rev": magic["rev"], "ts": record.get("ts", 0), "shown": record.get("shown", "inline")}
+    for key in ("reason", "url"):
+        if record.get(key):
+            out[key] = record[key]
+    return 200, out
+
+
+def _get_magic_body(q: Query, _):
+    """What the box holds, for the page, as JSON and never as a page."""
+    bid = q.one("box")
+    status, magic, record = _magic_record(bid)
+    if record is None:
+        return _magic_missing(status)
+    out = {"box": bid, "open": magic["open"], "kind": record["kind"], "title": record.get("title", ""),
+           "rev": magic["rev"]}
+    if record["kind"] == "image":
+        out["src"] = f"/magic/img?box={quote(bid, safe='')}&rev={magic['rev']}"
+    for key in ("text", "html", "url", "shown", "reason", "preview"):
+        if key in record:
+            out[key] = record[key]
+    return Response(json.dumps(out).encode(), media_type="application/json",
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def _get_magic_img(q: Query, _):
+    """A box's picture, served the way an upload is: its type cannot be
+    reinterpreted and it sits in a sandbox, so an SVG runs nothing."""
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        magic = (box or {}).get("magic") or {}
+        if magic.get("kind") != "image":
+            return 404, {"error": "this card's box holds no picture"}
+        try:
+            ext = json.loads(_magic_file(bid, magic["rev"]).read_bytes())["ext"]
+            data = _magic_file(bid, magic["rev"], ext).read_bytes()
+        except (OSError, ValueError, KeyError):
+            return 404, {"error": "this card's box holds no picture"}
+    return Response(data, media_type=IMG_TYPES[ext],
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                             "Content-Security-Policy": "sandbox"})
+
+
 def _sweep_upload_parts() -> None:
     """Part files an upload left behind when the server stopped under it. One
     still younger than an upload may take could belong to a server starting
@@ -4764,7 +5819,9 @@ def _sweep_upload_parts() -> None:
 PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.jsonl", "settings.json",
                  "settings.json.tmp", "settings.json.bad-*", "vapid-key.pem", "bridge-auth.json",
                  "tokens-cache.json", "tokens-cache.json.tmp", "claude-limits.json",
-                 "claude-limits.json.tmp", "server.lock")
+                 "claude-limits.json.tmp", "usage-counts.json", "usage-counts.json.tmp",
+                 "usage-install.json", "usage-install.json.tmp", "profile.json", "profile.json.tmp",
+                 "server.lock")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
 
 
@@ -4919,6 +5976,7 @@ def _post_send(q: Query, text: str):
         if op:
             msg["op"] = op
         box["pending"].append(msg)
+        box["docked"] = False
         box["parked"] = False
         _stamp_rest(box, msg["ts"])
         # fresh feedback lowers the ready-to-test marker: the reader has answered,
@@ -5048,6 +6106,12 @@ def _post_reply(q: Query, text: str):
         # what lets a card opened later age the box over its answer by the
         # answer's own clock
         box["reply_ts"] = now
+        # which agent this reply is from, as its class name: the one that took
+        # the claim, or the lane's listener now when the reply came unclaimed.
+        # a reply nobody named leaves the card as it was
+        answerer = box.pop("claim_agent", None) or _agent_class(ow)
+        if answerer:
+            box["agent"] = answerer
         if _hb_live(box):
             box["state"] = "deferred"
         else:
@@ -5062,7 +6126,7 @@ def _post_reply(q: Query, text: str):
              reply_short=box["reply_short"],
              reply_variants_version=REPLY_VARIANTS_VERSION,
              reply_id=box["reply_id"], reply_ts=now,
-             answered=box["answered"])
+             answered=box["answered"], agent_kind=_agent_kind(ow))
         _save()
         _notify()
         return 200, {"ok": True}
@@ -5112,12 +6176,19 @@ def _post_note(q: Query, text: str):
 
 def _post_done(q: Query, text: str):
     bid = q.one("box")
+    try:
+        order = _park_order_read(q)
+    except ValueError:
+        return 400, {"error": "bad done order"}
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
+        if _section_order_stale(box, order):
+            return 200, {"ok": False, "stale": "superseded", **_section_fields(box)}
         box["done"] = q.one("v", "1") == "1"
         if box["done"]:
+            box["docked"] = False
             box["parked"] = False
             box["testing"] = False   # a done card is not awaiting a test
         _stamp_rest(box, time.time())
@@ -5195,7 +6266,10 @@ def _post_testing(q: Query, text: str):
         return 200, {"ok": True, "testing": want}
 
 
-# ---- the order of each page's own park commands -------------------------------
+# ---- the order of each page's own section commands ----------------------------
+# Dock, park, done and close share a stream so a late request cannot undo a
+# newer move to a different section. The _park names are retained for callers
+# and tests that inspect the original ordering guard.
 # A page can stop waiting for an answer; it cannot recall the request. An abort
 # there drops the answer, not the bytes already on their way here. So a snooze
 # the phone gave up on can still arrive after the unsnooze that replaced it,
@@ -5244,7 +6318,7 @@ _PARK_ID_CHARS = frozenset(
 
 
 def _park_order_read(q: Query):
-    """The stream and place a park names itself by, or None from a caller that
+    """The stream and place a section move names itself by, or None from a caller that
     names none. A pair half given or malformed raises instead: that is a broken
     caller rather than an older one, and saying so is better than guessing."""
     sid, seq = q.one("sid", ""), q.one("seq", "")
@@ -5271,24 +6345,45 @@ def _park_order_keep(bid: str, sid: str, place: int, now: float) -> None:
         del _PARK_ORDER[min(_PARK_ORDER, key=lambda k: _PARK_ORDER[k]["at"])]
 
 
-def _post_park(q: Query, text: str):
+def _section_fields(box: dict) -> dict:
+    """The authoritative sections and times, including in a refused command."""
+    return {"docked": box.get("docked", False), "parked": box.get("parked", False),
+            "done": box["done"], "dockedTs": box.get("docked_ts", 0),
+            "parkedTs": box.get("parked_ts", 0), "doneTs": box.get("done_ts", 0),
+            "rev": _state.get("rev", 0)}
+
+
+def _section_order_stale(box: dict, order) -> bool:
+    """Judge and remember a move in its page's stream. Caller holds _lock."""
+    if order is None:
+        return False
+    sid, place = order
+    prior = _PARK_ORDER.get((box["id"], sid))
+    if prior is not None and place <= prior["seq"]:
+        return True
+    # A message refusal still consumes the position: this page already sent it.
+    _park_order_keep(box["id"], sid, place, time.time())
+    return False
+
+
+def _post_shelf(q: Query, flag: str, event: str):
     bid = q.one("box")
     want = q.one("v", "1") == "1"
     try:
         order = _park_order_read(q)
     except ValueError:
-        return 400, {"error": "bad park order"}
-    # What a snooze was decided on: the board's own clock at the moment the moon
-    # was tapped, which the page can name because every reading carries the
-    # board's time. A snooze that crossed one of the reader's messages on the way here
+        return 400, {"error": f"bad {event} order"}
+    # What docking or deferring was decided on: the board's own clock at the
+    # tap, which the page can name because every reading carries the
+    # board's time. A move that crossed one of the reader's messages on the way here
     # was decided before that message existed, and a card the reader has just written to
     # is not a card the reader is snoozing, so the board keeps what it has and says so
     # rather than burying the message under a defer.
     #
     # The guard is deliberately the narrowest one that answers that: only a
-    # park, only against the reader's own queued messages, and only when a basis is
-    # given. An unpark, an older page that sends no basis, an agent's progress
-    # note and a park of a done card all behave exactly as they always did, and
+    # move into Docked or Deferred, only against the reader's own queued messages,
+    # and only when a basis is given. Undock/unpark, an older page that sends no
+    # basis and an agent's progress note all behave exactly as they always did, and
     # a basis that will not read as a number is no basis at all.
     try:
         basis = float(q.one("after", "") or 0)
@@ -5299,35 +6394,32 @@ def _post_park(q: Query, text: str):
         if box is None:
             return 400, {"error": "bad box"}
         # the card as it stands, for any answer that keeps it that way
-        kept = {"parked": box.get("parked", False), "done": box["done"],
-                "rev": _state.get("rev", 0)}
-        if order is not None:
-            sid, place = order
-            prior = _PARK_ORDER.get((bid, sid))
-            if prior is not None and place <= prior["seq"]:
-                # this same page has already sent a later command for this card
-                # and that one has been judged: this is its own undone value
-                # arriving late, and applying it would undo the undoing. Another
-                # page's commands are not consulted and cannot rescue it
-                return 200, {"ok": False, "stale": "superseded", **kept}
-            # this stream has reached here, so everything it sent before this is
-            # old, whether or not this one goes on to be applied
-            _park_order_keep(bid, sid, place, time.time())
+        kept = _section_fields(box)
+        if _section_order_stale(box, order):
+            return 200, {"ok": False, "stale": "superseded", **kept}
         if want and basis:
             newest = max((m.get("ts", 0) for m in box["pending"]), default=0)
             if newest > basis:
                 # nothing was written and nothing is being retried: the page is
                 # told plainly which state the card is actually in
                 return 200, {"ok": False, "stale": "message", **kept}
-        box["parked"] = want
-        if box["parked"]:
+        box[flag] = want
+        if want:
             box["done"] = False
+            box["parked" if flag == "docked" else "docked"] = False
         _stamp_rest(box, time.time())
-        _log("park" if box["parked"] else "unpark", bid, "")
+        _log(event if want else "un" + event, bid, "")
         _save()
         _notify()
-        return 200, {"ok": True, "parked": box["parked"], "done": box["done"],
-                     "rev": _state["rev"]}
+        return 200, {"ok": True, **_section_fields(box)}
+
+
+def _post_park(q: Query, text: str):
+    return _post_shelf(q, "parked", "park")
+
+
+def _post_dock(q: Query, text: str):
+    return _post_shelf(q, "docked", "dock")
 
 
 def _post_worktree(q: Query, text: str):
@@ -5399,7 +6491,8 @@ def _omni_entry(text: str) -> bool:
 
 def _next_omni_number(owner: str) -> int:
     """Allocate within one lane while the caller holds _lock."""
-    used = [_omni_number(b.get("title", "")) for b in _state["boxes"]
+    # a card in the Bin keeps its number, so one restored never shares it
+    used = [_omni_number(b.get("title", "")) for b in _state["boxes"] + [e["card"] for e in _bin_entries()]
             if b.get("owner", "facilitator") == owner]
     return max((number for number in used if number is not None), default=0) + 1
 
@@ -5433,7 +6526,7 @@ def _create_box_record(owner: str, title: str) -> dict:
     made = {
         "id": bid_new, "bucket": "meta", "title": title, "reply": "",
         "reply_full": "", "reply_short": "",
-        "pending": [], "done": False, "parked": False, "replies": 0,
+        "pending": [], "done": False, "docked": False, "parked": False, "replies": 0,
         "full_replies": 0, "reply_kind": "",
         "state": "new", "hb": 0,
         "ball": "me", "ts": time.time(), "owner": owner,
@@ -5560,10 +6653,16 @@ def _post_project(q: Query, text: str):
 
 def _post_close(q: Query, text: str):
     bid = q.one("box")
+    try:
+        order = _park_order_read(q)
+    except ValueError:
+        return 400, {"error": "bad close order"}
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
+        if _section_order_stale(box, order):
+            return 200, {"ok": False, "stale": "superseded", **_section_fields(box)}
         action = _close_box(box)
         _save()
         _notify()
@@ -5582,6 +6681,45 @@ def _post_delete(q: Query, text: str):
         _save()
         _notify()
         return 200, {"ok": True, "action": action}
+
+
+def _post_bin(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        _bin_box(box)
+        _save()
+        _notify()
+        return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
+
+
+def _get_bin(q: Query, _):
+    """The Bin, newest first: each card's id, title, owner, the section it
+    left and when it went in, with when it is deleted for good."""
+    with _lock:
+        cards = []
+        for e in _bin_entries():
+            c = e["card"]
+            cards.append({"id": c["id"], "title": c.get("title", ""),
+                          "owner": c.get("owner", "facilitator"),
+                          "section": ("done" if c.get("done") else "deferred" if c.get("parked")
+                                      else "docked" if c.get("docked") else "doing"),
+                          "ts": e.get("ts", 0), "until": e.get("ts", 0) + BIN_KEEP})
+        return 200, {"cards": cards, "keepDays": BIN_KEEP_DAYS}
+
+
+def _post_bin_restore(q: Query, text: str):
+    bid = q.one("box")
+    with _lock:
+        entry = _binned(bid)
+        if entry is None:
+            return 400, {"error": "not in the bin"}
+        _restore_binned(entry)
+        _save()
+        _notify()
+        return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
 
 
 def _post_ws_goal(q: Query, text: str):
@@ -5887,7 +7025,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|chimemuted|home\.chart"
+    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|waitnewest|home\.chart"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096
@@ -5974,7 +7112,11 @@ def _get_board_settings_js(q: Query, _):
         lead = "globalThis.BOARD_SETTINGS=" + json.dumps(_settings_answer(_settings_file())) + ";"
     if BACKGROUND_DEFAULT:
         lead += "globalThis.BOARD_BGCOLOR_DEFAULT=" + json.dumps(BACKGROUND_DEFAULT) + ";"
-    return 200, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8"
+    # whether the board still has to put the onboarding up, and nothing of the
+    # profile itself: a board somebody has been through it on gets no word here
+    if _profile_needed():
+        lead += "globalThis.BOARD_ONBOARDING=true;"
+    return _packed(q, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8")
 
 
 def _post_settings(q: Query, text: str):
@@ -6040,6 +7182,383 @@ def _post_spotify_session(q: Query, text: str):
             return 200, {"ok": True, "seeded": False, **store["spotify"]}
         _save_settings({**store, "spotify": rec})
         return 200, {"ok": True, **rec}
+
+
+# ---- the daily usage counts -------------------------------------------------------
+# Once a day the board sends one small message of counts about the day before
+# to the Facilitator project in PostHog: usage_counts.py says what and lists
+# every field. It runs on a thread of its own,
+# never on a request. The switch is one of the board's settings, usagecounts,
+# on unless it says "0", so the Mac's settings page and the phone's drawer both
+# turn it off. usage-counts.json holds only the last day already dealt with;
+# usage-install.json holds the install's random id and, after a yes to feedback
+# mail, the email and the profile's answers that go with it (POST /profile, and
+# the email alone through POST /usage/email below). Both are owner-only and
+# ignored by git.
+# usage_counts.py is imported only here, so a copy of the board without it, as
+# the tests' fixtures make, sends nothing at all.
+USAGE_MARKER = HERE / "usage-counts.json"
+USAGE_INSTALL = HERE / "usage-install.json"
+USAGE_SETTING = "usagecounts"
+USAGE_EMAIL_BODY_MAX = 2048
+_usage_sender = None   # the one Sender, made at boot; the thread and the route share it
+
+
+def _usage_sharing() -> bool:
+    with _settings_lock:
+        return _settings_file()["values"].get(USAGE_SETTING) != "0"
+
+
+def _start_usage_counts() -> None:
+    global _usage_sender
+    try:
+        import usage_counts
+    except ImportError:
+        return
+    sender = usage_counts.Sender(transcript=TRANSCRIPT_PATH, log_dir=LOG_DIR, marker=USAGE_MARKER,
+                                 index_html=HERE / "index.html", sharing=_usage_sharing, log=_info,
+                                 install_file=USAGE_INSTALL)
+    _usage_sender = sender
+    threading.Thread(target=sender.run, args=(_STOPPING,), name="usage-counts", daemon=True).start()
+
+
+def _post_usage_email(q: Query, text: str):
+    """The onboarding's yes to feedback mail: {"email": ..., "yes": true}. Only
+    a page on this Mac may ask, as with the Spotify sign-in. The address is
+    kept and sent by usage_counts.Sender.link_email and is neither logged nor
+    answered back; a refusal below names the reason and nothing else."""
+    if not q.local or _usage_sender is None:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    try:
+        rec = json.loads(text) if text else None
+    except ValueError:
+        rec = None
+    if not isinstance(rec, dict) or set(rec) != {"email", "yes"}:
+        return 400, {"error": "bad request"}
+    outcome = _usage_sender.link_email(rec["email"], rec["yes"])
+    if outcome == "no":
+        return 400, {"error": "needs a yes"}
+    if outcome == "bad":
+        return 400, {"error": "not an email address"}
+    if outcome == "unsaved":
+        return 500, {"error": "could not be saved"}
+    return 200, {"ok": True, "sent": outcome == "sent"}
+
+
+# ---- the profile -------------------------------------------------------------------
+# Who uses this board, in their own words: the name, the email with its yes to
+# feedback mail, what they will mostly use Facilitator for, their main agent
+# and the time zone the page reads off the Mac. Kept in profile.json beside
+# state.json, owner-only and ignored by git, and written only by a page on this
+# Mac. Without the yes none of it leaves the Mac. With it, the email and the
+# answers go to PostHog as that person's properties, once and then only when
+# one changes, through the usage sender (link_person in usage_counts.py), and
+# never with a daily message; taking the yes back sends nothing more.
+#
+# A profile that is missing or has no name is a board nobody has been through
+# the onboarding on: /board-settings.js says so, and the Mac board puts the
+# onboarding up before it can be used (see the onboarding below).
+PROFILE_PATH = HERE / "profile.json"
+PROFILE_BODY_MAX = 8192
+PROFILE_TEXT_MAX = {"name": 200, "work": 2000, "agent": 100}
+# the picture the Mac's Settings page shows in Profile: one of twelve, by the
+# number the page draws it by (19 to 30), drawn by chance the first time a page
+# on this Mac asks for the profile and kept in profile.json for good. A kept
+# number outside the twelve (the earlier set, 3 to 5) reads as none, so the next
+# such ask draws afresh from these. It is never set by a request and never part
+# of what the usage sender tells PostHog
+PROFILE_PICTURES = tuple(range(19, 31))
+TIME_ZONE_MAX = 64
+TIME_ZONE = re.compile(r"[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+){0,3}")
+PROFILE_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# the same rule as usage_counts.clean_email, here too because a copy of the
+# board without usage_counts.py still keeps a profile
+EMAIL_PART = r"[^@\s\x00-\x1f\x7f]+"
+EMAIL_ADDRESS = re.compile(f"{EMAIL_PART}@{EMAIL_PART}\\.{EMAIL_PART}")
+EMAIL_MAX = 254
+_profile_lock = threading.Lock()
+
+
+def _clean_email(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    address = value.strip()
+    return address if len(address) <= EMAIL_MAX and EMAIL_ADDRESS.fullmatch(address) else None
+
+
+def _clean_text(value, cap: int) -> str | None:
+    """Text as the profile keeps it, trimmed, or None for what is not one:
+    nothing, blank, past its cap or holding a control character other than a
+    tab or a new line."""
+    if not isinstance(value, str) or PROFILE_CONTROL.search(value):
+        return None
+    text = value.strip()
+    return text if text and len(text) <= cap else None
+
+
+def _clean_time_zone(value) -> str | None:
+    return value if isinstance(value, str) and len(value) <= TIME_ZONE_MAX and TIME_ZONE.fullmatch(value) else None
+
+
+def _profile_read() -> dict:
+    """The profile as kept, every field present. A file that is missing,
+    unreadable or not a profile reads as an empty one, which is a board the
+    onboarding has not been through; a field that does not pass its own rule
+    reads as not given."""
+    rec = {"name": None, "email": None, "email_yes": False, "work": None, "agent": None, "time_zone": None,
+           "picture": None}
+    try:
+        raw = json.loads(PROFILE_PATH.read_text())
+    except (OSError, ValueError):
+        return rec
+    if not isinstance(raw, dict):
+        return rec
+    for key, cap in PROFILE_TEXT_MAX.items():
+        rec[key] = _clean_text(raw.get(key), cap)
+    rec["email"] = _clean_email(raw.get("email"))
+    rec["email_yes"] = raw.get("email_yes") is True and rec["email"] is not None
+    rec["time_zone"] = _clean_time_zone(raw.get("time_zone"))
+    picture = raw.get("picture")
+    rec["picture"] = picture if type(picture) is int and picture in PROFILE_PICTURES else None
+    return rec
+
+
+def _profile_complete(rec: dict) -> bool:
+    return bool(rec["name"])
+
+
+_profile_seen: tuple = (None, False)   # (the file's stamp, complete) as last read
+
+
+def _profile_needed() -> bool:
+    """Whether the onboarding is still to be done on this board: no complete
+    profile. Asked on every /state, about once a second for each open page, so
+    the file is read again only when its stamp has moved; a missing file is
+    always a board that needs it."""
+    global _profile_seen
+    try:
+        seen = PROFILE_PATH.stat()
+    except OSError:
+        return True
+    stamp = (seen.st_mtime_ns, seen.st_size, seen.st_ino)
+    if _profile_seen[0] != stamp:
+        with _profile_lock:
+            _profile_seen = (stamp, _profile_complete(_profile_read()))
+    return not _profile_seen[1]
+
+
+def _profile_write(rec: dict) -> None:
+    """profile.json the way settings.json is written: a temp file beside it,
+    owner-only, flushed to the disk, then one rename."""
+    tmp = PROFILE_PATH.with_name("profile.json.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(rec, indent=1) + "\n")
+            f.flush()
+            _durable_fsync(f.fileno())
+        os.replace(tmp, PROFILE_PATH)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        _error("savefail", step="profile", reason=e.strerror or type(e).__name__)
+        raise SaveFailed("profile") from e
+
+
+def _profile_answer(rec: dict) -> dict:
+    return {"name": rec["name"], "email": rec["email"], "emailYes": rec["email_yes"], "work": rec["work"],
+            "agent": rec["agent"], "timeZone": rec["time_zone"], "picture": rec["picture"],
+            "complete": _profile_complete(rec)}
+
+
+def _profile_person(rec: dict) -> dict:
+    """The person properties the usage sender keeps and tells PostHog under
+    the yes: the profile's fields by PostHog's names, the ones given only."""
+    named = {"email": rec["email"], "name": rec["name"], "work": rec["work"],
+             "main_agent": rec["agent"], "time_zone": rec["time_zone"]}
+    return {key: value for key, value in named.items() if value is not None}
+
+
+def _profile_link(rec: dict) -> bool:
+    """The usage sender's record follows the profile's yes. With the yes, the
+    email and the answers go to link_person, which keeps them and tells
+    PostHog only what it has not been told, so a save that changed nothing it
+    holds sends nothing; without it, a yes kept there is forgotten and nothing
+    is sent. True when PostHog holds the person as they are now."""
+    sender = _usage_sender
+    if sender is None:
+        return False
+    if rec["email_yes"]:
+        return sender.link_person(_profile_person(rec), True) == "sent"
+    sender.unlink_email()
+    return False
+
+
+def _get_profile(q: Query, _):
+    with _profile_lock:
+        rec = _profile_read()
+        if q.local and rec["picture"] is None and _profile_complete(rec):
+            # the first page on this Mac to need the picture draws it, once
+            rec["picture"] = random.choice(PROFILE_PICTURES)
+            try:
+                _profile_write(rec)
+            except SaveFailed:
+                rec["picture"] = None   # not kept, so not shown as if it were
+        return 200, _profile_answer(rec)
+
+
+def _post_profile(q: Query, text: str):
+    """Sets the named fields and keeps the rest. Only a page on this Mac may
+    write, as with the usage email: the phone shows the profile and leaves it
+    to the Mac. A refusal names the field, never what it held."""
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    try:
+        changes = json.loads(text) if text else None
+    except ValueError:
+        changes = None
+    if not isinstance(changes, dict) or not changes or \
+            not set(changes) <= {"name", "email", "emailYes", "work", "agent", "timeZone"}:
+        return 400, {"error": "bad profile"}
+    new = {}
+    for key, cap in PROFILE_TEXT_MAX.items():
+        if key not in changes:
+            continue
+        value = changes[key]
+        if value is None or (isinstance(value, str) and not value.strip()):
+            new[key] = None
+            continue
+        text = _clean_text(value, cap)
+        if text is None:
+            return 400, {"error": "bad " + key}
+        new[key] = text
+    if "email" in changes:
+        value = changes["email"]
+        if value is None or (isinstance(value, str) and not value.strip()):
+            new["email"] = None
+        else:
+            new["email"] = _clean_email(value)
+            if new["email"] is None:
+                return 400, {"error": "not an email address"}
+    if "emailYes" in changes:
+        if not isinstance(changes["emailYes"], bool):
+            return 400, {"error": "bad yes"}
+        new["email_yes"] = changes["emailYes"]
+    if "timeZone" in changes:
+        value = changes["timeZone"]
+        if value is not None and _clean_time_zone(value) is None:
+            return 400, {"error": "bad time zone"}
+        new["time_zone"] = value
+    with _profile_lock:
+        rec = {**_profile_read(), **new}
+        if not rec["name"]:
+            return 400, {"error": "a name is needed"}
+        if rec["email"] is None:
+            if new.get("email_yes") is True:
+                return 400, {"error": "a yes needs an email"}
+            rec["email_yes"] = False   # the yes goes with the address
+        _profile_write(rec)
+        _info("profile", fields=",".join(sorted(new)), yes=rec["email_yes"])
+    # outside the lock: telling PostHog can take the sender's whole timeout
+    sent = _profile_link(rec)
+    return 200, {"ok": True, **_profile_answer(rec), "sent": sent}
+
+
+# ---- the onboarding ---------------------------------------------------------------
+# What a Mac board shows first while its profile is not complete: the mock's
+# run of real cards (onboarding.html), laid over the whole board in a frame of
+# its own until the closing card is marked done and the profile is saved. It
+# opens the sample project below as its project, and the board lands on that
+# project's tab when it ends.
+ONBOARDING_PAGE = HERE / "onboarding.html"
+ONBOARDING_VERSION_SLOT = b'<meta name="facilitator-version" content="">'
+BOARD_VERSION = re.compile(rb'id="npversion">(v[0-9]+\.[0-9]+\.[0-9]+)<')
+
+
+def _get_onboarding(q: Query, _):
+    # the Welcome card's lockup carries the board's own version, read where the
+    # board keeps it (#npversion in index.html) rather than written twice
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not ONBOARDING_PAGE.is_file():
+        return 404, {"error": "not found"}
+    page = ONBOARDING_PAGE.read_bytes()
+    try:
+        found = BOARD_VERSION.search((HERE / "index.html").read_bytes())
+    except OSError:
+        found = None
+    if found:
+        page = page.replace(ONBOARDING_VERSION_SLOT,
+                            b'<meta name="facilitator-version" content="' + found.group(1) + b'">', 1)
+    return 200, page, "text/html; charset=utf-8"
+
+
+# The sample project: a folder in the home folder holding the two folders every
+# project here keeps beside its work, its internal folder (notes and reports
+# that never get pushed, <folder>-internal) and its wiki (<folder>-wiki), each
+# with one short example. Made the first time the onboarding asks and it is
+# missing, and never touched again: a folder, a file or a link already holding
+# the name is left exactly as it is.
+SAMPLE_NAME = "facilitator-sample"
+SAMPLE_FILES = {
+    f"{SAMPLE_NAME}-internal/example-note.md": (
+        "# Example note\n\n"
+        "This is the project's internal folder. It holds what you and your agents write while\n"
+        "working: notes, plans, reports and screenshots. None of it is meant to be shared or\n"
+        "pushed.\n\n"
+        "A good habit is one folder per piece of work, named for the card and the date, with a\n"
+        "short report inside saying what was done and what is left.\n"),
+    f"{SAMPLE_NAME}-wiki/example-page.md": (
+        "# Example page\n\n"
+        "This is the project's wiki. It holds what stays true for a while: how the project is\n"
+        "laid out, how to run it, and the decisions behind it.\n\n"
+        "Keep each page short and about one thing, and change it when the project changes.\n"),
+}
+
+
+def _make_sample(home: Path) -> tuple[Path, bool]:
+    """The sample project's folder and whether it was made now. Built in a
+    hidden folder beside it and renamed into place, so it is either all there
+    or not there at all; a name that turns up taken meanwhile wins. Raises
+    FileExistsError when something that is not a folder holds the name."""
+    root = home / SAMPLE_NAME
+    if root.is_symlink() or root.exists():
+        if root.is_dir():
+            return root, False
+        raise FileExistsError(SAMPLE_NAME)
+    build = Path(tempfile.mkdtemp(prefix=f".{SAMPLE_NAME}-", dir=home))
+    try:
+        for rel, text in SAMPLE_FILES.items():
+            (build / rel).parent.mkdir(parents=True, exist_ok=True)
+            (build / rel).write_text(text)
+        os.chmod(build, 0o755)   # mkdtemp makes it owner-only; it is an ordinary folder
+        if root.is_symlink() or root.exists():
+            return _make_sample(home)
+        os.rename(build, root)
+    finally:
+        shutil.rmtree(build, ignore_errors=True)
+    return root, True
+
+
+def _post_onboarding_sample(q: Query, _):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    try:
+        root, made = _make_sample(Path.home())
+    except FileExistsError:
+        return 409, {"error": "the name is taken by something that is not a folder"}
+    except OSError as e:
+        _error("sample", reason=e.strerror or type(e).__name__)
+        return 500, {"error": "the sample project could not be made"}
+    _info("sample", made=made)
+    # resolved, the way POST /project keeps a lane's folder, so the page finds
+    # the sample's tab by its folder on a later run instead of making another
+    return 200, {"ok": True, "path": str(root.resolve()), "made": made}
 
 
 # hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
@@ -6297,6 +7816,34 @@ def _endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
             return outcome
         return _answer(*outcome, route=route, box=box)
     return endpoint
+
+
+def _post_open_in_browser(q: Query, text: str):
+    """Only an explicit action from the local page may open a Mac window."""
+    if not q.local or not q.same_origin:
+        return 403, {"error": "Open in browser needs the local Mac page."}
+    try:
+        url = urlparse(text)
+        valid = (url.scheme in ("http", "https") and url.hostname and
+                 not url.username and not url.password and
+                 not re.search(r"[\x00-\x20\x7f\\]", text))
+        url.port  # reject malformed ports too
+    except ValueError:
+        valid = False
+    if not valid:
+        return 400, {"error": "This link is not a web address."}
+    if sys.platform != "darwin":
+        return 501, {"error": "Open in browser needs macOS. Try Copy link."}
+    try:
+        # A fresh Chrome invocation forwards --new-window to the running
+        # browser. No --app flag: this requests a normal window outside the app.
+        result = subprocess.run(["/usr/bin/open", "-na", "Google Chrome", "--args",
+                                 "--new-window", text], capture_output=True, timeout=10)
+        if result.returncode:
+            return 502, {"error": "Could not open Chrome. Try Copy link."}
+    except (OSError, subprocess.TimeoutExpired):
+        return 502, {"error": "Could not open Chrome. Try Copy link."}
+    return 200, {"ok": True}
 
 
 def _state_endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
@@ -6786,7 +8333,7 @@ async def _lifespan(app):
 
 
 def _static(name: str, ctype: str):
-    return _endpoint(lambda q, _: _file(HERE / name, ctype))
+    return _endpoint(lambda q, _: _file(q, HERE / name, ctype))
 
 
 ROUTES = [
@@ -6817,6 +8364,8 @@ ROUTES = [
     Route("/card-markdown.js", _static("card-markdown.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/card-tokens.css", _static("card-tokens.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/mac-phone-view.js", _static("mac-phone-view.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/magic-box.js", _static("magic-box.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/compose-format.js", _endpoint(_get_compose_format), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.js", _static("home-widgets.js", "application/javascript; charset=utf-8"), methods=["GET"]),
@@ -6832,14 +8381,25 @@ ROUTES = [
     # beside this one (the icons under assets/). Served with the no-store
     # every answer carries, so a changed page or worker is picked up on the
     # next open rather than a cache later
-    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
+    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(q, p, c)), methods=["GET"])
       for path, (p, c) in PHONE_FILES.items() if path not in ("/m", "/m-manifest.json")],
-    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(p, c)), methods=["GET"])
+    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(q, p, c)), methods=["GET"])
       for path, (p, c) in OMNI_FILES.items()],
     Route("/push/key", _endpoint(_get_push_key), methods=["GET"]),
     Route("/navfiles", _endpoint(_get_navfiles), methods=["GET"]),
     Route("/navfile", _endpoint(_get_navfile), methods=["GET"]),
     Route("/navimg", _endpoint(_get_navimg), methods=["GET"]),
+    Route("/open-in-browser", _endpoint(_post_open_in_browser, "text", 8192), methods=["POST"]),
+    # a card's magic box. Filling it is a plain endpoint, not a state one: it
+    # takes the board's lock itself, only for the store, and nothing slow
+    # happens while it is held
+    Route("/magic", _endpoint(_get_magic), methods=["GET"]),
+    Route("/magic", _endpoint(_post_magic, "raw", MAGIC_IMAGE_MAX,
+                              "text and pages are limited to 1 MiB, pictures to 10 MiB"), methods=["POST"]),
+    Route("/magic/close", _state_endpoint(_post_magic_close, "text"), methods=["POST"]),
+    Route("/magic/reopen", _state_endpoint(_post_magic_reopen, "text"), methods=["POST"]),
+    Route("/magic/body", _endpoint(_get_magic_body), methods=["GET"]),
+    Route("/magic/img", _endpoint(_get_magic_img), methods=["GET"]),
     Route("/upload", _post_upload, methods=["POST"]),
     Route("/upload", _get_upload_receipt, methods=["GET"]),
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
@@ -6853,6 +8413,7 @@ ROUTES = [
     Route("/ping", _state_endpoint(_post_ping, "text"), methods=["POST"]),
     Route("/testing", _state_endpoint(_post_testing, "text"), methods=["POST"]),
     Route("/park", _state_endpoint(_post_park, "text"), methods=["POST"]),
+    Route("/dock", _state_endpoint(_post_dock, "text"), methods=["POST"]),
     Route("/worktree", _state_endpoint(_post_worktree, "text"), methods=["POST"]),
     Route("/context", _state_endpoint(_post_context, "text"), methods=["POST"]),
     Route("/title", _state_endpoint(_post_title, "text"), methods=["POST"]),
@@ -6860,6 +8421,9 @@ ROUTES = [
     Route("/project", _state_endpoint(_post_project, "text"), methods=["POST"]),
     Route("/close", _state_endpoint(_post_close, "text"), methods=["POST"]),
     Route("/delete", _state_endpoint(_post_delete, "text"), methods=["POST"]),
+    Route("/bin", _state_endpoint(_get_bin), methods=["GET"]),
+    Route("/bin", _state_endpoint(_post_bin, "text"), methods=["POST"]),
+    Route("/bin/restore", _state_endpoint(_post_bin_restore, "text"), methods=["POST"]),
     Route("/ws/goal", _state_endpoint(_post_ws_goal, "text"), methods=["POST"]),
     Route("/ws/task", _state_endpoint(_post_ws_task, "text"), methods=["POST"]),
     Route("/ws/current", _state_endpoint(_post_ws_current, "text"), methods=["POST"]),
@@ -6878,6 +8442,12 @@ ROUTES = [
     Route("/settings", _endpoint(_post_settings, "text"), methods=["POST"]),
     Route("/spotify/session", _endpoint(_get_spotify_session), methods=["GET"]),
     Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
+    Route("/usage/email", _endpoint(_post_usage_email, "text", USAGE_EMAIL_BODY_MAX), methods=["POST"]),
+    # the profile, in profile.json, and the onboarding that fills it
+    Route("/profile", _endpoint(_get_profile), methods=["GET"]),
+    Route("/profile", _endpoint(_post_profile, "text", PROFILE_BODY_MAX), methods=["POST"]),
+    Route("/onboarding", _endpoint(_get_onboarding), methods=["GET"]),
+    Route("/onboarding/sample", _endpoint(_post_onboarding_sample, "text"), methods=["POST"]),
     *([
         Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
         Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),
@@ -6996,7 +8566,7 @@ class SiteGuard:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        send = _unframeable(send)
+        send = _unframeable(send, scope)
         reason = _foreign_site(scope)
         if reason is None:
             await self.app(scope, receive, send)
@@ -7007,19 +8577,33 @@ class SiteGuard:
                        headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
 
 
-def _unframeable(send):
-    """Every answer, the bridge gate's and the phone's port's included, says
-    it may not be shown in a frame. A policy an answer already carries (an
-    upload's sandbox, the gate's own) is left exactly as it is, and the older
-    header covers it."""
+# the pages the board's own origin may frame: the phone page, for the Mac's
+# narrow view, and the onboarding, which the board lays over itself
+SAME_ORIGIN_FRAMES = frozenset({"/m", "/onboarding"})
+
+
+def _unframeable(send, scope=None):
+    """Only the local board's phone document and its onboarding may be framed
+    by its own origin. Root stays unframeable, so another site cannot wrap the
+    parent in a frame. The phone bridge and every preexisting policy retain
+    their protections. The board page's policy carries frame-ancestors and
+    nothing else on purpose: a magic box's sealed page is a srcdoc frame, which
+    inherits the page's policy, and a script or fetch directive here would stop
+    every one."""
+    headers = {name.lower(): value for name, value in (scope or {}).get("headers", ())}
+    local_phone = bool(scope and scope.get("path") in SAME_ORIGIN_FRAMES
+                       and (scope.get("server") or (None, None))[1] != BRIDGE_PORT
+                       and b"x-forwarded-for" not in headers
+                       and b"tailscale-headers-info" not in headers
+                       and _foreign_site(scope) is None)
     async def framed(message) -> None:
         if message["type"] == "http.response.start":
             held = list(message.get("headers") or ())
             named = {name.lower() for name, _ in held}
             if b"x-frame-options" not in named:
-                held.append((b"x-frame-options", b"DENY"))
+                held.append((b"x-frame-options", b"SAMEORIGIN" if local_phone and message.get("status") == 200 else b"DENY"))
             if b"content-security-policy" not in named:
-                held.append((b"content-security-policy", b"frame-ancestors 'none'"))
+                held.append((b"content-security-policy", b"frame-ancestors 'self'" if local_phone and message.get("status") == 200 else b"frame-ancestors 'none'"))
             message = {**message, "headers": held}
         await send(message)
     return framed
@@ -7344,10 +8928,13 @@ def main() -> None:
             for b in _state["boxes"]:
                 if b["pending"] and b["id"] not in _state["inbox"]:
                     _state["inbox"].append(b["id"])
+            _bin_expire()   # cards past their 30 days in the Bin go for good
             _save()
         pushed = _state.get("push_last_ok") or {}
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
+        _start_usage_counts()
+        threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
         server.run(sockets=[sock, bridge_sock])
     except Exception as error:
         # the last word about a start that died of something rather than being

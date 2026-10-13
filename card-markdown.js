@@ -12,6 +12,7 @@
   "use strict";
 
   const COPY_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+  const COPIED_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5 10 18.5 20 6"/></svg>';
   const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
   const MAX_BLOCK_DEPTH = 32;
 
@@ -113,15 +114,16 @@
     if (info?.kind === "image" || (!info && imageSyntax)) return '<img class="shot" src="' + href + '" alt="' + escapeAttribute(alt) + '">';
     const label = escapeHTML(name.replace(/^\d{13,19}-/, ""));
     if (!info) return '<a href="' + href + '" target="_blank" rel="noopener">' + label + '</a>';
-    const download = new URL(target, "http://facilitator.invalid");
-    download.searchParams.set("download", "1");
-    const links = '<span class="attachment-links"><a href="' + href + '" target="_blank" rel="noopener">Open</a> ' +
-      '<a href="' + escapeAttribute(download.pathname + download.search) + '" download>Download</a></span>';
-    const media = info.kind === "audio" || info.kind === "video"
-      ? '<' + info.kind + ' controls preload="metadata"' + (info.kind === "video" ? ' playsinline' : '') +
-        ' src="' + href + '"></' + info.kind + '>' : '';
+    // No Open and Download links under the name: the owner found them not
+    // needed. A player is the way into audio and video; a document's own name
+    // is its link, as any other uploaded file's is.
+    if (info.kind !== "audio" && info.kind !== "video")
+      return '<span class="attachment attachment-' + info.kind + '"><a class="attachment-name" href="' + href +
+        '" target="_blank" rel="noopener">' + label + '</a></span>';
+    const media = '<' + info.kind + ' controls preload="metadata"' + (info.kind === "video" ? ' playsinline' : '') +
+      ' src="' + href + '"></' + info.kind + '>';
     return '<span class="attachment attachment-' + info.kind + '">' + media +
-      '<span class="attachment-name">' + label + '</span>' + links + '</span>';
+      '<span class="attachment-name">' + label + '</span></span>';
   }
 
   // Build all bracket and parenthesis relationships once per inline run. A
@@ -433,8 +435,37 @@
     const label = String(language || "").trim();
     const languageHTML = label ? '<span class="codelang">' + escapeHTML(label) + "</span>" : "";
     const languageData = label ? ' data-language="' + escapeAttribute(label) + '"' : "";
-    return '<div class="codeblockwrap"' + languageData + '><button type="button" class="copybtn" title="copy" aria-label="copy code">' +
+    const oneLine = /\n/.test(String(code).replace(/\n$/, "")) ? "" : ' data-lines="1"';
+    return '<div class="codeblockwrap"' + languageData + oneLine + '><button type="button" class="copybtn" title="copy" aria-label="copy code">' +
       COPY_ICON + '</button>' + languageHTML + '<pre class="codeblock"><code>' + escapeHTML(code) + "</code></pre></div>";
+  }
+
+  // The older way to copy, for a page the clipboard API will not serve (a plain
+  // connection has no navigator.clipboard, and a refusal rejects): the block's
+  // text is selected where it stands and copied, then the selection is dropped.
+  function copySelected(code) {
+    const selection = globalThis.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+    selection.removeAllRanges();
+    return copied;
+  }
+
+  // A press on a block's copy button puts the block's text on the clipboard and
+  // shows a tick for a moment where the icon was.
+  function copyCodeBlock(button) {
+    const code = button.parentElement.querySelector("code");
+    const shown = () => {
+      button.innerHTML = COPIED_ICON;
+      setTimeout(() => { button.innerHTML = COPY_ICON; }, 1200);
+    };
+    const selected = () => { if (code && copySelected(code)) shown(); };
+    if (!navigator.clipboard || !navigator.clipboard.writeText) { selected(); return Promise.resolve(); }
+    return navigator.clipboard.writeText(code ? code.textContent : "").then(shown, selected);
   }
 
   function imageGrid(lines) {
@@ -609,6 +640,6 @@
     return renderBlocks(String(source == null ? "" : source).replace(/\r\n?/g, "\n").split("\n"), 0);
   }
 
-  return { render, renderInline, escapeHTML, escapeAttribute, safeLinkTarget, safeImageTarget,
+  return { render, renderInline, escapeHTML, escapeAttribute, safeLinkTarget, safeImageTarget, copyCodeBlock,
     renderAttachment, attachmentInfo, attachmentFile, ATTACHMENT_TYPES, ATTACHMENT_ACCEPT, MAX_ATTACHMENT_SIZE };
 });

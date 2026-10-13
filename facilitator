@@ -53,6 +53,24 @@
       nothing.
   facilitator status
       one-line board state
+  facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
+  facilitator magic CARD close|reopen|show
+      fill a card's magic box, the box beside the card on the Mac
+      board and above it on the phone, and open it in place of what it held,
+      so an agent can show the owner what words carry badly without being
+      asked. It waits on its card and never takes the keys. KIND is text
+      (shown as typed), markdown, html (a page of its own, run sealed off
+      with no network), image (a picture file, or one https address the
+      board downloads once) or url (one https website: shown live when it
+      allows that, as a square holding the site's name, which opens it in a
+      new page, when it does not). The box shows the content beside a short
+      bar whose cross lets the owner close it; --title is kept with it.
+      CONTENT is
+      the words or the address; --file sends a file's contents and - reads
+      standard input. close hides the box and keeps it, reopen shows it
+      again, show prints what the board says it holds. Prints the board's
+      answer as one JSON line; exits 1 with the board's own words when it
+      refuses, and with the status line when the board is down.
   facilitator bridge [on|off] [--dry-run]
       switch the persistent phone bridge on or off. With no on/off word it
       toggles the current Tailscale Serve state. Turning it on prints a QR
@@ -69,6 +87,14 @@
       the old port as moved_from: on points that old rule at the board's
       pair, and off takes it away.
       --dry-run prints the commands instead of running them
+  facilitator bridge setup
+      set the phone link up after saying no to it at install, or check it
+      again. Prints the installer's banner, then only its Mobile app step,
+      the same questions in the same words: Tailscale, its HTTPS
+      certificates, and the app password (an existing one is kept). Run
+      without a terminal it asks nothing and says so. It does not switch
+      the link on; `facilitator run` does once a password is set, or
+      `facilitator bridge on`.
   facilitator uninstall [--keep-attachments | --remove-attachments]
       remove what install made: the .venv, tests/node_modules and the generated
       config files, owned shell command, owned agent-skill links, and any Claude Code
@@ -123,9 +149,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -142,10 +169,12 @@ LOG_KEEP = 30   # dated bridge files kept, oldest deleted
 TAILSCALE_STATUS_TIMEOUT = 30
 TAILSCALE_CHANGE_TIMEOUT = 120
 BRIDGE_HELP = """usage: facilitator bridge [on|off] [--dry-run]
+       facilitator bridge setup
 
 With no on/off word, toggle the phone bridge. `on` and `off` are idempotent.
 The bridge persists after this command exits; use `facilitator bridge off` to
-sever the phone session. `--dry-run` inspects current state without changing it."""
+sever the phone session. `--dry-run` inspects current state without changing it.
+`setup` runs the installer's Mobile app step on its own."""
 
 
 def style(code, text):
@@ -240,6 +269,14 @@ def bridge_log(kind, level="info", **fields):
     code the phone scans, where it is needed; in a file that outlives the run it
     is a machine's name and nothing needs it."""
     try:
+        named = os.environ.get("FACILITATOR_LOG_LEVEL")
+        if not named:
+            try:
+                named = json.loads(CONFIG.read_text()).get("log_level")
+            except Exception:
+                named = None
+        if str(named or "").strip().lower() == "error" and level != "error":
+            return   # the same rule as the server's: errors only writes only errors
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         now = time.time()
         line = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now))
@@ -1863,6 +1900,89 @@ def cmd_status():
     print(f"server up, {len(st['boxes'])} boxes, {st['queued']} queued | {lanes}")
 
 
+MAGIC_KINDS = ("text", "markdown", "html", "image", "url")
+MAGIC_ACTIONS = ("close", "reopen", "show")
+MAGIC_HELP = """usage: facilitator magic CARD KIND (CONTENT | --file PATH | -) [--title TITLE]
+       facilitator magic CARD close|reopen|show
+
+Fill a card's magic box on the Mac board and open it, in place of what it
+held. KIND is text, markdown, html, image or url. CONTENT is the words, or one
+https address for url and image; --file sends a file's contents (a picture's
+bytes for image) and - reads standard input. close hides the box and keeps
+it, reopen shows it again, show prints what it holds. Prints the board's
+answer as one JSON line; exits 1 with the board's words when it refuses."""
+
+
+def cmd_magic(args):
+    """One call to the board's /magic routes, for an agent showing the owner
+    something beside a card. The content is read here, on the agent's side,
+    so the board is handed bytes and never a path to open."""
+    words = args[1:]
+    if words in ([], ["-h"], ["--help"]):
+        if words:
+            print(MAGIC_HELP)
+            return
+        sys.exit(MAGIC_HELP)
+    title, path, rest = None, None, []
+    at = 0
+    while at < len(words):
+        word = words[at]
+        if word in ("--title", "--file"):
+            if at + 1 == len(words):
+                sys.exit(f"magic: {word} needs a value")
+            if word == "--title":
+                title = words[at + 1]
+            else:
+                path = words[at + 1]
+            at += 2
+            continue
+        rest.append(word)
+        at += 1
+    if len(rest) < 2:
+        sys.exit(MAGIC_HELP)
+    card, what, content = rest[0], rest[1], rest[2:]
+    if what in MAGIC_ACTIONS:
+        if content or path is not None or title is not None:
+            sys.exit(f"magic: {what} takes only the card")
+        method, route, body, query = ("GET" if what == "show" else "POST",
+                                      "/magic" if what == "show" else "/magic/" + what,
+                                      None if what == "show" else b"", {"box": card})
+    elif what in MAGIC_KINDS:
+        if len(content) + (path is not None) != 1:
+            sys.exit("magic: give the content once: as one argument, as --file PATH, or as - to read standard input")
+        if path is not None:
+            try:
+                body = Path(path).expanduser().read_bytes()
+            except OSError as error:
+                sys.exit(f"magic: {path} cannot be read: {error.strerror or error}")
+        elif content[0] == "-":
+            body = sys.stdin.buffer.read()
+        else:
+            body = content[0].encode("utf-8")
+        method, route, query = "POST", "/magic", {"box": card, "kind": what}
+        if title is not None:
+            query["title"] = title
+    else:
+        sys.exit(f"magic: {what} is not one of {', '.join(MAGIC_KINDS)}, {', '.join(MAGIC_ACTIONS)}")
+    port = board_port()
+    request = urllib.request.Request(f"http://127.0.0.1:{port}{route}?{urlencode(query)}",
+                                     data=body, method=method)
+    try:
+        # a website or a web picture is fetched by the board before it answers,
+        # within its own 15 seconds, so this waits a little longer than that
+        with urllib.request.urlopen(request, timeout=60) as response:
+            answer = json.load(response)
+    except urllib.error.HTTPError as refused:
+        try:
+            said = json.load(refused).get("error")
+        except (ValueError, AttributeError, OSError):
+            said = None
+        sys.exit(f"magic: {said or f'the board answered {refused.code}'}")
+    except (OSError, ValueError):
+        sys.exit(f"server: DOWN (port {port})")
+    print(json.dumps(answer, ensure_ascii=False))
+
+
 def board_port():
     """The board's port from run.config.json when there is one; the server's
     own default otherwise, so the bridge works on a machine with no lanes
@@ -2275,11 +2395,32 @@ def cmd_bridge(args):
     Every decision comes from fresh Tailscale status. Enabling owns one root
     handler; disabling removes only that handler. Both mutations are checked
     against an unchanged precondition and verified from status afterward."""
+    if args[1:2] == ["setup"] and not any(word in ("-h", "--help") for word in args[2:]):
+        if args[2:]:
+            sys.exit("bridge setup takes no other words; got " + " ".join(args[2:]))
+        return installer_step(cmd_bridge_setup)
     parsed = bridge_action(args)
     if parsed is None:
         return
     requested, dry = parsed
     switch_bridge(requested, dry, board_port())
+
+
+def cmd_bridge_setup():
+    """`facilitator bridge setup`: the installer's banner and its Mobile app
+    step, run by the installer's own code (installer-lib.sh, which install.sh
+    sources too) so the two cannot differ. The password step runs on this
+    same Python, which hands over to .venv's as it does at install."""
+    lib = HERE / "installer-lib.sh"
+    bash = shutil.which("bash")
+    if bash is None or not lib.is_file():
+        sys.exit(problem("Phone setup could not start.",
+                         f"{lib.name} or bash is missing; run ./install.sh in {HERE}."))
+    sys.stdout.flush()
+    env = {**os.environ, "PY": sys.executable, "REPO": str(HERE)}
+    code = subprocess.call([bash, "-c", 'set -euo pipefail; . "$1"; bridge_setup', "bash", str(lib)], env=env)
+    if code:
+        sys.exit(code)
 
 
 def switch_bridge(requested, dry, port, quiet=False):
@@ -2482,16 +2623,16 @@ BANNER_GLYPHS = {
 
 
 def check_python():
-    """Report the Python running this setup, and stop below the floor this
-    command needs. The board does not run on it: it runs on the Python
-    APP_PYTHON in .venv, which uv provides whatever Python runs this."""
+    """Stop when the Python running this setup is below the floor this command
+    needs, and say nothing otherwise. The board does not run on it: it runs on
+    the Python APP_PYTHON in .venv, which uv provides whatever Python runs
+    this, so which one runs the setup is not something to print."""
     have = sys.version_info[:3]
-    shown = ".".join(str(part) for part in have)
-    floor = ".".join(str(part) for part in MIN_PYTHON)
     if have < MIN_PYTHON:
+        shown = ".".join(str(part) for part in have)
+        floor = ".".join(str(part) for part in MIN_PYTHON)
         sys.exit(problem(f"Python {shown} is below the {floor} minimum.",
                          "Install a newer Python, then run ./install.sh again."))
-    ok(f"Python {shown} runs this setup.")
 
 
 def find_uv():
@@ -2557,9 +2698,12 @@ def install_uv():
             if hashlib.sha256(script.stdout).hexdigest() != UV_INSTALL_SHA256:
                 sys.exit(problem("The uv installer from astral.sh is not the one this checkout expects.",
                                  "Nothing was run. Install uv yourself, then run ./install.sh again."))
-            if subprocess.run(["sh"], input=script.stdout, env=env).returncode != 0:
+            # its own progress lines are held back and shown only if it fails
+            held = subprocess.run(["sh"], input=script.stdout, env=env, capture_output=True)
+            if held.returncode != 0:
+                show_held(held)
                 sys.exit(problem("The uv installer did not finish.",
-                                 "Install uv yourself, then run ./install.sh again."))
+                                 "Install uv yourself, then run ./install.sh again.", blank=True))
     uv = find_uv()
     if not uv:
         sys.exit(problem("uv is installed but still not found.",
@@ -2597,16 +2741,20 @@ def ensure_uv(quiet=False):
     return uv
 
 
-def run_uv(argv, quiet):
-    """Run uv in this checkout; quiet holds its output back and shows it only on failure."""
-    if not quiet:
-        return subprocess.run(argv, cwd=str(HERE)).returncode
-    result = subprocess.run(argv, cwd=str(HERE), capture_output=True, text=True, errors="replace")
+def show_held(result):
+    """Print the output of a run that was held back, as text or as bytes."""
+    for stream, text in ((sys.stdout, result.stdout), (sys.stderr, result.stderr)):
+        stream.write(text.decode("utf-8", "replace") if isinstance(text, bytes) else text)
+        stream.flush()
+
+
+def run_held(argv, cwd=HERE):
+    """Run a command, here by default, holding its output back and showing it
+    only on failure, so an install says what it is doing in its own words and
+    not in uv's or npm's."""
+    result = subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True, errors="replace")
     if result.returncode != 0:
-        sys.stdout.write(result.stdout)
-        sys.stdout.flush()
-        sys.stderr.write(result.stderr)
-        sys.stderr.flush()
+        show_held(result)
     return result.returncode
 
 
@@ -2687,13 +2835,13 @@ def build_env(uv, have, quiet):
         why = f"it was on Python {have}" if have else "its Python is missing or broken"
         print(f"Rebuilding .venv on Python {APP_PYTHON}: {why}.")
     elif not quiet:
-        print(f"Creating the environment in .venv on Python {APP_PYTHON}.")
-    if run_uv([uv, "python", "install", "--no-bin", APP_PYTHON], quiet) != 0:
+        print(f"Setting up the Python {APP_PYTHON} environment.")
+    if run_held([uv, "python", "install", "--no-bin", APP_PYTHON]) != 0:
         sys.exit(problem(f"uv could not install Python {APP_PYTHON}.",
                          *(["Nothing in .venv was changed."] if there else []),
                          "See the output above, then run ./install.sh again."))
     stopped = stop_for_rebuild() if there else False
-    if run_uv([uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"], quiet) != 0:
+    if run_held([uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"]) != 0:
         sys.exit(problem("uv could not create .venv.",
                          "See the output above, then run ./install.sh again."))
     got = env_python()
@@ -2702,7 +2850,7 @@ def build_env(uv, have, quiet):
         sys.exit(problem(f"uv made .venv {made}, not on Python {APP_PYTHON}.",
                          "See the output above, then run ./install.sh again."))
     if not quiet:
-        ok("Environment created.")
+        ok(f"Python {APP_PYTHON} environment ready.")
     return stopped
 
 
@@ -2723,12 +2871,12 @@ def ensure_env(uv, quiet=False):
     else:
         stopped = build_env(uv, have, quiet)
     if not quiet:
-        print("Syncing packages to requirements.txt.")
-    if run_uv([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"], quiet) != 0:
+        print("Installing the packages Facilitator needs.")
+    if run_held([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"]) != 0:
         sys.exit(problem("uv could not sync requirements.txt.",
                          "See the output above, then run ./install.sh again."))
     if not quiet:
-        ok("Packages synced.")
+        ok("Packages installed.")
     return stopped
 
 
@@ -2736,25 +2884,23 @@ def ensure_config():
     """Write each config file from its example only when it is not already
     there, so a second run and a user's own edits are both left untouched.
     A new run.config.json names the default pair, 8877 and 8878, when nothing
-    holds it, and otherwise the next free pair above it, with a line saying
-    which. Nothing is asked of any port beyond whether it can be bound, and
-    Tailscale is not asked at all: install runs before the phone client is set
-    up, and run checks the Serve rules when it starts the board."""
-    for name, example in (("run.config.json", "run.config.example.json"),
-                          ("seed.json", "seed.example.json")):
+    holds it, and otherwise the next free pair above it; run says which port
+    the board is on. Nothing is asked of any port beyond whether it can be
+    bound, and Tailscale is not asked at all: install runs before the phone
+    client is set up, and run checks the Serve rules when it starts the board."""
+    for name, example, made in (("run.config.json", "run.config.example.json", "Board settings"),
+                                ("seed.json", "seed.example.json", "Starting board")):
         target = HERE / name
         if target.exists():
             ok(f"{name} found.")
             continue
         shutil.copyfile(HERE / example, target)
-        ok(f"Wrote {name} from {example}.")
+        ok(f"{made} created.")
         if name != "run.config.json":
             continue
         port = pick_pair(DEFAULT_PORT, serve=False)
         if port is not None and port != json.loads(target.read_text()).get("port"):
             target.write_text(config_with(target.read_text(), port, None))
-        if port is not None and port != DEFAULT_PORT:
-            print(f"Ports {DEFAULT_PORT} and {DEFAULT_PORT + 1} are in use here, so it names {port} and {port + 1}.")
 
 
 def find_node_tools():
@@ -2776,12 +2922,11 @@ def ensure_test_packages(npm):
     if have == pinned:
         ok("Test packages found.")
         return
-    print("Installing the test packages from tests/package-lock.json.")
-    if subprocess.run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
-                      cwd=str(TESTS_DIR)).returncode != 0:
+    print("Installing the packages the tests need.")
+    if run_held([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], TESTS_DIR) != 0:
         sys.exit(problem("npm could not install the test packages.",
                          "See the output above, then run ./install.sh --dev again."))
-    ok("Test packages installed.")
+    ok("Packages for the tests installed.")
 
 
 def cmd_install(args):
@@ -2828,10 +2973,6 @@ def cmd_install(args):
             if not before[name] and path.exists():
                 owned[name] = file_digest(path) if path.is_file() else "directory"
         INSTALL_RECORD.write_text(json.dumps(owned, indent=2) + "\n")
-    ok("Board installed.")
-    print()
-    print("Config lives beside this command: run.config.json (edit it)")
-    print("and seed.json.")
 
 
 def board_running(port):
@@ -3334,6 +3475,176 @@ def cmd_update_steps(args):
         sys.exit(1)
 
 
+# Chrome keeps "Use graphics acceleration when available" in the Local State
+# file of its user data folder, as hardware_acceleration_mode.enabled; when the
+# key is not there it is on. Chrome reads it once at launch and writes its own
+# copy back while it runs and as it quits, so it is changed only with Chrome
+# fully quit. The board opens in the main Chrome, so that folder is the one.
+CHROME_DATA = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+
+
+def chrome_accel_state(local_state):
+    """True when the toggle is on (the key true or absent, or no Local State yet),
+    False when it is clearly off, None when the file cannot be read, so nothing
+    is said or changed."""
+    try:
+        data = json.loads(local_state.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    mode = data.get("hardware_acceleration_mode")
+    if not isinstance(mode, dict) or "enabled" not in mode:
+        return True
+    return mode["enabled"] if isinstance(mode["enabled"], bool) else None
+
+
+def chrome_pid(folder):
+    """The pid of the Chrome running on that user data folder, or None. Chrome
+    holds a SingletonLock link there, to host-pid, for as long as it runs; one
+    left behind by a crash names a process that is gone."""
+    try:
+        pid = int(os.readlink(folder / "SingletonLock").rsplit("-", 1)[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return pid if pid_alive(pid) else None
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def read_key(valid):
+    """One key from the terminal, unechoed, as the installer's other questions
+    take it: a key that is not an answer, Enter too, is ignored. None comes back
+    when the input ends. The terminal is put back whatever ends it."""
+    import termios
+    import tty
+    fd = sys.stdin.fileno()
+    saved = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        while True:
+            key = os.read(fd, 1).decode("utf-8", "replace").lower()
+            if not key:
+                return None
+            if key in valid:
+                return key
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def ask_accel(choices, valid):
+    """The installer's two-option layout, under what was just printed: the
+    choices, then "answer: " on one key. None when the input ends."""
+    for choice in choices:
+        print(f"  {choice}")
+    print()
+    print("answer: ", end="", flush=True)
+    answer = read_key(valid)
+    print(answer or "")
+    return answer
+
+
+def write_accel_on(local_state):
+    """Back Local State up beside itself as Local State.facilitator-backup, set
+    the toggle on, and read it back. On any failure the file is as it was and
+    the reason comes back; None means it was written."""
+    try:
+        original = local_state.read_bytes()
+        data = json.loads(original.decode("utf-8"))
+        if not isinstance(data, dict):
+            return "Local State is not what Chrome writes"
+        mode = data.get("hardware_acceleration_mode")
+        data["hardware_acceleration_mode"] = dict(mode if isinstance(mode, dict) else {}, enabled=True)
+        shutil.copy2(local_state, local_state.with_name(local_state.name + ".facilitator-backup"))
+    except (OSError, ValueError) as error:
+        return str(error)
+
+    def replace_with(content):
+        fd, tmp = tempfile.mkstemp(dir=local_state.parent, prefix=".Local State.")
+        try:
+            with os.fdopen(fd, "wb") as out:
+                out.write(content)
+                out.flush()
+                os.fsync(out.fileno())
+            os.chmod(tmp, local_state.stat().st_mode & 0o7777)
+            os.replace(tmp, local_state)
+        except BaseException:
+            os.unlink(tmp)
+            raise
+
+    try:
+        replace_with(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        if json.loads(local_state.read_text(encoding="utf-8")) != data:
+            raise ValueError("it did not read back as written")
+    except (OSError, ValueError) as error:
+        try:
+            if local_state.read_bytes() != original:
+                replace_with(original)
+        except OSError:
+            return f"{error}, and Local State could not be put back: copy Local State.facilitator-backup over it"
+        return str(error)
+    return None
+
+
+def cmd_chrome_acceleration(folder=CHROME_DATA):
+    """Chrome's graphics acceleration, in the main Chrome. On: one line says so.
+    Off with Chrome closed: asks to turn it on and does. Off with Chrome open:
+    shows where to turn it on in Chrome and asks when that is done. Asks only on
+    a terminal; never quits Chrome and never waits for it."""
+    local_state = folder / "Local State"
+    state = chrome_accel_state(local_state)
+    if state is None:
+        return
+    section("5. Chrome graphics")
+    if state:
+        ok("Chrome graphics acceleration is on.")
+        return
+    if not sys.stdin.isatty():
+        skipped("Left Chrome's graphics acceleration off: there is no interactive terminal.")
+        return
+    if chrome_pid(folder):
+        print("Turn on graphics acceleration in Chrome:")
+        print()
+        print('Settings -> System -> turn on "Use graphics acceleration when available"')
+        print()
+        answer = ask_accel(["y - I turned gpu acceleration on", "l - I will do it later"], "yl")
+        if answer == "y":
+            print()
+            print("Quit and reopen Chrome for graphics acceleration to take place.")
+        return
+    print("Turn on Chrome graphics acceleration?")
+    print()
+    answer = ask_accel(["y - yes (recommended)", "n - no"], "yn")
+    if answer != "y":
+        return
+    print()
+    failed = write_accel_on(local_state)
+    if failed:
+        print(f"⚠ Could not turn on graphics acceleration ({failed}). Chrome's settings were left as they were.")
+    else:
+        ok("Chrome graphics acceleration is on.")
+
+
+def installer_step(step, *args, **kwargs):
+    """Run one step that install.sh hands to this command. Ctrl+C ends it
+    quietly with the interrupted exit status, not a traceback; install.sh's own
+    Ctrl+C handler prints the line that ends the run."""
+    try:
+        step(*args, **kwargs)
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args and not args[0].startswith("-") else "run"
@@ -3345,6 +3656,8 @@ def main():
         cmd_stop(args)
     elif cmd == "status":
         cmd_status()
+    elif cmd == "magic":
+        cmd_magic(args)
     elif cmd == "bridge":
         cmd_bridge(args)
     elif cmd == "password":
@@ -3353,9 +3666,11 @@ def main():
         cmd_password(args)
     elif cmd == "_password-setup" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
         on_app_env()
-        cmd_password(args, installer=True)
+        installer_step(cmd_password, args, installer=True)
     elif cmd == "_install" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
-        cmd_install(args)
+        installer_step(cmd_install, args)
+    elif cmd == "_chrome-acceleration" and os.environ.get("FACILITATOR_INTERNAL_INSTALL") == "1":
+        installer_step(cmd_chrome_acceleration)
     elif cmd == "uninstall":
         cmd_uninstall(args)
     elif cmd == "update":

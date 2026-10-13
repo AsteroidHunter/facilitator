@@ -7,7 +7,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..");
-const WORKER_SOURCE = readFileSync(path.join(ROOT, "m-sw.js"), "utf8");
+const WORKER_SOURCE = readFileSync(process.env.PHONE_WORKER_SOURCE || path.join(ROOT, "m-sw.js"), "utf8");
 const PAGE_SOURCE = readFileSync(path.join(ROOT, "m.html"), "utf8");
 const plain = value => JSON.parse(JSON.stringify(value));
 const later = fn => setImmediate(fn);
@@ -149,9 +149,17 @@ async function loadWorker({ idb = fakeIndexedDB(), net = {}, clock = { now: 1_80
   if (random) context.crypto = { getRandomValues: bytes => { bytes.set(random); return bytes; } };
   vm.runInNewContext(WORKER_SOURCE, context, { filename: "m-sw.js" });
   const dispatch = async (type, event = {}) => {
-    let work;
-    handlers[type]({ ...event, waitUntil: promise => { work = promise; } });
-    await work;
+    const work = [];
+    handlers[type]({ ...event, waitUntil: promise => { work.push(promise); } });
+    // A handler can extend the event again while its routing promise is live.
+    let from = 0;
+    while (from < work.length) {
+      const batch = work.slice(from);
+      from = work.length;
+      const settled = await Promise.allSettled(batch);
+      const failed = settled.find(result => result.status === "rejected");
+      if (failed) throw failed.reason;
+    }
   };
   const push = (payload = { box: "m101", title: "First card" }) =>
     dispatch("push", { data: { json: () => payload } });
@@ -206,7 +214,7 @@ function startPage({ permission = "granted", worker = true, subscription = "yes"
     };
   }
   class FakeDate extends Date { static now() { return clock.now; } }
-  const context = vm.createContext({
+  const context = vm.createContext({ macHost: null,
     Date: FakeDate, Promise, JSON, Array,
     navigator,
     document: { hidden: false, addEventListener: listen(documentEvents) },
