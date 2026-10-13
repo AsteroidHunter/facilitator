@@ -87,6 +87,14 @@
       the old port as moved_from: on points that old rule at the board's
       pair, and off takes it away.
       --dry-run prints the commands instead of running them
+  facilitator bridge setup
+      set the phone link up after saying no to it at install, or check it
+      again. Prints the installer's banner, then only its Mobile app step,
+      the same questions in the same words: Tailscale, its HTTPS
+      certificates, and the app password (an existing one is kept). Run
+      without a terminal it asks nothing and says so. It does not switch
+      the link on; `facilitator run` does once a password is set, or
+      `facilitator bridge on`.
   facilitator uninstall [--keep-attachments | --remove-attachments]
       remove what install made: the .venv, tests/node_modules and the generated
       config files, owned shell command, owned agent-skill links, and any Claude Code
@@ -161,10 +169,12 @@ LOG_KEEP = 30   # dated bridge files kept, oldest deleted
 TAILSCALE_STATUS_TIMEOUT = 30
 TAILSCALE_CHANGE_TIMEOUT = 120
 BRIDGE_HELP = """usage: facilitator bridge [on|off] [--dry-run]
+       facilitator bridge setup
 
 With no on/off word, toggle the phone bridge. `on` and `off` are idempotent.
 The bridge persists after this command exits; use `facilitator bridge off` to
-sever the phone session. `--dry-run` inspects current state without changing it."""
+sever the phone session. `--dry-run` inspects current state without changing it.
+`setup` runs the installer's Mobile app step on its own."""
 
 
 def style(code, text):
@@ -2385,11 +2395,32 @@ def cmd_bridge(args):
     Every decision comes from fresh Tailscale status. Enabling owns one root
     handler; disabling removes only that handler. Both mutations are checked
     against an unchanged precondition and verified from status afterward."""
+    if args[1:2] == ["setup"] and not any(word in ("-h", "--help") for word in args[2:]):
+        if args[2:]:
+            sys.exit("bridge setup takes no other words; got " + " ".join(args[2:]))
+        return installer_step(cmd_bridge_setup)
     parsed = bridge_action(args)
     if parsed is None:
         return
     requested, dry = parsed
     switch_bridge(requested, dry, board_port())
+
+
+def cmd_bridge_setup():
+    """`facilitator bridge setup`: the installer's banner and its Mobile app
+    step, run by the installer's own code (installer-lib.sh, which install.sh
+    sources too) so the two cannot differ. The password step runs on this
+    same Python, which hands over to .venv's as it does at install."""
+    lib = HERE / "installer-lib.sh"
+    bash = shutil.which("bash")
+    if bash is None or not lib.is_file():
+        sys.exit(problem("Phone setup could not start.",
+                         f"{lib.name} or bash is missing; run ./install.sh in {HERE}."))
+    sys.stdout.flush()
+    env = {**os.environ, "PY": sys.executable, "REPO": str(HERE)}
+    code = subprocess.call([bash, "-c", 'set -euo pipefail; . "$1"; bridge_setup', "bash", str(lib)], env=env)
+    if code:
+        sys.exit(code)
 
 
 def switch_bridge(requested, dry, port, quiet=False):

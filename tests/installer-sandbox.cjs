@@ -11,7 +11,7 @@ const { promisify } = require("node:util");
 
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, "..");
-const COPIED = ["facilitator", "shell_integration.py", "install.sh", "bridge_auth.py", "requirements.txt",
+const COPIED = ["facilitator", "shell_integration.py", "install.sh", "installer-lib.sh", "bridge_auth.py", "requirements.txt",
   "run.config.example.json", "seed.example.json", "claude-statusline.py"];
 
 // answers questions on a pseudo terminal: each step is [text to wait for, keys to send]
@@ -214,6 +214,18 @@ if [ -n "$out" ]; then cat "${path.join(dir, "served-installer.sh")}" > "$out"; 
     // stripped from the text unless color is set
     async terminal(steps, args = [], { color = false } = {}) {
       const job = JSON.stringify({ argv: ["bash", path.join(repo, "install.sh"), ...args], cwd: repo, env, steps, color });
+      const { stdout } = await exec("python3", ["-c", DRIVER, job], { env: process.env, timeout: 120000, maxBuffer: 1 << 24 });
+      return JSON.parse(stdout);
+    },
+    // the facilitator command of this copy of the checkout, on the same fake
+    // PATH and home: piped has no terminal, terminal answers on a pseudo one
+    async commandPiped(args) {
+      return exec("python3", [path.join(repo, "facilitator"), ...args], { cwd: repo, env }).then(
+        ({ stdout, stderr }) => ({ code: 0, text: stdout + stderr }),
+        error => ({ code: error.code, text: error.stdout + error.stderr }));
+    },
+    async commandTerminal(args, steps, { color = false } = {}) {
+      const job = JSON.stringify({ argv: ["python3", path.join(repo, "facilitator"), ...args], cwd: repo, env, steps, color });
       const { stdout } = await exec("python3", ["-c", DRIVER, job], { env: process.env, timeout: 120000, maxBuffer: 1 << 24 });
       return JSON.parse(stdout);
     },

@@ -493,7 +493,9 @@ test("the help text describes the new flow, and the script has no Claude limits 
     assert.deepEqual(await f.calls(), []);
     await assertNothingChanged(f);
   });
-  const source = await fs.readFile(path.join(root, "install.sh"), "utf8");
+  // install.sh and the file it shares with `facilitator bridge setup`
+  const source = (await fs.readFile(path.join(root, "install.sh"), "utf8"))
+    + (await fs.readFile(path.join(root, "installer-lib.sh"), "utf8"));
   assert.ok(!source.includes(String.fromCharCode(8212)), "an em dash");
   assert.doesNotMatch(source, /Claude limits|claude-statusline|statusline/i);
   for (const url of Object.values(URLS)) assert.ok(source.includes(url), url);
