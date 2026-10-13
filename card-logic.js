@@ -7577,7 +7577,8 @@ function settingsOverlay(host, source, opts){
 // what a card's agent put beside it (POST /magic), drawn the same on the board,
 // where the box stands beside the card, and on the phone, where it comes down
 // above the card the way the card list does. each page makes one view of its
-// box element (.magicbox, with a top bar .mbbar and a body .mbbody), says where
+// box element (.magicbox, with a bar .mbbar, at its top on the board and at its
+// foot on the phone, and a body .mbbody), says where
 // the box stands and how big, and asks the view what it shows wants (want, for
 // MagicBox.place or MagicBox.fit, magic-box.js). hooks.placed is called when
 // what it shows has a size it did not have, and hooks.openSite(url) opens a
@@ -7607,19 +7608,23 @@ function magicView(el, hooks = {}){
   const cross = el.querySelector(".mbclose");
   if (cross) cross.innerHTML = MAGIC_CROSS;
   // the words' two fuzzes, the ticket list's own (tickBands): how far they have
-  // scrolled up under the bar, --upband, and how far they still can, --downband,
-  // in whole pixels and capped at the box's --mb-fade. the words start their
-  // lead under the bar, so the first lead's worth of scroll only closes that
-  // space and no word has gone under the bar yet: it is not counted. a number
-  // is only written when it changes, and they are read again whenever the box
-  // or the words change size, since either moves how far the words can scroll
-  // without a scroll event
+  // scrolled up, --upband, and how far they still can, --downband, in whole
+  // pixels and capped at the box's --mb-fade. the bar stands at the box's top
+  // on the board and at its foot on the phone, which puts it after the body
+  // (m.html), and the words keep their lead on the bar's side: the lead's
+  // worth of scroll there only closes that space and no word has gone under
+  // the bar yet, so it is not counted. the far end's band counts all of it, as
+  // the ticket list's do. a number is only written when it changes, and they
+  // are read again whenever the box or the words change size, since either
+  // moves how far the words can scroll without a scroll event
+  const foot = !!view.bar && el.lastElementChild === view.bar;
   const bands = () => {
     const b = view.body, words = b.querySelector(".mbtext");
     if (view.fade == null) view.fade = parseFloat(getComputedStyle(el).getPropertyValue("--mb-fade")) || 0;
-    if (view.lead == null && words) view.lead = parseFloat(getComputedStyle(words).paddingTop) || 0;
-    const up = Math.min(Math.max(0, Math.round(b.scrollTop - (view.lead || 0))), view.fade);
-    const down = Math.min(Math.max(0, Math.round(b.scrollHeight - b.clientHeight - b.scrollTop)), view.fade);
+    if (view.lead == null && words) view.lead = parseFloat(getComputedStyle(words)[foot ? "paddingBottom" : "paddingTop"]) || 0;
+    const lead = view.lead || 0;
+    const up = Math.min(Math.max(0, Math.round(b.scrollTop - (foot ? 0 : lead))), view.fade);
+    const down = Math.min(Math.max(0, Math.round(b.scrollHeight - b.clientHeight - b.scrollTop - (foot ? lead : 0))), view.fade);
     if (up !== view.up){ view.up = up; b.style.setProperty("--upband", up + "px"); }
     if (down !== view.down){ view.down = down; b.style.setProperty("--downband", down + "px"); }
   };
@@ -7743,7 +7748,7 @@ function magicView(el, hooks = {}){
   // which a page lays the words out at. scale: screen pixels to the page's own,
   // the board's stage scale. a picture asks for its own size, as many of the
   // page's pixels as it has pixels on screen, so it is never drawn past its
-  // sharpness, with the top bar as its head; words for their own height at the
+  // sharpness, with the bar as its head (at the foot on the phone); words for their own height at the
   // room's width; a site that will not be framed for a square. the edge, the
   // bar and the white kept at the far edge are added, so what is beside the
   // bar is the size it asks for

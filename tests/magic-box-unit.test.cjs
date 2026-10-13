@@ -8,8 +8,9 @@
 // at their own height, hung from that box's top, under a top bar that keeps
 // its height. Its look, read from the page's source: on the Mac the card's own
 // face, edge line, corners and shadow, under a white bar with no line under it;
-// on the phone the same face, edge and corners with the board's faint shadow, the
-// same white bar, and its drawn top and bottom edges as the drawer's gaps;
+// on the phone the same face, edge and corners with the board's faint shadow,
+// the same white bar at the box's foot, and its drawn top and bottom edges as
+// the drawer's gaps;
 // one cross, and a site that will not be framed
 // as a square with its name in the middle; on the Mac whichever of the card
 // and the box is held stands up and the other settles, and a box beside a
@@ -349,13 +350,20 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
     assert.match(list, /left:0; right:0; height:0;/);
     assert.match(list, /border-top:var\(--edge\) solid var\(--line\);/);
   }
-  // the bar stands at the box's top on the board, on the phone and in a
-  // portrait window alike, the line along its foot: nothing in the sheet
-  // or either page turns the box over or moves the bar to its foot
+  // the bar stands at the box's top on the board, in a portrait window too,
+  // and at its foot on the phone, where the markup puts it after what the box
+  // holds: nothing in the sheet or either page turns the box over in its
+  // styles, and nothing moves the board's bar
   assert.match(box, /flex-direction:column;/);
   assert.ok(!/column-reverse|--mb-flow|--mb-air-head|--mb-air-foot|--mb-line-top|--mb-line-foot|barfoot/.test(code(boxBlock())), "a way to put the bar at the foot is left");
   assert.ok(!/@media[^{]*portrait[^{]*\{[^@]*\.magicbox/.test(code(read("card-tokens.css"))), "a portrait window still turns the box over");
   for (const page of [html, phone]) assert.ok(!/barfoot|#magicbox[^{]*\{[^}]*column-reverse|#mbface[^{]*\{[^}]*column-reverse/.test(code(page)), "a page turns its box over");
+  const order = (page, open) => { const s = page.slice(page.indexOf(open), page.indexOf("</section>", page.indexOf(open)));
+    return [s.indexOf('<div class="mbbar">'), s.indexOf('<div class="mbbody">')]; };
+  const [boardBar, boardBody] = order(html, '<section id="magicbox" class="magicbox">');
+  assert.ok(boardBar > 0 && boardBar < boardBody, "the board's bar is not at its box's top");
+  const [phoneBar, phoneBody] = order(phone, '<section id="mbface" class="magicbox"');
+  assert.ok(phoneBody > 0 && phoneBody < phoneBar, "the phone's bar is not at its box's foot");
   // words run out to the box's sides, the line's ends, with no frame to keep off
   assert.match(sheet, /\.magicbox \.mbtext\{padding:var\(--mb-lead\) 0 var\(--mb-inset, 16px\);/);
   // one cross, a button that closes the box, in the bar, on the board and on
@@ -410,9 +418,13 @@ test("what the box holds keeps white at its far edge, and words that scroll diss
   // the view writes the two bands as tickBands does, and reads them again as
   // the words scroll, are drawn, or change size
   const view = logic.slice(logic.indexOf("function magicView("), logic.indexOf("view.clear = () => {"));
-  // the first lead of the scroll takes no word under the bar, so it is not counted
-  assert.match(view, /const up = Math\.min\(Math\.max\(0, Math\.round\(b\.scrollTop - \(view\.lead \|\| 0\)\)\), view\.fade\);/);
-  assert.match(view, /const down = Math\.min\(Math\.max\(0, Math\.round\(b\.scrollHeight - b\.clientHeight - b\.scrollTop\)\), view\.fade\);/);
+  // the lead of the scroll on the bar's side takes no word under the bar, so it
+  // is not counted: at the top on the board, at the foot on the phone, whose bar
+  // is the box's last part
+  assert.match(view, /const foot = !!view\.bar && el\.lastElementChild === view\.bar;/);
+  assert.match(view, /view\.lead = parseFloat\(getComputedStyle\(words\)\[foot \? "paddingBottom" : "paddingTop"\]\) \|\| 0;/);
+  assert.match(view, /const up = Math\.min\(Math\.max\(0, Math\.round\(b\.scrollTop - \(foot \? 0 : lead\)\)\), view\.fade\);/);
+  assert.match(view, /const down = Math\.min\(Math\.max\(0, Math\.round\(b\.scrollHeight - b\.clientHeight - b\.scrollTop - \(foot \? lead : 0\)\)\), view\.fade\);/);
   assert.match(view, /view\.body\.addEventListener\("scroll", bands, \{ passive: true \}\);/);
   assert.match(logic, /view\.body\.appendChild\(prose\);\s*if \(sized\) sized\.observe\(prose\);\s*bands\(\);/);
   // and the box asks for that white with what it shows, so words that fit
@@ -468,6 +480,39 @@ test("the box's bands follow the words' scroll, capped at the fuzz's depth", () 
   assert.deepEqual({ ...props }, { "--upband": "22px", "--downband": "22px" }, "capped at the fuzz's depth");
   body.scrollTop = 400; listeners.scroll();
   assert.equal(props["--downband"], "0px", "at the end of the scroll no band at the foot");
+});
+
+// the phone's box, its bar at its foot: the same body with the words' 6px lead
+// under their last line, over the bar. the far end, the top, has the ticket
+// list's plain band, and the foot counts only words gone under the bar
+test("with the bar at the box's foot the bands turn over: a plain one at the top, and none at the foot until words go under the bar", () => {
+  const logic = read("card-logic.js");
+  const src = logic.slice(logic.indexOf("const MAGIC_CROSS = "), logic.indexOf("// a site's name as the site gives it"))
+    + logic.slice(logic.indexOf("function magicView("), logic.indexOf("\n}\n", logic.indexOf("function magicView(")) + 3);
+  const props = {}, listeners = {};
+  const words = {};
+  const body = { dataset: {}, scrollTop: 0, scrollHeight: 600, clientHeight: 200, textContent: "",
+    style: { setProperty: (k, v) => { props[k] = v; } },
+    addEventListener: (type, fn) => { listeners[type] = fn; }, appendChild() {}, querySelector: s => s === ".mbtext" ? words : null };
+  const bar = {}, cross = { innerHTML: "" };
+  const el = { lastElementChild: bar, querySelector: s => s === ".mbbody" ? body : s === ".mbclose" ? cross : s === ".mbbar" ? bar : {} };
+  const ctx = vm.createContext({ getComputedStyle: e => e === words ? { paddingTop: "16px", paddingBottom: "6px" } : { getPropertyValue: () => "22px" },
+    addEventListener() {}, h() {}, MagicBox: {} });
+  vm.runInContext(src, ctx);
+  ctx.magicView(el);
+  listeners.scroll();
+  assert.deepEqual({ ...props }, { "--upband": "0px", "--downband": "22px" }, "at rest: nothing over the top, the words under the bar at the foot");
+  body.scrollTop = 9; listeners.scroll();
+  assert.equal(props["--upband"], "9px", "the top's band is the list's plain one, from the first pixel of scroll");
+  body.scrollTop = 390; listeners.scroll();
+  assert.equal(props["--downband"], "4px", "the foot's band counts what is left past the lead");
+  body.scrollTop = 394; listeners.scroll();
+  assert.equal(props["--downband"], "0px", "the last lead's worth of scroll takes no word under the bar");
+  body.scrollTop = 400; listeners.scroll();
+  assert.deepEqual({ ...props }, { "--upband": "22px", "--downband": "0px" }, "at the end: the top band capped, none at the foot");
+  // words that fit wear no band at either end
+  body.scrollTop = 0; body.scrollHeight = 200; listeners.scroll();
+  assert.deepEqual({ ...props }, { "--upband": "0px", "--downband": "0px" });
 });
 
 test("the cross puts the box away as the agent's close does, and the board keeps what it held", () => {
@@ -904,8 +949,14 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   assert.deepEqual(own.map(m => m[1].trim()), ["#mbface", "body.lowered #mbface"], "the phone dresses its box in these two rules");
   assert.ok((own[0][2].match(/border(?!-radius)[\w-]*:/g) || []).length === 1, "one edge");
   assert.match(sty, /\n  #mbface \.mbbar::after\{display:none\}/, "no line under the bar");
-  // its words keep the card answer's inset off its sides, as the board's do
-  assert.match(sty, /\n  #mbface \.mbtext\{padding:var\(--mb-lead\) var\(--mb-inset\) var\(--mb-inset\)\}/);
+  // its words keep the card answer's inset off its sides, as the board's do. its bar
+  // is at its foot, so the box is the board's turned over and its words are not: the
+  // far edge's white (the air and the inset) is over them, the lead under them, and
+  // the bar and the body each keep inside the round corners on their own side
+  assert.match(sty, /\n  #mbface \.mbtext\{padding:var\(--mb-inset\) var\(--mb-inset\) var\(--mb-lead\)\}/);
+  assert.match(sty, /\n  #mbface \.mbbody\{margin:var\(--mb-air\) 0 0; border-radius:calc\(var\(--mb-round\) - var\(--edge\)\) calc\(var\(--mb-round\) - var\(--edge\)\) 0 0\}/);
+  assert.match(sty, /\n  #mbface \.mbbody\[data-kind="image"\]\{margin:0\}/, "a picture still fills its box to the edge");
+  assert.match(sty, /\n  #mbface \.mbbar\{border-radius:0 0 calc\(var\(--mb-round\) - var\(--edge\)\) calc\(var\(--mb-round\) - var\(--edge\)\)\}/);
   // a lowered card's box sits level on the phone too, and outweighs the shadow it takes off
   assert.match(sty, /\n  body\.lowered #mbface\{box-shadow:none\}/);
   assert.ok(heavier(weight("body.lowered #mbface"), weight("#mbface")) > 0);
