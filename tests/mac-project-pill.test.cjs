@@ -512,8 +512,9 @@ test("\"Open a new folder\" opens the Mac's folder chooser and lands on the new 
 
 test("the house, the pill and the right-hand circles keep their places: no plus, no lens, no row of names", () => {
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
-  const order = ["homeico", "projpill", "tabbar", "chimebtn", "installbtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
+  const order = ["homeico", "projpill", "tabbar", "chimebtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "the bar's order changed");
+  assert.doesNotMatch(html, /installbtn|beforeinstallprompt|Install app/, "the install button is gone for good");
   assert.doesNotMatch(html, /ptabplus|class="ptab"|"ptab"\)|tabKillMark|function placeSeat/);
   // nothing in the bar's new rules is the board's purple
   const css = html.slice(html.indexOf("/* ---- the bar's glass"), html.indexOf("/* ---- new-project tab"));

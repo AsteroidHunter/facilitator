@@ -92,13 +92,6 @@
   #chimebtn:hover{color:var(--ink)}
   #chimebtn .chime-slash, #chimebtn .chime-gap{display:none}
   #chimebtn[aria-pressed="false"] :is(.chime-slash, .chime-gap){display:inline}
-  /* the install control, in the soft tint the edit button used to wear: the same
-     face, size, colours, corner and padding, and no margin of its own, since the
-     button before it already holds the right edge. It is hidden except while
-     Chrome is offering to install the board */
-  #installbtn{font:13px var(--mono); color:var(--accent); background:var(--accent-soft);
-    border:none; border-radius:4px; padding:3px 9px; cursor:pointer; transition:.2s; flex:none}
-  #installbtn:hover{background:color-mix(in srgb, var(--accent) 10%, var(--accent-soft))}
   /* ---- settings ----------------------------------------------------------
      the board's own choices, opened off the bar by one mark onto a page that
      covers the whole window (the settings page in card-tokens.css). the swatch
@@ -3135,8 +3128,7 @@
     transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
   body.focus :is(#homeico, #chimebtn, #setbtn):hover{color:var(--ink)}
   body.focus :is(#homeico, #chimebtn) svg{display:block; flex:none}
-  /* the speaker still holds the right edge, and "Install app" stays between it
-     and the squid as it was */
+  /* the speaker still holds the right edge */
   body.focus .bar #chimebtn{margin-left:auto}
   /* the speaker and the squid stand the house's gap to the pill apart, 11px
      of box that draws as 10px (#tabrow's gap): the bar's own 8px and 3px more
@@ -3714,7 +3706,6 @@
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
   <button id="chimebtn" class="qn-glass" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
-  <button id="installbtn" type="button" hidden>Install app</button>
   <button id="setbtn" class="qn-glass" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
 </div>
 <!-- the pill's list: every open project, which renderTabs draws into
@@ -13189,40 +13180,16 @@ applySavedLayout();
 // catches up. a refresh asked for by a send or a click still goes at once
 poll(); setInterval(() => { if (!cardsMoving()) poll(); }, 1200);
 
-// ---- installing this board as an app of its own -------------------------------
+// ---- the board's worker --------------------------------------------------------
 // The worker keeps nothing at all, and sw.js says why it is here: Chrome asked
 // for one before it would offer an install for years, and though this Chrome no
 // longer does, the offer should not turn on which Chrome is installed. A page
 // served over plain http off loopback gets no worker, and the board runs the
-// same there, so a refusal here is nothing to say out loud.
+// same there, so a refusal here is nothing to say out loud. The board has no
+// control of its own for an install: it opens as a plain Chrome app window.
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
-// The control in the bar, which stands there only while there is something to
-// press it for. Chrome sends one offer per page, and only for a page it would
-// install, which the board is not once it has been installed. The offer has to
-// be held onto, because its box can be asked for only from a real click, and
-// only through the event that carried it. A browser that sends no offer, and
-// the installed app itself, show no control at all.
-let installOffer = null;
-const installBtn = document.getElementById("installbtn");
-const installedHere = () => matchMedia("(display-mode: standalone)").matches;
-addEventListener("beforeinstallprompt", e => {
-  e.preventDefault();
-  installOffer = e;
-  if (!installedHere()) installBtn.hidden = false;
-});
-// an install finished anywhere takes the control away here too
-addEventListener("appinstalled", () => { installOffer = null; installBtn.hidden = true; });
-installBtn.addEventListener("click", () => {
-  const offer = installOffer;
-  if (!offer) return;
-  // one offer is good for one box. Chrome sends a fresh one the next time the
-  // board is opened, which is what brings the control back after a dismissal
-  installOffer = null;
-  installBtn.hidden = true;
-  try { offer.prompt(); } catch (e) {}
-});
 
 // The portrait view is the phone document itself. The adapter knows state,
 // never its layout. Both pages stay mounted, including every unsaved Mac panel.
