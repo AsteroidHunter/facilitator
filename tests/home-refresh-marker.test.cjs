@@ -51,7 +51,7 @@ function page(name, cached = true, count = 3) {
     ['home.limits', JSON.stringify({ at: now, answer: limitAnswer(count) })],
   ] : []);
   const doc = { hidden: false, addEventListener() {}, createElement: tag => new Element(tag, doc) };
-  const nodes = Object.fromEntries(['projhome', 'homeplot', 'homelimits', 'stage'].map(id => [id, doc.createElement('div')]));
+  const nodes = Object.fromEntries(['homeico', 'homeplot', 'homelimits', 'stage'].map(id => [id, doc.createElement('div')]));
   doc.getElementById = id => nodes[id]; doc.body = doc.createElement('body');
   const requests = [];
   const ctx = { document: doc, console, settingsStore: {}, homeOpen: false, addEventListener() {},

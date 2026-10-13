@@ -82,8 +82,8 @@ test("the house heads the phone's project list, a row of the list with the board
   assert.match(house[0], /aria-pressed="false"/);
   // the board's own mark, stroke for stroke, ahead of its name
   const mark = /<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)/;
-  assert.equal(mark.exec(list)[1], /<button id="projhome"[^>]*>[\s\S]*?(<svg[\s\S]*?<\/svg>)/.exec(BOARD)[1],
-    "the phone's house is not the board's Home row's");
+  assert.equal(mark.exec(list)[1], /<button id="homeico"[^>]*>(<svg[\s\S]*?<\/svg>)<\/button>/.exec(BOARD)[1],
+    "the phone's house is not the board's");
   // at the head of the list, ahead of the projects
   assert.ok(list.indexOf('id="homeico"') < list.indexOf('<div id="projlist">'), "the house does not head the list");
 
