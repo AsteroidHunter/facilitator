@@ -1176,8 +1176,8 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
   /* --mb-round is the corner the page gives the box, twice the card's 7px: the
      bar and what the box holds are rounded to it too, inside the edge line, so
      nothing of theirs pokes out of a corner. --mb-pink is the cross's circle,
-     the red of the close button at a macOS window's top left */
-  --mb-round:14px; --mb-pink:#FF5F57}
+     the red of the close button at a macOS window's top left, at 70% opacity */
+  --mb-round:14px; --mb-pink:rgba(255, 95, 87, .7)}
 /* its bar: nothing of its own but the line along its foot, the edge it
    shares with what the box holds, which dissolves as it goes under it (the
    fuzz, below).
