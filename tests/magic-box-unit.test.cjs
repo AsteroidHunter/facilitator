@@ -329,13 +329,14 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   const own = phone.match(/  #mbface\{display:none;([^}]*)\}/)[1];
   assert.ok(!/--mb-bar/.test(own), "the phone sets its own bar, apart from the seat and the gap");
   assert.match(read("card-tokens.css"), /--cardbar-h:34px;/);
-  for (const [where, seat, gap] of [["board", box.match(/--mb-x:(\d+)px;/), box.match(/--mb-gap:(\d+)px;/)],
-                                    ["phone", own.match(/--mb-x:calc\((\d+) \* var\(--u\)\);/), own.match(/--mb-gap:calc\((\d+) \* var\(--u\)\);/)]]) {
+  for (const [where, seat, gap] of [["board", box.match(/--mb-x:(\d+)px;/), box.match(/--mb-gap:([\d.]+)px;/)],
+                                    ["phone", own.match(/--mb-x:calc\((\d+) \* var\(--u\)\);/), own.match(/--mb-gap:calc\(([\d.]+) \* var\(--u\)\);/)]]) {
     const x = +seat[1], g = +gap[1], height = x + 2 * g;
+    assert.equal(height, 30, where + ": the bar keeps its height, so the circle stays centred where it was");
     assert.equal(g + x / 2, (height - x) / 2 + x / 2, where + ": the cross's middle is not as far from the edge as from the side");
-    assert.ok(g >= 5, where + ": the seat stands closer than the card bar's 5px to the box's edges and the line");
+    assert.ok(g >= 5, where + ": the seat stands closer than 5px to the box's edges and the line");
     assert.ok(height < 34, where + ": the box's bar is no shorter than the card's");
-    assert.ok(x >= 12 + 2 * 4, where + ": the seat leaves under 4px about the 12px mark");
+    assert.ok(x >= 10 + 2 * 3, where + ": the seat leaves under 3px about the 10px mark");
   }
   // the line: the ticket list's under its section names, word for word, in
   // each page (#tikhead::after): the card's hairline as a top edge of no
@@ -376,22 +377,27 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
       '<button type="button" class="mbclose" aria-label="Close the magic box"></button>');
     assert.ok(!/mblight/.test(page), "a light is left on the page");
   }
-  // its mark is drawn once, by the view both pages share, in the card bar's
-  // own family: the 24 grid, the 2.4 stroke and round ends, at the card bar's
-  // mark size, in a seat with no fill that a press shades with the one press
-  // shade over whatever paper the board wears
+  // its mark is drawn once, by the view both pages share, and it is the card
+  // bar's own cross (.xbtn): two bars --bar-mark long and --cross-weight of
+  // that thick, round ends, at 45 degrees. the svg is --bar-mark square on a 10
+  // grid, so its stroke is 10 * 1.2 / 9 thick and each stroke's centre line is
+  // the bar's length less that thickness, laid at 45 degrees about the middle
   const cross = logic.match(/const MAGIC_CROSS = ('[^;]*);/)[1];
-  assert.match(cross, /viewBox="0 0 24 24"/);
-  assert.match(cross, /stroke-width="2\.4"/);
+  assert.match(cross, /viewBox="0 0 10 10"/);
   assert.match(cross, /stroke-linecap="round"/);
+  assert.ok(Math.abs(+cross.match(/stroke-width="([\d.]+)"/)[1] - 10 * 1.2 / 9) < 1e-3, "the cross is not as thick as the card's");
+  const reach = +cross.match(/M([\d.]+)/)[1], half = (10 - 10 * 1.2 / 9) / 2 / Math.SQRT2;
+  assert.ok(Math.abs((5 - reach) - half) < 1e-3, "the cross is not as long as the card's");
+  assert.match(cross, new RegExp("M" + reach + " " + reach + "L" + (10 - reach) + " " + (10 - reach) + "M" + (10 - reach) + " " + reach + "L" + reach + " " + (10 - reach)));
   assert.match(logic, /const cross = el\.querySelector\("\.mbclose"\);\s*if \(cross\) cross\.innerHTML = MAGIC_CROSS;/);
-  assert.match(sheet, /\.magicbox \.mbclose svg\{width:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\); height:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\)\}/);
+  assert.match(sheet, /\.magicbox \.mbclose svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
+  for (const page of [html, phone]) assert.match(page, /width:var\(--bar-mark\); height:var\(--cross-t\); background:#1e1e1e;/);
   const seat = sheet.match(/\.magicbox \.mbclose\{([^}]*)\}/)[1];
   assert.match(seat, /width:var\(--mb-x\); height:var\(--mb-x\); padding:0; border:none; border-radius:50%;/);
   assert.match(seat, /background:var\(--mb-pink\); color:#1e1e1e;/);
   assert.match(sheet, /\.magicbox \.mbclose:hover, \.magicbox \.mbclose:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mb-pink\)\)\}/);
-  // the circle is the red of the close button at a macOS window's top left at 70% opacity, and the mark keeps its ink
-  assert.match(box, /--mb-pink:rgba\(255, 95, 87, \.7\)\s*$/);
+  // the circle is a solid soft red, and the mark keeps its ink
+  assert.match(box, /--mb-pink:#FF7A72\s*$/);
   assert.ok(!/--mb-pink-ink/.test(sheet + read("index.html") + read("m.html")), "no ink of its own for the mark");
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
@@ -469,7 +475,7 @@ test("the box's bands follow the words' scroll, capped at the fuzz's depth", () 
     addEventListener() {}, h() {}, MagicBox: {} });
   vm.runInContext(src, ctx);
   ctx.magicView(el);
-  assert.match(cross.innerHTML, /^<svg viewBox="0 0 24 24"/, "the cross is drawn into the bar's button");
+  assert.match(cross.innerHTML, /^<svg viewBox="0 0 10 10"/, "the cross is drawn into the bar's button");
   listeners.scroll();
   assert.deepEqual({ ...props }, { "--upband": "0px", "--downband": "22px" }, "at the top: no band over the words' top, the full band at the foot");
   body.scrollTop = 6; listeners.scroll();
