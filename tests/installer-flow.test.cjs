@@ -22,6 +22,8 @@ const PHONE = "Would you like to use the phone client? (y / n) ";
 const BOTH = "Is Tailscale installed on both your devices? (y / n) ";
 const ANSWER = "answer: ";
 const PASSWORDS = [["App password (input hidden): ", PASSWORD + "\n"], ["Confirm app password (input hidden): ", PASSWORD + "\n"]];
+// the sandbox has no Chrome Local State, so graphics acceleration is on (Chrome's default)
+const CHROME_ON = "5. Chrome graphics\n──────────────────\n\n✓ Chrome graphics acceleration is on.\n\n";
 const CLOSING = "✦ Facilitator is installed!\n\nNext steps:\n\n1. Start the board: facilitator run\n"
   + "2. Complete the quick onboarding to start using the Facilitator!";
 
@@ -132,7 +134,7 @@ test("a full run with no phone client makes the private environment and the comm
     assert.ok(text.includes("4. Mobile app\n─────────────\n\n"
       + "The phone client puts your board on your phone, over Tailscale and\n"
       + "behind an app password.\n\n"
-      + `${PHONE}n\n\n✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator.\n\n`
+      + `${PHONE}n\n\n${CHROME_ON}✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator.\n\n`
       + `${CLOSING}\n\n`), text);
     assert.doesNotMatch(text, /Tailscale\n─|4\.1|4\.2|App password|Claude limits|settings\.json/);
     assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
@@ -166,7 +168,7 @@ test("phone client yes, Tailscale on both, HTTPS on: the question texts and the 
       + `${ANSWER}y\n\n4.2 App password\n────────────────\n\n`
       + "Choose a strong password to log into your Facilitator phone app.\n"
       + "Use at least 11 characters, with a letter, a number and a symbol.\n\n"), text);
-    assert.match(text, /\n✓ App password confirmed\.\n\n✓ facilitator command and agent skill installed\n/);
+    assert.match(text, /\n✓ App password confirmed\.\n\n5\. Chrome graphics\n[─]+\n\n✓ Chrome graphics acceleration is on\.\n\n✓ facilitator command and agent skill installed\n/);
     assert.doesNotMatch(text, /Once installed|Turning on HTTPS|Would you like to install it now/);
     assert.ok(!text.includes(PASSWORD), "the password was echoed");
     assert.ok(text.endsWith(`${CLOSING}\n\n`) || text.endsWith(`${CLOSING}\n`), text.slice(-200));
@@ -218,7 +220,7 @@ test("a run with no terminal asks nothing, treats the phone client as no, and sa
     assert.equal(code, 0, text);
     assertSections(text, ["1. Claude Code or Codex", "2. Chrome", "3. Python", "4. Mobile app"]);
     assert.ok(text.includes("4. Mobile app\n─────────────\n\n⊘ Skipped the phone client: there is no interactive terminal.\n\n"
-      + "✓ facilitator command and agent skill installed\n"), text);
+      + CHROME_ON + "✓ facilitator command and agent skill installed\n"), text);
     assert.doesNotMatch(text, /\(y \/ n\)|4\.1|4\.2|App password|Tailscale/);
     assert.ok(text.endsWith(`${CLOSING}\n\n`), text.slice(-200));
   });
