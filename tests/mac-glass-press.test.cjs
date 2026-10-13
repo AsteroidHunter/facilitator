@@ -15,7 +15,7 @@ function fixture(html, isPhone = false) {
   const element = () => {
     const classes = new Set(), events = {}, props = {};
     return { classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c) },
-      offsetWidth: 32, props, style: { setProperty: (name, value) => { props[name] = value; } },
+      offsetWidth: 32, offsetHeight: 32, props, style: { setProperty: (name, value) => { props[name] = value; } },
       addEventListener(type, fn) { (events[type] ||= []).push(fn); },
       fire(type, e = {}) { for (const fn of events[type] || []) fn(e); } };
   };
@@ -128,6 +128,26 @@ test("the pill grows by the circles' few pixels, not by the same 6% of a wider b
   assert.equal(pill.values.transform, "scale(var(--press-x, 1.06), 1.06)");
   assert.equal(pill.values.transition, undefined, "the pill's rise and fall are the circles' own");
   assert.ok(pill.order > shared.order && specificity(pill.selector).join() === specificity(shared.selector).join());
+});
+
+test("PWA: the capsule grows by the round buttons' few pixels, with its own face and timing as they were", () => {
+  for (const [width, height] of [[120, 48], [170, 48], [260, 48], [200, 52], [150, 44]]) {
+    const f = fixture(phone, true);
+    f.pill.offsetWidth = width; f.pill.offsetHeight = height;
+    f.pill.fire("pointerdown", { button: 0 });
+    const across = Number(f.pill.props["--press-x"]), circle = height * (1.06 - 1);
+    assert.ok(Math.abs(width * (across - 1) - circle) < 1e-9, width + "px wide grows " + width * (across - 1) + "px");
+  }
+  const all = rules(phone);
+  const round = all.find(r => r.selector === "#dock .dockbtn.pressed");
+  const capsule = all.find(r => r.selector === "#dock #projbtn.pressed");
+  assert.ok(round && capsule);
+  assert.equal(round.values.transform, "scale(1.06)");
+  assert.equal(capsule.values.transform, "scale(var(--press-x, 1.06), 1.06)");
+  assert.equal(capsule.values["--qn-tint"], ".97"); assert.equal(capsule.values["--qn-edge"], "3.5");
+  assert.equal(capsule.values.transition,
+    "transform .38s cubic-bezier(.2,.8,.2,1), --qn-tint .38s ease-out, --qn-edge .38s ease-out");
+  assert.ok(capsule.order > round.order && compare(specificity(capsule.selector), specificity(round.selector)) > 0);
 });
 
 function rules(html) {
