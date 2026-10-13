@@ -1175,8 +1175,8 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
   /* --mb-round is the corner the page gives the box, twice the card's 7px: the
      bar and what the box holds are rounded to it too, inside the edge line, so
      nothing of theirs pokes out of a corner. --mb-pink is the cross's circle,
-     a soft pastel red */
-  --mb-round:14px; --mb-pink:#EDB1AB}
+     the red of the close button at a macOS window's top left */
+  --mb-round:14px; --mb-pink:#FF5F57}
 /* its bar: nothing of its own but the line along its foot, the edge it
    shares with what the box holds, which dissolves as it goes under it (the
    fuzz, below).
@@ -1187,7 +1187,7 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    the bar's right, one cross puts the box away: the card bar's own kind of
    mark (MAGIC_CROSS, card-logic.js) at the card bar's mark size, in a
    round seat, --mb-gap in from the box's side as it is from the box's edge
-   and from the line. the seat is a small circle of pastel red with the mark
+   and from the line. the seat is a small circle of the Mac's close-button red with the mark
    at its middle, the ink it always had; the pointer over it, and a press,
    shade it with the one press shade. a finger's tap reaches past it */
 .magicbox .mbbar{flex:none; position:relative; display:flex; align-items:center; justify-content:flex-end;
