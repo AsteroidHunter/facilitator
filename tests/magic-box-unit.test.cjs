@@ -380,13 +380,13 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   assert.match(sheet, /\.magicbox \.mbclose svg\{width:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\); height:calc\(var\(--bar-mark\) \* var\(--chip-scale\)\)\}/);
   const seat = sheet.match(/\.magicbox \.mbclose\{([^}]*)\}/)[1];
   assert.match(seat, /width:var\(--mb-x\); height:var\(--mb-x\); padding:0; border:none; border-radius:50%;/);
-  assert.match(seat, /background:var\(--mb-pink\); color:var\(--mb-pink-ink\);/);
+  assert.match(seat, /background:var\(--mb-pink\); color:#1e1e1e;/);
   assert.match(sheet, /\.magicbox \.mbclose:hover, \.magicbox \.mbclose:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mb-pink\)\)\}/);
-  // a soft pastel red circle (light, red over blue and green) with a darker red mark
+  // a soft pastel red circle (light, red over blue and green), and the mark keeps its ink
   const lum = h => { const [r, g, b] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); return { r, g, b, y: (0.299 * r + 0.587 * g + 0.114 * b) / 255 }; };
-  const pink = lum(box.match(/--mb-pink:(#[0-9A-Fa-f]{6});/)[1]), ink = lum(box.match(/--mb-pink-ink:(#[0-9A-Fa-f]{6})\s*$/)[1]);
+  const pink = lum(box.match(/--mb-pink:(#[0-9A-Fa-f]{6})\s*$/)[1]);
   assert.ok(pink.y > 0.75 && pink.r > pink.g + 30 && pink.r > pink.b + 30, "the circle is a pastel red");
-  assert.ok(ink.y < pink.y - 0.3 && ink.r > ink.g + 60 && ink.r > ink.b + 60, "the mark is a darker red");
+  assert.ok(!/--mb-pink-ink/.test(sheet + read("index.html") + read("m.html")), "no ink of its own for the mark");
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
 

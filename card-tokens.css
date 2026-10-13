@@ -1175,8 +1175,8 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
   /* --mb-round is the corner the page gives the box, twice the card's 7px: the
      bar and what the box holds are rounded to it too, inside the edge line, so
      nothing of theirs pokes out of a corner. --mb-pink is the cross's circle,
-     a soft pastel red, and --mb-pink-ink the mark in it */
-  --mb-round:14px; --mb-pink:#F3C4C0; --mb-pink-ink:#9A2B24}
+     a soft pastel red */
+  --mb-round:14px; --mb-pink:#EDB1AB}
 /* its bar: nothing of its own but the line along its foot, the edge it
    shares with what the box holds, which dissolves as it goes under it (the
    fuzz, below).
@@ -1188,8 +1188,8 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    mark (MAGIC_CROSS, card-logic.js) at the card bar's mark size, in a
    round seat, --mb-gap in from the box's side as it is from the box's edge
    and from the line. the seat is a small circle of pastel red with the mark
-   in a darker red at its middle; the pointer over it, and a press, shade it
-   with the one press shade. a finger's tap reaches past it */
+   at its middle, the ink it always had; the pointer over it, and a press,
+   shade it with the one press shade. a finger's tap reaches past it */
 .magicbox .mbbar{flex:none; position:relative; display:flex; align-items:center; justify-content:flex-end;
   height:var(--mb-bar); padding:0 var(--mb-gap); border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
 .magicbox .mbbar::after{content:""; position:absolute; pointer-events:none;
@@ -1197,7 +1197,7 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
   border-top:var(--edge) solid var(--line)}
 .magicbox .mbclose{position:relative; flex:none; display:grid; place-items:center;
   width:var(--mb-x); height:var(--mb-x); padding:0; border:none; border-radius:50%;
-  background:var(--mb-pink); color:var(--mb-pink-ink); cursor:pointer}
+  background:var(--mb-pink); color:#1e1e1e; cursor:pointer}
 .magicbox .mbclose:hover, .magicbox .mbclose:active{background:color-mix(in srgb, #000 var(--press), var(--mb-pink))}
 .magicbox .mbclose:focus-visible{outline:2px solid var(--line); outline-offset:1px}
 .magicbox .mbclose svg{width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--bar-mark) * var(--chip-scale))}
