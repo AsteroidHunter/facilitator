@@ -7590,11 +7590,13 @@ function settingsOverlay(host, source, opts){
 const MAGIC_NEW_PAGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 2.5h4v4"/>' +
   '<path d="M13.5 2.5 7.5 8.5"/><path d="M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/></svg>';
-// the cross on the box's bar that puts it away: a mark of the card bar's own
-// family (SUN_ICON and the rest), on the same 24 grid in the same 2.4 stroke
-// with round ends, its ink about as wide as the moon's
-const MAGIC_CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
-  'stroke-linecap="round" aria-hidden="true"><path d="M4.5 4.5L19.5 19.5M19.5 4.5L4.5 19.5"></path></svg>';
+// the cross on the box's bar that puts it away: the card bar's own cross
+// (.xbtn, two bars --bar-mark long and --cross-weight of that thick, with round
+// ends, set across at 45 degrees), drawn on a 10 grid as one svg of --bar-mark:
+// each stroke runs between 1.936 and 8.064, the bar's length less its thickness
+// (10 - 1.3333), laid at 45 degrees about the middle
+const MAGIC_CROSS = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3333" ' +
+  'stroke-linecap="round" aria-hidden="true"><path d="M1.936 1.936L8.064 8.064M8.064 1.936L1.936 8.064"></path></svg>';
 // a site's name as the site gives it, or its address's host without "www."
 function magicSiteName(box){
   const site = ((box.preview || {}).site || "").trim();
