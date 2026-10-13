@@ -1515,22 +1515,22 @@
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
-  /* the one line that ties the box to its card, a small barbell copied from the
-     owner's mock (magicLine): the card's own edge colour, a plain solid 2px,
-     straight across the gap from the card's right edge to the box's left edge,
-     with a small tab at each end. it stands over the card
-     and the box (#mbline, after the card), at their own level, and wears the
-     card's own shadow, its two layers at the strength a filter gives them (a
-     filter's blur is the spread of the blur a box-shadow asks for, so half
-     of it); the card lowered, it has none, as the box has none. it is drawn by
-     magicLine, in the stage's pixels, from the svg's corner at the stage's.
-     the shadow is on the group inside the svg, not on the svg: the svg is a
-     layer of its own over the box's scrolling words, and a filter on a layer
-     is blurred again on every frame the screen draws, each frame of a scroll
-     among them; on the group it is painted once with the line (m1216) */
+  /* the two lines that tie the box to its card, as the owner chose them in the
+     connector mock (magicLine): the card's own edge colour, dashed, 2px,
+     straight across the gap from under the card's right edge to the box's
+     left edge. they lie beneath the card and the box (#mbline, before the
+     card, under the box's z-index), so they come out from under the card and
+     stop at the box, and wear the card's own shadow, its two layers at the
+     strength a filter gives them (a filter's blur is the spread of the blur
+     a box-shadow asks for, so half of it); the card lowered, they have none,
+     as the box has none. they are drawn by magicLine, in the stage's pixels,
+     from the svg's corner at the stage's. the shadow is on the group inside
+     the svg, not on the svg: the svg is a layer of its own, and a filter on a
+     layer is blurred again on every frame the screen draws, each frame of a
+     scroll among them; on the group it is painted once with the lines (m1216) */
   #mbline{display:none}
   body.focus #mbline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
-    overflow:visible; pointer-events:none; z-index:2}
+    overflow:visible; pointer-events:none; z-index:0}
   body.focus #mbline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
   body.lowered #mbline.on > g{filter:none}
   body.focus:is(.home, .editmode) #mbline.on{display:none}
@@ -3837,6 +3837,9 @@
   </div>
   <div class="mbbody"></div>
 </section>
+<!-- the lines from the card to its magic box, two dashed lines beneath the
+     card and the box: before the card on the page, so it is drawn over them -->
+<svg id="mbline" aria-hidden="true"></svg>
 <main>
   <div id="rail" class="trio">
     <span id="rail-start"></span>
@@ -3847,9 +3850,6 @@
   <div id="sections"></div>
   <div id="carousel"></div>
 </main>
-<!-- the line from the card to its magic box, a small barbell over the card
-     and the box -->
-<svg id="mbline" aria-hidden="true"></svg>
 </div>
 
 <!-- the new-project landing lives outside the stage: it centers on the real
@@ -7970,7 +7970,7 @@ function magicPlace(){
   Object.assign(MB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
     height: at.height + "px", visibility: MB.view.waiting() ? "hidden" : "" });
   if (MB.el.style.visibility === "hidden") return;
-  // shown: its line to the card, and the rise if it is new on the card
+  // shown: its lines to the card, and the rise if it is new on the card
   magicLine(rect, at);
   if (MB.rise.t < 1 && !MB.rise.raf) magicRise(1);
 }
@@ -7986,52 +7986,36 @@ function magicRoom(){
   const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
   return { S, sr, rect, fit, most: MagicBox.place(rect, fit) };
 }
-// the line from the card to its box, the one every box draws, copied from the
-// owner's mock (m1211, one-line-mock.png, a Mac window at 2x, so its pixels
-// halved are the board's). a small barbell: a short straight bar level across
-// the gap, from the card's right edge to the box's left edge, with an upright
-// tab at each end, to show the line stands at the card's and the box's own
-// level. what was read off the mock:
-//   the bar meets the box's left edge 8.3% of the box's height down from its
-//     top (the owner's choice in his box-fade mock, m1217: 49 px of a box 590
-//     high), and the same level at the card's edge
-//   the card's end is a tab 2 wide by 12 high, centred across the card's right
-//     edge; the box's end is the same kind of tab, 2 wide, centred across the
-//     box's left edge, but only 6 high. each tab has a thin darker rim (the
-//     mock's ends are outlined), inside its size
-// the bar is a plain solid stroke 2 wide, in the card's edge colour. a
-// gap with no room for the two tabs and a bar between them, or a card too
-// short at that level to carry its tab on a straight edge, gives null
-const ONE = { gap: 8, bar: 2, cardTab: { w: 2, h: 12 }, boxTab: { w: 2, h: 6 }, corner: 7,
-  rim: .5, rimInk: "rgba(60,45,20,.30)", down: .083 };
-// the line's level: a share of the box's own height down from its top, in the
-// stage's pixels like the box's rectangle, so it scales with the box
-function magicOne(card, box){
-  const cr = card.left + card.width, y = box.top + box.height * ONE.down;
-  if (box.left - cr < ONE.gap) return null;
-  // the card's corners are round: its tab stands on the straight of its edge
-  const room = ONE.cardTab.h / 2 + ONE.corner;
-  if (y < card.top + room || y > card.top + card.height - room) return null;
-  return { y, from: cr, to: box.left };
+// the lines from the card to its box, the ones every box draws, as the owner
+// chose them in the connector mock (m1237, mock-box-connector-20261013.html:
+// Two lines, Dashed, n = 52). two level dashed lines across the gap, with no
+// tabs, each from 12 px in under the card's right edge to the box's left edge,
+// so it comes out from under the card and stops at the box:
+//   the first sits n down from the box's top and the second n up from its
+//     foot, in the stage's pixels like the box's rectangle (the mock's n is in
+//     the same units); a box too short to keep them apart has them as one, at
+//     its middle
+//   each is dashes 6 long with gaps of 4, 2 wide, with flat ends, in the
+//     card's edge colour, counted from the box's edge, so a whole dash ends
+//     exactly at it
+// a gap narrower than 8 px gives null, and no line is drawn
+const TWO = { gap: 8, n: 52, under: 12, width: 2, dash: 6, space: 4 };
+function magicTwo(card, box){
+  const cr = card.left + card.width;
+  if (box.left - cr < TWO.gap) return null;
+  const ys = box.height > 2 * TWO.n ? [box.top + TWO.n, box.top + box.height - TWO.n] : [box.top + box.height / 2];
+  return { ys, from: cr - TWO.under, to: box.left };
 }
 function magicLine(card, box){
-  const one = magicOne(card, box);
-  if (!one) return;
-  const main = document.querySelector("main"), cs = getComputedStyle(main);
-  // the card's own edge colour, read off the card, so the line is always it
-  const ink = cs.borderTopColor, edge = parseFloat(cs.borderRightWidth) || 0;
-  // a tab is the card's edge colour with a thin darker rim, as the mock's are;
-  // the rim is drawn inside the size asked for, so its outside is that size
-  const tab = (x, w, h) => '<rect x="' + (x + ONE.rim / 2).toFixed(2) + '" y="' + (one.y - h / 2 + ONE.rim / 2).toFixed(2) +
-    '" width="' + (w - ONE.rim) + '" height="' + (h - ONE.rim) + '" rx="1" fill="' + ink + '" stroke="' + ONE.rimInk +
-    '" stroke-width="' + ONE.rim + '"/>';
-  // the box's border is drawn inside its rectangle, as the card's is: each tab
-  // is set on the middle of the edge it stands on. all of it is one group,
-  // which wears the shadow (#mbline.on > g)
-  MB.line.innerHTML = '<g><path d="M' + one.from.toFixed(2) + ' ' + one.y.toFixed(2) + 'L' + one.to.toFixed(2) + ' ' +
-    one.y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + ONE.bar + '"/>' +
-    tab(one.from - edge / 2 - ONE.cardTab.w / 2, ONE.cardTab.w, ONE.cardTab.h) +
-    tab(one.to + edge / 2 - ONE.boxTab.w / 2, ONE.boxTab.w, ONE.boxTab.h) + '</g>';
+  const two = magicTwo(card, box);
+  if (!two) return;
+  // the card's own edge colour, read off the card, so the lines are always it
+  const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
+  // each path starts at the box's edge, where its dashes are counted from. both
+  // are one group, which wears the shadow (#mbline.on > g)
+  MB.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + two.to.toFixed(2) + ' ' + y.toFixed(2) + 'L' +
+    two.from.toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
+    '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
   MB.line.classList.add("on");
 }
 if (MB.el){

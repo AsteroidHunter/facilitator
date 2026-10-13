@@ -569,12 +569,13 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.match(html, /magicLoad\(b\.id, b\.magic\.rev, !!was && !was\.has\(b\.id\)\)/);
   assert.match(html, /const t = id === MB\.id && MB\.rise\.raf \? MB\.rise\.t : fresh \? 0 : 1;/);
   assert.match(html, /function magicOff\(\)\{[\s\S]*?magicRiseStop\(\);\s*magicRiseSet\(1\);/);
-  // the line is over the card and the box, at their own level: after the card
-  // on the page and above the box; the card's own edge colour, never the accent
-  assert.ok(html.indexOf('<svg id="mbline"') > html.indexOf("</main>"));
+  // the lines lie beneath the card and the box: before the card on the page,
+  // at the card's level, and under the box's; the card's own edge colour,
+  // never the accent
+  assert.ok(html.indexOf('<svg id="mbline"') < html.indexOf("<main>"));
   const rule = html.slice(0, html.indexOf("</style>")).replace(/\/\*[\s\S]*?\*\//g, "").match(/\n  body\.focus #mbline\.on\{[^}]*\}/)[0];
-  assert.match(rule, /z-index:2/);
-  assert.match(html, /body\.focus #magicbox\.on\{display:flex; position:fixed; z-index:1;/, "the box's own level, under the line's");
+  assert.match(rule, /z-index:0/);
+  assert.match(html, /body\.focus #magicbox\.on\{display:flex; position:fixed; z-index:1;/, "the box's own level, over the lines'");
   // it wears the card's own shadow, both layers, at the strength a filter gives
   // them (half the blur), and none when the card is lowered, as the box has none.
   // the shadow is on the group inside the svg and never on the svg, a layer of
@@ -582,10 +583,10 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.ok(!/filter/.test(rule), "the svg's own layer wears the filter: " + rule);
   assert.match(html, /\n  body\.focus #mbline\.on > g\{filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)\}/);
   assert.match(html, /\n  body\.lowered #mbline\.on > g\{filter:none\}/);
-  assert.match(linesCode(), /MB\.line\.innerHTML = '<g><path d="M'[\s\S]*?\+ '<\/g>';/);
+  assert.match(linesCode(), /MB\.line\.innerHTML = '<g>' \+ two\.ys\.map\([\s\S]*?\.join\(""\) \+ '<\/g>';/);
   assert.match(html, /\n  body\.focus:is\(\.home, \.editmode\) #mbline\.on\{display:none\}/);
   const lines = linesCode();
-  assert.match(lines, /const ink = cs\.borderTopColor/);
+  assert.match(lines, /const ink = getComputedStyle\(document\.querySelector\("main"\)\)\.borderTopColor/);
   assert.ok(!/--accent|#432BFF|#D9D1BE/i.test(lines));
 });
 
@@ -630,110 +631,91 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
   assert.equal(ctx.magicHeight("c:3", 393), 0);
 });
 
-// the one line and its stroke, run outside the page on stand-ins
+// the two lines and their dashes, run outside the page on stand-ins
 const linesCode = () => {
   const html = read("index.html");
-  return html.slice(html.indexOf("const ONE = {"), html.indexOf("if (MB.el){", html.indexOf("function magicLine(")));
+  return html.slice(html.indexOf("const TWO = {"), html.indexOf("if (MB.el){", html.indexOf("function magicLine(")));
 };
-// the card and the box as the owner's mock has them (m1211, one-line-mock.png,
-// a window at 2x), halved to the board's pixels: the card's right edge at 506.5,
-// the box's left edge at 531 and its top at 151, 150 high
-const MOCK = { card: { left: 30, top: 23, width: 476.5, height: 682 }, box: { left: 531, top: 151, width: 297.5, height: 150 } };
-// the line's level is a share of the box's height, so the stand-in needs no
-// element to read: only the svg the line is drawn into
-const barbell = (scale = 1) => {
+// the card and the box as the connector mock has them (m1237,
+// mock-box-connector-20261013.html), in stage pixels: the card at its saved
+// place and size, the box's left edge at 1055.38 and its top at 89.86, 488 high
+const PICK = { card: { left: 466.56, top: 51.84, width: 506.88, height: 760.32 }, box: { left: 1055.38, top: 89.86, width: 344.47, height: 488 } };
+// the lines' levels are fixed distances in the box, so the stand-in needs no
+// element to read: only the svg the lines are drawn into
+const dashed = (scale = 1) => {
   const svg = () => { const s = { innerHTML: "", ons: 0, classList: { add() { s.ons++; } } }; return s; };
   const MB = { line: svg(), el: {} };
-  const ctx = vm.createContext({ MB, stageScale: scale, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)", borderRightWidth: "0.5px" }),
+  const ctx = vm.createContext({ MB, stageScale: scale, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)" }),
     document: { querySelector: () => ({}) } });
   vm.runInContext(linesCode(), ctx);
   return { ctx, MB };
 };
-// the owner's own choice (m1217, his-choice-2021.png): the window 1512 by 863, the card
-// and the box in stage pixels as his box-fade mock reports them, the bar 49 px
-// from the box's top, 8.3% of its height
-const CHOICE = { card: { left: 466.56, top: 51.84, width: 506.88, height: 760.32 }, box: { left: 1027.25, top: 89.86, width: 400.29, height: 590 } };
+// every path drawn: [start x, start y, end x, end y]
+const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="2" stroke-linecap="butt" stroke-dasharray="6 4"\/>/g;
+const paths = svg => [...svg.innerHTML.matchAll(PATH)].map(m => m.slice(1, 5).map(Number));
 
-test("the one line is a barbell read off the owner's mock: level 8.3% of the box's height down from its top, across the gap, a tab at each end", () => {
-  const { ctx, MB } = barbell();
-  const near = (a, b, d = 1) => Math.abs(a - b) <= d;
-  const { card, box } = MOCK;
-  const one = ctx.magicOne(card, box);
-  // where it meets the box's left edge: 8.3% of the box's height down from its top
-  assert.equal(one.y, box.top + box.height * .083);
-  assert.ok(near(one.from * 2, 1013, 1.5) && near(one.to * 2, 1062, 1.5), JSON.stringify(one));
-  // a short straight horizontal bar, and the tabs: 2 by 12 centred across the
-  // card's edge, 2 by 6 centred across the box's, both centred on the bar's level
+test("the lines are the pick from the connector mock: two dashed lines, 52 px down from the box's top and 52 px up from its foot, from under the card's edge to the box's", () => {
+  const { ctx, MB } = dashed();
+  const near = (a, b, d = .01) => Math.abs(a - b) <= d;
+  const { card, box } = PICK;
+  const two = ctx.magicTwo(card, box);
+  assert.deepEqual([...two.ys], [box.top + 52, box.top + box.height - 52]);
+  // each starts 12 px in under the card's right edge and stops at the box's left edge
+  assert.equal(two.from, card.left + card.width - 12);
+  assert.equal(two.to, box.left);
   ctx.magicLine(card, box);
   assert.equal(MB.line.ons, 1);
-  // each in the card's edge colour with a .5 rim drawn inside its size, so
-  // its outside (the rim's outer edge) is the size and place the mock gives
-  const rects = [...MB.line.innerHTML.matchAll(/<rect x="([-\d.]+)" y="([-\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="1" fill="rgb\(202, 202, 202\)" stroke="rgba\(60,45,20,\.30\)" stroke-width="0\.5"\/>/g)]
-    .map(([, x, y, w, h]) => [+x - .25, +y - .25, +w + .5, +h + .5]);
-  assert.equal(rects.length, 2, "two tabs: " + MB.line.innerHTML);
-  const [[cx, cy, cw, ch], [bx, by, bw, bh]] = rects;
-  assert.deepEqual([cw, ch, bw, bh], [2, 12, 2, 6]);
-  assert.ok(near(cx + cw / 2, one.from - .25, .01), "the card's tab is across its edge");
-  assert.ok(near(bx + bw / 2, one.to + .25, .01), "the box's tab is across its edge, as the card's is");
-  assert.equal(bw, cw, "the box's tab is as wide as the card's");
-  assert.ok(near(cy + ch / 2, one.y, .01) && near(by + bh / 2, one.y, .01), "the tabs are level with the bar");
-  const core = MB.line.innerHTML.match(/<path d="M([\d.]+) ([\d.]+)L([\d.]+) ([\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="2"\/>/);
-  assert.ok(core, "the bar is one straight stroke 2 wide, in the card's edge colour");
-  assert.ok(near(+core[2], one.y, .01) && near(+core[4], one.y, .01), "the bar is horizontal");
-  assert.ok(near(+core[1], one.from, .01) && near(+core[3], one.to, .01), "the bar runs from the card's edge to the box's");
-  // the same box, the same line, however often it is drawn
+  // two horizontal paths, dashes 6 with gaps of 4, 2 wide, flat ends, in the
+  // card's edge colour, and nothing else in the group
+  const got = paths(MB.line);
+  assert.equal(got.length, 2, MB.line.innerHTML);
+  assert.match(MB.line.innerHTML, /^<g><path [^>]*\/><path [^>]*\/><\/g>$/);
+  got.forEach(([x1, y1, x2, y2], i) => {
+    assert.ok(near(y1, two.ys[i]) && near(y2, two.ys[i]), "a line is not level at its place: " + [y1, y2]);
+    // each path starts at the box's edge, so its dashes are counted from it
+    // and a whole dash ends exactly there
+    assert.ok(near(x1, box.left) && near(x2, card.left + card.width - 12), "a line runs elsewhere: " + [x1, x2]);
+  });
+  // the same box, the same lines, however often they are drawn
   const first = MB.line.innerHTML;
   ctx.magicLine(card, box);
   assert.equal(MB.line.innerHTML, first);
-  // and it follows the box's height, tall or short, as the same share of it
-  assert.equal(ctx.magicOne(card, { ...box, height: 600 }).y, box.top + 600 * .083);
-  assert.equal(ctx.magicOne(card, { ...box, height: 90 }).y, box.top + 90 * .083);
 });
 
-test("the line's level is 8.3% of the box's height down from its top, as in the owner's choice, whatever the stage's scale; the tabs follow", () => {
-  const html = read("index.html");
-  assert.ok(!/magicBarMid|\.mbbar"\)/.test(html.slice(html.indexOf("const ONE = {"), html.indexOf("function magicLine("))), "the bar's middle is still read");
-  assert.equal(vm.runInContext("ONE.down", barbell().ctx), .083);
-  const near = (a, b) => Math.abs(a - b) < 1e-9;
-  const { card, box } = CHOICE;
-  // his 49 px of a box 590 high, to the pixel the mock rounds it to
-  assert.ok(Math.abs(box.height * .083 - 49) < .05, "8.3% of 590 is 49 px");
-  const at = (scale, b = box) => barbell(scale).ctx.magicOne(card, b).y;
-  assert.ok(near(at(1), box.top + 590 * .083));
+test("the lines keep 52 stage px from the box's ends whatever its height or the stage's scale, and on a box under 104 px they are one at its middle", () => {
+  assert.equal(vm.runInContext("JSON.stringify(TWO)", dashed().ctx),
+    JSON.stringify({ gap: 8, n: 52, under: 12, width: 2, dash: 6, space: 4 }));
+  const { card, box } = PICK;
+  const ys = (b, scale = 1) => [...dashed(scale).ctx.magicTwo(card, b).ys];
   // the rectangles are in the stage's own pixels: another scale reads the same
-  assert.ok(near(at(.5), at(1)) && near(at(2), at(1)));
-  // a share, so it scales with the box: half as tall, half as far down
-  assert.ok(near(at(1, { ...box, height: 295 }), box.top + 295 * .083));
-  assert.ok(near(at(1, { ...box, height: 1180 }), box.top + 1180 * .083));
-  // the tabs move with it, both centred on the bar's level
-  const { ctx, MB } = barbell();
-  ctx.magicLine(card, box);
-  const ys = [...MB.line.innerHTML.matchAll(/<rect x="[-\d.]+" y="([-\d.]+)" width="[\d.]+" height="([\d.]+)"/g)].map(([, y, h]) => +y - .25 + (+h + .5) / 2);
-  assert.equal(ys.length, 2);
-  assert.ok(ys.every(y => Math.abs(y - (box.top + 590 * .083)) < .01), ys.join());
-  // its look is unchanged: one 2px stroke and two tabs, 2 by 12 and 2 by 6
-  assert.equal(vm.runInContext("JSON.stringify([ONE.bar, ONE.cardTab, ONE.boxTab, ONE.rim, ONE.rimInk])", ctx),
-    JSON.stringify([2, { w: 2, h: 12 }, { w: 2, h: 6 }, .5, "rgba(60,45,20,.30)"]));
+  assert.deepEqual(ys(box, .5), ys(box));
+  assert.deepEqual(ys(box, 2), ys(box));
+  // fixed distances, not a share of the box
+  assert.deepEqual(ys({ ...box, height: 600 }), [box.top + 52, box.top + 548]);
+  assert.deepEqual(ys({ ...box, height: 105 }), [box.top + 52, box.top + 53]);
+  // too short to keep them apart: one line at the box's middle
+  assert.deepEqual(ys({ ...box, height: 104 }), [box.top + 52]);
+  assert.deepEqual(ys({ ...box, height: 90 }), [box.top + 45]);
+  const { ctx, MB } = dashed();
+  ctx.magicLine(card, { ...box, height: 90 });
+  const got = paths(MB.line);
+  assert.equal(got.length, 1, MB.line.innerHTML);
+  assert.equal(got[0][1], box.top + 45);
 });
 
-test("with no room for it no line is drawn: a gap too narrow for two tabs and a bar, or a card too short to carry its tab", () => {
-  const { ctx, MB } = barbell();
-  const { card, box } = MOCK;
+test("with no room for them no line is drawn: a gap narrower than 8 px", () => {
+  const { ctx, MB } = dashed();
+  const { card, box } = PICK;
   const edge = card.left + card.width;
-  assert.equal(ctx.magicOne(card, { ...box, left: edge }), null, "no gap");
-  assert.equal(ctx.magicOne(card, { ...box, left: edge + 7.9 }), null);
-  assert.ok(ctx.magicOne(card, { ...box, left: edge + 8 }));
-  // a box standing past the card's foot or above its top: no edge to meet
-  assert.equal(ctx.magicOne(card, { ...box, top: card.top + card.height }), null);
-  assert.equal(ctx.magicOne(card, { ...box, top: card.top - 150 }), null);
-  // a card too short at the bar's level to carry its tab on a straight edge
-  assert.equal(ctx.magicOne({ ...card, top: box.top + box.height * .083 - 8, height: 682 }, box), null);
+  assert.equal(ctx.magicTwo(card, { ...box, left: edge }), null, "no gap");
+  assert.equal(ctx.magicTwo(card, { ...box, left: edge + 7.9 }), null);
+  assert.ok(ctx.magicTwo(card, { ...box, left: edge + 8 }));
   ctx.magicLine(card, { ...box, left: edge });
   assert.equal(MB.line.innerHTML, "", "a line was drawn with no gap");
   assert.equal(MB.line.ons, 0);
 });
 
-test("every box draws this one line: nothing is picked, kept or read from the box, and the old layouts are gone", () => {
+test("every box draws these same lines: nothing is picked, kept or read from the box, and the old layouts are gone", () => {
   const html = read("index.html"), server = read("server.py");
   const code = linesCode();
   assert.ok(!/Math\.random/.test(code), "the page picks the line itself");
@@ -747,18 +729,19 @@ test("every box draws this one line: nothing is picked, kept or read from the bo
   assert.match(server, /box\["magic"\] = \{"open": True, "kind": kind, "rev": rev, "ts": now\}/);
 });
 
-test("the line is a plain solid stroke: no brush, no dabs, no beads", () => {
+test("the lines are plain dashes: no barbell, tabs, dots, brush, dabs or beads", () => {
   const html = read("index.html");
-  for (const gone of ["magicDrone", "DRONE", "Drone"])
+  for (const gone of ["magicDrone", "DRONE", "Drone", "magicOne", "const ONE = {", "cardTab:", "boxTab:", "rimInk", "barbell"])
     assert.ok(!html.includes(gone), gone + " is still in the page");
-  const { ctx, MB } = barbell();
-  ctx.magicLine(MOCK.card, MOCK.box);
-  // the bar is one path of two points and the two tabs, nothing else
+  assert.ok(!/\.083\b/.test(linesCode()), "the barbell's 8.3% is in the lines' code");
+  const { ctx, MB } = dashed();
+  ctx.magicLine(PICK.card, PICK.box);
+  // two straight paths of two points each, nothing else
   const parts = MB.line.innerHTML.match(/<(path|rect|circle|ellipse)\b/g);
-  assert.deepEqual(parts, ["<path", "<rect", "<rect"], MB.line.innerHTML);
-  assert.equal(vm.runInContext("ONE.bar", ctx), 2);
-  assert.ok(!/\bM[^"]*[aAcCqQ]/.test(MB.line.innerHTML.match(/<path d="([^"]*)"/)[0]), "the bar's path is a straight line");
-  assert.ok(!/stroke-dasharray|stroke-linecap/.test(MB.line.innerHTML));
+  assert.deepEqual(parts, ["<path", "<path"], MB.line.innerHTML);
+  for (const [, d] of MB.line.innerHTML.matchAll(/<path d="([^"]*)"/g))
+    assert.ok(!/[aAcCqQ]/.test(d), "a line's path is not straight: " + d);
+  assert.ok(!/stroke-linecap="round"|stroke-dasharray="0 /.test(MB.line.innerHTML), "the lines are dotted");
 });
 
 test("a site that will not be framed comes square, with its name and a new-page mark in a box in the middle", () => {
