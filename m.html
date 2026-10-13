@@ -7846,12 +7846,16 @@ function phoneMagicFoot(){
 }
 // the cross: the drawer goes back and the box is put away, as the board's
 // cross does; what it held is kept, and the card's agent brings it back by
-// filling it again
+// filling it again. the card on screen gets a magic of its own, shut: the one
+// it has is shared with the card kept as the board sent it (mergeReading copies
+// a card and not what is inside it), and shutting that one would keep the box
+// shut on this phone for as long as the board's card read the same, though the
+// close never landed or the box was opened again before the next reading
 function phoneMagicClose(){
   const id = PB.id;
   if (!id) return;
   const b = lastState && lastState.boxes.find(x => x.id === id);
-  if (b && b.magic) b.magic.open = false;
+  if (b && b.magic) b.magic = { ...b.magic, open: false };
   phoneMagicOff();
   fetch("/magic/close?box=" + encodeURIComponent(id), { method: "POST", credentials: "same-origin" })
     .then(() => poll(), () => {});
