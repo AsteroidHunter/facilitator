@@ -126,9 +126,9 @@ test("a full run with no phone client makes the private environment and the comm
       + "Setup installs what Facilitator needs when it is missing.\n\n"
       + "✓ uv found.\n"), text);
     assert.doesNotMatch(text, /runs this setup|only the tests need|--dev/, "a line about the setup's Python or about --dev was printed:\n" + text);
-    assert.ok(text.includes("Setting up the Python 3.14 environment.\n✓ Python 3.14 environment ready.\n"
-      + "Installing the packages Facilitator needs.\n✓ Packages installed.\n"
-      + "✓ Board settings created.\n✓ Starting board created.\n\n4. Mobile app\n"), text);
+    assert.ok(text.includes("✓ uv found.\n✓ Python 3.14 environment ready.\n✓ Packages installed.\n\n4. Mobile app\n"), text);
+    assert.doesNotMatch(text, /Setting up|Installing the packages|Board settings created|Starting board created/,
+      "a line between the two ready lines was printed:\n" + text);
     assert.doesNotMatch(text, /fake uv|Board installed|Config lives beside|Environment created|Packages synced|Wrote run\.config/,
       "uv's own lines, a file name or a technical line was printed:\n" + text);
     assert.ok(text.includes("4. Mobile app\n─────────────\n\n"
@@ -272,9 +272,10 @@ test("Ctrl+C at the confirm prompt exits the same way, and no password is saved"
 
 test("Ctrl+C in the middle of the package sync exits the same way and shows nothing the sync had printed", async () => {
   await using({ hang: "sync" }, async f => {
-    const stopped = await f.terminal([["Installing the packages Facilitator needs.", "\x03"]]);
-    assertPlainExit(stopped, "Installing the packages Facilitator needs.");
-    assert.ok(stopped.text.includes("Installing the packages Facilitator needs.\n^C\n"), "the keypress is echoed on its own line");
+    const ready = "Python 3.14 environment ready.";
+    const stopped = await f.terminal([[ready, "\x03"]]);
+    assertPlainExit(stopped, ready);
+    assert.ok(stopped.text.includes(ready + "\n^C\n"), "the keypress is echoed on its own line");
     assert.doesNotMatch(stopped.text, /syncing \(fake uv\)|✓ Packages installed/);
     assert.equal(await f.has(path.join(f.home, ".local")), false, "the command was linked");
   });
@@ -299,8 +300,9 @@ test("Ctrl+C at each of the shell's own questions exits with the same sentence",
 
 test("Ctrl+C in the shell's own Python install exits with the same sentence and shows nothing uv printed", async () => {
   await using({ python: "missing", hang: "python" }, async f => {
-    const stopped = await f.terminal([["Installing Python 3.14 with uv.", "\x03"]]);
-    assertPlainExit(stopped, "Installing Python 3.14 with uv.");
+    const provide = "uv will provide one for the private environment.";
+    const stopped = await f.terminal([[provide, "\x03"]]);
+    assertPlainExit(stopped, provide);
     assert.doesNotMatch(stopped.text, /installing Python \(fake uv\)|✓ Python 3\.14 installed/);
     assert.equal(await f.has(path.join(f.repo, ".venv")), false, ".venv was made");
   });
@@ -337,8 +339,9 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
         + "No Python this setup can use was found (it needs 3.9 or newer).\n"
         + "uv will provide one for the private environment.\n"
         + "uv is not installed. Installing it with the astral.sh installer\ninto your home.\n"), `${python}: ${text}`);
-      assert.match(text, /\n✓ uv installed\.\nInstalling Python 3\.14 with uv\.\n/);
-      assert.match(text, /\n✓ Python 3\.14 installed\.\n/);
+      assert.match(text, /\n✓ uv installed\.\n✓ Python 3\.14 environment ready\.\n✓ Packages installed\.\n\n4\. Mobile app\n/);
+      assert.doesNotMatch(text, /Installing Python|Python 3\.14 installed|uv found|Setting up|Installing the packages|Board settings created|Starting board created/,
+        "a line between the uv lines and the two ready lines was printed:\n" + text);
       assert.doesNotMatch(text, /Installed Python 3\.14\.0 \(fake uv\)/, "uv's own line was printed");
       const calls = (await f.calls()).filter(line => !line.startsWith("python3"));
       const at = name => calls.findIndex(line => line.startsWith(name));

@@ -208,8 +208,10 @@ bootstrap_python() {
     [ -n "$UV_VERSION" ] || which="The uv at $uv, whose version could not be read,"
     stop "$which is too old to install Python $MANAGED_PYTHON: upgrade it to $UV_MIN or newer (uv self update), then run ./install.sh again."
   fi
-  if [ "$found" -eq 0 ]; then ok 'uv installed.'; fi
-  say "Installing Python $MANAGED_PYTHON with uv."
+  if [ "$found" -eq 0 ]; then
+    ok 'uv installed.'
+    export FACILITATOR_UV_REPORTED=1
+  fi
   # uv's own progress lines are held back and shown only if it fails
   if ! out="$("$uv" python install --no-bin "$MANAGED_PYTHON" 2>&1)"; then
     held uv "$out"
@@ -217,7 +219,6 @@ bootstrap_python() {
   fi
   PY="$("$uv" python find --managed-python "$MANAGED_PYTHON" 2>/dev/null)" || PY=''
   [ -n "$PY" ] && [ -x "$PY" ] || stop 'uv installed Python but it was not found.' 'Run ./install.sh again.'
-  ok "Python $MANAGED_PYTHON installed."
 }
 
 # Fails, and says so, before anything is changed, when the command or a skill

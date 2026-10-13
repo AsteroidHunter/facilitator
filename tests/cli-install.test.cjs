@@ -246,9 +246,9 @@ test("install creates the environment and the config in one run, and no test pac
 
   assert.doesNotMatch(res.out, /runs this setup/, "the version of the Python that runs the setup was printed:\n" + res.out);
   assert.match(res.out, /✓ uv found\./);
-  assert.match(res.out, /Setting up the Python 3\.14 environment\.\n✓ Python 3\.14 environment ready\./);
-  assert.match(res.out, /Installing the packages Facilitator needs\.\n✓ Packages installed\./);
-  assert.match(res.out, /✓ Board settings created\.\n✓ Starting board created\.\n$/);
+  assert.match(res.out, /✓ uv found\.\n✓ Python 3\.14 environment ready\.\n✓ Packages installed\.\n$/);
+  assert.doesNotMatch(res.out, /Setting up|Installing the packages|Board settings created|Starting board created/,
+    "a line between the two ready lines was printed:\n" + res.out);
   assert.doesNotMatch(res.out, /CPython|virtual environment|requirements\.txt|run\.config\.json|seed\.json|Board installed|Config lives|are in use here/,
     "uv's own lines or a file name were printed:\n" + res.out);
   assert.doesNotMatch(res.out, /Start it with/, "install.sh ends with the next steps, so the board step does not repeat them");
@@ -326,7 +326,7 @@ test("install --dev adds the test packages from the lockfile, without running an
   assert.equal(res.npm_cwd, path.join(dir, "tests"), "npm ci did not run against tests/package.json");
   assert.deepEqual([res.files.root_node_modules, res.files.package_json, res.files.package_lock], [false, false, false],
     "the test packages went into the checkout's root");
-  assert.match(res.out, /Installing the packages Facilitator needs\.\n✓ Packages installed\.\n[^]*Installing the packages the tests need\.\n✓ Packages for the tests installed\.\n$/, res.out);
+  assert.match(res.out, /✓ Python 3\.14 environment ready\.\n✓ Packages installed\.\nInstalling the packages the tests need\.\n✓ Packages for the tests installed\.\n$/, res.out);
   assert.doesNotMatch(res.out, /npm|package-lock|Board installed/, "npm's own lines or a file name were printed:\n" + res.out);
   const lines = res.calls.map(c => c.join(" "));
   assert.ok(lines.indexOf(NPM_CI.join(" ")) > lines.findIndex(line => line.startsWith(`${UV} pip sync`)), "the test packages came before the board's own");

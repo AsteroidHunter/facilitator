@@ -2736,7 +2736,8 @@ def ensure_uv(quiet=False):
         which = f"uv {'.'.join(str(part) for part in have)}" if have else f"The uv at {uv}, whose version could not be read,"
         sys.exit(problem(f"{which} is too old to install Python {APP_PYTHON}: upgrade it to {need} or newer "
                          "(uv self update), then run ./install.sh again."))
-    if not quiet:
+    # install.sh says so itself when it installed uv to get a Python
+    if not quiet and os.environ.get("FACILITATOR_UV_REPORTED") != "1":
         ok("uv installed." if installed else "uv found.")
     return uv
 
@@ -2838,8 +2839,6 @@ def build_env(uv, have, quiet):
     if there:
         why = f"it was on Python {have}" if have else "its Python is missing or broken"
         print(f"Rebuilding .venv on Python {APP_PYTHON}: {why}.")
-    elif not quiet:
-        print(f"Setting up the Python {APP_PYTHON} environment.")
     done = run_held([uv, "python", "install", "--no-bin", APP_PYTHON])
     if done.returncode != 0:
         sys.exit(problem(f"uv could not install Python {APP_PYTHON}.",
@@ -2878,8 +2877,6 @@ def ensure_env(uv, quiet=False):
             ok(f"Environment found in .venv (Python {APP_PYTHON}).")
     else:
         stopped = build_env(uv, have, quiet)
-    if not quiet:
-        print("Installing the packages Facilitator needs.")
     done = run_held([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"])
     if done.returncode != 0:
         sys.exit(problem("uv could not sync requirements.txt.",
@@ -2898,14 +2895,13 @@ def ensure_config():
     the board is on. Nothing is asked of any port beyond whether it can be
     bound, and Tailscale is not asked at all: install runs before the phone
     client is set up, and run checks the Serve rules when it starts the board."""
-    for name, example, made in (("run.config.json", "run.config.example.json", "Board settings"),
-                                ("seed.json", "seed.example.json", "Starting board")):
+    for name, example in (("run.config.json", "run.config.example.json"),
+                          ("seed.json", "seed.example.json")):
         target = HERE / name
         if target.exists():
             ok(f"{name} found.")
             continue
         shutil.copyfile(HERE / example, target)
-        ok(f"{made} created.")
         if name != "run.config.json":
             continue
         port = pick_pair(DEFAULT_PORT, serve=False)
