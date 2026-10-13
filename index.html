@@ -10957,6 +10957,121 @@ function curtainDrawn(){
 function curtainTrouble(){
   if (curtain && curtain.isConnected && curtain.style.opacity !== "0") curtain.classList.add("down");
 }
+// ---- the board's reading, lean
+// THE READING A POLL HANDS ON IS THE ONE /state WOULD GIVE, BUILT FROM WHAT CHANGED.
+//
+// The page names the reading it holds (since, its revision, and delta, the
+// server run it came from) and the board sends only what differs from it: the
+// cards whose bytes moved, with the phone's word for the order (gone, after,
+// ids, count), the reading's other fields that moved (set), each one whole, and
+// their names in order (keys) when a field came or went (server.py
+// _desk_reading). The first reading, one the board no longer remembers and one
+// from another run come whole. deskMerge lays a lean answer over the reading
+// held, the way the phone's mergeReading does, and null says it does not fit:
+// nothing of it is used, and the whole board is asked for at once, so a board
+// built wrong is never drawn.
+//
+// What is held is never handed on. The draw writes into its reading (fetchedAt,
+// binHide, holdFlags, a magic box shut by its cross), so each poll hands on the
+// held reading written out and read back (JSON.stringify, JSON.parse): new
+// objects and new words all the way down, just as the whole reading's
+// .json() always gave. That is done in its own task, and the draw waits for the
+// next (deskYield), the way the whole reading was parsed as it arrived and drawn
+// after: the draw is the long task the reader can feel, and it is no longer for
+// this. Handing on copies kept from earlier polls was measured and made that
+// draw slower, a thousand cards made a second ago reading slower than ones made
+// a moment ago.
+let deskHeld = null;   // { rev, epoch, reading, cards, order }, as the board sent it
+function deskMerge(held, data){
+  if (data.delta == null){
+    if (!Array.isArray(data.boxes)) return null;
+    const reading = { ...data };
+    delete reading.epoch;
+    const cards = new Map(), order = [];
+    for (const b of data.boxes){ cards.set(b?.id, b); order.push(b?.id); }
+    // a board holding one id twice is drawn as it comes and never built on
+    const epoch = typeof data.epoch === "string" && cards.size === order.length ? data.epoch : null;
+    return { rev: data.rev, epoch, reading, cards, order };
+  }
+  if (!held || held.epoch === null || data.delta !== held.rev || data.epoch !== held.epoch) return null;
+  const list = data.boxes, set = data.set;
+  if (!Array.isArray(list) || !list.every(b => b && typeof b === "object") || !Number.isSafeInteger(data.count) ||
+      !set || typeof set !== "object" || Array.isArray(set) || "boxes" in set) return null;
+  const gone = new Set(Array.isArray(data.gone) ? data.gone : []);
+  const after = data.after && typeof data.after === "object" ? data.after : {};
+  const cards = new Map(held.cards);
+  for (const id of gone) cards.delete(id);
+  let order = held.order.filter(id => !gone.has(id));
+  for (const b of list){
+    cards.set(b.id, b);
+    if (Array.isArray(data.ids) || !Object.prototype.hasOwnProperty.call(after, b.id)) continue;
+    const before = after[b.id];
+    const at = before === "" ? 0 : order.indexOf(before) + 1;
+    if (at === 0 && before !== "") return null;
+    order.splice(at, 0, b.id);
+  }
+  if (Array.isArray(data.ids)) order = data.ids.slice();
+  const count = data.count;
+  if (order.length !== count || cards.size !== count || new Set(order).size !== count ||
+      !order.every(id => cards.has(id))) return null;
+  // the fields, in the order the board gave them (keys) or, when it gave none,
+  // the order held: each one the board sent, or else the one held
+  const keys = Array.isArray(data.keys) ? data.keys : Object.keys(held.reading);
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  if (!keys.includes("boxes") || new Set(keys).size !== keys.length || !Object.keys(set).every(k => keys.includes(k))) return null;
+  const reading = {};
+  for (const k of keys){
+    if (k === "boxes") deskPut(reading, k, order.map(id => cards.get(id)));
+    else if (has(set, k)) deskPut(reading, k, set[k]);
+    else if (has(held.reading, k)) deskPut(reading, k, held.reading[k]);
+    else return null;
+  }
+  if (reading.rev !== data.rev) return null;
+  return { rev: data.rev, epoch: data.epoch, reading, cards, order };
+}
+// a key named __proto__, which JSON.parse makes an own key, stays one
+function deskPut(o, k, v){
+  if (k === "__proto__") Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+  else o[k] = v;
+}
+// the rest of a poll in a task of its own, ahead of anything but the reader's
+// own input where the browser can say so (scheduler.yield), and a posted
+// message otherwise, which a page behind other tabs does not hold back the way
+// it holds back a timer
+function deskYield(){
+  if (typeof scheduler !== "undefined" && typeof scheduler.yield === "function") return scheduler.yield();
+  return new Promise(done => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => { ch.port1.close(); done(); };
+    ch.port2.postMessage(0);
+  });
+}
+// one reading, as the board's state at this moment, new objects for the draw. An
+// answer that is no reading at all (a busy or failed board's {error}) is handed
+// on as it came, as it always was, and the reading held stays held
+async function readState(){
+  const base = deskHeld;
+  const ask = base && base.epoch !== null ? "/state?since=" + base.rev + "&delta=" + encodeURIComponent(base.epoch) : "/state?since=";
+  const data = await (await fetch(ask)).json();
+  if (data === null || typeof data !== "object" || (data.delta == null && !Array.isArray(data.boxes))) return data;
+  let held = null;
+  try { held = deskMerge(base, data); } catch (e) { held = null; }
+  if (!held){
+    // a lean answer that does not fit what is held, which the board's own
+    // check should make impossible: written down, and the whole board read now
+    if (typeof reportProblem === "function") reportProblem("error", new Error("a lean reading did not fit the reading held"));
+    deskHeld = null;
+    const whole = await (await fetch("/state?since=")).json();
+    if (whole === null || typeof whole !== "object" || !Array.isArray(whole.boxes)) return whole;
+    held = deskMerge(null, whole);
+  }
+  deskHeld = held;
+  const out = JSON.parse(JSON.stringify(held.reading));
+  await deskYield();
+  return out;
+}
+// ---- the board's reading ends
+
 let pollFails = 0;
 let pollSeq = 0;     // the readings asked for so far
 let createSeq = 0;   // the newest of them when the last new card's answer came in
@@ -10976,7 +11091,7 @@ async function poll(){
   // it. The phone's readings carry the same stamp for the same reason
   const asked = Date.now();
   try {
-    state = await (await fetch("/state")).json();
+    state = await readState();
     state.fetchedAt = asked;
   } catch (e) {
     curtainTrouble();
