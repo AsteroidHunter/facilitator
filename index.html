@@ -10543,12 +10543,19 @@ function relAge(ts){
 function paintTicketPane(pane, pool, view, state, laneSig){
   const sig = view + "|" + laneSig + "|" +
               pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
+                      // the state the row's colour is drawn from: the board can
+                      // move it (a due card turning green, a note) with no flag
+                      // above changing
+                      queueState(b) +
                       ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
                       (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
                       // the marker rides the signature so a mark or a clear
                       // repaints the row
                       (testReady(b) ? "T" : "") +
-                      Math.floor((Date.now() / 1000 - ticketTs(b)) / 60) + (b.agent || "")).join(",") +
+                      // the age the row shows ("5m", "3h"), not the minute: with
+                      // hundreds of rows some minute turns on nearly every poll,
+                      // which rebuilt the whole section while nothing shown changed
+                      shortAge(ticketTs(b)) + (b.agent || "")).join(",") +
               "|" + selectedTask;
   if (pane.dataset.sig === sig) return;
   pane.dataset.sig = sig;

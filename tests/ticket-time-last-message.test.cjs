@@ -183,8 +183,11 @@ test("ticketTs is one rule: both pages call it, and neither counts from agentTs 
   assert.match(HTML.phone, /shortAge\(ticketTs\(b\)\)/);
   assert.doesNotMatch(functionSource(HTML.desktop, "paintTicketPane", "renderCarousel"), /shortAge\(b\.agentTs\)/);
   assert.doesNotMatch(functionSource(HTML.phone, "paintPhonePane", "renderTickets"), /shortAge\(b\.agentTs\)/);
-  // the desktop repaints a row when its minute turns, counted from the same stamp
-  assert.match(functionSource(HTML.desktop, "paintTicketPane", "renderCarousel"), /Date\.now\(\) \/ 1000 - ticketTs\(b\)/);
+  // the desktop repaints a row when the age it shows turns, counted from the same
+  // stamp, not each minute (tests/ticket-list-signature.test.cjs)
+  const desk = functionSource(HTML.desktop, "paintTicketPane", "renderCarousel");
+  assert.equal(desk.match(/shortAge\(ticketTs\(b\)\)/g).length, 2, "the signature and the row both read the shown age");
+  assert.doesNotMatch(desk, /Date\.now\(\) \/ 1000 - ticketTs\(b\)/);
 });
 
 test("ticketTs picks the newest of the reader's messages and the agent's reply", () => {
