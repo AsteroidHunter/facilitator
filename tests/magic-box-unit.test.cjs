@@ -13,7 +13,7 @@
 // the drawer's gaps;
 // one cross, and a site that will not be framed
 // as a square with its name in the middle; on the Mac whichever of the card
-// and the box is held stands up and the other settles, and a box beside a
+// and the box is held wears the card's own shadow and the other the faint one at 60%, and a box beside a
 // lowered card sits level with it, on the phone too. And the page's wiring: the box is never one
 // of the regions the fit, the layout or edit mode work on, a click or the focus
 // says which of the two is held, and a page in the box never takes the keys by
@@ -639,30 +639,28 @@ const linesCode = () => {
 // a window at 2x), halved to the board's pixels: the card's right edge at 506.5,
 // the box's left edge at 531 and its top at 151, 150 high
 const MOCK = { card: { left: 30, top: 23, width: 476.5, height: 682 }, box: { left: 531, top: 151, width: 297.5, height: 150 } };
-// the box's top bar as the page lays it out: a border, then the bar, 30 high
-// (--mb-bar), in screen pixels at the stage's scale. its rectangle is read off
-// the element, so the stand-in moves with whatever it is given
-const BAR = { edge: .5, height: 30 };
-const barbell = (scale = 1, bar = BAR) => {
+// the line's level is a share of the box's height, so the stand-in needs no
+// element to read: only the svg the line is drawn into
+const barbell = (scale = 1) => {
   const svg = () => { const s = { innerHTML: "", ons: 0, classList: { add() { s.ons++; } } }; return s; };
-  const top = 151 * scale;
-  const el = { querySelector: sel => sel === ".mbbar" ? { getBoundingClientRect: () => ({ top: top + bar.edge * scale, height: bar.height * scale }) } : null,
-    getBoundingClientRect: () => ({ top }) };
-  const MB = { line: svg(), el };
+  const MB = { line: svg(), el: {} };
   const ctx = vm.createContext({ MB, stageScale: scale, getComputedStyle: () => ({ borderTopColor: "rgb(202, 202, 202)", borderRightWidth: "0.5px" }),
     document: { querySelector: () => ({}) } });
   vm.runInContext(linesCode(), ctx);
   return { ctx, MB };
 };
+// the owner's own choice (m1217, his-choice-2021.png): the window 1512 by 863, the card
+// and the box in stage pixels as his box-fade mock reports them, the bar 49 px
+// from the box's top, 8.3% of its height
+const CHOICE = { card: { left: 466.56, top: 51.84, width: 506.88, height: 760.32 }, box: { left: 1027.25, top: 89.86, width: 400.29, height: 590 } };
 
-test("the one line is a barbell read off the owner's mock: level with the middle of the box's top bar, across the gap, a tab at each end", () => {
+test("the one line is a barbell read off the owner's mock: level 8.3% of the box's height down from its top, across the gap, a tab at each end", () => {
   const { ctx, MB } = barbell();
   const near = (a, b, d = 1) => Math.abs(a - b) <= d;
   const { card, box } = MOCK;
-  const one = ctx.magicOne(card, box, ctx.magicBarMid());
-  // where it meets the box's left edge: the middle of the top bar, the box's
-  // border (.5) and half the bar's 30 down from the box's top
-  assert.equal(one.y, box.top + .5 + 15);
+  const one = ctx.magicOne(card, box);
+  // where it meets the box's left edge: 8.3% of the box's height down from its top
+  assert.equal(one.y, box.top + box.height * .083);
   assert.ok(near(one.from * 2, 1013, 1.5) && near(one.to * 2, 1062, 1.5), JSON.stringify(one));
   // a short straight horizontal bar, and the tabs: 2 by 12 centred across the
   // card's edge, 2 by 6 centred across the box's, both centred on the bar's level
@@ -687,49 +685,49 @@ test("the one line is a barbell read off the owner's mock: level with the middle
   const first = MB.line.innerHTML;
   ctx.magicLine(card, box);
   assert.equal(MB.line.innerHTML, first);
-  // the box's height has no say in it, tall or short
-  assert.equal(ctx.magicOne(card, { ...box, height: 600 }, ctx.magicBarMid()).y, one.y);
-  assert.equal(ctx.magicOne(card, { ...box, height: 90 }, ctx.magicBarMid()).y, one.y);
+  // and it follows the box's height, tall or short, as the same share of it
+  assert.equal(ctx.magicOne(card, { ...box, height: 600 }).y, box.top + 600 * .083);
+  assert.equal(ctx.magicOne(card, { ...box, height: 90 }).y, box.top + 90 * .083);
 });
 
-test("the line's level is the middle of the box's top bar as the page lays it out, whatever its height or the stage's scale", () => {
+test("the line's level is 8.3% of the box's height down from its top, as in the owner's choice, whatever the stage's scale; the tabs follow", () => {
   const html = read("index.html");
-  assert.ok(!/ONE\.down|down: \.123/.test(html), "a share of the box's height is still in the page");
-  const at = (scale, bar) => { const { ctx } = barbell(scale, bar); return ctx.magicOne(MOCK.card, MOCK.box, ctx.magicBarMid()).y; };
+  assert.ok(!/magicBarMid|\.mbbar"\)/.test(html.slice(html.indexOf("const ONE = {"), html.indexOf("function magicLine("))), "the bar's middle is still read");
+  assert.equal(vm.runInContext("ONE.down", barbell().ctx), .083);
   const near = (a, b) => Math.abs(a - b) < 1e-9;
-  assert.ok(near(at(1), 151 + 15.5));
-  // the bar taller or shorter: the line follows its middle
-  assert.ok(near(at(1, { edge: .5, height: 40 }), 151 + 20.5));
-  assert.ok(near(at(1, { edge: .5, height: 24 }), 151 + 12.5));
-  // a stage drawn at another scale reads the same in the stage's own pixels
-  assert.ok(near(at(.5), 151 + 15.5) && near(at(2), 151 + 15.5));
-  // the tabs move with the bar's level
-  const { ctx, MB } = barbell(1, { edge: .5, height: 40 });
-  ctx.magicLine(MOCK.card, MOCK.box);
+  const { card, box } = CHOICE;
+  // his 49 px of a box 590 high, to the pixel the mock rounds it to
+  assert.ok(Math.abs(box.height * .083 - 49) < .05, "8.3% of 590 is 49 px");
+  const at = (scale, b = box) => barbell(scale).ctx.magicOne(card, b).y;
+  assert.ok(near(at(1), box.top + 590 * .083));
+  // the rectangles are in the stage's own pixels: another scale reads the same
+  assert.ok(near(at(.5), at(1)) && near(at(2), at(1)));
+  // a share, so it scales with the box: half as tall, half as far down
+  assert.ok(near(at(1, { ...box, height: 295 }), box.top + 295 * .083));
+  assert.ok(near(at(1, { ...box, height: 1180 }), box.top + 1180 * .083));
+  // the tabs move with it, both centred on the bar's level
+  const { ctx, MB } = barbell();
+  ctx.magicLine(card, box);
   const ys = [...MB.line.innerHTML.matchAll(/<rect x="[-\d.]+" y="([-\d.]+)" width="[\d.]+" height="([\d.]+)"/g)].map(([, y, h]) => +y - .25 + (+h + .5) / 2);
   assert.equal(ys.length, 2);
-  assert.ok(ys.every(y => Math.abs(y - (151 + 20.5)) < .01), ys.join());
-  // no top bar to read: no line
-  const bare = barbell();
-  bare.MB.el.querySelector = () => null;
-  assert.equal(bare.ctx.magicBarMid(), null);
-  bare.ctx.magicLine(MOCK.card, MOCK.box);
-  assert.equal(bare.MB.line.innerHTML, "");
+  assert.ok(ys.every(y => Math.abs(y - (box.top + 590 * .083)) < .01), ys.join());
+  // its look is unchanged: one 2px stroke and two tabs, 2 by 12 and 2 by 6
+  assert.equal(vm.runInContext("JSON.stringify([ONE.bar, ONE.cardTab, ONE.boxTab, ONE.rim, ONE.rimInk])", ctx),
+    JSON.stringify([2, { w: 2, h: 12 }, { w: 2, h: 6 }, .5, "rgba(60,45,20,.30)"]));
 });
 
 test("with no room for it no line is drawn: a gap too narrow for two tabs and a bar, or a card too short to carry its tab", () => {
   const { ctx, MB } = barbell();
   const { card, box } = MOCK;
   const edge = card.left + card.width;
-  const mid = ctx.magicBarMid();
-  assert.equal(ctx.magicOne(card, { ...box, left: edge }, mid), null, "no gap");
-  assert.equal(ctx.magicOne(card, { ...box, left: edge + 7.9 }, mid), null);
-  assert.ok(ctx.magicOne(card, { ...box, left: edge + 8 }, mid));
+  assert.equal(ctx.magicOne(card, { ...box, left: edge }), null, "no gap");
+  assert.equal(ctx.magicOne(card, { ...box, left: edge + 7.9 }), null);
+  assert.ok(ctx.magicOne(card, { ...box, left: edge + 8 }));
   // a box standing past the card's foot or above its top: no edge to meet
-  assert.equal(ctx.magicOne(card, { ...box, top: card.top + card.height }, mid), null);
-  assert.equal(ctx.magicOne(card, { ...box, top: card.top - 150 }, mid), null);
+  assert.equal(ctx.magicOne(card, { ...box, top: card.top + card.height }), null);
+  assert.equal(ctx.magicOne(card, { ...box, top: card.top - 150 }), null);
   // a card too short at the bar's level to carry its tab on a straight edge
-  assert.equal(ctx.magicOne({ ...card, top: box.top + mid - 8, height: 682 }, box, mid), null);
+  assert.equal(ctx.magicOne({ ...card, top: box.top + box.height * .083 - 8, height: 682 }, box), null);
   ctx.magicLine(card, { ...box, left: edge });
   assert.equal(MB.line.innerHTML, "", "a line was drawn with no gap");
   assert.equal(MB.line.ons, 0);
@@ -788,44 +786,43 @@ test("a site that will not be framed comes square, with its name and a new-page 
 
 test("whichever of the card and the box is held stands up and the other settles, and nothing else changes", () => {
   const html = read("index.html");
-  // the two shadows, one value each for the card and the box: the deeper one is
-  // lower and wider than the card's plain raised shadow in every layer, and the
-  // lighter one is the faintest soft shadow: a small spread over a hairline, there on
-  // the paper but far below the deeper one in blur and strength in each layer
-  const vars = html.match(/\n  body\.focus\{--shade-deeper:([^;]*);\s*--shade-lighter:([^}]*)\}/);
-  const deeper = vars[1], lighter = vars[2];
+  // the two looks, one value each for the card and the box: the one worked in wears
+  // exactly the shadow a card with no box wears (the heavier one is gone), and the
+  // other the faintest soft shadow, a small spread over a hairline, there on the
+  // paper but far below it in blur and strength in each layer, at 60%
+  assert.ok(!/shade-deeper/.test(html), "the heavier shadow is still in the page");
+  const vars = html.match(/\n  body\.focus\{--shade-raised:([^;]*);\s*--shade-lighter:([^;]*);\s*--shade-unselected:([^}]*)\}/);
+  const raised = vars[1], lighter = vars[2], fade = vars[3];
   const layers = s => [...s.matchAll(/(\d+)px (\d+)px rgba\(60,45,20,([.\d]+)\)/g)].map(m => [+m[1], +m[2], +m[3]]);
-  const plain = layers(html.slice(html.indexOf("  body.focus main{")).match(/box-shadow:([^;]*);/)[1]);
-  const deeperLayers = layers(deeper), lighterLayers = layers(lighter);
-  assert.deepEqual(plain, [[2, 18, .18], [1, 3, .10]], "the card with no box keeps the plain raised shadow");
-  assert.equal(deeperLayers.length, plain.length, "as many layers as the plain raised shadow");
-  deeperLayers.forEach(([dy, blur, alpha], i) => {
-    assert.ok(dy > plain[i][0] && blur > plain[i][1] && alpha > plain[i][2], `layer ${i} is not deeper, wider and stronger than the plain one`);
-  });
+  const raisedLayers = layers(raised), lighterLayers = layers(lighter);
+  assert.deepEqual(raisedLayers, [[2, 18, .18], [1, 3, .10]], "the card with no box keeps the plain raised shadow");
+  assert.equal(raised, "0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)", "the shadow it has always worn");
   assert.equal(lighterLayers.length, 2, "a small soft spread and a hairline");
   const [soft, hair] = lighterLayers;
   assert.ok(soft[1] >= 8 && soft[1] <= 16 && soft[2] >= .06 && soft[2] <= .12, "the soft layer is a small, faint spread that is there");
   assert.ok(hair[1] <= 3 && hair[2] > 0 && hair[2] <= .08, "the hairline under it is tight and faint");
   lighterLayers.forEach(([dy, blur, alpha], i) => {
-    assert.ok(dy <= deeperLayers[i][0] && blur * 2 <= deeperLayers[i][1] && alpha * 2 <= deeperLayers[i][2], `layer ${i} of the lighter shadow is not far below the deeper one`);
+    assert.ok(dy >= raisedLayers[i][0] && blur <= raisedLayers[i][1] && alpha <= raisedLayers[i][2], `layer ${i} of the lighter shadow is above the raised one`);
   });
-  assert.ok(!/rgba?\((?!60,45,20)|#[0-9a-f]/i.test(deeper + lighter), "no colour but the card's shadow brown");
-  // the card is the deeper one while an open box stands beside it, until the box is
-  // held and the card steps back to the hairline; both at the settled rule's own
-  // weight, ahead of the lowered card's rule, so a lowered card stays level. the
-  // deeper rule comes ahead of the settled one, which a card whose small card holds
-  // the keys still wears
-  // the box being on and held is a mark on the body (body.mbheld) and so is its
-  // standing beside the card (body.mbon), and not a :has() there, which restyled
-  // the whole page whenever any element's "on" or "held" changed, the caret's on
-  // every frame of a scroll
-  const rule = "  body.focus:not(.home, .editmode):where(.mbheld) main{box-shadow:var(--shade-lighter)}";
-  const deepRule = "  body.focus:not(.home, .editmode):where(.mbon) main{box-shadow:var(--shade-deeper)}";
+  assert.ok(!/rgba?\((?!60,45,20)|#[0-9a-f]/i.test(raised + lighter), "no colour but the card's shadow brown");
+  assert.equal(fade, ".6", "the one not selected is shown at 60%");
+  // the card with no box is untouched: its own rule wears the raised shadow, whole, and no
+  // opacity
+  const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
+  assert.match(card, /box-shadow:var\(--shade-raised\);/, "the card's own raised shadow");
+  assert.ok(!/(^|[;\s])opacity:/.test(card), "a card with no box fades");
+  // the card steps back to the faint shadow and the fade while its box is held and
+  // stands beside it: at the settled rule's own weight, ahead of the lowered card's
+  // rule, so a lowered card stays level. the box being on and held is a mark on the
+  // body (body.mbheld) and so is its standing beside the card (body.mbon), and not a
+  // :has() there, which restyled the whole page whenever any element's "on" or
+  // "held" changed, the caret's on every frame of a scroll
+  const rule = "  body.focus:not(.home, .editmode):where(.mbon.mbheld) main{box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}";
   assert.ok(html.includes(rule));
-  assert.ok(html.includes(deepRule));
+  assert.ok(!html.includes(":where(.mbon) main"), "the card has a look of its own while the box stands beside it");
   assert.ok(html.indexOf(rule) < html.indexOf("  body.focus.lowered main{box-shadow:none}"));
   assert.ok(html.indexOf("  body.focus.minifocus main{") < html.indexOf(rule), "after the settled rule, which it weighs the same as");
-  assert.ok(html.indexOf(deepRule) < html.indexOf("  body.focus.minifocus main{"), "ahead of the settled rule, which it weighs the same as");
+  assert.match(html, /\n  body\.focus\.lowered main\{box-shadow:none\}/, "the lowered card keeps today's rule: no shadow, and no say over the fade");
   // each :has() and the compound it hangs off, read back over any brackets
   const sheet = code(html.slice(0, html.indexOf("</style>")));
   const anchors = [...sheet.matchAll(/:has\(/g)].map(m => {
@@ -841,13 +838,14 @@ test("whichever of the card and the box is held stands up and the other settles,
   assert.ok(anchors.length > 0);
   assert.deepEqual(anchors.filter(a => /^body\b/.test(a)), [], "a :has() on the body");
   // both ease over the card's own timing, and the shadow is all they change
-  const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
-  assert.match(card, /transition:box-shadow \.2s;/);
-  assert.match(html, /\n  #magicbox\{background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);\s*box-shadow:var\(--shade-lighter\); transition:box-shadow \.2s\}/);
+  assert.match(card, /transition:box-shadow \.2s, opacity \.2s;/);
+  assert.match(html, /\n  #magicbox\{background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);\s*box-shadow:var\(--shade-lighter\); opacity:var\(--shade-unselected\); transition:box-shadow \.2s, opacity \.2s\}/);
   const style = html.slice(0, html.indexOf("</style>"));
   const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
   assert.deepEqual(rules.map(r => r[1].trim()), ["#magicbox.held", "#magicbox.rising.held"], "the box's, and the box's as it rises");
-  for (const [, , body] of [...rules, [, , rule.slice(rule.indexOf("{") + 1, -1)], [, , deepRule.slice(deepRule.indexOf("{") + 1, -1)]]) assert.match(body.trim(), /^box-shadow:[^;]*$/);
+  assert.equal(rules[0][2].trim(), "box-shadow:var(--shade-raised); opacity:1", "the box held is whole");
+  assert.match(rules[1][2].trim(), /^box-shadow:[^;]*$/);
+  assert.match(rule.slice(rule.indexOf("{") + 1, -1), /^box-shadow:var\(--shade-lighter\); opacity:var\(--shade-unselected\)$/);
   // the mark follows the box's own classes, whatever changes them: on only
   // while the box is both on and held
   const mirror = html.match(/\nif \(MB\.el\) new MutationObserver\([\s\S]*?\);\n/)[0];
@@ -866,14 +864,16 @@ test("whichever of the card and the box is held stands up and the other settles,
   assert.equal(mark("held"), false, "held while off the page, as a new revision loads");
   assert.equal(mark("on", "held", "rising"), true, "held as it rises");
   assert.equal(mark(), false, "taken off");
-  // the box stands in the page on the deeper shadow when held and the hairline when not
-  assert.match(html, /\n  #magicbox\.held\{box-shadow:var\(--shade-deeper\)\}/);
+  // the box stands in the page on the card's own shadow when held and the faint one,
+  // faded, when not
+  assert.match(html, /\n  #magicbox\.held\{box-shadow:var\(--shade-raised\); opacity:1\}/);
   // risen, the rising ones are the held one and the settled one exactly
   const unrise = s => s.replace(/calc\(([^)]*?) \* var\(--rise\)\)/g, "$1").replace(/\s+/g, " ").trim();
-  assert.equal(unrise(html.match(/\n  #magicbox\.rising\.held\{\s*box-shadow:([^}]*)\}/)[1]), deeper);
+  assert.equal(unrise(html.match(/\n  #magicbox\.rising\.held\{\s*box-shadow:([^}]*)\}/)[1]), raised);
   assert.equal(unrise(html.match(/\n  #magicbox\.rising\{[^}]*?box-shadow:([^}]*)\}/)[1]), lighter);
-  // the card's own plain raised shadow, with no box, is the one it has always worn
-  assert.ok(card.includes("box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);"), "the card's own raised shadow");
+  // the lowered box has no shadow, and no rule of the lowered card or box touches the fade
+  assert.match(html, /\n  body\.lowered #magicbox\.on\{box-shadow:none\}/);
+  assert.ok(!/body\.lowered[^{\n]*\{[^}]*opacity/.test(html.slice(0, html.indexOf("</style>"))), "a lowered rule changes the fade");
   // the mark of a box beside the card: on, and not hidden for want of room, read off
   // the box's class and style whatever changes them
   const beside = html.match(/\nif \(MB\.el\) new MutationObserver\(\(\) => document\.body\.classList\.toggle\("mbon"[\s\S]*?\);\n/)[0];
