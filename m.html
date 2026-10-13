@@ -7775,7 +7775,14 @@ const MAGIC_EDGE = 28;   // the pull's own strip, EDGE in the drawer's gesture
 const PB = { el: document.getElementById("mbface"), id: null, rev: 0, asked: 0 };
 PB.view = magicView(PB.el, { placed: () => phoneMagicFit(),
   openSite: url => window.open(url, "_blank", "noopener,noreferrer") });
-PB.el.querySelector(".mbclose").addEventListener("click", () => phoneMagicClose());
+// the cross takes a tap and never the keys. with the box out, Tab stays in the
+// drawer (keepTabInMenu) and the cross was its one stop, so a Tab to get back
+// to the reply box put the keys on it and the next space or return shut the
+// box on the board, the cross never seen or touched. control+shift+period
+// puts the box back from the keys
+const PB_CROSS = PB.el.querySelector(".mbclose");
+PB_CROSS.tabIndex = -1;
+PB_CROSS.addEventListener("click", () => phoneMagicClose());
 // the card the box belongs to, or null: the card on screen, on this project,
 // not done, with an open box
 function phoneMagicCard(){
