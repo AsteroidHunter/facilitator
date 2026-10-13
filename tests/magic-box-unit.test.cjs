@@ -390,8 +390,8 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   assert.match(seat, /width:var\(--mb-x\); height:var\(--mb-x\); padding:0; border:none; border-radius:50%;/);
   assert.match(seat, /background:var\(--mb-pink\); color:#1e1e1e;/);
   assert.match(sheet, /\.magicbox \.mbclose:hover, \.magicbox \.mbclose:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mb-pink\)\)\}/);
-  // the circle is the red of the close button at a macOS window's top left, and the mark keeps its ink
-  assert.match(box, /--mb-pink:#FF5F57\s*$/);
+  // the circle is the red of the close button at a macOS window's top left at 70% opacity, and the mark keeps its ink
+  assert.match(box, /--mb-pink:rgba\(255, 95, 87, \.7\)\s*$/);
   assert.ok(!/--mb-pink-ink/.test(sheet + read("index.html") + read("m.html")), "no ink of its own for the mark");
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
