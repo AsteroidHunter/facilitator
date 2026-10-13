@@ -2563,6 +2563,8 @@ APP_PYTHON = "3.14"     # the one Python .venv is built on, which the board is t
 UV_MIN = (0, 9, 0)      # the first uv that installs Python 3.14.0 rather than a release
                         # candidate; keep in step with UV_MIN in install.sh
 UV_HOME_BINS = ("~/.local/bin/uv", "~/.cargo/bin/uv")
+HELD_LINES = 10         # how many of a failed step's own last lines are shown;
+                        # keep in step with HELD_LINES in install.sh
 # uv's own installer, locked to one release: it is run only when the file that
 # comes back has exactly this fingerprint. Move both together, here and in
 # install.sh, and take the fingerprint from a download of that exact address.
@@ -2578,9 +2580,9 @@ INSTALL_ARTIFACTS = (".venv", "tests/node_modules", "node_modules", "package.jso
 INSTALL_HELP = """usage: ./install.sh [--dev]
 
 Check that Claude Code or Codex and Chrome are here, then make this checkout
-runnable: find or install uv (0.9.0 or newer; when there is no Homebrew its
-own installer is fetched for one exact release and run only when it matches
-its fingerprint), build the private .venv on a
+runnable: find or install uv (0.9.0 or newer; uv's own installer is fetched
+for one exact release and run only when it matches its fingerprint), build
+the private .venv on a
 Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
 another Python (a board running on the old one is stopped first), and sync
 requirements, and write run.config.json and seed.json from
@@ -2655,7 +2657,7 @@ def uv_installer_env(folder):
     fingerprint it carries only when a sha256sum command exists, and macOS has
     shasum instead, so a sha256sum that calls shasum is put in folder and
     first on PATH."""
-    env = {**os.environ, "INSTALLER_NO_MODIFY_PATH": "1"}
+    env = {**os.environ, "UV_NO_MODIFY_PATH": "1"}
     if shutil.which("sha256sum"):
         return env
     shasum = shutil.which("shasum")
@@ -2669,41 +2671,39 @@ def uv_installer_env(folder):
 
 
 def install_uv():
-    """Install uv and return its path, or stop. Homebrew when it is there,
-    otherwise uv's own installer, locked to UV_PIN and run only when it has
-    the expected fingerprint, into the home folder and told not to touch any
-    shell profile. uv is required; there is no fallback to a plain venv."""
-    brew = shutil.which("brew")
-    if brew:
-        print("uv is not installed. Installing it with Homebrew.")
-        if subprocess.run([brew, "install", "uv"]).returncode != 0:
-            sys.exit(problem("Homebrew could not install uv.",
+    """Install uv and return its path, or stop. uv's own installer from
+    astral.sh is the only way: locked to UV_PIN and run only when it has the
+    expected fingerprint, into the home folder and told not to touch any shell
+    profile. Under Rosetta it asks the Mac, not uname, and installs the uv
+    built for Apple silicon. uv is required; there is no fallback to a plain
+    venv."""
+    if not shutil.which("curl"):
+        sys.exit(problem("curl is needed to fetch the uv installer.",
+                         "Install uv yourself, then run ./install.sh again."))
+    global _after_intro
+    _after_intro = False
+    print("uv is not installed. Installing it with the astral.sh installer")
+    print("into your home.")
+    with tempfile.TemporaryDirectory() as folder:
+        env = uv_installer_env(folder)
+        if env is None:
+            sys.exit(problem("Cannot check what the uv installer downloads: neither sha256sum nor shasum is here.",
+                             "Nothing was run. Install uv yourself, then run ./install.sh again."))
+        script = subprocess.run(["curl", "--proto", "=https", "--tlsv1.2", "-LsSf", UV_INSTALL_URL],
+                                capture_output=True)
+        if script.returncode != 0 or not script.stdout:
+            sys.exit(problem("Could not download the uv installer.",
+                             *held_lines("curl", script.stderr),
+                             "Check the internet connection, then run ./install.sh again."))
+        if hashlib.sha256(script.stdout).hexdigest() != UV_INSTALL_SHA256:
+            sys.exit(problem("The uv installer from astral.sh is not the one this checkout expects.",
+                             "Nothing was run. Install uv yourself, then run ./install.sh again."))
+        # its own progress lines are held back and shown only if it fails
+        held = subprocess.run(["sh"], input=script.stdout, env=env, capture_output=True)
+        if held.returncode != 0:
+            sys.exit(problem("The uv installer did not finish.",
+                             *held_lines("the uv installer", held.stdout, held.stderr),
                              "Install uv yourself, then run ./install.sh again."))
-    else:
-        if not shutil.which("curl"):
-            sys.exit(problem("curl is needed to fetch the uv installer.",
-                             "Install uv yourself, then run ./install.sh again."))
-        print("uv is not installed. Installing it with the astral.sh installer")
-        print("into your home.")
-        with tempfile.TemporaryDirectory() as folder:
-            env = uv_installer_env(folder)
-            if env is None:
-                sys.exit(problem("Cannot check what the uv installer downloads: neither sha256sum nor shasum is here.",
-                                 "Nothing was run. Install uv yourself, then run ./install.sh again."))
-            script = subprocess.run(["curl", "--proto", "=https", "--tlsv1.2", "-LsSf", UV_INSTALL_URL],
-                                    capture_output=True)
-            if script.returncode != 0 or not script.stdout:
-                sys.exit(problem("Could not download the uv installer.",
-                                 "Install uv yourself, then run ./install.sh again."))
-            if hashlib.sha256(script.stdout).hexdigest() != UV_INSTALL_SHA256:
-                sys.exit(problem("The uv installer from astral.sh is not the one this checkout expects.",
-                                 "Nothing was run. Install uv yourself, then run ./install.sh again."))
-            # its own progress lines are held back and shown only if it fails
-            held = subprocess.run(["sh"], input=script.stdout, env=env, capture_output=True)
-            if held.returncode != 0:
-                show_held(held)
-                sys.exit(problem("The uv installer did not finish.",
-                                 "Install uv yourself, then run ./install.sh again.", blank=True))
     uv = find_uv()
     if not uv:
         sys.exit(problem("uv is installed but still not found.",
@@ -2735,27 +2735,31 @@ def ensure_uv(quiet=False):
         need = ".".join(str(part) for part in UV_MIN)
         which = f"uv {'.'.join(str(part) for part in have)}" if have else f"The uv at {uv}, whose version could not be read,"
         sys.exit(problem(f"{which} is too old to install Python {APP_PYTHON}: upgrade it to {need} or newer "
-                         "(brew upgrade uv, or uv self update), then run ./install.sh again."))
+                         "(uv self update), then run ./install.sh again."))
     if not quiet:
         ok("uv installed." if installed else "uv found.")
     return uv
 
 
-def show_held(result):
-    """Print the output of a run that was held back, as text or as bytes."""
-    for stream, text in ((sys.stdout, result.stdout), (sys.stderr, result.stderr)):
-        stream.write(text.decode("utf-8", "replace") if isinstance(text, bytes) else text)
-        stream.flush()
+def held_lines(who, *outputs):
+    """The output a failed step held back, as next steps for problem(): a line
+    naming whose it is, then its last HELD_LINES lines, indented, with colour
+    codes, progress redraws and blank lines taken out. Empty when it printed
+    nothing. Each output may be text, bytes or None."""
+    text = "".join(out.decode("utf-8", "replace") if isinstance(out, bytes) else (out or "")
+                   for out in outputs)
+    text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+    lines = [line.rstrip("\r").rsplit("\r", 1)[-1].rstrip() for line in text.split("\n")]
+    lines = [line for line in lines if line.strip()][-HELD_LINES:]
+    return [f"Last lines from {who}:", *("  " + line for line in lines)] if lines else []
 
 
 def run_held(argv, cwd=HERE):
-    """Run a command, here by default, holding its output back and showing it
-    only on failure, so an install says what it is doing in its own words and
-    not in uv's or npm's."""
-    result = subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True, errors="replace")
-    if result.returncode != 0:
-        show_held(result)
-    return result.returncode
+    """Run a command, here by default, holding its output back, so an install
+    says what it is doing in its own words and not in uv's or npm's. The
+    result comes back for held_lines to show the end of it when it failed."""
+    return subprocess.run(argv, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          text=True, errors="replace")
 
 
 def env_python():
@@ -2836,13 +2840,17 @@ def build_env(uv, have, quiet):
         print(f"Rebuilding .venv on Python {APP_PYTHON}: {why}.")
     elif not quiet:
         print(f"Setting up the Python {APP_PYTHON} environment.")
-    if run_held([uv, "python", "install", "--no-bin", APP_PYTHON]) != 0:
+    done = run_held([uv, "python", "install", "--no-bin", APP_PYTHON])
+    if done.returncode != 0:
         sys.exit(problem(f"uv could not install Python {APP_PYTHON}.",
+                         *held_lines("uv", done.stdout, done.stderr),
                          *(["Nothing in .venv was changed."] if there else []),
                          "See the output above, then run ./install.sh again."))
     stopped = stop_for_rebuild() if there else False
-    if run_held([uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"]) != 0:
+    done = run_held([uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"])
+    if done.returncode != 0:
         sys.exit(problem("uv could not create .venv.",
+                         *held_lines("uv", done.stdout, done.stderr),
                          "See the output above, then run ./install.sh again."))
     got = env_python()
     if got != APP_PYTHON:
@@ -2872,8 +2880,10 @@ def ensure_env(uv, quiet=False):
         stopped = build_env(uv, have, quiet)
     if not quiet:
         print("Installing the packages Facilitator needs.")
-    if run_held([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"]) != 0:
+    done = run_held([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"])
+    if done.returncode != 0:
         sys.exit(problem("uv could not sync requirements.txt.",
+                         *held_lines("uv", done.stdout, done.stderr),
                          "See the output above, then run ./install.sh again."))
     if not quiet:
         ok("Packages installed.")
@@ -2923,8 +2933,10 @@ def ensure_test_packages(npm):
         ok("Test packages found.")
         return
     print("Installing the packages the tests need.")
-    if run_held([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], TESTS_DIR) != 0:
+    done = run_held([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], TESTS_DIR)
+    if done.returncode != 0:
         sys.exit(problem("npm could not install the test packages.",
+                         *held_lines("npm", done.stdout, done.stderr),
                          "See the output above, then run ./install.sh --dev again."))
     ok("Packages for the tests installed.")
 

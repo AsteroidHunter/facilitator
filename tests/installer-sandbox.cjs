@@ -67,19 +67,22 @@ async function script(file, text) {
 // python3), "missing" (python3 fails), "old" (python3 fails the version
 // check) or "apple" (python3 is the /usr/bin/python3 macOS ships, which has no
 // scrypt).
-// uv: "present", "brew" (a fake brew installs it), "curl" (a fake curl hands
+// uv: "present", "curl" (a fake curl hands
 // back an installer that puts it in the home folder), "curl-tampered" (the
 // same, but what it hands back is not what the checkout expects), "curl-fails"
-// (the installer it hands back prints a line and exits with an error) or "absent". The fake's
+// (the installer it hands back prints a line and exits with an error),
+// "curl-empty" (the download comes back empty, and curl says nothing) or "absent". The fake's
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
 // hands over to the real python, so what runs on .venv really runs. It says
 // it is uvVersion when asked. node: true puts a fake node and a fake npm on
 // PATH; npm ci makes tests/node_modules/puppeteer-core at the pinned version.
 // hang: "sync" makes the fake uv's package sync run for a minute, and "python"
 // does the same for its Python install, so a test can press Ctrl+C in the
-// middle of either.
+// middle of either. fail: "python" makes the fake uv's Python install print
+// a few lines and then exit with an error. brew: true puts a fake Homebrew on
+// PATH that would install uv, so a test can show it is never asked.
 async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "system", uv = "present",
-  venvPython = "3.14.0", uvVersion = "0.11.18", node = false, hang = "" } = {}) {
+  venvPython = "3.14.0", uvVersion = "0.11.18", node = false, hang = "", fail = "", brew = false } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
@@ -125,6 +128,7 @@ fi
 
   const syncStep = hang === "sync" ? 'echo "syncing (fake uv)"; sleep 60' : ":";
   const pythonStep = hang === "python" ? 'echo "installing Python (fake uv)"; sleep 60'
+    : fail === "python" ? 'echo "Downloading cpython (fake uv)"; echo "error: could not fetch Python (fake uv)" >&2; exit 1'
     : `echo "Installed Python ${venvPython} (fake uv)"`;
   const fakeUv = `#!/bin/sh
 echo "uv $*" >> "${log}"
@@ -145,7 +149,7 @@ case "$1" in
 esac
 `;
   if (uv === "present") await script(path.join(tools, "uv"), fakeUv);
-  if (uv === "brew") {
+  if (brew) {
     const target = path.join(home, ".local", "bin", "uv");
     await script(path.join(tools, "brew"), `#!/bin/sh
 echo "brew $*" >> "${log}"
@@ -156,7 +160,7 @@ chmod +x "${target}"
 `);
   }
 
-  if (uv === "curl" || uv === "curl-tampered" || uv === "curl-fails") {
+  if (uv === "curl" || uv === "curl-tampered" || uv === "curl-fails" || uv === "curl-empty") {
     // the installer the fake curl hands back, and the fingerprint this copy of
     // the checkout is made to expect for it: "curl-tampered" serves something
     // else under that fingerprint, and "curl-fails" serves an installer that
@@ -165,7 +169,7 @@ chmod +x "${target}"
     const installer = uv === "curl-fails" ? `echo "installing to $HOME/.local/bin"
 echo "the fake uv installer could not write uv" >&2
 exit 1
-` : `echo "uv installer ran with INSTALLER_NO_MODIFY_PATH=$INSTALLER_NO_MODIFY_PATH" >> "${log}"
+` : `echo "uv installer ran with UV_NO_MODIFY_PATH=$UV_NO_MODIFY_PATH" >> "${log}"
 echo "downloading uv 0.12.22 (fake installer)"
 echo "installing to $HOME/.local/bin"
 printf x > "$HOME/probe.txt"
@@ -175,7 +179,8 @@ cat > "$HOME/.local/bin/uv" <<'FAKE'
 ${fakeUv}FAKE
 chmod +x "$HOME/.local/bin/uv"
 `;
-    const served = uv === "curl-tampered" ? `echo "a changed uv installer ran" >> "${log}"\n` : installer;
+    const served = uv === "curl-tampered" ? `echo "a changed uv installer ran" >> "${log}"\n`
+      : uv === "curl-empty" ? "" : installer;
     await fs.writeFile(path.join(dir, "served-installer.sh"), served);
     await script(path.join(tools, "curl"), `#!/bin/sh
 echo "curl $*" >> "${log}"

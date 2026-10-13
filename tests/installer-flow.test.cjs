@@ -329,20 +329,21 @@ test("a second run on an installed copy keeps the password and the config and ma
 
 test("with no Python it can use, uv is fetched and then a Python, and the environment is still private", async () => {
   for (const python of ["missing", "old"]) {
-    await using({ python, uv: "brew" }, async f => {
+    await using({ python, uv: "curl" }, async f => {
       const { code, text } = await f.piped();
       assert.equal(code, 0, `${python}: ${text}`);
       assert.ok(text.includes("3. Python\n─────────\n\n"
         + "Setup installs what Facilitator needs when it is missing.\n\n"
         + "No Python this setup can use was found (it needs 3.9 or newer).\n"
         + "uv will provide one for the private environment.\n"
-        + "uv is not installed. Installing it with Homebrew.\n"), `${python}: ${text}`);
+        + "uv is not installed. Installing it with the astral.sh installer\ninto your home.\n"), `${python}: ${text}`);
       assert.match(text, /\n✓ uv installed\.\nInstalling Python 3\.14 with uv\.\n/);
       assert.match(text, /\n✓ Python 3\.14 installed\.\n/);
+      assert.doesNotMatch(text, /Installed Python 3\.14\.0 \(fake uv\)/, "uv's own line was printed");
       const calls = (await f.calls()).filter(line => !line.startsWith("python3"));
       const at = name => calls.findIndex(line => line.startsWith(name));
-      assert.ok(at("brew install uv") >= 0, calls.join(" | "));
-      assert.ok(at("brew install uv") < at("uv python install --no-bin 3.14"), calls.join(" | "));
+      assert.ok(at("uv installer ran") >= 0, calls.join(" | "));
+      assert.ok(at("uv installer ran") < at("uv python install --no-bin 3.14"), calls.join(" | "));
       assert.ok(at("uv python install --no-bin 3.14") < at("uv python find --managed-python 3.14"), calls.join(" | "));
       assert.ok(at("uv python find --managed-python 3.14") < at("uv venv --clear --managed-python --python 3.14 .venv"), calls.join(" | "));
       assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
@@ -384,26 +385,52 @@ const PROBE_SHA256 = require("node:crypto").createHash("sha256").update("x").dig
 // both ways uv gets installed: by install.sh when no python3 can run the
 // setup, and by the command when one can
 for (const python of ["missing", "system"]) {
-  test(`with no uv and no Homebrew, uv's own installer runs, told to leave the shell profile alone (${python} python3)`, async () => {
-    await using({ python, uv: "curl" }, async f => {
+  test(`with no uv, uv's own installer runs, told to leave the shell profile alone, and Homebrew is never asked (${python} python3)`, async () => {
+    await using({ python, uv: "curl", brew: true }, async f => {
       const { code, text } = await f.piped();
       assert.equal(code, 0, text);
       assert.match(text, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
       assert.doesNotMatch(text, /downloading uv|installing to/, "the uv installer's own progress lines were printed:\n" + text);
+      assert.doesNotMatch(text, /Homebrew|brew/, text);
       const calls = await f.calls();
       assert.ok(calls.some(line => /^curl --proto =https --tlsv1\.2 -LsSf https:\/\/astral\.sh\/uv\/0\.12\.22\/install\.sh/.test(line)), calls.join(" | "));
       assert.ok(!calls.some(line => /astral\.sh\/uv\/install\.sh/.test(line)), "the unpinned address was fetched");
-      assert.ok(calls.includes("uv installer ran with INSTALLER_NO_MODIFY_PATH=1"), calls.join(" | "));
+      assert.ok(calls.includes("uv installer ran with UV_NO_MODIFY_PATH=1"), calls.join(" | "));
+      assert.ok(!calls.some(line => line.startsWith("brew")), "Homebrew was used: " + calls.join(" | "));
       assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
     });
   });
 
-  test(`a uv installer that fails shows what it printed, then stops (${python} python3)`, async () => {
+  test(`a uv installer that fails stops with the installer's own line, then the end of what it printed (${python} python3)`, async () => {
     await using({ python, uv: "curl-fails" }, async f => {
       const { code, text } = await f.piped();
       assert.equal(code, 1, text);
-      assert.match(text, /installing to .*\.local\/bin\nthe fake uv installer could not write uv\n\n⚠ The uv installer did not finish\.\n  Install uv yourself, then run \.\/install\.sh again\./);
+      assert.match(text, /into your home\.\n\n⚠ The uv installer did not finish\.\n  Last lines from the uv installer:\n    installing to .*\.local\/bin\n    the fake uv installer could not write uv\n  Install uv yourself, then run \.\/install\.sh again\.\n$/);
+      assert.doesNotMatch(text, /^(installing to|the fake uv installer)/m, "the installer's lines were printed as they came");
       assert.doesNotMatch(text, /✓ uv installed/);
+      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    });
+  });
+
+  test(`an empty download of the uv installer stops with the installer's own lines and nothing under them (${python} python3)`, async () => {
+    await using({ python, uv: "curl-empty" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 1, text);
+      assert.ok(text.endsWith("into your home.\n\n⚠ Could not download the uv installer.\n"
+        + "  Check the internet connection, then run ./install.sh again.\n"), text);
+      assert.doesNotMatch(text, /Last lines from|unbound variable/, text);
+      assert.equal(await f.has(path.join(f.home, ".local", "bin", "uv")), false);
+    });
+  });
+
+  test(`a Python install that fails stops with the installer's own line, then the end of what uv printed (${python} python3)`, async () => {
+    await using({ python, fail: "python" }, async f => {
+      const { code, text } = await f.piped();
+      assert.equal(code, 1, text);
+      const headline = python === "missing" ? "uv could not install Python." : "uv could not install Python 3.14.";
+      assert.ok(text.endsWith(`\n⚠ ${headline}\n  Last lines from uv:\n    Downloading cpython (fake uv)\n`
+        + "    error: could not fetch Python (fake uv)\n  See the output above, then run ./install.sh again.\n"), text);
+      assert.doesNotMatch(text, /^(Downloading cpython|error: could not fetch)/m, "uv's lines were printed as they came");
       assert.equal(await f.has(path.join(f.repo, ".venv")), false);
     });
   });
@@ -432,7 +459,7 @@ for (const python of ["missing", "system"]) {
 
 test("a uv older than 0.9.0 cannot install Python 3.14, so the run stops in one line before .venv is made", async () => {
   const LINE = "⚠ uv 0.8.19 is too old to install Python 3.14: upgrade it to 0.9.0 or newer "
-    + "(brew upgrade uv, or uv self update), then run ./install.sh again.\n";
+    + "(uv self update), then run ./install.sh again.\n";
   // the command's own check, and the installer's when it needs uv for a Python first
   for (const python of ["system", "missing"]) {
     await using({ python, uvVersion: "0.8.19" }, async f => {

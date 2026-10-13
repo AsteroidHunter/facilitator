@@ -326,7 +326,7 @@ test("a uv too old to install Python 3.14 stops the update in one line, before .
   const result = await world.update();
   assert.notEqual(result.code, 0);
   assert.ok(result.stderr.includes("⚠ uv 0.8.19 is too old to install Python 3.14: upgrade it to 0.9.0 or newer "
-    + "(brew upgrade uv, or uv self update), then run ./install.sh again.\n"), result.stderr);
+    + "(uv self update), then run ./install.sh again.\n"), result.stderr);
   assert.match(result.stderr, /The board was not restarted\. Once the update goes through, run: facilitator restart/);
   assert.equal(await world.head(), pushed, "the pull still ran");
   assert.deepEqual(await world.uvCalls(), ["--version"], "uv was used anyway");

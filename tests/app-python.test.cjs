@@ -177,7 +177,7 @@ test("a Python install that fails leaves .venv as it was, and a .venv uv makes o
   const dir = await checkout();
   await makeVenv(dir, { version: "3.10.16" });
   const failed = await drive(dir, `FAIL.add("python")\nfinish(lambda: cli.ensure_env(UV, quiet=True))`);
-  assert.match(String(failed.exit), /⚠ uv could not install Python 3\.14\.\n  Nothing in \.venv was changed\.\n/);
+  assert.match(String(failed.exit), /⚠ uv could not install Python 3\.14\.\n  Last lines from uv:\n    uv failed at python\n  Nothing in \.venv was changed\.\n/);
   assert.deepEqual(lines(failed), [INSTALL_CALL], "uv went on after the failed install");
   assert.equal(failed.old, true);
   assert.equal(failed.cfg, "home = /old\nversion_info = 3.10.16\n");

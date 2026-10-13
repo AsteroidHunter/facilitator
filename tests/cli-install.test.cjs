@@ -141,7 +141,7 @@ function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 
     "        UVSTATE['uv'] = UV",
     "        SH['capture'] = kw.get('capture_output')",
     "        env = kw.get('env') or {}",
-    "        SH['no_modify'] = env.get('INSTALLER_NO_MODIFY_PATH')",
+    "        SH['no_modify'] = env.get('UV_NO_MODIFY_PATH')",
     "        SH['input'] = kw.get('input')",
     "        first = (env.get('PATH') or '').split(os.pathsep)[0]",
     "        shim = os.path.join(first, 'sha256sum')",
@@ -455,29 +455,22 @@ test("a normal install needs no node and says nothing about it", async () => {
   assert.doesNotMatch(res.out, /node|npm|test packages/i);
 });
 
-test("when uv is missing and Homebrew is here, install uses brew then continues", async () => {
-  const dir = await freshClone();
-  const res = await run(dir, stubs({ uv: false, brew: true }) + "\n" + snapshot("cli.cmd_install(['install'])"));
-  assert.equal(res.exit, null, res.out);
-  assert.match(res.out, /uv is not installed\. Installing it with Homebrew\.\n✓ uv installed\./);
-  assert.ok(res.calls.some(c => c[0] === "/fake/brew" && c[1] === "install"), "brew was not used");
-  assert.equal(res.calls.some(c => c[0] === "sh"), false, "the astral installer ran with brew present");
-  assert.ok(installed(res.files), "the install did not continue after uv was installed");
+test("when uv is missing, install uses the astral.sh script without touching a profile, with or without Homebrew here", async () => {
+  for (const brew of [false, true]) {
+    const dir = await freshClone();
+    const res = await run(dir, stubs({ uv: false, brew }) + "\n" + snapshot("cli.cmd_install(['install'])"));
+    assert.equal(res.exit, null, res.out);
+    assert.match(res.out, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
+    assert.doesNotMatch(res.out, /Homebrew|brew/);
+    assert.ok(res.calls.some(c => c[0] === "curl"), "the installer was not downloaded");
+    assert.ok(res.calls.some(c => c[0] === "sh"), "the installer script was not run");
+    assert.equal(res.sh_no_modify, "1", "the installer was allowed to change a shell profile");
+    assert.equal(res.calls.some(c => c[0] === "/fake/brew"), false, `brew ${brew ? "here" : "absent"}: Homebrew was used`);
+    assert.ok(installed(res.files), "the install did not continue after uv was installed");
+  }
 });
 
-test("when uv is missing and there is no brew, install uses the astral.sh script without touching a profile", async () => {
-  const dir = await freshClone();
-  const res = await run(dir, stubs({ uv: false, brew: false }) + "\n" + snapshot("cli.cmd_install(['install'])"));
-  assert.equal(res.exit, null, res.out);
-  assert.match(res.out, /uv is not installed\. Installing it with the astral\.sh installer\ninto your home\.\n✓ uv installed\./);
-  assert.ok(res.calls.some(c => c[0] === "curl"), "the installer was not downloaded");
-  assert.ok(res.calls.some(c => c[0] === "sh"), "the installer script was not run");
-  assert.equal(res.sh_no_modify, "1", "the installer was allowed to change a shell profile");
-  assert.equal(res.calls.some(c => c[0] === "/fake/brew"), false);
-  assert.ok(installed(res.files), "the install did not continue after uv was installed");
-});
-
-test("the uv installer's own lines are held back when it works and shown when it fails", async () => {
+test("the uv installer's own lines are held back when it works, and only their end is shown, under the failure line, when it fails", async () => {
   const dir = await freshClone();
   const good = await run(dir, stubs({ uv: false }) + "\n" + snapshot("cli.cmd_install(['install'])"));
   assert.equal(good.exit, null, good.out);
@@ -488,10 +481,28 @@ test("the uv installer's own lines are held back when it works and shown when it
   const other = await freshClone();
   const bad = await run(other, stubs({ uv: false, shFails: true }) + "\n" + snapshot("cli.cmd_install(['install'])"));
   assert.ok(typeof bad.exit === "string", "the install went on after the uv installer failed");
-  assert.equal(bad.exit.trim(), "⚠ The uv installer did not finish.\n  Install uv yourself, then run ./install.sh again.");
-  assert.match(bad.out, /downloading uv\ninstalling to \/fake\/home\n$/, "what the installer printed was not shown");
+  assert.equal(bad.exit, "\n⚠ The uv installer did not finish.\n  Last lines from the uv installer:\n"
+    + "    downloading uv\n    installing to /fake/home\n    the fake installer could not write uv\n"
+    + "  Install uv yourself, then run ./install.sh again.");
+  assert.match(bad.out, /into your home\.\n$/, "something was printed besides the installer's own lines");
   assert.doesNotMatch(bad.out, /✓ uv installed\./);
   assert.equal(bad.files.venv, false, "the environment was made");
+});
+
+test("a failed step's held output is cut to its last ten lines, without colour, progress redraws or blank lines", async () => {
+  const dir = await freshClone();
+  const body = [
+    "said = ''.join(f'line {n}\\n' for n in range(1, 15)) + '\\n\\x1b[31merror:\\x1b[0m it broke\\r\\n'",
+    "print('RESULT ' + json.dumps({",
+    "  'lines': cli.held_lines('uv', said, None),",
+    "  'redraw': cli.held_lines('uv', b'10%\\r55%\\r100% done\\n'),",
+    "  'none': cli.held_lines('uv', '', b'\\n \\n', None),",
+    "}))",
+  ].join("\n");
+  const res = await run(dir, body);
+  assert.deepEqual(res.lines, ["Last lines from uv:", ...[6, 7, 8, 9, 10, 11, 12, 13, 14].map(n => `  line ${n}`), "  error: it broke"]);
+  assert.deepEqual(res.redraw, ["Last lines from uv:", "  100% done"]);
+  assert.deepEqual(res.none, []);
 });
 
 const UV_PIN = "0.12.22";
@@ -549,10 +560,10 @@ test("where sha256sum already exists the installer is given no stand-in, and wit
 });
 
 test("a uv older than 0.9.0, or one that cannot say its version, stops install in one line before anything is made", async () => {
-  const TAIL = " is too old to install Python 3.14: upgrade it to 0.9.0 or newer (brew upgrade uv, or uv self update), then run ./install.sh again.";
+  const TAIL = " is too old to install Python 3.14: upgrade it to 0.9.0 or newer (uv self update), then run ./install.sh again.";
   for (const [label, options, who] of [
     ["found", { uvSays: "uv 0.8.19 (Homebrew 2025-09-19)" }, "uv 0.8.19"],
-    ["just installed", { uv: false, brew: true, uvSays: "uv 0.8.19" }, "uv 0.8.19"],
+    ["just installed", { uv: false, uvSays: "uv 0.8.19" }, "uv 0.8.19"],
     ["unreadable", { uvSays: "something else" }, `The uv at ${UV}, whose version could not be read,`],
   ]) {
     const dir = await freshClone();
