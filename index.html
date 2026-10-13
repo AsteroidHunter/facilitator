@@ -3150,6 +3150,12 @@
      the press too and a quick click barely grows before it lets go */
   body.focus :is(#homeico, #chimebtn, #setbtn, #projpill).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
+  /* the pill takes that press with the same few pixels of growth: a scale of
+     1.06 is 2px on a 32px circle but 4.5px to 15px of width on a pill as wide
+     as its name, which read as a bigger bounce. glassPress sets --press-x, the
+     scale across that gives the pill's width the circles' 1.92px, and the
+     height grows by the same 1.92px at 1.06, as theirs does */
+  body.focus #projpill.pressed{transform:scale(var(--press-x, 1.06), 1.06)}
   /* Home stays pressed while the home page is up: the press's whiter face and
      brighter edge, held, with the house in the full ink */
   body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
@@ -4612,11 +4618,16 @@ addEventListener("blur", () => endProjCarry());
 // of a press is heard wherever the pointer lets go, and a page put away with a
 // button still held drops every press, so nothing comes back grown
 const GLASS_PRESS_MIN = 120;
+const GLASS_GROW = 32 * 0.06;   // the px a 32px circle grows by at the press's scale of 1.06
 const glassPresses = [];
 function glassPress(el){
   let since = 0, timer = 0;
   const glass = {
-    press(){ clearTimeout(timer); since = performance.now(); el.classList.add("pressed"); },
+    press(){
+      clearTimeout(timer); since = performance.now();
+      el.style.setProperty("--press-x", String(1 + GLASS_GROW / el.offsetWidth));   // only the pill's rule reads it
+      el.classList.add("pressed");
+    },
     release(){
       if (!el.classList.contains("pressed")) return;
       clearTimeout(timer);
