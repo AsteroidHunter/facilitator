@@ -654,14 +654,15 @@ const dashed = (scale = 1) => {
 const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="2" stroke-linecap="butt" stroke-dasharray="6 4"\/>/g;
 const paths = svg => [...svg.innerHTML.matchAll(PATH)].map(m => m.slice(1, 5).map(Number));
 
-test("the lines are the pick from the connector mock: two dashed lines, 52 px down from the box's top and 52 px up from its foot, from under the card's edge to the box's", () => {
+test("the lines are the pick from the connector mock: two dashed lines, 52 px down from the box's top and 52 px up from its foot, from the card's edge to the box's and no further", () => {
   const { ctx, MB } = dashed();
   const near = (a, b, d = .01) => Math.abs(a - b) <= d;
   const { card, box } = PICK;
   const two = ctx.magicTwo(card, box);
   assert.deepEqual([...two.ys], [box.top + 52, box.top + box.height - 52]);
-  // each starts 12 px in under the card's right edge and stops at the box's left edge
-  assert.equal(two.from, card.left + card.width - 12);
+  // each starts exactly at the card's right edge and stops at the box's left
+  // edge: nothing of it is under either, which shows through whichever is faded
+  assert.equal(two.from, card.left + card.width);
   assert.equal(two.to, box.left);
   ctx.magicLine(card, box);
   assert.equal(MB.line.ons, 1);
@@ -674,7 +675,7 @@ test("the lines are the pick from the connector mock: two dashed lines, 52 px do
     assert.ok(near(y1, two.ys[i]) && near(y2, two.ys[i]), "a line is not level at its place: " + [y1, y2]);
     // each path starts at the box's edge, so its dashes are counted from it
     // and a whole dash ends exactly there
-    assert.ok(near(x1, box.left) && near(x2, card.left + card.width - 12), "a line runs elsewhere: " + [x1, x2]);
+    assert.ok(near(x1, box.left) && near(x2, card.left + card.width), "a line runs elsewhere: " + [x1, x2]);
   });
   // the same box, the same lines, however often they are drawn
   const first = MB.line.innerHTML;
@@ -684,7 +685,7 @@ test("the lines are the pick from the connector mock: two dashed lines, 52 px do
 
 test("the lines keep 52 stage px from the box's ends whatever its height or the stage's scale, and on a box under 104 px they are one at its middle", () => {
   assert.equal(vm.runInContext("JSON.stringify(TWO)", dashed().ctx),
-    JSON.stringify({ gap: 8, n: 52, under: 12, width: 2, dash: 6, space: 4 }));
+    JSON.stringify({ gap: 8, n: 52, width: 2, dash: 6, space: 4 }));
   const { card, box } = PICK;
   const ys = (b, scale = 1) => [...dashed(scale).ctx.magicTwo(card, b).ys];
   // the rectangles are in the stage's own pixels: another scale reads the same

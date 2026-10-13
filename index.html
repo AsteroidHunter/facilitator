@@ -1517,10 +1517,10 @@
   #magicbox.rising > *{opacity:var(--rise)}
   /* the two lines that tie the box to its card, as the owner chose them in the
      connector mock (magicLine): the card's own edge colour, dashed, 2px,
-     straight across the gap from under the card's right edge to the box's
-     left edge. they lie beneath the card and the box (#mbline, before the
-     card, under the box's z-index), so they come out from under the card and
-     stop at the box, and wear the card's own shadow, its two layers at the
+     straight across the gap from the card's right edge to the box's left
+     edge, and no further, so none of a line is ever under a faded card or
+     box. they lie beneath the card and the box (#mbline, before the card,
+     under the box's z-index), and wear the card's own shadow, its two layers at the
      strength a filter gives them (a filter's blur is the spread of the blur
      a box-shadow asks for, so half of it); the card lowered, they have none,
      as the box has none. they are drawn by magicLine, in the stage's pixels,
@@ -7989,8 +7989,8 @@ function magicRoom(){
 // the lines from the card to its box, the ones every box draws, as the owner
 // chose them in the connector mock (m1237, mock-box-connector-20261013.html:
 // Two lines, Dashed, n = 52). two level dashed lines across the gap, with no
-// tabs, each from 12 px in under the card's right edge to the box's left edge,
-// so it comes out from under the card and stops at the box:
+// tabs, each from the card's right edge to the box's left edge and no further,
+// so nothing of it is under either, which shows through whichever is faded:
 //   the first sits n down from the box's top and the second n up from its
 //     foot, in the stage's pixels like the box's rectangle (the mock's n is in
 //     the same units); a box too short to keep them apart has them as one, at
@@ -7999,12 +7999,12 @@ function magicRoom(){
 //     card's edge colour, counted from the box's edge, so a whole dash ends
 //     exactly at it
 // a gap narrower than 8 px gives null, and no line is drawn
-const TWO = { gap: 8, n: 52, under: 12, width: 2, dash: 6, space: 4 };
+const TWO = { gap: 8, n: 52, width: 2, dash: 6, space: 4 };
 function magicTwo(card, box){
   const cr = card.left + card.width;
   if (box.left - cr < TWO.gap) return null;
   const ys = box.height > 2 * TWO.n ? [box.top + TWO.n, box.top + box.height - TWO.n] : [box.top + box.height / 2];
-  return { ys, from: cr - TWO.under, to: box.left };
+  return { ys, from: cr, to: box.left };
 }
 function magicLine(card, box){
   const two = magicTwo(card, box);
