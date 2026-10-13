@@ -214,7 +214,7 @@ Each reply is a page of the card's history and belongs to the question on it. To
 
 With the first answer a faint keyboard comes in behind the foot of the card and stays for the rest of the onboarding. It lights the keys a card teaches: left Control, left Shift and up as the way back is first shown, left Control, Shift and right on the onboarding card's last reply, and each chord in turn on 101: Hotkeys.
 
-The onboarding also makes a sample project, a folder named `facilitator-sample` in your home folder (an existing one is never touched), and opens it as your first project. Marking the last card, 101: Hotkeys, Done (Control + Shift + Backspace or its cross) saves your answers and shows the sample project's board; without a name it goes back to the first question instead.
+The onboarding also makes a sample project, a folder named `facilitator-sample` in your home folder (an existing one is never touched), and opens it as your first project. Marking the last card, 101: Hotkeys, Done (Control + Shift + Backspace or its cross) saves your answers and shows the sample project's board; without a name it goes back to the first question instead, and without an email back to the email question, with the same short line asking for one.
 
 Your answers are your profile, kept on the Mac where only your account can read them, and changed in Settings, Profile on the Mac: a field is saved when you leave it, and giving an email there is the same yes as giving one in the onboarding, while clearing the email takes the yes back. What leaves the Mac is under "Usage counts".
 

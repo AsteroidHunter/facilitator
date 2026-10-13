@@ -35,8 +35,9 @@
      board opens on the sample project this page opened at its start
      (POST /onboarding/sample, then POST /project as "Open a new folder" does).
      The email is needed (Enter with the box empty, or an address with no @ or
-     no dot after it, keeps the question and asks for one); the other questions
-     but the name may be skipped. What leaves the Mac is the board's to say,
+     no dot after it, keeps the question and asks for one, and so does marking
+     the last card done without one); the other questions but the name may be
+     skipped. What leaves the Mac is the board's to say,
      behind the "Share daily usage counts" switch in Settings (RUNBOOK.md,
      Usage counts). -->
 <script src="/card-markdown.js"></script>
@@ -1570,8 +1571,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // given being the yes to feedback mail, and the card goes, the ticket list
   // with it. the board then takes the frame away onto the sample project. the
   // profile needs a name, so the key without one goes to the onboarding card's
-  // first question, and a save that does not land calls the key back, to be
-  // pressed again
+  // first question, and without an email to the email question, which asks for
+  // it as an empty send does. a save that does not land calls the key back, to
+  // be pressed again
   let saving = false;
   async function finish(){
     if (finished || saving) return;
@@ -1579,6 +1581,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
       show(cards.indexOf(onboard));
       leaveHistory();
       nudge(onboard);
+      return;
+    }
+    if (!profile.email){
+      show(cards.indexOf(onboard));
+      leaveHistory();
+      onboard.asking = EMAIL_EMPTY;
+      render(onboard.el, pageRaw(onboard, onboard.pages.length - 1));
+      printReply(onboard.el);
       return;
     }
     saving = true;

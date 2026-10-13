@@ -179,6 +179,59 @@ test("the email is needed: an empty Enter and a malformed email keep the questio
   assert.ok(ONBOARDING.includes('parts.push(q.ask, q.note, q.check && card.asking, q.needed ? "" : SKIP_HINT);'));
 });
 
+// the page's own finish() (the done chord and the cross of 101: Hotkeys both call it), run in a vm with
+// the page around it stubbed: the card moves and the save are recorded. No browser.
+async function finishWith(answers) {
+  const grab = (from, to) => ONBOARDING.slice(ONBOARDING.indexOf(from), ONBOARDING.indexOf(to));
+  const calls = [];
+  const note = name => (...args) => { calls.push([name, ...args]); };
+  const onboard = { asking: null, el: { onboard: true }, pages: [{}, {}] };
+  const context = vm.createContext({
+    calls, onboard, cards: [{}, onboard], profile: { timeZone: null, ...answers },
+    show: note("show"), leaveHistory: note("leaveHistory"), nudge: note("nudge"), printReply: note("printReply"),
+    render: (el, raw) => calls.push(["render", raw]), pageRaw: (card, i) => i + ":" + card.asking,
+    unlight: note("unlight"), caretQueue: note("caretQueue"), projectReady: Promise.resolve(null),
+    fetch: async (url, init) => { calls.push(["fetch", url, JSON.parse(init.body)]); return { ok: true }; },
+    document: { body: { classList: { add: note("obdone") } }, activeElement: null },
+    window: {}, parent: { postMessage: note("postMessage") }, location: { origin: "http://x" },
+    setTimeout: () => {},
+  });
+  vm.runInContext([
+    grab("  function said(text){", "  function plain(text)"),
+    grab("  const ADDRESS = ", "  // the last card closed"),
+    grab("  const EMAIL_EMPTY = ", "  const QUESTIONS = ["),
+    "let finished = false, saving = false;",
+    grab("  async function finish(){", "  // ---- moving between cards"),
+  ].join("\n"), context);
+  await vm.runInContext("finish()", context);
+  return { calls, onboard, finished: vm.runInContext("finished", context),
+           empty: vm.runInContext("emailProblem", context)("") };
+}
+
+test("marking the last card done without an email goes back to the email question, as without a name", async () => {
+  const names = calls => calls.map(c => c[0]);
+  // a name and no email: the email question again with its short line, and nothing saved
+  const noEmail = await finishWith({ name: "Ada", email: null });
+  assert.deepEqual(names(noEmail.calls).filter(n => n === "fetch" || n === "postMessage"), [], "saved with no email");
+  assert.equal(noEmail.finished, false);
+  assert.deepEqual(noEmail.calls[0], ["show", 1], "not back on the onboarding card");
+  assert.equal(noEmail.onboard.asking, noEmail.empty, "not the email question's own empty line");
+  assert.deepEqual(noEmail.calls.find(c => c[0] === "render"), ["render", "1:" + noEmail.empty], "not on the email question");
+  assert.ok(names(noEmail.calls).includes("printReply"), "the line is not shown");
+  // no name: the first question, as before, with no email line put up
+  const noName = await finishWith({ name: null, email: null });
+  assert.deepEqual(names(noName.calls), ["show", "leaveHistory", "nudge"]);
+  assert.equal(noName.onboard.asking, null);
+  // both given: saved, with the email and the yes
+  const both = await finishWith({ name: "Ada", email: "ada@example.org" });
+  const save = both.calls.find(c => c[0] === "fetch");
+  assert.equal(save[1], "/profile");
+  assert.equal(save[2].email, "ada@example.org");
+  assert.equal(save[2].emailYes, true);
+  assert.equal(both.finished, true);
+  assert.equal(both.onboard.asking, null);
+});
+
 test("the onboarding is Welcome, one onboarding card of four questions with a needed email, and four 101 cards", () => {
   for (const title of ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Orchestrator Agent",
                        "101: Cards & atomizing ideas", "101: Tickets", "101: Hotkeys"])
