@@ -71,6 +71,7 @@ function element(tag, cls = "", text) {
     getBoundingClientRect() { return this.rect ? this.rect() : { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }; },
     focus() { dom.active = this; },
     scrollIntoView() {},
+    click() { return this.fire("click", { detail: 0 }); },
   };
   return el;
 }
@@ -81,15 +82,11 @@ function fixture(over = {}) {
   const ids = {}, windowListeners = {}, docListeners = {}, writes = [], opens = [], fetches = [], calls = [];
   const make = (id, tag = "div", cls = "") => { const el = element(tag, cls); el.id = id; ids[id] = el; return el; };
   const body = make("body", "body", "focus");
-  for (const id of ["projpill", "chimebtn", "setbtn"]) body.appendChild(make(id, "button", "qn-glass"));
+  for (const id of ["homeico", "projpill", "chimebtn", "setbtn"]) body.appendChild(make(id, "button", "qn-glass"));
   ids.projpill.appendChild(make("projname", "span"));
+  ids.projpill.appendChild(make("projchev", "span")).appendChild(make("projchevsvg", "svg"));
   body.appendChild(make("tabbar", "span"));
   const menu = body.appendChild(make("projmenu", "div", "qn-glass"));
-  // Home, the list's first row: its house in the number's column, then its word
-  const homeRow = menu.appendChild(make("projhome", "button", "projrow"));
-  const homeLine = homeRow.appendChild(element("span", "pline"));
-  homeLine.appendChild(element("span", "pnum")); homeLine.appendChild(element("span", "pname", "Home"));
-  menu.appendChild(make("homesep"));
   const list = menu.appendChild(make("projlist"));
   menu.appendChild(make("projsep"));
   const fresh = menu.appendChild(make("projnew", "button", "projrow"));
@@ -140,7 +137,6 @@ function fixture(over = {}) {
     apply(st) { context.renderTabs(st); },
     setHome(on) { context.homeOpen = !!on; context.renderTabs(state); },
     endDraft() { context.draft = null; },
-    renderHome(st, readying) { calls.push("renderHome"); },
     projNote(msg) { calls.push("note " + msg); },
     poll: async () => { calls.push("poll"); state.boxes.push(card("g1", "garden")); state.tabs.order.push("garden"); context.validActiveOwnerIds.add("garden"); },
   });
@@ -152,9 +148,6 @@ function fixture(over = {}) {
   run(between("// ---- the project pill, its list and the faint suggestions", "// ---- the press on the bar's glass"));
   run(between("// closing a project works exactly", "// the new project tab:"));
   run(between("const homePick =", "// ---- the home page"));
-  // the Home row's two listeners: the one that readies the page, and the one that opens it
-  run(between("// the Home row leaves an unfinished new tab", "// the start button hands"));
-  run(between("// Home is a place, like a tab", "// put back once"));
   context.renderTabs(state);
   const rows = () => list.children;
   const row = ow => rows().find(r => r.dataset.owner === ow);
@@ -162,7 +155,7 @@ function fixture(over = {}) {
   const place = () => rows().forEach((r, i) => { r.rect = () => box(54, 51 + 32 * i, 208, 32); });
   place();
   const win = (type, extra = {}) => { for (const fn of windowListeners[type] || []) fn({ buttons: 1, button: 0, preventDefault() {}, stopImmediatePropagation() {}, ...extra }); };
-  return { context, state, ids, body, menu, list, fresh, homeRow, writes, opens, fetches, calls, store, rows, row, place, win,
+  return { context, state, ids, body, menu, list, fresh, writes, opens, fetches, calls, store, rows, row, place, win,
     get: code => vm.runInContext(code, context),
     open: () => ids.projpill.fire("click"),
     isOpen: () => body.classes.has("projopen"),
@@ -190,87 +183,172 @@ test("the pill names the open project, and its list holds every open project in 
   assert.deepEqual(f.names(), ["facilitator", "mindzone", "akashs-toolshed", "mackie"]);
 });
 
-test("while Home is open no row is checked, and the pill reads Home", () => {
-  const f = fixture({ homeOpen: true });
-  assert.deepEqual(f.checked(), []); assert.equal(f.pill(), "Home");
+test("while Home is open the pill names the project you came from, with the chevron on, and no row is checked", () => {
+  const f = fixture({ homeOpen: true, activeOwner: "webpage" });
+  assert.deepEqual(f.checked(), []); assert.equal(f.pill(), "webpage");
   assert.equal(f.ids.projpill.hidden, false); assert.equal(f.ids.projpill.disabled, false);
-  // Home is a place, not a project with replies: the pill is not bold, though mackie holds an unread reply
+  assert.equal(f.ids.projname.dataset.label, "webpage");
+  assert.equal(f.ids.projpill.classes.has("athome"), true);
+  assert.equal(f.ids.projchev.tabIndex, 0); assert.equal(f.ids.projchev.attributes["aria-hidden"], "false");
+  assert.equal(f.ids.projpill.attributes["aria-haspopup"], "false", "the pill itself opens a project, the chevron opens the list");
+  assert.match(f.ids.projpill.attributes["aria-label"], /^webpage, unread replies elsewhere, open project$/);
+  // the name takes its bold as on a board: mackie holds an unread reply
   assert.equal(f.ids.projpill.classes.has("unread"), false);
-  assert.equal(f.ids.projname.dataset.label, "Home");
-  // the unread replies are all elsewhere, mackie's too
-  assert.match(f.ids.projpill.attributes["aria-label"], /^Home, unread replies elsewhere, choose a project$/);
+  assert.equal(fixture({ homeOpen: true }).ids.projpill.classes.has("unread"), true);
+  // off Home there is no chevron to reach and the whole pill opens the list
+  const g = fixture({ activeOwner: "webpage" });
+  assert.equal(g.ids.projpill.classes.has("athome"), false);
+  assert.equal(g.ids.projchev.tabIndex, -1); assert.equal(g.ids.projchev.attributes["aria-hidden"], "true");
+  assert.equal(g.ids.projpill.attributes["aria-haspopup"], "true");
+  assert.match(g.ids.projpill.attributes["aria-label"], /, choose a project$/);
+  // a board with no project to name has no pill on Home either
+  const h = fixture({ homeOpen: true, activeOwner: "gone" });
+  assert.equal(h.ids.projpill.hidden, true); assert.equal(h.ids.projpill.classes.has("athome"), false);
+  // and a project's own window never grows a chevron
+  assert.equal(fixture({ LOCKED: "webpage", activeOwner: "webpage", homeOpen: true }).ids.projpill.classes.has("athome"), false);
 });
 
-test("a click on the Home pill opens the list, as on a project, with no row checked; the list shuts as before", () => {
+test("on Home a click on the chevron opens the list, as on a project, with no row checked; the list shuts as before", () => {
   const f = fixture({ homeOpen: true, activeOwner: "webpage" });
-  f.open(); assert.equal(f.isOpen(), true);
-  assert.equal(f.ids.projpill.attributes["aria-expanded"], "true");
+  f.ids.projchev.fire("click"); assert.equal(f.isOpen(), true);
+  assert.equal(f.ids.projpill.attributes["aria-expanded"], "true"); assert.equal(f.ids.projchev.attributes["aria-expanded"], "true");
   assert.deepEqual(f.names(), ["facilitator", "mindzone", "akashs-toolshed", "webpage", "mackie"]);
   assert.deepEqual(f.checked(), []);
   assert.equal(f.row("webpage").attributes["aria-current"], "false");
-  f.open(); assert.equal(f.isOpen(), false, "a second click shuts it");
+  assert.equal(f.context.homeOpen, true, "opening the list leaves Home up");
+  // the same list sits under the pill's left edge
+  assert.equal(f.menu.style.left, "48px"); assert.equal(f.menu.style.top, "45px");
+  f.ids.projchev.fire("click"); assert.equal(f.isOpen(), false, "a second click shuts it");
+  assert.equal(f.ids.projchev.attributes["aria-expanded"], "false");
+  // the chevron's own drawing counts as the chevron
+  f.ids.projchev.children[0].fire("click"); assert.equal(f.isOpen(), true);
+  // Escape shuts it and the focus goes back to the pill
+  f.win("keydown", { key: "Escape" }); assert.equal(f.isOpen(), false); assert.equal(dom.active, f.ids.projpill);
+  // from the keyboard the chevron answers Enter and Space, and the first row takes the focus
+  for (const key of ["Enter", " "]) {
+    const e = f.ids.projchev.fire("keydown", { key }); assert.equal(e.defaultPrevented, true);
+    assert.equal(f.isOpen(), true); assert.equal(dom.active, f.rows()[0]);
+    f.ids.projchev.fire("click");
+  }
+  f.ids.projchev.fire("keydown", { key: "a" }); assert.equal(f.isOpen(), false);
+  // a press outside shuts it, the pill and the chevron being inside
+  f.ids.projchev.fire("click"); f.doc("pointerdown", { target: f.ids.projchev }); assert.equal(f.isOpen(), true);
+  f.doc("pointerdown", { target: f.ids.chimebtn }); assert.equal(f.isOpen(), false);
 });
 
-test("on Home the project you came from leads the faint names, one click away, and a click leaves Home for it", () => {
-  const f = fixture({ activeOwner: "webpage" });
-  // on its board the project is the pill, and not a faint name
-  assert.deepEqual(f.suggestions(), ["mackie", "mindzone"]);
-  f.context.setHome(true);
-  assert.equal(f.pill(), "Home");
-  assert.deepEqual(f.suggestions(), ["webpage", "mackie", "mindzone"], "the project left leads on Home");
-  // a long gone project that was left is first all the same, and the cap of 4 holds
-  const g = fixture({ homeOpen: true, activeOwner: "facilitator" });
+test("on Home a click on the name opens that project, and the list shuts if it was open", () => {
+  for (const hit of ["projname", "projpill"]) {
+    const f = fixture({ homeOpen: true, activeOwner: "webpage" });
+    f.ids[hit].fire("click");
+    assert.equal(f.context.homeOpen, false, hit); assert.equal(f.context.activeOwner, "webpage");
+    assert.equal(f.pill(), "webpage"); assert.deepEqual(f.checked(), ["webpage"]);
+    assert.equal(f.isOpen(), false);
+    assert.equal(f.store.get("projleft") ?? null, null, "it is the same project: nothing was left");
+    assert.equal(f.ids.projpill.classes.has("athome"), false);
+  }
+  const g = fixture({ homeOpen: true, activeOwner: "webpage" });
+  g.ids.projchev.fire("click"); assert.equal(g.isOpen(), true);
+  g.ids.projname.fire("click");
+  assert.equal(g.isOpen(), false); assert.equal(g.context.homeOpen, false); assert.equal(g.pill(), "webpage");
+  // off Home the whole pill is one button for the list, the name included
+  const h = fixture({ activeOwner: "webpage" });
+  h.ids.projname.fire("click"); assert.equal(h.isOpen(), true); assert.equal(h.context.activeOwner, "webpage");
+  h.ids.projname.fire("click"); assert.equal(h.isOpen(), false);
+  // pressed from the keyboard, the pill itself opens the project
+  const k = fixture({ homeOpen: true, activeOwner: "webpage" });
+  k.ids.projpill.fire("click", { detail: 0 }); assert.equal(k.context.homeOpen, false);
+});
+
+test("on Home the project you came from is the pill's name, not a faint name; the faint names are the same on Home as on it", () => {
+  for (const ow of ["facilitator", "mindzone", "akashs-toolshed", "webpage", "mackie"]) {
+    const f = fixture({ activeOwner: ow }), off = f.suggestions();
+    assert.ok(!off.includes(ow));
+    f.context.setHome(true);
+    assert.equal(f.pill(), ow);
+    assert.deepEqual(f.suggestions(), off, ow);
+    assert.ok(!f.suggestions().includes(ow), ow + " is shown twice on Home");
+    assert.ok(f.suggestions().length <= 4);
+  }
+  // the project left before still leads, on Home as off it
+  const g = fixture({ activeOwner: "webpage", store: { projleft: "facilitator" } });
   assert.equal(g.suggestions()[0], "facilitator");
-  assert.ok(g.suggestions().length <= 4);
-  // one click on that faint name: the project's name is back in the pill, Home is down
-  f.ids.tabbar.children[0].fire("click");
-  assert.equal(f.context.homeOpen, false); assert.equal(f.context.activeOwner, "webpage");
-  assert.equal(f.pill(), "webpage"); assert.deepEqual(f.checked(), ["webpage"]);
-  assert.equal(f.ids.projname.dataset.label, "webpage");
-  assert.deepEqual(f.suggestions(), ["mackie", "mindzone"]);
+  g.context.setHome(true); assert.equal(g.suggestions()[0], "facilitator"); assert.equal(g.pill(), "webpage");
+  // a faint name on Home leaves it for that project, and the project came from is the one left
+  g.ids.tabbar.children[0].fire("click");
+  assert.equal(g.context.homeOpen, false); assert.equal(g.pill(), "facilitator"); assert.equal(g.store.get("projleft"), "webpage");
+  assert.equal(g.suggestions()[0], "webpage");
 });
 
-test("leaving Home by another faint name, a list row or Command + 1 to 9 puts that project's name back in the pill", () => {
-  const home = over => { const f = fixture({ homeOpen: true, activeOwner: "webpage", ...over }); assert.equal(f.pill(), "Home"); return f; };
-  // another faint name
-  let f = home(); f.ids.tabbar.children[1].fire("click");
-  assert.equal(f.pill(), "mackie"); assert.equal(f.context.homeOpen, false); assert.deepEqual(f.checked(), ["mackie"]);
+test("leaving Home by the name, a faint name, a list row or Command + 1 to 9 takes the chevron away and names the project", () => {
+  const home = over => { const f = fixture({ homeOpen: true, activeOwner: "webpage", ...over }); assert.equal(f.ids.projpill.classes.has("athome"), true); return f; };
+  const gone = f => { assert.equal(f.context.homeOpen, false); assert.equal(f.ids.projpill.classes.has("athome"), false);
+    assert.equal(f.ids.projchev.tabIndex, -1); assert.equal(f.ids.projchev.attributes["aria-hidden"], "true"); };
+  // the name
+  let f = home(); f.ids.projname.fire("click"); gone(f); assert.equal(f.pill(), "webpage");
+  // a faint name
+  f = home(); f.ids.tabbar.children[0].fire("click"); gone(f); assert.equal(f.pill(), "mackie"); assert.deepEqual(f.checked(), ["mackie"]);
   // a row of the list
-  f = home(); f.open(); f.row("mindzone").fire("click");
-  assert.equal(f.pill(), "mindzone"); assert.equal(f.context.homeOpen, false); assert.equal(f.isOpen(), false);
+  f = home(); f.ids.projchev.fire("click"); f.row("mindzone").fire("click");
+  gone(f); assert.equal(f.pill(), "mindzone"); assert.equal(f.isOpen(), false);
   // the row of the project Home came from
-  f = home(); f.open(); f.row("webpage").fire("click");
-  assert.equal(f.pill(), "webpage"); assert.equal(f.context.homeOpen, false);
+  f = home(); f.ids.projchev.fire("click"); f.row("webpage").fire("click"); gone(f); assert.equal(f.pill(), "webpage");
   // Command + 1 to 9: the tab key's handler is setTab on the list's order
-  f = home(); f.context.setTab(f.context.rowsOf(f.state)[1]);
-  assert.equal(f.pill(), "mindzone"); assert.equal(f.context.homeOpen, false);
+  f = home(); f.context.setTab(f.context.rowsOf(f.state)[1]); gone(f); assert.equal(f.pill(), "mindzone");
   // and the pill takes its bold again when that project holds a reply not yet read
   assert.equal(f.ids.projpill.classes.has("unread"), true);
+  // arriving at Home brings it back
+  f.context.setHome(true); assert.equal(f.ids.projpill.classes.has("athome"), true); assert.equal(f.pill(), "mindzone");
 });
 
-test("the Home pill carries the board's own house before the word, drawn only while Home is up", () => {
+test("the chevron is a small down arrow inside the pill after the name, faded in on Home and out off it, with a hit area of its own", () => {
   const pill = html.match(/<button id="projpill"[^>]*>([\s\S]*?)<\/button>/)[1];
-  const house = html.match(/<button id="projhome"[^>]*>[\s\S]*?(<svg[\s\S]*?<\/svg>)/)[1];
-  const ico = pill.match(/^(<svg id="projico"[\s\S]*?<\/svg>)<span id="projname"><\/span>$/);
-  assert.ok(ico, "the pill is the house and the name");
-  assert.equal(ico[1].replace(' id="projico"', "").replace(' aria-hidden="true"', ""), house.replace(' aria-hidden="true"', ""),
-    "the pill's house is not the Home row's drawing");
-  assert.match(ico[1], /aria-hidden="true"/);
-  assert.match(ico[1], /stroke="currentColor"/, "the house takes the word's colour");
-  // 15px beside the 14px word, 6px from it; the pill's flex centres it on the line
-  const base = rule(sheet, "body.focus #projico");
-  assert.equal(decl(base, "display"), "none"); assert.equal(decl(base, "flex"), "none");
-  assert.equal(decl(base, "margin-right"), "6px");
-  assert.equal(decl(rule(sheet, "body.focus.home #projico"), "display"), "block");
-  assert.match(sheet, /body\.focus #projpill\{[^}]*display:flex; align-items:center/);
-  assert.match(html, /<svg id="projico" width="15" height="15"/);
-  // the pill's own height, padding, corners and type are as they were
+  assert.deepEqual([...pill.matchAll(/<(\w+)/g)].map(m => m[1]), ["span", "span", "svg", "path"], "the pill carries more than its name and the chevron");
+  assert.match(pill, /^<span id="projname"><\/span><span id="projchev" /, "the chevron stands after the name");
+  assert.doesNotMatch(html, /id="projico"|#projico/, "the house is gone from the pill");
+  const chev = pill.match(/<span id="projchev"[^>]*>(<svg[\s\S]*?<\/svg>)<\/span>/)[1];
+  assert.match(chev, /width="12" height="12"/); assert.match(chev, /stroke="currentColor"/); assert.match(chev, /aria-hidden="true"/);
+  assert.match(chev, /<path d="m6 9 6 6 6-6"\/>/, "a down chevron");
+  // it takes no room and is invisible off Home, and eases to its size and full opacity on Home, both ways
+  const off = rule(sheet, "body.focus #projchev"), on = rule(sheet, "body.focus #projpill.athome #projchev");
+  assert.equal(decl(off, "width"), "0"); assert.equal(decl(off, "opacity"), "0"); assert.equal(decl(off, "pointer-events"), "none");
+  assert.equal(decl(on, "width"), "12px"); assert.equal(decl(on, "opacity"), "1"); assert.equal(decl(on, "pointer-events"), "auto");
+  assert.equal(decl(on, "margin-left"), "6px");
+  assert.match(decl(off, "transition"), /opacity \.22s/); assert.match(decl(off, "transition"), /width \.22s/);
+  assert.equal(decl(off, "color"), "var(--sub)");
+  assert.equal(decl(rule(sheet, "body.focus #projchev:hover"), "color"), "var(--ink)");
+  // the hit area reaches the pill's top, bottom and right edge (14px of padding) and no further left than the name's end
+  const hit = rule(sheet, "body.focus #projchev::before");
+  assert.equal(decl(hit, "top"), "0"); assert.equal(decl(hit, "bottom"), "0");
+  assert.equal(decl(hit, "right"), "-14px"); assert.ok(parseFloat(decl(hit, "left")) >= -6);
+  // the pill's own height, padding, corners and type are as they were, and nothing is purple or a new colour
   const p = rule(sheet, "body.focus #projpill");
   assert.equal(decl(p, "height"), "32px"); assert.equal(decl(p, "padding"), "0 14px");
   assert.equal(decl(p, "border-radius"), "16px"); assert.equal(decl(p, "font"), "400 14px/17px var(--sans)");
-  // the round Home button and its held press are gone; the new rules bring no purple or new colour
-  assert.doesNotMatch(sheet, /#homeico/);
-  assert.doesNotMatch(base + rule(sheet, "body.focus.home #projico"), /#[0-9a-f]{3,6}\b|rgb|--accent/i);
+  assert.match(sheet, /body\.focus #projpill\{[^}]*display:flex; align-items:center/);
+  assert.doesNotMatch(off + on + hit, /#[0-9a-f]{3,6}\b|rgb|--accent/i);
+});
+
+test("the round glass Home button is back at the bar's left as it was, pressed while Home is up, and the list has no Home row", () => {
+  const house = '<button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>';
+  const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
+  assert.ok(bar.includes('<span id="tabrow">\n  ' + house + '\n  <button id="projpill"'), "the Home button is the bar's first piece, before the pill");
+  assert.doesNotMatch(html, /id="projhome"|id="homesep"|#projhome|#homesep/, "a Home row is left in the list");
+  const list = html.slice(html.indexOf('<div id="projmenu"'), html.indexOf("</div>\n", html.indexOf('<button id="projnew"')) + 7);
+  assert.deepEqual([...list.matchAll(/id="(\w+)"/g)].map(m => m[1]), ["projmenu", "projlist", "projsep", "projnew"]);
+  // its look: the 32px glass circle, the sub ink and the full ink under a pointer, 11px of glass gap to the pill
+  const c = rule(sheet, "body.focus :is(#homeico, #chimebtn, #setbtn)");
+  assert.equal(decl(c, "width"), "32px"); assert.equal(decl(c, "height"), "32px"); assert.equal(decl(c, "border-radius"), "50%");
+  assert.equal(decl(c, "color"), "var(--sub)");
+  assert.equal(decl(rule(sheet, "body.focus :is(#homeico, #chimebtn, #setbtn):hover"), "color"), "var(--ink)");
+  assert.equal(parseFloat(decl(rule(sheet, "body.focus #tabrow"), "gap")), 11);
+  // the press, and stays pressed while Home is up
+  assert.match(sheet, /body\.focus :is\(#homeico, #chimebtn, #setbtn, #projpill\)\.pressed\{transform:scale\(1\.06\)/);
+  assert.match(sheet, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
+  assert.match(html, /for \(const btn of \["homeico", "projpill", "chimebtn", "setbtn"\]/);
+  assert.match(html, /document\.getElementById\("homeico"\)\.setAttribute\("aria-pressed", String\(homeOpen\)\)/);
+  // Command + 0 clicks it, and a press on it opens Home
+  assert.match(html, /if \(!homeOpen\) document\.getElementById\("homeico"\)\.click\(\)/);
+  assert.match(html, /document\.getElementById\("homeico"\)\.addEventListener\("click", \(\) => \{ if \(!homeOpen\) setHome\(true\); \}\)/);
 });
 
 test("a project's own window shows its name on a pill that opens nothing, and no faint names", () => {
@@ -432,13 +510,10 @@ test("\"Open a new folder\" opens the Mac's folder chooser and lands on the new 
   assert.equal(f.context.homeOpen, false); assert.equal(f.store.get("projleft"), "mackie");
 });
 
-test("the pill and the right-hand circles keep their places, and no Home button stands before the pill: no plus, no lens, no row of names", () => {
+test("the house, the pill and the right-hand circles keep their places: no plus, no lens, no row of names", () => {
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
-  const order = ["projpill", "tabbar", "chimebtn", "installbtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
+  const order = ["homeico", "projpill", "tabbar", "chimebtn", "installbtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "the bar's order changed");
-  // the pill is the first piece of the bar: nothing but the row's own wrapper before it
-  assert.match(bar, /^<div class="bar">\s*<span id="tabrow">\s*<button id="projpill"/, "something stands before the pill");
-  assert.doesNotMatch(html, /homeico/);
   assert.doesNotMatch(html, /ptabplus|class="ptab"|"ptab"\)|tabKillMark|function placeSeat/);
   // nothing in the bar's new rules is the board's purple
   const css = html.slice(html.indexOf("/* ---- the bar's glass"), html.indexOf("/* ---- new-project tab"));
@@ -462,14 +537,12 @@ test("nothing below the bar clips its glass's shadows: only the root keeps the p
   assert.doesNotMatch(sheet, /body\.focus \.bar\{[^}]*overflow/);
 });
 
-test("the pill is the name, with the Home house before it only on Home, and the list's rows have no check mark", () => {
+test("the pill is the name and the chevron, and the list's rows have no check mark", () => {
   const pill = html.match(/<button id="projpill"[^>]*>([\s\S]*?)<\/button>/)[1];
-  assert.deepEqual([...pill.matchAll(/<(\w+)/g)].map(m => m[1]), ["svg", "path", "path", "span"], "the pill carries more than the house and its name");
-  assert.match(pill, /<span id="projname"><\/span>$/);
+  assert.deepEqual([...pill.matchAll(/<(\w+)/g)].map(m => m[1]), ["span", "span", "svg", "path"], "the pill carries more than its name and the chevron");
+  assert.match(pill, /^<span id="projname"><\/span>/);
   const list = html.slice(html.indexOf('<div id="projmenu"'), html.indexOf("</div>\n", html.indexOf('<div id="projsep"')) + 20);
-  // the one drawing in the list is Home's house, at the head of it; no row carries a check mark
-  assert.equal([...list.matchAll(/<svg/g)].length, 1, "the list carries a mark");
-  assert.ok(list.indexOf("<svg") > list.indexOf('id="projhome"') && list.indexOf("<svg") < list.indexOf('id="homesep"'), "the mark is not Home's house");
+  assert.doesNotMatch(list, /<svg/, "the list carries a mark");
   assert.doesNotMatch(html, /PROJ_CHECK|pcheck|class="pmark"|"pmark"/);
   // the open project's row still says so, to assistive tech only
   const f = fixture();
@@ -611,85 +684,4 @@ test("the speaker and the squid stand the house's gap to the pill apart, and the
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
   assert.ok(bar.lastIndexOf('id="setbtn"') > bar.lastIndexOf('id="chimebtn"'));
   assert.equal(decl(rule(sheet, "body.focus .bar #chimebtn"), "margin-left"), "auto");
-});
-
-// ---- round 8 (20261012): no Home button; Home is the list's first row -------------
-test("there is no round Home button in the bar, and nothing is left that only served it", () => {
-  assert.doesNotMatch(html, /homeico/, "the Home button's id is still in the page");
-  // the bar's markup starts with the pill, with no Home title or label before it
-  const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
-  assert.doesNotMatch(bar, /title="Home"|aria-label="Home"/);
-  // the pill starts at the bar's left inset: the bar has no side padding and the row's first piece is the pill
-  assert.match(sheet, /body\.focus \.bar\{\s*margin:var\(--app-inset\) var\(--app-inset\) 0;/);
-  assert.equal(decl(rule(sheet, "body.focus .bar"), "padding"), "1px 0 6px");
-  // the glass gaps stay: 11px between the row's pieces, the speaker's and squid's 11px, the faint names' 28px of room
-  assert.equal(decl(rule(sheet, "body.focus #tabrow"), "gap"), "11px");
-  assert.equal(decl(rule(sheet, "body.focus #tabbar"), "margin-left"), "-11px");
-  assert.equal(decl(rule(sheet, "body.focus .bar #setbtn"), "margin-left"), "3px");
-  assert.equal(decl(rule(sheet, "body.focus .bar"), "gap"), "8px");
-  // the press goes to the pill and the right-hand circles alone
-  assert.match(html, /for \(const btn of \["projpill", "chimebtn", "setbtn"\]\.map\(/);
-  assert.match(sheet, /body\.focus :is\(#chimebtn, #setbtn, #projpill\)\.pressed\{/);
-});
-
-test("Home is the first row of the pill's list, with the house before the word, as the phone's list has it", () => {
-  const phone = readFileSync(path.join(root, "m.html"), "utf8");
-  const mac = html.match(/<button id="projhome" class="projrow"[^>]*>([\s\S]*?)<\/button>/);
-  assert.ok(mac, "no Home row");
-  const phoneHouse = phone.match(/<button id="homeico" class="projrow"[^>]*>(<svg[\s\S]*?<\/svg>)/)[1].replace(' aria-hidden="true"', "");
-  assert.equal(mac[1].match(/<svg[\s\S]*?<\/svg>/)[0].replace(' aria-hidden="true"', ""), phoneHouse, "not the phone's house");
-  assert.match(mac[1], /<span class="pname">Home<\/span>/);
-  // it heads the list: before the projects' rows and the separator after it, before "Open a new folder"
-  const menu = html.slice(html.indexOf('<div id="projmenu"'));
-  const at = id => menu.indexOf('id="' + id + '"');
-  assert.ok(at("projhome") > 0 && at("projhome") < at("homesep") && at("homesep") < at("projlist") && at("projlist") < at("projnew"));
-  const f = fixture();
-  assert.equal(f.menu.children[0], f.homeRow, "Home is not the first row");
-  assert.equal(f.menu.children.at(-1), f.fresh);
-  assert.deepEqual(f.names(), ["facilitator", "mindzone", "akashs-toolshed", "webpage", "mackie"], "the projects' rows changed");
-  // it has no number, no cross and no carry: it stands outside the list the rows are built into
-  assert.equal(f.list.contains(f.homeRow), false);
-  assert.equal(f.rows().length, 5);
-  f.open(); f.homeRow.fire("mousedown", { clientX: 100, clientY: 60 }); assert.equal(f.get("projCarry"), null);
-  // its look: the house in the number's column, in the row's ink, centred; the word on the names' own edge
-  assert.equal(decl(rule(sheet, "#projmenu #projhome .pnum"), "display"), "flex");
-  assert.equal(decl(rule(sheet, "#projmenu #projhome .pnum"), "justify-content"), "center");
-  assert.equal(decl(rule(sheet, "#projmenu #projhome .pnum"), "color"), "inherit");
-  assert.match(sheet, /#projsep, #homesep\{flex:none; height:var\(--edge\); margin:4px 8px;/);
-  assert.doesNotMatch(rule(sheet, "#projmenu #projhome .pnum") + rule(sheet, "#projmenu #projhome .pline"), /#[0-9a-f]{3,6}\b|rgb|--accent/i);
-});
-
-test("a click on the Home row opens Home and shuts the list; it reads checked while Home is up, and no project does", () => {
-  const f = fixture();
-  assert.equal(f.homeRow.attributes["aria-current"], "false"); assert.equal(f.homeRow.classes.has("on"), false);
-  f.open(); assert.equal(f.isOpen(), true);
-  f.homeRow.fire("click");
-  assert.equal(f.context.homeOpen, true, "Home did not open");
-  assert.equal(f.isOpen(), false, "the list stayed open");
-  assert.equal(f.pill(), "Home");
-  assert.equal(f.homeRow.classes.has("on"), true); assert.equal(f.homeRow.attributes["aria-current"], "true");
-  assert.deepEqual(f.checked(), [], "a project is checked as well");
-  assert.ok(f.calls.includes("renderHome"), "the page was not readied");
-  // reopened on Home the list shows Home checked and focuses it from the keys
-  f.ids.projpill.fire("click", { detail: 0 }); assert.equal(dom.active, f.homeRow);
-  f.win("keydown", { key: "ArrowDown" }); assert.equal(dom.active, f.row("facilitator"));
-  // another click on it while Home is up changes nothing
-  const readied = f.calls.filter(c => c === "renderHome").length; f.homeRow.fire("click");
-  assert.equal(f.context.homeOpen, true); assert.equal(f.calls.filter(c => c === "renderHome").length, readied, "the page was readied again");
-  // choosing a project leaves Home: it is checked and Home is not
-  f.row("mindzone").fire("click");
-  assert.equal(f.context.homeOpen, false); assert.deepEqual(f.checked(), ["mindzone"]);
-  assert.equal(f.homeRow.classes.has("on"), false); assert.equal(f.homeRow.attributes["aria-current"], "false");
-  assert.equal(f.pill(), "mindzone");
-});
-
-test("Command + 0 clicks the Home row, and nothing else answers for Home in the page's script", () => {
-  assert.match(html, /home\(e\)\{\s*e\.preventDefault\(\);\s*if \(!homeOpen\) document\.getElementById\("projhome"\)\.click\(\);/);
-  // the three listeners on the row, in their old order: ready the page, open it, let go of the card
-  const order = ['getElementById("projhome").addEventListener("click", () => {\n  closeProjMenu();',
-    'getElementById("projhome").addEventListener("click", () => { if (!homeOpen) setHome(true); });',
-    'getElementById("projhome")?.addEventListener("click", () => unselectShown());'].map(s => html.indexOf(s));
-  assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "the row's listeners are missing or out of order");
-  // the page's own state for Home is the list's: no aria-pressed on a button
-  assert.doesNotMatch(html, /aria-pressed", String\(homeOpen\)/);
 });

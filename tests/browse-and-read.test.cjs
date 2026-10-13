@@ -146,8 +146,8 @@ function desktop() {
   doc.body = body;
   doc.head = new Node(doc, "head");
   doc.activeElement = body;
-  // Home's row in the pill's list and the home page it opens, both outside the stage
-  const homeRow = new Node(doc, "button", { id: "projhome", parent: body });
+  // the house in the bar and the home page it opens, both outside the stage
+  const homeico = new Node(doc, "button", { id: "homeico", parent: body });
   new Node(doc, "div", { id: "homeplot", parent: new Node(doc, "section", { id: "home", parent: body }) });
   const stage = new Node(doc, "div", { id: "stage", parent: body });
   const main = new Node(doc, "main", { parent: stage });
@@ -241,7 +241,7 @@ function desktop() {
     return e;
   };
   return {
-    sandbox, doc, body, main, els, rows, state, seen, get, press, store, addCard, homeRow,
+    sandbox, doc, body, main, els, rows, state, seen, get, press, store, addCard, homeico,
     shown: () => get("selectedId"),
     browsing: () => get("browsing"),
     row: id => rows.find(r => r.dataset.id === id),
@@ -519,7 +519,7 @@ test("a double click on the empty board lowers the card, which stays on screen; 
     assert.equal(lowered(), false, "Enter left the card lowered");
   }
   // not the paper: the card, a ticket, a button
-  for (const node of [d.els.a.reply, d.main, d.row("a"), d.homeRow]) {
+  for (const node of [d.els.a.reply, d.main, d.row("a"), d.homeico]) {
     d.press("Enter");
     d.dblclickOn(node);
     assert.equal(lowered(), false, `a double click on ${node.tagName}#${node.id} lowered the card`);
@@ -708,8 +708,8 @@ test("going home unselects the card, and nothing on the board is selected or rea
   d.press("Enter");
   assert.equal(d.doc.activeElement, d.els.a.ta, "the caret is not in the card's composer");
   d.seen.length = 0;
-  d.homeRow.click();
-  assert.equal(d.get("homeOpen"), true, "the Home row did not open home");
+  d.homeico.click();
+  assert.equal(d.get("homeOpen"), true, "the house did not open home");
   assert.ok(d.body.classList.contains("home"));
   assert.equal(d.browsing(), true, "the card stayed selected under the home page");
   assert.equal(d.doc.activeElement, d.body, "the caret stayed in the card under the home page");
@@ -732,7 +732,7 @@ test("going home unselects the card, and nothing on the board is selected or rea
 test("leaving home through a tab shows the card browsed, and it is read when selected", () => {
   const d = loaded();
   d.press("Enter");
-  d.homeRow.click();
+  d.homeico.click();
   d.state.boxes.find(x => x.id === "a").replies = 2;
   d.sandbox.seenSync(d.state);
   d.seen.length = 0;
@@ -814,7 +814,7 @@ test("the card is raised on load, after switching projects and back, and after h
   d.press("ArrowRight");
   assert.equal(drawnRaised(d), true, "browsing to the next card drew it flat");
   // home and back
-  d.homeRow.click();
+  d.homeico.click();
   assert.equal(drawnRaised(d), true, "going home drew the card flat");
   d.get("setTab")("lane");
   assert.equal(d.get("homeOpen"), false);
@@ -841,7 +841,7 @@ test("a lowered card is raised again by a project switch, home, a ticket, the ar
   assert.equal(lowered(d), false, "a project switch left the card lowered");
   d.get("setTab")("lane");
   lower();
-  d.homeRow.click();
+  d.homeico.click();
   d.get("setTab")("lane");
   assert.equal(lowered(d), false, "coming back from home left the card lowered");
   lower();
@@ -876,7 +876,7 @@ test("Escape lets go of the caret and the card but does not lower it; the open p
   assert.equal(drawnRaised(d), true, "Escape drew the card flat");
   // the tab and the house let go of the card the way they did, and leave it standing
   d.press("Enter");
-  d.homeRow.click();
+  d.homeico.click();
   assert.equal(d.browsing(), true);
   assert.equal(lowered(d), false, "the house lowered the card");
   const choose = chooser(d);

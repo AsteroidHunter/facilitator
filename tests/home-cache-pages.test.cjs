@@ -22,7 +22,7 @@ function page(name) {
   const start = source.indexOf('const HOME_KEY = "homeopen";');
   const end = source.indexOf(phone ? "// the heading's mark and version" : "function setHome(on){", start);
   assert.ok(start > 0 && end > start);
-  const nodes = Object.fromEntries(["projhome", "homeplot", "homelimits", "stage"].map(id => [id, eventTarget()]));
+  const nodes = Object.fromEntries(["homeico", "homeplot", "homelimits", "stage"].map(id => [id, eventTarget()]));
   const document = eventTarget(), window = eventTarget();
   Object.assign(document, { hidden: false, getElementById: id => nodes[id], body: eventTarget() });
   const counts = { panel: 0, limits: 0, tokenLoads: 0, limitLoads: 0, tokenTicks: 0, limitTicks: 0, pauses: 0 };
