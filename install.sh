@@ -267,8 +267,8 @@ FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _install ${DEV_FLAG:+--
 
 mobile_app
 
-# Asks only when Chrome's graphics acceleration is off, and says nothing when
-# it is on. Leaving it as it is never stops the install.
+# Says Chrome's graphics acceleration is on, or when it is off offers to turn
+# it on. Leaving it as it is never stops the install.
 FACILITATOR_INTERNAL_INSTALL=1 "$PY" "$REPO/facilitator" _chrome-acceleration || true
 
 printf '\n'

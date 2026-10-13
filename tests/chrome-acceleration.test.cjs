@@ -1,25 +1,24 @@
-// ./install.sh's offer to turn on Chrome's graphics acceleration, against a fake
-// Local State in the sandbox home (see installer-sandbox.cjs). On or absent asks
-// nothing; off asks once, Enter is no, no terminal changes nothing, and a yes
-// waits for Chrome to quit. The fake Chrome holds a SingletonLock to its own pid
-// and, as it quits, writes its old Local State back the way Chrome does, so a
-// write made while it ran would be lost.
+// ./install.sh's Chrome graphics acceleration step, against a fake Local State in
+// the sandbox home (see installer-sandbox.cjs). On (the key true or absent) it
+// prints one check line. Off with Chrome closed it asks to turn it on, y or n.
+// Off with Chrome open it prints where to turn it on and asks y or l, and never
+// quits or waits for Chrome. No terminal asks nothing and changes nothing. The
+// fake Chrome holds a SingletonLock to its own pid, as Chrome does.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { execFile, spawn } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { promisify } = require("node:util");
 const { sandbox } = require("./installer-sandbox.cjs");
 
 const PHONE = "Would you like to use the phone client? (y / n) ";
-const QUESTION = "Turn it on? (y / n) ";
-const WAITING = "or press n to leave graphics acceleration off.";
-const LEFT_OFF = "⊘ Left it off. It is in Chrome under Settings > System.";
-const TURNED_ON = "✓ Graphics acceleration turned on. It takes effect when Chrome next opens.";
-const OFFER = "5. Chrome graphics\n──────────────────\n\n"
-  + "Chrome's graphics acceleration is off. The board runs smoother with it on.\n"
-  + "Chrome must be quit to change it.\n\n" + QUESTION;
+const ASK = "Turn on Chrome graphics acceleration?\n\n  y - yes (recommended)\n  n - no\n\nanswer: ";
+const STEPS = "Turn on graphics acceleration in Chrome:\n\n"
+  + 'Settings -> System -> turn on "Use graphics acceleration when available"\n\n'
+  + "  y - I turned gpu acceleration on\n  l - I will do it later\n\nanswer: ";
+const SECTION = "5. Chrome graphics\n──────────────────\n\n";
+const IS_ON = "✓ Chrome graphics acceleration is on.";
+const REOPEN = "Quit and reopen Chrome for graphics acceleration to take place.";
 const COMMAND = "✓ facilitator command and agent skill installed";
 
 async function withChrome(mode, body, options = {}) {
@@ -40,51 +39,17 @@ async function withChrome(mode, body, options = {}) {
 }
 
 // a stand-in for Chrome on that folder, running until quit() is called
-async function fakeChrome(folder, original, dir) {
-  const quitFile = path.join(dir, "quit-chrome");
-  const seen = path.join(dir, "seen-at-quit");
-  const orig = path.join(dir, "chrome-own-copy");
-  await fs.writeFile(orig, original);
+async function fakeChrome(folder) {
+  const quitFile = path.join(folder, "..", "quit-chrome");
   const lock = path.join(folder, "SingletonLock");
-  const child = spawn("sh", ["-c", `while [ ! -f "${quitFile}" ]; do sleep 0.1; done
-cp "${folder}/Local State" "${seen}"
-cp "${orig}" "${folder}/Local State"
-rm -f "${lock}"`], { stdio: "ignore" });
+  const child = spawn("sh", ["-c", `while [ ! -f "${quitFile}" ]; do sleep 0.1; done`], { stdio: "ignore" });
   await fs.symlink(`Sandbox-Mac.local-${child.pid}`, lock);
   const exited = new Promise(resolve => child.on("exit", resolve));
   return {
-    pid: child.pid,
     alive: () => { try { process.kill(child.pid, 0); return true; } catch { return false; } },
     quit: async () => { await fs.writeFile(quitFile, ""); await exited; },
-    seenAtQuit: () => fs.readFile(seen, "utf8"),
   };
 }
-
-// resolves once the installer's own step is running, so Chrome quits after the
-// question was asked
-async function stepStarted(repo) {
-  for (let i = 0; i < 600; i++) {
-    const found = await promisify(execFile)("pgrep", ["-f", `${repo}/facilitator _chrome-acceleration`]).then(() => true, () => false);
-    if (found) return;
-    await new Promise(r => setTimeout(r, 100));
-  }
-  throw new Error("the step never started");
-}
-
-test("on, or the key absent, or no Local State: nothing is asked or said, and the file is untouched", async () => {
-  for (const mode of ["on", "absent", "missing"]) {
-    await withChrome(mode, async ({ f, file, original, read, backup }) => {
-      if (mode === "missing") await fs.rm(file);
-      const { code, text, unsent } = await f.terminal([[PHONE, "n"]]);
-      assert.equal(code, 0, text);
-      assert.deepEqual(unsent, []);
-      assert.ok(text.includes(`${PHONE}n\n\n${COMMAND}\n`), `${mode}: ${text}`);
-      assert.doesNotMatch(text, /Chrome graphics|acceleration/, mode);
-      if (mode !== "missing") assert.equal(await read(), original, mode);
-      assert.equal(await f.has(backup), false, mode);
-    });
-  }
-});
 
 // the python3 macOS ships (3.9) can run the setup, so the step runs on it too
 const APPLE_PYTHON = (() => {
@@ -96,13 +61,36 @@ const APPLE_PYTHON = (() => {
   }
 })();
 
-test("off, yes, Chrome quit: backed up beside it, switched on, everything else kept", async () => {
-  for (const python of APPLE_PYTHON ? ["system", "apple"] : ["system"]) {
-    await withChrome("off", async ({ f, original, read, backup }) => {
-      const { code, text, unsent } = await f.terminal([[PHONE, "n"], [QUESTION, "y"]]);
+test("on, the key absent, or no Local State yet: one check line, no question, the file untouched", async () => {
+  for (const mode of ["on", "absent", "missing"]) {
+    await withChrome(mode, async ({ f, file, original, read, backup }) => {
+      if (mode === "missing") await fs.rm(file);
+      const { code, text, unsent } = await f.terminal([[PHONE, "n"]]);
       assert.equal(code, 0, text);
       assert.deepEqual(unsent, []);
-      assert.ok(text.includes(`${PHONE}n\n\n${OFFER}y\n\n${TURNED_ON}\n\n${COMMAND}\n`), `${python}: ${text}`);
+      assert.ok(text.includes(`${PHONE}n\n\n${SECTION}${IS_ON}\n\n${COMMAND}\n`), `${mode}: ${text}`);
+      assert.doesNotMatch(text, /Turn on Chrome|answer:/, mode);
+      if (mode !== "missing") assert.equal(await read(), original, mode);
+      assert.equal(await f.has(backup), false, mode);
+    });
+  }
+});
+
+test("on with no terminal: the same one check line", async () => {
+  await withChrome("on", async ({ f }) => {
+    const { code, text } = await f.piped();
+    assert.equal(code, 0, text);
+    assert.ok(text.includes(`${SECTION}${IS_ON}\n\n${COMMAND}\n`), text);
+  });
+});
+
+test("off, Chrome closed, y: backed up beside it, switched on, everything else kept, one check line", async () => {
+  for (const python of APPLE_PYTHON ? ["system", "apple"] : ["system"]) {
+    await withChrome("off", async ({ f, original, read, backup }) => {
+      const { code, text, unsent } = await f.terminal([[PHONE, "n"], ["answer: ", "y"]]);
+      assert.equal(code, 0, text);
+      assert.deepEqual(unsent, []);
+      assert.ok(text.includes(`${PHONE}n\n\n${SECTION}${ASK}y\n\n${IS_ON}\n\n${COMMAND}\n`), `${python}: ${text}`);
       if (python === "apple") assert.ok((await f.calls()).includes(`apple python3 ${f.repo}/facilitator`), python);
       const now = JSON.parse(await read());
       assert.deepEqual(now, { ...JSON.parse(original), hardware_acceleration_mode: { enabled: true } });
@@ -112,67 +100,77 @@ test("off, yes, Chrome quit: backed up beside it, switched on, everything else k
   }
 });
 
-test("off, Enter or n: left off in one line, the file untouched, no backup", async () => {
-  for (const key of ["\r", "n"]) {
-    await withChrome("off", async ({ f, original, read, backup }) => {
-      const { code, text, unsent } = await f.terminal([[PHONE, "n"], [QUESTION, `x${key}`]]);
-      assert.equal(code, 0, text);
-      assert.deepEqual(unsent, []);
-      assert.ok(text.includes(`${OFFER}n\n\n${LEFT_OFF}\n\n${COMMAND}\n`), JSON.stringify(key) + text);
-      assert.equal(await read(), original);
-      assert.equal(await f.has(backup), false);
-    });
-  }
-});
-
-test("off with no terminal: nothing asked, nothing changed, one line", async () => {
+test("off, Chrome closed, n: nothing printed after it, the file untouched, no backup; Enter and l are ignored", async () => {
   await withChrome("off", async ({ f, original, read, backup }) => {
-    const { code, text } = await f.piped();
+    const { code, text, unsent } = await f.terminal([[PHONE, "n"], ["answer: ", "\rlxn"]]);
     assert.equal(code, 0, text);
-    assert.ok(text.includes("5. Chrome graphics\n──────────────────\n\n"
-      + "⊘ Left Chrome's graphics acceleration off: there is no interactive terminal.\n\n" + COMMAND), text);
-    assert.doesNotMatch(text, /Turn it on/);
+    assert.deepEqual(unsent, []);
+    assert.ok(text.includes(`${SECTION}${ASK}n\n\n${COMMAND}\n`), text);
     assert.equal(await read(), original);
     assert.equal(await f.has(backup), false);
   });
 });
 
-test("off, yes, Chrome running: it waits for Chrome to quit, never quits it, then writes", async () => {
-  await withChrome("off", async ({ f, folder, original, read }) => {
-    const chrome = await fakeChrome(folder, original, f.dir);
-    const run = f.terminal([[PHONE, "n"], [QUESTION, "y"]]);
-    await stepStarted(f.repo);
-    await new Promise(r => setTimeout(r, 2500));
-    assert.equal(chrome.alive(), true, "Chrome was quit by the installer");
-    await chrome.quit();
-    const { code, text } = await run;
-    assert.equal(code, 0, text);
-    assert.ok(text.includes(`${OFFER}y\n\n`
-      + "Chrome is open. Quit it (Command + Q) and setup goes on by itself,\n"
-      + `${WAITING}\n\n${TURNED_ON}\n\n${COMMAND}\n`), text);
-    assert.equal(JSON.parse(await chrome.seenAtQuit()).hardware_acceleration_mode.enabled, false, "written while Chrome ran");
-    assert.equal(JSON.parse(await read()).hardware_acceleration_mode.enabled, true, "lost to Chrome's own write as it quit");
+test("off, Chrome open, y: the steps, then the line to quit and reopen; Chrome is left running, the file untouched", async () => {
+  await withChrome("off", async ({ f, folder, original, read, backup }) => {
+    const chrome = await fakeChrome(folder);
+    try {
+      const { code, text, unsent } = await f.terminal([[PHONE, "n"], ["answer: ", "\rny"]]);
+      assert.equal(code, 0, text);
+      assert.deepEqual(unsent, []);
+      assert.ok(text.includes(`${PHONE}n\n\n${SECTION}${STEPS}y\n\n${REOPEN}\n\n${COMMAND}\n`), text);
+      assert.equal(chrome.alive(), true, "Chrome was quit by the installer");
+      assert.equal(await read(), original);
+      assert.equal(await f.has(backup), false);
+    } finally { await chrome.quit(); }
   });
 });
 
-test("off, yes, Chrome running, then n: left off, Chrome left running", async () => {
-  await withChrome("off", async ({ f, folder, original, read }) => {
-    const chrome = await fakeChrome(folder, original, f.dir);
+test("off, Chrome open, l: the steps and nothing after the answer; Chrome is left running, the file untouched", async () => {
+  await withChrome("off", async ({ f, folder, original, read, backup }) => {
+    const chrome = await fakeChrome(folder);
     try {
-      const { code, text, unsent } = await f.terminal([[PHONE, "n"], [QUESTION, "y"], [WAITING, "n"]]);
+      const { code, text, unsent } = await f.terminal([[PHONE, "n"], ["answer: ", "l"]]);
       assert.equal(code, 0, text);
       assert.deepEqual(unsent, []);
-      assert.ok(text.includes(`${WAITING}\n\n${LEFT_OFF}\n\n${COMMAND}\n`), text);
+      assert.ok(text.includes(`${SECTION}${STEPS}l\n\n${COMMAND}\n`), text);
+      assert.doesNotMatch(text, /Quit and reopen/);
       assert.equal(chrome.alive(), true);
       assert.equal(await read(), original);
+      assert.equal(await f.has(backup), false);
     } finally { await chrome.quit(); }
+  });
+});
+
+test("off with no terminal, Chrome closed or open: nothing asked, nothing changed, one line", async () => {
+  for (const open of [false, true]) {
+    await withChrome("off", async ({ f, folder, original, read, backup }) => {
+      const chrome = open ? await fakeChrome(folder) : null;
+      try {
+        const { code, text } = await f.piped();
+        assert.equal(code, 0, text);
+        assert.ok(text.includes(`${SECTION}⊘ Left Chrome's graphics acceleration off: there is no interactive terminal.\n\n${COMMAND}`), text);
+        assert.doesNotMatch(text, /Turn on|answer:/);
+        assert.equal(await read(), original);
+        assert.equal(await f.has(backup), false);
+      } finally { if (chrome) await chrome.quit(); }
+    });
+  }
+});
+
+test("a SingletonLock left behind by a crash does not count as Chrome open", async () => {
+  await withChrome("off", async ({ f, folder }) => {
+    await fs.symlink("Sandbox-Mac.local-999999", path.join(folder, "SingletonLock"));
+    const { code, text } = await f.terminal([[PHONE, "n"], ["answer: ", "n"]]);
+    assert.equal(code, 0, text);
+    assert.ok(text.includes(`${SECTION}${ASK}n\n\n${COMMAND}\n`), text);
   });
 });
 
 test("a write that fails leaves Local State as it was and says so in one line", async () => {
   await withChrome("off", async ({ f, folder, original, read, backup }) => {
     await fs.chmod(folder, 0o555);
-    const { code, text } = await f.terminal([[PHONE, "n"], [QUESTION, "y"]]);
+    const { code, text } = await f.terminal([[PHONE, "n"], ["answer: ", "y"]]);
     assert.equal(code, 0, text);
     assert.match(text, /\n⚠ Could not turn on graphics acceleration \([^\n]*\)\. Chrome's settings were left as they were\.\n\n✓ facilitator command/);
     assert.equal(await read(), original);
@@ -182,9 +180,9 @@ test("a write that fails leaves Local State as it was and says so in one line", 
 
 test("Ctrl+C at the question ends the run in one sentence and changes nothing", async () => {
   await withChrome("off", async ({ f, original, read }) => {
-    const { code, text } = await f.terminal([[PHONE, "n"], [QUESTION, "\x03"]]);
+    const { code, text } = await f.terminal([[PHONE, "n"], ["answer: ", "\x03"]]);
     assert.equal(code, 130, text);
-    assert.match(text, /Turn it on\? \(y \/ n\) (\n\^C|\^C)?\nExiting facilitator installer\.\n$/);
+    assert.match(text, /answer: (\n\^C|\^C)?\nExiting facilitator installer\.\n$/);
     assert.doesNotMatch(text, /Traceback|command and agent skill installed/);
     assert.equal(await read(), original);
   });

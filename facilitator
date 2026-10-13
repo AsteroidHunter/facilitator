@@ -3481,18 +3481,24 @@ def cmd_update_steps(args):
 # copy back while it runs and as it quits, so it is changed only with Chrome
 # fully quit. The board opens in the main Chrome, so that folder is the one.
 CHROME_DATA = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
-CHROME_ACCEL_QUESTION = "Turn it on? (y / n) "
 
 
-def chrome_accel_off(local_state):
-    """True only when the toggle is clearly off in that Local State. Absent,
-    unreadable or anything but false is left as it is, so nothing is asked."""
+def chrome_accel_state(local_state):
+    """True when the toggle is on (the key true or absent, or no Local State yet),
+    False when it is clearly off, None when the file cannot be read, so nothing
+    is said or changed."""
     try:
         data = json.loads(local_state.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return True
     except (OSError, ValueError):
-        return False
-    mode = data.get("hardware_acceleration_mode") if isinstance(data, dict) else None
-    return isinstance(mode, dict) and mode.get("enabled") is False
+        return None
+    if not isinstance(data, dict):
+        return None
+    mode = data.get("hardware_acceleration_mode")
+    if not isinstance(mode, dict) or "enabled" not in mode:
+        return True
+    return mode["enabled"] if isinstance(mode["enabled"], bool) else None
 
 
 def chrome_pid(folder):
@@ -3516,11 +3522,10 @@ def pid_alive(pid):
     return True
 
 
-def read_key(valid, wait=None):
-    """One key from the terminal, unechoed: y, n, or Enter as n. Other keys are
-    ignored. With wait, None comes back once wait() is true and no key was
-    pressed. The terminal is put back whatever ends it."""
-    import select
+def read_key(valid):
+    """One key from the terminal, unechoed, as the installer's other questions
+    take it: a key that is not an answer, Enter too, is ignored. None comes back
+    when the input ends. The terminal is put back whatever ends it."""
     import termios
     import tty
     fd = sys.stdin.fileno()
@@ -3528,20 +3533,25 @@ def read_key(valid, wait=None):
     try:
         tty.setcbreak(fd)
         while True:
-            if wait is not None:
-                if wait():
-                    return None
-                if not select.select([fd], [], [], 0.25)[0]:
-                    continue
             key = os.read(fd, 1).decode("utf-8", "replace").lower()
             if not key:
-                return "n"
-            if key in "\r\n":
-                key = "n"
+                return None
             if key in valid:
                 return key
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
+def ask_accel(choices, valid):
+    """The installer's two-option layout, under what was just printed: the
+    choices, then "answer: " on one key. None when the input ends."""
+    for choice in choices:
+        print(f"  {choice}")
+    print()
+    print("answer: ", end="", flush=True)
+    answer = read_key(valid)
+    print(answer or "")
+    return answer
 
 
 def write_accel_on(local_state):
@@ -3587,49 +3597,42 @@ def write_accel_on(local_state):
 
 
 def cmd_chrome_acceleration(folder=CHROME_DATA):
-    """Offer to turn on Chrome's graphics acceleration when it is off in the
-    main Chrome. Says nothing when it is on. Asks only on a terminal, where
-    Enter is no; never quits Chrome, and waits for the user to."""
+    """Chrome's graphics acceleration, in the main Chrome. On: one line says so.
+    Off with Chrome closed: asks to turn it on and does. Off with Chrome open:
+    shows where to turn it on in Chrome and asks when that is done. Asks only on
+    a terminal; never quits Chrome and never waits for it."""
     local_state = folder / "Local State"
-    if not chrome_accel_off(local_state):
+    state = chrome_accel_state(local_state)
+    if state is None:
         return
     section("5. Chrome graphics")
+    if state:
+        ok("Chrome graphics acceleration is on.")
+        return
     if not sys.stdin.isatty():
         skipped("Left Chrome's graphics acceleration off: there is no interactive terminal.")
         return
-    print("Chrome's graphics acceleration is off. The board runs smoother with it on.")
-    print("Chrome must be quit to change it.")
+    if chrome_pid(folder):
+        print("Turn on graphics acceleration in Chrome:")
+        print()
+        print('Settings -> System -> turn on "Use graphics acceleration when available"')
+        print()
+        answer = ask_accel(["y - I turned gpu acceleration on", "l - I will do it later"], "yl")
+        if answer == "y":
+            print()
+            print("Quit and reopen Chrome for graphics acceleration to take place.")
+        return
+    print("Turn on Chrome graphics acceleration?")
     print()
-    print(CHROME_ACCEL_QUESTION, end="", flush=True)
-    answer = read_key("yn")
-    print(answer)
+    answer = ask_accel(["y - yes (recommended)", "n - no"], "yn")
     if answer != "y":
-        print()
-        skipped("Left it off. It is in Chrome under Settings > System.")
         return
-    while True:
-        pid = chrome_pid(folder)
-        if not pid:
-            break
-        print()
-        print("Chrome is open. Quit it (Command + Q) and setup goes on by itself,")
-        print("or press n to leave graphics acceleration off.", end="", flush=True)
-        # the browser process itself has to be gone: it writes Local State as it quits
-        if read_key("n", wait=lambda: not pid_alive(pid)) == "n":
-            print()
-            print()
-            skipped("Left it off. It is in Chrome under Settings > System.")
-            return
-        print()
     print()
-    if not chrome_accel_off(local_state):
-        ok("Graphics acceleration is on.")
-        return
     failed = write_accel_on(local_state)
     if failed:
         print(f"⚠ Could not turn on graphics acceleration ({failed}). Chrome's settings were left as they were.")
     else:
-        ok("Graphics acceleration turned on. It takes effect when Chrome next opens.")
+        ok("Chrome graphics acceleration is on.")
 
 
 def installer_step(step, *args, **kwargs):

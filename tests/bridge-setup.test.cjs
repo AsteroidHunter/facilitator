@@ -25,11 +25,11 @@ async function using(options, body) {
 }
 
 const head = text => text.split("\n").slice(0, BANNER_LINES).join("\n");
-// the installer's own "4. Mobile app" step, up to where its next part begins
+// the installer's own "4. Mobile app" step, up to the Chrome graphics step after it
 const mobileApp = text => {
   const from = text.indexOf("\n4. Mobile app\n");
   assert.ok(from >= 0, "no Mobile app step:\n" + text);
-  const to = text.indexOf("\n✓ facilitator command and agent skill installed", from);
+  const to = text.indexOf("\n5. Chrome graphics\n", from);
   assert.ok(to > from, "no end to the Mobile app step:\n" + text);
   return text.slice(from, to);
 };
