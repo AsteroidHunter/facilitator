@@ -1448,6 +1448,25 @@
   #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
     border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
+  /* the new-card pill (20261013): a click makes a card exactly as command+T
+     does (newCardHere). it is the project pill's glass, its stack and its
+     press (the bar's glass, below), with the typing box's plus in the middle,
+     in the sub ink and the full ink under a pointer. it stands at the
+     holder's foot, after the list and outside its clip, so whichever section
+     is shown its rows scroll above the pill and never under it. its sizes are
+     the picture's, in tickets: .86 of a ticket's width, centred on the
+     tickets, .4 of a ticket's height, and .24 of a ticket's height of bare
+     paper between the list's faded foot and its top */
+  body.focus #tiknew{--tik-row:calc(var(--ch)*0.072); --tik-col:calc(100% - var(--tik-inset-l) - var(--tik-inset-r));
+    flex:none; position:relative; box-sizing:border-box;
+    width:calc(var(--tik-col)*.86); height:calc(var(--tik-row)*.4);
+    margin:calc(var(--tik-row)*.24) 0 0 calc(var(--tik-inset-l) + var(--tik-col)*.07);
+    padding:0; border-radius:calc(var(--tik-row)*.2);
+    display:flex; align-items:center; justify-content:center;
+    color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
+    transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+  body.focus #tiknew:hover{color:var(--ink)}
+  body.focus #tiknew svg{display:block; flex:none}
   /* magic stubs, contents to be explained */
   #magic1, #magic2, #magic3, #magic4{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;
@@ -1845,8 +1864,8 @@
      behind the bar's pieces there is only the flat paper and the veil is over
      them for the whole gesture, so there is nothing behind them left to blur
      that anyone can see. the bar's own rules are untouched, so the resting look
-     is the resting look */
-  body.p3zoom .bar .qn-glass{backdrop-filter:none; -webkit-backdrop-filter:none}
+     is the resting look. the new-card pill's glass goes down with them */
+  body.p3zoom :is(.bar .qn-glass, #tiknew){backdrop-filter:none; -webkit-backdrop-filter:none}
   /* ---- the file navigator, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
@@ -3116,8 +3135,9 @@
      glass's own. the pill's list wears the same: with the glass's full stack
      the white first row covered the ring's top row and the dark band drew a
      second line a pixel inside it, so its top edge looked like a second
-     rectangle standing behind the list (20261010) */
-  body.focus :is(.bar .qn-glass, #projmenu), body.focus.home #nppanel.qn-glass{
+     rectangle standing behind the list (20261010). the new-card pill under
+     the ticket list (#tiknew) is the project pill's glass and wears it too */
+  body.focus :is(.bar .qn-glass, #projmenu, #tiknew), body.focus.home #nppanel.qn-glass{
     box-shadow:
       inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
       inset 0 0 0 1px var(--qn-ring),
@@ -3148,14 +3168,15 @@
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #chimebtn, #setbtn, #projpill).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#homeico, #chimebtn, #setbtn, #projpill, #tiknew).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the pill takes that press with the same few pixels of growth: a scale of
      1.06 is 2px on a 32px circle but 4.5px to 15px of width on a pill as wide
      as its name, which read as a bigger bounce. glassPress sets --press-x, the
      scale across that gives the pill's width the circles' 1.92px, and the
-     height grows by the same 1.92px at 1.06, as theirs does */
-  body.focus #projpill.pressed{transform:scale(var(--press-x, 1.06), 1.06)}
+     height grows by the same 1.92px at 1.06, as theirs does. the new-card
+     pill, wider still, takes the same few pixels across */
+  body.focus :is(#projpill, #tiknew).pressed{transform:scale(var(--press-x, 1.06), 1.06)}
   /* Home stays pressed while the home page is up: the press's whiter face and
      brighter edge, held, with the house in the full ink */
   body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
@@ -3838,7 +3859,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
+<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div><button id="tiknew" class="qn-glass" type="button" title="New card" aria-label="New card"></button></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -4650,7 +4671,7 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-for (const btn of ["homeico", "projpill", "chimebtn", "setbtn"].map(id => document.getElementById(id))){
+for (const btn of ["homeico", "projpill", "chimebtn", "setbtn", "tiknew"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -6454,6 +6475,17 @@ async function newCard(owner){
   if (els[r.id]) landFocus();
   else await poll();   // the reading that draws the card lands on it
 }
+
+// a new card in the open project: command+T (boardShortcutActions.create) and the pill
+// under the ticket list both make it here, so the pill's card is the key's,
+// in the same place and with the same focus
+function newCardHere(){
+  if (!ownerReady || draft) return;
+  newCard(activeOwner);
+}
+const tikNew = document.getElementById("tiknew");
+tikNew.innerHTML = PLUS_ICON;
+tikNew.addEventListener("click", newCardHere);
 
 // a copied line ends in a break that the title's wrapping hides, leaving the caret no spot to draw at.
 // the words go in as far as the title's two lines hold them (titleRoomAt, card-logic.js)
@@ -11287,8 +11319,7 @@ const boardShortcutActions = {
   },
   create(e){
     e.preventDefault();
-    if (!ownerReady || draft) return;
-    newCard(activeOwner);
+    newCardHere();
   },
   // command+1 to 9: the projects in the pill's list, in its order
   tab(e, shortcut){

@@ -125,6 +125,8 @@ Each lane confirms its own claims against its own owner: `POST /ack?owner=facili
 
 The ticket list beside the card, on the Mac board and the phone, has four sections: Doing for what is active, Docked for the current sprint, Deferred for a later sprint, and Done. Doing and Docked show first; the small triangle beside Docked switches to Deferred and Done, and back. Press a section's name to show its list.
 
+On the Mac board, the wide pill with a plus under the ticket list makes a new card, exactly as Command + T does.
+
 A ticket is green while an agent is working on its card, grey while your message waits for an agent to pick it up, and has a darker title while a reply is unread. A folded corner means the agent says a change is ready for you to try; a click on the corner, or Control + U, clears it.
 
 Docked, Deferred and Done list the latest arrival first. Doing lists new cards on top, then the cards waiting on you, oldest first (Settings, Appearance, "Cards waiting on you" turns them to newest first), then the cards queued or being worked on.
