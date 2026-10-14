@@ -272,6 +272,13 @@
     -webkit-user-select:text; user-select:text; -webkit-touch-callout:default;
   }
   .answmark{-webkit-user-select:none; user-select:none}
+  /* while a selection stands in one of the card's places, the title, the
+     answer's scroller, the sent box or the magic box's body, the others pick
+     nothing, so a finger lifted past the scroller's edge cannot carry it out
+     (body.selecting and .selplace, the script's "a selection keeps to the
+     place it was made in") */
+  body.selecting :is(.title, .replyview, .sentwrap, .mbbody):not(.selplace),
+  body.selecting :is(.title, .replyview, .sentwrap, .mbbody):not(.selplace) *{-webkit-user-select:none; user-select:none}
 
   /* ---- the tab's type and seat, which the card list's visible names wear ------ */
   /* the desktop bar's seated tab at phone size. the project tabs that used to
@@ -2722,6 +2729,32 @@ window.addEventListener("pageshow", pickBack);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) pickBack(); });
 // a tap on the page means the picker is off the screen
 document.addEventListener("pointerdown", pickSettle, { capture: true, passive: true });
+
+// ---- a selection keeps to the place it was made in ------------------------------
+// the card's words stand in places of their own: the title, the answer's
+// scroller, the sent box laid over its foot and the magic box's body. a finger
+// lifted past the scroller's edge carried a selection out into the title or the
+// sent box, and the phone then took in every line between the two, the ones
+// scrolled out of sight too, drew their highlight where they stand, over the
+// card's bar and up into the status bar, and brought up no Copy. so while a
+// selection stands in one place the others are written off (.selplace, "what a
+// long press can pick" above), and the phone keeps it in its place itself. the
+// selection is never moved from here: one set by a script is no longer the
+// phone's own, and a tap on it clears it rather than bringing up Copy
+const SELECT_PLACES = ".title, .replyview, .sentwrap, .mbbody";
+let selectPlace = null;
+document.addEventListener("selectionchange", () => {
+  const sel = getSelection();
+  const at = n => { const e = n && (n.nodeType === 3 ? n.parentElement : n); return e && e.closest ? e.closest(SELECT_PLACES) : null; };
+  const range = sel.rangeCount && !sel.isCollapsed ? sel.getRangeAt(0) : null;
+  const from = range && at(range.startContainer);
+  const place = !range ? null : from && from === at(range.endContainer) ? from : selectPlace;
+  if (place === selectPlace) return;
+  selectPlace?.classList.remove("selplace");
+  place?.classList.add("selplace");
+  document.body.classList.toggle("selecting", !!place);
+  selectPlace = place;
+});
 
 // ---- the sent panel ------------------------------------------------------------
 // true when a live selection touches el, so copying a sent line never triggers a
