@@ -10709,9 +10709,11 @@ function binCanMake(){
   }
 }
 
-// the ticket the pointer at x, y is over or beside, in the section on show
+// the ticket the pointer at x, y is over or beside, in the section on show. none
+// while the sheet travels: a can placed by a row still sliding in would stay
+// behind on the ticket once the row came to rest
 function binCanRow(x, y){
-  if (!FOCUS || !lastState || Date.now() < binCanRestUntil || tikTravelIntent != null) return null;
+  if (!FOCUS || !lastState || Date.now() < binCanRestUntil || tikTravelIntent != null || tikSheetAnim) return null;
   if (document.body.matches(".editmode, .choosing, .setopen")) return null;
   // only the Done section has a can: a card is marked done, then deleted from there
   if (curView() !== "done") return null;
@@ -11414,6 +11416,8 @@ function setView(v){
   if (lastState) apply(lastState);
   tikTravelIntent = null;
   moveTicketSheet(v, true);
+  // a pointer resting on a ticket gets its can once the sheet is still
+  tikSheetAnim?.addEventListener("finish", binCanFollow);
 }
 {
   document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));

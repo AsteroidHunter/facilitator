@@ -14,7 +14,7 @@ function binCanRow(view) {
   assert.ok(start > 0 && end > start, "binCanRow is not in the page");
   const row = { getBoundingClientRect: () => ({ left: 100, right: 400, top: 100, bottom: 160 }) };
   const pane = { getBoundingClientRect: () => ({ top: 0, bottom: 800 }), querySelectorAll: () => [row] };
-  const ctx = { FOCUS: true, lastState: {}, binCanRestUntil: 0, tikTravelIntent: null, binCans: [],
+  const ctx = { FOCUS: true, lastState: {}, binCanRestUntil: 0, tikTravelIntent: null, tikSheetAnim: null, binCans: [],
     BIN_CAN_GAP: 8, BIN_CAN_REACH: 12, Date, curView: () => view,
     document: { body: { matches: () => false }, querySelector: () => pane } };
   vm.createContext(ctx);
