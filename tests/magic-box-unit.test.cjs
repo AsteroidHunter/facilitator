@@ -654,12 +654,13 @@ const dashed = (scale = 1) => {
 const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="2" stroke-linecap="butt" stroke-dasharray="6 4"\/>/g;
 const paths = svg => [...svg.innerHTML.matchAll(PATH)].map(m => m.slice(1, 5).map(Number));
 
-test("the lines are the pick from the connector mock: two dashed lines, 52 px down from the box's top and 52 px up from its foot, from the card's edge to the box's and no further", () => {
+test("the lines are the pick from the connector mock: on its box, 488 high, two dashed lines 52 px down from the top and 52 px up from the foot, from the card's edge to the box's and no further", () => {
   const { ctx, MB } = dashed();
   const near = (a, b, d = .01) => Math.abs(a - b) <= d;
   const { card, box } = PICK;
   const two = ctx.magicTwo(card, box);
-  assert.deepEqual([...two.ys], [box.top + 52, box.top + box.height - 52]);
+  assert.equal(two.ys.length, 2);
+  assert.ok(near(two.ys[0], box.top + 52, 1e-9) && near(two.ys[1], box.top + box.height - 52, 1e-9), [...two.ys].join());
   // each starts exactly at the card's right edge and stops at the box's left
   // edge: nothing of it is under either, which shows through whichever is faded
   assert.equal(two.from, card.left + card.width);
@@ -683,25 +684,34 @@ test("the lines are the pick from the connector mock: two dashed lines, 52 px do
   assert.equal(MB.line.innerHTML, first);
 });
 
-test("the lines keep 52 stage px from the box's ends whatever its height or the stage's scale, and on a box under 104 px they are one at its middle", () => {
+test("the lines sit 52/488 of the box's height from its top and its foot, so they look the same on a box of any size and never meet", () => {
   assert.equal(vm.runInContext("JSON.stringify(TWO)", dashed().ctx),
-    JSON.stringify({ gap: 8, n: 52, width: 2, dash: 6, space: 4 }));
+    JSON.stringify({ gap: 8, share: 52 / 488, width: 2, dash: 6, space: 4 }));
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
   const { card, box } = PICK;
   const ys = (b, scale = 1) => [...dashed(scale).ctx.magicTwo(card, b).ys];
   // the rectangles are in the stage's own pixels: another scale reads the same
   assert.deepEqual(ys(box, .5), ys(box));
   assert.deepEqual(ys(box, 2), ys(box));
-  // fixed distances, not a share of the box
-  assert.deepEqual(ys({ ...box, height: 600 }), [box.top + 52, box.top + 548]);
-  assert.deepEqual(ys({ ...box, height: 105 }), [box.top + 52, box.top + 53]);
-  // too short to keep them apart: one line at the box's middle
-  assert.deepEqual(ys({ ...box, height: 104 }), [box.top + 52]);
-  assert.deepEqual(ys({ ...box, height: 90 }), [box.top + 45]);
+  // a share of the box, not a fixed distance: about 10.66% from each end,
+  // mirrored, on a short box, a medium one and a tall one alike
+  for (const height of [40, 90, 110, 200, 488, 600, 900]) {
+    const [top, foot] = ys({ ...box, height });
+    const n = height * 52 / 488;
+    assert.ok(near(top - box.top, n) && near(box.top + height - foot, n), `a box ${height} high: ${[top, foot]}`);
+    assert.ok(near((top - box.top) / height, 52 / 488), "the share moved with the height");
+    // the two never meet: the gap between them is the rest of the box
+    assert.ok(foot - top > height * .78, `a box ${height} high has its lines too close: ${foot - top}`);
+  }
+  // the short box of the report, about 110 high: about 11.7 px from each end,
+  // 86.6 px apart, where the fixed 52 px had them 6 px apart
+  const [top, foot] = ys({ ...box, height: 110 });
+  assert.ok(Math.abs(top - box.top - 11.72) < .01 && Math.abs(foot - top - 86.56) < .01, [top, foot].join());
+  // every box draws both lines, a short one too
   const { ctx, MB } = dashed();
   ctx.magicLine(card, { ...box, height: 90 });
-  const got = paths(MB.line);
-  assert.equal(got.length, 1, MB.line.innerHTML);
-  assert.equal(got[0][1], box.top + 45);
+  assert.equal(paths(MB.line).length, 2, MB.line.innerHTML);
+  assert.ok(!/box\.height \/ 2|2 \* TWO/.test(linesCode()), "the one line at the middle is still there");
 });
 
 test("with no room for them no line is drawn: a gap narrower than 8 px", () => {

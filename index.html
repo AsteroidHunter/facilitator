@@ -8005,19 +8005,20 @@ function magicRoom(){
 // Two lines, Dashed, n = 52). two level dashed lines across the gap, with no
 // tabs, each from the card's right edge to the box's left edge and no further,
 // so nothing of it is under either, which shows through whichever is faded:
-//   the first sits n down from the box's top and the second n up from its
-//     foot, in the stage's pixels like the box's rectangle (the mock's n is in
-//     the same units); a box too short to keep them apart has them as one, at
-//     its middle
+//   the first sits a share of the box's height down from its top and the
+//     second the same share up from its foot: the mock's n of 52 on its box
+//     488 high, so the two keep the same look on a box of any size and never
+//     meet
 //   each is dashes 6 long with gaps of 4, 2 wide, with flat ends, in the
 //     card's edge colour, counted from the box's edge, so a whole dash ends
 //     exactly at it
 // a gap narrower than 8 px gives null, and no line is drawn
-const TWO = { gap: 8, n: 52, width: 2, dash: 6, space: 4 };
+const TWO = { gap: 8, share: 52 / 488, width: 2, dash: 6, space: 4 };
 function magicTwo(card, box){
   const cr = card.left + card.width;
   if (box.left - cr < TWO.gap) return null;
-  const ys = box.height > 2 * TWO.n ? [box.top + TWO.n, box.top + box.height - TWO.n] : [box.top + box.height / 2];
+  const n = box.height * TWO.share;
+  const ys = [box.top + n, box.top + box.height - n];
   return { ys, from: cr, to: box.left };
 }
 function magicLine(card, box){
