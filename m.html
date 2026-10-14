@@ -1061,12 +1061,11 @@
   body.kb .compose .cffield .cm-scroller{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   textarea::placeholder{color:#B4AA99}
   /* a card's empty typing box shows its own line (composeLine in card-logic.js)
-     in the board's muted caption grey (--sub, the home page's "Last updated"),
-     on one line and cut with an ellipsis where the row is too narrow, so the
-     row never grows for it. the editor's line takes the line's width and lends
-     the editor none of its own, or the editor would widen to the words and its
-     scroller would slice them */
-  .compose textarea::placeholder, .compose .cffield .cm-placeholder{color:var(--sub, #75695A); opacity:1;
+     in a light grey, #F0F0F0, on one line and cut with an ellipsis where the
+     row is too narrow, so the row never grows for it. the editor's line takes
+     the line's width and lends the editor none of its own, or the editor would
+     widen to the words and its scroller would slice them */
+  .compose textarea::placeholder, .compose .cffield .cm-placeholder{color:#F0F0F0; opacity:1;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .compose .cffield .cm-placeholder{width:100%; box-sizing:border-box; contain:inline-size; vertical-align:top}
   /* the phone skips its caret reveal, the scroll of the whole page that

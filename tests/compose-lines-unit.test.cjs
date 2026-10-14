@@ -89,16 +89,13 @@ test("the card typing boxes show it, the onboarding box and titles do not", () =
   assert.doesNotMatch(phone, /twin\.placeholder/);
 });
 
-test("the grey is the board's muted caption grey, never the accent", () => {
-  // the home page's "Last updated" caption wears --sub, and --sub is #75695A
-  assert.match(read("home-widgets.css"), /\.tk-updated, \.lm-updated\{[^}]*color:var\(--sub\)/);
-  assert.match(read("card-tokens.css"), /--sub:#75695A;/);
+test("the grey is exactly #F0F0F0 at full opacity, never the accent", () => {
   for (const [name, rule] of [["index.html", /:is\(\.compose, \.mcompose\) textarea::placeholder,\s*:is\(\.compose, \.mcompose\) \.cffield \.cm-placeholder\{([^}]*)\}/],
                               ["m.html", /\.compose textarea::placeholder, \.compose \.cffield \.cm-placeholder\{([^}]*)\}/]]) {
     const body = rule.exec(read(name));
     assert.ok(body, `${name}: placeholder rule`);
-    assert.match(body[1], /color:var\(--sub, #75695A\);/);
+    assert.match(body[1], /color:#F0F0F0;/);
     assert.match(body[1], /opacity:1;/);
-    assert.doesNotMatch(body[1], /#432BFF|--accent|--bubble-fill/i);
+    assert.doesNotMatch(body[1], /#432BFF|--accent|--bubble-fill|--sub/i);
   }
 });

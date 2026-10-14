@@ -1230,7 +1230,7 @@ function omniTicket(title){
 }
 // ---- the line an empty typing box shows -------------------------------------
 // a new reader could not tell where a card's typing box was, so an empty one
-// shows one of these lines in muted grey where the words go, and it goes the
+// shows one of these lines in light grey where the words go, and it goes the
 // moment anything is typed. each card keeps its own line for as long as it
 // lives: a board card's number steps through the list seven at a time, so cards
 // made one after another never share a line within twenty, and any other id is
