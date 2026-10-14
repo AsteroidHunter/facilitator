@@ -321,10 +321,10 @@ test("the chevron is a small down arrow inside the pill after the name, faded in
   assert.equal(decl(hit, "top"), "0"); assert.equal(decl(hit, "bottom"), "0");
   assert.equal(decl(hit, "right"), "-14px"); assert.ok(parseFloat(decl(hit, "left")) >= -6);
   // the pill's own height, padding, corners and type are as they were, and nothing is purple or a new colour
-  const p = rule(sheet, "body.focus #projpill");
+  const p = rule(sheet, "body.focus #projpill, body.focus #npstart.qn-glass");
   assert.equal(decl(p, "height"), "32px"); assert.equal(decl(p, "padding"), "0 14px");
   assert.equal(decl(p, "border-radius"), "16px"); assert.equal(decl(p, "font"), "400 14px/17px var(--sans)");
-  assert.match(sheet, /body\.focus #projpill\{[^}]*display:flex; align-items:center/);
+  assert.match(sheet, /body\.focus #projpill, body\.focus #npstart\.qn-glass\{[^}]*display:flex; align-items:center/);
   assert.doesNotMatch(off + on + hit, /#[0-9a-f]{3,6}\b|rgb|--accent/i);
 });
 
@@ -342,9 +342,9 @@ test("the round glass Home button is back at the bar's left as it was, pressed w
   assert.equal(decl(rule(sheet, "body.focus :is(#homeico, #chimebtn, #setbtn):hover"), "color"), "var(--ink)");
   assert.equal(parseFloat(decl(rule(sheet, "body.focus #tabrow"), "gap")), 11);
   // the press, and stays pressed while Home is up
-  assert.match(sheet, /body\.focus :is\(#homeico, #chimebtn, #setbtn, #projpill, #tiknew\)\.pressed\{transform:scale\(1\.06\)/);
+  assert.match(sheet, /body\.focus :is\(#homeico, #chimebtn, #setbtn, #projpill, #tiknew, #npstart\)\.pressed\{transform:scale\(1\.06\)/);
   assert.match(sheet, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
-  assert.match(html, /for \(const btn of \["homeico", "projpill", "chimebtn", "setbtn", "tiknew"\]/);
+  assert.match(html, /for \(const btn of \["homeico", "projpill", "chimebtn", "setbtn", "tiknew", "npstart"\]/);
   assert.match(html, /document\.getElementById\("homeico"\)\.setAttribute\("aria-pressed", String\(homeOpen\)\)/);
   // Command + 0 clicks it, and a press on it opens Home
   assert.match(html, /if \(!homeOpen\) document\.getElementById\("homeico"\)\.click\(\)/);
@@ -555,10 +555,10 @@ test("the pill is the name and the chevron, and the list's rows have no check ma
 });
 
 test("project names are one step larger, 14px, in the pill, the faint names and the list alike", () => {
-  for (const selector of ["body.focus #projpill", "body.focus #tabbar .psug", "#projmenu .projrow"])
+  for (const selector of ["body.focus #projpill, body.focus #npstart.qn-glass", "body.focus #tabbar .psug", "#projmenu .projrow"])
     assert.equal(decl(rule(sheet, selector), "font"), "400 14px/17px var(--sans)", selector);
   // and the row stays 32px high
-  assert.equal(decl(rule(sheet, "body.focus #projpill"), "height"), "32px");
+  assert.equal(decl(rule(sheet, "body.focus #projpill, body.focus #npstart.qn-glass"), "height"), "32px");
   assert.equal(decl(rule(sheet, "body.focus #tabbar .psug"), "height"), "32px");
 });
 
@@ -588,7 +588,7 @@ test("the open list dims the board exactly as the settings page does, and the di
 
 test("the list's top edge is one line: it wears the bar's rim, not the glass's doubled top", () => {
   // home's project list wears the same glass and so the same rule (20261013)
-  const head = "body.focus :is(.bar .qn-glass, #projmenu, #tiknew), body.focus.home #nppanel.qn-glass{";
+  const head = "body.focus :is(.bar .qn-glass, #projmenu, #tiknew), body.focus.home :is(#nppanel, #npstart).qn-glass{";
   assert.ok(sheet.includes(head), "the bar, the list and home's list share one stack");
   const rim = sheet.slice(sheet.indexOf(head));
   const stack = rim.slice(0, rim.indexOf("}"));
@@ -614,7 +614,7 @@ test("home's project list stands in the pill's list's glass, and the new tab kee
 test("glass stands about 10px from glass, and every project name the same distance from the next", () => {
   const sug = rule(sheet, "body.focus #tabbar .psug"), bar = rule(sheet, "body.focus #tabbar");
   assert.equal(decl(sug, "padding"), "0 14px", "the faint names have the pill's room, the whole box clickable");
-  assert.equal(decl(rule(sheet, "body.focus #projpill"), "padding"), "0 14px");
+  assert.equal(decl(rule(sheet, "body.focus #projpill, body.focus #npstart.qn-glass"), "padding"), "0 14px");
   assert.equal(decl(sug, "margin"), "0");
   assert.equal(decl(sug, "text-align"), "left", "a word centred in a wider box draws a wider gap");
   assert.equal(decl(sug, "border"), "none"); assert.equal(decl(sug, "background"), "none", "no glass on a faint name");

@@ -3137,8 +3137,9 @@
      the white first row covered the ring's top row and the dark band drew a
      second line a pixel inside it, so its top edge looked like a second
      rectangle standing behind the list (20261010). the new-card pill under
-     the ticket list (#tiknew) is the project pill's glass and wears it too */
-  body.focus :is(.bar .qn-glass, #projmenu, #tiknew), body.focus.home #nppanel.qn-glass{
+     the ticket list (#tiknew) is the project pill's glass and wears it too, and
+     so does home's folder button (#npstart, which has .qn-glass while home is up) */
+  body.focus :is(.bar .qn-glass, #projmenu, #tiknew), body.focus.home :is(#nppanel, #npstart).qn-glass{
     box-shadow:
       inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
       inset 0 0 0 1px var(--qn-ring),
@@ -3169,15 +3170,16 @@
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #chimebtn, #setbtn, #projpill, #tiknew).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#homeico, #chimebtn, #setbtn, #projpill, #tiknew, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the pill takes that press with the same few pixels of growth: a scale of
      1.06 is 2px on a 32px circle but 4.5px to 15px of width on a pill as wide
      as its name, which read as a bigger bounce. glassPress sets --press-x, the
      scale across that gives the pill's width the circles' 1.92px, and the
      height grows by the same 1.92px at 1.06, as theirs does. the new-card
-     pill, wider still, takes the same few pixels across */
-  body.focus :is(#projpill, #tiknew).pressed{transform:scale(var(--press-x, 1.06), 1.06)}
+     pill, wider still, takes the same few pixels across, and so does home's
+     folder button (only while it has the glass: the script presses it then) */
+  body.focus :is(#projpill, #tiknew, #npstart).pressed{transform:scale(var(--press-x, 1.06), 1.06)}
   /* Home stays pressed while the home page is up: the press's whiter face and
      brighter edge, held, with the house in the full ink */
   body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
@@ -3192,11 +3194,13 @@
      bold self, so a reply landing moves nothing. a long name is cut short
      with an ellipsis. a project's own window has no list, so its pill opens
      nothing */
-  body.focus #projpill{flex:none; position:relative; box-sizing:border-box; height:32px; max-width:260px;
+  body.focus #projpill, body.focus #npstart.qn-glass{flex:none; position:relative; box-sizing:border-box; height:32px; max-width:260px;
     margin:0; padding:0 14px; border-radius:16px;
     display:flex; align-items:center;
     font:400 14px/17px var(--sans); color:var(--ink); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+  /* home's folder button is this pill with its own gap above, from the list */
+  body.focus #npstart.qn-glass{margin:18px 0 0}
   body.focus #projpill[hidden]{display:none}
   /* on the home page the pill names the project the reader came from, the
      house at the bar's left saying where they are, and a small down chevron
@@ -3413,12 +3417,13 @@
      card's corner radius, a thin border in the line colour and the board's ink.
      the border's drawn width is taken out of the padding so the button keeps its
      outer size. hovering or pressing fills it with the fill a project row takes
-     under the pointer */
-  #npstart{margin:18px 0 0; font:500 14px var(--inter); color:var(--ink);
+     under the pointer. that is the new tab's button: on home it is the project
+     pill's glass pill instead (the bar's glass, above), and takes none of this */
+  #npstart{margin:18px 0 0; cursor:pointer}
+  body:not(.home) #npstart{font:500 14px var(--inter); color:var(--ink);
     background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
-    padding:calc(12px - var(--edge-drawn)) calc(26px - var(--edge-drawn));
-    cursor:pointer}
-  #npstart:hover, #npstart:active{background:var(--row-hover)}
+    padding:calc(12px - var(--edge-drawn)) calc(26px - var(--edge-drawn))}
+  body:not(.home) #npstart:hover, body:not(.home) #npstart:active{background:var(--row-hover)}
   body.focus .name{display:none}
   body.focus #offline{
     position:fixed; left:14px; bottom:12px; top:auto; transform:none;
@@ -4675,9 +4680,9 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-for (const btn of ["homeico", "projpill", "chimebtn", "setbtn", "tiknew"].map(id => document.getElementById(id))){
+for (const btn of ["homeico", "projpill", "chimebtn", "setbtn", "tiknew", "npstart"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
-  btn.addEventListener("pointerdown", e => { if (e.button === 0) glass.press(); });
+  btn.addEventListener("pointerdown", e => { if (e.button === 0 && btn.classList.contains("qn-glass")) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
 }
 for (const type of ["pointerup", "pointercancel"])
@@ -4954,6 +4959,7 @@ function setHome(on){
   document.body.classList.toggle("home", homeOpen);
   // home's list wears the pill's list's glass; the new tab's well does not
   document.getElementById("nppanel")?.classList.toggle("qn-glass", homeOpen);
+  document.getElementById("npstart")?.classList.toggle("qn-glass", homeOpen);
   document.getElementById("homeico").setAttribute("aria-pressed", String(homeOpen));
   clearInterval(homeTimer);
   homeTimer = null;

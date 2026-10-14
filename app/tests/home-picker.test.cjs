@@ -332,7 +332,7 @@ test("on home both halves come in at the same moment on one plain fade, with no 
   }
 });
 
-test("the start button is dressed like the card on home and on the new tab, and takes a project row's hover fill", async () => {
+test("the start button is the project pill's glass pill on home and the card's dress on the new tab, and takes a project row's hover fill there", async () => {
   const { context, page } = await openPage(SIZES[0]);
   try {
     const dress = () => page.evaluate(() => {
@@ -353,39 +353,95 @@ test("the start button is dressed like the card on home and on the new tab, and 
       await page.mouse.move(2, 2);
       return fill;
     };
-    const check = async where => {
-      const d = await dress();
-      assert.equal(d.bg, d.card, `${where}: the card's white`);
-      assert.equal(d.color, d.ink, `${where}: the board's ink`);
-      assert.equal(d.border, `solid ${d.line}`, `${where}: a thin border in the line colour`);
-      assert.equal(d.radius, "7px", `${where}: the card's corner radius`);
-      assert.equal(d.shadow, "none", `${where}: no shadow`);
-      assert.match(d.family, /^Inter\b/, where);
-      assert.ok(Math.abs(d.width - 175) <= 2 && Math.abs(d.height - 41) <= 0.5, `${where}: the old size or close, ${d.width} x ${d.height}`);
-      const fill = await rowFill();
-      assert.notEqual(fill, "rgba(0, 0, 0, 0)", `${where}: the row has a fill under the pointer`);
-      assert.notEqual(fill, d.card, `${where}: the row fill is not the card's white`);
+    // home: the pill's own classes and rules. the same computed look as #projpill
+    // (borrowed from it with its .athome and hidden state set aside), only the
+    // gap above from the list, and the press growth through the same class
+    const checkHome = async () => {
+      const seen = await page.evaluate(() => {
+        const look = el => {
+          const s = getComputedStyle(el);
+          return { cls: el.classList.contains("qn-glass"), radius: s.borderTopLeftRadius, height: s.height,
+            padL: s.paddingLeft, padR: s.paddingRight, padT: s.paddingTop, font: [s.fontFamily, s.fontSize, s.fontWeight, s.lineHeight].join("|"),
+            shadow: s.boxShadow, bgImage: s.backgroundImage, bgColor: s.backgroundColor, blur: s.backdropFilter, borderW: s.borderTopWidth,
+            color: s.color, transition: s.transitionProperty, display: s.display };
+        };
+        const pill = document.getElementById("projpill"), was = pill.hidden;
+        pill.hidden = false;
+        const p = look(pill);
+        pill.hidden = was;
+        return { button: look(document.getElementById("npstart")), pill: p, margin: getComputedStyle(document.getElementById("npstart")).marginTop };
+      });
+      assert.equal(seen.button.cls, true, "home: the button wears .qn-glass");
+      assert.deepEqual(seen.button, seen.pill, "home: the button looks as the project pill does");
+      assert.equal(seen.button.radius, "16px");
+      assert.equal(seen.button.height, "32px");
+      assert.equal(seen.button.padL, "14px");
+      assert.equal(seen.button.borderW, "0px");
+      assert.notEqual(seen.button.shadow, "none");
+      assert.equal(seen.margin, "18px", "home: the gap from the list is as before");
       await page.hover("#npstart");
       await sleep(100);
-      assert.equal((await dress()).bg, fill, `${where}: a project row's fill under the pointer`);
+      assert.equal((await dress()).bg, seen.button.bgColor, "home: no row fill under the pointer, the pill has none");
+      const before = await page.evaluate(() => document.getElementById("npstart").getBoundingClientRect().width);
+      await page.mouse.down();
+      await sleep(400);
+      const held = await page.evaluate(() => {
+        const b = document.getElementById("npstart");
+        return { pressed: b.classList.contains("pressed"), width: b.getBoundingClientRect().width, tf: getComputedStyle(b).transform, x: b.style.getPropertyValue("--press-x") };
+      });
+      assert.equal(held.pressed, true, "home: a press takes the pill's .pressed");
+      assert.ok(Math.abs(held.width - before - 32 * 0.06) <= 0.3, `home: it grows the circles' few pixels across, ${before} to ${held.width}`);
+      await page.mouse.move(2, 2);
+      await page.mouse.up();
+    };
+    const checkNewTab = async () => {
+      const d = await dress();
+      assert.equal(await page.evaluate(() => document.getElementById("npstart").classList.contains("qn-glass")), false, "new tab: no glass");
+      assert.equal(d.bg, d.card, "new tab: the card's white");
+      assert.equal(d.color, d.ink, "new tab: the board's ink");
+      assert.equal(d.border, `solid ${d.line}`, "new tab: a thin border in the line colour");
+      assert.equal(d.radius, "7px", "new tab: the card's corner radius");
+      assert.equal(d.shadow, "none", "new tab: no shadow");
+      assert.match(d.family, /^Inter\b/, "new tab");
+      assert.ok(Math.abs(d.width - 175) <= 2 && Math.abs(d.height - 41) <= 0.5, `new tab: the old size or close, ${d.width} x ${d.height}`);
+      const fill = await rowFill();
+      assert.notEqual(fill, "rgba(0, 0, 0, 0)", "new tab: the row has a fill under the pointer");
+      assert.notEqual(fill, d.card, "new tab: the row fill is not the card's white");
+      await page.hover("#npstart");
+      await sleep(100);
+      assert.equal((await dress()).bg, fill, "new tab: a project row's fill under the pointer");
       await page.mouse.down();
       await sleep(50);
-      assert.equal((await dress()).bg, fill, `${where}: and the same while pressed`);
+      assert.equal((await dress()).bg, fill, "new tab: and the same while pressed");
+      assert.equal(await page.evaluate(() => document.getElementById("npstart").classList.contains("pressed")), false, "new tab: no glass press");
       await page.mouse.move(2, 2);
       await page.mouse.up();
     };
     await goHome(page);
-    await check("home");
-    await goPlus(page);
-    await check("new tab");
+    await checkHome();
+    // the new tab can no longer be reached from the bar (its plus is gone), so its
+    // look is read with the page put back to that state: choosing, not home, no glass on the button
+    await page.evaluate(() => {
+      document.body.classList.remove("home");
+      document.body.classList.add("choosing");
+      document.getElementById("npstart").classList.remove("qn-glass");
+    });
+    await sleep(300);
+    await checkNewTab();
   } finally { await context.close(); }
-  const rule = (HTML.match(/#npstart\{[^}]*\}/) || [""])[0];
+  const rule = (HTML.match(/body:not\(\.home\) #npstart\{[^}]*\}/) || [""])[0];
+  assert.ok(rule, "the new tab's button rule is there");
   assert.doesNotMatch(rule, /FFF1E0|3A2E20|inset|border-radius:0|--accent|432BFF/i, "no cream, bevel or purple");
   assert.doesNotMatch(HTML, /#npstart:active\{[^}]*inset/);
   assert.match(HTML, /:root\{--row-hover:#FFF8EF\}/, "one named fill");
-  assert.match(HTML, /#npstart:hover, #npstart:active\{background:var\(--row-hover\)\}/, "the button reads it");
+  assert.match(HTML, /body:not\(\.home\) #npstart:hover, body:not\(\.home\) #npstart:active\{background:var\(--row-hover\)\}/, "the new tab's button reads it");
   assert.match(HTML, /\.nprow\.shut:hover\{background:var\(--row-hover\)\}/, "the new tab's closed row reads it");
   assert.match(HTML, /body\.focus\.home \.nprow:hover\{background:var\(--row-hover\)\}/, "a row on home reads it");
+  // home's button reuses the pill's rules by selector, none of them redrawn
+  assert.match(HTML, /body\.focus #projpill, body\.focus #npstart\.qn-glass\{flex:none;/, "the pill's own rule dresses it");
+  assert.match(HTML, /body\.focus\.home :is\(#nppanel, #npstart\)\.qn-glass\{\s*box-shadow:/, "the pill's shadow stack");
+  assert.match(HTML, /:is\(#projpill, #tiknew, #npstart\)\.pressed\{transform:scale\(var\(--press-x, 1\.06\), 1\.06\)\}/, "the pill's press growth");
+  assert.match(HTML, /getElementById\("npstart"\)\?\.classList\.toggle\("qn-glass", homeOpen\)/, "the glass is on while home is up");
 });
 
 test("the house on an unfinished new tab drops it, back on the tab it came from, and the picker shows the rows", async () => {
