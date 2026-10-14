@@ -37,8 +37,9 @@
      (POST /onboarding/sample, then POST /project as "Open a new folder" does).
      Every question is needed: Enter with the box empty keeps the question and
      asks for its answer in one short line, and so does an email with no @ or
-     no dot after it, and marking the last card done with an answer missing
-     goes back to the first question unanswered. What leaves the Mac is the board's to say,
+     no dot after it. The cards after the onboarding card open only once every
+     question is answered: a move there before that stays on the onboarding
+     card and asks for the answer missing. What leaves the Mac is the board's to say,
      behind the "Share daily usage counts" switch in Settings (RUNBOOK.md,
      Usage counts). -->
 <script src="/card-markdown.js"></script>
@@ -552,16 +553,15 @@
 
   /* the Welcome card: the product's own lockup, the mark beside the word and
      the version under it (the new-project landing's #npbrand in index.html),
-     is the card's header, where the other cards have their titles, at the
-     titles' size. the lockup is drawn in ems off that size, and keeps the room
-     under it that its version hangs into. in the middle of the card stand the
-     greeting, at a title's size and weight, then the blurb and the key, all of
-     it to the left */
+     is the card's header, at the left where the other cards have their titles.
+     it is drawn in ems off its font size, which fitWelcome below sets as large
+     as the header's width allows, and keeps the room under it that its version
+     hangs into. in the middle of the card stand the greeting, the blurb and the
+     key, in the card's own words, to the left */
   #box-welcome .reply{flex:1 0 auto; display:flex; flex-direction:column; justify-content:center;
     padding-right:calc(var(--pad-x)*2/3)}
   .obwelcome{display:flex; flex-direction:column; align-items:flex-start; text-align:left}
-  .reply .obhi{margin:0 0 .4em; font:625 30px/1.25 var(--inter); color:var(--ink)}
-  .obbrand{display:flex; align-items:center; gap:.214em; margin:0 0 .4em;
+  .obbrand{display:flex; width:max-content; align-items:center; gap:.214em; margin:0 0 .4em;
     font:700 30px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
   .obbrand .squidmark{height:.786em}
   .obbrandcopy{position:relative; display:inline-block}
@@ -614,10 +614,6 @@
   #obkeys .sym{position:absolute; top:8px; font:13px/1 -apple-system, var(--sans)}
   #obkeys .sym.l{left:9px} #obkeys .sym.r{right:9px}
   #obkeys svg{display:block}
-  /* the first answer's next page holds its bracketed way back until the turn
-     has landed, then fades it in */
-  .reply .obheld{opacity:0}
-  .reply .obheld.obin{opacity:1; transition:opacity .6s ease}
 
   /* the board's own marks in a card's words (MARKS below): the sun, the cloud
      and the moon at the size the card's top bar draws them, the cross drawn the
@@ -898,15 +894,13 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const key = name => "**" + name.replace(/ /g, "\u00a0") + "**";
   const HI = "Hi there 👋";
   const BLURB = "Facilitator helps you ship more by making it easier to interact with and orchestrate subagents.";
-  const WELCOME = BLURB + "\n\nPress " + key("→") + " for the next card.";
+  const WELCOME = BLURB + "\n\nPress " + key("→") + " to continue.";
   const TAB_HINT = "Press " + key("Tab") + " to answer.";
   const TAB_HINT_PLAIN = "Press Tab to answer";
-  // the way back to an earlier question: in brackets on the two questions
-  // after the first, and as a plain line on the last page
-  const BACK = "go back to it with " + key("Control + Shift + ↑") + " and send a new one";
-  const BACK_ASIDE = "(To change an earlier answer, " + BACK + ".)";
-  const BACK_LINE = "To change an answer, " + BACK + ".";
-  const NEXT = "Press " + key("Control + Shift + →") + " for the next card.";
+  // the way back to an earlier question, once, on the last page, under the
+  // answers it would change
+  const BACK_LINE = "To change any of the previous answers, press " + key("Control + Shift + ↑");
+  const NEXT = "Press " + key("Control + Shift + →") + " to continue!";
   const FINISH = "Press " + key("Control + Shift + Backspace") + " to mark this card done and open your board.";
   // the main agent's choices. what anyone types that is not one of them is kept
   // as typed. the work question has none: its answer is the person's own words
@@ -930,9 +924,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     { field: "agent", ask: "Which agent do you use most?", noun: "main agent", empty: AGENT_EMPTY,
       choices: AGENTS, note: numbered(AGENTS) + "\n\nSend a number or a name." },
   ];
-  // the replies that carry the bracketed way back: the one after the first
-  // answer, where it fades in late, and the one after that
-  const ASIDE_ON = [1, 2];
   // the board's marks a card's words can hold, each written as a character of
   // its own that render below swaps for the mark: the four section chips of the
   // card's top bar, Doing's sun, Docked's cloud, Deferred's moon and Done's
@@ -950,7 +941,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
            "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, " +
            "put them on *n* different cards!\n\n" +
            "The Claude or Codex agent connected to a project acts as a manager and assigns those tasks " +
-           "to *n* subagents, which parallelizes and speeds up implementation." },
+           "to *n* subagents, thereby parallelizing and speeding up implementation." },
     { id: "tickets", title: "101: Tickets",
       say: "Cards are shown as a list of tickets on the left side.\n\n" +
            "Standard tickets have three states:\n" +
@@ -977,12 +968,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // the timings. the keyboard fades in over the first answer's whole way in,
   // the send's flight and then the page turn to the next question
   // (SENT_FLIGHT_MS and TURN_GLIDE_MS in card-logic.js), so the two end together.
-  // the bracketed way back waits for the turn to land and a breath more, then
-  // fades in over .6s (.obheld in the sheet) as the three keys light. a light
-  // fades in, holds and fades out; the 101: Hotkeys card's chords are shorter
+  // the last page's keys light once its turn has landed and a breath more. a
+  // light fades in, holds and fades out; the 101: Hotkeys card's chords are shorter
   const KEYS_IN_MS = SENT_FLIGHT_MS + TURN_GLIDE_MS;
   const KEYS_LATE_MS = 400;   // the keyboard on a 101 card reached before any answer
-  const ASIDE_WAIT_MS = TURN_GLIDE_MS + 200;
+  const LANDED_WAIT_MS = TURN_GLIDE_MS + 200;
   const LIGHT = { inMs: 600, holdMs: 1500, outMs: 700 };
   const LIGHT_SHORT = { inMs: 400, holdMs: 1000, outMs: 400 };
   const LIGHTS_FROM_MS = 500;   // the first chord on 101: Hotkeys, after the card shows
@@ -1115,7 +1105,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     later(() => setLit(names, false, t.outMs), delay + t.inMs + t.holdMs);
     return delay + t.inMs + t.holdMs + t.outMs;
   }
-  // a light called off fades out, and a bracketed line still held shows
+  // a light called off fades out
   function unlight(){
     for (const t of lightTimers) clearTimeout(t);
     lightTimers = [];
@@ -1124,7 +1114,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
       one.style.setProperty("--lit-ms", LIGHT.outMs + "ms");
       one.classList.remove("lit");
     }
-    for (const line of document.querySelectorAll(".obheld:not(.obin)")) line.classList.add("obin");
   }
   // a key's name on a card (the only words there in bold) lights its keys
   // while the pointer is over it, the way a chord lights, and lets them fade
@@ -1282,7 +1271,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
       parts.push(q.ask, q.note, card.askingAt === i && card.asking);
       // the Tab hint only while the first question is the newest page; stepped back to, the caret is in the box
       if (!i && HINT === "reply" && card.pages.length === 1) parts.push(TAB_HINT);
-      if (ASIDE_ON.includes(i)) parts.push(BACK_ASIDE);
     } else parts.push(keptRaw(), BACK_LINE, NEXT);
     return parts.filter(Boolean).join("\n\n");
   }
@@ -1326,12 +1314,24 @@ for (const pane of document.querySelectorAll(".tikpane")){
       '<span class="obbrandcopy"><span class="obbrandname">Facilitator</span>' +
       '<span class="obversion">' + VERSION + "</span></span></span>";
     el.reply.dataset.raw = HI + "\n\n" + WELCOME;
-    el.reply.innerHTML = '<div class="obwelcome"><p class="obhi">' + HI + "</p>" + fmt(WELCOME) + "</div>";
+    el.reply.innerHTML = '<div class="obwelcome">' + fmt(el.reply.dataset.raw) + "</div>";
     return card;
   });
   const onboard = cards.find(c => c.spec.questions);
   let at = 0, finished = false;
   const boxOf = card => lastState.boxes.find(b => b.id === card.spec.id);
+
+  // the Welcome card's lockup as large as the header's width allows, with a
+  // little air at the end
+  function fitWelcome(){
+    const t = cards[0].el.titleEl, brand = t.querySelector(".obbrand");
+    if (!brand || !t.clientWidth) return;
+    brand.style.fontSize = "";
+    const cs = getComputedStyle(t);
+    const room = t.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const wide = brand.getBoundingClientRect().width;
+    if (wide > 0) brand.style.fontSize = (parseFloat(getComputedStyle(brand).fontSize) * room * 0.9 / wide) + "px";
+  }
 
   // ---- the onboarding card's question ----------------------------------------------
   function wireQuestion(card){
@@ -1531,8 +1531,12 @@ for (const pane of document.querySelectorAll(".tikpane")){
     if (qi === live){
       const next = QUESTIONS[qi + 1];
       card.pages.push({ field: next ? next.field : null, head: gotIt, meta });
-      if (!qi) after = () => asideLater(card);
-      else if (!next) after = () => later(() => pulse(["ctrl", "shift", "right"], LIGHT), ASIDE_WAIT_MS);
+      // the last page lights its two keys in turn once its turn has landed:
+      // the way back to an answer, then the next card
+      if (!next) after = () => later(() => {
+        const t = pulse(["ctrl", "shift", "up"], LIGHT);
+        later(() => pulse(["ctrl", "shift", "right"], LIGHT), t + LIGHTS_GAP_MS);
+      }, LANDED_WAIT_MS);
     } else {
       const next = card.pages[qi + 1];
       if (qi + 1 < live) Object.assign(next, { head: gotIt, meta: { id: next.meta.id, answered: meta.answered } });
@@ -1541,18 +1545,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     dropHistory(card);
     land(card, { id: card.spec.id, replyKind: "agent", replyId: meta.id, answered: meta.answered, after });
   }
-  // the first answer's next page holds its bracketed way back until the turn
-  // has landed and the keyboard is in, then fades it in as the left Control,
-  // the left Shift and the up arrow light
-  function asideLater(card){
-    const line = card.el.reply.lastElementChild;
-    if (line) line.classList.add("obheld");
-    later(() => {
-      if (line) line.classList.add("obin");
-      pulse(["ctrl", "shift", "up"], LIGHT);
-    }, ASIDE_WAIT_MS);
-  }
-
   // the board's pass over a card whose answer has changed (apply in
   // index.html): the turn is begun before anything of the new page is drawn,
   // the new page is drawn under it, and then it glides
@@ -1712,6 +1704,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     el.tick();
     if (el.bandWrite) el.bandWrite();
     seatGhost(card);
+    if (!i) fitWelcome();
     // a 101 card reached before any answer still stands over the keyboard
     if (i > cards.indexOf(onboard)) showKeys(KEYS_LATE_MS);
     if (card.spec.lights){
@@ -1736,14 +1729,32 @@ for (const pane of document.querySelectorAll(".tikpane")){
     sel.removeAllRanges();
     sel.addRange(range);
   }
-  // a step either way, answered or not: no question has to be answered to
-  // move on. past the last card there is no card, and its key is called
+  // the cards past the onboarding card open only once every question is
+  // answered. a move there before that, by any key or click, stays on the
+  // onboarding card, and its newest page, the first question not answered,
+  // asks for its answer as an empty send does. while an answer is still on its
+  // way in, the move is only held back: that answer may be the last one
+  function blocked(i){
+    const missing = QUESTIONS.find(q => !profile[q.field]);
+    if (i <= cards.indexOf(onboard) || !missing) return false;
+    if (cards[at] !== onboard) show(cards.indexOf(onboard));
+    if (onboard.pending.length) return true;
+    leaveHistory();
+    onboard.asking = missing.empty;
+    onboard.askingAt = onboard.pages.length - 1;
+    render(onboard.el, pageRaw(onboard, onboard.askingAt));
+    printReply(onboard.el);
+    return true;
+  }
+  // a step either way, but not past the onboarding card with a question
+  // unanswered. past the last card there is no card, and its key is called
   // back to instead. once done there is nowhere to go: the board is opening
   function go(step){
     if (finished) return;
     const next = at + step;
     if (next < 0) return;
     if (next >= cards.length){ printReply(cards[at].el); return; }
+    if (blocked(next)) return;
     show(next);
   }
   // Control + Shift + Enter: the card that has waited longest for the reader
@@ -1775,7 +1786,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // a click on a ticket shows its card, as the board's select does
   select = id => {
     const i = cards.findIndex(c => c.spec.id === id);
-    if (i >= 0 && !finished) show(i);
+    if (i >= 0 && !finished && !blocked(i)) show(i);
   };
   // the onboarding always opens on Doing, whatever section this browser last
   // chose for a lane of this name
@@ -2047,7 +2058,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
       document.fonts.addEventListener("loadingdone", queue);
   }
 
-  const refit = () => seatGhost(cards[at]);
+  const refit = () => { seatGhost(cards[at]); if (!at) fitWelcome(); };
   addEventListener("resize", refit);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
   show(0);

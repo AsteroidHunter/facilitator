@@ -159,7 +159,7 @@ const out = value => JSON.parse(JSON.stringify(value));
 const QUESTION_SOURCE = () => [
   grab("  function said(text){", "  function plain(text)"),
   grab("  const ADDRESS = ", "  // the last card closed"),
-  grab("  const AGENTS = ", "  // the replies that carry"),
+  grab("  const AGENTS = ", "  // the board's marks a card's words"),
 ].join("\n");
 
 test("the email is checked: an empty Enter and a malformed email keep the question and ask for one", () => {
@@ -298,9 +298,9 @@ test("the onboarding is Welcome, one onboarding card of four needed questions, a
     assert.match(ONBOARDING, new RegExp(`\\{ field: "${field}", ask: "${ask.replace("?", "\\?")}", noun: "[^"]+", empty: [A-Z]+_EMPTY`), field);
   assert.match(ONBOARDING, /\{ field: "email", [^}]*check: emailProblem \}/, "the email is not checked");
   assert.doesNotMatch(ONBOARDING, /EMAIL_ASK|go to PostHog|You can skip this one/);
-  // the keyboard lights the step back after the first answer and the next card on the last page
-  assert.ok(ONBOARDING.includes('pulse(["ctrl", "shift", "up"], LIGHT)'));
-  assert.ok(ONBOARDING.includes('pulse(["ctrl", "shift", "right"], LIGHT)'));
+  // the last page lights the step back and then the next card
+  assert.match(ONBOARDING, /if \(!next\) after = \(\) => later\(\(\) => \{\s*const t = pulse\(\["ctrl", "shift", "up"\], LIGHT\);\s*later\(\(\) => pulse\(\["ctrl", "shift", "right"\], LIGHT\), t \+ LIGHTS_GAP_MS\);/);
+  assert.doesNotMatch(ONBOARDING, /asideLater|BACK_ASIDE|ASIDE_ON|obheld/);
   assert.doesNotMatch(ONBOARDING, /#432BFF/i);
   assert.doesNotMatch(ONBOARDING, /—/, "an em dash");
   assert.doesNotMatch(ONBOARDING, /avatar|picture step|\.\.\/facilitator\//i);
@@ -316,21 +316,31 @@ test("the onboarding is Welcome, one onboarding card of four needed questions, a
 
 test("the cards say what they were given to say, with the board's own marks, on white", () => {
   const context = vm.createContext({});
-  vm.runInContext(grab("  const key = name =>", "  // the timings.") + "\nthis.CARDS = CARDS; this.MARK = MARK; this.HI = HI;", context);
+  vm.runInContext(grab("  const key = name =>", "  // the timings.") +
+    "\nObject.assign(this, { CARDS, MARK, HI, BLURB, WELCOME, NEXT });", context);
   const { CARDS, MARK, HI } = context;
   const say = id => CARDS.find(c => c.id === id).say;
-  // the Welcome card: the lockup is the header, then the greeting, the blurb and the key, all to the left
+  // the Welcome card: the lockup is the header, as large as the header's width allows (as it was in the
+  // card's words before it moved), then the greeting as plain words, the blurb and the key, all to the left
   assert.equal(HI, "Hi there \u{1F44B}");
+  assert.equal(context.WELCOME, context.BLURB + "\n\nPress **→** to continue.");
   assert.ok(ONBOARDING.includes('el.titleEl.innerHTML = \'<span class="obbrand">'), "the lockup is not the header");
-  assert.ok(ONBOARDING.includes('\'<div class="obwelcome"><p class="obhi">\' + HI + "</p>" + fmt(WELCOME) + "</div>"'));
+  assert.ok(ONBOARDING.includes('el.reply.dataset.raw = HI + "\\n\\n" + WELCOME;'));
+  assert.ok(ONBOARDING.includes('el.reply.innerHTML = \'<div class="obwelcome">\' + fmt(el.reply.dataset.raw) + "</div>";'));
+  assert.doesNotMatch(ONBOARDING, /obhi/, "the greeting has a look of its own");
   assert.match(ONBOARDING, /\.obwelcome\{display:flex; flex-direction:column; align-items:flex-start; text-align:left\}/);
-  assert.doesNotMatch(ONBOARDING, /fitWelcome/);
+  assert.match(ONBOARDING, /\.obbrand\{display:flex; width:max-content;/);
+  assert.match(grab("  function fitWelcome(){", "  // ---- the onboarding card's question"),
+               /const t = cards\[0\]\.el\.titleEl, brand = t\.querySelector\("\.obbrand"\);[\s\S]*room \* 0\.9 \/ wide/);
+  assert.ok(ONBOARDING.includes("if (!i) fitWelcome();") && ONBOARDING.includes("if (!at) fitWelcome();"));
+  // every card's key to go on says continue
+  assert.equal(context.NEXT, "Press **Control\u00a0+\u00a0Shift\u00a0+\u00a0→** to continue!");
   // the atomizing card, first of the 101 cards, in the words given, the doubled "acts" gone and the names capitalised
   assert.equal(say("cards"),
     "The only \"rule\" to make the best of the Facilitator is *atomize your asks.*\n\n" +
     "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, put them on *n* different cards!\n\n" +
     "The Claude or Codex agent connected to a project acts as a manager and assigns those tasks to *n* subagents, " +
-    "which parallelizes and speeds up implementation.");
+    "thereby parallelizing and speeding up implementation.");
   assert.equal(CARDS[2].id, "cards");
   // 101: Tickets, in the words and lists given, with the section chips' marks
   assert.equal(say("tickets"),
@@ -364,6 +374,84 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.match(ONBOARDING, /body\.focus\.obticketsprep #tickets\{visibility:visible; opacity:0;[^}]*\}/);
   assert.match(ONBOARDING, /body\.focus\.obtickets:not\(\.obdone\) #tickets\{transition:opacity \.9s ease, visibility 0s\}/);
   assert.ok(ONBOARDING.includes('list.add("obticketsprep");\n      requestAnimationFrame(() => requestAnimationFrame(() => {'));
+});
+
+// the onboarding card's pages as the page writes them, run in a vm
+test("the way to change an answer is said once, on the last page, under the answers", () => {
+  const context = vm.createContext({ HINT: "reply" });
+  vm.runInContext([
+    grab("  function plain(text){", "  // the answer a message gives"),
+    grab("  const key = name =>", "  // the timings."),
+    "const profile = { name: 'Ada', email: 'ada@example.org', work: 'Research', agent: 'Codex', timeZone: null };",
+    grab("  function pageRaw(card, i){", "  // every card's words were written"),
+    "this.pageRaw = pageRaw; this.BACK_LINE = BACK_LINE;",
+  ].join("\n"), context);
+  const back = "To change any of the previous answers, press **Control + Shift + ↑**";
+  assert.equal(context.BACK_LINE, back);
+  const card = { asking: null, askingAt: null,
+                 pages: ["name", "email", "work", "agent", null].map((field, i) => ({ field, head: i ? "Got it." : null })) };
+  const pages = card.pages.map((p, i) => context.pageRaw(card, i));
+  for (const raw of pages.slice(0, -1)) assert.doesNotMatch(raw, /change|Control.Shift.↑/, "a question page says how to change an answer");
+  const last = pages.at(-1);
+  assert.equal(last.split(back).length, 2, "the last page does not say it exactly once");
+  assert.ok(last.indexOf("Here is what you told us:") < last.indexOf(back), "the line is not under the answers");
+  assert.ok(last.endsWith(back + "\n\nPress **Control + Shift + →** to continue!"));
+});
+
+// the page's own moves between cards, run in a vm with the page around them stubbed
+function moves({ at = 1, answers = {}, pending = [] } = {}) {
+  const calls = [];
+  const note = name => (...args) => { calls.push([name, ...args]); };
+  const onboard = { spec: { id: "onboard" }, asking: null, askingAt: null, el: { onboard: true }, pending, pages: [{}, {}] };
+  const cards = [{ spec: { id: "welcome" } }, onboard, { spec: { id: "cards" } }, { spec: { id: "tickets" } }, { spec: { id: "hotkeys" } }];
+  const context = vm.createContext({
+    calls, onboard, cards, profile: { name: null, email: null, work: null, agent: null, ...answers },
+    show: note("show"), leaveHistory: note("leaveHistory"), printReply: note("printReply"),
+    render: (el, raw) => calls.push(["render", raw]), pageRaw: (card, i) => i + ":" + card.asking,
+  });
+  vm.runInContext([
+    QUESTION_SOURCE(),
+    `let at = ${at}, finished = false, select;`,
+    grab("  function blocked(i){", "  // Control + Shift + Enter: the card"),
+    grab("  select = id => {", "  // the onboarding always opens on Doing"),
+    "this.go = go; this.select = select; this.empty = f => QUESTIONS.find(q => q.field === f).empty;",
+  ].join("\n"), context);
+  return { calls, onboard, go: context.go, select: context.select, empty: context.empty };
+}
+
+test("the cards after the onboarding card open only once every question is answered", () => {
+  const all = { name: "Ada", email: "ada@example.org", work: "Research", agent: "Codex" };
+  // the Welcome card to the onboarding card is free
+  const welcome = moves({ at: 0 });
+  welcome.go(1);
+  assert.deepEqual(out(welcome.calls), [["show", 1]]);
+  // a step on, or a click on a later card's ticket, with a question unanswered: the card stays, and asks for that answer
+  for (const [field, answers] of [["name", {}], ["email", { name: "Ada" }], ["work", { name: "Ada", email: "ada@example.org" }],
+                                  ["agent", { name: "Ada", email: "ada@example.org", work: "Research" }]]) {
+    for (const move of [m => m.go(1), m => m.select("cards"), m => m.select("hotkeys")]) {
+      const m = moves({ answers });
+      move(m);
+      assert.ok(!m.calls.some(c => c[0] === "show"), "moved on without the " + field);
+      assert.equal(m.onboard.asking, m.empty(field));
+      assert.equal(m.onboard.askingAt, 1, "not on the newest page");
+      assert.deepEqual(out(m.calls.find(c => c[0] === "render")), ["render", "1:" + m.empty(field)]);
+      assert.ok(m.calls.some(c => c[0] === "printReply"), "the line is not shown");
+    }
+  }
+  // the last answer still on its way in: held back, with no line
+  const landing = moves({ answers: { name: "Ada", email: "ada@example.org", work: "Research" }, pending: [{}] });
+  landing.go(1);
+  assert.deepEqual(out(landing.calls), []);
+  // every answer in: the next card, and back to the Welcome card, as before
+  const done = moves({ answers: all });
+  done.go(1);
+  done.go(-1);
+  done.select("hotkeys");
+  assert.deepEqual(out(done.calls), [["show", 2], ["show", 0], ["show", 4]]);
+  // backwards is never held
+  const back = moves({});
+  back.go(-1);
+  assert.deepEqual(out(back.calls), [["show", 0]]);
 });
 
 // the hover's reading of a key's name, run in a vm on small stand ins for the
