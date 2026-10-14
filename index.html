@@ -292,12 +292,17 @@
   .fc-hide{caret-color:transparent}   /* only tracked editors drop the native caret */
   textarea::placeholder{color:#B4AA99}
   /* a card's empty typing box shows its own line (composeLine in card-logic.js)
-     in the faint grey of a new card's "Card Name", on one line and cut with an
-     ellipsis where the row is too narrow, so the row never grows for it */
+     in the faint grey of a new card's "Card Name", on one line, so the row never
+     grows for it. the editor's line is cut with an ellipsis where the row is too
+     narrow: it takes the line's width and lends the editor none of its own, or
+     the editor would widen to the words and its scroller would slice them.
+     chrome cuts the plain field's line without the ellipsis; the board's stage
+     scales as a whole, so no line is cut at any window size */
   :is(.compose, .mcompose) textarea::placeholder,
   :is(.compose, .mcompose) .cffield .cm-placeholder{color:var(--bubble-fill, #F3F3F3); opacity:1;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  :is(.compose, .mcompose) .cffield .cm-placeholder{max-width:100%; vertical-align:top}
+  :is(.compose, .mcompose) .cffield .cm-placeholder{width:100%; box-sizing:border-box;
+    contain:inline-size; vertical-align:top}
   .sendbtn{
     flex:none; font:600 13px var(--sans); color:#fff; background:var(--accent);
     border:none; border-radius:9px; padding:9px 16px; cursor:pointer;

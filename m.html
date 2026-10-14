@@ -1055,10 +1055,12 @@
   textarea::placeholder{color:#B4AA99}
   /* a card's empty typing box shows its own line (composeLine in card-logic.js)
      in the faint grey of a new card's "Card Name", on one line and cut with an
-     ellipsis where the row is too narrow, so the row never grows for it */
+     ellipsis where the row is too narrow, so the row never grows for it. the
+     editor's line takes the line's width and lends the editor none of its own,
+     or the editor would widen to the words and its scroller would slice them */
   .compose textarea::placeholder, .compose .cffield .cm-placeholder{color:var(--bubble-fill, #F3F3F3); opacity:1;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  .compose .cffield .cm-placeholder{max-width:100%; vertical-align:top}
+  .compose .cffield .cm-placeholder{width:100%; box-sizing:border-box; contain:inline-size; vertical-align:top}
   /* the phone skips its caret reveal, the scroll of the whole page that
      brings a freshly focused field into view, when the field is at opacity 0
      on that frame: one fiftieth of a second blink on focus, a frame the eye
