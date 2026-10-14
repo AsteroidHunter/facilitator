@@ -528,6 +528,9 @@ def move(clone, made, say=lambda *a: None, stopped_board=False):
     clone = Path(clone)
     data = data_dir(clone)
     data.mkdir(mode=0o700, exist_ok=True)
+    if not data.is_symlink():
+        # private, as the board makes it, even when it was there before the move
+        os.chmod(data, 0o700)
     if (data / MOVED).exists():
         # a move that wrote its record and was cut off before taking the
         # marker away: everything is already in place

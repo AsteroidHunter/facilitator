@@ -512,6 +512,8 @@ test("a file in both places stops the move before the board is stopped, names bo
   assert.match(rerun.stdout, /Removed the old copies/);
   assert.equal(alive(oldPid), false);
   assert.deepEqual(ids(await waitBoard(w.port)), [...CARDS].sort());
+  // data/ was made by hand with the ordinary mode; the move makes it private
+  assert.equal(fs.statSync(w.data).mode & 0o777, 0o700);
   newBoardPid(w);
   process.kill(newBoardPid(w), "SIGTERM");
 });
