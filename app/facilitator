@@ -3412,11 +3412,223 @@ def run_update_steps():
         ok(f"{name} done.")
 
 
-def restart_board(pulled, stopped=False):
+# --- the move: an older checkout's board files into data/, once -------------
+#
+# A checkout from before data/ kept the board's files at its top, and its
+# attachments and logs in facilitator-internal/ beside it. The pulled code
+# moves them into data/ before anything else, because the .venv the update
+# steps run on is one of them. data_folder.py does the files; this stops and
+# starts the board around them and checks the board's cards before the old
+# copies go.
+
+# set once the move has stopped this folder's board, so a step that fails
+# after it can say the board stays down until the move is done
+move_stopped_board = False
+
+
+def human_size(count):
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if count < 1024 or unit == "GB":
+            return f"{count:.0f} {unit}" if unit == "bytes" else f"{count:.1f} {unit}"
+        count /= 1024
+    return f"{count:.1f} GB"
+
+
+def refuse_plan(made):
+    """Stop the move, with nothing moved, on a clash or a disk without room."""
+    import data_folder
+    if made["conflicts"]:
+        raise data_folder.Refused(
+            "These files are in their old place and in data/ both, and they differ:",
+            *[f"{c['from']}  and  {DATA / c['to']}" for c in made["conflicts"]],
+            "Move one of each pair out of the way, then run facilitator update again.",
+            "Nothing was moved.")
+    if made["need"] > made["free"]:
+        raise data_folder.Refused(
+            f"There is not enough free space to back up and copy the board's files: they need "
+            f"{human_size(made['need'])} and {human_size(made['free'])} is free.",
+            "Free some space, then run facilitator update again. Nothing was moved.")
+
+
+def stop_old_board():
+    """Stop this folder's board, when one is running, before its files are
+    moved: True when one was stopped. It is found where the old run.config.json,
+    the old server.lock and data/'s config point, counted only when it names
+    this checkout, and stopped by the same identity checks restart uses, which
+    accept a board still running the code from before data/."""
+    import data_folder
+    global move_stopped_board
+    ports = []
+    for config in (CLONE / "run.config.json", CONFIG):
+        try:
+            ports.append(int(json.loads(config.read_text()).get("port") or 0))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+    try:
+        ports.append(int(json.loads((CLONE / "server.lock").read_text()).get("port") or 0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    for port in dict.fromkeys(p for p in ports if 1 <= p <= 65534):
+        if not this_board(board_state(port)):
+            continue
+        owner, refusal = server_process(port)
+        if refusal is None and owner is not None:
+            refusal = stop_server(owner, port)
+        if refusal:
+            raise data_folder.Refused(f"The board could not be stopped to move its files: {refusal}.",
+                                      "Nothing was moved. Stop the board, then run facilitator update again.")
+        if owner is not None:
+            move_stopped_board = True
+            print(f"Stopped the board on port {port} to move its files.")
+            return True
+    return False
+
+
+def say_move(kind, *words):
+    if kind == "backup":
+        name, count, size = words
+        ok(f"Backed up {count} files ({human_size(size)}) to data/backups/{name}.")
+    elif kind == "backup-kept":
+        ok(f"Kept the backup an earlier run made: data/backups/{words[0]}.")
+    elif kind == "copied":
+        count, size = words
+        ok(f"Copied {count} files ({human_size(size)}) into data/ and checked each one.")
+    elif kind == "venv":
+        ok("Moved .venv into data/.")
+
+
+def statusline_note():
+    """One line when Claude Code's status line still runs the script from the
+    checkout's top, which is in app/ now. The settings are only read: the
+    status line was added by hand, so it is changed by hand."""
+    root = os.environ.get("CLAUDE_CONFIG_DIR")
+    settings = (Path(root).expanduser() if root else Path.home() / ".claude") / "settings.json"
+    old, new = CLONE / "claude-statusline.py", HERE / "claude-statusline.py"
+    try:
+        command = json.loads(settings.read_text()).get("statusLine", {}).get("command", "")
+    except (OSError, ValueError, AttributeError):
+        return
+    if isinstance(command, str) and str(old) in command:
+        print(f"Claude Code's status line still runs {old}, which is now {new}.")
+        print(f"Change it in {settings} so the home page's limits stay current.")
+
+
+def move_data(number):
+    """The move, when this checkout still has board files in their old place
+    or a move that did not finish, as section number; else nothing at all.
+    Returns what the Board step and the finish need to know."""
+    import data_folder
+    where = data_folder.state(CLONE)
+    if where in ("none", "done"):
+        return {"shown": False, "finish": False, "stopped": False, "running_before": None}
+    section(f"{number}. Board files")
+    if where == "pending":
+        print("The board's files are in data/. The old copies are removed once the\n"
+              "board shows your cards from there.\n")
+        return {"shown": True, "finish": True, "stopped": False, "running_before": None}
+    print("The board's files move into data/ in this folder, once. Everything is\n"
+          "backed up first, every copy is checked, and nothing old is removed\n"
+          "until the board shows your cards from data/.\n")
+    # a run cut off after it stopped the board says so in its marker, so this
+    # one starts the board again at the end as that one would have
+    global move_stopped_board
+    remembered = bool(data_folder.read_marker(CLONE).get("stopped_board"))
+    move_stopped_board = move_stopped_board or remembered
+    try:
+        refuse_plan(data_folder.plan(CLONE, light=True))
+        stopped = stop_old_board() or remembered
+        if stopped:
+            data_folder.note_stopped_board(CLONE)
+        with data_folder.Locks(CLONE):
+            made = data_folder.plan(CLONE)
+            refuse_plan(made)
+            data_folder.move(CLONE, made, say=say_move, stopped_board=stopped)
+    except data_folder.Refused as no:
+        sys.exit(problem(no.headline, *no.lines))
+    except (KeyboardInterrupt, OSError) as error:
+        if isinstance(error, KeyboardInterrupt):
+            why, then = "it was interrupted", "Run facilitator update again"
+        else:
+            why = f"{error.strerror or error}" + (f": {error.filename}" if getattr(error, "filename", None) else "")
+            then = "Fix that, then run facilitator update again"
+        if data_folder.state(CLONE) == "moving":
+            sys.exit(problem(f"The move into data/ stopped part way: {why}.", "Nothing old was removed.",
+                             f"{then}: it carries on from here."))
+        sys.exit(problem(f"The move into data/ did not start: {why}.", f"Nothing was moved. {then}."))
+    statusline_note()
+    return {"shown": True, "finish": True, "stopped": stopped, "running_before": stopped}
+
+
+def new_board_up(port):
+    """The identity of the board answering on port when it is this checkout's
+    and runs app/server.py, else None."""
+    if not this_board(board_state(port)):
+        return None
+    owner, refusal = server_process(port)
+    if refusal or owner is None or len(owner[1][2]) != 2 or owner[1][2][1] != str(HERE / "server.py"):
+        return None
+    return owner
+
+
+def finish_move(moved):
+    """Remove the old copies once the board, running from app/, shows every
+    card the old state.json held. A board the move found stopped is started
+    here to check, with no window, and stopped again after. Anything that
+    cannot be proved keeps every old copy, and the next update tries again."""
+    import data_folder
+    if not moved["finish"]:
+        return
+    record = data_folder.read_record(CLONE)
+    if not record or record.get("finished"):
+        return
+    port = board_port()
+    started = None
+    kept_why = None
+    if new_board_up(port) is None:
+        if moved["running_before"]:
+            kept_why = "the board did not come back up from app/"
+        else:
+            started, refusal = start_and_confirm(port)
+            if refusal:
+                kept_why = f"the board could not be started to check your cards: {refusal}"
+            else:
+                print(f"Started the board on port {port} to check your cards on the new layout.")
+    if kept_why is None:
+        ids = record.get("card_ids") or []
+        st = board_state(port)
+        shown = {str(box.get("id")) for box in (st or {}).get("boxes", []) if isinstance(box, dict)}
+        missing = [card for card in ids if card not in shown]
+        if not record.get("state_readable", True):
+            kept_why = "the old state.json could not be read, so the cards could not be checked"
+        elif st is None:
+            kept_why = "the board did not answer when its cards were read"
+        elif missing:
+            kept_why = (f"{len(missing)} of the {len(ids)} cards the old state.json held are not on the board "
+                        f"(for example {missing[0]})")
+        else:
+            ok(f"The board shows all {len(ids)} cards from data/.")
+            removed, kept = data_folder.finish(CLONE)
+            where = f" The backup stays in data/backups/{record['backup']}." if record.get("backup") else ""
+            ok(f"Removed the old copies ({removed} files).{where}")
+            for path, why in kept:
+                skipped(f"Kept {path}: {why}.")
+    if kept_why:
+        skipped(f"Kept the old copies: {kept_why}.")
+        print("They are removed by the next facilitator update once the board shows your cards.")
+    if started is not None:
+        refusal = stop_server(started, port)
+        if refusal:
+            print(f"The board started for the check is still running: {refusal}.")
+        else:
+            print("Stopped the board again, as it was before the update.")
+
+
+def restart_board(pulled, stopped=False, why="rebuild .venv"):
     """Safe restart, only when something was pulled and the board is running,
-    or a start when the .venv rebuild stopped it; False if it was refused."""
+    or a start when the move or the .venv rebuild stopped it; False if it was
+    refused."""
     if stopped:
-        print("The board was stopped to rebuild .venv. Starting it again.\n")
+        print(f"The board was stopped to {why}. Starting it again.\n")
     elif not pulled:
         skipped("Nothing was pulled, so the board was left as it is.")
         return True
@@ -3445,21 +3657,38 @@ def cmd_update_steps(args):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
 
+    number = 2
     try:
+        # first, before uv or .venv: the .venv may be one of the files that move
+        moved = move_data(number)
+        number += moved["shown"]
         stopped = ensure_env(ensure_uv(quiet=True), quiet=True)
 
-        section("2. Update steps")
+        section(f"{number}. Update steps")
         print("Numbered steps in the updates folder run once each, in order.\n"
               "A step that fails stops the update and runs again next time.\n")
         run_update_steps()
     except SystemExit as stop:
-        if (pulled or env_stopped_board) and isinstance(stop.code, str):
+        import data_folder
+        unmoved = data_folder.state(CLONE) in ("unmoved", "moving")
+        if isinstance(stop.code, str) and unmoved and move_stopped_board:
+            stop.code += ("\n  The board stays down until its files are in data/. Once the update goes through,"
+                          " it starts again: run facilitator update.")
+        elif unmoved:
+            # the move refused before stopping anything: the next update moves
+            # the files and restarts the board itself, as the lines above say
+            pass
+        elif (pulled or env_stopped_board or move_stopped_board) and isinstance(stop.code, str):
             stop.code += ("\n  The board was not restarted. Once the update goes through, run:"
                           " facilitator restart")
         raise
 
-    section("3. Board")
-    restarted = restart_board(pulled, stopped)
+    section(f"{number + 1}. Board")
+    if moved["stopped"]:
+        restarted = restart_board(pulled, True, "move its files into data/")
+    else:
+        restarted = restart_board(pulled, stopped)
+    finish_move(moved)
 
     new_version = board_version()
     green = style("38;2;0;114;0", "✦")
