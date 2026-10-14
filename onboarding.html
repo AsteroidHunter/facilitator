@@ -554,15 +554,15 @@
   /* the Welcome card: the product's own lockup, the mark beside the word and
      the version under it (the new-project landing's #npbrand in index.html),
      is the card's header, at the left where the other cards have their titles.
-     it is drawn in ems off its font size, which fitWelcome below sets as large
-     as the header's width allows, and keeps the room under it that its version
-     hangs into. in the middle of the card stand the greeting, the blurb and the
+     it is drawn in ems off the title's own font, so the word is a regular
+     card title's size, and keeps the room under it that its version hangs
+     into. in the middle of the card stand the greeting, the blurb and the
      key, in the card's own words, to the left */
   #box-welcome .reply{flex:1 0 auto; display:flex; flex-direction:column; justify-content:center;
     padding-right:calc(var(--pad-x)*2/3)}
   .obwelcome{display:flex; flex-direction:column; align-items:flex-start; text-align:left}
   .obbrand{display:flex; width:max-content; align-items:center; gap:.214em; margin:0 0 .4em;
-    font:700 30px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
+    font:inherit; letter-spacing:-.02em; color:var(--ink)}
   .obbrand .squidmark{height:.786em}
   .obbrandcopy{position:relative; display:inline-block}
   .obbrandname{display:block}
@@ -1321,18 +1321,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
   let at = 0, finished = false;
   const boxOf = card => lastState.boxes.find(b => b.id === card.spec.id);
 
-  // the Welcome card's lockup as large as the header's width allows, with a
-  // little air at the end
-  function fitWelcome(){
-    const t = cards[0].el.titleEl, brand = t.querySelector(".obbrand");
-    if (!brand || !t.clientWidth) return;
-    brand.style.fontSize = "";
-    const cs = getComputedStyle(t);
-    const room = t.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const wide = brand.getBoundingClientRect().width;
-    if (wide > 0) brand.style.fontSize = (parseFloat(getComputedStyle(brand).fontSize) * room * 0.9 / wide) + "px";
-  }
-
   // ---- the onboarding card's question ----------------------------------------------
   function wireQuestion(card){
     const el = card.el, t = el.titleEl, ta = el.ta;
@@ -1704,7 +1692,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     el.tick();
     if (el.bandWrite) el.bandWrite();
     seatGhost(card);
-    if (!i) fitWelcome();
     // a 101 card reached before any answer still stands over the keyboard
     if (i > cards.indexOf(onboard)) showKeys(KEYS_LATE_MS);
     if (card.spec.lights){
@@ -2058,7 +2045,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
       document.fonts.addEventListener("loadingdone", queue);
   }
 
-  const refit = () => { seatGhost(cards[at]); if (!at) fitWelcome(); };
+  const refit = () => seatGhost(cards[at]);
   addEventListener("resize", refit);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
   show(0);

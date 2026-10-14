@@ -320,7 +320,7 @@ test("the cards say what they were given to say, with the board's own marks, on 
     "\nObject.assign(this, { CARDS, MARK, HI, BLURB, WELCOME, NEXT });", context);
   const { CARDS, MARK, HI } = context;
   const say = id => CARDS.find(c => c.id === id).say;
-  // the Welcome card: the lockup is the header, as large as the header's width allows (as it was in the
+  // the Welcome card: the lockup is the header, the word in a regular title's font (as it was in the
   // card's words before it moved), then the greeting as plain words, the blurb and the key, all to the left
   assert.equal(HI, "Hi there \u{1F44B}");
   assert.equal(context.WELCOME, context.BLURB + "\n\nPress **→** to continue.");
@@ -330,9 +330,8 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.doesNotMatch(ONBOARDING, /obhi/, "the greeting has a look of its own");
   assert.match(ONBOARDING, /\.obwelcome\{display:flex; flex-direction:column; align-items:flex-start; text-align:left\}/);
   assert.match(ONBOARDING, /\.obbrand\{display:flex; width:max-content;/);
-  assert.match(grab("  function fitWelcome(){", "  // ---- the onboarding card's question"),
-               /const t = cards\[0\]\.el\.titleEl, brand = t\.querySelector\("\.obbrand"\);[\s\S]*room \* 0\.9 \/ wide/);
-  assert.ok(ONBOARDING.includes("if (!i) fitWelcome();") && ONBOARDING.includes("if (!at) fitWelcome();"));
+  assert.match(ONBOARDING, /\.obbrand\{[^}]*font:inherit; letter-spacing:-\.02em;/, "the word is not in the title's font");
+  assert.doesNotMatch(ONBOARDING, /fitWelcome/, "the lockup is stretched to the header's width");
   // every card's key to go on says continue
   assert.equal(context.NEXT, "Press **Control\u00a0+\u00a0Shift\u00a0+\u00a0→** to continue!");
   // the atomizing card, first of the 101 cards, in the words given, the doubled "acts" gone and the names capitalised
