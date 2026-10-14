@@ -222,3 +222,68 @@ test("the page's own page can say left when the sealed frame keeps the key to it
   assert.match(HTML, /MB\.view = magicView\(MB\.el, \{ placed: \(\) => magicPlace\(\), openSite: magicOpenSite, sized: true,\s*back: \(\) => magicBack\(\),/);
   assert.ok(!/back:/.test(read("m.html").match(/PB\.view = magicView\([^;]*;/)?.[0] || ""), "the phone is not part of it");
 });
+
+test("command+T in a page is stopped in the frame and said to the board, which makes a card as the key does", () => {
+  const { pageDoc } = (() => { const s = vm.createContext({}); vm.runInContext(read("magic-box.js"), s); return s.MagicBox; })();
+  const scripts = doc => [...doc.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+  // the Mac's page stops it ahead of anything the agent wrote; the phone's page has no keys of the board's
+  const mac = pageDoc("<p>x</p>", "w", true);
+  assert.ok(mac.indexOf("' create'") > 0 && mac.indexOf("' create'") < mac.indexOf("<p>x</p>"));
+  assert.ok(!/' create'/.test(pageDoc("<p>x</p>", "w", false)) && !/' create'/.test(pageDoc("<p>x</p>", "w", false, true)));
+  const posted = [], on = [];
+  const ctx = vm.createContext({ addEventListener: (type, f, capture) => on.push({ type, f, capture }),
+    document: { addEventListener() {}, body: null }, parent: { postMessage: (...a) => posted.push(a) } });
+  for (const code of scripts(mac).slice(1)) vm.runInContext(code, ctx);
+  const keys = on.filter(l => l.type === "keydown");
+  assert.ok(keys.length === 2 && keys.every(l => l.capture === true), "heard in capture, ahead of the page's own listeners");
+  const press = extra => {
+    const e = { ctrlKey: false, altKey: false, metaKey: true, shiftKey: false, key: "t", code: "KeyT", prevented: false,
+      preventDefault() { this.prevented = true; }, ...extra };
+    posted.length = 0;
+    for (const l of keys) l.f(e);
+    return { prevented: e.prevented, posted: posted.map(p => [...p]) };
+  };
+  assert.deepEqual(press({}), { prevented: true, posted: [["w create", "*"]] }, "no Chrome tab, and the board is told");
+  // the T the board reads: another layout's letter at the T key, or a capital from caps lock
+  assert.deepEqual(press({ key: "е" }).posted, [["w create", "*"]], "a Cyrillic layout's T key");
+  assert.deepEqual(press({ key: "T" }).posted, [["w create", "*"]], "caps lock");
+  // command alone: any other modifier, or another key, is left to the page and to Chrome
+  for (const miss of [{ shiftKey: true }, { altKey: true }, { ctrlKey: true }, { metaKey: false }, { key: "n", code: "KeyN" },
+    { key: "y", code: "KeyT" }])
+    assert.deepEqual(press(miss), { prevented: false, posted: [] }, JSON.stringify(miss));
+  // the board's key for a card is the same key: command and T, read the same way
+  assert.equal(resolve({ metaKey: true, key: "t", code: "KeyT" }).action, "create");
+  assert.equal(resolve({ metaKey: true, key: "е", code: "KeyT" }).action, "create");
+  // the board hears it from that frame alone and makes the card as the key does
+  const view = read("card-logic.js");
+  assert.match(view, /else if \(hooks\.create && e\.data === run\.word \+ " create"\) hooks\.create\(\);/);
+  assert.ok(view.indexOf('run.word + " create"') < view.indexOf("(hooks.sized || hooks.tall) && e.data.startsWith"),
+    "heard before a height is read off the message");
+  assert.match(HTML, /back: \(\) => magicBack\(\),\s*create: \(\) => \{ if \(FOCUS && boardKeysLive\(\)\) newCardHere\(\); \},/);
+  assert.match(cut("const boardShortcutActions = {", "\n};"), /\n  create\(e\)\{\s*e\.preventDefault\(\);\s*newCardHere\(\);\s*\},/);
+  assert.match(cut("addEventListener(\"keydown\", e => {\n  if (!FOCUS) return;", "\n});"),
+    /if \(!boardKeysLive\(\)\)\{ dispatchCardShortcut\(e, boardTabKeys\); return; \}\s*dispatchCardShortcut\(e, boardShortcutActions\);/);
+  assert.ok(!/create:/.test(read("m.html").match(/PB\.view = magicView\([^;]*;/)?.[0] || ""), "the phone is not part of it");
+  // the view's own message handler: one relayed press makes one card, from that frame only
+  const made = [];
+  let onMessage = null;
+  const body = { style: { setProperty() {}, removeProperty() {} }, textContent: "", dataset: {}, append() {},
+    addEventListener() {}, querySelector() { return null; } };
+  const vctx = vm.createContext({
+    MagicBox: { pageDoc }, getComputedStyle: () => ({ getPropertyValue: () => "0" }), setTimeout() {}, Date,
+    addEventListener: (type, f) => { if (type === "message") onMessage = f; },
+    h: () => ({ setAttribute() {}, addEventListener() {}, clientWidth: 398, contentWindow: {} }),
+  });
+  vm.runInContext(view.match(/function magicView\(el, hooks = \{\}\)\{[\s\S]*?\n  return view;\n\}/)[0] + ";this.magicView = magicView;", vctx);
+  const v = vctx.magicView({ querySelector: s => s === ".mbbody" ? body : null, lastElementChild: null },
+    { sized: true, placed() {}, create: () => made.push(1) });
+  v.draw({ kind: "html", html: "<p>x</p>" });
+  const run = v.page;
+  onMessage({ source: {}, data: run.word + " create" });
+  assert.equal(made.length, 0, "not from another window");
+  onMessage({ source: run.frame.contentWindow, data: "other create" });
+  assert.equal(made.length, 0, "not without the frame's word");
+  onMessage({ source: run.frame.contentWindow, data: run.word + " create" });
+  assert.equal(made.length, 1);
+  assert.equal(run.height, 0, "and it is no height");
+});

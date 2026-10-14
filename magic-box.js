@@ -112,21 +112,33 @@
   const PAGE_BACK = "addEventListener('keydown', e => {" +
     "if (e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && e.key === 'ArrowLeft') {" +
     "e.preventDefault(); parent.postMessage(W + ' back', '*'); } }, true);";
+  // command+T, the board's key for a new card, typed in the page would never
+  // reach the board either, and Chrome would open a tab for it: the page stops
+  // it and says it to the board, the word, a space and "create". Command alone,
+  // and the T read as the board reads it (cardCommandKey): the character the
+  // layout gives, or the physical key when that is no plain character
+  const PAGE_CREATE = "addEventListener('keydown', e => { const k = (e.key || '').toLowerCase();" +
+    "if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && (k === 't' || (!/^[ -~]$/.test(k) && e.code === 'KeyT'))) {" +
+    "e.preventDefault(); parent.postMessage(W + ' create', '*'); } }, true);";
   // the Mac's box shows no scrollbar inside a page, the board's rule for every
   // scroller (card-tokens.css) restated for the frame, which the board's sheet
-  // does not reach, and a page never scrolls sideways: whatever is wider than
-  // the box is clipped, so a few pixels of overflow cost nothing. It stands
-  // ahead of the agent's own styles, which may still say otherwise
-  const CALM = "<style>*{scrollbar-width:none}*::-webkit-scrollbar{display:none}html{overflow-x:hidden}</style>";
+  // does not reach. A page wider than the box scrolls sideways inside it, as
+  // quietly as it scrolls down, so none of it is out of reach; a page that fits
+  // has nothing to scroll and looks as it always did. It stands ahead of the
+  // agent's own styles, which may still say otherwise
+  const CALM = "<style>*{scrollbar-width:none}*::-webkit-scrollbar{display:none}html{overflow-x:auto}</style>";
   // word: when given, the page tells the board it is still itself each time it
   // finishes loading, by posting the word to it. A page that has sent its frame
   // elsewhere loads without saying it, and the board puts the page back.
-  // sized: the page says its own height too (PAGE_HEIGHT); the Mac's box asks
-  // for it, the phone's drawer does not
-  function pageDoc(html, word, sized) {
+  // sized: the page says its own height too (PAGE_HEIGHT), and relays the
+  // board's keys a sealed frame keeps (PAGE_BACK, PAGE_CREATE); the Mac's box
+  // asks for it. tall: the page says its height and nothing more, for the
+  // phone's drawer, which lays the page out that tall and scrolls the box
+  function pageDoc(html, word, sized, tall) {
     const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
+    const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_HEIGHT : tall ? PAGE_HEIGHT : "";
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
-      (sized ? ';(() => { const W = ' + W + '; ' + PAGE_BACK + PAGE_HEIGHT + ' })()' : "") + '</script>' : "";
+      (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
       '<meta name="referrer" content="no-referrer">' + (sized ? CALM : "") + '<script>' + KEYS_GUARD + '</script>' + hello +
       String(html == null ? "" : html);

@@ -7745,6 +7745,7 @@ function magicView(el, hooks = {}){
   // looked into, so the word is how the board knows what is in it
   const page = (html, tries) => {
     view.body.textContent = "";
+    view.body.style.removeProperty("--mb-page");
     view.page = null;
     if (tries > 3) return;
     const frame = h("iframe", "mbframe");
@@ -7762,7 +7763,7 @@ function magicView(el, hooks = {}){
         if (view.page === run && frame.isConnected && run.said < run.loads) page(html, tries + 1);
       }, 500);
     });
-    frame.srcdoc = MagicBox.pageDoc(html, run.word, !!hooks.sized);
+    frame.srcdoc = MagicBox.pageDoc(html, run.word, !!hooks.sized, !!hooks.tall);
     run.since = Date.now();
     view.body.append(frame, h("div", "mbcover"));
   };
@@ -7772,6 +7773,17 @@ function magicView(el, hooks = {}){
   // was laid out at, and hooks.pageHeight(width) answers with a height already
   // known for the page at a width, which the box takes at once (view.want)
   const PAGE_WAIT = 1000;
+  // hooks.tall: the page says its height and the box stays its own size: the
+  // page is laid out that tall, --mb-page on the body (the phone's sheet), and
+  // the box scrolls it as it scrolls words. a page whose height follows its
+  // frame's (a full height in it) would grow for ever: once it has said three
+  // heights in a row each the same way past the frame, the frame stays put
+  const pageTall = run => {
+    const over = run.height - run.frame.clientHeight;
+    run.same = over > 0 && over === run.over ? (run.same || 0) + 1 : 0;
+    run.over = over;
+    if (run.same < 2) view.body.style.setProperty("--mb-page", run.height + "px");
+  };
   addEventListener("message", e => {
     const run = view.page;
     if (!run || e.source !== run.frame.contentWindow || typeof e.data !== "string") return;
@@ -7779,10 +7791,16 @@ function magicView(el, hooks = {}){
     // control+option+left typed inside the page, which the board never hears
     // from a sealed frame: the page relays it (MagicBox.pageDoc)
     else if (hooks.back && e.data === run.word + " back") hooks.back();
-    else if (hooks.sized && e.data.startsWith(run.word + " ")){
+    // and command+T, which the page stops so Chrome opens no tab
+    else if (hooks.create && e.data === run.word + " create") hooks.create();
+    else if ((hooks.sized || hooks.tall) && e.data.startsWith(run.word + " ")){
       const tall = Math.ceil(+e.data.slice(run.word.length + 1));
       if (tall > 0 && hooks.heard) hooks.heard(tall, run.frame.clientWidth);
-      if (tall > 0 && tall !== run.height){ run.height = tall; placed(); }
+      if (tall > 0 && tall !== run.height){
+        run.height = tall;
+        if (hooks.tall) pageTall(run);
+        placed();
+      }
     }
   });
   // what the box shows asks for (MagicBox's want), or nothing for a site, or a

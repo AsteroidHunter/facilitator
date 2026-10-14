@@ -1235,6 +1235,13 @@
   #mbface .mbbody{margin:var(--mb-air) 0 0; border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
   #mbface .mbbody[data-kind="image"]{margin:0}
   #mbface .mbtext{padding:var(--mb-inset) var(--mb-inset) var(--mb-lead)}
+  /* an agent's page is laid out as tall as it says it is (--mb-page, magicView's
+     hooks.tall), and never shorter than the box, so the box scrolls it under a
+     finger as it scrolls words. the clear cover over it is as tall: a touch on
+     the page lands on this page, never in the sealed frame, so the drawer's
+     pull still hears it there, as it does on words */
+  #mbface .mbframe, #mbface .mbcover{height:max(100%, var(--mb-page, 0px))}
+  #mbface .mbcover{bottom:auto}
   #tickets.boxface > #tikhead, #tickets.boxface > #tiklist{display:none}
   #tickets.boxface > #mbface{display:flex; flex:none; align-self:center}
   /* while the drawer changes face (drawerSwapFace) both faces are on show and
@@ -7821,7 +7828,7 @@ if (parent === window) {
 // only through the few names it wraps at the foot here
 const MAGIC_EDGE = 28;   // the pull's own strip, EDGE in the drawer's gesture
 const PB = { el: document.getElementById("mbface"), id: null, rev: 0, asked: 0 };
-PB.view = magicView(PB.el, { placed: () => phoneMagicFit(),
+PB.view = magicView(PB.el, { placed: () => phoneMagicFit(), tall: true,
   openSite: url => window.open(url, "_blank", "noopener,noreferrer") });
 // the cross takes a tap and never the keys. with the box out, Tab stays in the
 // drawer (keepTabInMenu) and the cross was its one stop, so a Tab to get back

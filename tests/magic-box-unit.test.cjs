@@ -1082,7 +1082,7 @@ test("an agent's page gets the sealing policy first, before anything it wrote", 
 test("the shared view builds its frames from those lists, and a site's frame carries no logins", () => {
   const view = read("card-logic.js");
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\)/);
-  assert.match(view, /frame\.srcdoc = MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized\)/);
+  assert.match(view, /frame\.srcdoc = MagicBox\.pageDoc\(html, run\.word, !!hooks\.sized, !!hooks\.tall\)/);
   assert.match(view, /frame\.setAttribute\("credentialless", ""\)/);
   assert.match(view, /frame\.setAttribute\("sandbox", MagicBox\.SITE_SANDBOX\)/);
   assert.equal((view.match(/frame\.setAttribute\("referrerpolicy", "no-referrer"\)/g) || []).length, 2);
@@ -1584,12 +1584,69 @@ test("the Mac box's words can be selected and copied, and command+a picks only t
   assert.ok(/getSelection\(\)\.selectAllChildren\(words\)/.test(html), "command+a selects the box's words alone");
 });
 
-test("the Mac's box hides every scrollbar and a page in it never scrolls sideways; the phone's page is as it was", () => {
+test("the Mac's box hides every scrollbar and a page wider than it scrolls sideways; the phone's page is as it was", () => {
   const MB = api();
   const mac = MB.pageDoc("<p>x</p>", "w", true), phone = MB.pageDoc("<p>x</p>", "w", false);
-  assert.ok(mac.includes("<style>*{scrollbar-width:none}*::-webkit-scrollbar{display:none}html{overflow-x:hidden}</style>"));
+  assert.ok(mac.includes("<style>*{scrollbar-width:none}*::-webkit-scrollbar{display:none}html{overflow-x:auto}</style>"));
   assert.ok(mac.indexOf("<style>") < mac.indexOf("<p>x</p>"), "the agent's styles come after");
+  // auto, not hidden: what runs past the box's right edge is scrolled to, not
+  // clipped. and not visible either: a non-visible root keeps a body's own
+  // overflow on the body, as hidden did, so a page that fits is laid out as before
+  const rule = mac.match(/html\{overflow-x:([a-z]+)\}/g);
+  assert.deepEqual(rule, ["html{overflow-x:auto}"], "one sideways rule, and it scrolls");
+  assert.ok(!/overflow-x:hidden|overflow:hidden/.test(mac.slice(0, mac.indexOf("<p>x</p>"))), "nothing of the board's clips the page");
   assert.ok(!/scrollbar|overflow-x/.test(phone), "the phone's page is unchanged");
+  assert.ok(!/scrollbar|overflow-x/.test(MB.pageDoc("<p>x</p>", "w", false, true)), "and so is the phone's tall page");
   const html = read("index.html");
+  // the box's own body still never scrolls sideways: the page scrolls inside its frame, which fills it
   assert.match(html, /#magicbox, #magicbox \*\{scrollbar-width:none\}\s*#magicbox::-webkit-scrollbar, #magicbox \*::-webkit-scrollbar\{display:none\}\s*#magicbox \.mbbody\{overflow-x:hidden\}/);
+  assert.match(read("card-tokens.css"), /\.magicbox \.mbframe\{display:block; width:100%; height:100%;/);
+  // the runbook gives agents the box's real width: full size beside the board's
+  // card, down to the narrowest box still shown, half the card's height tall
+  assert.equal(Math.round(CARD.height * WIDE), 400);
+  assert.equal(Math.round(CARD.height / 2 * SHAPE), 222);
+  assert.match(read("RUNBOOK.md"), /The box is narrow: on the Mac board a page is laid out between about 220 and 400 pixels wide/);
+});
+
+test("on the phone a page taller than the box is laid out at its own height under a cover as tall, so the box scrolls it", () => {
+  const MB = api();
+  // the phone's page says its height and nothing more: no keys relayed, no calm
+  const tall = MB.pageDoc("<p>x</p>", "w", false, true);
+  assert.match(tall, /parent\.postMessage\(W \+ ' ' \+ h, '\*'\)/);
+  assert.ok(!/ArrowLeft|' create'|scrollbar/.test(tall));
+  assert.match(read("m.html"), /PB\.view = magicView\(PB\.el, \{ placed: \(\) => phoneMagicFit\(\), tall: true,/);
+  // the sheet: frame and cover as tall as the page, never shorter than the box
+  const m = read("m.html");
+  assert.match(m, /#mbface \.mbframe, #mbface \.mbcover\{height:max\(100%, var\(--mb-page, 0px\)\)\}\s*#mbface \.mbcover\{bottom:auto\}/);
+  // and the view: the height the page says goes on the body, a new page starts
+  // from none, and a page that keeps growing past its frame by the same amount is stopped
+  const body = { style: { props: {}, setProperty(k, v) { this.props[k] = v; }, removeProperty(k) { delete this.props[k]; } },
+    textContent: "", dataset: { kind: "html" }, append() {}, addEventListener() {}, querySelector() { return null; } };
+  const el = { querySelector: s => s === ".mbbody" ? body : null, lastElementChild: null };
+  let onMessage = null;
+  const frames = [];
+  const ctx = vm.createContext({
+    MagicBox: MB, getComputedStyle: () => ({ getPropertyValue: () => "0" }), setTimeout() {}, Date,
+    addEventListener: (type, f) => { if (type === "message") onMessage = f; },
+    h: () => { const f = { setAttribute() {}, addEventListener() {}, clientHeight: 500, contentWindow: {} }; frames.push(f); return f; },
+  });
+  vm.runInContext(read("card-logic.js").match(/function magicView\(el, hooks = \{\}\)\{[\s\S]*?\n  return view;\n\}/)[0] + ";this.magicView = magicView;", ctx);
+  let placed = 0;
+  const view = ctx.magicView(el, { tall: true, placed: () => placed++ });
+  view.draw({ kind: "html", html: "<p>x</p>" });
+  const run = view.page, say = h => onMessage({ source: run.frame.contentWindow, data: run.word + " " + h });
+  assert.match(run.frame.srcdoc, /new ResizeObserver\(say\)/, "the phone's frame is asked its height");
+  say(2400);
+  assert.equal(body.style.props["--mb-page"], "2400px", "laid out as tall as it says");
+  assert.equal(placed, 1);
+  // the frame grown to it: a picture arriving makes it taller again
+  run.frame.clientHeight = 2400; say(2700);
+  assert.equal(body.style.props["--mb-page"], "2700px");
+  // a page that follows its frame (a full height in it) stops growing
+  run.frame.clientHeight = 2700; say(2740);
+  run.frame.clientHeight = 2740; say(2780);
+  run.frame.clientHeight = 2780; say(2820);
+  assert.equal(body.style.props["--mb-page"], "2780px", "a page chasing its own frame is held");
+  view.draw({ kind: "html", html: "<p>y</p>" });
+  assert.equal(body.style.props["--mb-page"], undefined, "a new page starts at the box's own height");
 });

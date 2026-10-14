@@ -1568,7 +1568,8 @@
   #magicbox .mbbar{background:var(--card)}
   #magicbox .mbbar::after{display:none}
   /* no scrollbar anywhere in the box, its words or a page's frame, which has its
-     own rule (MagicBox.pageDoc); the content still scrolls, and never sideways */
+     own rule (MagicBox.pageDoc); the content still scrolls, the words never
+     sideways, and a page wider than the box sideways inside its frame */
   #magicbox, #magicbox *{scrollbar-width:none}
   #magicbox::-webkit-scrollbar, #magicbox *::-webkit-scrollbar{display:none}
   #magicbox .mbbody{overflow-x:hidden}
@@ -7747,9 +7748,11 @@ const MB = { el: document.getElementById("magicbox"), line: document.getElementB
 if (MB.el){
   // what it holds is drawn by the view both pages share (card-logic.js), and
   // an agent's page says its own height, which the box takes, and which is
-  // kept for the next time the box shows at that width
+  // kept for the next time the box shows at that width. command+T in a page
+  // makes a card where the key on the board would (boardShortcutActions.create)
   MB.view = magicView(MB.el, { placed: () => magicPlace(), openSite: magicOpenSite, sized: true,
     back: () => magicBack(),
+    create: () => { if (FOCUS && boardKeysLive()) newCardHere(); },
     pageHeight: width => magicHeight(MB.id + ":" + MB.rev, width),
     heard: (height, width) => { if (MB.id) MB.heights.set(MB.id + ":" + MB.rev, { w: width, h: height }); } });
   MB.body = MB.view.body;
