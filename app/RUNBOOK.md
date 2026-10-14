@@ -4,9 +4,13 @@ For an agent sitting behind the board. Read this cold and start; nothing else is
 
 Facilitator is a board on your Mac for working with Claude Code or Codex agents. Each card is one point of discussion, a thread between you and one agent. Your messages wait in order for the agent of the card's project, and every message and reply is saved on the Mac. The board runs at `http://127.0.0.1:<port>`, where the port is the `port` in `run.config.json`: 8877 on a new install when it is free.
 
+The folder you cloned holds two folders: `app/`, the program (this runbook is in it), and `data/`, everything the board saves: cards and history (`state.json`, `transcript.jsonl`), `settings.json`, `profile.json`, `run.config.json`, `seed.json`, attachments, logs, magic boxes, the phone's sign-in, the push key and the board's own Python. git ignores `data/`, so none of it is ever committed or pushed. Every file named in this runbook without a folder, such as `run.config.json`, is in `data/`.
+
 To install, run `./install.sh` in the downloaded folder. It needs Claude Code or Codex, Google Chrome (the board runs as its own Chrome window) and macOS 11 or later, and stops without changing anything if Chrome, or both Claude Code and Codex, are missing. It sets up a private Python and the board's packages, each pinned to an exact version, and never changes your own Python. It writes `run.config.json` and `seed.json` only when they are missing. It asks whether you want the phone client, and on yes checks with you that Tailscale is set up (see "The phone page and the bridge") and asks for a phone password. It says when Chrome's graphics acceleration is on; when it is off, it offers to turn it on with Chrome closed, or with Chrome open shows where to turn it on and never quits or waits for Chrome. Last, it adds the `facilitator` command and the agent skill and prints the next steps. It is safe to run again. Run without a terminal, it asks nothing and skips the phone client.
 
-`facilitator uninstall` (or `./uninstall.sh`) removes only what the installer added, and keeps your cards, settings, phone sign-in data and any config you changed. It asks whether to keep card attachments: Enter keeps them, and only a clear no removes them (`--keep-attachments` or `--remove-attachments` answers ahead of time). When other copies of the board beside this one share that folder, a no is followed by a second question naming them, and the folder stays unless that answer is a clear yes too. It has no dry run.
+`facilitator uninstall` (or `./uninstall.sh`) removes only what the installer added, and keeps your cards, settings, phone sign-in data and any config you changed. It asks whether to keep card attachments: Enter keeps them, and only a clear no removes them (`--keep-attachments` or `--remove-attachments` answers ahead of time). It has no dry run.
+
+`facilitator update` brings the folder up to date with one command. On a folder from before `data/`, where the board kept its files at the top and its attachments and logs in a `facilitator-internal` folder beside it, the update first moves them into `data/`, once. It backs everything up into `data/backups/` first, copies each file and checks it by checksum, and removes an old copy only after the board, started again on the new code, shows every card it had. Until the move is done the board does not start, and every other command says to run `facilitator update`; running it again finishes a move that was cut off.
 
 ## The loop
 
@@ -87,7 +91,7 @@ Follow the current host's permission rules and the user's authorization in this 
 
 ## The log
 
-The board writes its own dated log files into `facilitator-internal/logs`, a folder beside this one that never goes into the repository, and they record only what the board did, never anyone's words, keys, file paths or email addresses.
+The board writes its own dated log files into `data/logs`, which never goes into the repository, and they record only what the board did, never anyone's words, keys, file paths or email addresses.
 
 A new install logs errors only (`"log_level": "error"` in `run.config.example.json`), so for the server, bridge and phone logs the folder gains a file only when something goes wrong; a `run.config.json` with no `log_level` keeps logging at info, and `FACILITATOR_LOG_LEVEL` or `"log_level": "debug"` turns on full diagnostics.
 
@@ -157,7 +161,7 @@ The left half lists your projects. Click one to open its board (a closed one ope
 
 The right half shows "Token consumption per day": the tokens Claude Code and Codex have used on this Mac each day, as a year heatmap (a calendar of shaded squares) or a line chart, picked with the switch in its corner. Scroll or drag sideways for earlier weeks, and point at a day for its numbers. The counts are read from the logs Claude Code and Codex already keep on this Mac; only the counts are kept. `token_logs` in `run.config.json` can point at other log folders, or turn a tool off with an empty list.
 
-Under it, "Usage Limits" shows how much of each plan limit is used, with when it was last updated: Claude 5-hour, Claude weekly, Codex 5-hour and Codex weekly, each only when there is a number. Codex's come from Codex itself. Claude's come through Claude Code's status line, which the installer does not set up: add `"statusLine": {"type": "command", "command": "python3 <folder>/claude-statusline.py"}` to `~/.claude/settings.json`, where `<folder>` is the folder this RUNBOOK is in. To keep a status line you already have, put its command after the script as one quoted argument. Claude Code sends limits only on Pro and Max plans, after a session's first reply.
+Under it, "Usage Limits" shows how much of each plan limit is used, with when it was last updated: Claude 5-hour, Claude weekly, Codex 5-hour and Codex weekly, each only when there is a number. Codex's come from Codex itself. Claude's come through Claude Code's status line, which the installer does not set up: add `"statusLine": {"type": "command", "command": "python3 <folder>/claude-statusline.py"}` to `~/.claude/settings.json`, where `<folder>` is the folder this RUNBOOK is in (`app/` in the folder you cloned). To keep a status line you already have, put its command after the script as one quoted argument. Claude Code sends limits only on Pro and Max plans, after a session's first reply.
 
 ## Browsing and selecting cards
 
@@ -240,7 +244,7 @@ The Mac board plays a soft two-note bell when an agent's reply makes a card your
 
 ## Seeding a board
 
-A new board starts with no cards, and the onboarding opens the sample project. To start a brand new board with cards of your own, put them in `seed.json`, beside the app, before its first start: a `title` for the board and an `items` list with one entry per card, such as `{"id": "1.1", "bucket": "must", "owner": "myproject", "title": "Fix the login timeout", "context": "the card's first reply"}`. `id`, `bucket` and `title` are required, and every seeded card starts in Doing; `owner` is the lane it belongs to (`facilitator` when left out), and `context` is optional. The file is read only at the very first start.
+A new board starts with no cards, and the onboarding opens the sample project. To start a brand new board with cards of your own, put them in `data/seed.json` before its first start: a `title` for the board and an `items` list with one entry per card, such as `{"id": "1.1", "bucket": "must", "owner": "myproject", "title": "Fix the login timeout", "context": "the card's first reply"}`. `id`, `bucket` and `title` are required, and every seeded card starts in Doing; `owner` is the lane it belongs to (`facilitator` when left out), and `context` is optional. The file is read only at the very first start.
 
 ## Bringing everything up
 
@@ -264,7 +268,7 @@ Using it: the card fills the screen, with four buttons along the bottom. The tic
 
 When the board cannot be reached as the app opens (Tailscale off, or the Mac asleep or offline), the phone shows "Is the Facilitator server down?" and keeps trying on its own. The app always waits for the latest page and files from the Mac, however slowly they come, and keeps no older copy; if one of them still fails, it shows that same screen and opens by itself once the file comes through.
 
-Attachments, on the phone and the Mac: the plus, a paste or a drop adds photos, videos, recordings, PDF and Word files, up to 100 MB each. Each waits in a tray over the typing box, with a ring showing its upload and a cross to take it out, and goes with the message. Pictures show in the card as a grid, videos and recordings with play controls, and documents as links. An upload that fails is tried again on its own, then waits with a red mark to tap; a file the board refuses (not what its name says, empty or too large) gets the red mark too. Attachments are kept in `facilitator-internal/uploads`, beside the app's folder.
+Attachments, on the phone and the Mac: the plus, a paste or a drop adds photos, videos, recordings, PDF and Word files, up to 100 MB each. Each waits in a tray over the typing box, with a ring showing its upload and a cross to take it out, and goes with the message. Pictures show in the card as a grid, videos and recordings with play controls, and documents as links. An upload that fails is tried again on its own, then waits with a red mark to tap; a file the board refuses (not what its name says, empty or too large) gets the red mark too. Attachments are kept in `data/uploads`; those saved in the repository before attachments moved out of it are in `data/uploads-old`.
 
 Delivery marks, on the phone and the Mac: a sent message is faded until the board has saved it, then says "Delivered", and "Read" once an agent picks it up. A message that could not be sent is tried again on its own; if it still fails it gets a red mark with a retry arrow, and a cross that puts its words back in the typing box.
 

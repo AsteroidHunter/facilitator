@@ -37,8 +37,10 @@ banner still reads.
 
 No dependencies beyond the standard library:
 
+From the top of the repository:
+
 ```
-python tools/readme-header/generate.py
+python app/tools/readme-header/generate.py
 ```
 
 Output is deterministic, so re-running without a source change rewrites identical
@@ -63,5 +65,5 @@ does not force the host's image cache to refresh instantly.
 ## Referencing the image
 
 Image paths are relative to the README containing them. A README at the
-repository root uses `tools/readme-header/facilitator-header.svg`. Adjust that
-prefix if the document is moved.
+repository root uses `app/tools/readme-header/facilitator-header.svg`. Adjust
+that prefix if the document is moved.

@@ -29,8 +29,11 @@ plain `<img>`; static image hosts differ in what they render, so confirm the
 result where it will be published.
 
 Usage:
-    python tools/readme-header/generate.py [--repo-root PATH] [--out-dir PATH]
-                                           [--version vX.Y.Z]
+    python app/tools/readme-header/generate.py [--repo-root PATH] [--out-dir PATH]
+                                               [--version vX.Y.Z]
+
+--repo-root is the folder holding index.html and m-gate.html: app/, two
+folders up from this file, unless given.
 
 --version is only for tests: it overrides the version WITHOUT touching
 index.html, so a fixture can prove a different version flows through to the SVG.

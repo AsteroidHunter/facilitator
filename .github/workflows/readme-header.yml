@@ -1,11 +1,11 @@
 name: readme-header
 
-# Refresh the README header banner (tools/readme-header/facilitator-header.svg)
+# Refresh the README header banner (app/tools/readme-header/facilitator-header.svg)
 # whenever the app's source for it changes. The banner reproduces the
-# installation header lockup: the logo and name come from m-gate.html
-# (.identity), and the version from index.html (#npversion), which is the app's
-# single version source of truth. Branch-relative on purpose: each branch keeps
-# its own banner for the version on that branch.
+# installation header lockup: the logo and name come from app/m-gate.html
+# (.identity), and the version from app/index.html (#npversion), which is the
+# app's single version source of truth. Branch-relative on purpose: each branch
+# keeps its own banner for the version on that branch.
 #
 # Nothing here is live until this workflow file and the generator are actually
 # pushed to the host. It does not create semantic version bumps and cannot force
@@ -18,9 +18,9 @@ on:
     branches:
       - '**'
     paths:
-      - index.html
-      - m-gate.html
-      - tools/readme-header/generate.py
+      - app/index.html
+      - app/m-gate.html
+      - app/tools/readme-header/generate.py
       - .github/workflows/readme-header.yml
 
 # One run per branch, cancelling an older in-flight run. This is only an
@@ -67,12 +67,12 @@ jobs:
           for attempt in 1 2 3 4 5; do
             git fetch origin "refs/heads/$BRANCH"
             git reset --hard FETCH_HEAD
-            python tools/readme-header/generate.py
-            if git diff --quiet -- tools/readme-header/facilitator-header.svg; then
+            python app/tools/readme-header/generate.py
+            if git diff --quiet -- app/tools/readme-header/facilitator-header.svg; then
               echo "Banner already current for $(git rev-parse HEAD); nothing to commit."
               exit 0
             fi
-            git add tools/readme-header/facilitator-header.svg
+            git add app/tools/readme-header/facilitator-header.svg
             git commit -m "Refresh README header banner"
             # Plain (non-force) push. If the branch advanced meanwhile the push
             # is rejected and we loop to re-fetch and re-render from the new head.

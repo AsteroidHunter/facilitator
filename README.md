@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Facilitator" src="tools/readme-header/facilitator-header.svg" width="460">
+  <img alt="Facilitator" src="app/tools/readme-header/facilitator-header.svg" width="460">
 </p>
 
 ## About 
@@ -69,4 +69,4 @@ facilitator update
 
 This project is released under the [Facilitator License 1.0.0](LICENSE.md). Contributions are accepted under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The bundled CodeMirror editor (`cm-markdown.js`) is included under its own MIT license; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The bundled CodeMirror editor (`app/cm-markdown.js`) is included under its own MIT license; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

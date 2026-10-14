@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-`cm-markdown.js` is a prebuilt bundle of the CodeMirror 6 editor, built
+`app/cm-markdown.js` is a prebuilt bundle of the CodeMirror 6 editor, built
 outside this repository from the packages listed below. Each is distributed
 under the MIT License, whose text and copyright notices follow.
 
@@ -50,7 +50,7 @@ SOFTWARE.
 The navigator's file-type icons are Lucide, the chosen set for now; they are easy
 to swap later. Update or remove this notice if the icons change.
 
-`index.html` embeds five file-type icons from Lucide as inline static SVG path
+`app/index.html` embeds five file-type icons from Lucide as inline static SVG path
 data (the `FILENAV_ICONS` constant): `folder`, `file-text`, `file-code`, `image` and
 `file`. No package is installed and nothing is fetched at runtime; only the exact
 path geometry is copied in. The icons were taken from Lucide release `1.47.0`,
