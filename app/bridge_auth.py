@@ -17,7 +17,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-AUTH_FILE = Path(__file__).resolve().parent / "bridge-auth.json"
+# in data/ at the top of the checkout, beside app/ where this file is
+AUTH_FILE = Path(__file__).resolve().parent.parent / "data" / "bridge-auth.json"
 LOCK_FILE = AUTH_FILE.with_suffix(".lock")
 COOKIE = "__Host-facilitator_session"
 MAX_ATTEMPTS = 5
@@ -43,6 +44,9 @@ def validate_password(value):
 
 @contextmanager
 def _locked():
+    # data/ private to this account, like the files in it, when this is the
+    # first thing to need it
+    AUTH_FILE.parent.mkdir(mode=0o700, exist_ok=True)
     fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)

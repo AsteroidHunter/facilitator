@@ -10,6 +10,9 @@ endpoints. An old Serve mapping to the board's own port prevents startup
 until it is removed. One server per folder: server.lock beside state.json is
 held for as long as the server runs, and names its pid and port.
 
+Everything the board writes is in data/ at the top of the checkout, beside
+app/, which holds this file and the pages; data_folder.py says what is there.
+
 One page, one state file. The human types into per-item boxes; messages queue
 FIFO; the agent (Claude, in the terminal session that launched this) drains the
 queue one box at a time via GET /wait (long-poll) and answers via POST /reply.
@@ -159,9 +162,9 @@ Endpoints:
                                A card BIN_KEEP_DAYS in the Bin is deleted for good,
                                checked when the board starts and once a day. The
                                three Bin routes are local only: the bridge refuses them
-  POST /upload?name=F[&op=ID] -> body = raw attachment bytes; saves to the sibling internal
-                               folder ../facilitator-internal/uploads/ (outside the
-                               repo, never pushed), returns {"url": "/uploads/..."}
+  POST /upload?name=F[&op=ID] -> body = raw attachment bytes; saves to data/uploads/ at
+                               the top of the checkout (ignored by git, never
+                               pushed), returns {"url": "/uploads/..."}
                                unchanged; GET /uploads/<file> serves it back. The
                                bytes stream to a hidden part file, owner-only, and
                                are put in place only once complete and only if
@@ -174,12 +177,12 @@ Endpoints:
   GET  /upload?op=ID        -> the receipt of that upload: {"url": ...} once
                                stored, {"arriving": true} while it is still coming,
                                404 when this server run has no record of it
-  GET  /uploads/<file>      -> a previously uploaded attachment: served from the internal
-                               uploads folder, falling back to the old in-repo
-                               uploads/ for images saved before the move
+  GET  /uploads/<file>      -> a previously uploaded attachment: served from
+                               data/uploads/, falling back to data/uploads-old/ for
+                               images saved in the repo before attachments moved out
   GET  /laneimg/<lane>/<file> -> a picture out of that lane's OWN internal folder,
-                               <lane dir>/<lane id>-internal, the same rule this
-                               repo's facilitator-internal/ already follows. The
+                               <lane dir>/<lane id>-internal, the same rule for
+                               every lane, the built-in one included. The
                                lane dirs are the ones /state hands out as pwds.
                                <file> must be one plain file name and the resolved
                                path has to sit inside that folder, so .. segments,
@@ -614,7 +617,7 @@ Endpoints:
                                window, and the live page is left out by the
                                card's own record rather than by matching text
   GET  /log?lines=N         -> tail of the day's server log file, the dated one
-                               under the sibling internal folder's logs/;
+                               in data/logs/;
                                $FACILITATOR_LOG names another file instead
   GET  /dirs?path=P         -> the subdirectories of P (name + absolute path)
                                for the page's folder chooser; empty P means the
@@ -832,6 +835,22 @@ from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse, quote
 
 HERE = Path(__file__).resolve().parent
+# the checkout, the folder that was cloned: app/, which holds this file and the
+# pages, sits in it beside data/, which holds everything the board writes
+CLONE = HERE.parent
+DATA = CLONE / "data"
+
+if __name__ == "__main__":
+    # A board whose files are part way through moving into data/, or have not
+    # moved there yet, stays down and says why, before anything below opens a
+    # file in data/: the logger opens the day's file as this module loads.
+    import data_folder
+    _held = data_folder.unfinished(CLONE)
+    if _held:
+        sys.exit(" ".join(_held))
+    # private to this account, like the files in it; made here, before the
+    # logger below would make it with the ordinary folder mode
+    DATA.mkdir(mode=0o700, exist_ok=True)
 
 # ---- the log ----------------------------------------------------------------
 # One event per line, as JSON, in a dated file, and that file is the only place
@@ -850,12 +869,11 @@ HERE = Path(__file__).resolve().parent
 LOG_LEVELS = {"info": logging.INFO, "debug": logging.DEBUG, "error": logging.ERROR}
 LOG_MAX_BYTES = 5 * 1024 * 1024   # one file's cap
 LOG_KEEP = 30                     # files of one kind kept; older ones are deleted
-# The folder is worked out from this file's own place, the way INTERNAL_UPLOADS
-# below is, so no machine's home directory gets into tracked source and every
-# test's copy of this file writes into its own sandbox. The variable points one
-# run somewhere else, which is what a rotation test needs.
-LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR")
-               or (HERE.parent / "facilitator-internal" / "logs"))
+# The folder is worked out from this file's own place, as DATA is, so no
+# machine's home directory gets into tracked source and every test's copy of
+# this file writes into its own sandbox. The variable points one run somewhere
+# else, which is what a rotation test needs.
+LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR") or (DATA / "logs"))
 
 
 def _private_opener(path, flags):
@@ -881,7 +899,7 @@ def _configured_level() -> str:
     named = os.environ.get("FACILITATOR_LOG_LEVEL")
     if not named:
         try:
-            named = json.loads((HERE / "run.config.json").read_text()).get("log_level")
+            named = json.loads((DATA / "run.config.json").read_text()).get("log_level")
         except Exception:
             named = None
     named = str(named or "").strip().lower()
@@ -893,7 +911,7 @@ def _image_panel_lane() -> str:
     read from run.config.json (machine-local, gitignored). Empty when unset,
     which leaves the panel off on every tab and the feature idle."""
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
     except Exception:
         return ""
     return str(cfg.get("image_panel_lane") or "").strip()
@@ -907,7 +925,7 @@ def _navigator_lanes() -> tuple:
     is no longer read; _warn_legacy_config names its replacement once at startup if
     it is still present."""
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
     except Exception:
         return ()
     lanes = cfg.get("navigator_lanes") or []
@@ -921,7 +939,7 @@ def _warn_legacy_config() -> None:
     that is `markdown_lanes`, which became `navigator_lanes` when the panel it
     named became the file navigator."""
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
     except Exception:
         return
     if isinstance(cfg, dict) and "markdown_lanes" in cfg:
@@ -933,7 +951,7 @@ def _spotify_client_id() -> str:
     run.config.json (machine-local, gitignored). Empty when unset, which turns
     the connect stub into a prompt to create an app id rather than a sign-in."""
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
     except Exception:
         return ""
     return str(cfg.get("spotify_client_id") or "").strip()
@@ -946,7 +964,7 @@ def _compose_format_default() -> bool:
     missing file or any other value leaves it off. A browser's own stored
     choice always wins over this."""
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
     except Exception:
         return False
     return isinstance(cfg, dict) and cfg.get("compose_format_default") is True
@@ -960,7 +978,7 @@ def _background_default() -> str:
     is empty, which leaves the pages' own paper colour as it is. A saved
     colour always wins over this."""
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
     except Exception:
         return ""
     value = cfg.get("background_default") if isinstance(cfg, dict) else None
@@ -1142,7 +1160,7 @@ def _error(kind: str, box: str = "", /, **fields) -> None:
 
 # ---- the transport's libraries -------------------------------------------------
 # uvicorn speaks HTTP and Starlette routes the requests; both are installed
-# into the .venv beside this file from requirements.txt. Imported here, after
+# into data/.venv from requirements.txt. Imported here, after
 # the logger exists, so a board started without them writes one line saying
 # so and says one sentence on the terminal, instead of dying of an import
 # nobody is there to read. A Python older than 3.11 is turned away the same
@@ -1643,21 +1661,22 @@ def _lane_dirs() -> dict:
     """Per-owner project directory from run.config.json (machine-local, gitignored);
     served to the page for the pwd line, never part of tracked content."""
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
     except Exception:
         return {}
     lanes = cfg.get("lanes", [])
     return {ln["owner"]: str(Path(ln["dir"]).expanduser())
             for ln in lanes if ln.get("owner") and ln.get("dir")}
-STATE_PATH = HERE / "state.json"
-TRANSCRIPT_PATH = HERE / "transcript.jsonl"
+STATE_PATH = DATA / "state.json"
+TRANSCRIPT_PATH = DATA / "transcript.jsonl"
 # held by the running server for as long as it runs: one server per folder,
 # and the pid and port it names are how the CLI finds this board on any port
-SERVER_LOCK = HERE / "server.lock"
-# uploaded images now save outside the repo, in the sibling internal folder
-# (not a git repo, never pushed); reads still fall back to the old in-repo
-# uploads/ so the images saved there before this change keep resolving
-INTERNAL_UPLOADS = HERE.parent / "facilitator-internal" / "uploads"
+SERVER_LOCK = DATA / "server.lock"
+# attachments save in data/uploads (ignored by git, never pushed); reads fall
+# back to data/uploads-old, where the move put the ones saved in the repo
+# before attachments left it, so those keep resolving too
+UPLOADS = DATA / "uploads"
+OLD_UPLOADS = DATA / "uploads-old"
 # Lane panels remain image-only. Uploads also accept media and documents.
 IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
              ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
@@ -1689,7 +1708,7 @@ def _configured_port() -> int:
     if named:
         return int(named)
     try:
-        value = json.loads((HERE / "run.config.json").read_text()).get("port")
+        value = json.loads((DATA / "run.config.json").read_text()).get("port")
         number = None if isinstance(value, bool) else int(value)
     except Exception:
         number = None
@@ -1726,7 +1745,7 @@ MAX_IMG_PREVIEW = 25 * 1024 * 1024    # bytes of an in-root image the navigator 
 # a card's magic box: the box beside the card an agent fills. What it
 # holds lives here, beside state.json and as private as it, one file per card
 # named by the box's revision; state.json only says that a box exists
-MAGIC_DIR = HERE / "magic-boxes"
+MAGIC_DIR = DATA / "magic-boxes"
 MAGIC_KINDS = ("text", "markdown", "html", "image", "url")
 MAGIC_IMAGE_MAX = 10 * 1024 * 1024    # bytes of one picture in a box
 MAGIC_TITLE_MAX = 120                 # characters of a box's title
@@ -1831,7 +1850,7 @@ _OMNI_SPACE = re.compile(
 _OMNI_NUMBER = re.compile(r"#?([1-9][0-9]*)")
 _LANE_DIRS = {}
 
-SEED_PATH = HERE / "seed.json"
+SEED_PATH = DATA / "seed.json"
 
 _lock = threading.Condition()
 _state: dict = {}
@@ -1944,19 +1963,19 @@ def _sync_owner_registries() -> None:
 
 
 def _lane_pwds() -> dict:
-    """Every lane's folder in one map: the built-in owners sit in this folder,
+    """Every lane's folder in one map: the built-in owners sit in the checkout,
     run.config.json overrides them, project lanes carry their own stored dir.
     The page reads this as /state's pwds and /laneimg resolves against it, so
     the two can never disagree about where a lane lives."""
-    return {**{ow: str(HERE) for ow in OWNERS}, **_LANE_DIRS,
+    return {**{ow: str(CLONE) for ow in OWNERS}, **_LANE_DIRS,
             **{p["id"]: p["dir"] for p in _state.get("projects", [])}}
 
 
 def _lane_internal(lane: str) -> Path | None:
     """A lane's own internal folder, <lane dir>/<lane id>-internal: where that
-    project keeps the files that belong to it and never get pushed. This repo's
-    own facilitator-internal/ is already exactly that, one folder up from here.
-    None for a lane nobody has heard of."""
+    project keeps the files that belong to it and never get pushed. A lane whose
+    folder is this checkout keeps it at the checkout's top, where git ignores
+    it. None for a lane nobody has heard of."""
     d = _lane_pwds().get(lane)
     return Path(d) / (lane + "-internal") if d else None
 
@@ -3571,7 +3590,7 @@ OMNI_FILES = {
 # library only: openssl makes the key pair once, into a gitignored file beside
 # state.json, and signs each token. The DER signature it prints is turned into
 # the raw r||s form the JWT wants, which is plain byte handling.
-PUSH_KEY_PATH = HERE / "vapid-key.pem"
+PUSH_KEY_PATH = DATA / "vapid-key.pem"
 def _push_contact() -> str:
     """The signed push token's contact, a mailto: or https: address the push
     service may use to reach whoever runs this board. It is read from
@@ -3580,7 +3599,7 @@ def _push_contact() -> str:
     whose contact it cannot accept. The placeholder below is what a board with
     no configured contact sends."""
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
         contact = str(cfg.get("push_contact") or "").strip()
         if contact.startswith(("mailto:", "https:")):
             return contact
@@ -4285,7 +4304,10 @@ def _ui_state() -> dict:
         # readings already carry it: a page names the moment of a click by it,
         # so the times it sends back are the board's and not the browser's
         "now": time.time(),
-        "pwd": str(HERE),
+        # the board's folder is the checkout, not app/ inside it: the command
+        # and the agent skill compare this with the checkout to know the board
+        # is theirs, and a board from before the move named the checkout too
+        "pwd": str(CLONE),
         "pwds": _lane_pwds(),
         "projects": st.get("projects", []),
         "busy": st["busy"],
@@ -4748,7 +4770,7 @@ def _get_log(q: Query, _):
 # home page asks, so a board nobody opens the home page on never reads a log.
 # its counts are kept in tokens-cache.json beside state.json (gitignored), so a
 # restart reads only what the logs gained while the board was down
-TOKENS_CACHE = HERE / "tokens-cache.json"
+TOKENS_CACHE = DATA / "tokens-cache.json"
 TOKENS_MAX_DAYS = 3660
 _token_ledger = None
 _token_ledger_lock = threading.Lock()
@@ -4757,7 +4779,7 @@ _token_ledger_lock = threading.Lock()
 def _ledger():
     import tokens
     try:
-        cfg = json.loads((HERE / "run.config.json").read_text())
+        cfg = json.loads((DATA / "run.config.json").read_text())
     except Exception:
         cfg = {}
     folders = tokens.roots(cfg)
@@ -4779,7 +4801,7 @@ def _get_tokens_daily(q: Query, _):
 
 # the limits box on the home page: the 5-hour and weekly windows of Claude Code
 # and of Codex as a percent used, for the tools that have a number to show.
-# Claude's come from the file claude-statusline.py writes beside this one
+# Claude's come from the file claude-statusline.py writes into data/
 # (gitignored); Codex's from its own app server, at most once in five minutes,
 # or, until it has answered once in this run, from its session logs, dated by
 # their own time. limits.py is loaded when the page first asks. The first ask
@@ -4787,7 +4809,7 @@ def _get_tokens_daily(q: Query, _):
 # with the time it was taken, while a stale reading is renewed in the
 # background (`refreshing` says so). Each change of source writes one
 # `limitsource` info line.
-CLAUDE_LIMITS = HERE / "claude-limits.json"
+CLAUDE_LIMITS = DATA / "claude-limits.json"
 _limits = None
 _limits_lock = threading.Lock()
 
@@ -4871,7 +4893,7 @@ def _get_upload(q: Query, _):
     fn = q.path[len("/uploads/"):]
     if not fn or "/" in fn or "\\" in fn or fn in (".", ".."):
         return 404, {"error": "not found"}
-    for base in (INTERNAL_UPLOADS, HERE / "uploads"):
+    for base in (UPLOADS, OLD_UPLOADS):
         p = base / fn
         if p.is_file() and p.resolve().parent == base.resolve() and p.suffix.lower() in UPLOAD_TYPES:
             disposition = "attachment" if q.one("download") == "1" or p.suffix.lower() in (".doc", ".docx") else "inline"
@@ -5804,7 +5826,7 @@ def _sweep_upload_parts() -> None:
     still younger than an upload may take could belong to a server starting
     beside this one, so only older ones go."""
     try:
-        for part in INTERNAL_UPLOADS.glob(".*.part"):
+        for part in UPLOADS.glob(".*.part"):
             try:
                 if time.time() - part.stat().st_mtime > UPLOAD_TIME_LIMIT:
                     part.unlink()
@@ -5830,8 +5852,8 @@ def _tighten_private_files() -> None:
     by other accounts on the machine lose the group and other permissions.
     Only regular files under the board's own names are touched: never a link,
     a folder, or anything else that happens to sit in the same place."""
-    places = ((HERE, PRIVATE_FILES), (LOG_DIR, PRIVATE_LOGS),
-              (INTERNAL_UPLOADS, ("*",)), (HERE / "uploads", ("*",)))
+    places = ((DATA, PRIVATE_FILES), (LOG_DIR, PRIVATE_LOGS),
+              (UPLOADS, ("*",)), (OLD_UPLOADS, ("*",)))
     narrowed = 0
     for folder, patterns in places:
         for pattern in patterns:
@@ -7016,7 +7038,7 @@ def _post_seen(q: Query, text: str):
 #
 # The Spotify sign-in is kept in the same file, under "spotify", and never
 # travels on these routes: /spotify/session alone answers it, to a local page.
-SETTINGS_PATH = HERE / "settings.json"
+SETTINGS_PATH = DATA / "settings.json"
 SETTINGS_VALUE_MAX = 65536      # characters in one value; a box's place is a few dozen
 SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 # the keys a page may keep here, the same list as SETTINGS_KEY in
@@ -7197,8 +7219,8 @@ def _post_spotify_session(q: Query, text: str):
 # ignored by git.
 # usage_counts.py is imported only here, so a copy of the board without it, as
 # the tests' fixtures make, sends nothing at all.
-USAGE_MARKER = HERE / "usage-counts.json"
-USAGE_INSTALL = HERE / "usage-install.json"
+USAGE_MARKER = DATA / "usage-counts.json"
+USAGE_INSTALL = DATA / "usage-install.json"
 USAGE_SETTING = "usagecounts"
 USAGE_EMAIL_BODY_MAX = 2048
 _usage_sender = None   # the one Sender, made at boot; the thread and the route share it
@@ -7260,7 +7282,7 @@ def _post_usage_email(q: Query, text: str):
 # A profile that is missing or has no name is a board nobody has been through
 # the onboarding on: /board-settings.js says so, and the Mac board puts the
 # onboarding up before it can be used (see the onboarding below).
-PROFILE_PATH = HERE / "profile.json"
+PROFILE_PATH = DATA / "profile.json"
 PROFILE_BODY_MAX = 8192
 PROFILE_TEXT_MAX = {"name": 200, "work": 2000, "agent": 100}
 # the picture the Mac's Settings page shows in Profile: one of twelve, by the
@@ -7921,9 +7943,9 @@ async def _post_upload(request: Request) -> Response:
     kept = _upload_receipts.get(op) if op else None
     if kept is not None and kept["name"] != safe:
         return _answer(409, {"error": UPLOAD_WORDS["other"]}, route=route, close=True)
-    INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
+    UPLOADS.mkdir(parents=True, exist_ok=True)
     stamp = time.time_ns()
-    part = INTERNAL_UPLOADS / f".{stamp}-{secrets.token_hex(4)}.part"
+    part = UPLOADS / f".{stamp}-{secrets.token_hex(4)}.part"
     started = time.monotonic()
     got = {"bytes": 0}
     if op:
@@ -7948,16 +7970,16 @@ async def _post_upload(request: Request) -> Response:
         for bump in range(8):
             fname = f"{stamp + bump}-{safe}"
             try:
-                os.close(os.open(INTERNAL_UPLOADS / fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+                os.close(os.open(UPLOADS / fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
                 break
             except FileExistsError:
                 continue
         else:
             raise _UploadRefused(409, "Another upload took that name; try again.")
         try:
-            os.replace(part, INTERNAL_UPLOADS / fname)
+            os.replace(part, UPLOADS / fname)
         except OSError:
-            (INTERNAL_UPLOADS / fname).unlink(missing_ok=True)
+            (UPLOADS / fname).unlink(missing_ok=True)
             raise
         url = "/uploads/" + quote(fname)
         if op:
@@ -8916,7 +8938,7 @@ def main() -> None:
         signal.signal(stopper, stopping)
 
     try:
-        INTERNAL_UPLOADS.mkdir(parents=True, exist_ok=True)
+        UPLOADS.mkdir(parents=True, exist_ok=True)
         _sweep_upload_parts()
         _tighten_private_files()
         _load()

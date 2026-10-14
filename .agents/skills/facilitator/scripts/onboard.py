@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[4]
-RUNBOOK = REPO / "RUNBOOK.md"
+RUNBOOK = REPO / "app" / "RUNBOOK.md"
 LISTEN_SECONDS = 420
 CLIENT_SLACK = 10
 
@@ -21,9 +21,16 @@ def output(status, **fields):
     print(json.dumps({"status": status, **fields}, ensure_ascii=False))
 
 
+def config_file():
+    """data/run.config.json; the checkout's top until the update has moved
+    the board's files into data/."""
+    moved = REPO / "data" / "run.config.json"
+    return moved if moved.exists() else REPO / "run.config.json"
+
+
 def port():
     try:
-        value = json.loads((REPO / "run.config.json").read_text()).get("port", 8877)
+        value = json.loads(config_file().read_text()).get("port", 8877)
         number = int(value)
         if 1 <= number <= 65535:
             return number

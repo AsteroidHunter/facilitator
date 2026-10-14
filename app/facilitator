@@ -96,16 +96,14 @@
       the link on; `facilitator run` does once a password is set, or
       `facilitator bridge on`.
   facilitator uninstall [--keep-attachments | --remove-attachments]
-      remove what install made: the .venv, tests/node_modules and the generated
-      config files, owned shell command, owned agent-skill links, and any Claude Code
-      status line entry an older install added. Keeps the board's data
-      (state.json, transcript.jsonl, settings.json, logs, bridge credentials
-      and vapid-key.pem).
+      remove what install made: the .venv, app/tests/node_modules and the
+      generated config files, owned shell command, owned agent-skill links, and
+      any Claude Code status line entry an older install added. Keeps the
+      board's data in data/ (state.json, transcript.jsonl, settings.json, logs,
+      bridge credentials, vapid-key.pem and the backups).
       After its banner it asks whether to keep the card
       attachments; Enter, an unclear answer or no terminal keeps them, and the
-      two flags answer without asking. The folder another copy of the board
-      beside this one also reads is asked about again and kept unless the
-      answer is a clear yes, flag or not; with no terminal it is kept.
+      two flags answer without asking.
       Never removes this folder or stops a running server.
   facilitator password set
       prompt twice for the phone bridge password; replacing it signs out every
@@ -117,22 +115,29 @@
       bring this checkout up to date without running git yourself. Stops and
       changes nothing when the checkout has uncommitted changes. Pulls the
       current branch's upstream forward only (git pull --ff-only: never a merge
-      or a rewrite), then hands over to the freshly pulled code, which syncs
-      the .venv to requirements.txt and runs the numbered steps in updates/
-      that have not run here yet, each once. A .venv that is missing, broken
-      or not on Python 3.14 is first built again on the Python 3.14 uv
-      manages; a board running on the old one is stopped before that and
-      started again after. Restarts the board only when it is running and
-      something was pulled. Ends with the old and new version.
+      or a rewrite), then hands over to the freshly pulled code. On a checkout
+      from before data/, that code first moves the board's files into data/,
+      once: everything is backed up, copied and checked, and the old copies
+      are removed only after the board shows the same cards from data/. It
+      then syncs the .venv to requirements.txt and runs the numbered steps in
+      app/updates/ that have not run here yet, each once. A .venv that is
+      missing, broken or not on Python 3.14 is first built again on the
+      Python 3.14 uv manages; a board running on the old one is stopped before
+      that and started again after. Restarts the board only when it is running
+      and something was pulled, or when the move or the rebuild stopped it.
+      Ends with the old and new version.
 
-Reads run.config.json beside this script: machine-local and gitignored, since
-lanes name real directories and tmux sessions; ./install.sh writes it
-from run.config.example.json for you to fill in. This script is Python stdlib
-only and runs on the python3 macOS ships (3.9 or newer); ./install.sh builds
-the server's .venv on a Python 3.14 that uv manages, from requirements.txt.
-run starts the server with that .venv's python when the folder is there, and
-with its own interpreter otherwise. password set always runs on that .venv's
-python; the commands that repair or remove .venv (update, uninstall) never do.
+The program lives in app/ inside the checkout, and everything the board writes
+lives in data/ beside it, which git ignores. Reads data/run.config.json:
+machine-local, since lanes name real directories and tmux sessions;
+./install.sh writes it from app/run.config.example.json for you to fill in.
+This script is Python stdlib only and runs on the python3 macOS ships (3.9 or
+newer); ./install.sh builds the server's data/.venv on a Python 3.14 that uv
+manages, from app/requirements.txt. run starts the server with that .venv's
+python when the folder is there, and with its own interpreter otherwise.
+password set always runs on that .venv's python; the commands that repair or
+remove .venv (update, uninstall) never do. The facilitator file at the top of
+the checkout only hands over to this one.
 """
 
 import ctypes
@@ -157,14 +162,17 @@ from urllib.parse import urlencode, urlparse
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))  # command may be invoked through its installed symlink
-CONFIG = HERE / "run.config.json"
+# the checkout, the folder that was cloned: app/ (here) holds the program and
+# data/ beside it everything the board writes, worked out as the server does
+CLONE = HERE.parent
+DATA = CLONE / "data"
+CONFIG = DATA / "run.config.json"
 RETIRED_OWNERS = frozenset({"triage"})
 # the Mac app keeps its command line inside the bundle and off PATH
 TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 # the bridge's own dated file, beside the server's, worked out from this script's
 # place the way the server works out its own; the variable moves the folder
-LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR")
-               or (HERE.parent / "facilitator-internal" / "logs"))
+LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR") or (DATA / "logs"))
 LOG_KEEP = 30   # dated bridge files kept, oldest deleted
 TAILSCALE_STATUS_TIMEOUT = 30
 TAILSCALE_CHANGE_TIMEOUT = 120
@@ -297,7 +305,8 @@ def bridge_log(kind, level="info", **fields):
 def load_config():
     """The parsed run.config.json; a broken one ends the command with one plain line."""
     if not CONFIG.exists():
-        sys.exit(f"no {CONFIG.name} beside the script; copy run.config.example.json and fill in real lanes")
+        sys.exit(f"no {CONFIG.name} in {DATA}; run ./install.sh, or copy app/run.config.example.json "
+                 "there and fill in real lanes")
     try:
         text = CONFIG.read_text()
     except UnicodeDecodeError:
@@ -370,12 +379,13 @@ def state(port, timeout=2):
         return None
 
 
-VENV_PYTHON = HERE / ".venv" / "bin" / "python3"
+VENV = DATA / ".venv"
+VENV_PYTHON = VENV / "bin" / "python3"
 
 
 def server_python():
-    """The interpreter the server runs under: the .venv beside this script,
-    which is where requirements.txt is installed, or this process's own when
+    """The interpreter the server runs under: data/.venv, which is where
+    requirements.txt is installed, or this process's own when
     there is no such folder (a machine whose interpreter already has the
     server's libraries)."""
     return str(VENV_PYTHON) if os.access(VENV_PYTHON, os.X_OK) else sys.executable
@@ -388,10 +398,10 @@ def on_app_env():
     scrypt, which the python3 macOS ships lacks. The variable marks the second
     run, so it happens once."""
     if (os.environ.get("FACILITATOR_APP_ENV") == "1"
-            or os.path.realpath(sys.prefix) == os.path.realpath(HERE / ".venv")):
+            or os.path.realpath(sys.prefix) == os.path.realpath(VENV)):
         return
-    broken = problem("The app's environment in .venv is missing or broken.",
-                     f"Run ./install.sh in {HERE} to rebuild it, then try again.")
+    broken = problem("The app's environment in data/.venv is missing or broken.",
+                     f"Run ./install.sh in {CLONE} to rebuild it, then try again.")
     if not os.access(VENV_PYTHON, os.X_OK):
         sys.exit(broken)
     sys.stdout.flush()
@@ -468,14 +478,16 @@ def said_why(port, started):
 DEFAULT_PORT = 8877
 PAIR_TRIES = 100        # pairs above a taken one that are looked at for a free one
 MOVE_TRIES = 3          # starts on a new pair before run stops trying
-SERVER_LOCK = HERE / "server.lock"
+SERVER_LOCK = DATA / "server.lock"
 
 
 def this_board(st):
-    """Whether a board's state is this folder's: the server names its own
-    folder as pwd, so a board from another checkout names another."""
+    """Whether a board's state is this folder's: the server names its
+    checkout as pwd, so a board from another checkout names another. A server
+    from before data/ named the checkout too, which is what keeps an old
+    board running mid-update from being read as somebody else's."""
     pwd = st.get("pwd") if isinstance(st, dict) else None
-    return isinstance(pwd, str) and os.path.realpath(pwd) == os.path.realpath(HERE)
+    return isinstance(pwd, str) and os.path.realpath(pwd) == os.path.realpath(CLONE)
 
 
 def other_board(st):
@@ -867,9 +879,12 @@ def same_file_as(path, candidates):
 
 def server_interpreters():
     """The interpreters this board's server can be started with: the one this
-    script would launch it with, this process's own, and the .venv beside the
-    script. These are the only paths this file will ever run."""
-    return [server_python(), sys.executable, str(HERE / ".venv" / "bin" / "python3")]
+    script would launch it with, this process's own, data/.venv's, and the
+    .venv a checkout from before data/ kept at its top, which an old board
+    still runs on until the update moves it. These are the only paths this
+    file will ever run."""
+    return [server_python(), sys.executable, str(VENV_PYTHON),
+            str(CLONE / ".venv" / "bin" / "python3")]
 
 
 def framework_runtime(path):
@@ -978,8 +993,12 @@ def is_server_argv(executable, argv):
     three arguments, not two, and no amount of looking at the end of a line
     will tell you which. An executable that cannot be accounted for is not
     accepted, which means a server started by hand under some other python is
-    refused rather than signalled."""
-    if len(argv) != 2 or argv[1] != str(HERE / "server.py"):
+    refused rather than signalled.
+
+    Our server.py is app/server.py, or <checkout>/server.py for a board still
+    running the code from before data/, which the update has to stop before
+    it can move that board's files."""
+    if len(argv) != 2 or argv[1] not in (str(HERE / "server.py"), str(CLONE / "server.py")):
         return False
     return is_trusted_executable(executable)
 
@@ -2415,7 +2434,7 @@ def cmd_bridge_setup():
     bash = shutil.which("bash")
     if bash is None or not lib.is_file():
         sys.exit(problem("Phone setup could not start.",
-                         f"{lib.name} or bash is missing; run ./install.sh in {HERE}."))
+                         f"{lib.name} or bash is missing; run ./install.sh in {CLONE}."))
     sys.stdout.flush()
     env = {**os.environ, "PY": sys.executable, "REPO": str(HERE)}
     code = subprocess.call([bash, "-c", 'set -euo pipefail; . "$1"; bridge_setup', "bash", str(lib)], env=env)
@@ -2572,9 +2591,11 @@ UV_PIN = "0.12.22"
 UV_INSTALL_URL = f"https://astral.sh/uv/{UV_PIN}/install.sh"
 UV_INSTALL_SHA256 = "58488ae8dbd0773134c92c85e901430e33f99d975bd7f929d26aa9ab0c2f9390"
 TESTS_DIR = HERE / "tests"
-INSTALL_RECORD = HERE / ".facilitator-install.json"
-# node_modules, package.json and package-lock.json in the checkout's root are
-# what installs before --dev made; uninstall still takes them back from those
+INSTALL_RECORD = DATA / ".facilitator-install.json"
+# what install may make, by the names its record has always used; where each
+# one is comes from artifact_path. node_modules, package.json and
+# package-lock.json at the checkout's top are what installs before --dev
+# made; uninstall still takes them back from those
 INSTALL_ARTIFACTS = (".venv", "tests/node_modules", "node_modules", "package.json",
                      "package-lock.json", "run.config.json", "seed.json")
 INSTALL_HELP = """usage: ./install.sh [--dev]
@@ -2582,37 +2603,32 @@ INSTALL_HELP = """usage: ./install.sh [--dev]
 Check that Claude Code or Codex and Chrome are here, then make this checkout
 runnable: find or install uv (0.9.0 or newer; uv's own installer is fetched
 for one exact release and run only when it matches its fingerprint), build
-the private .venv on a
+the private data/.venv on a
 Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
 another Python (a board running on the old one is stopped first), and sync
-requirements, and write run.config.json and seed.json from
+requirements, and write data/run.config.json and data/seed.json from
 the examples when they are missing. In an interactive terminal it asks about
 the phone client (Tailscale, then an app password). It ends by registering
 the facilitator command and the shared agent skill. Safe to run again; a
 second run changes nothing.
---dev also installs the packages only the tests need, into tests/node_modules,
-from tests/package-lock.json with npm ci and without running any package's
-scripts. It needs node and npm; without --dev they are not used."""
+--dev also installs the packages only the tests need, into
+app/tests/node_modules, from app/tests/package-lock.json with npm ci and
+without running any package's scripts. It needs node and npm; without --dev
+they are not used."""
 UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
 
-Remove what install made: the .venv, tests/node_modules, generated config,
-owned command and agent-skill links, and any Claude Code status line entry
-an older install added. Keeps board data and bridge credentials. Never removes
-this folder or stops a running server.
+Remove what install made: data/.venv, app/tests/node_modules, generated
+config, owned command and agent-skill links, and any Claude Code status line
+entry an older install added. Keeps the board's data in data/ and the bridge
+credentials. Never removes this folder or stops a running server.
 Card attachments are asked about after the banner and kept unless the
 answer is a clear no; with no terminal they are kept.
---keep-attachments and --remove-attachments answer without asking.
-The attachments folder beside this one is read by every other copy of the
-board in the same parent folder, so when there is one, removing it is asked
-about again and kept unless the answer is a clear yes, even with
---remove-attachments; with no terminal it is kept."""
+--keep-attachments and --remove-attachments answer without asking."""
 # card attachments, worked out exactly as server.py works them out: new ones
-# save in the sibling internal folder, and the old in-repo uploads/ still
-# serves the ones saved before that move
-ATTACHMENT_DIRS = (HERE.parent / "facilitator-internal" / "uploads", HERE / "uploads")
-SHARED_ATTACHMENTS = ATTACHMENT_DIRS[0]
+# save in data/uploads, and data/uploads-old serves the ones saved in the repo
+# before attachments left it
+ATTACHMENT_DIRS = (DATA / "uploads", DATA / "uploads-old")
 ATTACHMENT_QUESTION = "Keep your card attachments (pictures and files you attached to cards)? [Y/n] "
-SHARED_QUESTION = "Remove it for them as well? [y/N] "
 BANNER_GLYPHS = {
     "F": ["█████", "█    ", "████ ", "█    ", "█    "],
     "A": ["█████", "█   █", "█████", "█   █", "█   █"],
@@ -2755,10 +2771,17 @@ def held_lines(who, *outputs):
     return [f"Last lines from {who}:", *("  " + line for line in lines)] if lines else []
 
 
-def run_held(argv, cwd=HERE):
-    """Run a command, here by default, holding its output back, so an install
-    says what it is doing in its own words and not in uv's or npm's. The
-    result comes back for held_lines to show the end of it when it failed."""
+def make_data():
+    """data/, made private to this account when it is not there yet; one
+    already there keeps its mode."""
+    DATA.mkdir(mode=0o700, exist_ok=True)
+
+
+def run_held(argv, cwd=DATA):
+    """Run a command, in data/ by default, holding its output back, so an
+    install says what it is doing in its own words and not in uv's or npm's.
+    The result comes back for held_lines to show the end of it when it
+    failed."""
     return subprocess.run(argv, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True, errors="replace")
 
@@ -2770,7 +2793,7 @@ def env_python():
     if not os.access(VENV_PYTHON, os.X_OK):
         return None
     try:
-        lines = (HERE / ".venv" / "pyvenv.cfg").read_text().splitlines()
+        lines = (VENV / "pyvenv.cfg").read_text().splitlines()
     except (OSError, UnicodeDecodeError):
         return None
     for line in lines:
@@ -2830,7 +2853,7 @@ def build_env(uv, have, quiet):
     downloads, so a failure there leaves .venv and the board as they were. A
     rebuild of a .venv that was there says so even when quiet, since it is
     news. True when the board was stopped for it."""
-    venv = HERE / ".venv"
+    venv = VENV
     if venv.is_symlink():
         sys.exit(problem(f".venv is a link, and it is not on Python {APP_PYTHON}.",
                          "Facilitator will not clear what it points to. Remove the link,",
@@ -2869,7 +2892,9 @@ def ensure_env(uv, quiet=False):
     on. The sync runs either way because it is idempotent and is how a changed
     requirements file is picked up. quiet prints nothing unless a step fails or
     .venv has to be rebuilt. True when the board was stopped for a rebuild, so
-    the caller can start it again."""
+    the caller can start it again. It runs in data/, where .venv is; the
+    requirements come from app/."""
+    make_data()
     have = env_python()
     stopped = False
     if have == APP_PYTHON:
@@ -2877,7 +2902,8 @@ def ensure_env(uv, quiet=False):
             ok(f"Environment found in .venv (Python {APP_PYTHON}).")
     else:
         stopped = build_env(uv, have, quiet)
-    done = run_held([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"])
+    done = run_held([uv, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python",
+                     str(HERE / "requirements.txt")])
     if done.returncode != 0:
         sys.exit(problem("uv could not sync requirements.txt.",
                          *held_lines("uv", done.stdout, done.stderr),
@@ -2894,10 +2920,12 @@ def ensure_config():
     holds it, and otherwise the next free pair above it; run says which port
     the board is on. Nothing is asked of any port beyond whether it can be
     bound, and Tailscale is not asked at all: install runs before the phone
-    client is set up, and run checks the Serve rules when it starts the board."""
+    client is set up, and run checks the Serve rules when it starts the board.
+    The examples are in app/ and the files go into data/."""
+    make_data()
     for name, example in (("run.config.json", "run.config.example.json"),
                           ("seed.json", "seed.example.json")):
-        target = HERE / name
+        target = DATA / name
         if target.exists():
             ok(f"{name} found.")
             continue
@@ -2958,8 +2986,9 @@ def cmd_install(args):
     if dev and not npm:
         sys.exit(problem("--dev needs node and npm, and they were not found.",
                          "Install Node.js, then run ./install.sh --dev again."))
+    make_data()
     previous = read_install_record()
-    before = {name: (HERE / name).exists() for name in INSTALL_ARTIFACTS}
+    before = {name: artifact_path(name).exists() for name in INSTALL_ARTIFACTS}
     try:
         uv = ensure_uv()
         check_python()
@@ -2977,7 +3006,7 @@ def cmd_install(args):
         # a later uninstall can remove only that partial install's own files.
         owned = previous.copy()
         for name in INSTALL_ARTIFACTS:
-            path = HERE / name
+            path = artifact_path(name)
             if not before[name] and path.exists():
                 owned[name] = file_digest(path) if path.is_file() else "directory"
         INSTALL_RECORD.write_text(json.dumps(owned, indent=2) + "\n")
@@ -3029,6 +3058,19 @@ def remove_path(path):
 
 def file_digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def artifact_path(name):
+    """Where the thing the install record calls name is: the environment and
+    the two config files in data/, the test packages in app/tests, and what an
+    install before --dev made at the checkout's top. The names stay what the
+    record has always used, so a record the move carried into data/ still
+    names what this install made."""
+    if name == "tests/node_modules":
+        return TESTS_DIR / "node_modules"
+    if name in ("node_modules", "package.json", "package-lock.json"):
+        return CLONE / name
+    return DATA / name
 
 
 def read_install_record():
@@ -3093,49 +3135,6 @@ def keep_attachments(answer):
     return said.strip().lower() not in ("n", "no")
 
 
-def other_copies():
-    """Names of the other copies of the board in this folder's parent. Each
-    reads the same attachments folder beside it, so what is saved there is
-    theirs as much as this copy's."""
-    names = []
-    try:
-        for child in sorted(HERE.parent.iterdir()):
-            if (child.is_symlink() or not child.is_dir()
-                    or os.path.realpath(child) == os.path.realpath(HERE)):
-                continue
-            if (child / "server.py").is_file() and (child / "facilitator").is_file():
-                names.append(child.name)
-    except OSError:
-        pass
-    return names
-
-
-def keep_shared_attachments(path, copies):
-    """True unless the owner clearly says yes. The folder at path is read by
-    other copies of the board, so removing it takes their attachments too:
-    a flag does not answer for them, and no terminal keeps it."""
-    who = (f"Another copy of the board uses {path}: " if len(copies) == 1
-           else f"Other copies of the board use {path}: ") + ", ".join(copies) + "."
-    print()
-    print(who)
-    if not sys.stdin.isatty():
-        skipped(f"Keeping {path} for the other copies: there is no terminal to ask on.")
-        print("Remove it by hand when no other copy needs it.")
-        return True
-    try:
-        said = input(SHARED_QUESTION)
-    except EOFError:
-        print("")
-        said = ""
-    except KeyboardInterrupt:
-        print("")
-        sys.exit(problem("Stopped at the attachments question.", "Nothing was removed.", blank=True))
-    if said.strip().lower() in ("y", "yes"):
-        return False
-    skipped(f"Keeping {path} for the other copies.")
-    return True
-
-
 def remove_attachments(path):
     """Remove one attachment folder and nothing above it. A link is left alone
     rather than followed, and rmtree unlinks any link inside without following
@@ -3185,16 +3184,11 @@ def cmd_uninstall(args):
     print("Uninstall asks about your card attachments first, apart from the")
     print("rest of the board's data. Only a clear no removes them.")
     print()
-    copies, keep_shared = [], True
     if attachments:
         print("Your card attachments are in:")
         for path in attachments:
             print(f"  {path}")
         keep = keep_attachments(answer)
-        if SHARED_ATTACHMENTS in attachments:
-            copies = other_copies()
-        if not keep and copies:
-            keep_shared = keep_shared_attachments(SHARED_ATTACHMENTS, copies)
     else:
         print("No card attachments found.")
         keep = True
@@ -3210,15 +3204,8 @@ def cmd_uninstall(args):
     if shell_integration.done > removed_before:
         ok("facilitator command and agent skill removed")
 
-    made = [(".venv", HERE / ".venv"),
-            ("tests/node_modules", TESTS_DIR / "node_modules"),
-            ("node_modules", HERE / "node_modules"),
-            ("package.json", HERE / "package.json"),
-            ("package-lock.json", HERE / "package-lock.json"),
-            ("run.config.json", HERE / "run.config.json"),
-            ("seed.json", HERE / "seed.json")]
-
-    for label, path in made:
+    for label in INSTALL_ARTIFACTS:
+        path = artifact_path(label)
         marker = owned.get(label)
         if marker is None:
             if path.exists():
@@ -3232,8 +3219,6 @@ def cmd_uninstall(args):
 
     if not keep:
         for path in attachments:
-            if copies and path == SHARED_ATTACHMENTS and keep_shared:
-                continue
             remove_attachments(path)
 
     note = bridge_note(port)
@@ -3249,17 +3234,22 @@ def cmd_uninstall(args):
 
 # --- update: pull forward only, then the pulled code runs its own update steps ---
 UPDATES_DIR = HERE / "updates"
-UPDATE_RECORD = HERE / ".facilitator-updates.json"
-UPDATE_RECORD_TMP = HERE / ".facilitator-updates.tmp"
+UPDATE_RECORD = DATA / ".facilitator-updates.json"
+UPDATE_RECORD_TMP = DATA / ".facilitator-updates.tmp"
 UPDATE_STEP_NAME = re.compile(r"^\d{4}-[A-Za-z0-9._-]+\.(?:py|sh)$")
 UPDATE_HELP = """usage: facilitator update
 
 Bring this checkout up to date. Stops, changing nothing, when the checkout has
 uncommitted changes, is not on a branch, or has no upstream. Pulls that
 upstream forward only (git pull --ff-only), then runs the pulled code's update
-steps: sync the .venv to requirements.txt, then run each numbered step in
-updates/ that has not run here yet. A .venv that is missing, broken or not on
-Python 3.14 is built again on it first; that needs uv 0.9.0 or newer, and an
+steps. On a checkout from before data/, they first move the board's files into
+data/, once: everything is backed up into data/backups, copied and checked by
+checksum, and the old copies are removed only after the board, started again
+on the new code, shows every card it had. The board cannot start until the move
+is done; running facilitator update again finishes a move that was cut off.
+Then they sync the .venv to requirements.txt, and run each numbered step in
+app/updates/ that has not run here yet. A .venv that is missing, broken or not
+on Python 3.14 is built again on it first; that needs uv 0.9.0 or newer, and an
 older uv stops the update with one line. A board running on the old .venv is
 stopped before the rebuild and started again after. Otherwise restarts the
 board only when it is running and something was pulled."""
@@ -3267,7 +3257,7 @@ board only when it is running and something was pulled."""
 
 def run_git(*args, env=None):
     """One git command in this checkout with its output captured."""
-    return subprocess.run(["git", "-C", str(HERE), *args], capture_output=True,
+    return subprocess.run(["git", "-C", str(CLONE), *args], capture_output=True,
                           text=True, errors="replace", env=env)
 
 
@@ -3284,7 +3274,7 @@ def board_version():
 def check_checkout():
     """Stop unless this is a clean git checkout on a branch with an upstream; return (remote, upstream branch)."""
     top = run_git("rev-parse", "--show-toplevel")
-    if top.returncode != 0 or os.path.realpath(top.stdout.strip()) != os.path.realpath(HERE):
+    if top.returncode != 0 or os.path.realpath(top.stdout.strip()) != os.path.realpath(CLONE):
         sys.exit(problem("This folder is not a git checkout, so it cannot be updated.",
                          "Clone Facilitator again with git, then run ./install.sh there."))
     status = run_git("--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
@@ -3361,12 +3351,14 @@ def cmd_update(args):
 
     before, after = pull_forward(remote, upstream)
 
-    command = [sys.executable, str(HERE / "facilitator"), "_update-steps",
+    # through the launcher at the checkout's top, the one fixed entry: older
+    # code hands over the same way, and the pulled code says where it lives
+    command = [sys.executable, str(CLONE / "facilitator"), "_update-steps",
                "--from-version", old_version]
     if before != after:
         command.append("--pulled")
     sys.stdout.flush()
-    sys.exit(subprocess.run(command, cwd=str(HERE),
+    sys.exit(subprocess.run(command, cwd=str(CLONE),
                             env={**os.environ, "FACILITATOR_INTERNAL_UPDATE": "1"}).returncode)
 
 
@@ -3395,7 +3387,7 @@ def run_update_step(path):
     """Run one step with no input and return its exit status; .py under the .venv python, .sh under bash."""
     argv = [server_python(), str(path)] if path.suffix == ".py" else ["bash", str(path)]
     try:
-        return subprocess.run(argv, cwd=str(HERE), stdin=subprocess.DEVNULL).returncode
+        return subprocess.run(argv, cwd=str(CLONE), stdin=subprocess.DEVNULL).returncode
     except OSError as error:
         print(f"Could not start it: {error.strerror or 'error'}.")
         return 1
@@ -3653,9 +3645,29 @@ def installer_step(step, *args, **kwargs):
         sys.exit(130)
 
 
+# The commands that read or write the board's files or start its server. None
+# of them runs while those files are part way through moving into data/, or
+# still sit in their old place: a board started then would open fresh from
+# seed.json beside the real cards. Only update, which does the move, and help
+# go ahead.
+GUARDED = frozenset({"run", "restart", "stop", "status", "magic", "bridge", "password",
+                     "_password-setup", "_install", "uninstall"})
+
+
+def refuse_unfinished_move():
+    """Stop here, saying what to run, when the board's files are not yet all
+    in data/."""
+    import data_folder
+    held = data_folder.unfinished(CLONE)
+    if held:
+        sys.exit(problem(*held, blank=False))
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args and not args[0].startswith("-") else "run"
+    if cmd in GUARDED and not any(word in ("-h", "--help") for word in args[1:]):
+        refuse_unfinished_move()
     if cmd == "run":
         cmd_run(args)
     elif cmd == "restart":

@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # Install this checkout and expose the facilitator command.
 set -euo pipefail
-REPO="$(cd "$(dirname "$0")" && pwd)"
+# the checkout this script is in; the program is in app/ inside it, and what
+# the board writes goes into data/ beside that
+CLONE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$CLONE/app"
 
 CLAUDE_URL='https://code.claude.com/docs/en/overview'
 CODEX_URL='https://developers.openai.com/codex/cli'
 CHROME_URL='https://www.google.com/chrome/'
 # uv's own installer, locked to one release and run only when what comes back
 # has exactly this fingerprint; keep both in step with UV_PIN and
-# UV_INSTALL_SHA256 in facilitator.
+# UV_INSTALL_SHA256 in app/facilitator.
 UV_PIN='0.12.22'
 UV_INSTALL_URL="https://astral.sh/uv/$UV_PIN/install.sh"
 UV_INSTALL_SHA256='58488ae8dbd0773134c92c85e901430e33f99d975bd7f929d26aa9ab0c2f9390'
-MIN_PYTHON='3.9'      # runs the setup and the command; keep in step with MIN_PYTHON in facilitator
-MANAGED_PYTHON='3.14' # the Python .venv is built on; keep in step with APP_PYTHON in facilitator
-UV_MIN='0.9.0'        # the first uv that installs Python 3.14.0; keep in step with UV_MIN in facilitator
-HELD_LINES=10         # how many of a failed step's own last lines are shown; keep in step with facilitator
+MIN_PYTHON='3.9'      # runs the setup and the command; keep in step with MIN_PYTHON in app/facilitator
+MANAGED_PYTHON='3.14' # the Python data/.venv is built on; keep in step with APP_PYTHON in app/facilitator
+UV_MIN='0.9.0'        # the first uv that installs Python 3.14.0; keep in step with UV_MIN in app/facilitator
+HELD_LINES=10         # how many of a failed step's own last lines are shown; keep in step with app/facilitator
 
 DEV_FLAG=''
 if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
@@ -24,7 +27,7 @@ if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
   printf 'environment for this checkout, offer the phone client (Tailscale and\n'
   printf 'an app password), and register the command and shared agent skill.\n'
   printf -- '--dev also installs the packages only the tests need, locked to the\n'
-  printf 'versions in tests/package-lock.json; it needs node and npm.\n'
+  printf 'versions in app/tests/package-lock.json; it needs node and npm.\n'
   exit 0
 elif [ "$#" -eq 1 ] && [ "$1" = "--dev" ]; then
   DEV_FLAG=1

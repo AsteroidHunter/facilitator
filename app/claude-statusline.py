@@ -4,7 +4,8 @@
 Claude Code runs the command after each reply and sends one JSON object on
 stdin. This keeps the two numbers the home page's limits box draws,
 rate_limits.five_hour and rate_limits.seven_day (used_percentage and
-resets_at), in claude-limits.json beside this file. It prints nothing of its
+resets_at), in claude-limits.json in data/ at the top of the checkout, beside
+app/ where this file is. It prints nothing of its
 own, so no status line text shows in Claude Code. Nothing else from the input
 is kept.
 
@@ -26,7 +27,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent / "claude-limits.json"
+OUT = Path(__file__).resolve().parent.parent / "data" / "claude-limits.json"
 WINDOWS = ("five_hour", "seven_day")
 WRAPPED_SECONDS = 5
 

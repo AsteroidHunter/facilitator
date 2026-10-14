@@ -7,15 +7,23 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-CLI = ROOT / "facilitator"
+ROOT = Path(__file__).resolve().parent          # app/, the program
+CLONE = ROOT.parent                              # the checkout that was cloned
+DATA = CLONE / "data"                            # what the board writes, records included
+# The command link and both skill links point into the checkout's top, where
+# installs before app/ pointed them too, so an existing link stays this
+# checkout's own: the launcher there hands over to app/facilitator, and the
+# skill never moved.
+CLI = CLONE / "facilitator"
 HOME = Path.home()
 BIN = HOME / ".local" / "share" / "facilitator" / "bin" / "facilitator"
 PROFILE_RECORD = BIN.parent.parent / "profiles.json"
-SKILL = ROOT / ".agents" / "skills" / "facilitator"
-SKILL_RECORD = ROOT / ".facilitator-skills.json"
+SKILL = CLONE / ".agents" / "skills" / "facilitator"
+SKILL_RECORD = DATA / ".facilitator-skills.json"
 STATUSLINE = ROOT / "claude-statusline.py"
-STATUSLINE_RECORD = ROOT / ".facilitator-statusline.json"
+# where the script was before app/, which a status line record from then names
+OLD_STATUSLINE = CLONE / "claude-statusline.py"
+STATUSLINE_RECORD = DATA / ".facilitator-statusline.json"
 BEGIN = b"# >>> Facilitator installer >>>"
 END = b"# <<< Facilitator installer <<<"
 PATH_LINE = b'export PATH="$HOME/.local/share/facilitator/bin:$PATH"'
@@ -254,6 +262,7 @@ def skill_record():
 
 
 def save_skill_record(record):
+    SKILL_RECORD.parent.mkdir(mode=0o700, exist_ok=True)
     temporary = SKILL_RECORD.with_suffix(".tmp")
     if temporary.exists() or temporary.is_symlink():
         raise SystemExit(problem(f"{temporary} already exists.", "Leaving it untouched."))
@@ -435,7 +444,8 @@ def write_settings(path, text):
 
 def statusline_record():
     """The saved record; None when there is none; ValueError when it is not
-    one this checkout wrote."""
+    one this checkout wrote. A record from before app/ names the script at the
+    checkout's top, and is this checkout's all the same."""
     if STATUSLINE_RECORD.is_symlink():
         raise ValueError("link")
     if not STATUSLINE_RECORD.exists():
@@ -444,7 +454,7 @@ def statusline_record():
     if (not isinstance(record, dict) or record.get("version") != 1
             or not isinstance(record.get("settings"), str)
             or not Path(record["settings"]).is_absolute()
-            or record.get("script") != str(STATUSLINE)
+            or record.get("script") not in (str(STATUSLINE), str(OLD_STATUSLINE))
             or not isinstance(record.get("created"), bool)
             or not isinstance(record.get("entry"), dict)
             or not (record.get("original") is None
