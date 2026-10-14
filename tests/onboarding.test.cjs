@@ -147,15 +147,24 @@ test("a board that already has a profile opens as a board", async t => {
   assert.equal(json(await board.call("GET", "/profile")).complete, true);
 });
 
-// the onboarding's own email check, run in a vm, and the send that uses it, read as source
-test("the email is needed: an empty Enter and a malformed email keep the question and ask for one", () => {
+// the onboarding's questions and its send, run in a vm with the page around
+// the send stubbed: what a send does is recorded. No browser.
+const grab = (from, to) => {
+  const start = ONBOARDING.indexOf(from), end = ONBOARDING.indexOf(to, start);
+  assert.ok(start >= 0 && end > start, "the onboarding's source moved: " + from);
+  return ONBOARDING.slice(start, end);
+};
+// a value made in a vm, as this realm's own, so a deep compare sees its contents
+const out = value => JSON.parse(JSON.stringify(value));
+const QUESTION_SOURCE = () => [
+  grab("  function said(text){", "  function plain(text)"),
+  grab("  const ADDRESS = ", "  // the last card closed"),
+  grab("  const AGENTS = ", "  // the replies that carry"),
+].join("\n");
+
+test("the email is checked: an empty Enter and a malformed email keep the question and ask for one", () => {
   const context = vm.createContext({});
-  const grab = (from, to) => ONBOARDING.slice(ONBOARDING.indexOf(from), ONBOARDING.indexOf(to));
-  vm.runInContext([
-    grab("  function said(text){", "  function plain(text)"),
-    grab("  const ADDRESS = ", "  // the last card closed"),
-    grab("  const EMAIL_EMPTY = ", "  const QUESTIONS = ["),
-  ].join("\n"), context);
+  vm.runInContext(QUESTION_SOURCE(), context);
   const problem = text => vm.runInContext("emailProblem", context)(text);
   const empty = problem(""), bad = problem("ada");
   assert.ok(empty && bad && empty !== bad, "an empty box and a malformed email are not both asked for");
@@ -167,25 +176,66 @@ test("the email is needed: an empty Enter and a malformed email keep the questio
     assert.equal(problem(text), bad, "taken as an email: " + text);
   for (const text of ["ada@example.org", "a.b+c@sub.example.co.uk", "  ada@example.org.  "])
     assert.equal(problem(text), "", "refused as an email: " + text);
+});
 
-  // the send: an empty or malformed email never reaches answer(), and neither
-  // does an empty name; an empty work answer still skips
-  const send = ONBOARDING.slice(ONBOARDING.indexOf("  function sendFrom(card){"), ONBOARDING.indexOf("  // the answer comes the moment the send's flight"));
-  const order = [...send.matchAll(/q\.check\(text\)|return false|q\.needed|answer\(card, \[\], page\.field\)/g)].map(m => m[0]);
-  assert.deepEqual(order, ["return false", "return false", "q.check(text)", "return false", "q.needed", "return false", "answer(card, [], page.field)"]);
-  assert.match(send, /const problem = q\.check \? q\.check\(text\) : "";\s*if \(problem\)\{\s*card\.asking = problem;\s*render\(el, pageRaw\(card, pageOnShow\(card\)\)\);\s*printReply\(el\);\s*return false;/);
-  assert.ok(ONBOARDING.includes("card.asking = null;"), "an answer leaves the ask on the page");
-  // the line shows under the email question only, and no Enter-to-skip line stands under a needed one
-  assert.ok(ONBOARDING.includes('parts.push(q.ask, q.note, q.check && card.asking, q.needed ? "" : SKIP_HINT);'));
+// the page's own sendFrom(), on the page of one question, with the box holding text
+function sendOn(field, text) {
+  const calls = [];
+  const note = name => (...args) => { calls.push([name, ...args]); };
+  const card = { pages: [{ field }], pending: [], asking: null, askingAt: null,
+                 el: { ta: { value: text }, tick() {}, metaNote: {} } };
+  const context = vm.createContext({
+    calls, card, hist: null, render: (el, raw) => calls.push(["render", raw]), printReply: note("printReply"),
+    pageRaw: (c, i) => i + ":" + c.asking, showKeys: note("showKeys"), KEYS_IN_MS: 0, armSentMotion: () => null,
+    sentLaunch: (el, sent) => { calls.push(["sent", sent]); return {}; }, caretQueue() {},
+    answerOnLanding: note("answerOnLanding"),
+  });
+  vm.runInContext([QUESTION_SOURCE(),
+    grab("  function pageOnShow(card){", "  // the answer comes the moment the send's flight")].join("\n"), context);
+  const sent = vm.runInContext("sendFrom(card)", context);
+  return { sent, calls, card, QUESTIONS: vm.runInContext("QUESTIONS", context) };
+}
+
+test("every question is needed: an empty Enter keeps each question and asks for its answer in one short line", () => {
+  const { QUESTIONS } = sendOn("name", "");
+  assert.deepEqual(out(QUESTIONS.map(q => q.field)), ["name", "email", "work", "agent"]);
+  const lines = new Set();
+  for (const q of QUESTIONS) {
+    for (const text of ["", "   ", "\n"]) {
+      const { sent, calls, card } = sendOn(q.field, text);
+      assert.equal(sent, false, "an empty " + q.field + " was taken");
+      assert.ok(!calls.some(c => c[0] === "sent" || c[0] === "answerOnLanding"), "an empty " + q.field + " was sent");
+      assert.equal(card.asking, q.empty, "the " + q.field + " question did not ask for its answer");
+      assert.equal(card.askingAt, 0);
+      assert.deepEqual(calls.find(c => c[0] === "render"), ["render", "0:" + q.empty]);
+      assert.ok(calls.some(c => c[0] === "printReply"), "the line is not shown");
+    }
+    assert.ok(q.empty.length <= 70 && /^Please /.test(q.empty) && !/\n|skip/i.test(q.empty), "not one short line: " + q.empty);
+    lines.add(q.empty);
+  }
+  assert.equal(lines.size, 4, "two questions ask for their answer with the same line");
+  // an answer goes through, and only the email is checked beyond being there
+  for (const [field, text] of [["name", "Ada"], ["email", "ada@example.org"], ["work", "Research"], ["agent", "2"]]) {
+    const { sent, calls, card } = sendOn(field, text);
+    assert.equal(sent, true, field);
+    assert.deepEqual(calls.find(c => c[0] === "sent"), ["sent", text]);
+    assert.equal(card.asking, null);
+  }
+  const bad = sendOn("email", "ada");
+  assert.equal(bad.sent, false, "a malformed email was taken");
+  assert.match(bad.card.asking, /does not look like an email/);
+  // no line says Enter with nothing typed skips, and an empty answer is never kept
+  assert.doesNotMatch(ONBOARDING, /SKIP_HINT|to skip|Skipped\.|Cleared your|needed: true/);
+  assert.ok(ONBOARDING.includes("parts.push(q.ask, q.note, card.askingAt === i && card.asking);"));
+  assert.ok(ONBOARDING.includes("card.asking = card.askingAt = null;"), "an answer leaves the ask on the page");
 });
 
 // the page's own finish() (the done chord and the cross of 101: Hotkeys both call it), run in a vm with
 // the page around it stubbed: the card moves and the save are recorded. No browser.
 async function finishWith(answers) {
-  const grab = (from, to) => ONBOARDING.slice(ONBOARDING.indexOf(from), ONBOARDING.indexOf(to));
   const calls = [];
   const note = name => (...args) => { calls.push([name, ...args]); };
-  const onboard = { asking: null, el: { onboard: true }, pages: [{}, {}] };
+  const onboard = { asking: null, askingAt: null, el: { onboard: true }, pages: [{}, {}] };
   const context = vm.createContext({
     calls, onboard, cards: [{}, onboard], profile: { timeZone: null, ...answers },
     show: note("show"), leaveHistory: note("leaveHistory"), nudge: note("nudge"), printReply: note("printReply"),
@@ -197,57 +247,57 @@ async function finishWith(answers) {
     setTimeout: () => {},
   });
   vm.runInContext([
-    grab("  function said(text){", "  function plain(text)"),
-    grab("  const ADDRESS = ", "  // the last card closed"),
-    grab("  const EMAIL_EMPTY = ", "  const QUESTIONS = ["),
+    QUESTION_SOURCE(),
     "let finished = false, saving = false;",
     grab("  async function finish(){", "  // ---- moving between cards"),
   ].join("\n"), context);
   await vm.runInContext("finish()", context);
   return { calls, onboard, finished: vm.runInContext("finished", context),
-           empty: vm.runInContext("emailProblem", context)("") };
+           empty: field => vm.runInContext("QUESTIONS", context).find(q => q.field === field).empty };
 }
 
-test("marking the last card done without an email goes back to the email question, as without a name", async () => {
+test("marking the last card done with an answer missing goes back to the first question unanswered", async () => {
   const names = calls => calls.map(c => c[0]);
-  // a name and no email: the email question again with its short line, and nothing saved
-  const noEmail = await finishWith({ name: "Ada", email: null });
-  assert.deepEqual(names(noEmail.calls).filter(n => n === "fetch" || n === "postMessage"), [], "saved with no email");
-  assert.equal(noEmail.finished, false);
-  assert.deepEqual(noEmail.calls[0], ["show", 1], "not back on the onboarding card");
-  assert.equal(noEmail.onboard.asking, noEmail.empty, "not the email question's own empty line");
-  assert.deepEqual(noEmail.calls.find(c => c[0] === "render"), ["render", "1:" + noEmail.empty], "not on the email question");
-  assert.ok(names(noEmail.calls).includes("printReply"), "the line is not shown");
-  // no name: the first question, as before, with no email line put up
-  const noName = await finishWith({ name: null, email: null });
+  const all = { name: "Ada", email: "ada@example.org", work: "Research", agent: "Codex" };
+  // the email, the work or the agent missing: that question again with its short line, and nothing saved
+  for (const [field, given] of [["email", { name: "Ada" }], ["work", { name: "Ada", email: "ada@example.org" }],
+                                ["agent", { name: "Ada", email: "ada@example.org", work: "Research" }]]) {
+    const run = await finishWith({ name: null, email: null, work: null, agent: null, ...given });
+    assert.deepEqual(names(run.calls).filter(n => n === "fetch" || n === "postMessage"), [], "saved with no " + field);
+    assert.equal(run.finished, false);
+    assert.deepEqual(run.calls[0], ["show", 1], "not back on the onboarding card");
+    assert.equal(run.onboard.asking, run.empty(field), "not the " + field + " question's own empty line");
+    assert.equal(run.onboard.askingAt, 1, "not on the newest page");
+    assert.deepEqual(run.calls.find(c => c[0] === "render"), ["render", "1:" + run.empty(field)]);
+    assert.ok(names(run.calls).includes("printReply"), "the line is not shown");
+  }
+  // no name: the first question, as before, with no line put up
+  const noName = await finishWith({ name: null, email: null, work: null, agent: null });
   assert.deepEqual(names(noName.calls), ["show", "leaveHistory", "nudge"]);
   assert.equal(noName.onboard.asking, null);
-  // both given: saved, with the email and the yes
-  const both = await finishWith({ name: "Ada", email: "ada@example.org" });
+  // everything given: saved, with the email and the yes
+  const both = await finishWith(all);
   const save = both.calls.find(c => c[0] === "fetch");
   assert.equal(save[1], "/profile");
   assert.equal(save[2].email, "ada@example.org");
   assert.equal(save[2].emailYes, true);
+  assert.equal(save[2].work, "Research");
+  assert.equal(save[2].agent, "Codex");
   assert.equal(both.finished, true);
   assert.equal(both.onboard.asking, null);
 });
 
-test("the onboarding is Welcome, one onboarding card of four questions with a needed email, and four 101 cards", () => {
-  for (const title of ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Orchestrator Agent",
-                       "101: Cards & atomizing ideas", "101: Tickets", "101: Hotkeys"])
-    assert.ok(ONBOARDING.includes(`title: "${title}"`), title);
-  // the questions are the onboarding card's replies, each tied to the field it fills
+test("the onboarding is Welcome, one onboarding card of four needed questions, and three 101 cards", () => {
+  const titles = [...grab("  const CARDS = [", "  // the timings.").matchAll(/title: "([^"]+)"/g)].map(m => m[1]);
+  assert.deepEqual(titles, ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Cards & atomizing ideas",
+                            "101: Tickets", "101: Hotkeys"]);
+  assert.doesNotMatch(ONBOARDING, /Orchestrator Agent|id: "orchestrator"/);
+  // the questions are the onboarding card's replies, each tied to the field it fills, and each asks again when empty
   for (const [field, ask] of [["name", "What should we call you?"], ["email", "What's your email?"],
                               ["work", "What will you mostly use Facilitator for?"], ["agent", "Which agent do you use most?"]])
-    assert.ok(ONBOARDING.includes(`{ field: "${field}", ask: "${ask}"`), field);
-  assert.match(ONBOARDING, /\{ field: "work", ask: "What will you mostly use Facilitator for\?", noun: "answer" \}/,
-               "the work question offers choices");
-  assert.match(ONBOARDING, /\{ field: "name", [^}]*needed: true \}/, "the name is not the one answer needed");
-  // the email is needed like the name; the PostHog line and the skip are gone
-  assert.match(ONBOARDING, /\{ field: "email", [^}]*needed: true, check: emailProblem \}/, "the email is not needed");
+    assert.match(ONBOARDING, new RegExp(`\\{ field: "${field}", ask: "${ask.replace("?", "\\?")}", noun: "[^"]+", empty: [A-Z]+_EMPTY`), field);
+  assert.match(ONBOARDING, /\{ field: "email", [^}]*check: emailProblem \}/, "the email is not checked");
   assert.doesNotMatch(ONBOARDING, /EMAIL_ASK|go to PostHog|You can skip this one/);
-  assert.match(ONBOARDING, /\{ field: "work", [^}]*\}/);
-  assert.doesNotMatch(ONBOARDING.match(/\{ field: "(work|agent)", [^}]*\}/g).join(""), /needed/, "another question is needed");
   // the keyboard lights the step back after the first answer and the next card on the last page
   assert.ok(ONBOARDING.includes('pulse(["ctrl", "shift", "up"], LIGHT)'));
   assert.ok(ONBOARDING.includes('pulse(["ctrl", "shift", "right"], LIGHT)'));
@@ -262,6 +312,82 @@ test("the onboarding is Welcome, one onboarding card of four questions with a ne
   assert.ok(ONBOARDING.includes("emailYes: email != null"), "an email given is not the yes");
   assert.ok(ONBOARDING.includes('parent.postMessage({ onboarding: "done", project }, location.origin)'));
   assert.doesNotMatch(ONBOARDING, /placeholder\s*=\s*"[^"]*(\.\.\.|…)"/);
+});
+
+test("the cards say what they were given to say, with the board's own marks, on white", () => {
+  const context = vm.createContext({});
+  vm.runInContext(grab("  const key = name =>", "  // the timings.") + "\nthis.CARDS = CARDS; this.MARK = MARK; this.HI = HI;", context);
+  const { CARDS, MARK, HI } = context;
+  const say = id => CARDS.find(c => c.id === id).say;
+  // the Welcome card: the lockup is the header, then the greeting, the blurb and the key, all to the left
+  assert.equal(HI, "Hi there \u{1F44B}");
+  assert.ok(ONBOARDING.includes('el.titleEl.innerHTML = \'<span class="obbrand">'), "the lockup is not the header");
+  assert.ok(ONBOARDING.includes('\'<div class="obwelcome"><p class="obhi">\' + HI + "</p>" + fmt(WELCOME) + "</div>"'));
+  assert.match(ONBOARDING, /\.obwelcome\{display:flex; flex-direction:column; align-items:flex-start; text-align:left\}/);
+  assert.doesNotMatch(ONBOARDING, /fitWelcome/);
+  // the atomizing card, first of the 101 cards, in the words given, the doubled "acts" gone and the names capitalised
+  assert.equal(say("cards"),
+    "The only \"rule\" to make the best of the Facilitator is *atomize your asks.*\n\n" +
+    "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, put them on *n* different cards!\n\n" +
+    "The Claude or Codex agent connected to a project acts as a manager and assigns those tasks to *n* subagents, " +
+    "which parallelizes and speeds up implementation.");
+  assert.equal(CARDS[2].id, "cards");
+  // 101: Tickets, in the words and lists given, with the section chips' marks
+  assert.equal(say("tickets"),
+    "Cards are shown as a list of tickets on the left side.\n\n" +
+    "Standard tickets have three states:\n- Yellow: Awaiting your input\n- Grey: Queued\n- Green: Actively working\n\n" +
+    "Tickets can be put in four buckets:\n" +
+    `- ${MARK.sun} Doing: Tasks you are actively working on\n- ${MARK.dock} Docked: Tasks that you will pick up very soon\n` +
+    `- ${MARK.moon} Deferred: Tasks for some later coding sprint\n- ${MARK.cross} Done: Tasks that are complete\n\n` +
+    "Bonus: after you iterate on a project for a while, tickets/cards act as a sort of knowledge base for a project.");
+  // the marks are the top bar's own: the sun and the cloud from card-logic.js, the moon the chip's, the cross its bars
+  assert.ok(ONBOARDING.includes("[MARK.sun]: '<span role=\"img\" class=\"obmark\" aria-label=\"sun\">' + SUN_ICON"));
+  assert.ok(ONBOARDING.includes("[MARK.dock]: '<span role=\"img\" class=\"obmark\" aria-label=\"sun with cloud\">' + DOCK_ICON"));
+  assert.ok(ONBOARDING.includes("[MARK.moon]: '<span role=\"img\" class=\"obmark\" aria-label=\"moon\">' + MOON_ICON"));
+  assert.match(ONBOARDING, /\.reply \.obcross::before, \.reply \.obcross::after\{[^}]*width:var\(--bar-mark\); height:var\(--cross-t\); background:#1e1e1e/);
+  assert.ok(ONBOARDING.includes("el.reply.innerHTML = withMarks(fmt(raw));"));
+  // 101: Hotkeys: the two new lines, a drawn heart, then the sentences and chords it had, Command + T lit first
+  const hotkeys = CARDS.find(c => c.id === "hotkeys");
+  assert.ok(hotkeys.say.startsWith(`The Facilitator ${MARK.heart} hotkeys!\n\n**Command + T** creates a new card.\n\n` +
+                                   "**Control + Shift + ←** and **→** move between cards"), hotkeys.say);
+  assert.ok(hotkeys.say.endsWith("**Control + Shift + Backspace** marks a card done."));
+  assert.deepEqual(out(hotkeys.lights), [["cmd", "t"], ["ctrl", "shift", "left", "right"], ["ctrl", "shift", "up", "down"],
+                                    ["ctrl", "shift", "return"], ["ctrl", "shift", "delete"]]);
+  assert.match(ONBOARDING, /const HEART_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" ' \+\s*'stroke-width="2\.4" stroke-linecap="round" stroke-linejoin="round"/);
+  assert.doesNotMatch(say("hotkeys"), /❤|♥|\u{1F496}|\u{1F49C}/u, "the heart is an emoji");
+  // the page stands on white
+  assert.match(ONBOARDING, /body\{background:#fff\}/);
+  // a key's name lights its keys while the pointer is over it, and the keys fade when it leaves
+  assert.ok(ONBOARDING.includes('sections.addEventListener("pointerover", e => {'));
+  assert.ok(ONBOARDING.includes('sections.addEventListener("pointerleave", () => hoverKeys([]));'));
+  // the ticket list is drawn at no strength for two frames, then fades in over the .9s it had
+  assert.match(ONBOARDING, /body\.focus\.obticketsprep #tickets\{visibility:visible; opacity:0;[^}]*\}/);
+  assert.match(ONBOARDING, /body\.focus\.obtickets:not\(\.obdone\) #tickets\{transition:opacity \.9s ease, visibility 0s\}/);
+  assert.ok(ONBOARDING.includes('list.add("obticketsprep");\n      requestAnimationFrame(() => requestAnimationFrame(() => {'));
+});
+
+// the hover's reading of a key's name, run in a vm on small stand ins for the
+// reply's bold words
+test("a key's name on a card reads as the keys the keyboard lights", () => {
+  const context = vm.createContext({});
+  vm.runInContext(grab("  const KEY_NAMES = ", "  let hovered = [];") + "\nthis.keysFor = chip => JSON.stringify(chipKeys(chip));", context);
+  const keysOf = chip => JSON.parse(context.keysFor(chip));
+  const b = text => ({ nodeName: "B", nodeType: 1, textContent: text, previousSibling: null });
+  const after = (chord, words, text) => {
+    const lead = b(chord), between = { nodeType: 3, data: words, previousSibling: lead }, chip = b(text);
+    chip.previousSibling = between;
+    return chip;
+  };
+  const nb = s => s.replace(/ /g, " ");
+  assert.deepEqual(keysOf(b(nb("Command + T"))), ["cmd", "t"]);
+  assert.deepEqual(keysOf(b(nb("Control + Shift + Backspace"))), ["ctrl", "shift", "delete"]);
+  assert.deepEqual(keysOf(b(nb("Control + Shift + Enter"))), ["ctrl", "shift", "return"]);
+  assert.deepEqual(keysOf(b("Tab")), ["tab"]);
+  assert.deepEqual(keysOf(b("→")), ["right"]);
+  assert.deepEqual(keysOf(after(nb("Control + Shift + ←"), " and ", "→")), ["ctrl", "shift", "right"]);
+  assert.deepEqual(keysOf(after(nb("Control + Shift + ↑"), " and ", "↓")), ["ctrl", "shift", "down"]);
+  assert.deepEqual(keysOf(after(nb("Control + Shift + ↑"), " step ", "↓")), ["down"]);
+  assert.deepEqual(keysOf(b("not a key")), []);
 });
 
 test("the board lays the onboarding over itself while the server says so, and takes it away when it ends", () => {

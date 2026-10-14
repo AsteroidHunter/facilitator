@@ -9,11 +9,12 @@
 <meta name="facilitator-version" content="">
 <!-- Facilitator's first run, as a run of real cards: Welcome, one onboarding
      card whose questions (the name, the email, the work, the main agent) come
-     one after another as its replies, and four short 101 cards. Each reply is
+     one after another as its replies, and three short 101 cards. Each reply is
      a page of the onboarding card's history and knows the field it asks for,
      so a step back with Control + Shift + up and a send there changes that
      answer. A faint keyboard behind the card's foot comes in with the first
-     answer and lights the keys the card teaches. The Mac board
+     answer and lights the keys the card teaches, and the keys a key name on a
+     card stands for while the pointer is over it. The Mac board
      lays this page over itself in a frame of its own while the board has no
      complete profile (GET /profile in server.py), so nobody uses the board
      before going through it. The card's look and motion are the board's own,
@@ -34,10 +35,10 @@
      they are saved as the profile (POST /profile), the frame goes and the
      board opens on the sample project this page opened at its start
      (POST /onboarding/sample, then POST /project as "Open a new folder" does).
-     The email is needed (Enter with the box empty, or an address with no @ or
-     no dot after it, keeps the question and asks for one, and so does marking
-     the last card done without one); the other questions but the name may be
-     skipped. What leaves the Mac is the board's to say,
+     Every question is needed: Enter with the box empty keeps the question and
+     asks for its answer in one short line, and so does an email with no @ or
+     no dot after it, and marking the last card done with an answer missing
+     goes back to the first question unanswered. What leaves the Mac is the board's to say,
      behind the "Share daily usage counts" switch in Settings (RUNBOOK.md,
      Usage counts). -->
 <script src="/card-markdown.js"></script>
@@ -543,19 +544,25 @@
 <link rel="stylesheet" href="/card-tokens.css">
 <style>
   /* ---- this page's own ---------------------------------------------------- */
+  /* the onboarding stands on white paper, whatever paper the board has */
+  body{background:#fff}
+
   /* nothing on the paper but the card, in the middle of the window */
   #obstage{position:fixed; inset:0; display:grid; place-items:center}
 
   /* the Welcome card: the product's own lockup, the mark beside the word and
      the version under it (the new-project landing's #npbrand in index.html),
-     then the blurb and the key, all of it centred on the card. the lockup is
-     drawn in ems off its font size, which fitWelcome below sets as large as the
-     card's width allows */
+     is the card's header, where the other cards have their titles, at the
+     titles' size. the lockup is drawn in ems off that size, and keeps the room
+     under it that its version hangs into. in the middle of the card stand the
+     greeting, at a title's size and weight, then the blurb and the key, all of
+     it to the left */
   #box-welcome .reply{flex:1 0 auto; display:flex; flex-direction:column; justify-content:center;
     padding-right:calc(var(--pad-x)*2/3)}
-  .obwelcome{display:flex; flex-direction:column; align-items:center; text-align:center}
-  .obbrand{display:flex; align-items:center; gap:.214em; margin:0 0 .8em;
-    font:700 28px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
+  .obwelcome{display:flex; flex-direction:column; align-items:flex-start; text-align:left}
+  .reply .obhi{margin:0 0 .4em; font:625 30px/1.25 var(--inter); color:var(--ink)}
+  .obbrand{display:flex; align-items:center; gap:.214em; margin:0 0 .4em;
+    font:700 30px/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
   .obbrand .squidmark{height:.786em}
   .obbrandcopy{position:relative; display:inline-block}
   .obbrandname{display:block}
@@ -612,6 +619,20 @@
   .reply .obheld{opacity:0}
   .reply .obheld.obin{opacity:1; transition:opacity .6s ease}
 
+  /* the board's own marks in a card's words (MARKS below): the sun, the cloud
+     and the moon at the size the card's top bar draws them, the cross drawn the
+     way the top bar draws its own, two bars --bar-mark long and --cross-t thick,
+     and the heart, a line mark drawn in the sun's way. each stands on the
+     line's baseline in a box the mark's size, which puts its middle at the
+     middle of the capitals */
+  .reply .obmark{position:relative; display:inline-block; vertical-align:baseline; color:#000;
+    width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--bar-mark) * var(--chip-scale))}
+  .reply .obmark svg{display:block; width:100%; height:100%}
+  .reply .obcross::before, .reply .obcross::after{content:""; position:absolute; left:50%; top:50%;
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t)}
+  .reply .obcross::before{transform:translate(-50%,-50%) rotate(45deg)}
+  .reply .obcross::after{transform:translate(-50%,-50%) rotate(-45deg)}
+
   /* the other places the Tab hint can stand (?hint=), each shown only while
      the card's question is unanswered (obwait). the ghost after the title's
      last letter is laid out of the flow at the spot the words end, so it can
@@ -666,12 +687,17 @@
   body.obboard{--card-mid:calc(var(--frame-x) + min(var(--frame-w), 100vw - 32px) / 2)}
   /* the list stays hidden until 101: Tickets, the card about it, first comes
      on screen, then phases in gently over .9s and stays, back on the earlier
-     cards too. at the end it goes on the board's own dissolve, the stage's .18s
-     ease on strength and visibility (#stage in index.html, and homefade,
-     which brings the board in from the home page) */
+     cards too. a list never drawn until then would spend the fade's first
+     frames on its first drawing and show up most of the way in, so it is laid
+     out and drawn at no strength first, on its own layer, for two frames
+     (obticketsprep, set by show below), and fades from there. at the end it
+     goes on the board's own dissolve, the stage's .18s ease on strength and
+     visibility (#stage in index.html, and homefade, which brings the board in
+     from the home page) */
   body.focus #tickets{transition:opacity .18s ease, visibility .18s ease}
+  body.focus.obticketsprep #tickets{visibility:visible; opacity:0; pointer-events:none; transition:none; will-change:opacity}
   body.focus.obtickets:not(.obdone) #tickets{transition:opacity .9s ease, visibility 0s}
-  body.focus:not(.obtickets) #tickets, body.obdone #tickets{visibility:hidden; opacity:0; pointer-events:none}
+  body.focus:not(.obtickets):not(.obticketsprep) #tickets, body.obdone #tickets{visibility:hidden; opacity:0; pointer-events:none}
 </style>
 </head>
 <body class="focus">
@@ -870,11 +896,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // else on these cards is; its words are held together, so a key is never
   // broken over two lines
   const key = name => "**" + name.replace(/ /g, "\u00a0") + "**";
+  const HI = "Hi there 👋";
   const BLURB = "Facilitator helps you ship more by making it easier to interact with and orchestrate subagents.";
   const WELCOME = BLURB + "\n\nPress " + key("→") + " for the next card.";
   const TAB_HINT = "Press " + key("Tab") + " to answer.";
   const TAB_HINT_PLAIN = "Press Tab to answer";
-  const SKIP_HINT = "Press " + key("Enter") + " with the box empty to skip.";
   // the way back to an earlier question: in brackets on the two questions
   // after the first, and as a plain line on the last page
   const BACK = "go back to it with " + key("Control + Shift + ↑") + " and send a new one";
@@ -887,49 +913,64 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const AGENTS = ["Claude Code", "Codex"];
   const numbered = list => list.map((one, i) => (i + 1) + ". " + one).join("\n");
   // the onboarding card's questions, one reply of the card each, in order.
-  // field is where the answer is kept, noun what a correction calls it, and
-  // only the name and the email are needed. check, where a question has one,
-  // gives the line that a send is asked again with (an empty box included), or
-  // nothing when the send is good
+  // field is where the answer is kept and noun what a correction calls it.
+  // every question is needed: empty is the line an empty send is asked again
+  // with. check, where a question has one, gives the line that a send is asked
+  // again with (an empty box included), or nothing when the send is good
+  const NAME_EMPTY = "Please enter your name to go on.";
   const EMAIL_EMPTY = "Please enter your email to go on.";
+  const WORK_EMPTY = "Please say what you will use Facilitator for to go on.";
+  const AGENT_EMPTY = "Please pick your main agent to go on.";
   const EMAIL_BAD = "That does not look like an email. Please try name@example.com.";
   const emailProblem = text => !text ? EMAIL_EMPTY : address(said(text)) ? "" : EMAIL_BAD;
   const QUESTIONS = [
-    { field: "name", ask: "What should we call you?", noun: "name", needed: true },
-    { field: "email", ask: "What's your email?", noun: "email", needed: true, check: emailProblem },
-    { field: "work", ask: "What will you mostly use Facilitator for?", noun: "answer" },
-    { field: "agent", ask: "Which agent do you use most?", noun: "main agent",
+    { field: "name", ask: "What should we call you?", noun: "name", empty: NAME_EMPTY },
+    { field: "email", ask: "What's your email?", noun: "email", empty: EMAIL_EMPTY, check: emailProblem },
+    { field: "work", ask: "What will you mostly use Facilitator for?", noun: "answer", empty: WORK_EMPTY },
+    { field: "agent", ask: "Which agent do you use most?", noun: "main agent", empty: AGENT_EMPTY,
       choices: AGENTS, note: numbered(AGENTS) + "\n\nSend a number or a name." },
   ];
   // the replies that carry the bracketed way back: the one after the first
   // answer, where it fades in late, and the one after that
   const ASIDE_ON = [1, 2];
-  // the cards: the Welcome, the one onboarding card, and the four 101 cards.
+  // the board's marks a card's words can hold, each written as a character of
+  // its own that render below swaps for the mark: the four section chips of the
+  // card's top bar, Doing's sun, Docked's cloud, Deferred's moon and Done's
+  // cross, and the heart
+  const MARK = { sun: "\uE001", dock: "\uE002", moon: "\uE003", cross: "\uE004", heart: "\uE005" };
+  // the cards: the Welcome, the one onboarding card, and the three 101 cards.
   // the last one's done ends the run. lights are the chords the keyboard
-  // lights on a card, one after another, as the left Control, the left Shift
-  // and the keys named
+  // lights on a card, one after another, as the left Control, the left Shift,
+  // the left Command and the keys named
   const CARDS = [
     { id: "welcome", title: "Welcome!" },
     { id: "onboard", title: "Let's onboard you onto the Facilitator!", questions: QUESTIONS },
-    { id: "orchestrator", title: "101: Orchestrator Agent",
-      say: "Your orchestrator agent is the agent you talk to through this board, such as Claude Code or Codex. " +
-           "It reads each card, answers you on it, and hands bounded pieces of the work to helper agents, " +
-           "staying responsible for the card while they run. You talk to one agent, and it keeps the helpers busy " +
-           "and checks what they bring back." },
     { id: "cards", title: "101: Cards & atomizing ideas",
-      say: "A card holds one idea, one bug or one question, with its own thread of replies. " +
-           "When a thought holds several things, split it into several cards, so each can be worked on, " +
-           "answered and closed on its own. Small cards also let your agent work on many of them at once." },
+      say: "The only \"rule\" to make the best of the Facilitator is *atomize your asks.*\n\n" +
+           "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, " +
+           "put them on *n* different cards!\n\n" +
+           "The Claude or Codex agent connected to a project acts as a manager and assigns those tasks " +
+           "to *n* subagents, which parallelizes and speeds up implementation." },
     { id: "tickets", title: "101: Tickets",
-      say: "The list beside the card has a ticket for every card, in four sections: Doing for what is active, " +
-           "Docked for the current sprint, Deferred for a later sprint, and Done. " +
-           "A yellow ticket is waiting on you and a green one is being worked on. Click a ticket to open its card." },
+      say: "Cards are shown as a list of tickets on the left side.\n\n" +
+           "Standard tickets have three states:\n" +
+           "- Yellow: Awaiting your input\n" +
+           "- Grey: Queued\n" +
+           "- Green: Actively working\n\n" +
+           "Tickets can be put in four buckets:\n" +
+           "- " + MARK.sun + " Doing: Tasks you are actively working on\n" +
+           "- " + MARK.dock + " Docked: Tasks that you will pick up very soon\n" +
+           "- " + MARK.moon + " Deferred: Tasks for some later coding sprint\n" +
+           "- " + MARK.cross + " Done: Tasks that are complete\n\n" +
+           "Bonus: after you iterate on a project for a while, tickets/cards act as a sort of knowledge base for a project." },
     { id: "hotkeys", title: "101: Hotkeys", closing: true,
-      say: key("Control + Shift + ←") + " and " + key("→") + " move between cards, and " +
+      say: "The Facilitator " + MARK.heart + " hotkeys!\n\n" +
+           key("Command + T") + " creates a new card.\n\n" +
+           key("Control + Shift + ←") + " and " + key("→") + " move between cards, and " +
            key("Control + Shift + ↑") + " and " + key("↓") + " step through a card's older and newer replies. " +
            key("Control + Shift + Enter") + " goes to the card that has waited longest on you, and " +
            key("Control + Shift + Backspace") + " marks a card done.",
-      lights: [["ctrl", "shift", "left", "right"], ["ctrl", "shift", "up", "down"],
+      lights: [["cmd", "t"], ["ctrl", "shift", "left", "right"], ["ctrl", "shift", "up", "down"],
                ["ctrl", "shift", "return"], ["ctrl", "shift", "delete"]] },
   ];
 
@@ -959,10 +1000,27 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
   const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const MOON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+  // the heart, a line mark drawn the way card-logic.js draws the sun and the
+  // cloud: the 24 unit box, one stroke of 2.4 with round caps and joins, no fill
+  const HEART_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23' +
+    'l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>';
+  // each mark of MARK as it is drawn in a card's words; the cross has no
+  // picture of its own on the board, its bars are drawn by the sheet (.obcross)
+  const MARKS = {
+    [MARK.sun]: '<span role="img" class="obmark" aria-label="sun">' + SUN_ICON + "</span>",
+    [MARK.dock]: '<span role="img" class="obmark" aria-label="sun with cloud">' + DOCK_ICON + "</span>",
+    [MARK.moon]: '<span role="img" class="obmark" aria-label="moon">' + MOON_ICON + "</span>",
+    [MARK.cross]: '<span role="img" class="obmark obcross" aria-label="cross"></span>',
+    [MARK.heart]: '<span role="img" class="obmark" aria-label="love">' + HEART_ICON + "</span>",
+  };
+  const withMarks = html => html.replace(/[\uE001-\uE005]/g, c => MARKS[c]);
 
   document.body.classList.add("hint-" + HINT);
-  // the board's own paper, its background colour, read off the board this page
-  // is laid over; opened on its own the page keeps the sheet's
+  // the board's own paper, read off the board this page is laid over, for what
+  // is drawn in it (the page itself stands on white); opened on its own the
+  // page keeps the sheet's
   try {
     const paper = parent !== window && parent.getComputedStyle(parent.document.body).getPropertyValue("--paper").trim();
     if (paper) document.body.style.setProperty("--paper", paper);
@@ -1045,7 +1103,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function setLit(names, on, ms){
     for (const name of names){
       const one = keyboard.querySelector('.obkey[data-k="' + name + '"]');
-      if (!one) continue;
+      // a key the pointer is lighting stays lit when a chord's light goes
+      if (!one || (!on && hovered.includes(name))) continue;
       one.style.setProperty("--lit-ms", ms + "ms");
       one.classList.toggle("lit", on);
     }
@@ -1060,12 +1119,46 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function unlight(){
     for (const t of lightTimers) clearTimeout(t);
     lightTimers = [];
+    hovered = [];
     for (const one of keyboard.querySelectorAll(".obkey.lit")){
       one.style.setProperty("--lit-ms", LIGHT.outMs + "ms");
       one.classList.remove("lit");
     }
     for (const line of document.querySelectorAll(".obheld:not(.obin)")) line.classList.add("obin");
   }
+  // a key's name on a card (the only words there in bold) lights its keys
+  // while the pointer is over it, the way a chord lights, and lets them fade
+  // when the pointer goes. a lone key written after "and" just after a chord,
+  // as in "Control + Shift + ← and →", is that chord with its last key
+  // changed, so it lights with the chord's other keys
+  const KEY_NAMES = { control: "ctrl", shift: "shift", command: "cmd", option: "opt",
+                      "←": "left", "→": "right", "↑": "up", "↓": "down",
+                      enter: "return", backspace: "delete", tab: "tab", escape: "esc" };
+  const keysOf = text => text.replace(/\u00a0/g, " ").split("+").map(part => part.trim().toLowerCase())
+                             .map(part => KEY_NAMES[part] || (/^[a-z0-9]$/.test(part) ? part : null));
+  function chipKeys(chip){
+    const keys = keysOf(chip.textContent);
+    if (!keys.every(Boolean)) return [];
+    const between = chip.previousSibling, chord = between && between.previousSibling;
+    if (keys.length === 1 && between && between.nodeType === 3 && between.data === " and " &&
+        chord && chord.nodeName === "B"){
+      const lead = keysOf(chord.textContent);
+      if (lead.length > 1 && lead.every(Boolean)) return [...lead.slice(0, -1), ...keys];
+    }
+    return keys;
+  }
+  let hovered = [];
+  function hoverKeys(names){
+    const gone = hovered.filter(name => !names.includes(name));
+    hovered = names;
+    setLit(gone, false, LIGHT.outMs);
+    setLit(names, true, LIGHT_SHORT.inMs);
+  }
+  sections.addEventListener("pointerover", e => {
+    const chip = e.target.closest && e.target.closest(".reply b");
+    hoverKeys(chip ? chipKeys(chip) : []);
+  });
+  sections.addEventListener("pointerleave", () => hoverKeys([]));
 
   // ---- one card, built the way makeBox builds one (in index.html) ------
   function makeCard(spec){
@@ -1168,10 +1261,10 @@ for (const pane of document.querySelectorAll(".tikpane")){
     return el;
   }
 
-  // a reply is the card's markdown
+  // a reply is the card's markdown, with the board's marks in it drawn
   function render(el, raw){
     el.reply.dataset.raw = raw;
-    el.reply.innerHTML = fmt(raw);
+    el.reply.innerHTML = withMarks(fmt(raw));
   }
 
   // ---- the onboarding card's pages ------------------------------------------------
@@ -1185,7 +1278,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const page = card.pages[i], q = QUESTIONS[i];
     const parts = [page.head];
     if (q){
-      parts.push(q.ask, q.note, q.check && card.asking, q.needed ? "" : SKIP_HINT);
+      // the line a refused send is asked again with, on the page it was sent from
+      parts.push(q.ask, q.note, card.askingAt === i && card.asking);
       // the Tab hint only while the first question is the newest page; stepped back to, the caret is in the box
       if (!i && HINT === "reply" && card.pages.length === 1) parts.push(TAB_HINT);
       if (ASIDE_ON.includes(i)) parts.push(BACK_ASIDE);
@@ -1204,7 +1298,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // reply waiting on the reader
   const RUN_BEGAN = Date.now() / 1000;
   const cards = CARDS.map(spec => {
-    const card = { spec, el: makeCard(spec), pending: [], replyTimer: 0, held: null, replies: 0, pages: [], asking: null };
+    const card = { spec, el: makeCard(spec), pending: [], replyTimer: 0, held: null, replies: 0, pages: [], asking: null, askingAt: null };
     const el = card.el;
     lastState.boxes.push({ id: spec.id, replyKind: "agent", replyId: null, answered: null, writing: false,
                            owner: activeOwner, title: spec.title, ball: "you", replies: 1, pending: 0,
@@ -1226,28 +1320,18 @@ for (const pane of document.querySelectorAll(".tikpane")){
       if (spec.closing) el.x.addEventListener("click", finish);
       return card;
     }
-    // the Welcome card: the lockup, the blurb and the key
-    el.reply.dataset.raw = WELCOME;
-    el.reply.innerHTML = '<div class="obwelcome"><div class="obbrand"><span class="squidmark"><img src="' + LOGO + '" alt=""></span>' +
+    // the Welcome card: the lockup is its header, in the title's place, and
+    // its words are the greeting, the blurb and the key
+    el.titleEl.innerHTML = '<span class="obbrand"><span class="squidmark"><img src="' + LOGO + '" alt=""></span>' +
       '<span class="obbrandcopy"><span class="obbrandname">Facilitator</span>' +
-      '<span class="obversion">' + VERSION + "</span></span></div>" + fmt(WELCOME) + "</div>";
+      '<span class="obversion">' + VERSION + "</span></span></span>";
+    el.reply.dataset.raw = HI + "\n\n" + WELCOME;
+    el.reply.innerHTML = '<div class="obwelcome"><p class="obhi">' + HI + "</p>" + fmt(WELCOME) + "</div>";
     return card;
   });
   const onboard = cards.find(c => c.spec.questions);
   let at = 0, finished = false;
   const boxOf = card => lastState.boxes.find(b => b.id === card.spec.id);
-
-  // the Welcome card's lockup as large as the card's width allows, with a
-  // little air either side
-  function fitWelcome(){
-    const el = cards[0].el, brand = el.reply.querySelector(".obbrand");
-    if (!brand || !el.reply.clientWidth) return;
-    brand.style.fontSize = "";
-    const cs = getComputedStyle(el.reply);
-    const room = el.reply.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const wide = brand.getBoundingClientRect().width;
-    if (wide > 0) brand.style.fontSize = (parseFloat(getComputedStyle(brand).fontSize) * room * 0.9 / wide) + "px";
-  }
 
   // ---- the onboarding card's question ----------------------------------------------
   function wireQuestion(card){
@@ -1377,19 +1461,15 @@ for (const pane of document.querySelectorAll(".tikpane")){
     if (!page.field){ printReply(el); return false; }
     const q = QUESTIONS.find(one => one.field === page.field);
     if (!text && card.pending.length) return false;
-    // a send the question will not take keeps the question and asks again
-    const problem = q.check ? q.check(text) : "";
+    // a send the question will not take, an empty one on every question, keeps
+    // the question and asks again
+    const problem = !text ? q.empty : q.check ? q.check(text) : "";
     if (problem){
       card.asking = problem;
-      render(el, pageRaw(card, pageOnShow(card)));
+      card.askingAt = pageOnShow(card);
+      render(el, pageRaw(card, card.askingAt));
       printReply(el);
       return false;
-    }
-    if (!text){
-      // an empty send skips a question that may be skipped, or clears its answer
-      if (q.needed) return false;
-      answer(card, [], page.field);
-      return true;
     }
     // the first answer brings the keyboard in, over its flight and the turn
     if (card.pages.length === 1) showKeys(KEYS_IN_MS);
@@ -1439,13 +1519,12 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function answer(card, batch, field){
     for (const m of batch) sentSettled(card.el);   // each message is the board's as it is answered
     const qi = QUESTIONS.findIndex(q => q.field === field), q = QUESTIONS[qi];
-    card.asking = null;
-    const text = batch.length ? batch[batch.length - 1].text : "";
-    const value = text ? readAnswer(q, text) : null;
+    card.asking = card.askingAt = null;
+    const value = readAnswer(q, batch[batch.length - 1].text);
     profile[field] = value;
     paintHint(card);
-    const words = value == null ? null : plain(value);
-    const gotIt = words == null ? "Skipped." : "Got it, " + words + ".";
+    const words = plain(value);
+    const gotIt = "Got it, " + words + ".";
     const meta = { id: card.spec.id + "." + (++card.replies), answered: batch.map(m => ({ text: m.text })) };
     const live = card.pages.length - 1;
     let after = null;
@@ -1457,8 +1536,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     } else {
       const next = card.pages[qi + 1];
       if (qi + 1 < live) Object.assign(next, { head: gotIt, meta: { id: next.meta.id, answered: meta.answered } });
-      Object.assign(card.pages[live], {
-        head: words == null ? "Cleared your " + q.noun + "." : "Changed your " + q.noun + " to " + words + ".", meta });
+      Object.assign(card.pages[live], { head: "Changed your " + q.noun + " to " + words + ".", meta });
     }
     dropHistory(card);
     land(card, { id: card.spec.id, replyKind: "agent", replyId: meta.id, answered: meta.answered, after });
@@ -1569,25 +1647,23 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const address = text => text && text.length <= 254 && ADDRESS.test(text) ? text : null;
   // the last card closed: the answers are saved as the profile, an email
   // given being the yes to feedback mail, and the card goes, the ticket list
-  // with it. the board then takes the frame away onto the sample project. the
-  // profile needs a name, so the key without one goes to the onboarding card's
-  // first question, and without an email to the email question, which asks for
-  // it as an empty send does. a save that does not land calls the key back, to
-  // be pressed again
+  // with it. the board then takes the frame away onto the sample project.
+  // every answer is needed, so the key with one missing goes to the first
+  // question not answered, which is the onboarding card's newest page, since a
+  // page comes only with the answer before it: the first question is called
+  // back to, and any other asks for its answer as an empty send does. a save
+  // that does not land calls the key back, to be pressed again
   let saving = false;
   async function finish(){
     if (finished || saving) return;
-    if (!profile.name){
+    const missing = QUESTIONS.find(q => !profile[q.field]);
+    if (missing){
       show(cards.indexOf(onboard));
       leaveHistory();
-      nudge(onboard);
-      return;
-    }
-    if (!profile.email){
-      show(cards.indexOf(onboard));
-      leaveHistory();
-      onboard.asking = EMAIL_EMPTY;
-      render(onboard.el, pageRaw(onboard, onboard.pages.length - 1));
+      if (missing === QUESTIONS[0]){ nudge(onboard); return; }
+      onboard.asking = missing.empty;
+      onboard.askingAt = onboard.pages.length - 1;
+      render(onboard.el, pageRaw(onboard, onboard.askingAt));
       printReply(onboard.el);
       return;
     }
@@ -1620,15 +1696,22 @@ for (const pane of document.querySelectorAll(".tikpane")){
     for (const c of cards) c.el.box.classList.toggle("sel", c === card);
     // from the onboarding card on, the card stands at its place on the board;
     // the ticket list fades in beside it once 101: Tickets is first shown, and
-    // stays. the card's own ticket is lifted
+    // stays: drawn at no strength for two frames, then faded in (obticketsprep
+    // in the sheet). the card's own ticket is lifted
     document.body.classList.toggle("obboard", i >= cards.findIndex(c => c.spec.id === BOARD_FROM));
-    if (card.spec.id === LIST_FROM) document.body.classList.add("obtickets");
+    const list = document.body.classList;
+    if (card.spec.id === LIST_FROM && !list.contains("obtickets") && !list.contains("obticketsprep")){
+      list.add("obticketsprep");
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        list.add("obtickets");
+        list.remove("obticketsprep");
+      }));
+    }
     paintTickets();
     openAtHead(el);
     el.tick();
     if (el.bandWrite) el.bandWrite();
     seatGhost(card);
-    if (!i) fitWelcome();
     // a 101 card reached before any answer still stands over the keyboard
     if (i > cards.indexOf(onboard)) showKeys(KEYS_LATE_MS);
     if (card.spec.lights){
@@ -1964,7 +2047,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
       document.fonts.addEventListener("loadingdone", queue);
   }
 
-  const refit = () => { seatGhost(cards[at]); if (!at) fitWelcome(); };
+  const refit = () => seatGhost(cards[at]);
   addEventListener("resize", refit);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
   show(0);
