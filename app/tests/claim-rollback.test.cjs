@@ -16,6 +16,7 @@ const { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("nod
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -99,7 +100,9 @@ async function stateUntil(check, ms = 5000, why = "the board never reached the e
 // one run of python against the patched module, in its own folder, so the
 // guard can be driven straight without a socket
 async function probe(code) {
-  const dir = await mkdtemp(path.join(outer, "probe-"));
+  // a checkout of its own inside the sandbox: app/, with its data/ beside it
+  const dir = path.join(await mkdtemp(path.join(outer, "probe-")), "app");
+  await mkdir(dir);
   await writeFile(path.join(dir, "server.py"), await readFile(path.join(app, "server.py"), "utf8"));
   require('./fixture-auth.cjs').copyBridgeFiles(dir);
   const { stdout } = await execFileAsync("python3", ["-c", code], {
@@ -142,7 +145,7 @@ before(async () => {
   source = patch(source, "WRITE_STALL_TIMEOUT = 30.0", "WRITE_STALL_TIMEOUT = 1.0");
   await writeFile(path.join(app, "server.py"), source);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "claims fixture",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },
@@ -279,7 +282,7 @@ test("a first-ever wait whose save fails leaves no listener counted and writes n
   const before = (await api("/state")).body.listening.meadow;
   assert.equal(before, false, "the lane was already listening before the test");
   const crashesBefore = (await events()).filter(e => e.kind === "crash").length;
-  await chmod(app, 0o500);
+  await chmod(dataOf(app), 0o500);
   let answer;
   try {
     answer = await api("/wait?owner=meadow&timeout=1&agent=firstlisten");
@@ -287,7 +290,7 @@ test("a first-ever wait whose save fails leaves no listener counted and writes n
     const listening = (await api("/state")).body.listening.meadow;
     assert.equal(listening, false, "a failed first wait left the lane counted as listening");
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   assert.equal(answer.status, 500, "a save that failed on the first wait was not answered 500");
   assert.deepEqual(answer.body, { error: "the board could not save its state" });

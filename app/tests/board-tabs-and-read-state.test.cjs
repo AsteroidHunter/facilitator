@@ -10,6 +10,7 @@ const { createServer } = require("node:http");
 const { copyFile, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -96,7 +97,7 @@ async function stopServer() {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-tabs-seen-"));
+  fixtureDir = appFolder("facilitator-tabs-seen-");
   logs = path.join(fixtureDir, "logs");
   port = await freePort();
   origin = `http://127.0.0.1:${port}`;
@@ -106,7 +107,7 @@ before(async () => {
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
   await copyFile(path.join(ROOT, "m-manifest.json"), path.join(fixtureDir, "m-manifest.json"));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "Tabs And Read State",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },
@@ -119,7 +120,7 @@ before(async () => {
 
 after(async () => {
   await stopServer();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("a board with no saved arrangement hands out an empty tab record", async () => {
@@ -213,7 +214,7 @@ test("an empty or misshapen read record is refused", async () => {
 test("both records are still there after the server is restarted", async () => {
   await post("/tabs", JSON.stringify({ order: ["pastureland", "facilitator"], closed: ["qchat"] }));
   await post("/seen", JSON.stringify({ "0": 4, "1.1": 2 }));
-  const saved = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  const saved = JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
   assert.deepEqual(saved.tabs, { order: ["pastureland", "facilitator"], closed: ["qchat"] });
   assert.equal(saved.boxes.find(box => box.id === "0").seen, 4);
 

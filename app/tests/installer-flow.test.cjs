@@ -110,7 +110,7 @@ test("Chrome is asked of macOS and never found by reading the Applications folde
     assert.match(text, /\n✓ Chrome found\.\n/);
     assert.deepEqual((await f.calls()).filter(line => /^(mdfind|open)/.test(line)), [MDFIND, "open -Ra Google Chrome"]);
   });
-  const code = (await fs.readFile(path.join(root, "install.sh"), "utf8")).split("\n").filter(line => !line.trim().startsWith("#")).join("\n");
+  const code = (await fs.readFile(path.join(root, "..", "install.sh"), "utf8")).split("\n").filter(line => !line.trim().startsWith("#")).join("\n");
   assert.doesNotMatch(code, /Applications|\.app\b|^\s*(ls|find)\s/m, "the installer must not look into the Applications folder");
 });
 
@@ -137,8 +137,8 @@ test("a full run with no phone client makes the private environment and the comm
       + `${PHONE}n\n\n${CHROME_ON}✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator.\n\n`
       + `${CLOSING}\n\n`), text);
     assert.doesNotMatch(text, /Tailscale\n─|4\.1|4\.2|App password|Claude limits|settings\.json/);
-    assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
-    for (const name of ["run.config.json", "seed.json"]) assert.equal(await f.has(path.join(f.repo, name)), true, name);
+    assert.equal(await f.has(path.join(f.data, ".venv", "bin", "python")), true);
+    for (const name of ["run.config.json", "seed.json"]) assert.equal(await f.has(path.join(f.data, name)), true, name);
     assert.equal(await fs.readlink(path.join(f.home, ".local/share/facilitator/bin/facilitator")), path.join(f.repo, "facilitator"));
     for (const host of [".claude", ".agents"])
       assert.equal(await fs.readlink(path.join(f.home, host, "skills", "facilitator")), path.join(f.repo, ".agents/skills/facilitator"));
@@ -149,7 +149,7 @@ test("a full run with no phone client makes the private environment and the comm
     assert.ok(at("uv python install --no-bin 3.14") < at("uv venv --clear --managed-python --python 3.14 .venv"),
       "the app's Python 3.14 comes from uv even with a good python3 here: " + calls.join(" | "));
     assert.ok(!calls.some(line => line.startsWith("uv python find")), "a good python3 runs the setup, so none is fetched for it");
-    assert.equal(await fs.readFile(path.join(f.repo, ".venv", "pyvenv.cfg"), "utf8"), "home = /fake\nversion_info = 3.14.0\n");
+    assert.equal(await fs.readFile(path.join(f.data, ".venv", "pyvenv.cfg"), "utf8"), "home = /fake\nversion_info = 3.14.0\n");
   });
 });
 
@@ -257,7 +257,7 @@ test("Ctrl+C at the first app password prompt exits with one plain sentence and 
     const stopped = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], [PASSWORDS[0][0], "\x03"]]);
     assertPlainExit(stopped, PASSWORDS[0][0]);
     assert.equal(await f.has(path.join(f.home, ".local")), false, "the command was linked");
-    assert.equal(await f.has(path.join(f.repo, "bridge-auth.json")), false, "a password was saved");
+    assert.equal(await f.has(path.join(f.data, "bridge-auth.json")), false, "a password was saved");
   });
 });
 
@@ -266,7 +266,7 @@ test("Ctrl+C at the confirm prompt exits the same way, and no password is saved"
     const stopped = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], PASSWORDS[0], [PASSWORDS[1][0], "\x03"]]);
     assertPlainExit(stopped, PASSWORDS[1][0]);
     assert.ok(!stopped.text.includes(PASSWORD), "the password was echoed");
-    assert.equal(await f.has(path.join(f.repo, "bridge-auth.json")), false, "a password was saved");
+    assert.equal(await f.has(path.join(f.data, "bridge-auth.json")), false, "a password was saved");
   });
 });
 
@@ -304,7 +304,7 @@ test("Ctrl+C in the shell's own Python install exits with the same sentence and 
     const stopped = await f.terminal([[provide, "\x03"]]);
     assertPlainExit(stopped, provide);
     assert.doesNotMatch(stopped.text, /installing Python \(fake uv\)|✓ Python 3\.14 installed/);
-    assert.equal(await f.has(path.join(f.repo, ".venv")), false, ".venv was made");
+    assert.equal(await f.has(path.join(f.data, ".venv")), false, ".venv was made");
   });
 });
 
@@ -313,7 +313,7 @@ test("a second run on an installed copy keeps the password and the config and ma
     const first = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], ...PASSWORDS]);
     assert.equal(first.code, 0, first.text);
     const edited = '{"my": "edit"}\n';
-    await fs.writeFile(path.join(f.repo, "run.config.json"), edited);
+    await fs.writeFile(path.join(f.data, "run.config.json"), edited);
     const before = (await f.calls()).length;
     const second = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"]]);
     assert.equal(second.code, 0, second.text);
@@ -323,7 +323,7 @@ test("a second run on an installed copy keeps the password and the config and ma
     assert.match(second.text, /4\.2 App password\n────────────────\n\n✓ Existing app password kept\. Use it to sign in on your phone\.\n\n/);
     assert.doesNotMatch(second.text, /App password \(input hidden\)|Open a new terminal/);
     assert.match(second.text, /\n✓ facilitator command and agent skill installed\n\n✦ Facilitator is installed!/);
-    assert.equal(await fs.readFile(path.join(f.repo, "run.config.json"), "utf8"), edited, "the config was rewritten");
+    assert.equal(await fs.readFile(path.join(f.data, "run.config.json"), "utf8"), edited, "the config was rewritten");
     assert.ok(!(await f.calls()).slice(before).some(line => line.startsWith("uv venv")), "the environment was made again");
     assert.equal((await fs.readFile(path.join(f.home, ".zshrc"), "utf8").catch(() => "")).split("# >>> Facilitator installer >>>").length - 1, 1);
   });
@@ -349,7 +349,7 @@ test("with no Python it can use, uv is fetched and then a Python, and the enviro
       assert.ok(at("uv installer ran") < at("uv python install --no-bin 3.14"), calls.join(" | "));
       assert.ok(at("uv python install --no-bin 3.14") < at("uv python find --managed-python 3.14"), calls.join(" | "));
       assert.ok(at("uv python find --managed-python 3.14") < at("uv venv --clear --managed-python --python 3.14 .venv"), calls.join(" | "));
-      assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+      assert.equal(await f.has(path.join(f.data, ".venv", "bin", "python")), true);
     });
   }
 });
@@ -375,10 +375,10 @@ test("the python3 macOS ships runs the setup, and the app password is set on .ve
     assert.ok((await f.calls()).some(line => line.startsWith("apple python3")), "the Apple python3 did not run the setup");
     assert.match(text, /\n✓ App password confirmed\.\n/);
     assert.ok(!text.includes(PASSWORD), "the password was echoed");
-    const auth = JSON.parse(await fs.readFile(path.join(f.repo, "bridge-auth.json"), "utf8"));
+    const auth = JSON.parse(await fs.readFile(path.join(f.data, "bridge-auth.json"), "utf8"));
     assert.match(auth.password, /^[0-9a-f]{128}$/, "no scrypt hash was written");
     const calls = await f.calls();
-    assert.ok(calls.includes("apple python3 " + path.join(f.repo, "facilitator")), "Apple's python3 did not run the setup");
+    assert.ok(calls.includes("apple python3 " + path.join(f.app, "facilitator")), "Apple's python3 did not run the setup");
     assert.ok(!calls.some(line => line.startsWith("uv python find")), "a Python was fetched for the setup anyway");
   });
 });
@@ -400,7 +400,7 @@ for (const python of ["missing", "system"]) {
       assert.ok(!calls.some(line => /astral\.sh\/uv\/install\.sh/.test(line)), "the unpinned address was fetched");
       assert.ok(calls.includes("uv installer ran with UV_NO_MODIFY_PATH=1"), calls.join(" | "));
       assert.ok(!calls.some(line => line.startsWith("brew")), "Homebrew was used: " + calls.join(" | "));
-      assert.equal(await f.has(path.join(f.repo, ".venv", "bin", "python")), true);
+      assert.equal(await f.has(path.join(f.data, ".venv", "bin", "python")), true);
     });
   });
 
@@ -411,7 +411,7 @@ for (const python of ["missing", "system"]) {
       assert.match(text, /into your home\.\n\n⚠ The uv installer did not finish\.\n  Last lines from the uv installer:\n    installing to .*\.local\/bin\n    the fake uv installer could not write uv\n  Install uv yourself, then run \.\/install\.sh again\.\n$/);
       assert.doesNotMatch(text, /^(installing to|the fake uv installer)/m, "the installer's lines were printed as they came");
       assert.doesNotMatch(text, /✓ uv installed/);
-      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+      assert.equal(await f.has(path.join(f.data, ".venv")), false);
     });
   });
 
@@ -434,7 +434,7 @@ for (const python of ["missing", "system"]) {
       assert.ok(text.endsWith(`\n⚠ ${headline}\n  Last lines from uv:\n    Downloading cpython (fake uv)\n`
         + "    error: could not fetch Python (fake uv)\n  See the output above, then run ./install.sh again.\n"), text);
       assert.doesNotMatch(text, /^(Downloading cpython|error: could not fetch)/m, "uv's lines were printed as they came");
-      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+      assert.equal(await f.has(path.join(f.data, ".venv")), false);
     });
   });
 
@@ -455,7 +455,7 @@ for (const python of ["missing", "system"]) {
       const calls = await f.calls();
       assert.ok(!calls.includes("a changed uv installer ran"), "the changed installer ran");
       assert.equal(await f.has(path.join(f.home, ".local", "bin", "uv")), false);
-      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+      assert.equal(await f.has(path.join(f.data, ".venv")), false);
     });
   });
 }
@@ -472,7 +472,7 @@ test("a uv older than 0.9.0 cannot install Python 3.14, so the run stops in one 
       const calls = await f.calls();
       assert.ok(calls.includes("uv --version"), calls.join(" | "));
       assert.ok(!calls.some(line => /^uv (python|venv|pip)/.test(line)), `${python}: uv was used anyway: ${calls.join(" | ")}`);
-      assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+      assert.equal(await f.has(path.join(f.data, ".venv")), false);
     });
   }
   // the versions are compared as numbers: 0.10 is newer than 0.9
@@ -493,7 +493,7 @@ test("a command or skill name that is already taken stops the run before the env
     const { code, text } = await f.piped();
     assert.equal(code, 1, text);
     assert.match(text, /already exists/);
-    assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    assert.equal(await f.has(path.join(f.data, ".venv")), false);
     assert.equal(await fs.readFile(path.join(link, "mine.txt"), "utf8"), "mine");
   });
 });
@@ -509,7 +509,7 @@ test("a file already on the facilitator command's name stops the run in plain li
       + `⚠ The facilitator command could not be set up: a file already exists at ${bin}.\n\n`
       + "Move or remove that file, then run ./install.sh again. Nothing was changed.\n"), text);
     assert.doesNotMatch(text, /Leaving it untouched|\n {2}\S/, "an indented line was printed");
-    assert.equal(await f.has(path.join(f.repo, ".venv")), false);
+    assert.equal(await f.has(path.join(f.data, ".venv")), false);
     assert.equal(await fs.readFile(bin, "utf8"), "something else\n");
   });
 });
@@ -526,7 +526,7 @@ test("the help text describes the new flow, and the script has no Claude limits 
     await assertNothingChanged(f);
   });
   // install.sh and the file it shares with `facilitator bridge setup`
-  const source = (await fs.readFile(path.join(root, "install.sh"), "utf8"))
+  const source = (await fs.readFile(path.join(root, "..", "install.sh"), "utf8"))
     + (await fs.readFile(path.join(root, "installer-lib.sh"), "utf8"));
   assert.ok(!source.includes(String.fromCharCode(8212)), "an em dash");
   assert.doesNotMatch(source, /Claude limits|claude-statusline|statusline/i);
@@ -539,7 +539,7 @@ test("a normal run leaves the test packages out, even with node and npm here", a
     assert.equal(code, 0, text);
     const calls = await f.calls();
     assert.ok(!calls.some(line => line.startsWith("npm")), "npm ran: " + calls.join(" | "));
-    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules")), false);
+    assert.equal(await f.has(path.join(f.app, "tests", "node_modules")), false);
     assert.equal(await f.has(path.join(f.repo, "node_modules")), false);
     assert.equal(await f.has(path.join(f.repo, "package.json")), false);
     assert.doesNotMatch(text, /npm|puppeteer|Test packages/);
@@ -554,9 +554,9 @@ test("--dev adds the test packages from the lockfile in tests/, after the board'
     assert.doesNotMatch(text, /npm notice|added \d+ packages|package-lock/, "npm's own lines were printed");
     const calls = await f.calls();
     assert.ok(calls.includes("npm ci --ignore-scripts --no-audit --no-fund"), calls.join(" | "));
-    assert.ok(calls.includes(`npm ran in ${path.join(f.repo, "tests")}`), calls.join(" | "));
+    assert.ok(calls.includes(`npm ran in ${path.join(f.app, "tests")}`), calls.join(" | "));
     assert.equal(calls.filter(line => line.startsWith("npm ") && !line.startsWith("npm ran")).length, 1, calls.join(" | "));
-    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules", "puppeteer-core", "package.json")), true);
+    assert.equal(await f.has(path.join(f.app, "tests", "node_modules", "puppeteer-core", "package.json")), true);
     assert.equal(await f.has(path.join(f.repo, "node_modules")), false, "the packages went into the checkout's root");
     assert.equal(await f.has(path.join(f.repo, "package.json")), false);
     assert.ok(text.includes(CLOSING), text);
@@ -568,8 +568,8 @@ test("--dev without node stops with the reason before the environment is made", 
     const { code, text } = await f.piped(["--dev"]);
     assert.equal(code, 1, text);
     assert.ok(text.includes("⚠ --dev needs node and npm, and they were not found.\n  Install Node.js, then run ./install.sh --dev again.\n"), text);
-    assert.equal(await f.has(path.join(f.repo, ".venv")), false);
-    assert.equal(await f.has(path.join(f.repo, "tests", "node_modules")), false);
+    assert.equal(await f.has(path.join(f.data, ".venv")), false);
+    assert.equal(await f.has(path.join(f.app, "tests", "node_modules")), false);
     assert.ok(!text.includes("Facilitator is installed"), text);
   });
 });

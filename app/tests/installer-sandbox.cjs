@@ -11,8 +11,11 @@ const { promisify } = require("node:util");
 
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, "..");
-const COPIED = ["facilitator", "shell_integration.py", "install.sh", "installer-lib.sh", "bridge_auth.py", "requirements.txt",
-  "run.config.example.json", "seed.example.json", "claude-statusline.py"];
+// the copy is laid out as the repository is: these in app/, and install.sh,
+// the facilitator launcher and .agents/ at the copy's top (TOP_COPIED)
+const COPIED = ["facilitator", "shell_integration.py", "installer-lib.sh", "bridge_auth.py", "requirements.txt",
+  "run.config.example.json", "seed.example.json", "claude-statusline.py", "data_folder.py"];
+const TOP_COPIED = ["install.sh", "uninstall.sh", "facilitator"];
 
 // answers questions on a pseudo terminal: each step is [text to wait for, keys to send]
 const DRIVER = `import json, os, pty, re, select, signal, sys, time
@@ -75,7 +78,8 @@ async function script(file, text) {
 // venv writes a pyvenv.cfg naming venvPython, and a .venv/bin/python3 that
 // hands over to the real python, so what runs on .venv really runs. It says
 // it is uvVersion when asked. node: true puts a fake node and a fake npm on
-// PATH; npm ci makes tests/node_modules/puppeteer-core at the pinned version.
+// PATH; npm ci makes app/tests/node_modules/puppeteer-core at the pinned
+// version. The copy's .venv, config and records land in repo/data.
 // hang: "sync" makes the fake uv's package sync run for a minute, and "python"
 // does the same for its Python install, so a test can press Ctrl+C in the
 // middle of either. fail: "python" makes the fake uv's Python install print
@@ -86,16 +90,19 @@ async function sandbox({ agents = ["claude"], chrome = "spotlight", python = "sy
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-installer-")));
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
+  const app = path.join(repo, "app");
+  const data = path.join(repo, "data");
   const tools = path.join(dir, "tools");
   const log = path.join(dir, "calls.log");
-  for (const folder of [home, repo, tools]) await fs.mkdir(folder);
+  for (const folder of [home, repo, app, tools]) await fs.mkdir(folder);
   await fs.writeFile(log, "");
-  for (const file of COPIED) await fs.copyFile(path.join(root, file), path.join(repo, file));
+  for (const file of COPIED) await fs.copyFile(path.join(root, file), path.join(app, file));
+  for (const file of TOP_COPIED) await fs.copyFile(path.join(root, "..", file), path.join(repo, file));
   await fs.chmod(path.join(repo, "install.sh"), 0o755);
-  await fs.cp(path.join(root, ".agents"), path.join(repo, ".agents"), { recursive: true });
-  await fs.mkdir(path.join(repo, "tests"));
+  await fs.cp(path.join(root, "..", ".agents"), path.join(repo, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(app, "tests"));
   for (const name of ["package.json", "package-lock.json"]) {
-    await fs.copyFile(path.join(root, "tests", name), path.join(repo, "tests", name));
+    await fs.copyFile(path.join(root, "tests", name), path.join(app, "tests", name));
   }
 
   if (node) {
@@ -193,7 +200,7 @@ if [ -n "$out" ]; then cat "${path.join(dir, "served-installer.sh")}" > "$out"; 
 `);
     const sum = crypto.createHash("sha256").update(installer).digest("hex");
     for (const [file, line, pin] of [
-      ["facilitator", /^UV_INSTALL_SHA256 = "[0-9a-f]{64}"$/m, `UV_INSTALL_SHA256 = "${sum}"`],
+      [path.join("app", "facilitator"), /^UV_INSTALL_SHA256 = "[0-9a-f]{64}"$/m, `UV_INSTALL_SHA256 = "${sum}"`],
       ["install.sh", /^UV_INSTALL_SHA256='[0-9a-f]{64}'$/m, `UV_INSTALL_SHA256='${sum}'`],
     ]) {
       const text = await fs.readFile(path.join(repo, file), "utf8");
@@ -205,7 +212,7 @@ if [ -n "$out" ]; then cat "${path.join(dir, "served-installer.sh")}" > "$out"; 
     PATH: `${tools}:/usr/bin:/bin` };
   const calls = async () => (await fs.readFile(log, "utf8")).split("\n").filter(Boolean);
   return {
-    dir, home, repo, tools, env, calls,
+    dir, home, repo, app, data, tools, env, calls,
     clean: () => fs.rm(dir, { recursive: true, force: true }),
     has: file => fs.access(file).then(() => true, () => false),
     // no terminal: stdin and stdout are pipes

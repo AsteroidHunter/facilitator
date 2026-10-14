@@ -15,6 +15,7 @@ const net = require("node:net");
 const { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const RETENTION_S = 4;      // OP_RETENTION in this fixture
@@ -91,7 +92,7 @@ async function pendingOn(id) {
 }
 
 async function stateFile() {
-  return JSON.parse(await readFile(path.join(app, "state.json"), "utf8"));
+  return JSON.parse(await readFile(path.join(dataOf(app), "state.json"), "utf8"));
 }
 
 before(async () => {
@@ -107,7 +108,7 @@ before(async () => {
   source = patch(source, "OP_KEEP = 4000", `OP_KEEP = ${KEEP}`);
   await writeFile(path.join(app, "server.py"), source);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "operations fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
@@ -273,7 +274,7 @@ test("the count cap does trim receipts older than the floor, to bound memory", a
 
 test("a failed save never confirms an operation: the retry re-fails and the receipt stays unknown", async () => {
   const revBefore = (await state()).rev;
-  await chmod(app, 0o500);   // no new file may be written beside state.json
+  await chmod(dataOf(app), 0o500);   // no new file may be written beside state.json
   let first, retry, opDuring, diskRev, memRev;
   try {
     first = await post("/send?box=0&op=send-under-fail-1", "words the disk refused");
@@ -284,7 +285,7 @@ test("a failed save never confirms an operation: the retry re-fails and the rece
     memRev = (await state()).rev;
     assert.equal(disk.ops["send-under-fail-1"], undefined, "a failed save left its receipt on disk");
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   assert.equal(first.status, 500, "a failed save did not answer 500");
   assert.equal(retry.status, 500, "the retry of an unsaved operation was falsely confirmed");
@@ -298,7 +299,7 @@ test("a failed save never confirms an operation: the retry re-fails and the rece
   assert.equal(landed.body.replayed, undefined, "the recovery was answered from a receipt that never committed");
   assert.deepEqual(await pendingOn("0"), ["words the disk refused"]);
   // and the transcript never recorded a row for the message the board did not keep
-  const rows = (await readFile(path.join(app, "transcript.jsonl"), "utf8")).split("\n").filter(Boolean).map(JSON.parse);
+  const rows = (await readFile(path.join(dataOf(app), "transcript.jsonl"), "utf8")).split("\n").filter(Boolean).map(JSON.parse);
   assert.equal(rows.filter(r => r.kind === "user" && r.text === "words the disk refused").length, 1,
     "the transcript kept a phantom row for the unsaved message");
   assert.equal((await post("/dismiss?box=0")).status, 200);
@@ -306,11 +307,11 @@ test("a failed save never confirms an operation: the retry re-fails and the rece
 
 test("a failed save consumes no revision, so a phone's since check stays honest across a restart", async () => {
   const before = (await state()).rev;
-  await chmod(app, 0o500);
+  await chmod(dataOf(app), 0o500);
   try {
     for (let n = 0; n < 3; n++) assert.equal((await post("/send?box=0", `failed ${n}`)).status, 500);
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   const diskRev = (await stateFile()).rev;
   assert.equal(diskRev, before, "three failed saves moved the durable revision");
@@ -335,7 +336,7 @@ test("a send with no id lands every time, as it always did", async () => {
 
 test("the transcript row carries the id, and a row written twice is read once", async () => {
   assert.equal((await post("/send?box=0&op=send-in-transcript-1", "in the transcript")).status, 200);
-  const transcriptPath = path.join(app, "transcript.jsonl");
+  const transcriptPath = path.join(dataOf(app), "transcript.jsonl");
   const rows = (await readFile(transcriptPath, "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
   const row = rows.find(r => r.kind === "user" && r.text === "in the transcript");
   assert.equal(row.op, "send-in-transcript-1", "the transcript row does not carry the operation id");
@@ -387,8 +388,10 @@ test("the revision moves with every saved change, and the phone's reading says w
 });
 
 test("the first start with receipts keeps a copy of the old state file beside it", async () => {
-  const dir = path.join(outer, "legacy");
-  await mkdir(dir);
+  // a checkout of its own beside the main one: its code in legacy/app and its
+  // files in legacy/data
+  const dir = path.join(outer, "legacy", "app");
+  await mkdir(dir, { recursive: true });
   const source = await readFile(path.join(app, "server.py"), "utf8");
   await writeFile(path.join(dir, "server.py"), source);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
@@ -397,7 +400,7 @@ test("the first start with receipts keeps a copy of the old state file beside it
       reply: "kept", pending: [{ mid: 1, text: "still queued", ts: 1 }], done: false, replies: 1 }],
     inbox: ["0"], busy: {}, claimed: {}, busy_ts: {}, ack: {}, next_mid: 2, next_bid: 1,
   };
-  await writeFile(path.join(dir, "state.json"), JSON.stringify(legacy));
+  await writeFile(path.join(dataOf(dir), "state.json"), JSON.stringify(legacy));
   const legacyPort = await require('./fixture-auth.cjs').freePortPair();
   const legacyLogs = path.join(outer, "legacy-logs");
   const run = spawn("python3", [path.join(dir, "server.py")], {
@@ -415,14 +418,14 @@ test("the first start with receipts keeps a copy of the old state file beside it
       assert.ok(Date.now() < deadline, "the legacy start never answered");
       await new Promise(resolve => setTimeout(resolve, 25));
     }
-    const upgraded = JSON.parse(await readFile(path.join(dir, "state.json"), "utf8"));
+    const upgraded = JSON.parse(await readFile(path.join(dataOf(dir), "state.json"), "utf8"));
     assert.equal(typeof upgraded.rev, "number");
     assert.deepEqual(upgraded.ops, {});
     assert.equal(upgraded.boxes[0].pending[0].text, "still queued", "the upgrade lost a queued message");
     const { readdir } = require("node:fs/promises");
-    const kept = (await readdir(dir)).filter(name => name.startsWith("state.json.bak-"));
+    const kept = (await readdir(dataOf(dir))).filter(name => name.startsWith("state.json.bak-"));
     assert.equal(kept.length, 1, `expected one backup, saw ${kept.join(",")}`);
-    assert.deepEqual(JSON.parse(await readFile(path.join(dir, kept[0]), "utf8")), legacy, "the backup is not the old file byte for byte");
+    assert.deepEqual(JSON.parse(await readFile(path.join(dataOf(dir), kept[0]), "utf8")), legacy, "the backup is not the old file byte for byte");
     const lines = [];
     for (const name of await readdir(legacyLogs)) {
       for (const line of (await readFile(path.join(legacyLogs, name), "utf8")).split("\n")) if (line) lines.push(JSON.parse(line));

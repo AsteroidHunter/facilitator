@@ -23,7 +23,7 @@ const open = (box, kind, body, extra = "") =>
   fetch(`${board.origin}/magic?box=${encodeURIComponent(box)}&kind=${kind}${extra}`, { method: "POST", body });
 const json = async response => ({ status: response.status, body: await response.json() });
 const card = async id => (await (await fetch(board.origin + "/state")).json()).boxes.find(b => b.id === id);
-const files = async () => (await readdir(path.join(board.app, "magic-boxes")).catch(() => [])).filter(n => !n.startsWith("."));
+const files = async () => (await readdir(path.join(board.data, "magic-boxes")).catch(() => [])).filter(n => !n.startsWith("."));
 
 test("each kind is kept, answered and read back for its own card", async () => {
   const cases = [["text", "plain *words*\nsecond line"], ["markdown", "# Title\n\n- one"],
@@ -68,8 +68,8 @@ test("only the newest revision's files are kept, owner-only", async () => {
   await open("0", "image", PNG);
   const last = (await json(await open("0", "markdown", "kept"))).body.rev;
   assert.deepEqual(await files(), [`0-${last}.json`]);
-  assert.equal((await stat(path.join(board.app, "magic-boxes"))).mode & 0o777, 0o700);
-  assert.equal((await stat(path.join(board.app, "magic-boxes", `0-${last}.json`))).mode & 0o777, 0o600);
+  assert.equal((await stat(path.join(board.data, "magic-boxes"))).mode & 0o777, 0o700);
+  assert.equal((await stat(path.join(board.data, "magic-boxes", `0-${last}.json`))).mode & 0o777, 0o600);
 });
 
 test("closing hides the box and keeps it; reopening shows it again", async () => {
@@ -118,7 +118,7 @@ test("a box keeps no line style: there is one line, so nothing is chosen, kept o
   await close("0");
   await open("0", "text", "opened before the change");
   await board.restart(async () => {
-    const file = path.join(board.app, "state.json"), state = JSON.parse(fs.readFileSync(file, "utf8"));
+    const file = path.join(board.data, "state.json"), state = JSON.parse(fs.readFileSync(file, "utf8"));
     state.boxes.find(b => b.id === "0").magic.lines = 2;
     fs.writeFileSync(file, JSON.stringify(state));
   });
@@ -169,7 +169,7 @@ test("a web address that is not https or not public is refused before anything i
 test("the transcript says a box was opened and closed, never what it held", async () => {
   await open("0", "markdown", "a secret plan", "&title=Secret");
   await fetch(`${board.origin}/magic/close?box=0`, { method: "POST" });
-  const rows = (await readFile(path.join(board.app, "transcript.jsonl"), "utf8"))
+  const rows = (await readFile(path.join(board.data, "transcript.jsonl"), "utf8"))
     .trim().split("\n").map(line => JSON.parse(line)).filter(row => row.kind === "magic");
   assert.ok(rows.length >= 2);
   const text = JSON.stringify(rows);

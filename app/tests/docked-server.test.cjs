@@ -9,6 +9,7 @@ const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -29,12 +30,12 @@ async function post(route, body = "") {
 const make = async title => (await post("/create?owner=facilitator", title)).id;
 const desk = async id => (await api("/state")).body.boxes.find(b => b.id === id);
 const phone = async id => (await api("/m/state?since=")).body.boxes.find(b => b.id === id);
-const saved = async id => JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8")).boxes.find(b => b.id === id);
+const saved = async id => JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8")).boxes.find(b => b.id === id);
 const flags = card => [card.docked, card.parked, card.done];
 const stamps = card => [card.dockedTs, card.parkedTs, card.doneTs];
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-docked-server-"));
+  fixtureDir = appFolder("facilitator-docked-server-");
   const port = await freePortPair();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(process.env.FACILITATOR_TEST_SERVER_SOURCE || path.join(ROOT, "server.py"), "utf8");
@@ -44,7 +45,7 @@ before(async () => {
   assert.match(patched, /return None  # isolated fixture/);
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   copyBridgeFiles(fixtureDir);
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "Docked fixture", items: [{ id: "seed", bucket: "now", title: "Seed card", owner: "facilitator" }],
   }));
   child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
@@ -64,7 +65,7 @@ before(async () => {
 });
 after(async () => {
   if (child && child.exitCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("seeded and newly created cards start in Doing with Docked false and no time", async () => {
@@ -95,7 +96,7 @@ test("dock and undock retain, remove and replace their time and write transcript
   await pause(15);
   const again = await post(`/dock?box=${id}`);
   assert.ok(again.dockedTs > first.dockedTs);
-  const rows = (await readFile(path.join(fixtureDir, "transcript.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+  const rows = (await readFile(path.join(dataOf(fixtureDir), "transcript.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
   assert.deepEqual(rows.filter(r => r.box === id && ["dock", "undock"].includes(r.kind)).map(r => r.kind),
     ["dock", "dock", "undock", "dock"]);
 });

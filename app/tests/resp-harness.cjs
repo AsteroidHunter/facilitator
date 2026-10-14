@@ -10,6 +10,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -37,7 +38,7 @@ exit 0
 // exist (a fake codex) and no real one can be started. env: more variables for
 // the server.
 async function launch({ seed, files = [], onlyBin = false, env = {} } = {}) {
-  const fixtureDir = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-resp-")));
+  const fixtureDir = await realpath(appFolder("facilitator-resp-"));
   const binDir = path.join(fixtureDir, "fakebin");
   await mkdir(binDir, { recursive: true });
   const fakeTs = path.join(binDir, "tailscale");
@@ -66,7 +67,7 @@ async function launch({ seed, files = [], onlyBin = false, env = {} } = {}) {
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
 
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify(seed || {
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify(seed || {
     title: "Responsive workspace fixture",
     items: [{ id: "0", bucket: "meta", owner: "facilitator", title: "Welcome card" }],
   }));
@@ -256,7 +257,7 @@ async function launch({ seed, files = [], onlyBin = false, env = {} } = {}) {
       await browser.close();
     }
     if (child && child.exitCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
-    if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+    if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
   }
 
   return { origin, browser, fixtureDir, binDir, output: () => output, post, makeProject, openBoard, stop };

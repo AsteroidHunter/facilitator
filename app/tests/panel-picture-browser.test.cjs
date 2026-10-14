@@ -21,8 +21,9 @@ let board, browser, profile, picture;
 
 before(async () => {
   board = await startBoard({ config: { image_panel_lane: "facilitator" } });
-  await mkdir(path.join(board.app, "facilitator-internal"), { recursive: true });
-  picture = path.join(board.app, "facilitator-internal", "panel.svg");
+  // the built-in lane's folder is the checkout, app/'s parent
+  await mkdir(path.join(board.outer, "facilitator-internal"), { recursive: true });
+  picture = path.join(board.outer, "facilitator-internal", "panel.svg");
   await writeFile(picture, svg(""));
   profile = await mkdtemp(path.join(tmpdir(), "facilitator-panel-profile-"));
   browser = await puppeteer.launch({ executablePath: CHROME, headless: true, userDataDir: profile,

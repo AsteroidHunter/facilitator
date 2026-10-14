@@ -27,8 +27,8 @@ const desk = async () => (await call("GET", "/state")).body;
 const deskIds = async () => (await desk()).boxes.map(b => b.id);
 const phoneIds = async () => (await call("GET", "/m/state")).body.boxes.map(b => b.id);
 const binList = async () => (await call("GET", "/bin")).body;
-const saved = async () => JSON.parse(await readFile(path.join(board.app, "state.json"), "utf8"));
-const magicFiles = async () => (await readdir(path.join(board.app, "magic-boxes")).catch(() => [])).filter(n => !n.startsWith("."));
+const saved = async () => JSON.parse(await readFile(path.join(board.data, "state.json"), "utf8"));
+const magicFiles = async () => (await readdir(path.join(board.data, "magic-boxes")).catch(() => [])).filter(n => !n.startsWith("."));
 const make = async title => (await post("/create?owner=facilitator", title)).id;
 const wait = async () => (await call("GET", "/wait?owner=facilitator&timeout=1&agent=claude")).body;
 
@@ -147,7 +147,7 @@ test("after 30 days in the Bin a card is deleted for good when the board starts;
     const now = Date.now() / 1000;
     state.bin.find(e => e.card.id === old).ts = now - 31 * day;
     state.bin.find(e => e.card.id === young).ts = now - 29 * day;
-    await writeFile(path.join(board.app, "state.json"), JSON.stringify(state));
+    await writeFile(path.join(board.data, "state.json"), JSON.stringify(state));
   });
   const ids = (await binList()).cards.map(c => c.id);
   assert.ok(!ids.includes(old), "the 31 day card is gone");
@@ -168,7 +168,7 @@ test("a board saved before the Bin starts with an empty one and every card as it
   await board.restart(async () => {
     const state = await saved();
     delete state.bin;
-    await writeFile(path.join(board.app, "state.json"), JSON.stringify(state));
+    await writeFile(path.join(board.data, "state.json"), JSON.stringify(state));
   });
   const after = await saved();
   assert.deepEqual(after.bin, []);

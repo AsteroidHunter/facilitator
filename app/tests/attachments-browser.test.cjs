@@ -8,6 +8,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const markdown = require("../card-markdown.js");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -101,12 +102,12 @@ before(async () => {
   await mkdir(path.join(app, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(app, "assets", name));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({ title: "Attachment fixture", items: [
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({ title: "Attachment fixture", items: [
     { id: "0", bucket: "meta", title: "Fixture card", owner: "facilitator", context: "Invented fixture" },
     { id: "q", bucket: "meta", title: "Fixture chat", owner: "qchat", context: "Invented chat" },
     { id: "1.1", bucket: "now", title: "Fixture lane", owner: "pastureland", context: "Invented lane" },
   ] }));
-  await writeFile(path.join(app, "run.config.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "run.config.json"), JSON.stringify({
     compose_format_default: true, lanes: [{ owner: "facilitator", dir: app }] }));
   await mkdir(path.join(app, "facilitator-internal"));
   await writeFile(path.join(app, "facilitator-internal", "lane.png"), PNG);
@@ -205,7 +206,7 @@ test("server keeps the 100 MiB boundary and refuses unsupported, empty and escap
     assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from([13]));
     t.diagnostic(`${size} bytes uploaded with HTTP 200; last byte and total length verified with HTTP 206`);
   }
-  const uploads = path.join(outer, "facilitator-internal", "uploads");
+  const uploads = path.join(outer, "data", "uploads");
   await writeFile(path.join(outer, "outside.pdf"), PDF);
   await symlink(path.join(outer, "outside.pdf"), path.join(uploads, "escape.pdf"));
   assert.equal((await fetch(origin + "/uploads/escape.pdf")).status, 404);
@@ -214,8 +215,8 @@ test("server keeps the 100 MiB boundary and refuses unsupported, empty and escap
 });
 
 test("legacy uploaded images still resolve and lane panels remain image-only", async () => {
-  await mkdir(path.join(app, "uploads"));
-  await writeFile(path.join(app, "uploads", "legacy.gif"), GIF);
+  await mkdir(path.join(dataOf(app), "uploads"));
+  await writeFile(path.join(dataOf(app), "uploads", "legacy.gif"), GIF);
   assert.deepEqual(Buffer.from(await (await fetch(origin + "/uploads/legacy.gif")).arrayBuffer()), GIF);
   assert.equal((await fetch(origin + "/laneimg/facilitator/lane.png")).status, 200);
   assert.equal((await fetch(origin + "/laneimg/facilitator/lane.pdf")).status, 404);

@@ -16,6 +16,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -252,7 +253,7 @@ async function screenState(page) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-phone-fresh-open-"));
+  fixtureDir = appFolder("facilitator-phone-fresh-open-");
   port = await freePortPair();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -267,7 +268,7 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "fresh open test",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator", context: "Drop meta thoughts here." },
@@ -287,7 +288,7 @@ after(async () => {
   if (browser) await browser.close();
   await stopProxy();
   await stopServer();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("a fresh open with the server stopped, then behind a 502, shows the white screen and returns to the app on its own", async () => {

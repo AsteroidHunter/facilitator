@@ -14,6 +14,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -102,7 +103,7 @@ async function shot(page, name){
 }
 
 before(async () => {
-  fixtureDir = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-nav-restore-")));
+  fixtureDir = await realpath(appFolder("facilitator-nav-restore-"));
   await mkdir(SHOTS, { recursive: true });
   const port = await freePortPair();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -117,7 +118,7 @@ before(async () => {
   await mkdir(path.join(fixtureDir, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "Navigator restore fixture",
     items: [
       { id: "0", bucket: "meta", owner: "facilitator", title: "Welcome card" },
@@ -132,7 +133,7 @@ before(async () => {
     await mkfile(path.join(dir, owner + "-wiki", "home.md"), "# " + owner + " wiki\n");
     lanes.push({ owner, dir, tmux: "x-" + owner, instruction: "x", prompt: "x" });
   }
-  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({
     log_level: "info", lanes, navigator_lanes: ["website", "pastureland", "facilitator"],
   }, null, 2));
   child = spawn(PYTHON, [path.join(fixtureDir, "server.py")], {
@@ -156,7 +157,7 @@ before(async () => {
 after(async () => {
   if (browser) await browser.close();
   if (child && child.exitCode === null){ child.kill("SIGTERM"); await once(child, "exit"); }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("a navigator put away on the board's own tab comes back once, where it was", async () => {

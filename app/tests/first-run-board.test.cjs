@@ -10,6 +10,7 @@ const { createServer } = require("node:http");
 const { mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -33,11 +34,12 @@ async function api(origin, route, options = {}) {
   return { status: response.status, body: await response.json() };
 }
 
-// A server of its own in a scratch directory, on a free port, with only the
-// files the case gives it. Every lane directory below points inside that same
-// scratch directory, so no case ever reaches out of it.
+// A server of its own in a scratch checkout, on a free port, with only the
+// files the case gives it: the code in srv-N/app and its files in srv-N/data.
+// Every lane directory below points inside that same scratch directory, so no
+// case ever reaches out of it.
 async function startServer({ config, seed, state } = {}) {
-  const dir = path.join(baseDir, "srv-" + (++seq));
+  const dir = path.join(baseDir, "srv-" + (++seq), "app");
   await mkdir(dir, { recursive: true });
   const port = await require('./fixture-auth.cjs').freePortPair();
   const patched = serverSource.replace(
@@ -49,10 +51,10 @@ async function startServer({ config, seed, state } = {}) {
       ...config,
       lanes: (config.lanes || []).map(lane => ({ dir, ...lane })),
     };
-    await writeFile(path.join(dir, "run.config.json"), JSON.stringify(withDirs));
+    await writeFile(path.join(dataOf(dir), "run.config.json"), JSON.stringify(withDirs));
   }
-  if (seed !== undefined) await writeFile(path.join(dir, "seed.json"), JSON.stringify(seed));
-  if (state !== undefined) await writeFile(path.join(dir, "state.json"), JSON.stringify(state, null, 1));
+  if (seed !== undefined) await writeFile(path.join(dataOf(dir), "seed.json"), JSON.stringify(seed));
+  if (state !== undefined) await writeFile(path.join(dataOf(dir), "state.json"), JSON.stringify(state, null, 1));
 
   const origin = `http://127.0.0.1:${port}`;
   const child = spawn("python3", [path.join(dir, "server.py")], {
@@ -167,7 +169,7 @@ test("a saved paused flag from an older board is dropped on start", async () => 
     assert.deepEqual(wait.body, { idle: true }, "a saved paused flag still changed the wait answer");
     const created = await api(server.origin, "/create?owner=facilitator", { method: "POST", body: "New card" });
     assert.equal(created.status, 200);
-    const saved = JSON.parse(await readFile(path.join(server.dir, "state.json"), "utf8"));
+    const saved = JSON.parse(await readFile(path.join(dataOf(server.dir), "state.json"), "utf8"));
     assert.ok(!Object.hasOwn(saved, "paused"), "state.json still carries the paused flag after a save");
   } finally {
     await server.stop();
@@ -197,7 +199,7 @@ test("a saved end flag from an older board is dropped on start", async () => {
     assert.equal(ended.status, 404, "the board still answers a POST to /end");
     const created = await api(server.origin, "/create?owner=facilitator", { method: "POST", body: "New card" });
     assert.equal(created.status, 200);
-    const saved = JSON.parse(await readFile(path.join(server.dir, "state.json"), "utf8"));
+    const saved = JSON.parse(await readFile(path.join(dataOf(server.dir), "state.json"), "utf8"));
     assert.ok(!Object.hasOwn(saved, "end"), "state.json still carries the end flag after a save");
   } finally {
     await server.stop();

@@ -14,6 +14,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -297,7 +298,7 @@ function createRequests(page) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-shortcuts-"));
+  fixtureDir = appFolder("facilitator-shortcuts-");
   const logs = path.join(fixtureDir, "logs");
   await mkdir(logs);
   const port = await freePort();
@@ -319,8 +320,8 @@ before(async () => {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
   // the board's own default is off; the shortcut checks run through the editor, so it is on
-  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ compose_format_default: true }));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({ compose_format_default: true }));
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "phone shortcuts test",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator", context: "Drop meta thoughts here." },
@@ -368,7 +369,7 @@ after(async () => {
     child.kill("SIGTERM");
     await once(child, "exit");
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("control shift left and right walk the cards the list shows, and the caret goes with them", async () => {

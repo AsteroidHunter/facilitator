@@ -8,7 +8,7 @@ const { promisify } = require("node:util");
 const run = promisify(execFile);
 
 test("confirmed incident writes report disk failure, retain rate capacity, and use dated rotation", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "facilitator-incident-log-"));
+  const dir = require("./fixture-auth.cjs").appFolder("facilitator-incident-log-");
   try {
     await copyFile(path.join(__dirname, "..", "server.py"), path.join(dir, "server.py"));
     require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
@@ -41,11 +41,11 @@ assert all(json.loads(line)["kind"] == "incident" for f in files for line in f.r
 print("Confirmed failure/success and existing dated size/count rotation passed")
 `], { cwd: dir, env: { ...process.env, FACILITATOR_LOG_DIR: path.join(dir, "logs") } });
     assert.match(stdout, /passed/);
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await rm(path.dirname(dir), { recursive: true, force: true }); }
 });
 
 test("a v5 no-scroll history is written whole, and its schema-4 fallback shape is still written as v4", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "facilitator-incident-v5-"));
+  const dir = require("./fixture-auth.cjs").appFolder("facilitator-incident-v5-");
   try {
     await copyFile(path.join(__dirname, "..", "server.py"), path.join(dir, "server.py"));
     require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
@@ -95,11 +95,11 @@ assert not s._incident_valid("phone", {**report(5, "no-scroll", swipe), "v":6})
 print("v5 write, v4/v3 fallback writes and older-version refusals passed")
 `], { cwd: dir, env: { ...process.env, FACILITATOR_LOG_DIR: path.join(dir, "logs") } });
     assert.match(stdout, /passed/);
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await rm(path.dirname(dir), { recursive: true, force: true }); }
 });
 
 test("slow requests are thresholded, bounded by route, and accept only canonical operation correlation", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "facilitator-slow-request-"));
+  const dir = require("./fixture-auth.cjs").appFolder("facilitator-slow-request-");
   try {
     await copyFile(path.join(__dirname, "..", "server.py"), path.join(dir, "server.py"));
     require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
@@ -122,5 +122,5 @@ assert seen[-1][1]["op"] is None and seen[-1][1]["dropped"] == 15
 print("Slow threshold, rate bound and correlation privacy passed")
 `], { cwd: dir, env: { ...process.env, FACILITATOR_LOG_DIR: path.join(dir, "logs") } });
     assert.match(stdout, /passed/);
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await rm(path.dirname(dir), { recursive: true, force: true }); }
 });

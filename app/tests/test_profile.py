@@ -189,10 +189,13 @@ class File(Case):
                                        "picture": None})
         self.assertEqual((self.app / "profile.json").stat().st_mode & 0o777, 0o600)
         self.assertFalse((self.app / "profile.json.tmp").exists())
-        self.assertEqual(S.HERE / "profile.json", ROOT / "profile.json")
+        # beside state.json, in data/ at the top of the checkout, which git ignores
+        self.assertEqual(S.DATA, ROOT.parent / "data")
+        self.assertEqual(S.STATE_PATH.parent, S.DATA)
+        self.assertIn("/data/", (ROOT.parent / ".gitignore").read_text().split("\n"))
         for name in ("profile.json", "profile.json.tmp"):
             self.assertIn(name, S.PRIVATE_FILES)
-            self.assertIn("/" + name, (ROOT / ".gitignore").read_text().split("\n"))
+            self.assertIn("/" + name, (ROOT.parent / ".gitignore").read_text().split("\n"))
 
 
 class Routes(Case):

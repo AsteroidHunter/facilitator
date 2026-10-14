@@ -11,6 +11,7 @@ const { createServer } = require("node:net");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { ROOT, startBoard } = require("./board-fixture.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 let board, cli;
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"), Buffer.alloc(64, 7)]);
@@ -19,7 +20,8 @@ before(async () => {
   board = await startBoard();
   cli = path.join(board.app, "facilitator");
   await copyFile(path.join(ROOT, "facilitator"), cli);
-  await writeFile(path.join(board.app, "run.config.json"), JSON.stringify({ port: board.port, lanes: [] }));
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(cli), "data_folder.py"));
+  await writeFile(path.join(board.data, "run.config.json"), JSON.stringify({ port: board.port, lanes: [] }));
 });
 after(async () => { if (board) await board.stop(); });
 
@@ -117,7 +119,7 @@ test("the side note name is gone: `facilitator sidenote` is no command, and fill
 });
 
 test("a board that is down is said so, with exit 1", async () => {
-  const folder = await mkdtemp(path.join(tmpdir(), "facilitator-magic-down-"));
+  const folder = appFolder("facilitator-magic-down-");
   try {
     const port = await new Promise(resolve => {
       const server = createServer().listen(0, "127.0.0.1", () => {
@@ -127,12 +129,13 @@ test("a board that is down is said so, with exit 1", async () => {
     });
     await mkdir(folder, { recursive: true });
     await copyFile(path.join(ROOT, "facilitator"), path.join(folder, "facilitator"));
-    await writeFile(path.join(folder, "run.config.json"), JSON.stringify({ port, lanes: [] }));
+    await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(path.join(folder, "facilitator")), "data_folder.py"));
+    await writeFile(path.join(dataOf(folder), "run.config.json"), JSON.stringify({ port, lanes: [] }));
     const run = magic(["0", "text", "x"], undefined, path.join(folder, "facilitator"));
     assert.equal(run.code, 1);
     assert.equal(run.err, `server: DOWN (port ${port})`);
   } finally {
-    await rm(folder, { recursive: true, force: true });
+    await rm(path.dirname(folder), { recursive: true, force: true });
   }
 });
 

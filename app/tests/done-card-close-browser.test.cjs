@@ -7,6 +7,7 @@ const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -46,7 +47,7 @@ async function savedBox(id) {
 }
 
 async function transcriptFor(id) {
-  const raw = await readFile(path.join(fixtureDir, "transcript.jsonl"), "utf8");
+  const raw = await readFile(path.join(dataOf(fixtureDir), "transcript.jsonl"), "utf8");
   return raw.trim().split("\n").filter(Boolean).map(JSON.parse).filter(event => event.box === id);
 }
 
@@ -86,7 +87,7 @@ async function expectDoneOnly(id) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-done-close-browser-"));
+  fixtureDir = appFolder("facilitator-done-close-browser-");
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -103,7 +104,7 @@ before(async () => {
   await copyFile(path.join(ROOT, "card-report.js"), path.join(fixtureDir, "card-report.js"));
   await copyFile(path.join(ROOT, "compose-format.js"), path.join(fixtureDir, "compose-format.js"));
   await copyFile(path.join(ROOT, "cm-markdown.js"), path.join(fixtureDir, "cm-markdown.js"));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "browser authoritative close test", items: [],
   }));
 
@@ -144,7 +145,7 @@ after(async () => {
     child.kill("SIGTERM");
     await once(child, "exit");
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 for (const fixture of [

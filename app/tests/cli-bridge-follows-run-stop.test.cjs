@@ -147,7 +147,7 @@ const stop = (place, port, flags = [], extra = []) =>
   cli(place, port, [...extra, `cli.cmd_stop(${JSON.stringify(["stop", ...flags])})`]);
 
 function serverPid(place) {
-  return JSON.parse(fs.readFileSync(path.join(place.app, "server.lock"), "utf8")).pid;
+  return JSON.parse(fs.readFileSync(path.join(place.data, "server.lock"), "utf8")).pid;
 }
 
 // a sandbox's own server, ended for certain even when it ignores SIGTERM
@@ -278,7 +278,7 @@ test("run on a checkout with no phone password touches nothing and says nothing 
       assert.deepEqual(box.tailscaleCalls(place), [["serve", "status", "--json"]], `${label}: the command asked tailscale`);
 
       // a password file that is not one is no password
-      fs.writeFileSync(path.join(place.app, "bridge-auth.json"), "{}");
+      fs.writeFileSync(path.join(place.data, "bridge-auth.json"), "{}");
       const again = await run(place, port);
       assert.deepEqual(again.said, up(port), label);
       assert.deepEqual(box.tailscaleCalls(place), [["serve", "status", "--json"]], `${label}: the command asked tailscale`);

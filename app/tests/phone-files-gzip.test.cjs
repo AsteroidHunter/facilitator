@@ -14,6 +14,7 @@ const { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } = require
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PASS = "GzipFixture7!";
@@ -73,7 +74,7 @@ before(async () => {
   require("./fixture-auth.cjs").copyBridgeFiles(app);
   for (const name of COPIED) await copyFile(path.join(ROOT, name), path.join(app, name));
   await cp(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "m1178 gzip fixture board",
     items: [{ id: "0", bucket: "now", title: "An invented card", owner: "facilitator", context: "Invented." }],
   }));

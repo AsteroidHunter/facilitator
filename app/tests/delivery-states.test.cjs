@@ -13,6 +13,7 @@ const { once } = require("node:events");
 const { mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const ACK_GRACE_S = 1.5;   // ACK_GRACE in this fixture
@@ -91,7 +92,7 @@ before(async () => {
   source = patch(source, "ACK_GRACE = 90.0", `ACK_GRACE = ${ACK_GRACE_S}`);
   await writeFile(path.join(app, "server.py"), source);
   require("./fixture-auth.cjs").copyBridgeFiles(app);
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "delivery fixture",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },

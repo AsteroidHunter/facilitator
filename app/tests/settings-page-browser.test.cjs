@@ -24,11 +24,12 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const WIDE = { width: 1440, height: 900 };
 const TALL = { width: 820, height: 1180 };
 const OWNER = { width: 1512, height: 982, deviceScaleFactor: 2 };
@@ -182,7 +183,7 @@ async function swipeRight(page, y = 500, from = 80, to = 320) {
 
 before(async () => {
   const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-settings-page-"));
+  fixtureDir = appFolder("facilitator-settings-page-");
   await mkdir(path.join(fixtureDir, "logs"));
   const port = await freePortPair();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -195,7 +196,7 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "settings page fixture",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator",
@@ -233,7 +234,7 @@ before(async () => {
 after(async () => {
   if (browser) await browser.close();
   await stopFixture();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 // ---- the bar ------------------------------------------------------------------------
@@ -1190,7 +1191,7 @@ function fakePush() {
 
 // the endpoints the board keeps for push
 async function storedSubs() {
-  const state = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  const state = JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
   return (state.push_subs || []).map(one => one.endpoint);
 }
 

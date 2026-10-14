@@ -59,7 +59,7 @@ test("a local page keeps the sign-in and reads it back, and the copy lands only 
                               JSON.stringify({ ...SIGN_IN, refresh: "RT-another-browser" }), local);
   assert.equal(JSON.parse(again.text).seeded, false);
   assert.deepEqual(JSON.parse((await request(port, "/spotify/session")).text), SIGN_IN);
-  const file = path.join(place.app, "settings.json");
+  const file = path.join(place.data, "settings.json");
   assert.equal(fs.statSync(file).mode & 0o777, 0o600, "the file holding a sign-in is readable by others");
   for (const body of [{ access: "x", password: "y" }, { access: 7 }, ["access"], { refresh: "x".repeat(4097) }]) {
     const res = await request(port, "/spotify/session", "POST", JSON.stringify(body), local);

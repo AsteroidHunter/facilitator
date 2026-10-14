@@ -61,7 +61,7 @@ test("said no at install: the banner and its line, then the Mobile app step, and
     assert.match(setup.text, /\n✓ App password confirmed\.\n$/);
     assert.ok(!setup.text.includes(PASSWORD), "the password was echoed");
     nothingElse(setup.text.slice(head(setup.text).length));
-    assert.equal(await f.has(path.join(f.repo, "bridge-auth.json")), true, "the password was not saved");
+    assert.equal(await f.has(path.join(f.data, "bridge-auth.json")), true, "the password was not saved");
     await assertOnlyPhoneStep(f, before);
     assert.deepEqual(await fs.readdir(f.home, { recursive: true }), homeBefore, "the home folder changed");
   });
@@ -76,7 +76,7 @@ test("said no again: the question is asked, the answer is taken, and no password
     assert.deepEqual(setup.unsent, []);
     assert.ok(setup.text.endsWith(`\n4. Mobile app\n─────────────\n\nThe phone client puts your board on your phone, over Tailscale and\nbehind an app password.\n\n${PHONE}n\n`), setup.text);
     assert.doesNotMatch(setup.text, /4\.1|4\.2|App password confirmed/);
-    assert.equal(await f.has(path.join(f.repo, "bridge-auth.json")), false);
+    assert.equal(await f.has(path.join(f.data, "bridge-auth.json")), false);
     await assertOnlyPhoneStep(f, before);
   });
 });
@@ -85,7 +85,7 @@ test("already set up: the same step, the same words as the installer's second ru
   await using({}, async f => {
     const first = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"], ...PASSWORDS]);
     assert.equal(first.code, 0, first.text);
-    const saved = await fs.readFile(path.join(f.repo, "bridge-auth.json"), "utf8");
+    const saved = await fs.readFile(path.join(f.data, "bridge-auth.json"), "utf8");
     const second = await f.terminal([[PHONE, "y"], [BOTH, "y"], [ANSWER, "y"]]);
     assert.equal(second.code, 0, second.text);
     const before = (await f.calls()).length;
@@ -97,7 +97,7 @@ test("already set up: the same step, the same words as the installer's second ru
     assert.match(setup.text, /4\.2 App password\n────────────────\n\n✓ Existing app password kept\. Use it to sign in on your phone\.\n$/);
     assert.doesNotMatch(setup.text, /App password \(input hidden\)/);
     nothingElse(setup.text.slice(head(setup.text).length));
-    assert.equal(await fs.readFile(path.join(f.repo, "bridge-auth.json"), "utf8"), saved, "the saved password changed");
+    assert.equal(await fs.readFile(path.join(f.data, "bridge-auth.json"), "utf8"), saved, "the saved password changed");
     await assertOnlyPhoneStep(f, before);
   });
 });
@@ -124,7 +124,7 @@ test("with no terminal it asks nothing and says so in the installer's one line, 
     assert.equal(setup.text, head(install.text) + "\n" + mobileApp(install.text));
     assert.equal(mobileApp(install.text), "\n4. Mobile app\n─────────────\n\n⊘ Skipped the phone client: there is no interactive terminal.\n");
     assert.doesNotMatch(setup.text, /\x1b|\(y \/ n\)|4\.1|4\.2|Tailscale/);
-    assert.equal(await f.has(path.join(f.repo, "bridge-auth.json")), false);
+    assert.equal(await f.has(path.join(f.data, "bridge-auth.json")), false);
     await assertOnlyPhoneStep(f, before);
   });
 });
@@ -159,7 +159,7 @@ test("setup takes no other words, and the bridge help and the command's help bot
 
 test("install.sh and the command share one source: the step is not written out twice", async () => {
   const root = path.resolve(__dirname, "..");
-  const installer = await fs.readFile(path.join(root, "install.sh"), "utf8");
+  const installer = await fs.readFile(path.join(root, "..", "install.sh"), "utf8");
   const shared = await fs.readFile(path.join(root, "installer-lib.sh"), "utf8");
   const command = await fs.readFile(path.join(root, "facilitator"), "utf8");
   assert.match(installer, /^\. "\$REPO\/installer-lib\.sh"$/m);

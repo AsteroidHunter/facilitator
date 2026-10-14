@@ -7,6 +7,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -33,7 +34,7 @@ before(async () => {
   await mkdir(path.join(app, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(app, "assets", name));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({ title: "Chat mark fixture", items: [
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({ title: "Chat mark fixture", items: [
     { id: "0", bucket: "meta", title: "Fixture card", owner: "facilitator", context: "Invented fixture" },
     { id: "q", bucket: "meta", title: "Fixture chat", owner: "qchat", context: "Invented chat" },
     { id: "1.1", bucket: "now", title: "Fixture lane", owner: "pastureland", context: "Invented lane" },

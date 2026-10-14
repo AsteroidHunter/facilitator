@@ -20,12 +20,15 @@ const SEED = { title: "fixture board", items: [
 // seed, config: the board's first words and its run.config.json. env: extra
 // environment. extra: more files from the repo to copy beside the server.
 // prepare: called with the folders once the files are in place, before the
-// server starts
+// server starts. The copy is laid out as a checkout: the code in app/ and the
+// board's files (seed, config, state, profile) in data/ beside it
 async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare } = {}) {
   const outer = await mkdtemp(path.join(tmpdir(), "facilitator-fixture-"));
   const app = path.join(outer, "app");
+  const data = path.join(outer, "data");
   const logs = path.join(outer, "logs");
   await mkdir(app);
+  await mkdir(data, { mode: 0o700 });
   const port = await freePortPair();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -36,12 +39,12 @@ async function startBoard({ seed = SEED, config, env = {}, extra = [], prepare }
   await mkdir(path.join(app, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(app, "assets", name));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify(seed));
-  if (config) await writeFile(path.join(app, "run.config.json"), JSON.stringify(config));
-  if (prepare) await prepare({ app, logs, outer });
+  await writeFile(path.join(data, "seed.json"), JSON.stringify(seed));
+  if (config) await writeFile(path.join(data, "run.config.json"), JSON.stringify(config));
+  if (prepare) await prepare({ app, data, logs, outer });
 
   const origin = `http://127.0.0.1:${port}`;
-  const board = { app, logs, origin, outer, port, child: null };
+  const board = { app, data, logs, origin, outer, port, child: null };
   async function launch() {
     const child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(app, "server.py")], {
       cwd: app,

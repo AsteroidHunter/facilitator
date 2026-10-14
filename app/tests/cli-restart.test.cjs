@@ -24,6 +24,7 @@ const { constants } = require("node:fs");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -268,20 +269,26 @@ async function restart(options, args = "['restart']") {
 
 before(async () => {
   nestDir = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-cli-restart-")));
-  fixtureDir = path.join(nestDir, "board");
+  // each copy is a checkout of its own in the nest: the command in <name>/app
+  // and its files in <name>/data beside it
+  fixtureDir = path.join(nestDir, "board", "app");
+  await mkdir(dataOf(fixtureDir), { recursive: true });
   await mkdir(fixtureDir);
   cliPath = path.join(fixtureDir, "facilitator");
   port = await freePort();
   await copyFile(path.join(ROOT, "facilitator"), cliPath);
-  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ port, lanes: [] }));
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(cliPath), "data_folder.py"));
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({ port, lanes: [] }));
 
   // a second copy whose folder name contains a space, because the recognition
   // works on paths and either of them may have spaces in
-  spacedDir = path.join(nestDir, "board with a space");
+  spacedDir = path.join(nestDir, "board with a space", "app");
+  await mkdir(dataOf(spacedDir), { recursive: true });
   await mkdir(spacedDir);
   spacedCli = path.join(spacedDir, "facilitator");
   await copyFile(path.join(ROOT, "facilitator"), spacedCli);
-  await writeFile(path.join(spacedDir, "run.config.json"), JSON.stringify({ port, lanes: [] }));
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(spacedCli), "data_folder.py"));
+  await writeFile(path.join(dataOf(spacedDir), "run.config.json"), JSON.stringify({ port, lanes: [] }));
 });
 
 after(async () => {
@@ -1195,23 +1202,24 @@ after(async () => {
 
 test("a real restart: the old server goes, the port frees, the new one answers with the same board",
   async () => {
-    await access(path.join(ROOT, ".venv", "bin", "python3"), constants.X_OK);
+    await access(path.join(ROOT, "..", "data", ".venv", "bin", "python3"), constants.X_OK);
     liveNest = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-restart-live-")));
     const board = path.join(liveNest, "board");
     await mkdir(board);
     livePort = await freePort();
     await copyFile(path.join(ROOT, "facilitator"), path.join(board, "facilitator"));
+    await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(path.join(board, "facilitator")), "data_folder.py"));
     const source = await readFile(path.join(ROOT, "server.py"), "utf8");
     const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
     assert.notEqual(patched, source, "test server port was not patched");
     await writeFile(path.join(board, "server.py"), patched);
     require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(board, "server.py")));
-    await writeFile(path.join(board, "run.config.json"), JSON.stringify({ port: livePort, lanes: [] }));
-    await writeFile(path.join(board, "seed.json"), JSON.stringify({
+    await writeFile(path.join(dataOf(board), "run.config.json"), JSON.stringify({ port: livePort, lanes: [] }));
+    await writeFile(path.join(dataOf(board), "seed.json"), JSON.stringify({
       title: "cli restart fixture",
       items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
     }));
-    await symlink(path.join(ROOT, ".venv"), path.join(board, ".venv"));
+    await symlink(path.join(ROOT, "..", "data", ".venv"), path.join(dataOf(board), ".venv"));
 
     try {
       const launched = await liveProbe([
@@ -1299,7 +1307,7 @@ test("a real restart: the old server goes, the port frees, the new one answers w
       assert.deepEqual(back.boxes.find(b => b.id === "0").pendingTexts, ["kept across the restart"],
         "the restart lost the queued message");
       assert.ok(back.rev > before.rev, "the revision did not carry across the restart");
-      const saved = JSON.parse(await readFile(path.join(board, "state.json"), "utf8"));
+      const saved = JSON.parse(await readFile(path.join(dataOf(board), "state.json"), "utf8"));
       assert.equal(saved.rev, back.rev);
 
       const status = await liveProbe("cli.cmd_status()");

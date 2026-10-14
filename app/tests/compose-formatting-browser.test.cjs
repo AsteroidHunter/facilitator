@@ -16,11 +16,12 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const SHOTS = process.env.COMPOSE_FORMAT_SHOTS || "";
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
@@ -199,7 +200,7 @@ function rowBox(page) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-compose-format-"));
+  fixtureDir = appFolder("facilitator-compose-format-");
   await mkdir(path.join(fixtureDir, "logs"));
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -215,10 +216,10 @@ before(async () => {
   // a board that has formatting on for a browser that has chosen nothing; the
   // default a board ships with is off and is covered by the format-default checks.
   // the file navigator mounts only on the lanes a board names for it
-  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({
     compose_format_default: true, navigator_lanes: ["pastureland"],
   }));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "compose formatting fixture",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator",
@@ -256,7 +257,7 @@ before(async () => {
 after(async () => {
   if (browser) await browser.close();
   await stopFixture();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 // ---- the desktop card ----------------------------------------------------------------

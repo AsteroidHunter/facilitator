@@ -6,6 +6,7 @@ const { createServer } = require("node:http");
 const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -42,19 +43,19 @@ async function create(title) {
 }
 
 async function transcriptFor(id) {
-  const raw = await readFile(path.join(fixtureDir, "transcript.jsonl"), "utf8");
+  const raw = await readFile(path.join(dataOf(fixtureDir), "transcript.jsonl"), "utf8");
   return raw.trim().split("\n").filter(Boolean).map(JSON.parse).filter(event => event.box === id);
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-done-close-"));
+  fixtureDir = appFolder("facilitator-done-close-");
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "authoritative close test",
     items: [
       {
@@ -97,7 +98,7 @@ after(async () => {
     child.kill("SIGTERM");
     await once(child, "exit");
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("close deletes only a truly empty meta card and marks every other card done", async () => {

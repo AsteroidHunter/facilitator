@@ -13,7 +13,7 @@ const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const { readFileSync, writeFileSync, mkdirSync } = require("node:fs");
 const path = require("node:path");
-const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { copyBridgeFiles, dataOf, freePortPair } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const LANES = [["facilitator", 0.6], ["pastureland", 0.15], ["tokens", 0.1], ["wiki", 0.08], ["hayloft", 0.07]];
@@ -29,8 +29,10 @@ function prng(seed){
 }
 
 function words(){
-  const text = ["RUNBOOK.md", "README.md", "CONTRIBUTING.md"]
-    .map(name => readFileSync(path.join(ROOT, name), "utf8")).join("\n");
+  // the runbook is in app/ with the code; the README and CONTRIBUTING stay at
+  // the top of the repository
+  const text = [path.join(ROOT, "RUNBOOK.md"), path.join(ROOT, "..", "README.md"), path.join(ROOT, "..", "CONTRIBUTING.md")]
+    .map(file => readFileSync(file, "utf8")).join("\n");
   return text.match(/[A-Za-z][A-Za-z'-]*/g);
 }
 
@@ -106,7 +108,7 @@ async function startBoard(outer, { source, state, extraPatches = [] } = {}){
   for (const [from, to] of extraPatches) text = patch(text, from, to);
   writeFileSync(path.join(dir, "server.py"), text);
   copyBridgeFiles(dir);
-  writeFileSync(path.join(dir, "state.json"), JSON.stringify(state ?? boardState({ dir: outer })));
+  writeFileSync(path.join(dataOf(dir), "state.json"), JSON.stringify(state ?? boardState({ dir: outer })));
   const child = spawn("python3", [path.join(dir, "server.py")], {
     cwd: dir,
     env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: path.join(outer, "logs") },

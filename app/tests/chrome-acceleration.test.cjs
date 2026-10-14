@@ -91,7 +91,7 @@ test("off, Chrome closed, y: backed up beside it, switched on, everything else k
       assert.equal(code, 0, text);
       assert.deepEqual(unsent, []);
       assert.ok(text.includes(`${PHONE}n\n\n${SECTION}${ASK}y\n\n${IS_ON}\n\n${COMMAND}\n`), `${python}: ${text}`);
-      if (python === "apple") assert.ok((await f.calls()).includes(`apple python3 ${f.repo}/facilitator`), python);
+      if (python === "apple") assert.ok((await f.calls()).includes(`apple python3 ${f.app}/facilitator`), python);
       const now = JSON.parse(await read());
       assert.deepEqual(now, { ...JSON.parse(original), hardware_acceleration_mode: { enabled: true } });
       assert.equal(await fs.readFile(backup, "utf8"), original);

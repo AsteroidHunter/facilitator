@@ -40,8 +40,10 @@ async function freePort() {
 // with failSync the package sync fails the way a missing package would. It
 // says it is version when asked.
 const REAL_PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
+// uv runs in data/, where .venv is made; the requirements come from app/
 const VENV_CALL = "venv --clear --managed-python --python 3.14 .venv";
-const ENV_CALLS = ["--version", "python install --no-bin 3.14", VENV_CALL, "pip sync --require-hashes --python .venv/bin/python requirements.txt"];
+const envCalls = world => ["--version", "python install --no-bin 3.14", VENV_CALL,
+  `pip sync --require-hashes --python .venv/bin/python ${path.join(world.user, "app", "requirements.txt")}`];
 function fakeUv({ failSync = false, version = "0.11.18" } = {}) {
   return [
     "#!/bin/sh",
@@ -107,14 +109,18 @@ async function makeWorld({ seedSteps = {} } = {}) {
   const seed = path.join(base, "seed");
   await world.mustGit(base, "clone", world.origin, seed);
   await world.mustGit(seed, "branch", "-M", "main");
-  await copyFile(path.join(ROOT, "facilitator"), path.join(seed, "facilitator"));
-  await copyFile(path.join(ROOT, ".gitignore"), path.join(seed, ".gitignore"));
-  await mkdir(path.join(seed, "updates"));
-  await copyFile(path.join(ROOT, "updates", "README.md"), path.join(seed, "updates", "README.md"));
-  await writeFile(path.join(seed, "index.html"), '<html><body><span id="npversion">v0.2.1</span></body></html>\n');
-  await writeFile(path.join(seed, "requirements.txt"), "\n");
+  // laid out as the repository is: the launcher and .gitignore at the top, the
+  // command and what it reads in app/
+  await mkdir(path.join(seed, "app", "updates"), { recursive: true });
+  await copyFile(path.join(ROOT, "..", "facilitator"), path.join(seed, "facilitator"));
+  await copyFile(path.join(ROOT, "facilitator"), path.join(seed, "app", "facilitator"));
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(seed, "app", "data_folder.py"));
+  await copyFile(path.join(ROOT, "..", ".gitignore"), path.join(seed, ".gitignore"));
+  await copyFile(path.join(ROOT, "updates", "README.md"), path.join(seed, "app", "updates", "README.md"));
+  await writeFile(path.join(seed, "app", "index.html"), '<html><body><span id="npversion">v0.2.1</span></body></html>\n');
+  await writeFile(path.join(seed, "app", "requirements.txt"), "\n");
   for (const [name, text] of Object.entries(seedSteps)) {
-    await writeFile(path.join(seed, "updates", name), text);
+    await writeFile(path.join(seed, "app", "updates", name), text);
   }
   await world.mustGit(seed, "add", "-A");
   await world.mustGit(seed, "commit", "-m", "Seed");
@@ -124,8 +130,11 @@ async function makeWorld({ seedSteps = {} } = {}) {
   await world.mustGit(base, "clone", world.origin, world.user);
   await world.mustGit(base, "clone", world.origin, world.dev);
   world.port = await freePort();
-  await writeFile(path.join(world.user, "run.config.json"), JSON.stringify({ port: world.port, lanes: [] }));
+  await mkdir(path.join(world.user, "data"));
+  await writeFile(path.join(world.user, "data", "run.config.json"), JSON.stringify({ port: world.port, lanes: [] }));
+  // the launcher at the top, which the command link and an older update run
   world.cli = path.join(world.user, "facilitator");
+  world.appCli = path.join(world.user, "app", "facilitator");
 
   // the maintainer's side: write files in dev, commit and push
   world.push = async (files, message = "Update") => {
@@ -145,7 +154,7 @@ async function makeWorld({ seedSteps = {} } = {}) {
     run("python3", [world.cli, "update", ...args], { cwd: base, env: { ...world.env, ...extraEnv } });
   world.uvCalls = async () => (existsSync(world.uvLog) ? (await readFile(world.uvLog, "utf8")).trim().split("\n") : []);
   world.markers = async () => (existsSync(world.marker) ? (await readFile(world.marker, "utf8")).trim().split("\n") : []);
-  world.record = async () => JSON.parse(await readFile(path.join(world.user, ".facilitator-updates.json"), "utf8"));
+  world.record = async () => JSON.parse(await readFile(path.join(world.user, "data", ".facilitator-updates.json"), "utf8"));
   return world;
 }
 
@@ -166,12 +175,12 @@ const STEP_SH = word => `echo ${word} >> "$UPDATE_TEST_MARKER"\n`;
 const STEP_PY = word => `import os\nwith open(os.environ["UPDATE_TEST_MARKER"], "a") as f:\n    f.write("${word}\\n")\n`;
 
 async function newVersionAndCli(world, extra = {}) {
-  const cli = await readFile(path.join(world.dev, "facilitator"), "utf8");
+  const cli = await readFile(path.join(world.dev, "app", "facilitator"), "utf8");
   const changed = cli.replace(RELOAD_LINE, `${RELOAD_LINE} (from the pulled code)`);
   assert.notEqual(changed, cli, "the reload line is in the CLI");
   return {
-    facilitator: changed,
-    "index.html": '<html><body><span id="npversion">v0.2.2</span></body></html>\n',
+    "app/facilitator": changed,
+    "app/index.html": '<html><body><span id="npversion">v0.2.2</span></body></html>\n',
     ...extra,
   };
 }
@@ -179,8 +188,8 @@ async function newVersionAndCli(world, extra = {}) {
 test("a clean pull runs the new steps once, from the pulled code, and not again", async () => {
   const world = await makeWorld();
   const pushed = await world.push(await newVersionAndCli(world, {
-    "updates/0001-mark.sh": STEP_SH("sh"),
-    "updates/0002-mark.py": STEP_PY("py"),
+    "app/updates/0001-mark.sh": STEP_SH("sh"),
+    "app/updates/0002-mark.py": STEP_PY("py"),
   }));
   const link = path.join(world.base, "installed-bin", "facilitator");
   await mkdir(path.dirname(link));
@@ -201,10 +210,10 @@ test("a clean pull runs the new steps once, from the pulled code, and not again"
   assert.equal(await world.head(), pushed);
   assert.deepEqual(await world.markers(), ["sh", "py"]);
   assert.deepEqual(Object.keys((await world.record()).ran), ["0001-mark.sh", "0002-mark.py"]);
-  assert.deepEqual(await world.uvCalls(), ENV_CALLS);
+  assert.deepEqual(await world.uvCalls(), envCalls(world));
   assert.equal(await world.mustGit(world.user, "status", "--porcelain"), "", "the record and .venv are ignored");
 
-  await world.push({ "updates/0003-mark.sh": STEP_SH("three") });
+  await world.push({ "app/updates/0003-mark.sh": STEP_SH("three") });
   const second = await world.update();
   assert.equal(second.code, 0, second.stdout + second.stderr);
   assert.deepEqual(await world.markers(), ["sh", "py", "three"], "only the new step ran");
@@ -214,9 +223,9 @@ test("a clean pull runs the new steps once, from the pulled code, and not again"
 test("a dirty checkout is refused and nothing is changed", async () => {
   const world = await makeWorld();
   const before = await world.head();
-  const edited = path.join(world.user, "index.html");
+  const edited = path.join(world.user, "app", "index.html");
   await writeFile(edited, "<html>edited by hand</html>\n");
-  await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
+  await world.push({ "app/updates/0001-mark.sh": STEP_SH("sh") });
 
   const result = await world.update();
   assert.notEqual(result.code, 0);
@@ -225,8 +234,8 @@ test("a dirty checkout is refused and nothing is changed", async () => {
   assert.match(result.stderr, /Nothing was changed\./);
   assert.equal(await world.head(), before);
   assert.equal(await readFile(edited, "utf8"), "<html>edited by hand</html>\n");
-  assert.equal(existsSync(path.join(world.user, "updates", "0001-mark.sh")), false);
-  assert.equal(existsSync(path.join(world.user, ".facilitator-updates.json")), false);
+  assert.equal(existsSync(path.join(world.user, "app", "updates", "0001-mark.sh")), false);
+  assert.equal(existsSync(path.join(world.user, "data", ".facilitator-updates.json")), false);
   assert.deepEqual(await world.markers(), []);
   assert.deepEqual(await world.uvCalls(), []);
 });
@@ -235,7 +244,7 @@ test("an untracked file does not block the update and is left alone", async () =
   const world = await makeWorld();
   const notes = path.join(world.user, "notes.txt");
   await writeFile(notes, "mine\n");
-  await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
+  await world.push({ "app/updates/0001-mark.sh": STEP_SH("sh") });
 
   const result = await world.update();
   assert.equal(result.code, 0, result.stdout + result.stderr);
@@ -250,7 +259,7 @@ test("a history that cannot fast-forward is refused, and no merge or rebase happ
   await world.mustGit(world.user, "add", "local.txt");
   await world.mustGit(world.user, "commit", "-m", "Local work");
   const before = await world.head();
-  await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
+  await world.push({ "app/updates/0001-mark.sh": STEP_SH("sh") });
 
   const result = await world.update();
   assert.notEqual(result.code, 0);
@@ -267,8 +276,8 @@ test("a history that cannot fast-forward is refused, and no merge or rebase happ
 test("a failing step stops the update, is not recorded, and runs again next time", async () => {
   const world = await makeWorld();
   await world.push({
-    "updates/0001-flaky.sh": '[ -e "$UPDATE_TEST_FLAG" ] || { echo "flaky step failing" >&2; exit 3; }\n' + STEP_SH("flaky"),
-    "updates/0002-after.sh": STEP_SH("after"),
+    "app/updates/0001-flaky.sh": '[ -e "$UPDATE_TEST_FLAG" ] || { echo "flaky step failing" >&2; exit 3; }\n' + STEP_SH("flaky"),
+    "app/updates/0002-after.sh": STEP_SH("after"),
   });
 
   const first = await world.update({ UPDATE_TEST_FLAG: world.flag });
@@ -278,7 +287,7 @@ test("a failing step stops the update, is not recorded, and runs again next time
   assert.match(first.stderr, /runs again next time/);
   assert.match(first.stderr, /The board was not restarted\. Once the update goes through, run: facilitator restart/);
   assert.deepEqual(await world.markers(), [], "the step after the failing one waited");
-  assert.equal(existsSync(path.join(world.user, ".facilitator-updates.json")), false);
+  assert.equal(existsSync(path.join(world.user, "data", ".facilitator-updates.json")), false);
 
   await writeFile(world.flag, "");
   const second = await world.update({ UPDATE_TEST_FLAG: world.flag });
@@ -305,7 +314,7 @@ test("a pull that fails still prints its error and what to do", async () => {
 test("an environment sync that fails still prints uv's output, the error and what to do", async () => {
   const world = await makeWorld();
   await writeFile(path.join(world.bin, "uv"), fakeUv({ failSync: true }));
-  const pushed = await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
+  const pushed = await world.push({ "app/updates/0001-mark.sh": STEP_SH("sh") });
 
   const result = await world.update();
   assert.notEqual(result.code, 0);
@@ -321,7 +330,7 @@ test("an environment sync that fails still prints uv's output, the error and wha
 test("a uv too old to install Python 3.14 stops the update in one line, before .venv is touched", async () => {
   const world = await makeWorld();
   await writeFile(path.join(world.bin, "uv"), fakeUv({ version: "0.8.19" }));
-  const pushed = await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
+  const pushed = await world.push({ "app/updates/0001-mark.sh": STEP_SH("sh") });
 
   const result = await world.update();
   assert.notEqual(result.code, 0);
@@ -330,7 +339,7 @@ test("a uv too old to install Python 3.14 stops the update in one line, before .
   assert.match(result.stderr, /The board was not restarted\. Once the update goes through, run: facilitator restart/);
   assert.equal(await world.head(), pushed, "the pull still ran");
   assert.deepEqual(await world.uvCalls(), ["--version"], "uv was used anyway");
-  assert.equal(existsSync(path.join(world.user, ".venv")), false);
+  assert.equal(existsSync(path.join(world.user, "data", ".venv")), false);
   assert.deepEqual(await world.markers(), [], "no step ran");
 });
 
@@ -338,7 +347,7 @@ test("a branch with no upstream is refused and the command to set one is named",
   const world = await makeWorld();
   await world.mustGit(world.user, "branch", "--unset-upstream");
   const before = await world.head();
-  await world.push({ "updates/0001-mark.sh": STEP_SH("sh") });
+  await world.push({ "app/updates/0001-mark.sh": STEP_SH("sh") });
 
   const result = await world.update();
   assert.notEqual(result.code, 0);
@@ -360,9 +369,12 @@ test("a checkout that is not on a branch is refused", async () => {
 
 test("a folder that is not a git checkout is refused", async () => {
   const world = await makeWorld();
+  // a copy laid out as a checkout, with no git behind it
   const loose = path.join(world.base, "loose");
-  await mkdir(loose);
-  await copyFile(path.join(ROOT, "facilitator"), path.join(loose, "facilitator"));
+  await mkdir(path.join(loose, "app"), { recursive: true });
+  await copyFile(path.join(ROOT, "..", "facilitator"), path.join(loose, "facilitator"));
+  await copyFile(path.join(ROOT, "facilitator"), path.join(loose, "app", "facilitator"));
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(loose, "app", "data_folder.py"));
   const result = await run("python3", [path.join(loose, "facilitator"), "update"], { cwd: world.base, env: world.env });
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /This folder is not a git checkout/);
@@ -376,7 +388,7 @@ test("with nothing to pull it still runs pending steps once, and does not restar
   const first = await world.update();
   assert.equal(first.code, 0, first.stdout + first.stderr);
   assertNoPullOrEnvironmentOutput(first.stdout);
-  assert.deepEqual(await world.uvCalls(), ENV_CALLS, "the environment sync still ran");
+  assert.deepEqual(await world.uvCalls(), envCalls(world), "the environment sync still ran");
   assert.match(first.stdout, /0001-mark\.sh done\./);
   assert.match(first.stdout, /Nothing was pulled, so the board was left as it is\./);
   assert.match(first.stdout, /Already up to date \(v0\.2\.1\)\./);
@@ -393,7 +405,7 @@ test("with nothing to pull it still runs pending steps once, and does not restar
 
 test("a record file that cannot be read stops the update before any step runs", async () => {
   const world = await makeWorld({ seedSteps: { "0001-mark.sh": STEP_SH("sh") } });
-  await writeFile(path.join(world.user, ".facilitator-updates.json"), "not json");
+  await writeFile(path.join(world.user, "data", ".facilitator-updates.json"), "not json");
   const result = await world.update();
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /\.facilitator-updates\.json is invalid\./);
@@ -434,7 +446,7 @@ test("the restart is only through the safe restart, only when pulled and running
   const world = await makeWorld();
   const code = `
 import contextlib, importlib.machinery, importlib.util, io, json, sys
-loader = importlib.machinery.SourceFileLoader("facilitator_cli", ${JSON.stringify(world.cli)})
+loader = importlib.machinery.SourceFileLoader("facilitator_cli", ${JSON.stringify(world.appCli)})
 spec = importlib.util.spec_from_loader(loader.name, loader)
 cli = importlib.util.module_from_spec(spec)
 loader.exec_module(cli)

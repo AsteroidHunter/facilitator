@@ -105,7 +105,7 @@ test("the usage counts switch is kept with the board's settings: off is 0, and o
 
 test("the settings outlive a restart, owner-only, and a file that cannot be read is put aside", async () => {
   const kept = await read();
-  const file = path.join(place.app, "settings.json");
+  const file = path.join(place.data, "settings.json");
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   run.child.kill("SIGTERM");
   await once(run.child, "exit");
@@ -119,8 +119,8 @@ test("the settings outlive a restart, owner-only, and a file that cannot be read
   run = box.launch(place);
   await box.waitReady(run, port);
   assert.deepEqual(await read(), { rev: 0, values: {} });
-  const aside = fs.readdirSync(place.app).filter(name => name.startsWith("settings.json.bad-"));
+  const aside = fs.readdirSync(place.data).filter(name => name.startsWith("settings.json.bad-"));
   assert.equal(aside.length, 1);
-  assert.equal(fs.readFileSync(path.join(place.app, aside[0]), "utf8"), "{ half a file");
+  assert.equal(fs.readFileSync(path.join(place.data, aside[0]), "utf8"), "{ half a file");
   assert.ok(box.events(place).some(event => event.kind === "settingsbad"));
 });

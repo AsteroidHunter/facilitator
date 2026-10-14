@@ -20,9 +20,10 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const WHITE = "rgb(255, 255, 255)";
 const CREAM = "rgb(245, 244, 241)";
@@ -35,7 +36,8 @@ const running = [];
 const boards = {};
 
 async function startServer({ config, seed }) {
-  const dir = path.join(baseDir, "srv-" + (++seq));
+  // a checkout of its own beside the others: code in srv-N/app, its files in srv-N/data
+  const dir = path.join(baseDir, "srv-" + (++seq), "app");
   const home = path.join(dir, "home");
   await mkdir(path.join(home, "chosen-folder"), { recursive: true });
   const port = await freePortPair();
@@ -45,8 +47,8 @@ async function startServer({ config, seed }) {
   await mkdir(path.join(dir, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(dir, "assets", name));
-  await writeFile(path.join(dir, "run.config.json"), config);
-  await writeFile(path.join(dir, "seed.json"), seed);
+  await writeFile(path.join(dataOf(dir), "run.config.json"), config);
+  await writeFile(path.join(dataOf(dir), "seed.json"), seed);
 
   const origin = "http://127.0.0.1:" + port;
   const child = spawn(PYTHON, [path.join(dir, "server.py")], {

@@ -19,25 +19,29 @@ const OLDER = require("./fixtures/older-statusline-installs.json");
 const folders = [];
 after(async () => { for (const dir of folders) await fs.rm(dir, { recursive: true, force: true }); });
 
+// a copy of the checkout as the repository lays it out: the program in
+// repo/app, .agents/ at repo's top, and the records in repo/data
 async function fixture() {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-statusline-install-")));
   folders.push(dir);
   const home = path.join(dir, "home");
   const repo = path.join(dir, "repo");
+  const app = path.join(repo, "app");
   await fs.mkdir(home);
-  await fs.mkdir(repo);
+  await fs.mkdir(app, { recursive: true });
+  await fs.mkdir(path.join(repo, "data"));
   for (const file of ["facilitator", "shell_integration.py", "claude-statusline.py"])
-    await fs.copyFile(path.join(ROOT, file), path.join(repo, file));
-  await fs.cp(path.join(ROOT, ".agents"), path.join(repo, ".agents"), { recursive: true });
+    await fs.copyFile(path.join(ROOT, file), path.join(app, file));
+  await fs.cp(path.join(ROOT, "..", ".agents"), path.join(repo, ".agents"), { recursive: true });
   const env = { ...process.env, HOME: home, SHELL: "/bin/zsh", PATH: "/usr/bin:/bin" };
   for (const name of ["ZDOTDIR", "BASH_ENV", "ENV", "CLAUDE_CONFIG_DIR"]) delete env[name];
   await fs.mkdir(path.join(home, ".claude"));
-  return { dir, home, repo, env, settings: path.join(home, ".claude", "settings.json"),
-    script: path.join(repo, "claude-statusline.py"), record: path.join(repo, ".facilitator-statusline.json") };
+  return { dir, home, repo, app, env, settings: path.join(home, ".claude", "settings.json"),
+    script: path.join(app, "claude-statusline.py"), record: path.join(repo, "data", ".facilitator-statusline.json") };
 }
 
-const run = (f, ...words) => exec("python3", [path.join(f.repo, "shell_integration.py"), ...words], { env: f.env });
-const call = (f, code, env = f.env) => exec("python3", ["-c", `import shell_integration as s\n${code}`], { env, cwd: f.repo });
+const run = (f, ...words) => exec("python3", [path.join(f.app, "shell_integration.py"), ...words], { env: f.env });
+const call = (f, code, env = f.env) => exec("python3", ["-c", `import shell_integration as s\n${code}`], { env, cwd: f.app });
 const take = (f, env) => call(f, "s.statusline_uninstall()", env);
 const exists = file => fs.access(file).then(() => true, () => false);
 const read = file => fs.readFile(file, "utf8");
@@ -100,7 +104,7 @@ test("a status line wrapped by an older install keeps showing until uninstall", 
   const input = JSON.stringify({ rate_limits: { five_hour: { used_percentage: 12, resets_at: 4102444800 } } });
   const shown = spawnSync("sh", ["-c", wrapped.statusLine.command], { input, encoding: "utf8", env: { ...f.env, HOME: "/invented" } });
   assert.equal(shown.stdout, "é mine /invented\n");
-  assert.equal(JSON.parse(await read(path.join(f.repo, "claude-limits.json"))).five_hour.used_percentage, 12);
+  assert.equal(JSON.parse(await read(path.join(f.repo, "data", "claude-limits.json"))).five_hour.used_percentage, 12);
   await take(f);
   assert.equal(await read(f.settings), OLDER.wrapped.before);
   assert.equal(await exists(f.record), false);
@@ -241,5 +245,5 @@ test("the statusline operation and the Claude limits question are gone", async (
   const f = await fixture();
   await assert.rejects(run(f, "statusline"), error => /usage: shell_integration\.py preflight\|install \[--quiet\]\|uninstall/.test(error.stderr));
   await assert.rejects(run(f, "uninstall", "--quiet"), error => /usage: shell_integration\.py/.test(error.stderr));
-  assert.doesNotMatch(await read(path.join(ROOT, "install.sh")), /Claude limits|statusline/i);
+  assert.doesNotMatch(await read(path.join(ROOT, "..", "install.sh")), /Claude limits|statusline/i);
 });

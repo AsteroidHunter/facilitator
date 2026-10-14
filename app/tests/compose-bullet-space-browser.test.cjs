@@ -8,9 +8,10 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require('
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const puppeteer = require('puppeteer-core');
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, '..');
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, '.venv/bin/python3');
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, '../data/.venv/bin/python3');
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const EVIDENCE = process.env.BULLET_SPACE_EVIDENCE || path.join(tmpdir(), 'facilitator-bullet-space-evidence');
 const ROW = 'article.box.sel textarea';
@@ -39,7 +40,7 @@ async function api(route, body) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), 'facilitator-bullet-space-'));
+  fixtureDir = appFolder('facilitator-bullet-space-');
   await mkdir(path.join(fixtureDir, 'logs'));
   await mkdir(EVIDENCE, { recursive: true });
   const port = await freePort();
@@ -53,8 +54,8 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, 'assets')))
     await copyFile(path.join(ROOT, 'assets', name), path.join(fixtureDir, 'assets', name));
   // the board's own default is off; these checks read the editor, so it is on
-  await writeFile(path.join(fixtureDir, 'run.config.json'), JSON.stringify({ compose_format_default: true }));
-  await writeFile(path.join(fixtureDir, 'seed.json'), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), 'run.config.json'), JSON.stringify({ compose_format_default: true }));
+  await writeFile(path.join(dataOf(fixtureDir), 'seed.json'), JSON.stringify({
     title: 'Sequential bullet typing fixture',
     items: [{ id: '0', bucket: 'meta', title: 'Fixture metadata', owner: 'facilitator', context: 'Invented content.' }],
   }));
@@ -93,7 +94,7 @@ after(async () => {
       await ended;
     }
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 async function open(platform) {

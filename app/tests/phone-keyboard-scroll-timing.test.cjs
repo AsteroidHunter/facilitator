@@ -203,7 +203,8 @@ test("a saved keyboard trace passes the real route validator and reaches the dat
   const { tmpdir } = require("node:os");
   const { execFile } = require("node:child_process");
   const { promisify } = require("node:util");
-  const dir = await mkdtemp(path.join(tmpdir(), "facilitator-keyboard-timing-"));
+  // the copy in app/ of a sandbox of its own, its data/ beside it
+  const dir = require("./fixture-auth.cjs").appFolder("facilitator-keyboard-timing-");
   try {
     const f = phone(); f.at(1000); f.start(); f.advance(16);
     const job = f.history.jobStart("board"); f.history.jobEnd(job); f.advance(100); f.stop();
@@ -248,7 +249,7 @@ assert s._post_clientlog(s.Query(), json.dumps(batch).encode()) == (200, {"ok":T
 print("Timing persisted; strict privacy, size, type, schema and rate checks passed")
 `], { cwd: dir, env: { ...process.env, FACILITATOR_LOG_DIR: path.join(dir, "logs") } });
     assert.match(stdout, /checks passed/);
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await rm(path.dirname(dir), { recursive: true, force: true }); }
 });
 
 test("a broken long-task observer cannot interrupt a hold or a mode change", async () => {

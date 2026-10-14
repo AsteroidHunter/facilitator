@@ -15,6 +15,7 @@ const { chmod, copyFile, mkdtemp, realpath, rm, writeFile } = require("node:fs/p
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -34,18 +35,19 @@ let fixtureDir;
 let cliPath;
 
 before(async () => {
-  fixtureDir = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-cli-quiet-")));
+  fixtureDir = await realpath(appFolder("facilitator-cli-quiet-"));
   cliPath = path.join(fixtureDir, "facilitator");
   await copyFile(path.join(ROOT, "facilitator"), cliPath);
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(cliPath), "data_folder.py"));
 });
 
 after(async () => {
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 async function writeConfig(config) {
-  await rm(path.join(fixtureDir, "run.config.json"), { recursive: true, force: true });
-  await writeFile(path.join(fixtureDir, "run.config.json"),
+  await rm(path.join(dataOf(fixtureDir), "run.config.json"), { recursive: true, force: true });
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"),
     typeof config === "string" || Buffer.isBuffer(config) ? config : JSON.stringify(config));
 }
 
@@ -330,7 +332,7 @@ test("a config that cannot be used is one plain line, for run, restart and statu
 
 test("a config that cannot be read is one plain line, for run, restart and status alike", async (t) => {
   if (process.getuid && process.getuid() === 0) return t.skip("root reads files whatever their mode");
-  const file = path.join(fixtureDir, "run.config.json");
+  const file = path.join(dataOf(fixtureDir), "run.config.json");
   await writeConfig(JSON.stringify({ port: PORT, lanes: [] }));
   await chmod(file, 0o000);
   try {

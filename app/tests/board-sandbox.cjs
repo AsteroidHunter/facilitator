@@ -10,25 +10,28 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
-const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { copyBridgeFiles, dataOf, freePortPair } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const HOST = "fixture.tail0000.ts.net";
 const CONNECTED = { BackendState: "Running", CertDomains: [HOST], Self: { DNSName: HOST + "." } };
 
-// the folder the board lives in is one level down, so the sibling
-// facilitator-internal/ the server writes into stays inside the sandbox
+// The sandbox is laid out as a checkout: the code in app/ and what the board
+// writes in data/ beside it, so the server, the command and their files all
+// stay inside it. The board names the sandbox itself (clone) as its folder.
 function sandbox(name, { config = {}, seed } = {}) {
   const outer = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `facilitator-${name}-`)));
-  const app = path.join(outer, "facilitator");
+  const app = path.join(outer, "app");
+  const data = dataOf(app);
   fs.mkdirSync(app);
+  fs.mkdirSync(data, { mode: 0o700 });
   for (const file of ["server.py", "facilitator", "qr.py", "index.html", "page.html", "card-logic.js",
                       "card-markdown.js", "card-report.js", "card-tokens.css", "compose-format.js",
                       "cm-markdown.js", "manifest.json", "sw.js", "board-settings.js"])
     if (fs.existsSync(path.join(ROOT, file))) fs.copyFileSync(path.join(ROOT, file), path.join(app, file));
   copyBridgeFiles(app);
-  fs.writeFileSync(path.join(app, "seed.json"), JSON.stringify(seed || {
+  fs.writeFileSync(path.join(data, "seed.json"), JSON.stringify(seed || {
     title: "sandbox board",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
@@ -39,17 +42,18 @@ function sandbox(name, { config = {}, seed } = {}) {
   fs.mkdirSync(fake);
   fs.copyFileSync(path.join(ROOT, "tests", "fixtures", "fake-tailscale.py"), path.join(bin, "tailscale"));
   fs.chmodSync(path.join(bin, "tailscale"), 0o755);
-  const place = { outer, app, bin, fake, logs: path.join(outer, "logs"), children: [] };
+  const place = { outer, clone: outer, app, data, bin, fake, logs: path.join(outer, "logs"), children: [] };
   setTailscale(place, {});
   return place;
 }
 
+// app is the copy's code folder; its run.config.json is in data/ beside it
 function writeConfig(app, value) {
-  fs.writeFileSync(path.join(app, "run.config.json"), JSON.stringify(value, null, 2) + "\n");
+  fs.writeFileSync(path.join(dataOf(app), "run.config.json"), JSON.stringify(value, null, 2) + "\n");
 }
 
 function readConfig(place) {
-  return JSON.parse(fs.readFileSync(path.join(place.app, "run.config.json"), "utf8"));
+  return JSON.parse(fs.readFileSync(path.join(place.data, "run.config.json"), "utf8"));
 }
 
 // what the fake tailscale answers: connected or not, and the Serve config
@@ -147,7 +151,7 @@ async function closeServer(server) {
 async function cleanup(place) {
   const pids = new Set(place.children.filter(c => c.exitCode === null).map(c => c.pid));
   try {
-    const held = JSON.parse(fs.readFileSync(path.join(place.app, "server.lock"), "utf8"));
+    const held = JSON.parse(fs.readFileSync(path.join(place.data, "server.lock"), "utf8"));
     if (Number.isInteger(held.pid) && held.pid > 1) pids.add(held.pid);
   } catch {}
   for (const pid of pids) {

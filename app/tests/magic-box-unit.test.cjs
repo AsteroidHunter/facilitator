@@ -1407,7 +1407,8 @@ test("people and agents know it as the magic box: the pages' labels, the command
     assert.ok(!/side[ -]?note/i.test(page), "a page still says side note");
     assert.ok(/aria-label="Close the magic box"/.test(page), "the cross is not labelled for the magic box");
   }
-  const cli = read("facilitator"), runbook = read("RUNBOOK.md"), skill = read(".agents/skills/facilitator/SKILL.md");
+  // the skill stays at the top of the repository, above app/
+  const cli = read("facilitator"), runbook = read("RUNBOOK.md"), skill = read("../.agents/skills/facilitator/SKILL.md");
   assert.match(cli, /\n    elif cmd == "magic":\n        cmd_magic\(args\)\n/);
   assert.ok(!/cmd == "sidenote"/.test(cli), "the side note command is still taken");
   for (const [name, text] of [["facilitator", cli], ["RUNBOOK.md", runbook], ["SKILL.md", skill]]) {
@@ -1425,7 +1426,7 @@ test("people and agents know it as the magic box: the pages' labels, the command
     assert.ok(server.includes(`"${words}"`), words);
   // the routes and the stored folder keep their names
   assert.match(server, /Route\("\/magic", _endpoint\(_post_magic/);
-  assert.match(server, /MAGIC_DIR = HERE \/ "magic-boxes"/);
+  assert.match(server, /MAGIC_DIR = DATA \/ "magic-boxes"/);
 });
 
 // a section of the list as the box script reads it, laid out from the drawer's top (no padding of

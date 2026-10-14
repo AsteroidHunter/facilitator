@@ -209,7 +209,7 @@ test("a board arranged on one port shows the same at the port it moved to, from 
   await page.close();
 
   // something else takes the port while the board is down; run moves it
-  process.kill(JSON.parse(fs.readFileSync(path.join(place.app, "server.lock"), "utf8")).pid, "SIGTERM");
+  process.kill(JSON.parse(fs.readFileSync(path.join(place.data, "server.lock"), "utf8")).pid, "SIGTERM");
   await box.waitFree(base);
   other = http.createServer((req, res) => res.end("another program")).listen(base, "127.0.0.1");
   await new Promise(resolve => other.once("listening", resolve));

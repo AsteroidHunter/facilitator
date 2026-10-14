@@ -10,6 +10,7 @@ const { createServer } = require("node:http");
 const { mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -41,7 +42,7 @@ async function fixture(name) {
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(app, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "lifecycle fixture",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },

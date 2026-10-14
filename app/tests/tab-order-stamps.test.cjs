@@ -15,6 +15,7 @@ const { appendFile, copyFile, mkdtemp, readFile, rm, writeFile } = require("node
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -60,8 +61,8 @@ async function stopServer() {
   }
 }
 
-const statePath = () => path.join(fixtureDir, "state.json");
-const transcriptPath = () => path.join(fixtureDir, "transcript.jsonl");
+const statePath = () => path.join(dataOf(fixtureDir), "state.json");
+const transcriptPath = () => path.join(dataOf(fixtureDir), "transcript.jsonl");
 const readState = async () => JSON.parse(await readFile(statePath(), "utf8"));
 const writeState = state => writeFile(statePath(), JSON.stringify(state, null, 1));
 const readTranscript = async () =>
@@ -73,7 +74,7 @@ const phone = async id => (await get("/m/state?since=")).body.boxes.find(b => b.
 const saved = async id => (await readState()).boxes.find(b => b.id === id);
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-tab-stamps-"));
+  fixtureDir = appFolder("facilitator-tab-stamps-");
   port = await freePortPair();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(process.env.FACILITATOR_TEST_SERVER_SOURCE || path.join(ROOT, "server.py"), "utf8");
@@ -87,7 +88,7 @@ before(async () => {
                       "card-report.js", "compose-format.js", "cm-markdown.js"]) {
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "tab stamps",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator", context: "" }],
   }));
@@ -96,7 +97,7 @@ before(async () => {
 
 after(async () => {
   await stopServer();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("a card is stamped when it is docked, deferred or marked done, on every reading", async () => {

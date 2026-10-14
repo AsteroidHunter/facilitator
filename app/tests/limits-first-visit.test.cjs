@@ -26,7 +26,7 @@ async function coldBoard() {
     fs.writeFileSync(path.join(fx.binDir, "codex"),
       `#!/bin/sh\n/bin/sleep 1\nexec "${path.join(fx.binDir, "codex-real")}" "$@"\n`);
     fs.chmodSync(path.join(fx.binDir, "codex"), 0o755);
-    fs.writeFileSync(path.join(fx.fixtureDir, "claude-limits.json"), JSON.stringify({
+    fs.writeFileSync(path.join(fx.fixtureDir, "..", "data", "claude-limits.json"), JSON.stringify({
       five_hour: { used_percentage: 18, resets_at: FUTURE }, seven_day: { used_percentage: 47, resets_at: FUTURE } }));
     await fx.makeProject("second");
   } catch (err) { await fx.stop(); throw err; }

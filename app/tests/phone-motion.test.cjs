@@ -17,6 +17,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { REST, SINK } = require("./phone-rest-geometry.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -467,7 +468,7 @@ async function pull(page, side, fraction, hold) {
 
 before(async () => {
   await mkdir(SHOTS, { recursive: true });
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-phone-motion-"));
+  fixtureDir = appFolder("facilitator-phone-motion-");
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -482,7 +483,7 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "phone motion test",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator", context: "Drop meta thoughts here." },
@@ -526,7 +527,7 @@ after(async () => {
     child.kill("SIGTERM");
     await once(child, "exit");
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("the answer dissolves under the title as it scrolls and into the sent box at its foot", async () => {

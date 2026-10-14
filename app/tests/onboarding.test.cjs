@@ -114,13 +114,13 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   assert.deepEqual(identify.body.properties, { $geoip_disable: true, $set: {
     email: "ada@example.org", name: "Ada Lovelace", work: "A research tool for my lab",
     main_agent: "Claude Code", time_zone: "America/Phoenix" } });
-  const install = JSON.parse(fs.readFileSync(path.join(board.app, "usage-install.json"), "utf8"));
+  const install = JSON.parse(fs.readFileSync(path.join(board.data, "usage-install.json"), "utf8"));
   assert.equal(identify.body.distinct_id, install.install_id);
-  const kept = JSON.parse(fs.readFileSync(path.join(board.app, "profile.json"), "utf8"));
+  const kept = JSON.parse(fs.readFileSync(path.join(board.data, "profile.json"), "utf8"));
   assert.deepEqual(kept, { name: "Ada Lovelace", email: "ada@example.org", email_yes: true,
                            work: "A research tool for my lab", agent: "Claude Code", time_zone: "America/Phoenix",
                            picture: null });   // drawn by the first page that needs it, never sent
-  assert.equal(fs.statSync(path.join(board.app, "profile.json")).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.join(board.data, "profile.json")).mode & 0o777, 0o600);
 
   // an edit in Settings while the yes holds goes once, alone; the yes taken back sends nothing more
   await board.call("POST", "/profile", JSON.stringify({ work: "Teaching", timeZone: "America/Phoenix" }));

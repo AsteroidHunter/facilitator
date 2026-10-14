@@ -14,6 +14,7 @@ const { constants } = require("node:fs");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -91,34 +92,37 @@ async function stopByPid(pid) {
 before(async () => {
   // the CLI resolves its own place, and a temporary folder here is reached
   // through a link, so the fixture is named by its real path from the start
-  fixtureDir = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-cli-launch-")));
+  fixtureDir = await realpath(appFolder("facilitator-cli-launch-"));
   port = await freePort();
   await copyFile(path.join(ROOT, "facilitator"), path.join(fixtureDir, "facilitator"));
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(path.join(fixtureDir, "facilitator")), "data_folder.py"));
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
-  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ port, lanes: [] }));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({ port, lanes: [] }));
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "cli launch fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
-  // the repository's own installed libraries, linked in as the fixture's .venv
-  await access(path.join(ROOT, ".venv", "bin", "python3"), constants.X_OK);
-  await symlink(path.join(ROOT, ".venv"), path.join(fixtureDir, ".venv"));
+  // the repository's own installed libraries, linked in as the fixture's
+  // data/.venv; the repository keeps them in data/ beside app/ as well
+  await access(path.join(ROOT, "..", "data", ".venv", "bin", "python3"), constants.X_OK);
+  await symlink(path.join(ROOT, "..", "data", ".venv"), path.join(dataOf(fixtureDir), ".venv"));
 });
 
 after(async () => {
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
-test("the CLI runs the server with the .venv beside it, and its own interpreter without one", async () => {
+test("the CLI runs the server with the .venv in data/, and its own interpreter without one", async () => {
   const withVenv = (await probe("print(cli.server_python())")).stdout.trim();
-  assert.equal(withVenv, path.join(fixtureDir, ".venv", "bin", "python3"));
-  const bare = await mkdtemp(path.join(tmpdir(), "facilitator-cli-bare-"));
+  assert.equal(withVenv, path.join(dataOf(fixtureDir), ".venv", "bin", "python3"));
+  const bare = appFolder("facilitator-cli-bare-");
   try {
     await copyFile(path.join(ROOT, "facilitator"), path.join(bare, "facilitator"));
+    await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(path.join(bare, "facilitator")), "data_folder.py"));
     const { stdout } = await execFileAsync("python3", ["-c", [
       "import importlib.machinery, importlib.util, sys",
       `loader = importlib.machinery.SourceFileLoader("facilitator_cli", ${JSON.stringify(path.join(bare, "facilitator"))})`,
@@ -129,7 +133,7 @@ test("the CLI runs the server with the .venv beside it, and its own interpreter 
     ].join("\n")], { cwd: bare });
     assert.equal(stdout.trim(), "True");
   } finally {
-    await rm(bare, { recursive: true, force: true });
+    await rm(path.dirname(bare), { recursive: true, force: true });
   }
   const dry = await probe(`cli.ensure_server(${port}, True)`);
   assert.match(dry.stdout, /^server: would start .*server\.py$/m);
@@ -139,7 +143,7 @@ test("the CLI runs the server with the .venv beside it, and its own interpreter 
 test("a launch brings the board up on the port, a stop by pid frees it, and a relaunch keeps the saved board", async () => {
   const first = await launch();
   try {
-    assert.equal(first.argv[0], path.join(fixtureDir, ".venv", "bin", "python3"), first.argv.join(" "));
+    assert.equal(first.argv[0], path.join(dataOf(fixtureDir), ".venv", "bin", "python3"), first.argv.join(" "));
     assert.match(first.argv[1], /server\.py$/);
     assert.deepEqual(first.said, [], "a start that worked printed something");
     const state = await (await fetch(`http://127.0.0.1:${port}/state`)).json();
@@ -160,7 +164,7 @@ test("a launch brings the board up on the port, a stop by pid frees it, and a re
       const back = await (await fetch(`http://127.0.0.1:${port}/state`)).json();
       assert.deepEqual(back.boxes.find(b => b.id === "0").pendingTexts, ["kept across the restart"], "the restart lost the queued message");
       assert.ok(back.rev > revBefore, "the revision did not carry across the restart");
-      const saved = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+      const saved = JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
       assert.equal(saved.rev, back.rev);
       assert.deepEqual(saved.ops, {});
       const down = await probe("cli.cmd_status()").then(() => null, error => error);

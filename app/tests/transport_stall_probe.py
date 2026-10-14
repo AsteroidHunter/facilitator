@@ -30,8 +30,11 @@ import urllib.request
 def main() -> None:
     server_py, stall_s, keepalive_s = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
     outer = tempfile.mkdtemp(prefix="facilitator-stall-probe-")
+    # laid out as a checkout: the code in app/, the board's files in data/
     app = os.path.join(outer, "app")
+    data = os.path.join(outer, "data")
     os.mkdir(app)
+    os.mkdir(data)
     source = open(server_py).read()
     for old, new in [
         ("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])"),
@@ -41,12 +44,13 @@ def main() -> None:
         assert old in source, old
         source = source.replace(old, new)
     open(os.path.join(app, "server.py"), "w").write(source)
-    # a copied server starts only with the phone's gate beside it
-    for name in ("bridge_auth.py", "bridge_gate.py", "m-gate.html"):
+    # a copied server starts only with the phone's gate beside it, and the
+    # module that says where its files are
+    for name in ("bridge_auth.py", "bridge_gate.py", "m-gate.html", "data_folder.py"):
         shutil.copy(os.path.join(os.path.dirname(server_py), name), app)
     json.dump({"title": "stall probe",
                "items": [{"id": "0", "bucket": "meta", "title": "Standing", "owner": "facilitator"}]},
-              open(os.path.join(app, "seed.json"), "w"))
+              open(os.path.join(data, "seed.json"), "w"))
 
     # the board holds two ports side by side, its own and the phone's
     port = None

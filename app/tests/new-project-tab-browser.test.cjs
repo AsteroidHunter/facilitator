@@ -15,6 +15,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -43,7 +44,7 @@ async function addProject(name) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-newtab-"));
+  fixtureDir = appFolder("facilitator-newtab-");
   await mkdir(path.join(fixtureDir, "home"));
   home = await realpath(path.join(fixtureDir, "home"));
   const port = await freePortPair();
@@ -63,7 +64,7 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "New tab test",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
@@ -104,7 +105,7 @@ after(async () => {
     child.kill("SIGTERM");
     await new Promise(resolve => child.once("exit", resolve));
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 // a desktop board at one window size, with the new tab not yet open

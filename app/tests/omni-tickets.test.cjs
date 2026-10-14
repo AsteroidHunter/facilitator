@@ -7,10 +7,11 @@ const { once } = require("node:events");
 const { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON ||
-  path.resolve(ROOT, "..", "facilitator", ".venv", "bin", "python3");
+  path.resolve(ROOT, "..", "..", "facilitator", "data", ".venv", "bin", "python3");
 let outer, app, port, origin, child;
 
 async function startServer(){
@@ -61,7 +62,7 @@ before(async () => {
   for (let number = 1; number <= 3; number++)
     await copyFile(path.join(ROOT, "assets", `ticket-${number}.webp`),
       path.join(app, "assets", `ticket-${number}.webp`));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "Omni fixture",
     items: [{ id: "0", bucket: "meta", title: "Ordinary standing card", owner: "facilitator" }],
   }));

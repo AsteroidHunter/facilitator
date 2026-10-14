@@ -21,6 +21,7 @@ const { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CDP_URL = process.env.CHROME_CDP_URL || "http://127.0.0.1:9222";
@@ -160,7 +161,7 @@ before(async () => {
   browserSession = await browser.target().createCDPSession();
   const info = await browserSession.send("Target.getTargets");
   assert.ok(info.targetInfos.some(t => t.type === "page"), "no existing browser window; nothing will be opened");
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-drawer-keys-"));
+  fixtureDir = appFolder("facilitator-drawer-keys-");
   await mkdir(path.join(fixtureDir, "logs"));
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -173,7 +174,7 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "drawer keys fixture",
     items: [{ id: "0", bucket: "meta", title: "A standing card", owner: "facilitator", context: "Invented content." }],
   }));
@@ -222,7 +223,7 @@ after(async () => {
     child.kill("SIGTERM");
     await once(child, "exit");
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 // ---- the two keys ------------------------------------------------------------------

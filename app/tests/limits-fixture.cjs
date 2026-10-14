@@ -5,6 +5,7 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PYTHON = execFileSync(process.env.FACILITATOR_TEST_PYTHON || "python3",
@@ -117,7 +118,7 @@ async function serve({ codex = null, claude = null, level = "info", every = 0 } 
   const { spawn } = require("node:child_process");
   const { tmpdir } = require("node:os");
   const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "facilitator-limits-")));
+  const dir = fs.realpathSync(appFolder("facilitator-limits-"));
   const home = path.join(dir, "home"), bin = path.join(dir, "bin");
   fs.mkdirSync(home);
   fs.mkdirSync(bin);
@@ -137,17 +138,17 @@ async function serve({ codex = null, claude = null, level = "info", every = 0 } 
     if (!text.includes("EVERY = 5 * 60")) throw new Error("the limits ceiling's anchor moved");
     fs.writeFileSync(path.join(dir, "limits.py"), text.replace("EVERY = 5 * 60", "EVERY = " + every));
   }
-  fs.writeFileSync(path.join(dir, "seed.json"), JSON.stringify({
+  fs.writeFileSync(path.join(dataOf(dir), "seed.json"), JSON.stringify({
     title: "Kettle Drum",
     items: [{ id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" }],
   }));
-  if (claude) fs.writeFileSync(path.join(dir, "claude-limits.json"), JSON.stringify(claude));
+  if (claude) fs.writeFileSync(path.join(dataOf(dir), "claude-limits.json"), JSON.stringify(claude));
   const board = {
     dir, home, bin, child: null,
     codex: codex ? installCodex(bin, codex) : null,
     origin: `http://127.0.0.1:${await freePortPair()}`,
-    claudeFile: path.join(dir, "claude-limits.json"),
-    cacheFile: path.join(dir, "tokens-cache.json"),
+    claudeFile: path.join(dataOf(dir), "claude-limits.json"),
+    cacheFile: path.join(dataOf(dir), "tokens-cache.json"),
     async start() {
       const env = { ...process.env, HOME: home, TZ: "UTC", PATH: bin, FACILITATOR_LOG_LEVEL: level,
                     FACILITATOR_TEST_PORT: new URL(board.origin).port, FACILITATOR_LOG_DIR: path.join(dir, "logs") };
@@ -185,7 +186,7 @@ async function serve({ codex = null, claude = null, level = "info", every = 0 } 
     },
     async remove() {
       await board.stop();
-      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(path.dirname(dir), { recursive: true, force: true });
     },
   };
   return board;

@@ -19,9 +19,10 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const MAC = { width: 1512, height: 982, deviceScaleFactor: 2 };
 const PHONE = { width: 375, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
@@ -36,7 +37,8 @@ const running = [];
 const boards = {};
 
 async function startServer(config) {
-  const dir = path.join(baseDir, "srv-" + (++seq));
+  // a checkout of its own beside the others: code in srv-N/app, its files in srv-N/data
+  const dir = path.join(baseDir, "srv-" + (++seq), "app");
   await mkdir(dir, { recursive: true });
   const port = await freePortPair();
   await writeFile(path.join(dir, "server.py"), serverSource);
@@ -45,8 +47,8 @@ async function startServer(config) {
   await mkdir(path.join(dir, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(dir, "assets", name));
-  if (config !== null) await writeFile(path.join(dir, "run.config.json"), JSON.stringify(config));
-  await writeFile(path.join(dir, "seed.json"), JSON.stringify({
+  if (config !== null) await writeFile(path.join(dataOf(dir), "run.config.json"), JSON.stringify(config));
+  await writeFile(path.join(dataOf(dir), "seed.json"), JSON.stringify({
     title: "compose format default fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing card", owner: "facilitator" }],
   }));

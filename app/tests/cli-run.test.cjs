@@ -16,6 +16,7 @@ const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -43,15 +44,16 @@ async function probe(code) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-cli-run-"));
+  fixtureDir = appFolder("facilitator-cli-run-");
   cliPath = path.join(fixtureDir, "facilitator");
   await copyFile(path.join(ROOT, "facilitator"), cliPath);
-  await writeFile(path.join(fixtureDir, "run.config.json"),
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(cliPath), "data_folder.py"));
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"),
     JSON.stringify({ port: 8899, lanes: [] }));
 });
 
 after(async () => {
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("the launch sends the server's output nowhere and opens no file of its own", async () => {

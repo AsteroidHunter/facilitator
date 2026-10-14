@@ -20,19 +20,24 @@ const UV = "/fake/uv";
 const NPM = "/fake/npm";
 const dirs = [];
 
-// a pristine clone: only the tracked files install needs. The gitignored
-// artifacts (.venv, tests/node_modules, run.config.json, seed.json) are absent, the
-// same as a real `git clone`. The clone sits one level down in its own temp
-// folder, so the sibling facilitator-internal/ it reads is private to the test.
+// a pristine clone: only the tracked files install needs, laid out as the
+// repository is: the launcher and .agents/ at the top, the program in app/.
+// The gitignored artifacts (data/ with its .venv, run.config.json and
+// seed.json, and app/tests/node_modules) are absent, the same as a real `git
+// clone`. The clone sits one level down in its own temp folder, so a folder
+// beside it is private to the test too. Answers app/, the command's folder.
 async function freshClone() {
   const base = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-cli-install-")));
   dirs.push(base);
-  const dir = path.join(base, "facilitator");
-  await mkdir(dir);
-  for (const name of ["facilitator", "shell_integration.py", "claude-statusline.py", "run.config.example.json", "seed.example.json", "requirements.txt"]) {
+  const clone = path.join(base, "facilitator");
+  const dir = path.join(clone, "app");
+  await mkdir(dir, { recursive: true });
+  for (const name of ["facilitator", "shell_integration.py", "claude-statusline.py", "data_folder.py",
+                      "run.config.example.json", "seed.example.json", "requirements.txt"]) {
     await copyFile(path.join(ROOT, name), path.join(dir, name));
   }
-  await cp(path.join(ROOT, '.agents'), path.join(dir, '.agents'), { recursive: true });
+  await copyFile(path.join(ROOT, "..", "facilitator"), path.join(clone, "facilitator"));
+  await cp(path.join(ROOT, "..", ".agents"), path.join(clone, ".agents"), { recursive: true });
   await mkdir(path.join(dir, "tests"));
   for (const name of ["package.json", "package-lock.json"]) {
     await copyFile(path.join(ROOT, "tests", name), path.join(dir, "tests", name));
@@ -40,25 +45,33 @@ async function freshClone() {
   return dir;
 }
 
-// the board's data, as if it had once run: uninstall always keeps it
-async function fabricateData(dir) {
-  await writeFile(path.join(dir, "state.json"), "{}");
-  await writeFile(path.join(dir, "transcript.jsonl"), "\n");
-  await writeFile(path.join(dir, "vapid-key.pem"), "key");
-  await writeFile(path.join(dir, "bridge-auth.json"), "{}");
-  await writeFile(path.join(dir, "bridge-auth.lock"), "");
-  await mkdir(path.join(dir, "uploads"), { recursive: true });
-  await writeFile(path.join(dir, "uploads", "keep.png"), "img");
-  // where the server saves attachments now, beside other internal files
-  await mkdir(internalUploads(dir), { recursive: true });
-  await writeFile(path.join(internalUploads(dir), "card.png"), "img");
-  await writeFile(path.join(dir, "..", "facilitator-internal", "notes.txt"), "mine");
-  await mkdir(path.join(dir, "logs"), { recursive: true });
-  await writeFile(path.join(dir, "logs", "server-20260915.log"), "line");
+// the clone's data/ beside its app/
+function data(dir) {
+  return path.join(dir, "..", "data");
 }
 
-function internalUploads(dir) {
-  return path.join(dir, "..", "facilitator-internal", "uploads");
+// the board's data, as if it had once run: uninstall always keeps it. Its
+// attachments are in data/uploads and, from before they left the repo,
+// data/uploads-old; a folder of someone's own notes sits beside the clone
+async function fabricateData(dir) {
+  await mkdir(data(dir), { recursive: true });
+  await writeFile(path.join(data(dir), "state.json"), "{}");
+  await writeFile(path.join(data(dir), "transcript.jsonl"), "\n");
+  await writeFile(path.join(data(dir), "vapid-key.pem"), "key");
+  await writeFile(path.join(data(dir), "bridge-auth.json"), "{}");
+  await writeFile(path.join(data(dir), "bridge-auth.lock"), "");
+  await mkdir(path.join(data(dir), "uploads-old"), { recursive: true });
+  await writeFile(path.join(data(dir), "uploads-old", "keep.png"), "img");
+  await mkdir(uploads(dir), { recursive: true });
+  await writeFile(path.join(uploads(dir), "card.png"), "img");
+  await mkdir(path.join(dir, "..", "..", "facilitator-internal"), { recursive: true });
+  await writeFile(path.join(dir, "..", "..", "facilitator-internal", "notes.txt"), "mine");
+  await mkdir(path.join(data(dir), "logs"), { recursive: true });
+  await writeFile(path.join(data(dir), "logs", "server-20260915.log"), "line");
+}
+
+function uploads(dir) {
+  return path.join(data(dir), "uploads");
 }
 
 after(async () => {
@@ -111,11 +124,12 @@ function stubs({ uv = true, node = true, brew = false, up = false, uvSays = "uv 
     "    CALLS.append(argv)",
     "    here = cli.HERE",
     "    if argv[:2] == [UV, 'venv']:",
-    "        (here/'.venv'/'bin').mkdir(parents=True, exist_ok=True)",
-    "        (here/'.venv'/'pyvenv.cfg').write_text('home = /fake\\nversion_info = 3.14.0\\n')",
+    "        venv = cli.DATA/'.venv'",
+    "        (venv/'bin').mkdir(parents=True, exist_ok=True)",
+    "        (venv/'pyvenv.cfg').write_text('home = /fake\\nversion_info = 3.14.0\\n')",
     "        for name in ('python', 'python3'):",
-    "            (here/'.venv'/'bin'/name).write_text('#!/bin/sh\\n')",
-    "            os.chmod(here/'.venv'/'bin'/name, 0o755)",
+    "            (venv/'bin'/name).write_text('#!/bin/sh\\n')",
+    "            os.chmod(venv/'bin'/name, 0o755)",
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
     "    if argv[:3] == [UV, 'python', 'install']:",
     "        return types.SimpleNamespace(returncode=0, stdout='', stderr='')",
@@ -170,24 +184,24 @@ function snapshot(callLine) {
     `        ${callLine}`,
     "except SystemExit as problem:",
     "    result_exit = problem.code",
-    "here = cli.HERE",
+    "here, data = cli.HERE, cli.DATA",
     "def ex(p):",
     "    return os.path.exists(str(p))",
     "files = {",
-    "  'venv': ex(here/'.venv'/'bin'/'python'),",
+    "  'venv': ex(data/'.venv'/'bin'/'python'),",
     "  'node_modules': ex(here/'tests'/'node_modules'),",
-    "  'root_node_modules': ex(here/'node_modules'),",
-    "  'package_json': ex(here/'package.json'),",
-    "  'package_lock': ex(here/'package-lock.json'),",
-    "  'run_config': ex(here/'run.config.json'),",
-    "  'seed': ex(here/'seed.json'),",
-    "  'state': ex(here/'state.json'),",
-    "  'transcript': ex(here/'transcript.jsonl'),",
-    "  'uploads': ex(here/'uploads'),",
-    "  'internal_uploads': ex(here.parent/'facilitator-internal'/'uploads'),",
-    "  'internal_notes': ex(here.parent/'facilitator-internal'/'notes.txt'),",
+    "  'root_node_modules': ex(cli.CLONE/'node_modules'),",
+    "  'package_json': ex(cli.CLONE/'package.json'),",
+    "  'package_lock': ex(cli.CLONE/'package-lock.json'),",
+    "  'run_config': ex(data/'run.config.json'),",
+    "  'seed': ex(data/'seed.json'),",
+    "  'state': ex(data/'state.json'),",
+    "  'transcript': ex(data/'transcript.jsonl'),",
+    "  'uploads': ex(data/'uploads'),",
+    "  'old_uploads': ex(data/'uploads-old'),",
+    "  'notes_beside': ex(cli.CLONE.parent/'facilitator-internal'/'notes.txt'),",
     "  'logs': ex(cli.LOG_DIR),",
-    "  'vapid': ex(here/'vapid-key.pem'),",
+    "  'vapid': ex(data/'vapid-key.pem'),",
     "}",
     "sh = {k: (v.decode() if isinstance(v, bytes) else v) for k, v in SH.items()}",
     "print('RESULT ' + json.dumps({'out': buf.getvalue(), 'exit': result_exit, 'files': files, 'calls': CALLS, 'npm_cwd': NPMRUN.get('cwd'), 'sh_no_modify': SH['no_modify'], 'sh': sh}))",
@@ -196,7 +210,7 @@ function snapshot(callLine) {
 
 async function run(dir, body, env = {}) {
   let stdout;
-  const isolatedEnv = { ...process.env, HOME: path.join(dir, "home"), FACILITATOR_LOG_DIR: path.join(dir, "logs") };
+  const isolatedEnv = { ...process.env, HOME: path.join(dir, "home"), FACILITATOR_LOG_DIR: path.join(data(dir), "logs") };
   for (const name of ["ZDOTDIR", "BASH_ENV", "ENV"]) delete isolatedEnv[name];
   try {
     ({ stdout } = await execFileAsync("python3", ["-c", `${loadCli(dir)}\n${body}`], {
@@ -262,7 +276,12 @@ test("install creates the environment and the config in one run, and no test pac
   const at = line => lines.indexOf(line);
   assert.ok(at(`${UV} python install --no-bin 3.14`) >= 0, lines.join(" | "));
   assert.ok(at(`${UV} python install --no-bin 3.14`) < at(`${UV} venv --clear --managed-python --python 3.14 .venv`), lines.join(" | "));
-  assert.ok(at(`${UV} venv --clear --managed-python --python 3.14 .venv`) < at(`${UV} pip sync --require-hashes --python .venv/bin/python requirements.txt`), lines.join(" | "));
+  assert.ok(at(`${UV} venv --clear --managed-python --python 3.14 .venv`) < at(`${UV} pip sync --require-hashes --python .venv/bin/python ${path.join(dir, "requirements.txt")}`), lines.join(" | "));
+  // .venv is made in data/, beside app/, and never beside the code
+  const venvCall = res.calls.findIndex(c => c[0] === UV && c[1] === "venv");
+  assert.ok(venvCall >= 0);
+  assert.ok(require("node:fs").existsSync(path.join(data(dir), ".venv", "pyvenv.cfg")), "no .venv in data/");
+  assert.equal(require("node:fs").existsSync(path.join(dir, ".venv")), false, "a .venv beside the code");
 });
 
 test("every requirement is one exact version with the fingerprint of each of its files, and the sync demands them", async () => {
@@ -283,7 +302,7 @@ test("every requirement is one exact version with the fingerprint of each of its
 
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   const sync = res.calls.find(c => c[0] === UV && c[1] === "pip" && c[2] === "sync");
-  assert.deepEqual(sync, [UV, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", "requirements.txt"]);
+  assert.deepEqual(sync, [UV, "pip", "sync", "--require-hashes", "--python", ".venv/bin/python", path.join(dir, "requirements.txt")]);
 });
 
 test("uv is found before the Python is checked, so a missing Python can be left to uv", async () => {
@@ -419,28 +438,45 @@ test("the test packages are one exact version, locked with a fingerprint on ever
     assert.ok(!entry.hasInstallScript, `${place} runs a script when installed`);
   }
   for (const [name, version] of wanted) assert.equal(lock.packages[`node_modules/${name}`].version, version);
-  const ignored = await readFile(path.join(ROOT, ".gitignore"), "utf8");
-  assert.match(ignored, /^\/tests\/node_modules\/$/m, "tests/node_modules is not ignored");
+  const ignored = await readFile(path.join(ROOT, "..", ".gitignore"), "utf8");
+  assert.match(ignored, /^\/app\/tests\/node_modules\/$/m, "app/tests/node_modules is not ignored");
   assert.doesNotMatch(ignored, /^(\/?tests\/)?package(-lock)?\.json$/m, "the pinned files are ignored, so they would never be committed");
 });
 
 test("a user's own config is left untouched by install", async () => {
   const dir = await freshClone();
-  await writeFile(path.join(dir, "run.config.json"), JSON.stringify({ port: 9001, lanes: [], mine: true }));
+  await mkdir(data(dir));
+  await writeFile(path.join(data(dir), "run.config.json"), JSON.stringify({ port: 9001, lanes: [], mine: true }));
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   assert.match(res.out, /✓ run\.config\.json found\./);
-  const kept = JSON.parse(await readFile(path.join(dir, "run.config.json"), "utf8"));
+  const kept = JSON.parse(await readFile(path.join(data(dir), "run.config.json"), "utf8"));
   assert.equal(kept.mine, true, "install overwrote a config the user had already written");
+});
+
+test("install writes the config files and its record into data/, and nothing beside the code", async () => {
+  const dir = await freshClone();
+  const before = (await require("node:fs/promises").readdir(dir)).sort();
+  const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
+  assert.equal(res.exit, null, res.out);
+  for (const name of ["run.config.json", "seed.json", ".facilitator-install.json"])
+    await readFile(path.join(data(dir), name), "utf8");
+  const after = (await require("node:fs/promises").readdir(dir)).filter(n => n !== "__pycache__").sort();
+  assert.deepEqual(after, before, "install wrote beside the code");
+  assert.equal((await require("node:fs/promises").stat(data(dir))).mode & 0o777, 0o700, "data/ is not private");
+  // the example's own words, with the port install picked
+  const example = JSON.parse(await readFile(path.join(dir, "seed.example.json"), "utf8"));
+  assert.deepEqual(JSON.parse(await readFile(path.join(data(dir), "seed.json"), "utf8")), example);
 });
 
 test("uninstall preserves a preexisting config and an edited generated seed", async () => {
   const dir = await freshClone();
-  await writeFile(path.join(dir, "run.config.json"), '{"mine":true}');
+  await mkdir(data(dir));
+  await writeFile(path.join(data(dir), "run.config.json"), '{"mine":true}');
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-  await writeFile(path.join(dir, "seed.json"), '{"edited":true}');
+  await writeFile(path.join(data(dir), "seed.json"), '{"edited":true}');
   const result = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
-  assert.equal(await readFile(path.join(dir, "run.config.json"), "utf8"), '{"mine":true}');
-  assert.equal(await readFile(path.join(dir, "seed.json"), "utf8"), '{"edited":true}');
+  assert.equal(await readFile(path.join(data(dir), "run.config.json"), "utf8"), '{"mine":true}');
+  assert.equal(await readFile(path.join(data(dir), "seed.json"), "utf8"), '{"edited":true}');
   assert.match(result.out, /⊘ Kept run\.config\.json: it is not recorded as installer-owned\./);
   assert.match(result.out, /⊘ Kept seed\.json: it has changed since install\./);
 });
@@ -606,8 +642,8 @@ test("uninstall removes the environment, test packages and config, and keeps the
   assert.equal(res.files.run_config, false);
   assert.equal(res.files.seed, false);
   // kept: the board's data, and the files that ship in the checkout
-  assert.ok(res.files.state && res.files.transcript && res.files.uploads && res.files.internal_uploads
-    && res.files.logs && res.files.vapid, JSON.stringify(res.files));
+  assert.ok(res.files.state && res.files.transcript && res.files.uploads && res.files.old_uploads
+    && res.files.logs && res.files.vapid && res.files.notes_beside, JSON.stringify(res.files));
   for (const name of ["package.json", "package-lock.json"]) {
     await readFile(path.join(dir, "tests", name), "utf8");
   }
@@ -624,11 +660,13 @@ test("uninstall still takes back test packages that an older install put in the 
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   const manifest = '{"dependencies":{"puppeteer-core":"^25.5.0"}}';
   const lock = '{"lockfileVersion":3}';
-  await mkdir(path.join(dir, "node_modules", "puppeteer-core"), { recursive: true });
-  await writeFile(path.join(dir, "package.json"), manifest);
-  await writeFile(path.join(dir, "package-lock.json"), lock);
+  // where installs before --dev put them: the checkout's top, above app/
+  const top = path.join(dir, "..");
+  await mkdir(path.join(top, "node_modules", "puppeteer-core"), { recursive: true });
+  await writeFile(path.join(top, "package.json"), manifest);
+  await writeFile(path.join(top, "package-lock.json"), lock);
   const sum = text => require("node:crypto").createHash("sha256").update(text).digest("hex");
-  const recordPath = path.join(dir, ".facilitator-install.json");
+  const recordPath = path.join(data(dir), ".facilitator-install.json");
   const record = JSON.parse(await readFile(recordPath, "utf8"));
   Object.assign(record, { node_modules: "directory", "package.json": sum(manifest), "package-lock.json": sum(lock) });
   await writeFile(recordPath, JSON.stringify(record));
@@ -683,7 +721,7 @@ test("uninstall keeps attachments with no terminal to ask on", async () => {
 
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(res.exit, null, res.out);
-  assert.ok(res.files.uploads && res.files.internal_uploads, "attachments went without a clear no");
+  assert.ok(res.files.uploads && res.files.old_uploads, "attachments went without a clear no");
   assert.doesNotMatch(res.out, /Keep your card attachments/, "a noninteractive run was asked");
   assert.match(res.out, /⊘ Keeping your card attachments: there is no terminal to ask on\.\nPass --remove-attachments to remove them\./);
 });
@@ -696,10 +734,10 @@ test("uninstall --wipe is refused like any unknown option and deletes no board d
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--wipe'])"));
   assert.match(String(res.exit), /^\n⚠ Unknown option: --wipe\.\n  uninstall takes --keep-attachments or --remove-attachments\./);
   assert.doesNotMatch(res.out, /Keep your card attachments|uninstaller/, "a refused run asked or showed the banner");
-  assert.ok(installed(res.files) && res.files.uploads && res.files.internal_uploads, JSON.stringify(res.files));
+  assert.ok(installed(res.files) && res.files.uploads && res.files.old_uploads, JSON.stringify(res.files));
   assert.ok(res.files.state && res.files.transcript && res.files.logs && res.files.vapid, JSON.stringify(res.files));
-  assert.equal(await readFile(path.join(dir, "bridge-auth.json"), "utf8"), "{}");
-  assert.equal(await readFile(path.join(dir, "bridge-auth.lock"), "utf8"), "");
+  assert.equal(await readFile(path.join(data(dir), "bridge-auth.json"), "utf8"), "{}");
+  assert.equal(await readFile(path.join(data(dir), "bridge-auth.lock"), "utf8"), "");
 
   const real = await execFileAsync("python3", [path.join(dir, "facilitator"), "uninstall", "--wipe"], { cwd: dir })
     .then(() => null, error => error);
@@ -716,14 +754,14 @@ test("uninstall --remove-attachments removes both attachment folders and nothing
 
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
   assert.equal(res.exit, null, res.out);
-  for (const key of ["venv", "uploads", "internal_uploads"]) {
+  for (const key of ["venv", "uploads", "old_uploads"]) {
     assert.equal(res.files[key], false, `${key} survived --remove-attachments`);
   }
   assert.ok(res.files.state && res.files.transcript && res.files.logs && res.files.vapid, "board data went with the attachments");
-  assert.equal(res.files.internal_notes, true, "the internal folder's other files went too");
+  assert.equal(res.files.notes_beside, true, "a folder beside the clone was touched");
   assert.doesNotMatch(res.out, /Keep your card attachments/, "the flag did not answer the question");
-  assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
-  assert.match(res.out, /✓ Removed card attachments folder .*facilitator\/uploads\./);
+  assert.match(res.out, /✓ Removed card attachments folder .*facilitator\/data\/uploads\./);
+  assert.match(res.out, /✓ Removed card attachments folder .*facilitator\/data\/uploads-old\./);
 });
 
 // a terminal on stdin that answers the attachments question with the given text
@@ -760,8 +798,8 @@ for (const [said, name] of [["\n", "Enter"], ["maybe\n", "an unclear answer"], [
     const res = await run(dir, stubs() + "\n" + answering(said) + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
     assert.equal(res.exit, null, res.out);
     assert.match(res.out, /Keep your card attachments/);
-    assert.ok(res.files.uploads && res.files.internal_uploads, `${name} removed attachments`);
-    assert.equal(await readFile(path.join(internalUploads(dir), "card.png"), "utf8"), "img");
+    assert.ok(res.files.uploads && res.files.old_uploads, `${name} removed attachments`);
+    assert.equal(await readFile(path.join(uploads(dir), "card.png"), "utf8"), "img");
     assert.equal(res.files.state, true, "uninstall removed the board's data");
   });
 }
@@ -774,12 +812,12 @@ for (const said of ["n\n", " No \n"]) {
 
     const res = await run(dir, stubs() + "\n" + answering(said) + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
     assert.equal(res.exit, null, res.out);
-    assert.equal(res.files.internal_uploads, false, "the server's attachments folder survived a no");
-    assert.equal(res.files.uploads, false, "the old in-repo attachments folder survived a no");
-    // the folder above and the rest of the board's data stay
-    assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
+    assert.equal(res.files.uploads, false, "the server's attachments folder survived a no");
+    assert.equal(res.files.old_uploads, false, "the old in-repo attachments folder survived a no");
+    // the folder beside the clone and the rest of the board's data stay
+    assert.equal(res.files.notes_beside, true, "a folder beside the clone was touched");
     assert.ok(res.files.state && res.files.transcript && res.files.logs && res.files.vapid, JSON.stringify(res.files));
-    assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
+    assert.match(res.out, /✓ Removed card attachments folder .*data\/uploads\./);
     assert.doesNotMatch(res.out, /Kept state\.json/);
   });
 }
@@ -788,25 +826,25 @@ test("a clear no never follows a link out of the attachments folder", async () =
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
-  const outside = path.join(dir, "..", "elsewhere");
+  const outside = path.join(dir, "..", "..", "elsewhere");
   await mkdir(path.join(outside, "pictures"), { recursive: true });
   await writeFile(path.join(outside, "pictures", "precious.png"), "img");
   await writeFile(path.join(outside, "file.png"), "img");
   // a linked folder and a linked file inside the server's folder, and the old
   // in-repo folder itself replaced by a link
-  await symlink(path.join(outside, "pictures"), path.join(internalUploads(dir), "linked"));
-  await symlink(path.join(outside, "file.png"), path.join(internalUploads(dir), "linked.png"));
-  await rm(path.join(dir, "uploads"), { recursive: true });
-  await symlink(path.join(outside, "pictures"), path.join(dir, "uploads"));
+  await symlink(path.join(outside, "pictures"), path.join(uploads(dir), "linked"));
+  await symlink(path.join(outside, "file.png"), path.join(uploads(dir), "linked.png"));
+  await rm(path.join(data(dir), "uploads-old"), { recursive: true });
+  await symlink(path.join(outside, "pictures"), path.join(data(dir), "uploads-old"));
 
   const res = await run(dir, stubs() + "\n" + answering("no\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(res.exit, null, res.out);
-  assert.equal(res.files.internal_uploads, false, "the attachments folder with links inside was not removed");
+  assert.equal(res.files.uploads, false, "the attachments folder with links inside was not removed");
   assert.equal(await readFile(path.join(outside, "pictures", "precious.png"), "utf8"), "img");
   assert.equal(await readFile(path.join(outside, "file.png"), "utf8"), "img");
-  assert.ok((await lstat(path.join(dir, "uploads"))).isSymbolicLink(), "the linked old folder was removed");
-  assert.match(res.out, /⊘ Kept card attachments link .*facilitator\/uploads\.\nA link is not followed\. Remove it by hand\./);
-  assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
+  assert.ok((await lstat(path.join(data(dir), "uploads-old"))).isSymbolicLink(), "the linked old folder was removed");
+  assert.match(res.out, /⊘ Kept card attachments link .*data\/uploads-old\.\nA link is not followed\. Remove it by hand\./);
+  assert.equal(res.files.notes_beside, true, "a folder beside the clone was touched");
 });
 
 test("no attachment folders means no question", async () => {
@@ -818,135 +856,46 @@ test("no attachment folders means no question", async () => {
   assert.match(res.out, /No card attachments found\./);
 });
 
-// another copy of the board beside this one: it reads the same internal folder
+// another copy of the board beside this one: before data/, copies in one
+// parent folder shared the attachments folder beside them; now each keeps its
+// own in its data/, so uninstall asks once and touches nothing of theirs
 async function addCopy(dir, name = "facilitator-second") {
-  const copy = path.join(dir, "..", name);
-  await mkdir(copy, { recursive: true });
+  const copy = path.join(dir, "..", "..", name);
+  await mkdir(path.join(copy, "data", "uploads"), { recursive: true });
   await writeFile(path.join(copy, "server.py"), "");
   await writeFile(path.join(copy, "facilitator"), "");
+  await writeFile(path.join(copy, "data", "uploads", "theirs.png"), "img");
   return copy;
 }
 
-const SHARED_QUESTION = "Remove it for them as well? [y/N] ";
-
-test("a no with another copy beside this one asks again, and Enter keeps the shared folder", async () => {
+test("a no with other copies of the board beside this one asks nothing more and touches only this copy", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
-  await addCopy(dir);
-
-  const res = await run(dir, stubs() + "\n" + answering("n\n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
-  assert.equal(res.exit, null, res.out);
-  assert.equal(res.files.internal_uploads, true, "the folder another copy uses was removed on one answer");
-  assert.equal(await readFile(path.join(internalUploads(dir), "card.png"), "utf8"), "img");
-  assert.equal(res.files.uploads, false, "this copy's own attachments folder stayed");
-  assert.match(res.out, /Another copy of the board uses .*facilitator-internal\/uploads: facilitator-second\./);
-  assert.ok(res.out.includes(SHARED_QUESTION), res.out);
-  assert.match(res.out, /⊘ Keeping .*facilitator-internal\/uploads for the other copies\./);
-  assert.doesNotMatch(res.out, /Removed card attachments folder .*facilitator-internal/);
-  assert.match(res.out, /✓ Removed card attachments folder .*facilitator\/uploads\./);
-});
-
-test("the second question comes before anything is removed, and names every other copy", async () => {
-  const dir = await freshClone();
-  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-  await fabricateData(dir);
+  const copy = await addCopy(dir);
   await addCopy(dir, "facilitator-worktree-a");
-  await addCopy(dir, "facilitator-worktree-b");
 
-  const res = await run(dir, stubs() + "\n" + answering("n\n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
+  const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
   assert.equal(res.exit, null, res.out);
-  const first = res.out.indexOf("Keep your card attachments");
-  const second = res.out.indexOf(SHARED_QUESTION);
-  const removed = res.out.indexOf("✓ Removed ");
-  assert.ok(first >= 0 && first < second && second < removed, res.out);
-  assert.match(res.out, /: facilitator-worktree-a, facilitator-worktree-b\./);
+  assert.equal(res.files.uploads, false, "this copy's attachments stayed after a clear no");
+  assert.equal(res.files.old_uploads, false);
+  assert.doesNotMatch(res.out, /Remove it for them as well|Another copy|Other copies|for the other copies/,
+    "a second question about other copies was asked");
+  assert.equal(await readFile(path.join(copy, "data", "uploads", "theirs.png"), "utf8"), "img", "the other copy was touched");
+  assert.equal(await readFile(path.join(copy, "server.py"), "utf8"), "");
+  assert.equal(res.files.notes_beside, true, "a folder beside the clone was touched");
 });
 
-test("a yes at the second question removes the shared folder and nothing above it", async () => {
+test("--remove-attachments with no terminal removes this copy's attachments and nothing of another copy's", async () => {
   const dir = await freshClone();
   await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
   await fabricateData(dir);
   const copy = await addCopy(dir);
 
-  const res = await run(dir, stubs() + "\n" + answering("n\ny\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
-  assert.equal(res.exit, null, res.out);
-  assert.equal(res.files.internal_uploads, false, "a yes did not remove the shared folder");
-  assert.equal(res.files.uploads, false);
-  assert.equal(res.files.internal_notes, true, "the internal folder's other files went");
-  assert.equal(await readFile(path.join(copy, "server.py"), "utf8"), "", "the other copy was touched");
-  assert.match(res.out, /✓ Removed card attachments folder .*facilitator-internal\/uploads\./);
-});
-
-test("a keep at the first question does not ask about the shared folder", async () => {
-  const dir = await freshClone();
-  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-  await fabricateData(dir);
-  await addCopy(dir);
-
-  const res = await run(dir, stubs() + "\n" + answering("\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
-  assert.equal(res.exit, null, res.out);
-  assert.ok(!res.out.includes(SHARED_QUESTION), "kept attachments were asked about again");
-  assert.ok(res.files.uploads && res.files.internal_uploads);
-});
-
-test("--remove-attachments with no terminal still keeps the folder another copy uses", async () => {
-  const dir = await freshClone();
-  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-  await fabricateData(dir);
-  await addCopy(dir);
-
   const res = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
   assert.equal(res.exit, null, res.out);
-  assert.equal(res.files.internal_uploads, true, "the shared folder went with nobody to ask");
-  assert.equal(res.files.uploads, false, "this copy's own folder stayed");
-  assert.match(res.out, /⊘ Keeping .*facilitator-internal\/uploads for the other copies: there is no terminal to ask on\./);
-});
-
-test("--remove-attachments on a terminal still asks before removing the shared folder", async () => {
-  const dir = await freshClone();
-  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-  await fabricateData(dir);
-  await addCopy(dir);
-
-  const no = await run(dir, stubs() + "\n" + answering("\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
-  assert.equal(no.exit, null, no.out);
-  assert.ok(no.out.includes(SHARED_QUESTION), no.out);
-  assert.doesNotMatch(no.out, /Keep your card attachments/, "the flag did not answer the first question");
-  assert.equal(no.files.internal_uploads, true);
-
-  const yes = await run(dir, stubs() + "\n" + answering("yes\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--remove-attachments'])"));
-  assert.equal(yes.exit, null, yes.out);
-  assert.equal(yes.files.internal_uploads, false);
-});
-
-test("an unclear answer or end of input at the second question keeps the shared folder", async () => {
-  for (const said of ["n\nmaybe\n", "n\n"]) {
-    const dir = await freshClone();
-    await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-    await fabricateData(dir);
-    await addCopy(dir);
-
-    const res = await run(dir, stubs() + "\n" + answering(said) + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
-    assert.equal(res.exit, null, res.out);
-    assert.equal(res.files.internal_uploads, true, `${JSON.stringify(said)} removed the shared folder`);
-  }
-});
-
-test("folders beside this one that are not copies of the board do not count", async () => {
-  const dir = await freshClone();
-  await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install'])"));
-  await fabricateData(dir);
-  await mkdir(path.join(dir, "..", "facilitator-wiki"));
-  await writeFile(path.join(dir, "..", "facilitator-wiki", "page.md"), "x");
-  await mkdir(path.join(dir, "..", "facilitator-halfway"));
-  await writeFile(path.join(dir, "..", "facilitator-halfway", "server.py"), "");
-  await writeFile(path.join(dir, "..", "stray-file"), "x");
-
-  const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"));
-  assert.equal(res.exit, null, res.out);
-  assert.ok(!res.out.includes(SHARED_QUESTION), "a folder that is no copy was treated as one");
-  assert.equal(res.files.internal_uploads, false);
+  assert.equal(res.files.uploads, false);
+  assert.equal(await readFile(path.join(copy, "data", "uploads", "theirs.png"), "utf8"), "img", "the other copy was touched");
 });
 
 test("--keep-attachments keeps them without asking, and both flags together are refused", async () => {
@@ -957,13 +906,13 @@ test("--keep-attachments keeps them without asking, and both flags together are 
   const both = await run(dir, stubs() + "\n" + answering("n\n") + "\n"
     + snapshot("cli.cmd_uninstall(['uninstall', '--keep-attachments', '--remove-attachments'])"));
   assert.match(String(both.exit), /^\n⚠ Both --keep-attachments and --remove-attachments were given\.\n  Give one of them, not both\.$/);
-  assert.ok(installed(both.files) && both.files.internal_uploads, "a refused run removed something");
+  assert.ok(installed(both.files) && both.files.uploads, "a refused run removed something");
 
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n"
     + snapshot("cli.cmd_uninstall(['uninstall', '--keep-attachments'])"));
   assert.equal(res.exit, null, res.out);
   assert.doesNotMatch(res.out, /Keep your card attachments/, "the flag did not answer the question");
-  assert.ok(res.files.uploads && res.files.internal_uploads, "--keep-attachments removed attachments");
+  assert.ok(res.files.uploads && res.files.old_uploads, "--keep-attachments removed attachments");
   assert.equal(res.files.state, true, "uninstall removed the board's data");
 });
 
@@ -975,7 +924,7 @@ test("uninstall has no dry run: --dry-run is refused before anything is asked or
   const res = await run(dir, stubs() + "\n" + answering("n\n") + "\n" + snapshot("cli.cmd_uninstall(['uninstall', '--dry-run'])"));
   assert.match(String(res.exit), /^\n⚠ Unknown option: --dry-run\.\n  uninstall takes --keep-attachments or --remove-attachments\./);
   assert.doesNotMatch(res.out, /Keep your card attachments|uninstaller/, "a refused run asked or showed the banner");
-  assert.ok(installed(res.files) && res.files.uploads && res.files.internal_uploads, JSON.stringify(res.files));
+  assert.ok(installed(res.files) && res.files.uploads && res.files.old_uploads, JSON.stringify(res.files));
 });
 
 test("uninstall removes owned skill links but keeps another personal skill", async () => {
@@ -1000,31 +949,36 @@ test("uninstall removes owned skill links but keeps another personal skill", asy
   for (const host of ['.claude', '.agents'])
     await assert.rejects(lstat(path.join(home, host, 'skills/facilitator')), { code: 'ENOENT' });
   assert.equal(await readFile(path.join(other, 'SKILL.md'), 'utf8'), 'mine');
-  assert.equal(await readFile(path.join(dir, '.agents/skills/facilitator/SKILL.md'), 'utf8').then(Boolean), true);
+  assert.equal(await readFile(path.join(dir, '..', '.agents/skills/facilitator/SKILL.md'), 'utf8').then(Boolean), true);
 });
 
-test("uninstall takes back a Claude limits entry an older install added to the Claude Code settings", async () => {
-  const dir = await freshClone();
-  const home = path.join(dir, "home");
-  await mkdir(home);
-  const env = { SHELL: "/bin/zsh" };
-  const setup = ["import shell_integration", "shell_integration.install()",
-    stubs(), snapshot("cli.cmd_install(['install'])")].join("\n");
-  const first = await run(dir, setup, env);
-  assert.equal(first.exit, null, first.out);
-  const settings = path.join(home, ".claude", "settings.json");
-  await assert.rejects(lstat(settings), { code: "ENOENT" }, "install must not add the entry any more");
+// an older install named the script where it then was, at the checkout's top;
+// the record, moved into data/ with the rest, is still this checkout's own
+for (const [where, script] of [["the checkout's top, before app/", dir => path.join(dir, "..", "claude-statusline.py")],
+                               ["app/", dir => path.join(dir, "claude-statusline.py")]]) {
+  test(`uninstall takes back a Claude limits entry an older install added, its script at ${where}`, async () => {
+    const dir = await freshClone();
+    const home = path.join(dir, "home");
+    await mkdir(home);
+    const env = { SHELL: "/bin/zsh" };
+    const setup = ["import shell_integration", "shell_integration.install()",
+      stubs(), snapshot("cli.cmd_install(['install'])")].join("\n");
+    const first = await run(dir, setup, env);
+    assert.equal(first.exit, null, first.out);
+    const settings = path.join(home, ".claude", "settings.json");
+    await assert.rejects(lstat(settings), { code: "ENOENT" }, "install must not add the entry any more");
 
-  const older = require("./fixtures/older-statusline-installs.json")["made from nothing"];
-  const fill = text => text.split("@SCRIPT@").join(path.join(dir, "claude-statusline.py")).split("@SETTINGS@").join(settings);
-  await writeFile(settings, fill(older.after));
-  await writeFile(path.join(dir, ".facilitator-statusline.json"), fill(older.record));
-  const removed = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
-  assert.equal(removed.exit, null, removed.out);
-  assert.match(removed.out, /✓ facilitator command and agent skill removed/);
-  assert.doesNotMatch(removed.out, /settings\.json|Claude limits entry/);
-  await assert.rejects(lstat(settings), { code: "ENOENT" });
-});
+    const older = require("./fixtures/older-statusline-installs.json")["made from nothing"];
+    const fill = text => text.split("@SCRIPT@").join(script(dir)).split("@SETTINGS@").join(settings);
+    await writeFile(settings, fill(older.after));
+    await writeFile(path.join(data(dir), ".facilitator-statusline.json"), fill(older.record));
+    const removed = await run(dir, stubs() + "\n" + snapshot("cli.cmd_uninstall(['uninstall'])"), env);
+    assert.equal(removed.exit, null, removed.out);
+    assert.match(removed.out, /✓ facilitator command and agent skill removed/);
+    assert.doesNotMatch(removed.out, /settings\.json|Claude limits entry/);
+    await assert.rejects(lstat(settings), { code: "ENOENT" });
+  });
+}
 
 test("a second uninstall is harmless and prints no removal lines", async () => {
   const dir = await freshClone();

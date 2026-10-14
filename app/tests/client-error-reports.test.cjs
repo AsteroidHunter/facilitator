@@ -85,7 +85,7 @@ before(async () => {
   assert.match(patched, /TAILSCALE_APP = "\/facilitator-test\/no-tailscale-app"/);
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "client reports fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
@@ -494,7 +494,7 @@ test("a confirmed incident shares the dated client stream and leaves existing re
   assert.equal(lines[0].page, "phone");
   assert.equal(lines[1].message, "fixture failure");
   assert.ok((await readdir(logs)).some(n => /^client-\d{8}\.jsonl$/.test(n)));
-  const transcript = await readFile(path.join(fixtureDir, "transcript.jsonl"), "utf8").catch(() => "");
+  const transcript = await readFile(path.join(dataOf(fixtureDir), "transcript.jsonl"), "utf8").catch(() => "");
   assert.doesNotMatch(transcript, /incident|fixture failure/);
 });
 
@@ -584,6 +584,7 @@ test("v5 response gesture fields pass validation, are bounded, and are refused b
 // field that is not listed or a value that is not allowed refuses the whole
 // batch, so no address, key or text can be written down by sending one.
 const { loadWorker, startPage } = require("./push-record-fixture.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const shownReport = (over = {}) => ({ kind: "pushreceived", outcome: "shown", ms: 41, status: 200, ago: 3, n: 7,
   worker: "facilitator-m-7", ...over });

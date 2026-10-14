@@ -9,21 +9,28 @@ const { sandbox } = require('./installer-sandbox.cjs');
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, '..');
 
+// a copy of the checkout as the repository lays it out: install.sh, the
+// facilitator launcher and .agents/ at repo's top, the program in repo/app,
+// and the records in repo/data
 async function fixture() {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'facilitator-shell-')));
   const home = path.join(dir, 'home');
   const repo = path.join(dir, 'repo');
+  const app = path.join(repo, 'app');
+  const data = path.join(repo, 'data');
   await fs.mkdir(home);
-  await fs.mkdir(repo);
-  for (const file of ['facilitator', 'shell_integration.py', 'install.sh', 'requirements.txt', 'run.config.example.json', 'seed.example.json'])
-    await fs.copyFile(path.join(root, file), path.join(repo, file));
-  await fs.cp(path.join(root, '.agents'), path.join(repo, '.agents'), { recursive: true });
+  await fs.mkdir(app, { recursive: true });
+  for (const file of ['facilitator', 'shell_integration.py', 'data_folder.py', 'requirements.txt', 'run.config.example.json', 'seed.example.json'])
+    await fs.copyFile(path.join(root, file), path.join(app, file));
+  for (const file of ['install.sh', 'facilitator'])
+    await fs.copyFile(path.join(root, '..', file), path.join(repo, file));
+  await fs.cp(path.join(root, '..', '.agents'), path.join(repo, '.agents'), { recursive: true });
   const env = { ...process.env, HOME: home, SHELL: '/bin/zsh', PATH: '/usr/bin:/bin' };
   for (const name of ['ZDOTDIR', 'BASH_ENV', 'ENV']) delete env[name];
-  return { dir, home, repo, env, async clean() { await fs.rm(dir, { recursive: true, force: true }); } };
+  return { dir, home, repo, app, data, env, async clean() { await fs.rm(dir, { recursive: true, force: true }); } };
 }
 async function integration(f, op, env = f.env) {
-  return exec('python3', [path.join(f.repo, 'shell_integration.py'), op], { env });
+  return exec('python3', [path.join(f.app, 'shell_integration.py'), op], { env });
 }
 
 test('owned command and profile block install twice and uninstall without changing user lines', async () => {
@@ -89,7 +96,7 @@ test('a preexisting link to this skill stays unowned across install, reinstall, 
     const original = await fs.lstat(link);
     await integration(f, 'install');
     await integration(f, 'install');
-    const record = JSON.parse(await fs.readFile(path.join(f.repo, '.facilitator-skills.json'), 'utf8'));
+    const record = JSON.parse(await fs.readFile(path.join(f.data, '.facilitator-skills.json'), 'utf8'));
     assert.equal(Object.hasOwn(record.links, link), false);
     assert.equal(Object.keys(record.links).length, 1);
     await integration(f, 'uninstall');
@@ -147,11 +154,12 @@ test('another checkout cannot claim or remove this checkout’s skill or shell s
   const f = await fixture();
   try {
     await integration(f, 'install');
+    // laid out as a checkout too: the program in app/, the skill at its top
     const other = path.join(f.dir, 'other-checkout');
-    await fs.mkdir(other);
-    await fs.copyFile(path.join(f.repo, 'shell_integration.py'), path.join(other, 'shell_integration.py'));
+    await fs.mkdir(path.join(other, 'app'), { recursive: true });
+    await fs.copyFile(path.join(f.app, 'shell_integration.py'), path.join(other, 'app', 'shell_integration.py'));
     await fs.cp(path.join(f.repo, '.agents'), path.join(other, '.agents'), { recursive: true });
-    const otherIntegration = op => exec('python3', [path.join(other, 'shell_integration.py'), op], { env: f.env });
+    const otherIntegration = op => exec('python3', [path.join(other, 'app', 'shell_integration.py'), op], { env: f.env });
     await assert.rejects(otherIntegration('preflight'));
     await otherIntegration('uninstall');
     assert.equal(await fs.readlink(path.join(f.home, '.claude/skills/facilitator')), path.join(f.repo, '.agents/skills/facilitator'));
@@ -320,7 +328,7 @@ test('help and unknown installer arguments do not create or edit files', async (
     assert.ok(error);
     assert.match(error.stderr, /^\n⚠ Unknown option or argument: --bogus\.\n  usage: \.\/install\.sh \[--dev\]\n$/);
     assert.equal(await fs.readFile(rc, 'utf8'), 'export EXISTING=1\n');
-    await assert.rejects(fs.lstat(path.join(f.repo, '.venv')), { code: 'ENOENT' });
+    await assert.rejects(fs.lstat(path.join(f.data, '.venv')), { code: 'ENOENT' });
     await assert.rejects(fs.lstat(path.join(f.home, '.local/share/facilitator/bin/facilitator')), { code: 'ENOENT' });
   } finally { await f.clean(); }
 });

@@ -8,9 +8,10 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { REST } = require("./phone-rest-geometry.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT,".venv/bin/python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "../data/.venv/bin/python3");
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PHONE = { width:375, height:812, deviceScaleFactor:3, isMobile:true, hasTouch:true };
 const SHOTS = process.env.CARD_SWIPE_SHOTS || "";
@@ -35,7 +36,7 @@ async function drag(from,to,{cancel=false,hold=false}={}){
 async function selected(){ return page.evaluate(()=>selectedId); }
 
 before(async()=>{
-  fixture=await mkdtemp(path.join(tmpdir(),"m687-swipe-")); const port=await freePort();
+  fixture=appFolder("m687-swipe-"); const port=await freePort();
   const source=(await readFile(path.join(ROOT,"server.py"),"utf8")).replace("PORT = 8877","PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   await writeFile(path.join(fixture,"server.py"),source);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixture,"server.py")));
@@ -43,7 +44,7 @@ before(async()=>{
     await copyFile(path.join(ROOT,name),path.join(fixture,name));
   await mkdir(path.join(fixture,"assets"));
   for(const name of await readdir(path.join(ROOT,"assets"))) await copyFile(path.join(ROOT,"assets",name),path.join(fixture,"assets",name));
-  await writeFile(path.join(fixture,"seed.json"),JSON.stringify({title:"swipe fixture",items:[{id:"0",bucket:"meta",title:"Base",owner:"facilitator",context:""}]}));
+  await writeFile(path.join(dataOf(fixture),"seed.json"),JSON.stringify({title:"swipe fixture",items:[{id:"0",bucket:"meta",title:"Base",owner:"facilitator",context:""}]}));
   origin=`http://127.0.0.1:${port}`;
   child=spawn(PYTHON,[path.join(fixture,"server.py")],{cwd:fixture,env:{...process.env,FACILITATOR_TEST_PORT:String(port)},stdio:"ignore"});
   for(let i=0;i<200;i++){try{if((await fetch(origin+"/state")).ok)break}catch{} await new Promise(r=>setTimeout(r,25));}
@@ -89,7 +90,7 @@ before(async()=>{
   await pause(300); // Let the fixture safe-area padding finish its keyboard-clock transition.
   if(SHOTS){await mkdir(SHOTS,{recursive:true});await writeFile(path.join(SHOTS,"font-evidence.json"),JSON.stringify({viewport:PHONE,loadedFonts,cachedFonts:!!FONT_CACHE},null,2));}
 });
-after(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null){child.kill("SIGTERM");await once(child,"exit")}if(fixture)await rm(fixture,{recursive:true,force:true})});
+after(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null){child.kill("SIGTERM");await once(child,"exit")}if(fixture)await rm(path.dirname(fixture),{recursive:true,force:true})});
 
 test("swipes use keyboard order and keep a face-on vertical center",async()=>{
   const order=await page.evaluate(()=>navigationPool(lastState).map(b=>b.id)); assert.ok(order.length>=4);

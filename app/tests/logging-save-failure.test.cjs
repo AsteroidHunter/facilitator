@@ -12,6 +12,7 @@ const { createServer } = require("node:http");
 const { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -54,7 +55,7 @@ before(async () => {
   assert.notEqual(patched, source, "test server port was not patched");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "save failure fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
@@ -82,7 +83,7 @@ before(async () => {
 
 after(async () => {
   // the folder is put back the way it was, or nothing can clear it away
-  await chmod(fixtureDir, 0o700).catch(() => {});
+  await chmod(dataOf(fixtureDir), 0o700).catch(() => {});
   if (child && child.exitCode === null) {
     child.kill("SIGTERM");
     await once(child, "exit");
@@ -92,7 +93,7 @@ after(async () => {
 
 test("a save that cannot be written answers 500, says which step failed, and keeps the board up", async () => {
   const before = (await events()).length;
-  await chmod(fixtureDir, 0o500);   // no new file may be made beside state.json
+  await chmod(dataOf(fixtureDir), 0o500);   // no new file may be made beside state.json
   let refused;
   try {
     const started = Date.now();
@@ -103,7 +104,7 @@ test("a save that cannot be written answers 500, says which step failed, and kee
     ]);
     assert.ok(Date.now() - started < 3000, "the request took longer than a page would wait");
   } finally {
-    await chmod(fixtureDir, 0o700);
+    await chmod(dataOf(fixtureDir), 0o700);
   }
 
   assert.equal(refused.status, 500);
@@ -126,7 +127,7 @@ test("a save that cannot be written answers 500, says which step failed, and kee
   assert.ok(Array.isArray(state.boxes) && state.boxes.length > 0);
   const kept = await fetch(origin + "/send?box=0", { method: "POST", body: "a message that saves" });
   assert.equal(kept.status, 200);
-  const saved = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  const saved = JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
   assert.ok(saved.boxes.find(box => box.id === "0").pending.length > 0,
     "the board could not write its state once the folder was writable again");
 });

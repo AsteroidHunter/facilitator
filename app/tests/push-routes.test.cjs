@@ -117,7 +117,7 @@ async function create(title) {
 }
 
 async function stateFile() {
-  return JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  return JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
 }
 
 function b64url(buffer) {
@@ -313,7 +313,7 @@ before(async () => {
     "the fixture could fall through to the real Mac app");
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({ title: "push test", items: [] }));
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({ title: "push test", items: [] }));
   await installFakeTailscale();
   await setTailscale(CONNECTED, {});
 
@@ -374,12 +374,13 @@ test("the public key is a P-256 point made by openssl into a private file beside
   assert.equal(point[0], 4, "not an uncompressed point");
   const again = await api("/push/key");
   assert.equal(again.body.key, publicKey, "the key changed between calls");
-  const keyFile = await stat(path.join(fixtureDir, "vapid-key.pem"));
+  const keyFile = await stat(path.join(dataOf(fixtureDir), "vapid-key.pem"));
   assert.equal(keyFile.mode & 0o777, 0o600, "the key file is readable by others");
-  const pem = await readFile(path.join(fixtureDir, "vapid-key.pem"), "utf8");
+  const pem = await readFile(path.join(dataOf(fixtureDir), "vapid-key.pem"), "utf8");
   assert.match(pem, /BEGIN EC PRIVATE KEY/);
-  const ignored = await readFile(path.join(ROOT, ".gitignore"), "utf8");
-  assert.match(ignored, /^\/vapid-key\.pem$/m, "the key file is not gitignored");
+  const ignored = await readFile(path.join(ROOT, "..", ".gitignore"), "utf8");
+  assert.match(ignored, /^\/data\/$/m, "data/, which holds the key file, is not gitignored");
+  assert.match(ignored, /^\/vapid-key\.pem$/m, "the key file's old place is not gitignored");
 });
 
 test("subscriptions are stored one per endpoint and bad ones refused", async () => {
@@ -701,6 +702,7 @@ test("a bridge drop between subscriptions stops the batch and keeps earlier resu
 // This is what shows, when a switch turns itself off, which link went and when.
 
 const { createHash } = require("node:crypto");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 const recOf = endpoint => createHash("sha256").update(endpoint).digest("hex").slice(0, 8);
 
 async function linesOfKind(kind, count, match = () => true, ms = 3000) {

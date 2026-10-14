@@ -17,6 +17,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -47,7 +48,7 @@ async function claim(){
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-no-scrollbars-"));
+  fixtureDir = appFolder("facilitator-no-scrollbars-");
   await mkdir(path.join(fixtureDir, "logs"));
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -61,7 +62,7 @@ before(async () => {
   await mkdir(path.join(fixtureDir, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({ title:"Invented scrollbar fixture", items:[] }));
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({ title:"Invented scrollbar fixture", items:[] }));
   child = spawn(PYTHON, [path.join(fixtureDir, "server.py")], { cwd:fixtureDir,
     env:{ ...process.env, FACILITATOR_TEST_PORT:String(port), FACILITATOR_LOG_DIR:path.join(fixtureDir,"logs") },
     stdio:["ignore", "pipe", "pipe"] });
@@ -89,7 +90,7 @@ before(async () => {
 after(async () => {
   if (browser) await browser.close();
   if (child && child.exitCode === null){ child.kill("SIGTERM"); await once(child, "exit"); }
-  if (fixtureDir) await rm(fixtureDir, { recursive:true, force:true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive:true, force:true });
 });
 
 // walk every laid-out scroller and read, off each, the gutter it holds

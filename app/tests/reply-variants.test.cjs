@@ -6,6 +6,7 @@ const { createServer } = require("node:http");
 const { appendFile, copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -70,7 +71,7 @@ function box(board, id = "m1") {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-reply-variants-"));
+  fixtureDir = appFolder("facilitator-reply-variants-");
   port = await freePort();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -81,7 +82,7 @@ before(async () => {
   await copyFile(path.join(ROOT, "card-markdown.js"), path.join(fixtureDir, "card-markdown.js"));
   await copyFile(path.join(ROOT, "card-tokens.css"), path.join(fixtureDir, "card-tokens.css"));
   await copyFile(path.join(ROOT, "card-logic.js"), path.join(fixtureDir, "card-logic.js"));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "reply variants",
     items: [{
       id: "m1", bucket: "meta", title: "Variants", owner: "facilitator",
@@ -91,7 +92,7 @@ before(async () => {
       context: "Second seed",
     }],
   }));
-  await writeFile(path.join(fixtureDir, "transcript.jsonl"), [
+  await writeFile(path.join(dataOf(fixtureDir), "transcript.jsonl"), [
     JSON.stringify({ ts: 9999999999999, kind: "agent", box: "m1", text: "Future compact\n---\nFuture full" }),
     JSON.stringify({ ts: 123, kind: "agent", box: "m1", text: "Equal compact one\n---\nEqual full one" }),
     JSON.stringify({ ts: 123, kind: "agent", box: "m1", text: "Equal compact two\n---\nEqual full two" }),
@@ -104,7 +105,7 @@ before(async () => {
 
 after(async () => {
   await stopServer();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("reply migration distinguishes explicit state and uses one durable transcript boundary", async () => {
@@ -116,14 +117,14 @@ test("reply migration distinguishes explicit state and uses one durable transcri
   assert.equal(box(state.body).replyShort, freshText,
     "fresh explicit seed data was mistaken for a legacy reply");
 
-  let saved = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  let saved = JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
   assert.equal(saved.reply_variants_version, 1);
   assert.equal(saved.transcript_reply_variants_version, 1);
   assert.equal("reply_variants_migrated_at" in saved, false);
 
   // These old-shaped rows are physically after the schema marker. Their
   // timestamps repeat every hostile shape above, but none may be legacy-split.
-  await appendFile(path.join(fixtureDir, "transcript.jsonl"), [
+  await appendFile(path.join(dataOf(fixtureDir), "transcript.jsonl"), [
     JSON.stringify({ ts: 9999999999999, kind: "agent", box: "m1", text: "Post future\n---\nKept future" }),
     JSON.stringify({ ts: 123, kind: "agent", box: "m1", text: "Post equal\n---\nKept equal" }),
     JSON.stringify({ kind: "agent", box: "m1", text: "Post missing\n---\nKept missing" }),
@@ -149,7 +150,7 @@ test("reply migration distinguishes explicit state and uses one durable transcri
   // Recreate the two state shapes the top-level marker cannot distinguish:
   // one box already has explicit fields, and one is genuinely legacy.
   await stopServer();
-  saved = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  saved = JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
   delete saved.reply_variants_version;
   saved.reply_variants_migrated_at = 123;
   const explicit = saved.boxes.find(item => item.id === "m1");
@@ -160,7 +161,7 @@ test("reply migration distinguishes explicit state and uses one durable transcri
   legacy.reply = "Legacy compact\n---\nLegacy full";
   delete legacy.reply_full;
   delete legacy.reply_short;
-  await writeFile(path.join(fixtureDir, "state.json"), JSON.stringify(saved, null, 1));
+  await writeFile(path.join(dataOf(fixtureDir), "state.json"), JSON.stringify(saved, null, 1));
   await startServer();
 
   state = await api("/state");
@@ -182,7 +183,7 @@ test("reply migration distinguishes explicit state and uses one durable transcri
   assert.deepEqual((await api("/thread?box=m1&n=30")).body, firstThread.body,
     "restart moved the transcript schema boundary");
 
-  const rows = (await readFile(path.join(fixtureDir, "transcript.jsonl"), "utf8"))
+  const rows = (await readFile(path.join(dataOf(fixtureDir), "transcript.jsonl"), "utf8"))
     .trim().split("\n").map(line => JSON.parse(line));
   const markers = rows.filter(row => row.kind === "schema" &&
     row.schema === "reply_variants" && row.version === 1);

@@ -16,6 +16,7 @@ const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 const { freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 let child, fixtureDir, origin, port;
 const settle = (ms = 25) => new Promise(r => setTimeout(r, ms));
@@ -72,7 +73,7 @@ const ask = async title => {
 };
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-agentname-"));
+  fixtureDir = appFolder("facilitator-agentname-");
   port = await freePortPair();
   origin = `http://127.0.0.1:${port}`;
   let src = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -82,13 +83,13 @@ before(async () => {
   require(path.join(ROOT, "tests", "fixture-auth.cjs")).copyBridgeFiles(fixtureDir);
   await copyFile(path.join(ROOT, "m-manifest.json"), path.join(fixtureDir, "m-manifest.json"));
   await copyFile(path.join(ROOT, "agent_names.py"), path.join(fixtureDir, "agent_names.py"));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "Agent name fixture",
     items: [{ id: "0", bucket: "meta", owner: "facilitator", title: "Standing meta" }],
   }));
   await startServer();
 });
-after(async () => { await stopServer(); if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true }); });
+after(async () => { await stopServer(); if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true }); });
 
 test("a card nobody has answered names no agent", async () => {
   const id = await create("Unanswered");

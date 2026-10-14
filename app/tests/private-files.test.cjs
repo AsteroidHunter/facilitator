@@ -53,7 +53,7 @@ async function exercise(b) {
   assert.equal((await b.call("POST", "/settings", JSON.stringify({ bgcolor: "#336699" }))).status, 200);
   assert.equal((await b.call("GET", "/tokens/daily?days=3")).status, 200);
   const deadline = Date.now() + 5000;
-  while (!fs.existsSync(path.join(b.app, "transcript.jsonl")) && Date.now() < deadline)
+  while (!fs.existsSync(path.join(b.data, "transcript.jsonl")) && Date.now() < deadline)
     await new Promise(resolve => setTimeout(resolve, 25));
 }
 
@@ -65,35 +65,38 @@ test("every file a fresh board writes is readable by its owner alone", async () 
   const b = await board();
   await exercise(b);
   const written = ["state.json", "transcript.jsonl", "settings.json", "vapid-key.pem", "tokens-cache.json", "server.lock"]
-    .map(name => path.join(b.app, name));
+    .map(name => path.join(b.data, name));
   written.push(...logsOf(b, /^server-\d{8}(\.\d+)?\.log$/));
   assert.ok(written.length >= 7, "the server's log file is among them");
   for (const file of written) assert.ok(fs.existsSync(file), `${path.basename(file)} was not written`);
   const loose = written.filter(file => mode(file) & 0o077).map(octal);
   assert.deepEqual(loose, [], "files other accounts can read");
+  assert.equal(mode(b.data), 0o700, "data/ itself can be listed by other accounts");
 });
 
 test("files an earlier board left readable by others are tightened at startup, and only those", async () => {
   const b = await board();
   await exercise(b);
+  // a lane's notes folder at the clone's top is that project's, not the board's
   const internal = path.join(b.outer, "facilitator-internal");
-  const uploads = path.join(internal, "uploads");
-  const legacyUploads = path.join(b.app, "uploads");
+  const uploads = path.join(b.data, "uploads");
+  const legacyUploads = path.join(b.data, "uploads-old");
   const outside = path.join(scratch, "not-the-boards.txt");
   const theirs = [outside, path.join(internal, "lane-notes.md"), path.join(b.logs, "notes.txt"),
-    path.join(b.app, "server.py"), path.join(b.app, "index.html"), path.join(b.app, "seed.json")];
+    path.join(b.app, "server.py"), path.join(b.app, "index.html"), path.join(b.data, "seed.json")];
   const oldBackup = "state.json.bak-20200101T000000";
   const ours = ["state.json", oldBackup, "state.tmp", "transcript.jsonl", "settings.json", "settings.json.tmp",
     "settings.json.bad-20200101T000000", "vapid-key.pem", "bridge-auth.json", "tokens-cache.json", "claude-limits.json",
-    "server.lock"].map(name => path.join(b.app, name));
+    "server.lock"].map(name => path.join(b.data, name));
   const olderLogs = ["server-20200101.log", "client-20200101.jsonl", "bridge-20200101.log"].map(name => path.join(b.logs, name));
   const kept = [path.join(uploads, "picture.png"), path.join(uploads, ".half.part"), path.join(legacyUploads, "old.png")];
 
   await b.restart(async () => {
     fs.mkdirSync(uploads, { recursive: true });
     fs.mkdirSync(legacyUploads, { recursive: true });
+    fs.mkdirSync(internal, { recursive: true });
     // a state file from before revisions makes the board copy it as a backup
-    const state = path.join(b.app, "state.json");
+    const state = path.join(b.data, "state.json");
     const parsed = JSON.parse(fs.readFileSync(state, "utf8"));
     delete parsed.rev;
     fs.writeFileSync(state, JSON.stringify(parsed));
@@ -102,14 +105,14 @@ test("files an earlier board left readable by others are tightened at startup, a
       fs.writeFileSync(file, path.basename(file) === "bridge-auth.json"
         ? JSON.stringify({ version: 1, salt: "", password: "", sessions: [] }) : "{}\n");
     }
-    fs.symlinkSync(outside, path.join(b.app, "state.json.bak-link"));
+    fs.symlinkSync(outside, path.join(b.data, "state.json.bak-link"));
     for (const file of [...ours, ...olderLogs, ...logsOf(b, /\.(log|jsonl)$/), ...kept, ...theirs]) fs.chmodSync(file, 0o644);
   });
 
-  const made = fs.readdirSync(b.app).filter(name => /^state\.json\.bak-\d{8}T\d{6}$/.test(name) && name !== oldBackup);
+  const made = fs.readdirSync(b.data).filter(name => /^state\.json\.bak-\d{8}T\d{6}$/.test(name) && name !== oldBackup);
   assert.equal(made.length, 1, "the board copied the old-style state as a backup");
   const boardFiles = [...new Set([...ours, ...olderLogs, ...logsOf(b, /^(server|client|bridge)-.*\.(log|jsonl)$/), ...kept,
-    path.join(b.app, made[0])])];
+    path.join(b.data, made[0])])];
   // the stale state.tmp is the one file the starting board renames away itself
   for (const file of boardFiles) assert.ok(fs.existsSync(file) || file.endsWith("state.tmp"), `${path.basename(file)} is gone`);
   const loose = boardFiles.filter(file => fs.existsSync(file) && mode(file) & 0o077).map(octal);
@@ -119,10 +122,13 @@ test("files an earlier board left readable by others are tightened at startup, a
 });
 
 test("the plan limits file claude-statusline.py keeps is readable by its owner alone, new or replaced", () => {
+  // the script in an app/ of its own, writing into data/ beside it
   const folder = fs.mkdtempSync(path.join(scratch, "statusline-"));
-  fs.copyFileSync(path.join(ROOT, "claude-statusline.py"), path.join(folder, "claude-statusline.py"));
-  const limits = path.join(folder, "claude-limits.json");
-  const send = used => execFileSync(PYTHON, [path.join(folder, "claude-statusline.py")], {
+  fs.mkdirSync(path.join(folder, "app"));
+  fs.mkdirSync(path.join(folder, "data"));
+  fs.copyFileSync(path.join(ROOT, "claude-statusline.py"), path.join(folder, "app", "claude-statusline.py"));
+  const limits = path.join(folder, "data", "claude-limits.json");
+  const send = used => execFileSync(PYTHON, [path.join(folder, "app", "claude-statusline.py")], {
     input: JSON.stringify({ rate_limits: { five_hour: { used_percentage: used, resets_at: 1700000000 } } }),
   });
   send(12);

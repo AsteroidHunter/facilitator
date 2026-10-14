@@ -13,6 +13,7 @@ const { mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/pr
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { loadWorker } = require("./push-record-fixture.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const WINDOW = "0123456789abcdef";
@@ -87,7 +88,7 @@ before(async () => {
   assert.match(patched, /TAILSCALE_APP = "\/facilitator-test\/no-tailscale-app"/);
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require("./fixture-auth.cjs").copyBridgeFiles(fixtureDir);
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "tap reports fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));

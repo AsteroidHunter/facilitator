@@ -1066,19 +1066,21 @@ class Server(unittest.TestCase):
         self.assertTrue(thread["started"] and thread["daemon"])
         self.assertEqual(thread["args"], (s._STOPPING,))
         sender = thread["target"].__self__
-        self.assertEqual(sender.marker, s.HERE / "usage-counts.json")
+        self.assertEqual(sender.marker, s.DATA / "usage-counts.json")
+        self.assertEqual(s.DATA, ROOT.parent / "data")
         self.assertEqual(sender.transcript, s.TRANSCRIPT_PATH)
         self.assertEqual(sender.log_dir, s.LOG_DIR)
         self.assertIs(sender.sharing, s._usage_sharing)
         self.assertIsNone(sender.opener, "the board's own sender is not on the standard urlopen")
         self.assertIn("_start_usage_counts()", Path(ROOT / "server.py").read_text().split("def main()")[1])
         self.assertIn("usage-counts.json", s.PRIVATE_FILES)
-        self.assertIn("/usage-counts.json", (ROOT / ".gitignore").read_text().split("\n"))
-        self.assertEqual(sender.install.path, s.HERE / "usage-install.json")
+        self.assertIn("/data/", (ROOT.parent / ".gitignore").read_text().split("\n"))
+        self.assertIn("/usage-counts.json", (ROOT.parent / ".gitignore").read_text().split("\n"))
+        self.assertEqual(sender.install.path, s.DATA / "usage-install.json")
         self.assertIs(s._usage_sender, sender, "the route would not reach the board's own sender")
         for name in ("usage-install.json", "usage-install.json.tmp"):
             self.assertIn(name, s.PRIVATE_FILES)
-            self.assertIn("/" + name, (ROOT / ".gitignore").read_text().split("\n"))
+            self.assertIn("/" + name, (ROOT.parent / ".gitignore").read_text().split("\n"))
 
     def sender_in_temp(self, net=None, sharing=None):
         """The board's sender, as the route will find it, kept in a temporary folder."""

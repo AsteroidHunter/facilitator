@@ -9,10 +9,11 @@ const os = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
 const puppeteer = require('puppeteer-core');
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const run = promisify(execFile);
 const ROOT = path.resolve(__dirname, '..');
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, '.venv/bin/python3');
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, '../data/.venv/bin/python3');
 const PASS = 'ExampleBridge7!';
 
 async function freePair() {
@@ -141,9 +142,9 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     assert.match(setup.stdout,/at least 11 characters|11 to 256 characters/);
     assert.match(setup.stdout,/passwords did not match/i);
     assert.equal(setup.stdout.includes(PASS),false,'the installer printed a password');
-    const credentialFile = await fs.readFile(path.join(app,'bridge-auth.json'),'utf8');
+    const credentialFile = await fs.readFile(path.join(dataOf(app),'bridge-auth.json'),'utf8');
     assert.equal(credentialFile.includes(PASS),false,'plaintext password was stored');
-    assert.equal((await fs.stat(path.join(app,'bridge-auth.json'))).mode & 0o777,0o600);
+    assert.equal((await fs.stat(path.join(dataOf(app),'bridge-auth.json'))).mode & 0o777,0o600);
     assert.equal((await request(port+1,'/auth/login','POST',JSON.stringify({password:'bad'}),origin)).status,401);
     const login = await request(port+1,'/auth/login','POST',JSON.stringify({password:PASS}),origin);
     assert.equal(login.status,200,login.text);
@@ -157,12 +158,12 @@ test('bridge gates every route, persists sessions, signs out and rejects legacy 
     const endpoint = 'https://push.fixture.invalid/session-a';
     assert.equal((await request(port+1,'/push/subscribe','POST',JSON.stringify({endpoint,keys:{}}),
       {...origin,...auth})).status,200);
-    const pushSession = JSON.parse(await fs.readFile(path.join(app,'state.json'),'utf8'))
+    const pushSession = JSON.parse(await fs.readFile(path.join(dataOf(app),'state.json'),'utf8'))
       .push_subs.find(item => item.endpoint === endpoint).session;
     assert.match(pushSession,/^[0-9a-f]{64}$/);
     assert.equal((await request(port+1,'/push/unsubscribe','POST',JSON.stringify({endpoint}),
       {...origin,...auth})).status,200);
-    assert.equal(JSON.parse(await fs.readFile(path.join(app,'state.json'),'utf8')).push_subs
+    assert.equal(JSON.parse(await fs.readFile(path.join(dataOf(app),'state.json'),'utf8')).push_subs
       .some(item => item.endpoint === endpoint),false);
 
     // Open the real phone page in its own Chrome profile, at an iPhone size.

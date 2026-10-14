@@ -21,11 +21,12 @@ const { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/p
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const PYTHON = path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const SHOTS = process.env.M627_SHOTS || "/tmp/m627-startup-shots";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true };
 const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
@@ -109,7 +110,7 @@ async function keptPaths(page) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-m627-sw-"));
+  fixtureDir = appFolder("facilitator-m627-sw-");
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -121,7 +122,7 @@ before(async () => {
   for (const name of ASSETS) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "startup worker fixture",
     items: [
       { id: "0", bucket: "meta", title: "A standing card", owner: "facilitator",
@@ -154,7 +155,7 @@ before(async () => {
 after(async () => {
   if (child) { child.kill("SIGTERM"); await new Promise(resolve => setTimeout(resolve, 400)); }
   for (const dir of profiles) await rm(dir, { recursive: true, force: true });
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("the server hands out the squid the startup screen is painted from", async () => {

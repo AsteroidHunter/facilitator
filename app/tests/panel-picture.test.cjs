@@ -23,7 +23,9 @@ const TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "i
 
 before(async () => {
   board = await startBoard();
-  folder = path.join(board.app, "facilitator-internal");
+  // the built-in lane's folder is the checkout, app/'s parent, so its own
+  // internal folder is at the checkout's top
+  folder = path.join(board.outer, "facilitator-internal");
   await mkdir(folder, { recursive: true });
   for (const [ext, bytes] of Object.entries(PICTURES)) await writeFile(path.join(folder, `panel.${ext}`), bytes);
   await writeFile(path.join(folder, "panel.pdf"), "%PDF-1.7\n");

@@ -18,6 +18,7 @@ const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
 let child, fixtureDir, origin, port;
 
 const { freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 const settle = (ms = 25) => new Promise(r => setTimeout(r, ms));
 
 async function post(route, body) {
@@ -78,7 +79,7 @@ async function claimAndReply(id, text) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-testmark-"));
+  fixtureDir = appFolder("facilitator-testmark-");
   port = await freePortPair();
   origin = `http://127.0.0.1:${port}`;
   let src = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -87,13 +88,13 @@ before(async () => {
   await writeFile(path.join(fixtureDir, "server.py"), src);
   require(path.join(ROOT, "tests", "fixture-auth.cjs")).copyBridgeFiles(fixtureDir);
   await copyFile(path.join(ROOT, "m-manifest.json"), path.join(fixtureDir, "m-manifest.json"));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "Test-ready fixture",
     items: [{ id: "0", bucket: "meta", owner: "facilitator", title: "Standing meta" }],
   }));
   await startServer();
 });
-after(async () => { await stopServer(); if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true }); });
+after(async () => { await stopServer(); if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true }); });
 
 test("existing cards default to not-testing in both snapshots", async () => {
   const b = await boxOf("0");
@@ -223,7 +224,7 @@ test("the marker survives a server restart", async () => {
   const id = await makeYours("Persistent mark");
   await post("/testing?box=" + id + "&v=1");
   assert.equal((await boxOf(id)).testing, true);
-  const saved = JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  const saved = JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
   assert.equal(saved.boxes.find(b => b.id === id).testing, true, "written to disk");
   await stopServer();
   await startServer();
@@ -254,7 +255,7 @@ test("a shelved awaiting-reader card can be marked and survives restart", async 
 // as it would had the fold never gone up: the desktop snapshot, the phone's and
 // the saved card alike
 const both = async id => [await boxOf(id), (await mstate()).boxes.find(b => b.id === id)];
-const saved = async () => JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+const saved = async () => JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
 const onDisk = async id => (await saved()).boxes.find(b => b.id === id);
 const views = async id => [...(await both(id)), await onDisk(id)];
 const fieldsOf = async id => (await views(id)).map(b => Object.keys(b).sort());
@@ -306,7 +307,7 @@ test("a board saved with the retired crease flag loads cleanly and drops it", as
   // the flag as the crease wrote it, on every card, and raised on one
   for (const b of board.boxes) b.creased = b.id === kept;
   await stopServer();
-  await writeFile(path.join(fixtureDir, "state.json"), JSON.stringify(board));
+  await writeFile(path.join(dataOf(fixtureDir), "state.json"), JSON.stringify(board));
   await startServer();
   const plain = await makeYours("Made after the load");
   assert.deepEqual((await fieldsOf(kept)).slice(0, 2), (await fieldsOf(plain)).slice(0, 2),

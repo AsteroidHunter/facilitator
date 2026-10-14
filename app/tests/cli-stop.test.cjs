@@ -24,6 +24,7 @@ const { access } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -251,7 +252,7 @@ def fake_state(p, timeout=2):
         return None
     st = {'boxes': [], 'queued': 0, 'listening': {}, 'busy': {}, 'listenerGap': {}}
     if OPTS['statePwd'] == 'HERE':
-        st['pwd'] = str(cli.HERE)
+        st['pwd'] = str(cli.CLONE)
     elif OPTS['statePwd'] == 'OTHER':
         st['pwd'] = '/some/other/checkout'
     return st
@@ -384,14 +385,22 @@ function assertUntouched(run, why) {
   assert.deepEqual(run.said, [], `${why}: something was printed as if it worked`);
 }
 
+// a board's own checkout inside the nest: the command in <name>/app and its
+// files in <name>/data, as a clone has them; answers the app folder
+async function checkout(name) {
+  const app = path.join(nestDir, name, "app");
+  await mkdir(app, { recursive: true });
+  await mkdir(dataOf(app));
+  for (const file of ["facilitator", "data_folder.py"]) await copyFile(path.join(ROOT, file), path.join(app, file));
+  return app;
+}
+
 before(async () => {
   nestDir = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-cli-stop-")));
-  fixtureDir = path.join(nestDir, "board");
-  await mkdir(fixtureDir);
+  fixtureDir = await checkout("board");
   cliPath = path.join(fixtureDir, "facilitator");
   port = await freePair();
-  await copyFile(path.join(ROOT, "facilitator"), cliPath);
-  await writeFile(path.join(fixtureDir, "run.config.json"), JSON.stringify({ port, lanes: [] }));
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({ port, lanes: [] }));
 });
 
 const liveNests = [];
@@ -1052,11 +1061,9 @@ test("a phone-link check that fails never fails the stop or holds up the windows
 });
 
 test("no saved file is opened, written or changed, and only the config and the lock are read", async () => {
-  const dir = path.join(nestDir, "trap-board");
-  await mkdir(dir);
+  const dir = await checkout("trap-board");
   const trapCli = path.join(dir, "facilitator");
-  await copyFile(path.join(ROOT, "facilitator"), trapCli);
-  await writeFile(path.join(dir, "run.config.json"), JSON.stringify({ port, lanes: [] }));
+  await writeFile(path.join(dataOf(dir), "run.config.json"), JSON.stringify({ port, lanes: [] }));
   const saved = {
     "state.json": '{"rev": 3}',
     "settings.json": '{"theme": "dark"}',
@@ -1066,12 +1073,12 @@ test("no saved file is opened, written or changed, and only the config and the l
   const snapshot = async () => {
     const seen = {};
     for (const name of Object.keys(saved)) {
-      const info = await stat(path.join(dir, name));
-      seen[name] = [await readFile(path.join(dir, name), "utf8"), info.mtimeMs, info.size];
+      const info = await stat(path.join(dataOf(dir), name));
+      seen[name] = [await readFile(path.join(dataOf(dir), name), "utf8"), info.mtimeMs, info.size];
     }
     return seen;
   };
-  for (const [name, text] of Object.entries(saved)) await writeFile(path.join(dir, name), text);
+  for (const [name, text] of Object.entries(saved)) await writeFile(path.join(dataOf(dir), name), text);
   const before = await snapshot();
 
   const readers = ["run.config.json", "server.lock"];
@@ -1121,10 +1128,11 @@ test("stop starts nothing, opens nothing and speaks to no tmux or lane", async (
 async function buildLive(ignoreTerm) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-stop-live-")));
   liveNests.push(root);
-  const board = path.join(root, "board");
-  await mkdir(board);
+  const board = path.join(root, "board", "app");
+  await mkdir(board, { recursive: true });
   const live = { root, board, port: await freePair(), server: path.join(board, "server.py") };
   await copyFile(path.join(ROOT, "facilitator"), path.join(board, "facilitator"));
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(path.join(board, "facilitator")), "data_folder.py"));
   let source = await readFile(path.join(ROOT, "server.py"), "utf8");
   if (ignoreTerm) {
     const handlers = "    for stopper in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):\n"
@@ -1135,15 +1143,15 @@ async function buildLive(ignoreTerm) {
   }
   await writeFile(live.server, source);
   require("./fixture-auth.cjs").copyBridgeFiles(board);
-  await writeFile(path.join(board, "run.config.json"), JSON.stringify({ port: live.port, lanes: [] }));
-  await writeFile(path.join(board, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(board), "run.config.json"), JSON.stringify({ port: live.port, lanes: [] }));
+  await writeFile(path.join(dataOf(board), "seed.json"), JSON.stringify({
     title: "cli stop fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
   // a tree with a .venv uses it, as the real launch would; one without falls back to this interpreter
-  const venv = path.join(ROOT, ".venv");
+  const venv = path.join(ROOT, "..", "data", ".venv");
   if (await access(path.join(venv, "bin", "python3"), constants.X_OK).then(() => true, () => false)) {
-    await symlink(venv, path.join(board, ".venv"));
+    await symlink(venv, path.join(dataOf(board), ".venv"));
   }
   return live;
 }
@@ -1214,7 +1222,7 @@ async function assertGone(live, pid, why) {
   assert.equal(answered, false, `${why}: the board still answers`);
   const lock = await liveProbe(live, [
     "import fcntl",
-    "fd = os.open(str(cli.HERE / 'server.lock'), os.O_RDWR | os.O_CREAT)",
+    "fd = os.open(str(cli.SERVER_LOCK), os.O_RDWR | os.O_CREAT)",
     "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)",
     "print('lock taken')",
   ].join("\n"));
@@ -1237,7 +1245,7 @@ test("a real stop: the server goes, both ports free, the lock is released, the s
     await assertGone(live, pid, "after the stop");
     owned.delete(pid);
 
-    const saved = JSON.parse(await readFile(path.join(live.board, "state.json"), "utf8"));
+    const saved = JSON.parse(await readFile(path.join(dataOf(live.board), "state.json"), "utf8"));
     assert.ok(saved.rev >= before.rev, "the stop lost the saved board");
 
     const again = await runLiveStop(live, []);

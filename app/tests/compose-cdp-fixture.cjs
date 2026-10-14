@@ -31,7 +31,7 @@ const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const CDP_URL = process.env.CHROME_CDP_URL || "http://127.0.0.1:9222";
 const CDP_WS = process.env.CHROME_CDP_WS || "";
 const SHOTS = process.env.COMPOSE_AUDIT_SHOTS || "";
@@ -93,7 +93,9 @@ async function clearLane() {
 // ---- the board itself -------------------------------------------------------
 
 async function start() {
-  board.dir = await mkdtemp(path.join(tmpdir(), "facilitator-compose-audit-"));
+  // the copy's code in app/ of a sandbox of its own, its files in data/ beside it
+  board.dir = require("./fixture-auth.cjs").appFolder("facilitator-compose-audit-");
+  const data = require("./fixture-auth.cjs").dataOf(board.dir);
   await mkdir(path.join(board.dir, "logs"));
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -107,8 +109,8 @@ async function start() {
     await copyFile(path.join(ROOT, "assets", name), path.join(board.dir, "assets", name));
   }
   // the board's own default is off; these checks read the editor, so it is on
-  await writeFile(path.join(board.dir, "run.config.json"), JSON.stringify({ compose_format_default: true }));
-  await writeFile(path.join(board.dir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(data, "run.config.json"), JSON.stringify({ compose_format_default: true }));
+  await writeFile(path.join(data, "seed.json"), JSON.stringify({
     title: "compose audit fixture",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator",
@@ -170,7 +172,7 @@ async function stop() {
   if (board.browser) await board.browser.disconnect();
   board.browser = null;
   await stopFixture();
-  if (board.dir) await rm(board.dir, { recursive: true, force: true });
+  if (board.dir) await rm(path.dirname(board.dir), { recursive: true, force: true });
 }
 
 // ---- one background tab, made on the url it is going to read ----------------

@@ -14,6 +14,7 @@ const { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } = require("node
 const { homedir, tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
@@ -111,15 +112,17 @@ after(async () => {
   if (outer) await rm(outer, { recursive: true, force: true });
 });
 
-test("the folder is the fixture's own sibling internal folder and nowhere else", async () => {
+test("the folder is the fixture's own data/logs, beside the server's folder, and nowhere else", async () => {
   await probe("import server; server._info('probe', 'm1', n=1)");
-  const derived = path.join(outer, "facilitator-internal", "logs");
+  const derived = path.join(outer, "data", "logs");
   const files = await readdir(derived);
   assert.deepEqual(files, [`server-${today()}.log`]);
   assert.equal((await eventsIn(derived))[0].kind, "probe");
-  await assert.rejects(readdir(path.join(appDir, "facilitator-internal")),
+  await assert.rejects(readdir(path.join(appDir, "data")),
     "the log folder was made inside the server's own folder");
   await assert.rejects(readdir(path.join(appDir, "logs")));
+  await assert.rejects(readdir(path.join(outer, "facilitator-internal")),
+    "the log folder was made beside the checkout, where it used to be");
 });
 
 test("every line is one JSON object with a dated UTC stamp, a level and a kind", async () => {
@@ -206,7 +209,7 @@ test("the environment variable raises the level to debug and lowers it to error"
 });
 
 test("the level comes from the config file, and the environment variable beats it", async () => {
-  const config = path.join(appDir, "run.config.json");
+  const config = path.join(dataOf(appDir), "run.config.json");
   const write = "import server; server._debug('request', route='/state'); server._info('user', 'm1')";
   try {
     await writeFile(config, JSON.stringify({ port: 1, log_level: "debug", lanes: [] }));
@@ -224,7 +227,7 @@ test("the level comes from the config file, and the environment variable beats i
 });
 
 test("a board started from the example config logs errors only, and one with no log_level keeps info", async () => {
-  const config = path.join(appDir, "run.config.json");
+  const config = path.join(dataOf(appDir), "run.config.json");
   const write = [
     "import server",
     "print(server.LOG_LEVEL)",
@@ -268,7 +271,7 @@ test("a board started from the example config logs errors only, and one with no 
 });
 
 test("a level nobody has heard of falls back to info instead of failing to start", async () => {
-  const config = path.join(appDir, "run.config.json");
+  const config = path.join(dataOf(appDir), "run.config.json");
   try {
     const fromEnv = await freshLogDir("badenv");
     const run = await probe(
@@ -403,7 +406,7 @@ test("no message text and no path ever reaches a log line; the transcript keeps 
   await mkdir(app, { recursive: true });
   await writeFile(path.join(app, "server.py"), await readFile(path.join(appDir, "server.py")));
   require('./fixture-auth.cjs').copyBridgeFiles(app);
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "keep out",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));
@@ -413,7 +416,7 @@ test("no message text and no path ever reaches a log line; the transcript keeps 
     board = await startBoard(app, logs);
     const post = (route, body) => fetch(board.origin + route, { method: "POST", body })
       .then(async response => ({ status: response.status, body: await response.json() }));
-    const transcriptPath = path.join(app, "transcript.jsonl");
+    const transcriptPath = path.join(dataOf(app), "transcript.jsonl");
     const before = (await readFile(transcriptPath, "utf8")).split("\n").filter(Boolean).length;
 
     assert.equal((await post("/send?box=0", `Please look at ${SAID} before tomorrow`)).status, 200);
@@ -487,7 +490,7 @@ async function boardFolder(name, level) {
   assert.notEqual(quick, source, "the unconfirmed claim's clock was not patched");
   await writeFile(path.join(app, "server.py"), quick);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "debug fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" }],
   }));

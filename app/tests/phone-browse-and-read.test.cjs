@@ -13,9 +13,10 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv/bin/python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "../data/.venv/bin/python3");
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
 const SHOTS = process.env.PHONE_BROWSE_SHOTS || "";
@@ -56,7 +57,7 @@ async function until(check, ms = 6000){
 }
 
 before(async () => {
-  fixture = await mkdtemp(path.join(tmpdir(), "phone-browse-"));
+  fixture = appFolder("phone-browse-");
   const port = await freePortPair();
   const source = (await readFile(path.join(ROOT, "server.py"), "utf8")).replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   await writeFile(path.join(fixture, "server.py"), source);
@@ -66,7 +67,7 @@ before(async () => {
     await copyFile(path.join(ROOT, name), path.join(fixture, name));
   await mkdir(path.join(fixture, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets"))) await copyFile(path.join(ROOT, "assets", name), path.join(fixture, "assets", name));
-  await writeFile(path.join(fixture, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixture), "seed.json"), JSON.stringify({
     title: "phone browse fixture",
     items: CARDS.map(([id, owner, bucket]) => ({ id, bucket, title: `Card ${id}`, owner, context: "" })),
   }));
@@ -86,7 +87,7 @@ before(async () => {
 after(async () => {
   if (browser) await browser.close();
   if (child && child.exitCode === null){ child.kill("SIGTERM"); await once(child, "exit"); }
-  if (fixture) await rm(fixture, { recursive: true, force: true });
+  if (fixture) await rm(path.dirname(fixture), { recursive: true, force: true });
 });
 
 // the phone page in a browsing context of its own, so storage never carries over

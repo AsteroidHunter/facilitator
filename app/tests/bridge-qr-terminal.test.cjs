@@ -9,7 +9,7 @@ const { promisify } = require("node:util");
 
 const run = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const URL = "https://example-mac.tail0000.ts.net/m";
 // the fixed 256-colour cube's black (16) on white (231): themes restyle only
 // the sixteen palette slots, so these stay true black and white

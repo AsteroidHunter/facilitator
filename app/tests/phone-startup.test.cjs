@@ -27,7 +27,7 @@ const ROOT = path.resolve(__dirname, "..");
 // against it is skipped where it is not present, so this file still runs from a
 // checkout on its own
 const PASTURELAND_REF = path.resolve(
-  ROOT, "..", "facilitator-internal", "phone-startup-reference",
+  ROOT, "..", "..", "facilitator-internal", "phone-startup-reference",
   "sources", "pastureland", "pwa", "index.html");
 const CHROME = process.env.CHROME_PATH ||
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";

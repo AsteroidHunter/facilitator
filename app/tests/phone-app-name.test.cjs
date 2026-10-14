@@ -24,6 +24,7 @@ const { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } = require
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PASS = "AppNameFixture7!";
@@ -105,7 +106,7 @@ before(async () => {
   await cp(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
   // a seed with no title, so the board carries the default one, as a board
   // that was never named does
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     items: [{ id: "0", bucket: "meta", title: "An invented standing card", owner: "facilitator" }],
   }));
   const python = process.env.FACILITATOR_TEST_PYTHON ||

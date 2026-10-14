@@ -21,6 +21,7 @@ const vm = require("node:vm");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
 const { boardState } = require("./phone-board-fixture.cjs");
 const { REST } = require("./phone-rest-geometry.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const read = name => fs.readFileSync(path.join(ROOT, name), "utf8");
@@ -426,7 +427,7 @@ before(async () => {
                       "home-widgets.js", "home-widgets.css", "tokens.py", "limits.py"])
     fs.copyFileSync(path.join(ROOT, name), path.join(app, name));
   fs.cpSync(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
-  fs.writeFileSync(path.join(app, "state.json"), JSON.stringify(boardState({ cards: 24, seed: 916, dir: outer })));
+  fs.writeFileSync(path.join(dataOf(app), "state.json"), JSON.stringify(boardState({ cards: 24, seed: 916, dir: outer })));
   // three days of invented Claude Code turns: 1115 today, 22 the day before, none before that
   const logs = path.join(home, ".claude", "projects", "invented");
   fs.mkdirSync(logs, { recursive: true });
@@ -507,7 +508,7 @@ test("the bridge refuses /tokens/daily without a session and serves it with one"
 test("the bridge refuses /limits without a session and serves the numbers with one", async () => {
   const { outer, port, bridge, cookie } = fixture;
   const ahead = Math.floor(Date.now() / 1000) + 3600;
-  fs.writeFileSync(path.join(outer, "app", "claude-limits.json"), JSON.stringify({
+  fs.writeFileSync(path.join(outer, "data", "claude-limits.json"), JSON.stringify({
     five_hour: { used_percentage: 12, resets_at: ahead }, seven_day: { used_percentage: 34, resets_at: ahead } }));
   for (const headers of [{}, { Cookie: "__Host-facilitator_session=not-a-session" }]) {
     const refused = await request(bridge, "/limits", headers);

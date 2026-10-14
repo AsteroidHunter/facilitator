@@ -21,11 +21,12 @@ test("the server binds the pair run.config.json names, and its lock says so", as
     const run = box.launch(place);
     await box.waitReady(run, port);
     const state = await (await fetch(`http://127.0.0.1:${port}/state`)).json();
-    assert.equal(state.pwd, place.app);
+    // the board's folder is the checkout, app/'s parent, as the command expects
+    assert.equal(state.pwd, place.clone);
     // the phone's socket is the one above, behind its gate
     const gate = await (await fetch(`http://127.0.0.1:${port + 1}/auth/check`)).json();
     assert.equal(typeof gate.configured, "boolean");
-    const held = JSON.parse(fs.readFileSync(path.join(place.app, "server.lock"), "utf8"));
+    const held = JSON.parse(fs.readFileSync(path.join(place.data, "server.lock"), "utf8"));
     assert.deepEqual(held, { pid: run.child.pid, port, bridge: port + 1 });
     const start = box.events(place).find(event => event.kind === "start");
     assert.equal(start.port, port);
@@ -40,7 +41,7 @@ test("a second server from the same folder on another pair is refused by the loc
   try {
     const first = box.launch(place);
     await box.waitReady(first, port);
-    const statePath = path.join(place.app, "state.json");
+    const statePath = path.join(place.data, "state.json");
     const kept = fs.readFileSync(statePath, "utf8");
     // a state file that cannot be read: a second server that read it would
     // crash on it, and one that saved would replace it
@@ -68,7 +69,7 @@ test("a second server from the same folder on another pair is refused by the loc
     fs.writeFileSync(statePath, kept);
     // the first one never noticed, and still holds the lock and the pair
     assert.ok((await fetch(`http://127.0.0.1:${port}/state`)).ok);
-    const held = JSON.parse(fs.readFileSync(path.join(place.app, "server.lock"), "utf8"));
+    const held = JSON.parse(fs.readFileSync(path.join(place.data, "server.lock"), "utf8"));
     assert.equal(held.pid, first.child.pid);
   } finally {
     await box.cleanup(place);
@@ -88,7 +89,7 @@ test("once the first server stops, a server from the same folder starts on anoth
     box.writeConfig(place.app, { port: other, lanes: [] });
     const second = box.launch(place);
     await box.waitReady(second, other);
-    const held = JSON.parse(fs.readFileSync(path.join(place.app, "server.lock"), "utf8"));
+    const held = JSON.parse(fs.readFileSync(path.join(place.data, "server.lock"), "utf8"));
     assert.deepEqual(held, { pid: second.child.pid, port: other, bridge: other + 1 });
   } finally {
     await box.cleanup(place);

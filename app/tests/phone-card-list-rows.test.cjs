@@ -12,6 +12,7 @@ const { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -144,7 +145,7 @@ const nextReading = page => page.evaluate(() => new Promise(resolve => {
 
 before(async () => {
   await mkdir(SHOTS, { recursive: true });
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-phone-rows-"));
+  fixtureDir = appFolder("facilitator-phone-rows-");
   const port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -159,7 +160,7 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "phone card list rows test",
     items: [{ id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator", context: "Drop meta thoughts here." }],
   }));
@@ -200,7 +201,7 @@ after(async () => {
     child.kill("SIGTERM");
     await once(child, "exit");
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("a closed card list draws no rows, and a pull from the edge draws every current one", async () => {

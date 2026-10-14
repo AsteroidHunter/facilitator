@@ -1,7 +1,7 @@
 // claude-statusline.py: the status line command that keeps Claude Code's two
-// plan windows for the limits box. Each run is on a copy of the script in a
-// folder of its own, since the script writes beside itself. The input is what
-// Claude Code sends on stdin, with invented numbers.
+// plan windows for the limits box. Each run is on a copy of the script in an
+// app/ folder of its own, since the script writes into data/ beside that
+// folder. The input is what Claude Code sends on stdin, with invented numbers.
 const assert = require("node:assert/strict");
 const { after, beforeEach, test } = require("node:test");
 const { spawnSync } = require("node:child_process");
@@ -18,8 +18,10 @@ let dir, script, out;
 beforeEach(() => {
   dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "facilitator-statusline-")));
   folders.push(dir);
-  script = path.join(dir, "claude-statusline.py");
-  out = path.join(dir, "claude-limits.json");
+  fs.mkdirSync(path.join(dir, "app"));
+  fs.mkdirSync(path.join(dir, "data"));
+  script = path.join(dir, "app", "claude-statusline.py");
+  out = path.join(dir, "data", "claude-limits.json");
   fs.copyFileSync(path.join(ROOT, "claude-statusline.py"), script);
 });
 after(() => { for (const d of folders) fs.rmSync(d, { recursive: true, force: true }); });
@@ -49,7 +51,8 @@ test("it writes the two windows and prints nothing", () => {
     seven_day: { used_percentage: 41.2, resets_at: FUTURE + 1 },
   });
   assert.equal(done.stdout, "");
-  assert.deepEqual(fs.readdirSync(dir).sort(), ["claude-limits.json", "claude-statusline.py"], "no temporary file is left");
+  assert.deepEqual(fs.readdirSync(path.join(dir, "data")).sort(), ["claude-limits.json"], "no temporary file is left");
+  assert.deepEqual(fs.readdirSync(path.join(dir, "app")).sort(), ["claude-statusline.py"], "nothing is written beside the script");
 });
 
 test("nothing else of the input reaches the file, not even inside a window", () => {

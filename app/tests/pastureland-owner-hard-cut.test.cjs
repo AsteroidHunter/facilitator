@@ -10,6 +10,7 @@ const { createServer } = require("node:http");
 const { mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PROJECT = "orchard";    // a project lane, given by run.config.json and a saved card
@@ -55,14 +56,14 @@ before(async () => {
   assert.notEqual(patched, serverSource, "test server port was not patched");
   await writeFile(path.join(serverDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(serverDir, "server.py")));
-  await writeFile(path.join(serverDir, "run.config.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(serverDir), "run.config.json"), JSON.stringify({
     lanes: [
       { owner: "facilitator", dir: serverDir },
       { owner: PROJECT, dir: projectDir },
     ],
     navigator_lanes: [PROJECT],
   }));
-  await writeFile(path.join(serverDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(serverDir), "seed.json"), JSON.stringify({
     title: "owner hard cut",
     items: [
       { id: "0", bucket: "meta", owner: "facilitator", title: "Tool standing" },

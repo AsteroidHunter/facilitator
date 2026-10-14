@@ -24,6 +24,7 @@ const { mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/pr
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const execFileAsyncLocal = promisify(execFile);
 
@@ -181,7 +182,7 @@ before(async () => {
   source = patch(source, "WAIT_SLOTS = 8", `WAIT_SLOTS = ${WAIT_SLOTS}`);
   await writeFile(path.join(app, "server.py"), source);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "transport fixture",
     // a lane exists only where a card or the run config names it, so the
     // seats test has a card for its second lane

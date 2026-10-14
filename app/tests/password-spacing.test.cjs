@@ -12,6 +12,7 @@ const { access, copyFile, mkdtemp, realpath, rm } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const run = promisify(execFile);
 const ROOT = path.resolve(__dirname, '..');
@@ -19,10 +20,10 @@ const PYTHON = process.env.FACILITATOR_TEST_PYTHON || 'python3';
 const PASS = 'ExampleBridge7!';
 const dirs = [];
 
-after(() => Promise.all(dirs.map(dir => rm(dir, { recursive: true, force: true }))));
+after(() => Promise.all(dirs.map(dir => rm(path.dirname(dir), { recursive: true, force: true }))));
 
 async function passwordScreen(answers, { installer = false } = {}) {
-  const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'facilitator-password-')));
+  const dir = await realpath(appFolder('facilitator-password-'));
   dirs.push(dir);
   for (const name of ['facilitator', 'bridge_auth.py']) await copyFile(path.join(ROOT, name), path.join(dir, name));
   const script = [
@@ -30,7 +31,7 @@ async function passwordScreen(answers, { installer = false } = {}) {
     'from pathlib import Path',
     'from importlib.machinery import SourceFileLoader',
     'import bridge_auth',
-    `bridge_auth.AUTH_FILE = Path(${JSON.stringify(path.join(dir, 'bridge-auth.json'))})`,
+    `bridge_auth.AUTH_FILE = Path(${JSON.stringify(path.join(dataOf(dir), 'bridge-auth.json'))})`,
     'bridge_auth.LOCK_FILE = bridge_auth.AUTH_FILE.with_suffix(".lock")',
     'cli = SourceFileLoader("facilitator_cli", "facilitator").load_module()',
     'class Input:',
@@ -46,7 +47,7 @@ async function passwordScreen(answers, { installer = false } = {}) {
     'assert next(values, None) is None, "answers left over"',
   ].join('\n');
   const { stdout } = await run(PYTHON, ['-c', script], { cwd: dir });
-  await access(path.join(dir, 'bridge-auth.json'));
+  await access(path.join(dataOf(dir), 'bridge-auth.json'));
   return stdout;
 }
 

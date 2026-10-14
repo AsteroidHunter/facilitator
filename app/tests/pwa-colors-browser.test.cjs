@@ -7,9 +7,10 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT,".venv/bin/python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "../data/.venv/bin/python3");
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PHONE = { width:375, height:812, deviceScaleFactor:3, isMobile:true, hasTouch:true };
 const SHOTS = process.env.PWA_COLOR_SHOTS || "";
@@ -34,7 +35,7 @@ async function drag(from,to,{cancel=false,hold=false}={}){
 async function selected(){ return page.evaluate(()=>selectedId); }
 
 before(async()=>{
-  fixture=await mkdtemp(path.join(tmpdir(),"m688-colors-")); const port=await freePort();
+  fixture=appFolder("m688-colors-"); const port=await freePort();
   const source=(await readFile(path.join(ROOT,"server.py"),"utf8")).replace("PORT = 8877","PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   await writeFile(path.join(fixture,"server.py"),source);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixture,"server.py")));
@@ -42,8 +43,8 @@ before(async()=>{
     await copyFile(path.join(ROOT,name),path.join(fixture,name));
   await mkdir(path.join(fixture,"assets"));
   for(const name of await readdir(path.join(ROOT,"assets"))) await copyFile(path.join(ROOT,"assets",name),path.join(fixture,"assets",name));
-  await writeFile(path.join(fixture,"seed.json"),JSON.stringify({title:"swipe fixture",items:[{id:"0",bucket:"meta",title:"Base",owner:"facilitator",context:""}]}));
-  await writeFile(path.join(fixture,"run.config.json"),JSON.stringify({lanes:[
+  await writeFile(path.join(dataOf(fixture),"seed.json"),JSON.stringify({title:"swipe fixture",items:[{id:"0",bucket:"meta",title:"Base",owner:"facilitator",context:""}]}));
+  await writeFile(path.join(dataOf(fixture),"run.config.json"),JSON.stringify({lanes:[
     {owner:"facilitator",dir:path.join(fixture,"garden")},
     {owner:"pastureland",dir:path.join(fixture,"workshop")}
   ]}));
@@ -93,7 +94,7 @@ before(async()=>{
   await pause(300); // Let the fixture safe-area padding finish its keyboard-clock transition.
   if(SHOTS){await mkdir(SHOTS,{recursive:true});await writeFile(path.join(SHOTS,"font-evidence.json"),JSON.stringify({viewport:PHONE,loadedFonts,cachedFonts:!!FONT_CACHE},null,2));}
 });
-after(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null){child.kill("SIGTERM");await once(child,"exit")}if(fixture)await rm(fixture,{recursive:true,force:true})});
+after(async()=>{if(browser)await browser.close();if(child&&child.exitCode===null){child.kill("SIGTERM");await once(child,"exit")}if(fixture)await rm(path.dirname(fixture),{recursive:true,force:true})});
 
 async function capture(name, side="left"){
   const state=await page.evaluate(side=>{

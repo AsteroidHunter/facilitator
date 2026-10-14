@@ -11,6 +11,7 @@ const { createServer } = require("node:http");
 const { copyFile, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -51,7 +52,7 @@ async function pagesOf(owner) {
 }
 
 async function persisted() {
-  return JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  return JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
 }
 
 async function startServer() {
@@ -89,7 +90,7 @@ async function restart() {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-pages-"));
+  fixtureDir = appFolder("facilitator-pages-");
   logs = path.join(fixtureDir, "logs");
   port = await freePort();
   origin = `http://127.0.0.1:${port}`;
@@ -99,7 +100,7 @@ before(async () => {
   await writeFile(path.join(fixtureDir, "server.py"), patched);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(fixtureDir, "server.py")));
   await copyFile(path.join(ROOT, "m-manifest.json"), path.join(fixtureDir, "m-manifest.json"));
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "Kettle Drum",
     items: [
       { id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" },
@@ -112,7 +113,7 @@ before(async () => {
 
 after(async () => {
   await stopServer();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("every project is migrated onto one board page and nothing else", async () => {
@@ -232,7 +233,7 @@ test("an emptied project stays empty over a restart; only an unmigrated one is g
   const saved = await persisted();
   delete saved.pages;
   delete saved.next_pgid;
-  await writeFile(path.join(fixtureDir, "state.json"), JSON.stringify(saved));
+  await writeFile(path.join(dataOf(fixtureDir), "state.json"), JSON.stringify(saved));
   await startServer();
   const pages = (await state()).pages;
   for (const owner of ["facilitator", "pastureland", "qchat"])

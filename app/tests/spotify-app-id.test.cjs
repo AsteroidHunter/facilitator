@@ -10,9 +10,10 @@ const { createServer } = require("node:http");
 const { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const INVENTED = "invented-spotify-app-id-31415926";
 
 let baseDir;
@@ -35,16 +36,17 @@ async function freePort() {
 // config the case names. index.html is copied verbatim so the served page is
 // the one this repo ships.
 async function startServer(config) {
-  const dir = path.join(baseDir, "srv-" + (++seq));
+  // a checkout of its own beside the others: code in srv-N/app, its files in srv-N/data
+  const dir = path.join(baseDir, "srv-" + (++seq), "app");
   await mkdir(dir, { recursive: true });
   const port = await freePort();
   await writeFile(path.join(dir, "server.py"), serverSource);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(dir, "server.py")));
   await copyFile(path.join(ROOT, "index.html"), path.join(dir, "index.html"));
   if (config !== undefined) {
-    await writeFile(path.join(dir, "run.config.json"), JSON.stringify(config));
+    await writeFile(path.join(dataOf(dir), "run.config.json"), JSON.stringify(config));
   }
-  await writeFile(path.join(dir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(dir), "seed.json"), JSON.stringify({
     title: "spotify id fixture",
     items: [{ id: "0", bucket: "meta", title: "Standing card", owner: "facilitator" }],
   }));

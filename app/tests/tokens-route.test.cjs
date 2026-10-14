@@ -26,6 +26,7 @@ const { mkdtemp, rm } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PYTHON = execFileSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).trim();
@@ -76,7 +77,7 @@ const stamp = (file, seconds) => fs.utimesSync(file, seconds, seconds);
 // ---- a board of its own -----------------------------------------------------------
 const boards = [];
 async function board({ config } = {}) {
-  const dir = await mkdtemp(path.join(tmpdir(), "facilitator-tokens-"));
+  const dir = appFolder("facilitator-tokens-");
   const home = path.join(dir, "home");
   fs.mkdirSync(home);
   // Keep the startup guard inside the fixture, as limits-fixture does. Never
@@ -93,15 +94,15 @@ async function board({ config } = {}) {
   copyBridgeFiles(dir);
   for (const name of ["tokens.py", "m-manifest.json", "home-widgets.js", "home-widgets.css"])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
-  fs.writeFileSync(path.join(dir, "seed.json"), JSON.stringify({
+  fs.writeFileSync(path.join(dataOf(dir), "seed.json"), JSON.stringify({
     title: "Kettle Drum",
     items: [{ id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" }],
   }));
-  if (config) fs.writeFileSync(path.join(dir, "run.config.json"), JSON.stringify(config));
+  if (config) fs.writeFileSync(path.join(dataOf(dir), "run.config.json"), JSON.stringify(config));
   const origin = `http://127.0.0.1:${await freePortPair()}`;
   const b = {
     dir, home, origin, child: null,
-    cache: path.join(dir, "tokens-cache.json"),
+    cache: path.join(dataOf(dir), "tokens-cache.json"),
     async start(extra = {}) {
       const env = { ...process.env, HOME: home, TZ: "UTC", PATH: bin, FACILITATOR_TEST_PORT: new URL(origin).port,
                     FACILITATOR_LOG_DIR: path.join(dir, "logs"), ...extra };
@@ -144,7 +145,7 @@ const byDay = answer => Object.fromEntries(answer.days.map(d => [d.date, d]));
 after(async () => {
   for (const b of boards) {
     await b.stop();
-    await rm(b.dir, { recursive: true, force: true });
+    await rm(path.dirname(b.dir), { recursive: true, force: true });
   }
 });
 
@@ -214,7 +215,8 @@ test("each day is the four kinds added up, every message and response counted on
   const cache = fs.readFileSync(b.cache, "utf8");
   for (const secret of ["msg_one", "resp_two", "thread-one", "invented words", "no usage"])
     assert.ok(!cache.includes(secret), `${secret} reached the cache file`);
-  assert.match(fs.readFileSync(path.join(ROOT, ".gitignore"), "utf8"), /^\/tokens-cache\.json$/m);
+  assert.match(fs.readFileSync(path.join(ROOT, "..", ".gitignore"), "utf8"), /^\/data\/$/m);
+  assert.match(fs.readFileSync(path.join(ROOT, "..", ".gitignore"), "utf8"), /^\/tokens-cache\.json$/m);
 
   // and the board hands out the widgets that draw it, fetched when home opens
   for (const [name, type] of [["home-widgets.js", /^application\/javascript/], ["home-widgets.css", /^text\/css/]]) {
@@ -461,7 +463,7 @@ test("run.config.json and the tools' own variables name other folders", async ()
   // the config names a folder for Claude Code, turns Codex off, and a log in
   // the standard places is then not read
   const cfg = { token_logs: { claude: path.join(b.dir, "elsewhere"), codex: [] } };
-  fs.writeFileSync(path.join(b.dir, "run.config.json"), JSON.stringify(cfg));
+  fs.writeFileSync(path.join(dataOf(b.dir), "run.config.json"), JSON.stringify(cfg));
   put(path.join(b.dir, "elsewhere", "s.jsonl"), [claude("m1", at, [0, 0, 0, 4])]);
   put(path.join(b.home, ".claude", "projects", "p", "s.jsonl"), [claude("m2", at, [0, 0, 0, 40])]);
   put(path.join(b.home, ".codex", "sessions", "rollout.jsonl"), [record("r1", at, 5, 0, 0)]);
@@ -469,7 +471,7 @@ test("run.config.json and the tools' own variables name other folders", async ()
   assert.deepEqual((await b.days(1)).tools, { claude: 4, codex: 0 });
   // the config is read fresh: taken away, the standard places count again,
   // and the folder it named no longer does
-  fs.unlinkSync(path.join(b.dir, "run.config.json"));
+  fs.unlinkSync(path.join(dataOf(b.dir), "run.config.json"));
   assert.deepEqual((await b.days(1)).tools, { claude: 40, codex: 5 });
   // CLAUDE_CONFIG_DIR and CODEX_HOME move the folders the way they move the tools
   await b.stop();

@@ -12,6 +12,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { homedir, tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -174,7 +175,7 @@ async function assertShowing(page, owner, view, where) {
 
 before(async () => {
   await mkdir(SHOTS, { recursive: true });
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-listview-"));
+  fixtureDir = appFolder("facilitator-listview-");
   const port = await freePort();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -191,7 +192,7 @@ before(async () => {
   for (const name of await readdir(path.join(ROOT, "assets"))) {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({ title: "List view test", items: [] }));
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({ title: "List view test", items: [] }));
 
   child = spawn("python3", [path.join(fixtureDir, "server.py")], {
     cwd: fixtureDir,
@@ -259,7 +260,7 @@ after(async () => {
     child.kill("SIGTERM");
     await new Promise(resolve => child.once("exit", resolve));
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
   for (const dir of laneDirs) await rm(dir, { recursive: true, force: true });
 });
 

@@ -2,9 +2,28 @@
 // Keep old board fixtures honest when they move server.py to a temporary home.
 const fs = require('node:fs');
 const net = require('node:net');
+const os = require('node:os');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
+
+// A copied board is laid out as a checkout is: its code in one folder and
+// what it writes in data/ beside that folder, which is where the server looks
+// (its own folder's parent, then data). So a copy always goes one level down
+// in a sandbox of its own, never straight into the shared temporary folder.
+function dataOf(app) {
+  return path.join(path.dirname(app), 'data');
+}
+
+// a fresh sandbox under the temporary folder with app/ and data/ made in it;
+// answers app/, and the sandbox to remove afterwards is its parent
+function appFolder(prefix) {
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const app = path.join(outer, 'app');
+  fs.mkdirSync(app);
+  fs.mkdirSync(dataOf(app), { mode: 0o700 });
+  return app;
+}
 
 // m-splash.js is the launch picture's painter, which the gate page loads before
 // sign-in and the phone page loads after it, so a copied server carries it too.
@@ -17,23 +36,26 @@ const ROOT = path.resolve(__dirname, '..');
 // A board with no profile lays the onboarding over everything until it is
 // done, so a copied board is given one that has been through it, as an owner's
 // board has; a test of the onboarding itself removes it (noProfile) before the
-// server starts. A profile already in place is left as it is.
+// server starts. A profile already in place is left as it is. The server
+// refuses to start without data_folder.py, which says where its files are.
+// dir is the copy's code folder; the profile goes into data/ beside it.
 const PROFILE = { name: 'Fixture Owner', email: null, email_yes: false, work: null, agent: null, time_zone: null };
 function copyBridgeFiles(dir) {
   for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js',
                       'home-widgets.css', 'home-widgets.js', 'board-settings.js', 'mac-phone-view.js',
-                      'magic-box.js'])
+                      'magic-box.js', 'data_folder.py'])
     fs.copyFileSync(path.join(ROOT, name), path.join(dir, name));
   const anchor = 'return shutil.which("codex", path=path)';
   const limits = fs.readFileSync(path.join(ROOT, 'limits.py'), 'utf8');
   if (!limits.includes(anchor)) throw new Error("the limits codex lookup's anchor moved");
   fs.writeFileSync(path.join(dir, 'limits.py'), limits.replace(anchor, 'return None'));
-  const profile = path.join(dir, 'profile.json');
+  fs.mkdirSync(dataOf(dir), { recursive: true, mode: 0o700 });
+  const profile = path.join(dataOf(dir), 'profile.json');
   if (!fs.existsSync(profile)) fs.writeFileSync(profile, JSON.stringify(PROFILE) + '\n', { mode: 0o600 });
 }
 
 function noProfile(dir) {
-  fs.rmSync(path.join(dir, 'profile.json'), { force: true });
+  fs.rmSync(path.join(dataOf(dir), 'profile.json'), { force: true });
 }
 
 function bind(server, port) {
@@ -68,4 +90,4 @@ async function freePortPair() {
   throw new Error('No adjacent free loopback ports for the fixture');
 }
 
-module.exports = { copyBridgeFiles, freePortPair, noProfile, PROFILE };
+module.exports = { appFolder, copyBridgeFiles, dataOf, freePortPair, noProfile, PROFILE };

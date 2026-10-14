@@ -15,6 +15,7 @@ const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -193,7 +194,7 @@ async function startServer(port) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-seat-"));
+  fixtureDir = appFolder("facilitator-seat-");
   const port = await freePort();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -206,7 +207,7 @@ before(async () => {
                       "compose-format.js", "cm-markdown.js"]) {
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "Kettle Drum",
     items: [
       { id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" },
@@ -227,7 +228,7 @@ after(async () => {
     child.kill("SIGTERM");
     await new Promise(r => child.once("exit", r));
   }
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 beforeEach(async () => {

@@ -15,6 +15,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const LOGIC = fs.readFileSync(path.join(ROOT, "card-logic.js"), "utf8");
@@ -39,7 +40,7 @@ describe("the quick note", { skip: "feature hidden for v0" }, () => {
   const board = async () => (await fetch(origin + "/state")).json();
   const listed = async () => (await api("/quicknotes")).body.notes;
   const noteOnBoard = async id => (await listed()).find(n => n.id === id);
-  const persisted = async () => JSON.parse(await readFile(path.join(fixtureDir, "state.json"), "utf8"));
+  const persisted = async () => JSON.parse(await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8"));
   const figure = id => id.replace(/^m/, "");
 
   async function startServer(){
@@ -68,7 +69,7 @@ describe("the quick note", { skip: "feature hidden for v0" }, () => {
   }
 
   before(async () => {
-    fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-quicknotes-"));
+    fixtureDir = appFolder("facilitator-quicknotes-");
     logs = path.join(fixtureDir, "logs");
     origin = `http://127.0.0.1:${await freePortPair()}`;
     const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -77,7 +78,7 @@ describe("the quick note", { skip: "feature hidden for v0" }, () => {
     await writeFile(path.join(fixtureDir, "server.py"), patched);
     copyBridgeFiles(fixtureDir);
     await copyFile(path.join(ROOT, "m-manifest.json"), path.join(fixtureDir, "m-manifest.json"));
-    await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+    await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
       title: "Kettle Drum",
       items: [{ id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" }],
     }));
@@ -90,7 +91,7 @@ describe("the quick note", { skip: "feature hidden for v0" }, () => {
 
   after(async () => {
     await stopServer();
-    if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+    if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
   });
 
   // ---- the routes ------------------------------------------------------------------
@@ -911,7 +912,7 @@ describe("the quick note", { skip: "feature hidden for v0" }, () => {
     await stopServer();
     const files = [];
     for (const name of await readdir(logs)) files.push(path.join(logs, name));
-    const transcript = path.join(fixtureDir, "transcript.jsonl");
+    const transcript = path.join(dataOf(fixtureDir), "transcript.jsonl");
     if (fs.existsSync(transcript)) files.push(transcript);
     const lines = [];
     for (const file of files){

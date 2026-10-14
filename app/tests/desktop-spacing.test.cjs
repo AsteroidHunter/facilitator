@@ -7,6 +7,7 @@ const { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -38,7 +39,7 @@ async function claim(){
 async function wait(ms = 180){ await new Promise(resolve => setTimeout(resolve, ms)); }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-desktop-spacing-"));
+  fixtureDir = appFolder("facilitator-desktop-spacing-");
   const logs = path.join(fixtureDir, "logs");
   await mkdir(logs);
   const port = await freePort();
@@ -63,7 +64,7 @@ before(async () => {
       .replace("</head>", `<style data-local-fonts>\n${css}\n</style>\n</head>`);
     await writeFile(indexPath, html);
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({ title:"Invented spacing fixture", items:[] }));
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({ title:"Invented spacing fixture", items:[] }));
   child = spawn(PYTHON, [path.join(fixtureDir, "server.py")], {
     cwd:fixtureDir,
     env:{ ...process.env, FACILITATOR_TEST_PORT:String(port), FACILITATOR_LOG_DIR:logs },
@@ -89,7 +90,7 @@ after(async () => {
   if (SHOTS) await writeFile(path.join(SHOTS, "measurements.json"), JSON.stringify(MEASURES, null, 2));
   if (browser) await browser.close();
   if (child && child.exitCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }
-  if (fixtureDir) await rm(fixtureDir, { recursive:true, force:true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive:true, force:true });
 });
 
 async function open(width, height){

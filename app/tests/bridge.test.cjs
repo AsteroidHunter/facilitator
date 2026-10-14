@@ -11,10 +11,11 @@ const {
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const run = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv", "bin", "python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "..", "data", ".venv", "bin", "python3");
 const HOST = "fixture.tail0000.ts.net";
 const HOST_PORT = `${HOST}:443`;
 const CONNECTED = {
@@ -103,7 +104,7 @@ async function resetFake({ status = CONNECTED, serve = {}, control = {} } = {}) 
   await writeJson(path.join(fakeDir, "serve.json"), serve);
   await writeJson(path.join(fakeDir, "control.json"), control);
   await rm(logsDir, { recursive: true, force: true });
-  await writeJson(path.join(fixtureDir, "run.config.json"), { port: boardPort, lanes: [] });
+  await writeJson(path.join(dataOf(fixtureDir), "run.config.json"), { port: boardPort, lanes: [] });
 }
 
 async function fakeCalls() {
@@ -181,13 +182,14 @@ function assertPrivateOutputHidden(result) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-bridge-toggle-"));
+  fixtureDir = appFolder("facilitator-bridge-toggle-");
   binDir = path.join(fixtureDir, "bin");
   fakeDir = path.join(fixtureDir, "fake-state");
   logsDir = path.join(fixtureDir, "logs");
   cli = path.join(fixtureDir, "facilitator");
   await mkdir(binDir);
   await copyFile(path.join(ROOT, "facilitator"), cli);
+  await copyFile(path.join(ROOT, "data_folder.py"), path.join(path.dirname(cli), "data_folder.py"));
   await copyFile(path.join(ROOT, "qr.py"), path.join(fixtureDir, "qr.py"));
   const fake = path.join(binDir, "tailscale");
   await copyFile(path.join(ROOT, "tests", "fixtures", "fake-tailscale.py"), fake);
@@ -226,7 +228,7 @@ beforeEach(async () => {
 after(async () => {
   if (board) await new Promise(resolve => board.close(resolve));
   if (gate) await new Promise(resolve => gate.close(resolve));
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("toggle from off enables persistently, preserves unrelated config, and prints only the requested QR card", async () => {
@@ -474,7 +476,7 @@ test("HTTPS disabled and board down are actionable refusals with no Serve mutati
   const unused = probe.address().port;
   await new Promise(resolve => probe.close(resolve));
   await resetFake();
-  await writeJson(path.join(fixtureDir, "run.config.json"), { port: unused, lanes: [] });
+  await writeJson(path.join(dataOf(fixtureDir), "run.config.json"), { port: unused, lanes: [] });
   result = await bridge(["on"]);
   assert.equal(result.code, 1);
   assert.equal(result.stderr, `server: DOWN (port ${unused}); run facilitator run first\n`);

@@ -25,6 +25,7 @@ const { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } = require
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PASS = "LaunchFixture7!";
@@ -110,7 +111,7 @@ before(async () => {
   require("./fixture-auth.cjs").copyBridgeFiles(app);
   for (const name of COPIED) await copyFile(path.join(ROOT, name), path.join(app, name));
   await cp(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: BOARD_SECRETS[0],
     items: [{ id: "0", bucket: "now", title: BOARD_SECRETS[1], owner: "facilitator",
               context: BOARD_SECRETS[2] }],

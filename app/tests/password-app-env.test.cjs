@@ -25,22 +25,29 @@ after(async () => {
   for (const dir of dirs) await fs.rm(dir, { recursive: true, force: true });
 });
 
+// a checkout of its own, one level down: the command in app/ and its files in
+// data/ beside it, with the home folder beside the checkout
 async function checkout() {
   const base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-password-env-")));
   dirs.push(base);
-  const dir = path.join(base, "facilitator");
-  await fs.mkdir(dir);
-  for (const name of ["facilitator", "bridge_auth.py", "shell_integration.py"]) {
+  const dir = path.join(base, "facilitator", "app");
+  await fs.mkdir(dir, { recursive: true });
+  for (const name of ["facilitator", "bridge_auth.py", "shell_integration.py", "data_folder.py"]) {
     await fs.copyFile(path.join(ROOT, name), path.join(dir, name));
   }
   await fs.mkdir(path.join(base, "home"));
   return dir;
 }
 
-// .venv/bin/python3 as "exec" (an executable file), "plain" (not executable),
-// "dangling" (a link to nothing), "garbage" (executable but not a program)
+// the checkout's data/, where .venv and the password file are
+const data = dir => path.join(dir, "..", "data");
+const home = dir => path.join(dir, "..", "..", "home");
+
+// data/.venv/bin/python3 as "exec" (an executable file), "plain" (not
+// executable), "dangling" (a link to nothing), "garbage" (executable but not a
+// program)
 async function venvPython(dir, kind) {
-  const bin = path.join(dir, ".venv", "bin");
+  const bin = path.join(data(dir), ".venv", "bin");
   await fs.mkdir(bin, { recursive: true });
   const py = path.join(bin, "python3");
   if (kind === "dangling") return fs.symlink(path.join(dir, "no-such-python"), py);
@@ -82,8 +89,8 @@ except SystemExit as stop:
     code = stop.code
 print("RESULT " + json.dumps({"code": code, "execs": EXECS, "passwords": PASSWORDS, "out": out.getvalue()}))
 `;
-  const environment = { ...process.env, HOME: path.join(path.dirname(dir), "home"),
-    FACILITATOR_LOG_DIR: path.join(path.dirname(dir), "logs"), ...env };
+  const environment = { ...process.env, HOME: home(dir),
+    FACILITATOR_LOG_DIR: path.join(data(dir), "logs"), ...env };
   for (const name of ["FACILITATOR_APP_ENV", "FACILITATOR_INTERNAL_INSTALL", "CLAUDE_CONFIG_DIR", "ZDOTDIR"]) {
     if (!(name in env)) delete environment[name];
   }
@@ -98,7 +105,7 @@ print("RESULT " + json.dumps({"code": code, "execs": EXECS, "passwords": PASSWOR
 test("password set and the installer's password step run again on .venv's python, once, with the same words", async () => {
   const dir = await checkout();
   await venvPython(dir, "exec");
-  const venv = path.join(dir, ".venv", "bin", "python3");
+  const venv = path.join(data(dir), ".venv", "bin", "python3");
 
   const set = await dispatch(dir, ["password", "set"]);
   assert.equal(set.code, "exec");
@@ -119,7 +126,7 @@ test("on .venv's python, marked or not, the password is asked for there and noth
   assert.deepEqual(marked.execs, []);
   assert.deepEqual(marked.passwords, [{ args: ["password", "set"], installer: false }]);
 
-  const inside = await dispatch(dir, ["password", "set"], { prefix: path.join(dir, ".venv") });
+  const inside = await dispatch(dir, ["password", "set"], { prefix: path.join(data(dir), ".venv") });
   assert.deepEqual(inside.execs, []);
   assert.deepEqual(inside.passwords, [{ args: ["password", "set"], installer: false }]);
 
@@ -134,10 +141,10 @@ test("with no working .venv, password set says to run ./install.sh and writes no
     const res = kind === "garbage"
       ? await dispatchReal(dir)
       : await dispatch(dir, ["password", "set"]);
-    assert.ok(String(res.code).includes("⚠ The app's environment in .venv is missing or broken.\n"
-      + `  Run ./install.sh in ${dir} to rebuild it, then try again.`), `${kind}: ${JSON.stringify(res)}`);
+    assert.ok(String(res.code).includes("⚠ The app's environment in data/.venv is missing or broken.\n"
+      + `  Run ./install.sh in ${path.dirname(dir)} to rebuild it, then try again.`), `${kind}: ${JSON.stringify(res)}`);
     assert.deepEqual(res.passwords || [], [], kind);
-    await assert.rejects(fs.access(path.join(dir, "bridge-auth.json")), `${kind}: a password file was written`);
+    await assert.rejects(fs.access(path.join(data(dir), "bridge-auth.json")), `${kind}: a password file was written`);
   }
 });
 
@@ -215,9 +222,10 @@ print(json.dumps({"code": os.waitstatus_to_exitcode(status), "unsent": pending})
 test("on the python3 macOS ships, password set works by running on .venv's python", { skip: !APPLE_PYTHON && "no /usr/bin/python3 3.9 without scrypt here" }, async () => {
   const dir = await checkout();
   // the repository's own .venv, linked in and only run
-  await fs.access(path.join(ROOT, ".venv", "bin", "python3"));
-  await fs.symlink(path.join(ROOT, ".venv"), path.join(dir, ".venv"));
-  const env = { HOME: path.join(path.dirname(dir), "home"), PATH: "/usr/bin:/bin", TERM: "xterm-256color", LANG: "en_US.UTF-8" };
+  await fs.access(path.join(ROOT, "..", "data", ".venv", "bin", "python3"));
+  await fs.mkdir(data(dir));
+  await fs.symlink(path.join(ROOT, "..", "data", ".venv"), path.join(data(dir), ".venv"));
+  const env = { HOME: home(dir), PATH: "/usr/bin:/bin", TERM: "xterm-256color", LANG: "en_US.UTF-8" };
   const job = extra => ({ argv: ["/usr/bin/python3", path.join(dir, "facilitator"), "password", "set"], cwd: dir,
     env: { ...env, ...extra },
     steps: [["App password (input hidden): ", PASS + "\n"], ["Confirm app password (input hidden): ", PASS + "\n"]] });
@@ -227,12 +235,12 @@ test("on the python3 macOS ships, password set works by running on .venv's pytho
   // the control: kept on Apple's python by the marker, the same run fails
   const stayed = await typed({ FACILITATOR_APP_ENV: "1" });
   assert.notEqual(stayed.code, 0, "Apple's python3 set the password itself, so this test proves nothing");
-  await assert.rejects(fs.access(path.join(dir, "bridge-auth.json")));
+  await assert.rejects(fs.access(path.join(data(dir), "bridge-auth.json")));
 
   const done = await typed({});
   assert.equal(done.code, 0, JSON.stringify(done));
   assert.deepEqual(done.unsent, []);
-  const auth = JSON.parse(await fs.readFile(path.join(dir, "bridge-auth.json"), "utf8"));
+  const auth = JSON.parse(await fs.readFile(path.join(data(dir), "bridge-auth.json"), "utf8"));
   assert.match(auth.password, /^[0-9a-f]{128}$/, "no scrypt hash was written");
   // and it is the hash of what was typed: checked with the same module
   const { stdout: verdict } = await exec(PYTHON, ["-c",

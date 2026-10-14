@@ -36,7 +36,8 @@ async function wait(fn, timeout = 6000) {
   throw new Error("fixture condition timed out");
 }
 async function fixture(t, options = {}) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-incident-browser-"));
+  // the copy's code in app/ of a sandbox of its own, its files in data/ beside it
+  const dir = require("./fixture-auth.cjs").appFolder("facilitator-incident-browser-");
   let child, context, page;
   const errors = [], requests = [];
   t.after(async () => {
@@ -55,7 +56,7 @@ async function fixture(t, options = {}) {
       const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
       try { await exit; } finally { clearTimeout(timer); }
     }
-    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(path.dirname(dir), { recursive: true, force: true });
   });
   const probe = http.createServer();
   await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
@@ -89,7 +90,7 @@ async function fixture(t, options = {}) {
       marker + "\nwindow.__fixtureCreateDiagnosticCount = () => createDiagnostics.size;"));
   }
   await fs.cp(path.join(ROOT, "assets"), path.join(dir, "assets"), { recursive: true });
-  await fs.writeFile(path.join(dir, "seed.json"), JSON.stringify({ title: "Diagnostic fixture", items: [
+  await fs.writeFile(path.join(require("./fixture-auth.cjs").dataOf(dir), "seed.json"), JSON.stringify({ title: "Diagnostic fixture", items: [
     { id: "0", bucket: "meta", title: "Invented standing card", owner: "facilitator" },
     ...Array.from({ length: 20 }, (_, i) => ({ id: "m" + (i + 1), bucket: "meta", owner: "facilitator", title: "Invented card " + (i + 1) })),
   ] }));

@@ -14,6 +14,7 @@ const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -133,8 +134,8 @@ async function stopServer() {
 // put right by starting the fixture over rather than by faking one
 async function resetBoard() {
   await stopServer();
-  await rm(path.join(fixtureDir, "state.json"), { force: true });
-  await rm(path.join(fixtureDir, "transcript.jsonl"), { force: true });
+  await rm(path.join(dataOf(fixtureDir), "state.json"), { force: true });
+  await rm(path.join(dataOf(fixtureDir), "transcript.jsonl"), { force: true });
   await startServer();
 }
 
@@ -160,7 +161,7 @@ async function startServer() {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-row-"));
+  fixtureDir = appFolder("facilitator-row-");
   port = await freePort();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -173,7 +174,7 @@ before(async () => {
                       "compose-format.js", "cm-markdown.js"]) {
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "Kettle Drum",
     items: [
       { id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" },
@@ -190,7 +191,7 @@ before(async () => {
 after(async () => {
   if (browser) await browser.close();
   await stopServer();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 beforeEach(async () => {

@@ -11,6 +11,7 @@ const { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } = requi
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
@@ -83,7 +84,7 @@ const parts = async () => (await readdir(uploads)).filter(name => name.endsWith(
 before(async () => {
   outer = await mkdtemp(path.join(tmpdir(), "facilitator-upload-route-"));
   const app = path.join(outer, "app");
-  uploads = path.join(outer, "facilitator-internal", "uploads");
+  uploads = path.join(outer, "data", "uploads");
   await mkdir(app);
   await mkdir(uploads, { recursive: true });
   let source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -97,7 +98,7 @@ before(async () => {
   }
   await writeFile(path.join(app, "server.py"), source);
   copyBridgeFiles(app);
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({ title: "Upload fixture", items: [
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({ title: "Upload fixture", items: [
     { id: "0", bucket: "meta", title: "Fixture card", owner: "facilitator", context: "Invented fixture" }] }));
   // a part left by a server that stopped mid-upload long ago, and one young
   // enough that it could still be another server's

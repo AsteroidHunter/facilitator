@@ -13,6 +13,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { launch } = require("./resp-harness.cjs");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const PYTHON = process.env.FACILITATOR_TEST_PYTHON || "python3";
@@ -65,7 +66,7 @@ describe("the server", () => {
     return { status: response.status, type: response.headers.get("content-type"), text: await response.text() };
   }
   const json = async route => JSON.parse((await call("GET", route)).text);
-  const stateText = () => readFile(path.join(dir, "state.json"), "utf8");
+  const stateText = () => readFile(path.join(dataOf(dir), "state.json"), "utf8");
   // the notes' own lines of state.json, from their key to the closing bracket
   function notesOf(raw) {
     const at = raw.indexOf('\n "quicknotes": [');
@@ -77,7 +78,7 @@ describe("the server", () => {
   const counterOf = raw => /\n "next_qnid": \d+/.exec(raw)[0];
 
   before(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "facilitator-qnhidden-"));
+    dir = appFolder("facilitator-qnhidden-");
     origin = `http://127.0.0.1:${await freePortPair()}`;
     const source = await readFile(path.join(ROOT, "server.py"), "utf8");
     const ported = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
@@ -88,7 +89,7 @@ describe("the server", () => {
     await writeFile(path.join(dir, "server-on.py"), on);
     copyBridgeFiles(dir);
     await copyFile(path.join(ROOT, "m-manifest.json"), path.join(dir, "m-manifest.json"));
-    await writeFile(path.join(dir, "seed.json"), JSON.stringify({
+    await writeFile(path.join(dataOf(dir), "seed.json"), JSON.stringify({
       title: "Kettle Drum",
       items: [{ id: "0", bucket: "meta", title: "Standing note for the tool lane", owner: "facilitator" }],
     }));
@@ -107,7 +108,7 @@ describe("the server", () => {
 
   after(async () => {
     await stopServer();
-    if (dir) await rm(dir, { recursive: true, force: true });
+    if (dir) await rm(path.dirname(dir), { recursive: true, force: true });
   });
 
   test("every quick note route answers 404 with the body any unknown route gets", async () => {

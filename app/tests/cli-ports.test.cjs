@@ -97,7 +97,7 @@ async function command(place, args, extra = {}) {
 }
 
 function held(place) {
-  return JSON.parse(fs.readFileSync(path.join(place.app, "server.lock"), "utf8"));
+  return JSON.parse(fs.readFileSync(path.join(place.data, "server.lock"), "utf8"));
 }
 
 function bridgeLog(place) {
@@ -119,7 +119,7 @@ test("something else on the pair: run moves to the next free pair, writes it, sa
   const place = box.sandbox("ports-move", { config: { port: base, app_url: "" } });
   const other = await webApp(base);
   try {
-    const before = fs.readFileSync(path.join(place.app, "run.config.json"), "utf8");
+    const before = fs.readFileSync(path.join(place.data, "run.config.json"), "utf8");
     const moved = await cli(place, ["cli.cmd_run(['run'])"]);
     assert.equal(moved.code, 0, moved.stderr);
     const next = base + 2;
@@ -129,10 +129,10 @@ test("something else on the pair: run moves to the next free pair, writes it, sa
     ]);
     assert.deepEqual(moved.windows, [`http://127.0.0.1:${next}`], "the window was opened at the old address");
     // only the port changed, the file's own text and every other key kept
-    assert.equal(fs.readFileSync(path.join(place.app, "run.config.json"), "utf8"),
+    assert.equal(fs.readFileSync(path.join(place.data, "run.config.json"), "utf8"),
                  before.replace(`"port": ${base}`, `"port": ${next}`));
     const st = await (await fetch(`http://127.0.0.1:${next}/state`)).json();
-    assert.equal(st.pwd, place.app, "the board on the new pair is not this folder's");
+    assert.equal(st.pwd, place.clone, "the board on the new pair is not this folder's");
     assert.equal(held(place).port, next);
     assert.equal(await (await fetch(`http://127.0.0.1:${base}/`)).text(), "<html>another program</html>",
                  "the other program was disturbed");
@@ -151,7 +151,7 @@ test("something else on the pair: run moves to the next free pair, writes it, sa
     assert.equal(back.code, 0, back.stderr);
     assert.deepEqual(back.said, up(next), "the board went back to the old pair");
     assert.equal(box.readConfig(place).port, next);
-    assert.equal((await (await fetch(`http://127.0.0.1:${next}/state`)).json()).pwd, place.app);
+    assert.equal((await (await fetch(`http://127.0.0.1:${next}/state`)).json()).pwd, place.clone);
     assert.equal(await canBind(base), true, "something took the old pair");
 
     // the commands that read the config follow the move
@@ -317,7 +317,7 @@ test("install writes the default pair when it is free and the next free pair whe
   for (const name of ["run.config.example.json", "seed.example.json"])
     fs.copyFileSync(path.join(box.ROOT, name), path.join(place.app, name));
   const example = fs.readFileSync(path.join(place.app, "run.config.example.json"), "utf8");
-  const target = path.join(place.app, "run.config.json");
+  const target = path.join(place.data, "run.config.json");
   try {
     const free = await cli(place, [`cli.DEFAULT_PORT = ${base}`, "cli.ensure_config()"]);
     assert.equal(free.code, 0, free.stderr);
@@ -348,8 +348,9 @@ test("the agent skill's helper follows the port the config names, on every call"
   const base = await freeBlock(6);
   const mine = box.sandbox("ports-onboard", { config: { port: base } });
   const theirs = box.sandbox("ports-onboard-other", { config: { port: base + 2 } });
-  fs.cpSync(path.join(box.ROOT, ".agents"), path.join(mine.app, ".agents"), { recursive: true });
-  const helper = path.join(mine.app, ".agents", "skills", "facilitator", "scripts", "onboard.py");
+  // the skill sits at the checkout's top, beside app/, as in the repository
+  fs.cpSync(path.join(box.ROOT, "..", ".agents"), path.join(mine.clone, ".agents"), { recursive: true });
+  const helper = path.join(mine.clone, ".agents", "skills", "facilitator", "scripts", "onboard.py");
   const inspect = async () => JSON.parse((await execFileAsync(box.PYTHON, [helper, "inspect", "--board", "facilitator"],
                                                              { cwd: mine.app, env: box.env(mine) })).stdout);
   try {

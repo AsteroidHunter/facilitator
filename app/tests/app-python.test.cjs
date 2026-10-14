@@ -25,18 +25,23 @@ after(async () => {
   for (const dir of dirs) await fs.rm(dir, { recursive: true, force: true });
 });
 
-// a checkout with only what ensure_env reads, one level down in its own folder
+// a checkout with only what ensure_env reads, one level down in its own
+// folder: the command in app/, and data/ beside it, made by the command itself
 async function checkout() {
   const base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "facilitator-app-python-")));
   dirs.push(base);
-  const dir = path.join(base, "facilitator");
-  await fs.mkdir(dir);
+  const dir = path.join(base, "facilitator", "app");
+  await fs.mkdir(dir, { recursive: true });
   for (const name of ["facilitator", "requirements.txt"]) await fs.copyFile(path.join(ROOT, name), path.join(dir, name));
   return dir;
 }
 
-// a .venv as a past install left it: python3 is "exec" (a real executable
-// file), "missing", "dangling" (a link to nothing) or "plain" (not executable)
+// the checkout's data/, where its .venv is
+const data = dir => path.join(dir, "..", "data");
+
+// a .venv in the folder given, as a past install left it: python3 is "exec"
+// (a real executable file), "missing", "dangling" (a link to nothing) or
+// "plain" (not executable)
 async function makeVenv(dir, { version = "3.10.16", key = "version_info", python3 = "exec" } = {}) {
   const bin = path.join(dir, ".venv", "bin");
   await fs.mkdir(bin, { recursive: true });
@@ -68,7 +73,7 @@ def fake_run(argv, **kw):
     if argv[1] in FAIL:
         return types.SimpleNamespace(returncode=2, stdout="", stderr="uv failed at " + argv[1] + "\n")
     if argv[1] == "venv":
-        venv = cli.HERE / ".venv"
+        venv = cli.DATA / ".venv"
         if venv.exists():
             shutil.rmtree(venv)
         (venv / "bin").mkdir(parents=True)
@@ -89,7 +94,7 @@ def finish(call):
             value = call()
     except SystemExit as stop:
         code = stop.code
-    venv = cli.HERE / ".venv"
+    venv = cli.DATA / ".venv"
     cfg = venv / "pyvenv.cfg"
     print("RESULT " + json.dumps({"out": out.getvalue(), "exit": code, "value": value, "calls": CALLS,
         "events": EVENTS, "cfg": cfg.read_text() if cfg.exists() else None,
@@ -108,7 +113,7 @@ async function drive(dir, body) {
 
 const VENV_CALL = `${UV} venv --clear --managed-python --python 3.14 .venv`;
 const INSTALL_CALL = `${UV} python install --no-bin 3.14`;
-const SYNC_CALL = `${UV} pip sync --require-hashes --python .venv/bin/python requirements.txt`;
+const SYNC_CALL = dir => `${UV} pip sync --require-hashes --python .venv/bin/python ${path.join(dir, "requirements.txt")}`;
 const lines = res => res.calls.map(c => c.join(" "));
 
 test("the Python .venv is on is read from pyvenv.cfg, and a python3 that cannot run reads as none", async () => {
@@ -123,7 +128,7 @@ test("the Python .venv is on is read from pyvenv.cfg, and a python3 that cannot 
   ];
   for (const [venv, want] of cases) {
     const dir = await checkout();
-    await makeVenv(dir, venv);
+    await makeVenv(data(dir), venv);
     const res = await drive(dir, "finish(cli.env_python)");
     assert.equal(res.value, want, JSON.stringify(venv));
   }
@@ -138,12 +143,12 @@ test("a .venv on another Python is rebuilt on 3.14 after uv installs it, and say
     [{ version: "3.14.0", python3: "dangling" }, "its Python is missing or broken"],
   ]) {
     const dir = await checkout();
-    await makeVenv(dir, venv);
+    await makeVenv(data(dir), venv);
     const res = await drive(dir, `finish(lambda: cli.ensure_env(UV, quiet=True))`);
     assert.equal(res.exit, null, res.out);
     assert.equal(res.value, false, "nothing was running, so nothing was stopped");
     assert.equal(res.out, `Rebuilding .venv on Python 3.14: ${why}.\n`);
-    assert.deepEqual(lines(res), [INSTALL_CALL, VENV_CALL, SYNC_CALL]);
+    assert.deepEqual(lines(res), [INSTALL_CALL, VENV_CALL, SYNC_CALL(dir)]);
     assert.equal(res.cfg, "home = /managed\nversion_info = 3.14.0\n");
     assert.equal(res.old, false, "the old .venv was not cleared");
   }
@@ -152,11 +157,11 @@ test("a .venv on another Python is rebuilt on 3.14 after uv installs it, and say
 test("a .venv already on 3.14 is kept and only synced, wherever its Python came from", async () => {
   for (const version of ["3.14.0", "3.14.2"]) {
     const dir = await checkout();
-    await makeVenv(dir, { version });
+    await makeVenv(data(dir), { version });
     const loud = await drive(dir, "finish(lambda: cli.ensure_env(UV))");
     assert.equal(loud.exit, null, loud.out);
     assert.match(loud.out, /^✓ Environment found in \.venv \(Python 3\.14\)\.\n✓ Packages installed\.\n$/);
-    assert.deepEqual(lines(loud), [SYNC_CALL]);
+    assert.deepEqual(lines(loud), [SYNC_CALL(dir)]);
     assert.equal(loud.old, true, "a .venv on 3.14 was rebuilt");
     const quiet = await drive(dir, "finish(lambda: cli.ensure_env(UV, quiet=True))");
     assert.equal(quiet.out, "", "a quiet sync of a good .venv printed something");
@@ -167,7 +172,7 @@ test("a missing .venv is made quietly on update and named on install", async () 
   const dir = await checkout();
   const quiet = await drive(dir, "finish(lambda: cli.ensure_env(UV, quiet=True))");
   assert.equal(quiet.out, "");
-  assert.deepEqual(lines(quiet), [INSTALL_CALL, VENV_CALL, SYNC_CALL]);
+  assert.deepEqual(lines(quiet), [INSTALL_CALL, VENV_CALL, SYNC_CALL(dir)]);
   const other = await checkout();
   const loud = await drive(other, "finish(lambda: cli.ensure_env(UV))");
   assert.equal(loud.out, "✓ Python 3.14 environment ready.\n✓ Packages installed.\n");
@@ -175,7 +180,7 @@ test("a missing .venv is made quietly on update and named on install", async () 
 
 test("a Python install that fails leaves .venv as it was, and a .venv uv makes on another Python is refused", async () => {
   const dir = await checkout();
-  await makeVenv(dir, { version: "3.10.16" });
+  await makeVenv(data(dir), { version: "3.10.16" });
   const failed = await drive(dir, `FAIL.add("python")\nfinish(lambda: cli.ensure_env(UV, quiet=True))`);
   assert.match(String(failed.exit), /⚠ uv could not install Python 3\.14\.\n  Last lines from uv:\n    uv failed at python\n  Nothing in \.venv was changed\.\n/);
   assert.deepEqual(lines(failed), [INSTALL_CALL], "uv went on after the failed install");
@@ -192,7 +197,8 @@ test("a .venv that is a link is never cleared through it", async () => {
   const dir = await checkout();
   const elsewhere = path.join(path.dirname(dir), "elsewhere");
   await makeVenv(elsewhere, { version: "3.10.16" });
-  await fs.symlink(path.join(elsewhere, ".venv"), path.join(dir, ".venv"));
+  await fs.mkdir(data(dir));
+  await fs.symlink(path.join(elsewhere, ".venv"), path.join(data(dir), ".venv"));
   const res = await drive(dir, "finish(lambda: cli.ensure_env(UV, quiet=True))");
   assert.match(String(res.exit), /⚠ \.venv is a link, and it is not on Python 3\.14\./);
   assert.deepEqual(res.calls, [], "uv was asked anyway");
@@ -204,7 +210,7 @@ test("a .venv that is a link is never cleared through it", async () => {
 function board({ pwd = "HERE", refuse = null, stopRefuse = null, listening = true } = {}) {
   return [
     "cli.lock_port = lambda: 9100",
-    `cli.board_state = lambda port: (EVENTS.append("state " + str(port)), {"pwd": ${pwd === "HERE" ? "str(cli.HERE)" : JSON.stringify(pwd)}, "boxes": []})[1]`,
+    `cli.board_state = lambda port: (EVENTS.append("state " + str(port)), {"pwd": ${pwd === "HERE" ? "str(cli.CLONE)" : JSON.stringify(pwd)}, "boxes": []})[1]`,
     `cli.server_process = lambda port: (${listening ? "(4242, 'identity')" : "None"}, ${JSON.stringify(refuse)})`,
     `cli.stop_server = lambda owner, port: (EVENTS.append("stop " + str(port)), ${JSON.stringify(stopRefuse)})[1]`,
   ].join("\n").replace(/\bnull\b/g, "None");
@@ -212,7 +218,7 @@ function board({ pwd = "HERE", refuse = null, stopRefuse = null, listening = tru
 
 test("this folder's board on the old .venv is stopped before uv touches .venv, and only then", async () => {
   const dir = await checkout();
-  await makeVenv(dir, { version: "3.10.16" });
+  await makeVenv(data(dir), { version: "3.10.16" });
   const res = await drive(dir, `${board()}\nfinish(lambda: cli.ensure_env(UV, quiet=True))`);
   assert.equal(res.exit, null, res.out);
   assert.equal(res.value, true);
@@ -223,21 +229,21 @@ test("this folder's board on the old .venv is stopped before uv touches .venv, a
 
   // another checkout's board on that port runs on its own .venv
   const other = await checkout();
-  await makeVenv(other, { version: "3.10.16" });
+  await makeVenv(data(other), { version: "3.10.16" });
   const theirs = await drive(other, `${board({ pwd: "/some/other/checkout" })}\nfinish(lambda: cli.ensure_env(UV, quiet=True))`);
   assert.equal(theirs.value, false);
   assert.deepEqual(theirs.events, ["python install", "state 9100", "venv --clear", "pip sync"]);
 
   // a board answering with nothing listening any more has nothing to stop
   const gone = await checkout();
-  await makeVenv(gone, { version: "3.10.16" });
+  await makeVenv(data(gone), { version: "3.10.16" });
   const none = await drive(gone, `${board({ listening: false })}\nfinish(lambda: cli.ensure_env(UV, quiet=True))`);
   assert.equal(none.value, false);
   assert.equal(none.events.includes("stop 9100"), false);
 
   // a .venv already on 3.14 never asks after the board at all
   const good = await checkout();
-  await makeVenv(good, { version: "3.14.0" });
+  await makeVenv(data(good), { version: "3.14.0" });
   const kept = await drive(good, `${board()}\nfinish(lambda: cli.ensure_env(UV, quiet=True))`);
   assert.deepEqual(kept.events, ["pip sync"]);
 });
@@ -248,7 +254,7 @@ test("a board that cannot be stopped safely stops the run with .venv unchanged",
     { stopRefuse: "the server on 9100 had not let go 8s after SIGTERM and is still the same process; it was left alone and nothing was started" },
   ]) {
     const dir = await checkout();
-    await makeVenv(dir, { version: "3.10.16" });
+    await makeVenv(data(dir), { version: "3.10.16" });
     const res = await drive(dir, `${board(options)}\nfinish(lambda: cli.ensure_env(UV, quiet=True))`);
     const why = options.refuse || options.stopRefuse;
     assert.ok(String(res.exit).includes(`⚠ The board could not be stopped to rebuild .venv: ${why}.\n`
@@ -260,7 +266,7 @@ test("a board that cannot be stopped safely stops the run with .venv unchanged",
 
 test("with no server.lock and no run.config.json, no port is asked", async () => {
   const dir = await checkout();
-  await makeVenv(dir, { version: "3.10.16" });
+  await makeVenv(data(dir), { version: "3.10.16" });
   // board_state is left as it is, so asking it would reach the stubbed state(), which raises
   const res = await drive(dir, "finish(lambda: cli.ensure_env(UV, quiet=True))");
   assert.equal(res.exit, null, res.out);
@@ -269,7 +275,7 @@ test("with no server.lock and no run.config.json, no port is asked", async () =>
 
 test("an install that fails after stopping the board says the board is down", async () => {
   const dir = await checkout();
-  await makeVenv(dir, { version: "3.10.16" });
+  await makeVenv(data(dir), { version: "3.10.16" });
   const body = [
     board(),
     'FAIL.add("pip")',
@@ -318,7 +324,7 @@ except SystemExit as stop:
 
 test("the pin is one Python and one uv, named the same in the command and the installer", async () => {
   const cli = await fs.readFile(path.join(ROOT, "facilitator"), "utf8");
-  const sh = await fs.readFile(path.join(ROOT, "install.sh"), "utf8");
+  const sh = await fs.readFile(path.join(ROOT, "..", "install.sh"), "utf8");
   assert.match(cli, /^APP_PYTHON = "3\.14"/m);
   assert.match(sh, /^MANAGED_PYTHON='3\.14'/m);
   const [, major, minor, patch] = cli.match(/^UV_MIN = \((\d+), (\d+), (\d+)\)/m);
@@ -329,6 +335,7 @@ test("the pin is one Python and one uv, named the same in the command and the in
   for (const call of made) assert.equal(call, '[uv, "venv", "--clear", "--managed-python", "--python", APP_PYTHON, ".venv"]');
   // no .python-version: it would change what python3 means here for pyenv users
   await assert.rejects(fs.access(path.join(ROOT, ".python-version")));
+  await assert.rejects(fs.access(path.join(ROOT, "..", ".python-version")));
 });
 
 test("the command itself still runs on the python3 macOS ships", { skip: !require("node:fs").existsSync("/usr/bin/python3") }, async t => {

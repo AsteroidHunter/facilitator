@@ -15,7 +15,7 @@ const path = require("node:path");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, ".venv/bin/python3");
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, "../data/.venv/bin/python3");
 const PASS = "Tp" + crypto.randomBytes(8).toString("hex") + "9!";
 const NAME = "__Host-facilitator_session";
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
@@ -46,8 +46,9 @@ const refusals = () => {
   return { text, lines: text.split("\n").filter(Boolean).map(line => JSON.parse(line))
     .filter(line => line.kind === "signinrefused") };
 };
-const sessions = () => JSON.parse(fs.readFileSync(path.join(fixture.app, "bridge-auth.json"), "utf8")).sessions.length;
-const board = () => fs.readFileSync(path.join(fixture.app, "state.json"), "utf8");
+// the board's files are in data/, beside the copy's app/
+const sessions = () => JSON.parse(fs.readFileSync(path.join(fixture.outer, "data", "bridge-auth.json"), "utf8")).sessions.length;
+const board = () => fs.readFileSync(path.join(fixture.outer, "data", "state.json"), "utf8");
 const write = (route, body) => request(fixture.bridge, route, "POST", body, { ...fixture.cookie, Origin: fixture.origin });
 const read = (route, extra, method = "GET") => request(fixture.bridge, route, method, null, { ...fixture.cookie, ...extra });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));

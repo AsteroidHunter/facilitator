@@ -8,17 +8,22 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
-const { copyBridgeFiles, freePortPair } = require('./fixture-auth.cjs');
+const { copyBridgeFiles, dataOf, freePortPair } = require('./fixture-auth.cjs');
 
 const exec = promisify(execFile);
 const ROOT = path.resolve(__dirname, '..');
-const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, '.venv/bin/python3');
+const PYTHON = process.env.FACILITATOR_TEST_PYTHON || path.join(ROOT, '../data/.venv/bin/python3');
 
+// the board is a clone of its own, outer/board, laid out as the repository
+// is: .agents/ at its top beside app/ and data/. The board names that clone as
+// its folder, which is what the helper compares with the folder it is in.
+// The projects and the home sit beside it, outside every lane but their own
 async function fixture(laneDirs) {
   const outer = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'facilitator-onboard-')));
-  const app = path.join(outer, 'app');
+  const clone = path.join(outer, 'board');
+  const app = path.join(clone, 'app');
   const home = path.join(outer, 'home');
-  await fs.mkdir(app);
+  await fs.mkdir(app, { recursive: true });
   await fs.mkdir(home);
   const tools = path.join(outer, 'tools');
   await fs.mkdir(tools);
@@ -34,7 +39,7 @@ async function fixture(laneDirs) {
     .replace('TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
       `TAILSCALE_APP = ${JSON.stringify(path.join(outer, 'no-real-tailscale'))}`));
   copyBridgeFiles(app);
-  await fs.cp(path.join(ROOT, '.agents'), path.join(app, '.agents'), { recursive: true });
+  await fs.cp(path.join(ROOT, '..', '.agents'), path.join(clone, '.agents'), { recursive: true });
   await fs.copyFile(path.join(ROOT, 'RUNBOOK.md'), path.join(app, 'RUNBOOK.md'));
   const project = path.join(outer, 'project');
   const second = path.join(outer, 'second');
@@ -43,8 +48,8 @@ async function fixture(laneDirs) {
   const lanes = laneDirs ? laneDirs({ outer, app, project, second }) : [
     { owner: 'garden', dir: project }, { owner: 'river', dir: second },
   ];
-  await fs.writeFile(path.join(app, 'run.config.json'), JSON.stringify({ port, lanes }));
-  await fs.writeFile(path.join(app, 'seed.json'), JSON.stringify({
+  await fs.writeFile(path.join(dataOf(app), 'run.config.json'), JSON.stringify({ port, lanes }));
+  await fs.writeFile(path.join(dataOf(app), 'seed.json'), JSON.stringify({
     title: 'onboarding fixture',
     items: [{ id: '0', bucket: 'meta', title: 'Tool', owner: 'facilitator' },
       { id: 'm1', bucket: 'meta', title: 'Project', owner: 'garden' },
@@ -53,7 +58,7 @@ async function fixture(laneDirs) {
   for (const host of ['.claude', '.agents']) {
     const skillDir = path.join(home, host, 'skills');
     await fs.mkdir(skillDir, { recursive: true });
-    await fs.symlink(path.join(app, '.agents/skills/facilitator'), path.join(skillDir, 'facilitator'));
+    await fs.symlink(path.join(clone, '.agents/skills/facilitator'), path.join(skillDir, 'facilitator'));
   }
   const helper = path.join(home, '.agents/skills/facilitator/scripts/onboard.py');
   const env = { ...process.env, HOME: home, PATH: `${tools}${path.delimiter}${process.env.PATH}`,
@@ -159,7 +164,7 @@ test('one wait confirms a claim, fresh messages are answered, and a working repl
     assert.equal(claim.box, 'm1');
     assert.deepEqual(claim.messages, ['First message']);
     assert.equal(Object.hasOwn(claim, 'ack'), false);
-    const saved = JSON.parse(await fs.readFile(path.join(f.app, 'state.json'), 'utf8'));
+    const saved = JSON.parse(await fs.readFile(path.join(dataOf(f.app), 'state.json'), 'utf8'));
     assert.equal(saved.ack.garden.confirmed, true);
     assert.equal((await f.run(f.project, 'inspect')).status, 'claim_held');
 
@@ -172,7 +177,7 @@ test('one wait confirms a claim, fresh messages are answered, and a working repl
     let state = await (await fetch(f.origin + '/state')).json();
     assert.equal(state.busy.garden, null);
     assert.equal(state.boxes.find(box => box.id === 'm1').state, 'working');
-    assert.equal(JSON.parse(await fs.readFile(path.join(f.app, 'state.json'), 'utf8'))
+    assert.equal(JSON.parse(await fs.readFile(path.join(dataOf(f.app), 'state.json'), 'utf8'))
       .boxes.find(box => box.id === 'm1').state, 'deferred');
     assert.equal((await post(f, '/working?box=m1&v=0')).status, 200);
     state = await (await fetch(f.origin + '/state')).json();
@@ -223,7 +228,7 @@ test('an active waiter is detected, and a stopped board is reported without star
 const LISTEN = 420;
 
 test('the helper listens 420 seconds by default in one request, with its client deadline 10 seconds above', async () => {
-  const helperPath = path.join(ROOT, '.agents/skills/facilitator/scripts/onboard.py');
+  const helperPath = path.join(ROOT, '../.agents/skills/facilitator/scripts/onboard.py');
   const probe = `
 import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location("onboard", ${JSON.stringify(helperPath)})
@@ -256,7 +261,7 @@ print(json.dumps(calls))`;
 });
 
 test('the skill and the RUNBOOK loop state the 7 minute listen and no longer the 50 second one', async () => {
-  const skill = await fs.readFile(path.join(ROOT, '.agents/skills/facilitator/SKILL.md'), 'utf8');
+  const skill = await fs.readFile(path.join(ROOT, '../.agents/skills/facilitator/SKILL.md'), 'utf8');
   assert.match(skill, /up to 7 minutes \(420 seconds\) in one request/);
   assert.match(skill, /430-second client deadline/);
   assert.match(skill, /Claude Code, call Bash with the tool `timeout` set to 600000/);

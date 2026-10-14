@@ -15,6 +15,7 @@ const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { copyBridgeFiles, freePortPair } = require("./fixture-auth.cjs");
 const { REST } = require("./phone-rest-geometry.cjs");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -30,7 +31,7 @@ const near = (actual, design, message, tolerance = 0.1) =>
 before(async () => {
   outer = await mkdtemp(path.join(tmpdir(), "facilitator-phone-attachments-"));
   const app = path.join(outer, "app");
-  uploads = path.join(outer, "facilitator-internal", "uploads");
+  uploads = path.join(outer, "data", "uploads");
   await mkdir(app);
   const port = await freePortPair();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -44,7 +45,7 @@ before(async () => {
   await mkdir(path.join(app, "assets"));
   for (const name of await readdir(path.join(ROOT, "assets")))
     await copyFile(path.join(ROOT, "assets", name), path.join(app, "assets", name));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({ title: "Tray fixture", items: [
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({ title: "Tray fixture", items: [
     { id: "0", bucket: "meta", title: "Fixture card", owner: "facilitator", context: "Invented fixture" }] }));
   origin = `http://127.0.0.1:${port}`;
   child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(app, "server.py")], {

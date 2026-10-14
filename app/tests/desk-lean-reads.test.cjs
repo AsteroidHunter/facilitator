@@ -237,7 +237,7 @@ test("every kind of change, read lean, gives the reading /state gives", async ()
   });
   assert.ok(got.settingsRev > settingsWas);
   // the fixture keeps a profile, so the onboarding flag first comes and then goes
-  const profile = path.join(board.dir, "profile.json");
+  const profile = path.join(board.dir, "..", "data", "profile.json");
   const kept = await readFile(profile, "utf8");
   assert.equal("onboarding" in got, false);
   await measured("the profile gone (the onboarding needed)", () => unlink(profile), a => {

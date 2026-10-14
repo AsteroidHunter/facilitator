@@ -307,7 +307,12 @@ test("neither limits.py nor the status line script opens a sign-in file or calls
 });
 
 test("the status line's file is kept out of git", () => {
-  const ignored = fs.readFileSync(path.join(ROOT, ".gitignore"), "utf8").split("\n");
+  const ignored = fs.readFileSync(path.join(ROOT, "..", ".gitignore"), "utf8").split("\n");
+  // it is written into data/, which git ignores whole
+  assert.match(fs.readFileSync(path.join(ROOT, "claude-statusline.py"), "utf8"),
+    /OUT = Path\(__file__\)\.resolve\(\)\.parent\.parent \/ "data" \/ "claude-limits\.json"/);
+  assert.ok(ignored.includes("/data/"));
+  // and where a checkout from before data/ still has it, at its top
   assert.ok(ignored.includes("/claude-limits.json"));
   assert.ok(ignored.includes("/claude-limits.json.tmp"));
 });

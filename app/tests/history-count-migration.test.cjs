@@ -14,6 +14,7 @@ const { createServer } = require("node:http");
 const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -74,11 +75,11 @@ async function stopServer() {
 }
 
 function statePath() {
-  return path.join(fixtureDir, "state.json");
+  return path.join(dataOf(fixtureDir), "state.json");
 }
 
 function transcriptPath() {
-  return path.join(fixtureDir, "transcript.jsonl");
+  return path.join(dataOf(fixtureDir), "transcript.jsonl");
 }
 
 async function readState() {
@@ -129,7 +130,7 @@ async function agreed(id, older, what) {
 }
 
 before(async () => {
-  fixtureDir = await mkdtemp(path.join(tmpdir(), "facilitator-history-counts-"));
+  fixtureDir = appFolder("facilitator-history-counts-");
   port = await freePort();
   origin = `http://127.0.0.1:${port}`;
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
@@ -141,7 +142,7 @@ before(async () => {
                       "card-report.js", "compose-format.js", "cm-markdown.js"]) {
     await copyFile(path.join(ROOT, name), path.join(fixtureDir, name));
   }
-  await writeFile(path.join(fixtureDir, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "history counts",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator", context: "" },
@@ -152,7 +153,7 @@ before(async () => {
 
 after(async () => {
   await stopServer();
-  if (fixtureDir) await rm(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) await rm(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test("a board answered before the count existed is counted once, from its transcript", async () => {

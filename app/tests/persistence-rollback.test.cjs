@@ -13,6 +13,7 @@ const { once } = require("node:events");
 const { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const path = require("node:path");
+const { appFolder, dataOf } = require("./fixture-auth.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const ACK_GRACE_S = 1.0;   // ACK_GRACE in this fixture
@@ -97,7 +98,7 @@ async function events() {
 
 async function transcript() {
   try {
-    return (await readFile(path.join(app, "transcript.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
+    return (await readFile(path.join(dataOf(app), "transcript.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
   } catch {
     return [];
   }
@@ -154,7 +155,7 @@ before(async () => {
     '            threading.Thread(target=_push_turn, args=(bid,), daemon=True).start()');
   await writeFile(path.join(app, "server.py"), source);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
-  await writeFile(path.join(app, "seed.json"), JSON.stringify({
+  await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({
     title: "rollback fixture",
     items: [
       { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },
@@ -176,7 +177,7 @@ before(async () => {
 });
 
 after(async () => {
-  await chmod(app, 0o700).catch(() => {});
+  await chmod(dataOf(app), 0o700).catch(() => {});
   if (child && child.exitCode === null) {
     child.kill("SIGTERM");
     await once(child, "exit");
@@ -189,7 +190,7 @@ test("a failed project save leaves the owner registries as they were: reads and 
   // save of its own and can only be refused by the defect this test is for
   assert.deepEqual((await api("/wait?owner=facilitator&timeout=0.2")).body, { idle: true });
   const lanesBefore = Object.keys((await state()).listening);
-  await chmod(app, 0o500);
+  await chmod(dataOf(app), 0o500);
   let made, read, phone, wait;
   try {
     made = await post("/project?name=probe-lane", homedir());
@@ -197,7 +198,7 @@ test("a failed project save leaves the owner registries as they were: reads and 
     phone = await api("/m/state");
     wait = await api("/wait?owner=facilitator&timeout=0.2");
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   assert.equal(made.status, 500, "a project whose save failed was not answered 500");
   // while the disk is failing every read and wait still answers: the lane the
@@ -225,14 +226,14 @@ test("a failed project save leaves the owner registries as they were: reads and 
 test("a failed save writes no transcript row and no log line for the event: the reply, the note, and a helper that closes a card", async () => {
   const rowsBefore = (await transcript()).length;
   const infoBefore = (await events()).filter(e => ["agent", "note", "done"].includes(e.kind)).length;
-  await chmod(app, 0o500);
+  await chmod(dataOf(app), 0o500);
   let reply, note, close;
   try {
     reply = await post("/reply?box=0", "a reply under a failing disk");
     note = await post("/note?box=0", "a note under a failing disk");
     close = await post("/close?box=5");
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   assert.equal(reply.status, 500);
   assert.equal(note.status, 500);
@@ -260,13 +261,13 @@ test("a failed save writes no transcript row and no log line for the event: the 
 test("a push for a turn that did not commit is never sent, and one for a turn that did is", async () => {
   assert.equal((await post("/push/subscribe", JSON.stringify({ endpoint: "https://push.example.test/one", keys: { p256dh: "a", auth: "b" } }))).status, 200);
   const skipsBefore = (await events()).filter(e => e.kind === "pushskip").length;
-  await chmod(app, 0o500);
+  await chmod(dataOf(app), 0o500);
   let reply;
   try {
     reply = await post("/reply?box=0", "a turn under a failing disk");
     await new Promise(resolve => setTimeout(resolve, 400));
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   assert.equal(reply.status, 500);
   assert.equal((await events()).filter(e => e.kind === "pushskip").length, skipsBefore,
@@ -283,14 +284,14 @@ test("a reader survives a failing disk: a clock whose save fails answers the res
   const claim = await api("/wait?owner=facilitator&timeout=2&agent=probe");
   assert.equal(claim.body.box, "0");
   const rowsBefore = (await transcript()).length;
-  await chmod(app, 0o500);
+  await chmod(dataOf(app), 0o500);
   let reads, phoneReads;
   try {
     await new Promise(resolve => setTimeout(resolve, (ACK_GRACE_S + 0.3) * 1000));   // past the ack grace: the sweep wants to bounce the claim
     reads = [await api("/state"), await api("/state")];
     phoneReads = [await api("/m/state"), await api("/m/state")];
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   for (const read of [...reads, ...phoneReads]) assert.equal(read.status, 200, "a reading was refused because the sweep's save failed");
   // the bounce could not be saved, so the restored board still shows the claim held
@@ -309,12 +310,12 @@ test("a reader survives a failing disk: a clock whose save fails answers the res
 
 test("a claim whose save fails answers the wait with the plain 500, not a crash line, and the card is not held", async () => {
   const crashesBefore = (await events()).filter(e => e.kind === "crash").length;
-  await chmod(app, 0o500);
+  await chmod(dataOf(app), 0o500);
   let wait;
   try {
     wait = await api("/wait?owner=facilitator&timeout=1&agent=probe");
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   assert.equal(wait.status, 500, JSON.stringify(wait.body));
   assert.deepEqual(wait.body, { error: "the board could not save its state" });
@@ -329,14 +330,14 @@ test("a claim whose save fails answers the wait with the plain 500, not a crash 
 test("a folder that cannot be flushed after the rename keeps the commit, replays, and says so in its own line", async () => {
   const syncBefore = (await events()).filter(e => e.kind === "syncfail").length;
   const saveBefore = (await events()).filter(e => e.kind === "savefail").length;
-  await chmod(app, 0o311);   // the folder can be written and searched but not opened for a flush
+  await chmod(dataOf(app), 0o311);   // the folder can be written and searched but not opened for a flush
   let sent, retry, disk;
   try {
     sent = await post("/send?box=0&op=send-unsyncable-01", "words under an unflushable folder");
     retry = await post("/send?box=0&op=send-unsyncable-01", "words under an unflushable folder");
-    disk = JSON.parse(await readFile(path.join(app, "state.json"), "utf8"));
+    disk = JSON.parse(await readFile(path.join(dataOf(app), "state.json"), "utf8"));
   } finally {
-    await chmod(app, 0o700);
+    await chmod(dataOf(app), 0o700);
   }
   assert.equal(sent.status, 200, "a save whose folder flush failed was refused, though the file was installed");
   assert.equal(retry.body.replayed, true);
