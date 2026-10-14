@@ -296,7 +296,7 @@ function macPage({ page = "board" } = {}) {
   run(between(MAC, "function miniEditTitle(id, opts){", "function renderMiniCards(state){"));
   run(between(MAC, "function boardResponseCard(){", "// releases, other keys"));
   // command+T's own new card, which the pill under the ticket list shares
-  run(between(MAC, "function newCardHere(){", "const tikNew = "));
+  run(between(MAC, "function newCardHere(){", "const cardPlus = "));
   // the small card's box: its own key handler, as renderMiniCards hangs it
   const miniBox = between(MAC, '      ta.addEventListener("keydown", e => {', '      ta.addEventListener("keyup"');
   const sent = [];

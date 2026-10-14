@@ -1,8 +1,8 @@
 // The attach button at the left of a card's typing box wears Feather's
 // paperclip (MIT) on the Mac board, the phone and the onboarding page, drawn at
-// the plus's 17px, 1.9 stroke, round caps and currentColor. The plus stays on
-// the new-card pill and the phone's new-card button. Source reads only: no
-// browser, no board, no network.
+// the plus's 17px, 1.9 stroke, round caps and currentColor. The plus stays as
+// the new-card plus under the Mac card and on the phone's new-card button.
+// Source reads only: no browser, no board, no network.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -28,10 +28,10 @@ for (const [name, text] of Object.entries(pages)) {
   });
 }
 
-test("the Mac board's new-card pill keeps its plus", () => {
+test("the Mac board's new-card plus keeps its plus", () => {
   const line = MAC.split("\n").find(l => /^const PLUS_ICON = /.test(l));
   assert.ok(line.includes("'" + DRAWN(PLUS_PATH) + "'"));
-  assert.match(MAC, /tikNew\.innerHTML = PLUS_ICON;/);
+  assert.match(MAC, /cardPlus\.innerHTML = PLUS_ICON;/);
 });
 
 test("the phone's bottom-row new-card button keeps its plus", () => {

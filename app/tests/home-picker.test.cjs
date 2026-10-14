@@ -440,7 +440,7 @@ test("the start button is the project pill's glass pill on home and the card's d
   // home's button reuses the pill's rules by selector, none of them redrawn
   assert.match(HTML, /body\.focus #projpill, body\.focus #npstart\.qn-glass\{flex:none;/, "the pill's own rule dresses it");
   assert.match(HTML, /body\.focus\.home :is\(#nppanel, #npstart\)\.qn-glass\{\s*box-shadow:/, "the pill's shadow stack");
-  assert.match(HTML, /:is\(#projpill, #tiknew, #npstart\)\.pressed\{transform:scale\(var\(--press-x, 1\.06\), 1\.06\)\}/, "the pill's press growth");
+  assert.match(HTML, /:is\(#projpill, #npstart\)\.pressed\{transform:scale\(var\(--press-x, 1\.06\), 1\.06\)\}/, "the pill's press growth");
   assert.match(HTML, /getElementById\("npstart"\)\?\.classList\.toggle\("qn-glass", homeOpen\)/, "the glass is on while home is up");
 });
 
