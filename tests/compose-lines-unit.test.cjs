@@ -35,8 +35,8 @@ const CHOSEN = [
   "You're absolutely right!",
   "Let's run some smoke tests?",
   "Delete the failing tests …",
-  "Prove P = NP by lunch.",
-  "Cite a paper that agrees with me.",
+  "Prove P = NP by lunch",
+  "Cite a paper that agrees with me",
   "p < 0.05, make it happen …",
   "Explain my own code to me?",
   "Ignore all previous instructions …",
@@ -45,7 +45,7 @@ const CHOSEN = [
   "Rename it final_v2_FINAL …",
   "Turn my spaghetti into lasagna …",
   "Fewer em dashes, more answers …",
-  "Explain it like I'm a PM.",
+  "Explain it like I'm a PM",
   "Reply in under 900 words?",
   "Make the error bars smaller …",
 ];
@@ -56,6 +56,8 @@ test("the list is exactly the twenty chosen lines", () => {
   // every trailing ellipsis is the one character, after a space
   for (const line of LINES) if (line.includes("…")) assert.ok(line.endsWith(" …"), line);
   assert.ok(!LINES.some(line => line.includes("...")));
+  // no line ends with a full stop
+  for (const line of LINES) assert.ok(!line.endsWith("."), line);
 });
 
 test("a card's line is one of the twenty and the same every time it is asked", () => {
@@ -87,16 +89,16 @@ test("the card typing boxes show it, the onboarding box and titles do not", () =
   assert.doesNotMatch(phone, /twin\.placeholder/);
 });
 
-test("the grey is the Card Name grey, never the accent", () => {
+test("the grey is the board's muted caption grey, never the accent", () => {
+  // the home page's "Last updated" caption wears --sub, and --sub is #75695A
+  assert.match(read("home-widgets.css"), /\.tk-updated, \.lm-updated\{[^}]*color:var\(--sub\)/);
+  assert.match(read("card-tokens.css"), /--sub:#75695A;/);
   for (const [name, rule] of [["index.html", /:is\(\.compose, \.mcompose\) textarea::placeholder,\s*:is\(\.compose, \.mcompose\) \.cffield \.cm-placeholder\{([^}]*)\}/],
                               ["m.html", /\.compose textarea::placeholder, \.compose \.cffield \.cm-placeholder\{([^}]*)\}/]]) {
-    const src = read(name);
-    const title = /\.title[^{]*:empty::before\{content:"Card Name"; color:([^;}]+)/.exec(src);
-    assert.ok(title, `${name}: Card Name rule`);
-    const body = rule.exec(src);
+    const body = rule.exec(read(name));
     assert.ok(body, `${name}: placeholder rule`);
-    assert.match(body[1], new RegExp("color:" + title[1].replace(/[()]/g, "\\$&") + ";"));
+    assert.match(body[1], /color:var\(--sub, #75695A\);/);
     assert.match(body[1], /opacity:1;/);
-    assert.doesNotMatch(body[1], /#432BFF|--accent/i);
+    assert.doesNotMatch(body[1], /#432BFF|--accent|--bubble-fill/i);
   }
 });

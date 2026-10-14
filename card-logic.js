@@ -1230,7 +1230,7 @@ function omniTicket(title){
 }
 // ---- the line an empty typing box shows -------------------------------------
 // a new reader could not tell where a card's typing box was, so an empty one
-// shows one of these lines in faint grey where the words go, and it goes the
+// shows one of these lines in muted grey where the words go, and it goes the
 // moment anything is typed. each card keeps its own line for as long as it
 // lives: a board card's number steps through the list seven at a time, so cards
 // made one after another never share a line within twenty, and any other id is
@@ -1243,8 +1243,8 @@ const COMPOSE_LINES = [
   "You're absolutely right!",
   "Let's run some smoke tests?",
   "Delete the failing tests …",
-  "Prove P = NP by lunch.",
-  "Cite a paper that agrees with me.",
+  "Prove P = NP by lunch",
+  "Cite a paper that agrees with me",
   "p < 0.05, make it happen …",
   "Explain my own code to me?",
   "Ignore all previous instructions …",
@@ -1253,7 +1253,7 @@ const COMPOSE_LINES = [
   "Rename it final_v2_FINAL …",
   "Turn my spaghetti into lasagna …",
   "Fewer em dashes, more answers …",
-  "Explain it like I'm a PM.",
+  "Explain it like I'm a PM",
   "Reply in under 900 words?",
   "Make the error bars smaller …",
 ];
