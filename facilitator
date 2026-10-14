@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""facilitator: the board's command. The program is app/facilitator; this runs
+it with the same Python and the same words. The command link on PATH and an
+older checkout's `facilitator update` both name this file, so it stays here.
+Python standard library only, and runs on the python3 macOS ships."""
+import os
+import shutil
+import sys
+from pathlib import Path
+
+CLONE = Path(__file__).resolve().parent
+COMMAND = CLONE / "app" / "facilitator"
+
+if not COMMAND.is_file():
+    sys.exit(f"⚠ The command is missing from this checkout: {COMMAND} is not there.\n"
+             f"  Run git status in {CLONE} to see what happened.")
+python = sys.executable or shutil.which("python3") or "python3"
+os.execv(python, [python, str(COMMAND), *sys.argv[1:]])
