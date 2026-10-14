@@ -189,7 +189,7 @@ async function makeWorld({ fresh = false } = {}) {
                         "requirements.txt", "updates"])
       git(w.dev, "rm", "-rq", name);
     fs.mkdirSync(path.join(w.dev, "app", "updates"), { recursive: true });
-    for (const name of ["facilitator", "data_folder.py", "server.py", "bridge_auth.py", "bridge_gate.py", "m-gate.html"])
+    for (const name of ["facilitator", "data_folder.py", "shell_integration.py", "server.py", "bridge_auth.py", "bridge_gate.py", "m-gate.html"])
       fs.copyFileSync(path.join(ROOT, name), path.join(w.dev, "app", name));
     fs.copyFileSync(path.join(ROOT, "updates", "README.md"), path.join(w.dev, "app", "updates", "README.md"));
     fs.writeFileSync(path.join(w.dev, "app", "index.html"), '<span id="npversion">v0.2.415</span>\n');
@@ -420,6 +420,41 @@ test("an older checkout with its board running moves every file into data/ throu
   for (const [rel, s] of Object.entries(inData))
     if (!live(rel) && rel !== "server.lock") assert.equal(still[rel], s, `${rel} changed on an update after the move`);
   process.kill(newBoardPid(w), "SIGTERM");
+});
+
+test("the move points Claude Code's status line at app/ and a second update leaves it alone", async () => {
+  const w = await makeWorld();
+  fillOldBoard(w);
+  // what an older install left: the status line, wrapped around another command, and its record at the top
+  const settings = path.join(w.home, ".claude", "settings.json");
+  const oldScript = path.join(w.user, "claude-statusline.py");
+  const entry = { type: "command", command: `python3 ${oldScript} 'echo mine'` };
+  const written = JSON.stringify({ model: "opus", statusLine: entry }, null, 2) + "\n";
+  fs.mkdirSync(path.dirname(settings));
+  fs.writeFileSync(settings, written);
+  fs.writeFileSync(path.join(w.user, ".facilitator-statusline.json"), JSON.stringify(
+    { version: 1, settings, script: oldScript, created: false, original: JSON.stringify("echo mine"), entry }, null, 2) + "\n");
+  w.pushNew();
+
+  const res = await w.update();
+  assert.equal(res.code, 0, res.stdout + res.stderr);
+  const newScript = path.join(w.user, "app", "claude-statusline.py");
+  const lines = res.stdout.split("\n").filter(line => /status line/i.test(line));
+  assert.equal(lines.length, 1, res.stdout);
+  assert.match(lines[0], new RegExp(`^✓ Changed the status line command in ${settings} to run ${newScript}\\. The file before is in data/backups/claude-settings-before-statusline-move-\\d{8}-\\d{6}\\.json\\.$`));
+  assert.equal(fs.readFileSync(settings, "utf8"), written.split(oldScript).join(newScript));
+  const backups = fs.readdirSync(path.join(w.data, "backups")).filter(name => name.endsWith(".json"));
+  assert.equal(backups.length, 1);
+  assert.equal(fs.readFileSync(path.join(w.data, "backups", backups[0]), "utf8"), written);
+  const record = JSON.parse(fs.readFileSync(path.join(w.data, ".facilitator-statusline.json"), "utf8"));
+  assert.equal(record.script, newScript);
+  assert.equal(record.entry.command, `python3 ${newScript} 'echo mine'`);
+  assert.equal(record.original, JSON.stringify("echo mine"));
+
+  const again = await w.update();
+  assert.equal(again.code, 0, again.stdout + again.stderr);
+  assert.doesNotMatch(again.stdout, /status line/i);
+  assert.equal(fs.readFileSync(settings, "utf8"), written.split(oldScript).join(newScript));
 });
 
 for (const point of ["backup", "copy", "before-record"]) {

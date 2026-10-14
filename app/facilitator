@@ -3497,20 +3497,142 @@ def say_move(kind, *words):
         ok("Moved .venv into data/.")
 
 
-def statusline_note():
-    """One line when Claude Code's status line still runs the script from the
-    checkout's top, which is in app/ now. The settings are only read: the
-    status line was added by hand, so it is changed by hand."""
-    root = os.environ.get("CLAUDE_CONFIG_DIR")
-    settings = (Path(root).expanduser() if root else Path.home() / ".claude") / "settings.json"
-    old, new = CLONE / "claude-statusline.py", HERE / "claude-statusline.py"
+def old_statusline_pattern(old):
+    """Matches the old script's path as a word of a command, so another
+    checkout's path, or a longer file name after it, is not taken for it."""
+    return re.compile(r"(?<![\w./~-])" + re.escape(str(old)) + r"(?![\w./-])")
+
+
+def rewrite_command_literal(raw, old, new):
+    """raw, the JSON string literal of a status line command, with only the old
+    script's path changed to the new one; None when the command does not run
+    the old script. The literal is edited in place when the path is written out
+    plainly in it, so everything else in it stays as it was."""
+    pattern = old_statusline_pattern(old)
+    command = json.loads(raw)
+    if not isinstance(command, str) or not pattern.search(command):
+        return None
+    changed = pattern.sub(lambda found: str(new), command)
+    for ascii_only in (True, False):
+        spelled_old = json.dumps(str(old), ensure_ascii=ascii_only)[1:-1]
+        spelled_new = json.dumps(str(new), ensure_ascii=ascii_only)[1:-1]
+        edited = re.sub(r"(?<![\w./~-])" + re.escape(spelled_old) + r"(?![\w./-])",
+                        lambda found: spelled_new, raw)
+        if edited != raw and json.loads(edited) == changed:
+            return edited
+    return json.dumps(changed, ensure_ascii=False)
+
+
+def back_up_settings(settings):
+    """A copy of the settings file in data/backups, beside the move's own
+    backups, private like them; its name. Nothing reads or removes it."""
+    import data_folder
+    backups = DATA / data_folder.BACKUPS
+    backups.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stem = "claude-settings-before-statusline-move-" + time.strftime("%Y%m%d-%H%M%S")
+    name, count = stem + ".json", 0
+    while (backups / name).exists() or (backups / name).is_symlink():
+        count += 1
+        name = f"{stem}-{count}.json"
+    content = Path(os.path.realpath(settings)).read_bytes()
+    descriptor = os.open(backups / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as out:
+        out.write(content)
+    if (backups / name).read_bytes() != content:
+        raise OSError("the backup copy does not match")
+    return name
+
+
+def fix_statusline_file(settings, old, new):
+    """Change the old script's path in the status line command of settings to
+    the new one, after backing the file up, and say so. Returns "fixed", "none"
+    when there is nothing to change, or "hint" when the file names the old path
+    and could not be changed, with the file as it was."""
+    import shell_integration
     try:
-        command = json.loads(settings.read_text()).get("statusLine", {}).get("command", "")
-    except (OSError, ValueError, AttributeError):
+        text = shell_integration.read_settings(settings)
+    except (OSError, ValueError):
+        # not JSON, or not readable: it is only worth a word if it names the path
+        try:
+            named = str(old) in settings.read_bytes().decode("utf-8", "replace")
+        except OSError:
+            named = False
+        return "hint" if named else "none"
+    if text is None:
+        return "none"
+    try:
+        _, span = shell_integration.statusline_spans(text)
+        edited = None if span is None else rewrite_command_literal(text[span[0]:span[1]], old, new)
+    except ValueError:
+        return "none"
+    if edited is None:
+        return "none"
+    try:
+        name = back_up_settings(settings)
+        shell_integration.write_settings(settings, text[:span[0]] + edited + text[span[1]:])
+    except OSError:
+        return "hint"
+    ok(f"Changed the status line command in {settings} to run {new}. "
+       f"The file before is in data/backups/{name}.")
+    return "fixed"
+
+
+def update_statusline_record(old, new):
+    """The status line record, with the old script's path changed to the new
+    one wherever it holds it, once the settings file it names shows the new
+    entry, so uninstall still finds the entry as install wrote it."""
+    import shell_integration
+    try:
+        record = shell_integration.statusline_record()
+        if record is None:
+            return
+        pattern = old_statusline_pattern(old)
+        entry = dict(record["entry"])
+        command = entry.get("command")
+        if record["script"] != str(old) and not (isinstance(command, str) and pattern.search(command)):
+            return
+        if isinstance(command, str):
+            entry["command"] = pattern.sub(lambda found: str(new), command)
+        swapped = dict(record, entry=entry)
+        if record["script"] == str(old):
+            swapped["script"] = str(new)
+        text = shell_integration.read_settings(Path(record["settings"]))
+        whole, _ = shell_integration.statusline_spans(text) if text is not None else (None, None)
+        if whole is None or json.loads(text[whole[0]:whole[1]]) != entry:
+            return
+        temporary = shell_integration.STATUSLINE_RECORD.with_suffix(".tmp")
+        temporary.write_text(json.dumps(swapped, indent=2) + "\n")
+        os.replace(temporary, shell_integration.STATUSLINE_RECORD)
+    except (OSError, ValueError):
         return
-    if isinstance(command, str) and str(old) in command:
-        print(f"Claude Code's status line still runs {old}, which is now {new}.")
-        print(f"Change it in {settings} so the home page's limits stay current.")
+
+
+def statusline_fix():
+    """Keep Claude Code's status line running after the script moved into
+    app/. A status line command that runs this checkout's old
+    <checkout>/claude-statusline.py gets only that path changed, in Claude
+    Code's settings and in the file the status line record names; any other
+    command is left alone. When a file cannot be changed, say how to by hand."""
+    import shell_integration
+    root = os.environ.get("CLAUDE_CONFIG_DIR")
+    files = [(Path(root).expanduser() if root else Path.home() / ".claude") / "settings.json"]
+    try:
+        record = shell_integration.statusline_record()
+    except (OSError, ValueError):
+        record = None
+    if record:
+        files.insert(0, Path(record["settings"]))
+    old, new = CLONE / "claude-statusline.py", HERE / "claude-statusline.py"
+    seen = set()
+    for settings in files:
+        key = os.path.realpath(settings)
+        if key in seen:
+            continue
+        seen.add(key)
+        if fix_statusline_file(settings, old, new) == "hint":
+            print(f"Claude Code's status line still runs {old}, which is now {new}.")
+            print(f"Change it in {settings} so the home page's limits stay current.")
+    update_statusline_record(old, new)
 
 
 def move_data(number):
@@ -3525,6 +3647,7 @@ def move_data(number):
     if where == "pending":
         print("The board's files are in data/. The old copies are removed once the\n"
               "board shows your cards from there.\n")
+        statusline_fix()
         return {"shown": True, "finish": True, "stopped": False, "running_before": None}
     print("The board's files move into data/ in this folder, once. Everything is\n"
           "backed up first, every copy is checked, and nothing old is removed\n"
@@ -3555,7 +3678,7 @@ def move_data(number):
             sys.exit(problem(f"The move into data/ stopped part way: {why}.", "Nothing old was removed.",
                              f"{then}: it carries on from here."))
         sys.exit(problem(f"The move into data/ did not start: {why}.", f"Nothing was moved. {then}."))
-    statusline_note()
+    statusline_fix()
     return {"shown": True, "finish": True, "stopped": stopped, "running_before": stopped}
 
 
