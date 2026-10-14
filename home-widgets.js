@@ -19,7 +19,8 @@
 //            they are, "Includes data from Claude", "... Codex" or "...
 //            Claude & Codex", from the per-tool counts on each day; a year
 //            with none from either leaves that place empty
-//   panel    one rectangle headed "Token consumption per day", holding one
+//   panel    one column headed "Token consumption per day", with no box
+//            around it (home-widgets.css), holding one
 //            of the two at a time and a two-way pill to switch them, whose
 //            seat slides from one name to the other; the choice is
 //            remembered in this browser
@@ -35,7 +36,7 @@
 //            scrollbar, like every scroller on the board. Each chart keeps its
 //            own place while the page is open, and one left at its latest end
 //            stays there as new days arrive or the window is resized
-//   limits   a second, smaller box of the same make: one row for each plan
+//   limits   a second, shorter panel of the same make: one row for each plan
 //            window GET /limits has a number for, Claude 5-hour, Claude
 //            weekly, Codex 5-hour, Codex weekly, each a name, a bar and the
 //            percent used, and under them, small and faint, when the numbers

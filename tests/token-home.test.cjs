@@ -552,7 +552,21 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   assert.match(rule(".tk-chart"), /user-select:none/);
   // a soft fade on each side with more, and the pinned names let the pointer through
   assert.match(css, /\.tk-lane\.more-left \.tk-pin::after, \.tk-lane\.more-right::after\{opacity:1\}/);
-  assert.match(rule(".tk-pin"), /background:var\(--card\); pointer-events:none/);
+  assert.match(rule(".tk-pin"), /background:var\(--tk-ground\); pointer-events:none/);
+  // no box around the panel: its edge drawn clear (so nothing inside moves),
+  // no fill and no shadow, and the pinned names and the fades are painted in
+  // the page's own colour, which is what the panel now stands on
+  const panel = rule(".tk-panel");
+  assert.match(panel, /--tk-ground:var\(--paper\)/);
+  assert.match(panel, /border:var\(--edge\) solid transparent/);
+  assert.doesNotMatch(panel, /background|box-shadow|border-radius/);
+  assert.match(rule(".tk-lane::after"), /linear-gradient\(to left, var\(--tk-ground\), transparent\)/);
+  // one line between the two, from the screenshot on the card: 1px of the line
+  // colour, 3px past the column each side, 39% of the way down the gap
+  assert.match(HTML, /body\.focus\.home #homelimits:not\(\[hidden\]\)::before\{content:""; position:absolute; left:-3px; right:-3px;\s*top:calc\(var\(--home-gap\) \* -\.61\); height:1px; background:var\(--line\); pointer-events:none\}/);
+  // the phone's home page draws the same line at the same share of its 8px gap,
+  // across the panels' own width, clear of the screen's edges
+  assert.match(read("m.html"), /#home #homelimits:not\(\[hidden\]\)::before\{content:""; position:absolute; left:0; right:0;\s*top:calc\(8 \* var\(--u\) \* -\.61\); height:1px; background:var\(--line\); pointer-events:none\}/);
   // the box: 35% of the page's frame (the rectangle under the bar, inset
   // --app-inset each side) wide and tall, centred on the right half's vertical
   // line. it is one of two boxes in #homepair, a column the height of the frame

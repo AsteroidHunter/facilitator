@@ -3117,7 +3117,7 @@
      the white first row covered the ring's top row and the dark band drew a
      second line a pixel inside it, so its top edge looked like a second
      rectangle standing behind the list (20261010) */
-  body.focus :is(.bar .qn-glass, #projmenu){
+  body.focus :is(.bar .qn-glass, #projmenu), body.focus.home #nppanel.qn-glass{
     box-shadow:
       inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
       inset 0 0 0 1px var(--qn-ring),
@@ -3364,10 +3364,11 @@
     font:500 10px/1.1 var(--inter); letter-spacing:.035em;
     color:var(--sub); opacity:.5; white-space:nowrap}
   /* the folders box: embedded, never floating; a white sunken well in the
-     paper, inset shadow only, no outer shadow, corners near square */
+     paper, inset shadow only, no outer shadow, corners near square. home
+     dresses it in glass instead (below) */
   #nppanel{width:100%; margin:20px 0 0; padding:6px;
-    background:#FFFFFF;
-    border:none; border-radius:4px; min-height:330px;
+    border:none; min-height:330px}
+  body:not(.home) #nppanel{background:#FFFFFF; border-radius:4px;
     box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
   /* selecting text inside the well takes the app-wide block dress set at the
      top of the sheet, so the whole markdown tool marks a pick the same way */
@@ -3473,7 +3474,14 @@
     min-height:0; pointer-events:auto}
   body.focus.home #homeplot{height:100%; --tk-panel-h:100%}
   #homelimits{display:none}
-  body.focus.home #homelimits:not([hidden]){display:block; flex:none; pointer-events:auto}
+  body.focus.home #homelimits:not([hidden]){display:block; position:relative; flex:none; pointer-events:auto}
+  /* the two stand on the page with no boxes, and one line runs between them,
+     drawn from the screenshot on the card (20261013): 1px in the board's line
+     colour, reaching 3px past the column on each side, and 39% of the way down
+     the gap, so the words above it stand nearer it than the heading below.
+     it goes with the limits, so no line stands under the tokens alone */
+  body.focus.home #homelimits:not([hidden])::before{content:""; position:absolute; left:-3px; right:-3px;
+    top:calc(var(--home-gap) * -.61); height:1px; background:var(--line); pointer-events:none}
   /* a thin vertical line at the exact horizontal centre of the same frame, 70%
      of its height and centred in it, so it touches neither edge. it is drawn in
      the board's own line colour (the one under the tab names) at its hairline
@@ -3505,6 +3513,11 @@
   body.focus.home #nphome{max-width:100%; max-height:100%; pointer-events:auto}
   body.focus.home #nppanel{display:flex; flex-direction:column;
     min-height:min(330px, calc(100vh - 300px))}
+  /* on home the list stands in the pill's list's own glass: the page puts
+     .qn-glass on it while home is up (the face, the lighting and the blur),
+     its shadow stack is the one the pill's list wears (the bar's glass,
+     above), and the corner is the list's 14px. the new tab keeps its white well */
+  body.focus.home #nppanel.qn-glass{border-radius:14px}
   body.focus.home #nprows{flex:0 1 auto; min-height:0}
   /* every row on home is a way in, so each one takes the pointer and the soft
      fill the new tab gives a closed project's row */
@@ -4914,6 +4927,8 @@ function setHome(on){
     else localStorage.removeItem(HOME_KEY);
   } catch (err){}
   document.body.classList.toggle("home", homeOpen);
+  // home's list wears the pill's list's glass; the new tab's well does not
+  document.getElementById("nppanel")?.classList.toggle("qn-glass", homeOpen);
   document.getElementById("homeico").setAttribute("aria-pressed", String(homeOpen));
   clearInterval(homeTimer);
   homeTimer = null;

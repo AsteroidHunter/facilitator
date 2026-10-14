@@ -587,14 +587,27 @@ test("the open list dims the board exactly as the settings page does, and the di
 });
 
 test("the list's top edge is one line: it wears the bar's rim, not the glass's doubled top", () => {
-  assert.match(sheet, /body\.focus :is\(\.bar \.qn-glass, #projmenu\)\{\s*box-shadow:/);
-  const rim = sheet.slice(sheet.indexOf("body.focus :is(.bar .qn-glass, #projmenu){"));
+  // home's project list wears the same glass and so the same rule (20261013)
+  const head = "body.focus :is(.bar .qn-glass, #projmenu), body.focus.home #nppanel.qn-glass{";
+  assert.ok(sheet.includes(head), "the bar, the list and home's list share one stack");
+  const rim = sheet.slice(sheet.indexOf(head));
   const stack = rim.slice(0, rim.indexOf("}"));
   assert.doesNotMatch(stack, /inset 0 1px 0 rgba\(255,255,255/, "the white first row over the ring");
   assert.doesNotMatch(stack, /inset 0 2px 0 rgba\(0,0,0/, "the dark band a row inside the ring");
   assert.match(stack, /inset 0 0 0 1px var\(--qn-ring\)/);
   // and that rule outranks the glass's own (an id beats the class)
   assert.match(tokens, /\.qn-glass\{\s*border:none;[^}]*inset 0 2px 0 rgba\(0,0,0,\.045\)/);
+});
+
+test("home's project list stands in the pill's list's glass, and the new tab keeps its white well", () => {
+  // the page puts the glass's class on the list while home is up, and only then
+  assert.ok(html.includes('document.getElementById("nppanel")?.classList.toggle("qn-glass", homeOpen);'));
+  // the corner is the pill list's own
+  const menuRound = /body\.focus #projmenu\{[^}]*border-radius:(\d+px)/.exec(sheet)[1];
+  assert.equal(/body\.focus\.home #nppanel\.qn-glass\{border-radius:(\d+px)\}/.exec(sheet)[1], menuRound);
+  // the white sunken well is drawn off home only, so it never covers the glass
+  assert.match(sheet, /body:not\(\.home\) #nppanel\{background:#FFFFFF; border-radius:4px;\s*box-shadow:inset 0 1px 6px rgba\(60,45,20,\.14\), inset 0 0 0 1px rgba\(60,45,20,\.08\)\}/);
+  assert.doesNotMatch(/\n  #nppanel\{([^}]*)\}/.exec(sheet)[1], /background|box-shadow|border-radius/);
 });
 
 // ---- rounds 3 and 4 (20261010): spacing, numbers and weights ------------------

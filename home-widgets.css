@@ -3,17 +3,19 @@
    so a page loads this sheet after that one. Nothing here reaches outside
    .tk-panel, so the panel can be set down on any page that loads both. */
 
-/* the panel: one white rectangle on the paper, with the board's edge and the
-   7px corner of the things let into the board. it is a column: the heading,
+/* the panel: no box, its words and chart standing on the page itself, as in
+   the screenshot on the card (20261013). its edge is kept but drawn clear, so nothing
+   inside moves from where the box held it. it is a column: the heading,
    then the chart's view, then its foot. set down in a box with a height of
    its own the panel fills it and the view takes whatever the heading and the
    foot leave. Its fallback height reserves the same phone space before any
-   data arrives; the board supplies --tk-panel-h from its own sized container */
+   data arrives; the board supplies --tk-panel-h from its own sized container.
+   --tk-ground is what the panel stands on, the page's own colour, which the
+   pinned axis names and the fades at the chart's sides are painted in */
 .tk-panel{
-  --tk-view-h:calc(200 * var(--u, 1px));
+  --tk-view-h:calc(200 * var(--u, 1px)); --tk-ground:var(--paper);
   box-sizing:border-box; height:var(--tk-panel-h, calc(330 * var(--u, 1px))); display:flex; flex-direction:column;
-  background:var(--card); border:var(--edge) solid var(--line); border-radius:calc(7 * var(--u, 1px));
-  box-shadow:0 1px 3px rgba(60,45,20,.07);
+  border:var(--edge) solid transparent;
   padding:calc(16 * var(--u, 1px)) calc(20 * var(--u, 1px)) calc(14 * var(--u, 1px)); color:var(--ink); font:400 calc(12 * var(--u, 1px))/16px var(--sans);
 }
 .tk-head{flex:none; display:flex; align-items:center; justify-content:space-between; gap:calc(12 * var(--u, 1px)); margin-bottom:calc(14 * var(--u, 1px))}
@@ -67,20 +69,20 @@
 .tk-chart{width:max-content; user-select:none; -webkit-user-select:none}
 .tk-chart svg{display:block; overflow:visible}
 /* the axis names stay over the lane's left edge while the chart passes under
-   them, on the panel's own white; the pointer goes through to the lane. the
-   white reaches 2px past the lane's edge, and the fade starts 1px inside the
+   them, on the page's own colour; the pointer goes through to the lane. the
+   colour reaches 2px past the lane's edge, and the fade starts 1px inside the
    names' own edge, so a panel set down between pixels shows no sliver of the
    chart at either edge */
-.tk-pin{position:absolute; left:0; top:0; bottom:0; background:var(--card); pointer-events:none;
-  box-shadow:-2px 0 0 var(--card)}
+.tk-pin{position:absolute; left:0; top:0; bottom:0; background:var(--tk-ground); pointer-events:none;
+  box-shadow:-2px 0 0 var(--tk-ground)}
 .tk-pin svg{display:block; overflow:visible}
 /* a soft 24px fade on each side that has more to see: right of the pinned
    names once the chart has moved under them, and at the right edge until the
    latest end is in view */
 .tk-pin::after, .tk-lane::after{content:""; position:absolute; top:0; bottom:0; width:calc(24 * var(--u, 1px));
   pointer-events:none; opacity:0}
-.tk-pin::after{left:calc(100% - 1px); background:linear-gradient(to right, var(--card), rgba(255,255,255,0))}
-.tk-lane::after{right:0; background:linear-gradient(to left, var(--card), rgba(255,255,255,0))}
+.tk-pin::after{left:calc(100% - 1px); background:linear-gradient(to right, var(--tk-ground), transparent)}
+.tk-lane::after{right:0; background:linear-gradient(to left, var(--tk-ground), transparent)}
 .tk-lane.more-left .tk-pin::after, .tk-lane.more-right::after{opacity:1}
 /* both charts' names at the panel's own 12px, read without leaning in */
 .tk-axis{font:400 12px var(--sans); fill:var(--sub)}

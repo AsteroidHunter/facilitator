@@ -684,9 +684,14 @@
      from, the app's 6px margin and these 22px, so a sideways swipe on a chart
      only ever moves the chart */
   #home .tk-panel{padding-left:calc(22 * var(--u)); padding-right:calc(22 * var(--u))}
-  /* the limits box sits directly under the token panel, the same width, the
-     two sides set alike */
+  /* the limits sit directly under the token panel, the same width, the two
+     sides set alike. neither has a box (home-widgets.css), and one line runs
+     between them as on the board: 1px in the line colour, 39% of the way down
+     the gap. here it spans the panels' own width, clear of the screen's edges */
   #home #homelimits{margin-top:calc(8 * var(--u))}
+  #home #homelimits:not([hidden]){position:relative}
+  #home #homelimits:not([hidden])::before{content:""; position:absolute; left:0; right:0;
+    top:calc(8 * var(--u) * -.61); height:1px; background:var(--line); pointer-events:none}
   /* the heading's two lines, the name beside the pill and what it counts under
      both, since at phone width the one line would cut the words short */
   #home .tk-head{display:grid; grid-template-columns:1fr auto; grid-template-areas:"name pill" "what what";
