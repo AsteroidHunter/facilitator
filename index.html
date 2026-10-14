@@ -291,6 +291,13 @@
   #fatcaretlift.ro{visibility:hidden}
   .fc-hide{caret-color:transparent}   /* only tracked editors drop the native caret */
   textarea::placeholder{color:#B4AA99}
+  /* a card's empty typing box shows its own line (composeLine in card-logic.js)
+     in the faint grey of a new card's "Card Name", on one line and cut with an
+     ellipsis where the row is too narrow, so the row never grows for it */
+  :is(.compose, .mcompose) textarea::placeholder,
+  :is(.compose, .mcompose) .cffield .cm-placeholder{color:var(--bubble-fill, #F3F3F3); opacity:1;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  :is(.compose, .mcompose) .cffield .cm-placeholder{max-width:100%; vertical-align:top}
   .sendbtn{
     flex:none; font:600 13px var(--sans); color:#fff; background:var(--accent);
     border:none; border-radius:9px; padding:9px 16px; cursor:pointer;
@@ -6205,6 +6212,7 @@ function makeBox(b, i, state){
     const compose = h("div", "compose");
     const ta = h("textarea");
     ta.rows = 1;
+    ta.placeholder = composeLine(b.id);
     const send = h("button", "sendbtn");
     send.type = "button";
     send.setAttribute("aria-label", "send");
@@ -6244,7 +6252,8 @@ function makeBox(b, i, state){
     // command here, so only shift enter is a new line for the list to carry.
     // the row is held: it wears the editor once its card has been shown
     // (wearShownEditor), as the phone's rows do
-    const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });
+    const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey,
+      placeholder: () => composeLine(b.id) });
 
     // the row's own autosize: back to auto, then up to the content, and the css
     // max-height caps it. the square's seat, its coming and going, and the ramp
@@ -10328,12 +10337,14 @@ function renderMiniCards(state){
       const compose = h("div", "mcompose");
       const ta = h("textarea");
       ta.rows = 1;
+      ta.placeholder = composeLine(b.id);
       const send = h("button", "msend", "Send");
       compose.append(ta, send);
       // the small card's row carries the same typed formatting the big one
       // does, with the same two keys: enter sends and shift enter breaks. held,
       // as the big one's rows are: a small card wears the editor once it is shown
-      const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey });
+      const field = ComposeFormat.attach(ta, { held: true, newline: e => e.shiftKey,
+        placeholder: () => composeLine(b.id) });
       // answers true once the board has the message, false when it did not
       // arrive, and null when there was nothing to send
       const fire = async () => {

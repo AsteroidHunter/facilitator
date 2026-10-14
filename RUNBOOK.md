@@ -161,6 +161,8 @@ Under it, "Usage Limits" shows how much of each plan limit is used, with when it
 
 A card on screen is either browsed or selected, on the Mac board and the phone alike. Browsing (the arrow keys, a swipe on the phone, switching projects, opening the board) shows a card without marking it read. Selecting (Enter, or a click or tap on the card or its ticket) marks it read, and so does typing in it. A reply that lands on the selected card counts as read only while the board's window is in front. The ticket of the card on screen is always lifted, so the list shows where you are. A double click on the empty board (on the phone, a double tap on the margin round the card) lowers the open card; showing any card raises it again.
 
+An empty typing box shows a light-hearted line in grey.
+
 The keys, on the Mac board and on the phone with a paired keyboard:
 
 - Left and right arrows: the previous or next card. Control + Shift + left and right do the same while typing.

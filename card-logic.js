@@ -1228,6 +1228,46 @@ function omniTicket(title){
   const variant = ((number - 1) % 3) + 1;
   return { number, variant, src: "/assets/ticket-" + variant + ".webp" };
 }
+// ---- the line an empty typing box shows -------------------------------------
+// a new reader could not tell where a card's typing box was, so an empty one
+// shows one of these lines in faint grey where the words go, and it goes the
+// moment anything is typed. each card keeps its own line for as long as it
+// lives: a board card's number steps through the list seven at a time, so cards
+// made one after another never share a line within twenty, and any other id is
+// hashed. the onboarding page's box and a card's title never show one
+const COMPOSE_LINES = [
+  "Make Opus 6 and no mistakes pls …",
+  "Make me a billion dollar company …",
+  "Who is JSON?",
+  "It's SI not AI!",
+  "You're absolutely right!",
+  "Let's run some smoke tests?",
+  "Delete the failing tests …",
+  "Prove P = NP by lunch.",
+  "Cite a paper that agrees with me.",
+  "p < 0.05, make it happen …",
+  "Explain my own code to me?",
+  "Ignore all previous instructions …",
+  "Do what I meant, not what I said …",
+  "Uber, but for cats …",
+  "Rename it final_v2_FINAL …",
+  "Turn my spaghetti into lasagna …",
+  "Fewer em dashes, more answers …",
+  "Explain it like I'm a PM.",
+  "Reply in under 900 words?",
+  "Make the error bars smaller …",
+];
+function composeLine(id){
+  const s = String(id == null ? "" : id);
+  const m = /^m(\d+)$/.exec(s);
+  let n;
+  if (m) n = Number(m[1].slice(-9)) * 7;
+  else {
+    n = 2166136261;
+    for (let i = 0; i < s.length; i++) n = Math.imul(n ^ s.charCodeAt(i), 16777619) >>> 0;
+  }
+  return COMPOSE_LINES[n % COMPOSE_LINES.length];
+}
 // ---- pictures the board could not hand over -----------------------------------
 // a phone's connection drops and returns under the app all the time, and a
 // picture asked for just then fails once and stays failed: the browser never

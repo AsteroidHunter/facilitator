@@ -1053,6 +1053,12 @@
   }
   body.kb .compose .cffield .cm-scroller{max-height:calc(5 * 1.5em + 2 * var(--sp-s))}
   textarea::placeholder{color:#B4AA99}
+  /* a card's empty typing box shows its own line (composeLine in card-logic.js)
+     in the faint grey of a new card's "Card Name", on one line and cut with an
+     ellipsis where the row is too narrow, so the row never grows for it */
+  .compose textarea::placeholder, .compose .cffield .cm-placeholder{color:var(--bubble-fill, #F3F3F3); opacity:1;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .compose .cffield .cm-placeholder{max-width:100%; vertical-align:top}
   /* the phone skips its caret reveal, the scroll of the whole page that
      brings a freshly focused field into view, when the field is at opacity 0
      on that frame: one fiftieth of a second blink on focus, a frame the eye
@@ -2314,6 +2320,7 @@ function makeBox(b){
   const compose = h("div", "compose");
   const ta = h("textarea");
   ta.rows = 1;
+  ta.placeholder = composeLine(b.id);
   // the mark the caret-reveal blink and the per-keystroke re-arm read, so
   // whichever field is focused, this plain one or the editor content standing in
   // for it, is the one the reveal is kept off. the editor marks its content too
@@ -2358,6 +2365,7 @@ function makeBox(b){
     held: true,
     newline: e => e.shiftKey || document.body.classList.contains("kb"),
     enterTrace: (step, e, branch) => notePhoneEnter(step, e, branch, ta),
+    placeholder: () => composeLine(b.id),
   });
   if (editorTrace) endPhoneTrace(editorTrace, { stage: "editor-init", box: b.id,
     editor: true, editorReady: !field.formatted() || !!field.view, formatted: field.formatted() });
