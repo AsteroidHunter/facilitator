@@ -668,15 +668,34 @@
      a little smaller. the mark's place is kept before it arrives so the word
      does not move. its version has room inside the cluster, leaving a clear
      16px gap below it, twice the 8px between the boxes. the line's spare room
-     above the word is taken off the top, so it is the ink that stands centred */
-  #homebrand{display:flex; align-items:center; justify-content:center; gap:calc(5 * var(--u)); margin:calc(-4 * var(--u)) 0 calc(16 * var(--u)); padding-bottom:calc(11 * var(--u));
-    font:700 calc(36 * var(--u))/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
-  #homemark{flex:none; width:calc(37 * var(--u)); height:calc(29 * var(--u)); background:center / contain no-repeat;
+     above the word is taken off the top, so it is the ink that stands centred.
+     the mark is as tall as the text, its drawn top level with the top of the F
+     and its drawn bottom level with the bottom of the version, worked out from
+     --name and --ver the way the board's #npmark is (index.html): Inter's caps
+     .7275em tall, the line's middle .364em under the baseline, digits dipping
+     .011em below it. the picture (190 by 192) has room round the squid's drawn
+     body (138 by 170 at 26, 11), so the box is cut to that body and the picture
+     is laid in it at --s a picture pixel, 26 and 11 of them out past the box's
+     left and top (whole lengths, as the phone paints a percentage size low). the mark
+     takes no height from the line: its top margin puts it at the F's top and
+     its bottom margin takes the rest back, so the word and the line stay put.
+     the sums are good to a pixel; fitMark (below) reads the F and the version as
+     the phone drew them, which it snaps to whole pixels, and hands --fit-ink and
+     --fit-top in to make them exact */
+  #homebrand{--name:calc(36 * var(--u)); --ver:calc(10 * var(--u));
+    display:flex; align-items:center; justify-content:center; gap:calc(13.08 * var(--u)); margin:calc(-4 * var(--u)) 0 calc(16 * var(--u)); padding-bottom:calc(11 * var(--u));
+    font:700 var(--name)/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink)}
+  #homemark{--ink:var(--fit-ink, calc(.914 * var(--name) + .925 * var(--ver) - 1px));
+    --top:var(--fit-top, calc(.186 * var(--name)));
+    --s:calc(var(--ink) / 170);
+    flex:none; align-self:flex-start; width:calc(138 * var(--s)); height:var(--ink);
+    margin:var(--top) 0 calc(-1 * (var(--top) + var(--ink)));
+    background:calc(-26 * var(--s)) calc(-1 * var(--off, calc(11 * var(--s)))) / calc(190 * var(--s)) calc(192 * var(--s)) no-repeat;
     opacity:0; transition:opacity .3s var(--gentle)}
   #homemark.on{opacity:1}
   #homebrandcopy{position:relative; display:inline-block}
   #homebrandname{display:block}
-  #homeversion{position:absolute; top:calc(100% - 1px); left:1px; font:500 calc(10 * var(--u))/1.1 var(--inter);
+  #homeversion{position:absolute; top:calc(100% - 1px); left:1px; font:500 var(--ver)/1.1 var(--inter);
     letter-spacing:.035em; color:var(--sub); opacity:.5; white-space:nowrap}
   /* the charts keep their own size and scroll sideways inside the panel, as on
      the board. the panel's sides are set so the lane they scroll in starts and
@@ -4110,6 +4129,48 @@ function brandStart(){
   try { b = JSON.parse(localStorage.getItem(BRAND_KEY)); } catch (err){}
   brandPaint(b);
   if (!b || !(Date.now() - b.at < BRAND_EVERY)) (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(brandAsk);
+}
+// the mark stands as tall as the name and the version under it, its drawn top level
+// with the F's and its drawn bottom with the version's. the sheet's sums for it
+// (#homemark) are good to a pixel; the phone sets text baselines on whole pixels, so
+// the exact top of the F and bottom of the version are read here off two zero-size
+// probes that stand on the lines they belong to, and go to the sheet as --fit-top (the
+// F's top under the lockup's top) and --fit-ink (down to the version's baseline, and
+// the dip of a round digit below it). the F is drawn about half a device pixel past
+// its outline, so the mark's top stands that much above the cap line. the board's
+// (index.html) carries the same routine, with its mark an img rather than a background
+function fitMark(row, mark, name, ver){
+  const box = row.getBoundingClientRect();
+  if (!box.width) return;
+  const probe = (host, height) => {
+    const dot = document.createElement("i");
+    dot.style.cssText = "display:inline-block; width:0; height:" + height;
+    host.appendChild(dot);
+    const at = dot.getBoundingClientRect();
+    dot.remove();
+    return at;
+  };
+  const px = 1 / devicePixelRatio, whole = v => Math.round(v / px) * px;
+  const cap = probe(name, CSS.supports("height", "1cap") ? "1cap" : ".7275em").height;
+  const top = whole(probe(name, "0").bottom) - cap - .5 * px;
+  const bottom = whole(probe(ver, "0").bottom) + .012 * parseFloat(getComputedStyle(ver).fontSize);
+  // the phone paints a picture's place in a box on whole device pixels, a pixel either
+  // way, so the room over the squid (11 picture pixels) and the box's top are put on whole
+  // device pixels here, and the box is the height from the squid's top as then drawn to
+  // the version's bottom
+  const s = (bottom - top) / 170;
+  const off = whole(11 * s);
+  const at = whole(top + off - 11 * s);
+  mark.style.setProperty("--fit-top", (at - box.top) + "px");
+  mark.style.setProperty("--fit-ink", (bottom - (at - off + 11 * s)) + "px");
+  mark.style.setProperty("--off", off + "px");
+}
+{
+  const row = document.getElementById("homebrand");
+  const fit = () => fitMark(row, document.getElementById("homemark"), document.getElementById("homebrandname"), document.getElementById("homeversion"));
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(row);
+  window.addEventListener("resize", fit);
+  window.addEventListener("DOMContentLoaded", () => webFacesLanded().then(fit));
 }
 function setHome(on){
   homeOpen = !!on;
