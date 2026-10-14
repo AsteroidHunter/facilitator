@@ -73,3 +73,15 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+## Feather icons
+
+The attach button's paperclip is Feather's `paperclip`. `app/index.html`,
+`app/m.html`, `app/onboarding.html` and `app/m-gate.html` embed its path as
+inline static SVG path data (the `CLIP_ICON` constant, and the gate page's
+sample typing box); the geometry is unchanged, drawn at 17px with a 1.9 stroke.
+No package is installed and nothing is fetched at runtime. Source:
+`https://github.com/feathericons/feather`.
+
+Feather is distributed under the MIT License, whose text is given above, with
+this copyright notice: Copyright (c) 2013-2017 Cole Bemis.

@@ -3976,11 +3976,14 @@ const laneName = ow => NAME[ow] || (ow + " agent");   // project lanes name them
    so it takes the name's own muted ink through currentColor
 const WT_ICON = '<svg class="wt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>';
 */
-// the attach button's mark: two runs crossing at the middle of a 24 box, drawn
+// the new-card pill's mark: two runs crossing at the middle of a 24 box, drawn
 // at the same 17px, the same 1.9 stroke, the same round caps and the same
 // currentColor the rest of the card's stroke work uses, so no new size and no
 // new colour enter. 14 units of the 24, which leaves the mark clear ground
 const PLUS_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
+// the attach button's mark: Feather's paperclip (MIT), its path as published,
+// drawn at the plus's 17px, 1.9 stroke, round caps and currentColor
+const CLIP_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>';
 // the send arrow, the chat panel's own path drawn at 14px in the square's black
 const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const els = {};       // box id -> {box, reply, meta, ta, send, toc, sec}
@@ -6250,7 +6253,7 @@ function makeBox(b, i, state){
     clip.type = "button";
     clip.setAttribute("aria-label", "attach a file");
     clip.title = "attach a file";
-    clip.innerHTML = PLUS_ICON;
+    clip.innerHTML = CLIP_ICON;
     const compose = h("div", "compose");
     const ta = h("textarea");
     ta.rows = 1;
