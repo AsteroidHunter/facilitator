@@ -241,6 +241,9 @@ function fillOldBoard(w) {
   fs.writeFileSync(path.join(w.beside, "logs", "server-20261001.log"), '{"kind":"start"}\n');
   fs.writeFileSync(path.join(w.beside, "logs", "bridge-20261001.log"), '{"kind":"shareon"}\n');
   fs.writeFileSync(path.join(w.beside, "notes.md"), "my own notes, not the board's\n");
+  // bytecode an older checkout's test run left in tests/, ignored by git
+  fs.mkdirSync(path.join(w.user, "tests", "__pycache__"), { recursive: true });
+  fs.writeFileSync(path.join(w.user, "tests", "__pycache__", "test_profile.cpython-314.pyc"), "bytecode");
   fs.mkdirSync(path.join(w.user, ".venv", "bin"), { recursive: true });
   fs.writeFileSync(path.join(w.user, ".venv", "pyvenv.cfg"), "home = /fake\nversion_info = 3.14.0\n");
   script(path.join(w.user, ".venv", "bin", "python3"), `#!/bin/sh\nexec ${JSON.stringify(PYTHON)} "$@"\n`);
@@ -290,7 +293,7 @@ function oldSnapshot(w) {
   for (const name of fs.readdirSync(w.user))
     if (!["app", "data", ".git", ".gitignore", "facilitator", "server.py", "bridge_auth.py", "bridge_gate.py",
           "m-gate.html", "index.html", "requirements.txt", "updates", ".venv", "server.lock", "__pycache__",
-          "bridge-auth.lock"].includes(name)) {
+          "bridge-auth.lock", "tests"].includes(name)) {
       const p = path.join(w.user, name);
       if (fs.statSync(p).isDirectory()) for (const [rel, s] of Object.entries(tree(p))) top[path.join(name, rel)] = s;
       else top[name] = sha(p);

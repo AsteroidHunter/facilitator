@@ -719,13 +719,19 @@ def finish(clone, say=lambda *a: None):
     if (venv_old.is_dir() and not venv_old.is_symlink() and (venv_old / "pyvenv.cfg").is_file()
             and (data / ".venv").is_dir()):
         shutil.rmtree(venv_old, ignore_errors=True)
-    cache = clone / "__pycache__"
-    if cache.is_dir() and not cache.is_symlink():
-        try:
-            if all(entry.suffix == ".pyc" and entry.is_file() for entry in cache.iterdir()):
-                shutil.rmtree(cache, ignore_errors=True)
-        except OSError:
-            pass
+    # bytecode left at the old top and in the old tests/, whose files are in
+    # app/tests now; tests/ goes too, only when nothing else is left in it
+    for cache in (clone / "__pycache__", clone / "tests" / "__pycache__"):
+        if cache.is_dir() and not cache.is_symlink():
+            try:
+                if all(entry.suffix == ".pyc" and entry.is_file() for entry in cache.iterdir()):
+                    shutil.rmtree(cache, ignore_errors=True)
+            except OSError:
+                pass
+    try:
+        (clone / "tests").rmdir()
+    except OSError:
+        pass
     record["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     record["kept"] = [{"path": path, "why": why} for path, why in kept]
     _write_json(data / MOVED, record)
