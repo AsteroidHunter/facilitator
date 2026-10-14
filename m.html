@@ -6856,9 +6856,9 @@ function stepCard(dir, focus){
 // A drag across the card walks the same pool as the keyboard. It waits until
 // horizontal intent is unambiguous, leaving vertical scrolling alone, and it
 // never starts at an edge, on a control, in an editor where the same motion
-// selects text, or on code wide enough to scroll sideways, where the same
-// motion scrolls it. Each complete card moves across the fixed stage; x and uniform
-// scale are the only animated values. Its listeners are passive, like the
+// selects text, while words are picked, or on code wide enough to scroll
+// sideways, where the same motion scrolls it. Each complete card moves across
+// the fixed stage; x and uniform scale are the only animated values. Its listeners are passive, like the
 // drawer pull's: they cover the answer, and one that may cancel would make the
 // phone wait on the page before letting the answer scroll.
 {
@@ -6940,7 +6940,11 @@ function stepCard(dir, focus){
     const t=e.touches[0], dx=t.clientX-drag.x, dy=t.clientY-drag.y; drag.dx=dx;
     if (!drag.decided){
       if (Math.max(Math.abs(dx),Math.abs(dy)) < START) return;
-      if (Math.abs(dx) <= Math.abs(dy) * 1.25){ drag.rejected=true; clear(); return; }
+      // nor while words are picked: the finger is moving one of the selection's
+      // handles, or a long press is running on along the line. a swipe took the
+      // card from under it, and with the card taking no pointer (.cardswipe) the
+      // phone set the handle against the page behind, at the reply's first word
+      if (Math.abs(dx) <= Math.abs(dy) * 1.25 || !getSelection().isCollapsed){ drag.rejected=true; clear(); return; }
       drag.decided=beginMotion(dx);
       if (!drag.decided){ clear(); return; }
     }

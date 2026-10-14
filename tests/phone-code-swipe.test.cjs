@@ -12,6 +12,10 @@ const vm = require("node:vm");
 // document: no browser and no layout. The touched element is a stand-in too:
 // only the block's own selector finds a block, and its widths are what the page
 // reads.
+//
+// While words are picked a sideways drag is the selection's: a handle moved along
+// the line, or a long press running on. A card swipe there took the card from
+// under the handle, and the phone set the handle at the reply's first word.
 const HTML = readFileSync(path.join(__dirname, "..", "m.html"), "utf8");
 const first = "{\n  const EDGE = 28, START = 10, COMMIT = 0.22";
 const start = HTML.indexOf(first), end = HTML.indexOf("\n// the card whose response control+s may scroll", start);
@@ -39,8 +43,9 @@ function world() {
       ? Object.values(boxes).filter(b => b.classList.contains("cardswipe")) : [],
   };
   const els = { m1: { box: boxes.m1 }, m2: { box: boxes.m2 } };
+  const selection = { isCollapsed: true };
   vm.runInContext(SWIPE, vm.createContext({
-    document, innerWidth: 390, selectedId: "m1", els,
+    document, innerWidth: 390, selectedId: "m1", els, getSelection: () => selection,
     ensureCard: id => els[id] || null,
     setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout() {},
     matchMedia: () => ({ matches: false }), menuOut: () => null,
@@ -51,6 +56,7 @@ function world() {
   const fire = (type, e) => { for (const l of listeners) if (l.type === type) l.fn(e); };
   const touch = (x, y, target) => ({ touches: [{ clientX: x, clientY: y }], target });
   return { calls, body, boxes,
+    picked: on => { selection.isCollapsed = !on; },
     down: (x, y, target) => fire("touchstart", touch(x, y, target)),
     move: (x, y) => fire("touchmove", touch(x, y, { closest: () => null })),
     up: () => fire("touchend", { touches: [] }),
@@ -106,6 +112,45 @@ test("an upright drag that starts on wide code is left to the reply's own scroll
   w.flush();
   assert.ok(!w.body.classList.contains("carddrag"));
   assert.deepEqual(w.calls, []);
+});
+
+test("a selection's handle dragged sideways moves the selection, not the card", () => {
+  const w = world();
+  w.picked(true);
+  w.down(157, 604, plain);
+  w.move(146, 604);
+  w.move(87, 604);
+  assert.ok(!w.body.classList.contains("carddrag"));
+  assert.ok(!w.boxes.m1.classList.contains("cardswipe"), "the card was taken from under the handle");
+  w.up();
+  w.flush();
+  assert.deepEqual(w.calls, []);
+});
+
+test("a long press that picks a word and runs on along the line leaves the card", () => {
+  const w = world();
+  // leftwards, the way this stand-in has a card to turn to
+  w.down(329, 621, plain);
+  w.picked(true);   // the press has picked a word before the finger moves
+  w.move(308, 621);
+  w.move(177, 621);
+  assert.ok(!w.body.classList.contains("carddrag"));
+  w.up();
+  w.flush();
+  assert.deepEqual(w.calls, [], "the card turned under the press");
+});
+
+test("once the words are let go a sideways swipe turns the card again", () => {
+  const w = world();
+  w.picked(true);
+  w.picked(false);   // a tap elsewhere left only a caret
+  w.down(300, 400, plain);
+  w.move(288, 402);
+  assert.ok(w.body.classList.contains("carddrag"));
+  w.move(100, 420);
+  w.up();
+  w.flush();
+  assert.deepEqual(w.calls, [["browse", "m2"]]);
 });
 
 test("a swipe that starts on a control is still left alone", () => {

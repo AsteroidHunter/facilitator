@@ -59,7 +59,7 @@ function world() {
     ensureCard: id => els[id] || null,
     addEventListener: on("window"), performance: { now: () => 0 },
     setTimeout: (fn, ms) => { timers.push(fn); return timers.length; }, clearTimeout() {},
-    matchMedia: () => ({ matches: false }),
+    matchMedia: () => ({ matches: false }), getSelection: () => ({ isCollapsed: true }),
     menuOut: () => null, dismissEditor() {}, closeProjects() {}, tracePhone() {}, traceFrameOpportunity() {},
     menuAvailable: () => true, // this fixture exercises project gestures; Home has its own controller tests
     cancelMenuDrag: null,
