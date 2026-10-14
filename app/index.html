@@ -1325,13 +1325,13 @@
      80ms on press and out over 160ms on release, no overshoot and no scale; the
      rest state is two zero-size clear inset layers so the shade interpolates
      cleanly. the 7px radius only shapes that shade and moves no geometry. */
-  #tikhead .tvb{
+  #tikhead .tvb, #tiknew{
     border-radius:7px;
     box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
     transition:color .18s, box-shadow .16s ease-out;
   }
   #tikhead .tvb.on{color:var(--ink); font-weight:700; background:transparent}
-  #tikhead .tvb:active, #tikhead .tvb.pressed{
+  #tikhead .tvb:active, #tikhead .tvb.pressed, #tiknew:active, #tiknew.pressed{
     box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
     transition:color .18s, box-shadow .08s ease-in;
   }
@@ -1448,25 +1448,35 @@
   #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
     border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
-  /* the new-card pill (20261013): a click makes a card exactly as command+T
-     does (newCardHere). it is the project pill's glass, its stack and its
-     press (the bar's glass, below), with the typing box's plus in the middle,
-     in the sub ink and the full ink under a pointer. it stands at the
-     holder's foot, after the list and outside its clip, so whichever section
-     is shown its rows scroll above the pill and never under it. its sizes are
-     the picture's, in tickets: .86 of a ticket's width, centred on the
-     tickets, .4 of a ticket's height, and .24 of a ticket's height of bare
-     paper between the list's faded foot and its top */
-  body.focus #tiknew{--tik-row:calc(var(--ch)*0.072); --tik-col:calc(100% - var(--tik-inset-l) - var(--tik-inset-r));
-    flex:none; position:relative; box-sizing:border-box;
-    width:calc(var(--tik-col)*.86); height:calc(var(--tik-row)*.4);
-    margin:calc(var(--tik-row)*.24) 0 0 calc(var(--tik-inset-l) + var(--tik-col)*.07);
-    padding:0; border-radius:calc(var(--tik-row)*.2);
+  /* the new-card plus (20261014): the head turned over at the holder's foot. a
+     click makes a card exactly as command+T does (newCardHere). #tikfoot
+     stands after the list, across the rows' own sides as #tikhead does, and
+     draws the divider's twin: the divider's top is 1px over the list's clip,
+     so this line's foot is 1px under it, and the rows scroll above it and
+     never under it. the plus is a bare button, with no glass, fill or edge,
+     standing --line-gap under that line as the names stand over theirs, its
+     box a name's turned over (the 1px clear border, 5px of padding on the
+     line's side and 6px on the other, a 16px line between). it takes the
+     names' press, their rules and their script (#tikhead .tvb, and the press
+     feedback beside setView). the region that dips is .6 of the glass pill
+     this replaced, which was .86 of the rows' width, centred on the rows */
+  body.focus #tikfoot{position:relative; flex:none; display:flex; justify-content:center;
+    margin:0 var(--tik-inset-r) 0 var(--tik-inset-l); padding:calc(var(--line-gap) + 1px) 0 0}
+  body.focus #tikfoot::before{
+    content:""; position:absolute; pointer-events:none;
+    bottom:calc(100% - 1px);
+    left:0; right:0; height:0;
+    border-bottom:var(--edge) solid var(--line);
+  }
+  body.focus #tiknew{flex:none; box-sizing:content-box; width:calc(100% * .86 * .6); height:16px;
+    margin:0; padding:5px 0 6px; border:1px solid transparent; background:transparent;
     display:flex; align-items:center; justify-content:center;
-    color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
-    transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+    color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none}
   body.focus #tiknew:hover{color:var(--ink)}
-  body.focus #tiknew svg{display:block; flex:none}
+  /* the plus fills the name's 16px line. its 14 units of arm and 2.66 of
+     stroke on the 24 grid draw 11px of ink, as tall as a name's ink, in a
+     1.77px stroke, the names' stem at 14px and 500 as the screen draws it */
+  body.focus #tiknew svg{display:block; flex:none; width:16px; height:16px; stroke-width:2.66}
   /* magic stubs, contents to be explained */
   #magic1, #magic2, #magic3, #magic4{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;
@@ -1865,8 +1875,8 @@
      behind the bar's pieces there is only the flat paper and the veil is over
      them for the whole gesture, so there is nothing behind them left to blur
      that anyone can see. the bar's own rules are untouched, so the resting look
-     is the resting look. the new-card pill's glass goes down with them */
-  body.p3zoom :is(.bar .qn-glass, #tiknew){backdrop-filter:none; -webkit-backdrop-filter:none}
+     is the resting look */
+  body.p3zoom .bar .qn-glass{backdrop-filter:none; -webkit-backdrop-filter:none}
   /* ---- the file navigator, in magic box 3 or magic box 4 ---------------------- */
   /* the third tenant of magic box 3, beside the picture panel and the chat
      above, and it takes their rule exactly: one tab owns a box and every other
@@ -3136,10 +3146,9 @@
      glass's own. the pill's list wears the same: with the glass's full stack
      the white first row covered the ring's top row and the dark band drew a
      second line a pixel inside it, so its top edge looked like a second
-     rectangle standing behind the list (20261010). the new-card pill under
-     the ticket list (#tiknew) is the project pill's glass and wears it too, and
-     so does home's folder button (#npstart, which has .qn-glass while home is up) */
-  body.focus :is(.bar .qn-glass, #projmenu, #tiknew), body.focus.home :is(#nppanel, #npstart).qn-glass{
+     rectangle standing behind the list (20261010). home's folder button
+     (#npstart, which has .qn-glass while home is up) wears it too */
+  body.focus :is(.bar .qn-glass, #projmenu), body.focus.home :is(#nppanel, #npstart).qn-glass{
     box-shadow:
       inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
       inset 0 0 0 1px var(--qn-ring),
@@ -3170,16 +3179,16 @@
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #chimebtn, #setbtn, #projpill, #tiknew, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#homeico, #chimebtn, #setbtn, #projpill, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the pill takes that press with the same few pixels of growth: a scale of
      1.06 is 2px on a 32px circle but 4.5px to 15px of width on a pill as wide
      as its name, which read as a bigger bounce. glassPress sets --press-x, the
      scale across that gives the pill's width the circles' 1.92px, and the
-     height grows by the same 1.92px at 1.06, as theirs does. the new-card
-     pill, wider still, takes the same few pixels across, and so does home's
-     folder button (only while it has the glass: the script presses it then) */
-  body.focus :is(#projpill, #tiknew, #npstart).pressed{transform:scale(var(--press-x, 1.06), 1.06)}
+     height grows by the same 1.92px at 1.06, as theirs does. home's folder
+     button takes the same few pixels across (only while it has the glass: the
+     script presses it then) */
+  body.focus :is(#projpill, #npstart).pressed{transform:scale(var(--press-x, 1.06), 1.06)}
   /* Home stays pressed while the home page is up: the press's whiter face and
      brighter edge, held, with the house in the full ink */
   body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
@@ -3865,7 +3874,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div><button id="tiknew" class="qn-glass" type="button" title="New card" aria-label="New card"></button></div>
+<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div><div id="tikfoot"><button id="tiknew" type="button" title="New card" aria-label="New card"></button></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -4680,7 +4689,7 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-for (const btn of ["homeico", "projpill", "chimebtn", "setbtn", "tiknew", "npstart"].map(id => document.getElementById(id))){
+for (const btn of ["homeico", "projpill", "chimebtn", "setbtn", "npstart"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0 && btn.classList.contains("qn-glass")) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -6486,8 +6495,8 @@ async function newCard(owner){
   else await poll();   // the reading that draws the card lands on it
 }
 
-// a new card in the open project: command+T (boardShortcutActions.create) and the pill
-// under the ticket list both make it here, so the pill's card is the key's,
+// a new card in the open project: command+T (boardShortcutActions.create) and the plus
+// under the ticket list both make it here, so the plus's card is the key's,
 // in the same place and with the same focus
 function newCardHere(){
   if (!ownerReady || draft) return;
@@ -11474,9 +11483,10 @@ function setView(v){
   // stylesheet eases a modest inset shade in over 80ms and back out over 160ms.
   // .pressed holds for at least the 80ms press-in, so a quick tap still shows the
   // dip before it rises. selection stays with the click handlers above. the two
-  // arrows beside the names take it the same way, on their square
+  // arrows beside the names take it the same way, on their square, and so
+  // does the new-card plus under the list
   const PRESS_MIN = 80;
-  for (const name of document.querySelectorAll("#tikhead .tvb, #tikhead .tik-page")){
+  for (const name of document.querySelectorAll("#tikhead .tvb, #tikhead .tik-page, #tiknew")){
     let since = 0, timer = 0;
     const press = () => {
       clearTimeout(timer);

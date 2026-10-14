@@ -342,9 +342,9 @@ test("the round glass Home button is back at the bar's left as it was, pressed w
   assert.equal(decl(rule(sheet, "body.focus :is(#homeico, #chimebtn, #setbtn):hover"), "color"), "var(--ink)");
   assert.equal(parseFloat(decl(rule(sheet, "body.focus #tabrow"), "gap")), 11);
   // the press, and stays pressed while Home is up
-  assert.match(sheet, /body\.focus :is\(#homeico, #chimebtn, #setbtn, #projpill, #tiknew, #npstart\)\.pressed\{transform:scale\(1\.06\)/);
+  assert.match(sheet, /body\.focus :is\(#homeico, #chimebtn, #setbtn, #projpill, #npstart\)\.pressed\{transform:scale\(1\.06\)/);
   assert.match(sheet, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
-  assert.match(html, /for \(const btn of \["homeico", "projpill", "chimebtn", "setbtn", "tiknew", "npstart"\]/);
+  assert.match(html, /for \(const btn of \["homeico", "projpill", "chimebtn", "setbtn", "npstart"\]/);
   assert.match(html, /document\.getElementById\("homeico"\)\.setAttribute\("aria-pressed", String\(homeOpen\)\)/);
   // Command + 0 clicks it, and a press on it opens Home
   assert.match(html, /if \(!homeOpen\) document\.getElementById\("homeico"\)\.click\(\)/);
@@ -588,7 +588,7 @@ test("the open list dims the board exactly as the settings page does, and the di
 
 test("the list's top edge is one line: it wears the bar's rim, not the glass's doubled top", () => {
   // home's project list wears the same glass and so the same rule (20261013)
-  const head = "body.focus :is(.bar .qn-glass, #projmenu, #tiknew), body.focus.home :is(#nppanel, #npstart).qn-glass{";
+  const head = "body.focus :is(.bar .qn-glass, #projmenu), body.focus.home :is(#nppanel, #npstart).qn-glass{";
   assert.ok(sheet.includes(head), "the bar, the list and home's list share one stack");
   const rim = sheet.slice(sheet.indexOf(head));
   const stack = rim.slice(0, rim.indexOf("}"));
