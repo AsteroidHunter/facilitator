@@ -62,7 +62,7 @@ test("the pill wears the board's plus and the project pill's glass and press", (
   const f = board();
   assert.equal(f.pill.innerHTML, f.ctx.PLUS_ICON, "the typing box's plus, as drawn");
   assert.match(MAC, /<button id="tiknew" class="qn-glass" type="button"/);
-  assert.match(MAC, /body\.focus :is\(\.bar \.qn-glass, #projmenu, #tiknew\)\{/, "the bar's glass stack");
+  assert.match(MAC, /body\.focus :is\(\.bar \.qn-glass, #projmenu, #tiknew\), body\.focus\.home #nppanel\.qn-glass\{/, "the bar's glass stack");
   assert.match(MAC, /:is\(#homeico, #chimebtn, #setbtn, #projpill, #tiknew\)\.pressed\{/, "the glass press");
   assert.match(MAC, /:is\(#projpill, #tiknew\)\.pressed\{transform:scale\(var\(--press-x, 1\.06\), 1\.06\)\}/, "the pill's few pixels across");
   assert.match(MAC, /\["homeico", "projpill", "chimebtn", "setbtn", "tiknew"\]/, "glassPress holds it");
