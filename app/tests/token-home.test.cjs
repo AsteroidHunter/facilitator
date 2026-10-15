@@ -211,10 +211,17 @@ test("the heatmap's squares grow with the view's height, within limits, and fill
     assert.ok(g.top - 20 >= 0 && h - bottom >= 0 && (g.top - 20) + (h - bottom) <= 12, `${h} leaves little over`);
     assert.ok(Math.abs((g.top - 20) - (h - bottom)) <= 3, "what is over is split");
   }
-  // never smaller than 12 or larger than 32 a column, however short or tall the view
+  // never smaller than 12 a column, however short the view; on a taller view
+  // there is no ceiling: the squares follow the box they are given, and the
+  // seven rows fill a view of any height as they fill the board's at 1440 by 900
   assert.equal(W.geometry(60).step, 12);
   assert.ok(W.geometry(60).height >= 20 + 7 * 12 - 3, "a short view is overdrawn, never squeezed");
-  assert.equal(W.geometry(900).step, 32);
+  for (const h of [400, 559, 900]) {
+    const g = W.geometry(h);
+    assert.equal(g.step, Math.floor((h - 22) / 7), `step at ${h}`);
+    assert.equal(g.height, h, `a ${h} view is filled, not left with a band`);
+    assert.ok(h - (g.top + g.rows) <= 12, `${h} leaves little under the rows`);
+  }
   // the model follows the height it is given
   const model = W.heatmapModel(daysEnding("2026-09-27", 371), 226);
   assert.equal(model.geo.step, 29);
@@ -562,8 +569,10 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   assert.doesNotMatch(panel, /background|box-shadow|border-radius/);
   assert.match(rule(".tk-lane::after"), /linear-gradient\(to left, var\(--tk-ground\), transparent\)/);
   // one line between the two, from the screenshot on the card: 1px of the line
-  // colour, 3px past the column each side, 39% of the way down the gap
-  assert.match(HTML, /body\.focus\.home #homelimits:not\(\[hidden\]\)::before\{content:""; position:absolute; left:-3px; right:-3px;\s*top:calc\(var\(--home-gap\) \* -\.61\); height:1px; background:var\(--line\); pointer-events:none\}/);
+  // colour, 3px past the column each side, 39% of the way down the gap. the
+  // limits are drawn at the Mac's one scale, so the gap (the page's) and the
+  // hairline are divided by it, and the 3px goes with the scale
+  assert.match(HTML, /body\.focus\.home #homelimits:not\(\[hidden\]\)::before\{content:""; position:absolute; left:-3px; right:-3px;\s*top:calc\(var\(--home-gap\) \/ var\(--mac-scale\) \* -\.61\); height:calc\(1px \/ var\(--mac-scale\)\); background:var\(--line\); pointer-events:none\}/);
   // the phone's home page draws the same line at the same share of its 8px gap,
   // across the panels' own width, clear of the screen's edges
   assert.match(read("m.html"), /#home #homelimits:not\(\[hidden\]\)::before\{content:""; position:absolute; left:0; right:0;\s*top:calc\(8 \* var\(--u\) \* -\.61\); height:1px; background:var\(--line\); pointer-events:none\}/);
@@ -586,7 +595,9 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   const frame = /body\.focus #appframe\{([^}]*)\}/.exec(HTML.replace(/\/\*[\s\S]*?\*\//g, ""))[1];
   assert.match(frame, /top:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);
   assert.match(frame, /left:var\(--app-inset\); right:var\(--app-inset\); bottom:var\(--app-inset\);/);
-  assert.match(HTML, /body\.focus\.home #homeplot\{height:100%; --tk-panel-h:100%\}/);
+  // the panel fills the box, drawn at the Mac's one scale (a zoom, so the box's
+  // share of the frame is the page's and the chart is drawn to the box's height)
+  assert.match(HTML, /body\.focus\.home #homeplot\{height:100%; --tk-panel-h:100%; zoom:var\(--mac-scale\)\}/);
   // the panel is a column that fills a box with a height of its own, the view
   // taking what the heading and foot leave; elsewhere the view is 200 tall
   const panelRule = rule(".tk-panel");

@@ -70,15 +70,19 @@ test("the default player is on star lines, whole rows tall, and keeps its width 
 
 // fitStage fits the lowest visible region's foot inside the frame: the stage's
 // foot may sit no lower than the window's height less the frame's inset, its
-// border (at its widest, the careful side) and FRAME_CLEAR, with the bar above
-function roomAt(windowHeight){
-  const inset = Number(/--app-inset:(\d+)px/.exec(TOKENS)[1]);
-  return windowHeight - inset - 1 - constant("FRAME_CLEAR") - constant("STAGE_BAR");
+// border (at its widest, the careful side) and FRAME_CLEAR, with the bar above.
+// the inset, FRAME_CLEAR and the bar are lengths of the 1440x900 layout at the
+// window's scale against it (windowScale, never under 1) and the border is not,
+// so in the stage's own pixels, at a stage drawn at that scale, the room is
+const INSET = Number(/--app-inset:calc\((\d+)px/.exec(TOKENS)[1]);
+function roomAt(windowWidth, windowHeight){
+  const g = Math.max(1, Math.min(windowWidth / 1440, windowHeight / 900));
+  return windowHeight / g - INSET - 1 / g - constant("FRAME_CLEAR") - constant("STAGE_BAR");
 }
 
 test("the player's foot does not shrink the stage at 1512 by 982 or at 1440 by 900", () => {
-  assert.ok(playerBottom <= roomAt(982), `player foot ${playerBottom} is past the ${roomAt(982)} room at 1512 by 982`);
-  assert.ok(playerBottom <= roomAt(900), `player foot ${playerBottom} is past the ${roomAt(900)} room at 1440 by 900`);
+  assert.ok(playerBottom <= roomAt(1512, 982), `player foot ${playerBottom} is past the ${roomAt(1512, 982)} room at 1512 by 982`);
+  assert.ok(playerBottom <= roomAt(1440, 900), `player foot ${playerBottom} is past the ${roomAt(1440, 900)} room at 1440 by 900`);
 });
 
 test("the player's box stays inside any window the card's foot fits", () => {
@@ -86,7 +90,7 @@ test("the player's box stays inside any window the card's foot fits", () => {
   // frame's inset and border above the window's foot; the player may hang below
   // the card by no more than that, or its box (measured even while hidden)
   // would reach past the window
-  const slack = Number(/--app-inset:(\d+)px/.exec(TOKENS)[1]) + 1 + constant("FRAME_CLEAR");
+  const slack = INSET + 1 + constant("FRAME_CLEAR");
   assert.ok(playerBottom - cardBottom <= slack,
     `player foot ${playerBottom} is ${playerBottom - cardBottom} below the card's ${cardBottom}, over the ${slack} allowed`);
 });

@@ -345,7 +345,8 @@ test("the Mac board's snap fits the answer the same whatever stands in the bubbl
       reply, replyview: view, pendwrap, sentwrap, answ: null, answwrap: null, titleEl: { style: style() } };
     const context = vm.createContext({
       FOCUS: true, els: { card: el }, selectedId: "card",
-      sentPanels: () => [], tiltTitleAir: () => {},
+      sentPanels: () => [], tiltTitleAir: () => {}, fitTitle: () => {},
+      cardScale: () => 1,   // the stage at 1:1, a 1440 by 900 window
       getComputedStyle: node => ({ lineHeight: "28px", marginBottom: node === view ? "3.5px" : "0px", paddingTop: "0px", font: "18px x" }),
     });
     vm.runInContext(fn("boxBand") + fn("snapCard"), context);

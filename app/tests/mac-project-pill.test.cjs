@@ -112,6 +112,7 @@ function fixture(over = {}) {
     FOCUS: true, LOCKED: over.LOCKED || null, ownerReady: true, draft: null, homeOpen: !!over.homeOpen, homeChecked: true,
     activeOwner: over.activeOwner || "marlow", selectedId: "k1", browsing: false, lastSel: {},
     validActiveOwnerIds: new Set(state.tabs.order), lastState: state, editMode: false, magicSync() {},
+    macScale: 1,   // the Mac's one scale, 1 in a 1440 by 900 window (fitStage)
     location: { pathname: "/" },
     localStorage: { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) },
     document: {
@@ -691,8 +692,11 @@ test("the speaker and the squid stand the house's gap to the pill apart, and the
   assert.equal(barGap + squid, houseToPill, "speaker to squid is not house to pill");
   assert.equal(houseToPill, 11);
   // the bar is inset the same on both sides and has no side padding, so the squid is as far from the right
-  // edge as the house is from the left
-  assert.match(sheet, /body\.focus \.bar\{\s*margin:var\(--app-inset\) var\(--app-inset\) 0;/);
+  // edge as the house is from the left. the edges are the stage's span (the window's room either side of
+  // the stage, --stage-l and --stage-r), and the inset is over the bar's zoom, the Mac's one scale
+  const sides = side => `calc((var(--stage-${side}, 0px) + var(--app-inset)) / var(--mac-scale))`;
+  assert.ok(sheet.replace(/\s+/g, " ").includes("body.focus .bar{ zoom:var(--mac-scale); " +
+    `margin:calc(var(--app-inset) / var(--mac-scale)) ${sides("r")} 0 ${sides("l")};`), "the bar's sides are not alike");
   assert.equal(decl(rule(sheet, "body.focus .bar"), "padding"), "1px 0 6px");
   // the squid is the bar's last piece, and the speaker still holds the right end with an auto margin
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));

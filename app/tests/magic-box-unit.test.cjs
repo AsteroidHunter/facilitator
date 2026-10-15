@@ -199,6 +199,29 @@ test("words take their own height up to the largest box, then scroll; a page or 
   assert.deepEqual(place(CARD, fitAt(1512), null), most, "a page or a site asks for nothing");
 });
 
+// the page's own room (magicRoom in index.html), run for a window W by H as the
+// board fits it: the stage at the window's scale against 1440 by 900 (never
+// under 1), centred across; the frame 6px in at that scale with its border
+test("on a larger window of any shape the box keeps its 1440 by 900 place beside the card", () => {
+  const html = read("index.html");
+  const roomAt = html.indexOf("function magicRoom(){"), room = html.slice(roomAt, html.indexOf("\n}\n", roomAt));
+  const rightOf = room.slice(room.indexOf("let right ="), room.indexOf("const fit ="));
+  const at = (W, H) => {
+    const g = Math.max(1, Math.min(W / 1440, H / 900)), tx = Math.max(0, (W - 1440 * g) / 2);
+    const clear = 16 * g, inner = W - 6 * g - 0.8;
+    const right = vm.runInContext(rightOf + "; right", vm.createContext({ Math, STAGE_W: 1440, respMode: "wide",
+      lim: { right: inner - clear }, clear, S: g, stageTx: tx, innerWidth: W }));
+    return place(CARD, { scale: g, tx, right, clear });
+  };
+  const ref = at(1440, 900);
+  for (const [W, H] of [[1920, 1080], [2560, 1440], [3008, 1692], [1920, 900], [3440, 1440], [2560, 1600]]) {
+    const box = at(W, H);
+    assert.equal(box.shown, true);
+    assert.ok(Math.abs(box.left - ref.left) < 0.5, `${W} by ${H}: the box stands at ${box.left}, not ${ref.left}, on the stage`);
+    assert.ok(close(box.width, ref.width), `${W} by ${H}: the box is ${box.width} wide, not ${ref.width}`);
+  }
+});
+
 test("in a narrow window the picture is fitted inside the smaller box, and in no room it is not shown either", () => {
   assert.equal(sizedRight(SIZED({ width: 2000, height: 1000 }, fitAt(1280))).shown, true);
   assert.equal(sizedRight(SIZED({ width: 2000, height: 1000 }, fitAt(1100))).shown, false);
@@ -208,7 +231,11 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   const html = read("index.html");
   const start = html.indexOf("function magicPlace(){"), fn = html.slice(start, html.indexOf("\n}\n", start));
   const roomAt = html.indexOf("function magicRoom(){"), room = html.slice(roomAt, html.indexOf("\n}\n", roomAt));
-  assert.match(room, /const fit = \{ scale: S, tx: stageTx, right: lim\.right \+ FRAME_CLEAR, clear: FRAME_CLEAR \};/);
+  // the frame's inner edge and the fit's clearance, at the Mac's one scale; on
+  // a stage at 1:1 or larger the edge the frame would have on the stage's span
+  assert.match(room, /const lim = frameLimits\(\), clear = FRAME_CLEAR \* macScale;/);
+  assert.match(room, /let right = lim\.right \+ clear;\n  if \(respMode === "wide" && S >= 1\) right = Math\.min\(right, stageTx \+ STAGE_W \* S - \(innerWidth - right\)\);/);
+  assert.match(room, /const fit = \{ scale: S, tx: stageTx, right, clear \};/);
   assert.match(room, /return \{ S, sr, rect, fit, most: MagicBox\.place\(rect, fit\) \};/);
   // no room beside the card: hidden where it is, before anything is sized
   // or asked of what it shows, and nothing else is done with it

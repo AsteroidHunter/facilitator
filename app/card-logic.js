@@ -1720,9 +1720,10 @@ function testReady(b){ return !!(b && b.testing) && queueState(b) === "yours"; }
 function foldHit(x, y, fold){ return fold > 0 && x >= 0 && y >= 0 && x <= fold && y <= fold; }
 function onFold(row, e){
   if (!row || !row.classList.contains("testc")) return false;
-  const r = row.getBoundingClientRect();
+  const r = row.getBoundingClientRect(), k = cardScaleNow();
   const fold = parseFloat(getComputedStyle(row).getPropertyValue("--fold")) || 0;
-  return foldHit(r.right - e.clientX, e.clientY - r.top, fold);
+  // the pointer is on the window and the fold is the row's own pixels
+  return foldHit((r.right - e.clientX) / k, (e.clientY - r.top) / k, fold);
 }
 function unfoldTicket(id){
   return fetch("/testing?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" })
@@ -1872,7 +1873,8 @@ function tikSheetSection(sheet){
   const m = t && t.match(/matrix\(([^)]+)\)/);
   if (!m) return 0;
   const tx = parseFloat(m[1].split(",")[4]) || 0;
-  const w = sheet.getBoundingClientRect().width || 1;
+  // the transform is the sheet's own pixels and the rect the window's
+  const w = sheet.getBoundingClientRect().width / cardScaleNow() || 1;
   return -tx / w;
 }
 function moveTicketSheet(view, animate){
@@ -2678,14 +2680,15 @@ function trayLeave(el, leaving){
   const before = stay.map(sq => sq.getBoundingClientRect());
   const seats = leaving.map(it => it.sq.getBoundingClientRect());
   for (const it of leaving) it.sq.classList.add("leaving");
-  const box = tray.getBoundingClientRect();
+  const box = tray.getBoundingClientRect(), k = cardScaleNow();
+  // measured on the window, written in the tray's own pixels
   leaving.forEach((it, i) => {
-    it.sq.style.left = (seats[i].left - box.left) + "px";
-    it.sq.style.top = (seats[i].top - box.top) + "px";
+    it.sq.style.left = (seats[i].left - box.left) / k + "px";
+    it.sq.style.top = (seats[i].top - box.top) / k + "px";
   });
   stay.forEach((sq, i) => {
     const after = sq.getBoundingClientRect();
-    const dx = before[i].left - after.left, dy = before[i].top - after.top;
+    const dx = (before[i].left - after.left) / k, dy = (before[i].top - after.top) / k;
     if (Math.abs(dx) > .5 || Math.abs(dy) > .5)
       sq.animate([{ transform: "translate(" + dx + "px," + dy + "px)" }, { transform: "none" }], beat);
   });
@@ -2740,7 +2743,8 @@ function seatSquare(ta, square){
   const cs = getComputedStyle(ta);
   const lh = parseFloat(cs.lineHeight);
   const pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
-  const hgt = ta.getBoundingClientRect().height;
+  // the field's height in its own pixels, the unit of its line and padding
+  const hgt = ta.getBoundingClientRect().height / cardScaleNow();
   if (!lh || !hgt) return;
   const lines = Math.max(1, Math.round((ta.scrollHeight - pt - pb) / lh));
   const foot = ta.scrollHeight > ta.clientHeight + 1 ? hgt - pb : pt + lines * lh;
@@ -2909,8 +2913,11 @@ function openAnswered(panel, open, change){
   const clip = panel.querySelector(".answclip");
   const mine = panel.answRun = (panel.answRun || 0) + 1;
   // where the run starts: whatever the cut and its dissolve stand at now, mid
-  // run included
-  const from = clip.getBoundingClientRect().height;
+  // run included. every height and gap here is the card's own pixels, the unit
+  // the run writes and the scroll counts in, so a window measure is divided by
+  // the scale the card is drawn at
+  const k = cardScaleNow();
+  const from = clip.getBoundingClientRect().height / k;
   const shadeFrom = answeredShade(panel);
   // cutting back: how far the batch's own lane is scrolled, read before
   // anything is laid out again
@@ -2926,9 +2933,9 @@ function openAnswered(panel, open, change){
   // the part of the panel above the top of the view, in whole points so the head
   // is never scrolled into sight
   const hidden = view ?
-    Math.floor(Math.max(0, view.getBoundingClientRect().top - panel.getBoundingClientRect().top)) : 0;
+    Math.floor(Math.max(0, (view.getBoundingClientRect().top - panel.getBoundingClientRect().top) / k)) : 0;
   const whole = view ? view.scrollHeight - heldSlack(view) : 0;
-  const wide = view ? clip.getBoundingClientRect().height : 0;
+  const wide = view ? clip.getBoundingClientRect().height / k : 0;
   if (view) holdSlack(view, heldSlack(view) + from);   // room enough that no layout below can pull the scroll
   if (change) change();
   // a cut always shows the head of the batch, so a lane that was scrolled while
@@ -2940,13 +2947,13 @@ function openAnswered(panel, open, change){
   if (!open) fitAnswered(panel);
   const still = typeof matchMedia === "function" &&
     matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const to = clip.getBoundingClientRect().height;
+  const to = clip.getBoundingClientRect().height / k;
   // the room the answer needs under it so the view is never stood past its end,
   // at any frame, most of all at the foot of the run. the view can grow while the
   // run is on, as tall as the window under its top: a press on the phone puts the
   // keyboard away, and the view takes its room back
   const reach = view ? Math.max(view.clientHeight,
-    (typeof innerHeight === "number" ? innerHeight : 0) - view.getBoundingClientRect().top) : 0;
+    ((typeof innerHeight === "number" ? innerHeight : 0) - view.getBoundingClientRect().top) / k) : 0;
   const room = view && at > 0 ? Math.max(0, Math.ceil(at + reach - whole + wide - to)) : 0;
   if (still || !from){
     if (view) view.scrollTop = at - Math.max(0, Math.min(hidden, from - to));
@@ -3006,7 +3013,7 @@ function followCut(panel, view, clip, at, hidden, from){
   };
   const frame = () => {
     if (panel.answRun !== mine || !panel.answSpan || run.moved) return;
-    write(clip.getBoundingClientRect().height);
+    write(clip.getBoundingClientRect().height / cardScaleNow());
     if (!run.moved) requestAnimationFrame(frame);
   };
   run.land = write;
@@ -3023,7 +3030,7 @@ function settleAnswered(panel){
   // can pull the scroll; whoever settles lets go of what the view does not
   // stand on
   if (view && view.answHeld){
-    holdSlack(view, heldSlack(view) + clip.getBoundingClientRect().height);
+    holdSlack(view, heldSlack(view) + clip.getBoundingClientRect().height / cardScaleNow());
     view.answHeld = false;
   }
   panel.classList.remove("motion");
@@ -3115,7 +3122,8 @@ function answeredText(m){
 // column of messages and stood on the whole line it sits in rather than on its
 // letters alone, so the boxes meet where the lines do
 function answeredInk(stack){
-  const top = stack.getBoundingClientRect().top;
+  // the boxes are the column's own pixels, the line's unit, so the window's are divided
+  const top = stack.getBoundingClientRect().top, k = cardScaleNow();
   const range = document.createRange();
   const boxes = [];
   const walk = node => {
@@ -3126,13 +3134,13 @@ function answeredInk(stack){
         range.selectNodeContents(child);
         for (const r of range.getClientRects()){
           if (!r.height) continue;
-          const spare = line > r.height ? (line - r.height) / 2 : 0;
-          boxes.push({ top: r.top - top - spare, bottom: r.bottom - top + spare });
+          const tall = r.height / k, spare = line > tall ? (line - tall) / 2 : 0;
+          boxes.push({ top: (r.top - top) / k - spare, bottom: (r.bottom - top) / k + spare });
         }
       } else if (child.nodeType === 1){
         if (ANSWERED_SEEN.has(child.tagName.toUpperCase())){
           const r = child.getBoundingClientRect();
-          if (r.height) boxes.push({ top: r.top - top, bottom: r.bottom - top });
+          if (r.height) boxes.push({ top: (r.top - top) / k, bottom: (r.bottom - top) / k });
         } else walk(child);
       }
     }
@@ -3577,6 +3585,11 @@ function sentSnapshot(node, badges){
   if (plain) copy.style.whiteSpace = "pre-wrap";
   return copy;
 }
+// the scale the page draws its card, its ticket list and its box at, for a
+// measure read off the window and written back in their own pixels: the Mac's
+// pages name it (cardScale, the stage's), and a page that names none draws
+// them at 1
+function cardScaleNow(){ return typeof cardScale === "function" ? cardScale() || 1 : 1; }
 function sentScale(node, rect){
   return { x:node.offsetWidth ? rect.width / node.offsetWidth : 1,
     y:node.offsetHeight ? rect.height / node.offsetHeight : 1 };
@@ -5545,14 +5558,16 @@ function turnParts(el){
 // one still picture of one piece, laid in the sheet where the piece stands, shift
 // further down. the answer's scroller keeps the depth its foot is cut to, and a
 // picture never starts arriving or printing again
+// the window's pixels are measured and the card's own are written, so each is
+// divided by the scale the card is drawn at (turn.k, turnSheet)
 function turnPicture(el, node, turn, shift){
-  const r = node.getBoundingClientRect();
+  const r = node.getBoundingClientRect(), k = turn.k || 1;
   const copy = node.cloneNode(true);
   copy.style.position = "absolute";
-  copy.style.top = (r.top + shift - turn.top) + "px";
-  copy.style.left = (r.left - turn.left) + "px";
-  copy.style.width = r.width + "px";
-  copy.style.height = r.height + "px";
+  copy.style.top = (r.top + shift - turn.top) / k + "px";
+  copy.style.left = (r.left - turn.left) / k + "px";
+  copy.style.width = r.width / k + "px";
+  copy.style.height = r.height / k + "px";
   copy.style.margin = "0";
   if (node === el.replyview)
     copy.style.setProperty("--boxband", (typeof boxBand === "function" ? boxBand(node, el.pendwrap) : 0) + "px");
@@ -5582,11 +5597,12 @@ function turnSheet(el, turn){
   const at = parts.region.getBoundingClientRect(), sr = el.sentwrap.getBoundingClientRect();
   const shown = parts.before.filter(node => node && node.getBoundingClientRect().height);
   const top = el.replyview ? at.top : Math.min(...shown.map(node => node.getBoundingClientRect().top));
-  Object.assign(turn, { mode: "glide", top, left: at.left, from: sr.top });
+  const k = cardScaleNow();
+  Object.assign(turn, { mode: "glide", top, left: at.left, from: sr.top, k });
   const sheet = h("div", "turnsheet");
   sheet.setAttribute("aria-hidden", "true");
-  sheet.style.top = (top - at.top) + "px";
-  sheet.style.height = (sr.bottom - top) + "px";
+  sheet.style.top = (top - at.top) / k + "px";
+  sheet.style.height = (sr.bottom - top) / k + "px";
   const page = h("div", "turnpage");
   const pictures = shown.map(node => [node, turnPicture(el, node, turn, 0)]);
   page.append(...pictures.map(([, copy]) => copy));
@@ -5619,7 +5635,7 @@ function turnGo(el, turn){
   turn.page.prepend(...fresh);
   void turn.page.offsetWidth;   // the sheet stands as the reader left it before it moves
   turn.page.classList.add("gliding");
-  turn.page.style.transform = "translate3d(0, " + (-lift) + "px, 0)";
+  turn.page.style.transform = "translate3d(0, " + (-lift / (turn.k || 1)) + "px, 0)";
   // the sent bubbles are on their way to being the panel over the answer, which
   // carries no word: their marks fade out on the way up, and a bubble still
   // faded takes its full grey and ink with it. the seat's picture also gives
