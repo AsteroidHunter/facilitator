@@ -61,35 +61,35 @@ test('the settings squid is an embedded PNG of the new logo cut to its bounds', 
   assert.equal(images.length, 1);
   assert.match(images[0][1], /^data:image\/png;base64,[A-Za-z0-9+/=]+$/);
   assert.doesNotMatch(button[1], /srcset=|\/m-splash-squid\.png/);
-  const pixels = decodePNG(Buffer.from(images[0][1].split(',')[1], 'base64'), [128, 120]);
-  // assets/facilitator_logo_blank_v0.3.png cropped to the squid (110,120, 1969 by 1847) and
-  // resized with Lanczos to 128x120, lossless: no redraw, recolouring or quantization. The
+  const pixels = decodePNG(Buffer.from(images[0][1].split(',')[1], 'base64'), [121, 120]);
+  // assets/facilitator_logo_blank_v0.3.png cropped to the squid (17,25, 1977 by 1960) and
+  // resized with Lanczos to 121x120, lossless: no redraw, recolouring or quantization. The
   // crop is checked here against an area average of the source, which a Lanczos resize
   // follows to within a few levels on average.
-  const source = decodePNG(readFileSync(path.join(__dirname, '..', 'assets', 'facilitator_logo_blank_v0.3.png')), [2160, 2160]);
-  const ink = inkBounds(source, 2160, 2160);
-  assert.deepEqual(ink, { x: 110, y: 120, w: 1969, h: 1847 }, 'the squid\'s bounds in the source moved');
+  const source = decodePNG(readFileSync(path.join(__dirname, '..', 'assets', 'facilitator_logo_blank_v0.3.png')), [2017, 2002]);
+  const ink = inkBounds(source, 2017, 2002);
+  assert.deepEqual(ink, { x: 17, y: 25, w: 1977, h: 1960 }, 'the squid\'s bounds in the source moved');
   let total = 0;
-  for (let y = 0; y < 120; y++) for (let x = 0; x < 128; x++) {
-    const sx0 = ink.x + Math.floor(x * ink.w / 128), sx1 = ink.x + Math.max(Math.floor((x + 1) * ink.w / 128), Math.floor(x * ink.w / 128) + 1);
+  for (let y = 0; y < 120; y++) for (let x = 0; x < 121; x++) {
+    const sx0 = ink.x + Math.floor(x * ink.w / 121), sx1 = ink.x + Math.max(Math.floor((x + 1) * ink.w / 121), Math.floor(x * ink.w / 121) + 1);
     const sy0 = ink.y + Math.floor(y * ink.h / 120), sy1 = ink.y + Math.max(Math.floor((y + 1) * ink.h / 120), Math.floor(y * ink.h / 120) + 1);
     const sum = [0, 0, 0, 0]; let n = 0;
     for (let yy = sy0; yy < sy1; yy++) for (let xx = sx0; xx < sx1; xx++) {
-      const o = (yy * 2160 + xx) * 4, a = source[o + 3] / 255;
+      const o = (yy * 2017 + xx) * 4, a = source[o + 3] / 255;
       sum[0] += source[o] * a; sum[1] += source[o + 1] * a; sum[2] += source[o + 2] * a; sum[3] += source[o + 3]; n++;
     }
-    const o = (y * 128 + x) * 4, a = pixels[o + 3] / 255;
+    const o = (y * 121 + x) * 4, a = pixels[o + 3] / 255;
     total += Math.abs(pixels[o] * a - sum[0] / n) + Math.abs(pixels[o + 1] * a - sum[1] / n) + Math.abs(pixels[o + 2] * a - sum[2] / n) + Math.abs(pixels[o + 3] - sum[3] / n);
   }
-  assert.ok(total / (128 * 120 * 4) < 3, 'the embedded squid is not the new logo: mean difference ' + total / (128 * 120 * 4));
+  assert.ok(total / (121 * 120 * 4) < 3, 'the embedded squid is not the new logo: mean difference ' + total / (121 * 120 * 4));
   // and it is the squid cut to its bounds: ink touches all four edges
-  const edge = inkBounds(pixels, 128, 120);
-  assert.ok(edge.x <= 1 && edge.y <= 1 && edge.x + edge.w >= 127 && edge.y + edge.h >= 119, 'the cut leaves empty margin: ' + JSON.stringify(edge));
+  const edge = inkBounds(pixels, 121, 120);
+  assert.ok(edge.x <= 1 && edge.y <= 1 && edge.x + edge.w >= 120 && edge.y + edge.h >= 119, 'the cut leaves empty margin: ' + JSON.stringify(edge));
 });
 
 test('the settings squid keeps its size, accessible button and click action', () => {
   assert.match(page, /<button id="setbtn" class="dockbtn round qn-glass" type="button" title="Settings" aria-label="Settings"><span class="squidmark" aria-hidden="true">/);
-  assert.match(page, /#dock \.squidmark\{[^}]*height:calc\(30 \* var\(--u\)\); aspect-ratio:128 \/ 120/);
+  assert.match(page, /#dock \.squidmark\{[^}]*height:calc\(30 \* var\(--u\)\); aspect-ratio:121 \/ 120/);
   assert.match(page, /#dock \.squidmark img\{display:block; width:100%; height:100%\}/);
   let click, opened;
   const settings = {};
