@@ -1218,7 +1218,8 @@
      under the bar is at the foot, and the top has the ticket list's plain one */
   #mbface{display:none; --mb-inset:calc(16 * var(--u));
     --mb-x:calc(17 * var(--u)); --mb-gap:calc(6.5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u));
-    --mb-lead:calc(6 * var(--u)); --mb-round:calc(14 * var(--u))}
+    --mb-lead:calc(6 * var(--u)); --mb-round:calc(14 * var(--u));
+    --mb-seat:calc(1.5 * var(--mb-gap) + .5 * var(--edge))}
   /* the box is dressed as the board's is (#magicbox, index.html): the card's
      white face, its edge line and corners twice the card's 7px (--mb-round), and its shadow, here the faint
      one the board's box wears while its card is the one being worked in, which
@@ -1232,6 +1233,12 @@
   body.lowered #mbface{box-shadow:none}
   #mbface .mbbar::after{display:none}
   #mbface .mbbar{border-radius:0 0 calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge))}
+  /* the cross stands half as far again from the box's side and foot as the
+     board's does: the whole of its offset from the box's outer edge (--mb-gap
+     and the edge line) times 1.5, i.e. --mb-seat from the inside of the line.
+     the bar keeps its height, and the cross rises within it */
+  #mbface .mbbar{padding-right:var(--mb-seat)}
+  #mbface .mbclose{top:calc(var(--mb-gap) - var(--mb-seat))}
   #mbface .mbbody{margin:var(--mb-air) 0 0; border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
   #mbface .mbbody[data-kind="image"]{margin:0}
   #mbface .mbtext{padding:var(--mb-inset) var(--mb-inset) var(--mb-lead)}
@@ -8110,7 +8117,7 @@ function drawerSwapFirstFrame(playing){
   deselect = function(){ deselectCard(); phoneMagicSync(); };
   openDrawer = function(){ drawerFace(false); openList(); };
   // how much further than its air a full list's window reaches down, so its foot
-  // stands GAP_BELOW of the gap above over the card (place, below): a bottom
+  // stands GAP_BELOW.list of the gap above over the card (place, under): a bottom
   // margin on the list itself, the sheet's own (--list-air) and this further
   let listReach = 0;
   const reachList = px => {
@@ -8138,7 +8145,7 @@ function drawerSwapFirstFrame(playing){
   // above. the card goes down no further than the room, as before, so
   // the box is never taller than reaches A over the card's top at its lowest
   // (phoneMagicCap): a longer one scrolls inside it. the gap below is then made
-  // GAP_BELOW of A, for both faces at every length, with the top and A left
+  // GAP_BELOW of A (the list's share and the box's own), for each face at every length, with the top and A left
   // as they are: what the face shows reaches further down. a box or a list
   // that shows all it holds cannot, so the card comes up to it; a long box is
   // let be taller, and a full list's window reaches further (listReach), with
@@ -8152,8 +8159,9 @@ function drawerSwapFirstFrame(playing){
   // tickets scroll in, where they fade out. that end stands over the card too,
   // so a full list is lifted to equal gaps as a short one is
   const NOTCH_GAP = 12;
-  // the gap below as a share of the gap above: 12% less, the owner's
-  const GAP_BELOW = 0.88;
+  // the gap below as a share of the gap above, for each face: the box 12% less,
+  // the list a fifth less than that (0.88 x 0.8)
+  const GAP_BELOW = { list: 0.704, box: 0.88 };
   // how far under the drawer's top its first mark starts, in the page's px as it
   // is laid out (the same on every phone): the top of "Doing" and the section
   // arrows for the list (read off the screens of both phones, 14.86 and 14.88),
@@ -8210,7 +8218,7 @@ function drawerSwapFirstFrame(playing){
     return { foot, spare, end, full };
   };
   // where the drawer stands with the face it has: its lift; the spare room
-  // under what it shows that puts the card's top GAP_BELOW of A under it
+  // under what it shows that puts the card's top GAP_BELOW (the face's) of A under it
   // (listSlack); for a full list how much further its window reaches
   // (listReach); and with either face the most the box may be tall: from its
   // top edge to that gap over the card's top with the card as low as it goes
@@ -8224,18 +8232,19 @@ function drawerSwapFirstFrame(playing){
       const card = pageTop + listRoom - list.spare;
       lift = Math.max(0, (top + DRAWN_TOP.list - notch - (card - top - list.foot)) / 2);
     }
-    const gap = top + DRAWN_TOP.list - lift - notch, below = GAP_BELOW * gap, low = pageTop + listRoom;
+    const gap = top + DRAWN_TOP.list - lift - notch, below = GAP_BELOW.box * gap, low = pageTop + listRoom;
     const boxLift = lift - (DRAWN_TOP.list - DRAWN_TOP.box);
     const most = Math.max(0, low - below - (top - boxLift));
     if (!box){
+      const under = GAP_BELOW.list * gap;
       if (!(list.foot > 0)) return { lift, slack: list.spare, most, reach: 0 };
       // the list as it stands, lifted: a full one's window reaches down to the
       // gap over the card at its lowest, or to its last ticket if that comes
       // first; the card stands the gap under whatever it then shows
       const drawn = top - lift, fills = list.full > list.end;
-      const reach = fills ? Math.max(0, low - below - (drawn + list.end)) : 0;
+      const reach = fills ? Math.max(0, low - under - (drawn + list.end)) : 0;
       const seen = fills ? Math.min(list.full, list.end + reach) : list.foot;
-      return { lift, slack: Math.min(listRoom, Math.max(0, low - (drawn + seen) - below)), most, reach };
+      return { lift, slack: Math.min(listRoom, Math.max(0, low - (drawn + seen) - under)), most, reach };
     }
     const foot = phoneMagicFoot();
     if (!(foot > 0)) return { lift: boxLift, slack: null, most };

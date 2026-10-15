@@ -338,6 +338,12 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
     assert.ok(height < 34, where + ": the box's bar is no shorter than the card's");
     assert.ok(x >= 10 + 2 * 3, where + ": the seat leaves under 3px about the 10px mark");
   }
+  // the phone's cross stands half as far again from the box's side and foot, in the page's own
+  // units, with the bar's height as it was; the board's cross is left where it is
+  assert.match(own, /--mb-seat:calc\(1\.5 \* var\(--mb-gap\) \+ \.5 \* var\(--edge\)\)/);
+  assert.match(phone, /#mbface \.mbbar\{padding-right:var\(--mb-seat\)\}/);
+  assert.match(phone, /#mbface \.mbclose\{top:calc\(var\(--mb-gap\) - var\(--mb-seat\)\)\}/);
+  assert.ok(!/--mb-seat/.test(sheet + html), "the board's cross is moved");
   // the line: the ticket list's under its section names, word for word, in
   // each page (#tikhead::after): the card's hairline as a top edge of no
   // height, across the whole width, taking no touch
@@ -1500,7 +1506,7 @@ test("the drawer's lift is worked out before any run and every run carries it, s
   assert.ok(!/setProperty\("--tik-lift", at\.lift/.test(page), "the lift is written after the drop again");
 });
 
-test("a full list is lifted as a short one is, and the gap under either face is .88 of the gap over it at every length", () => {
+test("a full list is lifted as a short one is, and the gap under the list is .704 of the gap over it and under the box .88, at every length", () => {
   const { ctx, tickets, pageEl, notch, box, parts } = phoneBoxScript(read("m.html"));
   const lift = () => { ctx.fitList(true); return ctx.listLiftAt().toFixed(2) + "px"; };
   const tiklist = parts.tiklist;
@@ -1513,19 +1519,20 @@ test("a full list is lifted as a short one is, and the gap under either face is 
   ctx.spareRoom = 0; parts.listEnd = 380;
   ctx.drawerPane = () => section(500, 380);
   assert.equal(lift(), "12.45px");
-  // the card stays at its lowest and the window reaches .12 of A further down, so its foot is
-  // .88 of A over the card: 440 - .88 * 22.45 - (50 - 12.45 + 380) = 2.694
+  // the card stays at its lowest and the window reaches .296 of A further down, so its foot is
+  // .704 of A over the card (the list's share, a fifth under the box's .88):
+  // 440 - .704 * 22.45 - (50 - 12.45 + 380) = 6.645
   assert.ok(Math.abs(ctx.listSlack()) < 1e-9, "the card at its lowest under a full list");
   const reach = parseFloat(tiklist.style.marginBottom.match(/- ([\d.]+)px\)$/)[1]);
-  assert.ok(Math.abs(reach - .12 * 22.45) < .01, `the list's reach ${reach}`);
+  assert.ok(Math.abs(reach - .296 * 22.45) < .01, `the list's reach ${reach}`);
   assert.equal(lift(), "12.45px", "read again with the reach on, the top does not move");
   // a short section is read as before, its last ticket over the window's foot, and lifted as
-  // before; the card comes up .12 of A = 28.95 from where it stood: 7 + .12 * 28.95 spare
+  // before; the card comes up .296 of A = 28.95 from where it stood: 7 + .296 * 28.95 spare
   ctx.spareRoom = 7; parts.listEnd = 1e9;
   ctx.drawerPane = () => section(360);
   assert.equal(lift(), "5.95px");
   const shortSlack = ctx.listSlack();
-  assert.ok(Math.abs(shortSlack - (7 + .12 * 28.95)) < 1e-9, `the card .88 of A under a short list: ${shortSlack}`);
+  assert.ok(Math.abs(shortSlack - (7 + .296 * 28.95)) < 1e-9, `the card .704 of A under a short list: ${shortSlack}`);
   assert.equal(tiklist.style.marginBottom, "", "a short list reaches no further");
   // the box out over the full list, with words far taller than the drawer: its top edge at the
   // list's first mark (50 + 14.9 - 12.45 = 52.45), and its height what leaves .88 of A = 22.45
