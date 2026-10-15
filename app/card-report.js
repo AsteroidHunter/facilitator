@@ -18,6 +18,8 @@
   const TICK = 1000;   // how often the freeze watchdog is due
   const LATE = 2000;   // a tick later than this means the thread was blocked
   const ASLEEP = 10000; // the wall clock this far ahead of the page's own means sleep
+  const MINUTE = 60000; // how far back the watchdog's largest lateness looks
+  const ERROR_CHARS = 100; // the latest error's message, cut short to keep the phone's note small
 
   let page = null;                 // "board", "phone" or "page"; null until started
   let client = "other";            // the kind of window this page is open in
@@ -25,6 +27,8 @@
   let doing = "idle";              // the one word the page last said it was doing
   let freezes = 0;                 // lateness is an event, not a kind: each is its own
   let incidents = null;            // the phone's recent history, only in memory
+  const ticks = [];                // the watchdog's last minute: [when, how late] per tick
+  let lastError = null;            // the page's latest thrown error: message, file, line, when
   const queued = new Map();        // key -> the one report for that key, and its count
   const notices = [];              // notification reports the board has not taken yet
   let noticeBusy = false;          // one notification request at a time
@@ -93,6 +97,12 @@
     if (incidents) incidents.problem(kind, message);
     const file = cut(detail.file);
     const line = Number(detail.line) || 0;
+    // the latest thrown thing, kept in memory for the phone's last breath note.
+    // A failed request and a late timer are not errors of the page's own
+    if (kind !== "fetch" && kind !== "slow") {
+      lastError = { msg: message.slice(0, ERROR_CHARS), file: file ? routeOf(file).slice(0, 60) : "",
+                    line: line, at: Date.now() };
+    }
     // two throws from the same line are one thing that is wrong; two freezes in
     // a row are two freezes, so lateness gets a key of its own every time
     const key = kind === "slow" ? "slow|" + (++freezes)
@@ -174,6 +184,10 @@
       const late = now - due;
       const slept = (Date.now() - wall) - late;
       const skip = away || document.hidden || slept > ASLEEP;
+      // the lateness of every tick, kept for a minute: one pair per second, and
+      // a tick the page was away for counts as on time
+      ticks.push([now, skip ? 0 : Math.max(0, Math.round(late))]);
+      while (ticks.length && now - ticks[0][0] > MINUTE) ticks.shift();
       due = now + TICK;
       wall = Date.now() + TICK;
       away = false;
@@ -239,6 +253,18 @@
   // note, which has to say which window wrote it
   window.reportWho = function () {
     return { window: windowId, doing: doing };
+  };
+
+  // what the watchdog and the error listener know right now, for the same note:
+  // how late the latest tick ran, the largest lateness in the last minute (both
+  // in ms, 0 when the thread was free), and the page's latest error if it has
+  // had one. Read from memory; nothing here runs until the note asks
+  window.reportPulse = function () {
+    const now = performance.now();
+    let worst = 0;
+    for (const tick of ticks) if (now - tick[0] <= MINUTE && tick[1] > worst) worst = tick[1];
+    return { late: ticks.length ? ticks[ticks.length - 1][1] : 0, lateMax: worst,
+             error: lastError };
   };
 
   // What the phone says about its notifications when it opens or comes back:

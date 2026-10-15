@@ -6134,15 +6134,24 @@ for (const type of ["pointerdown", "touchstart", "keydown", "input"]){
 
 // ---- the last breath ----------------------------------------------------------
 // developer mode only. while the page is on screen, one small record in
-// localStorage is written over every ten seconds: when, the card open, the doing
-// word, whether a bubble merge is running, and this load's window id. hiding or
-// closing the page marks it closed. a page that starts and finds another window's
-// record never marked closed was stopped while on screen, and says so once. if
-// the notes stop soon after the last send the page's own script froze; if they
-// kept coming until the app was put away it was not the script. nothing runs per
-// frame: one timer and one write
-const BREATH_KEY = "phoneLastBreath", BREATH_EVERY = 10000;
-let breathTimer = 0, breathLive = false;
+// localStorage is written over every three seconds: when, the card open, the
+// doing word, whether a bubble merge is running, this load's window id, how late
+// the page's own timer was running (the freeze watchdog's latest and its largest
+// in the last minute), the kind and time of the last tap or key the page
+// handled, and the page's last error (message, file, line). hiding or closing the
+// page marks it closed. a page that starts and finds another window's record
+// never marked closed was stopped while on screen, and says so at once, through
+// the reporter's immediate path rather than at the next hide. a late timer in the
+// last note means something was blocking the page, and since when; a free timer
+// and then silence means the page stopped between two notes. nothing runs per
+// frame: one timer and one write. a tap or key costs a time and a kind in memory;
+// what was typed is never read
+const BREATH_KEY = "phoneLastBreath", BREATH_EVERY = 3000;
+let breathTimer = 0, breathLive = false, breathInput = "", breathInputAt = 0;
+for (const [type, kind] of [["pointerdown", "tap"], ["keydown", "key"]]){
+  document.addEventListener(type, () => { breathInput = kind; breathInputAt = Date.now(); },
+    { capture: true, passive: true });
+}
 function breathWrite(closed){
   if (!phoneDeveloperMode){
     // switched off: take our record away and write nothing more
@@ -6151,10 +6160,14 @@ function breathWrite(closed){
   }
   try {
     const who = typeof reportWho === "function" ? reportWho() : { window: "", doing: "" };
+    const pulse = typeof reportPulse === "function" ? reportPulse() : { late: 0, lateMax: 0, error: null };
     let merging = false;
     for (const id in els) if (els[id] && els[id].sentMerge){ merging = true; break; }
-    localStorage.setItem(BREATH_KEY, JSON.stringify({ at: Date.now(), box: selectedId || "",
-      doing: who.doing, merging, win: who.window, closed: !!closed }));
+    const note = { at: Date.now(), box: selectedId || "", doing: who.doing, merging,
+      win: who.window, closed: !!closed, late: pulse.late, lateMax: pulse.lateMax };
+    if (breathInput) note.input = { kind: breathInput, at: breathInputAt };
+    if (pulse.error) note.err = pulse.error;
+    localStorage.setItem(BREATH_KEY, JSON.stringify(note));
     breathLive = true;
   } catch (_) {}
 }
@@ -6168,6 +6181,10 @@ function breathStop(){
   breathTimer = 0;
   breathWrite(true);
 }
+// how long before the last note a thing happened, in words; empty if it never did
+function breathSince(at, note){
+  return typeof at === "number" && at > 0 ? Math.max(0, Math.round((note - at) / 1000)) + " s before the last note" : "";
+}
 function breathFind(){
   if (!phoneDeveloperMode) return;
   try {
@@ -6177,11 +6194,25 @@ function breathFind(){
     if (found.win === who.window) return;
     localStorage.removeItem(BREATH_KEY);
     const ago = Math.max(0, Date.now() - found.at);
-    if (typeof reportProblem === "function")
-      reportProblem("slow", new Error("the page stopped while on screen: window " + found.win
-        + (found.box ? ", card " + found.box : "") + ", last note written " + Math.round(ago / 1000)
-        + " s before this page started"),
-        { late: ago, doing: String(found.doing || "idle") + (found.merging ? ", merge running" : "") });
+    const ms = n => typeof n === "number" && isFinite(n) ? Math.round(n) + " ms" : "unknown";
+    const input = found.input && typeof found.input === "object" ? found.input : null;
+    const err = found.err && typeof found.err === "object" ? found.err : null;
+    const inputWords = input && breathSince(input.at, found.at)
+      ? "last " + (input.kind === "key" ? "key" : "tap") + " handled " + breathSince(input.at, found.at)
+      : "no tap or key handled yet";
+    const errWords = err && err.msg
+      ? "last error " + JSON.stringify(String(err.msg).slice(0, 100)) + " at " + String(err.file || "?").slice(0, 60)
+        + ":" + (Number(err.line) || 0) + (breathSince(err.at, found.at) ? ", " + breathSince(err.at, found.at) : "")
+      : "no error yet";
+    const message = ("the page stopped while on screen: window " + found.win
+      + (found.box ? ", card " + found.box : "") + ", last note written " + Math.round(ago / 1000)
+      + " s before this page started; its timer was " + ms(found.late) + " late at that note and "
+      + ms(found.lateMax) + " late at worst in the minute before; " + inputWords + "; " + errWords).slice(0, 500);
+    const report = { kind: "slow", message, file: "", line: 0, box: String(found.box || "").slice(0, 64),
+      late: ago, doing: String(found.doing || "idle") + (found.merging ? ", merge running" : ""), count: 1 };
+    // at once, not at the next hide: a page this stuck may never be hidden
+    if (typeof reportNotice === "function") reportNotice(report);
+    else if (typeof reportProblem === "function") reportProblem("slow", new Error(message), report);
   } catch (_) {}
 }
 breathFind();
