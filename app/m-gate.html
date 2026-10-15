@@ -42,29 +42,11 @@
   .gate{width:min(90%,306px); text-align:center}
 
   /* ---- the badge above the card: transparent squid, name, version --------- */
-  /* the squid is as tall as the text beside it: its drawn top level with the top
-     of the F and its drawn bottom level with the bottom of the version, worked out
-     from --name and --ver (Inter's caps .7275em tall, the line's middle .364em
-     under the baseline; the mono's middle .3555em under it, digits dipping .016em
-     below it) so the match holds at any size. the picture (190 by 192) has room
-     round the squid's drawn body (138 by 170 at 26, 11), so --s is one picture
-     pixel at the size that makes the body --ink tall, and the margins take that
-     room off again. the row keeps the --room it had when the squid was its tallest
-     piece, the text centred in it, so nothing below it moves; the squid takes no
-     height of its own: its top margin sets it at the F's top and its bottom
-     margin takes the rest back. the sums are good to a pixel; fitMark (below)
-     reads the F and the version as the phone drew them, which it snaps to whole
-     pixels, and hands --fit-ink and --fit-top in to make them exact */
-  .identity{--name:22px; --ver:12px; --room:64px; --copy:calc(1.1 * var(--name) + 4px + 1.4 * var(--ver));
-    display:flex; align-items:center; justify-content:center; gap:20.7px; margin-bottom:26px; min-height:var(--room)}
-  .identity img{--ink:var(--fit-ink, calc(.914 * var(--name) + 1.072 * var(--ver) + 4px));
-    --s:calc(var(--ink) / 170);
-    --top:var(--fit-top, calc((var(--room) - var(--copy)) / 2 + .186 * var(--name)));
-    flex:none; align-self:flex-start; width:calc(190 * var(--s)); height:calc(192 * var(--s));
-    margin:calc(var(--top) - 11 * var(--s)) calc(-26 * var(--s)) calc(-1 * (var(--top) + 181 * var(--s)))}
+  .identity{display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:26px}
+  .identity img{width:64px; height:64px; object-fit:contain}
   .identity-copy{text-align:left; display:flex; flex-direction:column; line-height:1.18}
-  .name{font:650 var(--name)/1.1 var(--inter)}
-  .version{font:var(--ver)/1.4 var(--mono); color:var(--sub); margin-top:4px}
+  .name{font:650 22px/1.1 var(--inter)}
+  .version{font:12px/1.4 var(--mono); color:var(--sub); margin-top:4px}
 
   /* the staged reveal: the identity fades in together, then the card and each
      step and the footer in turn, one every four tenths of a second */
@@ -149,7 +131,8 @@
             calc(24px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
   }
   body.login .gate{width:min(100%,385px); margin:auto; transform:translateY(-12px)}
-  body.login .identity{--room:62px; margin-bottom:28px}
+  body.login .identity{margin-bottom:28px}
+  body.login .identity img{width:62px; height:62px}
   .login-face{display:none}
   .login-face .card{
     padding-bottom:20px; border-color:var(--line); border-radius:8px;
@@ -223,49 +206,6 @@
   if (typeof installStartupImage === "function") installStartupImage(SPLASH_LOGO);
   const installed = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  // the squid stands as tall as the name and the version beside it, its drawn top
-  // level with the F's and its drawn bottom with the version's. the sheet's sums
-  // for it (.identity img) are good to a pixel; the phone sets text baselines on
-  // whole pixels, so the exact top of the F and bottom of the version are read here
-  // off two zero-size probes that stand on the lines they belong to, and go to the
-  // sheet as --fit-top (the F's top under the badge's top) and --fit-ink (down to
-  // the version's baseline, and the dip of a round digit below it). the F is drawn
-  // about half a device pixel past its outline, so the squid's top stands that much
-  // above the cap line. the same routine is the board's (index.html)
-  function fitMark(row, mark, name, ver){
-    const box = row.getBoundingClientRect();
-    if (!box.width) return;
-    const probe = (host, height) => {
-      const dot = document.createElement('i');
-      dot.style.cssText = 'display:inline-block; width:0; height:' + height;
-      host.appendChild(dot);
-      const at = dot.getBoundingClientRect();
-      dot.remove();
-      return at;
-    };
-    const px = 1 / devicePixelRatio, whole = v => Math.round(v / px) * px;
-    const cap = probe(name, CSS.supports('height', '1cap') ? '1cap' : '.7275em').height;
-    const top = whole(probe(name, '0').bottom) - cap - .5 * px;
-    const bottom = whole(probe(ver, '0').bottom) + .012 * parseFloat(getComputedStyle(ver).fontSize);
-    // the phone sets a picture's box on whole device pixels and draws the picture to
-    // fill it, so the picture (192 of its pixels tall, the squid's top 11 down and its
-    // bottom 181) is made a whole number of device pixels tall, whichever of the two
-    // nearest sizes lands the squid's bottom closer, and its top is put on one
-    const size = 192 * (bottom - top) / 170;
-    const best = [Math.floor(size / px), Math.ceil(size / px)].map(n => {
-      const s = n * px / 192, at = whole(top - 11 * s);
-      return { s, at, miss: Math.abs(at + 181 * s - bottom) };
-    }).sort((a, b) => a.miss - b.miss)[0];
-    mark.style.setProperty('--fit-top', (best.at + 11 * best.s - box.top) + 'px');
-    mark.style.setProperty('--fit-ink', (170 * best.s) + 'px');
-  }
-  {
-    const row = document.querySelector('.identity');
-    const fit = () => fitMark(row, row.querySelector('img'), row.querySelector('.name'), row.querySelector('.version'));
-    if (window.ResizeObserver) new ResizeObserver(fit).observe(row);
-    window.addEventListener('resize', fit);
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
-  }
   const showLogin = () => { document.body.classList.add('login'); document.getElementById('password').focus(); };
   if (installed) showLogin();
   else {
