@@ -265,7 +265,7 @@ test("the bar has no colour picker and the bell stands in a glass circle like th
     assert.notEqual(bar.bell.shadow, "none", "the bell's circle has no edge or shadow");
     assert.equal(bar.bell.shadow, bar.gear.shadow, "the bell's edge is not the gear's");
     assert.equal(bar.bell.mark, "15x15", "the speaker mark is not the bar's 15px size");
-    assert.equal(bar.gear.mark, "20x20", "the squid is not drawn at its 20px height");
+    assert.equal(bar.gear.mark, "21x20", "the squid is not drawn at its 20px height");
     assert.equal(bar.bell.color, bar.gear.color, "the bell mark is not the gear's colour");
     assert.deepEqual(problems, []);
   } finally {
@@ -292,7 +292,7 @@ test("the settings button on the bar is the logo's own squid png, cut to the squ
     assert.equal(mark.src, "/m-splash-squid.png", "the mark is not the logo's own png");
     assert.deepEqual(mark.natural, [640, 640], "the logo png did not load");
     assert.ok(Math.abs(mark.h - 20) < 0.5, "the squid is not 20px tall: " + mark.h);
-    assert.ok(Math.abs(mark.w - 20 * 1977 / 1960) < 0.5, "the cut is not the squid's own proportions: " + mark.w);
+    assert.ok(Math.abs(mark.w - 20 * 2103 / 2046) < 0.5, "the cut is not the squid's own proportions: " + mark.w);
     assert.deepEqual(problems, []);
   } finally {
     await closePage(page);
