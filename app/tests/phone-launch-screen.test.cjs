@@ -281,7 +281,7 @@ test("on the gate the painter paints this phone's picture from the squid alone",
   phone.run("installStartupImage(SPLASH_LOGO)");
   assert.equal(phone.images.length, 1);
   assert.equal(phone.images[0].src, "/m-splash-squid.png");
-  // the squid lands, taller than wide as the real one is
+  // a stand-in squid lands, taller than wide (the real file is square, 640 by 640)
   Object.assign(phone.images[0], { naturalWidth: 60, naturalHeight: 90 });
   phone.images[0].onload();
   assert.equal(phone.appended.length, 1, "no launch picture was put in the page's head");

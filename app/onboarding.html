@@ -73,8 +73,8 @@
   ::selection{background:#000; color:#fff}
 
   /* the squid mark, cut to the squid's own bounds */
-  .squidmark{display:block; height:20px; aspect-ratio:917 / 1126; overflow:hidden; flex:none}
-  .squidmark img{display:block; width:135.99%; max-width:none; height:auto; margin:-7.52% 0 0 -17.99%}
+  .squidmark{display:block; height:20px; aspect-ratio:1969 / 1847; overflow:hidden; flex:none}
+  .squidmark img{display:block; width:105.05%; max-width:none; height:auto; margin:-5.62% 0 0 -2.53%}
 
   /* the chips' base */
   .xbtn{flex:none; font:14px var(--mono); color:var(--sub); background:none; border:none;
@@ -563,7 +563,12 @@
   .obwelcome{display:flex; flex-direction:column; align-items:flex-start; text-align:left}
   .obbrand{display:flex; width:max-content; align-items:center; gap:.214em; margin:0 0 .4em;
     font:inherit; letter-spacing:-.02em; color:var(--ink)}
-  .obbrand .squidmark{height:.786em}
+  /* the squid is wider than the one before it, so its box keeps the old width
+     (917 / 1126) and the word stays where it was; the whole picture stands
+     centred in the box, its squid .786em tall as before */
+  .obbrand .squidmark{height:.786em; aspect-ratio:917 / 1126; overflow:visible; position:relative}
+  .obbrand .squidmark img{position:absolute; left:50%; top:50%; width:auto; height:111.99%; margin:0;
+    transform:translate(-50%, -50%)}
   .obbrandcopy{position:relative; display:inline-block}
   .obbrandname{display:block}
   .obversion{position:absolute; top:calc(100% - .036em); left:.036em;
