@@ -61,9 +61,8 @@
 (function () {
   const WEEKS = 53;
   const LEFT = 34, TOP = 20;                    // room for the day and month names
-  // a week column's width, as wide as the height allows, and never under this:
-  // the squares follow the box they are given, with no ceiling of their own
-  const MIN_STEP = 12;
+  // a week column's width, as wide as the height allows between these two
+  const MIN_STEP = 12, MAX_STEP = 32;
   // the height a chart is drawn to when its view has none of its own yet
   const VIEW_H = 200;
   // the scale: a warm grey for nothing, then four red-oranges, light to deep
@@ -211,7 +210,7 @@
   // height left over. The line is as wide as the heatmap and as tall as the view
   function geometry(h) {
     const height = Math.max(1, Math.round(Number(h) > 0 ? Number(h) : VIEW_H));
-    const step = Math.max(MIN_STEP, Math.floor((height - TOP - 2) / 7));
+    const step = Math.max(MIN_STEP, Math.min(MAX_STEP, Math.floor((height - TOP - 2) / 7)));
     const gap = step >= 20 ? 4 : 3, cell = step - gap;
     const rows = 7 * step - gap;
     const top = TOP + Math.max(0, Math.floor((height - TOP - rows) / 2));
@@ -507,7 +506,7 @@
       if (lane) lane.classList.add("dragging");
       unhover(el);
     }
-    d.box.scrollLeft = d.left - dx / zoomOf(d.box);
+    d.box.scrollLeft = d.left - dx;
     return true;
   }
   function letGo(el) {
@@ -549,16 +548,12 @@
     for (const n of el.querySelectorAll(".tk-guide, .tk-dot")) n.setAttribute("visibility", "hidden");
     for (const n of el.querySelectorAll(".tk-day.hot")) n.classList.remove("hot");
   }
-  // the window's pixels per the panel's own: the board draws home at its scale
-  // with a CSS zoom, and the pointer and the rects are the window's while the
-  // tip's place and the scroll are the panel's. 1 where nothing is zoomed
-  function zoomOf(el) { return el.currentCSSZoom || 1; }
   function place(el, tip, html, x, y) {
     tip.innerHTML = html;
     tip.hidden = false;
-    const box = el.getBoundingClientRect(), w = tip.offsetWidth, z = zoomOf(el);
-    tip.style.left = Math.max(0, Math.min((x - box.left) / z - w / 2, box.width / z - w)) + "px";
-    tip.style.top = ((y - box.top) / z - tip.offsetHeight - 10) + "px";
+    const box = el.getBoundingClientRect(), w = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(x - box.left - w / 2, box.width - w)) + "px";
+    tip.style.top = (y - box.top - tip.offsetHeight - 10) + "px";
   }
   function hover(el, e) {
     const drawn = el.tkModel, tip = el.querySelector(".tk-tip");
@@ -865,7 +860,7 @@
   }
 
   window.TokenWidgets = {
-    PALETTE, LINE, AVG_LINE, AVG_DASH, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
+    PALETTE, LINE, AVG_LINE, AVG_DASH, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP, MAX_STEP,
     compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,

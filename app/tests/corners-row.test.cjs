@@ -52,10 +52,8 @@ test("the house, speaker and squid are glass circles, and the pill a glass capsu
 });
 
 test("the row stands 1px lower under the same 40px bar, so the paper above and below it is even", () => {
-  // the inset and the bar's height are the 1440x900 layout's, at the Mac's one
-  // scale (--mac-scale, 1 at that size); the numbers below are the layout's own
-  const inset = parseFloat(tokens.match(/--app-inset:\s*calc\(([\d.]+)px \* var\(--mac-scale, 1\)\)/)[1]);
-  const barH = parseFloat(sheet.match(/--bar-h:\s*calc\(([\d.]+)px \* var\(--mac-scale\)\)/)[1]);
+  const inset = parseFloat(tokens.match(/--app-inset:\s*([\d.]+)px/)[1]);
+  const barH = parseFloat(sheet.match(/--bar-h:\s*([\d.]+)px/)[1]);
   const bar = rules("body.focus .bar");
   const [top, , foot] = decl(bar, "padding").split(" ").map(parseFloat);
   assert.equal(decl(bar, "padding"), "1px 0 6px");
@@ -63,12 +61,7 @@ test("the row stands 1px lower under the same 40px bar, so the paper above and b
   // the padding is shared out, not grown: the row's own 32px and the bar's height are what they were
   assert.equal(top + foot, 7);
   assert.equal(40 - (top + foot) - 1, 32, "the row is still 32px in a 40px bar with its 1px bottom row");
-  // the bar is drawn at the scale, so its margins are the inset (and the window's
-  // room either side of a stage at 1:1 or larger) over it, which zooms them back
-  assert.equal(decl(bar, "zoom"), "var(--mac-scale)");
-  assert.equal(decl(bar, "margin"), "calc(var(--app-inset) / var(--mac-scale)) " +
-    "calc((var(--stage-r, 0px) + var(--app-inset)) / var(--mac-scale)) 0 " +
-    "calc((var(--stage-l, 0px) + var(--app-inset)) / var(--mac-scale))");
+  assert.match(bar, /margin:var\(--app-inset\) var\(--app-inset\) 0/);
   assert.equal(barH, 41);
   // the pane and the stage do not move: the pane's top is still what the bar's height gives it
   assert.match(rules("body.focus #appframe"), /top:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\)/);

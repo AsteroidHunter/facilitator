@@ -48,22 +48,20 @@ function sides(value = '0') {
   const v = terms(value);
   return [v[0], v[1] || v[0], v[2] || v[0], v[3] || v[1] || v[0]];
 }
-const cssMath = vm.createContext({ max: Math.max, min: Math.min });
+const cssMath = vm.createContext({ max: Math.max });
 function length(value, vars, viewport, percent = 0) {
   let expr = value.replace(/var\((--[\w-]+)\)/g, (_, key) => {
     assert.ok(key in vars, 'missing length token: ' + key);
     return '(' + length(vars[key], vars, viewport, percent) + ')';
   }).replace(/calc\(/g, '(').replace(/([\d.]+)vw/g, (_, n) => String(n * viewport / 100))
     .replace(/([\d.]+)%/g, (_, n) => String(n * percent / 100)).replace(/px/g, '');
-  assert.match(expr, /^(?:[\d\s.+*/(),-]|min\(|max\()+$/);
+  assert.match(expr, /^[\d\s.+*/(),-]+$|^max\([\d\s.+*/(),-]+\)$/);
   return vm.runInContext(expr, cssMath);
 }
 function geometry(page, viewport, width, edge) {
   const pageSource = source(page);
   const holder = declarations(pageSource, page === 'index.html' ? 'body.focus #tickets' : '#tickets');
-  // the board's insets are the smaller of a share of the window and the same
-  // share of its 1440px stage (--cw)
-  const vars = { '--u': page === 'index.html' ? '1px' : '.985px', '--ch': '900px', '--cw': '1440px',
+  const vars = { '--u': page === 'index.html' ? '1px' : '.985px', '--ch': '900px',
     '--edge-drawn': edge + 'px', '--bar-mark': page === 'index.html' ? '10px' : '9.85px',
     '--bar-sq': page === 'index.html' ? '24px' : 'calc(28 * var(--u))',
     ...Object.fromEntries(Object.entries(holder).filter(([key]) => key.startsWith('--'))),

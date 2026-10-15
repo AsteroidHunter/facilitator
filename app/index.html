@@ -119,18 +119,9 @@
      over it holds the controls in glass pieces of their own (the bar's glass,
      below) and has no face, no line and no corners of its own.
      it sits under every layer of the page and takes no pointer, so nothing on
-     the canvas moves or stops answering. #stage keeps its own top at --bar-h.
-     the bar is the 1440 by 900 layout's bar at the Mac's one scale
-     (--mac-scale, fitStage), every length in it with it, and on a stage at
-     1:1 or larger it is laid over the stage's own span (--stage-l and
-     --stage-r, the window's room left and right of the stage), so its ends
-     stand over the board's edges as they do at 1440. its own lengths are in
-     its zoomed pixels, so a window length is divided by the scale */
+     the canvas moves or stops answering. #stage keeps its own top at --bar-h */
   body.focus .bar{
-    zoom:var(--mac-scale);
-    margin:calc(var(--app-inset) / var(--mac-scale))
-           calc((var(--stage-r, 0px) + var(--app-inset)) / var(--mac-scale)) 0
-           calc((var(--stage-l, 0px) + var(--app-inset)) / var(--mac-scale));
+    margin:var(--app-inset) var(--app-inset) 0;
     /* the bar keeps its 1px bottom row, clear, so the row the pane's top is
        laid on does not move */
     border-bottom-color:transparent; border-bottom-width:1px;
@@ -449,15 +440,12 @@
   body.focus.dragging, body.focus.dragging *{cursor:grabbing !important; user-select:none}
   /* the drawn window maps to the area under the bar; every region sits at its
      exact percentage from the excalidraw file (canvas height var --ch) */
-  /* the Mac's one scale: the window against the 1440 by 900 layout, never
-     under 1 (fitStage sets it; the stage itself also shrinks below 1440) */
-  :root{--mac-scale:1}
   body.focus{
-    --bar-h:calc(41px * var(--mac-scale));
+    --bar-h:41px;
     /* the app is a locked-ratio stage, sized to the largest rectangle in the
        16:10 to 16:9 band that fits the window, centered with neutral margin
        around it. shape the window however; the app never squishes. */
-    --cw:1440px; --ch:900px;   /* the design size; #stage scales it to the window */
+    --cw:1440px; --ch:900px;   /* fixed design size; #stage scales to fit */
     --ox:0px; --oy:0px;
     /* geometry from the ui_3 drawing, snapped 20260812: the stars sit at
        0.008*(n+0.5) columns and 0.0128*(m+0.5) rows, and every box edge uses
@@ -1293,15 +1281,10 @@
      clip, and the list stands on the paper with no box round it. 20260922,
      m807: the selected name no longer sits in a depressed pill; it is marked by
      weight and ink alone, and every name dips on press (see #tikhead .tvb below).
-     --line-gap is the clear air between a pressed name and the divider.
-     the side insets were written as shares of the window, which on the stage
-     is the wrong space once the stage grows with a larger window: they are the
-     smaller of that and the same share of the stage (--cw), which is the same
-     length at 1440 and below, and the stage's own above it */
+     --line-gap is the clear air between a pressed name and the divider */
   body.focus #tickets{
     --line-gap:6px;
-    --tik-inset-l:calc(min(0.7vw, var(--cw) * 0.007) + var(--edge-drawn));
-    --tik-inset-r:calc(min(0.6vw, var(--cw) * 0.006) + var(--edge-drawn));
+    --tik-inset-l:calc(0.7vw + var(--edge-drawn)); --tik-inset-r:calc(0.6vw + var(--edge-drawn));
     position:fixed; left:var(--tik-x); width:var(--tik-w);
     top:calc(var(--oy) + var(--ch)*var(--tik-y));
     height:calc(var(--ch)*var(--tik-h));
@@ -1469,7 +1452,7 @@
   body:is(.editmode, .choosing, .setopen) .bincan{display:none}
   /* past capacity the panel contains itself: internal scroll, no overhang */
   body.focus #tickets.scroll{overflow-y:auto; overflow-x:hidden}
-  #tickets.scroll .trow.on{width:auto; margin-right:min(0.6vw, var(--cw, 100vw) * 0.006);
+  #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
     border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
   /* the new-card plus (20261014): under the ticket list, centred on the rows. a
@@ -2790,10 +2773,8 @@
   #rail-dots{position:absolute; left:8%; right:26%; top:0; bottom:0;
     display:flex; align-items:center; justify-content:space-evenly}
   #rail-line > .dotk.goal{position:absolute; right:0; left:auto;
-    top:calc(50% - max(9px, min(0.72vw, var(--cw, 100vw) * 0.0072))/2); border-radius:0}   /* square, at the line's very end */
-  /* the dots' share of the window, as #tickets' insets: on the stage the
-     smaller of it and the same share of the stage */
-  .dotk{width:max(9px, min(0.72vw, var(--cw, 100vw) * 0.0072)); height:max(9px, min(0.72vw, var(--cw, 100vw) * 0.0072)); border-radius:50%;
+    top:calc(50% - max(9px, 0.72vw)/2); border-radius:0}   /* square, at the line's very end */
+  .dotk{width:max(9px, 0.72vw); height:max(9px, 0.72vw); border-radius:50%;
     border:var(--edge) solid var(--line);
     background:var(--paper); cursor:pointer; flex:none; transition:transform .15s}
   .dotk:hover{transform:scale(1.35)}
@@ -3320,12 +3301,8 @@
     body.focus #projshade, body.focus.projopen #projshade{transition-duration:0s}
   }
   #projmenu{display:none}
-  /* it stands at the bar's scale (--mac-scale), so its place, written in
-     window pixels (openProjMenu), and its cap on the window's height are
-     divided by it */
   body.focus #projmenu{display:flex; flex-direction:column; position:fixed; z-index:40; left:0; top:0;
-    zoom:var(--mac-scale);
-    box-sizing:border-box; min-width:220px; max-width:320px; max-height:calc(100vh / var(--mac-scale) - 60px);
+    box-sizing:border-box; min-width:220px; max-width:320px; max-height:calc(100vh - 60px);
     padding:6px; border-radius:14px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
     -webkit-user-select:none; user-select:none;
     visibility:hidden; opacity:0; transform:translateY(-4px) scale(.98); transform-origin:0 0;
@@ -3536,7 +3513,7 @@
     --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
     --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
     --home-b:calc(100vh - var(--app-inset));
-    --home-gap:calc(var(--sp-m) * 2 * var(--mac-scale));
+    --home-gap:calc(var(--sp-m) * 2);
     --home-w:calc((var(--home-r) - var(--home-l)) * .35);
     left:calc(var(--home-l) * .25 + var(--home-r) * .75 - var(--home-w) / 2);
     top:var(--home-t); width:var(--home-w); height:calc(var(--home-b) - var(--home-t));
@@ -3544,21 +3521,16 @@
   #home{display:none}
   body.focus.home #home{display:block; flex:0 1 calc((var(--home-b) - var(--home-t)) * .35);
     min-height:0; pointer-events:auto}
-  /* what the two boxes hold is drawn at the Mac's one scale: the token box
-     keeps its share of the frame and the chart is drawn to its height, so its
-     squares follow the box (home-widgets.js), and the limits are as tall as
-     their rows at the scale */
-  body.focus.home #homeplot{height:100%; --tk-panel-h:100%; zoom:var(--mac-scale)}
+  body.focus.home #homeplot{height:100%; --tk-panel-h:100%}
   #homelimits{display:none}
-  body.focus.home #homelimits:not([hidden]){display:block; position:relative; flex:none; pointer-events:auto;
-    zoom:var(--mac-scale)}
+  body.focus.home #homelimits:not([hidden]){display:block; position:relative; flex:none; pointer-events:auto}
   /* the two stand on the page with no boxes, and one line runs between them,
      drawn from the screenshot on the card (20261013): 1px in the board's line
      colour, reaching 3px past the column on each side, and 39% of the way down
      the gap, so the words above it stand nearer it than the heading below.
      it goes with the limits, so no line stands under the tokens alone */
   body.focus.home #homelimits:not([hidden])::before{content:""; position:absolute; left:-3px; right:-3px;
-    top:calc(var(--home-gap) / var(--mac-scale) * -.61); height:calc(1px / var(--mac-scale)); background:var(--line); pointer-events:none}
+    top:calc(var(--home-gap) * -.61); height:1px; background:var(--line); pointer-events:none}
   /* a thin vertical line at the exact horizontal centre of the same frame, 70%
      of its height and centred in it, so it touches neither edge. it is drawn in
      the board's own line colour (the one under the tab names) at its hairline
@@ -3587,18 +3559,9 @@
     left:var(--home-l); top:var(--home-t);
     width:calc((var(--home-r) - var(--home-l)) * .5);
     height:calc(var(--home-b) - var(--home-t))}
-  /* the stack is the 1440x900 home's at the Mac's one scale (--mac-scale), and
-     everything in it, the wordmark, the names and the well, at the scale. across
-     it is as wide as at 1440 at that scale, and on a window wider than 16:10
-     the same share of its half that it is at 1440 (480 of the half's 714), as
-     the right column is a share of the frame, so the two halves keep their
-     balance. the window lengths in it are its zoomed pixels, so they are
-     divided by the scale */
-  body.focus.home #nphome{max-width:100%; max-height:100%; pointer-events:auto;
-    zoom:var(--mac-scale); width:min(max(30rem, calc(100% * 480 / 714)), calc(88vw / var(--mac-scale)))}
-  body.focus.home #nprows{max-height:calc(56vh / var(--mac-scale))}
+  body.focus.home #nphome{max-width:100%; max-height:100%; pointer-events:auto}
   body.focus.home #nppanel{display:flex; flex-direction:column;
-    min-height:min(330px, calc(100vh / var(--mac-scale) - 300px))}
+    min-height:min(330px, calc(100vh - 300px))}
   /* on home the list stands in the pill's list's own glass: the page puts
      .qn-glass on it while home is up (the face, the lighting and the blur),
      its shadow stack is the one the pill's list wears (the bar's glass,
@@ -3766,16 +3729,6 @@
   #onboard{position:fixed; inset:0; width:100%; height:100%; margin:0; padding:0; border:none;
     z-index:2147483647; background:transparent; transition:opacity .18s ease}
   #onboard.gone{opacity:0; pointer-events:none}
-  /* the Mac's settings page stands as shares of the window (card-tokens.css),
-     and what it holds is the 1440x900 page's at the page's own width against
-     the 756px it is at 1440 (--sp-scale, fitStage): its column of sections, its
-     fields, its type and its gaps all keep the share of the page across that
-     they have at 1440, so a field stays beside its label. never under 1, where
-     the page goes narrow instead. the phone's drawer wears .sp-mac too and is
-     not this page */
-  :root{--sp-scale:1}
-  body.focus .sp-veil .sp-page.sp-mac{border-radius:calc(9px * var(--sp-scale))}
-  body.focus .sp-veil .sp-page.sp-mac > *{zoom:var(--sp-scale)}
   /* the settings page's Bin: the line saying how long cards are kept, then a
      row to a deleted card, its title over its project and when it was
      deleted, and Restore on the right */
@@ -4549,10 +4502,10 @@ function projOpen(){ return document.body.classList.contains("projopen"); }
 function openProjMenu(){
   if (projOpen() || LOCKED || !lastState) return;
   renderTabs(lastState);
-  // just under the pill, from its left edge, in the list's own zoomed pixels
+  // just under the pill, from its left edge
   const r = projPill.getBoundingClientRect();
-  projMenu.style.left = Math.max(0, r.left) / macScale + "px";
-  projMenu.style.top = r.bottom / macScale + 6 + "px";
+  projMenu.style.left = Math.max(0, r.left) + "px";
+  projMenu.style.top = (r.bottom + 6) + "px";
   document.body.classList.add("projopen");
   projPill.setAttribute("aria-expanded", "true");
   projChev.setAttribute("aria-expanded", "true");
@@ -4670,15 +4623,14 @@ function moveRow(y){
   const raw = y - t.y;
   // the held row pins at the ends of the list
   const dy = Math.max(r[0].top - r[i].top, Math.min(r[r.length - 1].bottom - r[i].bottom, raw));
-  // the rects and the pointer are window pixels, the list's moves its own zoomed ones
-  t.el.style.transform = "translateY(" + dy / macScale + "px)";
+  t.el.style.transform = "translateY(" + dy + "px)";
   const center = r[i].top + r[i].height / 2 + raw;
   let slot = 0;
   for (let j = 0; j < r.length; j++)
     if (j !== i && center > r[j].top + r[j].height / 2) slot++;
   if (slot === t.slot) return;
   t.slot = slot;
-  const shift = r[i].height / macScale;   // the rows stand edge to edge
+  const shift = r[i].height;   // the rows stand edge to edge
   for (let j = 0; j < t.rows.length; j++){
     if (j === i) continue;
     const move = j < i ? (j >= slot ? shift : 0) : (j <= slot ? -shift : 0);
@@ -5776,12 +5728,11 @@ function boxHasSelection(el){
 // snap reads the same rounded number, so the answer's last line keeps its phase
 // to the pixel
 // skip is a depth at the wrapper's head left out of the band: the seat of the
-// sent bubbles, which the snap below does not count, measured on the window
-// as the two edges are. the band is the card's own pixels, so the window's
-// measure is divided by the scale the card is drawn at (the stage's)
+// sent bubbles, which the snap below does not count
 function boxBand(reply, wrap, skip = 0){
   const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
-  const b = (reply.getBoundingClientRect().bottom - (wrap.getBoundingClientRect().top + skip)) / cardScale() + clear;
+  const b = reply.getBoundingClientRect().bottom -
+            (wrap.getBoundingClientRect().top + skip - clear);
   return Math.max(0, Math.round(b));
 }
 
@@ -5991,11 +5942,8 @@ function snapCard(){
   // rides inside this same scroller, so the height it holds is room the prose
   // does not have; the run-out at the foot is the scroll's own and no part
   // of it either. subtracting both leaves the whole number of lines the ramp needs
-  // the rects are window pixels and the line the card's own, so the window's
-  // are divided by the scale the card is drawn at
-  const k = cardScale();
   const answH = (answ && el.answwrap) ? el.answwrap.getBoundingClientRect().height : 0;
-  const room = (rect.height - answH) / k - boxBand(view, el.pendwrap, seat) - parseFloat(vcs.paddingTop || 0);
+  const room = rect.height - boxBand(view, el.pendwrap, seat) - answH - parseFloat(vcs.paddingTop || 0);
   const rem = room % line;
   // the remainder is spent as air at the head of the answer, and on a card with
   // nothing standing over the answer it goes to the NEARER whole line, so the
@@ -6021,10 +5969,8 @@ function snapCard(){
       const context = canvas.getContext("2d");
       context.font = cs.font;
       const metrics = context.measureText(r.textContent || "M");
-      // the face's measures are the card's own pixels and the line boxes the
-      // window's, so the measures go onto the window at the card's scale (k)
-      const inkTop = q => q.top + (metrics.fontBoundingBoxAscent - metrics.actualBoundingBoxAscent) * k;
-      const inkBottom = q => q.top + (metrics.fontBoundingBoxAscent + metrics.actualBoundingBoxDescent) * k;
+      const inkTop = q => q.top + metrics.fontBoundingBoxAscent - metrics.actualBoundingBoxAscent;
+      const inkBottom = q => q.top + metrics.fontBoundingBoxAscent + metrics.actualBoundingBoxDescent;
       const firstRange = document.createRange();
       firstRange.selectNodeContents(first);
       const firstLine = [...firstRange.getClientRects()].find(x => x.height > 2);
@@ -6039,10 +5985,9 @@ function snapCard(){
       const lastLine = lines.filter(q => q.height > 2 && q.bottom > rect.top &&
         q.top < rect.bottom && inkBottom(q) <= pendingTop)
         .sort((a, b) => inkBottom(b) - inkBottom(a))[0];
-      const markRoom = (parseFloat(getComputedStyle(answ).marginBottom) || 0) * k;
-      // both gaps are taken back to the card's own pixels, the margins' unit
-      const top0 = firstLine ? (inkTop(firstLine) - (answ.getBoundingClientRect().bottom + markRoom)) / k : 0;
-      const bottom0 = lastLine ? (pendingTop - inkBottom(lastLine)) / k : top0;
+      const markRoom = parseFloat(getComputedStyle(answ).marginBottom) || 0;
+      const top0 = firstLine ? inkTop(firstLine) - (answ.getBoundingClientRect().bottom + markRoom) : 0;
+      const bottom0 = lastLine ? pendingTop - inkBottom(lastLine) : top0;
       // When the answer is short, the large body region below its only line is
       // content room rather than a boundary gap; it cannot be made equal by moving
       // the line. In that case keep the line at the smallest top gap and put the
@@ -6114,22 +6059,18 @@ function tiltTitleAir(el, first){
   // the panel and the first line both ride in the scroller, so the scroll is
   // added back to read where each stands with the answer at its own top, which is
   // the state every measure here is taken in
-  // the rects are window pixels and the scroll and the padding the card's own,
-  // so they meet at the scale the card is drawn at (k)
-  const k = cardScale();
-  const scrolled = el.replyview.scrollTop * k;
   let under;
   if (el.answ && el.answwrap){
-    under = el.answwrap.getBoundingClientRect().top + scrolled - t.bottom;
+    under = el.answwrap.getBoundingClientRect().top + el.replyview.scrollTop - t.bottom;
   } else {
     rg.selectNodeContents(first);
     const lines = rg.getClientRects();
     let a = null;
     for (let i = 0; i < lines.length && !a; i++) if (lines[i].height > 2) a = lines[i];
     if (!a) return;
-    under = a.top + scrolled - t.bottom;
+    under = a.top + el.replyview.scrollTop - t.bottom;
   }
-  const tilt = (under - over) / 2 / k;
+  const tilt = (under - over) / 2;
   if (!isFinite(tilt) || Math.abs(tilt) < 0.02) return;
   // both halves are written on the sixty fourth of a pixel the engine lays out
   // on, and that is not tidiness either. chrome cuts every length down to that
@@ -8172,16 +8113,9 @@ function magicRoom(){
   if (!card || !stage) return null;
   const S = stageScale || 1, sr = stage.getBoundingClientRect(), r = card.getBoundingClientRect();
   if (r.width < 1 || card.classList.contains("region-off")) return null;
-  const lim = frameLimits(), clear = FRAME_CLEAR * macScale;
+  const lim = frameLimits();
   const rect = { left: (r.left - sr.x) / S, top: (r.top - sr.y) / S, width: r.width / S, height: r.height / S };
-  // the workspace's inner right edge. on a stage at 1:1 or larger it is where
-  // that edge would stand if the window ended at the stage's own right edge,
-  // so the box keeps its 1440x900 place beside the card on a window of any
-  // shape instead of drifting toward a far window edge; a shrunk stage keeps
-  // the window's edge, as it always has
-  let right = lim.right + clear;
-  if (respMode === "wide" && S >= 1) right = Math.min(right, stageTx + STAGE_W * S - (innerWidth - right));
-  const fit = { scale: S, tx: stageTx, right, clear };
+  const fit = { scale: S, tx: stageTx, right: lim.right + FRAME_CLEAR, clear: FRAME_CLEAR };
   return { S, sr, rect, fit, most: MagicBox.place(rect, fit) };
 }
 // the lines from the card to its box, the ones every box draws, as the owner
@@ -10774,8 +10708,7 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const dy = was - row.getBoundingClientRect().top;
     if (Math.abs(dy) < 2) continue;
     row.style.transition = "none";
-    // measured on the window, moved in the stage's own pixels
-    row.style.transform = "translateY(" + dy / cardScale() + "px)";
+    row.style.transform = "translateY(" + dy + "px)";
     void row.offsetHeight;
     row.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
     row.style.transform = "";
@@ -10925,10 +10858,9 @@ function binCanShow(row){
 
 function binCanPlace(can, row){
   const hr = can.parentElement.getBoundingClientRect(), r = row.getBoundingClientRect();
-  // the rects are the window's, the can's place and size the stage's own
-  const size = can.offsetWidth, k = cardScale();
-  can.style.left = ((r.left - hr.left) / k - BIN_CAN_GAP - size) + "px";
-  can.style.top = ((r.top - hr.top) / k + (r.height / k - size) / 2) + "px";
+  const size = can.offsetWidth;
+  can.style.left = (r.left - hr.left - BIN_CAN_GAP - size) + "px";
+  can.style.top = (r.top - hr.top + (r.height - size) / 2) + "px";
 }
 
 // the pointer, a scroll of the list or a redraw: the can follows the ticket
@@ -11711,29 +11643,15 @@ setInterval(pollQ, 2500); pollQ();
 tickClock();
 setInterval(tickClock, 1000);
 
-// scale the 1440x900 stage to the largest that fits, centered
-// the stage is a 1440x900 design. these hold the transform actually on the
-// stage right now, so the drag, resize and overlay math can turn screen pixels
-// back into stage coordinates at whatever scale the stage is drawn.
+// scale the fixed 1440x900 stage to the largest that fits, centered
+// the stage is a fixed 1440x900 design. these hold the transform actually on
+// the stage right now, so the drag, resize and overlay math can turn screen
+// pixels back into stage coordinates while the stage is scaled below 1:1.
 const STAGE_W = 1440, STAGE_H = 900, STAGE_BAR = 41;
 // Leave room between fitted content, including its soft shadows, and the rounded
 // app frame instead of seating the lowest region directly on the frame line.
-// Like the bar's height, it is a length of the 1440x900 layout, at macScale.
 const FRAME_CLEAR = 16;
 let stageScale = 1, stageTx = 0, stageTy = 0;
-// the scale the card is drawn at, for a measure on the window written back as
-// the card's own pixels (boxBand, the answer's snap, the page turn in
-// card-logic.js); the card lives on the stage
-function cardScale(){ return stageScale || 1; }
-// the Mac's one scale: the window against the 1440x900 layout, never under 1.
-// the stage may grow to it, and the bar, the frame's inset and clearance, the
-// project list, home and the magic box's room are all drawn at it
-// (--mac-scale on the root), and the settings page at its own width against
-// 1440's (--sp-scale), so a larger window shows the 1440x900 layout larger
-// rather than more paper. below 1440x900 it stays 1, the stage alone shrinks
-// to fit, and everything else is as it always was
-let macScale = 1;
-function windowScale(){ return Math.max(1, Math.min(innerWidth / STAGE_W, innerHeight / STAGE_H)); }
 let respMode = "wide";
 let phoneWanted = false;
 let lastFitW = null;   // innerWidth at the last fit; a height-only resize keeps it
@@ -11795,9 +11713,9 @@ function frameLimits(){
       const bL = parseFloat(cs.borderLeftWidth) || 0;
       const bR = parseFloat(cs.borderRightWidth) || 0;
       const bB = parseFloat(cs.borderBottomWidth) || 0;
-      left = fr.left + bL + FRAME_CLEAR * macScale;
-      right = fr.right - bR - FRAME_CLEAR * macScale;
-      bottom = fr.bottom - bB - FRAME_CLEAR * macScale;
+      left = fr.left + bL + FRAME_CLEAR;
+      right = fr.right - bR - FRAME_CLEAR;
+      bottom = fr.bottom - bB - FRAME_CLEAR;
     }
   }
   return { left, right, bottom };
@@ -11821,18 +11739,10 @@ function fitStage(){
   if (!FOCUS) return;
   const stage = document.getElementById("stage");
   if (!stage) return;
-  // the one scale first: the bar's height, the frame's inset and its clearance
-  // all follow it, and the fit below reads them
-  macScale = windowScale();
-  document.documentElement.style.setProperty("--mac-scale", String(macScale));
-  // the settings page is a share of the window across, so its width against
-  // the 1440x900 page's is the window's width against 1440
-  document.documentElement.style.setProperty("--sp-scale", String(Math.max(1, innerWidth / STAGE_W)));
   // fit inside the rounded app frame, not the raw window: the frame is inset from
   // every edge, so a region fitted to the window bottom lands past the frame line.
   const lim = frameLimits();
-  const barH = STAGE_BAR * macScale;
-  const availH = lim.bottom - barH;        // room from the stage top to the frame's inner foot
+  const availH = lim.bottom - STAGE_BAR;   // room from the stage top to the frame's inner foot
   const availW = lim.right - lim.left;     // room across the frame's inner width
   // measure the real content extent with the card's foot-clearance clamp lifted,
   // so the clamp seatPagePill applies afterwards can never feed back into the
@@ -11848,7 +11758,7 @@ function fitStage(){
   // then is there something to pan to and an arrow to offer
   respHasRight = rightGrp.any && rightGrp.right > leftMid.right + 8;
 
-  const heightScale = Math.min(macScale, availH / all.bottom);
+  const heightScale = Math.min(1, availH / all.bottom);
   const prev = respMode;
   // The existing wide/two-pane fit remains the Mac's layout. The live phone
   // document covers it when the same portrait thresholds are crossed.
@@ -11864,7 +11774,7 @@ function fitStage(){
     // near 6:5: keep the left plus middle group readable at a height-based scale
     // and expose a window over the same stage; the arrow pans it left or right.
     // Positions are never touched; this is purely a view transform.
-    scale = Math.min(macScale, innerWidth / leftMid.right, heightScale);
+    scale = Math.min(1, innerWidth / leftMid.right, heightScale);
     ty = Math.max(0, Math.min((availH - STAGE_H * scale) / 2, availH - all.bottom * scale));
     const pane = respHasRight ? getPane() : 0;
     // pane 0 shows the left plus middle from the left edge; pane 1 pans left so
@@ -11873,13 +11783,10 @@ function fitStage(){
     tx = pane === 1 ? Math.min(0, innerWidth - all.right * scale) : 0;
   } else {
     // wide landscape: one uniform scale that fits the whole visible board inside
-    // the usable window, never enlarged past the window's own scale against
-    // 1440x900 (macScale, 1 at or below that size), so a larger window shows the
-    // same board larger and never more of the canvas than 1440x900 does.
-    // Fitting the actual content, not the nominal 900px canvas, keeps a
-    // 1440x900 window at full size while still showing every region after
-    // leaving fullscreen instead of clipping the foot.
-    scale = Math.min(macScale, availW / all.right, availH / all.bottom);
+    // the usable window, never enlarged past 1:1. Fitting the actual content, not
+    // the nominal 900px canvas, keeps a 1440x900 window at full size while still
+    // showing every region after leaving fullscreen instead of clipping the foot.
+    scale = Math.min(1, availW / all.right, availH / all.bottom);
     // center the whole 1440x900 canvas in the window (the frame is centered in the
     // window too), so a normal board does not shift sideways. availH reserves the
     // frame's inner bottom and the right edge is clamped to the frame too. Keep
@@ -11891,14 +11798,8 @@ function fitStage(){
   stageScale = scale; stageTx = tx; stageTy = ty;
   stage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
   lastFitW = innerWidth;
-  // the bar stands over the stage's span while the stage is at 1:1 or larger,
-  // and across the whole window, as it always has, while the stage is shrunk
-  const root = document.documentElement.style;
-  const spanned = respMode === "wide" && scale >= 1;
-  root.setProperty("--stage-l", (spanned ? Math.max(0, tx) : 0) + "px");
-  root.setProperty("--stage-r", (spanned ? Math.max(0, innerWidth - tx - STAGE_W * scale) : 0) + "px");
   // slide the window-wide star field so its phase matches the stage's origin
-  document.body.style.backgroundPosition = tx + "px " + (barH + ty) + "px";
+  document.body.style.backgroundPosition = tx + "px " + (STAGE_BAR + ty) + "px";
   applyRespNav();   // show or hide the pan arrow for the current mode and pane
   seatPagePill();   // the stage's foot has moved, and the pill sits against it
   magicSync();      // and the card's magic box follows the card, or goes in the phone view

@@ -90,10 +90,10 @@ function painter({ seen = {}, selected = "none", task = null } = {}) {
   // the painter reads the same clock, should it ever read the time itself
   return new Function("Date", "queueState", "cardState", "h", "seenReplies", "shortAge", "ticketTs",
     "spinGlyph", "curView", "selectedId", "selectedTask", "testReady", "appendOmniRowArt",
-    "select", "onFold", "unfoldTicket", "cardScale",
+    "select", "onFold", "unfoldTicket",
     `${functionSource(HTML, "paintTicketPane", "renderCarousel")}; return paintTicketPane;`,
   )(ClockDate, queueState, cardState, h, seen, shortAge, ticketTs, () => SPIN[0], () => "done", selected, task, testReady,
-    appendOmniRowArt, noop, noop, noop, () => 1);   // the stage at 1:1, a 1440 by 900 window
+    appendOmniRowArt, noop, noop, noop);
 }
 
 // a section that counts its rebuilds: each rebuild writes a new data-sig

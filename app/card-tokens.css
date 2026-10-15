@@ -54,9 +54,7 @@
 :root{--u:1px}
 
 /* ---- the card's own constants ------------------------------------------- */
-/* --app-inset is the thin margin the app frame keeps from the window's edge,
-   at the Mac's one scale (--mac-scale, which index.html sets on the root and
-   nothing else does, so it is 1 everywhere else).
+/* --app-inset is the thin margin the app frame keeps from the window's edge.
    --cardbar-h is the card's top bar, and not --bar-h: the status bar at the
    top of the desktop window already owns that name and the two are different
    heights.
@@ -86,7 +84,7 @@
    under the half fade a chip wears while the board has yet to answer a tap,
    so off and waiting are never mistaken for each other */
 :root{
-  --app-inset:calc(6px * var(--mac-scale, 1));
+  --app-inset:6px;
   --cardbar-h:34px; --sq:4px; --press:10%; --row-min:44px; --sbar:9px;
   --chipoff:.28;
   --gentle:cubic-bezier(.42,.06,.38,1);

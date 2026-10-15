@@ -145,8 +145,6 @@ The Mac board's settings (the background colour, the switches on the settings pa
 
 ## The Mac board's top bar
 
-The Mac board is laid out for a 1440 by 900 window and drawn at the window's size, smaller in a smaller window and larger in a larger one, so its top bar, cards, magic box, settings page, home page and onboarding keep the same proportions on any Mac screen. A window of another shape leaves even margins of paper on the sides, or above and below.
-
 Along the top of the Mac board, from the left: a Home button, which opens the home page and stays pressed while it is open; a pill with the open project's name (while the home page is up, the name of the project you came from, with a down chevron after it); and a few faint project names. At the right end, the speaker mutes the reply chime and the squid opens the settings page.
 
 Click the pill to open the list of every open project, in your order, each with its number (the one Command + 1 to 9 opens it by), and the ones holding unread replies in bold. Click a project to switch to it. Rest the pointer on a row and a cross shows at its right end that closes that project (the last one stays open). Hold a row and drag it up or down to reorder the projects; drag it out of the list and let go to open that project in a window of its own. "Open a new folder", the last row, opens the Mac's folder chooser and adds the folder as a project. Escape or a click outside closes the list. Closed projects come back from the home page. On the home page, a click on the pill's name opens the project you came from, and a click on the chevron after the name opens the list, with no project checked.

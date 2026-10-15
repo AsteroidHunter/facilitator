@@ -2795,19 +2795,15 @@ function testReady(b){ return !!(b && b.testing) && queueState(b) === "yours"; }
 function foldHit(x, y, fold){ return fold > 0 && x >= 0 && y >= 0 && x <= fold && y <= fold; }
 function onFold(row, e){
   if (!row || !row.classList.contains("testc")) return false;
-  const r = row.getBoundingClientRect(), k = cardScaleNow();
+  const r = row.getBoundingClientRect();
   const fold = parseFloat(getComputedStyle(row).getPropertyValue("--fold")) || 0;
-  // the pointer is on the window and the fold is the row's own pixels
-  return foldHit((r.right - e.clientX) / k, (e.clientY - r.top) / k, fold);
+  return foldHit(r.right - e.clientX, e.clientY - r.top, fold);
 }
 function unfoldTicket(id){
   if (MOCK) return Promise.resolve();
   return fetch("/testing?box=" + encodeURIComponent(id) + "&v=0", { method: "POST" })
     .catch(() => {}).then(() => poll());
 }
-// the scale a page draws its rows at, as card-logic.js reads it: this page
-// names none (cardScale), so it is 1 here
-function cardScaleNow(){ return typeof cardScale === "function" ? cardScale() || 1 : 1; }
 // the strict await of the bar count and auto-select: pending vetoes it, and
 // so does work in flight, claimed or registered; green outranks the ball
 function awaitsYou(b){
