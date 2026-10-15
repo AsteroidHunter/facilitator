@@ -708,10 +708,20 @@ test("the Mac wiring: the pill opens the sheet, the sheet holds the board's keys
   assert.match(wiring, /setOpen = false;[\s\S]*classList\.remove\("setopen"\)/);
 });
 
-test("the sheet's rules: the settings page's width in the middle of the window, only the row in it, no accent", () => {
+test("the sheet's rules: 4:3 and narrower than the settings page, in the middle of the window, only the row in it, no accent", () => {
   const rules = TOKENS.slice(TOKENS.indexOf("the feedback sheet (feedbackOverlay"));
   assert.match(rules, /\.sp-veil\.fb-veil\{display:flex; align-items:center; justify-content:center\}/);
-  assert.match(rules, /\.fb-sheet\{[^}]*width:52\.5%/);
+  // a share of the window (the veil is fixed over all of it), never pixels, and the height its width's three quarters
+  const sheetRule = /\.fb-sheet\{([^}]*)\}/.exec(rules);
+  assert.ok(sheetRule, "the sheet has no rule");
+  const share = /(?:^|[\s;])width:(\d+(?:\.\d+)?)%/.exec(sheetRule[1]);
+  assert.ok(share, "the sheet's width is not a share of the window");
+  assert.ok(Number(share[1]) < 52.5, "the sheet is not narrower than the settings page");
+  assert.match(sheetRule[1], /aspect-ratio:\s*4 \/ 3/);
+  assert.doesNotMatch(sheetRule[1], /(?:^|[\s;])(?:height|max-height|min-height|min-width|max-width):/, "something besides the ratio sets the sheet's height");
+  // the box takes what the title and the line leave, so the sheet keeps its shape
+  assert.match(rules, /\.fb-sheet \.fbbox\{flex:1; min-height:0; display:flex\}/);
+  assert.match(rules, /\.fb-sheet \.fbta\{flex:1; height:auto; min-height:0; max-height:none\}/);
   assert.match(TOKENS, /\.sp-veil \.sp-page\.sp-mac\{left:23\.75%; right:23\.75%/, "the settings page's width moved");
   assert.match(rules, /\.fb-sheet \.setlabel > span\{font:625 17px\/1\.25 var\(--inter\)/);
   assert.doesNotMatch(rules, /--accent|purple|violet/i);

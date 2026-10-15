@@ -1183,19 +1183,26 @@
 .sp-mac[data-narrow] .setstat > .setvalue{flex:none; max-width:100%; text-align:left}
 
 /* the feedback sheet (feedbackOverlay in card-logic.js), the Mac's bug in the
-   bar: the settings page's veil, white, corners, edge and shadow, as wide as the
-   settings page is (a quarter and a bit in from each side), but only as tall as
-   what it holds, in the middle of the window. it holds the box's row alone: the
-   title in the page's heading type, the grey line, the box, and the box's one
-   note line, which keeps its room when empty so the sheet does not move when a
-   note comes */
+   bar: the settings page's veil, white, corners, edge and shadow, in the middle
+   of the window and exactly 4:3, width to height. its width is a share of the
+   window, 27.1%, narrower than the settings page's 52.5%, and its height is
+   three quarters of that width (aspect-ratio), so the shape holds on any window.
+   it holds the box's row alone: the title in the page's heading type, the grey
+   line, the box, and the box's one note line, which keeps its room when empty
+   so the sheet does not move when a note comes. the box takes whatever height is
+   left under the line and over the note, so the sheet stays 4:3 whatever the
+   line wraps to (the board's own textarea rule caps a box at 170px, which the
+   sheet's box lifts so it can fill a taller sheet) */
 .sp-veil.fb-veil{display:flex; align-items:center; justify-content:center}
-.sp-veil .sp-page.sp-mac.fb-sheet{position:relative; inset:auto; flex:none; width:52.5%;
-  max-height:70%; display:block; overflow:auto}
+.sp-veil .sp-page.sp-mac.fb-sheet{position:relative; inset:auto; flex:none; width:27.1%;
+  aspect-ratio:4 / 3; display:flex; flex-direction:column; overflow:auto}
 .fb-sheet .sp-pane{padding:28px 32px}
-.fb-sheet .sp-pane .setrow.fbrow{padding:0; border-top:none}
+.fb-sheet .sp-pane.on{flex:1; min-height:0; display:flex; flex-direction:column}
+.fb-sheet .sp-pane .setrow.fbrow{flex:1; min-height:0; padding:0; border-top:none}
 .fb-sheet .setlabel{gap:4px}
 .fb-sheet .setlabel > span{font:625 17px/1.25 var(--inter); color:var(--ink)}
+.fb-sheet .fbbox{flex:1; min-height:0; display:flex}
+.fb-sheet .fbta{flex:1; height:auto; min-height:0; max-height:none}
 .fb-sheet #fbnote:empty{display:block; min-height:18px}
 
 /* The link menu uses the board's existing page-menu shape and ink press shade. */
