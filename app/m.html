@@ -7984,13 +7984,17 @@ async function phoneMagicLoad(id, rev){
 // longer words scroll inside it under its fade; a picture still on its way
 // keeps it hidden
 let phoneMagicCap = () => Infinity;
+// how far the box's top edge stands over the first mark of the card list (the
+// section names' pill, below): the box grows upward by it, so what it shows is
+// fitted to its height less that and the foot stays where it was
+let phoneMagicRaise = () => 0;
 function phoneMagicFit(){
-  const cap = phoneMagicCap();
-  const room = { width: tickets.clientWidth, height: Math.min(tickets.clientHeight, cap) };
-  if (!room.width || !room.height) return;
+  const cap = phoneMagicCap(), raise = phoneMagicRaise();
+  const room = { width: tickets.clientWidth, height: Math.min(tickets.clientHeight, cap) - raise };
+  if (!room.width || !(room.height > 0)) return;
   PB.cap = cap;
   const at = MagicBox.fit(room, PB.view.want(room));
-  Object.assign(PB.el.style, { width: at.width + "px", height: at.height + "px",
+  Object.assign(PB.el.style, { width: at.width + "px", height: at.height + raise + "px",
     visibility: PB.view.waiting() ? "hidden" : "" });
   if (tickets.classList.contains("boxface")) fitList();
 }
@@ -8251,6 +8255,14 @@ function drawerSwapFirstFrame(playing){
   // and for the box its own top edge, drawn from the box's top, so nothing
   // under it: the box's edge line is the first mark it draws
   const DRAWN_TOP = { list: 14.9, box: 0 };
+  // the drawer's real top is the top edge of the pill behind a section name
+  // while it is pressed (#tikhead .tvb:active), which is higher than the first
+  // mark of the names: the pill is the first thing in #tikhead, so it stands
+  // that header's top padding under the drawer's top, in the page's own units
+  // (--u). the box's top edge stands level with it, so it is raised over the
+  // list's first mark by what lies between the two
+  const pillTop = () => parseFloat(getComputedStyle(document.getElementById("tikhead")).paddingTop) || DRAWN_TOP.list;
+  const boxRaise = () => Math.max(0, DRAWN_TOP.list - pillTop());
   let notchProbe = null;
   const notchFoot = () => {
     if (!notchProbe){
@@ -8316,7 +8328,7 @@ function drawerSwapFirstFrame(playing){
       lift = Math.max(0, (top + DRAWN_TOP.list - notch - (card - top - list.foot)) / 2);
     }
     const gap = top + DRAWN_TOP.list - lift - notch, below = GAP_BELOW.box * gap, low = pageTop + listRoom;
-    const boxLift = lift - (DRAWN_TOP.list - DRAWN_TOP.box);
+    const boxLift = lift - (DRAWN_TOP.list - DRAWN_TOP.box) + boxRaise();
     const most = Math.max(0, low - below - (top - boxLift));
     if (!box){
       const under = GAP_BELOW.list * gap;
@@ -8335,6 +8347,7 @@ function drawerSwapFirstFrame(playing){
     return { lift: boxLift, slack: Math.max(0, listRoom - (top - boxLift + foot + below - pageTop)), most };
   };
   phoneMagicCap = () => place().most;
+  phoneMagicRaise = boxRaise;
   listSlack = () => {
     const box = tickets.classList.contains("boxface"), at = place().slack;
     return at !== null ? at : box ? Math.max(0, tickets.clientHeight - phoneMagicFoot() + listAir()) : listSpare();
