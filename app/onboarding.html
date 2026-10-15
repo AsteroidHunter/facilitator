@@ -136,12 +136,16 @@
   html, body{overscroll-behavior:none}
   #tiklist, .tikpane, #tickets, .box .body, .box .replyview, textarea{overscroll-behavior:none}
 
-  /* the design size every measure on the card is a share of. the
-     board scales its whole stage down to fit the window and never above 1:1,
-     so in a window that holds the board the card is drawn at exactly this size.
-     this page draws the card at its design size and shortens it on a short
-     window instead, because the page turn lays its pictures in window pixels
-     and a scaled card would put them off by the scale */
+  /* the design size every measure on the card is a share of. the board
+     scales its whole stage to the window, down to fit and up to the window's
+     own scale against 1440 by 900 (--mac-scale). this page draws the card at
+     its design size and shortens it on a short window instead of shrinking it,
+     and on a larger window draws the card, its ticket list and the keyboard
+     at --mac-scale (a zoom on each, set by the script below, never under 1),
+     as the board draws them. a window length inside those three is divided by
+     the scale, since the zoom multiplies it back */
+  #obstage, #tickets, #obkeys{zoom:var(--mac-scale)}
+  :root{--mac-scale:1}
   body.focus{
     --bar-h:41px;
     --cw:1440px; --ch:900px;
@@ -161,8 +165,8 @@
   body.focus main{
     max-width:none; margin:0; overflow:hidden;
     position:relative;
-    width:min(var(--frame-w), calc(100vw - 32px));
-    height:min(calc(var(--ch)*var(--frame-h)), calc(100vh - 32px));
+    width:min(var(--frame-w), calc(100vw / var(--mac-scale) - 32px));
+    height:min(calc(var(--ch)*var(--frame-h)), calc(100vh / var(--mac-scale) - 32px));
     border:var(--edge) solid var(--line); background:#fff; border-radius:7px;
     box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
     transition:box-shadow .2s;
@@ -592,13 +596,13 @@
   body.focus{
     --kb-scale:.75; --kb-h:calc(336px * var(--kb-scale));
     --kb-under:calc(var(--kb-h) * .375); --kb-foot:12px;
-    --card-h:min(calc(var(--ch)*var(--frame-h)), calc(100vh - 32px));
-    --card-top:calc((100vh - var(--card-h)) / 2);
+    --card-h:min(calc(var(--ch)*var(--frame-h)), calc(100vh / var(--mac-scale) - 32px));
+    --card-top:calc((100vh / var(--mac-scale) - var(--card-h)) / 2);
     --ob-cut:clamp(calc(var(--ch)*var(--frame-h)*.1),
-                   calc(var(--card-top) + var(--card-h) - (100vh - var(--kb-foot) - var(--kb-h) + var(--kb-under))),
+                   calc(var(--card-top) + var(--card-h) - (100vh / var(--mac-scale) - var(--kb-foot) - var(--kb-h) + var(--kb-under))),
                    calc(var(--ch)*var(--frame-h)*.2));
     --ob-h:calc(var(--card-h) - var(--ob-cut));
-    --card-mid:50vw;
+    --card-mid:calc(50vw / var(--mac-scale));
   }
   #obstage{align-items:start}
   body.focus main{height:var(--ob-h); margin-top:var(--card-top)}
@@ -680,12 +684,12 @@
      under its bar, puts it (this page has no bar), and the stage's top is read
      back from the card's */
   body.focus{
-    --ox:max(0px, calc((100vw - var(--cw)) / 2));
+    --ox:max(0px, calc((100vw / var(--mac-scale) - var(--cw)) / 2));
     --oy:calc(var(--card-top) - var(--ch)*var(--frame-y));
   }
   body.obboard #obstage{justify-items:start}
   body.obboard main{margin-left:var(--frame-x)}
-  body.obboard{--card-mid:calc(var(--frame-x) + min(var(--frame-w), 100vw - 32px) / 2)}
+  body.obboard{--card-mid:calc(var(--frame-x) + min(var(--frame-w), 100vw / var(--mac-scale) - 32px) / 2)}
   /* the list stays hidden until 101: Tickets, the card about it, first comes
      on screen, then phases in gently over .9s and stays, back on the earlier
      cards too. a list never drawn until then would spend the fade's first
@@ -729,6 +733,18 @@ let select = () => {};
 // board keeps it off unless it is turned on. the row is the plain textarea, and
 // these two answers are all card-logic.js asks the formatter about it
 const ComposeFormat = { focused: ta => document.activeElement === ta, fieldOf: () => null };
+// the board's one scale (windowScale in index.html): the window against the
+// 1440 by 900 layout, never under 1. the card, its list and the keyboard are
+// drawn at it (--mac-scale above), and cardScale is the name card-logic.js
+// reads it by, for a measure taken on the window and written back on the card
+let macScale = 1;
+function fitScale(){
+  macScale = Math.max(1, Math.min(innerWidth / 1440, innerHeight / 900));
+  document.documentElement.style.setProperty("--mac-scale", String(macScale));
+}
+fitScale();
+addEventListener("resize", fitScale);
+function cardScale(){ return macScale; }
 
 // ---- copied from index.html, where these live inline ------------------------
 // boxHasSelection
@@ -744,8 +760,7 @@ function boxHasSelection(el){
 // boxBand and watchBand: the band the answer's foot fade is cut to, under the sent panel and the row
 function boxBand(reply, wrap, skip = 0){
   const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
-  const b = reply.getBoundingClientRect().bottom -
-            (wrap.getBoundingClientRect().top + skip - clear);
+  const b = (reply.getBoundingClientRect().bottom - (wrap.getBoundingClientRect().top + skip)) / cardScale() + clear;
   return Math.max(0, Math.round(b));
 }
 function watchBand(el){
@@ -848,7 +863,7 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const dy = was - row.getBoundingClientRect().top;
     if (Math.abs(dy) < 2) continue;
     row.style.transition = "none";
-    row.style.transform = "translateY(" + dy + "px)";
+    row.style.transform = "translateY(" + dy / cardScale() + "px)";
     void row.offsetHeight;
     row.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
     row.style.transform = "";
@@ -1393,7 +1408,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
     if (!end) return;
     const cs = getComputedStyle(t);
     ghostPen.font = "400 13px " + getComputedStyle(document.body).getPropertyValue("--inter");
-    const room = t.getBoundingClientRect().right - parseFloat(cs.paddingRight) - end.right;
+    // the rects are the window's, the padding and the ghost the card's own
+    const room = (t.getBoundingClientRect().right - end.right) / cardScale() - parseFloat(cs.paddingRight);
     card.el.box.classList.toggle("obghostdown", room < 24 + ghostPen.measureText("Tab to answer").width);
   }
 
@@ -1970,10 +1986,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
         kr = mark.getClientRects()[0] || mark.getBoundingClientRect();
         if (rest) width = advanceOf(mark.firstChild, 0);
       }
-      const m = fmetrics(cs);
-      return { x: r.left + kr.left - mr.left - el.scrollLeft,
-               base: r.top + kr.top - mr.top - el.scrollTop + m.asc,
-               fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD, width, clip: r, title: false };
+      // the mirror and the font's measures are the field's own pixels, laid out
+      // unscaled, and the block is drawn on the window: they go onto it at the
+      // card's scale
+      const m = fmetrics(cs), k = cardScale();
+      return { x: r.left + (kr.left - mr.left - el.scrollLeft) * k,
+               base: r.top + (kr.top - mr.top - el.scrollTop + m.asc) * k,
+               fs: parseFloat(cs.fontSize) * k, fbA: m.fbA * k, fbD: m.fbD * k,
+               width: width == null ? null : width * k, clip: r, title: false };
     }
     // the title: the caret's own spot, or the last letter's right edge where
     // the browser gives a caret at the end of the words no box
@@ -1994,7 +2014,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
         if (q){ x = q.right; top = q.top; }
       }
       if (x == null) return null;
-      return { x, base: top + m.asc, fs: parseFloat(cs.fontSize), capH: m.capH, fbA: m.fbA, fbD: m.fbD,
+      // the title's rects are the window's already, its font's measures the card's own
+      const k = cardScale();
+      return { x, base: top + m.asc * k, fs: parseFloat(cs.fontSize) * k, capH: m.capH * k, fbA: m.fbA * k, fbD: m.fbD * k,
                width: advanceOf(rg.startContainer, rg.startOffset), clip: el.getBoundingClientRect(), title: true };
     }
 
