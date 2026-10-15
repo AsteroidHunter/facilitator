@@ -1497,6 +1497,13 @@
   #setpage{flex:1; min-height:0; background:none; box-shadow:none;
     backdrop-filter:none; -webkit-backdrop-filter:none}
   #setpage::before{display:none}
+  /* iOS zooms the whole page in when a text field is tapped whose type is set
+     under 16px, and leaves it zoomed until another field of 16px or more is
+     tapped. the shared box is 14px (card-tokens.css), so on the phone it takes
+     16px, as a card's typing box takes 17 (textarea, above) and the new-card
+     field 16 (#titlecatch, above). only the type's size changes: the box, its
+     edge, its padding and its arrow stay as they were */
+  #fbta{font-size:16px}
   #setpage .sp-head{padding-top:14px}
   /* the foot of the panel, under the list and under any section, is one line:
      the license's name and the turn off mark centred together with a small gap,

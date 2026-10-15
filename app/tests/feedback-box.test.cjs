@@ -716,3 +716,18 @@ test("the sheet's rules: the settings page's width in the middle of the window, 
   assert.match(rules, /\.fb-sheet \.setlabel > span\{font:625 17px\/1\.25 var\(--inter\)/);
   assert.doesNotMatch(rules, /--accent|purple|violet/i);
 });
+
+// ---- the phone's zoom ---------------------------------------------------------------------
+
+test("the phone's feedback box is set at 16px, so iOS does not zoom the page when it is tapped; the Mac's stays 14px", () => {
+  assert.match(TOKENS, /\.fbta\{[^}]*font:14px\/1\.35 var\(--sans\)/, "the shared box moved off its 14px");
+  const css = PHONE.slice(0, PHONE.indexOf("</style>"));
+  const rule = /(?:^|[\s}])#fbta\{([^}]*)\}/.exec(css);
+  assert.ok(rule, "the phone has no rule for the box");
+  const size = /font-size:\s*(\d+(?:\.\d+)?)px/.exec(rule[1]);
+  assert.ok(size && Number(size[1]) >= 16, "the phone's box is under 16px");
+  assert.doesNotMatch(rule[1], /width|height|padding|border|margin|transform|zoom/, "more than the type's size changed");
+  assert.doesNotMatch(MAC.slice(0, MAC.indexOf("</style>")), /#fbta\{/);
+  // as a card's typing box is: a textarea set in --u at 17
+  assert.match(css, /textarea\{\s*flex:1; min-width:0; resize:none; font:calc\(17 \* var\(--u\)\)/);
+});
