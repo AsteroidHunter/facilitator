@@ -1231,10 +1231,16 @@ function omniTicket(title){
 // ---- the line an empty typing box shows -------------------------------------
 // a new reader could not tell where a card's typing box was, so an empty one
 // shows one of these lines in light grey where the words go, and it goes the
-// moment anything is typed. each card keeps its own line for as long as it
-// lives: a board card's number steps through the list seven at a time, so cards
-// made one after another never share a line within twenty, and any other id is
-// hashed. the onboarding page's box and a card's title never show one
+// moment anything is typed. a card keeps its line until a message is sent on
+// it, and each send gives it a new one. the new line comes from a shuffled bag
+// of all twenty that belongs to the card: no line comes back until the other
+// nineteen have been shown, then the bag is shuffled again, and never opens
+// with the line just shown. a card with nothing saved starts with a random
+// line. each card's line and bag are kept in this browser's localStorage, so
+// reopening the card, switching cards, typing and deleting, or reloading the
+// page does not change the line, and the Mac and the phone each keep their own.
+// a card that is gone from the board loses its entry. the onboarding page's box
+// and a card's title never show one
 const COMPOSE_LINES = [
   "Make Opus 6 and no mistakes pls …",
   "Make me a billion dollar company …",
@@ -1257,16 +1263,79 @@ const COMPOSE_LINES = [
   "Reply in under 900 words?",
   "Make the error bars smaller …",
 ];
-function composeLine(id){
-  const s = String(id == null ? "" : id);
-  const m = /^m(\d+)$/.exec(s);
-  let n;
-  if (m) n = Number(m[1].slice(-9)) * 7;
-  else {
-    n = 2166136261;
-    for (let i = 0; i < s.length; i++) n = Math.imul(n ^ s.charCodeAt(i), 16777619) >>> 0;
+const COMPOSE_STORE = "composelines";
+let composeMemory = {};   // the same map, for a browser that will not keep it
+function composeRead(){
+  try {
+    const kept = JSON.parse(localStorage.getItem(COMPOSE_STORE) || "null");
+    if (kept && typeof kept === "object" && !Array.isArray(kept)) return kept;
+  } catch (e) {}
+  return composeMemory;
+}
+function composeWrite(all){
+  composeMemory = all;
+  try { localStorage.setItem(COMPOSE_STORE, JSON.stringify(all)); } catch (e) {}
+}
+// a saved entry is { line, bag }: the shown line and the lines still to come,
+// both as places in COMPOSE_LINES. one that does not add up is not trusted
+function composeEntryOk(e){
+  const n = COMPOSE_LINES.length;
+  const place = x => Number.isInteger(x) && x >= 0 && x < n;
+  return !!e && place(e.line) && Array.isArray(e.bag) && e.bag.length < n &&
+    e.bag.every(place) && new Set(e.bag).size === e.bag.length && !e.bag.includes(e.line);
+}
+function composeShuffled(){
+  const bag = COMPOSE_LINES.map((_, i) => i);
+  for (let i = bag.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [bag[i], bag[j]] = [bag[j], bag[i]];
   }
-  return COMPOSE_LINES[n % COMPOSE_LINES.length];
+  return bag;
+}
+// the next line for a card: the bag's next, and a new shuffled bag when it is
+// empty, turned over if it would open with the line just shown. the bag is
+// dealt from its end
+function composeDraw(entry){
+  let bag = entry ? entry.bag.slice() : [];
+  if (!bag.length){
+    bag = composeShuffled();
+    if (entry && bag[bag.length - 1] === entry.line){
+      const j = Math.floor(Math.random() * (bag.length - 1));
+      [bag[bag.length - 1], bag[j]] = [bag[j], bag[bag.length - 1]];
+    }
+  }
+  return { line: bag.pop(), bag };
+}
+// the card's line as it stands: a card with nothing saved draws its first
+function composeLine(id){
+  const key = String(id == null ? "" : id);
+  const all = composeRead();
+  if (!composeEntryOk(all[key])) composeWrite({ ...all, [key]: composeDraw(null) });
+  return COMPOSE_LINES[composeRead()[key].line];
+}
+// a message has been sent on the card: it takes the next line
+function composeNext(id){
+  const key = String(id == null ? "" : id);
+  const all = composeRead();
+  composeWrite({ ...all, [key]: composeDraw(composeEntryOk(all[key]) ? all[key] : null) });
+  return composeLine(key);
+}
+// the cards on the board are the only ones that keep an entry
+function composeKeep(ids){
+  const all = composeRead(), live = new Set([...ids].map(String));
+  const gone = Object.keys(all).filter(key => !live.has(key));
+  if (!gone.length) return;
+  const kept = {};
+  for (const key of Object.keys(all)) if (live.has(key)) kept[key] = all[key];
+  composeWrite(kept);
+}
+// a send on the card: its box takes the next line now, in the plain field and
+// in the editor that may be standing in for it. el is the page's object for the
+// card, with its ta and its field
+function composeTurn(id, el){
+  const line = composeNext(id);
+  if (el.field && el.field.refreshPlaceholder) el.field.refreshPlaceholder();
+  else el.ta.placeholder = line;
 }
 // ---- pictures the board could not hand over -----------------------------------
 // a phone's connection drops and returns under the app all the time, and a

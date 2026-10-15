@@ -674,7 +674,13 @@
       C.keymap.of(keys),
       layer(C),
       theme(C),
-      ...(field.placeholder ? [C.placeholder(field.placeholder())] : []),
+      // asked each time the editor draws its placeholder, so the row shows the
+      // page's line as it is then
+      ...(field.placeholder ? [C.placeholder(() => {
+        const line = document.createElement("span");
+        line.textContent = field.placeholder();
+        return line;
+      })] : []),
       C.EditorView.lineWrapping,
       C.EditorView.updateListener.of(update => {
         if (!update.docChanged) return;
@@ -1154,6 +1160,15 @@
       },
       text() { return this.view ? this.view.state.doc.toString() : hostText(this); },
       formatted() { return !!this.view; },
+      // the page's line changed while the row stood empty: the plain field and
+      // the editor's placeholder, if one is showing, both take it
+      refreshPlaceholder() {
+        if (!this.placeholder) return;
+        const line = this.placeholder();
+        this.ta.placeholder = line;
+        const shown = this.view && this.view.dom.querySelector(".cm-placeholder > span");
+        if (shown) shown.textContent = line;
+      },
       focused() {
         return this.view ? hasCaret(this.view) : document.activeElement === this.ta;
       },

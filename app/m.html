@@ -3345,6 +3345,7 @@ function doSend(id, opts){
   op.advance = opts.advance !== false;
   const motion = armSentMotion(el);
   el.ta.value = "";
+  composeTurn(id, el);   // a send gives the empty box its next line
   trayTake(el);       // the files that went leave the tray with the words
   el.tick();          // the square goes with the words, and the row falls back to one line
   // an arrival: the message comes into a bubble of its own, cut to its preview
@@ -5584,6 +5585,7 @@ function apply(state){
   // first, ahead of the tabs and the list that draw from them
   seenSync(state);
   const onBoard = new Set(state.boxes.map(b => b.id));
+  composeKeep(onBoard);   // a deleted card's saved line goes with it
   for (const id of Object.keys(els)){
     if (!onBoard.has(id)){
       if (hist && hist.id === id) hist = null;
