@@ -489,8 +489,7 @@
     /* --sbar, the slim scrollbar's lane, is a shared token in card-tokens.css */
     /* spacing tokens, fractions of the stage, no raw pixels */
     --sp-xs:calc(var(--ch)*0.005);  --sp-s:calc(var(--ch)*0.0095);
-    /* the gap between two tickets in the list, which the new-card plus under the
-       card stands two of away from the card's foot */
+    /* the gap between two tickets in the list */
     --tik-gap:calc(var(--ch)*0.007);
     --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
     --grid:calc(var(--cw)*0.008);
@@ -1328,13 +1327,13 @@
      80ms on press and out over 160ms on release, no overshoot and no scale; the
      rest state is two zero-size clear inset layers so the shade interpolates
      cleanly. the 7px radius only shapes that shade and moves no geometry. */
-  #tikhead .tvb, #cardplus{
+  #tikhead .tvb, #tiknew{
     border-radius:7px;
     box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
     transition:color .18s, box-shadow .16s ease-out;
   }
   #tikhead .tvb.on{color:var(--ink); font-weight:700; background:transparent}
-  #tikhead .tvb:active, #tikhead .tvb.pressed, #cardplus:active, #cardplus.pressed{
+  #tikhead .tvb:active, #tikhead .tvb.pressed, #tiknew:active, #tiknew.pressed{
     box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
     transition:color .18s, box-shadow .08s ease-in;
   }
@@ -1348,9 +1347,14 @@
      deep as the top; each section pads the same amounts back inside, so every
      row stands where it did.
      use a non-scrolling clip so selected-row reveal cannot shift the outer
-     holder sideways. each section below handles its own vertical scrolling. */
+     holder sideways. each section below handles its own vertical scrolling.
+     20261014: the list is as tall as the section on show needs, --tik-fit, which
+     fitTicketList writes, and no taller than the holder leaves it (it shrinks to
+     that and the section scrolls there, as it always has). the new-card plus
+     after it adds nothing to the column, so that most is the height the list
+     had before it followed its tickets. with no --tik-fit it fills the holder */
   #tiklist{--listfade:22px; --list-air:7px; --list-side:20px;
-    position:relative; flex:1; min-height:0; overflow:clip;
+    position:relative; flex:0 1 var(--tik-fit, 100%); min-height:0; overflow:clip;
     display:flex; flex-direction:column;
     margin:0 calc(var(--list-side)*-1) calc(var(--list-air)*-1)}
   /* #tiksheet is doing|docked|deferred|done laid left to right, one section wide each.
@@ -1451,38 +1455,38 @@
   #tickets.scroll .trow.on{width:auto; margin-right:0.6vw;
     border-right:var(--edge) solid var(--line)}
   .trow.on .tt{font-weight:600}
-  /* the new-card plus (20261014): a faint plus centred under the open card. a
-     click makes a card exactly as command+T does (newCardHere). it stands in
-     the stage beside the card and not in it (the card clips what it holds), and
-     seatCardPlus writes where the card's foot and middle are, --plus-foot and
-     --plus-x in stage pixels, so it follows the card wherever the card is: sized
-     by a window, shortened for the page switcher, or dragged. the top of its
-     drawn ink stands two ticket gaps (--tik-gap, the gap between tickets in the
-     list) under the card's foot, so it never touches the card, and it is shown
-     at a third of its strength, the mock's 33%. it is a bare button, with no
-     glass, fill or edge, a name's box turned to a plus (the 1px clear border, 5px
-     of padding over and 6px under a 16px line). it takes the names' press, their
-     rules and their script (#tikhead .tvb, and the press feedback beside
-     setView), over a region .6 of the old glass pill's .86 of the ticket
-     list's width, centred on the card */
-  #cardplus{display:none}
-  body.focus #cardplus{
-    /* the 24-grid plus has arms from 5 to 19 and a 2.66 stroke with round caps,
-       so on its 16px line its ink starts this far under the line's top */
-    --plus-clear:calc(16px * (5 - 2.66 / 2) / 24);
-    --plus-w:calc(var(--tik-w) * .86 * .6);
+  /* the new-card plus (20261014): under the ticket list, centred on the rows. a
+     click makes a card exactly as command+T does (newCardHere). #tikfoot is a
+     zero-height seat after the list, across the rows' own sides as #tikhead is,
+     and its negative top margin takes back the column's gap, so it adds nothing
+     to the column and stands on the list's real foot, wherever that is: just
+     under the last ticket of a short section, or under the holder's foot when the
+     section fills it. there is no line at the foot. the plus is a bare button,
+     with no glass, fill or edge, its box a name's turned over (the 1px clear
+     border, 5px of padding on the line's side and 6px on the other, around a
+     line of the plus's own size). it takes the names' press, their rules and
+     their script (#tikhead .tvb, and the press feedback beside setView). the
+     region that dips is .6 of the glass pill this replaced, which was .86 of the
+     rows' width, centred on the rows.
+     the top of its ink stands under the list's foot as far as it did when the
+     plus first stood here: two of (--line-gap + 1px), the 6px of its box above
+     the line, and the clear air the drawing leaves at the top of the line. the
+     plus is half as large again as it was (--plus-was, 16px, to --plus-size) and
+     that clear air grows with it, so the margin gives the growth back and the
+     top of the ink stays where it was */
+  body.focus #tikfoot{position:relative; flex:none; height:0; display:flex; justify-content:center; align-items:flex-start;
+    margin:calc((var(--line-gap) + 1px) * -1) var(--tik-inset-r) 0 var(--tik-inset-l)}
+  body.focus #tiknew{--plus-was:16px; --plus-size:calc(var(--plus-was) * 1.5);
+    flex:none; box-sizing:content-box; width:calc(100% * .86 * .6); height:var(--plus-size);
+    margin:calc(2 * (var(--line-gap) + 1px) - (var(--plus-size) - var(--plus-was)) * (5 - 2.66 / 2) / 24) 0 0;
+    padding:5px 0 6px; border:1px solid transparent; background:transparent;
     display:flex; align-items:center; justify-content:center;
-    position:fixed; z-index:0; box-sizing:content-box; width:var(--plus-w); height:16px;
-    left:calc(var(--plus-x, 0px) - var(--plus-w) / 2 - 1px);
-    top:calc(var(--plus-foot, 0px) + 2 * var(--tik-gap) - 1px - 5px - var(--plus-clear));
-    margin:0; padding:5px 0 6px; border:1px solid transparent; background:transparent;
-    color:var(--sub); opacity:.33; cursor:pointer; -webkit-user-select:none; user-select:none}
-  body.focus #cardplus:hover{color:var(--ink)}
-  /* no card to stand under, home, edit mode: not drawn, and out of the fit */
-  body.focus #cardplus.off, body.focus:is(.home, .editmode) #cardplus{display:none}
-  /* the plus fills a 16px line. its 14 units of arm and 2.66 of stroke on the
-     24 grid draw 11px of ink, as tall as a name's ink, in a 1.77px stroke */
-  body.focus #cardplus svg{display:block; flex:none; width:16px; height:16px; stroke-width:2.66}
+    color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none}
+  body.focus #tiknew:hover{color:var(--ink)}
+  /* the plus fills its line. its 14 units of arm and 2.66 of stroke on the 24
+     grid draw about 16.7px of ink in a 2.66px stroke at 24px (11px and 1.77px at
+     the 16px it was), both growing with the drawing */
+  body.focus #tiknew svg{display:block; flex:none; width:var(--plus-size); height:var(--plus-size); stroke-width:2.66}
   /* magic stubs, contents to be explained */
   #magic1, #magic2, #magic3, #magic4{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;
@@ -3880,7 +3884,7 @@
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
+<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div><div id="tikfoot"><button id="tiknew" type="button" title="New card" aria-label="New card"></button></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -3917,7 +3921,6 @@
   <div id="sections"></div>
   <div id="carousel"></div>
 </main>
-<button id="cardplus" class="off" type="button" title="New card" aria-label="New card"></button>
 </div>
 
 <!-- the new-project landing lives outside the stage: it centers on the real
@@ -5416,16 +5419,10 @@ function seatPagePill(){
 function reserveFootRoom(floor){
   const card = document.querySelector("main");
   if (!card) return;
-  // the plus stands under the card's foot, so the room it needs there is held
-  // back from the card as well: the switcher steps over neither
-  seatCardPlus();
-  const plus = document.getElementById("cardplus");
-  const reach = plus && !plus.classList.contains("off") && getComputedStyle(plus).display !== "none"
-    ? plus.getBoundingClientRect().bottom - card.getBoundingClientRect().bottom : 0;
   // floor and the card top are screen pixels; the card lives in the scaled
   // stage, so its max-height is a stage-local number and the screen gap has to
   // be divided by the stage scale before it is written back
-  const room = Math.max(MIN_CARD_H, Math.round((floor - reach - card.getBoundingClientRect().top) / stageScale));
+  const room = Math.max(MIN_CARD_H, Math.round((floor - card.getBoundingClientRect().top) / stageScale));
   if (card.style.maxHeight !== room + "px") card.style.maxHeight = room + "px";
 }
 const MIN_CARD_H = 160;   // a card is never squeezed past being a card
@@ -5825,6 +5822,28 @@ for (const pane of document.querySelectorAll(".tikpane")){
   if (window.ResizeObserver) new ResizeObserver(read).observe(pane);
   read();
 }
+
+// the ticket list is as tall as the section on show needs, up to the most the
+// holder leaves it (the stylesheet shrinks it to that, and the section scrolls
+// there). the need is the section's own padding and rows, read from the rows'
+// computed heights and not from a scroll height, which never reads below the
+// list's present height. it is written as --tik-fit and the list takes it at
+// once: no height animation, and the rows keep their own glide. it is read again
+// whenever a section is drawn or shown and when the holder is sized
+function fitTicketList(){
+  const list = document.getElementById("tiklist");
+  const pane = list && list.querySelector('.tikpane[data-view="' + curView() + '"]');
+  if (!pane) return;
+  const cs = getComputedStyle(pane), rows = pane.children, first = rows[0];
+  let need = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  if (first){
+    // the rows share one height, so one read stands for all of them
+    need += rows.length * parseFloat(getComputedStyle(first).height) + (rows.length - 1) * (parseFloat(cs.rowGap) || 0);
+  }
+  const fit = Math.ceil(need) + "px";
+  if (list.style.getPropertyValue("--tik-fit") !== fit) list.style.setProperty("--tik-fit", fit);
+}
+if (window.ResizeObserver && document.getElementById("tickets")) new ResizeObserver(fitTicketList).observe(document.getElementById("tickets"));
 
 // every answer must end evenly against its box: the answer's room snaps down to
 // a whole number of its own text lines, so the last visible line always sits at
@@ -6509,15 +6528,15 @@ async function newCard(owner){
 }
 
 // a new card in the open project: command+T (boardShortcutActions.create) and the plus
-// under the card both make it here, so the plus's card is the key's,
+// under the ticket list both make it here, so the plus's card is the key's,
 // in the same place and with the same focus
 function newCardHere(){
   if (!ownerReady || draft) return;
   newCard(activeOwner);
 }
-const cardPlus = document.getElementById("cardplus");
-cardPlus.innerHTML = PLUS_ICON;
-cardPlus.addEventListener("click", newCardHere);
+const tikNew = document.getElementById("tiknew");
+tikNew.innerHTML = PLUS_ICON;
+tikNew.addEventListener("click", newCardHere);
 
 // a copied line ends in a break that the title's wrapping hides, leaving the caret no spot to draw at.
 // the words go in as far as the title's two lines hold them (titleRoomAt, card-logic.js)
@@ -7802,7 +7821,6 @@ function magicCard(shut){
 }
 function magicSync(){
   if (!MB.el) return;
-  seatCardPlus();   // a card gone from the screen or come to it, for the plus under it
   // which cards' boxes are open, at this reading of the board and the one
   // before it. a box that opened between the two on the card on screen is
   // new, and rises in; one that was open already (the owner coming back to
@@ -10733,6 +10751,7 @@ function renderCarousel(state){
       chips.appendChild(c);
     }
   }
+  fitTicketList();
   syncSpinner();
   binCanFollow();
 }
@@ -11498,9 +11517,9 @@ function setView(v){
   // .pressed holds for at least the 80ms press-in, so a quick tap still shows the
   // dip before it rises. selection stays with the click handlers above. the two
   // arrows beside the names take it the same way, on their square, and so
-  // does the new-card plus under the card
+  // does the new-card plus under the list
   const PRESS_MIN = 80;
-  for (const name of document.querySelectorAll("#tikhead .tvb, #tikhead .tik-page, #cardplus")){
+  for (const name of document.querySelectorAll("#tikhead .tvb, #tikhead .tik-page, #tiknew")){
     let since = 0, timer = 0;
     const press = () => {
       clearTimeout(timer);
@@ -11620,7 +11639,7 @@ let lastFitW = null;   // innerWidth at the last fit; a height-only resize keeps
 // the arrangeable regions, by id, used to measure how far the visible board
 // actually reaches so the fit shrinks only as much as real content needs
 const FIT_REGIONS = ["main", "clockbox", "rail", "tickets", "magic1", "magic2",
-  "magic3", "magic4", "goalbox", "cardplus"];
+  "magic3", "magic4", "goalbox"];
 // the two-pane split: the left plus middle group (time, tickets, player and the
 // conversation) always shows; the right group only appears when the window is
 // wide enough or by panning to it
@@ -11657,35 +11676,6 @@ function contentBounds(ids){
     bottom = Math.max(bottom, (r.bottom - sr.y) / S);
   }
   return { right, bottom, any };
-}
-
-// the new-card plus stands under the card on screen, centred on it, and goes
-// where the card goes: seatCardPlus reads the card's rectangle off the page the
-// way the fit and the magic box do (screen pixels, less the stage's origin, over
-// the stage's scale) and hands the plus its foot and middle, in stage pixels, as
-// --plus-foot and --plus-x. the distance under the foot is the stylesheet's.
-// with no card on screen the plus is off the page, so it never floats alone
-// under an empty frame, and likewise where the card is not laid out (hidden for
-// the tab, the phone's view) and in a tab choosing its folder, where command+T
-// makes nothing either. home and edit mode are the stylesheet's
-function seatCardPlus(){
-  const plus = document.getElementById("cardplus"), card = document.querySelector("main"),
-    stage = document.getElementById("stage");
-  if (!plus || !card || !stage) return;
-  const r = card.getBoundingClientRect();
-  const shown = FOCUS && !!shownId && !draft && !phoneWanted && !card.classList.contains("region-off") &&
-    r.width >= 1 && r.height >= 1;
-  plus.classList.toggle("off", !shown);
-  if (!shown) return;
-  const S = stageScale || 1, sr = stage.getBoundingClientRect();
-  const foot = ((r.bottom - sr.y) / S).toFixed(2) + "px", mid = ((r.left + r.width / 2 - sr.x) / S).toFixed(2) + "px";
-  if (plus.style.getPropertyValue("--plus-foot") !== foot) plus.style.setProperty("--plus-foot", foot);
-  if (plus.style.getPropertyValue("--plus-x") !== mid) plus.style.setProperty("--plus-x", mid);
-}
-if (document.querySelector("main")){
-  // the card moves when it is dragged or sized and gets shorter when the page
-  // switcher needs its foot, and the plus follows each of those
-  new MutationObserver(seatCardPlus).observe(document.querySelector("main"), { attributes: true, attributeFilter: ["style", "class"] });
 }
 
 // the inner edges the board must stay within, in screen pixels: the rounded app
@@ -11741,12 +11731,10 @@ function fitStage(){
   const card = document.querySelector("main");
   const savedMax = card ? card.style.maxHeight : "";
   if (card) card.style.maxHeight = "";
-  seatCardPlus();   // and the plus under the card's whole foot, which is part of what must fit
   const all = contentBounds(FIT_REGIONS);
   const leftMid = contentBounds(LEFT_MID_REGIONS);
   const rightGrp = contentBounds(RIGHT_REGIONS);
   if (card) card.style.maxHeight = savedMax;
-  seatCardPlus();
   // a visible right region actually reaches past the left plus middle group; only
   // then is there something to pan to and an arrow to offer
   respHasRight = rightGrp.any && rightGrp.right > leftMid.right + 8;
