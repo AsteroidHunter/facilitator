@@ -721,10 +721,34 @@ test("the sheet's rules: 4:3 and narrower than the settings page, in the middle 
   assert.doesNotMatch(sheetRule[1], /(?:^|[\s;])(?:height|max-height|min-height|min-width|max-width):/, "something besides the ratio sets the sheet's height");
   // the box takes what the title and the line leave, so the sheet keeps its shape
   assert.match(rules, /\.fb-sheet \.fbbox\{flex:1; min-height:0; display:flex\}/);
-  assert.match(rules, /\.fb-sheet \.fbta\{flex:1; height:auto; min-height:0; max-height:none\}/);
+  assert.match(rules, /\.fb-sheet \.fbta\{flex:1; height:auto; min-height:0; max-height:none;/);
   assert.match(TOKENS, /\.sp-veil \.sp-page\.sp-mac\{left:23\.75%; right:23\.75%/, "the settings page's width moved");
-  assert.match(rules, /\.fb-sheet \.setlabel > span\{font:625 17px\/1\.25 var\(--inter\)/);
   assert.doesNotMatch(rules, /--accent|purple|violet/i);
+});
+
+test("the sheet's width is Akash's pick, 40.9% of the window, and everything in it is tied to that width, not to pixels", () => {
+  const rules = TOKENS.slice(TOKENS.indexOf("the feedback sheet (feedbackOverlay"), TOKENS.indexOf("The link menu uses"));
+  const sheetRule = /\.fb-sheet\{([^}]*)\}/.exec(rules)[1];
+  assert.match(sheetRule, /(?:^|[\s;])width:40\.9%/);
+  // the sheet is a size container, so its children's cqw are shares of its own width
+  assert.match(sheetRule, /container-type:\s*inline-size/);
+  assert.match(sheetRule, /--fb-ts:1\.3;/, "the type is not 1.3 times today's");
+  assert.match(sheetRule, /--fb-pad:4;/, "the spacing is not 4% of the sheet's width");
+  assert.match(sheetRule, /--fb-ref:calc\(1512 \* \.409\)/);
+  assert.match(sheetRule, /--fb-unit:calc\(100cqw \* var\(--fb-ts\) \/ var\(--fb-ref\)\)/);
+  // today's 17, 12, 14 and 18 are multiples of that unit; the padding is a share of the width, 28/32 of it down the page
+  assert.match(rules, /\.fb-sheet \.setlabel > span\{font:625 calc\(17 \* var\(--fb-unit\)\)\/1\.25 var\(--inter\)/);
+  assert.match(rules, /\.fb-sheet \.setlabel \.sethelp\{font-size:calc\(12 \* var\(--fb-unit\)\)\}/);
+  assert.match(rules, /\.fb-sheet \.fbta\{[^}]*font-size:calc\(14 \* var\(--fb-unit\)\)/);
+  assert.match(rules, /\.fb-sheet #fbnote:empty\{display:block; min-height:calc\(18 \* var\(--fb-unit\)\)\}/);
+  assert.match(rules, /\.fb-sheet \.sp-pane\{padding:calc\(var\(--fb-pad\) \* 1cqw \* 28 \/ 32\) calc\(var\(--fb-pad\) \* 1cqw\)\}/);
+  // no pixel size is left in the sheet's own type or spacing rules
+  const own = rules.slice(rules.indexOf(".sp-veil.fb-veil{"));
+  for (const rule of own.split("}")) {
+    if (/\.fb-sheet \.(?:sp-pane\{|setlabel > span|setlabel \.sethelp|fbta|#fbnote)|#fbnote:empty/.test(rule)) {
+      assert.doesNotMatch(rule.replace(/gap:4px/, ""), /(?:^|[\s:(*])\d+(?:\.\d+)?px/, "a fixed pixel size is left in: " + rule.trim());
+    }
+  }
 });
 
 // ---- the phone's zoom ---------------------------------------------------------------------
