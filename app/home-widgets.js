@@ -61,8 +61,10 @@
 (function () {
   const WEEKS = 53;
   const LEFT = 34, TOP = 20;                    // room for the day and month names
-  // a week column's width, as wide as the height allows between these two
-  const MIN_STEP = 12, MAX_STEP = 32;
+  // a week column's width, as wide as the height allows and never under this,
+  // so the seven rows fill a taller view instead of leaving bands above and
+  // under them
+  const MIN_STEP = 12;
   // the height a chart is drawn to when its view has none of its own yet
   const VIEW_H = 200;
   // the scale: a warm grey for nothing, then four red-oranges, light to deep
@@ -210,7 +212,7 @@
   // height left over. The line is as wide as the heatmap and as tall as the view
   function geometry(h) {
     const height = Math.max(1, Math.round(Number(h) > 0 ? Number(h) : VIEW_H));
-    const step = Math.max(MIN_STEP, Math.min(MAX_STEP, Math.floor((height - TOP - 2) / 7)));
+    const step = Math.max(MIN_STEP, Math.floor((height - TOP - 2) / 7));
     const gap = step >= 20 ? 4 : 3, cell = step - gap;
     const rows = 7 * step - gap;
     const top = TOP + Math.max(0, Math.floor((height - TOP - rows) / 2));
@@ -860,7 +862,7 @@
   }
 
   window.TokenWidgets = {
-    PALETTE, LINE, AVG_LINE, AVG_DASH, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP, MAX_STEP,
+    PALETTE, LINE, AVG_LINE, AVG_DASH, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
     compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,

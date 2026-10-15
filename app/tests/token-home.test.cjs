@@ -194,13 +194,15 @@ test("the heatmap draws one square per day of the year in 53 week columns of 7",
   }
 });
 
-test("the heatmap's squares grow with the view's height, within limits, and fill it", () => {
+test("the heatmap's squares grow with the view's height, never under 12, and fill it", () => {
   const { W } = widgets();
   assert.equal(W.VIEW_H, 200);
   // the board's two window sizes (1512 x 982 and 1280 x 800) and the phone's
   // view: seven rows and the month names fill the height, with at most a few
   // pixels over, split above and below
-  for (const [h, step, cell] of [[251, 32, 28], [187, 23, 19], [226, 29, 25], [156, 19, 16], [200, 25, 21]]) {
+  // and a 2560 x 1440 window's view, taller than any of those
+  for (const [h, step, cell] of [[251, 32, 28], [187, 23, 19], [226, 29, 25], [156, 19, 16], [200, 25, 21],
+                                 [391, 52, 48]]) {
     const g = W.geometry(h);
     assert.equal(g.step, step, `step at ${h}`);
     assert.equal(g.cell, cell, `square at ${h}`);
@@ -211,10 +213,11 @@ test("the heatmap's squares grow with the view's height, within limits, and fill
     assert.ok(g.top - 20 >= 0 && h - bottom >= 0 && (g.top - 20) + (h - bottom) <= 12, `${h} leaves little over`);
     assert.ok(Math.abs((g.top - 20) - (h - bottom)) <= 3, "what is over is split");
   }
-  // never smaller than 12 or larger than 32 a column, however short or tall the view
+  // never smaller than 12 a column, however short the view, and no ceiling
   assert.equal(W.geometry(60).step, 12);
   assert.ok(W.geometry(60).height >= 20 + 7 * 12 - 3, "a short view is overdrawn, never squeezed");
-  assert.equal(W.geometry(900).step, 32);
+  assert.equal(W.geometry(900).step, 125);
+  assert.equal(W.MAX_STEP, undefined);
   // the model follows the height it is given
   const model = W.heatmapModel(daysEnding("2026-09-27", 371), 226);
   assert.equal(model.geo.step, 29);
