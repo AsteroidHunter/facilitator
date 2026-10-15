@@ -1570,7 +1570,7 @@
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
   #magicbox.rising > *{opacity:var(--rise)}
   /* the two lines that tie the box to its card, as the owner chose them in the
-     connector mock (magicLine): the card's own edge colour, dashed, 2px,
+     connector mock (magicLine): the card's own edge colour, dashed, 4/3 px,
      straight across the gap from the card's right edge to the box's left
      edge, and no further, so none of a line is ever under a faded card or
      box. they lie beneath the card and the box (#mbline, before the card,
@@ -8129,11 +8129,12 @@ function magicRoom(){
 //     second the same share up from its foot: the mock's n of 52 on its box
 //     488 high, so the two keep the same look on a box of any size and never
 //     meet
-//   each is dashes 6 long with gaps of 4, 2 wide, with flat ends, in the
-//     card's edge colour, counted from the box's edge, so a whole dash ends
-//     exactly at it
+//   each is dashes 6 long with gaps of 4, 4/3 wide (two thirds of the 2 the
+//     mock drew, thinned in m1275), with flat ends, in the card's
+//     edge colour, counted from the box's edge, so a whole dash ends exactly
+//     at it
 // a gap narrower than 8 px gives null, and no line is drawn
-const TWO = { gap: 8, share: 52 / 488, width: 2, dash: 6, space: 4 };
+const TWO = { gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 };
 function magicTwo(card, box){
   const cr = card.left + card.width;
   if (box.left - cr < TWO.gap) return null;

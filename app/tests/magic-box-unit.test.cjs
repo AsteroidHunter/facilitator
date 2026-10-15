@@ -675,7 +675,7 @@ const dashed = (scale = 1) => {
   return { ctx, MB };
 };
 // every path drawn: [start x, start y, end x, end y]
-const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="2" stroke-linecap="butt" stroke-dasharray="6 4"\/>/g;
+const PATH = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)" fill="none" stroke="rgb\(202, 202, 202\)" stroke-width="1\.3333333333333333" stroke-linecap="butt" stroke-dasharray="6 4"\/>/g;
 const paths = svg => [...svg.innerHTML.matchAll(PATH)].map(m => m.slice(1, 5).map(Number));
 
 test("the lines are the pick from the connector mock: on its box, 488 high, two dashed lines 52 px down from the top and 52 px up from the foot, from the card's edge to the box's and no further", () => {
@@ -691,7 +691,8 @@ test("the lines are the pick from the connector mock: on its box, 488 high, two 
   assert.equal(two.to, box.left);
   ctx.magicLine(card, box);
   assert.equal(MB.line.ons, 1);
-  // two horizontal paths, dashes 6 with gaps of 4, 2 wide, flat ends, in the
+  // two horizontal paths, dashes 6 with gaps of 4, 4/3 wide (two thirds of the
+  // 2 the mock drew), flat ends, in the
   // card's edge colour, and nothing else in the group
   const got = paths(MB.line);
   assert.equal(got.length, 2, MB.line.innerHTML);
@@ -710,7 +711,7 @@ test("the lines are the pick from the connector mock: on its box, 488 high, two 
 
 test("the lines sit 52/488 of the box's height from its top and its foot, so they look the same on a box of any size and never meet", () => {
   assert.equal(vm.runInContext("JSON.stringify(TWO)", dashed().ctx),
-    JSON.stringify({ gap: 8, share: 52 / 488, width: 2, dash: 6, space: 4 }));
+    JSON.stringify({ gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 }));
   const near = (a, b) => Math.abs(a - b) < 1e-9;
   const { card, box } = PICK;
   const ys = (b, scale = 1) => [...dashed(scale).ctx.magicTwo(card, b).ys];
