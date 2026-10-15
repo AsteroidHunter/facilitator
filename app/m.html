@@ -1540,8 +1540,12 @@
     font:inherit; font-size:16px; font-weight:500; cursor:pointer}
   #signoutno{background:var(--system-gray5); color:var(--system-blue)}
   #signoutyes{background:var(--system-blue); color:#fff}
-  /* the one line a keyboard save says over whatever the panel shows */
-  #diagnostictoast{position:fixed; z-index:30; top:48px; left:12px; right:12px;
+  /* the one line a keyboard save says over whatever the panel shows. it stands
+     just under the card's top bar: under the status bar's safe area, as the
+     page's own top edge does (--pg-t), then the app's inset, the bar and 8 more,
+     which is 48px where there is no safe area */
+  #diagnostictoast{position:fixed; z-index:30; left:12px; right:12px;
+    top:calc(env(safe-area-inset-top, 0px) + var(--app-inset) + var(--cardbar-h) + 8 * var(--u));
     padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
     border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); pointer-events:none}
   #diagnostictoast:empty{display:none}
