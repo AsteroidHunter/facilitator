@@ -64,14 +64,14 @@ function fakeElement(extra = {}) {
   };
 }
 
-function box({ ready = true, send, enter, wait } = {}) {
+function box({ ready = true, send, enter, wait, moved } = {}) {
   const time = clock();
   const sent = [];
   const els = { box: fakeElement(), ta: fakeElement(), send: fakeElement(), note: fakeElement() };
   const context = vm.createContext({ setTimeout: time.setTimeout, clearTimeout: time.clearTimeout, Promise });
   vm.runInContext(FEEDBACK, context);
   const api = vm.runInContext("feedbackBox", context)(els, {
-    ready, wait,
+    ready, wait, moved,
     send: send || (async text => { sent.push(text); return true; }),
     enter: enter || (e => e.key === "Enter" && !e.shiftKey),
   });
@@ -189,6 +189,50 @@ test("a message that went empties the box; one that did not leaves the words and
   }
 });
 
+// emptying the box from code fires no input, key or selection event, so the Mac
+// board's block caret has to be told, and only once the box is already empty
+// (the caret measures on the next frame)
+test("the caret is told to measure once a sent message has emptied the box, and not otherwise", async () => {
+  let measured = null, queued = false;
+  const went = box({ moved: () => { queued = true; measured = { value: went.els.ta.value, state: went.state() }; } });
+  went.type("test");
+  went.press();
+  went.time.tick(2999);
+  await settle();
+  assert.equal(queued, false, "the caret was told while the words still stood");
+  went.time.tick(1);
+  await settle();
+  assert.equal(queued, true, "emptying the box did not tell the caret");
+  assert.deepEqual(measured, { value: "", state: "idle" }, "the caret was told before the box was empty");
+
+  // a send that did not go keeps its words where they are, and so does a cancel
+  for (const how of [async () => false, async () => { throw new Error("offline"); }]) {
+    let told = 0;
+    const lost = box({ send: how, moved: () => { told++; } });
+    lost.type("keep");
+    lost.press();
+    lost.time.tick(3000);
+    await settle();
+    assert.equal(told, 0, "the caret was told though the words stayed");
+  }
+  let told = 0;
+  const cancelled = box({ moved: () => { told++; } });
+  cancelled.type("keep");
+  cancelled.press();
+  cancelled.time.tick(1000);
+  cancelled.press();
+  assert.equal(told, 0);
+  assert.equal(cancelled.els.ta.value, "keep");
+
+  // a page with no caret of its own (the phone) hands in nothing and still works
+  const plain = box();
+  plain.type("test");
+  plain.press();
+  plain.time.tick(3000);
+  await settle();
+  assert.equal(plain.els.ta.value, "");
+});
+
 test("Enter follows the page's rule: it starts the send, a refused key does not, and Enter in the countdown does nothing", async () => {
   const b = box({ enter: e => e.key === "Enter" && !e.shiftKey });
   b.type("");
@@ -271,7 +315,7 @@ test("the box is a tall one, with room under its words for the arrow", () => {
 // ---- the Mac page's wiring ---------------------------------------------------------
 
 function macPage({ profile }) {
-  const elements = new Map(), calls = [], gate = [], built = {};
+  const elements = new Map(), calls = [], gate = [], built = {}, caret = { queued: 0 };
   const element = id => {
     if (!elements.has(id)) elements.set(id, fakeElement({ id, checked: false }));
     return elements.get(id);
@@ -284,6 +328,8 @@ function macPage({ profile }) {
     ComposeFormat: { enabled: () => false, setEnabled() {}, onChange() {}, preload() {} },
     waitNewestFirst: () => false, lastState: null, renderCarousel() {},
     SETTINGS_PICTURES: {}, settingsZoneWords: () => "",
+    // the board's block caret hands its queue over later (index.html), so the page must look it up when it is told
+    queueFatCaret: () => { caret.queued++; },
     feedbackBox: (els, opts) => { Object.assign(built, { els, opts }); return { setReady: ready => gate.push(ready) }; },
     fetch: async (url, init = {}) => {
       calls.push([url, init.method || "GET", init.body ? JSON.parse(init.body) : null]);
@@ -294,7 +340,7 @@ function macPage({ profile }) {
   });
   vm.runInContext(KEYS, context);
   vm.runInContext(between(MAC, "// ---- settings ----", "function buildHandles()"), context);
-  return { calls, gate, built, element, open: () => element("setbtn").listeners.click() };
+  return { calls, gate, built, caret, element, open: () => element("setbtn").listeners.click() };
 }
 
 test("on the Mac page the box follows the profile when the page opens, and the fields as they are typed in", async () => {
@@ -336,6 +382,15 @@ test("the Mac sends through POST /feedback and answers whether it went; Enter se
   assert.equal(key({ ctrlKey: true, shiftKey: true }), true, "Control+Shift+Enter sends as plain Enter does");
   assert.equal(key({ isComposing: true }), false);
   assert.equal(key({ key: "a" }), false);
+});
+
+test("the Mac page has the block caret measure again when the box is emptied", () => {
+  const page = macPage({ profile: { name: "Ada", email: "ada@example.org" } });
+  assert.equal(typeof page.built.opts.moved, "function", "the Mac page does not hear that the box was emptied");
+  assert.equal(page.caret.queued, 0);
+  page.built.opts.moved();
+  assert.equal(page.caret.queued, 1, "it did not reach the block caret's queue");
+  assert.match(MAC, /let queueFatCaret = \(\) => \{\};/);
 });
 
 // ---- the phone's wiring --------------------------------------------------------------

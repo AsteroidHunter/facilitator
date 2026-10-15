@@ -7699,8 +7699,11 @@ function settingsOverlay(host, source, opts){
 // says so in one grey line. els holds box (the element that wears data-state),
 // ta, send and note. opts.send(text) answers a promise of whether it went,
 // opts.enter(e) says whether that key is the page's Enter-sends rule, and
-// opts.ready is whether the profile has its name and email. The page's timer
-// can be handed in as opts.wait (milliseconds) for the tests
+// opts.ready is whether the profile has its name and email. A page that draws
+// its own caret over the box (the Mac board's block) hands in opts.moved, called
+// once the words have been changed from code: emptying the box fires no input,
+// key or selection event, so that caret would stay where the sent words ended.
+// The page's timer can be handed in as opts.wait (milliseconds) for the tests
 const FEEDBACK_WAIT_MS = 3000;
 const FEEDBACK_LINES = {
   locked: "Fill in your name and email in Profile to send feedback.",
@@ -7745,6 +7748,7 @@ function feedbackBox(els, opts){
       if (went){ els.ta.value = ""; line = FEEDBACK_LINES.sent; }
       else line = FEEDBACK_LINES.failed;
       paint();
+      if (went && opts.moved) opts.moved();
     });
   }
   els.send.addEventListener("click", () => { if (state === "counting") cancel(); else start(); });
