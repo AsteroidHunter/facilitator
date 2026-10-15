@@ -13,15 +13,18 @@ function fixture(html, isPhone = false) {
   let now = 0, next = 1;
   const timers = new Map(), global = {}, documentEvents = {};
   const element = () => {
-    const classes = new Set(), events = {}, props = {};
+    const classes = new Set(["qn-glass"]), events = {}, props = {};   // the page presses only what wears the glass
     return { classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c) },
       offsetWidth: 32, offsetHeight: 32, props, style: { setProperty: (name, value) => { props[name] = value; } },
       addEventListener(type, fn) { (events[type] ||= []).push(fn); },
       fire(type, e = {}) { for (const fn of events[type] || []) fn(e); } };
   };
-  const buttons = Array.from({ length: 4 }, element);
+  // the pieces of glass the page's press script walks: the Mac's bar has the bug between the speaker and the squid
+  const ids = isPhone ? ["homeico", "projpill", "chimebtn", "setbtn"]
+    : ["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn", "npstart"];
+  const buttons = Array.from({ length: ids.length }, element);
   const document = { visibilityState: "visible",
-    getElementById: id => buttons[["homeico", "projpill", "chimebtn", "setbtn"].indexOf(id)],
+    getElementById: id => buttons[ids.indexOf(id)],
     querySelectorAll: () => buttons,
     addEventListener(type, fn) { (documentEvents[type] ||= []).push(fn); },
   };

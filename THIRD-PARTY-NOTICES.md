@@ -58,6 +58,12 @@ commit `3b9ea6d08707edc439f25a4c354cb0d6b8bee973`, at
 `https://github.com/lucide-icons/lucide`. None of the five belong to Lucide's
 Feather-derived subset, so all are covered by the ISC License below.
 
+The Mac board's top bar also draws Lucide's `bug` (the feedback button, the
+`#feedbackbtn` button in `app/index.html`) as inline static SVG path data, its
+geometry unchanged, at 15px with a 2 stroke like the bar's other icons. It was
+copied from the `icons/bug.svg` on Lucide's main branch on 2026-10-15, and it is
+not part of Feather's set either, so it is covered by the same ISC License.
+
 ### ISC License
 
 Copyright (c) 2026 Lucide Icons and Contributors

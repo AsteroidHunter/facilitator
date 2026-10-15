@@ -317,14 +317,20 @@ test("the box is a tall one, with room under its words for the arrow", () => {
 function macPage({ profile }) {
   const elements = new Map(), calls = [], gate = [], built = {}, caret = { queued: 0 };
   const element = id => {
-    if (!elements.has(id)) elements.set(id, fakeElement({ id, checked: false }));
+    if (!elements.has(id)) elements.set(id, fakeElement({ id, checked: false, closest: () => element("fbrow") }));
     return elements.get(id);
   };
   let overlay = null;
+  const sheet = { opened: 0, closed: 0, seated: 0, focused: 0, hooks: null, row: null };
   const context = vm.createContext({
     document: { getElementById: element, body: { classList: { add() {}, remove() {} } } },
     settingsStore: { getItem: () => null, setItem() {}, removeItem() {} },
     settingsOverlay: (host, source, opts) => { overlay = opts; return { open: () => opts.onOpen() }; },
+    feedbackOverlay: (host, row, opts) => {
+      sheet.row = row; sheet.hooks = opts;
+      return { open: () => { sheet.opened++; opts.onOpen(); }, close: () => { sheet.closed++; opts.onClose(); },
+               seat: () => { sheet.seated++; }, focus: () => { sheet.focused++; } };
+    },
     ComposeFormat: { enabled: () => false, setEnabled() {}, onChange() {}, preload() {} },
     waitNewestFirst: () => false, lastState: null, renderCarousel() {},
     SETTINGS_PICTURES: {}, settingsZoneWords: () => "",
@@ -340,7 +346,7 @@ function macPage({ profile }) {
   });
   vm.runInContext(KEYS, context);
   vm.runInContext(between(MAC, "// ---- settings ----", "function buildHandles()"), context);
-  return { calls, gate, built, caret, element, open: () => element("setbtn").listeners.click() };
+  return { calls, gate, built, caret, element, sheet, open: () => element("setbtn").listeners.click() };
 }
 
 test("on the Mac page the box follows the profile when the page opens, and the fields as they are typed in", async () => {
@@ -465,3 +471,248 @@ for (const [name, html] of Object.entries(VIEWS)) {
     assert.doesNotMatch(html, /<span>Send feedback<\/span>/);
   });
 }
+
+// ---- the Mac's pill and its sheet ---------------------------------------------------------
+
+test("the bar has a bug pill between the speaker and the squid, labelled, with Lucide's bug at the bar's icon size and stroke", () => {
+  const bar = between(MAC, '<div class="bar">', "<!-- the pill's list");
+  const chime = bar.indexOf('id="chimebtn"'), pill = bar.indexOf('id="feedbackbtn"'), squid = bar.indexOf('id="setbtn"');
+  assert.ok(chime > 0 && pill > chime && squid > pill, "the pill is not between the speaker and the squid");
+  const tag = bar.slice(pill, bar.indexOf("</button>", pill));
+  assert.match(tag, /class="qn-glass"/);
+  assert.match(tag, /aria-label="Share feedback"/);
+  assert.match(tag, /aria-haspopup="dialog" aria-expanded="false"/);
+  const drawn = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"';
+  assert.ok(tag.includes(drawn), "the bug is not drawn at the bar's icon size and stroke");
+  assert.ok(bar.slice(chime, bar.indexOf("</button>", chime)).includes(drawn), "the speaker's size and stroke moved");
+  for (const d of ["M12 20v-9", "M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z", "M14.12 3.88 16 2",
+    "M21 21a4 4 0 0 0-3.81-4", "M21 5a4 4 0 0 1-3.55 3.97", "M22 13h-4", "M3 21a4 4 0 0 1 3.81-4",
+    "M3 5a4 4 0 0 0 3.55 3.97", "M6 13H2", "m8 2 1.88 1.88", "M9 7.13V6a3 3 0 1 1 6 0v1.13"])
+    assert.ok(tag.includes(`d="${d}"`), `Lucide's bug is missing ${d}`);
+  assert.equal((tag.match(/<path/g) || []).length, 11);
+  assert.doesNotMatch(tag, /accent/);
+});
+
+test("the pill takes every rule the speaker and the squid take: glass, size, hover, press, spacing and the press script", () => {
+  for (const rule of [
+    "body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn){",
+    "body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn):hover{",
+    "body.focus :is(#homeico, #chimebtn, #feedbackbtn) svg{",
+    "body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{",
+    "body.focus .bar :is(#feedbackbtn, #setbtn){margin-left:3px}",
+  ]) assert.ok(MAC.includes(rule), `${rule} is not in the Mac page`);
+  assert.ok(MAC.includes('["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn", "npstart"]'), "the press script skips the pill");
+});
+
+test("the phone has no bug pill and no sheet: its feedback box stays in Settings", () => {
+  assert.doesNotMatch(PHONE, /feedbackbtn|feedbackOverlay|fb-sheet/);
+});
+
+// a small tree of fake elements, enough for the sheet to move its row about
+function sheetDom() {
+  const timers = [], active = { el: null }, docListeners = {};
+  const make = (tag, cls = "", text = "") => {
+    const n = {
+      tag, text, parent: null, kids: [], attrs: {}, listeners: {}, tabIndex: -1, focused: 0,
+      cls: new Set(String(cls).split(" ").filter(Boolean)),
+      isConnected: true,
+      classList: { add: c => n.cls.add(c), remove: c => n.cls.delete(c), contains: c => n.cls.has(c) },
+      setAttribute(k, v) { n.attrs[k] = v; },
+      addEventListener(type, fn) { (n.listeners[type] ||= []).push(fn); },
+      appendChild(k) { if (k.parent) k.parent.kids.splice(k.parent.kids.indexOf(k), 1); k.parent = n; n.kids.push(k); return k; },
+      before(k) { if (k.parent) k.parent.kids.splice(k.parent.kids.indexOf(k), 1); k.parent = n.parent; n.parent.kids.splice(n.parent.kids.indexOf(n), 0, k); },
+      after(k) { if (k.parent) k.parent.kids.splice(k.parent.kids.indexOf(k), 1); k.parent = n.parent; n.parent.kids.splice(n.parent.kids.indexOf(n) + 1, 0, k); },
+      contains(k) { for (let p = k; p; p = p.parent) if (p === n) return true; return false; },
+      focus() { n.focused++; active.el = n; },
+      blur() { if (active.el === n) active.el = null; },
+    };
+    Object.defineProperty(n, "textContent", { get: () => n.text, set: v => { n.text = v; } });
+    Object.defineProperty(n, "parentNode", { get: () => n.parent });
+    return n;
+  };
+  const fire = (n, type, event) => { for (const fn of n.listeners[type] || []) fn(event); };
+  return { make, timers, active, docListeners, fire };
+}
+
+function feedbackSheet({ disabled = false } = {}) {
+  const d = sheetDom();
+  const host = d.make("body"), settingsBox = d.make("div", "sp-box");
+  const row = d.make("div", "setrow fbrow"), title = d.make("span", "", "Share Feedback"), ta = d.make("textarea");
+  ta.disabled = disabled;
+  row.querySelector = sel => (sel === ".setlabel span" ? title : sel === "textarea" ? ta : null);
+  settingsBox.appendChild(row);
+  const opened = [], closed = [];
+  const context = vm.createContext({
+    h: (tag, cls, text) => d.make(tag, cls, text),
+    document: { createComment: () => d.make("#comment"), addEventListener: (t, fn) => { d.docListeners[t] = fn; } },
+    setTimeout: (fn, ms) => { d.timers.push({ fn, ms }); return d.timers.length; },
+    clearTimeout: id => { if (d.timers[id - 1]) d.timers[id - 1].fn = null; },
+  });
+  Object.defineProperty(context.document, "activeElement", { get: () => d.active.el });
+  vm.runInContext(FEEDBACK, context);
+  const sheet = vm.runInContext("feedbackOverlay", context)(host, row, { onOpen: () => opened.push(1), onClose: () => closed.push(1) });
+  const veil = sheet.root, dialog = veil.kids[0];
+  const fadeEnded = () => { for (const t of d.timers.splice(0)) if (t.fn) t.fn(); };
+  return { d, host, settingsBox, row, ta, title, sheet, veil, dialog, opened, closed, fadeEnded };
+}
+
+test("the sheet holds the box's row and nothing else, on the settings page's veil and look", () => {
+  const f = feedbackSheet();
+  assert.ok(f.veil.cls.has("sp-veil") && f.veil.cls.has("qn-veil"), "not the settings veil");
+  assert.ok(f.dialog.cls.has("sp-page") && f.dialog.cls.has("sp-mac"), "not the settings page's look");
+  assert.equal(f.dialog.attrs.role, "dialog");
+  assert.equal(f.dialog.attrs["aria-modal"], "true");
+  assert.equal(f.dialog.attrs["aria-label"], "Share Feedback");
+  assert.equal(f.sheet.isOpen(), false);
+  assert.equal(f.row.parent, f.settingsBox, "the row left Settings before the sheet opened");
+  f.sheet.open();
+  const pane = f.dialog.kids[0];
+  assert.equal(f.dialog.kids.length, 1);
+  assert.deepEqual(pane.kids, [f.row], "the sheet holds something besides the row");
+  assert.ok(f.veil.cls.has("open"));
+  assert.equal(f.veil.attrs["aria-hidden"], "false");
+  assert.equal(f.opened.length, 1);
+  assert.equal(f.d.active.el, f.ta, "the box is not focused on opening");
+});
+
+test("a greyed box cannot take focus, so the sheet itself does", () => {
+  const f = feedbackSheet({ disabled: true });
+  f.sheet.open();
+  assert.equal(f.d.active.el, f.dialog);
+});
+
+test("a box that wakes after the sheet opened is given the focus, unless something in the sheet already has it or the sheet is shut", () => {
+  const f = feedbackSheet({ disabled: true });
+  f.sheet.focus();
+  assert.equal(f.d.active.el, null, "a shut sheet took the focus");
+  f.sheet.open();
+  f.ta.disabled = false;   // the profile has been read
+  f.sheet.focus();
+  assert.equal(f.d.active.el, f.ta);
+  const other = f.d.make("button");
+  f.dialog.appendChild(other);
+  other.focus();
+  f.sheet.focus();
+  assert.equal(f.d.active.el, other, "the focus was taken from something in the sheet");
+});
+
+test("a press on the veil outside the sheet puts it away; a press inside, or a drag out of it, does not", () => {
+  const f = feedbackSheet();
+  f.sheet.open();
+  f.d.fire(f.veil, "pointerdown", { target: f.ta });
+  f.d.fire(f.veil, "click", { target: f.ta });
+  assert.equal(f.sheet.isOpen(), true, "a click inside closed it");
+  f.d.fire(f.veil, "pointerdown", { target: f.dialog });   // a selection starts in the sheet...
+  f.d.fire(f.veil, "click", { target: f.veil });           // ...and lets go on the veil
+  assert.equal(f.sheet.isOpen(), true, "a drag out of the box closed it");
+  f.d.fire(f.veil, "pointerdown", { target: f.veil });
+  f.d.fire(f.veil, "click", { target: f.veil });
+  assert.equal(f.sheet.isOpen(), false, "a click outside did not close it");
+  assert.equal(f.veil.attrs["aria-hidden"], "true");
+  assert.equal(f.veil.cls.has("open"), false);
+  assert.equal(f.closed.length, 1);
+});
+
+test("Escape puts the sheet away, and no key goes on to the board", () => {
+  const f = feedbackSheet();
+  const key = k => ({ key: k, stopped: 0, prevented: 0, stopPropagation() { this.stopped++; }, preventDefault() { this.prevented++; } });
+  f.sheet.open();
+  const other = key("a");
+  f.d.fire(f.veil, "keydown", other);
+  assert.equal(other.stopped, 1, "a key reached the board under the sheet");
+  assert.equal(f.sheet.isOpen(), true);
+  const esc = key("Escape");
+  f.d.fire(f.veil, "keydown", esc);
+  assert.equal(esc.stopped, 1);
+  assert.equal(f.sheet.isOpen(), false);
+});
+
+test("closing keeps the typed words and leaves the box alone; the row goes home after the fade", () => {
+  const f = feedbackSheet();
+  f.ta.value = "half a thought";
+  f.sheet.open();
+  f.sheet.close();
+  assert.equal(f.ta.value, "half a thought", "closing touched the words");
+  assert.equal(f.row.parent, f.dialog.kids[0], "the row left before the fade out ran");
+  f.fadeEnded();
+  assert.equal(f.row.parent, f.settingsBox, "the row did not go back into Settings");
+  f.sheet.open();
+  assert.equal(f.ta.value, "half a thought", "the words were gone on the next opening");
+  assert.equal(f.row.parent, f.dialog.kids[0]);
+  f.sheet.close();
+  f.sheet.open();   // reopened inside the fade: the pending move home must not take the row from the sheet
+  f.fadeEnded();
+  assert.equal(f.row.parent, f.dialog.kids[0], "a late move home took the row out of an open sheet");
+});
+
+test("Settings can take the row back at once, even inside the fade out, but never from an open sheet", () => {
+  const f = feedbackSheet();
+  f.sheet.open();
+  f.sheet.close();
+  f.sheet.seat();
+  assert.equal(f.row.parent, f.settingsBox);
+  f.sheet.open();
+  f.sheet.seat();
+  assert.equal(f.row.parent, f.dialog.kids[0], "seat took the row from an open sheet");
+});
+
+test("focus cannot wander onto the board while the sheet is open", () => {
+  const f = feedbackSheet();
+  const board = f.d.make("div");
+  f.d.docListeners.focusin({ target: board });
+  assert.equal(f.d.active.el, null, "focus was pulled while the sheet was shut");
+  f.sheet.open();
+  f.d.active.el = board;
+  f.d.docListeners.focusin({ target: board });
+  assert.equal(f.d.active.el, f.ta);
+});
+
+test("a send already counting down carries on after the sheet is closed", async () => {
+  // the sheet never calls into the box, so the box's own timer is all there is
+  const body = between(LOGIC, "function feedbackOverlay(host, row, opts){", "// ---- a card's magic box");
+  assert.doesNotMatch(body, /cancel\(|setReady|\.value\s*=/, "the sheet reaches into the box");
+  const f = feedbackSheet();
+  const b = box();
+  b.type("please look at this");
+  b.press();
+  assert.equal(b.state(), "counting");
+  f.sheet.open();
+  f.sheet.close();
+  b.time.tick(3000);
+  await settle();
+  assert.deepEqual(b.sent, ["please look at this"]);
+  assert.equal(b.els.ta.value, "");
+});
+
+test("the Mac wiring: the pill opens the sheet, the sheet holds the board's keys while open, Settings shuts it", async () => {
+  const page = macPage({ profile: { name: "Ada", email: "ada@example.org" } });
+  assert.equal(page.sheet.row, page.element("fbrow"), "the sheet is not given the box's row");
+  const pill = page.element("feedbackbtn");
+  assert.deepEqual(page.gate, [], "the profile was read before anything opened");
+  pill.listeners.click();
+  assert.equal(page.sheet.opened, 1);
+  await settle();
+  // the pill may be the first thing opened since the page loaded, so the sheet reads the profile that
+  // wakes the box, and then asks for the focus the greyed box could not take
+  assert.deepEqual(page.gate, [true], "opening the sheet did not wake the box from the profile");
+  assert.equal(page.sheet.focused, 1, "the woken box was not given the focus");
+  assert.equal(pill.attrs["aria-expanded"], "true");
+  page.sheet.hooks.onClose();
+  assert.equal(pill.attrs["aria-expanded"], "false");
+  page.open();
+  assert.equal(page.sheet.closed, 1, "opening Settings left the sheet open");
+  assert.equal(page.sheet.seated, 1, "opening Settings did not take the row back");
+  const wiring = between(MAC, "feedbackSheet = feedbackOverlay(", "feedbackBtn.addEventListener");
+  assert.match(wiring, /setOpen = true;[\s\S]*classList\.add\("setopen"\)/);
+  assert.match(wiring, /setOpen = false;[\s\S]*classList\.remove\("setopen"\)/);
+});
+
+test("the sheet's rules: the settings page's width in the middle of the window, only the row in it, no accent", () => {
+  const rules = TOKENS.slice(TOKENS.indexOf("the feedback sheet (feedbackOverlay"));
+  assert.match(rules, /\.sp-veil\.fb-veil\{display:flex; align-items:center; justify-content:center\}/);
+  assert.match(rules, /\.fb-sheet\{[^}]*width:52\.5%/);
+  assert.match(TOKENS, /\.sp-veil \.sp-page\.sp-mac\{left:23\.75%; right:23\.75%/, "the settings page's width moved");
+  assert.match(rules, /\.fb-sheet \.setlabel > span\{font:625 17px\/1\.25 var\(--inter\)/);
+  assert.doesNotMatch(rules, /--accent|purple|violet/i);
+});

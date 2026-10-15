@@ -180,7 +180,7 @@ function macPage(stored = {}) {
   const repaints = [];
   const element = id => {
     if (!elements.has(id)) elements.set(id, { id, checked: false, textContent: id === "setwaitnote" ? "Oldest first" : "", events: {},
-      setAttribute() {}, addEventListener(type, fn) { this.events[type] = fn; } });
+      closest: () => ({}), setAttribute() {}, addEventListener(type, fn) { this.events[type] = fn; } });
     return elements.get(id);
   };
   const context = vm.createContext({
@@ -192,6 +192,7 @@ function macPage(stored = {}) {
     lastState: { boxes: [] }, renderCarousel: state => repaints.push(state),
     fetch: async () => ({ ok: false }),   // the Profile section's reading, not under test here
     feedbackBox: () => ({ setReady() {} }),   // the feedback box in Improvements, tested in feedback-box.test.cjs
+    feedbackOverlay: () => ({ open() {}, close() {}, seat() {} }),   // the bar's bug and its sheet, tested there too
     controlShiftEnter: () => false, bareControlEnter: () => false,
   });
   // the page's own line that answers for the option, then its settings block

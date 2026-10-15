@@ -79,7 +79,7 @@ function macPage(stored = {}) {
   let overlay = null;
   const element = id => {
     if (!elements.has(id)) elements.set(id, { id, checked: id === "setusage", events: {},
-      setAttribute() {}, addEventListener(type, fn) { this.events[type] = fn; } });
+      closest: () => ({}), setAttribute() {}, addEventListener(type, fn) { this.events[type] = fn; } });
     return elements.get(id);
   };
   const context = vm.createContext({
@@ -91,6 +91,7 @@ function macPage(stored = {}) {
     waitNewestFirst: () => false, lastState: null, renderCarousel() {},   // the block beside this switch, not under test here
     fetch: async () => ({ ok: false }),   // the Profile section's reading, not under test here
     feedbackBox: () => ({ setReady() {} }),   // the feedback box above the switch, tested in feedback-box.test.cjs
+    feedbackOverlay: () => ({ open() {}, close() {}, seat() {} }),   // the bar's bug and its sheet, tested there too
     controlShiftEnter: () => false, bareControlEnter: () => false,
   });
   vm.runInContext(between(MAC, "// ---- settings ----", "function buildHandles()"), context);

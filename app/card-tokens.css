@@ -1182,6 +1182,22 @@
 .sp-mac[data-narrow] .setstat{flex-direction:column; align-items:flex-start; justify-content:center; gap:2px}
 .sp-mac[data-narrow] .setstat > .setvalue{flex:none; max-width:100%; text-align:left}
 
+/* the feedback sheet (feedbackOverlay in card-logic.js), the Mac's bug in the
+   bar: the settings page's veil, white, corners, edge and shadow, as wide as the
+   settings page is (a quarter and a bit in from each side), but only as tall as
+   what it holds, in the middle of the window. it holds the box's row alone: the
+   title in the page's heading type, the grey line, the box, and the box's one
+   note line, which keeps its room when empty so the sheet does not move when a
+   note comes */
+.sp-veil.fb-veil{display:flex; align-items:center; justify-content:center}
+.sp-veil .sp-page.sp-mac.fb-sheet{position:relative; inset:auto; flex:none; width:52.5%;
+  max-height:70%; display:block; overflow:auto}
+.fb-sheet .sp-pane{padding:28px 32px}
+.fb-sheet .sp-pane .setrow.fbrow{padding:0; border-top:none}
+.fb-sheet .setlabel{gap:4px}
+.fb-sheet .setlabel > span{font:625 17px/1.25 var(--inter); color:var(--ink)}
+.fb-sheet #fbnote:empty{display:block; min-height:18px}
+
 /* The link menu uses the board's existing page-menu shape and ink press shade. */
 html.app-link-policy a[href], html.app-link-policy .cardmd img,
 html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-touch-callout:none}

@@ -7772,6 +7772,90 @@ function feedbackBox(els, opts){
   };
 }
 
+// the feedback box on its own, for the Mac board's bar: the pill there opens a
+// sheet in the middle of the window over the same dark veil as Settings, holding
+// the box's row (its title, its grey line, the box and its one note line) and
+// nothing else. there is only one box: the row is lifted out of Settings,
+// Improvements into the sheet while it is open and set back after the fade out,
+// so the words typed, a send counting down and the greyed state are the same in
+// both places. a press on the veil outside the sheet and Escape put it away;
+// closing never touches the words or a send already counting, whose timer is the
+// box's own. opts carries onOpen and onClose for the page's own bookkeeping
+function feedbackOverlay(host, row, opts){
+  const veil = h("div", "qn-veil sp-veil fb-veil");
+  veil.setAttribute("aria-hidden", "true");
+  const sheet = h("div", "qn-glass sp-page sp-mac fb-sheet");
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  const title = row.querySelector(".setlabel span");
+  sheet.setAttribute("aria-label", title ? title.textContent : "Share Feedback");
+  // a press on bare glass leaves focus on the sheet, so Escape still reaches the veil
+  sheet.tabIndex = -1;
+  const pane = h("div", "sp-pane on");
+  sheet.appendChild(pane);
+  veil.appendChild(sheet);
+  host.appendChild(veil);
+  const seat = document.createComment("feedback");   // where the row stands in Settings
+  row.before(seat);
+  let open = false, back = null, downOutside = false, putBack = 0;
+  function seatRow(){
+    clearTimeout(putBack);
+    putBack = 0;
+    if (!open && row.parentNode !== seat.parentNode) seat.after(row);
+  }
+  function focusBox(){
+    const ta = row.querySelector("textarea");
+    (ta && !ta.disabled ? ta : sheet).focus({ preventScroll: true });
+  }
+  // for the page, once a greyed box has woken: the box takes the focus unless
+  // something in the sheet already holds it
+  function focusWoken(){
+    const at = document.activeElement;
+    if (open && (!at || at === sheet || !sheet.contains(at))) focusBox();
+  }
+  function openOverlay(){
+    if (open) return;
+    open = true;
+    back = document.activeElement;
+    clearTimeout(putBack);
+    putBack = 0;
+    pane.appendChild(row);
+    veil.classList.add("open");
+    veil.setAttribute("aria-hidden", "false");
+    if (opts.onOpen) opts.onOpen();
+    focusBox();
+  }
+  function close(){
+    if (!open) return;
+    open = false;
+    veil.classList.remove("open");
+    veil.setAttribute("aria-hidden", "true");
+    if (opts.onClose) opts.onClose();
+    const to = back;
+    back = null;
+    if (to && to.isConnected && typeof to.focus === "function") to.focus({ preventScroll: true });
+    else if (sheet.contains(document.activeElement)) document.activeElement.blur();
+    // the row stays in the sheet through the fade out, then goes home
+    putBack = setTimeout(seatRow, 320);
+  }
+  veil.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Escape"){ e.preventDefault(); close(); }
+  });
+  // a press that starts and ends on the veil, outside the sheet, puts it away;
+  // a selection dragged out of the box and let go on the veil does not
+  veil.addEventListener("pointerdown", e => { downOutside = e.target === veil; });
+  veil.addEventListener("click", e => {
+    if (downOutside && e.target === veil) close();
+    downOutside = false;
+  });
+  // and focus cannot wander onto the board behind it
+  document.addEventListener("focusin", e => {
+    if (open && !sheet.contains(e.target)) focusBox();
+  });
+  return { open: openOverlay, close, isOpen: () => open, seat: seatRow, focus: focusWoken, root: veil };
+}
+
 // ---- a card's magic box -----------------------------------------------------
 // what a card's agent put beside it (POST /magic), drawn the same on the board,
 // where the box stands beside the card, and on the phone, where it comes down
