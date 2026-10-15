@@ -1468,25 +1468,28 @@
      their script (#tikhead .tvb, and the press feedback beside setView). the
      region that dips is .6 of the glass pill this replaced, which was .86 of the
      rows' width, centred on the rows.
-     the top of its ink stands under the list's foot as far as it did when the
-     plus first stood here: two of (--line-gap + 1px), the 6px of its box above
-     the line, and the clear air the drawing leaves at the top of the line. the
-     plus is half as large again as it was (--plus-was, 16px, to --plus-size) and
-     that clear air grows with it, so the margin gives the growth back and the
-     top of the ink stays where it was */
+     the plus is tuned (20261014, in a mock): the top of its ink stands --plus-dist
+     under the list's foot, .48 of a ticket gap (--tik-gap); it is drawn at --plus-mult,
+     .9, of --plus-size, the 24px it was (--plus-was, 16px, half as large again); its
+     lines are --plus-thick, 1.6px, whatever the size; it is --sub, which is #75695a,
+     at 42% opacity. the clear air the drawing leaves over its ink is the arm's start
+     (5 of 24 units, scaled to the drawing) less half the line, and the margin takes
+     it off, so the top of the ink stands at --plus-dist at any size or thickness.
+     the opacity is the drawing's, so the dip of the press keeps its full strength */
   body.focus #tikfoot{position:relative; flex:none; height:0; display:flex; justify-content:center; align-items:flex-start;
     margin:calc((var(--line-gap) + 1px) * -1) var(--tik-inset-r) 0 var(--tik-inset-l)}
   body.focus #tiknew{--plus-was:16px; --plus-size:calc(var(--plus-was) * 1.5);
-    flex:none; box-sizing:content-box; width:calc(100% * .86 * .6); height:var(--plus-size);
-    margin:calc(2 * (var(--line-gap) + 1px) - (var(--plus-size) - var(--plus-was)) * (5 - 2.66 / 2) / 24) 0 0;
+    --plus-mult:.9; --plus-drawn:calc(var(--plus-size) * var(--plus-mult));
+    --plus-thick:1.6; --plus-t:calc(var(--plus-thick) * 1px); --plus-dist:calc(.48 * var(--tik-gap));
+    flex:none; box-sizing:content-box; width:calc(100% * .86 * .6); height:var(--plus-drawn);
+    margin:calc(var(--plus-dist) - 6px - (var(--plus-drawn) * 5 / 24 - var(--plus-t) / 2)) 0 0;
     padding:5px 0 6px; border:1px solid transparent; background:transparent;
     display:flex; align-items:center; justify-content:center;
     color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none}
   body.focus #tiknew:hover{color:var(--ink)}
-  /* the plus fills its line. its 14 units of arm and 2.66 of stroke on the 24
-     grid draw about 16.7px of ink in a 2.66px stroke at 24px (11px and 1.77px at
-     the 16px it was), both growing with the drawing */
-  body.focus #tiknew svg{display:block; flex:none; width:var(--plus-size); height:var(--plus-size); stroke-width:2.66}
+  /* the plus fills its line. its lines are --plus-thick px whatever its size, so
+     the stroke in the drawing's 24 units is that over --plus-mult */
+  body.focus #tiknew svg{display:block; flex:none; width:var(--plus-drawn); height:var(--plus-drawn); stroke-width:calc(var(--plus-thick) / var(--plus-mult)); opacity:.42}
   /* magic stubs, contents to be explained */
   #magic1, #magic2, #magic3, #magic4{position:fixed; border:var(--edge) dashed var(--line); border-radius:7px;
     background:#fff;

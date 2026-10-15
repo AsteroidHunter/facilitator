@@ -3,9 +3,10 @@
 // (newCardHere in index.html). The Mac page's key handlers and that function are
 // cut out of index.html as shipped (see hotkey-pages.cjs) and run over
 // card-logic.js as shipped; only the card's making (newCard) is a spy. The plus
-// stands on the list's real foot with no line there, half as large again as it
-// first was and as far under the list as it was then, and the list is as tall as
-// its section needs, up to the height it had. The plus takes the names' press.
+// stands on the list's real foot with no line there, tuned (20261014) to sit
+// .48 of a ticket gap under the list, drawn at .9 of its 24px, in 1.6px lines,
+// in --sub (#75695a) at 42%, and the list is as tall as its section needs, up to
+// the height it had. The plus takes the names' press.
 // No browser, no board, no network.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
@@ -63,20 +64,26 @@ test("where Command + T makes nothing, the plus makes nothing", () => {
   }
 });
 
-test("the plus is the board's plus on no glass, half as large again as it was", () => {
+test("the plus is the board's plus on no glass, tuned: .9 of 24px, 1.6px lines, 42%", () => {
   const f = board();
   assert.equal(f.plus.innerHTML, f.ctx.PLUS_ICON, "the typing box's plus, as drawn");
   assert.match(MAC, /<div id="tikfoot"><button id="tiknew" type="button" title="New card" aria-label="New card"><\/button><\/div>/, "a bare button, labelled");
   const own = rule(MAC, "  body.focus #tiknew{");
   assert.match(own, /background:transparent;/);
   assert.match(own, /border:1px solid transparent;/);
-  assert.doesNotMatch(own, /backdrop-filter|box-shadow|transform|opacity|qn-/, "full strength, no glass");
+  assert.doesNotMatch(own, /backdrop-filter|box-shadow|transform|opacity|qn-/, "no glass, and the button keeps the dip at full strength");
   assert.match(own, /color:var\(--sub\);/);
+  assert.equal(TOKENS.match(/--sub:(#[0-9a-f]{6});/i)[1].toLowerCase(), "#75695a", "--sub is the picked colour");
   assert.equal(rule(MAC, "  body.focus #tiknew:hover{"), "color:var(--ink)");
-  // the 16px mark of before, 1.5 times over: the drawn size and the stroke grow together
+  // the 24px of before (16px, 1.5 times over) stays the size variable; the pick is .9 of it
   assert.match(own, /^--plus-was:16px; --plus-size:calc\(var\(--plus-was\) \* 1\.5\);/);
-  assert.match(own, /height:var\(--plus-size\);/);
-  assert.match(rule(MAC, "  body.focus #tiknew svg{"), /width:var\(--plus-size\); height:var\(--plus-size\); stroke-width:2\.66$/, "the stroke is in the drawing's units");
+  assert.match(own, /--plus-mult:\.9; --plus-drawn:calc\(var\(--plus-size\) \* var\(--plus-mult\)\);/);
+  assert.match(own, /--plus-thick:1\.6; --plus-t:calc\(var\(--plus-thick\) \* 1px\);/);
+  assert.match(own, /height:var\(--plus-drawn\);/);
+  // 1.6px lines: in the drawing's 24 units that is 1.6 over the multiple, so they draw 1.6px
+  const svg = rule(MAC, "  body.focus #tiknew svg{");
+  assert.match(svg, /width:var\(--plus-drawn\); height:var\(--plus-drawn\); stroke-width:calc\(var\(--plus-thick\) \/ var\(--plus-mult\)\); opacity:\.42$/);
+  assert.ok(Math.abs(1.6 / .9 * (24 * .9) / 24 - 1.6) < 1e-9);
   // none of the bar's glass: its stack, its zoom rule, its press and its press list
   assert.match(MAC, /body\.focus :is\(\.bar \.qn-glass, #projmenu\), body\.focus\.home :is\(#nppanel, #npstart\)\.qn-glass\{/);
   assert.match(MAC, /body\.p3zoom \.bar \.qn-glass\{backdrop-filter:none; -webkit-backdrop-filter:none\}/);
@@ -128,17 +135,17 @@ test("the plus stands on the list's real foot, with no line there, as far under 
   assert.match(foot, /height:0;/);
   assert.match(foot, /margin:calc\(\(var\(--line-gap\) \+ 1px\) \* -1\) var\(--tik-inset-r\) 0 var\(--tik-inset-l\)$/);
   assert.doesNotMatch(MAC, /#tikfoot::(before|after)/, "the thin line is not drawn");
-  // the gap to the top of the ink is the first one, built from --line-gap: two
-  // of (--line-gap + 1px) from the seat, over the 6px of the box's border and
-  // top padding and the clear air the drawing leaves at the top of its line,
-  // and the margin gives back what the larger drawing's clear air gains
+  // the gap to the top of the ink is .48 of a ticket gap (--tik-gap, the rows'
+  // own) from the seat: the margin takes off the 6px of the box's border and top
+  // padding and the clear air the drawing leaves over its ink (the arm's start,
+  // 5 of 24 units scaled to the drawing, less half the line)
   const own = rule(MAC, "  body.focus #tiknew{");
-  assert.match(own, /margin:calc\(2 \* \(var\(--line-gap\) \+ 1px\) - \(var\(--plus-size\) - var\(--plus-was\)\) \* \(5 - 2\.66 \/ 2\) \/ 24\) 0 0;/);
+  assert.match(own, /--plus-dist:calc\(\.48 \* var\(--tik-gap\)\);/);
+  assert.match(own, /margin:calc\(var\(--plus-dist\) - 6px - \(var\(--plus-drawn\) \* 5 \/ 24 - var\(--plus-t\) \/ 2\)\) 0 0;/);
   assert.match(own, /padding:5px 0 6px; border:1px solid transparent;/);
-  const gap = 6 + 1, clear = size => size * (5 - 2.66 / 2) / 24;
-  const inkTop = size => -gap + (2 * gap - (size - 16) * (5 - 2.66 / 2) / 24) + 1 + 5 + clear(size);
-  assert.ok(Math.abs(inkTop(16 * 1.5) - inkTop(16)) < 1e-9, "the ink's top is where it was at 16px");
-  assert.ok(Math.abs(inkTop(16) - (gap + 6 + clear(16))) < 1e-9, "and that is the first gap");
+  const dist = .48 * 900 * 0.007, drawn = 16 * 1.5 * .9, clear = drawn * 5 / 24 - 1.6 / 2;
+  assert.ok(Math.abs(dist - 3) < .03, "about 3px");
+  assert.ok(Math.abs((dist - 6 - clear) + 6 + clear - dist) < 1e-9, "the ink's top is --plus-dist under the seat");
   // a name's box turned over, .6 of the old pill's .86 of the rows across
   assert.match(rule(MAC, "  #tikhead .tvb{flex:1;"), /padding:6px 0 5px; font-size:14px; border:1px solid transparent/);
   assert.match(own, /box-sizing:content-box; width:calc\(100% \* \.86 \* \.6\);/);
