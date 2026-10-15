@@ -120,6 +120,44 @@
   const PAGE_CREATE = "addEventListener('keydown', e => { const k = (e.key || '').toLowerCase();" +
     "if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && (k === 't' || (!/^[ -~]$/.test(k) && e.code === 'KeyT'))) {" +
     "e.preventDefault(); parent.postMessage(W + ' create', '*'); } }, true);";
+  // control+S scrolls the page in the box as it scrolls the card. The board
+  // cannot reach into a sealed frame, so the page is the one that scrolls, and
+  // everything between is a short word to and fro (never a handle on either
+  // side): the page says how far it has scrolled, how tall it is and how tall
+  // its window is, "scroll top whole window n", each time any of them changes;
+  // the board asks it to go somewhere, "to top n" (n counts the asks, and the
+  // page gives the last one it has done back in its next word, so a report
+  // that was in the air when the board moved on is never taken for where the
+  // page is), and to give at an end, "bounce" with the keyframes. The page
+  // also says the keys typed in it, for the board's own hold-to-scroll motion
+  // to follow: "key" and a list of the kind (down or up), the key when it is
+  // S or Control and nothing else, the four modifiers and whether it repeats.
+  // A field in the page keeps control+S to itself
+  const PAGE_SCROLL = "(() => {" +
+    "const R = () => document.scrollingElement || document.documentElement; let done = 0, last = '', wait = 0, bounce = null;" +
+    "const tell = () => { wait = 0; const r = R(), m = Math.round(r.scrollTop) + ' ' + r.scrollHeight + ' ' + r.clientHeight + ' ' + done;" +
+    "if (m !== last) { last = m; parent.postMessage(W + ' scroll ' + m, '*'); } };" +
+    "const soon = () => { if (!wait) wait = setTimeout(tell, 16); };" +
+    "addEventListener('scroll', soon, true); addEventListener('resize', soon);" +
+    "addEventListener('load', () => { soon(); if (window.ResizeObserver) { const o = new ResizeObserver(soon);" +
+    "o.observe(document.documentElement); if (document.body) o.observe(document.body); }" +
+    "new MutationObserver(soon).observe(document.documentElement, { childList: true, subtree: true }); });" +
+    "document.addEventListener('load', soon, true);" +
+    "addEventListener('message', e => { if (e.source !== parent || typeof e.data !== 'string' || !e.data.startsWith(W + ' ')) return;" +
+    "const w = e.data.slice(W.length + 1);" +
+    "if (w.startsWith('to ')) { const [y, n] = w.slice(3).split(' ').map(Number);" +
+    "if (isFinite(y) && isFinite(n)) { done = n; R().scrollTo({ top: y, behavior: 'instant' }); soon(); } }" +
+    "else if (w.startsWith('bounce ')) { try { const [k, o] = JSON.parse(w.slice(7));" +
+    "if (bounce) bounce.cancel(); bounce = document.documentElement.animate(k, o); } catch (_) {} } });" +
+    "const say = (t, e) => parent.postMessage(W + ' key ' + JSON.stringify([t, e.key === 's' || e.key === 'S' || e.key === 'Control' ? e.key : ''," +
+    "!!e.ctrlKey, !!e.shiftKey, !!e.metaKey, !!e.altKey, !!e.repeat]), '*');" +
+    "addEventListener('keydown', e => { const t = e.target, field = t && t.closest && t.closest('input, textarea, select, [contenteditable]');" +
+    "if (field && (e.key === 's' || e.key === 'S')) return say('down', { key: '' });" +
+    "if (e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && !e.isComposing && (e.key === 's' || e.key === 'S')) e.preventDefault();" +
+    "say('down', e); }, true);" +
+    "addEventListener('keyup', e => say('up', e), true);" +
+    "addEventListener('blur', e => { if (e.target === window) say('up', { key: '' }); }, true);" +
+    "})();";
   // the Mac's box shows no scrollbar inside a page, the board's rule for every
   // scroller (card-tokens.css) restated for the frame, which the board's sheet
   // does not reach. A page wider than the box scrolls sideways inside it, as
@@ -131,12 +169,13 @@
   // finishes loading, by posting the word to it. A page that has sent its frame
   // elsewhere loads without saying it, and the board puts the page back.
   // sized: the page says its own height too (PAGE_HEIGHT), and relays the
-  // board's keys a sealed frame keeps (PAGE_BACK, PAGE_CREATE); the Mac's box
-  // asks for it. tall: the page says its height and nothing more, for the
-  // phone's drawer, which lays the page out that tall and scrolls the box
+  // board's keys a sealed frame keeps (PAGE_BACK, PAGE_CREATE) and scrolls and
+  // says its keys for control+S (PAGE_SCROLL); the Mac's box asks for it.
+  // tall: the page says its height and nothing more, for the phone's drawer,
+  // which lays the page out that tall and scrolls the box
   function pageDoc(html, word, sized, tall) {
     const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
-    const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_HEIGHT : tall ? PAGE_HEIGHT : "";
+    const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT : "";
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
       (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +

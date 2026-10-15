@@ -7994,7 +7994,8 @@ function magicView(el, hooks = {}){
     const frame = h("iframe", "mbframe");
     frame.setAttribute("sandbox", MagicBox.PAGE_SANDBOX);
     frame.setAttribute("referrerpolicy", "no-referrer");
-    const run = view.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries, height: 0 };
+    const run = view.page = { frame, word: "magic-" + Math.random().toString(36).slice(2), loads: 0, said: 0, tries, height: 0,
+      seen: { top: 0, whole: 0, client: 0 }, sent: 0 };
     // a board that sizes the box to the page waits a moment for its height
     // (view.waiting), then shows it at whatever size it has
     if (hooks.sized) setTimeout(placed, PAGE_WAIT + 50);
@@ -8036,6 +8037,31 @@ function magicView(el, hooks = {}){
     else if (hooks.back && e.data === run.word + " back") hooks.back();
     // and command+T, which the page stops so Chrome opens no tab
     else if (hooks.create && e.data === run.word + " create") hooks.create();
+    // where the page stands, for control+S (MagicBox.pageDoc, PAGE_SCROLL):
+    // how far it has scrolled, how tall it is and how tall its window is, and
+    // the last of the board's asks it has done. Where it stands is not taken
+    // from a report older than the last ask, which the board has already moved on
+    else if (hooks.sized && e.data.startsWith(run.word + " scroll ")){
+      const [top, whole, client, done] = e.data.slice(run.word.length + 8).split(" ").map(Number);
+      const seen = run.seen;
+      if (seen && [top, whole, client, done].every(Number.isFinite)){
+        seen.whole = whole; seen.client = client;
+        if (done === run.sent) seen.top = top;
+      }
+    }
+    // and the keys typed in the page, as a key the board would have heard, for
+    // control+S to be followed in a page that holds the keys
+    else if (hooks.key && hooks.sized && e.data.startsWith(run.word + " key ")){
+      let said = null;
+      try { said = JSON.parse(e.data.slice(run.word.length + 5)); } catch (_) {}
+      if (Array.isArray(said) && said.length === 7){
+        const [type, key, ctrlKey, shiftKey, metaKey, altKey, repeat] = said;
+        hooks.key({ type: type === "up" ? "keyup" : "keydown", key: key === "s" || key === "S" || key === "Control" ? key : "",
+          ctrlKey: ctrlKey === true, shiftKey: shiftKey === true, metaKey: metaKey === true, altKey: altKey === true,
+          repeat: repeat === true, isComposing: false, defaultPrevented: false, target: document.body,
+          preventDefault(){} });
+      }
+    }
     else if ((hooks.sized || hooks.tall) && e.data.startsWith(run.word + " ")){
       const tall = Math.ceil(+e.data.slice(run.word.length + 1));
       if (tall > 0 && hooks.heard) hooks.heard(tall, run.frame.clientWidth);
@@ -8046,6 +8072,32 @@ function magicView(el, hooks = {}){
       }
     }
   });
+  // an agent's page as something control+S can scroll, in the shape the board's
+  // hold-to-scroll motion (responseScrollKey) takes of a response: what it
+  // reads and writes is the page's, through the words it and the board
+  // exchange (MagicBox.pageDoc, PAGE_SCROLL), and what it writes is only
+  // asked of the page, which answers with where it then stands. The edge
+  // bounce is the page's own, run on its root. One for each page the box
+  // holds, so the motion ends when the page is another; null for what is not
+  // an agent's page on a board that sizes the box to it (the phone's box lays
+  // the page out as tall as it is and scrolls the box itself)
+  view.pageScroller = () => {
+    const run = view.page;
+    if (!hooks.sized || !run || view.body.dataset.kind !== "html") return null;
+    if (run.scroller) return run.scroller;
+    const seen = run.seen;
+    const post = text => { try { run.frame.contentWindow.postMessage(run.word + " " + text, "*"); } catch (_) {} };
+    const part = { animate(frames, timing){ post("bounce " + JSON.stringify([frames, { duration: timing.duration }])); return { cancel(){} }; } };
+    return run.scroller = { box: el, replyview: {
+      get scrollTop(){ return seen.top; },
+      set scrollTop(top){ seen.top = top; post("to " + top + " " + ++run.sent); },
+      get scrollHeight(){ return seen.whole; },
+      get clientHeight(){ return seen.client; },
+      get isConnected(){ return run.frame.isConnected; },
+      ownerDocument: el.ownerDocument,
+      children: [part],
+    } };
+  };
   // what the box shows asks for (MagicBox's want), or nothing for a site, or a
   // page that has not said its height (hooks.sized), which take the whole room. room: the largest box there is room for,
   // which a page lays the words out at. scale: screen pixels to the page's own,

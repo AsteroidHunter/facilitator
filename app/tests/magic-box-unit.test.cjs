@@ -255,7 +255,8 @@ test("a page says its own height only when asked, and the phone's page is as it 
   assert.match(sized, /new ResizeObserver\(say\)\.observe\(document\.body\)/);
   // the measure is how far the page's own contents reach, not the frame's height
   assert.match(sized, /r\.selectNodeContents\(b\)/);
-  assert.ok(!/scrollHeight|innerHeight|clientHeight/.test(sized));
+  // (the page's scroll words, which come after, read how tall it and its window are)
+  assert.ok(!/scrollHeight|innerHeight|clientHeight/.test(sized.slice(0, sized.indexOf("const R = "))));
 });
 
 test("in any room, what the box shows is fitted the same way: the phone's drawer is such a room", () => {

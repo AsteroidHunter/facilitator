@@ -1234,7 +1234,7 @@ test("PWA drawer box with nothing to scroll bounces its content and leaves the c
 async function boxPage() {
   const box = { classList: new Set(["on", "held"]), isConnected: true };
   box.classList.contains = v => box.classList.has(v);
-  const MB = { el: box, id: "c1", body: null };
+  const MB = { el: box, id: "c1", body: null, view: { pageScroller: () => null } };
   const f = await page("index.html", calls => ({
     FOCUS: true, boardKeysLive: () => true, miniFocused: false, p3Zoom: null,
     nav: dir => calls.push(["nav", dir]), MB,
