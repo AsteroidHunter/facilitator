@@ -453,3 +453,15 @@ test("on the phone Enter sends only while the on-screen keyboard is down, as a c
   assert.equal(key(down, { isComposing: true }), false);
   assert.equal(key(down, { key: "a" }), false);
 });
+
+// ---- the wording ------------------------------------------------------------------------
+
+for (const [name, html] of Object.entries(VIEWS)) {
+  test(`the ${name} header reads Share Feedback, with the new grey line under it`, () => {
+    assert.match(html, /<label class="setlabel" for="fbta"><span>Share Feedback<\/span>/);
+    assert.ok(html.includes('<small class="sethelp">Encountered bugs? Have feature requests or questions? ' +
+      'Please tell us how we can improve.</small>'), "the grey line is not the new one");
+    assert.doesNotMatch(html, /Tell us what to improve/);
+    assert.doesNotMatch(html, /<span>Send feedback<\/span>/);
+  });
+}
