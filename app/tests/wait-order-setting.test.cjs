@@ -191,6 +191,8 @@ function macPage(stored = {}) {
     ComposeFormat: { enabled: () => false, setEnabled() {}, onChange() {}, preload() {} },
     lastState: { boxes: [] }, renderCarousel: state => repaints.push(state),
     fetch: async () => ({ ok: false }),   // the Profile section's reading, not under test here
+    feedbackBox: () => ({ setReady() {} }),   // the feedback box in Improvements, tested in feedback-box.test.cjs
+    controlShiftEnter: () => false, bareControlEnter: () => false,
   });
   // the page's own line that answers for the option, then its settings block
   vm.runInContext(between(MAC, "waitNewestFirst = () =>", "\n") + "\n", context);

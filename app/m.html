@@ -1881,6 +1881,19 @@ for (const type of ["gesturestart", "gesturechange"])
         </div>
       </div>
       <div data-section="improvements" data-label="Improvements">
+        <div class="setrow fbrow">
+          <label class="setlabel" for="fbta"><span>Send feedback</span>
+            <small class="sethelp">Tell us what to improve. What you write here is sent, with your name and email, only when you press send.</small></label>
+          <div class="fbbox" id="fbbox" data-state="locked">
+            <textarea id="fbta" class="fbta" maxlength="5000" autocomplete="off" aria-describedby="fbnote" disabled></textarea>
+            <button id="fbsend" class="fbsend" type="button" aria-label="Send feedback" disabled>
+              <svg class="fbarrow" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg class="fbcross" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <svg class="fbring" viewBox="0 0 38 38" aria-hidden="true"><circle class="fbtrack" cx="19" cy="19" r="17.5" pathLength="100"/><circle class="fbprog" cx="19" cy="19" r="17.5" pathLength="100"/></svg>
+            </button>
+          </div>
+          <small id="fbnote" class="sethelp" role="status" aria-live="polite"></small>
+        </div>
         <div class="setrow">
           <label class="setlabel" for="setusage"><span>Share daily usage counts</span>
             <small class="sethelp">We collect basic usage counts to gauge the product's retention rate. Personal data such as the contents of a card or project names is <em>never</em> collected.</small></label>
@@ -7420,6 +7433,34 @@ ComposeFormat.preload();
     }, () => {});
   };
   document.querySelector('#setpage .sp-item[data-section="profile"]')?.addEventListener("click", read);
+  read();
+}
+// the feedback box (feedbackBox in card-logic.js, POST /feedback on the Mac
+// through the phone link like this page's other settings calls). It is alive
+// only while the Mac's profile holds a name and an email, which is read when the
+// page starts and again when its section opens, so a profile filled in on the
+// Mac wakes it without a reload. The Enter rule is the card's typing box's: Enter
+// sends and Shift+Enter breaks the line, only while the on-screen keyboard is
+// down, since with it up the return key makes a new line and the arrow sends
+{
+  const feedback = feedbackBox({ box: document.getElementById("fbbox"), ta: document.getElementById("fbta"),
+    send: document.getElementById("fbsend"), note: document.getElementById("fbnote") }, {
+    send: text => fetch("/feedback", { method: "POST", body: JSON.stringify({ message: text }) })
+      .then(r => r.ok, () => false),
+    enter: e => {
+      if (e.key !== "Enter") return false;
+      const now = controlShiftEnter(e);
+      if ((e.shiftKey && !now) || e.altKey || bareControlEnter(e) || e.isComposing) return false;
+      return now || !document.body.classList.contains("kb");
+    },
+  });
+  let asked = 0;
+  const read = () => {
+    const mine = ++asked;
+    fetch("/profile").then(r => r.ok ? r.json() : null)
+      .then(p => { if (mine === asked && p) feedback.setReady(!!(p.name && p.email)); }, () => {});
+  };
+  document.querySelector('#setpage .sp-item[data-section="improvements"]')?.addEventListener("click", read);
   read();
 }
 const diagnosticButton = document.getElementById("savediagnostic");

@@ -57,7 +57,9 @@ for (const [name, view] of Object.entries(VIEWS)) {
     assert.match(tag, /\btype="checkbox"/);
     assert.match(tag, /\brole="switch"/, "not the settings' switch look");
     assert.match(tag, /\schecked(?=[\s>])/, "the switch is not on before anything is read");
-    assert.match(improvements.html, /<div class="setrow">/, "the switch is not in a settings row");
+    assert.match(improvements.html, /<div class="setrow">\s*<label class="setlabel" for="setusage">/, "the switch is not in a settings row");
+    assert.ok(improvements.html.indexOf('id="fbbox"') >= 0 && improvements.html.indexOf('id="fbbox"') < improvements.html.indexOf('id="setusage"'),
+      "the feedback box is not above the switch");
     // the same words on both pages
     assert.match(improvements.html, /We collect basic usage counts to gauge the product's retention rate\. Personal data such as the contents of a card or project names is <em>never<\/em> collected\./);
     assert.doesNotMatch(improvements.html, /README/, "the old caption is still there");
@@ -88,6 +90,8 @@ function macPage(stored = {}) {
     ComposeFormat: { enabled: () => false, setEnabled() {}, onChange() {}, preload() {} },
     waitNewestFirst: () => false, lastState: null, renderCarousel() {},   // the block beside this switch, not under test here
     fetch: async () => ({ ok: false }),   // the Profile section's reading, not under test here
+    feedbackBox: () => ({ setReady() {} }),   // the feedback box above the switch, tested in feedback-box.test.cjs
+    controlShiftEnter: () => false, bareControlEnter: () => false,
   });
   vm.runInContext(between(MAC, "// ---- settings ----", "function buildHandles()"), context);
   const usage = element("setusage");

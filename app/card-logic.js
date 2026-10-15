@@ -7682,6 +7682,92 @@ function settingsOverlay(host, source, opts){
   return { open: openOverlay, close, isOpen: () => open, page, root: veil };
 }
 
+// ---- the feedback box -------------------------------------------------------
+// Settings, Improvements holds a box to write feedback in, the same on the Mac
+// board and the phone (the markup is each page's own, in its #setsrc). It works
+// in four states, painted on the box as data-state:
+//   locked     the profile has no name or no email: the box and the arrow are
+//              greyed and cannot be used, and one grey line says why
+//   idle       typing; the send arrow stands at the box's bottom right corner
+//              while there is anything typed, as a card's typing box shows its own
+//   counting   the arrow has turned into a cross with a round bar filling
+//              around it; the person has FEEDBACK_WAIT_MS to press the cross,
+//              which cancels with nothing sent and the words kept. the box
+//              cannot be edited meanwhile, so what is sent is what was read
+//   sending    the bar is full and the message is on its way
+// A message that went empties the box; one that did not leaves the words and
+// says so in one grey line. els holds box (the element that wears data-state),
+// ta, send and note. opts.send(text) answers a promise of whether it went,
+// opts.enter(e) says whether that key is the page's Enter-sends rule, and
+// opts.ready is whether the profile has its name and email. The page's timer
+// can be handed in as opts.wait (milliseconds) for the tests
+const FEEDBACK_WAIT_MS = 3000;
+const FEEDBACK_LINES = {
+  locked: "Fill in your name and email in Profile to send feedback.",
+  failed: "Did not send. Try again.",
+  sent: "Sent. Thank you.",
+};
+function feedbackBox(els, opts){
+  const wait = opts.wait == null ? FEEDBACK_WAIT_MS : opts.wait;
+  let ready = !!opts.ready, state = "idle", line = "", timer = null, words = "";
+  const typed = () => els.ta.value.trim() !== "";
+  function paint(){
+    els.box.dataset.state = ready ? state : "locked";
+    els.box.style.setProperty("--fb-ms", wait + "ms");
+    els.ta.disabled = !ready;
+    els.ta.readOnly = state !== "idle";
+    els.send.disabled = !ready || state === "sending";
+    els.send.classList.toggle("show", state !== "idle" || typed());
+    els.send.setAttribute("aria-label", state === "counting" ? "Cancel sending" : "Send feedback");
+    els.note.textContent = ready ? line : FEEDBACK_LINES.locked;
+  }
+  function cancel(){
+    if (state !== "counting") return;
+    clearTimeout(timer);
+    timer = null;
+    state = "idle";
+    paint();
+  }
+  function start(){
+    if (!ready || state !== "idle" || !typed()) return;
+    words = els.ta.value;
+    line = "";
+    state = "counting";
+    timer = setTimeout(finish, wait);
+    paint();
+  }
+  function finish(){
+    timer = null;
+    state = "sending";
+    paint();
+    Promise.resolve().then(() => opts.send(words)).then(went => went === true, () => false).then(went => {
+      state = "idle";
+      if (went){ els.ta.value = ""; line = FEEDBACK_LINES.sent; }
+      else line = FEEDBACK_LINES.failed;
+      paint();
+    });
+  }
+  els.send.addEventListener("click", () => { if (state === "counting") cancel(); else start(); });
+  els.ta.addEventListener("input", () => { line = ""; paint(); });
+  els.ta.addEventListener("keydown", e => {
+    if (!opts.enter(e)) return;
+    e.preventDefault();
+    if (!e.repeat) start();
+  });
+  paint();
+  return {
+    // the profile gained or lost its name or its email; losing one stops a send
+    // that is counting down
+    setReady(now){
+      ready = !!now;
+      if (!ready) cancel();
+      paint();
+    },
+    cancel,
+    state: () => (ready ? state : "locked"),
+  };
+}
+
 // ---- a card's magic box -----------------------------------------------------
 // what a card's agent put beside it (POST /magic), drawn the same on the board,
 // where the box stands beside the card, and on the phone, where it comes down

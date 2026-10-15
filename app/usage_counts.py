@@ -60,11 +60,25 @@ it missed, oldest first, and stops at the first failure to try again later. A
 day is not sent at all when the install id cannot be saved, since a new one
 every time would make every message a stranger.
 
+The one thing sent with words is the feedback box in Settings, Improvements
+(POST /feedback in server.py): when the person presses send and lets the three
+seconds to cancel pass, send_feedback sends one "feedback sent" message under
+the install id with the text they wrote, the version, and their name and email
+as person properties ($set). It goes whether or not the daily counts switch is
+on, since sending feedback is its own choice, and it needs a name and an email
+in the profile. Text only, at most FEEDBACK_MAX characters, never an empty one,
+and never anything the person did not press send on.
+
 The server starts Sender.run on a thread of its own once the board is up, and
-every failure is caught and written down. Only link_person, link_email and
-unlink_email run on a request (POST /profile and POST /usage/email in
-server.py), and each sends at most one identify. No log line ever holds an email
-address, any other answer, an install id or the token."""
+every failure is caught and written down. Only link_person, link_email,
+unlink_email and send_feedback run on a request (POST /profile, POST
+/usage/email and POST /feedback in server.py), and each sends at most one
+message. No log line ever holds an email address, any other answer, a feedback
+message, an install id or the token.
+
+For tests, FACILITATOR_POSTHOG_ENDPOINT points every send at a local stub. It
+is honoured only for an http address on this Mac (127.0.0.1 or localhost), so
+no setting can send anything anywhere else."""
 from __future__ import annotations
 
 import datetime as dt
@@ -74,6 +88,7 @@ import platform
 import re
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -81,10 +96,13 @@ from typing import Callable
 
 import agent_names
 
-ENDPOINT = "https://us.i.posthog.com/i/v0/e/"   # PostHog Cloud, US region
+POSTHOG_ENDPOINT = "https://us.i.posthog.com/i/v0/e/"   # PostHog Cloud, US region
+ENDPOINT_ENV = "FACILITATOR_POSTHOG_ENDPOINT"          # tests: a stub on this Mac in its place
 # the project token: public by design, it can send events and read nothing
 TOKEN = "phc_pmdWA3oMUgUWGLyLkXvDFSzYQgvTotFQyA93BWXTdJ9K"
 EVENT = "daily_usage"
+FEEDBACK_EVENT = "feedback sent"
+FEEDBACK_MAX = 5000       # the most characters one feedback message may hold
 SETTING = "usagecounts"   # the board setting: "0" is off; missing or anything else is on
 TIMEOUT = 10.0            # seconds one send may take
 FIRST_LOOK = 300          # seconds after the board starts before the first look
@@ -106,6 +124,21 @@ EMAIL_MAX = 254           # the longest an address can be
 # properties, and the most characters each may hold (the profile's own caps)
 PERSON_TEXT_MAX = {"name": 200, "work": 2000, "main_agent": 100, "time_zone": 64}
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def endpoint() -> str:
+    """Where messages go: PostHog, unless the test variable names a stub on this
+    Mac. Anything else it holds is ignored."""
+    stub = os.environ.get(ENDPOINT_ENV, "").strip()
+    try:
+        where = urllib.parse.urlsplit(stub)
+        ours = where.scheme == "http" and where.hostname in ("127.0.0.1", "localhost") and where.port is not None
+    except ValueError:
+        ours = False
+    return stub if ours else POSTHOG_ENDPOINT
+
+
+ENDPOINT = endpoint()
 
 
 def clean_email(value) -> str | None:
@@ -323,6 +356,34 @@ def identify_payload(install_id: str, changed, gone=()) -> dict:
         "event": "$identify",
         "distinct_id": install_id,
         "properties": properties,
+    }
+
+
+def clean_feedback(value) -> str | None:
+    """The message as it is sent, or None when there is nothing to send: text
+    with its ends trimmed, new lines kept as \\n and any other control
+    character left out. Past FEEDBACK_MAX characters it is too long, and the
+    caller says so (send_feedback) rather than cutting it."""
+    if not isinstance(value, str):
+        return None
+    text = CONTROL.sub("", value.replace("\r\n", "\n").replace("\r", "\n")).strip()
+    return text or None
+
+
+def feedback_payload(install_id: str, message: str, version: str, person: dict) -> dict:
+    """The "feedback sent" message: the install id, the words, the version, and
+    the person's name and email as person properties ($set), so it shows next
+    to them. No daily counts ride on it and no location is worked out."""
+    return {
+        "api_key": TOKEN,
+        "event": FEEDBACK_EVENT,
+        "distinct_id": install_id,
+        "properties": {
+            "$set": dict(person),
+            "$geoip_disable": True,
+            "message": message,
+            "facilitator_version": version,
+        },
     }
 
 
@@ -585,6 +646,36 @@ class Sender:
             return "none"
         self.log("usage", what="unlink", outcome="forgotten")
         return "forgotten"
+
+    def send_feedback(self, message, person) -> str:
+        """One "feedback sent" message, now, whether or not the daily counts
+        switch is on: sending feedback is its own choice. person is the
+        profile's name and email, both needed. "sent", "empty" (nothing but
+        blanks), "long" (past FEEDBACK_MAX), "noperson" (no name or no email),
+        "unsaved" (no install id could be kept), "refused" (PostHog turned it
+        down for good) or "failed" (it could not get through; nothing is kept
+        to send later, the person is told and presses send again). The log line
+        says the outcome and never a word of the message, the name, the email
+        or the id."""
+        text = clean_feedback(message)
+        if text is None:
+            return "empty"
+        if len(text) > FEEDBACK_MAX:
+            return "long"
+        name = clean_answers(person).get("name") if isinstance(person, dict) else None
+        address = clean_email(person.get("email") if isinstance(person, dict) else None)
+        if name is None or address is None:
+            return "noperson"
+        try:
+            rec = self.install.get()
+        except OSError as e:
+            self.log("usage", what="feedback", outcome="unsaved", reason=e.strerror or type(e).__name__)
+            return "unsaved"
+        body = feedback_payload(rec["install_id"], text, app_version(self.index_html),
+                                {"name": name, "email": address})
+        outcome, why = post(body, self.opener)
+        self.log("usage", what="feedback", outcome=outcome, **({"reason": why} if why else {}))
+        return outcome
 
     def look(self) -> bool:
         """One look: a saved email PostHog has not been told goes first, then

@@ -1032,6 +1032,58 @@
 .sp-pane .setlabel:not(label){cursor:default}
 /* words that say what a whole section is, above its rows */
 .sp-pane .setnote{margin:0 0 6px; font:12px/1.5 var(--sans); color:var(--sub)}
+/* the feedback box (feedbackBox in card-logic.js), the same on both pages: a row
+   of its own, its words over a tall box over one grey line. the box is a field
+   like the profile's, the card's white with the line's edge and the ink's edge
+   while typed in, and wears the card's own send arrow at its bottom right
+   corner: 28 wide with the board's 4px corner, the card's white under a black
+   arrow, shown only while there is something to send and growing in from half
+   size on the card's one curve. the page that draws it sets --u (the phone's
+   unit); the Mac's is one pixel. pressed, the arrow turns into a cross on a
+   round seat with a round bar filling around it over the wait (--fb-ms), in the
+   ink; nothing here is the board's accent. locked, the box and the arrow are
+   greyed and cannot be used */
+.sp-pane .setrow.fbrow{flex-direction:column; align-items:stretch; gap:10px}
+.fbbox{position:relative; min-width:0}
+.fbta{display:block; box-sizing:border-box; width:100%; height:190px; margin:0; resize:none;
+  padding:10px 12px 48px; font:14px/1.35 var(--sans); color:var(--ink); background:var(--card);
+  border:var(--edge) solid var(--line); border-radius:var(--sq); outline:none;
+  transition:border-color .18s}
+.fbta:focus{border-color:var(--ink)}
+.sp-mac .fbta{border-color:rgba(0,0,0,.12)}
+.sp-mac .fbta:focus{border-color:var(--ink)}
+.fbbox[data-state="locked"] .fbta{opacity:.5; cursor:default;
+  background:color-mix(in srgb, #000 4%, var(--card))}
+.fbsend{position:absolute; right:calc(8 * var(--u, 1px)); bottom:calc(8 * var(--u, 1px));
+  box-sizing:border-box; width:calc(28 * var(--u, 1px)); height:calc(28 * var(--u, 1px));
+  min-height:0; margin:0; padding:0; border:none; border-radius:var(--sq);
+  background:var(--card); color:#000; display:grid; place-items:center; line-height:1; cursor:pointer;
+  opacity:0; transform:scale(.5); pointer-events:none;
+  transition:opacity .26s var(--gentle), transform .26s var(--gentle), border-radius .26s var(--gentle)}
+.fbsend.show{opacity:1; transform:scale(1); pointer-events:auto}
+.fbsend:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+@media (hover:hover){
+  .fbsend:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+}
+.fbsend svg{display:block; grid-area:1 / 1}
+.fbsend .fbarrow{width:calc(14 * var(--u, 1px)); height:calc(14 * var(--u, 1px))}
+.fbsend .fbcross{display:none; width:calc(10 * var(--u, 1px)); height:calc(10 * var(--u, 1px))}
+.fbsend .fbring{display:none; position:absolute; left:calc(-5 * var(--u, 1px)); top:calc(-5 * var(--u, 1px));
+  width:calc(38 * var(--u, 1px)); height:calc(38 * var(--u, 1px)); pointer-events:none; overflow:visible}
+.fbring circle{fill:none; stroke-width:2; transform-origin:50% 50%; transform:rotate(-90deg)}
+.fbring .fbtrack{stroke:var(--line)}
+.fbring .fbprog{stroke:var(--ink); stroke-linecap:round; stroke-dasharray:100; stroke-dashoffset:100}
+.fbbox:is([data-state="counting"], [data-state="sending"]) .fbsend{border-radius:50%}
+.fbbox:is([data-state="counting"], [data-state="sending"]) .fbarrow{display:none}
+.fbbox:is([data-state="counting"], [data-state="sending"]) .fbcross{display:block}
+.fbbox:is([data-state="counting"], [data-state="sending"]) .fbring{display:block}
+.fbbox:is([data-state="counting"], [data-state="sending"]) .fbprog{
+  animation:fbfill var(--fb-ms, 3000ms) linear forwards}
+@keyframes fbfill{from{stroke-dashoffset:100} to{stroke-dashoffset:0}}
+.fbbox[data-state="locked"] .fbsend.show{opacity:.35; cursor:default}
+@media (prefers-reduced-motion: reduce){
+  .fbsend{transition:none}
+}
 /* an action is a button with the words that go with it under it. it is the
    card's own kind of control, no border and the card's white for a fill, with
    the board's one press shade mixed into that fill */

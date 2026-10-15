@@ -475,6 +475,23 @@ Endpoints:
                                answered back. Nothing calls it yet: the
                                onboarding and the Profile section in Settings
                                reach the same link through POST /profile
+  POST /feedback            -> body = {"message": "<words>"}: the feedback box in
+                               Settings, Improvements, on the Mac board and the
+                               phone. Sends one "feedback sent" message to
+                               PostHog now (usage_counts.Sender.send_feedback):
+                               the words, the install's id, the version, and
+                               the profile's name and email as person
+                               properties. It goes whether or not the
+                               usagecounts switch is on. The name and the email
+                               are read from the profile, not the page. Answers
+                               {ok} on success; 400 for an empty message, one
+                               past 5000 characters, or a profile without a name
+                               or an email; 502 when PostHog could not take it
+                               (nothing is kept to send later). Answered to a
+                               page on this Mac that names its own origin (a 403
+                               otherwise) and to a signed-in phone, body capped
+                               at 40960 bytes; the log line holds the outcome
+                               and a character count, never a word of it
   GET  /profile             -> {name, email, emailYes, work, agent, timeZone,
                                picture, complete}: who uses this board, kept in
                                profile.json beside state.json, owner-only, and
@@ -788,7 +805,8 @@ answers nothing; usage-counts.json beside state.json holds the last day it dealt
 with, and usage-install.json beside it holds the install's random id, which
 every message carries, and the email and the profile's answers when the person
 said yes to feedback mail (POST /profile). With the switch off nothing is sent
-at all.
+at all, except a message the person writes in the feedback box and sends
+(POST /feedback), which is their own choice and the only one with words in it.
 
 A Mac board whose profile.json is missing or has no name has not been through
 the onboarding: /board-settings.js says so in front of the store
@@ -4464,6 +4482,7 @@ class Query(dict):
     accept_encoding: str = ""
     local: bool = False
     same_origin: bool = False
+    gated: bool = False
 
     def one(self, name: str, default: str = "") -> str:
         values = self.get(name)
@@ -7269,6 +7288,49 @@ def _post_usage_email(q: Query, text: str):
     return 200, {"ok": True, "sent": outcome == "sent"}
 
 
+# ---- the feedback box --------------------------------------------------------------
+# Settings, Improvements holds a box the person writes feedback in (the Mac
+# board and the phone). Pressing send, and letting the page's three seconds to
+# cancel pass, calls POST /feedback, which sends one "feedback sent" message to
+# PostHog through the usage sender (send_feedback in usage_counts.py) with the
+# words, the install id, the version, and the profile's name and email as the
+# person's properties. It is the one message with words in it, it goes whether
+# or not the daily counts switch is on, and its words are never logged.
+FEEDBACK_BODY_MAX = 40960   # bytes: 5000 characters, up to 4 bytes each, and the JSON round them
+
+
+def _post_feedback(q: Query, text: str):
+    """{"message": "<words>"}. Answered to a page on this Mac that names its
+    own origin and to the signed-in phone (the bridge gate has checked it), to
+    nothing else. The name and the email are read from the profile here, not
+    taken from the page, and both must be there. A refusal says why, never the
+    words; the log line says the outcome and how many characters, nothing more."""
+    if _usage_sender is None:
+        return 404, {"error": "not found"}
+    if not ((q.local and q.same_origin) or q.gated):
+        return 403, {"error": "origin refused"}
+    try:
+        rec = json.loads(text) if text else None
+    except ValueError:
+        rec = None
+    if not isinstance(rec, dict) or set(rec) != {"message"} or not isinstance(rec["message"], str):
+        return 400, {"error": "bad request"}
+    profile = _profile_read()
+    outcome = _usage_sender.send_feedback(rec["message"], {"name": profile["name"], "email": profile["email"]})
+    _info("feedback", outcome=outcome, chars=len(rec["message"]))
+    if outcome == "sent":
+        return 200, {"ok": True}
+    if outcome == "empty":
+        return 400, {"error": "nothing to send"}
+    if outcome == "long":
+        return 400, {"error": "too long"}
+    if outcome == "noperson":
+        return 400, {"error": "fill in your name and email in Profile"}
+    if outcome == "unsaved":
+        return 500, {"error": "could not be saved"}
+    return 502, {"error": "did not send"}
+
+
 # ---- the profile -------------------------------------------------------------------
 # Who uses this board, in their own words: the name, the email with its yes to
 # feedback mail, what they will mostly use Facilitator for, their main agent
@@ -7707,6 +7769,7 @@ def _query(scope: dict) -> Query:
     q.accept_encoding = next((v.decode("latin-1") for k, v in scope.get("headers") or ()
                               if k == b"accept-encoding"), "")
     q.local, q.same_origin = _local_request(scope)
+    q.gated = _via_gate(scope)
     return q
 
 
@@ -7737,6 +7800,16 @@ def _local_request(scope: dict) -> tuple[bool, bool]:
         return False, False
     origin = headers.get(b"origin", b"").decode("latin-1").strip().lower()
     return True, origin == "http://" + host
+
+
+def _via_gate(scope: dict) -> bool:
+    """Whether the request came in through the phone's door: on another port
+    than the board's own, or marked by Tailscale Serve. The bridge gate has
+    already signed it in and checked its origin, which is how a signed-in
+    phone may use the few routes that are not only the Mac's."""
+    server = scope.get("server") or (None, None)
+    headers = {k.lower() for k, _ in scope.get("headers") or ()}
+    return server[1] != PORT or b"x-forwarded-for" in headers or b"tailscale-headers-info" in headers
 
 
 def _answer(status: int, payload, ctype: str | None = None, *,
@@ -8465,6 +8538,7 @@ ROUTES = [
     Route("/spotify/session", _endpoint(_get_spotify_session), methods=["GET"]),
     Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
     Route("/usage/email", _endpoint(_post_usage_email, "text", USAGE_EMAIL_BODY_MAX), methods=["POST"]),
+    Route("/feedback", _endpoint(_post_feedback, "text", FEEDBACK_BODY_MAX), methods=["POST"]),
     # the profile, in profile.json, and the onboarding that fills it
     Route("/profile", _endpoint(_get_profile), methods=["GET"]),
     Route("/profile", _endpoint(_post_profile, "text", PROFILE_BODY_MAX), methods=["POST"]),
