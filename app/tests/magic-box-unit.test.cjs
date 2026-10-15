@@ -408,6 +408,24 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   assert.ok(sheet.length > 1000 && !/--accent/.test(sheet), "never the accent");
 });
 
+test("a page an agent made, or a site, runs to the box's far edge with no white kept beside it; words and pictures are as they were", () => {
+  const sheet = read("card-tokens.css"), phone = read("m.html");
+  const edge = '.mbbody:is([data-kind="html"], [data-kind="url"]):has(> .mbframe){margin:0}';
+  // the board's box keeps its air under what it holds, the phone's over it: a page with a paper of its
+  // own wore the box's white there as a band, across its last line on the board
+  assert.ok(sheet.includes(".magicbox " + edge));
+  assert.ok(phone.includes("#mbface " + edge));
+  assert.ok(sheet.indexOf(".magicbox " + edge) > sheet.indexOf(".magicbox .mbbody{flex:1;"), "after the rule it undoes");
+  assert.ok(phone.indexOf("#mbface " + edge) > phone.indexOf("#mbface .mbbody{margin:var(--mb-air) 0 0;"), "and on the phone");
+  // words and pictures keep what they had
+  assert.match(sheet, /\.magicbox \.mbbody\{[^}]*margin:0 0 var\(--mb-air\)\}/);
+  assert.ok(!/data-kind="(text|markdown)"\][^{]*\{margin/.test(sheet + phone));
+  // a page has no fade of its own to paint white: the ramp is on words alone, and the page is clipped
+  // to the box's rounded foot by the body it stands in
+  assert.ok(!/data-kind="html"\][^{]*\{[^}]*mask/.test(sheet));
+  assert.ok(sheet.includes(".magicbox .mbbody:last-child{border-radius:0 0 "));
+});
+
 test("what the box holds keeps white at its far edge, and words that scroll dissolve at both ends as the ticket list does", () => {
   const html = read("index.html"), sheet = boxSheet(), logic = read("card-logic.js");
   // white between what it holds and the far edge, a picture excepted, which

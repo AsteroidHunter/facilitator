@@ -1302,6 +1302,12 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
   margin:0 0 var(--mb-air)}
 .magicbox .mbbody[data-kind="image"]{margin:0}
 .magicbox .mbbody:last-child{border-radius:0 0 calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge))}
+/* a page an agent made, or a site, keeps no air either: the box's own white
+   under it was a band across its foot, cutting through a page with a paper of
+   its own at the last line, and the page runs to the box's edge as a picture
+   does, with the box's rounded corners cutting it. a page that has no paper of
+   its own is the card's white all the same (.mbframe, below) */
+.magicbox .mbbody:is([data-kind="html"], [data-kind="url"]):has(> .mbframe){margin:0}
 .magicbox .mbbody:is([data-kind="text"], [data-kind="markdown"]){
   -webkit-mask-image:linear-gradient(to bottom,
     rgba(0,0,0,0) 0,

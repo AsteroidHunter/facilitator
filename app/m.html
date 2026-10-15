@@ -1241,6 +1241,7 @@
   #mbface .mbclose{top:calc(var(--mb-gap) - var(--mb-seat))}
   #mbface .mbbody{margin:var(--mb-air) 0 0; border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
   #mbface .mbbody[data-kind="image"]{margin:0}
+  #mbface .mbbody:is([data-kind="html"], [data-kind="url"]):has(> .mbframe){margin:0}
   #mbface .mbtext{padding:var(--mb-inset) var(--mb-inset) var(--mb-lead)}
   /* an agent's page is laid out as tall as it says it is (--mb-page, magicView's
      hooks.tall), and never shorter than the box, so the box scrolls it under a
