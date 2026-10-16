@@ -22,12 +22,13 @@ pixel is a blend of two of them.
 
 Each file keeps the place and size it had: the squid centred, the lockups and
 splash in a square window sized so the squid is 0.893 of the picture's height,
-the icons at their old width on the background (252, 251, 249), and the phone
-button cut to the squid's own bounds.
+the icons at their old width on the background (252, 251, 249) (the phone app's
+own icons at 0.9 of it), and the phone button cut to the squid's own bounds.
 """
 
 from __future__ import annotations
 
+import argparse
 import base64
 import re
 import struct
@@ -51,8 +52,15 @@ BOUNDS = (15, 29, 2103, 2046)       # x, y, width, height
 SOLID = (18, 32, 2097, 2041)        # x, y, width, height
 WINDOW_SHARE = 0.893                # squid height over picture height in the lockups and splash
 
-ICONS = {"m-icon-180.png": 180, "m-icon-192.png": 192, "m-icon-512.png": 512}
-ICON_SQUID_WIDTH = {180: 156, 192: 166, 512: 442}   # the drawn squid's width before this method
+# The Mac app's manifest and the favicon link share m-icon-192.png and
+# m-icon-512.png, so those stay at full size. The phone app's own icons (the
+# apple-touch-icon and the phone manifest's pair) draw the squid smaller, by
+# PHONE_ICON_SCALE or the --phone-scale option.
+PHONE_ICON_SCALE = 0.9
+ICON_SIDES = {"m-icon-180.png": 180, "m-icon-192.png": 192, "m-icon-512.png": 512,
+              "m-icon-phone-192.png": 192, "m-icon-phone-512.png": 512}
+PHONE_ONLY = ("m-icon-180.png", "m-icon-phone-192.png", "m-icon-phone-512.png")
+ICON_SQUID_WIDTH = {180: 156, 192: 166, 512: 442}   # the drawn squid's width at full size
 
 
 def read_png(path):
@@ -214,7 +222,11 @@ def replace_inline(path, png):
     path.write_text(pattern.sub(lambda m: uri, text), encoding="utf-8")
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Cut every raster copy of the squid logo.")
+    parser.add_argument("--phone-scale", type=float, default=PHONE_ICON_SCALE,
+                        help="the squid's drawn width in the phone app's icons, as a share of full size (default %(default)s)")
+    phone_scale = parser.parse_args(argv).phone_scale
     w, h, rgba = read_png(SOURCE)
     kinds = classify(w, h, rgba)
     found = solid_extent(w, h, kinds)
@@ -222,8 +234,9 @@ def main():
         raise SystemExit(f"the squid's solid extent is {found}, not {SOLID}: update SOLID and BOUNDS")
     assets = APP / "assets"
 
-    for name, side in ICONS.items():
-        out = render(w, h, kinds, side, side, *frame_icon(side, ICON_SQUID_WIDTH[side]))
+    for name, side in ICON_SIDES.items():
+        scale = phone_scale if name in PHONE_ONLY else 1.0
+        out = render(w, h, kinds, side, side, *frame_icon(side, ICON_SQUID_WIDTH[side] * scale))
         (assets / name).write_bytes(to_pixels(out, side, side, BACKGROUND))
         print("wrote", name)
 

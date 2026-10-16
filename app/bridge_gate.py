@@ -15,8 +15,9 @@ HERE = Path(__file__).resolve().parent
 # picture before sign-in, because iOS keeps the one on the page an icon is
 # added from. Neither file holds anything read from the board.
 PUBLIC_GET = frozenset({"/m-sw.js", "/m-icon-180.png",
-                        "/m-icon-192.png", "/m-icon-512.png", "/m-splash-squid.png",
-                        "/m-splash.js"})
+                        "/m-icon-192.png", "/m-icon-512.png",
+                        "/m-icon-phone-192.png", "/m-icon-phone-512.png",
+                        "/m-splash-squid.png", "/m-splash.js"})
 
 
 def _gate_html():

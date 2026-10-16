@@ -3589,6 +3589,9 @@ PHONE_FILES = {
     "/m-icon-180.png": (HERE / "assets" / "m-icon-180.png", "image/png"),
     "/m-icon-192.png": (HERE / "assets" / "m-icon-192.png", "image/png"),
     "/m-icon-512.png": (HERE / "assets" / "m-icon-512.png", "image/png"),
+    # the phone app's own manifest icons; the Mac app's manifest keeps the two above
+    "/m-icon-phone-192.png": (HERE / "assets" / "m-icon-phone-192.png", "image/png"),
+    "/m-icon-phone-512.png": (HERE / "assets" / "m-icon-phone-512.png", "image/png"),
     # the squid on its own, no background: the phone paints its own home-screen
     # launch image from it, sized to whichever iPhone is asking
     "/m-splash-squid.png": (HERE / "assets" / "m-splash-squid.png", "image/png"),
