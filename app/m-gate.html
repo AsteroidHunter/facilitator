@@ -336,10 +336,11 @@
     button.disabled = true; note.textContent = ''; face.classList.remove('bad','good');
     try {
       const response = await fetch('/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:field.value}),cache:'no-store'});
-      if (!response.ok) { face.classList.add('bad'); field.value = ''; field.focus(); return; }
+      const answer = await response.json();
+      if (!response.ok) { face.classList.add('bad'); note.textContent = answer.error || 'Could not sign in.'; return; }
       face.classList.add('good'); note.textContent = 'Connected';
       setTimeout(() => location.replace('/m'), 250);
-    } catch (_) {}
+    } catch (_) { note.textContent = 'The bridge is not answering. Try again.'; }
     finally { button.disabled = false; }
   });
 </script>

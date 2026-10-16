@@ -265,12 +265,12 @@ class BridgeGate:
                 await _reply(scope, receive, send, 200, {"ok": True}, extra=(
                     (b"set-cookie", bridge_auth.session_cookie(issued).encode()),))
             elif verdict == "limited":
-                await _reply(scope, receive, send, 429, {"error": "too many attempts"},
+                await _reply(scope, receive, send, 429, {"error": "Too many attempts. Try again in a minute."},
                              extra=((b"retry-after", b"60"),))
             elif verdict == "unconfigured":
-                await _reply(scope, receive, send, 503, {"error": "no bridge password set"})
+                await _reply(scope, receive, send, 503, {"error": "Set a bridge password on the Mac first."})
             else:
-                await _reply(scope, receive, send, 401, {"error": "wrong password"})
+                await _reply(scope, receive, send, 401, {"error": "That password did not match."})
             return
         if path == "/auth/logout" and method == "POST":
             if not _same_origin(headers):
