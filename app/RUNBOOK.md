@@ -102,7 +102,7 @@ Real work ships from boxes: delegate bounded builds and scans when delegation is
 
 ## Delegation
 
-The listener normally delegates substantive bounded work and stays responsible for the card, unless the owner asks it to do the work directly or the current host does not authorize delegation. Sort by the shape of the job before starting; a misjudged job need not be handed off halfway through.
+The listener normally delegates substantive bounded work and stays responsible for the card, unless the owner asks it to do the work directly or the current host does not authorize delegation. The listener may do quick lookups and run simple commands itself; anything that turns into real digging, such as reading code or logs to find a cause, or into a change goes to a worker. Sort by the shape of the job before starting; a misjudged job need not be handed off halfway through.
 
 Every worker brief carries six parts: the goal as one checkable sentence; full context, since the worker starts knowing nothing; boundaries, what it must not touch and which neighboring work is someone else's; the output contract, the exact shape coming back; proof, the worker verifies its own work (driven browser or equivalent) before reporting; and the house rules (plain words, no em dashes, no signatures, never restart the server, delete any probe box after use). Quality test: a stranger with no history could do the job right from the brief alone.
 
