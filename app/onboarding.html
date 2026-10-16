@@ -635,6 +635,10 @@
     width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t)}
   .reply .obcross::before{transform:translate(-50%,-50%) rotate(45deg)}
   .reply .obcross::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  /* the phone app picture's slot (PHONE_IMAGE): the card's width at 16 to 9,
+     as the card's pictures (.shot) have their corners */
+  .reply .obpic{display:block; width:100%; aspect-ratio:16 / 9; border-radius:6px; background:rgba(0,0,0,.06)}
+  .reply img.obpic{object-fit:cover}
 
   /* the other places the Tab hint can stand (?hint=), each shown only while
      the card's question is unanswered (obwait). the ghost after the title's
@@ -742,11 +746,27 @@
 <div id="obstage"><main><div id="sections"></div></main></div>
 <!-- the ticket list, as index.html has it -->
 <div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
-<!-- the board's three top-right buttons, as its bar has them (index.html .bar), for FIN.
-     the speaker and the squid are greyed. the bug does nothing here: the profile is
-     saved only when FIN is marked done, and until it is saved the board's feedback box
-     is greyed and POST /feedback refuses, so the board's sheet cannot work from here -->
+<!-- the board's three top-right buttons, as its bar has them (index.html .bar), for the
+     last card. the speaker and the squid are greyed. the bug opens the Share Feedback
+     sheet (feedbackOverlay below), which works because the profile is saved once the
+     summary card is passed: until it is saved the board's feedback box is greyed and
+     POST /feedback refuses -->
 <div id="obbar"><button id="obchime" class="qn-glass" type="button" disabled aria-label="Reply chime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button><button id="obbug" class="qn-glass" type="button" tabindex="-1" title="Share feedback" aria-label="Share feedback"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></button><button id="obset" class="qn-glass" type="button" disabled aria-label="settings"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button></div>
+<!-- the Share Feedback row, as the board's Settings has it (index.html .fbrow). feedbackOverlay
+     lifts it into its sheet while the bug's sheet is open and sets it back after -->
+<div id="obfb" hidden><div class="sp-pane"><div class="setrow fbrow">
+  <label class="setlabel" for="fbta"><span>Share Feedback</span>
+    <small class="sethelp">Encountered bugs? Have feature requests or questions? Please tell us how we can improve.</small></label>
+  <div class="fbbox" id="fbbox" data-state="locked">
+    <textarea id="fbta" class="fbta" maxlength="5000" autocomplete="off" aria-describedby="fbnote" disabled></textarea>
+    <button id="fbsend" class="fbsend" type="button" aria-label="Send feedback" disabled>
+      <svg class="fbarrow" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg class="fbcross" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <svg class="fbring" viewBox="0 0 38 38" aria-hidden="true"><circle class="fbtrack" cx="19" cy="19" r="17.5" pathLength="100"/><circle class="fbprog" cx="19" cy="19" r="17.5" pathLength="100"/></svg>
+    </button>
+  </div>
+  <small id="fbnote" class="sethelp" role="status" aria-live="polite"></small>
+</div></div></div>
 <script>
 // ---- what card-logic.js reads off the page it runs in -----------------------
 // the board's names for its state, its selected card and its cards, as
@@ -952,9 +972,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const NEXT_ATOMIZING = "Press " + key("control + shift + →") + " to continue!";
   // the FIN card's key to end the run, with the chord in the words it was given
   const FINISH = "Press " + key("control + shift + Backspace") + " to mark this card done and open your board.";
-  // PLACEHOLDER: the words of the Bonus card, "Bonus: Facilitator on the phone!".
-  // replace this one line with the card's real words when they are ready
-  const BONUS_PHONE = "The words for this card are coming soon.";
   // the main agent's choices. what anyone types that is not one of them is kept
   // as typed. the work question has none: its answer is the person's own words
   const AGENTS = ["Claude Code", "Codex", "Both"];
@@ -980,10 +997,23 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // the board's marks a card's words can hold, each written as a character of
   // its own that render below swaps for the mark: the four section chips of the
   // card's top bar, Doing's sun, Docked's cloud, Deferred's moon and Done's
-  // cross, and the heart
-  const MARK = { sun: "\uE001", dock: "\uE002", moon: "\uE003", cross: "\uE004", heart: "\uE005" };
-  // the cards: the Welcome, the one onboarding card, the three 101 cards, the
-  // Bonus card about the phone and FIN. FIN's done ends the run. lights are the chords the keyboard
+  // cross, and the heart, and the picture of the phone app
+  const MARK = { sun: "\uE001", dock: "\uE002", moon: "\uE003", cross: "\uE004", heart: "\uE005", picture: "\uE006" };
+  // the words of the 101: Phone App card, as they were given. its first line is
+  // the mark of the picture (PHONE_IMAGE below)
+  const PHONE_APP = MARK.picture + "\n\n" +
+    "The Facilitator comes with a highly functional phone companion app!\n\n" +
+    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**. " +
+    "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes.\n\n" +
+    "1. Run `facilitator bridge setup` on the terminal\n" +
+    "2. Set a password\n" +
+    "3. Scan the QR code\n" +
+    "4. Add the app to your home screen\n\n" +
+    "And you are good to go!\n\n" +
+    "The phone app is also hotkey-enabled and works as well as the mac version with a small keyboard, " +
+    "allowing you to get work done even when you don't have your laptop!";
+  // the cards: the Welcome, the one onboarding card, the four 101 cards and the
+  // last card, You are all set up, whose done ends the run. lights are the chords the keyboard
   // lights on a card, one after another, as the left Control, the left Shift,
   // the left Command and the keys named
   const CARDS = [
@@ -1017,8 +1047,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
            key("Control + Shift + Backspace") + " marks a card done.",
       lights: [["cmd", "t"], ["ctrl", "shift", "left", "right"], ["ctrl", "shift", "up", "down"],
                ["ctrl", "shift", "return"], ["ctrl", "shift", "delete"]] },
-    { id: "phone", title: "Bonus: Facilitator on the phone!", say: BONUS_PHONE },
-    { id: "fin", title: "FIN", closing: true,
+    { id: "phone", title: "101: Phone App", say: PHONE_APP },
+    { id: "fin", title: "You are all set up", closing: true,
       say: "Thank you for trying out the facilitator!\n\n" +
            "If you encounter bugs or have feedback, please use the bug button on the top-right corner.\n\n" +
            "Your ideas could be instrumental in shaping this product!" },
@@ -1037,8 +1067,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const LIGHTS_FROM_MS = 500;   // the first chord on 101: Hotkeys, after the card shows
   const LIGHTS_GAP_MS = 200;    // and between its chords
 
-  // the answers, held in this page until the last card is marked done,
-  // when they are saved as the board's profile. the time zone is not asked:
+  // the answers, held in this page until the summary card is passed, when they
+  // are saved as the board's profile (and again when the last card is marked
+  // done). the time zone is not asked:
   // it is read off the machine the page runs on, and shown on the last page
   const profile = { name: null, email: null, work: null, agent: null, timeZone: null };
   try { profile.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (e) {}
@@ -1055,6 +1086,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
     'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23' +
     'l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>';
+  // THE SLOT FOR THE PHONE APP PICTURE (the 101: Phone App card's first line).
+  // for now a plain grey box at the size a picture takes there, the card's width
+  // at 16 to 9. to swap in the picture, make this one line the picture's <img
+  // class="obpic" src="..." alt="...">: .obpic keeps its size and corners
+  const PHONE_IMAGE = '<span class="obpic" aria-hidden="true"></span>';
   // each mark of MARK as it is drawn in a card's words; the cross has no
   // picture of its own on the board, its bars are drawn by the sheet (.obcross)
   const MARKS = {
@@ -1063,8 +1099,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
     [MARK.moon]: '<span role="img" class="obmark" aria-label="moon">' + MOON_ICON + "</span>",
     [MARK.cross]: '<span role="img" class="obmark obcross" aria-label="cross"></span>',
     [MARK.heart]: '<span role="img" class="obmark" aria-label="love">' + HEART_ICON + "</span>",
+    [MARK.picture]: PHONE_IMAGE,
   };
-  const withMarks = html => html.replace(/[\uE001-\uE005]/g, c => MARKS[c]);
+  const withMarks = html => html.replace(/[\uE001-\uE006]/g, c => MARKS[c]);
 
   document.body.classList.add("hint-" + HINT);
   // the board's own paper, read off the board this page is laid over, for what
@@ -1684,8 +1721,28 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // for anything else
   const ADDRESS = /^[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+$/;
   const address = text => text && text.length <= 254 && ADDRESS.test(text) ? text : null;
-  // the last card closed: the answers are saved as the profile, an email
-  // given being the yes to feedback mail, and the card goes, the ticket list
+  // the answers saved as the board's profile (POST /profile), an email given
+  // being the yes to feedback mail. whether the board kept them
+  async function saveProfile(){
+    const email = address(profile.email);
+    const body = { name: profile.name.slice(0, 200), email, emailYes: email != null,
+                   work: profile.work && profile.work.slice(0, 2000), agent: profile.agent && profile.agent.slice(0, 100),
+                   timeZone: profile.timeZone };
+    try { return (await fetch("/profile", { method: "POST", body: JSON.stringify(body) })).ok; } catch (e) { return false; }
+  }
+  // the summary card passed (any move to a card after the onboarding card, which
+  // is allowed only with every answer given): the answers are saved then, so the
+  // bug button on the last card has a name and an email to send feedback with.
+  // the board is told, so it does not take the frame away at the first reading
+  // that says no profile is missing. passed again after an answer is changed,
+  // they are saved again
+  async function keepProfile(){
+    if (QUESTIONS.find(q => !profile[q.field]) || !await saveProfile()) return;
+    feedback.setReady(true);
+    if (parent !== window) parent.postMessage({ onboarding: "saved" }, location.origin);
+  }
+  // the last card closed: the answers are saved as the profile, again if they
+  // were, and the card goes, the ticket list
   // with it. the board then takes the frame away onto the sample project.
   // every answer is needed, so the key with one missing goes to the first
   // question not answered, which is the onboarding card's newest page, since a
@@ -1707,12 +1764,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
       return;
     }
     saving = true;
-    const email = address(profile.email);
-    const body = { name: profile.name.slice(0, 200), email, emailYes: email != null,
-                   work: profile.work && profile.work.slice(0, 2000), agent: profile.agent && profile.agent.slice(0, 100),
-                   timeZone: profile.timeZone };
-    let saved = false;
-    try { saved = (await fetch("/profile", { method: "POST", body: JSON.stringify(body) })).ok; } catch (e) {}
+    const saved = await saveProfile();
     saving = false;
     if (!saved){ printReply(cards[at].el); return; }
     finished = true;
@@ -1730,6 +1782,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const card = cards[i], el = card.el;
     if (hist && hist.id !== card.spec.id) leaveHistory();
     if (card !== cards[at]) unlight();
+    if (cards[at] === onboard && i > cards.indexOf(onboard)) keepProfile();
     at = i;
     selectedId = card.spec.id;
     for (const c of cards) c.el.box.classList.toggle("sel", c === card);
@@ -1929,9 +1982,22 @@ for (const pane of document.querySelectorAll(".tikpane")){
     }
   });
 
-  // the bug button on FIN has no sheet to open from here (see its comment above),
-  // and a press on it must not take the page's keys away: it keeps the focus
-  // where it was, so Control + Shift + Backspace still marks FIN done
+  // the feedback box, as the board's page has it (index.html): alive once the
+  // profile is saved with its name and email (keepProfile, when the summary
+  // card is passed), and the bug on the last card opens the same sheet the
+  // board's bug opens. a press on the bug must not take the page's keys away: it
+  // keeps the focus where it was, so Control + Shift + Backspace still marks the
+  // last card done
+  const feedback = feedbackBox({ box: document.getElementById("fbbox"), ta: document.getElementById("fbta"),
+    send: document.getElementById("fbsend"), note: document.getElementById("fbnote") }, {
+    send: text => fetch("/feedback", { method: "POST", body: JSON.stringify({ message: text }) })
+      .then(r => r.ok, () => false),
+    enter: e => e.key === "Enter" && (!e.shiftKey || controlShiftEnter(e)) && !e.altKey && !e.isComposing &&
+      !bareControlEnter(e),
+    moved: () => caretQueue(),
+  });
+  const feedbackSheet = feedbackOverlay(document.body, document.getElementById("fbbox").closest(".fbrow"), {});
+  document.getElementById("obbug").addEventListener("click", () => feedbackSheet.open());
   document.getElementById("obbug").addEventListener("mousedown", e => e.preventDefault());
 
   // ---- the block caret, cut down from index.html's fat caret ------

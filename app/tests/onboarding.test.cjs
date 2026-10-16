@@ -259,9 +259,10 @@ test("the last page lists Both as the main agent under what you told us", () => 
   assert.match(context.pageRaw(card, 3), /3\. Both/);
 });
 
-// the page's own finish() (the done chord and the cross of FIN both call it), run in a vm with
-// the page around it stubbed: the card moves and the save are recorded. No browser.
-async function finishWith(answers) {
+// the page's own finish() (the done chord and the cross of the last card both call it) and keepProfile()
+// (the earlier save, when the summary card is passed), run in a vm with the page around them stubbed: the
+// card moves and the saves are recorded. No browser.
+async function finishWith(answers, { run = "finish()", ok = true } = {}) {
   const calls = [];
   const note = name => (...args) => { calls.push([name, ...args]); };
   const onboard = { asking: null, askingAt: null, el: { onboard: true }, pages: [{}, {}] };
@@ -270,17 +271,18 @@ async function finishWith(answers) {
     show: note("show"), leaveHistory: note("leaveHistory"), nudge: note("nudge"), printReply: note("printReply"),
     render: (el, raw) => calls.push(["render", raw]), pageRaw: (card, i) => i + ":" + card.asking,
     unlight: note("unlight"), caretQueue: note("caretQueue"), projectReady: Promise.resolve(null),
-    fetch: async (url, init) => { calls.push(["fetch", url, JSON.parse(init.body)]); return { ok: true }; },
+    fetch: async (url, init) => { calls.push(["fetch", url, JSON.parse(init.body)]); return { ok }; },
+    feedback: { setReady: note("setReady") },
     document: { body: { classList: { add: note("obdone") } }, activeElement: null },
     window: {}, parent: { postMessage: note("postMessage") }, location: { origin: "http://x" },
     setTimeout: () => {},
   });
   vm.runInContext([
     QUESTION_SOURCE(),
-    "let finished = false, saving = false;",
-    grab("  async function finish(){", "  // ---- moving between cards"),
+    "let finished = false;",
+    grab("  async function saveProfile(){", "  // ---- moving between cards"),
   ].join("\n"), context);
-  await vm.runInContext("finish()", context);
+  await vm.runInContext(run, context);
   return { calls, onboard, finished: vm.runInContext("finished", context),
            empty: field => vm.runInContext("QUESTIONS", context).find(q => q.field === field).empty };
 }
@@ -316,10 +318,52 @@ test("marking the last card done with an answer missing goes back to the first q
   assert.equal(both.onboard.asking, null);
 });
 
-test("the onboarding is Welcome, one onboarding card of four needed questions, three 101 cards, a Bonus card and FIN", () => {
+test("the answers are saved as soon as the summary card is passed, so the bug on the last card has a name and email", async () => {
+  const all = { name: "Ada", email: "ada@example.org", work: "Research", agent: "Codex" };
+  const names = calls => calls.map(c => c[0]);
+  // any move from the onboarding card to a card after it keeps the profile, and nothing else does
+  assert.ok(ONBOARDING.includes("if (cards[at] === onboard && i > cards.indexOf(onboard)) keepProfile();"));
+  // with every answer given: the same body finish saves, the feedback box woken, the board told
+  const early = await finishWith(all, { run: "keepProfile()" });
+  assert.deepEqual(names(early.calls), ["fetch", "setReady", "postMessage"]);
+  assert.equal(early.calls[0][1], "/profile");
+  assert.deepEqual(early.calls[1], ["setReady", true]);
+  assert.deepEqual(out(early.calls[2].slice(1)), [{ onboarding: "saved" }, "http://x"]);
+  assert.equal(early.finished, false, "the early save ended the run");
+  const last = await finishWith(all);
+  assert.deepEqual(early.calls[0][2], last.calls.find(c => c[0] === "fetch")[2], "not exactly what finish saves");
+  // an answer missing, or a save the board refuses: nothing saved, or the box and the board are not told
+  const lacking = await finishWith({ name: "Ada", email: "ada@example.org" }, { run: "keepProfile()" });
+  assert.deepEqual(names(lacking.calls), []);
+  const refused = await finishWith(all, { run: "keepProfile()", ok: false });
+  assert.deepEqual(names(refused.calls), ["fetch"]);
+  // the last card's done still saves, again, and ends the run
+  const again = await finishWith(all, { run: "keepProfile().then(finish)" });
+  assert.equal(names(again.calls).filter(n => n === "fetch").length, 2);
+  assert.equal(again.finished, true);
+});
+
+test("the board keeps the onboarding up once the frame has saved the profile, until the frame says it is done", () => {
+  const g = gate({ flag: true });
+  const [frame] = g.frames;
+  g.listeners.message({ source: frame.contentWindow, origin: "http://127.0.0.1:1", data: { onboarding: "saved" } });
+  g.watch({});   // the profile now exists: the readings stop asking for the onboarding
+  g.pass(5000);
+  assert.equal(frame.gone, undefined, "the frame was taken away mid-run");
+  assert.equal(g.document.body.inert, true);
+  assert.ok(g.listeners.message, "the board stopped listening for done");
+  // not another page's word for it
+  const other = gate({ flag: true });
+  other.listeners.message({ source: {}, origin: "http://127.0.0.1:1", data: { onboarding: "saved" } });
+  other.watch({});
+  other.pass(2100);
+  assert.equal(other.frames[0].gone, true);
+});
+
+test("the onboarding is Welcome, one onboarding card of four needed questions, four 101 cards and You are all set up", () => {
   const titles = [...grab("  const CARDS = [", "  // the timings.").matchAll(/title: "([^"]+)"/g)].map(m => m[1]);
   assert.deepEqual(titles, ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Atomizing asks",
-                            "101: Tickets", "101: Hotkeys", "Bonus: Facilitator on the phone!", "FIN"]);
+                            "101: Tickets", "101: Hotkeys", "101: Phone App", "You are all set up"]);
   assert.doesNotMatch(ONBOARDING, /Orchestrator Agent|id: "orchestrator"/);
   // the questions are the onboarding card's replies, each tied to the field it fills, and each asks again when empty
   for (const [field, ask] of [["name", "What should we call you?"], ["email", "What's your email?"],
@@ -407,31 +451,46 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.ok(ONBOARDING.includes('list.add("obticketsprep");\n      requestAnimationFrame(() => requestAnimationFrame(() => {'));
 });
 
-test("the Bonus card holds a placeholder line, and FIN, the last card, ends the run in the words it was given", () => {
+test("101: Phone App holds his words and a stub picture slot, and You are all set up, the last card, ends the run in the words it was given", () => {
   const context = vm.createContext({});
   vm.runInContext(grab("  const key = name =>", "  // the timings.") +
-    "\nObject.assign(this, { CARDS, FINISH, BONUS_PHONE, NEXT });", context);
-  const { CARDS, FINISH, BONUS_PHONE, NEXT } = context;
+    "\nObject.assign(this, { CARDS, FINISH, PHONE_APP, NEXT, MARK });", context);
+  const { CARDS, FINISH, PHONE_APP, NEXT, MARK } = context;
   const ids = CARDS.map(c => c.id);
-  assert.deepEqual(out(ids.slice(-3)), ["hotkeys", "phone", "fin"], "the Bonus card and FIN do not follow 101: Hotkeys");
-  // the Bonus card: its words are one short line that is easy to find, and it goes on like the other 101 cards
+  assert.deepEqual(out(ids.slice(-3)), ["hotkeys", "phone", "fin"], "101: Phone App and the last card do not follow 101: Hotkeys");
+  // 101: Phone App: the picture's slot, then his paragraphs word for word, and it goes on like the other 101 cards
   const phone = CARDS.find(c => c.id === "phone");
-  assert.equal(phone.title, "Bonus: Facilitator on the phone!");
-  assert.equal(phone.say, BONUS_PHONE);
-  assert.ok(BONUS_PHONE.length < 80 && !BONUS_PHONE.includes("\n"), "the placeholder is not one short line");
-  assert.ok(ONBOARDING.includes("// PLACEHOLDER: the words of the Bonus card"), "the placeholder is not marked");
-  assert.ok(!phone.closing && !phone.next, "the Bonus card does not go on with the usual key");
+  assert.equal(phone.title, "101: Phone App");
+  assert.equal(phone.say, PHONE_APP);
+  assert.equal(PHONE_APP,
+    MARK.picture + "\n\n" +
+    "The Facilitator comes with a highly functional phone companion app!\n\n" +
+    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**. " +
+    "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes.\n\n" +
+    "1. Run `facilitator bridge setup` on the terminal\n2. Set a password\n3. Scan the QR code\n" +
+    "4. Add the app to your home screen\n\n" +
+    "And you are good to go!\n\n" +
+    "The phone app is also hotkey-enabled and works as well as the mac version with a small keyboard, " +
+    "allowing you to get work done even when you don't have your laptop!");
+  assert.doesNotMatch(PHONE_APP, /Bonus|coming soon/i);
+  assert.ok(!phone.closing && !phone.next, "101: Phone App does not go on with the usual key");
+  // the picture's slot: one marked line to swap, a plain box until then
+  assert.ok(ONBOARDING.includes("THE SLOT FOR THE PHONE APP PICTURE"), "the slot is not marked");
+  assert.ok(ONBOARDING.includes(`const PHONE_IMAGE = '<span class="obpic" aria-hidden="true"></span>';`));
+  assert.ok(ONBOARDING.includes("[MARK.picture]: PHONE_IMAGE,"));
+  assert.match(ONBOARDING, /\.reply \.obpic\{display:block; width:100%; aspect-ratio:16 \/ 9;/);
+  assert.ok(ONBOARDING.includes("html.replace(/[\\uE001-\\uE006]/g, c => MARKS[c])"));
   assert.equal(NEXT, "Press **Control\u00a0+\u00a0Shift\u00a0+\u00a0→** to continue!");
-  // FIN, in his paragraphs, with the done key written the way the cards write a key
+  // the last card, in his paragraphs, with the done key written the way the cards write a key
   const fin = CARDS.find(c => c.id === "fin");
-  assert.equal(fin.title, "FIN");
+  assert.equal(fin.title, "You are all set up");
   assert.equal(fin.say,
     "Thank you for trying out the facilitator!\n\n" +
     "If you encounter bugs or have feedback, please use the bug button on the top-right corner.\n\n" +
     "Your ideas could be instrumental in shaping this product!");
   assert.equal(FINISH, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0Backspace** to mark this card done and open your board.");
   assert.doesNotMatch(fin.say, /\{meta|arrow/i, "the meta note is on the card");
-  // only FIN ends the run: the done key, the cross and the jump to the card waiting longest all go to it
+  // only the last card ends the run: the done key, the cross and the jump to the card waiting longest all go to it
   assert.deepEqual(out(CARDS.filter(c => c.closing).map(c => c.id)), ["fin"]);
   assert.ok(ONBOARDING.includes('render(el, [spec.say, spec.closing ? FINISH : spec.next || NEXT].join("\\n\\n"));'));
   assert.ok(ONBOARDING.includes('if (spec.closing) el.x.addEventListener("click", finish);'));
@@ -441,7 +500,7 @@ test("the Bonus card holds a placeholder line, and FIN, the last card, ends the 
 });
 
 // the board's three top-right buttons on FIN
-test("FIN shows the board's speaker, bug and squid buttons, the speaker and squid dimmed and the bug at full strength", () => {
+test("the last card shows the board's speaker, bug and squid buttons, the speaker and squid dimmed and the bug at full strength", () => {
   const rule = sel => {
     const at = ONBOARDING.indexOf(sel + "{");
     assert.ok(at >= 0, "no rule for " + sel);
@@ -484,8 +543,13 @@ test("FIN shows the board's speaker, bug and squid buttons, the speaker and squi
   assert.doesNotMatch(ONBOARDING, /obdone[^{]*#obbar|#obbar[^{]*obdone/);
   const sheet = ONBOARDING.slice(ONBOARDING.indexOf("#obbar{"), ONBOARDING.indexOf("</style>", ONBOARDING.indexOf("#obbar{")));
   assert.doesNotMatch(sheet, /animation|infinite|blink|@keyframes/, "the buttons move on their own");
-  // the bug has no sheet to open from here (the profile is saved only by finish), and a press keeps the page's keys
-  assert.doesNotMatch(ONBOARDING, /feedbackSheet|feedbackOverlay|"\/feedback"/);
+  // the bug opens the Share Feedback sheet (the profile is saved once the summary card is passed), the box is the
+  // board's own, and a press keeps the page's keys
+  assert.ok(ONBOARDING.includes('const feedbackSheet = feedbackOverlay(document.body, document.getElementById("fbbox").closest(".fbrow"), {});'));
+  assert.ok(ONBOARDING.includes('document.getElementById("obbug").addEventListener("click", () => feedbackSheet.open());'));
+  assert.ok(ONBOARDING.includes('send: text => fetch("/feedback", { method: "POST", body: JSON.stringify({ message: text }) })'));
+  const row = html => html.match(/<div class="setrow fbrow">[\s\S]*?<small id="fbnote"[^>]*><\/small>/)[0].replace(/\s+/g, " ");
+  assert.equal(row(ONBOARDING), row(MAC), "the feedback row is not the board's");
   assert.ok(ONBOARDING.includes('document.getElementById("obbug").addEventListener("mousedown", e => e.preventDefault());'));
   assert.match(button("obbug"), /tabindex="-1"/);
 });

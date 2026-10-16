@@ -4070,7 +4070,10 @@ if (LOCKED) document.body.classList.add("locked");
 // reading puts it up there within a second, with no reload. once the profile
 // is saved, here or in another window, the readings stop saying so and a frame
 // still up takes itself away
-const onboard = { frame: null, away: null, failed: false, leaving: 0, ended: 0 };
+// (saved: the frame has saved the profile before its last card, so that card's
+// bug can send feedback; the readings then stop asking for the onboarding while
+// its cards are still being read, and only its done message ends it)
+const onboard = { frame: null, away: null, failed: false, leaving: 0, ended: 0, saved: false };
 if (globalThis.BOARD_ONBOARDING) openOnboarding();
 function openOnboarding(){
   if (onboard.frame || onboard.failed) return;
@@ -4090,6 +4093,7 @@ function openOnboarding(){
     onboard.frame = onboard.away = null;
     clearTimeout(onboard.leaving);
     onboard.leaving = 0;
+    onboard.saved = false;
     onboard.ended = Date.now();
     document.body.inert = false;
     frame.classList.add("gone");
@@ -4104,6 +4108,12 @@ function openOnboarding(){
     else frame.contentWindow.focus();
   });
   addEventListener("message", async function done(e){
+    if (e.source === source && e.origin === location.origin && e.data?.onboarding === "saved"){
+      onboard.saved = true;
+      clearTimeout(onboard.leaving);
+      onboard.leaving = 0;
+      return;
+    }
     if (e.source !== source || e.origin !== location.origin || e.data?.onboarding !== "done") return;
     removeEventListener("message", done);
     await poll();   // the sample project's tab arrives with its label and folder
@@ -4126,7 +4136,7 @@ function onboardingWatch(state){
     clearTimeout(onboard.leaving);
     onboard.leaving = 0;
     openOnboarding();
-  } else if (onboard.frame && !onboard.leaving){
+  } else if (onboard.frame && !onboard.leaving && !onboard.saved){
     onboard.leaving = setTimeout(() => onboard.away?.(), 2000);
   }
 }
