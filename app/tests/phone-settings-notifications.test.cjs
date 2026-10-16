@@ -309,3 +309,76 @@ test('Off while a gesture subscription is pending also removes the late result',
   assert.equal(posted(p).length, 0);
   assert.equal(p.storage.get(CHOICE), 'off');
 });
+
+// iPhone answers its prompt before its own notification settings hold the
+// grant, and a subscription made in that moment is refused as denied although
+// the permission already reads granted. The tap grants; the first refusals
+// stand for that moment.
+function grantOnTap(p, refusals, name = 'NotAllowedError') {
+  p.context.Notification.requestPermission = () => {
+    p.calls.push(['permission']);
+    p.context.Notification.permission = 'granted';
+    return Promise.resolve('granted');
+  };
+  const subscribe = p.reg.pushManager.subscribe;
+  p.reg.pushManager.subscribe = function (...args) {
+    if (refusals-- > 0) {
+      p.calls.push(['subscribe', 'refused']);
+      return Promise.reject(Object.assign(new Error('User denied push permission'), { name }));
+    }
+    return subscribe.apply(this, args);
+  };
+}
+async function waitOut(p, rounds) { for (let n = 0; n < rounds; n++) { await settle(); p.later(); } await settle(); }
+
+test('a subscription refused just after the prompt is granted is asked again, and the switch turns on with nothing else', async () => {
+  const p = page({ choice: 'off', permission: 'default' }); await settle();
+  grantOnTap(p, 2);
+  const tap = p.tap('notify', true);
+  await waitOut(p, 4); await tap;
+  assert.deepEqual(p.calls.filter(c => c[0] === 'permission'), [['permission']]);
+  assert.equal(subscribes(p).length, 3);
+  assert.equal(posted(p).length, 1);
+  assert.equal(p.element('notify').checked, true);
+  assert.equal(p.element('notifynote').textContent, '');
+  assert.equal(p.element('notifyrestore').hidden, true);
+  assert.equal(p.element('notifyoff').hidden, true);
+});
+
+test('a grant the phone takes in at once turns the switch on with one subscription', async () => {
+  const p = page({ choice: 'off', permission: 'default' }); await settle();
+  grantOnTap(p, 0);
+  await p.tap('notify', true);
+  assert.equal(subscribes(p).length, 1);
+  assert.equal(p.element('notify').checked, true);
+  assert.equal(p.element('notifynote').textContent, '');
+  assert.equal(p.element('notifyrestore').hidden, true);
+});
+
+test('a refusal that outlasts the asking, or any other failure, shows the real state', async () => {
+  for (const [name, asked] of [['NotAllowedError', 6], ['AbortError', 1]]) {
+    const p = page({ choice: 'off', permission: 'default' }); await settle();
+    grantOnTap(p, Infinity, name);
+    const tap = p.tap('notify', true);
+    await waitOut(p, 8); await tap;
+    assert.equal(subscribes(p).length, asked, name);
+    assert.equal(posted(p).length, 0, name);
+    assert.equal(p.element('notify').checked, false, name);
+    assert.match(p.element('notifynote').textContent, /not ready/, name);
+    assert.equal(p.element('notifyrestore').hidden, false, name);
+  }
+});
+
+test('Off while a refused subscription waits to be asked again stops the asking', async () => {
+  const p = page({ choice: 'off', permission: 'default' }); await settle();
+  grantOnTap(p, 1);
+  const tap = p.tap('notify', true);
+  await settle();
+  const off = p.tap('notify', false);
+  await waitOut(p, 2); await Promise.all([tap, off]);
+  assert.equal(subscribes(p).length, 1);
+  assert.equal(posted(p).length, 0);
+  assert.equal(p.subscription(), null);
+  assert.equal(p.storage.get(CHOICE), 'off');
+  assert.equal(p.element('notify').checked, false);
+});

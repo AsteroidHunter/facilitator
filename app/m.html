@@ -7660,6 +7660,21 @@ function forgetNotifyEndpoint(){
   notifyEndpoint = "";
   try { localStorage.removeItem(NOTIFY_ENDPOINT); } catch (_) {}
 }
+// iPhone answers its prompt before its own notification settings hold the
+// answer, and for that moment refuses a subscription as denied while the
+// permission already reads granted. That refusal is asked again, a few times
+// over about eight seconds; any other failure, or a real denial, is final.
+// Null when the switch was turned off or the phone signed out meanwhile.
+async function subscribeWhenAllowed(reg, live){
+  for (let wait = 250; ; wait *= 2) {
+    try { return await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: notifyKey }); }
+    catch (err) {
+      if (err?.name !== "NotAllowedError" || Notification.permission !== "granted" || wait > 4000) throw err;
+    }
+    await new Promise(resolve => setTimeout(resolve, wait));
+    if (!live()) return null;
+  }
+}
 async function repairNotifications(mine, permission, tappedSubscription, quiet){
   const live = () => mine === notifyGeneration && !notifyStopped && !notifyStopping;
   let kept = false;
@@ -7715,7 +7730,8 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
         notifyKey = keyBytes((await r.json()).key);
       }
       if (!live()) return;
-      active = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: notifyKey });
+      active = await subscribeWhenAllowed(reg, live);
+      if (!active) return;
     }
     if (!live()) { await removeNotifySubscription(active); return; }
     notifyMissing = false;
