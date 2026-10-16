@@ -289,7 +289,7 @@ test("marking the last card done with an answer missing goes back to the first q
 
 test("the onboarding is Welcome, one onboarding card of four needed questions, and three 101 cards", () => {
   const titles = [...grab("  const CARDS = [", "  // the timings.").matchAll(/title: "([^"]+)"/g)].map(m => m[1]);
-  assert.deepEqual(titles, ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Cards & atomizing ideas",
+  assert.deepEqual(titles, ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Atomizing asks",
                             "101: Tickets", "101: Hotkeys"]);
   assert.doesNotMatch(ONBOARDING, /Orchestrator Agent|id: "orchestrator"/);
   // the questions are the onboarding card's replies, each tied to the field it fills, and each asks again when empty
@@ -334,12 +334,15 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.doesNotMatch(ONBOARDING, /fitWelcome/, "the lockup is stretched to the header's width");
   // every card's key to go on says continue
   assert.equal(context.NEXT, "Press **Control\u00a0+\u00a0Shift\u00a0+\u00a0→** to continue!");
-  // the atomizing card, first of the 101 cards, in the words given, the doubled "acts" gone and the names capitalised
+  // the atomizing card, first of the 101 cards, in the words given: an orchestrator, and the names in lower case
   assert.equal(say("cards"),
     "The only \"rule\" to make the best of the Facilitator is *atomize your asks.*\n\n" +
     "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, put them on *n* different cards!\n\n" +
-    "The Claude or Codex agent connected to a project acts as a manager and assigns those tasks to *n* subagents, " +
-    "thereby parallelizing and speeding up implementation.");
+    "The claude or codex agent connected to a project acts as an *orchestrator* and assigns the tasks in different " +
+    "cards to different subagents, thereby speeding up implementation while retaining a lot more context about a " +
+    "project than a single agent ever could.");
+  // and its own key to go on, with the chord in the words it was given
+  assert.equal(CARDS[2].next, "Press **control + shift + →** to continue!");
   assert.equal(CARDS[2].id, "cards");
   // 101: Tickets, in the words and lists given, with the section chips' marks
   assert.equal(say("tickets"),
@@ -348,7 +351,7 @@ test("the cards say what they were given to say, with the board's own marks, on 
     "Tickets can be put in four buckets:\n" +
     `- ${MARK.sun} Doing: Tasks you are actively working on\n- ${MARK.dock} Docked: Tasks that you will pick up very soon\n` +
     `- ${MARK.moon} Deferred: Tasks for some later coding sprint\n- ${MARK.cross} Done: Tasks that are complete\n\n` +
-    "Bonus: after you iterate on a project for a while, tickets/cards act as a sort of knowledge base for a project.");
+    "Bonus: after you iterate on a project for a while, tickets/cards act as a knowledge base for your projects.");
   // the marks are the top bar's own: the sun and the cloud from card-logic.js, the moon the chip's, the cross its bars
   assert.ok(ONBOARDING.includes("[MARK.sun]: '<span role=\"img\" class=\"obmark\" aria-label=\"sun\">' + SUN_ICON"));
   assert.ok(ONBOARDING.includes("[MARK.dock]: '<span role=\"img\" class=\"obmark\" aria-label=\"sun with cloud\">' + DOCK_ICON"));

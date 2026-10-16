@@ -556,9 +556,10 @@
      is the card's header, at the left where the other cards have their titles.
      it is drawn in ems off the title's own font, so the word is a regular
      card title's size, and keeps the room under it that its version hangs
-     into. in the middle of the card stand the greeting, the blurb and the
-     key, in the card's own words, to the left */
-  #box-welcome .reply{flex:1 0 auto; display:flex; flex-direction:column; justify-content:center;
+     into. at the top of the card's text, where the other cards' words start,
+     stand the greeting, the blurb and the key, in the card's own words, to
+     the left */
+  #box-welcome .reply{flex:1 0 auto; display:flex; flex-direction:column; justify-content:flex-start;
     padding-right:calc(var(--pad-x)*2/3)}
   .obwelcome{display:flex; flex-direction:column; align-items:flex-start; text-align:left}
   .obbrand{display:flex; width:max-content; align-items:center; gap:.214em; margin:0 0 .4em;
@@ -906,6 +907,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // answers it would change
   const BACK_LINE = "To change any of the previous answers, press " + key("Control + Shift + ↑");
   const NEXT = "Press " + key("Control + Shift + →") + " to continue!";
+  // the first 101 card's key to go on, with the chord in the words it was given
+  const NEXT_ATOMIZING = "Press " + key("control + shift + →") + " to continue!";
   const FINISH = "Press " + key("Control + Shift + Backspace") + " to mark this card done and open your board.";
   // the main agent's choices. what anyone types that is not one of them is kept
   // as typed. the work question has none: its answer is the person's own words
@@ -941,12 +944,13 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const CARDS = [
     { id: "welcome", title: "Welcome!" },
     { id: "onboard", title: "Let's onboard you onto the Facilitator!", questions: QUESTIONS },
-    { id: "cards", title: "101: Cards & atomizing ideas",
+    { id: "cards", title: "101: Atomizing asks", next: NEXT_ATOMIZING,
       say: "The only \"rule\" to make the best of the Facilitator is *atomize your asks.*\n\n" +
            "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, " +
            "put them on *n* different cards!\n\n" +
-           "The Claude or Codex agent connected to a project acts as a manager and assigns those tasks " +
-           "to *n* subagents, thereby parallelizing and speeding up implementation." },
+           "The claude or codex agent connected to a project acts as an *orchestrator* and assigns the tasks " +
+           "in different cards to different subagents, thereby speeding up implementation while retaining " +
+           "a lot more context about a project than a single agent ever could." },
     { id: "tickets", title: "101: Tickets",
       say: "Cards are shown as a list of tickets on the left side.\n\n" +
            "Standard tickets have three states:\n" +
@@ -958,7 +962,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
            "- " + MARK.dock + " Docked: Tasks that you will pick up very soon\n" +
            "- " + MARK.moon + " Deferred: Tasks for some later coding sprint\n" +
            "- " + MARK.cross + " Done: Tasks that are complete\n\n" +
-           "Bonus: after you iterate on a project for a while, tickets/cards act as a sort of knowledge base for a project." },
+           "Bonus: after you iterate on a project for a while, tickets/cards act as a knowledge base for your projects." },
     { id: "hotkeys", title: "101: Hotkeys", closing: true,
       say: "The Facilitator " + MARK.heart + " hotkeys!\n\n" +
            key("Command + T") + " creates a new card.\n\n" +
@@ -1283,7 +1287,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     const rows = [["Name", profile.name], ["Email", profile.email],
                   ["Work", profile.work], ["Main agent", profile.agent]];
     const list = rows.map(([k, v]) => "- " + k + ": " + (v == null ? "not answered" : plain(v)));
-    if (profile.timeZone) list.push("- Time zone: " + plain(profile.timeZone) + ", from your Mac");
+    if (profile.timeZone) list.push("- Time zone: " + plain(profile.timeZone));
     return "Here is what you told us:\n\n" + list.join("\n");
   }
 
@@ -1308,7 +1312,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     el.ta.disabled = true;
     el.ta.tabIndex = -1;
     if (spec.say){
-      render(el, [spec.say, spec.closing ? FINISH : NEXT].join("\n\n"));
+      render(el, [spec.say, spec.closing ? FINISH : spec.next || NEXT].join("\n\n"));
       // the cross on the last card marks it done, as Control + Shift + Backspace does
       if (spec.closing) el.x.addEventListener("click", finish);
       return card;
