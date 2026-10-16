@@ -14,6 +14,10 @@
   const TALL = 0.9;
   const WIDE = 375 / 812 * 1.14;
   const SHAPE = WIDE / TALL;
+  // the most the box stands from its card at the board's full size, as a share
+  // of the card's width: the gap the Mac laptop's window gives the box, never
+  // more, so on a larger window it stays as near its card as it is there
+  const GAP = 0.0945;
   // card: the card's rectangle, {left, top, width, height}. fit: the stage's
   // transform and the workspace, {scale, tx, right, clear}, right the screen x
   // of the workspace's inner right edge and clear the room the fit keeps
@@ -37,7 +41,12 @@
   // scroll. The whole box stands with its middle level with the card's.
   // Whatever size results stands in the middle of the room right of the card,
   // so the gap to the card and the gap to the workspace's edge are equal, with
-  // its top on the whole box's top
+  // its top on the whole box's top. The stage never grows, so once the window
+  // is big enough for the board at its full size (scale 1) more window is only
+  // more room, and the box would drift from its card with it: there the gap to
+  // the card stops at GAP of the card's width, and the gap to the workspace's
+  // edge takes the rest. Under that share, and wherever the board is shrunk to
+  // fit, the box stands as it always has
   function place(card, fit, want) {
     const scale = fit.scale || 1;
     const edge = (fit.right - fit.tx) / scale;   // the workspace's right edge, on the stage
@@ -48,8 +57,12 @@
     let width = Math.max(0, Math.min(card.height * WIDE, room - 2 * clear)), height = width / SHAPE;
     const shown = height >= card.height / 2;
     const top = middle - height / 2;
+    // the whole box's gap to the card with the room shared evenly, and what it
+    // is held to; what the box shows is centred in the whole box as before
+    const spare = (room - width) / 2;
+    const held = scale >= 1 ? Math.min(spare, GAP * card.width) : spare;
     ({ width, height } = fitRoom({ width, height }, want));
-    const left = right + (room - width) / 2;
+    const left = right + (room - width) / 2 - (spare - held);
     return { left, top, width, height, shown };
   }
   // what the box shows, at its own size inside a room {width, height}: want as
@@ -186,5 +199,5 @@
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { TALL, WIDE, SHAPE, place, fit: fitRoom, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
 })(globalThis);

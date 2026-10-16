@@ -31,7 +31,7 @@ function api() {
   vm.runInContext(read("magic-box.js"), scope);
   return scope.MagicBox;
 }
-const { TALL, WIDE, SHAPE, place } = api();
+const { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom } = api();
 const PHONE = 375 / 812;
 const close = (a, b, by = 1e-6) => Math.abs(a - b) < by;
 // the card where a new board puts it (index.html --frame-*), in stage pixels
@@ -43,12 +43,15 @@ const MIDDLE = r => r.top + r.height / 2;
 // the window is wider than it, and the fit's clearance of 16 as the least gap
 const fitAt = (w, more = {}) => ({ scale: 1, tx: Math.max(0, (w - 1440) / 2), right: w - 6.5, clear: 16, ...more });
 const edgeOf = fit => (fit.right - fit.tx) / fit.scale;
-// a box beside its card: its own shape, the two gaps equal, the middles level
+// a box beside its card: its own shape, the two gaps equal (or, with the board at
+// its full size, the gap to the card held at its share of the card's width and the
+// gap to the edge the rest), the middles level
 function besideRight(at, card, fit) {
   const gapCard = at.left - RIGHT(card), gapEdge = edgeOf(fit) - (at.left + at.width);
   assert.equal(at.shown, true);
   assert.ok(close(at.width / at.height, SHAPE), `shape ${at.width / at.height}`);
-  assert.ok(close(gapCard, gapEdge), `gaps ${gapCard} and ${gapEdge}`);
+  const held = fit.scale >= 1 && close(gapCard, GAP * card.width) && gapEdge > gapCard;
+  assert.ok(close(gapCard, gapEdge) || held, `gaps ${gapCard} and ${gapEdge}`);
   assert.ok(gapCard >= fit.clear / fit.scale - 1e-6, `gap ${gapCard} under the clearance`);
   assert.ok(close(MIDDLE(at), MIDDLE(card)), `middle ${MIDDLE(at)} against ${MIDDLE(card)}`);
   assert.ok(at.height <= TALL * card.height + 1e-6, "never taller than nine tenths of the card");
@@ -154,6 +157,54 @@ test("the room is all it asks: the same card shows again in a wider window, and 
   const tiny = place(CARD, { scale: 1, tx: 0, right: 700, clear: 16 });
   assert.equal(tiny.shown, false);
   assert.ok(tiny.width >= 0, "never a size below nothing");
+});
+
+// place() as it was before the gap was held: the box centred in the room right of the card
+function centred(card, fit, want) {
+  const scale = fit.scale || 1, edge = (fit.right - fit.tx) / scale, clear = (fit.clear || 0) / scale;
+  const right = card.left + card.width, room = edge - right;
+  let width = Math.max(0, Math.min(card.height * WIDE, room - 2 * clear)), height = width / SHAPE;
+  const shown = height >= card.height / 2, top = card.top + card.height / 2 - height / 2;
+  ({ width, height } = fitRoom({ width, height }, want));
+  return { left: right + (room - width) / 2, top, width, height, shown };
+}
+const WANTS = [undefined, null, { height: 150 }, { height: 900 }, { width: 200, height: 120, head: 34 }, { width: 3600, height: 1800, head: 34 }];
+
+test("up to the laptop's window, and wherever the board is shrunk to fit, the box stands exactly where it did", () => {
+  // the board at its full size, in a window no wider than the laptop's: the centred gap is
+  // never past its share, so nothing is held. one pixel wider it is
+  // (spread into plain objects: place() answers from the script's own realm)
+  for (const want of WANTS) for (let x = 400; x <= 1512; x++)
+    assert.deepEqual({ ...place(CARD, fitAt(x), want) }, centred(CARD, fitAt(x), want), `moved at ${x} wide`);
+  assert.notDeepEqual({ ...place(CARD, fitAt(1513)) }, centred(CARD, fitAt(1513)), "held from the next pixel on");
+  // the board shrunk to fit: any window, however wide, keeps the centring as it was
+  const cards = [CARD, { ...CARD, left: 300 }, { ...CARD, top: 180, height: 520 }, { ...CARD, width: 420 }];
+  for (const card of cards) for (const want of WANTS) {
+    for (const scale of [0.5, 0.8, 0.853, 0.99]) for (const x of [900, 1366, 1512, 2045, 2560, 3008]) {
+      const fit = { scale, tx: Math.max(0, (x - 1440 * scale) / 2), right: x - 6.5, clear: 16 };
+      assert.deepEqual({ ...place(card, fit, want) }, centred(card, fit, want), `moved at scale ${scale}, ${x} wide`);
+    }
+  }
+});
+
+test("on a window wider than the laptop's the gap to the card stays the same share of the card's width", () => {
+  const laptop = place(CARD, fitAt(1512)), share = (laptop.left - RIGHT(CARD)) / CARD.width;
+  assert.ok(share <= GAP && GAP - share < 1e-3, `the laptop's gap is ${share} of the card, held at ${GAP}`);
+  for (const w of [1513, 1600, 1920, 2045, 2560, 3008, 5120]) {
+    const fit = fitAt(w), at = place(CARD, fit);
+    assert.ok(close((at.left - RIGHT(CARD)) / CARD.width, GAP), `${w} wide`);
+    assert.ok(close(at.width, laptop.width) && close(at.top, laptop.top) && close(at.height, laptop.height), "same size and height");
+    assert.ok(edgeOf(fit) - (at.left + at.width) > at.left - RIGHT(CARD), "the rest of the room is to the edge");
+  }
+  // a card of another width: the same share of its own width
+  for (const width of [300, 700]) {
+    const card = { ...CARD, width }, at = place(card, fitAt(3000));
+    assert.ok(close((at.left - RIGHT(card)) / width, GAP), `card ${width} wide`);
+  }
+  // what the box shows, smaller than the whole box, stays in the middle of the whole box's place
+  const whole = place(CARD, fitAt(3000)), small = place(CARD, fitAt(3000), { width: 200, height: 120, head: 34 });
+  assert.ok(close(small.left + small.width / 2, whole.left + whole.width / 2), "centred in the whole box");
+  assert.ok(close(whole.left - RIGHT(CARD), GAP * CARD.width));
 });
 
 // what the box shows, inside the largest box there is room for
