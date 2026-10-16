@@ -29,7 +29,18 @@ def _gate_html():
     return template.replace(b"__FACILITATOR_VERSION__", match.group(1) if match else b"v0")
 
 
+# Read at import so a gate whose page cannot be read never starts. Each answer
+# reads the page again, as the board's own pages are, so a new logo or version
+# reaches the sign-in page without a restart; this copy is only the fallback
+# when that read fails.
 GATE_HTML = _gate_html()
+
+
+def _current_gate_html():
+    try:
+        return _gate_html()
+    except OSError:
+        return GATE_HTML
 
 
 def _headers(scope):
@@ -273,7 +284,7 @@ class BridgeGate:
         if not known:
             self._note_refusal(scope, headers, method, path, known)
             if method == "GET" and path in ("/m", "/"):
-                await _reply(scope, receive, send, 200, GATE_HTML,
+                await _reply(scope, receive, send, 200, _current_gate_html(),
                              "text/html; charset=utf-8")
             else:
                 await _reply(scope, receive, send, 401, {"error": "sign in required"})
