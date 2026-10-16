@@ -194,6 +194,24 @@ test('copy, Mac external window, phone handoff and attachment download require a
   }
 });
 
+test('a download the page makes itself, such as the token chart picture, gets past the guard that a card link never does', () => {
+  for (const phone of [false, true]) {
+    const f = fixture({ phone, state: 'home' });
+    assert.equal(typeof f.win.clickDownload, 'function');
+    const own = f.element('a'); own.setAttribute('href', 'blob:http://127.0.0.1:32123/picture'); own.setAttribute('download', 'chart.png');
+    f.win.clickDownload(own);
+    assert.deepEqual(f.downloaded, ['blob:http://127.0.0.1:32123/picture']);
+    assert.equal(own.isConnected, false, 'the link is taken away again');
+    // the same kind of link set into a card, or clicked after the call, is still asked about
+    const inCard = f.link('a', 'blob:http://127.0.0.1:32123/other'); inCard.setAttribute('download', 'chart.png');
+    f.send(inCard, { type: 'click' });
+    assert.deepEqual(f.downloaded, ['blob:http://127.0.0.1:32123/picture']);
+    assert.ok(f.menu(), 'a menu stood in its place');
+    f.send(own, { type: 'click' });
+    assert.equal(f.downloaded.length, 1, 'the call let it through once only');
+  }
+});
+
 test('menu keyboard navigation, dismissal, unsafe addresses and external-open failure', async () => {
   const f = fixture({ state: 'home' }), link = f.link();
   link.focus(); f.send(link, { type: 'keydown', key: 'Enter' });

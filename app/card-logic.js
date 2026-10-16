@@ -83,6 +83,14 @@ function installCardPageGuard(win = window){
 
   let menu = null, returnTo = null;
   const downloads = new WeakSet();
+  // click a link this page made itself, with a download name, past the guard
+  // below. Only an anchor handed to this function gets by; a link in a card
+  // never can, since the set is not reachable from the page's content
+  function clickDownload(anchor){
+    downloads.add(anchor); doc.body.appendChild(anchor);
+    anchor.click(); anchor.remove(); downloads.delete(anchor);
+  }
+  win.clickDownload = clickDownload;
   function close(restore = false){
     menu?.remove(); menu = null;
     if (restore && returnTo?.isConnected) returnTo.focus({ preventScroll: true });
@@ -145,8 +153,7 @@ function installCardPageGuard(win = window){
       item("Download", () => {
         const anchor = doc.createElement("a");
         anchor.href = url.href; anchor.download = link.getAttribute("download") || "";
-        downloads.add(anchor); doc.body.appendChild(anchor);
-        anchor.click(); anchor.remove(); downloads.delete(anchor);
+        clickDownload(anchor);
       });
     }
     if (!url) status.textContent = "This link is not a web address.";

@@ -162,6 +162,8 @@ The left half lists your projects. Click one to open its board (a closed one ope
 
 The right half shows "Token consumption per day": the tokens Claude Code and Codex have used on this Mac each day, as a year heatmap (a calendar of shaded squares) or a line chart, picked with the switch in its corner. Scroll or drag sideways for earlier weeks, and point at a day for its numbers. The counts are read from the logs Claude Code and Codex already keep on this Mac; only the counts are kept. `token_logs` in `run.config.json` can point at other log folders, or turn a tool off with an empty list.
 
+The download button beside the switch saves the chart on show as a high resolution 3:2 PNG of the whole year with the Facilitator name on it, and on the line also marks the day this board first started; the Mac downloads it and the phone opens its share sheet.
+
 Under it, "Usage Limits" shows how much of each plan limit is used, with when it was last updated: Claude 5-hour, Claude weekly, Codex 5-hour and Codex weekly, each only when there is a number. Codex's come from Codex itself. Claude's come through Claude Code's status line, which the installer does not set up: add `"statusLine": {"type": "command", "command": "python3 <folder>/claude-statusline.py"}` to `~/.claude/settings.json`, where `<folder>` is the folder this RUNBOOK is in (`app/` in the folder you cloned). To keep a status line you already have, put its command after the script as one quoted argument. Claude Code sends limits only on Pro and Max plans, after a session's first reply.
 
 ## Browsing and selecting cards

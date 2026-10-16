@@ -480,3 +480,27 @@ test("run.config.json and the tools' own variables name other folders", async ()
   await b.start({ CLAUDE_CONFIG_DIR: path.join(b.dir, "cc"), CODEX_HOME: path.join(b.dir, "cx") });
   assert.deepEqual((await b.days(1)).tools, { claude: 400, codex: 50 });
 });
+
+// ---- the day the board first started -------------------------------------------------
+test("the answer names the day of the transcript's first stamped row, for the chart's install mark", async () => {
+  const b = await board();
+  const transcript = path.join(dataOf(b.dir), "transcript.jsonl");
+  const first = Date.UTC(2026, 2, 30, 23, 30) / 1000;   // the fixture's zone is UTC, so the 30th
+  put(transcript, [
+    "{not json",
+    JSON.stringify({ kind: "note", box: "b1", text: "no stamp" }),
+    JSON.stringify({ ts: 0, kind: "note", box: "b1", text: "no time" }),
+    JSON.stringify({ ts: "yesterday", kind: "note", box: "b1", text: "words" }),
+    JSON.stringify({ ts: first, kind: "user", box: "b1", text: "the first" }),
+    JSON.stringify({ ts: first + 40 * 86400, kind: "agent", box: "b1", text: "a later one" }),
+  ]);
+  await b.start();
+  const answer = await b.days(2);
+  assert.equal(answer.installed, "2026-03-30");
+  assert.equal(answer.days.length, 2, "the rest of the answer is as it was");
+  // no stamped row at all: nothing to name
+  await b.stop();
+  put(transcript, [JSON.stringify({ kind: "note", text: "no stamp" })]);
+  await b.start();
+  assert.equal((await b.days(1)).installed, null);
+});

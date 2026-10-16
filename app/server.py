@@ -647,8 +647,10 @@ Endpoints:
                                total, input, cache_write, cache_read, output,
                                claude, codex}, then the range's total, its
                                kinds, each tool's share, and whether each
-                               tool's log folder was found. Counted from the
-                               logs Claude Code and Codex already write under
+                               tool's log folder was found, and "installed",
+                               the day the board first wrote to its
+                               transcript (null before that). The counts come
+                               from the logs Claude Code and Codex already write under
                                the home folder by tokens.py beside this file,
                                which says what counts; run.config.json's
                                token_logs names other folders. Only counts
@@ -4818,7 +4820,31 @@ def _get_tokens_daily(q: Query, _):
     days = q.one("days", "365")
     if not re.fullmatch(r"[0-9]{1,4}", days) or not 1 <= int(days) <= TOKENS_MAX_DAYS:
         return 400, {"error": f"days must be a whole number from 1 to {TOKENS_MAX_DAYS}"}
-    return 200, _ledger().daily(int(days))
+    return 200, {**_ledger().daily(int(days)), "installed": _installed_day()}
+
+
+def _installed_day():
+    """The local calendar day of the earliest row in transcript.jsonl, which
+    is the day this board first ran and wrote anything down: the file is only
+    ever appended to, so its first row with a stamp is its earliest. The
+    token chart's picture marks it. None while the file is missing or holds
+    no stamped row."""
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                try:
+                    stamp = json.loads(line).get("ts")
+                except (ValueError, AttributeError):
+                    continue
+                if isinstance(stamp, bool) or not isinstance(stamp, (int, float)) or stamp <= 0:
+                    continue
+                try:
+                    return time.strftime("%Y-%m-%d", time.localtime(stamp))
+                except (ValueError, OverflowError, OSError):
+                    continue
+    except OSError:
+        pass
+    return None
 
 
 # the limits box on the home page: the 5-hour and weekly windows of Claude Code

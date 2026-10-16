@@ -18,9 +18,12 @@
   border:var(--edge) solid transparent;
   padding:calc(16 * var(--u, 1px)) calc(20 * var(--u, 1px)) calc(14 * var(--u, 1px)); color:var(--ink); font:400 calc(12 * var(--u, 1px))/16px var(--sans);
 }
-.tk-head{flex:none; display:flex; align-items:center; justify-content:space-between; gap:calc(12 * var(--u, 1px)); margin-bottom:calc(14 * var(--u, 1px))}
+.tk-head{flex:none; display:flex; align-items:center; justify-content:space-between; gap:var(--tk-gap, calc(12 * var(--u, 1px))); margin-bottom:calc(14 * var(--u, 1px))}
 .tk-title{min-width:0}
-.tk-name{font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink); text-wrap:balance}
+/* the heading is one line however narrow its panel: the row's other parts
+   are given their room first (see the panel's width steps below), and a
+   heading that still has too little ends in dots rather than wrapping */
+.tk-name{font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 
 /* the pill: the page switcher's small rounded rectangle on the paper, holding
    two names of one width. the one showing sits on a white seat the way the
@@ -46,6 +49,48 @@
   transition:color .18s, box-shadow .08s ease-in}
 .tk-opt:focus-visible{outline:1.5px solid #E0592B; outline-offset:1px}
 @media (prefers-reduced-motion: reduce){ .tk-thumb{transition:none} }
+
+/* the download button: the pill's own face, border and corners, a square as
+   tall as the pill (the row stretches it) with Lucide's download arrow in the
+   muted ink. It shares one box with the pill, which never breaks, so the
+   two stay on the heading's line whatever the width */
+.tk-tools{flex:none; display:flex; align-items:stretch; gap:calc(6 * var(--u, 1px))}
+.tk-save{flex:none; box-sizing:border-box; width:calc(27 * var(--u, 1px)); padding:0; display:inline-flex; align-items:center; justify-content:center;
+  border-radius:calc(7 * var(--u, 1px)); background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+  border:var(--edge) solid var(--line); color:var(--sub); cursor:pointer;
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:color .18s, box-shadow .16s ease-out}
+.tk-save svg{display:block; width:calc(14 * var(--u, 1px)); height:calc(14 * var(--u, 1px))}
+.tk-save:hover{color:var(--ink)}
+.tk-save:active{
+  box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:color .18s, box-shadow .08s ease-in}
+.tk-save:focus-visible{outline:1.5px solid #E0592B; outline-offset:1px}
+.tk-save:disabled{opacity:.4; cursor:default}
+.tk-save[aria-busy="true"]{opacity:.6}
+
+/* the heading row at the widths a phone gives it. The panel is a container,
+   and its own width, not the window's, decides how the row is spaced: the
+   heading (14px, 178px of it), the pill and the button all fit on the one
+   line from 373px of panel up. Below that the gaps and the pill's side
+   padding give way first (a phone 430 wide), and below 355px, a phone 375
+   wide, the pill's names and the heading come down a size as well. The
+   limits box's title follows the heading, so the two stay one face */
+.tk-panel{container:tkpanel / inline-size}
+@container tkpanel (max-width: 373px){
+  .tk-head{--tk-gap:calc(8 * var(--u, 1px))}
+  .tk-tools{gap:calc(4 * var(--u, 1px))}
+  .tk-opt{padding-left:calc(8 * var(--u, 1px)); padding-right:calc(8 * var(--u, 1px))}
+}
+@container tkpanel (max-width: 355px){
+  .tk-head{--tk-gap:calc(6 * var(--u, 1px))}
+  .tk-tools{gap:calc(3 * var(--u, 1px))}
+  .tk-opt{padding-left:calc(5 * var(--u, 1px)); padding-right:calc(5 * var(--u, 1px)); font-size:calc(11 * var(--u, 1px))}
+  .tk-name, .lm-title{font-size:calc(12 * var(--u, 1px))}
+  /* the heading used to take two lines here, 9.2px more than one, and the
+     chart under it keeps the place and the height that gave it */
+  .tk-head{margin-bottom:calc(23.2 * var(--u, 1px))}
+}
 
 /* the charts are drawn to the view's height (home-widgets.js) and never
    stretched or squeezed to it. the lane is the view's whole height, so the
@@ -99,7 +144,7 @@
    both will not fit across, the legend drops to a row of its own, at the right */
 .tk-foot{flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:calc(2 * var(--u, 1px)) calc(12 * var(--u, 1px));
   margin-top:calc(10 * var(--u, 1px)); color:var(--sub)}
-.tk-sum{white-space:nowrap}
+.tk-sum{white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis}
 .tk-sum b{color:var(--ink); font-weight:600}
 .tk-legend{display:inline-flex; align-items:center; gap:calc(3 * var(--u, 1px)); margin-left:auto; white-space:nowrap}
 .tk-legend i{display:inline-block; width:calc(10 * var(--u, 1px)); height:calc(10 * var(--u, 1px)); border-radius:calc(2 * var(--u, 1px));
@@ -119,6 +164,7 @@
   .tk-head{margin-bottom:6px}
   .lm-title{padding-top:4px}   /* the pill centres the token heading 4px lower in its row */
   .tk-opt{padding:2px 10px}
+  .tk-save{width:25px}
   .tk-foot{margin-top:6px}
 }
 

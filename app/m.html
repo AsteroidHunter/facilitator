@@ -692,14 +692,14 @@
   #home #homelimits:not([hidden]){position:relative}
   #home #homelimits:not([hidden])::before{content:""; position:absolute; left:0; right:0;
     top:calc(8 * var(--u) * -.61); height:1px; background:var(--line); pointer-events:none}
-  /* the heading's two lines, the name beside the pill and what it counts under
-     both, since at phone width the one line would cut the words short */
-  #home .tk-head{display:grid; grid-template-columns:1fr auto; grid-template-areas:"name pill" "what what";
-    column-gap:calc(12 * var(--u)); row-gap:calc(2 * var(--u)); align-items:center}
+  /* the heading's one line, the name beside the pill and its download button,
+     which home-widgets.css spaces to the panel's width so nothing wraps */
+  #home .tk-head{display:grid; grid-template-columns:minmax(0, 1fr) auto; grid-template-areas:"name pill" "what what";
+    column-gap:var(--tk-gap, calc(12 * var(--u))); row-gap:calc(2 * var(--u)); align-items:center}
   #home .tk-title{display:contents}
   #home .tk-name{grid-area:name}
   #home .tk-what{grid-area:what}
-  #home .tk-pill{grid-area:pill}
+  #home .tk-tools{grid-area:pill}
   /* the pill is drawn as the board draws it; a finger's reach is taken above
      and below each name, where nothing else can be pressed */
   #home .tk-opt{position:relative}
@@ -4068,7 +4068,7 @@ function homeBundle(){
 function homeMake(){
   if (!window.TokenWidgets) return false;
   const plot = document.getElementById("homeplot");
-  if (!homePanel) homePanel = TokenWidgets.panel(plot);
+  if (!homePanel) homePanel = TokenWidgets.panel(plot, { share: true });
   homeLimitsMake();
   return true;
 }

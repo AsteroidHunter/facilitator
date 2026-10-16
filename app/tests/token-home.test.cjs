@@ -68,6 +68,7 @@ class El {
   remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(x => x !== this); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  removeAttribute(k) { delete this.attrs[k]; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   click() { this.fire("click"); }
   fire(type) { for (const fn of this.listeners[type] || []) fn({ target: this }); }
@@ -683,12 +684,13 @@ test("the line's tip names the day, its total and its 7-day average, and nothing
   const text = html => html.replace(/<[^>]+>/g, "");
   const split = (claude, codex) => days.map(d => ({ ...d, claude: d.total * claude, codex: d.total * codex }));
   const foot = footOf(split(1, 0));
-  assert.match(foot, /^<span class="tk-sum">Includes data from Claude<\/span><span class="tk-legend"><svg class="tk-key"/);
-  assert.equal(text(foot), "Includes data from ClaudeDaily7-day average");
-  assert.equal(text(footOf(split(0, 1))), "Includes data from CodexDaily7-day average");
-  assert.equal(text(footOf(split(0.5, 0.5))), "Includes data from Claude &amp; CodexDaily7-day average");
-  assert.match(footOf(split(0, 0)), /^<span class="tk-sum"><\/span><span class="tk-legend"><svg class="tk-key"/,
-               "with no tokens from either, nothing stands on the left and the legend stays");
+  const total = W.compact(days.slice(-W.YEAR).reduce((n, d) => n + d.total, 0));
+  assert.match(foot, /^<span class="tk-sum"><b>[^<]+<\/b> tokens in the last year · <span class="tk-src">Claude<\/span><\/span><span class="tk-legend"><svg class="tk-key"/);
+  assert.equal(text(foot), `${total} tokens in the last year · ClaudeDaily7-day average`);
+  assert.equal(text(footOf(split(0, 1))), `${total} tokens in the last year · CodexDaily7-day average`);
+  assert.equal(text(footOf(split(0.5, 0.5))), `${total} tokens in the last year · Claude &amp; CodexDaily7-day average`);
+  assert.equal(text(footOf(split(0, 0))), `${total} tokens in the last yearDaily7-day average`,
+               "with no tokens from either, the total stands alone and the legend stays");
   assert.doesNotMatch(foot, /Tokens per day/);
 });
 
@@ -709,9 +711,10 @@ test("the foot names Claude, Codex or both, by whose tokens the year holds", () 
   // a route that does not say which tool a day came from names neither
   assert.deepEqual(Array.from(W.sources(days.map(({ date, total }) => ({ date, total })))), []);
   assert.equal(W.sourceLine([]), "");
-  assert.equal(W.sourceLine(["Claude"]), "Includes data from Claude");
-  assert.equal(W.sourceLine(["Codex"]), "Includes data from Codex");
-  assert.equal(W.sourceLine(["Claude", "Codex"]), "Includes data from Claude & Codex");
+  assert.equal(W.sourceLine(["Claude"]), "Claude");
+  assert.equal(W.sourceLine(["Codex"]), "Codex");
+  assert.equal(W.sourceLine(["Claude", "Codex"]), "Claude & Codex");
+  assert.equal(W.totalLine(56.2e9), "<b>56.2B</b> tokens in the last year");
 });
 
 test("the panel's heading reads Token consumption per day, with no line under it", () => {
@@ -736,11 +739,12 @@ test("the panel's line foot follows the tools the route's days carry", async () 
     const p = W.panel(root, { load: async () => ({ days, found: { claude: true, codex: true } }), store: makeStore({ "home.chart": "line" }) });
     await p.refresh();
     const stage = walk(root).find(n => n.className === "tk-stage");
-    return /<span class="tk-sum">(.*?)<\/span>/.exec(activeLayer(stage).innerHTML)[1];
+    const sum = /<span class="tk-sum">(.*?)<\/span>(?=<span class="tk-legend">)/.exec(activeLayer(stage).innerHTML)[1];
+    return sum.replace(/<[^>]+>/g, "").replace(/^[\d.]+[KMBT]? tokens in the last year ?/, "");
   };
-  assert.equal(await footText({ claude: 5, codex: 0 }), "Includes data from Claude");
-  assert.equal(await footText({ claude: 0, codex: 5 }), "Includes data from Codex");
-  assert.equal(await footText({ claude: 5, codex: 5 }), "Includes data from Claude &amp; Codex");
+  assert.equal(await footText({ claude: 5, codex: 0 }), "· Claude");
+  assert.equal(await footText({ claude: 0, codex: 5 }), "· Codex");
+  assert.equal(await footText({ claude: 5, codex: 5 }), "· Claude &amp; Codex");
   assert.equal(await footText({ claude: 0, codex: 0 }), "");
 });
 
@@ -957,4 +961,137 @@ test("a reload comes back to home, and a failed widget download can be retried",
   assert.equal(old.is("homeLoad"), null, "connection recovery can retry the download");
   assert.deepEqual(old.fetched, []);
   assert.equal(old.doc.head.children.filter(n => n.tagName === "SCRIPT").length, 0, "the failed script is taken back out");
+});
+
+// ---- the download button and the picture ------------------------------------------------
+test("a download button stands beside the pill, in one box with it, drawn from Lucide's download icon", async () => {
+  const { W } = widgets();
+  const doc = makeDocument();
+  const root = new El("div", doc);
+  const days = daysEnding("2026-09-27", 371);
+  const p = W.panel(root, { load: async () => ({ days }), store: null });
+  const nodes = walk(root);
+  const head = nodes.find(n => n.className === "tk-head");
+  assert.deepEqual(head.children.map(n => n.className), ["tk-title", "tk-tools"], "the heading and one box for the tools");
+  const tools = head.children[1];
+  assert.deepEqual(tools.children.map(n => n.className), ["tk-pill", "tk-save"], "the button right after the pill");
+  const save = tools.children[1];
+  assert.equal(save.tagName, "BUTTON");
+  assert.equal(save.type, "button");
+  assert.equal(save.getAttribute("aria-label"), "Download chart as a picture");
+  assert.match(save.innerHTML, /<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"\/>.*<polyline points="7 10 12 15 17 10"\/>.*<line x1="12" x2="12" y1="15" y2="3"\/>/);
+  assert.equal(save.disabled, true, "nothing to save before a reading has come");
+  await p.refresh();
+  assert.equal(save.disabled, false);
+  // the sheet gives it the pill's own face and keeps the pair on one line
+  const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(css, /\.tk-tools\{flex:none; display:flex; align-items:stretch; gap:6px\}/);
+  assert.match(css, /\.tk-save\{[^}]*border-radius:7px; background:color-mix\(in srgb, var\(--paper\) 92%, #fff 8%\);\s*border:var\(--edge\) solid var\(--line\)/);
+  assert.match(css, /\.tk-name\{[^}]*white-space:nowrap; overflow:hidden; text-overflow:ellipsis\}/, "the heading never wraps");
+  // a narrow panel spaces the row down, and below 355px brings the type down with it, the limits title too
+  assert.match(css, /\.tk-panel\{container:tkpanel \/ inline-size\}/);
+  assert.match(css, /@container tkpanel \(max-width: 373px\)\{\s*\.tk-head\{--tk-gap:8px\}/);
+  assert.match(css, /@container tkpanel \(max-width: 355px\)\{[^@]*\.tk-name, \.lm-title\{font-size:12px\}/);
+  assert.match(read("m.html"), /#home \.tk-tools\{grid-area:pill\}/, "the phone seats the box where the pill was");
+});
+
+test("the foot is one line that never wraps, and the phone leaves the tools the room they need", () => {
+  const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(css, /\.tk-sum\{white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis\}/);
+  assert.match(read("m.html"), /grid-template-columns:minmax\(0, 1fr\) auto/, "the heading column can give way");
+});
+
+test("the picture is 3:2, drawn three times over, with the whole year on it", () => {
+  const { W } = widgets();
+  const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5000 : 0)).map(d => ({ ...d, claude: d.total, codex: 0 }));
+  assert.equal(W.SHAPE, "3:2");
+  assert.equal(W.PIC_SCALE, 3);
+  const [w, h] = W.SHAPES["3:2"];
+  assert.equal(w * 2, h * 3, "three wide for two tall");
+  assert.equal(W.SHAPES["4:3"][0] * 3, W.SHAPES["4:3"][1] * 4);
+  const heat = W.pictureModel("heatmap", days, null);
+  assert.deepEqual([heat.width, heat.height], [w, h]);
+  assert.equal(heat.heat.cells.length, 365, "every day of the year, not the part a lane shows");
+  assert.equal(heat.total, days.slice(-365).reduce((n, d) => n + d.total, 0));
+  assert.equal(heat.agents, "", "the heatmap's foot names no agents");
+  assert.equal(heat.install, null, "the heatmap has no install mark");
+  // the week columns reach from the day names to the right margin
+  const g = heat.heat.geo, last = heat.heat.cells.at(-1);
+  assert.ok(last.x + g.cell <= w - 48 + 0.01 && last.x + g.cell >= w - 48 - g.step - 0.01);
+  const line = W.pictureModel("line", days, null);
+  assert.equal(line.line.points.length, 365);
+  assert.equal(line.agents, "Claude");
+  assert.equal(W.pictureName("line", Date.UTC(2026, 9, 16, 12)), "facilitator-tokens-line-2026-10-16.png");
+});
+
+test("the picture's line view marks the install day, and leaves the mark out when that day is not in the year", () => {
+  const { W } = widgets();
+  const days = daysEnding("2026-09-27", 371);
+  const inside = days.at(-200).date;
+  const m = W.pictureModel("line", days, inside);
+  const point = m.line.points.find(p => p.date === inside);
+  assert.equal(m.install.x, point.x, "on that day's own place on the axis");
+  assert.equal(m.install.label, "Facilitator installed");
+  assert.ok(m.install.label.split(" ").length <= 5, "five words at most");
+  assert.equal(m.install.y1, m.line.box.top);
+  assert.equal(m.install.y2, m.line.box.top + m.line.box.h, "one upright line across the plot");
+  assert.equal(W.pictureModel("line", days, days[3].date).install, null, "before the year shown (the days fetched ahead of it are not shown)");
+  assert.equal(W.pictureModel("line", days, "2027-01-01").install, null, "after the last day");
+  assert.equal(W.pictureModel("line", days, null).install, null, "a board that has not said");
+  assert.equal(W.pictureModel("heatmap", days, inside).install, null, "never on the heatmap");
+});
+
+test("the picture is painted in the board's inks and the squid's own file, never purple and never the accent", () => {
+  const code = WIDGETS.slice(WIDGETS.indexOf("// ---- the picture"), WIDGETS.indexOf("// ---- the panel"));
+  assert.match(code, /LOGO_SRC = "\/m-splash-squid\.png"/, "the board's own logo file");
+  assert.match(code, /700 28px \$\{look\.inter\}/, "the name in the board's wordmark face");
+  assert.doesNotMatch(code, /--accent/);
+  for (const hex of code.match(/#[0-9a-fA-F]{6}\b/g) || []) {
+    const { h, s } = hsl(hex);
+    assert.ok(!(h >= 250 && h <= 330 && s > 0.1), `${hex} is purple`);
+  }
+});
+
+test("pressing the button saves the chart on show, once at a time, as a download on the board and a share on the phone", async () => {
+  class FakeFile { constructor(parts, name, opts) { this.name = name; this.type = opts.type; } }
+  const days = daysEnding("2026-09-27", 371);
+  const run = async (share, canShare) => {
+    const { W } = widgets({ File: FakeFile, setTimeout: () => 0, URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} } });
+    const doc = makeDocument();
+    const seen = { shared: [], clicked: [], canvases: [] };
+    doc.defaultView = {
+      navigator: canShare ? { canShare: d => d.files.length === 1, share: async d => { seen.shared.push([d.files[0].name, d.files[0].type, d.title]); } } : {},
+      clickDownload: a => seen.clicked.push([a.download, a.href]),
+      getComputedStyle: () => ({ getPropertyValue: () => "" }),
+    };
+    doc.documentElement = new El("html", doc);
+    const make = doc.createElement;
+    doc.createElement = name => {
+      const node = make(name);
+      if (name === "canvas") {
+        node.getContext = () => new Proxy({}, { get: (t, k) => (k === "measureText" ? () => ({ width: 10 }) : () => {}), set: () => true });
+        node.toBlob = fn => { seen.canvases.push([node.width, node.height]); fn({ size: 1 }); };
+      }
+      if (name === "a") node.remove = () => {};
+      return node;
+    };
+    const root = new El("div", doc);
+    const p = W.panel(root, { load: async () => ({ days, installed: days.at(-100).date }), store: makeStore({ "home.chart": "line" }), share, now: () => Date.UTC(2026, 9, 16, 12) });
+    await p.refresh();
+    const first = p.download(), second = p.download();
+    await Promise.all([first, second]);
+    await p.download();
+    return seen;
+  };
+  const board = await run(false, true);
+  assert.deepEqual(board.canvases, [[3600, 2400], [3600, 2400]], "3x of 1200 x 800, one per press that was let through");
+  assert.deepEqual(board.shared, [], "the board never opens a share sheet");
+  assert.deepEqual(board.clicked, [["facilitator-tokens-line-2026-10-16.png", "blob:x"], ["facilitator-tokens-line-2026-10-16.png", "blob:x"]]);
+  const phone = await run(true, true);
+  assert.deepEqual(phone.shared, [["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"],
+                                  ["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"]]);
+  assert.deepEqual(phone.clicked, [], "a share that works is not also saved");
+  const fallback = await run(true, false);
+  assert.equal(fallback.shared.length, 0);
+  assert.equal(fallback.clicked.length, 2, "a phone that cannot share a file falls back to a download");
 });

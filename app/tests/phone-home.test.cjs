@@ -715,7 +715,7 @@ test("on the phone the house in the project list opens home, the pill and the ti
     assert.equal(await page.$eval(".tk-tip", t => t.hidden), false, "a tap on the line shows its tip");
     assert.equal(await page.$eval(".tk-dot", d => d.getAttribute("visibility")), "visible");
     // the line's foot names the tool the counts come from: the fixture's logs are Claude's alone
-    assert.equal(await page.$eval(".tk-sum", s => s.textContent), "Includes data from Claude");
+    assert.equal(await page.$eval(".tk-sum", s => s.textContent), "1.14K tokens in the last year · Claude");
     assert.equal(await page.$eval(".tk-legend", l => l.textContent), "Daily7-day average", "the legend stays");
 
     // a project chosen in the list: that project's board, its row checked, the house not

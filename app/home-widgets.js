@@ -15,15 +15,22 @@
 //            the busiest day, in four to six steps; the months are named
 //            along the bottom. A day is marked only where the pointer or a
 //            tap is, with a dot on each line and a tip giving the date, the
-//            day's total and its 7-day average. The foot says whose tokens
-//            they are, "Includes data from Claude", "... Codex" or "...
-//            Claude & Codex", from the per-tool counts on each day; a year
-//            with none from either leaves that place empty
+//            day's total and its 7-day average. The foot is the heatmap's,
+//            "<total> tokens in the last year", then whose tokens they are,
+//            "Claude", "Codex" or "Claude & Codex", from the per-tool counts
+//            on each day; a year with none from either names no one
 //   panel    one column headed "Token consumption per day", with no box
 //            around it (home-widgets.css), holding one
 //            of the two at a time and a two-way pill to switch them, whose
 //            seat slides from one name to the other; the choice is
-//            remembered in this browser
+//            remembered in this browser. A download button stands beside the
+//            pill and saves the chart on show as a picture (see picture)
+//   picture  the chart on show, the whole year, drawn on a canvas at three
+//            times the size into a 3:2 PNG with its heading, axis names,
+//            legend and foot, the squid and "Facilitator" at the top right,
+//            and on the line a vertical mark on the day the board was first
+//            started. The Mac saves it as a download, a phone offers it to
+//            the share sheet so it can go to Photos or Files
 //   view     both charts are drawn to the height of the view they are shown
 //            in, never stretched: the heatmap's squares grow until its seven
 //            rows fill it, and the line is as wide as the heatmap, a week of
@@ -82,6 +89,11 @@
   const VIEW_KEY = "home.chart";
   const TIP = `<div class="tk-tip" hidden></div>`;
   const TOKENS_KEY = "home.tokens";
+  // Lucide's download (ISC), the set the board's other icons are drawn from
+  const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/>' +
+    '<line x1="12" x2="12" y1="15" y2="3"/></svg>';
   // Storage can be blocked or full. A page still keeps its most recent reading
   // in memory; reopening the page also works whenever localStorage is available.
   const memory = new WeakMap(), noStore = {};
@@ -181,7 +193,12 @@
     const year = days.slice(-YEAR);
     return TOOL_NAMES.filter(([key]) => year.some(d => d[key] > 0)).map(([, name]) => name);
   }
-  const sourceLine = names => (names.length ? "Includes data from " + names.join(" & ") : "");
+  // the foot's one line, for either chart: the year's total, and the line's
+  // also whose tokens they are. The names follow a middle dot, in a span of
+  // their own so the phone can drop them first from a narrow foot
+  const totalLine = total => `<b>${esc(compact(total))}</b> tokens in the last year`;
+  const sourceLine = names => (names.length ? names.join(" & ") : "");
+  const yearTotal = days => days.slice(-YEAR).reduce((s, d) => s + (d.total || 0), 0);
 
   // ---- the colour scale ----------------------------------------------------
   // the year's active days, cut at their quartiles: a day at or past the top
@@ -216,20 +233,20 @@
     const gap = step >= 20 ? 4 : 3, cell = step - gap;
     const rows = 7 * step - gap;
     const top = TOP + Math.max(0, Math.floor((height - TOP - rows) / 2));
-    return { height: Math.max(height, TOP + rows), width: LEFT + WEEKS * step - gap,
+    return { height: Math.max(height, TOP + rows), width: LEFT + WEEKS * step - gap, left: LEFT,
              step, gap, cell, rows, top, radius: step >= 20 ? 3 : 2 };
   }
 
   // ---- the heatmap ---------------------------------------------------------
-  function heatmapModel(days, h) {
-    const geo = geometry(h);
+  function heatmapModel(days, h, size) {
+    const geo = size || geometry(h);
     const year = days.slice(-YEAR);
     const sc = scale(year.map(d => d.total));
     const lead = year.length ? parts(year[0].date).weekday : 0;
     const cells = year.map((d, i) => {
       const col = Math.floor((lead + i) / 7), row = (lead + i) % 7;
       return { i, date: d.date, total: d.total, col, row, level: sc.level(d.total),
-               fill: sc.colour(d.total), x: LEFT + col * geo.step, y: geo.top + row * geo.step };
+               fill: sc.colour(d.total), x: geo.left + col * geo.step, y: geo.top + row * geo.step };
     });
     // a month is named over the column its first day falls in, and the
     // partial month the year starts in only when the next name leaves room
@@ -241,7 +258,7 @@
     if (cells.length && (!months.length || months[0].col >= 3) && parts(cells[0].date).d !== 1)
       months.unshift({ col: 0, label: MONTHS[parts(cells[0].date).m - 1] });
     return { cells, months, weeks: WEEKS, cuts: sc.cuts, geo,
-             total: year.reduce((s, d) => s + (d.total || 0), 0) };
+             total: yearTotal(year) };
   }
   // the chart as drawn, at the view's height. The day names are drawn apart
   // (heatPin) into the same place, where they stay while the chart scrolls
@@ -250,7 +267,7 @@
     const out = [`<svg class="tk-heat" width="${g.width}" height="${g.height}" viewBox="0 0 ${g.width} ${g.height}" ` +
                  `role="img" aria-label="${esc(compact(model.total))} tokens in the last year, one square per day">`];
     for (const m of model.months)
-      out.push(`<text class="tk-axis" x="${LEFT + m.col * g.step}" y="${g.top - 7}">${m.label}</text>`);
+      out.push(`<text class="tk-axis" x="${g.left + m.col * g.step}" y="${g.top - 7}">${m.label}</text>`);
     for (const c of model.cells)
       out.push(`<rect class="tk-day" data-i="${c.i}" x="${c.x}" y="${c.y}" width="${g.cell}" ` +
                `height="${g.cell}" rx="${g.radius}" fill="${c.fill}"/>`);
@@ -276,8 +293,7 @@
       : `<b>No tokens that day</b><span>${esc(longDay(cell.date))}</span>`;
   }
   function drawHeatmap(el, days, spot) {
-    const total = days.slice(-YEAR).reduce((s, d) => s + (d.total || 0), 0);
-    const foot = `<div class="tk-foot"><span class="tk-sum"><b>${esc(compact(total))}</b> tokens in the last year</span>` +
+    const foot = `<div class="tk-foot"><span class="tk-sum">${totalLine(yearTotal(days))}</span>` +
       `${legendHtml()}</div>`;
     const h = viewHeight(el, foot);
     const model = heatmapModel(days, h);
@@ -328,17 +344,18 @@
     const ticks = Array.from({ length: best.count }, (_, i) => Number((i * best.step).toPrecision(12)));
     return { top: best.top, step: best.step, ticks };
   }
-  function lineModel(days, h) {
-    const geo = geometry(h);
+  // size and pad draw it to a place of another size, as the picture does
+  function lineModel(days, h, size, pad = PAD) {
+    const geo = size || geometry(h);
     const LW = geo.width, LH = geo.height;
     const avg = rolling(days.map(d => d.total || 0)).slice(-YEAR);
     const shown = days.slice(-YEAR);
     const axis = niceAxis(Math.max(0, ...shown.map(d => d.total || 0)));
     const top = axis.top;
-    const w = LW - PAD.left - PAD.right, ht = LH - PAD.top - PAD.bottom;
+    const w = LW - pad.left - pad.right, ht = LH - pad.top - pad.bottom;
     const n = shown.length;
-    const xAt = i => PAD.left + (n > 1 ? i * w / (n - 1) : w / 2);
-    const yAt = v => PAD.top + ht - (v / top) * ht;
+    const xAt = i => pad.left + (n > 1 ? i * w / (n - 1) : w / 2);
+    const yAt = v => pad.top + ht - (v / top) * ht;
     // each point also knows the days its average was taken over: the day
     // itself and the six before it, fewer only where the reading begins
     const lead = days.length - n;
@@ -356,7 +373,7 @@
       if (p.x + (q.m === 1 ? 54 : 26) <= LW) months.push({ x: p.x, label });
     }
     return { points, months, top, ticks: axis.ticks, yAt, geo, width: LW, height: LH,
-             box: { ...PAD, w, h: ht } };
+             box: { ...pad, w, h: ht } };
   }
   const path = pts => pts.map((p, i) => (i ? "L" : "M") + p[0] + " " + p[1]).join("");
   function lineSvg(model) {
@@ -413,7 +430,9 @@
            `<span class="tk-row">${swatch(true)}${p.span}-day average<em>${esc(compact(p.avg))}</em></span>`;
   }
   function drawLine(el, days, spot) {
-    const foot = `<div class="tk-foot"><span class="tk-sum">${esc(sourceLine(sources(days)))}</span>` +
+    const names = sourceLine(sources(days));
+    const foot = `<div class="tk-foot"><span class="tk-sum">${totalLine(yearTotal(days))}` +
+      `${names ? ` · <span class="tk-src">${esc(names)}</span>` : ""}</span>` +
       `<span class="tk-legend">${swatch(false)}Daily${swatch(true)}7-day average</span></div>`;
     const h = viewHeight(el, foot);
     const model = lineModel(days, h);
@@ -589,6 +608,241 @@
     place(el, tip, lineTip(p), r.left + p.x * k, r.top + Math.min(p.y, p.ya) * k);
   }
 
+  // ---- the picture ---------------------------------------------------------
+  // the chart on show saved as a PNG: 1200 x 800 laid out, 3:2, and drawn at
+  // three times that so the words stay crisp on a phone's screen. It is drawn
+  // on a canvas from the same models as the screen, but for the whole year
+  // at once, never the part the lane has scrolled to. The words use the
+  // board's own faces (the sheet's --sans, and --inter for the name at the
+  // top right) and its inks, and only the picture carries the squid, the
+  // name, and on the line the day the board was first started
+  const SHAPES = { "3:2": [1200, 800], "4:3": [1200, 900] };
+  const SHAPE = "3:2";
+  const PIC_SCALE = 3, PIC_PAD = 48;
+  const PIC_HEAD = 96, PIC_FOOT = 44;           // room for the heading row and the foot row
+  const PIC_TITLE = "Token consumption per day";
+  const INSTALLED = "Facilitator installed";
+  const LOGO_SRC = "/m-splash-squid.png";
+  const LOOK = { ink: "#211D17", sub: "#75695A", line: "#CACACA", paper: "#F5F4F1",
+                 sans: '"IBM Plex Sans", -apple-system, sans-serif', inter: '"Inter", -apple-system, sans-serif' };
+  // what the picture is made of, in pixels, before any of it is painted
+  function pictureModel(kind, days, installed, shape = SHAPE) {
+    const [width, height] = SHAPES[shape] || SHAPES[SHAPE];
+    const area = { x: PIC_PAD, y: PIC_HEAD, w: width - 2 * PIC_PAD, h: height - PIC_HEAD - PIC_PAD - PIC_FOOT };
+    const out = { kind, shape, width, height, title: PIC_TITLE, total: yearTotal(days),
+                  agents: kind === "line" ? sourceLine(sources(days)) : "", install: null };
+    if (kind === "heatmap") {
+      // the week columns share the width exactly; the block of month names and
+      // seven rows stands in the middle of the room under the heading
+      const left = 44, gap = 4, names = 26;
+      const step = (area.w - left + gap) / WEEKS, cell = step - gap, rows = 7 * step - gap;
+      const top = area.y + Math.floor((area.h - names - rows) / 2) + names;
+      out.heat = heatmapModel(days, 0, { width, height, left: area.x + left, step, gap, cell, rows, top, radius: 3 });
+      return out;
+    }
+    const bottom = 32;
+    out.line = lineModel(days, 0, { width, height: area.y + area.h },
+                         { left: PIC_PAD + 52, right: PIC_PAD, top: area.y + 8, bottom });
+    // the mark is on the day's own place on the axis, and only when that day is in the year shown
+    const at = installed && out.line.points.find(p => p.date === installed);
+    if (at) out.install = { x: at.x, y1: out.line.box.top, y2: out.line.box.top + out.line.box.h, label: INSTALLED };
+    return out;
+  }
+
+  function rounded(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function paintPicture(ctx, m, look, logo) {
+    const font = (weight, size, face) => `${weight} ${size}px ${face || look.sans}`;
+    const text = (str, x, y, fill, f, align = "left") => {
+      ctx.font = f; ctx.fillStyle = fill; ctx.textAlign = align; ctx.textBaseline = "alphabetic";
+      ctx.fillText(str, x, y);
+    };
+    ctx.fillStyle = look.paper;
+    ctx.fillRect(0, 0, m.width, m.height);
+
+    // the heading row: the title on the left, the squid and the name on the right
+    const mid = PIC_PAD + 17;
+    text(m.title, PIC_PAD, mid + 8, look.ink, font(600, 24));
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "-0.56px";
+    const nameFont = font(700, 28, look.inter);
+    ctx.font = nameFont;
+    const nameW = ctx.measureText("Facilitator").width;
+    text("Facilitator", m.width - PIC_PAD, mid + 10, look.ink, nameFont, "right");
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+    if (logo) {
+      const side = 38, x = m.width - PIC_PAD - nameW - 6 - side;
+      ctx.drawImage(logo, x, mid - side / 2, side, side);
+    }
+
+    if (m.heat) paintHeat(ctx, m.heat, look, text, font);
+    else paintLine(ctx, m, look, text, font);
+
+    // the foot: the one line of words on the left, the legend on the right
+    const base = m.height - PIC_PAD - 2, size = 14;
+    ctx.font = font(600, size);
+    const total = compact(m.total);
+    text(total, PIC_PAD, base, look.ink, font(600, size));
+    const after = PIC_PAD + ctx.measureText(total).width;
+    text(" tokens in the last year" + (m.agents ? " · " + m.agents : ""), after, base, look.sub, font(400, size));
+    if (m.heat) {
+      let x = m.width - PIC_PAD;
+      text("More", x, base, look.sub, font(400, size), "right");
+      x -= ctx.measureText("More").width + 8;
+      for (let i = PALETTE.length - 1; i >= 0; i--) {
+        x -= 14;
+        ctx.fillStyle = PALETTE[i]; rounded(ctx, x, base - 11, 14, 14, 3); ctx.fill();
+        x -= 4;
+      }
+      text("Less", x - 4, base, look.sub, font(400, size), "right");
+    } else {
+      const key = (x, avg) => {
+        ctx.save();
+        ctx.lineCap = "round"; ctx.strokeStyle = avg ? AVG_LINE : LINE; ctx.lineWidth = avg ? 3.4 : 2.4;
+        ctx.setLineDash(avg ? [0, 6.5] : []);
+        ctx.beginPath(); ctx.moveTo(x, base - 5); ctx.lineTo(x + 24, base - 5); ctx.stroke();
+        ctx.restore();
+      };
+      let x = m.width - PIC_PAD;
+      text("7-day average", x, base, look.sub, font(400, size), "right");
+      x -= ctx.measureText("7-day average").width + 6 + 24;
+      key(x, true);
+      x -= 22;
+      text("Daily", x, base, look.sub, font(400, size), "right");
+      x -= ctx.measureText("Daily").width + 6 + 24;
+      key(x, false);
+    }
+  }
+  function paintHeat(ctx, heat, look, text, font) {
+    const g = heat.geo;
+    for (const m of heat.months) text(m.label, g.left + m.col * g.step, g.top - 10, look.sub, font(400, 13));
+    for (const [row, name] of [[1, "Mon"], [3, "Wed"], [5, "Fri"]])
+      text(name, PIC_PAD, g.top + row * g.step + g.cell / 2 + 4.5, look.sub, font(400, 13));
+    for (const c of heat.cells) {
+      ctx.fillStyle = c.fill;
+      rounded(ctx, c.x, c.y, g.cell, g.cell, g.radius);
+      ctx.fill();
+    }
+  }
+  function paintLine(ctx, m, look, text, font) {
+    const line = m.line, { box, points } = line, base = box.top + box.h;
+    ctx.lineWidth = 1;
+    for (const t of line.ticks) {
+      const y = Math.round(line.yAt(t)) + .5;
+      ctx.strokeStyle = t ? "#EFEBE5" : look.line;
+      ctx.beginPath(); ctx.moveTo(box.left, y); ctx.lineTo(box.left + box.w, y); ctx.stroke();
+      text(compact(t), box.left - 10, y + 4.5, look.sub, font(400, 13), "right");
+    }
+    for (const mo of line.months) {
+      ctx.strokeStyle = look.line;
+      ctx.beginPath(); ctx.moveTo(Math.round(mo.x) + .5, base); ctx.lineTo(Math.round(mo.x) + .5, base + 5); ctx.stroke();
+      text(mo.label, mo.x, base + 23, look.sub, font(400, 13));
+    }
+    // the day the board was first started: one upright line, and its name
+    // turned up the left of it in small type, ringed in the paper's colour
+    // where the lines run under it
+    const mark = m.install;
+    if (mark) {
+      ctx.save();
+      ctx.strokeStyle = look.ink; ctx.lineWidth = 1.25; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(mark.x, mark.y1); ctx.lineTo(mark.x, mark.y2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.translate(mark.x - 7, mark.y1 + 6);
+      ctx.rotate(-Math.PI / 2);
+      ctx.font = font(500, 12); ctx.textAlign = "right"; ctx.textBaseline = "alphabetic";
+      ctx.lineJoin = "round"; ctx.lineWidth = 4; ctx.strokeStyle = look.paper;
+      ctx.strokeText(mark.label, 0, 0);
+      ctx.fillStyle = look.ink; ctx.fillText(mark.label, 0, 0);
+      ctx.restore();
+    }
+    if (points.length) {
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      const trace = key => { ctx.beginPath(); points.forEach((p, i) => ctx[i ? "lineTo" : "moveTo"](p.x, p[key])); ctx.stroke(); };
+      ctx.strokeStyle = LINE; ctx.lineWidth = 2.4; trace("y");
+      ctx.strokeStyle = AVG_LINE; ctx.lineWidth = 3.4; ctx.setLineDash([0, 6.5]); trace("ya"); ctx.setLineDash([]);
+    }
+  }
+
+  // the faces and the squid are fetched ahead, when the panel first has a
+  // reading, so that pressing the button paints at once: a phone only lets the
+  // share sheet open for a moment after the press
+  let logoLoad = null;
+  function loadLogo() {
+    if (!logoLoad) logoLoad = new Promise(done => {
+      if (typeof Image !== "function") return done(null);
+      const img = new Image();
+      img.onload = () => done(img);
+      img.onerror = () => done(null);
+      img.src = LOGO_SRC;
+    });
+    return logoLoad;
+  }
+  function loadFaces(doc, look) {
+    const set = doc.fonts;
+    if (!set || typeof set.load !== "function") return Promise.resolve();
+    return Promise.all([`400 13px ${look.sans}`, `500 13px ${look.sans}`, `600 24px ${look.sans}`,
+                        `700 28px ${look.inter}`].map(f => set.load(f).catch(() => null))).then(() => {});
+  }
+  function lookOf(node) {
+    const view = node.ownerDocument && node.ownerDocument.defaultView;
+    const css = view && view.getComputedStyle ? view.getComputedStyle(node) : null;
+    const get = (name, fallback) => (css && css.getPropertyValue(name).trim()) || fallback;
+    return { ink: get("--ink", LOOK.ink), sub: get("--sub", LOOK.sub), line: get("--line", LOOK.line),
+             paper: get("--paper", LOOK.paper), sans: get("--sans", LOOK.sans), inter: get("--inter", LOOK.inter) };
+  }
+  // the canvas the picture is painted on, at three times its laid out size
+  function pictureCanvas(doc, m, look, logo) {
+    const canvas = doc.createElement("canvas");
+    canvas.width = m.width * PIC_SCALE;
+    canvas.height = m.height * PIC_SCALE;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(PIC_SCALE, PIC_SCALE);
+    paintPicture(ctx, m, look, logo);
+    return canvas;
+  }
+  function pictureBlob(canvas) {
+    return new Promise((done, fail) => canvas.toBlob(b => (b ? done(b) : fail(new Error("no picture"))), "image/png"));
+  }
+  const pictureName = (kind, now) => {
+    const d = new Date(now);
+    const pad = n => String(n).padStart(2, "0");
+    return `facilitator-tokens-${kind}-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.png`;
+  };
+  // a phone offers the file to the share sheet, to go to Photos or Files; the
+  // Mac, and a phone whose browser cannot share a file, saves a download
+  async function deliver(doc, blob, name, share) {
+    const nav = doc.defaultView && doc.defaultView.navigator;
+    if (share && nav && typeof nav.canShare === "function" && typeof File === "function") {
+      const file = new File([blob], name, { type: "image/png" });
+      if (nav.canShare({ files: [file] })) {
+        try { await nav.share({ files: [file], title: PIC_TITLE }); return "shared"; }
+        catch (err) { if (err && err.name === "AbortError") return "closed"; }
+      }
+    }
+    const url = URL.createObjectURL(blob), link = doc.createElement("a");
+    link.href = url; link.download = name; link.style.display = "none";
+    // the board's link guard (card-logic.js) takes every link click for a card's
+    // link and asks what to do; it lets this one through
+    const win = doc.defaultView;
+    if (win && typeof win.clickDownload === "function") win.clickDownload(link);
+    else { doc.body.appendChild(link); link.click(); link.remove(); }
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    return "downloaded";
+  }
+  // paint the picture of a chart and hand it over. shape and look are for tests
+  async function picture({ doc, kind, days, installed, look, share, shape, now }) {
+    const face = look || lookOf(doc.documentElement);
+    const [logo] = await Promise.all([loadLogo(), loadFaces(doc, face)]);
+    const canvas = pictureCanvas(doc, pictureModel(kind, days, installed, shape), face, logo);
+    return deliver(doc, await pictureBlob(canvas), pictureName(kind, now == null ? Date.now() : now), share);
+  }
+
   // ---- the panel -----------------------------------------------------------
   // one rectangle: a heading and the pill on top, the chart under them. load
   // answers the route's reading; the default asks the board for it
@@ -623,8 +877,18 @@
       buttons[key] = b;
       pill.appendChild(b);
     }
+    // the download button stands beside the pill, in one box with it, so the
+    // two travel together and neither can drop to a line of its own
+    const save = el("button", "tk-save");
+    save.type = "button";
+    save.setAttribute("aria-label", "Download chart as a picture");
+    save.title = "Download chart";
+    save.innerHTML = DOWNLOAD_ICON;
+    const tools = el("div", "tk-tools");
+    tools.appendChild(pill);
+    tools.appendChild(save);
     head.appendChild(title);
-    head.appendChild(pill);
+    head.appendChild(tools);
     let view = readView(store), destroyed = false;
     const stage = el("div", "tk-stage");
     const layers = {};
@@ -661,6 +925,7 @@
           ? "No token usage yet." : message));
       }
       pill.dataset.on = view;
+      save.disabled = !(data && data.days.some(day => day.total > 0));
       for (const [key] of VIEWS) {
         const selected = key === view;
         buttons[key].classList.toggle("on", selected);
@@ -670,6 +935,7 @@
         layers[key].inert = !selected;
       }
       drawnAt = sizeOf();
+      if (!save.disabled) warm();
       tick();
     }
     // Each view keeps its own scrolling position. Both layers stay mounted so
@@ -680,6 +946,26 @@
       try { if (store) store.setItem(VIEW_KEY, key); } catch (err) {}
       draw();
     }
+    // the picture of the chart on show; a second press while one is being
+    // made, or with nothing drawn, does nothing. The faces and the squid are
+    // fetched the first time there is something to save
+    let saving = false, warmed = false;
+    function warm() {
+      if (warmed) return;
+      warmed = true;
+      loadLogo();
+      loadFaces(doc, lookOf(box));
+    }
+    function download() {
+      if (saving || destroyed || save.disabled) return Promise.resolve();
+      saving = true;
+      save.setAttribute("aria-busy", "true");
+      return picture({ doc, kind: view, days: data.days, installed: data.installed, look: lookOf(box),
+                       share: !!opts.share, now: clock() })
+        .catch(() => {})
+        .finally(() => { saving = false; save.removeAttribute("aria-busy"); });
+    }
+    save.addEventListener("click", download);
     let observer = null;
     if (typeof ResizeObserver === "function") {
       observer = new ResizeObserver(() => { if (sizeOf() !== drawnAt) draw(); });
@@ -712,7 +998,7 @@
       status.busy(false);
     }
     draw();
-    return { root: box, show, refresh, tick, destroy, view: () => view };
+    return { root: box, show, refresh, tick, destroy, download, view: () => view };
   }
 
   // ---- the limits box ------------------------------------------------------
@@ -863,7 +1149,8 @@
 
   window.TokenWidgets = {
     PALETTE, LINE, AVG_LINE, AVG_DASH, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
-    compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine,
+    compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine, totalLine,
+    SHAPES, SHAPE, PIC_SCALE, pictureModel, pictureName, picture,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
     viewHtml, seat, panel, limitRows, ago, limits, LIMIT_FILL, LIMIT_TRACK, LIMITS_KEY, TOKENS_KEY,
