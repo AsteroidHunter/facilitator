@@ -167,10 +167,20 @@ function installCardPageGuard(win = window){
   const plainClick = e => e.type === "click" && !e.button && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
   function activate(e){
     const link = linkFor(e);
-    if (!link || downloads.has(link)) return;
+    if (!link){
+      // the picture an image box shows has no menu: a plain click opens it, and
+      // any other press is left as it was
+      const shown = plainClick(e) ? boxImage(e.target) : null;
+      if (!shown) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      openCardPicture(shown, null);
+      return;
+    }
+    if (downloads.has(link)) return;
     e.preventDefault(); e.stopImmediatePropagation();
     if (held === link && e.type === "click"){ held = null; return; }
-    if (plainClick(e) && cardPicture(link) && openCardPicture(link, pressedFrom)) return;
+    // a picture in a magic box leaves the focus where the click in the box put it
+    if (plainClick(e) && cardPicture(link) && openCardPicture(link, link.closest(".magicbox") ? null : pressedFrom)) return;
     show(link, e);
   }
   for (const type of ["click", "auxclick", "contextmenu", "dragstart"])
@@ -247,9 +257,13 @@ function installCardPageGuard(win = window){
 // never so far that an edge comes in past the room's; a double tap or double
 // click goes from fitted to twice at that point and back. at its fitted size a
 // tap or a click puts it back, once the moment for a second tap has passed;
-// zoomed, it takes Escape. the boxes beside the card keep the menu for their
-// pictures
-const CARD_PICTURES = ".reply.cardmd img.shot, .answmsg.cardmd img.shot";
+// zoomed, it takes Escape. the picture a card's magic box shows (an image box)
+// and the pictures in a markdown box open the same way, on both pages, and the
+// box keeps its hold on the keys through it. a page an agent made in the box
+// has its own pictures, which are its own; the other boxes beside the card keep
+// the menu for theirs
+const CARD_PICTURES = ".reply.cardmd img.shot, .answmsg.cardmd img.shot, .magicbox .mbtext.cardmd img.shot";
+const BOX_PICTURE = ".magicbox .mbimg";
 const CARD_PICTURE_MS = 300;
 const CARD_PICTURE_EASE = "cubic-bezier(0.25, 1, 0.5, 1)";
 const CARD_PICTURE_VEIL = 0.62;
@@ -275,7 +289,14 @@ let cardPictureShown = null;   // what is open, and null whenever nothing is
 
 function cardPicture(target){
   const picture = target?.closest?.(CARD_PICTURES);
-  return picture && !picture.closest('[id^="magic"]') ? picture : null;
+  // the stubs beside the card (#magic1 to #magic4) keep the menu; the card's
+  // magic box (#magicbox here, #mbface on the phone) is not one of them
+  const stub = picture?.closest('[id^="magic"]');
+  return picture && (!stub || stub.classList.contains("magicbox")) ? picture : null;
+}
+// the picture an image box shows, or null
+function boxImage(target){
+  return target?.closest?.(BOX_PICTURE) || null;
 }
 // where a picture w by h stands in the box: as large as it fits at its own
 // shape, never past CARD_PICTURE_MOST times its size, and centred

@@ -1369,6 +1369,7 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    desktop's picture panel zoom does it. it stands over everything either page
    draws and under the link menu */
 :is(.reply, .answmsg).cardmd img.shot:not([id^="magic"] *){cursor:zoom-in}
+.magicbox :is(.mbimg, .mbtext.cardmd img.shot){cursor:zoom-in}
 .picfull-from{visibility:hidden}
 #picfull{display:none; position:fixed; inset:0; z-index:9000;
   cursor:zoom-out; -webkit-tap-highlight-color:transparent}
