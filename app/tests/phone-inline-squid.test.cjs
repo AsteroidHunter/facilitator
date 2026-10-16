@@ -63,9 +63,16 @@ test('the settings squid is an embedded PNG of the new logo cut to its bounds', 
   assert.doesNotMatch(button[1], /srcset=|\/m-splash-squid\.png/);
   const pixels = decodePNG(Buffer.from(images[0][1].split(',')[1], 'base64'), [123, 120]);
   // assets/facilitator_logo_blank_v0.3.png cropped to the squid (15,29, 2103 by 2046) and
-  // resized with Lanczos to 123x120, lossless: no redraw, recolouring or quantization. The
-  // crop is checked here against an area average of the source, which a Lanczos resize
-  // follows to within a few levels on average.
+  // cut to 123x120 by app/tools/squid-logo/build_logo.py: every pixel is whole ink or whole
+  // background in one of the squid's flat colours, never a blend. The crop is checked here
+  // against an area average of the source, which a whole-pixel cut follows to within a few
+  // levels on average (more than a smooth resize would, since edge pixels are not blended).
+  const flat = new Set();
+  for (let i = 0; i < pixels.length; i += 4) {
+    assert.ok(pixels[i + 3] === 0 || pixels[i + 3] === 255, 'an edge pixel is a blend: alpha ' + pixels[i + 3]);
+    if (pixels[i + 3]) flat.add(pixels.subarray(i, i + 3).join(','));
+  }
+  assert.deepEqual([...flat].sort(), ['0,0,0', '255,156,46', '255,247,176'], 'the squid has more than its two colours and the eye shine');
   const source = decodePNG(readFileSync(path.join(__dirname, '..', 'assets', 'facilitator_logo_blank_v0.3.png')), [2139, 2096]);
   const ink = inkBounds(source, 2139, 2096);
   assert.deepEqual(ink, { x: 15, y: 29, w: 2103, h: 2046 }, 'the squid\'s bounds in the source moved');
@@ -81,7 +88,7 @@ test('the settings squid is an embedded PNG of the new logo cut to its bounds', 
     const o = (y * 123 + x) * 4, a = pixels[o + 3] / 255;
     total += Math.abs(pixels[o] * a - sum[0] / n) + Math.abs(pixels[o + 1] * a - sum[1] / n) + Math.abs(pixels[o + 2] * a - sum[2] / n) + Math.abs(pixels[o + 3] - sum[3] / n);
   }
-  assert.ok(total / (123 * 120 * 4) < 3, 'the embedded squid is not the new logo: mean difference ' + total / (123 * 120 * 4));
+  assert.ok(total / (123 * 120 * 4) < 5, 'the embedded squid is not the new logo: mean difference ' + total / (123 * 120 * 4));
   // and it is the squid cut to its bounds: ink touches all four edges
   const edge = inkBounds(pixels, 123, 120);
   assert.ok(edge.x <= 1 && edge.y <= 1 && edge.x + edge.w >= 122 && edge.y + edge.h >= 119, 'the cut leaves empty margin: ' + JSON.stringify(edge));

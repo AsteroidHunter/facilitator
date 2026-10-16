@@ -22,11 +22,22 @@ Nowhere else: the Mac pages' favicon is empty (`data:,`), the phone's startup cu
 
 ## How each file is made
 
-- Crop to the squid, resize, and save lossless. No palette reduction, no recoloring.
+Every copy is cut by one script, run from the top of the repo (standard library only, about ten seconds):
+
+```
+python3 app/tools/squid-logo/build_logo.py
+```
+
+It rewrites the three icons, the splash, and the inline PNGs in `index.html`, `m-gate.html` and `m.html`. Then run `generate.py` for the banner (see below).
+
+- The source is pixel art, but its blocks are not on one regular grid (uneven spacings, a slightly tilted head tip), so there is no block size to snap to. A smooth resize (Lanczos or area average) leaves every edge pixel a blend of the orange and the background, a pale peach rim that reads as yellow beside the orange. So the copies are never resized smoothly.
+- Each output pixel is decided from the source pixels whose centres fall inside it: ink if at least half of them have alpha 128 or more, otherwise background. An ink pixel takes the palette colour most of those pixels are closest to. The palette is orange (255, 156, 46), black (0, 0, 0) and the eye shine (255, 247, 176). So a file holds the background and those three flat colours only, and no edge pixel is a blend.
+- The lockups, splash and button have a transparent background. Their transparent pixels carry the orange colour (alpha 0), so a viewer that scales without premultiplying cannot pull a dark edge in.
 - The splash and the 192 lockup are square windows centered on the squid, sized so the squid is 0.893 of the picture's height (the share the first splash had), so the drawn height in every lockup stays the same. The window may pass the source's edges, which are transparent.
 - The phone settings button is the squid's exact bounds, resized.
-- The icons keep their background (252, 251, 249) and padding, with the squid centered.
-
+- The icons keep their background (252, 251, 249), with the squid's solid extent centered and drawn at the width it had before: 156, 166 and 442 pixels for 180, 192 and 512. Icons are opaque RGB; the rest are RGBA.
+- A drawn size can differ from a smooth resize by a pixel or two. Check the squid's bounds in a rebuilt file before changing a CSS cut.
+- The page's own CSS draws the 192 lockups at 32 to 64 pixels, so a browser still smooths those on screen.
 ## Cuts that follow the squid's bounds
 
 Find the new bounds: the first and last rows and columns with alpha above 2. Stray faint pixels (alpha 1 and 2) can reach the corners of the source, so a plain "any alpha" test returns the whole file. Then recompute:
@@ -37,7 +48,7 @@ Find the new bounds: the first and last rows and columns with alpha above 2. Str
 
 ## The phone's cache key
 
-The cache key is the name the phone app saves its copy of the home logo under. Bump it so phones fetch the new logo. It is `BRAND_KEY` in `app/m.html` (now `homebrand.squid06`).
+The cache key is the name the phone app saves its copy of the home logo under. Bump it so phones fetch the new logo. It is `BRAND_KEY` in `app/m.html` (now `homebrand.squid07`).
 
 The phone's worker (`m-sw.js`) keeps a copy of `/m-splash-squid.png`, but asks the board first and replaces its copy on every answer, so its cache name does not need to change for a new squid.
 

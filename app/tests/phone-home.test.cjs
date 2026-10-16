@@ -368,7 +368,7 @@ test("the heading's version and mark are the board page's own, kept a day and no
   assert.equal(first.byId.homeversion.textContent, version);
   assert.equal(first.byId.homemark.style.backgroundImage, `url("${mark}")`);
   assert.ok(first.byId.homemark.classList.contains("on"));
-  const kept = JSON.parse(first.store.get("homebrand.squid06"));
+  const kept = JSON.parse(first.store.get("homebrand.squid07"));
   assert.deepEqual([kept.version, kept.mark], [version, mark]);
 
   // A still-fresh mark from a former cache must not keep the terminal frame or the former squid.
@@ -377,21 +377,22 @@ test("the heading's version and mark are the board page's own, kept a day and no
     "homebrand.squid": JSON.stringify({ ...kept, mark: "old-squid-mark", at: Date.now() }),
     "homebrand.squid03": JSON.stringify({ ...kept, mark: "older-squid-mark", at: Date.now() }),
     "homebrand.squid04": JSON.stringify({ ...kept, mark: "oldest-squid-mark", at: Date.now() }),
-    "homebrand.squid05": JSON.stringify({ ...kept, mark: "third-squid-mark", at: Date.now() }) } });
+    "homebrand.squid05": JSON.stringify({ ...kept, mark: "third-squid-mark", at: Date.now() }),
+    "homebrand.squid06": JSON.stringify({ ...kept, mark: "soft-edged-squid-mark", at: Date.now() }) } });
   for (const fn of legacy.doc.listeners.DOMContentLoaded) fn();
   assert.equal(legacy.byId.homemark.classList.contains("on"), false);
   await legacy.idle.find(fn => fn.name === "brandAsk")();
   assert.equal(legacy.byId.homemark.style.backgroundImage, `url("${mark}")`);
 
   // kept and fresh: drawn at once and not asked for again
-  const again = phoneHome({ index: BOARD, stored: { "homebrand.squid06": JSON.stringify({ ...kept, at: Date.now() - 3600e3 }) } });
+  const again = phoneHome({ index: BOARD, stored: { "homebrand.squid07": JSON.stringify({ ...kept, at: Date.now() - 3600e3 }) } });
   for (const fn of again.doc.listeners.DOMContentLoaded) fn();
   assert.equal(again.byId.homeversion.textContent, version);
   assert.ok(again.byId.homemark.classList.contains("on"));
   assert.equal(again.idle.filter(fn => fn.name === "brandAsk").length, 0, "a day's keep is not asked for again");
 
   // kept a day ago: drawn at once and asked for again when idle
-  const old = phoneHome({ index: BOARD, stored: { "homebrand.squid06": JSON.stringify({ ...kept, at: Date.now() - 25 * 3600e3 }) } });
+  const old = phoneHome({ index: BOARD, stored: { "homebrand.squid07": JSON.stringify({ ...kept, at: Date.now() - 25 * 3600e3 }) } });
   for (const fn of old.doc.listeners.DOMContentLoaded) fn();
   assert.equal(old.byId.homeversion.textContent, version);
   assert.equal(old.idle.filter(fn => fn.name === "brandAsk").length, 1);
@@ -401,7 +402,7 @@ test("the heading's version and mark are the board page's own, kept a day and no
   for (const fn of bare.doc.listeners.DOMContentLoaded) fn();
   await bare.idle.find(fn => fn.name === "brandAsk")();
   assert.equal(bare.byId.homeversion.textContent, "");
-  assert.equal(bare.store.has("homebrand.squid06"), false);
+  assert.equal(bare.store.has("homebrand.squid07"), false);
 });
 
 // ---- a fixture server with a bridge password and invented logs -------------------------
