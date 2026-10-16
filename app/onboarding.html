@@ -912,7 +912,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const FINISH = "Press " + key("Control + Shift + Backspace") + " to mark this card done and open your board.";
   // the main agent's choices. what anyone types that is not one of them is kept
   // as typed. the work question has none: its answer is the person's own words
-  const AGENTS = ["Claude Code", "Codex"];
+  const AGENTS = ["Claude Code", "Codex", "Both"];
   const numbered = list => list.map((one, i) => (i + 1) + ". " + one).join("\n");
   // the onboarding card's questions, one reply of the card each, in order.
   // field is where the answer is kept and noun what a correction calls it.

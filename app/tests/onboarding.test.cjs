@@ -103,7 +103,7 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
 
   // the closing card's save, an email given being the yes
   const answers = { name: "Ada Lovelace", email: "ada@example.org", emailYes: true,
-                    work: "A research tool for my lab", agent: "Claude Code", timeZone: "America/Phoenix" };
+                    work: "A research tool for my lab", agent: "Both", timeZone: "America/Phoenix" };
   const saved = await board.call("POST", "/profile", JSON.stringify(answers));
   assert.equal(saved.status, 200, saved.text);
   assert.equal(json(saved).sent, true);
@@ -113,12 +113,12 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   assert.equal(identify.body.event, "$identify");
   assert.deepEqual(identify.body.properties, { $geoip_disable: true, $set: {
     email: "ada@example.org", name: "Ada Lovelace", work: "A research tool for my lab",
-    main_agent: "Claude Code", time_zone: "America/Phoenix" } });
+    main_agent: "Both", time_zone: "America/Phoenix" } });
   const install = JSON.parse(fs.readFileSync(path.join(board.data, "usage-install.json"), "utf8"));
   assert.equal(identify.body.distinct_id, install.install_id);
   const kept = JSON.parse(fs.readFileSync(path.join(board.data, "profile.json"), "utf8"));
   assert.deepEqual(kept, { name: "Ada Lovelace", email: "ada@example.org", email_yes: true,
-                           work: "A research tool for my lab", agent: "Claude Code", time_zone: "America/Phoenix",
+                           work: "A research tool for my lab", agent: "Both", time_zone: "America/Phoenix",
                            picture: null });   // drawn by the first page that needs it, never sent
   assert.equal(fs.statSync(path.join(board.data, "profile.json")).mode & 0o777, 0o600);
 
@@ -228,6 +228,35 @@ test("every question is needed: an empty Enter keeps each question and asks for 
   assert.doesNotMatch(ONBOARDING, /SKIP_HINT|to skip|Skipped\.|Cleared your|needed: true/);
   assert.ok(ONBOARDING.includes("parts.push(q.ask, q.note, card.askingAt === i && card.asking);"));
   assert.ok(ONBOARDING.includes("card.asking = card.askingAt = null;"), "an answer leaves the ask on the page");
+});
+
+test("the main agent is asked as three numbered choices, Claude Code, Codex and Both, picked by number or by name", () => {
+  const context = vm.createContext({});
+  vm.runInContext([QUESTION_SOURCE(), grab("  function readAnswer(q, text){", "  // ---- sending, and the answer"),
+                   "this.readAnswer = readAnswer; this.q = QUESTIONS.find(q => q.field === 'agent');"].join("\n"), context);
+  const { q, readAnswer } = context;
+  assert.deepEqual(out(q.choices), ["Claude Code", "Codex", "Both"]);
+  assert.equal(q.note, "1. Claude Code\n2. Codex\n3. Both\n\nSend a number or a name.");
+  for (const [text, picked] of [["1", "Claude Code"], ["2", "Codex"], ["3", "Both"], ["#3", "Both"], [" 3. ", "Both"],
+                                ["Both", "Both"], ["both", "Both"], ["BOTH.", "Both"], ["claude", "Claude Code"], ["codex", "Codex"]])
+    assert.equal(readAnswer(q, text), picked, "read " + JSON.stringify(text));
+  // a number past the list, or other words, are kept as typed
+  for (const text of ["4", "0", "Neither", "both of them"]) assert.equal(readAnswer(q, text), text, "changed " + text);
+});
+
+test("the last page lists Both as the main agent under what you told us", () => {
+  const context = vm.createContext({ HINT: "reply" });
+  vm.runInContext([
+    grab("  function plain(text){", "  // the answer a message gives"),
+    grab("  const key = name =>", "  // the timings."),
+    "const profile = { name: 'Ada', email: 'ada@example.org', work: 'Research', agent: 'Both', timeZone: null };",
+    grab("  function pageRaw(card, i){", "  // every card's words were written"),
+    "this.pageRaw = pageRaw;",
+  ].join("\n"), context);
+  const card = { asking: null, askingAt: null,
+                 pages: ["name", "email", "work", "agent", null].map((field, i) => ({ field, head: i ? "Got it." : null })) };
+  assert.match(context.pageRaw(card, 4), /Here is what you told us:\n\n- Name: Ada\n- Email: ada@example\\.org\n- Work: Research\n- Main agent: Both/);
+  assert.match(context.pageRaw(card, 3), /3\. Both/);
 });
 
 // the page's own finish() (the done chord and the cross of 101: Hotkeys both call it), run in a vm with
