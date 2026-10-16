@@ -152,8 +152,24 @@
   body.login .login-face{display:block}
   body.login .identity img,body.login .name,body.login .version,body.login .card{opacity:1}
 
+  /* ---- the keyboard: the card comes up only as far as it has to ----------- */
+  /* left alone, the phone pans the whole page to put the focused box in the
+     middle of the strip above the keyboard, which pushes the lockup under the
+     clock and leaves a wide gap under the card. the pan is the phone's own
+     motion, run with the keyboard's, and taking it back mid-flight jolts the
+     page, so it is left to run and the script hands back what it overshoots:
+     the card ends just clear of the keyboard's toolbar, and the lockup only as
+     high as the room under the status bar allows. transforms only, so nothing
+     is laid out again under the keyboard. they move on the keyboard's own clock
+     and curve, the board page's --kb-anim */
+  body.login .identity,body.login .login-face{transition:transform .22s cubic-bezier(.45,0,.55,1)}
+  body.login.kb .identity{transform:translateY(var(--kb-lockup, 0px))}
+  body.login.kb .login-face{transform:translateY(var(--kb-card, 0px))}
+  body.login.kb-measure .identity,body.login.kb-measure .login-face{transform:none; transition:none}
+
   @media (prefers-reduced-motion:reduce){
     .identity img,.name,.version,.card,.browser-link,.step{transition:none; transform:none}
+    body.login .identity,body.login .login-face{transition:none}
   }
 </style>
 </head>
@@ -242,6 +258,75 @@
     setTimeout(run, 600);
   }
   document.getElementById('use-browser').addEventListener('click', event => { event.preventDefault(); showLogin(); });
+
+  // ---- the keyboard ----------------------------------------------------------
+  // the page's floor is the small viewport's height, which the keyboard does
+  // not change, and what the visual viewport lacks of it while the password box
+  // is focused is the keyboard and its toolbar. the installed app focuses the box
+  // as it opens, so the full height cannot be learned from an unfocused frame as
+  // the board page learns it. the card's foot is kept the card's own inner
+  // padding above that edge. the lockup rises with the card only into the room
+  // it has under the status bar; past that the gap between the two closes, down
+  // to a small one, and only past that does the lockup give way. the phone's pan
+  // is read as where the page's box stands against the visible strip's top, and
+  // each lift is that pan less the rise it was meant to be
+  const KB_GAP = 18;          // the card's own inner padding (.login-copy, .password)
+  const LOCKUP_MARGIN = 8;    // the least room kept between the lockup and the safe area's top
+  const LOCKUP_GAP_MIN = 10;  // the least gap kept between the lockup and the card
+  const SETTLE_MS = 250;      // the viewport can stop moving without a last event: read it once more
+  let keyboardUp = false, applied = '', settleTimer = null, natural = null;
+  // the lockup's and the card's places in the page's box with no lift, read once
+  // as the keyboard arrives (and again at a new width) with the lifts and their
+  // motion off for the one read: WebKit's computed transform in the middle of a
+  // transition is not the one painted, so a place read through a lift drifts
+  function measure(body){
+    body.classList.add('kb-measure');
+    const origin = body.getBoundingClientRect().top;
+    const lockup = document.querySelector('.identity').getBoundingClientRect();
+    const card = document.getElementById('login-form').getBoundingClientRect();
+    body.classList.remove('kb-measure');
+    return { width: window.innerWidth, lockupTop: lockup.top - origin, lockupBottom: lockup.bottom - origin,
+             cardTop: card.top - origin, cardBottom: card.bottom - origin };
+  }
+  function placeForKeyboard(){
+    const vv = window.visualViewport, body = document.body;
+    if (!vv || !body.classList.contains('login')) return;
+    const atRest = Math.abs(vv.scale - 1) <= .01;
+    const focused = document.activeElement === document.getElementById('password');
+    const up = focused && atRest && parseFloat(getComputedStyle(body).minHeight) - vv.height > 1;   // the 100svh
+    if (!up){
+      if (!keyboardUp) return;
+      keyboardUp = false; applied = ''; natural = null;
+      body.classList.remove('kb');
+      for (const name of ['--kb-lockup', '--kb-card']) body.style.removeProperty(name);
+      return;
+    }
+    keyboardUp = true;
+    if (!natural || natural.width !== window.innerWidth) natural = measure(body);
+    body.classList.add('kb');
+    // the safe area's top: the page's own 24px taken off the body's top padding
+    const floor = parseFloat(getComputedStyle(body).paddingTop) - 24 + LOCKUP_MARGIN;
+    const need = Math.max(0, natural.cardBottom + KB_GAP - vv.height);
+    const lift = Math.min(need, Math.max(0, natural.lockupTop - floor));
+    const squeeze = Math.min(need - lift, Math.max(0, natural.cardTop - natural.lockupBottom - LOCKUP_GAP_MIN));
+    // how far the phone has panned the page: the box's top against the visible strip's
+    const pan = Math.max(0, vv.pageTop - window.scrollY - body.getBoundingClientRect().top);
+    const now = [Math.round(pan), Math.round(vv.height), Math.round(need - squeeze), Math.round(need)].join();
+    if (now === applied) return;
+    applied = now;
+    body.style.setProperty('--kb-lockup', Math.round(pan - need + squeeze) + 'px');
+    body.style.setProperty('--kb-card', Math.round(pan - need) + 'px');
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(placeForKeyboard, SETTLE_MS);
+  }
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', placeForKeyboard);
+    window.visualViewport.addEventListener('scroll', placeForKeyboard);
+  }
+  window.addEventListener('resize', placeForKeyboard);
+  window.addEventListener('scroll', placeForKeyboard, { passive: true });
+  document.addEventListener('focusin', placeForKeyboard);
+  document.addEventListener('focusout', () => requestAnimationFrame(placeForKeyboard));
   document.getElementById('login-form').addEventListener('submit', async event => {
     event.preventDefault();
     const face = document.querySelector('.login-face');
