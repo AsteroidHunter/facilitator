@@ -109,6 +109,7 @@ test("the ticket list is unselectable: rows, titles, ages, agent names, tabs and
   chrome(node("button", "ptab tvb", pair, {}, "tv-docked"), "Docked tab");
   chrome(node("button", "qn-glass tik-page back", head, {}, "tik-page-back"), "back arrow");
   chrome(node("button", "qn-glass tik-page", head, {}, "tik-page"), "forward arrow");
+  chrome(node("div", "tiknote", pane), "list note");
 });
 
 test("the card's top bar and the bottom bar are unselectable", () => {

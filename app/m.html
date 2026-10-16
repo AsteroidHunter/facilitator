@@ -920,6 +920,8 @@
   /* ---- the foot: the sent panel over the typing row ------------------------ */
   .pendwrap{position:absolute; left:0; right:0; bottom:0;
     display:flex; flex-direction:column; background:var(--card)}
+  .meta{margin:0 calc(var(--pad-x)*2/3); font:calc(11.5 * var(--u)) var(--mono); color:var(--sub); background:var(--card)}
+  .meta:empty{display:none}
   /* the history arrows' chevron */
   .chev{display:block; flex:none}
   /* what has been sent and not answered yet: the panel over the answer
@@ -1366,6 +1368,7 @@
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
   /* the new-card plus that stood in a strip over the names is the row's plus
      now, so the names head the list */
+  .tiknote{font:italic calc(12.5 * var(--u)) var(--sans); color:#7A2E1B; padding:calc(8 * var(--u)) calc(12 * var(--u))}
   /* the list: the tickets stand on the paper, with no fill, edge or shade round
      them. it clips a horizontal sheet of four sections and shows one at a
      time, so a tab change travels the sheet across the list while the list and
@@ -1506,7 +1509,8 @@
   /* the foot of the panel, under the list and under any section, is one line:
      the license's name and the turn off mark centred together with a small gap,
      a 16px power mark in the sub ink, each with the room a finger needs around
-     it. what the mark puts up first is the question below */
+     it. what the mark puts up first is the question below. a sign out that
+     fails says so under the line, centred */
   #setfoot{flex:none; display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 12px}
   #setfootline{align-self:stretch; display:flex; align-items:center; justify-content:center; gap:var(--sp-s)}
   #setlicense{padding:8px; font:12px/16px var(--sans); color:var(--sub);
@@ -1515,6 +1519,8 @@
   #signout{display:flex; margin:0; padding:8px; border:none; background:none; color:var(--sub); cursor:pointer}
   #signout:disabled{opacity:.6; cursor:default}
   #signout svg{display:block}
+  #signoutnote{margin:0; font:12px/1.5 var(--sans); color:var(--sub); text-align:center}
+  #signoutnote:empty{display:none}
   /* the question, in the alert a phone asks with: a dim over the whole screen
      and a rounded card in its middle, the question over two pills side by side.
      the colours are the system's own, from Apple's published table: the blue
@@ -1877,8 +1883,9 @@ for (const type of ["gesturestart", "gesturechange"])
       </div>
       <div data-section="notifications" data-label="Notifications">
         <div class="setrow">
-          <label class="setlabel" for="notify"><span>Notifications</span></label>
-          <input type="checkbox" role="switch" id="notify">
+          <label class="setlabel" for="notify"><span>Notifications</span>
+            <small id="notifynote" class="sethelp" role="status" aria-live="polite"></small></label>
+          <input type="checkbox" role="switch" id="notify" aria-describedby="notifynote">
         </div>
       </div>
       <div data-section="improvements" data-label="Improvements">
@@ -1913,6 +1920,7 @@ for (const type of ["gesturestart", "gesturechange"])
       <a id="setlicense" href="https://github.com/AsteroidHunter/facilitator/blob/main/LICENSE.md" target="_blank" rel="noopener">Facilitator License</a>
       <button id="signout" type="button" title="Log out" aria-label="Log out" aria-haspopup="dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v10"/><path d="M17.14 5.87A8 8 0 1 1 6.86 5.87"/></svg></button>
     </div>
+    <p id="signoutnote" role="status" aria-live="polite"></p>
   </div>
 </aside>
 <!-- the question the turn off mark puts before signing out -->
@@ -2063,7 +2071,9 @@ signoutAsk.addEventListener("keydown", e => {
 });
 async function signOut(){
   const button = document.getElementById("signout");
+  const note = document.getElementById("signoutnote");
   button.disabled = true;
+  note.textContent = "";
   try {
     await stopNotifications(true);
     const response = await fetch("/auth/logout", { method: "POST", cache: "no-store" });
@@ -2078,6 +2088,7 @@ async function signOut(){
     try { for (const key of await caches.keys()) if (key.startsWith("facilitator-m-")) await caches.delete(key); } catch (_) {}
     location.replace("/m");
   } catch (_) {
+    note.textContent = "Could not sign out. Check your connection and try again.";
     button.disabled = false;
   }
 }
@@ -2337,6 +2348,7 @@ function makeBox(b){
   // title and the answer on the frame the panel arrives
   const answwrap = h("div", "answwrap");
   const pendwrap = h("div", "pendwrap");
+  const meta = h("div", "meta");
   // and the seat of the panel of what has been sent and not answered, over the
   // row, empty and taking no room until something is sent
   const sentwrap = h("div", "sentwrap");
@@ -2373,7 +2385,7 @@ function makeBox(b){
   twin.rows = 1; twin.tabIndex = -1; twin.readOnly = true; twin.setAttribute("aria-hidden", "true");
   compose.append(ta, send, twin);
   bottombar.append(clipfile, clip, compose);
-  pendwrap.append(sentwrap, tray, bottombar);
+  pendwrap.append(meta, sentwrap, tray, bottombar);
   // the column: the scroller holding the answered panel over the answer, and laid
   // over the answer at the card's floor the sent panel and the typing row
   replyview.append(answwrap, reply);
@@ -2528,7 +2540,7 @@ function makeBox(b){
     trayAdd(b.id, files);
   });
 
-  const card = els[b.id] = { box, body, reply, replyview, ta, twin, send, tick, titleEl, sun, dock, arc, x, pendwrap, bottombar,
+  const card = els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, dock, arc, x, pendwrap, bottombar,
                 cardSpin, histUp, histDown, histPos, clip, clipfile, field,
                 // the tray's files, in the order they were picked, and a send
                 // pressed while some were still uploading (trayAdd below)
@@ -2650,6 +2662,15 @@ function drawCard(el, b, state){
     paintSectionChips(el, b);
     setCardSpinner(el.cardSpin, cardSpinning(b));
     syncPhoneHistory(b);
+    // a note about a send that failed or was held stays until the card can
+    // take another; any other note is the poll's to clear. a held send clears
+    // as soon as there is room again
+    // a tap on the moon the board refused or never answered leaves its own
+    // note, which says what the card is NOT: no reading may take that away,
+    // only the next tap on the same chip
+    if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0 &&
+        el.meta.dataset.flagnote !== "1") el.meta.textContent = "";
+    if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
   } finally { if (timing) tracePhone("jobEnd", timing); }
 }
 // a card taken down, because the board no longer holds it (gone) or because the
@@ -3205,6 +3226,7 @@ function markUnsure(op, why){
   if (op.kind === "create"){
     letGoTitleCatch();
     drawCreatePending();
+    drawerNote("Could not confirm the card was made; it will show here if it was");
   } else {
     const el = els[op.box];
     if (el) drawSent(el, op.box);
@@ -3227,6 +3249,7 @@ function failOp(op, why, by){
     ops = ops.filter(o => o !== op);
     letGoTitleCatch();
     drawCreatePending();
+    drawerNote("The card could not be made: " + why);
   } else {
     const el = els[op.box];
     if (el) drawSent(el, op.box);
@@ -3246,6 +3269,7 @@ function landSend(op, result){
   el.sentItems = [...el.sentItems, { text: op.text, stage: "sent" }];
   drawSent(el, op.box);
   el.sendGuard = Date.now();
+  if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
   if (op.reopen) undone(op.box);   // the message is in; the flip rides behind it
   const enterIntent = phoneEnterAgain && phoneEnterAgain.op === op ? phoneEnterAgain : null;
   if (enterIntent) enterIntent.delivered = true;
@@ -3281,6 +3305,8 @@ function takeBack(op){
   el.ta.value = el.ta.value.trim() ? el.ta.value.trimEnd() + "\n\n" + op.text : op.text;
   el.tick();
   drawSent(el, op.box);
+  // taking one back makes room: a send held for want of it may go now
+  if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
 }
 // an operation's state changed: the line under its message says so. the panel
 // keeps the message's block and changes only its dress and its line
@@ -3295,6 +3321,15 @@ function drawCreatePending(){
   plus.classList.toggle("pending", making);
   plus.setAttribute("aria-busy", making ? "true" : "false");
   plus.title = making ? "making the card" : "new card";
+}
+function drawerNote(text){
+  const tik = document.getElementById("tiklist");
+  const note = h("div", "tiknote", text);
+  tik.prepend(note);
+  setTimeout(() => note.remove(), 6000);
+  // the plus is on the row now, pressed with the drawer shut, so the note is
+  // said in the one-line toast as well while the drawer is not out
+  if (!drawerOpen()) toastNote(text);
 }
 let noteToastTimer = null;
 function toastNote(text){
@@ -3325,7 +3360,9 @@ function doSend(id, opts){
   const reopen = boxDone(id);
   const op = mintOp("send", { box: id, text, reopen });
   if (!op){
-    // the store is full: the words stay in the row and nothing is sent
+    // the store is full: the words stay in the row, and the card says why.
+    // this clears on its own once a reading finds room again
+    el.meta.textContent = "send held: fifty messages are still unconfirmed on this phone; wait for the board, or take some back";
     endPhoneTrace(trace, { outcome: "failed" });
     return;
   }
@@ -3378,7 +3415,7 @@ function createCard(){
   if (!validOwners.has(activeOwner)){ endPhoneTrace(trace); return; }
   if (pendingCreate()){ catchTitle(); wakeOps(); endPhoneTrace(trace); return; }
   const op = mintOp("create", { owner: activeOwner });
-  if (!op){ endPhoneTrace(trace, { outcome: "failed" }); return; }
+  if (!op){ drawerNote("No card can be made while fifty messages are still unconfirmed on this phone"); endPhoneTrace(trace, { outcome: "failed" }); return; }
   catchTitle();   // still inside the tap: the card's name does not exist until the board answers
   tracePhone("note", "operation", { op: op.id, outcome: "minted" });
   // pendingCreate above proves only one create can be live. Clear any record
@@ -7506,9 +7543,10 @@ diagnosticButton.addEventListener("click", () => saveDiagnostic());
 // the Notifications switch keeps choice and delivery separate. A new link turns
 // the switch on only once the board accepts it; a link the board has already
 // accepted stays on while it is sent again. Repairs never change an off choice.
-// The switch says nothing in words: when a try fails it shows what is true, off,
-// and a tap on it asks again.
+// When a try fails the switch shows what is true, off, and a tap on it asks
+// again. Its line speaks only where the phone itself cannot do it.
 const notifySwitch = document.getElementById("notify");
+const notifyNote = document.getElementById("notifynote");
 const NOTIFY_CHOICE = "phoneNotifications";
 const NOTIFY_ENDPOINT = "phoneNotificationEndpoint";
 const NOTIFY_KNOWN = "phoneNotificationsSet";
@@ -7532,9 +7570,12 @@ function rememberNotifyChoice(choice){
   } catch (_) {}
 }
 // The unchecked switch describes delivery: on only for a link the board holds.
-function notifyState(on, busy = false){
+// A null note leaves the line as it is, so turning on writes nothing that a
+// quick success would then erase.
+function notifyState(on, note = "", busy = false){
   notifySwitch.checked = !!on && notifyChoice === "on";
   notifySwitch.disabled = busy || notifyStopped;
+  if (note !== null) notifyNote.textContent = note;
 }
 async function pushRegistration(){
   if (macHost || !("serviceWorker" in navigator)) return null;
@@ -7590,7 +7631,7 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
     const tapped = tappedSubscription ? await tappedSubscription : null;
     if (!live()) { if (tapped) await removeNotifySubscription(tapped); return; }
     if (!("PushManager" in window) || !("Notification" in window)) {
-      if (live()) notifyState(false);
+      if (live()) notifyState(false, "Add this page to the home screen first, then ask again from there");
       return;
     }
     if (permission) await permission;
@@ -7598,7 +7639,7 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
     const reg = await pushRegistration();
     if (!live()) return;
     notifyReg = reg;
-    if (!reg) { notifyState(false); return; }
+    if (!reg) { notifyState(false, "Notifications need the page served over https"); return; }
     const sub = tapped || await reg.pushManager.getSubscription();
     if (!live()) {
       if (sub) await removeNotifySubscription(sub);
@@ -7619,7 +7660,7 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
       return;
     }
     if (Notification.permission !== "granted") {
-      notifyState(false);
+      notifyState(false, "Notifications are wanted, but permission is off in the phone's settings.");
       return;
     }
     // A check on open, return or settings that finds the very link the board
@@ -7627,7 +7668,7 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
     // slow or unreachable Mac says nothing about it. Only a new link waits.
     kept = !!quiet && !!sub && !!notifyEndpoint && sub.endpoint === notifyEndpoint;
     if (kept) notifyState(true);
-    else notifyState(false, true);
+    else notifyState(false, null, true);
     let active = sub;
     if (!active) {
       if (!notifyKey) {
@@ -7669,7 +7710,7 @@ function startNotifyRepair(permission, tappedSubscription, quiet = false){
   const mine = ++notifyGeneration;
   // A check that is not a tap leaves a switch that reads on alone until it has
   // read the phone's link.
-  if (!quiet || !notifySwitch.checked) notifyState(false, true);
+  if (!quiet || !notifySwitch.checked) notifyState(false, null, true);
   const work = repairNotifications(mine, permission, tappedSubscription, quiet);
   notifyWork = work;
   work.finally(() => { if (notifyWork === work) notifyWork = null; });
@@ -7698,7 +7739,7 @@ async function stopNotifications(forget = false){
   ++notifyGeneration;
   notifyStopping = true;
   rememberNotifyChoice(forget ? null : "off");
-  notifyState(false, true);
+  notifyState(false, null, true);
   // A repair already talking to the browser or board must finish its cleanup
   // before the final removal and logout, so it cannot turn delivery back on.
   await notifyWork;

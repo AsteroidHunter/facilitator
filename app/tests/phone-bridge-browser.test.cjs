@@ -547,14 +547,14 @@ for (const kept of ["pending", "failed"]) {
       // the page is still answering, the words are still in the row, nothing was minted
       const now = await page.evaluate(() => ({
         field: document.querySelector("article.box.sel textarea").value,
-        note: !!document.querySelector("article.box.sel .meta"),
+        note: document.querySelector("article.box.sel .meta").textContent,
         kept: ops.length,
         ids: ops.map(o => o.id),
         states: [...new Set(ops.map(o => o.state))],
         stored: JSON.parse(localStorage.getItem("pendops") || "[]").length,
       }));
       assert.equal(now.field, "the fifty-first", "the held send lost its words");
-      assert.equal(now.note, false, "a held send drew a note line");
+      assert.match(now.note, /^send held: fifty messages are still unconfirmed/, now.note);
       assert.equal(now.kept, 50, "a kept operation was dropped to make room");
       assert.deepEqual(now.ids, fiftyKept(kept).map(o => o.id), "the kept operations lost their identities");
       assert.deepEqual(now.states, [kept], "a kept operation changed state to make room");
@@ -565,6 +565,7 @@ for (const kept of ["pending", "failed"]) {
       if (kept === "failed") {
         await page.evaluate(() => document.querySelector("article.box.sel .sentwrap .answmsg[data-op].failed .answcross").click());
         await page.waitForFunction(() => ops.length === 49, { timeout: 3000 });
+        assert.equal(await page.evaluate(() => document.querySelector("article.box.sel .meta").textContent), "", "the held note did not clear once there was room");
         await page.evaluate(() => { const ta = document.querySelector("article.box.sel textarea"); ta.value = "the fifty-first"; ta.dispatchEvent(new Event("input")); });
         await page.keyboard.press("Enter");
         assert.equal(await page.evaluate(() => ops.length), 50);

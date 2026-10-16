@@ -339,13 +339,12 @@ export function loadLogic({ clock, board }){
 export function heldTaps(ctx){ return runInContext("Object.keys(flagHolds)", ctx); }
 
 // ---- the phone page ----------------------------------------------------------
-// m.html's own pass over a reading, with the line this change touches:
-// holdFlags before anything is drawn
+// m.html's own pass over a reading, with the two lines this change touches:
+// holdFlags before anything is drawn, and the note the poll may not clear
 export function makePhone(ctx, board, clock){
   const page = { list: [], view: "todo", problems: [], lastRev: null, reads: 0, fails: 0 };
 
-  // the phone's card has no note line: a refused or unconfirmed tap puts the card back and says nothing
-  const makeBox = id => (ctx.els[id] = { box: newEl(), reply: newEl(), titleEl: newEl() });
+  const makeBox = id => (ctx.els[id] = { box: newEl(), meta: newEl(), reply: newEl(), titleEl: newEl() });
 
   function apply(state){
     for (const id of Object.keys(ctx.els))
@@ -355,6 +354,8 @@ export function makePhone(ctx, board, clock){
       const cs = ctx.cardState(b);
       el.box.classList.toggle("done", cs === "done");
       el.box.classList.toggle("parked", cs === "parked");
+      if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0 &&
+          el.meta.dataset.flagnote !== "1") el.meta.textContent = "";
     }
     if (ctx.selectedId && !state.boxes.some(b => b.id === ctx.selectedId)) ctx.selectedId = null;
     page.list = ctx.viewPool(state).map(b => b.id);
@@ -406,7 +407,7 @@ export function makePhone(ctx, board, clock){
   page.classes = id => (ctx.els[id] ? ctx.els[id].box.className.split(" ").filter(Boolean) : null);
   page.parked = id => !!ctx.els[id] && ctx.els[id].box.classList.contains("parked");
   page.waiting = id => !!ctx.els[id] && ctx.els[id].box.classList.contains("flagwait");
-  page.note = id => (ctx.els[id]?.metaNote ? ctx.els[id].metaNote.textContent : "");
+  page.note = id => (ctx.els[id] ? ctx.els[id].meta.textContent : "");
   page.setView = v => { ctx.setTicketViewOf("facilitator", v); page.view = v; if (ctx.lastState) apply(ctx.lastState); };
   page.select = id => { ctx.selectedId = id; };
   page.selected = () => ctx.selectedId;

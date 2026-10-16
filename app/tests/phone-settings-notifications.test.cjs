@@ -267,54 +267,73 @@ test('replacement removes only this phone known old endpoint after the board acc
   assert.equal(storage.get(ENDPOINT), p.subscription().endpoint);
 });
 
-test('the Notifications section is its title and the switch, with no line and no button', () => {
+test('the Notifications section is its title, its one line and the switch, with no button', () => {
   const from = source.indexOf('<div data-section="notifications"');
   const section = source.slice(from, source.indexOf('<div data-section="improvements"', from));
   assert.ok(from > 0 && section.length > 0);
   assert.match(section, /<span>Notifications<\/span>/);
-  assert.match(section, /<input type="checkbox" role="switch" id="notify">/);
-  assert.doesNotMatch(section, /<button|<small|<p[ >]|sethelp|role="status"|aria-describedby/);
+  assert.match(section, /<input type="checkbox" role="switch" id="notify" aria-describedby="notifynote">/);
+  assert.match(section, /<small id="notifynote" class="sethelp" role="status" aria-live="polite"><\/small>/);
+  assert.doesNotMatch(section, /<button|<p[ >]/);
 });
 
-test('no word of a failure is written anywhere: the page touches only the switch', async () => {
-  for (const options of [{ gestureOnly: true }, { lookupFails: true }, { permission: 'denied' }, { removeFails: true, choice: 'off', existing: true }]) {
+const PERMISSION_OFF = "Notifications are wanted, but permission is off in the phone's settings.";
+const NO_PUSH = 'Add this page to the home screen first, then ask again from there';
+const NO_WORKER = 'Notifications need the page served over https';
+
+test('a failure writes no line except the three that tell the person something to act on', async () => {
+  for (const options of [{ gestureOnly: true }, { lookupFails: true }, { permission: 'denied' },
+                         { removeFails: true, choice: 'off', existing: true }]) {
     const p = page(options);
     await settle();
     await p.tap('notify', true);
+    assert.equal(p.element('notifynote').textContent, options.permission ? PERMISSION_OFF : '', JSON.stringify(options));
     await p.tap('notify', false);
-    assert.deepEqual(p.ids(), ['notify'], JSON.stringify(options));
+    assert.deepEqual(p.ids().sort(), ['notify', 'notifynote'], JSON.stringify(options));
   }
 });
 
-test('a phone without push support keeps the switch off and does nothing harmful', async () => {
+test('permission off in the phone shows its line with no button, and turning on clears it', async () => {
+  const p = page({ permission: 'denied' });
+  await settle();
+  assert.equal(p.element('notifynote').textContent, PERMISSION_OFF);
+  assert.equal(p.element('notify').checked, false);
+  assert.equal(p.ids().includes('notifyrestore'), false);
+  p.context.Notification.permission = 'granted';
+  await p.tap('notify', true);
+  assert.equal(p.element('notify').checked, true);
+  assert.equal(p.element('notifynote').textContent, '');
+});
+
+test('a phone without push support keeps the switch off, says why and does nothing harmful', async () => {
   const p = page({ noPush: true });
   await settle();
   await p.tap('notify', true);
   assert.equal(p.element('notify').checked, false);
   assert.equal(p.element('notify').disabled, false);
+  assert.equal(p.element('notifynote').textContent, NO_PUSH);
   assert.equal(subscribes(p).length, 0);
   assert.equal(posted(p).length, 0);
-  assert.deepEqual(p.ids(), ['notify']);
 });
 
-test('a page with no service worker keeps the switch off and does nothing harmful', async () => {
+test('a page with no service worker keeps the switch off, says why and does nothing harmful', async () => {
   const p = page({ noWorker: true });
   await settle();
   await p.tap('notify', true);
   assert.equal(p.element('notify').checked, false);
   assert.equal(p.element('notify').disabled, false);
+  assert.equal(p.element('notifynote').textContent, NO_WORKER);
   assert.equal(subscribes(p).length, 0);
   assert.equal(posted(p).length, 0);
-  assert.deepEqual(p.ids(), ['notify']);
 });
 
-test('a failed sign-out says nothing and gives the button back', async () => {
+test('a failed sign-out says so under the mark and gives the button back', async () => {
   const p = page({ logoutFails: true });
   await settle();
   await p.run('signOut()');
   assert.equal(p.element('signout').disabled, false);
   assert.deepEqual(p.navigated, []);
-  assert.deepEqual(p.ids().sort(), ['notify', 'signout']);
+  assert.equal(p.element('signoutnote').textContent, 'Could not sign out. Check your connection and try again.');
 });
 
 
@@ -381,7 +400,7 @@ test('a subscription refused just after the prompt is granted is asked again, an
   assert.equal(subscribes(p).length, 3);
   assert.equal(posted(p).length, 1);
   assert.equal(p.element('notify').checked, true);
-  assert.deepEqual(p.ids(), ['notify']);
+  assert.equal(p.element('notifynote').textContent, '');
 });
 
 test('a grant the phone takes in at once turns the switch on with one subscription', async () => {
@@ -402,7 +421,7 @@ test('a refusal that outlasts the asking, or any other failure, shows the real s
     assert.equal(posted(p).length, 0, name);
     assert.equal(p.element('notify').checked, false, name);
     assert.equal(p.element('notify').disabled, false, name);
-    assert.deepEqual(p.ids(), ['notify'], name);
+    assert.equal(p.element('notifynote').textContent, '', name);
   }
 });
 

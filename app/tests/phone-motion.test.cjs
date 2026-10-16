@@ -1252,9 +1252,9 @@ test("the settings come in from the right, holding the header, the list of secti
     await shot(page, "settings-open");
 
     // turning the switch on does what the button in the card list did: it asks,
-    // and the switch shows what it was told, with no line beside it. the
-    // headless browser has no push service, so what is proved here is the ask
-    // and the switch going back off
+    // and says what it was told. the headless browser has no push service, so
+    // what is proved here is the ask, the answer being shown and the switch
+    // going back off
     const asked = await page.evaluate(async () => {
       const said = [];
       const real = Notification.requestPermission;
@@ -1262,11 +1262,11 @@ test("the settings come in from the right, holding the header, the list of secti
       document.getElementById("notify").click();
       await new Promise(r => setTimeout(r, 200));
       Notification.requestPermission = real;
-      return { said, lines: ["notifynote", "notifyrestore", "notifyoff"].filter(id => document.getElementById(id)),
+      return { said, note: document.getElementById("notifynote").textContent,
                on: document.getElementById("notify").checked };
     });
     assert.deepEqual(asked.said, ["asked"], "the control did not ask for notifications");
-    assert.deepEqual(asked.lines, [], "a line or a button was drawn beside the switch");
+    assert.match(asked.note, /permission is off in the phone's settings/, "the control did not show what it was told");
     assert.equal(asked.on, false, "the switch stayed on after a refusal");
     await shot(page, "settings-refused");
 

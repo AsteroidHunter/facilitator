@@ -154,7 +154,7 @@ test("a snooze the board had and something newer undid follows the board, not th
   assert.equal(heldTaps(ctx).length, 0);
 });
 
-test("a refused request goes back to the board's word with no note, and the same chip retries", async () => {
+test("a refused request goes back to the board's word, says so, and the same chip retries", async () => {
   const { clock, board, page } = await openPage();
   board.delays["/park"] = 300;
   board.refuse = { path: "/park", status: 503, times: 1 };
@@ -166,15 +166,18 @@ test("a refused request goes back to the board's word with no note, and the same
   assert.equal(page.parked("1"), false, "a definite refusal is not a snooze");
   assert.equal(page.waiting("1"), false);
   assert.deepEqual(page.list, ["2", "1"]);
-  assert.equal(page.note("1"), "", "the phone's card has no note line, so a refusal says nothing");
-  assert.equal(page.card("1").meta, undefined);
+  assert.match(page.note("1"), /snooze failed \(503\)/);
+  assert.match(page.note("1"), /try again/);
+  assert.equal(page.card("1").meta.dataset.flagnote, "1",
+    "the phone has one note node, and the guard its own pass reads sits on it");
 
   board.send("2", "an unrelated message");   // the next reading is a full one and redraws every card
   await page.pollNow();
-  assert.equal(page.note("1"), "");
-  assert.equal(page.parked("1"), false, "and a reading that knows nothing of the tap leaves the card where the board has it");
+  assert.match(page.note("1"), /snooze failed \(503\)/, "a reading that knows nothing of it may not wipe it");
 
   page.tap("1");
+  assert.equal(page.note("1"), "", "the retry answers the note");
+  assert.equal(page.card("1").meta.dataset.flagnote, undefined, "and takes its guard off the same node");
   assert.ok(page.parked("1"));
   await clock.advance(305);
   assert.equal(board.box("1").parked, true, "and the same chip carried the same intent through");
@@ -219,7 +222,8 @@ test("an unconfirmed tap is held while readings are asked, then ends at its wind
 
   await clock.advance(2500);   // past 20s from the tap
   assert.equal(page.parked("1"), false, "the card goes back to the board's word rather than lying on");
-  assert.equal(page.note("1"), "", "and says nothing");
+  assert.match(page.note("1"), /snooze not confirmed/);
+  assert.match(page.note("1"), /try again/);
   assert.deepEqual(page.list, ["2", "1"]);
 });
 
@@ -363,7 +367,7 @@ test("an empty answer on an unchanged board ends as not confirmed, never as a sn
 
   await clock.advance(10500);   // past the window, counted from the tap
   assert.equal(page.parked("1"), false, "the board never had it, and the card ends up saying so");
-  assert.equal(page.note("1"), "");
+  assert.match(page.note("1"), /snooze not confirmed/);
   assert.deepEqual(page.list, ["2", "1"]);
 });
 
@@ -375,7 +379,8 @@ test("an explicit no with no reason is a refusal, and the chip asks again at onc
   await clock.advance(5);
   assert.equal(page.parked("1"), false, "the board said plainly that it did not do it");
   assert.equal(page.waiting("1"), false);
-  assert.equal(page.note("1"), "");
+  assert.match(page.note("1"), /snooze refused by the board/);
+  assert.match(page.note("1"), /try again/);
 
   page.tap("1");
   assert.ok(page.parked("1"), "and the next tap is there immediately");
@@ -483,7 +488,7 @@ test("snoozing the selected Doing card advances while Deferred browsing stays pu
   assert.equal(page.selected(), "1");
 });
 
-test("a message that reaches the board first keeps the card open", async () => {
+test("a message that reaches the board first keeps the card open, and says why", async () => {
   const { clock, board, page } = await openPage();
   board.delays["/park"] = 2500;
 
@@ -495,11 +500,11 @@ test("a message that reaches the board first keeps the card open", async () => {
   assert.equal(board.box("1").parked, false, "a card just written to is not buried under a snooze");
   assert.equal(board.box("1").pending.length, 1, "and the message is still there");
   assert.equal(page.parked("1"), false);
-  assert.equal(page.note("1"), "", "and the card says nothing about it");
+  assert.match(page.note("1"), /snooze skipped: a new message arrived/);
 
   await page.pollNow();
   assert.ok(page.list.includes("1"));
-  assert.equal(page.note("1"), "");
+  assert.match(page.note("1"), /a new message arrived/, "the reason survives the readings after it");
 });
 
 test("a message already on the card is no reason to refuse a snooze", async () => {
