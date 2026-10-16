@@ -259,7 +259,7 @@ test("the last page lists Both as the main agent under what you told us", () => 
   assert.match(context.pageRaw(card, 3), /3\. Both/);
 });
 
-// the page's own finish() (the done chord and the cross of 101: Hotkeys both call it), run in a vm with
+// the page's own finish() (the done chord and the cross of FIN both call it), run in a vm with
 // the page around it stubbed: the card moves and the save are recorded. No browser.
 async function finishWith(answers) {
   const calls = [];
@@ -278,7 +278,7 @@ async function finishWith(answers) {
   vm.runInContext([
     QUESTION_SOURCE(),
     "let finished = false, saving = false;",
-    grab("  async function finish(){", "  // ---- moving between cards"),
+    grab("  async function finish(){", "  // ---- the arrow to the bug button"),
   ].join("\n"), context);
   await vm.runInContext("finish()", context);
   return { calls, onboard, finished: vm.runInContext("finished", context),
@@ -316,10 +316,10 @@ test("marking the last card done with an answer missing goes back to the first q
   assert.equal(both.onboard.asking, null);
 });
 
-test("the onboarding is Welcome, one onboarding card of four needed questions, and three 101 cards", () => {
+test("the onboarding is Welcome, one onboarding card of four needed questions, three 101 cards, a Bonus card and FIN", () => {
   const titles = [...grab("  const CARDS = [", "  // the timings.").matchAll(/title: "([^"]+)"/g)].map(m => m[1]);
   assert.deepEqual(titles, ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Atomizing asks",
-                            "101: Tickets", "101: Hotkeys"]);
+                            "101: Tickets", "101: Hotkeys", "Bonus: Facilitator on the phone!", "FIN"]);
   assert.doesNotMatch(ONBOARDING, /Orchestrator Agent|id: "orchestrator"/);
   // the questions are the onboarding card's replies, each tied to the field it fills, and each asks again when empty
   for (const [field, ask] of [["name", "What should we call you?"], ["email", "What's your email?"],
@@ -407,6 +407,78 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.ok(ONBOARDING.includes('list.add("obticketsprep");\n      requestAnimationFrame(() => requestAnimationFrame(() => {'));
 });
 
+test("the Bonus card holds a placeholder line, and FIN, the last card, ends the run in the words it was given", () => {
+  const context = vm.createContext({});
+  vm.runInContext(grab("  const key = name =>", "  // the timings.") +
+    "\nObject.assign(this, { CARDS, FINISH, BONUS_PHONE, NEXT });", context);
+  const { CARDS, FINISH, BONUS_PHONE, NEXT } = context;
+  const ids = CARDS.map(c => c.id);
+  assert.deepEqual(out(ids.slice(-3)), ["hotkeys", "phone", "fin"], "the Bonus card and FIN do not follow 101: Hotkeys");
+  // the Bonus card: its words are one short line that is easy to find, and it goes on like the other 101 cards
+  const phone = CARDS.find(c => c.id === "phone");
+  assert.equal(phone.title, "Bonus: Facilitator on the phone!");
+  assert.equal(phone.say, BONUS_PHONE);
+  assert.ok(BONUS_PHONE.length < 80 && !BONUS_PHONE.includes("\n"), "the placeholder is not one short line");
+  assert.ok(ONBOARDING.includes("// PLACEHOLDER: the words of the Bonus card"), "the placeholder is not marked");
+  assert.ok(!phone.closing && !phone.next, "the Bonus card does not go on with the usual key");
+  assert.equal(NEXT, "Press **Control\u00a0+\u00a0Shift\u00a0+\u00a0→** to continue!");
+  // FIN, in his paragraphs, with the done key written the way the cards write a key
+  const fin = CARDS.find(c => c.id === "fin");
+  assert.equal(fin.title, "FIN");
+  assert.equal(fin.say,
+    "Thank you for trying out the facilitator!\n\n" +
+    "If you encounter bugs or have feedback, please use the bug button on the top-right corner.\n\n" +
+    "Your ideas could be instrumental in shaping this product!");
+  assert.equal(FINISH, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0Backspace** to mark this card done and open your board.");
+  assert.doesNotMatch(fin.say, /\{meta|arrow/i, "the meta note is on the card");
+  // only FIN ends the run: the done key, the cross and the jump to the card waiting longest all go to it
+  assert.deepEqual(out(CARDS.filter(c => c.closing).map(c => c.id)), ["fin"]);
+  assert.ok(ONBOARDING.includes('render(el, [spec.say, spec.closing ? FINISH : spec.next || NEXT].join("\\n\\n"));'));
+  assert.ok(ONBOARDING.includes('if (spec.closing) el.x.addEventListener("click", finish);'));
+  assert.ok(ONBOARDING.includes("cards.find(c => c.spec.closing)"));
+  // the Hotkeys card does not call itself the last card or the way to finish
+  assert.doesNotMatch(CARDS.find(c => c.id === "hotkeys").say, /last card|finish|open your board/i);
+});
+
+// the arrow on FIN, toward the bug button
+test("an arrow in the board's ink points from FIN at the top-right corner, comes in gently and goes with the card", () => {
+  const sheet = ONBOARDING.slice(ONBOARDING.indexOf("#obarrow{"), ONBOARDING.indexOf("</style>", ONBOARDING.indexOf("#obarrow{")));
+  assert.match(sheet, /color:var\(--ink\)/, "not the board's ink");
+  assert.match(sheet, /#obarrow path\{[^}]*stroke:currentColor/);
+  assert.doesNotMatch(sheet, /animation|infinite|blink|@keyframes/, "the arrow moves on its own");
+  assert.match(sheet, /body\.obfin:not\(\.obdone\) #obarrow\{visibility:visible; opacity:1; transition:opacity 1\.1s ease \.6s/);
+  assert.doesNotMatch(sheet, /--accent|purple|#7c3aed|#8b5cf6/i);
+  assert.ok(ONBOARDING.includes('document.body.classList.toggle("obfin", card.spec.id === ARROW_ON);'));
+  assert.ok(ONBOARDING.includes('const ARROW_ON = "fin";'));
+  // the page draws no bug button of its own
+  assert.doesNotMatch(ONBOARDING.replace(/<svg id="obarrow"[\s\S]*?<\/svg>/, ""), /id="feedbackbtn"|id="bugbtn"|lucide-bug/);
+  // placeArrow, run on small stand ins: the arrow ends just under the board's bug button, its head at the tip
+  const run = parentBug => {
+    const attrs = {};
+    const el = id => ({ setAttribute: (k, v) => { attrs[id] = v; } });
+    const context = vm.createContext({
+      innerWidth: 1512, window: {}, parent: parentBug === null ? undefined : { document: { getElementById: () => parentBug } },
+      document: {
+        getElementById: id => el(id),
+        querySelector: () => ({ getBoundingClientRect: () => ({ right: 800, top: 100 }) }),
+      },
+    });
+    context.parent = parentBug === null ? context.window : context.parent;
+    vm.runInContext(grab("  const ARROW_ON = ", "  addEventListener(\"resize\", placeArrow);") + "\nplaceArrow();", context);
+    return attrs;
+  };
+  const read = d => d.match(/-?\d+(\.\d+)?/g).map(Number);
+  // the board's button read from the board: centre (1447, 23)
+  const board = run({ getBoundingClientRect: () => ({ left: 1431, top: 7, width: 32, height: 32 }) });
+  const line = read(board.obarrowline);
+  assert.deepEqual(line.slice(0, 2), [816, 164], "does not start by the card");
+  assert.deepEqual(line.slice(-2), [1447, 49], "does not end under the button");
+  assert.deepEqual(read(board.obarrowhead).slice(2, 4), [1447, 49], "the head is not at the tip");
+  // read from nowhere (this page opened alone): the corner where the button stands
+  const alone = run(null);
+  assert.deepEqual(read(alone.obarrowline).slice(-2), [1447, 49]);
+});
+
 // the onboarding card's pages as the page writes them, run in a vm
 test("the way to change an answer is said once, on the last page, under the answers", () => {
   const context = vm.createContext({ HINT: "reply" });
@@ -434,7 +506,8 @@ function moves({ at = 1, answers = {}, pending = [] } = {}) {
   const calls = [];
   const note = name => (...args) => { calls.push([name, ...args]); };
   const onboard = { spec: { id: "onboard" }, asking: null, askingAt: null, el: { onboard: true }, pending, pages: [{}, {}] };
-  const cards = [{ spec: { id: "welcome" } }, onboard, { spec: { id: "cards" } }, { spec: { id: "tickets" } }, { spec: { id: "hotkeys" } }];
+  const cards = [{ spec: { id: "welcome" } }, onboard, { spec: { id: "cards" } }, { spec: { id: "tickets" } }, { spec: { id: "hotkeys" } },
+                 { spec: { id: "phone" } }, { spec: { id: "fin" } }];
   const context = vm.createContext({
     calls, onboard, cards, profile: { name: null, email: null, work: null, agent: null, ...answers },
     show: note("show"), leaveHistory: note("leaveHistory"), printReply: note("printReply"),
@@ -478,7 +551,8 @@ test("the cards after the onboarding card open only once every question is answe
   done.go(1);
   done.go(-1);
   done.select("hotkeys");
-  assert.deepEqual(out(done.calls), [["show", 2], ["show", 0], ["show", 4]]);
+  done.select("fin");
+  assert.deepEqual(out(done.calls), [["show", 2], ["show", 0], ["show", 4], ["show", 6]]);
   // backwards is never held
   const back = moves({});
   back.go(-1);

@@ -9,7 +9,8 @@
 <meta name="facilitator-version" content="">
 <!-- Facilitator's first run, as a run of real cards: Welcome, one onboarding
      card whose questions (the name, the email, the work, the main agent) come
-     one after another as its replies, and three short 101 cards. Each reply is
+     one after another as its replies, three short 101 cards, a Bonus card about
+     the phone and a last card, FIN. Each reply is
      a page of the onboarding card's history and knows the field it asks for,
      so a step back with Control + Shift + up and a send there changes that
      answer. A faint keyboard behind the card's foot comes in with the first
@@ -700,12 +701,24 @@
   body.focus.obticketsprep #tickets{visibility:visible; opacity:0; pointer-events:none; transition:none; will-change:opacity}
   body.focus.obtickets:not(.obdone) #tickets{transition:opacity .9s ease, visibility 0s}
   body.focus:not(.obtickets):not(.obticketsprep) #tickets, body.obdone #tickets{visibility:hidden; opacity:0; pointer-events:none}
+
+  /* the arrow on FIN (obfin, set by show below), from the card toward the
+     top-right corner, where the board's bug button stands once the board opens.
+     it is drawn in the board's ink, in the stroke the board's line marks use,
+     and comes in slowly after the card shows, with no blinking. it goes with
+     the card's done (obdone) on the same quick fade the card does, and when
+     another card is shown */
+  #obarrow{position:fixed; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none;
+    color:var(--ink); opacity:0; visibility:hidden; transition:opacity .18s ease, visibility 0s .18s}
+  #obarrow path{fill:none; stroke:currentColor; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round}
+  body.obfin:not(.obdone) #obarrow{visibility:visible; opacity:1; transition:opacity 1.1s ease .6s, visibility 0s}
 </style>
 </head>
 <body class="focus">
 <div id="obstage"><main><div id="sections"></div></main></div>
 <!-- the ticket list, as index.html has it -->
 <div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
+<svg id="obarrow" aria-hidden="true"><path id="obarrowline" d=""></path><path id="obarrowhead" d=""></path></svg>
 <script>
 // ---- what card-logic.js reads off the page it runs in -----------------------
 // the board's names for its state, its selected card and its cards, as
@@ -909,7 +922,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const NEXT = "Press " + key("Control + Shift + →") + " to continue!";
   // the first 101 card's key to go on, with the chord in the words it was given
   const NEXT_ATOMIZING = "Press " + key("control + shift + →") + " to continue!";
-  const FINISH = "Press " + key("Control + Shift + Backspace") + " to mark this card done and open your board.";
+  // the FIN card's key to end the run, with the chord in the words it was given
+  const FINISH = "Press " + key("control + shift + Backspace") + " to mark this card done and open your board.";
+  // PLACEHOLDER: the words of the Bonus card, "Bonus: Facilitator on the phone!".
+  // replace this one line with the card's real words when they are ready
+  const BONUS_PHONE = "The words for this card are coming soon.";
   // the main agent's choices. what anyone types that is not one of them is kept
   // as typed. the work question has none: its answer is the person's own words
   const AGENTS = ["Claude Code", "Codex", "Both"];
@@ -937,8 +954,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // card's top bar, Doing's sun, Docked's cloud, Deferred's moon and Done's
   // cross, and the heart
   const MARK = { sun: "\uE001", dock: "\uE002", moon: "\uE003", cross: "\uE004", heart: "\uE005" };
-  // the cards: the Welcome, the one onboarding card, and the three 101 cards.
-  // the last one's done ends the run. lights are the chords the keyboard
+  // the cards: the Welcome, the one onboarding card, the three 101 cards, the
+  // Bonus card about the phone and FIN. FIN's done ends the run. lights are the chords the keyboard
   // lights on a card, one after another, as the left Control, the left Shift,
   // the left Command and the keys named
   const CARDS = [
@@ -963,7 +980,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
            "- " + MARK.moon + " Deferred: Tasks for some later coding sprint\n" +
            "- " + MARK.cross + " Done: Tasks that are complete\n\n" +
            "Bonus: after you iterate on a project for a while, tickets/cards act as a knowledge base for your projects." },
-    { id: "hotkeys", title: "101: Hotkeys", closing: true,
+    { id: "hotkeys", title: "101: Hotkeys",
       say: "The Facilitator " + MARK.heart + " hotkeys!\n\n" +
            key("Command + T") + " creates a new card.\n\n" +
            key("Control + Shift + ←") + " and " + key("→") + " move between cards, and " +
@@ -972,6 +989,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
            key("Control + Shift + Backspace") + " marks a card done.",
       lights: [["cmd", "t"], ["ctrl", "shift", "left", "right"], ["ctrl", "shift", "up", "down"],
                ["ctrl", "shift", "return"], ["ctrl", "shift", "delete"]] },
+    { id: "phone", title: "Bonus: Facilitator on the phone!", say: BONUS_PHONE },
+    { id: "fin", title: "FIN", closing: true,
+      say: "Thank you for trying out the facilitator!\n\n" +
+           "If you encounter bugs or have feedback, please use the bug button on the top-right corner.\n\n" +
+           "Your ideas could be instrumental in shaping this product!" },
   ];
 
   // the timings. the keyboard fades in over the first answer's whole way in,
@@ -1313,7 +1335,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     el.ta.tabIndex = -1;
     if (spec.say){
       render(el, [spec.say, spec.closing ? FINISH : spec.next || NEXT].join("\n\n"));
-      // the cross on the last card marks it done, as Control + Shift + Backspace does
+      // the cross on the last card (FIN) marks it done, as Control + Shift + Backspace does
       if (spec.closing) el.x.addEventListener("click", finish);
       return card;
     }
@@ -1675,6 +1697,36 @@ for (const pane of document.querySelectorAll(".tikpane")){
     else setTimeout(() => location.replace("/"), 180);
   }
 
+  // ---- the arrow to the bug button ---------------------------------------------------
+  // this page draws no bug button, and the one the board has under it is covered
+  // by this page's white paper. the arrow points at where that button stands
+  // once the board opens: the board's own button where the page can read it
+  // (the board lays this page over itself in a frame of the same origin), and
+  // otherwise the place measured on the board, from the window's right and top
+  const ARROW_ON = "fin";
+  const BUG_AT = { right: 65, top: 23 };
+  const arrowLine = document.getElementById("obarrowline");
+  const arrowHead = document.getElementById("obarrowhead");
+  function placeArrow(){
+    let bug = null;
+    try { bug = parent !== window ? parent.document.getElementById("feedbackbtn") : null; } catch (e) {}
+    const r = bug && bug.getBoundingClientRect();
+    const tx = r && r.width ? r.left + r.width / 2 : innerWidth - BUG_AT.right;
+    const ty = r && r.height ? r.top + r.height / 2 : BUG_AT.top;
+    // from the card's right edge, near its top, out along the paper and up
+    // under the button, arriving from below
+    const card = document.querySelector("main").getBoundingClientRect();
+    const sx = card.right + 16, sy = card.top + 64;
+    const ex = tx, ey = ty + 26;
+    const cx = ex, cy = sy;
+    arrowLine.setAttribute("d", "M" + sx + " " + sy + " Q" + cx + " " + cy + " " + ex + " " + ey);
+    // the head: two strokes back from the tip, 28 degrees either side of the line
+    const back = Math.atan2(cy - ey, cx - ex), spread = 28 * Math.PI / 180, len = 11;
+    const wing = turn => (ex + len * Math.cos(back + turn)).toFixed(1) + " " + (ey + len * Math.sin(back + turn)).toFixed(1);
+    arrowHead.setAttribute("d", "M" + wing(-spread) + " L" + ex + " " + ey + " L" + wing(spread));
+  }
+  addEventListener("resize", placeArrow);
+
   // ---- moving between cards -----------------------------------------------------
   function show(i){
     const card = cards[i], el = card.el;
@@ -1683,6 +1735,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
     at = i;
     selectedId = card.spec.id;
     for (const c of cards) c.el.box.classList.toggle("sel", c === card);
+    document.body.classList.toggle("obfin", card.spec.id === ARROW_ON);
+    if (card.spec.id === ARROW_ON) placeArrow();
     // from the onboarding card on, the card stands at its place on the board;
     // the ticket list fades in beside it once 101: Tickets is first shown, and
     // stays: drawn at no strength for two frames, then faded in (obticketsprep
