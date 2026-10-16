@@ -35,6 +35,14 @@ async function wait(fn, timeout = 6000) {
   while (Date.now() < end) { const result = await fn(); if (result) return result; await delay(25); }
   throw new Error("fixture condition timed out");
 }
+// a save is out while the button is pressed (disabled). When it comes back the page
+// holds whether the history was kept for a retry (diagnosticRetry); the page
+// writes no line about it
+async function saveFinished(page, saved = true) {
+  await page.waitForFunction(() => !document.getElementById("savediagnostic").disabled, { polling: 25 });
+  assert.equal(await page.evaluate(() => diagnosticRetry), !saved, saved ? "the save was not kept on the Mac" : "the save was not held for a retry");
+  assert.equal(await page.evaluate(() => document.getElementById("savediagnostic").textContent), "Save diagnostic history");
+}
 async function fixture(t, options = {}) {
   // the copy's code in app/ of a sandbox of its own, its files in data/ beside it
   const dir = require("./fixture-auth.cjs").appFolder("facilitator-incident-browser-");
@@ -42,7 +50,6 @@ async function fixture(t, options = {}) {
   const errors = [], requests = [];
   t.after(async () => {
     const state = page && !page.isClosed() ? await page.evaluate(() => ({
-      status: document.getElementById("diagnosticstatus")?.textContent,
       toast: document.getElementById("diagnostictoast")?.textContent,
       hidden: document.hidden, focus: document.hasFocus(), selected: selectedId,
       windowErrors: window.fixtureWindowErrors,
@@ -174,7 +181,7 @@ test("Settings saves a real bounded client log with rendered feedback and existi
   await page.evaluate(() => { clearTimeout(autoNext); clearTimeout(pollTimer); showMenu(settings); });
   await delay(700);
   await page.evaluate(() => document.getElementById("savediagnostic").click());
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent === "Diagnostic history saved on the Mac.", { polling: 25 });
+  await saveFinished(page);
   const reports = await f.readLog();
   const saved = reports.find(r => r.kind === "incident" && r.reason === "manual");
   assert.ok(saved, JSON.stringify(reports));
@@ -202,8 +209,7 @@ test("new phone page saves a compatible incident to the actual pre-v3 receiver",
     phoneHistory.capability(2);
     document.getElementById("savediagnostic").click();
   });
-  await f.page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
-    "Diagnostic history saved on the Mac.", { polling: 25 });
+  await saveFinished(f.page);
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.equal(saved.v, 2);
   assert.ok(saved.events.length <= 40);
@@ -249,8 +255,7 @@ test("formatted Enter records capture, editor decision, send result, Shift and c
   await page.keyboard.press("Enter");
   assert.match(await page.evaluate(() => els.m1.ta.value), /\n$/);
   await page.evaluate(() => document.getElementById("savediagnostic").click());
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
-    "Diagnostic history saved on the Mac.", { polling:25 });
+  await saveFinished(page);
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.equal(saved.v, 5);
   const entered = saved.events.filter(e => e.event === "enter");
@@ -290,8 +295,7 @@ test("plain software Return records line insertion, then hardware Enter sends", 
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => !els.m1.ta.value, { polling:25 });
   await page.evaluate(() => document.getElementById("savediagnostic").click());
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
-    "Diagnostic history saved on the Mac.", { polling:25 });
+  await saveFinished(page);
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.equal(saved.v, 5);
   const entered = saved.events.filter(e => e.event === "enter");
@@ -312,16 +316,14 @@ test("actual schema-3 receiver saves ordinary history and explains omitted Enter
   await page.keyboard.type("Private old receiver draft");
   await shiftEnter(page);
   await page.evaluate(() => document.getElementById("savediagnostic").click());
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith(
-    "History saved, but Enter or scroll details need the updated server."), { polling:25 });
+  await saveFinished(page);
   const first = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.equal(first.v, 3);
   assert.equal(first.events.some(e => e.event === "enter"), false);
   assert.doesNotMatch(JSON.stringify(first), /Private old receiver/);
   assert.equal(f.requests.filter(b => b.reports[0].reason === "manual").length, 1);
   await page.evaluate(() => { phoneHistory.capability(4); document.getElementById("savediagnostic").click(); });
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith(
-    "History saved, but Enter or scroll details need the updated server."), { polling:25 });
+  await saveFinished(page);
   const attempts = f.requests.filter(b => b.reports[0].reason === "manual");
   assert.equal(attempts.length, 3, "stale capability did not retry the strict v3 receiver");
   assert.deepEqual(attempts.slice(-2).map(b => b.reports[0].v), [4,3]);
@@ -333,8 +335,7 @@ test("stale schema-4 fallback counts each POST and retains an exhausted save", a
   const f = await fixture(t, { schema: 3 }), { page } = f;
   for (let n = 0; n < 3; n++) {
     await page.evaluate(() => document.getElementById("savediagnostic").click());
-    await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
-      "Diagnostic history saved on the Mac.", { polling:25 });
+    await saveFinished(page);
   }
   await page.evaluate(() => {
     phoneHistory.capability(4);
@@ -344,14 +345,13 @@ test("stale schema-4 fallback counts each POST and retains an exhausted save", a
       composing:false, prevented:false });
     document.getElementById("savediagnostic").click();
   });
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith(
-    "Too many saves this minute."), { polling:25 });
+  await saveFinished(page, false);
   const attempts = f.requests.filter(b => b.reports[0].reason === "manual");
   assert.equal(attempts.length, 4, "compatibility sent an unbudgeted fifth POST");
   assert.deepEqual(attempts.map(b => b.reports[0].v), [3,3,3,4]);
   assert.equal((await f.readLog()).filter(r => r.kind === "incident" && r.reason === "manual").length, 3);
   assert.equal(await page.evaluate(() => document.getElementById("savediagnostic").textContent),
-    "Retry diagnostic save");
+    "Save diagnostic history", "the button keeps its name after a held save");
   await page.evaluate(() => document.getElementById("savediagnostic").click());
   await page.waitForFunction(() => !document.getElementById("savediagnostic").disabled, { polling:25 });
   assert.equal(f.requests.filter(b => b.reports[0].reason === "manual").length, 4,
@@ -370,8 +370,7 @@ test("Enter pressure keeps recent bounded evidence and never accepts draft text"
     });
     document.getElementById("savediagnostic").click();
   });
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent ===
-    "Diagnostic history saved on the Mac.", { polling:25 });
+  await saveFinished(page);
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.equal(saved.v, 5);
   assert.ok(saved.events.some(e => e.event === "enter" && e.step === "capture"));
@@ -413,7 +412,7 @@ test("response scrolling and drawer gestures retain frame evidence during a dela
   await page.evaluate(() => { const until = performance.now() + 650; while (performance.now() < until) {} });
   await delay(2300);
   await page.evaluate(() => document.getElementById("savediagnostic").click());
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent === "Diagnostic history saved on the Mac.", { polling: 25 });
+  await saveFinished(page);
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.ok(saved);
   assert.equal(saved.v, 5);
@@ -491,13 +490,13 @@ test("offline, rejected and failed saves preserve the noticed moment for an hone
   await page.evaluate(() => { Object.defineProperty(navigator, "onLine", { configurable: true, value: false }); showMenu(settings); });
   await delay(700);
   await page.evaluate(() => document.getElementById("savediagnostic").click());
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith("Offline."), { polling: 25 });
+  await saveFinished(page, false);
   assert.equal(f.requests.filter(b => b.reports[0].reason === "manual").length, 0);
   await page.screenshot({ path: path.join(EVIDENCE, "settings-offline.png") });
   await page.evaluate(() => Object.defineProperty(navigator, "onLine", { configurable: true, value: true }));
   f.telemetry("dropped");
   await page.evaluate(() => document.getElementById("savediagnostic").click());
-  await page.waitForFunction(() => document.getElementById("diagnosticstatus").textContent.startsWith("Could not confirm"), { polling: 25 });
+  await saveFinished(page, false);
   const marked = f.requests.find(b => b.reports[0].reason === "manual").reports[0].marked;
   f.telemetry("fail");
   await page.evaluate(() => dispatchEvent(new KeyboardEvent("keydown", {
@@ -511,7 +510,8 @@ test("offline, rejected and failed saves preserve the noticed moment for an hone
   await page.evaluate(() => dispatchEvent(new KeyboardEvent("keydown", {
     key: "M", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
   })));
-  await page.waitForFunction(() => document.getElementById("diagnostictoast").textContent === "Diagnostic history saved on the Mac.", { polling: 25 });
+  await wait(async () => (await f.readLog()).some(r => r.kind === "incident" && r.reason === "manual"));
+  await saveFinished(page);
   const saved = (await f.readLog()).find(r => r.kind === "incident" && r.reason === "manual");
   assert.equal(saved.marked, marked);
   assert.equal(saved.events.at(-1).online, false);
@@ -528,7 +528,8 @@ test("the shortcut preserves draft and focus; broken instrumentation cannot stop
   await page.evaluate(() => document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {
     key: "M", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
   })));
-  await page.waitForFunction(() => document.getElementById("diagnostictoast").textContent === "Diagnostic history saved on the Mac.", { polling: 25 });
+  await wait(async () => (await f.readLog()).some(r => r.kind === "incident" && r.reason === "manual"));
+  await saveFinished(page);
   // the row answers to two shapes, the plain field and the editor the
   // typed-formatting setting puts in its place; the caret being in this card's
   // row is the thing asked about, not which element the row is made of

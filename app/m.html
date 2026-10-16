@@ -920,8 +920,6 @@
   /* ---- the foot: the sent panel over the typing row ------------------------ */
   .pendwrap{position:absolute; left:0; right:0; bottom:0;
     display:flex; flex-direction:column; background:var(--card)}
-  .meta{margin:0 calc(var(--pad-x)*2/3); font:calc(11.5 * var(--u)) var(--mono); color:var(--sub); background:var(--card)}
-  .meta:empty{display:none}
   /* the history arrows' chevron */
   .chev{display:block; flex:none}
   /* what has been sent and not answered yet: the panel over the answer
@@ -1368,7 +1366,6 @@
   #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
   /* the new-card plus that stood in a strip over the names is the row's plus
      now, so the names head the list */
-  .tiknote{font:italic calc(12.5 * var(--u)) var(--sans); color:#7A2E1B; padding:calc(8 * var(--u)) calc(12 * var(--u))}
   /* the list: the tickets stand on the paper, with no fill, edge or shade round
      them. it clips a horizontal sheet of four sections and shows one at a
      time, so a tab change travels the sheet across the list while the list and
@@ -1509,8 +1506,7 @@
   /* the foot of the panel, under the list and under any section, is one line:
      the license's name and the turn off mark centred together with a small gap,
      a 16px power mark in the sub ink, each with the room a finger needs around
-     it. what the mark puts up first is the question below. a sign out that
-     fails says so under the line, centred */
+     it. what the mark puts up first is the question below */
   #setfoot{flex:none; display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 12px}
   #setfootline{align-self:stretch; display:flex; align-items:center; justify-content:center; gap:var(--sp-s)}
   #setlicense{padding:8px; font:12px/16px var(--sans); color:var(--sub);
@@ -1519,8 +1515,6 @@
   #signout{display:flex; margin:0; padding:8px; border:none; background:none; color:var(--sub); cursor:pointer}
   #signout:disabled{opacity:.6; cursor:default}
   #signout svg{display:block}
-  #signoutnote{margin:0; font:12px/1.5 var(--sans); color:var(--sub); text-align:center}
-  #signoutnote:empty{display:none}
   /* the question, in the alert a phone asks with: a dim over the whole screen
      and a rounded card in its middle, the question over two pills side by side.
      the colours are the system's own, from Apple's published table: the blue
@@ -1883,13 +1877,8 @@ for (const type of ["gesturestart", "gesturechange"])
       </div>
       <div data-section="notifications" data-label="Notifications">
         <div class="setrow">
-          <label class="setlabel" for="notify"><span>Notifications</span>
-            <small id="notifynote" class="sethelp" role="status" aria-live="polite"></small></label>
-          <input type="checkbox" role="switch" id="notify" aria-describedby="notifynote">
-        </div>
-        <div class="setact">
-          <button id="notifyrestore" class="sp-btn" type="button" hidden>Restore notifications</button>
-          <button id="notifyoff" class="sp-btn" type="button" hidden>Turn notifications off</button>
+          <label class="setlabel" for="notify"><span>Notifications</span></label>
+          <input type="checkbox" role="switch" id="notify">
         </div>
       </div>
       <div data-section="improvements" data-label="Improvements">
@@ -1914,9 +1903,7 @@ for (const type of ["gesturestart", "gesturechange"])
       </div>
       <div data-section="diagnostics" data-label="Diagnostics">
         <div class="setact">
-          <button id="savediagnostic" class="sp-btn" type="button" aria-describedby="diagnostichelp" aria-keyshortcuts="Control+Shift+M">Save diagnostic history</button>
-          <p id="diagnostichelp" class="sethelp">Mark a glitch and save recent timing and screen state to the Mac’s diagnostic log. Messages and titles are excluded. Unsaved history stays only in this open page.<br>Keyboard: Control + Shift + M.</p>
-          <p id="diagnosticstatus" class="sethelp" role="status"></p>
+          <button id="savediagnostic" class="sp-btn" type="button" aria-keyshortcuts="Control+Shift+M">Save diagnostic history</button>
         </div>
       </div>
     </div>
@@ -1926,7 +1913,6 @@ for (const type of ["gesturestart", "gesturechange"])
       <a id="setlicense" href="https://github.com/AsteroidHunter/facilitator/blob/main/LICENSE.md" target="_blank" rel="noopener">Facilitator License</a>
       <button id="signout" type="button" title="Log out" aria-label="Log out" aria-haspopup="dialog"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v10"/><path d="M17.14 5.87A8 8 0 1 1 6.86 5.87"/></svg></button>
     </div>
-    <p id="signoutnote" role="status" aria-live="polite"></p>
   </div>
 </aside>
 <!-- the question the turn off mark puts before signing out -->
@@ -2077,9 +2063,7 @@ signoutAsk.addEventListener("keydown", e => {
 });
 async function signOut(){
   const button = document.getElementById("signout");
-  const note = document.getElementById("signoutnote");
   button.disabled = true;
-  note.textContent = "";
   try {
     await stopNotifications(true);
     const response = await fetch("/auth/logout", { method: "POST", cache: "no-store" });
@@ -2094,7 +2078,6 @@ async function signOut(){
     try { for (const key of await caches.keys()) if (key.startsWith("facilitator-m-")) await caches.delete(key); } catch (_) {}
     location.replace("/m");
   } catch (_) {
-    note.textContent = "Could not sign out. Check your connection and try again.";
     button.disabled = false;
   }
 }
@@ -2354,7 +2337,6 @@ function makeBox(b){
   // title and the answer on the frame the panel arrives
   const answwrap = h("div", "answwrap");
   const pendwrap = h("div", "pendwrap");
-  const meta = h("div", "meta");
   // and the seat of the panel of what has been sent and not answered, over the
   // row, empty and taking no room until something is sent
   const sentwrap = h("div", "sentwrap");
@@ -2391,7 +2373,7 @@ function makeBox(b){
   twin.rows = 1; twin.tabIndex = -1; twin.readOnly = true; twin.setAttribute("aria-hidden", "true");
   compose.append(ta, send, twin);
   bottombar.append(clipfile, clip, compose);
-  pendwrap.append(meta, sentwrap, tray, bottombar);
+  pendwrap.append(sentwrap, tray, bottombar);
   // the column: the scroller holding the answered panel over the answer, and laid
   // over the answer at the card's floor the sent panel and the typing row
   replyview.append(answwrap, reply);
@@ -2546,7 +2528,7 @@ function makeBox(b){
     trayAdd(b.id, files);
   });
 
-  const card = els[b.id] = { box, body, reply, replyview, meta, ta, twin, send, tick, titleEl, sun, dock, arc, x, pendwrap, bottombar,
+  const card = els[b.id] = { box, body, reply, replyview, ta, twin, send, tick, titleEl, sun, dock, arc, x, pendwrap, bottombar,
                 cardSpin, histUp, histDown, histPos, clip, clipfile, field,
                 // the tray's files, in the order they were picked, and a send
                 // pressed while some were still uploading (trayAdd below)
@@ -2668,15 +2650,6 @@ function drawCard(el, b, state){
     paintSectionChips(el, b);
     setCardSpinner(el.cardSpin, cardSpinning(b));
     syncPhoneHistory(b);
-    // a note about a send that failed or was held stays until the card can
-    // take another; any other note is the poll's to clear. a held send clears
-    // as soon as there is room again
-    // a tap on the moon the board refused or never answered leaves its own
-    // note, which says what the card is NOT: no reading may take that away,
-    // only the next tap on the same chip
-    if (el.meta.textContent && el.meta.textContent.indexOf("send ") !== 0 &&
-        el.meta.dataset.flagnote !== "1") el.meta.textContent = "";
-    if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
   } finally { if (timing) tracePhone("jobEnd", timing); }
 }
 // a card taken down, because the board no longer holds it (gone) or because the
@@ -3232,7 +3205,6 @@ function markUnsure(op, why){
   if (op.kind === "create"){
     letGoTitleCatch();
     drawCreatePending();
-    drawerNote("Could not confirm the card was made; it will show here if it was");
   } else {
     const el = els[op.box];
     if (el) drawSent(el, op.box);
@@ -3255,7 +3227,6 @@ function failOp(op, why, by){
     ops = ops.filter(o => o !== op);
     letGoTitleCatch();
     drawCreatePending();
-    drawerNote("The card could not be made: " + why);
   } else {
     const el = els[op.box];
     if (el) drawSent(el, op.box);
@@ -3275,7 +3246,6 @@ function landSend(op, result){
   el.sentItems = [...el.sentItems, { text: op.text, stage: "sent" }];
   drawSent(el, op.box);
   el.sendGuard = Date.now();
-  if (el.meta.textContent.indexOf("send ") === 0) el.meta.textContent = "";
   if (op.reopen) undone(op.box);   // the message is in; the flip rides behind it
   const enterIntent = phoneEnterAgain && phoneEnterAgain.op === op ? phoneEnterAgain : null;
   if (enterIntent) enterIntent.delivered = true;
@@ -3311,8 +3281,6 @@ function takeBack(op){
   el.ta.value = el.ta.value.trim() ? el.ta.value.trimEnd() + "\n\n" + op.text : op.text;
   el.tick();
   drawSent(el, op.box);
-  // taking one back makes room: a send held for want of it may go now
-  if (el.meta.textContent.indexOf("send held") === 0 && ops.length < OPS_MAX) el.meta.textContent = "";
 }
 // an operation's state changed: the line under its message says so. the panel
 // keeps the message's block and changes only its dress and its line
@@ -3327,15 +3295,6 @@ function drawCreatePending(){
   plus.classList.toggle("pending", making);
   plus.setAttribute("aria-busy", making ? "true" : "false");
   plus.title = making ? "making the card" : "new card";
-}
-function drawerNote(text){
-  const tik = document.getElementById("tiklist");
-  const note = h("div", "tiknote", text);
-  tik.prepend(note);
-  setTimeout(() => note.remove(), 6000);
-  // the plus is on the row now, pressed with the drawer shut, so the note is
-  // said in the one-line toast as well while the drawer is not out
-  if (!drawerOpen()) toastNote(text);
 }
 let noteToastTimer = null;
 function toastNote(text){
@@ -3366,9 +3325,7 @@ function doSend(id, opts){
   const reopen = boxDone(id);
   const op = mintOp("send", { box: id, text, reopen });
   if (!op){
-    // the store is full: the words stay in the row, and the card says why.
-    // this clears on its own once a reading finds room again
-    el.meta.textContent = "send held: fifty messages are still unconfirmed on this phone; wait for the board, or take some back";
+    // the store is full: the words stay in the row and nothing is sent
     endPhoneTrace(trace, { outcome: "failed" });
     return;
   }
@@ -3421,7 +3378,7 @@ function createCard(){
   if (!validOwners.has(activeOwner)){ endPhoneTrace(trace); return; }
   if (pendingCreate()){ catchTitle(); wakeOps(); endPhoneTrace(trace); return; }
   const op = mintOp("create", { owner: activeOwner });
-  if (!op){ drawerNote("No card can be made while fifty messages are still unconfirmed on this phone"); endPhoneTrace(trace, { outcome: "failed" }); return; }
+  if (!op){ endPhoneTrace(trace, { outcome: "failed" }); return; }
   catchTitle();   // still inside the tap: the card's name does not exist until the board answers
   tracePhone("note", "operation", { op: op.id, outcome: "minted" });
   // pendingCreate above proves only one create can be live. Clear any record
@@ -4461,19 +4418,6 @@ if (macHost) {
   document.getElementById("signout").style.display = "none";
   const notifications = document.querySelector('#setsrc [data-section="notifications"]');
   notifications.hidden = true;
-  const group = h("div"); group.dataset.section = "mac"; group.dataset.label = "Mac";
-  const row = h("div", "setrow"), label = h("label", "setlabel", "Reply chime");
-  const sound = h("input"); sound.type = "checkbox"; sound.id = "macchime";
-  sound.setAttribute("role", "switch"); label.htmlFor = sound.id;
-  sound.checked = !parent.chimeMuted();
-  sound.addEventListener("change", () => {
-    parent.document.getElementById("chimebtn").click(); sound.checked = !parent.chimeMuted();
-  });
-  row.append(label, sound);
-  const actions = h("div", "setact"), open = h("button", "sp-btn", "Open Mac board");
-  open.type = "button"; open.addEventListener("click", () => macHost.openMac());
-  actions.append(open, h("p", "sethelp", "Open files, Spotify, layout and Mac settings. Your phone view stays here."));
-  group.append(row, actions); document.getElementById("setsrc").append(group);
 }
 const settingsView = settingsPage(document.getElementById("setpage"), document.getElementById("setsrc"), {
   close: () => hideMenu(settings),
@@ -7515,7 +7459,7 @@ ComposeFormat.preload();
   read();
 }
 const diagnosticButton = document.getElementById("savediagnostic");
-let diagnosticRetry = false, diagnosticToastTimer = null;
+let diagnosticRetry = false;
 let developerTaps = 0, developerTapAt = -Infinity;
 document.getElementById("homeversion").addEventListener("click", () => {
   const now = performance.now();
@@ -7534,9 +7478,6 @@ document.getElementById("homeversion").addEventListener("click", () => {
     resetPhoneGestureDiagnostics();
     diagnosticRetry = false;
     diagnosticButton.disabled = false;
-    diagnosticButton.textContent = "Save diagnostic history";
-    document.getElementById("diagnosticstatus").textContent = "";
-    clearTimeout(diagnosticToastTimer);
     if (settingsView.section() === "diagnostics") {
       settingsView.show("editor");
       settingsView.reset();
@@ -7548,51 +7489,30 @@ async function saveDiagnostic(source = "settings"){
   if (!phoneDeveloperMode || diagnosticButton.disabled) return;
   const generation = diagnosticGeneration;
   diagnosticButton.disabled = true;
-  const status = document.getElementById("diagnosticstatus");
-  const toast = document.getElementById("diagnostictoast");
-  const tell = text => {
-    status.textContent = text;
-    if (source === "shortcut") toast.textContent = text;
-  };
-  clearTimeout(diagnosticToastTimer);
-  tell(tracePhone("version") >= 3 && !diagnosticRetry
-    ? "Recording the next 20 seconds before saving" : "Saving diagnostic history");
   try {
     const answer = await tracePhone("mark", source, phoneTraceState(), diagnosticRetry);
     if (generation !== diagnosticGeneration) return;
     const outcome = answer?.status || "failed";
     diagnosticRetry = outcome !== "saved" && outcome !== "saved-legacy";
-    const messages = {
-      saved: "Diagnostic history saved on the Mac.",
-      "saved-legacy": "History saved, but Enter or scroll details need the updated server. Restart Facilitator, then record again.",
-      offline: "Offline. History is held in this page. Reconnect and retry.",
-      limited: "Too many saves this minute. History is held in this page. Retry shortly.",
-      failed: "Could not confirm a save. Keep this page open and retry.",
-    };
-    tell(messages[outcome] || messages.failed);
   } catch (_) {
     if (generation !== diagnosticGeneration) return;
     diagnosticRetry = true;
-    tell("Could not confirm a save. Keep this page open and retry.");
   } finally {
     if (generation !== diagnosticGeneration) return;
     diagnosticButton.disabled = false;
-    diagnosticButton.textContent = diagnosticRetry ? "Retry diagnostic save" : "Save diagnostic history";
-    diagnosticToastTimer = setTimeout(() => { toast.textContent = ""; }, 6000);
   }
 }
 diagnosticButton.addEventListener("click", () => saveDiagnostic());
 // the Notifications switch keeps choice and delivery separate. A new link turns
 // the switch on only once the board accepts it; a link the board has already
 // accepted stays on while it is sent again. Repairs never change an off choice.
+// The switch says nothing in words: when a try fails it shows what is true, off,
+// and a tap on it asks again.
 const notifySwitch = document.getElementById("notify");
-const notifyNote = document.getElementById("notifynote");
-const notifyRestore = document.getElementById("notifyrestore");
-const notifyOff = document.getElementById("notifyoff");
 const NOTIFY_CHOICE = "phoneNotifications";
 const NOTIFY_ENDPOINT = "phoneNotificationEndpoint";
 const NOTIFY_KNOWN = "phoneNotificationsSet";
-let notifyChoice = null, notifyEndpoint = "", notifyKnown = false, notifyStorageFailed = false;
+let notifyChoice = null, notifyEndpoint = "", notifyKnown = false;
 try {
   notifyChoice = localStorage.getItem(NOTIFY_CHOICE);
   notifyEndpoint = localStorage.getItem(NOTIFY_ENDPOINT) || "";
@@ -7609,26 +7529,12 @@ function rememberNotifyChoice(choice){
     // A sign-out must not look like an old installation on the next sign-in
     // if the browser refused to remove its subscription.
     localStorage.setItem(NOTIFY_KNOWN, "yes");
-    notifyStorageFailed = false;
-  } catch (_) { notifyStorageFailed = true; }
+  } catch (_) {}
 }
-let notifyOffTimer = 0;
-function notifyState(on, note = "", restore = false, busy = false){
+// The unchecked switch describes delivery: on only for a link the board holds.
+function notifyState(on, busy = false){
   notifySwitch.checked = !!on && notifyChoice === "on";
   notifySwitch.disabled = busy || notifyStopped;
-  // A null note leaves the line as it is, so turning on writes nothing that
-  // a quick success would then erase.
-  if (note !== null) notifyNote.textContent = note + (notifyStorageFailed ? " This phone could not save your choice." : "");
-  notifyRestore.hidden = !restore || notifyStopped;
-  notifyRestore.disabled = busy;
-  // The unchecked switch describes delivery. This also lets the owner cancel
-  // an on choice while delivery is being repaired or waiting for a tap. While
-  // turning on it appears only if the work is slow, never for a quick success.
-  clearTimeout(notifyOffTimer);
-  const offShown = notifyChoice === "on" && !on && !notifyStopped;
-  notifyOff.hidden = !offShown || busy;
-  if (offShown && busy) notifyOffTimer = setTimeout(() => { notifyOff.hidden = false; }, 1500);
-  notifyOff.disabled = notifyStopping;
 }
 async function pushRegistration(){
   if (macHost || !("serviceWorker" in navigator)) return null;
@@ -7684,7 +7590,7 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
     const tapped = tappedSubscription ? await tappedSubscription : null;
     if (!live()) { if (tapped) await removeNotifySubscription(tapped); return; }
     if (!("PushManager" in window) || !("Notification" in window)) {
-      if (live()) notifyState(false, "Add this page to the home screen first, then ask again from there");
+      if (live()) notifyState(false);
       return;
     }
     if (permission) await permission;
@@ -7692,7 +7598,7 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
     const reg = await pushRegistration();
     if (!live()) return;
     notifyReg = reg;
-    if (!reg) { notifyState(false, "Notifications need the page served over https"); return; }
+    if (!reg) { notifyState(false); return; }
     const sub = tapped || await reg.pushManager.getSubscription();
     if (!live()) {
       if (sub) await removeNotifySubscription(sub);
@@ -7708,12 +7614,12 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
         const removed = await removeNotifySubscription(sub);
         if (!live()) return;
         if (removed) forgetNotifyEndpoint();
-        notifyState(false, removed ? "" : "Notifications are off. Removal will retry when you return.");
-      } else notifyState(false);
+      }
+      notifyState(false);
       return;
     }
     if (Notification.permission !== "granted") {
-      notifyState(false, "Notifications are wanted, but permission is off in the phone's settings.", true);
+      notifyState(false);
       return;
     }
     // A check on open, return or settings that finds the very link the board
@@ -7721,7 +7627,7 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
     // slow or unreachable Mac says nothing about it. Only a new link waits.
     kept = !!quiet && !!sub && !!notifyEndpoint && sub.endpoint === notifyEndpoint;
     if (kept) notifyState(true);
-    else notifyState(false, null, false, true);
+    else notifyState(false, true);
     let active = sub;
     if (!active) {
       if (!notifyKey) {
@@ -7748,7 +7654,7 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
     if (!live()) { await removeNotifySubscription(active); return; }
     notifyMissing = !held;
     if (Notification.permission !== "granted" || held?.endpoint !== active.endpoint) {
-      notifyState(false, "Notifications need restoring. Tap Restore notifications to try again.", true);
+      notifyState(false);
       return;
     }
     notifyState(true);
@@ -7756,16 +7662,14 @@ async function repairNotifications(mine, permission, tappedSubscription, quiet){
     // Keep even a newly created link for the next attempt. A lost HTTP answer
     // does not mean that the board failed to save it.
     if (live() && kept) notifyState(true);
-    else if (live()) notifyState(false, notifyChoice === "on"
-      ? "Notifications are wanted but are not ready. Tap Restore notifications to try again."
-      : "Could not check notifications. The saved choice has not changed.", notifyChoice === "on");
+    else if (live()) notifyState(false);
   }
 }
 function startNotifyRepair(permission, tappedSubscription, quiet = false){
   const mine = ++notifyGeneration;
   // A check that is not a tap leaves a switch that reads on alone until it has
   // read the phone's link.
-  if (!quiet || !notifySwitch.checked) notifyState(false, null, false, true);
+  if (!quiet || !notifySwitch.checked) notifyState(false, true);
   const work = repairNotifications(mine, permission, tappedSubscription, quiet);
   notifyWork = work;
   work.finally(() => { if (notifyWork === work) notifyWork = null; });
@@ -7781,7 +7685,7 @@ function askNotifications(){
   let permission, subscription;
   try {
     // Both browser calls stay on the tap's stack. A failed silent repair has
-    // already loaded the registration and key for the Restore button.
+    // already loaded the registration and key for the next tap on the switch.
     if ("Notification" in window && Notification.permission !== "granted")
       permission = Notification.requestPermission();
     else if (notifyMissing && notifyReg && notifyKey)
@@ -7794,7 +7698,7 @@ async function stopNotifications(forget = false){
   ++notifyGeneration;
   notifyStopping = true;
   rememberNotifyChoice(forget ? null : "off");
-  notifyState(false, "Turning notifications off...", false, true);
+  notifyState(false, true);
   // A repair already talking to the browser or board must finish its cleanup
   // before the final removal and logout, so it cannot turn delivery back on.
   await notifyWork;
@@ -7803,11 +7707,9 @@ async function stopNotifications(forget = false){
   catch (_) { await removeNotifySubscription(null); }
   if (forget || removed) forgetNotifyEndpoint();
   notifyStopping = false;
-  notifyState(false, removed || forget ? "" : "Notifications are off. Removal will retry when you return.");
+  notifyState(false);
 }
 notifySwitch.addEventListener("change", () => notifySwitch.checked ? askNotifications() : stopNotifications());
-notifyRestore.addEventListener("click", askNotifications);
-notifyOff.addEventListener("click", () => stopNotifications());
 {
   let shown = false;
   new MutationObserver(() => {
@@ -7876,7 +7778,6 @@ if (macHost) {
       }
     },
     restore(state) {
-      document.getElementById("macchime").checked = !parent.chimeMuted();
       Object.assign(lastSel, state.lastSel);
       const locked = parent.macPhoneProject;
       if (validOwners.has(state.owner) && (!locked || state.owner === locked)) activeOwner = state.owner;

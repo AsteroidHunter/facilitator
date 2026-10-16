@@ -15,14 +15,15 @@ const deferred = () => {
 const settle = async () => { for (let n = 0; n < 20; n++) await new Promise(resolve => setImmediate(resolve)); };
 
 function page({ choice = 'on', existing = false, permission = 'granted', storage = new Map(), gestureOnly = false,
-                accepted = null, creating = null, removeFails = false, lookupFails = false, phoneRemoveFails = false } = {}) {
+                accepted = null, creating = null, removeFails = false, lookupFails = false, phoneRemoveFails = false,
+                logoutFails = false, noPush = false, noWorker = false } = {}) {
   if (choice !== null) storage.set(CHOICE, choice);
   const elements = new Map(), windowEvents = {}, documentEvents = {};
   const calls = [], closed = [], navigated = [];
   let gesture = false, sub = null, count = 0, observer, timers = [];
   const listen = events => (name, fn) => (events[name] ||= []).push(fn);
   function element(id) {
-    if (!elements.has(id)) elements.set(id, { checked: false, disabled: false, hidden: true, textContent: '', events: {},
+    if (!elements.has(id)) elements.set(id, { checked: false, disabled: false, textContent: '', events: {},
       addEventListener(name, fn) { this.events[name] = fn; } });
     return elements.get(id);
   }
@@ -47,13 +48,13 @@ function page({ choice = 'on', existing = false, permission = 'granted', storage
   } };
   const context = vm.createContext({
     console, Promise, AbortSignal, Set, macHost: null,
-    setTimeout: fn => timers.push(fn), clearTimeout: id => { if (id) timers[id - 1] = null; }, swReg: reg, keyBytes: key => key,
+    setTimeout: fn => timers.push(fn), clearTimeout: id => { if (id) timers[id - 1] = null; }, swReg: noWorker ? null : reg, keyBytes: key => key,
     settings: { classList: { contains: () => true } },
     MutationObserver: class { constructor(fn) { observer = fn; } observe() {} },
     localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) },
-    navigator: { serviceWorker: { ready: Promise.resolve(reg), getRegistration: async () => reg } },
+    navigator: noWorker ? {} : { serviceWorker: { ready: Promise.resolve(reg), getRegistration: async () => reg } },
     Notification: { permission, requestPermission() { calls.push(['permission', gesture]); return Promise.resolve(context.Notification.permission); } },
-    PushManager: function() {},
+    ...(noPush ? {} : { PushManager: function() {} }),
     document: { hidden: false, getElementById: element, addEventListener: listen(documentEvents) },
     addEventListener: listen(windowEvents),
     caches: { keys: async () => [], delete: async () => true },
@@ -63,6 +64,7 @@ function page({ choice = 'on', existing = false, permission = 'granted', storage
       if (url === '/push/key') return { ok: true, json: async () => ({ key: 'public-key' }) };
       if (url === '/push/subscribe' && accepted) return accepted.promise;
       if (url === '/push/unsubscribe' && removeFails) throw new Error('offline');
+      if (url === '/auth/logout' && logoutFails) return { ok: false, status: 503 };
       return { ok: true, status: 200 };
     },
   });
@@ -74,7 +76,7 @@ function page({ choice = 'on', existing = false, permission = 'granted', storage
   const outFrom = source.indexOf('async function signOut(){');
   vm.runInContext(source.slice(outFrom, source.indexOf('// Developer mode', outFrom)), context);
   return {
-    context, calls, storage, closed, navigated, element, reg, observer: () => observer(),
+    context, calls, storage, closed, navigated, element, reg, observer: () => observer(), ids: () => [...elements.keys()],
     subscription: () => sub, lose: () => { sub = null; },
     later() { const due = timers; timers = []; for (const fn of due) fn?.(); },
     run: code => vm.runInContext(code, context),
@@ -84,8 +86,7 @@ function page({ choice = 'on', existing = false, permission = 'granted', storage
       gesture = true;
       let work;
       try { work = el.events[checked === undefined ? 'click' : 'change'](); }
-      finally { gesture = false; }
-      await work;
+      finally { gesture = false; }      await work;
     },
     return() { context.document.hidden = false; for (const fn of documentEvents.visibilitychange || []) fn(); },
     pageshow() { for (const fn of windowEvents.pageshow || []) fn({ persisted: true }); },
@@ -102,7 +103,6 @@ test('a wanted missing subscription is made and posted at start, and turns on on
   assert.equal(subscribes(p).length, 1);
   assert.equal(posted(p).length, 1);
   assert.equal(p.element('notify').checked, false);
-  assert.equal(p.element('notifynote').textContent, '');
   accepted.resolve({ ok: true });
   await settle();
   assert.equal(p.element('notify').checked, true);
@@ -144,16 +144,15 @@ test('a saved off choice never reposts even a surviving subscription', async () 
   assert.equal(p.subscription(), null);
 });
 
-test('a refused silent subscribe offers Restore, which subscribes on that one tap', async () => {
+test('a refused silent subscribe leaves the switch off, and a tap on the switch subscribes', async () => {
   const p = page({ gestureOnly: true });
   await settle();
-  assert.equal(p.element('notifyrestore').hidden, false);
   assert.equal(p.element('notify').checked, false);
+  assert.equal(p.element('notify').disabled, false);
   assert.equal(p.storage.get(CHOICE), 'on');
-  await p.tap('notifyrestore');
+  await p.tap('notify', true);
   assert.deepEqual(subscribes(p).map(c => c[1]), [false, true]);
   assert.equal(p.element('notify').checked, true);
-  assert.equal(p.element('notifyrestore').hidden, true);
   assert.equal(posted(p).length, 1);
 });
 
@@ -162,10 +161,11 @@ test('permission is never requested by recovery, but an enable tap requests it s
   await settle();
   assert.equal(p.calls.some(c => c[0] === 'permission'), false);
   assert.equal(subscribes(p).length, 0);
-  assert.equal(p.element('notifyrestore').hidden, false);
-  await p.tap('notifyrestore');
+  assert.equal(p.element('notify').checked, false);
+  await p.tap('notify', true);
   assert.deepEqual(p.calls.filter(c => c[0] === 'permission'), [['permission', true]]);
   assert.equal(p.element('notify').checked, false);
+  assert.equal(p.element('notify').disabled, false);
 });
 
 test('existing and newly created links survive a failed server save, and are reused on retry', async () => {
@@ -178,12 +178,11 @@ test('existing and newly created links survive a failed server save, and are reu
     await settle();
     assert.equal(p.subscription(), held);
     assert.equal(p.element('notify').checked, false);
-    assert.equal(p.element('notifyrestore').hidden, false);
     await p.observer(); await settle();
     assert.equal(p.element('notify').checked, false, 'drawer must not claim an unaccepted link is on');
     assert.equal(subscribes(p).length, existing ? 0 : 1);
     accepted.promise = Promise.resolve({ ok: true });
-    await p.tap('notifyrestore');
+    await p.tap('notify', true);
     assert.equal(p.subscription(), held);
     assert.equal(p.element('notify').checked, true);
   }
@@ -209,10 +208,8 @@ test('Off during subscription creation cancels the repair and removes its late l
   const creating = deferred();
   const p = page({ creating });
   await settle();
-  assert.equal(p.element('notifyoff').hidden, true, 'Off waits a moment so a quick success shows nothing');
-  p.later();
-  assert.equal(p.element('notifyoff').hidden, false);
-  const off = p.tap('notifyoff');
+  assert.equal(p.element('notify').disabled, true, 'the switch waits while the link is being made');
+  const off = p.tap('notify', false);
   assert.equal(p.storage.get(CHOICE), 'off');
   creating.resolve(); await off; await settle();
   assert.equal(p.subscription(), null);
@@ -245,18 +242,18 @@ test('sign-out still removes the phone subscription when the Mac removal fails',
   assert.ok(p.calls.some(c => c[0] === '/auth/logout'));
 });
 
-test('a rejected gesture permission request leaves a clear restore action', async () => {
+test('a rejected gesture permission request leaves the switch off and ready for another tap', async () => {
   const p = page({ permission: 'default' }); await settle();
   p.context.Notification.requestPermission = () => Promise.reject(new Error('refused'));
-  await p.tap('notifyrestore');
-  assert.equal(p.element('notifyrestore').hidden, false);
+  await p.tap('notify', true);
   assert.equal(p.element('notify').checked, false);
+  assert.equal(p.element('notify').disabled, false);
 });
 
 test('a subscription lookup error is a repair failure and never claims success', async () => {
   const p = page({ lookupFails: true }); await settle();
-  assert.equal(p.element('notifyrestore').hidden, false);
-  assert.match(p.element('notifynote').textContent, /not ready/);
+  assert.equal(p.element('notify').checked, false);
+  assert.equal(p.element('notify').disabled, false);
   assert.equal(subscribes(p).length, 0);
 });
 
@@ -270,9 +267,54 @@ test('replacement removes only this phone known old endpoint after the board acc
   assert.equal(storage.get(ENDPOINT), p.subscription().endpoint);
 });
 
-test('repair controls have clear names and status is announced', () => {
-  assert.match(source, /id="notifyrestore"[^>]*>Restore notifications<\/button>/);
-  assert.match(source, /id="notifynote"[^>]*role="status"/);
+test('the Notifications section is its title and the switch, with no line and no button', () => {
+  const from = source.indexOf('<div data-section="notifications"');
+  const section = source.slice(from, source.indexOf('<div data-section="improvements"', from));
+  assert.ok(from > 0 && section.length > 0);
+  assert.match(section, /<span>Notifications<\/span>/);
+  assert.match(section, /<input type="checkbox" role="switch" id="notify">/);
+  assert.doesNotMatch(section, /<button|<small|<p[ >]|sethelp|role="status"|aria-describedby/);
+});
+
+test('no word of a failure is written anywhere: the page touches only the switch', async () => {
+  for (const options of [{ gestureOnly: true }, { lookupFails: true }, { permission: 'denied' }, { removeFails: true, choice: 'off', existing: true }]) {
+    const p = page(options);
+    await settle();
+    await p.tap('notify', true);
+    await p.tap('notify', false);
+    assert.deepEqual(p.ids(), ['notify'], JSON.stringify(options));
+  }
+});
+
+test('a phone without push support keeps the switch off and does nothing harmful', async () => {
+  const p = page({ noPush: true });
+  await settle();
+  await p.tap('notify', true);
+  assert.equal(p.element('notify').checked, false);
+  assert.equal(p.element('notify').disabled, false);
+  assert.equal(subscribes(p).length, 0);
+  assert.equal(posted(p).length, 0);
+  assert.deepEqual(p.ids(), ['notify']);
+});
+
+test('a page with no service worker keeps the switch off and does nothing harmful', async () => {
+  const p = page({ noWorker: true });
+  await settle();
+  await p.tap('notify', true);
+  assert.equal(p.element('notify').checked, false);
+  assert.equal(p.element('notify').disabled, false);
+  assert.equal(subscribes(p).length, 0);
+  assert.equal(posted(p).length, 0);
+  assert.deepEqual(p.ids(), ['notify']);
+});
+
+test('a failed sign-out says nothing and gives the button back', async () => {
+  const p = page({ logoutFails: true });
+  await settle();
+  await p.run('signOut()');
+  assert.equal(p.element('signout').disabled, false);
+  assert.deepEqual(p.navigated, []);
+  assert.deepEqual(p.ids().sort(), ['notify', 'signout']);
 });
 
 
@@ -284,7 +326,6 @@ test('permission or subscription loss during a server save cannot turn the switc
     else p.lose();
     accepted.resolve({ ok: true }); await settle();
     assert.equal(p.element('notify').checked, false, lost);
-    assert.equal(p.element('notifyrestore').hidden, false, lost);
   }
 });
 
@@ -302,8 +343,8 @@ test('a phone link that resists sign-out is not adopted as wanted on the next si
 test('Off while a gesture subscription is pending also removes the late result', async () => {
   const creating = deferred();
   const p = page({ creating, gestureOnly: true }); await settle();
-  const tap = p.tap('notifyrestore');
-  const off = p.tap('notifyoff');
+  const tap = p.tap('notify', true);
+  const off = p.tap('notify', false);
   creating.resolve(); await Promise.all([tap, off]); await settle();
   assert.equal(p.subscription(), null);
   assert.equal(posted(p).length, 0);
@@ -340,9 +381,7 @@ test('a subscription refused just after the prompt is granted is asked again, an
   assert.equal(subscribes(p).length, 3);
   assert.equal(posted(p).length, 1);
   assert.equal(p.element('notify').checked, true);
-  assert.equal(p.element('notifynote').textContent, '');
-  assert.equal(p.element('notifyrestore').hidden, true);
-  assert.equal(p.element('notifyoff').hidden, true);
+  assert.deepEqual(p.ids(), ['notify']);
 });
 
 test('a grant the phone takes in at once turns the switch on with one subscription', async () => {
@@ -351,8 +390,6 @@ test('a grant the phone takes in at once turns the switch on with one subscripti
   await p.tap('notify', true);
   assert.equal(subscribes(p).length, 1);
   assert.equal(p.element('notify').checked, true);
-  assert.equal(p.element('notifynote').textContent, '');
-  assert.equal(p.element('notifyrestore').hidden, true);
 });
 
 test('a refusal that outlasts the asking, or any other failure, shows the real state', async () => {
@@ -364,8 +401,8 @@ test('a refusal that outlasts the asking, or any other failure, shows the real s
     assert.equal(subscribes(p).length, asked, name);
     assert.equal(posted(p).length, 0, name);
     assert.equal(p.element('notify').checked, false, name);
-    assert.match(p.element('notifynote').textContent, /not ready/, name);
-    assert.equal(p.element('notifyrestore').hidden, false, name);
+    assert.equal(p.element('notify').disabled, false, name);
+    assert.deepEqual(p.ids(), ['notify'], name);
   }
 });
 

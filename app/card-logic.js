@@ -6165,23 +6165,17 @@ function flagTell(id, spec, said, text){
   flagRepaint();
 }
 
-// the card's own note line, under whichever of the two names the page gives it.
-// A note written here is this page's record of a tap the board refused or never
-// answered, so the pass over the cards is told to leave it where it is.
+// the desktop card's own note line. A note written here is this page's record of
+// a tap the board refused or never answered, so the pass over the cards is told
+// to leave it where it is. The phone's card has no note line and says nothing.
 //
-// The order of the two names matters and is not a preference. metaNote is the
-// note element itself, which is the node the desktop's own pass reads and
-// writes; meta is the phone's note element under its own name, but on the
-// desktop that name belongs to the box the note element lives in. Writing text
-// to a box throws away the children it has, so choosing it first would delete
-// the very note element the page holds a reference to: the page would keep a
-// detached node, its guard would sit on the wrong node, and nothing written
-// through that reference afterwards would ever be seen again. The note element
-// is chosen where the page has one, its wrapper is left alone, and the text,
-// the guard and the clearing all land on that one connected node.
+// metaNote is the note element itself. The desktop also keeps a name for the box
+// that holds it (meta); writing text to a box throws away the children it has,
+// including the very note element the page holds a reference to, so only the
+// note element is ever written to.
 function flagNote(id, text){
   const el = els[id];
-  const note = el && (el.metaNote || el.meta);
+  const note = el && el.metaNote;
   if (!note) return;
   note.textContent = text || "";
   if (text) note.dataset.flagnote = "1";

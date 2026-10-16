@@ -175,18 +175,14 @@ test('preparing uploaded attachment text occurs before the transferred snapshot'
   assert.equal(f.phone.state.drafts.a.value, '/uploads/a/photo.png\n\ncaption');
 });
 
-test('Mac tools remain reachable and return to the same phone document', () => {
+test('the phone view has no Mac section in its settings and no button into the Mac board', () => {
   const f = fixture(); f.host.request(true); f.connect();
-  f.phone.state.drafts.a.value = 'before files';
-  f.host.openMac();
-  assert.equal(f.host.active(), false);
-  assert.equal(f.back().hidden, false);
-  assert.equal(f.desktop.state.drafts.a.value, 'before files');
-  f.desktop.state.drafts.a.value = 'after files';
-  f.back().fire('click');
+  assert.equal(f.host.openMac, undefined);
+  assert.equal(f.back(), undefined);
   assert.equal(f.host.active(), true);
-  assert.equal(f.phone.state.drafts.a.value, 'after files');
-  assert.equal(f.back().hidden, true);
+  const phone = fs.readFileSync(path.join(ROOT, 'm.html'), 'utf8');
+  assert.doesNotMatch(phone, /Open Mac board|Reply chime|macchime|dataset\.section = "mac"/);
+  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), /phoneviewreturn/);
 });
 
 test('only the owned same-origin frame may connect an adapter', () => {

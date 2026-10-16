@@ -912,21 +912,20 @@ test("the same page changes layout when the window does", async () => {
 // and the settings page fills it; the row along the bottom holds its four buttons,
 // the gear at its right end among them
 
-// the controls each section holds, and the ones of them that always draw a box (the
-// notes and the status line are empty until there is something to say)
+// the controls each section holds, and the ones of them that always draw a box
 const HELD = {
   editor: ["setformat"],
   appearance: ["setwait", "setwaitnote"],
-  notifications: ["notify", "notifynote"],
+  notifications: ["notify"],
   improvements: ["setusage"],
-  diagnostics: ["savediagnostic", "diagnostichelp", "diagnosticstatus"],
+  diagnostics: ["savediagnostic"],
 };
 const SECTIONS = {
   editor: ["setformat"],
   appearance: ["setwait"],
   notifications: ["notify"],
   improvements: ["setusage"],
-  diagnostics: ["savediagnostic", "diagnostichelp"],
+  diagnostics: ["savediagnostic"],
 };
 
 // what shows in the drawer's page: the header's words and marks, and each control's box
@@ -1303,7 +1302,7 @@ test("phone: the turn off mark stands at the foot of the drawer, the license bes
                reached: document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2)?.closest("#signout") === button,
                license: { words: link.textContent, href: link.getAttribute("href"), target: link.target, rel: link.rel,
                           sameLine: Math.round((lb.top + lb.bottom - icon.top - icon.bottom) / 2),
-                          color: ls.color, size: ls.fontSize, family: ls.fontFamily === getComputedStyle(document.getElementById("signoutnote")).fontFamily,
+                          color: ls.color, size: ls.fontSize, family: ls.fontFamily === getComputedStyle(document.getElementById("settings")).fontFamily,
                           underline: ls.textDecorationLine,
                           reached: document.elementFromPoint((lb.left + lb.right) / 2, (lb.top + lb.bottom) / 2) === link } };
     });
@@ -1386,16 +1385,15 @@ test("phone: the turn off mark stands at the foot of the drawer, the license bes
     assert.equal(page.url(), origin + "/m");
 
     // Log Out signs out. this socket has no session to end, so the board refuses
-    // and the phone says so under the mark; the bridge test signs out for real
+    // and the phone says nothing and gives the mark back; the bridge test signs out for real
     await page.tap("#signout");
     await askSettled(page);
     await page.tap("#signoutyes");
-    await page.waitForFunction(() => document.getElementById("signoutnote").textContent !== "", { timeout: 5000 });
+    await page.waitForFunction(() => !document.getElementById("signout").disabled, { timeout: 5000 });
     assert.equal(await askShown(), false);
     assert.deepEqual(asked, ["POST /auth/logout"]);
-    assert.equal(await page.$eval("#signoutnote", el => el.textContent),
-      "Could not sign out. Check your connection and try again.");
     assert.equal(await page.$eval("#signout", el => el.disabled), false);
+    assert.equal(await page.evaluate(() => document.getElementById("signoutnote")), null, "the foot holds no line for a failed sign-out");
     assert.deepEqual(problems.filter(line => !/\/auth\/logout|status of 40\d/.test(line)), []);
   } finally {
     await closePage(page);

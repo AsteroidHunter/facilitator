@@ -26,12 +26,12 @@ function element(tag = "div", classes = "", textContent = "") {
   };
 }
 function phone(store = new Map()) {
-  const nodes = Object.fromEntries(["homeversion", "savediagnostic", "diagnosticstatus", "diagnostictoast", "setpage"]
+  const nodes = Object.fromEntries(["homeversion", "savediagnostic", "diagnostictoast", "setpage"]
     .map(id => [id, element()]));
   nodes.savediagnostic.textContent = "Save diagnostic history";
   const groups = ["editor", "notifications", "diagnostics"].map(id => {
     const group = element(); group.dataset = { section: id, label: id };
-    if (id === "diagnostics") group.childNodes = [nodes.savediagnostic, nodes.diagnosticstatus];
+    if (id === "diagnostics") group.childNodes = [nodes.savediagnostic];
     return group;
   });
   const source = element(); source.querySelectorAll = () => groups;
@@ -98,9 +98,11 @@ test("seven quick taps enable section, shortcut, button and automatic saves; sev
   f.tap(); assert.equal(f.on(), true); assert.equal(f.sectionShown(), true);
   assert.equal(f.nodes.diagnostictoast.textContent, "Developer mode on");
   assert.equal(f.key().prevented, true);
-  assert.equal(f.nodes.diagnostictoast.textContent, "Recording the next 20 seconds before saving");
+  assert.equal(f.nodes.savediagnostic.disabled, true, "the button shows it is pressed while the history is recording");
+  assert.equal(f.nodes.diagnostictoast.textContent, "Developer mode on", "the shortcut writes no line of its own");
   f.at(21000); await f.run(); assert.equal(incidents(f.calls)[0].reason, "manual");
-  assert.equal(f.nodes.diagnosticstatus.textContent, "Diagnostic history saved on the Mac.");
+  assert.equal(f.nodes.savediagnostic.disabled, false);
+  assert.equal(f.nodes.savediagnostic.textContent, "Save diagnostic history");
   f.nodes.savediagnostic.click(); f.at(42000); await f.run();
   assert.equal(incidents(f.calls)[1].reason, "manual");
   f.history.noScroll("m12"); f.at(63000); await f.run();
@@ -112,6 +114,15 @@ test("seven quick taps enable section, shortcut, button and automatic saves; sev
   assert.equal(f.key().prevented, false);
   f.history.freeze(3000); f.at(90000); await f.run(); f.fire("pagehide");
   assert.equal(f.calls.length, 3); assert.equal(f.beacons.length, 0);
+});
+
+test("the Diagnostics section is the button alone: no help paragraph and no status line", () => {
+  const from = html.indexOf('<div data-section="diagnostics"');
+  const section = html.slice(from, html.indexOf("</div>", from));
+  assert.ok(from > 0);
+  assert.match(section, /<button id="savediagnostic"[^>]*>Save diagnostic history<\/button>/);
+  assert.doesNotMatch(section, /<p[ >]|sethelp|role="status"|aria-describedby/);
+  assert.doesNotMatch(html, /diagnostichelp|diagnosticstatus|Retry diagnostic save|Recording the next 20 seconds/);
 });
 
 test("single taps and gaps of a second reset the count; the local switch survives reloads", () => {
@@ -126,7 +137,8 @@ test("single taps and gaps of a second reset the count; the local switch survive
 test("turning off discards a held offline history and stops lifecycle beacons and later retry", async () => {
   const f = phone(); f.taps(); f.history.capability(5); f.navigator.onLine = false;
   f.nodes.savediagnostic.click(); f.at(22000); await f.run();
-  assert.match(f.nodes.diagnosticstatus.textContent, /^Offline/);
+  assert.equal(f.nodes.savediagnostic.disabled, false);
+  assert.equal(f.nodes.savediagnostic.textContent, "Save diagnostic history", "a held save relabels nothing");
   f.taps(); f.navigator.onLine = true; f.hidden(true); f.fire("pagehide");
   assert.equal(f.calls.length, 0); assert.equal(f.beacons.length, 0);
   f.hidden(false); f.taps(); f.nodes.savediagnostic.click();

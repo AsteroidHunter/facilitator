@@ -94,7 +94,6 @@ function page({ choice = 'on', permission = 'granted', held = ACCEPTED, remember
 }
 
 const posted = p => p.calls.filter(c => c[0] === '/push/subscribe');
-const restoreShown = p => p.element('notifyrestore').hidden === false;
 
 test('a start check reads on before the board answers when the phone holds the accepted link', async () => {
   const answer = deferred();
@@ -137,8 +136,6 @@ test('a return check that cannot reach the Mac leaves the switch on and quiet', 
     assert.ok(!p.switchWrites.includes(false), 'switch drawn off after ' + JSON.stringify(String(failure.message || failure.status)));
     assert.equal(p.element('notify').checked, true);
     assert.equal(p.element('notify').disabled, false);
-    assert.equal(restoreShown(p), false, 'Restore is for a link that needs a tap, not a Mac out of reach');
-    assert.equal(p.element('notifyoff').hidden, true);
     assert.deepEqual(p.notes, [], 'no words or buttons appear');
   }
   assert.equal(p.subscription().endpoint, ACCEPTED, 'the phone link is untouched');
@@ -155,11 +152,10 @@ test('a start check that times out still reads on', async () => {
   await settle();
   answer.reject(new Error('The operation timed out.')); await settle();
   assert.equal(p.element('notify').checked, true);
-  assert.equal(restoreShown(p), false);
-  assert.equal(p.element('notifynote').textContent, '');
+  assert.deepEqual(p.notes, []);
 });
 
-test('a new link still waits for the board, and a failed save still reads off with Restore', async () => {
+test('a new link still waits for the board, and a failed save still reads off', async () => {
   for (const remembered of [null, 'https://push.test/private/older']) {
     const answer = deferred();
     const p = page({ remembered, board: () => answer });
@@ -167,7 +163,7 @@ test('a new link still waits for the board, and a failed save still reads off wi
     assert.equal(p.element('notify').checked, false, 'unaccepted link read on (' + remembered + ')');
     answer.resolve({ ok: false, status: 503 }); await settle();
     assert.equal(p.element('notify').checked, false);
-    assert.equal(restoreShown(p), true);
+    assert.deepEqual(p.notes, []);
   }
 });
 
@@ -188,7 +184,6 @@ test('lost permission and a lost link still read off on the next check', async (
   p.context.Notification.permission = 'denied';
   p.return(); await settle();
   assert.equal(p.element('notify').checked, false);
-  assert.equal(restoreShown(p), true);
   p.context.Notification.permission = 'granted';
   const answer = deferred();
   const q = page({ board: () => answer });
@@ -196,7 +191,7 @@ test('lost permission and a lost link still read off on the next check', async (
   q.lose();
   answer.resolve({ ok: true, status: 200 }); await settle();
   assert.equal(q.element('notify').checked, false, 'a link gone after the save reads off');
-  assert.equal(restoreShown(q), true);
+  assert.deepEqual(q.notes, []);
 });
 
 test('an off choice is never shown on, even with the accepted link still held', async () => {

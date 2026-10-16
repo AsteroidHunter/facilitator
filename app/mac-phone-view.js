@@ -27,15 +27,12 @@
   }
   function createHost(options) {
     let child = null, childWindow = null, frame = null, wanted = false, active = false;
-    let mac = false, transferring = false, timer = null, failed = false;
+    let transferring = false, timer = null, failed = false;
     let composing = false, lastPhone = null, recovering = false;
     const doc = options.window.document, win = options.window;
     const status = doc.createElement("div");
     status.id = "phoneviewstatus"; status.setAttribute("role", "status"); status.hidden = true;
-    const back = doc.createElement("button");
-    back.id = "phoneviewreturn"; back.type = "button"; back.textContent = "Back to phone view"; back.hidden = true;
-    doc.body.append(status, back);
-    back.addEventListener("click", () => { mac = false; tick(); });
+    doc.body.append(status);
     doc.addEventListener("compositionstart", () => { composing = true; }, true);
     doc.addEventListener("compositionend", () => { composing = false; schedule(); }, true);
     function note(text) { status.textContent = text; status.hidden = !text; }
@@ -65,7 +62,7 @@
       doc.body.classList.toggle("phoneview-active", on);
       // Inert siblings preserve their layout boxes for the unchanged fit math.
       for (const el of doc.body.children) {
-        if (el === frame || el === status || el === back || el.tagName === "SCRIPT") continue;
+        if (el === frame || el === status || el.tagName === "SCRIPT") continue;
         if (on) {
           if (!el.hasAttribute("data-phone-inert")) el.dataset.phoneInert = el.inert ? "1" : "0";
           el.inert = true;
@@ -73,7 +70,6 @@
           el.inert = el.dataset.phoneInert === "1"; delete el.dataset.phoneInert;
         }
       }
-      back.hidden = !(mac && wanted);
       if (on) childWindow.focus();
       else win.focus();
     }
@@ -84,8 +80,7 @@
         try { options.adapter.restore(lastPhone); recovering = false; }
         catch (_) { schedule(); return; }
       }
-      const target = wanted && !mac;
-      back.hidden = !(mac && wanted);
+      const target = wanted;
       if (target && !frame) mount();
       if (target === active) { note(""); return; }
       if (!child) {
@@ -117,7 +112,7 @@
       options.changed?.();
     }
     return {
-      request(on) { wanted = !!on; if (!wanted) mac = false; tick(); },
+      request(on) { wanted = !!on; tick(); },
       connect(source, adapter) {
         if (!frame || source !== frame.contentWindow) return false;
         try { if (source.location.origin !== win.location.origin) return false; }
@@ -128,7 +123,6 @@
         tick(); return true;
       },
       accepts(source) { return !!frame && source === frame.contentWindow; },
-      openMac() { mac = true; tick(); },
       current() { return active && child ? child.capture() : null; },
       active() { return active; },
       refresh: tick,

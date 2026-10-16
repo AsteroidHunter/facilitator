@@ -76,7 +76,6 @@ test('turning the switch on shows no words or buttons while it works or after it
     p.later();
     assert.equal(sw.checked, true);
     assert.deepEqual(p.shown, [], 'nothing appeared at any point (' + permission + ')');
-    assert.equal(p.element('notifynote').textContent, '');
     assert.deepEqual(opening, [], 'the settings page opens quietly');
   }
 });
@@ -88,13 +87,14 @@ test('a quick restore when settings open with notifications on is silent too', a
   assert.deepEqual(p.shown, []);
 });
 
-test('a failed turn-on still leaves its message and Restore button on screen', async () => {
+test('a failed turn-on leaves the switch off and writes no words and shows no button', async () => {
   const p = page({ choice: 'off', saveFails: true });
   await settle();
   const sw = p.element('notify');
   sw.checked = true;
   p.release(); await sw.events.change(); await settle();
+  p.later();
   assert.equal(sw.checked, false);
-  assert.match(p.element('notifynote').textContent, /not ready\. Tap Restore notifications/);
-  assert.equal(p.element('notifyrestore').hidden, false);
+  assert.equal(sw.disabled, false, 'the switch can be tapped again to retry');
+  assert.deepEqual(p.shown, []);
 });
