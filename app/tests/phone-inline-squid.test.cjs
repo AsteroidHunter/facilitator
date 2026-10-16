@@ -62,20 +62,20 @@ test('the settings squid is an embedded PNG of the new logo cut to its bounds', 
   assert.match(images[0][1], /^data:image\/png;base64,[A-Za-z0-9+/=]+$/);
   assert.doesNotMatch(button[1], /srcset=|\/m-splash-squid\.png/);
   const pixels = decodePNG(Buffer.from(images[0][1].split(',')[1], 'base64'), [123, 120]);
-  // assets/facilitator_logo_blank_v0.3.png cropped to the squid (188,150, 2103 by 2046) and
+  // assets/facilitator_logo_blank_v0.3.png cropped to the squid (15,29, 2103 by 2046) and
   // resized with Lanczos to 123x120, lossless: no redraw, recolouring or quantization. The
   // crop is checked here against an area average of the source, which a Lanczos resize
   // follows to within a few levels on average.
-  const source = decodePNG(readFileSync(path.join(__dirname, '..', 'assets', 'facilitator_logo_blank_v0.3.png')), [2400, 2400]);
-  const ink = inkBounds(source, 2400, 2400);
-  assert.deepEqual(ink, { x: 188, y: 150, w: 2103, h: 2046 }, 'the squid\'s bounds in the source moved');
+  const source = decodePNG(readFileSync(path.join(__dirname, '..', 'assets', 'facilitator_logo_blank_v0.3.png')), [2139, 2096]);
+  const ink = inkBounds(source, 2139, 2096);
+  assert.deepEqual(ink, { x: 15, y: 29, w: 2103, h: 2046 }, 'the squid\'s bounds in the source moved');
   let total = 0;
   for (let y = 0; y < 120; y++) for (let x = 0; x < 123; x++) {
     const sx0 = ink.x + Math.floor(x * ink.w / 123), sx1 = ink.x + Math.max(Math.floor((x + 1) * ink.w / 123), Math.floor(x * ink.w / 123) + 1);
     const sy0 = ink.y + Math.floor(y * ink.h / 120), sy1 = ink.y + Math.max(Math.floor((y + 1) * ink.h / 120), Math.floor(y * ink.h / 120) + 1);
     const sum = [0, 0, 0, 0]; let n = 0;
     for (let yy = sy0; yy < sy1; yy++) for (let xx = sx0; xx < sx1; xx++) {
-      const o = (yy * 2400 + xx) * 4, a = source[o + 3] / 255;
+      const o = (yy * 2139 + xx) * 4, a = source[o + 3] / 255;
       sum[0] += source[o] * a; sum[1] += source[o + 1] * a; sum[2] += source[o + 2] * a; sum[3] += source[o + 3]; n++;
     }
     const o = (y * 123 + x) * 4, a = pixels[o + 3] / 255;

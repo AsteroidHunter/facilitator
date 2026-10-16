@@ -1,6 +1,6 @@
 # Swapping the squid logo
 
-The source is `app/assets/facilitator_logo_blank_v0.3.png` (2400 x 2400, transparent). It is kept as the source and is never served. Every logo the app shows is a file cut from it.
+The source is `app/assets/facilitator_logo_blank_v0.3.png` (2139 x 2096, transparent, with a small empty margin). It is kept as the source and is never served. Every logo the app shows is a file cut from it.
 
 ## Where the logo shows
 
@@ -35,7 +35,7 @@ Find the new bounds: the first and last rows and columns with alpha above 2. Str
 
 ## The phone's cache key
 
-The cache key is the name the phone app saves its copy of the home logo under. Bump it so phones fetch the new logo. It is `BRAND_KEY` in `app/m.html` (now `homebrand.squid05`).
+The cache key is the name the phone app saves its copy of the home logo under. Bump it so phones fetch the new logo. It is `BRAND_KEY` in `app/m.html` (now `homebrand.squid06`).
 
 ## The README banner
 
