@@ -702,23 +702,51 @@
   body.focus.obtickets:not(.obdone) #tickets{transition:opacity .9s ease, visibility 0s}
   body.focus:not(.obtickets):not(.obticketsprep) #tickets, body.obdone #tickets{visibility:hidden; opacity:0; pointer-events:none}
 
-  /* the arrow on FIN (obfin, set by show below), from the card toward the
-     top-right corner, where the board's bug button stands once the board opens.
-     it is drawn in the board's ink, in the stroke the board's line marks use,
-     and comes in slowly after the card shows, with no blinking. it goes with
-     the card's done (obdone) on the same quick fade the card does, and when
-     another card is shown */
-  #obarrow{position:fixed; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none;
-    color:var(--ink); opacity:0; visibility:hidden; transition:opacity .18s ease, visibility 0s .18s}
-  #obarrow path{fill:none; stroke:currentColor; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round}
-  body.obfin:not(.obdone) #obarrow{visibility:visible; opacity:1; transition:opacity 1.1s ease .6s, visibility 0s}
+  /* the board's three top-right buttons on FIN (obfin, set by show below): the
+     speaker, the bug and the settings squid, drawn as the board's bar draws them,
+     in the same place, size, glass and spacing, so the board's own bar takes
+     over from them when the frame goes, with nothing moving. the board's bar is
+     covered by this page while the onboarding is up, so they are drawn here.
+     the speaker and the squid are greyed and cannot be pressed; the bug stays at
+     full strength. they come in gently with FIN and go with the frame (not with
+     the card's done), so the corner is never empty while the board opens.
+     the numbers are index.html's: the bar's inset from the window, its 40px
+     height with 1px above and 6px below and a clear 1px bottom row (the
+     circles stand on the whole pixel), 8px between pieces and 3px more before
+     the bug and the squid, 32px circles */
+  #obbar{position:fixed; top:var(--app-inset); right:var(--app-inset); height:40px; padding:1px 0 6px;
+    border-bottom:1px solid transparent; display:flex; align-items:center; gap:8px;
+    opacity:0; visibility:hidden; pointer-events:none; transition:opacity .18s ease, visibility 0s .18s}
+  body.obfin #obbar{opacity:1; visibility:visible; pointer-events:auto; transition:opacity .9s ease, visibility 0s}
+  #obbar button{flex:none; position:relative; width:32px; height:32px; margin:0; padding:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; color:var(--sub); cursor:pointer}
+  #obbar #obbug, #obbar #obset{margin-left:3px}
+  #obbar button:not(:disabled):hover{color:var(--ink)}
+  #obbar button:disabled{opacity:.4; cursor:default}
+  #obbar svg{display:block; flex:none}
+  #obbar .chime-slash, #obbar .chime-gap{display:none}
+  /* the bar's glass: no white first row and no dark band, so the grey ring is
+     the top edge (index.html, the bar's glass) */
+  #obbar .qn-glass{
+    box-shadow:
+      inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+      inset 0 0 0 1px var(--qn-ring),
+      inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+      inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+      0 1px 2px -1px rgba(0,0,0,.18),
+      0 1px 3px rgba(0,0,0,.07),
+      0 8px 20px rgba(0,0,0,.06)}
 </style>
 </head>
 <body class="focus">
 <div id="obstage"><main><div id="sections"></div></main></div>
 <!-- the ticket list, as index.html has it -->
 <div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
-<svg id="obarrow" aria-hidden="true"><path id="obarrowline" d=""></path><path id="obarrowhead" d=""></path></svg>
+<!-- the board's three top-right buttons, as its bar has them (index.html .bar), for FIN.
+     the speaker and the squid are greyed. the bug does nothing here: the profile is
+     saved only when FIN is marked done, and until it is saved the board's feedback box
+     is greyed and POST /feedback refuses, so the board's sheet cannot work from here -->
+<div id="obbar"><button id="obchime" class="qn-glass" type="button" disabled aria-label="Reply chime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button><button id="obbug" class="qn-glass" type="button" tabindex="-1" title="Share feedback" aria-label="Share feedback"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></button><button id="obset" class="qn-glass" type="button" disabled aria-label="settings"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button></div>
 <script>
 // ---- what card-logic.js reads off the page it runs in -----------------------
 // the board's names for its state, its selected card and its cards, as
@@ -1697,36 +1725,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     else setTimeout(() => location.replace("/"), 180);
   }
 
-  // ---- the arrow to the bug button ---------------------------------------------------
-  // this page draws no bug button, and the one the board has under it is covered
-  // by this page's white paper. the arrow points at where that button stands
-  // once the board opens: the board's own button where the page can read it
-  // (the board lays this page over itself in a frame of the same origin), and
-  // otherwise the place measured on the board, from the window's right and top
-  const ARROW_ON = "fin";
-  const BUG_AT = { right: 65, top: 23 };
-  const arrowLine = document.getElementById("obarrowline");
-  const arrowHead = document.getElementById("obarrowhead");
-  function placeArrow(){
-    let bug = null;
-    try { bug = parent !== window ? parent.document.getElementById("feedbackbtn") : null; } catch (e) {}
-    const r = bug && bug.getBoundingClientRect();
-    const tx = r && r.width ? r.left + r.width / 2 : innerWidth - BUG_AT.right;
-    const ty = r && r.height ? r.top + r.height / 2 : BUG_AT.top;
-    // from the card's right edge, near its top, out along the paper and up
-    // under the button, arriving from below
-    const card = document.querySelector("main").getBoundingClientRect();
-    const sx = card.right + 16, sy = card.top + 64;
-    const ex = tx, ey = ty + 26;
-    const cx = ex, cy = sy;
-    arrowLine.setAttribute("d", "M" + sx + " " + sy + " Q" + cx + " " + cy + " " + ex + " " + ey);
-    // the head: two strokes back from the tip, 28 degrees either side of the line
-    const back = Math.atan2(cy - ey, cx - ex), spread = 28 * Math.PI / 180, len = 11;
-    const wing = turn => (ex + len * Math.cos(back + turn)).toFixed(1) + " " + (ey + len * Math.sin(back + turn)).toFixed(1);
-    arrowHead.setAttribute("d", "M" + wing(-spread) + " L" + ex + " " + ey + " L" + wing(spread));
-  }
-  addEventListener("resize", placeArrow);
-
   // ---- moving between cards -----------------------------------------------------
   function show(i){
     const card = cards[i], el = card.el;
@@ -1735,8 +1733,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     at = i;
     selectedId = card.spec.id;
     for (const c of cards) c.el.box.classList.toggle("sel", c === card);
-    document.body.classList.toggle("obfin", card.spec.id === ARROW_ON);
-    if (card.spec.id === ARROW_ON) placeArrow();
+    document.body.classList.toggle("obfin", !!card.spec.closing);
     // from the onboarding card on, the card stands at its place on the board;
     // the ticket list fades in beside it once 101: Tickets is first shown, and
     // stays: drawn at no strength for two frames, then faded in (obticketsprep
@@ -1931,6 +1928,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
       else el.ta.focus({ preventScroll: true });
     }
   });
+
+  // the bug button on FIN has no sheet to open from here (see its comment above),
+  // and a press on it must not take the page's keys away: it keeps the focus
+  // where it was, so Control + Shift + Backspace still marks FIN done
+  document.getElementById("obbug").addEventListener("mousedown", e => e.preventDefault());
 
   // ---- the block caret, cut down from index.html's fat caret ------
   // the board draws a terminal block over the caret in every field it types in.

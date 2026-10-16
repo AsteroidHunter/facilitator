@@ -278,7 +278,7 @@ async function finishWith(answers) {
   vm.runInContext([
     QUESTION_SOURCE(),
     "let finished = false, saving = false;",
-    grab("  async function finish(){", "  // ---- the arrow to the bug button"),
+    grab("  async function finish(){", "  // ---- moving between cards"),
   ].join("\n"), context);
   await vm.runInContext("finish()", context);
   return { calls, onboard, finished: vm.runInContext("finished", context),
@@ -440,43 +440,54 @@ test("the Bonus card holds a placeholder line, and FIN, the last card, ends the 
   assert.doesNotMatch(CARDS.find(c => c.id === "hotkeys").say, /last card|finish|open your board/i);
 });
 
-// the arrow on FIN, toward the bug button
-test("an arrow in the board's ink points from FIN at the top-right corner, comes in gently and goes with the card", () => {
-  const sheet = ONBOARDING.slice(ONBOARDING.indexOf("#obarrow{"), ONBOARDING.indexOf("</style>", ONBOARDING.indexOf("#obarrow{")));
-  assert.match(sheet, /color:var\(--ink\)/, "not the board's ink");
-  assert.match(sheet, /#obarrow path\{[^}]*stroke:currentColor/);
-  assert.doesNotMatch(sheet, /animation|infinite|blink|@keyframes/, "the arrow moves on its own");
-  assert.match(sheet, /body\.obfin:not\(\.obdone\) #obarrow\{visibility:visible; opacity:1; transition:opacity 1\.1s ease \.6s/);
-  assert.doesNotMatch(sheet, /--accent|purple|#7c3aed|#8b5cf6/i);
-  assert.ok(ONBOARDING.includes('document.body.classList.toggle("obfin", card.spec.id === ARROW_ON);'));
-  assert.ok(ONBOARDING.includes('const ARROW_ON = "fin";'));
-  // the page draws no bug button of its own
-  assert.doesNotMatch(ONBOARDING.replace(/<svg id="obarrow"[\s\S]*?<\/svg>/, ""), /id="feedbackbtn"|id="bugbtn"|lucide-bug/);
-  // placeArrow, run on small stand ins: the arrow ends just under the board's bug button, its head at the tip
-  const run = parentBug => {
-    const attrs = {};
-    const el = id => ({ setAttribute: (k, v) => { attrs[id] = v; } });
-    const context = vm.createContext({
-      innerWidth: 1512, window: {}, parent: parentBug === null ? undefined : { document: { getElementById: () => parentBug } },
-      document: {
-        getElementById: id => el(id),
-        querySelector: () => ({ getBoundingClientRect: () => ({ right: 800, top: 100 }) }),
-      },
-    });
-    context.parent = parentBug === null ? context.window : context.parent;
-    vm.runInContext(grab("  const ARROW_ON = ", "  addEventListener(\"resize\", placeArrow);") + "\nplaceArrow();", context);
-    return attrs;
+// the board's three top-right buttons on FIN
+test("FIN shows the board's speaker, bug and squid buttons, the speaker and squid dimmed and the bug at full strength", () => {
+  const rule = sel => {
+    const at = ONBOARDING.indexOf(sel + "{");
+    assert.ok(at >= 0, "no rule for " + sel);
+    return ONBOARDING.slice(at, ONBOARDING.indexOf("}", at));
   };
-  const read = d => d.match(/-?\d+(\.\d+)?/g).map(Number);
-  // the board's button read from the board: centre (1447, 23)
-  const board = run({ getBoundingClientRect: () => ({ left: 1431, top: 7, width: 32, height: 32 }) });
-  const line = read(board.obarrowline);
-  assert.deepEqual(line.slice(0, 2), [816, 164], "does not start by the card");
-  assert.deepEqual(line.slice(-2), [1447, 49], "does not end under the button");
-  assert.deepEqual(read(board.obarrowhead).slice(2, 4), [1447, 49], "the head is not at the tip");
-  // read from nowhere (this page opened alone): the corner where the button stands
-  const alone = run(null);
-  assert.deepEqual(read(alone.obarrowline).slice(-2), [1447, 49]);
+  // no arrow is left
+  assert.doesNotMatch(ONBOARDING, /obarrow|placeArrow|ARROW_ON|BUG_AT/);
+  // the three buttons are the board's own markup, in the board's order
+  const bar = ONBOARDING.match(/<div id="obbar">[\s\S]*?<\/div>/)[0];
+  assert.deepEqual([...bar.matchAll(/<button id="(\w+)"/g)].map(m => m[1]), ["obchime", "obbug", "obset"]);
+  const glyph = (html, id) => html.match(new RegExp('<button id="' + id + '"[\\s\\S]*?</button>'))[0].replace(/^<button[^>]*>/, "");
+  assert.equal(glyph(bar, "obchime"), glyph(MAC, "chimebtn"), "the speaker is not the board's");
+  assert.equal(glyph(bar, "obbug"), glyph(MAC, "feedbackbtn"), "the bug is not the board's");
+  assert.equal(glyph(bar, "obset"), glyph(MAC, "setbtn"), "the squid is not the board's");
+  assert.equal([...bar.matchAll(/class="qn-glass"/g)].length, 3, "not all three in the board's glass");
+  // greyed and not pressable: the speaker and the squid are disabled and dimmed, the bug is neither
+  const button = id => bar.match(new RegExp('<button id="' + id + '"[^>]*>'))[0];
+  assert.match(button("obchime"), /\bdisabled\b/);
+  assert.match(button("obset"), /\bdisabled\b/);
+  assert.doesNotMatch(button("obbug"), /\bdisabled\b|aria-disabled/);
+  assert.equal(rule("#obbar button:disabled"), "#obbar button:disabled{opacity:.4; cursor:default");
+  assert.doesNotMatch(rule("#obbar button"), /opacity/, "the bug is dimmed too");
+  // where the board's bar puts them: its inset, 40px height with 1px and 6px padding, 8px gap, 32px circles,
+  // and 3px more before the bug and the squid
+  assert.ok(MAC.includes("body.focus .bar{height:40px; padding:1px 0 6px; gap:8px}"));
+  assert.ok(MAC.includes("body.focus .bar :is(#feedbackbtn, #setbtn){margin-left:3px}"));
+  assert.match(MAC, /body\.focus :is\(#homeico, #chimebtn, #feedbackbtn, #setbtn\)\{\s*flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;/);
+  assert.match(rule("#obbar"), /position:fixed; top:var\(--app-inset\); right:var\(--app-inset\); height:40px; padding:1px 0 6px;\s*border-bottom:1px solid transparent; display:flex; align-items:center; gap:8px;/);
+  assert.ok(MAC.includes("border-bottom-color:transparent; border-bottom-width:1px;"), "the board's bar lost its clear bottom row");
+  assert.match(rule("#obbar button"), /width:32px; height:32px;[^}]*border-radius:50%/);
+  assert.equal(rule("#obbar #obbug, #obbar #obset"), "#obbar #obbug, #obbar #obset{margin-left:3px");
+  // the board's bar glass: the same shadow stack
+  const stack = css => css.slice(css.indexOf("box-shadow:")).split("}")[0].replace(/\s+/g, " ").trim();
+  const boardGlass = MAC.slice(MAC.indexOf("body.focus :is(.bar .qn-glass, #projmenu)"));
+  assert.equal(stack(rule("#obbar .qn-glass")), stack(boardGlass));
+  // shown on FIN only (the last card), gently, and kept through its done so the corner is never empty while the board opens
+  assert.ok(ONBOARDING.includes('document.body.classList.toggle("obfin", !!card.spec.closing);'));
+  assert.match(rule("#obbar"), /opacity:0; visibility:hidden; pointer-events:none;/);
+  assert.equal(rule("body.obfin #obbar"), "body.obfin #obbar{opacity:1; visibility:visible; pointer-events:auto; transition:opacity .9s ease, visibility 0s");
+  assert.doesNotMatch(ONBOARDING, /obdone[^{]*#obbar|#obbar[^{]*obdone/);
+  const sheet = ONBOARDING.slice(ONBOARDING.indexOf("#obbar{"), ONBOARDING.indexOf("</style>", ONBOARDING.indexOf("#obbar{")));
+  assert.doesNotMatch(sheet, /animation|infinite|blink|@keyframes/, "the buttons move on their own");
+  // the bug has no sheet to open from here (the profile is saved only by finish), and a press keeps the page's keys
+  assert.doesNotMatch(ONBOARDING, /feedbackSheet|feedbackOverlay|"\/feedback"/);
+  assert.ok(ONBOARDING.includes('document.getElementById("obbug").addEventListener("mousedown", e => e.preventDefault());'));
+  assert.match(button("obbug"), /tabindex="-1"/);
 });
 
 // the onboarding card's pages as the page writes them, run in a vm
