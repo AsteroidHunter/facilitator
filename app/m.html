@@ -3679,6 +3679,14 @@ function deselect(){
 function setTab(owner){
   if (macHost && parent.macPhoneProject && owner !== parent.macPhoneProject) return;
   if (!validOwners.has(owner)) return;
+  // the card on screen is the one this project comes back to. select() records
+  // it, but a card can be on screen without select() (the one kept from the
+  // last visit), so leaving records it too, and so does coming back from home
+  // to the same project
+  if (lastState && selectedId){
+    const shown = lastState.boxes.find(b => b.id === selectedId);
+    if (shown && shown.owner === activeOwner && shown.id !== "q") lastSel[activeOwner] = shown.id;
+  }
   activeOwner = owner; localStorage.setItem("activeproj", owner);
   const pick = lastState && pickInRow(lastState, owner);
   if (pick) browse(pick.id); else deselect();
