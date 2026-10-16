@@ -64,6 +64,10 @@ geometry unchanged, at 15px with a 2 stroke like the bar's other icons. It was
 copied from the `icons/bug.svg` on Lucide's main branch on 2026-10-15, and it is
 not part of Feather's set either, so it is covered by the same ISC License.
 
+The token chart's download button draws Lucide's `download`, `loader-circle` and
+`check` the same way (inline static SVG path data, geometry unchanged, 14px with a
+2 stroke), covered by the same ISC License.
+
 ### ISC License
 
 Copyright (c) 2026 Lucide Icons and Contributors
@@ -91,3 +95,13 @@ No package is installed and nothing is fetched at runtime. Source:
 
 Feather is distributed under the MIT License, whose text is given above, with
 this copyright notice: Copyright (c) 2013-2017 Cole Bemis.
+
+## Inter
+
+The chart picture the home page saves (`app/home-widgets.js`) carries the latin
+subset of Inter, the variable font (weights 100 to 900), as the `INTER_LATIN`
+constant, a base64 WOFF2 file taken unchanged from Google Fonts (version 20,
+`https://fonts.google.com/specimen/Inter`), so the name and the repo link on the
+picture are drawn in Inter without the network. Inter is Copyright (c) 2016 The
+Inter Project Authors (`https://github.com/rsms/inter`) and is licensed under the
+SIL Open Font License, Version 1.1, `https://openfontlicense.org`.

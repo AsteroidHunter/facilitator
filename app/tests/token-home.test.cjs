@@ -546,7 +546,8 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   // the pill slides and the two chart layers crossfade
   assert.match(read("card-tokens.css"), /\*\{scrollbar-width:none\}\n\*::-webkit-scrollbar\{display:none\}/);
   assert.doesNotMatch(css, /scrollbar|\bscroll-behavior/);
-  assert.equal([...css.matchAll(/transition:[^;}]*(opacity|left|transform)/g)].length, 2);
+  // the pill's seat, the two chart layers and the download button's icons
+  assert.equal([...css.matchAll(/transition:[^;}]*(opacity|left|transform)/g)].length, 3);
   assert.match(rule(".tk-layer"), /transition:opacity \.22s var\(--gentle\)/);
   assert.match(rule(".tk-thumb"), /transition:transform \.28s var\(--gentle\)/);
   assert.doesNotMatch(WIDGETS, /smooth|scrollTo\(|scrollBy\(|requestAnimationFrame/);
@@ -1001,13 +1002,14 @@ test("the foot is one line that never wraps, and the phone leaves the tools the 
   assert.match(read("m.html"), /grid-template-columns:minmax\(0, 1fr\) auto/, "the heading column can give way");
 });
 
-test("the picture is 3:2, drawn three times over, with the whole year on it", () => {
+test("the picture is 3:1, drawn three times over, with the whole year on it", () => {
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5000 : 0)).map(d => ({ ...d, claude: d.total, codex: 0 }));
-  assert.equal(W.SHAPE, "3:2");
+  assert.equal(W.SHAPE, "3:1");
   assert.equal(W.PIC_SCALE, 3);
-  const [w, h] = W.SHAPES["3:2"];
-  assert.equal(w * 2, h * 3, "three wide for two tall");
+  const [w, h] = W.SHAPES["3:1"];
+  assert.equal(w, h * 3, "three wide for one tall");
+  assert.equal(W.SHAPES["3:2"][0] * 2, W.SHAPES["3:2"][1] * 3);
   assert.equal(W.SHAPES["4:3"][0] * 3, W.SHAPES["4:3"][1] * 4);
   const heat = W.pictureModel("heatmap", days, null);
   assert.deepEqual([heat.width, heat.height], [w, h]);
@@ -1017,7 +1019,9 @@ test("the picture is 3:2, drawn three times over, with the whole year on it", ()
   assert.equal(heat.install, null, "the heatmap has no install mark");
   // the week columns reach from the day names to the right margin
   const g = heat.heat.geo, last = heat.heat.cells.at(-1);
-  assert.ok(last.x + g.cell <= w - 48 + 0.01 && last.x + g.cell >= w - 48 - g.step - 0.01);
+  assert.ok(last.x + g.cell <= w - 32 + 0.01 && last.x + g.cell >= w - 32 - g.step - 0.01);
+  assert.ok(g.top + g.rows < h - 36, "the seven rows stand clear of the foot");
+  assert.ok(g.cell > 15, "squares as large as the width of the year allows");
   const line = W.pictureModel("line", days, null);
   assert.equal(line.line.points.length, 365);
   assert.equal(line.agents, "Claude");
@@ -1044,7 +1048,12 @@ test("the picture's line view marks the install day, and leaves the mark out whe
 test("the picture is painted in the board's inks and the squid's own file, never purple and never the accent", () => {
   const code = WIDGETS.slice(WIDGETS.indexOf("// ---- the picture"), WIDGETS.indexOf("// ---- the panel"));
   assert.match(code, /LOGO_SRC = "\/m-splash-squid\.png"/, "the board's own logo file");
-  assert.match(code, /700 28px \$\{look\.inter\}/, "the name in the board's wordmark face");
+  assert.match(code, /font\(700, 28, look\.inter\)/, "the name in the board's wordmark face");
+  assert.match(code, /REPO_LINK = "github\.com\/AsteroidHunter\/facilitator"/, "no https, no www");
+  assert.match(code, /linkFont = size => `500 \$\{size\}px \$\{look\.inter\}`/, "the link is in Inter too");
+  assert.match(WIDGETS, /const INTER_LATIN = "[A-Za-z0-9+\/=]{40000,}"/, "Inter travels in the file");
+  assert.match(WIDGETS, /new FontFace\(INTER_EXPORT, `url\(data:font\/woff2;base64,\$\{INTER_LATIN\}\)`/);
+  assert.match(code, /globalAlpha = 0\.4;[^]*lineWidth = 0\.75/, "the install line is thin and faint");
   assert.doesNotMatch(code, /--accent/);
   for (const hex of code.match(/#[0-9a-fA-F]{6}\b/g) || []) {
     const { h, s } = hsl(hex);
@@ -1055,12 +1064,15 @@ test("the picture is painted in the board's inks and the squid's own file, never
 test("pressing the button saves the chart on show, once at a time, as a download on the board and a share on the phone", async () => {
   class FakeFile { constructor(parts, name, opts) { this.name = name; this.type = opts.type; } }
   const days = daysEnding("2026-09-27", 371);
-  const run = async (share, canShare) => {
+  const run = async (share, canShare, closed = false) => {
     const { W } = widgets({ File: FakeFile, setTimeout: () => 0, URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} } });
     const doc = makeDocument();
-    const seen = { shared: [], clicked: [], canvases: [] };
+    const seen = { shared: [], clicked: [], canvases: [], states: [] };
     doc.defaultView = {
-      navigator: canShare ? { canShare: d => d.files.length === 1, share: async d => { seen.shared.push([d.files[0].name, d.files[0].type, d.title]); } } : {},
+      navigator: canShare ? { canShare: d => d.files.length === 1, share: async d => {
+        if (closed) throw Object.assign(new Error("closed"), { name: "AbortError" });
+        seen.shared.push([d.files[0].name, d.files[0].type, d.title]);
+      } } : {},
       clickDownload: a => seen.clicked.push([a.download, a.href]),
       getComputedStyle: () => ({ getPropertyValue: () => "" }),
     };
@@ -1069,29 +1081,47 @@ test("pressing the button saves the chart on show, once at a time, as a download
     doc.createElement = name => {
       const node = make(name);
       if (name === "canvas") {
-        node.getContext = () => new Proxy({}, { get: (t, k) => (k === "measureText" ? () => ({ width: 10 }) : () => {}), set: () => true });
+        node.getContext = () => new Proxy({}, { get: (t, k) => (k === "measureText" ? () => ({ width: 10, actualBoundingBoxAscent: 8,
+          actualBoundingBoxDescent: 2, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 10 }) : () => {}), set: () => true });
         node.toBlob = fn => { seen.canvases.push([node.width, node.height]); fn({ size: 1 }); };
       }
       if (name === "a") node.remove = () => {};
       return node;
     };
+    // timers the test fires by hand, so each state of the button can be read
+    const queue = [];
+    const flush = async () => { for (let i = 0; i < 10; i++) await settle(); const next = queue.splice(0); next.forEach(([fn]) => fn()); for (let i = 0; i < 10; i++) await settle(); return next.map(([, ms]) => ms); };
     const root = new El("div", doc);
-    const p = W.panel(root, { load: async () => ({ days, installed: days.at(-100).date }), store: makeStore({ "home.chart": "line" }), share, now: () => Date.UTC(2026, 9, 16, 12) });
+    const p = W.panel(root, { load: async () => ({ days, installed: days.at(-100).date }), store: makeStore({ "home.chart": "line" }), share,
+      now: () => Date.UTC(2026, 9, 16, 12), later: (fn, ms) => { queue.push([fn, ms]); return queue.length; }, cancel: () => {} });
     await p.refresh();
+    const save = walk(root).find(n => n.className === "tk-save");
+    seen.start = save.dataset.state;
     const first = p.download(), second = p.download();
-    await Promise.all([first, second]);
-    await p.download();
+    seen.states.push(save.dataset.state);
+    seen.busyAria = save.getAttribute("aria-busy");
+    await Promise.all([first.then(() => {}), flush().then(waits => { seen.spinWait = waits; }), second]);
+    seen.states.push(save.dataset.state);
+    seen.doneWait = await flush();
+    seen.states.push(save.dataset.state);
     return seen;
   };
   const board = await run(false, true);
-  assert.deepEqual(board.canvases, [[3600, 2400], [3600, 2400]], "3x of 1200 x 800, one per press that was let through");
+  assert.equal(board.start, "idle");
+  assert.deepEqual(board.states, ["busy", "done", "idle"], "the spinner, then the check, then the download icon again");
+  assert.equal(board.busyAria, "true");
+  assert.deepEqual(board.spinWait, [500], "the spinner stays at least half a second");
+  assert.deepEqual(board.doneWait, [1500], "the check stays a moment");
+  assert.deepEqual(board.canvases, [[3600, 1200]], "3x of 1200 x 400, once for the two presses");
   assert.deepEqual(board.shared, [], "the board never opens a share sheet");
-  assert.deepEqual(board.clicked, [["facilitator-tokens-line-2026-10-16.png", "blob:x"], ["facilitator-tokens-line-2026-10-16.png", "blob:x"]]);
+  assert.deepEqual(board.clicked, [["facilitator-tokens-line-2026-10-16.png", "blob:x"]]);
   const phone = await run(true, true);
-  assert.deepEqual(phone.shared, [["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"],
-                                  ["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"]]);
+  assert.deepEqual(phone.shared, [["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"]]);
   assert.deepEqual(phone.clicked, [], "a share that works is not also saved");
+  assert.deepEqual(phone.states, ["busy", "done", "idle"]);
   const fallback = await run(true, false);
   assert.equal(fallback.shared.length, 0);
-  assert.equal(fallback.clicked.length, 2, "a phone that cannot share a file falls back to a download");
+  assert.equal(fallback.clicked.length, 1, "a phone that cannot share a file falls back to a download");
+  const closed = await run(true, true, true);
+  assert.deepEqual(closed.states, ["busy", "idle", "idle"], "a share sheet closed without sending goes straight back, no check");
 });
