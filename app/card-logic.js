@@ -163,15 +163,15 @@ function installCardPageGuard(win = window){
   // open. a phone has no right click and iOS sends no contextmenu for a long
   // press, so the held finger is timed here, and the click its lifting may
   // still send is swallowed
-  let pressedFrom = null, hold = null, held = null;
+  let pressedFrom = null, hold = null, held = null, pressedBox = null;
   const plainClick = e => e.type === "click" && !e.button && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
   function activate(e){
     const link = linkFor(e);
     if (!link){
-      // the picture an image box shows has no menu: a plain click opens it, and
-      // any other press is left as it was
+      // the picture an image box shows has no menu: a plain click opens it once
+      // the box is selected, and any other press is left as it was
       const shown = plainClick(e) ? boxImage(e.target) : null;
-      if (!shown) return;
+      if (!shown || !boxSelected(shown)) return;
       e.preventDefault(); e.stopImmediatePropagation();
       openCardPicture(shown, null);
       return;
@@ -179,9 +179,25 @@ function installCardPageGuard(win = window){
     if (downloads.has(link)) return;
     e.preventDefault(); e.stopImmediatePropagation();
     if (held === link && e.type === "click"){ held = null; return; }
-    // a picture in a magic box leaves the focus where the click in the box put it
-    if (plainClick(e) && cardPicture(link) && openCardPicture(link, link.closest(".magicbox") ? null : pressedFrom)) return;
+    if (plainClick(e) && cardPicture(link)){
+      // the click that selects a markdown box is only that: no viewer, no menu
+      if (!boxSelected(link)) return;
+      // a picture in a magic box leaves the focus where the click in the box put it
+      if (openCardPicture(link, link.closest(".magicbox") ? null : pressedFrom)) return;
+    }
     show(link, e);
+  }
+  // the Mac board's box is selected (held) by a press in it, which the board
+  // takes after this guard has heard it, so the press records what the box was
+  // as it came down: the first click on a picture is the box being selected, the
+  // next one opens it. the phone's box has no selected state, so its pictures
+  // open on the first tap, as the card's do. a click with no press before it
+  // (the keys, a script) reads the box as it stands
+  function boxSelected(picture){
+    const box = picture.closest(".magicbox"), press = pressedBox;
+    pressedBox = null;
+    if (!box || box.id !== "magicbox") return true;
+    return press?.box === box ? press.held : box.classList.contains("held");
   }
   for (const type of ["click", "auxclick", "contextmenu", "dragstart"])
     win.addEventListener(type, activate, true);
@@ -191,6 +207,8 @@ function installCardPageGuard(win = window){
   win.addEventListener("pointerdown", e => {
     if (menu && !menu.contains(e.target)) close();
     pressedFrom = doc.activeElement;
+    const box = e.target?.closest?.(".magicbox");
+    pressedBox = box ? { box, held: box.classList.contains("held") } : null;
   }, true);
   const letGo = () => { clearTimeout(hold?.timer); hold = null; };
   win.addEventListener("touchstart", e => {
@@ -259,9 +277,10 @@ function installCardPageGuard(win = window){
 // tap or a click puts it back, once the moment for a second tap has passed;
 // zoomed, it takes Escape. the picture a card's magic box shows (an image box)
 // and the pictures in a markdown box open the same way, on both pages, and the
-// box keeps its hold on the keys through it. a page an agent made in the box
-// has its own pictures, which are its own; the other boxes beside the card keep
-// the menu for theirs
+// box keeps its hold on the keys through it. on the Mac board that is once the
+// box is selected: the click that selects it does not open the picture. a page
+// an agent made in the box has its own pictures, which are its own; the other
+// boxes beside the card keep the menu for theirs
 const CARD_PICTURES = ".reply.cardmd img.shot, .answmsg.cardmd img.shot, .magicbox .mbtext.cardmd img.shot";
 const BOX_PICTURE = ".magicbox .mbimg";
 const CARD_PICTURE_MS = 300;

@@ -707,8 +707,10 @@ test('the sheet: the board ink veil, over the board and under the menu, the touc
 // the card's magic box: #magicbox on the Mac board, #mbface on the phone, both
 // .magicbox with a .mbbody. an image box holds one img.mbimg; a markdown box
 // holds .mbtext.cardmd with img.shot in it; an html box holds a frame
-function magicBox(f, { id = 'magicbox', kind = 'image' } = {}) {
-  const box = f.element('section', f.doc.body, 'magicbox'); box.id = id;
+// the Mac board's box stands selected (held) unless a test says otherwise; the
+// phone's has no such state
+function magicBox(f, { id = 'magicbox', kind = 'image', held = true } = {}) {
+  const box = f.element('section', f.doc.body, held && id === 'magicbox' ? 'magicbox held' : 'magicbox'); box.id = id;
   const body = f.element('div', box, 'mbbody'); body.setAttribute('data-kind', kind);
   const img = kind === 'image' ? f.element('img', body, 'mbimg') : f.picture(f.element('div', body, 'mbtext cardmd'), { w: 800, h: 600 });
   if (kind === 'image') {
@@ -745,6 +747,71 @@ for (const [where, id, kind] of [['an image box on the Mac board', 'magicbox', '
     assert.deepEqual(f.boardKeys, []);
   });
 }
+
+// the Mac board takes a press in its box as the box being selected (magicHold),
+// after the guard has heard it, and a press on the open picture is not that
+function board(f, box) {
+  f.win.addEventListener('pointerdown', e => {
+    if (e.target.closest?.('[id^="picfull"]')) return;
+    box.classList.toggle('held', box.contains(e.target));
+  }, true);
+}
+
+for (const kind of ['image', 'markdown']) {
+  test(`a click on a picture in a ${kind} box that is not selected selects the box and opens nothing, the next click opens it, and closing leaves it selected`, () => {
+    const f = fixture();
+    const { box, img } = magicBox(f, { kind, held: false });
+    board(f, box);
+    assert.equal(box.classList.contains('held'), false);
+    const first = f.press(img);
+    assert.equal(box.classList.contains('held'), true, 'the click selected the box');
+    assert.equal(f.state(), null, 'no viewer');
+    assert.ok(!f.layer(), 'no layer built');
+    assert.equal(img.classList.contains('picfull-from'), false);
+    if (kind === 'image') assert.equal(first.defaultPrevented, false, 'the click is left as it was');
+    assert.equal(f.menu(), undefined, 'no menu either');
+    // a press elsewhere lets go of the box, and the picture is a first click again
+    f.press(f.doc.body);
+    assert.equal(box.classList.contains('held'), false);
+    f.press(img);
+    assert.equal(f.state(), null, 'not selected again, so no viewer');
+    f.menu()?.remove();
+    // selected, the next click opens the viewer
+    f.press(img);
+    assert.ok(f.state(), 'it opens');
+    assert.equal(f.state().img, img);
+    assert.equal(box.classList.contains('held'), true);
+    f.key('Escape'); settle(f);
+    assert.equal(f.state(), null);
+    assert.equal(box.classList.contains('held'), true, 'the box is still selected after closing');
+    // a press on the open picture is not a press outside the box
+    f.press(img);
+    assert.ok(f.state());
+    big(f).animations[0].finish();
+    f.press(big(f));
+    assert.equal(box.classList.contains('held'), true);
+  });
+}
+
+test('the phone box has no selected state, so its pictures open on the first tap as the card ones do', () => {
+  for (const kind of ['image', 'markdown']) {
+    const f = fixture({ width: 375, height: 812, phone: true });
+    const { box, img } = magicBox(f, { id: 'mbface', kind, held: false });
+    f.press(img);
+    assert.equal(box.classList.contains('held'), false, 'nothing on the phone selects the box');
+    assert.ok(f.state(), kind + ': it opens on the first tap');
+  }
+});
+
+test('a click with no press before it reads the box as it stands', () => {
+  const f = fixture();
+  const { box, img } = magicBox(f, { held: false });
+  f.send(img, { type: 'click', button: 0 });
+  assert.equal(f.state(), null, 'not selected: nothing opens');
+  box.classList.add('held');
+  f.send(img, { type: 'click', button: 0 });
+  assert.ok(f.state(), 'selected: it opens');
+});
 
 test('a click on the layer closes a box picture as it closes a card picture, and zooming is the same code', () => {
   for (const kind of ['image', 'markdown']) {
