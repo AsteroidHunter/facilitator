@@ -2258,7 +2258,7 @@ def _lane_worktrees(lane: str) -> dict:
 
 def _seed_state() -> dict:
     """First-ever start: board title and boxes come from seed.json if present
-    (the item shape is under "Seeding a board" in RUNBOOK.md); otherwise the
+    (the item shape is under "Seeding a board" in docs/install.md); otherwise the
     board starts empty."""
     seed = json.loads(SEED_PATH.read_text()) if SEED_PATH.exists() else {}
     return {

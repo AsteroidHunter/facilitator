@@ -1493,7 +1493,7 @@ test("people and agents know it as the magic box: the pages' labels, the command
     assert.match(text, /facilitator magic CARD|facilitator magic m12/, name);
   }
   assert.match(runbook, /\n## The magic box\n/);
-  assert.match(runbook, /\n## Seeing a card's magic box\n/);
+  assert.match(read("../docs/board.md"), /\n## Seeing a card's magic box\n/);
   assert.match(skill, /the runbook's "The magic box" section/);
   // what the board says back to an agent, in the same name
   const server = read("server.py");

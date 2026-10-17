@@ -16,7 +16,8 @@ const ROOT = path.resolve(__dirname, "..");
 const logic = readFileSync(path.join(ROOT, "card-logic.js"), "utf8");
 const mac = readFileSync(path.join(ROOT, "index.html"), "utf8");
 const phone = readFileSync(path.join(ROOT, "m.html"), "utf8");
-const runbook = readFileSync(path.join(ROOT, "RUNBOOK.md"), "utf8");
+// the key list moved out of the runbook into the docs
+const boardDocs = readFileSync(path.join(ROOT, "..", "docs", "board.md"), "utf8");
 const tokens = readFileSync(path.join(ROOT, "card-tokens.css"), "utf8");
 
 function between(source, start, end) {
@@ -429,8 +430,8 @@ test("Mac board: the block caret in the response is bounded by the answer's scro
   assert.match(body, /getPropertyValue\("--boxband"\)/);
 });
 
-test("the RUNBOOK's key list names the place key and the response's caret", () => {
-  const keys = between(runbook, "The keys, on the Mac board and on the phone with a paired keyboard:",
+test("the docs' key list names the place key and the response's caret", () => {
+  const keys = between(boardDocs, "The keys, on the Mac board and on the phone with a paired keyboard:",
     "The keys with Command or Control also work");
   assert.match(keys, /Control \+ Option \+ up and down/);
   assert.match(keys, /Command \+ A/);

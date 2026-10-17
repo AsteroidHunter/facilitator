@@ -1,6 +1,6 @@
 ---
 name: facilitator
-description: Join and operate a local Facilitator board lane when asked to onboard, listen to cards, or work as the board's agent from Claude Code or Codex.
+description: Join and operate a local Facilitator board lane when asked to onboard, listen to cards, or work as the board's agent from Claude Code or Codex, or when asked how to install, set up or use Facilitator.
 ---
 
 # Facilitator onboarding
@@ -21,3 +21,5 @@ If a later wait reports an occupied or unavailable board, use the same handling 
 Immediately before **every** `/reply`, including an interim or worker-completion reply, call `/fresh?owner=OWNER` as its own step and read the returned `box` and `messages` before composing. Include fresh messages when they belong to the card being answered. If `/fresh` names a different held card, handle that claim first; never use its messages to answer another card. An empty result with no held card hands over nothing. Send a complete, self-contained `/reply?box=ID` with the reply text as the request body. If work continues, set `/working?box=ID&v=1`, keep `/ping?box=ID` current, send a full interim `/reply` while the flag is live, then drop the flag with `v=0` only when that work ends. Post the final reply first, while the flag is still on, and only then turn the flag off; turning it off first hands the card to the reader at once, so it shows a stale yellow card with the old reply until the final reply lands. A `/note` releases a held claim and can hide later messages until a full reply, so do not use it for held-claim progress. Continue listening after each reply. Keep the runbook's delegation, reply, and permission rules in view while doing the work; no skill instruction grants permission beyond the current user and host authorization.
 
 To show the owner a picture, a page or a website beside a card, unasked whenever it helps, run `facilitator magic CARD KIND ...` (`facilitator magic --help`); the runbook's "The magic box" section has the kinds and the rules.
+
+When someone asks how to install, set up or use Facilitator, read `docs/README.md` in the folder you cloned (this skill's folder is a link into it: resolve this file's real path and go up three folders), open the page it names, answer from that page and name it. Do not answer from memory.
