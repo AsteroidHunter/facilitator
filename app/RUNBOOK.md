@@ -78,7 +78,6 @@ A user-created box is auto-named with the chopped first line of its first messag
 ## Status changes
 
 - Only the owner closes. The agent flags duplicates and proposes merges; Done comes from the owner's hand or explicit word.
-- "TBDL" from the owner means: move it to Deferred AND record the deferred work in the relevant project doc.
 
 ## Permission blocks
 
