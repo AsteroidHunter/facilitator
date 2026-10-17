@@ -30,7 +30,7 @@ After reading the separate `/fresh` result as described below, answer with a com
 - `/wait?owner=...` claims the oldest queued box in your owner lane and marks it busy. Never leave a claim unanswered; an open claim blocks your whole lane (each owner has its own busy slot, see Owner routing below).
 - Immediately before **every** `/reply`, including an interim or worker-completion reply, call `GET /fresh?owner=YOURLANE` and read its result before composing and sending. If it returns messages for the card you are answering, include them; those messages are folded into the held claim. If it names a different held card, handle that claim first and do not use its messages in a reply on another card. With no held card, `/fresh` returns an empty message list and hands over nothing; queued messages on other cards remain for their own claims. Do not combine a `/fresh` call with a prewritten reply in one command.
 - Three nets sit under a claim, in order: a hand-off written into a dead socket rolls back at once, an unconfirmed claim returns after 90 seconds, and a claim older than 15 minutes is stolen back. Do not lean on any of them; confirm what you claim and answer what you confirm.
-- Before going idle, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
+- Before going idle, and between the steps of any follow-up work, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Claim waiting cards before going on, and while workers run, listen with a short `timeout` so you can check on them between rounds. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
 
       curl -s "http://127.0.0.1:$PORT/unread?owner=facilitator"
 
@@ -39,12 +39,13 @@ After reading the separate `/fresh` result as described below, answer with a com
 - 100 to 150 words or fewer. Plain conversational tone: no coined shorthand, no unexplained jargon; a term either gets defined by what it concretely does or gets dropped. Paragraph breaks and short lists over walls of text. Depth comes from choosing what to say, not from length.
 - Fit the shape to the content. A one-point answer is one or two plain sentences. When there are several points, open with the answer in one bold sentence, then list the points, each with a short bold lead-in. Bold only that sentence and the lead-ins, never a paragraph. Drop the structure when it would only pad the reply.
 - No em dashes, in titles or in replies. Banned.
-- Every reply fully self-contained. The box shows ONLY the latest reply, so a short follow-up ERASES a longer answer. Restate rather than reference.
+- Every reply fully self-contained. The box shows ONLY the latest reply, so a short follow-up ERASES a longer answer. Restate rather than reference, and name another card by its title, never by its id or a reply's time. A late reply, such as a worker's result, opens with one line naming the question it answers, and results from parallel workers go out as one reply.
 - Answer what was asked and stop: no unsolicited offers, no "want me to" tails, no validation preambles.
 - `POST /note?box=ID` consumes and releases a held claim. Do not use it for progress on a claim: later owner messages can be hidden until a full reply. For work that continues, register `/working`, keep its heartbeat current, and send a full `/reply` with the flag still live. That reply remains deferred until the work truly ends and the flag drops. Post the final reply first, while the flag is still on, and only then turn the flag off; turning it off first hands the card to the reader at once, so it shows a stale yellow card with the old reply until the final reply lands.
 - Every card sits in one server-side state and the colour is a pure read of it. A normal reply under a live working flag lands the card in deferred, still green; the turn is handed over when the flag drops (`/working?box=ID&v=0`) or its heartbeat expires. A progress note stays in note until another event or the heartbeat ends.
 - `POST /testing?box=ID&v=1` raises the ready-to-test marker: use it only once a delivered change is actually available for the reader to try, not because a merge is planned or a reply reads as finished. It is refused unless the card is awaiting the reader (a completed reply waits and no job runs), so it never marks active, queued or done work. `v=0` lowers it by hand; the reader answering the card, and close/done, lower it on their own. It only sets the flag: no reply, no claim, no move.
-- A reply that closes or parks a box carries zero new information. Keep-in-mind notes go to an open box or the project docs.
+- A reply that closes a box carries zero new information, and one that parks a box (`POST /park?box=ID&v=1`) only restates what the card is, what is known and why it waits. Keep-in-mind notes go to an open box or the project docs.
+- Never ask for a password or key on a card, since `transcript.jsonl` keeps every message; say where to put it instead.
 
 ## The magic box
 
@@ -76,6 +77,7 @@ A user-created box is auto-named with the chopped first line of its first messag
 ## Status changes
 
 - Only the owner closes. The agent flags duplicates and proposes merges; Done comes from the owner's hand or explicit word.
+- A finding unrelated to the card's question goes on a new card (`POST /create?owner=YOURLANE`, the body's first line as its title), not into this card's reply.
 
 ## Permission blocks
 
@@ -83,18 +85,18 @@ Follow the current host's permission rules and the user's authorization in this 
 
 ## Restarts
 
-- A restart re-queues claimed-but-unanswered messages. Expect duplicate deliveries; answer "already handled, restart re-queue".
+- A restart re-queues claimed-but-unanswered messages. Expect duplicate deliveries; answer a repeated message with the same full answer, since a short reply would hide the real one.
 - A stop is graceful: open requests get three seconds to finish and a listener waiting on `/wait` is answered `{"idle": true}` at once, so the loop simply asks again.
 
 ## Real work
 
-Real work ships from boxes: delegate bounded builds and scans when delegation is available and authorized, and report results in the ordering box. Follow the actual session's authorization for pushes and destructive operations. After work is finished and verified, stage and commit its changes when authorized.
+Real work ships from boxes: delegate bounded builds and scans when delegation is available and authorized, and report results in the ordering box. Build only on a clear go: a reproducible bug report, or the person's pick from options you offered, is one; a described problem, a question, a short reaction or thinking aloud gets an answer instead. Weigh a worker's report before relaying it: decide the obvious choices yourself, drop caveats that change nothing, and check its conclusions against their sources and what the person saw. When a check disagrees with what the person saw, suspect the check; for what the board showed earlier, read `transcript.jsonl`, which keeps every event with its time. Follow the actual session's authorization for pushes and destructive operations. After work is finished and verified, stage and commit its changes when authorized.
 
 ## Delegation
 
-The listener normally delegates substantive bounded work and stays responsible for the card, unless the owner asks it to do the work directly or the current host does not authorize delegation. The listener may do quick lookups and run simple commands itself; anything that turns into real digging, such as reading code or logs to find a cause, or into a change goes to a worker. Sort by the shape of the job before starting; a misjudged job need not be handed off halfway through.
+The listener normally delegates substantive bounded work and stays responsible for the card, unless the owner asks it to do the work directly or the current host does not authorize delegation. The listener may do quick lookups and run simple commands itself; anything that turns into real digging, such as reading code or logs to find a cause, or into a change goes to a worker. Sort by the shape of the job before starting; a misjudged job need not be handed off halfway through. Answer a claim within moments: confirm it, raise the card's flag, start the worker, reply briefly and listen again; never hold a claim while setting work up.
 
-Every worker brief carries six parts: the goal as one checkable sentence; full context, since the worker starts knowing nothing; boundaries, what it must not touch and which neighboring work is someone else's; the output contract, the exact shape coming back; proof, the worker verifies its own work (driven browser or equivalent) before reporting; and the house rules (plain words, no em dashes, no signatures, never restart the server, delete any probe box after use). Quality test: a stranger with no history could do the job right from the brief alone.
+Every worker brief carries six parts: the goal as one checkable sentence, with the person's request quoted word for word and neither narrowed nor widened; full context, since the worker starts knowing nothing; boundaries, what it must not touch and which neighboring work is someone else's; the output contract, the exact shape coming back; proof, the worker verifies its own work before reporting, with a check sized to the change (a driven browser or equivalent for what a person sees); and the house rules (plain words, no em dashes, no signatures, never restart the server, delete any probe box after use). Quality test: a stranger with no history could do the job right from the brief alone. Size the worker to the change too: a word or colour swap goes to a quick worker that runs only its own test.
 
 Any work belonging to a card carries that card's green flag for exactly as long as it is happening: worker runs, but also verifying a worker's result, post-build checks, and committing that card's code after the claim is released. `POST /working?box=ID&v=1` before starting, `v=0` the moment the card's work truly ends. Post the final reply first, while the flag is still on, and only then turn the flag off; turning it off first hands the card to the reader at once, so it shows a stale yellow card with the old reply until the final reply lands. Green means exactly the machine's two green states: working (claimed right now, or that card's work happening anywhere) and deferred (the same, with a reply already waiting to become the owner's turn when the work ends).
 
@@ -102,7 +104,7 @@ Green is verified, not trusted: registration starts a heartbeat clock, and witho
 
     ( while curl -s -o /dev/null -X POST "http://127.0.0.1:$PORT/ping?box=ID"; do sleep 30; done ) &
 
-and kill it when the work ends.
+and kill it when the work ends. When `GET /limits` shows numbers, check it while workers run; near a limit, start no new worker and pause the running ones.
 
 ## Owner routing
 
