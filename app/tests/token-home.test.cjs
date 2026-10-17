@@ -271,14 +271,15 @@ test("the line draws each day's total solid and the trailing seven-day average d
   assert.equal(W.FETCH_DAYS, 371, "the panel asks for the six days before the year too");
   const days = daysEnding("2026-09-27", 371, k => (k === 200 ? 7e6 : 0));
   const model = W.lineModel(days);
-  assert.equal(model.points.length, 365);
+  assert.equal(model.points.length, 270, "January 1 to September 27, not 365 days");
+  assert.equal(model.points[0].date, "2026-01-01");
   assert.equal(model.points.at(-1).date, "2026-09-27");
   // one day of seven million: the daily line stands at it that day alone, and
   // the average holds a million a day for that day and the six after it
   assert.equal(model.points.filter(p => p.total === 7e6).length, 1);
   const avg = model.points.map(p => p.avg);
   assert.equal(avg.filter(v => v === 1e6).length, 7);
-  assert.equal(avg.filter(v => v === 0).length, 358);
+  assert.equal(avg.filter(v => v === 0).length, 263);
   for (let i = 1; i < model.points.length; i++) assert.ok(model.points[i].x > model.points[i - 1].x);
   const { box } = model;
   for (const p of model.points) {
@@ -292,28 +293,26 @@ test("the line draws each day's total solid and the trailing seven-day average d
   assert.deepEqual(Array.from(model.ticks), [0, 2e6, 4e6, 6e6, 8e6]);
   const spike = model.points.find(p => p.total === 7e6);
   assert.ok(spike.y > box.top + 1, "the busiest day stands under the top line");
-  // drawn to the view's height and as wide as the heatmap at that height, a
-  // week of days as wide as a column
+  // drawn to the view's height and as wide as the heatmap at that height
   const svg = W.lineSvg(model);
   const g = W.geometry(W.VIEW_H);
   assert.match(svg, new RegExp(`<svg class="tk-line" width="${g.width}" height="200" viewBox="0 0 ${g.width} 200"`));
   assert.deepEqual({ ...model.box }, { left: 48, right: 14, top: 12, bottom: 26, w: g.width - 62, h: 162 });
-  assert.ok(Math.abs(7 * box.w / 364 - g.step) < 0.2, "a week of the line is a column of the heatmap");
   const tall = W.lineModel(days, 226);
   assert.equal(tall.height, 226);
   assert.equal(tall.width, W.geometry(226).width);
   // the months along the bottom at each one's first day, a tick under each,
   // January with its year, every name inside the chart
-  assert.ok(model.months.length >= 11);
+  assert.equal(model.months.length, 9, "January to September, the months of the year so far");
   assert.ok(model.months.every(m => m.x >= 48 && m.x + 26 <= g.width));
   assert.ok(model.months.some(m => m.label === "Jan 2026"));
   assert.equal((svg.match(/<line class="tk-tick"/g) || []).length, model.months.length);
   // the two lines, in the chart's own red-oranges: the day solid, its average in dots a shade deeper
   const path = /class="tk-path" d="([^"]+)"/.exec(svg)[1];
-  assert.equal((path.match(/[ML]/g) || []).length, 365);
+  assert.equal((path.match(/[ML]/g) || []).length, 270);
   const dotted = /<path class="tk-avg" d="([^"]+)" fill="none" stroke="([^"]+)" stroke-dasharray="([^"]+)"/.exec(svg);
   assert.ok(dotted, "the average is drawn dotted");
-  assert.equal((dotted[1].match(/[ML]/g) || []).length, 365);
+  assert.equal((dotted[1].match(/[ML]/g) || []).length, 270);
   assert.equal(dotted[2], W.AVG_LINE);
   assert.ok(svg.includes(`class="tk-path" d="${path}" fill="none" stroke="${W.LINE}"`));
   assert.doesNotMatch(/<path class="tk-path"[^>]*>/.exec(svg)[0], /dasharray/, "the daily line is solid");
@@ -675,7 +674,7 @@ test("the line's tip names the day, its total and its 7-day average, and nothing
   assert.match(W.lineTip(short.points[0]), /^<b>Fri, Sep 25, 2026<\/b>.*Daily<em>3M<\/em>.*1-day average<em>3M<\/em>/);
   assert.match(W.lineTip(short.points[2]), /3-day average<em>3M<\/em>/);
   // the legend under the line names both, beside the same strokes, and the
-  // words on its left name the tools whose tokens the days hold
+  // words on its left give this year's total and no tool's name
   const doc = makeDocument();
   const footOf = set => {
     const el = new El("div", doc);
@@ -684,38 +683,56 @@ test("the line's tip names the day, its total and its 7-day average, and nothing
   };
   const text = html => html.replace(/<[^>]+>/g, "");
   const split = (claude, codex) => days.map(d => ({ ...d, claude: d.total * claude, codex: d.total * codex }));
-  const foot = footOf(split(1, 0));
-  const total = W.compact(days.slice(-W.YEAR).reduce((n, d) => n + d.total, 0));
-  assert.match(foot, /^<span class="tk-sum"><b>[^<]+<\/b> tokens in the last year · <span class="tk-src">Claude<\/span><\/span><span class="tk-legend"><svg class="tk-key"/);
-  assert.equal(text(foot), `${total} tokens in the last year · ClaudeDaily7-day average`);
-  assert.equal(text(footOf(split(0, 1))), `${total} tokens in the last year · CodexDaily7-day average`);
-  assert.equal(text(footOf(split(0.5, 0.5))), `${total} tokens in the last year · Claude &amp; CodexDaily7-day average`);
-  assert.equal(text(footOf(split(0, 0))), `${total} tokens in the last yearDaily7-day average`,
-               "with no tokens from either, the total stands alone and the legend stays");
-  assert.doesNotMatch(foot, /Tokens per day/);
+  const total = W.compact(days.slice(W.yearStart(days)).reduce((n, d) => n + d.total, 0));
+  for (const mix of [split(1, 0), split(0, 1), split(0.5, 0.5), split(0, 0)]) {
+    const foot = footOf(mix);
+    assert.match(foot, /^<span class="tk-sum"><b>[^<]+<\/b> tokens this year<\/span><span class="tk-legend"><svg class="tk-key"/);
+    assert.equal(text(foot), `${total} tokens this yearDaily7-day average`);
+    assert.doesNotMatch(foot, /Claude|Codex|·|tk-src/, "no tool's name on the line's foot");
+  }
 });
 
-test("the foot names Claude, Codex or both, by whose tokens the year holds", () => {
+test("the line runs from January 1 to today and the heatmap keeps its year; the foot words follow", () => {
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371, () => 1000);
-  const set = (from, claude, codex) => days.map((d, k) => (k >= from ? { ...d, claude, codex } : { ...d, claude: 0, codex: 0 }));
-  assert.deepEqual(Array.from(W.sources(set(0, 1000, 0))), ["Claude"]);
-  assert.deepEqual(Array.from(W.sources(set(0, 0, 1000))), ["Codex"]);
-  assert.deepEqual(Array.from(W.sources(set(0, 600, 400))), ["Claude", "Codex"]);
-  assert.deepEqual(Array.from(W.sources(set(0, 0, 0))), []);
-  // one day in the year is enough to name a tool, and the six days fetched
-  // ahead of the year for the average are not
-  assert.deepEqual(Array.from(W.sources(set(370, 1000, 1000))), ["Claude", "Codex"]);
-  assert.deepEqual(Array.from(W.sources(set(6, 1000, 1000))), ["Claude", "Codex"]);
-  const early = days.map((d, k) => ({ ...d, claude: 1000, codex: k < 6 ? 1000 : 0 }));
-  assert.deepEqual(Array.from(W.sources(early)), ["Claude"], "a tool seen only before the year is not named");
-  // a route that does not say which tool a day came from names neither
-  assert.deepEqual(Array.from(W.sources(days.map(({ date, total }) => ({ date, total })))), []);
-  assert.equal(W.sourceLine([]), "");
-  assert.equal(W.sourceLine(["Claude"]), "Claude");
-  assert.equal(W.sourceLine(["Codex"]), "Codex");
-  assert.equal(W.sourceLine(["Claude", "Codex"]), "Claude & Codex");
+  assert.equal(days[W.yearStart(days)].date, "2026-01-01");
+  assert.equal(W.yearStart(days), 371 - 270);
+  assert.equal(W.lineModel(days).points.length, 270);
+  assert.equal(W.heatmapModel(days).cells.length, 365, "the heatmap keeps the last 365 days");
+  // the first day of the line has its whole week of average, from the six days before
+  assert.equal(W.lineModel(days).points[0].span, 7);
+  assert.equal(W.lineModel(days).points[0].from, "2025-12-26");
+  // on January 1 itself, and a reading that starts after it
+  assert.equal(W.lineModel(daysEnding("2026-01-01", 371, () => 1000)).points.length, 1);
+  assert.equal(W.lineModel(daysEnding("2026-09-27", 20, () => 1000)).points.length, 20);
+  assert.equal(W.yearStart([]), 0);
+  // the line's total is the days it shows, the heatmap's is the last 365
   assert.equal(W.totalLine(56.2e9), "<b>56.2B</b> tokens in the last year");
+  assert.equal(W.totalLine(56.2e9, "this year"), "<b>56.2B</b> tokens this year");
+  // the route is asked for the year so far and a week before it when that is more than the heatmap's year
+  const late = Date.UTC(2026, 11, 31, 12), early = new Date(2026, 2, 3, 12).getTime();
+  assert.equal(W.fetchDays(early), W.FETCH_DAYS, "early in the year the heatmap's days are enough");
+  assert.equal(W.fetchDays(new Date(2026, 11, 30, 12).getTime()), 364 + 7);
+  assert.equal(W.fetchDays(new Date(2028, 11, 31, 12).getTime()), 366 + 7, "a leap year's last day");
+  assert.equal(W.sources, undefined, "no tool names are built any more");
+  assert.equal(W.sourceLine, undefined);
+  assert.ok(late > early);
+});
+
+test("the panel's line foot gives this year's total and no tool names", async () => {
+  const { W } = widgets();
+  const doc = makeDocument();
+  const footText = async mix => {
+    const days = daysEnding("2026-09-27", 371).map(d => ({ ...d, claude: d.total && mix.claude, codex: d.total && mix.codex }));
+    const root = new El("div", doc);
+    const p = W.panel(root, { load: async () => ({ days, found: { claude: true, codex: true } }), store: makeStore({ "home.chart": "line" }) });
+    await p.refresh();
+    const stage = walk(root).find(n => n.className === "tk-stage");
+    const sum = /<span class="tk-sum">(.*?)<\/span>(?=<span class="tk-legend">)/.exec(activeLayer(stage).innerHTML)[1];
+    return sum.replace(/<[^>]+>/g, "");
+  };
+  for (const mix of [{ claude: 5, codex: 0 }, { claude: 0, codex: 5 }, { claude: 5, codex: 5 }, { claude: 0, codex: 0 }])
+    assert.match(await footText(mix), /^[\d.]+[KMBT]? tokens this year$/);
 });
 
 test("the panel's heading reads Token consumption per day, with no line under it", () => {
@@ -729,24 +746,6 @@ test("the panel's heading reads Token consumption per day, with no line under it
   assert.equal(title.textContent, "Token consumption per day");
   assert.ok(!nodes.some(n => n.className === "tk-what"), "no subtitle");
   assert.doesNotMatch(root.textContent, /Claude Code and Codex on this machine/);
-});
-
-test("the panel's line foot follows the tools the route's days carry", async () => {
-  const { W } = widgets();
-  const doc = makeDocument();
-  const footText = async mix => {
-    const days = daysEnding("2026-09-27", 371).map(d => ({ ...d, claude: d.total && mix.claude, codex: d.total && mix.codex }));
-    const root = new El("div", doc);
-    const p = W.panel(root, { load: async () => ({ days, found: { claude: true, codex: true } }), store: makeStore({ "home.chart": "line" }) });
-    await p.refresh();
-    const stage = walk(root).find(n => n.className === "tk-stage");
-    const sum = /<span class="tk-sum">(.*?)<\/span>(?=<span class="tk-legend">)/.exec(activeLayer(stage).innerHTML)[1];
-    return sum.replace(/<[^>]+>/g, "").replace(/^[\d.]+[KMBT]? tokens in the last year ?/, "");
-  };
-  assert.equal(await footText({ claude: 5, codex: 0 }), "· Claude");
-  assert.equal(await footText({ claude: 0, codex: 5 }), "· Codex");
-  assert.equal(await footText({ claude: 5, codex: 5 }), "· Claude &amp; Codex");
-  assert.equal(await footText({ claude: 0, codex: 0 }), "");
 });
 
 // ---- the panel -----------------------------------------------------------------------------
@@ -1002,20 +1001,19 @@ test("the foot is one line that never wraps, and the phone leaves the tools the 
   assert.match(read("m.html"), /grid-template-columns:minmax\(0, 1fr\) auto/, "the heading column can give way");
 });
 
-test("the picture is 3:1, drawn three times over, with the whole year on it", () => {
+test("the picture is 3:1 for the heatmap and 2:1 for the line, drawn three times over", () => {
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5000 : 0)).map(d => ({ ...d, claude: d.total, codex: 0 }));
-  assert.equal(W.SHAPE, "3:1");
+  assert.deepEqual({ ...W.SHAPE_OF }, { heatmap: "3:1", line: "2:1" });
   assert.equal(W.PIC_SCALE, 3);
-  const [w, h] = W.SHAPES["3:1"];
+  const [w, h] = W.SHAPES["3:1"], [lw, lh] = W.SHAPES["2:1"];
   assert.equal(w, h * 3, "three wide for one tall");
-  assert.equal(W.SHAPES["3:2"][0] * 2, W.SHAPES["3:2"][1] * 3);
-  assert.equal(W.SHAPES["4:3"][0] * 3, W.SHAPES["4:3"][1] * 4);
+  assert.equal(lw, lh * 2, "two wide for one tall");
   const heat = W.pictureModel("heatmap", days, null);
   assert.deepEqual([heat.width, heat.height], [w, h]);
   assert.equal(heat.heat.cells.length, 365, "every day of the year, not the part a lane shows");
   assert.equal(heat.total, days.slice(-365).reduce((n, d) => n + d.total, 0));
-  assert.equal(heat.agents, "", "the heatmap's foot names no agents");
+  assert.equal(heat.when, "in the last year");
   assert.equal(heat.install, null, "the heatmap has no install mark");
   // the week columns reach from the day names to the right margin
   const g = heat.heat.geo, last = heat.heat.cells.at(-1);
@@ -1023,8 +1021,12 @@ test("the picture is 3:1, drawn three times over, with the whole year on it", ()
   assert.ok(g.top + g.rows < h - 36, "the seven rows stand clear of the foot");
   assert.ok(g.cell > 15, "squares as large as the width of the year allows");
   const line = W.pictureModel("line", days, null);
-  assert.equal(line.line.points.length, 365);
-  assert.equal(line.agents, "Claude");
+  assert.deepEqual([line.width, line.height], [lw, lh]);
+  assert.equal(line.line.points.length, 270, "January 1 to today");
+  assert.equal(line.when, "this year");
+  assert.equal(line.total, days.slice(-270).reduce((n, d) => n + d.total, 0), "the total of the days shown");
+  assert.equal(line.agents, undefined, "no tool names");
+  assert.ok(line.line.box.h > 380, "the plot uses the height");
   assert.equal(W.pictureName("line", Date.UTC(2026, 9, 16, 12)), "facilitator-tokens-line-2026-10-16.png");
 });
 
@@ -1050,7 +1052,7 @@ test("the picture is painted in the board's inks and the squid's own file, never
   assert.match(code, /LOGO_SRC = "\/m-splash-squid\.png"/, "the board's own logo file");
   assert.match(code, /font\(700, 28, look\.inter\)/, "the name in the board's wordmark face");
   assert.match(code, /REPO_LINK = "github\.com\/AsteroidHunter\/facilitator"/, "no https, no www");
-  assert.match(code, /linkFont = size => `500 \$\{size\}px \$\{look\.inter\}`/, "the link is in Inter too");
+  assert.match(code, /linkFont = size => `300 \$\{size\}px \$\{look\.inter\}`/, "the link is in Inter, light");
   assert.match(WIDGETS, /const INTER_LATIN = "[A-Za-z0-9+\/=]{40000,}"/, "Inter travels in the file");
   assert.match(WIDGETS, /new FontFace\(INTER_EXPORT, `url\(data:font\/woff2;base64,\$\{INTER_LATIN\}\)`/);
   assert.match(code, /globalAlpha = 0\.4;[^]*lineWidth = 0\.75/, "the install line is thin and faint");
@@ -1112,7 +1114,7 @@ test("pressing the button saves the chart on show, once at a time, as a download
   assert.equal(board.busyAria, "true");
   assert.deepEqual(board.spinWait, [500], "the spinner stays at least half a second");
   assert.deepEqual(board.doneWait, [1500], "the check stays a moment");
-  assert.deepEqual(board.canvases, [[3600, 1200]], "3x of 1200 x 400, once for the two presses");
+  assert.deepEqual(board.canvases, [[3600, 1800]], "3x of 1200 x 600 for the line, once for the two presses");
   assert.deepEqual(board.shared, [], "the board never opens a share sheet");
   assert.deepEqual(board.clicked, [["facilitator-tokens-line-2026-10-16.png", "blob:x"]]);
   const phone = await run(true, true);

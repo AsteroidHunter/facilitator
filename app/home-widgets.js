@@ -8,17 +8,16 @@
 //            grey for a day with none, month names over the columns, a total
 //            for the year and a tip with the day and its count, shown on
 //            hover, or on a phone on a tap
-//   line     the same days as two lines on one axis: each day's own total as
+//   line     the days of this year so far, January 1 to today, as two lines
+//            on one axis: each day's own total as
 //            the solid line, and the trailing 7-day average over it as a
 //            dotted one a shade deeper, named by a legend under the chart.
 //            The count axis runs from 0 to the first round tick at or above
 //            the busiest day, in four to six steps; the months are named
 //            along the bottom. A day is marked only where the pointer or a
 //            tap is, with a dot on each line and a tip giving the date, the
-//            day's total and its 7-day average. The foot is the heatmap's,
-//            "<total> tokens in the last year", then whose tokens they are,
-//            "Claude", "Codex" or "Claude & Codex", from the per-tool counts
-//            on each day; a year with none from either names no one
+//            day's total and its 7-day average. The foot says
+//            "<total> tokens this year", the total of the days shown
 //   panel    one column headed "Token consumption per day", with no box
 //            around it (home-widgets.css), holding one
 //            of the two at a time and a two-way pill to switch them, whose
@@ -191,21 +190,28 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const r1 = n => Math.round(n * 10) / 10;
 
-  // ---- whose tokens these are ----------------------------------------------
-  // each day from the route carries the share of each tool (claude, codex), and
-  // a tool turned off or with no logs has none, so a tool is named when any day
-  // of the year shown has tokens from it
-  const TOOL_NAMES = [["claude", "Claude"], ["codex", "Codex"]];
-  function sources(days) {
-    const year = days.slice(-YEAR);
-    return TOOL_NAMES.filter(([key]) => year.some(d => d[key] > 0)).map(([, name]) => name);
+  // ---- the foot and the line's range ---------------------------------------
+  // the foot's one line: the heatmap's total of the last 365 days, "in the last
+  // year", and the line's total of this year so far, "this year"
+  const totalLine = (total, when = "in the last year") => `<b>${esc(compact(total))}</b> tokens ${when}`;
+  const sum = list => list.reduce((s, d) => s + (d.total || 0), 0);
+  const yearTotal = days => sum(days.slice(-YEAR));
+  // where the line starts: the first day on or after January 1 of the year
+  // the last day falls in, so a reading is cut at the new year and not at 365
+  // days. The days before it stay in the reading, for the first average
+  function yearStart(days) {
+    if (!days.length) return 0;
+    const first = days[days.length - 1].date.slice(0, 4) + "-01-01";
+    const at = days.findIndex(d => d.date >= first);
+    return at < 0 ? 0 : at;
   }
-  // the foot's one line, for either chart: the year's total, and the line's
-  // also whose tokens they are. The names follow a middle dot, in a span of
-  // their own so the phone can drop them first from a narrow foot
-  const totalLine = total => `<b>${esc(compact(total))}</b> tokens in the last year`;
-  const sourceLine = names => (names.length ? names.join(" & ") : "");
-  const yearTotal = days => days.slice(-YEAR).reduce((s, d) => s + (d.total || 0), 0);
+  // how many days to ask the route for: the heatmap's year and the week of
+  // average before it, or, from January 1 to today and that week, if more
+  function fetchDays(now) {
+    const d = new Date(now), start = new Date(d.getFullYear(), 0, 1);
+    const sinceJan = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - start) / 864e5) + 1;
+    return Math.max(FETCH_DAYS, sinceJan + AVG);
+  }
 
   // ---- the colour scale ----------------------------------------------------
   // the year's active days, cut at their quartiles: a day at or past the top
@@ -355,8 +361,9 @@
   function lineModel(days, h, size, pad = PAD) {
     const geo = size || geometry(h);
     const LW = geo.width, LH = geo.height;
-    const avg = rolling(days.map(d => d.total || 0)).slice(-YEAR);
-    const shown = days.slice(-YEAR);
+    const from0 = yearStart(days);
+    const avg = rolling(days.map(d => d.total || 0)).slice(from0);
+    const shown = days.slice(from0);
     const axis = niceAxis(Math.max(0, ...shown.map(d => d.total || 0)));
     const top = axis.top;
     const w = LW - pad.left - pad.right, ht = LH - pad.top - pad.bottom;
@@ -387,7 +394,7 @@
     const { points, box, width: LW, height: LH } = model;
     const base = box.top + box.h;
     const out = [`<svg class="tk-line" width="${LW}" height="${LH}" viewBox="0 0 ${LW} ${LH}" role="img" ` +
-                 `aria-label="tokens per day and their 7-day average over the last year">`];
+                 `aria-label="tokens per day and their 7-day average this year">`];
     for (const t of model.ticks) {
       const y = r1(model.yAt(t));
       out.push(`<line class="${t ? "tk-grid" : "tk-base"}" x1="${box.left}" x2="${box.left + box.w}" y1="${y}" y2="${y}"/>`);
@@ -437,9 +444,7 @@
            `<span class="tk-row">${swatch(true)}${p.span}-day average<em>${esc(compact(p.avg))}</em></span>`;
   }
   function drawLine(el, days, spot) {
-    const names = sourceLine(sources(days));
-    const foot = `<div class="tk-foot"><span class="tk-sum">${totalLine(yearTotal(days))}` +
-      `${names ? ` · <span class="tk-src">${esc(names)}</span>` : ""}</span>` +
+    const foot = `<div class="tk-foot"><span class="tk-sum">${totalLine(sum(days.slice(yearStart(days))), "this year")}</span>` +
       `<span class="tk-legend">${swatch(false)}Daily${swatch(true)}7-day average</span></div>`;
     const h = viewHeight(el, foot);
     const model = lineModel(days, h);
@@ -616,8 +621,9 @@
   }
 
   // ---- the picture ---------------------------------------------------------
-  // the chart on show saved as a PNG: 1200 x 400 laid out, 3:1, and drawn at
-  // three times that so the words stay crisp on a phone's screen. It is drawn
+  // the chart on show saved as a PNG: the heatmap 1200 x 400 laid out, 3:1, the
+  // line 1200 x 600, 2:1, and drawn at three times that so the words stay
+  // crisp on a phone's screen. It is drawn
   // on a canvas from the same models as the screen, but for the whole year
   // at once, never the part the lane has scrolled to. The words use the
   // board's own faces (the sheet's --sans, and Inter for the name at the
@@ -626,8 +632,8 @@
   // the picture carries the squid, the name, the link, and on the line the
   // day the board was first started. The title and the squid and name stand
   // on one centre line, and the link is as wide as the squid and name
-  const SHAPES = { "3:1": [1200, 400], "3:2": [1200, 800], "4:3": [1200, 900] };
-  const SHAPE = "3:1";
+  const SHAPES = { "3:1": [1200, 400], "2:1": [1200, 600] };
+  const SHAPE_OF = { heatmap: "3:1", line: "2:1" };
   const PIC_SCALE = 3, PIC_PAD = 32;
   const PIC_HEAD = 98, PIC_FOOT = 36;           // room for the heading row and the foot row
   const REPO_LINK = "github.com/AsteroidHunter/facilitator";
@@ -638,11 +644,12 @@
   const LOOK = { ink: "#211D17", sub: "#75695A", line: "#CACACA", paper: "#F5F4F1",
                  sans: '"IBM Plex Sans", -apple-system, sans-serif', inter: '"Inter", -apple-system, sans-serif' };
   // what the picture is made of, in pixels, before any of it is painted
-  function pictureModel(kind, days, installed, shape = SHAPE) {
-    const [width, height] = SHAPES[shape] || SHAPES[SHAPE];
+  function pictureModel(kind, days, installed, shape = SHAPE_OF[kind]) {
+    const [width, height] = SHAPES[shape];
     const area = { x: PIC_PAD, y: PIC_HEAD, w: width - 2 * PIC_PAD, h: height - PIC_HEAD - PIC_PAD - PIC_FOOT };
-    const out = { kind, shape, width, height, title: PIC_TITLE, total: yearTotal(days),
-                  agents: kind === "line" ? sourceLine(sources(days)) : "", install: null };
+    const out = { kind, shape, width, height, title: PIC_TITLE, install: null,
+                  total: kind === "line" ? sum(days.slice(yearStart(days))) : yearTotal(days),
+                  when: kind === "line" ? "this year" : "in the last year" };
     if (kind === "heatmap") {
       // the week columns share the width exactly; the block of month names and
       // seven rows stands in the middle of the room under the heading
@@ -706,7 +713,7 @@
     const blockBottom = Math.max(name.base + name.t.actualBoundingBoxDescent,
                                  mid + (logo ? (ink.y1 - ink.y0) * side / 2 : 0));
     // the link's ink runs from the block's left to its right, to the pixel
-    const linkFont = size => `500 ${size}px ${look.inter}`;
+    const linkFont = size => `300 ${size}px ${look.inter}`;
     ctx.font = linkFont(20);
     const probe = ctx.measureText(REPO_LINK);
     const linkSize = 20 * (blockRight - blockLeft) / (probe.actualBoundingBoxLeft + probe.actualBoundingBoxRight);
@@ -724,7 +731,7 @@
     const total = compact(m.total);
     text(total, PIC_PAD, base, look.ink, font(600, size));
     const after = PIC_PAD + ctx.measureText(total).width;
-    text(" tokens in the last year" + (m.agents ? " · " + m.agents : ""), after, base, look.sub, font(400, size));
+    text(" tokens " + m.when, after, base, look.sub, font(400, size));
     if (m.heat) {
       let x = m.width - PIC_PAD;
       text("More", x, base, look.sub, font(400, size), "right");
@@ -922,7 +929,7 @@
     // this browser, so never put token readings in that settings store.
     const cacheStore = "cacheStore" in opts ? opts.cacheStore : localStore();
     const clock = opts.now || (() => Date.now());
-    const load = opts.load || (() => fetch("/tokens/daily?days=" + FETCH_DAYS)
+    const load = opts.load || (() => fetch("/tokens/daily?days=" + fetchDays(clock()))
       .then(r => { if (!r.ok) throw new Error("tokens " + r.status); return r.json(); }));
     const el = (tag, cls, text) => element(doc, tag, cls, text);
     const box = el("div", "tk-panel");
@@ -1242,8 +1249,8 @@
 
   window.TokenWidgets = {
     PALETTE, LINE, AVG_LINE, AVG_DASH, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
-    compact, longDay, scale, rolling, niceAxis, geometry, sources, sourceLine, totalLine,
-    SHAPES, SHAPE, PIC_SCALE, pictureModel, pictureName, picture,
+    compact, longDay, scale, rolling, niceAxis, geometry, totalLine, yearStart, fetchDays,
+    SHAPES, SHAPE_OF, PIC_SCALE, pictureModel, pictureName, picture,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
     viewHtml, seat, panel, limitRows, ago, limits, LIMIT_FILL, LIMIT_TRACK, LIMITS_KEY, TOKENS_KEY,
