@@ -157,5 +157,32 @@ class RemoteCommand(unittest.TestCase):
         self.assertIn("usage: facilitator remote add you@server", said)
 
 
+class InstallerOnAServer(unittest.TestCase):
+    """install.sh run on a Linux server stops at its Chrome step and says
+    that a server needs nothing from it, before anything is changed."""
+
+    def test_the_installer_points_a_server_at_remote_add(self):
+        root = Path(tempfile.mkdtemp(prefix="ri-", dir="/tmp")).resolve()
+        try:
+            outer = root / "board"
+            shutil.copytree(APP, outer / "app", ignore=shutil.ignore_patterns("tests", "__pycache__", "node_modules"))
+            shutil.copy(CLONE / "install.sh", outer / "install.sh")
+            fake = root / "bin"
+            fake.mkdir()
+            for name, body in (("uname", "echo Linux"), ("claude", "exit 0"), ("mdfind", "exit 1"), ("open", "exit 1")):
+                (fake / name).write_text(f"#!/bin/sh\n{body}\n")
+                (fake / name).chmod(0o755)
+            r = subprocess.run(["/bin/bash", str(outer / "install.sh")], cwd=outer, capture_output=True, text=True,
+                               env={"PATH": f"{fake}:/usr/bin:/bin", "HOME": str(root / "home")}, timeout=60)
+            said = r.stdout + r.stderr
+            self.assertEqual(r.returncode, 1, said)
+            self.assertIn("This setup is for the Mac the board runs on.", said)
+            self.assertIn("On your Mac, run: facilitator remote add you@this-server", said)
+            self.assertNotIn("Chrome was not found.", said)
+            self.assertFalse((outer / "data").exists())
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
