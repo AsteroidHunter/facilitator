@@ -280,6 +280,10 @@ Endpoints:
                                framing, while the root and bridge remain unframeable
   GET  /magic-box.js        -> where a card's magic box stands beside the card, and
                                the sealed page an agent's html is shown in
+  GET  /folder-picker.js, /folder-picker.css -> the board's own folder picker
+                               and its sheet, what "Open a new folder" opens on
+                               the board, the typed page and the phone page,
+                               fetched the first time a folder is asked for
   GET  /manifest.json, /sw.js -> what makes the board page installable as a Mac
                                app: its web app manifest, whose name the
                                installed app's bundle and dock icon are taken
@@ -8833,6 +8837,8 @@ ROUTES = [
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/mac-phone-view.js", _static("mac-phone-view.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/magic-box.js", _static("magic-box.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/folder-picker.js", _static("folder-picker.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/folder-picker.css", _static("folder-picker.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/compose-format.js", _endpoint(_get_compose_format), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.js", _static("home-widgets.js", "application/javascript; charset=utf-8"), methods=["GET"]),
