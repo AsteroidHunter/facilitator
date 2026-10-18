@@ -815,6 +815,27 @@ class NoModel(Case):
         self.assertGreater(index._retry_at, time.monotonic())
         self.assertEqual(self.find(index, "searchable")["mode"], "keyword")
 
+    def test_a_child_imports_the_packages_first_and_only_once(self):
+        folder = self.dir / "search-packages"
+        folder.mkdir()
+        index = self.index(config={"embedder": "sentence-transformers"}, packages=folder)
+        with mock.patch.object(S.subprocess, "run") as run, \
+                mock.patch.dict(sys.modules, {"sentence_transformers": None, "torch": None}):
+            index._load_model()
+            index._load_model()   # a retry after a failure does not start another child
+        self.assertEqual(run.call_count, 1)
+        args = run.call_args.args[0]
+        self.assertEqual(args[0], sys.executable)
+        self.assertTrue(args[-2].endswith("import numpy; import torch; import sentence_transformers"))
+        self.assertEqual(args[-1], str(folder))
+        self.assertEqual(run.call_args.kwargs["timeout"], 300)
+
+    def test_a_child_that_cannot_start_changes_nothing(self):
+        index = self.index(embedder=S.FakeEmbedder())
+        with mock.patch.object(S.subprocess, "run", side_effect=OSError("no child")):
+            index._load_model()
+        self.assertEqual(index._model_state, "ready" if HAS_NUMPY else "unavailable")
+
     def test_the_packages_folder_is_looked_in_after_the_venv(self):
         folder = self.dir / "search-packages"
         folder.mkdir()

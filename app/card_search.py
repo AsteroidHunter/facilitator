@@ -51,6 +51,7 @@ import math
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -420,6 +421,7 @@ class Embedder:
     change of it embeds every chunk again."""
 
     backend = ""
+    modules: tuple = ()   # the packages load imports, besides numpy
 
     def __init__(self, model: str, dims: int) -> None:
         self.model, self.dims = model, dims
@@ -577,6 +579,7 @@ class SentenceTransformersEmbedder(Embedder):
     (docs/search.md)."""
 
     backend = "sentence-transformers"
+    modules = ("torch", "sentence_transformers")
 
     def __init__(self, model: str = "google/embeddinggemma-2", dims: int = 512,
                  device: str | None = None, dtype: str = "float32") -> None:
@@ -820,6 +823,7 @@ class Index:
             self._model_state = "loading"
         self._model_lock = threading.Lock()
         self._retry_at = 0.0
+        self._warmed = False
         self._np = None
         self._vectors: Vectors | None = None
         self._queries: collections.OrderedDict = collections.OrderedDict()
@@ -1183,9 +1187,11 @@ class Index:
         embedder = self._embedder
         self._model_state, self._model_reason = "loading", None
         try:
-            if self._packages is not None and self._packages.is_dir() and str(self._packages) not in sys.path:
+            packages = self._packages is not None and self._packages.is_dir()
+            if packages and str(self._packages) not in sys.path:
                 # after the .venv's own, so a package both hold is the board's
                 sys.path.append(str(self._packages))
+            self._warm(("numpy", *embedder.modules), self._packages if packages else None)
             try:
                 np = _numpy()
             except ImportError:
@@ -1223,6 +1229,26 @@ class Index:
         self._model_state = "ready"
         self._log("searchmodel", state="ready", backend=embedder.backend, dims=embedder.dims,
                   vectors=vectors.count())
+
+    def _warm(self, modules: tuple, packages) -> None:
+        """Import the model's packages in a child process, once, before this
+        one does. The first load of a package's native libraries after it is
+        installed can take seconds, the operating system checking each one,
+        and this process would spend them holding the interpreter's lock that
+        the board's requests wait on. A child pays that, and the import here
+        finds them ready. A child that fails or cannot start changes nothing:
+        the import here says why."""
+        if self._warmed or not sys.executable:
+            return
+        self._warmed = True
+        code = ("import sys; sys.path.append(sys.argv[1]) if sys.argv[1] else None; " +
+                "; ".join(f"import {name}" for name in modules))
+        bytecode = ["-B"] if sys.flags.dont_write_bytecode else []
+        try:
+            subprocess.run([sys.executable, *bytecode, "-c", code, str(packages or "")],
+                           capture_output=True, timeout=300, check=False)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     def _model_unavailable(self, reason: str) -> None:
         self._model_state, self._model_reason = "unavailable", reason
