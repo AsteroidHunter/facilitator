@@ -6469,6 +6469,13 @@ function makeBox(b, i, state){
       if (!ta.offsetParent || !ta.clientHeight) return;
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + "px";
+      // past the cap, words written at the end bring the row's foot with them,
+      // as the phone's row does (revealCaret in m.html). the field's own reveal
+      // stops at the caret's line and leaves the bottom padding out of sight,
+      // the line pressed on the card's edge and the square, which is seated for
+      // a row at its foot, standing a padding above it
+      if (ta.scrollHeight > ta.clientHeight + 1 && ta.selectionEnd === ta.value.length &&
+          ComposeFormat.focused(ta)) ta.scrollTop = ta.scrollHeight;
       seatSquare(ta, send);
       send.classList.toggle("show", ta.value.trim().length > 0 || traySendable(els[b.id]) || arrowAgainFor(b.id));
       riseBand(ta);
