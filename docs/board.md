@@ -53,6 +53,7 @@ The keys, on the Mac board and on the phone with a paired keyboard:
 - Control + R: a random card from the list that is neither being worked on nor waiting for an agent.
 - Control + Shift + up and down: the card's older and newer replies.
 - Control + S: hold to scroll the answer down, faster the longer you hold; tap and then hold to scroll up. With your keys in the card's magic box (put there by Control + Option + right, or by a click in it) it scrolls the box instead, its words or a page an agent made, the same way; with your keys on the card it is the card that scrolls.
+- Control + Shift + W and Control + Shift + S: open or close the card's top and bottom message bubbles, the grey ones holding your own messages (on top, the ones the reply answered; at the bottom, the ones still waiting, the lowest bubble when there are several), as a click on the bubble's arrow does. A bubble short enough to show whole has no arrow, and a card without that bubble ignores the key.
 - Control + U: clear a ticket's ready-to-test corner.
 - Control + Shift + [ , ] , \ and Backspace or Delete: move the card to Doing, Docked, Deferred or Done.
 - Control + Shift + ' and ;: the next or previous section of the ticket list.

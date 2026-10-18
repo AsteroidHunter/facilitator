@@ -770,6 +770,18 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
       !e.repeat && !e.isComposing ? DRAWER_SECTION_STEPS.get(e.code) || null : null,
   },
+  // control+shift+w and control+shift+s open or cut back the card's top and
+  // bottom message bubbles, as a press on the bubble's arrow does (answeredKey).
+  // like control+s they are read off the letter the key types. no text box or
+  // editor here gives either chord a meaning, so they work from the card's
+  // composer too. they stand after the chords read off a physical key, so a
+  // layout whose ; or ' key types an s or a w keeps that key for those
+  {
+    action: "bubble", mini: false,
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.repeat && !e.isComposing && !e.defaultPrevented
+      ? (e.key === "w" || e.key === "W" ? "answered" : e.key === "s" || e.key === "S" ? "sent" : null) : null,
+  },
   // control+s scrolls the selected card's response while held: down, or up
   // when a tap is followed at once by a hold. A held key's repeats are
   // recognized too, so the page can keep them from the editor and the browser,
@@ -3019,9 +3031,7 @@ function answeredPanel(room){
     // ends picking out some of the words is a copy rather than a request
     if (e.target && e.target.closest && e.target.closest("a, button, audio, video")) return;
     if (boxHasSelection(panel)) return;
-    // the class is the way the run is heading, so a press that catches a run
-    // turns it round rather than repeating it
-    openAnswered(panel, !panel.classList.contains("open"));
+    toggleAnswered(panel);
   });
   // whether a batch runs past the preview can only be read off a panel that is
   // laid out, and a card that is not on screen is not. so it is read again
@@ -3035,6 +3045,28 @@ function answeredPanel(room){
     panel.answWatch.observe(panel.querySelector(".answstack"));
   }
   return panel;
+}
+
+// what a press on the panel's arrow does, and the bubble keys with it
+// (answeredKey). a batch shown whole has no arrow and nothing more to show. the
+// class is the way the run is heading, so a press that catches a run turns it
+// round rather than repeating it. true means the panel was opened or cut back
+function toggleAnswered(panel){
+  if (!panel || !panel.classList.contains("more")) return false;
+  openAnswered(panel, !panel.classList.contains("open"));
+  return true;
+}
+
+// control+shift+w and s: the card's top bubble (el.answ, the messages the reply
+// on the card answered) and its bottom one (el.sent, the newest of the bubbles
+// still waiting at its foot), each opened or cut back as a press on its arrow
+// does. they come from where the section chords may come from; a card with no
+// such bubble, or one shown whole, leaves the key alone
+function answeredKey(e, el, which){
+  const panel = el && (which === "sent" ? el.sent : el.answ);
+  if (!panel || !panel.classList.contains("more") || !sectionChordSource(e.target, el)) return false;
+  e.preventDefault();
+  return toggleAnswered(panel);
 }
 
 // the open and the cut back, run the way the old answered box ran its fold,
