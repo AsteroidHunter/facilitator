@@ -485,6 +485,28 @@ test("Backspace after an emoji takes it whole, as the board's text boxes do", as
   }
 });
 
+test("a click on save leaves the keys in the file", async () => {
+  const page = await mountedEditor("start");
+  try {
+    await setCursor(page, 5);
+    await page.keyboard.type(" one");
+    const save = await page.evaluate(() => {
+      const r = document.querySelector("#magic4 .fnavsave").getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, dirty: fileNavHost().classList.contains("dirty") };
+    });
+    assert.equal(save.dirty, true, "typing did not stand the save control up");
+    await page.mouse.click(save.x, save.y);
+    await page.keyboard.type(" two");
+    const after = await page.evaluate(() => ({
+      text: fileNavView.state.sliceDoc(), focused: fileNavView.hasFocus,
+    }));
+    assert.equal(after.focused, true, "the save click took the focus out of the file");
+    assert.equal(after.text, "start one two");
+  } finally {
+    await page.close();
+  }
+});
+
 test("block caret uses CodeMirror coordinates at a bullet gap", async () => {
   const source = [
     "- alpha",

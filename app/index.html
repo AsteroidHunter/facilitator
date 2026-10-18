@@ -9362,6 +9362,9 @@ function fileNavBuild(mount){
   const save = h("button", "fnavsave", "save");
   save.title = "save this file";
   save.onclick = () => fileNavSave();
+  // the press is the editor's to keep: a button takes the focus on its way
+  // down, and the words typed straight after a save then went nowhere
+  save.onmousedown = e => e.preventDefault();
   bar.append(back, name, save);
   const edit = h("div", "fnavedit");
   // the image preview and the not-editable info card share one region, shown in
