@@ -145,7 +145,8 @@ Endpoints:
                                dir} in state.json so restarts keep it, and
                                returns the id; the lane starts with Omni Ticket #1;
                                a taken id walks numbered suffixes (-2, -3) until
-                               free; empty names and bad folders are refused (400)
+                               free; empty names and bad folders are refused (400),
+                               and so is a body past 4096 bytes, unread
   POST /mkdir?path=P&name=N[&machine=M] -> makes the folder N inside the folder
                                P for the folder picker and answers {ok, name,
                                path}. N is refused (400, in plain words) when it
@@ -7269,6 +7270,19 @@ def _post_project(q: Query, text: str):
     slug = slug.strip("-")
     if not name or not slug:
         return 400, {"error": "empty name"}
+    # fenced as the folder picker is (_home), so a home reached through a
+    # link takes the folders the picker shows in it. the folder is looked at
+    # before the board's lock is taken, and a body longer than any path is
+    # refused unread: resolving one takes time that grows with its square
+    home = _home()
+    d = None
+    if text and len(text.encode("utf-8", "surrogatepass")) <= FOLDER_PATH_MAX:
+        try:
+            d = Path(text).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            d = None
+    if d is None or not d.is_dir() or not _inside(d, home):
+        return 400, {"error": "body must be a folder under home"}
     with _lock:
         # a taken id walks numbered suffixes until free; built-in owner
         # ids (hidden internal lanes included) and stored project ids
@@ -7280,15 +7294,6 @@ def _post_project(q: Query, text: str):
             while f"{slug}-{n}" in taken:
                 n += 1
             slug = f"{slug}-{n}"
-        # fenced as the folder picker is (_home), so a home reached through a
-        # link takes the folders the picker shows in it
-        home = _home()
-        try:
-            d = Path(text).expanduser().resolve() if text else None
-        except (OSError, RuntimeError, ValueError):
-            d = None
-        if d is None or not d.is_dir() or not _inside(d, home):
-            return 400, {"error": "body must be a folder under home"}
         _state.setdefault("projects", []).append({"id": slug, "name": name, "dir": str(d)})
         _state["busy"].setdefault(slug, None)
         _state["claimed"].setdefault(slug, [])

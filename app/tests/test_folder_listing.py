@@ -28,6 +28,9 @@ What is proved:
   mkdir     a new folder is made after its name is checked: empty, slash,
             leading dot, control, invisible and reserved characters, length,
             a clash; only inside home; at most so many in a minute.
+  project   /project's folder is fenced by the same home, looked at before
+            the board's lock is taken, and a body longer than any path is
+            refused unread.
   routes    /machines, /dirs and /mkdir are routes and /pickdir is gone.
 
     python3 -B -m unittest tests/test_folder_listing.py
@@ -44,6 +47,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -537,6 +541,47 @@ class Project(FolderBase):
                 self.assertEqual(answer["dir"], str(self.home / "notes"))
                 status, answer = SERVER._post_project(Q(name="away"), str(self.outer / "elsewhere"))
                 self.assertEqual((status, answer), (400, {"error": "body must be a folder under home"}))
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        state.pop(k, None)
+                    else:
+                        state[k] = v
+
+    def test_a_project_folder_is_looked_at_outside_the_boards_lock_and_a_long_body_unread(self):
+        refused = (400, {"error": "body must be a folder under home"})
+        # a body as long as the board takes, refused at once
+        started = time.monotonic()
+        self.assertEqual(SERVER._post_project(Q(name="long"), str(self.home) + "/" + "a/" * 500000), refused)
+        self.assertLess(time.monotonic() - started, 1.0)
+        # a folder outside home is refused while another request holds the lock
+        held, done = threading.Event(), threading.Event()
+
+        def hold():
+            with SERVER._lock:
+                held.set()
+                done.wait(5)
+        holder = threading.Thread(target=hold)
+        holder.start()
+        try:
+            self.assertTrue(held.wait(5))
+            started = time.monotonic()
+            self.assertEqual(SERVER._post_project(Q(name="away"), str(self.outer / "elsewhere")), refused)
+            self.assertLess(time.monotonic() - started, 1.0, "the refusal waited for the board's lock")
+        finally:
+            done.set()
+            holder.join()
+        # and a good folder is still added
+        with mock.patch.object(SERVER, "_save", lambda: None), mock.patch.object(SERVER, "_notify", lambda *a, **k: None), \
+                mock.patch.object(SERVER, "_register_owner", lambda *a: None), \
+                mock.patch.object(SERVER, "_create_box_record", lambda *a, **k: None), \
+                mock.patch.object(SERVER, "_log", lambda *a, **k: None):
+            state = SERVER._state
+            saved = {k: state.get(k) for k in ("projects", "busy", "claimed", "busy_ts", "ack", "workspaces", "pages")}
+            try:
+                state.setdefault("busy", {}); state.setdefault("claimed", {}); state.setdefault("busy_ts", {})
+                status, answer = SERVER._post_project(Q(name="notes"), str(self.home / "notes"))
+                self.assertEqual((status, answer["dir"]), (200, str(self.home / "notes")))
             finally:
                 for k, v in saved.items():
                     if v is None:
