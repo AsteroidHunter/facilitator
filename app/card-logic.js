@@ -6837,6 +6837,9 @@ function editTitle(id, opts){
     fitTitle(t);
   };
   t.onkeydown = e => {
+    // a key an input method takes is the name's own (imeKey): its Enter does
+    // not save the name, nor its Escape throw it away
+    if (imeKey(e)){ e.stopPropagation(); return; }
     // control+shift+enter keeps the name as Enter does, then goes on to the
     // page's own control+shift+enter, the move to the card that has waited
     // longest. control+enter alone is the system's
