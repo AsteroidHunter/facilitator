@@ -9978,15 +9978,20 @@ function mdLayer(){
     update: (v, tr) => {
       let lit = v.lit;
       for (const e of tr.effects) if (e.is(mdAwakeEff)) lit = e.value;
-      // the document, the cursor and the focus are three of the four things any
+      // the document, the cursor and the focus are three of the five things any
       // of this depends on. the fourth is the parse: codemirror parses a long
       // file in slices and pushes an empty transaction each time it has more,
-      // so a tree that has moved is a rebuild too. scrolling is on neither
+      // so a tree that has moved is a rebuild too. the fifth is the drag
+      // guard: a drag is drawn asleep, and the guard comes down on its own
+      // once the button is up, so the selection the drag left is woken around
+      // then, or the blocks it ends on stay shut while the pack's own markers
+      // beside them come back. scrolling is on neither
       // list, on purpose. the walk is over the whole file, so a reflowed
       // paragraph's height is known before it is ever scrolled to and the bar
       // under the reader's thumb does not jump as it arrives
       if (lit === v.lit && !tr.docChanged && !tr.selection &&
-          C.syntaxTree(tr.state) === C.syntaxTree(tr.startState)) return v;
+          C.syntaxTree(tr.state) === C.syntaxTree(tr.startState) &&
+          tr.state.field(C.mouseSelectingField, false) === tr.startState.field(C.mouseSelectingField, false)) return v;
       return { lit, deco: build(tr.state, lit) };
     },
     provide: f => C.EditorView.decorations.from(f, v => v.deco),

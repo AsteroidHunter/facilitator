@@ -374,6 +374,58 @@ test("the file editor and the formatted composer share one copy of the editor", 
   }
 });
 
+test("blocks under a finished drag selection come back as source", async () => {
+  const source = "---\ntitle: Drag test\nstatus: draft\n---\n\n# Heading\n\n" +
+    "The paragraph under it has words to drag from.\n\nSecond paragraph.\n";
+  const drag = async (page, fromNeedle, toNeedle) => {
+    const points = await page.evaluate(({ fromNeedle, toNeedle }) => {
+      const text = fileNavView.state.sliceDoc();
+      fileNavView.focus();
+      fileNavView.dispatch({ selection: { anchor: text.indexOf("Second") } });
+      const at = needle => {
+        const r = fileNavView.coordsAtPos(text.indexOf(needle) + 3, 1);
+        return { x: r.left + 1, y: (r.top + r.bottom) / 2 };
+      };
+      return { from: at(fromNeedle), to: at(toNeedle) };
+    }, { fromNeedle, toNeedle });
+    await page.evaluate(() => new Promise(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.mouse.move(points.from.x, points.from.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++)
+      await page.mouse.move(points.from.x + (points.to.x - points.from.x) * i / 8,
+        points.from.y + (points.to.y - points.from.y) * i / 8);
+    await page.mouse.up();
+    await page.evaluate(() => new Promise(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
+  };
+
+  const page = await mountedEditor(source);
+  try {
+    await drag(page, "words", "Drag test");
+    const front = await page.evaluate(() => ({
+      empty: fileNavView.state.selection.main.empty,
+      raw: document.querySelectorAll("#magic4 .md-fm-raw").length,
+    }));
+    assert.equal(front.empty, false, "the drag did not select anything");
+    assert.ok(front.raw > 0, "the front matter under the selection stayed shut");
+
+    await drag(page, "Second", "Heading");
+    const heading = await page.evaluate(() => {
+      const text = fileNavView.state.sliceDoc();
+      const hash = text.indexOf("# Heading") + 1;
+      const space = fileNavView.coordsAtPos(hash, 1), word = fileNavView.coordsAtPos(hash + 1, 1);
+      const mark = [...document.querySelectorAll("#magic4 .cm-line")]
+        .find(line => line.textContent.includes("Heading")).querySelector(".cm-formatting-block");
+      return { space: word.left - space.left, hash: mark ? mark.getBoundingClientRect().width : 0 };
+    });
+    assert.ok(heading.hash > 1, "the fixture no longer brings the hash back under the selection");
+    assert.ok(heading.space > 1, "the hash came back and the space after it stayed hidden");
+  } finally {
+    await page.close();
+  }
+});
+
 test("block caret uses CodeMirror coordinates at a bullet gap", async () => {
   const source = [
     "- alpha",
