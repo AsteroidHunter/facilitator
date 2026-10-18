@@ -45,6 +45,40 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## d3-force
+
+`app/graph-force.js` holds the published UMD builds of four d3 packages,
+unchanged, which the graph of the links between cards (`app/graph.js`) lays
+its cards out with. Nothing is fetched at runtime. The builds were taken from
+each package's `dist/` folder as published on npm.
+
+| Package | Version |
+| --- | --- |
+| d3-dispatch | 3.0.1 |
+| d3-quadtree | 3.0.1 |
+| d3-timer | 3.0.1 |
+| d3-force | 3.0.0 |
+
+Source: `https://github.com/d3/d3-force` and the other three under
+`https://github.com/d3`. All four are distributed under the ISC License,
+with the same text:
+
+### ISC License (d3)
+
+Copyright 2010-2021 Mike Bostock
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
+
 ## Lucide icons
 
 The navigator's file-type icons are Lucide, the chosen set for now; they are easy
