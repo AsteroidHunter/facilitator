@@ -15,10 +15,14 @@
  * on either side are a strike, a leading angle AND THE SPACE AFTER IT are a
  * quote bar, and a dash or star and a space is a bullet. A marker is a marker
  * once it is finished being typed and not before: a lone angle, like a lone
- * dash, is the character it was typed as until its space arrives. Inserting a
- * new line inside a list carries the marker down, and the editor's own
+ * dash, is the character it was typed as until its space arrives. Each is
+ * drawn as the card the row is sent to draws it: a span inside one line and
+ * not one that runs over a line break, and a quote only on the lines that
+ * carry their own angle. Inserting a new line inside a list carries the marker
+ * down, moving the numbers after a new numbered item on, and the editor's own
  * continuation carries a quote's angle and its space down the same way; doing
- * it on a marker with nothing typed after it ends the list.
+ * it on a marker or an angle with nothing typed after it ends the list or the
+ * quote. Inside a block of code nothing is carried.
  * Headings, tables, links, code fences and the rest of Markdown are left as
  * plain characters here: this is a message row, not a document editor.
  *
@@ -1325,8 +1329,6 @@
       focusEl() {
         return this.view ? this.view.contentDOM : this.ta;
       },
-      // the row's own height from its words, which is the two lines every
-      // composer wrote by hand before there was a second face to write them on
       // the row's own height from its words, which is the two lines every
       // composer wrote by hand before there was a second face to write them on
       autosize() {
