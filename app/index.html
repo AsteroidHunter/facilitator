@@ -6484,6 +6484,7 @@ function makeBox(b, i, state){
       // the moment of the last key, which is what holds a new answer back
       // while the reader is typing (turnHolding in card-logic.js)
       noteTyping(ta);
+      draftSave(b.id);   // kept on this Mac as it is typed (card-logic.js)
     });
     // a click into the composer or a key typed there is using the card
     readOnCompose(ta, b.id, useCard);
@@ -6570,6 +6571,8 @@ function makeBox(b, i, state){
                   tray, trayItems: [], trayHold: null };
     const sentCard = els[b.id];
     sentCard.sentRoom = () => sentRoom(sentCard);
+    // the words and files left unsent on this card before a reload or a close
+    draftRestore(sentCard, b.id);
     syncOmniCard(els[b.id], b);
     paintSectionChips(els[b.id], b);
     // the ramp's top edge follows the wrapper from the card's first frame, panel
@@ -6797,6 +6800,7 @@ async function doSend(id, opts){
   el.ta.value = "";
   composeTurn(id, el);   // a send gives the empty box its next line
   trayTake(el);       // the files that went leave the tray with the words
+  draftClear(id);     // and the kept draft with them
   el.tick();
   // The empty arrow remains tappable while its first delivery is in flight.
   const send = el.send;
@@ -6901,6 +6905,8 @@ function apply(state){
       els[id].box.remove(); els[id].toc.remove(); delete els[id];
     }
   }
+  // and so does its kept draft, after the row's last word on the way out
+  draftKeep(onBoard);
   // a selection carried over from another lane (a reload into an empty lane,
   // or the selected card's lane changing) never renders on this tab
   if (FOCUS && selectedId && activeOwner !== DRAFT){
