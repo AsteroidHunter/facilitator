@@ -414,14 +414,15 @@
       this.targets = [];
       const L = this.at, m = this.M, off = this.off;
       const atTop = L && m && L.path === m.top;
+      const home = m && (m.places || []).find(p => p.id === "home");
+      // the pop-up: the folder on show and the folders above it, up to home.
+      // the machine is the sidebar's, and its top is home itself
       let menu = "";
       if (this.menu === "loc" && L && !off){
         const chain = (L.trail || []).slice().reverse();
         menu = '<div class="fp-menu qn-glass" role="menu">' + chain.map((t, i) =>
           '<button type="button" class="fp-mr' + (i === 0 ? " fp-on" : "") + '" role="menuitem" data-a="goto"' + this.target(t.path) + ">" +
-            (m && t.path === m.home ? mark("home") : mark("folder", "fp-fi")) + '<span class="fp-nm">' + esc(t.name) + "</span></button>").join("") +
-          (m ? '<button type="button" class="fp-mr" role="menuitem" data-a="goto"' + this.target(m.top) + ">" + mark("computer") +
-            '<span class="fp-nm">' + esc(m.name) + "</span></button>" : "") + "</div>";
+            (m && t.path === m.home ? mark("home") : mark("folder", "fp-fi")) + '<span class="fp-nm">' + esc(t.name) + "</span></button>").join("") + "</div>";
       }
       const view = this.view;
       let h = '<div class="fp-tb">' +
@@ -430,7 +431,7 @@
           '<button type="button" class="fp-vs' + (view === "list" ? " fp-on" : "") + '" data-a="view" data-v="list" title="as a list" aria-label="as a list" aria-pressed="' + (view === "list") + '">' + mark("list") + "</button>" +
           '<button type="button" class="fp-vs' + (view === "columns" ? " fp-on" : "") + '" data-a="view" data-v="columns" title="as columns" aria-label="as columns" aria-pressed="' + (view === "columns") + '">' + mark("columns") + "</button></div>" +
         '<div class="fp-locw"><button type="button" class="fp-loc qn-glass" data-a="menu" data-m="loc" aria-haspopup="true" aria-expanded="' + (!!menu) + '"' + (off ? " disabled" : "") + ">" +
-          (!L ? mark("computer") : atTop ? mark("home") : mark("folder", "fp-fi")) + '<span class="fp-nm">' + esc(L ? L.name : m ? m.name : "") + "</span>" + mark("chev", "fp-cv") + "</button>" + menu + "</div>" +
+          (!L || atTop ? mark("home") : mark("folder", "fp-fi")) + '<span class="fp-nm">' + esc(L ? L.name : home ? home.name : "") + "</span>" + mark("chev", "fp-cv") + "</button>" + menu + "</div>" +
         '<span class="fp-sp"></span>' +
         '<button type="button" class="fp-ib" data-a="new"' + (off || (L && L.unreadable) || this.naming ? " disabled" : "") + ">" + mark("plusfolder") + "<span>New folder</span></button>" +
         this.cross() + "</div>";
@@ -497,12 +498,12 @@
         h += "</div>";
       });
       h += "</div>";
-      // the path bar along the well's foot: the machine, then the folders
+      // the path bar along the well's foot: home, then the folders down to the
+      // one on show, as the pop-up names them
       const trail = this.at.trail || [];
       h += '<div class="fp-pathbar"><div class="fp-crumbs">' +
-        (m ? '<button type="button" class="fp-crumb" data-a="goto"' + this.target(m.top) + ">" + mark("computer") + esc(m.name) + "</button>" : "") +
-        trail.map((t, i) => '<span class="fp-csep">›</span><button type="button" class="fp-crumb' + (i === trail.length - 1 ? " fp-last" : "") + '" data-a="goto"' +
-          this.target(t.path) + ">" + esc(t.name) + "</button>").join("") + "</div></div>";
+        trail.map((t, i) => (i ? '<span class="fp-csep">›</span>' : "") + '<button type="button" class="fp-crumb' + (i === trail.length - 1 ? " fp-last" : "") + '" data-a="goto"' +
+          this.target(t.path) + ">" + (m && t.path === m.home ? mark("home") : "") + esc(t.name) + "</button>").join("") + "</div></div>";
       return h + this.notes();
     }
 
