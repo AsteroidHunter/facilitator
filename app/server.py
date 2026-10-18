@@ -3327,6 +3327,87 @@ def _drop_links(card: dict) -> None:
             _log("unlink", other["id"], "", log_fields={"to": bid}, to=bid, why="deleted")
 
 
+# ---- card properties ------------------------------------------------------------
+# What an agent, and later a properties panel, reads about one card at a glance
+# from GET /props. Most of it the board already keeps, and it is read from
+# there each time and copied nowhere: the id, which never changes and is the
+# number the pages show after the m; the lane (owner) and the section; when the
+# card was made, the time of its create row in the transcript; and when it last
+# changed, the time of the newest transcript row about it, since every change
+# the board makes to a card writes one (_card_times). Two properties are new
+# and are kept on the card itself, each as {value, ts, agent}: the value as the
+# agent working the card gave it, when it was set and by which agent.
+# box["branch"] is the git branch the card's work is on and box["status"] a
+# short word on where that work stands. An agent sets either with POST /props
+# and clears it with an empty one, and a card without one carries no field, so
+# a board saved before them reads exactly as it was. The branch is not the
+# card's worktree (_post_worktree), which a page picks from the lane's own
+# checkouts. Both live on the card's own record, so they outlast renames and
+# restarts, wait in the Bin with the card, and go when it is deleted for good.
+CARD_PROPS = ("branch", "status")
+PROP_MAX = 200
+
+
+def _a_time(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _card_prop(card: dict, name: str) -> dict | None:
+    """One of the properties an agent sets on a card, as kept; a missing or
+    malformed one is none."""
+    prop = card.get(name)
+    if not isinstance(prop, dict) or not isinstance(prop.get("value"), str) or not prop["value"]:
+        return None
+    ts, agent = prop.get("ts", 0), prop.get("agent", "")
+    return {"value": prop["value"], "ts": ts if _a_time(ts) else 0,
+            "agent": agent if isinstance(agent, str) else ""}
+
+
+def _card_times(bid: str, owner: str, ts) -> tuple:
+    """When one card was made and when it last changed, read from the
+    transcript each time they are asked for. Made is the card's create row. A
+    card made without one, as a new project's first card is (the row is the
+    project's) and the seed's cards are, takes the earliest record of it there
+    is: its lane's project row, its own first row or its ts. Last changed is
+    its newest row, or its ts if that is later. An id an older board handed out
+    again after a deletion starts over there, since the rows before are another
+    card's. Either is None only for a card the board has no time for at all."""
+    created = first = newest = project = None
+    # only lines naming the card or its lane are read whole: each name as a
+    # row writes it, quotes and all
+    marks = (json.dumps(bid), json.dumps(owner))
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                if not any(mark in line for mark in marks):
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict) or not _a_time(event.get("ts")):
+                    continue
+                row, kind, at = event.get("box"), event.get("kind"), event["ts"]
+                if row == owner and kind == "project":
+                    project = at
+                if row != bid:
+                    continue
+                if kind in ("delete", "expire"):
+                    created = first = newest = None
+                    continue
+                if kind == "create":
+                    created = at
+                first = at if first is None else first
+                newest = at if newest is None else max(newest, at)
+    except FileNotFoundError:
+        pass
+    own = ts if _a_time(ts) else None
+    made = created if created is not None else min(
+        (t for t in (project, first, own) if t is not None), default=None)
+    changed = max((t for t in (newest, own) if t is not None), default=None)
+    return made, changed
+
+
 def _ws(owner: str, wid: str) -> dict | None:
     return next((w for w in _state.get("workspaces", {}).get(owner, [])
                  if w["id"] == wid), None)
@@ -6991,6 +7072,67 @@ def _get_links(q: Query, _):
                      "links": links, "backlinks": back}
 
 
+def _get_props(q: Query, _):
+    """One card's properties (see card properties). What the card keeps is read
+    under the lock and its two times from the transcript after it, as /thread
+    reads it. A card in the Bin has none to read until it is restored, as with
+    its links."""
+    bid = q.one("box")
+    if not bid:
+        return 400, {"error": "name the card: box=ID"}
+    with _lock:
+        card = _box(bid)
+        if card is None:
+            return 400, {"error": f"no card {bid} on the board"}
+        owner, ts = card.get("owner", "facilitator"), card.get("ts")
+        head = {"id": bid, "title": card.get("title", ""), "owner": owner,
+                "section": _section_name(card)}
+        props = {name: _card_prop(card, name) for name in CARD_PROPS}
+    made, changed = _card_times(bid, owner, ts)
+    return 200, {**head, "made": made, "changed": changed, **props}
+
+
+def _post_props(q: Query, text: str):
+    # a card's branch or status set by the agent working it, or cleared by an
+    # empty one (see card properties). one that already holds the asked-for
+    # value is kept as it stands, with its own time and agent
+    bid = q.one("box")
+    agent = q.one("agent").strip()[:24]
+    # an empty value clears, so a blank one is told apart from none given
+    given = parse_qs(q.raw, keep_blank_values=True)
+    asked = {name: given[name][0].strip() for name in CARD_PROPS if name in given}
+    if not bid:
+        return 400, {"error": "name the card: box=ID"}
+    if not asked:
+        return 400, {"error": "name a property: branch=NAME or status=TEXT, empty to clear it"}
+    for name, value in asked.items():
+        if len(value) > PROP_MAX:
+            return 400, {"error": f"a {name} is at most {PROP_MAX} characters"}
+        if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            return 400, {"error": f"a {name} is one line of plain text"}
+    with _lock:
+        card = _box(bid)
+        if card is None:
+            return 400, {"error": f"no card {bid} on the board"}
+        saved = False
+        for name, value in asked.items():
+            kept = _card_prop(card, name)
+            if (kept["value"] if kept else "") == value:
+                continue
+            if value:
+                card[name] = {"value": value, "ts": time.time(), "agent": agent}
+            else:
+                card.pop(name, None)
+            _log(name, bid, "", log_fields={"action": "set" if value else "clear"},
+                 agent=agent, **{name: value})
+            saved = True
+        if saved:
+            _save()
+            _notify()
+        return 200, {"ok": True, "saved": saved, "id": bid,
+                     **{name: _card_prop(card, name) for name in CARD_PROPS}}
+
+
 def _omni_number(title: str) -> int | None:
     """The title is the whole v0 Omni contract; cards keep normal ids/state."""
     match = OMNI_TITLE_RE.fullmatch(title or "")
@@ -8946,6 +9088,7 @@ ROUTES = [
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
     Route("/links", _endpoint(_get_links), methods=["GET"]),
+    Route("/props", _endpoint(_get_props), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
     Route("/limits", _endpoint(_get_limits), methods=["GET"]),
@@ -9019,6 +9162,7 @@ ROUTES = [
     Route("/context", _state_endpoint(_post_context, "text"), methods=["POST"]),
     Route("/link", _state_endpoint(_post_link, "text"), methods=["POST"]),
     Route("/unlink", _state_endpoint(_post_unlink, "text"), methods=["POST"]),
+    Route("/props", _state_endpoint(_post_props, "text"), methods=["POST"]),
     Route("/title", _state_endpoint(_post_title, "text"), methods=["POST"]),
     Route("/create", _state_endpoint(_post_create, "text"), methods=["POST"]),
     Route("/project", _state_endpoint(_post_project, "text"), methods=["POST"]),
