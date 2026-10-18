@@ -307,15 +307,17 @@ test("the line draws each day's total solid and the trailing seven-day average d
   assert.ok(model.months.every(m => m.x >= 48 && m.x + 26 <= g.width));
   assert.ok(model.months.some(m => m.label === "Jan 2026"));
   assert.equal((svg.match(/<line class="tk-tick"/g) || []).length, model.months.length);
-  // the two lines, in the chart's own red-oranges: the day solid, its average in dots a shade deeper
+  // the two lines, in the chart's own red-oranges: the day in faint dots, its average solid and a shade deeper
   const path = /class="tk-path" d="([^"]+)"/.exec(svg)[1];
   assert.equal((path.match(/[ML]/g) || []).length, 270);
-  const dotted = /<path class="tk-avg" d="([^"]+)" fill="none" stroke="([^"]+)" stroke-dasharray="([^"]+)"/.exec(svg);
-  assert.ok(dotted, "the average is drawn dotted");
-  assert.equal((dotted[1].match(/[ML]/g) || []).length, 270);
-  assert.equal(dotted[2], W.AVG_LINE);
-  assert.ok(svg.includes(`class="tk-path" d="${path}" fill="none" stroke="${W.LINE}"`));
-  assert.doesNotMatch(/<path class="tk-path"[^>]*>/.exec(svg)[0], /dasharray/, "the daily line is solid");
+  const solid = /<path class="tk-avg" d="([^"]+)" fill="none" stroke="([^"]+)"([^>]*)>/.exec(svg);
+  assert.ok(solid, "the average is drawn solid");
+  assert.equal((solid[1].match(/[ML]/g) || []).length, 270);
+  assert.equal(solid[2], W.AVG_LINE);
+  assert.doesNotMatch(solid[3], /dasharray|opacity/, "the average is solid and fully opaque");
+  assert.ok(svg.includes(`class="tk-path" d="${path}" fill="none" stroke="${W.LINE}" ` +
+                         `stroke-opacity="${W.DAILY_ALPHA}" stroke-dasharray="${W.DAILY_DASH}"`));
+  assert.ok(W.DAILY_ALPHA >= 0.4 && W.DAILY_ALPHA <= 0.5, "the daily line is faint");
   assert.ok(W.PALETTE.includes(W.AVG_LINE));
   for (const c of [W.LINE, W.AVG_LINE]) assert.ok(hsl(c).h >= 8 && hsl(c).h <= 30, `${c} is the same warm family`);
   assert.doesNotMatch(svg, /linearGradient|tk-area/, "no fill under the line");
@@ -658,8 +660,9 @@ test("the line's tip names the day, its total and its 7-day average, and nothing
   const rows = [...tip.matchAll(/<span class="tk-row"><svg class="tk-key"[^>]*>.*?<\/svg>([^<]+)<em>([^<]+)<\/em><\/span>/g)]
     .map(m => [m[1], m[2]]);
   assert.deepEqual(rows, [["Daily", "1.35B"], ["7-day average", "616M"]]);
-  // each row's stroke is its line's: the day solid, the average dotted
-  assert.match(tip, new RegExp(`Daily.*stroke="${W.AVG_LINE}"[^>]*stroke-dasharray="${W.AVG_DASH}".*7-day average`));
+  // each row's stroke is its line's: the day in faint dots, the average solid
+  assert.match(tip, new RegExp(`stroke="${W.LINE}" stroke-opacity="${W.DAILY_ALPHA}"[^>]*stroke-dasharray="${W.DAILY_DASH}"/></svg>Daily`));
+  assert.match(tip, new RegExp(`stroke="${W.AVG_LINE}" stroke-width="[^"]+" stroke-linecap="round"/></svg>7-day average`));
   assert.ok(Math.abs(p.y - model.yAt(p.total)) < 0.1 && Math.abs(p.ya - model.yAt(p.avg)) < 0.1,
             "the two dots stand at the tip's two numbers");
   // every day of the year: both numbers in the tip, both marks inside the axis
