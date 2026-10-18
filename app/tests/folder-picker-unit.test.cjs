@@ -348,6 +348,21 @@ test("names and paths are written as text, never as markup", async () => {
   await p.go(HOME);
   assert.doesNotMatch(p.drawPanel(), /<img/);
   assert.doesNotMatch(p.drawDrop(), /<img/);
+  // the count of folders left out is drawn only as a number
+  p.at = { ...p.at, more: '<img src=x onerror="alert(1)">' };
+  assert.doesNotMatch(p.drawPanel() + p.drawDrop(), /<img|more folders/);
+});
+
+test("a listing the server stopped short says not every folder is listed", async () => {
+  const { p } = await picker({ kind: "drop" });
+  p.at = { ...p.at, more: 18000 };
+  assert.match(p.drawDrop(), /<div class="fp-empty">18000 more folders here are not listed<\/div>/);
+  assert.match(strip(p.drawPanel()), /18000 more folders here are not listed/);
+  p.at = { ...p.at, more: 0, cut: true };
+  assert.match(p.drawDrop(), /<div class="fp-empty">Not every folder here is listed<\/div>/);
+  assert.match(p.drawPanel(), /<div class="fp-note">Not every folder here is listed<\/div>/);
+  p.at = { ...p.at, cut: false };
+  assert.doesNotMatch(p.drawPanel() + p.drawDrop(), /folders here are not listed|Not every folder/);
 });
 
 test("the sheet and the code keep the house rules: no purple, no accent, no dashes, every class the picker's own", () => {

@@ -446,9 +446,17 @@
         (this.failed ? " disabled" : "") + ">" + this.buttons() + "</div>";
       return h;
     }
+    // what the listing left out: folders past the rows it names, or, when the
+    // server stopped reading a huge folder or a slow disk, that there may be more
+    unlisted(){
+      const L = this.at, more = L && Number.isInteger(L.more) && L.more > 0 ? L.more : 0;
+      if (L && L.cut) return "Not every folder here is listed";
+      return more ? more + " more folders here are not listed" : "";
+    }
     notes(){
       let h = "";
-      if (this.at && this.at.more) h += '<div class="fp-note">' + this.at.more + " more folders here are not listed</div>";
+      const unlisted = this.unlisted();
+      if (unlisted) h += '<div class="fp-note">' + esc(unlisted) + "</div>";
       if (this.note) h += '<div class="fp-note fp-bad" role="alert">' + esc(this.note) + "</div>";
       return h;
     }
@@ -547,7 +555,8 @@
         }
         h += '<button type="button" class="fp-plus" data-a="new" title="New folder" aria-label="New folder"' + (off || this.naming ? " disabled" : "") + ">" + PLUS + "<span>New folder</span></button>";
       }
-      if (this.at && this.at.more) h += '<div class="fp-empty">' + this.at.more + " more folders here are not listed</div>";
+      const unlisted = this.unlisted();
+      if (unlisted) h += '<div class="fp-empty">' + esc(unlisted) + "</div>";
       if (this.note) h += '<div class="fp-err" role="alert">' + esc(this.note) + "</div>";
       h += "</div>";
       h += '<div class="fp-ft"><div class="fp-opens"><span>Opens</span><code>' + esc((m ? m.name : "") + "  " + (L ? L.short : "")) + "</code></div>" + this.buttons() + "</div>";
