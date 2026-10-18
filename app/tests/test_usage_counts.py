@@ -790,7 +790,7 @@ class EmailLink(Board):
 
 
 PERSON = {"email": EMAIL, "name": "Ada Lovelace", "work": "Notes on the analytical engine, in my words",
-          "main_agent": "Claude Code", "time_zone": "Europe/London"}
+          "time_zone": "Europe/London"}
 
 
 class PersonLink(Board):
@@ -821,16 +821,16 @@ class PersonLink(Board):
         board.link_person(PERSON, True)
         board.link_person({**PERSON, "work": "Teaching"}, True)
         self.assertEqual(self.sets()[1], {"$geoip_disable": True, "$set": {"work": "Teaching"}})
-        changed = {k: v for k, v in PERSON.items() if k != "main_agent"}
+        changed = {k: v for k, v in PERSON.items() if k != "time_zone"}
         board.link_person({**changed, "work": "Teaching"}, True)
-        self.assertEqual(self.sets()[2], {"$geoip_disable": True, "$unset": ["main_agent"]})
+        self.assertEqual(self.sets()[2], {"$geoip_disable": True, "$unset": ["time_zone"]})
         board.link_person({**PERSON, "email": "grace@example.com"}, True)
         self.assertEqual(self.sets()[3]["$set"], {"email": "grace@example.com", "work": PERSON["work"],
-                                                  "main_agent": "Claude Code"})
+                                                  "time_zone": "Europe/London"})
         self.assertEqual(self.sent_ids(), [self.made[0]] * 4)
 
     def test_answers_that_are_not_text_or_too_long_are_left_out_and_unknown_names_never_go(self):
-        self.sender().link_person({**PERSON, "name": "", "work": "x" * 2001, "main_agent": 5,
+        self.sender().link_person({**PERSON, "name": "", "work": "x" * 2001, "main_agent": "Claude Code",
                                    "time_zone": "Mars\x00Base", "phone": "555 0100"}, True)
         self.assertEqual(self.sets()[0]["$set"], {"email": EMAIL})
 
@@ -898,6 +898,20 @@ class PersonLink(Board):
         self.assertEqual(self.net.requests, [], "an email already told went again")
         board.link_person(PERSON, True)
         self.assertEqual(self.sets()[0]["$set"], {k: v for k, v in PERSON.items() if k != "email"})
+
+    def test_a_main_agent_kept_from_before_is_neither_sent_nor_unset_nor_kept(self):
+        self.install.write_text(json.dumps({
+            "install_id": INSTALL, "feedback_yes": True, "email": EMAIL, "identify_done": True,
+            "answers": {"name": "Ada Lovelace", "main_agent": "Claude Code"},
+            "told": {"email": EMAIL, "name": "Ada Lovelace", "main_agent": "Claude Code"}}))
+        board = self.sender()
+        self.assertEqual(board.identify(), "sent")
+        self.assertEqual(self.net.requests, [], "the old main agent went to PostHog again or was unset")
+        self.assertEqual(board.link_person({"email": EMAIL, "name": "Ada Lovelace"}, True), "sent")
+        self.assertEqual(self.net.requests, [])
+        board.link_person({"email": EMAIL, "name": "Ada Lovelace", "work": "Teaching"}, True)
+        self.assertEqual(self.sets(), [{"$geoip_disable": True, "$set": {"work": "Teaching"}}])
+        self.assertNotIn("main_agent", json.dumps(self.saved()))
 
 
 class Logs(Board):

@@ -44,8 +44,7 @@ import usage_counts as uc  # noqa: E402
 
 EMAIL = "ada.lovelace@example.org"
 ANSWERS = {"name": "Ada Lovelace", "email": EMAIL, "emailYes": True,
-           "work": "Notes on the analytical engine, in my words", "agent": "Claude Code",
-           "timeZone": "Europe/London"}
+           "work": "Notes on the analytical engine, in my words", "timeZone": "Europe/London"}
 
 
 def _load_server():
@@ -162,7 +161,7 @@ class Case(unittest.TestCase):
 
 class File(Case):
     def test_a_missing_or_broken_file_is_a_board_the_onboarding_has_not_been_through(self):
-        empty = {"name": None, "email": None, "emailYes": False, "work": None, "agent": None,
+        empty = {"name": None, "email": None, "emailYes": False, "work": None,
                  "timeZone": None, "picture": None, "complete": False}
         self.assertEqual(self.call("GET", "/profile"), (200, empty))
         for content in ("", "not json", "[]", '"x"', "{}", '{"name": ""}', '{"name": "   "}', '{"name": 5}',
@@ -174,19 +173,28 @@ class File(Case):
 
     def test_a_field_that_does_not_pass_its_rule_reads_as_not_given(self):
         (self.app / "profile.json").write_text(json.dumps({
-            "name": "Ada", "email": "not an address", "email_yes": True, "work": 5, "agent": "x" * 101,
-            "time_zone": "Mars Base"}))
+            "name": "Ada", "email": "not an address", "email_yes": True, "work": 5, "time_zone": "Mars Base"}))
         answer = self.call("GET", "/profile")[1]
         self.assertIn(answer.pop("picture"), S.PROFILE_PICTURES)
         self.assertEqual(answer, {
-            "name": "Ada", "email": None, "emailYes": False, "work": None, "agent": None,
+            "name": "Ada", "email": None, "emailYes": False, "work": None,
             "timeZone": None, "complete": True})
+
+    def test_an_agent_kept_from_before_is_never_read_or_shown(self):
+        (self.app / "profile.json").write_text(json.dumps({
+            "name": "Ada", "work": "Notes", "agent": "Claude Code", "picture": 19}))
+        status, answer = self.call("GET", "/profile")
+        self.assertEqual(status, 200)
+        self.assertNotIn("agent", answer)
+        self.assertNotIn("Claude Code", json.dumps(answer))
+        self.assertNotIn("agent", S._profile_read())
+        self.assertNotIn("agent", S._profile_person(S._profile_read()))
+        self.assertEqual(self.kept()["agent"], "Claude Code", "a read changed the file")
 
     def test_it_is_written_whole_owner_only_beside_the_state_and_kept_from_git(self):
         self.assertEqual(self.call("POST", "/profile", ANSWERS)[0], 200)
         self.assertEqual(self.kept(), {"name": "Ada Lovelace", "email": EMAIL, "email_yes": True,
-                                       "work": ANSWERS["work"], "agent": "Claude Code", "time_zone": "Europe/London",
-                                       "picture": None})
+                                       "work": ANSWERS["work"], "time_zone": "Europe/London", "picture": None})
         self.assertEqual((self.app / "profile.json").stat().st_mode & 0o777, 0o600)
         self.assertFalse((self.app / "profile.json.tmp").exists())
         # beside state.json, in data/ at the top of the checkout, which git ignores
@@ -200,14 +208,27 @@ class File(Case):
 
 class Routes(Case):
     def test_a_post_sets_what_it_names_and_keeps_the_rest(self):
-        self.call("POST", "/profile", {"name": "Ada", "work": "Notes", "agent": "Codex", "timeZone": "America/Phoenix"})
+        self.call("POST", "/profile", {"name": "Ada", "work": "Notes", "timeZone": "America/Phoenix"})
         status, answer = self.call("POST", "/profile", {"name": "  Ada Lovelace  "})
         self.assertEqual(status, 200)
-        self.assertEqual({k: answer[k] for k in ("name", "work", "agent", "timeZone", "complete", "ok")},
-                         {"name": "Ada Lovelace", "work": "Notes", "agent": "Codex",
+        self.assertEqual({k: answer[k] for k in ("name", "work", "timeZone", "complete", "ok")},
+                         {"name": "Ada Lovelace", "work": "Notes",
                           "timeZone": "America/Phoenix", "complete": True, "ok": True})
-        self.call("POST", "/profile", {"work": "", "agent": None})
-        self.assertEqual((self.kept()["work"], self.kept()["agent"]), (None, None))
+        self.call("POST", "/profile", {"work": ""})
+        self.assertEqual(self.kept()["work"], None)
+
+    def test_a_write_that_still_carries_an_agent_is_taken_and_the_agent_dropped(self):
+        (self.app / "profile.json").write_text(json.dumps({"name": "Ada", "agent": "Claude Code"}))
+        for agent in ("Codex", None, "", 5, "x" * 101):
+            with self.subTest(agent=agent):
+                status, answer = self.call("POST", "/profile", {"work": "Notes", "agent": agent})
+                self.assertEqual((status, answer["ok"], answer["work"]), (200, True, "Notes"))
+                self.assertNotIn("agent", answer)
+                self.assertNotIn("agent", self.kept())
+        # an agent alone changes nothing the profile holds
+        self.assertEqual(self.call("POST", "/profile", {"agent": "Codex"})[0], 200)
+        self.assertEqual((self.kept()["name"], self.kept()["work"]), ("Ada", "Notes"))
+        self.assertNotIn("agent", self.kept())
 
     def test_every_field_is_checked_before_anything_is_kept(self):
         self.call("POST", "/profile", {"name": "Ada", "work": "Notes"})
@@ -217,7 +238,7 @@ class Routes(Case):
                           ({"name": ""}, "a name is needed"), ({"name": None}, "a name is needed"),
                           ({"name": "x" * 201}, "bad name"), ({"name": "a\x07b"}, "bad name"),
                           ({"name": 5}, "bad name"), ({"work": "x" * 2001, "name": "Grace"}, "bad work"),
-                          ({"agent": "x" * 101}, "bad agent"), ({"email": "ada@"}, "not an email address"),
+                          ({"email": "ada@"}, "not an email address"),
                           ({"email": 5}, "not an email address"), ({"emailYes": "true"}, "bad yes"),
                           ({"emailYes": 1}, "bad yes"), ({"emailYes": True}, "a yes needs an email"),
                           ({"timeZone": "Mars Base"}, "bad time zone"), ({"timeZone": 5}, "bad time zone")):
@@ -393,7 +414,7 @@ class PostHog(Case):
         self.assertEqual(body, {"api_key": uc.TOKEN, "event": "$identify", "distinct_id": install,
                                 "properties": {"$geoip_disable": True, "$set": {
                                     "email": EMAIL, "name": "Ada Lovelace", "work": ANSWERS["work"],
-                                    "main_agent": "Claude Code", "time_zone": "Europe/London"}}})
+                                    "time_zone": "Europe/London"}}})
         self.call("POST", "/profile", {"name": "Ada Lovelace", "timeZone": "Europe/London"})
         self.assertEqual(len(self.net.bodies), 1, "a save that changed nothing was sent")
 
@@ -401,9 +422,17 @@ class PostHog(Case):
         self.sender()
         self.call("POST", "/profile", ANSWERS)
         self.call("POST", "/profile", {"work": "Teaching"})
-        self.call("POST", "/profile", {"agent": None})
+        self.call("POST", "/profile", {"work": None})
         self.assertEqual(self.sets()[1:], [{"$geoip_disable": True, "$set": {"work": "Teaching"}},
-                                           {"$geoip_disable": True, "$unset": ["main_agent"]}])
+                                           {"$geoip_disable": True, "$unset": ["work"]}])
+
+    def test_an_agent_a_page_from_before_sends_never_leaves(self):
+        self.sender()
+        self.call("POST", "/profile", {**ANSWERS, "agent": "Claude Code"})
+        self.call("POST", "/profile", {"agent": "Codex"})
+        self.call("POST", "/profile", {"agent": None})
+        self.assertEqual(len(self.net.bodies), 1)
+        self.assertNotIn("agent", json.dumps(self.net.bodies))
 
     def test_without_the_yes_nothing_leaves(self):
         self.sender()

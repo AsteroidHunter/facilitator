@@ -492,7 +492,7 @@ Endpoints:
                                otherwise) and to a signed-in phone, body capped
                                at 40960 bytes; the log line holds the outcome
                                and a character count, never a word of it
-  GET  /profile             -> {name, email, emailYes, work, agent, timeZone,
+  GET  /profile             -> {name, email, emailYes, work, timeZone,
                                picture, complete}: who uses this board, kept in
                                profile.json beside state.json, owner-only, and
                                sent nowhere unless the person said yes to
@@ -510,17 +510,18 @@ Endpoints:
                                signed-in phone, which shows it in its Settings
   POST /profile             -> body = {"<field>": <value>, ...}, any of the
                                fields above but complete: sets those and keeps
-                               the rest. name, work and agent are text (name
-                               at most 200 characters and never empty, work
-                               2000, agent 100; null or blank clears work and
-                               agent), email an address or null, emailYes true
-                               or false, timeZone an IANA name the page read off
-                               the Mac. A yes needs an email, and clearing the
-                               email takes the yes with it. Every field is
-                               checked before anything is kept, and a refusal is
-                               a 400 naming the field and never its value. Once
-                               kept, with the yes on, the email, name, work,
-                               main agent and time zone go to
+                               the rest. name and work are text (name at
+                               most 200 characters and never empty, work 2000;
+                               null or blank clears work), email an address or
+                               null, emailYes true or false, timeZone an IANA
+                               name the page read off the Mac. An agent, which
+                               the profile once held, is accepted and dropped,
+                               so a page from before still saves. A yes needs
+                               an email, and clearing the email takes the yes
+                               with it. Every field is checked before anything
+                               is kept, and a refusal is a 400 naming the field
+                               and never its value. Once kept, with the yes on,
+                               the email, name, work and time zone go to
                                usage_counts.Sender.link_person, which tells
                                PostHog, as properties of the install's person,
                                only what it has not been told: everything at the
@@ -818,9 +819,9 @@ A Mac board whose profile.json is missing or has no name has not been through
 the onboarding: /board-settings.js says so in front of the store
 (globalThis.BOARD_ONBOARDING), and the board lays /onboarding over itself
 before it can be used. The profile stays on this Mac unless the person says
-yes to feedback mail: then its email, name, work answer, main agent and time
-zone go to PostHog once, as that person's properties, and again only when one
-of them changes, never on a daily message.
+yes to feedback mail: then its email, name, work answer and time zone go to
+PostHog once, as that person's properties, and again only when one of them
+changes, never on a daily message.
 """
 
 from __future__ import annotations
@@ -7454,10 +7455,10 @@ def _post_feedback(q: Query, text: str):
 
 # ---- the profile -------------------------------------------------------------------
 # Who uses this board, in their own words: the name, the email with its yes to
-# feedback mail, what they will mostly use Facilitator for, their main agent
-# and the time zone the page reads off the Mac. Kept in profile.json beside
-# state.json, owner-only and ignored by git, and written only by a page on this
-# Mac. Without the yes none of it leaves the Mac. With it, the email and the
+# feedback mail, what they will mostly use Facilitator for and the time zone
+# the page reads off the Mac. Kept in profile.json beside state.json,
+# owner-only and ignored by git, and written only by a page on this Mac.
+# Without the yes none of it leaves the Mac. With it, the email and the
 # answers go to PostHog as that person's properties, once and then only when
 # one changes, through the usage sender (link_person in usage_counts.py), and
 # never with a daily message; taking the yes back sends nothing more.
@@ -7467,7 +7468,7 @@ def _post_feedback(q: Query, text: str):
 # onboarding up before it can be used (see the onboarding below).
 PROFILE_PATH = DATA / "profile.json"
 PROFILE_BODY_MAX = 8192
-PROFILE_TEXT_MAX = {"name": 200, "work": 2000, "agent": 100}
+PROFILE_TEXT_MAX = {"name": 200, "work": 2000}
 # the picture the Mac's Settings page shows in Profile: one of twelve, by the
 # number the page draws it by (19 to 30), drawn by chance the first time a page
 # on this Mac asks for the profile and kept in profile.json for good. A kept
@@ -7512,8 +7513,7 @@ def _profile_read() -> dict:
     unreadable or not a profile reads as an empty one, which is a board the
     onboarding has not been through; a field that does not pass its own rule
     reads as not given."""
-    rec = {"name": None, "email": None, "email_yes": False, "work": None, "agent": None, "time_zone": None,
-           "picture": None}
+    rec = {"name": None, "email": None, "email_yes": False, "work": None, "time_zone": None, "picture": None}
     try:
         raw = json.loads(PROFILE_PATH.read_text())
     except (OSError, ValueError):
@@ -7573,15 +7573,13 @@ def _profile_write(rec: dict) -> None:
 
 def _profile_answer(rec: dict) -> dict:
     return {"name": rec["name"], "email": rec["email"], "emailYes": rec["email_yes"], "work": rec["work"],
-            "agent": rec["agent"], "timeZone": rec["time_zone"], "picture": rec["picture"],
-            "complete": _profile_complete(rec)}
+            "timeZone": rec["time_zone"], "picture": rec["picture"], "complete": _profile_complete(rec)}
 
 
 def _profile_person(rec: dict) -> dict:
     """The person properties the usage sender keeps and tells PostHog under
     the yes: the profile's fields by PostHog's names, the ones given only."""
-    named = {"email": rec["email"], "name": rec["name"], "work": rec["work"],
-             "main_agent": rec["agent"], "time_zone": rec["time_zone"]}
+    named = {"email": rec["email"], "name": rec["name"], "work": rec["work"], "time_zone": rec["time_zone"]}
     return {key: value for key, value in named.items() if value is not None}
 
 
@@ -7625,6 +7623,7 @@ def _post_profile(q: Query, text: str):
         changes = json.loads(text) if text else None
     except ValueError:
         changes = None
+    # agent is no longer part of the profile; a write that still has it is taken and the value dropped
     if not isinstance(changes, dict) or not changes or \
             not set(changes) <= {"name", "email", "emailYes", "work", "agent", "timeZone"}:
         return 400, {"error": "bad profile"}

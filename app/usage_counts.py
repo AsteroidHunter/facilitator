@@ -37,10 +37,10 @@ onboarding or in Settings, Profile (POST /profile in server.py). With that yes,
 link_person(person, yes) saves the yes, the address and the profile's other
 answers in usage-install.json and sends PostHog one $identify for the install
 id, setting them as properties of that person ($set): email, name, work (what
-they will mostly use Facilitator for, in their own words), main_agent and
-time_zone, each only when given. An answer changed later while the yes holds
-is sent once more, alone: the next identify carries only what differs from what
-PostHog was last told, and an answer cleared is unset ($unset). None of it ever
+they will mostly use Facilitator for, in their own words) and time_zone, each
+only when given. An answer changed later while the yes holds is sent once
+more, alone: the next identify carries only what differs from what PostHog
+was last told, and an answer cleared is unset ($unset). None of it ever
 rides on a daily message. Taking the yes back (unlink_email) forgets the
 address and the answers here and sends nothing; what PostHog already holds stays
 there. link_email(email, yes) is the same with the email alone.
@@ -128,7 +128,7 @@ EMAIL = re.compile(f"{EMAIL_PART}@{EMAIL_PART}\\.{EMAIL_PART}")
 EMAIL_MAX = 254           # the longest an address can be
 # the answers that go with the email under its yes, as PostHog person
 # properties, and the most characters each may hold (the profile's own caps)
-PERSON_TEXT_MAX = {"name": 200, "work": 2000, "main_agent": 100, "time_zone": 64}
+PERSON_TEXT_MAX = {"name": 200, "work": 2000, "time_zone": 64}
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -451,8 +451,8 @@ class Install:
       install_id     a uuid4, made the first time it is asked for
       feedback_yes   true only with a saved email: the yes
       email          the address, kept as the person gave it
-      answers        what goes with it under the same yes: name, work,
-                     main_agent and time_zone, each only when given
+      answers        what goes with it under the same yes: name, work
+                     and time_zone, each only when given
       told           the person properties PostHog was last told, or turned
                      down for good, so only a change is ever sent again
       identify_done  nothing is left to tell PostHog
@@ -619,8 +619,8 @@ class Sender:
     def link_person(self, person, yes) -> str:
         """The person said yes to being emailed for feedback: keeps the yes, the
         address and the answers that go with it (clean_answers: name, work,
-        main_agent, time_zone) next to the install id, in place of the ones
-        kept, then tells PostHog whatever it has not been told. Called again
+        time_zone) next to the install id, in place of the ones kept, then
+        tells PostHog whatever it has not been told. Called again
         with the same, it sends nothing; with an answer changed, only that.
         Without an explicit yes (True itself, nothing that merely counts as
         true) or without an email address, nothing is kept and nothing is

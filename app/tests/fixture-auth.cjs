@@ -39,7 +39,7 @@ function appFolder(prefix) {
 // server starts. A profile already in place is left as it is. The server
 // refuses to start without data_folder.py, which says where its files are.
 // dir is the copy's code folder; the profile goes into data/ beside it.
-const PROFILE = { name: 'Fixture Owner', email: null, email_yes: false, work: null, agent: null, time_zone: null };
+const PROFILE = { name: 'Fixture Owner', email: null, email_yes: false, work: null, time_zone: null };
 function copyBridgeFiles(dir) {
   for (const name of ['bridge_auth.py', 'bridge_gate.py', 'm-gate.html', 'm-splash.js',
                       'home-widgets.css', 'home-widgets.js', 'board-settings.js', 'mac-phone-view.js',

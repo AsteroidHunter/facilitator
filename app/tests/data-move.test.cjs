@@ -221,7 +221,7 @@ function fillOldBoard(w) {
   top("state.json.bak-20260906T230745", JSON.stringify({ boxes: [] }));
   top("transcript.jsonl", CARDS.map(id => JSON.stringify({ ts: 1, kind: "user", box: id, text: `hello ${id}` })).join("\n") + "\n");
   top("settings.json", JSON.stringify({ rev: 2, values: { bgcolor: "#336699" } }));
-  top("profile.json", JSON.stringify({ name: "Ada", email: null, email_yes: false, work: null, agent: null, time_zone: null }));
+  top("profile.json", JSON.stringify({ name: "Ada", email: null, email_yes: false, work: null, time_zone: null }));
   top("run.config.json", JSON.stringify({ port: w.port, lanes: [] }));
   top("seed.json", JSON.stringify({ title: "seed", items: [] }));
   top("vapid-key.pem", "-----BEGIN EC PRIVATE KEY-----\nfake\n-----END EC PRIVATE KEY-----\n");
