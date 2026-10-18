@@ -14,6 +14,8 @@ Each card has four buttons in its top bar: a sun for Doing, a sun behind a cloud
 
 On the Mac board, in the Done section only, a garbage can shows just left of a ticket while the pointer is over it or the paper beside it. Doing, Docked and Deferred never show it. One click on the can deletes that card at once, with no menu and no question: it leaves every section and goes to the Bin on the settings page (see [The settings page](settings.md#the-settings-page)), and if it was the card on screen, the next card in its section shows. There is no key for it yet, and the phone has no can. A card in the Bin keeps its thread, attachments, queued messages and magic box, but no agent is handed it and no page or phone shows it; a claim held on it is let go with its messages still waiting, and a reply sent to it is refused. After 30 days in the Bin the board deletes it for good, checked when the board starts and once a day.
 
+Agents link related cards to each other, such as a card that continues or depends on another, across projects too; the board keeps the links with the cards, through the Bin as well, but does not show them yet.
+
 ## The Mac board's top bar
 
 Along the top of the Mac board, from the left: a Home button, which opens the home page and stays pressed while it is open; a pill with the open project's name (while the home page is up, the name of the project you came from, with a down chevron after it); and a few faint project names. At the right end, evenly spaced, the speaker mutes the reply chime, the bug opens the feedback box on its own (see "Improvements" under [The settings page](settings.md#the-settings-page)), and the squid opens the settings page.
