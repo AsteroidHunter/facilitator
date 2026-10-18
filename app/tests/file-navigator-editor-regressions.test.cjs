@@ -54,6 +54,13 @@ before(async () => {
         res.end(await readFile(path.join(ROOT, "compose-format.js")));
         return;
       }
+      // the page's other scripts: without them its own script stops before
+      // the block caret is made
+      if (["/board-settings.js", "/mac-phone-view.js", "/magic-box.js", "/home-widgets.js"].includes(pathname)) {
+        res.setHeader("content-type", "text/javascript; charset=utf-8");
+        res.end(await readFile(path.join(ROOT, pathname.slice(1))));
+        return;
+      }
       res.statusCode = 404;
       res.end("not found");
     } catch (error) {
@@ -89,6 +96,9 @@ async function mountedEditor(source, height = 520) {
     // the stage stays hidden, and so cannot take focus, until a board's layout
     // has been laid out. this page has no board, so it is shown the way that does
     document.body.classList.add("layout-ready");
+    // the startup curtain lifts on the first reading of a board, which this
+    // page never gets, and while it stands it takes every click on the page
+    document.getElementById("loading")?.remove();
     fileNavMounts(["website", "pastureland"]);
     activeOwner = "pastureland";
     fileNavBoxes();
