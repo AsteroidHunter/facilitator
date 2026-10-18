@@ -834,8 +834,15 @@ class Index:
         os.chmod(self.path, 0o600)
         db = sqlite3.connect(self.path, timeout=5)
         try:
+            # pages that hold several vectors: one of 512 floats is half of
+            # SQLite's usual 4 KB page, and would leave the other half empty.
+            # only a new file takes it, and WAL fixes it from then on
+            db.execute("PRAGMA page_size=16384")
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("PRAGMA synchronous=NORMAL")   # derived data: a lost commit is read again
+            # the log is copied into the file every 4 MB, SQLite's usual
+            # stretch at its usual page size, and not every 16 MB at these pages
+            db.execute("PRAGMA wal_autocheckpoint=256")
         except sqlite3.Error:
             db.close()
             raise
@@ -862,10 +869,19 @@ class Index:
                 CREATE TABLE chunks (id INTEGER PRIMARY KEY, card TEXT NOT NULL,
                                      message TEXT NOT NULL, part INTEGER NOT NULL,
                                      kind TEXT NOT NULL, ts REAL NOT NULL, title TEXT NOT NULL,
-                                     text TEXT NOT NULL, doc TEXT NOT NULL, vector BLOB,
+                                     text TEXT NOT NULL, doc TEXT NOT NULL,
+                                     waiting INTEGER NOT NULL DEFAULT 1,
                                      UNIQUE (card, message, part));
                 CREATE INDEX chunks_card_ts ON chunks (card, ts);
-                CREATE INDEX chunks_waiting ON chunks (id) WHERE vector IS NULL;
+                CREATE INDEX chunks_waiting ON chunks (id) WHERE waiting = 1;
+                -- the model's vectors apart from the words, each added at the
+                -- end, so a chunk's row never grows and the pages stay full.
+                -- waiting is 1 until a chunk's own words have a vector here
+                CREATE TABLE vectors (seq INTEGER PRIMARY KEY, id INTEGER NOT NULL UNIQUE,
+                                      vector BLOB NOT NULL);
+                CREATE TRIGGER chunks_gone AFTER DELETE ON chunks BEGIN
+                    DELETE FROM vectors WHERE id = old.id;
+                END;
             """)
             if self._fts:
                 # the words live once, in chunks; the full-text table indexes
@@ -1047,7 +1063,7 @@ class Index:
                     continue
                 text = title
             doc = _digest(_document("" if kind == "title" else title, text))
-            db.execute("UPDATE chunks SET title = ?, text = ?, vector = CASE WHEN doc = ? THEN vector END, "
+            db.execute("UPDATE chunks SET title = ?, text = ?, waiting = CASE WHEN doc = ? THEN waiting ELSE 1 END, "
                        "doc = ? WHERE id = ?", (title, text, doc, doc, chunk))
         if title.strip():
             self._insert(cid, "", 0, "title", ts, title, title)   # one with no title chunk yet
@@ -1190,10 +1206,12 @@ class Index:
         signature = embedder.signature()
         if self._meta().get("embedder") != signature:
             with self._db:
-                self._db.execute("UPDATE chunks SET vector = NULL WHERE vector IS NOT NULL")
+                self._db.execute("DELETE FROM vectors")
+                self._db.execute("UPDATE chunks SET waiting = 1 WHERE waiting = 0")
                 self._set_meta(embedder=signature)
         vectors = Vectors(np, embedder.dims)
-        rows = self._db.execute("SELECT id, card, ts, kind, vector FROM chunks WHERE vector IS NOT NULL")
+        rows = self._db.execute("SELECT c.id, c.card, c.ts, c.kind, v.vector FROM vectors v "
+                                "JOIN chunks c ON c.id = v.id ORDER BY v.seq")
         width = embedder.dims * 4
         while True:
             some = rows.fetchmany(5000)
@@ -1231,15 +1249,16 @@ class Index:
             if stopping is not None and (stopping.is_set() or self._wake.is_set()):
                 break
             rows = db.execute("SELECT id, card, ts, kind, title, text FROM chunks "
-                              "WHERE vector IS NULL ORDER BY id DESC LIMIT ?", (EMBED_BATCH,)).fetchall()
+                              "WHERE waiting = 1 ORDER BY id DESC LIMIT ?", (EMBED_BATCH,)).fetchall()
             if not rows:
                 break
             docs = [_document("" if kind == "title" else title, text) for _, _, _, kind, title, text in rows]
             with self._model_lock:
                 vectors = _unit(np, embedder.embed(docs), embedder.dims)
             with db:
-                db.executemany("UPDATE chunks SET vector = ? WHERE id = ?",
-                               [(vector.tobytes(), row[0]) for row, vector in zip(rows, vectors)])
+                db.executemany("INSERT OR REPLACE INTO vectors (id, vector) VALUES (?, ?)",
+                               [(row[0], vector.tobytes()) for row, vector in zip(rows, vectors)])
+                db.executemany("UPDATE chunks SET waiting = 0 WHERE id = ?", [(row[0],) for row in rows])
             self._vectors.put([(chunk, card, ts, kind == "title", vector)
                                for (chunk, card, ts, kind, _, _), vector in zip(rows, vectors)])
             total += len(rows)
@@ -1472,7 +1491,7 @@ class Index:
         waiting = None
         if db is not None and self._model_state == "ready":
             try:
-                waiting = db.execute("SELECT count(*) FROM chunks WHERE vector IS NULL").fetchone()[0]
+                waiting = db.execute("SELECT count(*) FROM chunks WHERE waiting = 1").fetchone()[0]
             except sqlite3.Error:
                 pass
         return {"ready": self._ready, "building": self._building, "semantic": self._model_state,
@@ -1509,7 +1528,7 @@ class Index:
                     "GROUP BY card, message)").fetchone()[0]
                 if embedder is not None:   # with no model named, nothing waits for one
                     semantic["waiting"] = db.execute(
-                        "SELECT count(*) FROM chunks WHERE vector IS NULL").fetchone()[0]
+                        "SELECT count(*) FROM chunks WHERE waiting = 1").fetchone()[0]
             except sqlite3.Error:
                 pass
             finally:

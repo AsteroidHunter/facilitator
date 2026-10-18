@@ -637,7 +637,7 @@ class Semantic(Case):
         self.assertEqual(self.ids(answer), ["m2"])
 
     def test_vectors_are_stored_cut_and_unit_length(self):
-        rows = self.ix._db.execute("SELECT vector FROM chunks").fetchall()
+        rows = self.ix._db.execute("SELECT vector FROM vectors").fetchall()
         self.assertEqual(len(rows), 6)
         for (blob,) in rows:
             vector = numpy.frombuffer(blob, numpy.float32)
@@ -654,6 +654,9 @@ class Semantic(Case):
         self.assertEqual(self.ix.embed_pending(), 2)
         self.assertIn("title: Garage visit | text: my car broke down on the motorway", self.fake.seen)
         self.assertIn("title: none | text: Garage visit", self.fake.seen)
+        # the new vectors took the old ones' place
+        self.assertEqual(self.ix._db.execute("SELECT count(*) FROM vectors").fetchone()[0], 6)
+        self.assertEqual(self.ix._vectors.count(), 6)
 
     def test_a_new_message_is_embedded_and_found(self):
         self.board.row("note", "m3", "the truck delivers on Tuesday", ts=day(2026, 9, 6))
@@ -667,6 +670,7 @@ class Semantic(Case):
         del self.board.cards["m1"]
         self.ix.catch_up()
         self.assertEqual(self.ix._vectors.count(), 4)
+        self.assertEqual(self.ix._db.execute("SELECT count(*) FROM vectors").fetchone()[0], 4)
         self.assertNotIn("m1", self.ids(self.find(self.ix, "car", mode="semantic")))
 
     def test_another_model_embeds_everything_again(self):
@@ -916,7 +920,7 @@ class Backends(Case):
         index._load_model()
         self.assertEqual(index._model_state, "ready")
         self.assertEqual(index.embed_pending(), 2)
-        (blob,) = index._db.execute("SELECT vector FROM chunks LIMIT 1").fetchone()
+        (blob,) = index._db.execute("SELECT vector FROM vectors LIMIT 1").fetchone()
         self.assertEqual(len(blob), 256 * 4)
         self.assertEqual(self.find(index, "local server")["mode"], "hybrid")
 
@@ -962,6 +966,12 @@ class TheFile(Case):
             other = Path(str(path) + suffix)
             if other.exists():
                 self.assertEqual(stat.S_IMODE(other.stat().st_mode) & 0o077, 0, suffix)
+
+    def test_a_new_file_has_pages_that_hold_several_vectors(self):
+        index = self.index()
+        self.assertEqual(index._db.execute("PRAGMA page_size").fetchone()[0], 16384)
+        self.assertEqual(index._db.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+        self.assertEqual(index._db.execute("PRAGMA wal_autocheckpoint").fetchone()[0], 256)
 
     def test_an_unreadable_file_is_made_again(self):
         (self.dir / "search-index.sqlite").write_bytes(b"this is not a database" * 100)
