@@ -113,9 +113,10 @@ test("one refusal from each family writes one line naming route, card, code and 
     { name: "a token no claim was minted for",
       call: () => fetch(origin + "/ack?owner=facilitator&token=deadbeef", { method: "POST" }),
       route: "/ack", box: "", code: 409, reason: "unknown or stale token" },
+    // named as one word: a path nobody serves is whatever the caller typed
     { name: "a route nobody serves",
       call: () => fetch(origin + "/nosuchroute?box=0"),
-      route: "/nosuchroute", box: "0", code: 404, reason: "not found" },
+      route: "other", box: "0", code: 404, reason: "not found" },
   ];
 
   for (const one of cases) {

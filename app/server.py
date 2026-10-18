@@ -1243,6 +1243,48 @@ def _crash_fields(error: BaseException) -> dict:
             "frames": walked or None}
 
 
+def _route_name(path: str) -> str:
+    """What a line may say about a request path: one of the board's own routes
+    as it is, a file route by its prefix alone, since the rest of it is an
+    attachment's or a picture's name, and any other path as one word, since a
+    path nobody serves is whatever the caller typed."""
+    for route in ROUTES:
+        prefix, braced, _ = route.path.partition("{")
+        if braced and path.startswith(prefix):
+            return prefix + "*"
+        if not braced and path == route.path:
+            return path
+    return "other"
+
+
+# What a line keeps of words it did not write itself: a page's error message and
+# a refusal's sentence. A browser or the interpreter quotes the value it choked
+# on, which can be a card's text, so anything quoted becomes one word saying so,
+# as do a web address and any path that is not one of the board's own routes.
+# What is left is kept only when it is plain words, the crash line's rule with
+# an apostrophe inside a word allowed, so an email, a home folder or anything
+# else left unquoted drops the whole message rather than reaching the file.
+SAFE_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"|(?<![A-Za-z])\'[^\']*\'(?![A-Za-z])|`[^`]*`|“[^”]*”|‘[^’]*’')
+SAFE_ADDRESS = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S*")
+SAFE_PATH = re.compile(r"[^\s,;()]*/[^\s,;()]*")
+SAFE_PLAIN = CRASH_PLAIN | {"'", "/"}
+
+
+def _safe_path(found) -> str:
+    token = found.group()
+    route = re.sub(r"(?::\d+){1,2}$", "", token.rstrip("."))
+    return token if _route_name(route) == route else "(path)"
+
+
+def _safe_words(text, cap: int = CRASH_MESSAGE_CHARS) -> str | None:
+    if not isinstance(text, str) or not text:
+        return None
+    words = SAFE_PATH.sub(_safe_path, SAFE_ADDRESS.sub("(address)", SAFE_QUOTED.sub("(quoted)", text)))
+    if not set(words) <= SAFE_PLAIN or re.search(r"(?<![A-Za-z])'|'(?![A-Za-z])", words):
+        return None
+    return words[:cap]
+
+
 def _log_file() -> Path:
     """What GET /log tails: the day's server file, unless FACILITATOR_LOG names
     another one, which is the override that route has always had."""
@@ -1608,7 +1650,14 @@ def _client_fields(report: dict) -> dict:
     out = {}
     for name in CLIENT_FIELDS:
         value = report.get(name)
-        if isinstance(value, str):
+        if isinstance(value, str) and name == "message":
+            out[name] = _safe_words(value, CLIENT_MAX_CHARS)
+        elif isinstance(value, str) and name in ("file", "route"):
+            # a script's address names the host the page was opened on and can
+            # carry a query; the route is the page's path, which for a file is
+            # its name. Each is kept as the board's route name
+            out[name] = _route_name(urlparse(value).path) if value else value
+        elif isinstance(value, str):
             out[name] = value[:CLIENT_MAX_CHARS]
         elif isinstance(value, (int, float)) and not isinstance(value, bool):
             out[name] = value
@@ -1669,7 +1718,7 @@ def _client_batch(page: str, reports: list, who: dict) -> tuple:
             written += 1
     for count, sample in lost.values():
         _client_event("dropped", str(sample.get("box") or "")[:64], page=page, **who,
-                      report=sample["kind"], message=str(sample.get("message") or "")[:CLIENT_MAX_CHARS],
+                      report=sample["kind"], message=_safe_words(sample.get("message"), CLIENT_MAX_CHARS),
                       line=sample.get("line") if isinstance(sample.get("line"), int) else None,
                       dropped=count)
     return written, sum(count for count, _ in lost.values())
@@ -1850,6 +1899,13 @@ BUILTIN_OWNERS = ("facilitator",)  # the tool's own lane, always present
 OWNERS = BUILTIN_OWNERS
 # facilitator is the only built-in owner; every other lane is registered from
 # data (run.config.json, saved cards, stored projects) at load and at creation
+
+
+def _owner_word(owner: str) -> str:
+    """A lane as a log line names it: a built-in lane by its name, and every
+    other one as a project, since its id is made from the project's name."""
+    return owner if owner in BUILTIN_OWNERS else "project"
+
 
 # names for unnamed cards, handed out without repeats among live cards
 FAIRY_NAMES = (
@@ -2989,13 +3045,15 @@ def _save() -> None:
     _commit_side_effects()
 
 
-def _log(kind: str, box: str, text: str, log_fields: dict | None = None, **fields) -> None:
+def _log(kind: str, box: str, text: str, log_fields: dict | None = None,
+         log_box: str | None = None, **fields) -> None:
     """One board event: the transcript keeps it whole, text and all, because the
     transcript is the discussion's durable record. The log gets the same event
     without the text, only its length, since GET /log hands the log to any
     caller on this machine and what was said is not its business. log_fields
     carries what is safe to write down beside it and never reaches the
-    transcript row.
+    transcript row, and log_box, when given, is the line's box in place of the
+    row's, for an event whose box is a name.
 
     Nothing is written here. The row and the log line are held until the save
     that follows has installed the new state file, and are dropped if it does
@@ -3004,7 +3062,8 @@ def _log(kind: str, box: str, text: str, log_fields: dict | None = None, **field
     same held stretch; the save is what writes these out."""
     event = {"ts": time.time(), "kind": kind, "box": box, "text": text}
     event.update(fields)
-    _transcript_due.append((event, kind, box, len(str(text or "")), dict(log_fields or {})))
+    _transcript_due.append((event, kind, box if log_box is None else log_box,
+                            len(str(text or "")), dict(log_fields or {})))
 
 
 # the window in which a page holds its own write on top of the server's answer,
@@ -3555,7 +3614,7 @@ def _release_unacked() -> None:
         box = _box(bid)
         if box and box["pending"] and bid not in _state["inbox"]:
             _state["inbox"].insert(0, bid)
-        _debug("bounce", bid, owner=ow)
+        _debug("bounce", bid, owner=_owner_word(ow))
         _log("unacked", bid, f"{ow} hand-off unconfirmed after {ACK_GRACE:.0f}s, box re-queued")
         moved = True
     if moved:
@@ -3891,7 +3950,8 @@ def _push_turn(bid: str) -> None:
         try:
             code, said = _push_one(sub, payload)
         except Exception as e:   # a signing failure: reported, never fatal
-            _error("pushfail", bid, host=host, rec=rec, reason=str(e))
+            # the type alone: openssl's own words name the key file's path
+            _error("pushfail", bid, host=host, rec=rec, reason=type(e).__name__)
             continue
         reason = said[:PUSH_REASON_CHARS] if code else ("unreachable " + said).strip()
         _info("push", bid, host=host, rec=rec, status=code or None, reason=reason or None)
@@ -5238,7 +5298,7 @@ def _wait_poll(owner: str):
                 _state["ack"][owner] = {"box": bid, "token": token,
                                         "ts": time.time(), "confirmed": False}
                 # that a receipt was minted, never the receipt itself
-                _debug("claim", bid, owner=owner, token=bool(token))
+                _debug("claim", bid, owner=_owner_word(owner), token=bool(token))
                 _save()
                 payload = {
                     "box": bid, "title": box["title"],
@@ -5719,8 +5779,9 @@ def _magic_store(bid: str, kind: str, title: str, record: dict, picture: bytes |
         box["magic"] = {"open": True, "kind": kind, "rev": rev, "ts": now}
         _magic_sweep_due.append(bid)
         # the transcript keeps that a box was opened and what kind, never what
-        # it holds, the way a quick note is kept by its length
-        _log("magic", bid, "", log_fields=note, **note)
+        # it holds, the way a quick note is kept by its length. The log line
+        # leaves out the host as well: which site someone opened is theirs
+        _log("magic", bid, "", log_fields={k: v for k, v in note.items() if k != "host"}, **note)
         _save()
         _notify()
         answer = {"ok": True, "box": bid, "kind": kind, "rev": rev, "shown": record.get("shown", "inline")}
@@ -6111,7 +6172,7 @@ def _post_ack(q: Query, text: str):
             # the 90 second clock, stolen back, replied to or dismissed
             return 409, {"error": "claim no longer held"}
         rec["confirmed"] = True
-        _debug("ackok", rec["box"], owner=ow, token=bool(token))
+        _debug("ackok", rec["box"], owner=_owner_word(ow), token=bool(token))
         _log("ack", rec["box"], f"{ow} confirmed delivery")
         _save()
         return 200, {"ok": True, "box": rec["box"]}
@@ -6717,9 +6778,11 @@ def _post_project(q: Query, text: str):
         # this creation transaction, never in migration, so restart and old
         # projects cannot gain duplicates or be backfilled.
         _create_box_record(slug, "Omni Ticket #1")
-        # the folder's own name is written down, never the path to it:
-        # a lane's directory is one line away from a home directory
-        _log("project", slug, f"{name} -> {d}", log_fields={"folder": d.name})
+        # the line says a project was added and how many there are now, and
+        # nothing of it: the lane's id is its name, and the folder's own name
+        # is the account's name when the folder is the home folder
+        _log("project", slug, f"{name} -> {d}", log_box="",
+             log_fields={"projects": len(_state["projects"])})
         _save()
         # the lane joins the runtime owner set only once its save has landed:
         # everything the lane needs in the state was saved above, and a save
@@ -6882,7 +6945,7 @@ def _post_pages_new(q: Query, text: str):
         pages.append(_page_record(pid, "blank"))
         # the page has no words of its own, so the id and the lane are the whole
         # event and there is nothing in it to keep out of the file
-        _log("page+", pid, "", log_fields={"owner": ow}, owner=ow)
+        _log("page+", pid, "", log_fields={"owner": _owner_word(ow)}, owner=ow)
         _save()
         _notify()
         return 200, {"ok": True, "id": pid, "pages": pages, "rev": _state["rev"]}
@@ -6904,7 +6967,7 @@ def _post_pages_del(q: Query, text: str):
         if page is None:
             return 400, {"error": "unknown page"}
         pages.remove(page)
-        _log("page-", pid, "", log_fields={"owner": ow}, owner=ow)
+        _log("page-", pid, "", log_fields={"owner": _owner_word(ow)}, owner=ow)
         _save()
         _notify()
         return 200, {"ok": True, "pages": pages, "rev": _state["rev"]}
@@ -7862,15 +7925,16 @@ def _answer(status: int, payload, ctype: str | None = None, *,
     one added a year from now is written down without anybody remembering to
     write it down: it is the server working correctly and saying no, so it is
     INFO and not an error, and the reason is the sentence the caller already
-    wrote for the page."""
+    wrote for the page, by _safe_words' rule, since a few of those sentences
+    carry an exception's words and those can name a file."""
     if isinstance(payload, (dict, list)):
         body = json.dumps(payload).encode()
         ctype = "application/json"
     else:
         body = payload
     if status >= 400:
-        _info("refusal", box, route=route, code=status,
-              reason=payload.get("error") if isinstance(payload, dict) else None)
+        _info("refusal", box, route=_route_name(route), code=status,
+              reason=_safe_words(payload.get("error")) if isinstance(payload, dict) else None)
     headers = {"Cache-Control": "no-store"}
     if close:
         headers["Connection"] = "close"
@@ -7936,7 +8000,7 @@ def _endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
             except ClientDisconnect:
                 # the peer left mid-body: routine, never a crash, and there is
                 # nobody to answer; the empty answer below goes nowhere
-                _debug("hungup", box, route=route)
+                _debug("hungup", box, route=_route_name(route))
                 return Response(status_code=400)
             payload = raw if body == "raw" else raw.decode("utf-8", "replace").strip()
         try:
@@ -8325,7 +8389,7 @@ def _overload(which: str, route: str) -> None:
     now = time.monotonic()
     if now - _last_overload.get(which, 0) >= 5:
         _last_overload[which] = now
-        _info("overload", slots=which, route=route)
+        _info("overload", slots=which, route=_route_name(route))
 
 
 DIAGNOSTIC_ROUTES = frozenset(("/send", "/create", "/m/state"))
@@ -8427,7 +8491,7 @@ class Transport:
                 # for each of those is 22 MB a day of mostly nothing. Switched
                 # on, it is the line that says what the board was asked for,
                 # what it answered and how long it took
-                _debug("request", q.one("box"), method=scope.get("method"), route=route,
+                _debug("request", q.one("box"), method=scope.get("method"), route=_route_name(route),
                        status=status, ms=round((time.monotonic() - started) * 1000))
 
 
@@ -8447,7 +8511,7 @@ async def _crashed(request: Request, error: Exception) -> Response:
     where it happened go in the file; the page gets an answer instead of a
     dropped connection."""
     q = _query(request.scope)
-    _error("crash", q.one("box"), route=q.path, **_crash_fields(error))
+    _error("crash", q.one("box"), route=_route_name(q.path), **_crash_fields(error))
     return _plain(500, {"error": "the board hit an error answering this request"})
 
 
@@ -8624,8 +8688,6 @@ NAVIGATION_PAGES = frozenset({"/", "/m"})
 NAVIGATION_DESTS = frozenset({"document", "empty"})
 SITE_REFUSAL_WINDOW = 5.0      # seconds: one refusal line per reason and route per window
 SITE_REFUSALS_KEPT = 64
-SITE_REFUSAL_ROUTE_CHARS = 80
-SITE_REFUSAL_FILE_ROUTES = ("/uploads/",)
 
 
 def _foreign_site(scope: dict) -> str | None:
@@ -8682,9 +8744,7 @@ class SiteGuard:
         Nothing the request carried goes in it, and a failure here never
         changes the answer."""
         try:
-            path = scope.get("path", "")
-            route = next((p + "*" for p in SITE_REFUSAL_FILE_ROUTES if path.startswith(p)),
-                         path[:SITE_REFUSAL_ROUTE_CHARS])
+            route = _route_name(scope.get("path", ""))
             now, name, table = time.monotonic(), f"{reason} {route}", self._noted
             if name not in table and len(table) >= SITE_REFUSALS_KEPT:
                 for stale in [k for k, w in table.items() if now - w[0] >= SITE_REFUSAL_WINDOW]:
@@ -8835,7 +8895,7 @@ class BoardProtocol(H11Protocol):
         cycle = getattr(self, "cycle", None)
         scope = cycle.scope if cycle is not None else {}
         q = _query(scope)
-        _debug("hungup", q.one("box"), route=scope.get("path", ""))
+        _debug("hungup", q.one("box"), route=_route_name(scope.get("path", "")))
         transport.abort()
 
 

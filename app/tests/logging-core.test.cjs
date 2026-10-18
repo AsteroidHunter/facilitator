@@ -446,10 +446,15 @@ test("no message text and no path ever reaches a log line; the transcript keeps 
     assert.equal(said.box, "0");
     assert.equal(said.chars, `Please look at ${SAID} before tomorrow`.length);
     assert.equal(said.text, undefined, "the log line carries a text field");
-    // the lane's folder is named, and only named
+    // the lane is said to be added, and nothing of its name or its folder: the
+    // home folder's own name is the account's name
     const made = events.find(event => event.kind === "project");
-    assert.equal(made.folder, path.basename(homedir()));
-    assert.ok(!String(made.folder).includes("/"), "the folder field carries a path");
+    assert.equal(made.folder, undefined, "the folder's name reached the log");
+    assert.equal(made.box, undefined, "the lane's id, made from its name, reached the log");
+    assert.equal(made.projects, 1);
+    for (const line of written) {
+      assert.ok(!/keep.out.lane/i.test(line), `the project's name reached the log: ${line}`);
+    }
 
     // and the transcript is exactly what it always was: both phrases in it, one
     // row per event, and no field the log invented
