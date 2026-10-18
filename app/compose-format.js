@@ -151,7 +151,17 @@
   // ---- what the editor draws ------------------------------------------------
   let layerExtension = null;
   let awakeEffect = null;
+  let holdEffect = null;
   let themeExtension = null;
+
+  // A press of the pointer holds what is drawn still until the gesture is over.
+  // The markers of the span the caret arrives in come back on show, and when a
+  // click is what put the caret there, the words would move under the pointer
+  // before the second press of a double click or the far end of a drag came
+  // down on them. The hold is let go this long after the pointer comes up,
+  // which is the time a second press takes to arrive, or at once by a key or
+  // a change to the words.
+  const HOLD_MS = 500;
 
   // ---- a list's own column --------------------------------------------------
   // Give the marker and its separator the same width as the hanging indent.
@@ -182,6 +192,7 @@
     if (layerExtension) return layerExtension;
     const D = C.Decoration;
     awakeEffect = C.StateEffect.define();
+    holdEffect = C.StateEffect.define();
     const hide = D.replace({});                       // markup and nothing else
     const emphasis = D.mark({ class: "cf-em" });
     const strong = D.mark({ class: "cf-strong" });
@@ -190,14 +201,15 @@
     const INLINE = { Emphasis: emphasis, StrongEmphasis: strong, Strikethrough: strike };
     const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true };
 
-    function build(state, awake) {
+    function build(state, awake, picked) {
       const doc = state.doc, out = [];
       // The raw characters come back around the cursor and nowhere else, and
       // only while the row is being typed in: a row nobody is in is a row to
       // read. A range counts as touched at either edge, so the markers are
       // already there when the caret arrives rather than one keystroke later.
+      // The cursor read is the one a pointer's hold kept, if one is held.
       const hot = (from, to) => awake &&
-        state.selection.ranges.some(range => range.to >= from && range.from <= to);
+        picked.ranges.some(range => range.to >= from && range.from <= to);
       const quote = new Map();   // line number -> how deep the quote is
       const angles = new Map();  // line number -> the run its quote markers take
       const hang = new Map();    // line number -> the column its text hangs on
@@ -378,15 +390,26 @@
     }
 
     layerExtension = C.StateField.define({
-      create: state => ({ awake: false, deco: build(state, false) }),
+      create: state => ({ awake: false, held: false, shown: false, picked: state.selection,
+                          deco: build(state, false, state.selection) }),
       update: (value, tr) => {
-        let awake = value.awake;
-        for (const effect of tr.effects) if (effect.is(awakeEffect)) awake = effect.value;
+        let awake = value.awake, held = value.held;
+        for (const effect of tr.effects) {
+          if (effect.is(awakeEffect)) awake = effect.value;
+          if (effect.is(holdEffect)) held = effect.value;
+        }
+        // a change to the words lets go of a pointer's hold, since what is
+        // drawn has to go with them. until then the cursor and the focus are
+        // read as they stood when the press came down (HOLD_MS)
+        if (tr.docChanged) held = false;
+        const shown = held ? value.shown : awake;
+        const picked = held ? value.picked : tr.state.selection;
         // the document, the cursor, the focus and the parse are the four things
         // any of this reads; a scroll is on none of them
-        if (awake === value.awake && !tr.docChanged && !tr.selection &&
-            C.syntaxTree(tr.state) === C.syntaxTree(tr.startState)) return value;
-        return { awake, deco: build(tr.state, awake) };
+        if (shown === value.shown && picked.eq(value.picked) && !tr.docChanged &&
+            C.syntaxTree(tr.state) === C.syntaxTree(tr.startState))
+          return awake === value.awake && held === value.held ? value : { ...value, awake, held };
+        return { awake, held, shown, picked, deco: build(tr.state, shown, picked) };
       },
       provide: field => C.EditorView.decorations.from(field, value => value.deco),
     });
@@ -1035,6 +1058,26 @@
       view.contentDOM.addEventListener(event, () => {
         if (field.view === view) view.dispatch({ effects: awakeEffect.of(event === "focus") });
       });
+    // A pointer's hold (HOLD_MS), taken in the capture pass on the editor's
+    // outer element so it is in place before the editor reads where the press
+    // landed, and let go a beat after the pointer comes up, or by any key
+    const hold = on => {
+      if (field.view !== view) return;
+      if (view.state.field(layerExtension).held !== on) view.dispatch({ effects: holdEffect.of(on) });
+    };
+    view.dom.addEventListener("pointerdown", () => {
+      clearTimeout(field.holdTimer);
+      hold(true);
+      const up = () => {
+        document.removeEventListener("pointerup", up, true);
+        document.removeEventListener("pointercancel", up, true);
+        clearTimeout(field.holdTimer);
+        field.holdTimer = setTimeout(() => hold(false), HOLD_MS);
+      };
+      document.addEventListener("pointerup", up, true);
+      document.addEventListener("pointercancel", up, true);
+    }, true);
+    view.dom.addEventListener("keydown", () => { clearTimeout(field.holdTimer); hold(false); }, true);
     // one input event per change and never two: the browser's own is kept
     // inside the editor and the page is told once, whether the change came
     // from a keystroke, a paste, a command or a line inserted above
@@ -1076,7 +1119,8 @@
     // an edit that undo could bring back. An untouched empty row is the same
     // row afresh, and several hundred of those are not held for nothing.
     const parked = keep && (view.state.doc.length > 0 || field.edited)
-      ? view.state.update({ effects: awakeEffect.of(false) }).state : null;
+      ? view.state.update({ effects: [awakeEffect.of(false), holdEffect.of(false)] }).state : null;
+    clearTimeout(field.holdTimer);
     field.parked = null;
     moveListeners(field, false);
     dropFace(field);
@@ -1161,6 +1205,7 @@
       seat: null,
       inUpdate: false,     // the editor is in the middle of its own update
       scrollAsk: 0,        // which of the page's scroll writes is the latest
+      holdTimer: 0,        // lets go of a pointer's hold (HOLD_MS)
       // a row attached held puts the editor on only once it is wanted (want)
       wanted: !opts.held,
       parked: null,        // the state a held row's editor put aside as it came off

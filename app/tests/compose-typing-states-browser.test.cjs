@@ -121,3 +121,71 @@ test("words written into the row under the caret keep the caret's markers on sho
     await page.close();
   }
 });
+
+// ---- the pointer on drawn words ----------------------------------------------
+// The markers of the span the caret arrives in come back on show. When a click
+// was what put the caret there, the words moved under the pointer before the
+// rest of the gesture: the second press of a double click, or the far end of a
+// drag, landed on the characters that had slid under it instead.
+
+// where the character `at` places into `word` stands on screen right now
+function charPoint(page, word, at) {
+  return page.evaluate(([where, text, offset]) => {
+    const shell = document.querySelector(where).closest(".cffield");
+    const walk = document.createTreeWalker(shell.querySelector(".cm-content"), NodeFilter.SHOW_TEXT);
+    for (let node; (node = walk.nextNode());) {
+      const found = node.data.indexOf(text);
+      if (found < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, found + offset);
+      range.setEnd(node, found + offset + 1);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + 1, y: box.top + box.height / 2, mid: box.left + box.width / 2 };
+    }
+    return null;
+  }, [ROW, word, at]);
+}
+
+test("a double click or a drag on drawn words picks the words under the pointer", async () => {
+  const { page, problems } = await desktopRow("The pointer on drawn words");
+  try {
+    for (const [text, word] of [["a **bold** b", "bold"], ["x **one two three** y", "two"],
+                                ["a *slant* b", "slant"], ["a ~~cut~~ b", "cut"]]) {
+      await lay(page, text);
+      await caretTo(page, 0);
+      await settle(120);
+      const spot = await charPoint(page, word, 1);
+      assert.ok(spot, `${word} was not drawn in ${JSON.stringify(text)}`);
+      await page.mouse.click(spot.mid, spot.y, { count: 2 });
+      await settle(150);
+      const read = await rowRead(page);
+      assert.equal(read.picked, word,
+        `a double click on ${word} in ${JSON.stringify(text)} picked ${JSON.stringify(read.picked)}`);
+    }
+
+    // a drag from inside one drawn word to inside another
+    const text = "x **one two three** y";
+    await lay(page, text);
+    await caretTo(page, 0);
+    await settle(120);
+    const from = await charPoint(page, "one", 1);     // before the n
+    const to = await charPoint(page, "three", 2);     // before the r
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move((from.x + to.x) / 2, to.y, { steps: 4 });
+    await page.mouse.move(to.x, to.y, { steps: 4 });
+    await page.mouse.up();
+    await settle(150);
+    const dragged = await rowRead(page);
+    assert.equal(dragged.picked, "ne two th", "a drag across drawn words picked " +
+      JSON.stringify(dragged.picked));
+    assert.equal(dragged.payload, text);
+    // once the gesture is over the span the pick is in shows its markers again
+    await settle(800);
+    assert.deepEqual((await rowRead(page)).strong, ["**one two three**"],
+      "the markers of the picked span never came back once the pointer let go");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
