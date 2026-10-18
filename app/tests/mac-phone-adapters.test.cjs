@@ -41,6 +41,8 @@ function adapter(phone) {
     },
     apply() { ctx.applied = true; }, renderCarousel() { ctx.ticketsPainted = true; },
     trayTake(el) { el.trayItems = el.trayItems.filter(it => it.state !== 'done'); },
+    draftCardOf: el => Object.keys(els).find(id => els[id] === el) || null,
+    draftSave(id) { (ctx.draftsSaved ||= []).push(id); },
   });
   vm.runInContext(read('mac-phone-view.js'), ctx);
   ctx.view = ctx.MacPhoneView;
@@ -192,6 +194,7 @@ test('completed phone attachments become the same upload references with caret p
   assert.equal(f.els.a.ta.selectionEnd, prefix.length + 3);
   assert.equal(f.els.a.ta.selectionDirection, 'backward');
   assert.deepEqual(f.els.a.trayItems, []);
+  assert.deepEqual(f.ctx.draftsSaved, ['a'], 'the kept draft follows the files into the words');
 });
 
 function embeddedGate({ parentWindow = false, query = '?mac=1', origin = 'http://127.0.0.1:1234', accepts = true, throws = false } = {}) {

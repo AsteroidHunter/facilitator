@@ -1384,6 +1384,102 @@ function composeTurn(id, el){
   if (el.field && el.field.refreshPlaceholder) el.field.refreshPlaceholder();
   else el.ta.placeholder = line;
 }
+// ---- the words a card's row was left holding ------------------------------------
+// what is typed in a card's row and not sent is kept in this browser's
+// localStorage as it is typed, with the files that finished uploading for it,
+// so a reload, a restart or a force close gives the card its row back as it
+// was left. one entry a card: { text, files }, the text as the row holds it,
+// markdown and all, and each file as the board's own address for it with what
+// its square shows. a file still on its way is not kept. nothing here goes to
+// the board. a send or an emptied row takes the entry away, and a card that is
+// gone from the board loses it. the Mac board and its phone view share one
+// browser and so one store; the phone keeps its own
+const DRAFT_STORE = "composedrafts";
+let draftMemory = {};   // the same map, for a browser that will not keep it
+// an absent entry is an empty store and not a reason to read the memory: the
+// Mac board and its phone view share the store, and either may have emptied it
+function draftsRead(){
+  let raw;
+  try { raw = localStorage.getItem(DRAFT_STORE); } catch (e) { return draftMemory; }
+  try {
+    const kept = JSON.parse(raw || "null");
+    if (kept && typeof kept === "object" && !Array.isArray(kept)) return kept;
+  } catch (e) {}
+  return {};
+}
+function draftsWrite(all){
+  draftMemory = all;
+  try {
+    if (Object.keys(all).length) localStorage.setItem(DRAFT_STORE, JSON.stringify(all));
+    else localStorage.removeItem(DRAFT_STORE);
+  } catch (e) {}
+}
+// a kept file is only ever one of the board's own uploads
+function draftFileOk(f){
+  return !!f && typeof f.url === "string" && f.url.startsWith("/uploads/") && typeof f.name === "string";
+}
+// the card's kept draft, or null. one that does not add up is not trusted
+function draftOf(id){
+  const e = draftsRead()[String(id == null ? "" : id)];
+  if (!e || typeof e.text !== "string" || !Array.isArray(e.files)) return null;
+  return { text: e.text, files: e.files.filter(draftFileOk) };
+}
+// the card's draft as it stands now; a row with nothing in it keeps nothing
+function draftPut(id, text, files){
+  const key = String(id == null ? "" : id);
+  const all = { ...draftsRead() };
+  const kept = (files || []).filter(draftFileOk);
+  if (!String(text || "").trim() && !kept.length){
+    if (!(key in all)) return;
+    delete all[key];
+  } else all[key] = { text: String(text || ""), files: kept };
+  draftsWrite(all);
+}
+function draftClear(id){ draftPut(id, "", []); }
+// the cards on the board are the only ones that keep a draft
+function draftKeep(ids){
+  const all = draftsRead(), live = new Set([...ids].map(String));
+  const gone = Object.keys(all).filter(key => !live.has(key));
+  if (!gone.length) return;
+  const kept = {};
+  for (const key of Object.keys(all)) if (live.has(key)) kept[key] = all[key];
+  draftsWrite(kept);
+}
+// what a tray square needs to stand again, and nothing of the file itself
+function draftFile(it){
+  return { url: it.url, name: it.name, kind: it.kind, ext: it.ext, total: it.total };
+}
+function draftCardOf(el){
+  if (typeof els !== "object" || !els) return null;
+  return Object.keys(els).find(id => els[id] === el) || null;
+}
+// the row and the uploaded files of a built card, written down. a kept file
+// this page's tray has never held stays kept: the Mac board's files are not
+// handed to its phone view, and typing there must not lose them. of the Mac
+// board and its phone view only the one on screen writes, since the other's
+// rows can be empty or behind until the next hand over
+function draftSave(id){
+  if (globalThis.macPhoneInactive) return;
+  const el = typeof els === "object" && els ? els[id] : null;
+  if (!el || !el.ta) return;
+  const own = (el.trayItems || []).filter(it => it.state === "done" && it.url);
+  const held = el.trayHeld || new Set();
+  const other = (draftOf(id)?.files || []).filter(f => !held.has(f.url) && !own.some(it => it.url === f.url));
+  draftPut(id, el.ta.value, [...other, ...own.map(draftFile)]);
+}
+// a card just built takes its kept draft back: the words, when the row is
+// empty, with the caret at their end, and the files into its tray. nothing is
+// focused, scrolled or opened
+function draftRestore(el, id){
+  const kept = draftOf(id);
+  if (!el || !kept) return;
+  if (!el.ta.value && kept.text){
+    el.ta.value = kept.text;
+    try { el.ta.setSelectionRange(kept.text.length, kept.text.length); } catch (e) {}
+  }
+  trayRestore(el, kept.files);
+  el.tick();
+}
 // ---- pictures the board could not hand over -----------------------------------
 // a phone's connection drops and returns under the app all the time, and a
 // picture asked for just then fails once and stays failed: the browser never
@@ -2406,6 +2502,46 @@ function trayAdd(id, files){
   el.tick();
 }
 
+// the uploads this card's tray has held, so a kept draft knows which of its
+// files this page has already answered for (draftSave)
+function trayHeldNote(el, url){
+  if (!el.trayHeld) el.trayHeld = new Set();
+  el.trayHeld.add(url);
+}
+// the files a kept draft held, back in the tray already uploaded. they stand at
+// once, with no slide, and wear the board's own copy for their picture
+function trayRestore(el, files){
+  const back = (files || []).filter(f => !el.trayItems.some(it => it.url === f.url));
+  if (!back.length) return;
+  trayOpen(el);
+  for (const f of back){
+    const total = Number(f.total) || 0;
+    const it = { key: newOpId(), file: null, name: f.name, kind: f.kind || "document",
+      ext: String(f.ext || "file").toUpperCase(), total, sent: total, tries: 0, measured: true,
+      urls: [], state: "done", url: f.url };
+    el.trayItems.push(it);
+    traySquare(el, it);
+    trayHeldNote(el, f.url);
+    if (it.kind !== "image" && it.kind !== "video") continue;
+    let pic;
+    if (it.kind === "image"){
+      pic = new Image();
+      pic.alt = "";
+      pic.onload = () => it.sq.classList.add("drawn");
+      pic.src = it.url;
+    } else {
+      pic = document.createElement("video");
+      pic.muted = true; pic.playsInline = true; pic.preload = "metadata";
+      pic.addEventListener("loadeddata", () => it.sq.classList.add("drawn"), { once: true });
+      pic.src = it.url + "#t=" + TRAY_STILL_AT;
+    }
+    pic.className = "tsqpic";
+    pic.setAttribute("aria-hidden", "true");
+    it.face.insertBefore(pic, it.veil);
+  }
+  trayDraw(el);
+}
+
 // the tray stands again: a close still running is called off, and whatever it
 // was taking away goes at once
 function trayOpen(el){
@@ -2588,6 +2724,7 @@ function trayLanded(el, it, status, body){
   if (it.gone) return;
   if (status === 200 && body && body.url){
     it.state = "done"; it.url = body.url; it.sent = it.total;
+    trayHeldNote(el, it.url);
     sentStillFor(it);
   } else if (TRAY_REFUSED.has(status)){
     it.state = "refused";
@@ -2600,6 +2737,8 @@ function trayLanded(el, it, status, body){
   }
   trayDraw(el);
   el.tick();
+  // an uploaded file is kept with the words before a held send can take both
+  if (it.state === "done") draftSave(draftCardOf(el));
   trayRelease(el);
   trayPump(el);
 }
@@ -2647,6 +2786,7 @@ function trayRemove(el, it){
   trayLeave(el, [it]);
   trayDraw(el);
   el.tick();
+  draftSave(draftCardOf(el));
   trayRelease(el);
   trayPump(el);
 }
@@ -4138,6 +4278,7 @@ function sentBack(el, item){
   const draft = el.ta.value;
   el.ta.value = draft.trim() ? draft.trimEnd() + "\n\n" + item.text : item.text;
   el.tick();
+  draftSave(draftCardOf(el));
   syncSent(el, el.sentItems);
 }
 // what a lookup of the board's receipt for an operation answers, or null when

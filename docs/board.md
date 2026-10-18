@@ -42,6 +42,8 @@ A card on screen is either browsed or selected, on the Mac board and the phone a
 
 An empty typing box shows a light-hearted line in grey. A card keeps its line until a message is sent on it, then takes a new one, drawn at random from a shuffled bag of the twenty so none comes back until all have been shown. Each device keeps its own lines (in the browser's localStorage), and a card that is deleted loses its entry.
 
+What you type in a card's typing box and do not send is kept on the device as you type, with any files that have finished uploading for it, so a reload, an app restart or a force close puts it back on that card with the caret at its end. A file still uploading is not kept. Sending the message, or emptying the box and taking its files out, clears it; a card that is deleted loses it. Drafts stay on the device they were typed on (the Mac board and its narrow phone view share one); nothing about them goes to the board.
+
 The keys, on the Mac board and on the phone with a paired keyboard:
 
 - Left and right arrows: the previous or next card. Control + Shift + left and right do the same while typing.

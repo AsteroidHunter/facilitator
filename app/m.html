@@ -2455,6 +2455,7 @@ function makeBox(b){
     // the reader is typing (turnHolding in card-logic.js)
     noteTyping(ta);
     tick(true);
+    draftSave(b.id);   // kept on this phone as it is typed (card-logic.js)
   });
   ta.addEventListener("focus", () => {
     const trace = tracePhone("begin", "focus", { box: b.id });
@@ -2589,6 +2590,10 @@ function makeBox(b){
   card.replyTop = 0;
   replyview.addEventListener("scroll", () => { card.replyTop = replyview.scrollTop; }, { passive: true });
   if (kept && kept.top) card.scrollDue = { raw: kept.raw, top: kept.top };
+  // the words and files left unsent on this card before a reload or a close,
+  // the shelf's words first. inside the Mac the board hands its drafts over
+  // itself (mac-phone-view.js), so the store is not read there
+  if (!macHost) draftRestore(card, b.id);
   syncOmniCard(els[b.id], b);
   paintSectionChips(els[b.id], b);
   // the two fades: the band the sent panel and the bar stand in, and the band
@@ -3386,6 +3391,7 @@ function doSend(id, opts){
   el.ta.value = "";
   composeTurn(id, el);   // a send gives the empty box its next line
   trayTake(el);       // the files that went leave the tray with the words
+  draftClear(id);     // and the kept draft with them
   el.tick();          // the square goes with the words, and the row falls back to one line
   // an arrival: the message comes into a bubble of its own, cut to its preview
   drawSent(el, id, true);
@@ -5681,6 +5687,8 @@ function apply(state){
     }
   }
   for (const id of Object.keys(shelf)) if (!onBoard.has(id)) delete shelf[id];
+  // and so does its kept draft, after the row's last word on the way out
+  draftKeep(onBoard);
   // only the cards built are drawn, with the card on show and one just made
   // built first if they are not (reachCards builds the cards around it). any
   // other card is drawn from this reading when it is built
@@ -7882,6 +7890,8 @@ if (macHost) {
         el.ta.value = text;
         el.ta.setSelectionRange(start + offset, end + offset, el.ta.selectionDirection);
         trayTake(el); el.tick();
+        // the kept draft as the board will hold it: the files are words now
+        draftSave(draftCardOf(el));
       }
     },
     restore(state) {
