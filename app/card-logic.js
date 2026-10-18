@@ -830,6 +830,14 @@ function bareControlEnter(e){
   return e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
 }
 
+// an Enter an input method takes, which confirms the words it was building and
+// sends nothing. WebKit ends the composition before that Enter arrives, so it
+// comes with isComposing false and only its keyCode, 229, says so. the
+// formatter's own Enter rule reads the same two (compose-format.js)
+function imeEnter(e){
+  return e.isComposing || e.keyCode === 229;
+}
+
 // The card on screen stands raised, wearing its drop shadow, for as long as it
 // is open: on load, on a switch of project, card or page, and after the home
 // page, whether it is browsed or selected. Two quick presses on the empty page

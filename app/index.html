@@ -6739,7 +6739,7 @@ function composerArrow(id){
 }
 function composerEnter(e, id){
   const now = controlShiftEnter(e);
-  if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || e.isComposing || bareControlEnter(e)) return;
+  if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || imeEnter(e) || bareControlEnter(e)) return;
   e.preventDefault();
   if (e.repeat) return;
   const el = els[id];
@@ -10599,11 +10599,12 @@ function renderMiniCards(state){
       // page's goes on, and so does Escape, which takes the caret out as it does
       // in the large card. control+shift+enter sends, then hands the keys back to
       // the large card and moves on to the card that has waited longest, or does
-      // just that when nothing is typed. control+enter alone is the system's
+      // just that when nothing is typed. control+enter alone is the system's, and
+      // an Enter an input method takes is its own (imeEnter)
       ta.addEventListener("keydown", e => {
         if (!pageChord(e) && e.key !== "Escape") e.stopPropagation();
         const now = controlShiftEnter(e);
-        if (e.key === "Enter" && (!e.shiftKey || now) && !e.altKey && !bareControlEnter(e)){
+        if (e.key === "Enter" && (!e.shiftKey || now) && !e.altKey && !bareControlEnter(e) && !imeEnter(e)){
           e.preventDefault();
           const sending = fire();
           if (now && !e.repeat) sending.then(sent => {
@@ -12373,7 +12374,7 @@ function setEditMode(on){
     send: document.getElementById("fbsend"), note: document.getElementById("fbnote") }, {
     send: text => fetch("/feedback", { method: "POST", body: JSON.stringify({ message: text }) })
       .then(r => r.ok, () => false),
-    enter: e => e.key === "Enter" && (!e.shiftKey || controlShiftEnter(e)) && !e.altKey && !e.isComposing &&
+    enter: e => e.key === "Enter" && (!e.shiftKey || controlShiftEnter(e)) && !e.altKey && !imeEnter(e) &&
       !bareControlEnter(e),
     moved: () => queueFatCaret(),
   });
