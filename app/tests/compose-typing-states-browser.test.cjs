@@ -353,3 +353,40 @@ test("Backspace after an emoji takes all of it, as the plain field does", async 
     await page.close();
   }
 });
+
+// ---- a list line inside code ---------------------------------------------------
+// A dash inside a code block is the code's own character, and the card shows
+// it as code. A new line there carried it down as a list marker.
+
+test("a new line inside a code block carries no list marker", async () => {
+  const mac = await desktopRow("A list line inside code");
+  try {
+    for (const [text, made] of [
+      ["```\n- in code", "```\n- in code\n"],
+      ["```\n1. in code", "```\n1. in code\n"],
+      ["words\n\n    - indented code", "words\n\n    - indented code\n"],
+      // a marker alone inside code is not a list to end either
+      ["```\n- ", "```\n- \n"],
+    ]) {
+      await lay(mac.page, text);
+      await caretTo(mac.page, text.length);
+      await chord(mac.page, "Enter", "Shift");
+      await settle(120);
+      assert.equal(await payload(mac.page), made, `shift and return in ${JSON.stringify(text)}`);
+    }
+    assert.deepEqual(mac.problems, []);
+  } finally {
+    await mac.page.close();
+  }
+  const phone = await phoneRow("A list line inside code on the phone", true);
+  try {
+    await lay(phone.page, "```\n- in code");
+    await caretTo(phone.page, 13);
+    await phone.page.keyboard.press("Enter");
+    await settle(150);
+    assert.equal(await payload(phone.page), "```\n- in code\n", "return inside code on the phone");
+    assert.deepEqual(phone.problems, []);
+  } finally {
+    await phone.page.close();
+  }
+});

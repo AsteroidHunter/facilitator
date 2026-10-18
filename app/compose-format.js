@@ -530,6 +530,14 @@
     }
   }
 
+  // Whether a position stands in a block of code, where a dash, a number or an
+  // angle is the code's own character and no marker at all, as the card shows it
+  function inCode(C, state, pos) {
+    for (let node = C.syntaxTree(state).resolveInner(pos, -1); node; node = node.parent)
+      if (node.name === "FencedCode" || node.name === "CodeBlock") return true;
+    return false;
+  }
+
   // A quote's angles at the head of a line, the last of them finished by its
   // space, which is where a quote begins in this row
   const QUOTED = /^ {0,3}(?:>[ \t]?)*>[ \t]/;
@@ -543,9 +551,10 @@
   // marker the same way, alone or in front of a list's: on a quoted line with
   // nothing after them the continuation writes the line back as a bare angle
   // and lays another quoted line under it, so the quote never ends.
-  function emptyItem(view) {
+  function emptyItem(C, view) {
     const range = view.state.selection.main;
     const line = view.state.doc.lineAt(range.from);
+    if (inCode(C, view.state, range.from)) return null;
     const angles = QUOTED.exec(line.text);
     const head = angles ? angles[0].length : 0;
     const rest = line.text.slice(head);
@@ -563,7 +572,7 @@
   // nothing typed after it ends the list instead of laying another one out.
   function insertNewline(C, view) {
     const state = view.state, range = state.selection.main;
-    const over = emptyItem(view);
+    const over = emptyItem(C, view);
     if (over) {
       // the empty bullet goes, the caret stays on the line it was on, and the
       // list is over
@@ -576,7 +585,7 @@
       return true;
     }
     const line = state.doc.lineAt(range.from);
-    const list = listContinuation(line.text);
+    const list = inCode(C, state, range.from) ? null : listContinuation(line.text);
     const head = list && range.from >= line.from + list.markerEnd ? list.head : "";
     const changes = [{ from: range.from, to: range.to, insert: "\n" + head }];
     // a pick running into the items below takes their numbers with it
@@ -637,7 +646,7 @@
     // row's own and older than the editor in it. Everything the pack's binding
     // does not answer is the row's own as well: it is bound to a bare return,
     // so a shifted one has always been made here.
-    const ending = !event.shiftKey && !!emptyItem(view);
+    const ending = !event.shiftKey && !!emptyItem(C, view);
     if (event.shiftKey || ending) {
       event.preventDefault();
       // A held return makes one line and not a run of them, which is what it
