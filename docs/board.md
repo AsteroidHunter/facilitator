@@ -44,7 +44,7 @@ Under it, "Usage Limits" shows how much of each plan limit is used, with when it
 
 With the keys: the up and down arrows move through the folders, Return or the right arrow opens the one reached, Return with none reached chooses the folder on show, and the left arrow goes up. While the picker is open the board's own keys wait.
 
-The picker lists only your home folder and what is inside it, and leaves hidden folders out. The first time it opens Desktop, Documents or Downloads, macOS may ask once whether the board may read it; a folder the board may not read says so in the picker.
+The picker lists only your home folder and what is inside it, and leaves hidden folders out, along with links that lead out of your home folder or into a hidden one. In a very large folder, or on a slow disk, it shows the folders it could read in time and says that not every folder is listed. The first time it opens Desktop, Documents or Downloads, macOS may ask once whether the board may read it; a folder the board may not read says so in the picker.
 
 ## Browsing and selecting cards
 
