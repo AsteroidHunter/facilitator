@@ -135,17 +135,25 @@ test("the plus stands on the list's real foot, with no line there, as far under 
   assert.match(foot, /height:0;/);
   assert.match(foot, /margin:calc\(\(var\(--line-gap\) \+ 1px\) \* -1\) var\(--tik-inset-r\) 0 var\(--tik-inset-l\)$/);
   assert.doesNotMatch(MAC, /#tikfoot::(before|after)/, "the thin line is not drawn");
-  // the gap to the top of the ink is .48 of a ticket gap (--tik-gap, the rows'
-  // own) from the seat: the margin takes off the 6px of the box's border and top
-  // padding and the clear air the drawing leaves over its ink (the arm's start,
-  // 5 of 24 units scaled to the drawing, less half the line)
+  // 20261017, m1306: the top of the ink is 1.27 of a ticket gap (--tik-gap, the
+  // rows' own), 8px, under the list's visible foot, and the list's foot is 9px
+  // under the last ticket. the list reaches --list-air past the seat, so the
+  // margin adds that, then takes off the 6px of the box's border and top padding
+  // and the clear air the drawing leaves over its ink (the arm's start, 5 of 24
+  // units scaled to the drawing, less half the line)
   const own = rule(MAC, "  body.focus #tiknew{");
-  assert.match(own, /--plus-dist:calc\(\.48 \* var\(--tik-gap\)\);/);
-  assert.match(own, /margin:calc\(var\(--plus-dist\) - 6px - \(var\(--plus-drawn\) \* 5 \/ 24 - var\(--plus-t\) \/ 2\)\) 0 0;/);
+  assert.match(own, /--plus-dist:calc\(1\.27 \* var\(--tik-gap\)\);/);
+  assert.match(own, /margin:calc\(var\(--list-air\) \+ var\(--plus-dist\) - 6px - \(var\(--plus-drawn\) \* 5 \/ 24 - var\(--plus-t\) \/ 2\)\) 0 0;/);
   assert.match(own, /padding:5px 0 6px; border:1px solid transparent;/);
-  const dist = .48 * 900 * 0.007, drawn = 16 * 1.5 * .9, clear = drawn * 5 / 24 - 1.6 / 2;
-  assert.ok(Math.abs(dist - 3) < .03, "about 3px");
-  assert.ok(Math.abs((dist - 6 - clear) + 6 + clear - dist) < 1e-9, "the ink's top is --plus-dist under the seat");
+  // --list-air sits on the holder, so the list and the plus after it both read it
+  const holderRule = rule(MAC, "  body.focus #tickets{");
+  assert.match(holderRule, /--list-air:7px;/);
+  assert.match(rule(MAC, "  #tiklist{"), /margin:0 calc\(var\(--list-side\)\*-1\) calc\(var\(--list-air\)\*-1\)/);
+  assert.match(rule(MAC, "  .tikpane{"), /var\(--tik-inset-r\)\) calc\(var\(--ch\)\*0\.0096\) calc\(var\(--list-side\)/, "the section's foot padding");
+  const air = 7, dist = 1.27 * 900 * 0.007, listFoot = 900 * 0.0096, drawn = 16 * 1.5 * .9, clear = drawn * 5 / 24 - 1.6 / 2;
+  assert.ok(Math.abs(dist - 8) < .03, "about 8px under the list's foot");
+  assert.ok(Math.abs(listFoot - 9) < .5, "the list's foot about 9px under the last ticket");
+  assert.ok(Math.abs((air + dist - 6 - clear) + 6 + clear - air - dist) < 1e-9, "the ink's top is --plus-dist under the list's foot");
   // a name's box turned over, .6 of the old pill's .86 of the rows across
   assert.match(rule(MAC, "  #tikhead .tvb{flex:1;"), /padding:6px 0 5px; font-size:14px; border:1px solid transparent/);
   assert.match(own, /box-sizing:content-box; width:calc\(100% \* \.86 \* \.6\);/);

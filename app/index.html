@@ -1281,9 +1281,11 @@
      clip, and the list stands on the paper with no box round it. 20260922,
      m807: the selected name no longer sits in a depressed pill; it is marked by
      weight and ink alone, and every name dips on press (see #tikhead .tvb below).
-     --line-gap is the clear air between a pressed name and the divider */
+     --line-gap is the clear air between a pressed name and the divider.
+     --list-air, how far the list reaches past this holder's foot (see #tiklist),
+     is set here so the new-card plus after the list can read it too */
   body.focus #tickets{
-    --line-gap:6px;
+    --line-gap:6px; --list-air:7px;
     --tik-inset-l:calc(0.7vw + var(--edge-drawn)); --tik-inset-r:calc(0.6vw + var(--edge-drawn));
     position:fixed; left:var(--tik-x); width:var(--tik-w);
     top:calc(var(--oy) + var(--ch)*var(--tik-y));
@@ -1344,8 +1346,13 @@
      the names above never move. it starts just under the divider and reaches
      --list-side past the holder on both sides and --list-air past its foot, so
      the lifted row's shadow is not cut on bare paper and the foot fades as
-     deep as the top; each section pads the same amounts back inside, so every
-     row stands where it did.
+     deep as the top; each section pads the sides and top back inside, so every
+     row stands where it did. 20261017, m1306: the foot is padded less, so with
+     the section at its end, or fitting, the list's foot stands 9px under the
+     last ticket (.0096 of --ch, 8.64px), half the 18px it was (--list-air +
+     --edge-drawn + .012 of --ch); fitTicketList rounds the fitting list up to a
+     whole pixel, so there it is 8.6 to 9.6px. the lifted row's shadow reaches
+     about 18px, so on the last ticket at the foot it now stops at those 9px.
      use a non-scrolling clip so selected-row reveal cannot shift the outer
      holder sideways. each section below handles its own vertical scrolling.
      20261014: the list is as tall as the section on show needs, --tik-fit, which
@@ -1353,7 +1360,7 @@
      that and the section scrolls there, as it always has). the new-card plus
      after it adds nothing to the column, so that most is the height the list
      had before it followed its tickets. with no --tik-fit it fills the holder */
-  #tiklist{--listfade:22px; --list-air:7px; --list-side:20px;
+  #tiklist{--listfade:22px; --list-side:20px;
     position:relative; flex:0 1 var(--tik-fit, 100%); min-height:0; overflow:clip;
     display:flex; flex-direction:column;
     margin:0 calc(var(--list-side)*-1) calc(var(--list-air)*-1)}
@@ -1372,7 +1379,7 @@
     display:flex; flex-direction:column; gap:var(--tik-gap);
     padding:calc(var(--edge-drawn) + var(--ch)*0.012)
             calc(var(--list-side) + var(--tik-inset-r))
-            calc(var(--list-air) + var(--edge-drawn) + var(--ch)*0.012)
+            calc(var(--ch)*0.0096)
             calc(var(--list-side) + var(--tik-inset-l));
     scroll-padding-block:var(--listfade);
     -webkit-mask-image:linear-gradient(to bottom,
@@ -1469,20 +1476,25 @@
      region that dips is .6 of the glass pill this replaced, which was .86 of the
      rows' width, centred on the rows.
      the plus is tuned (20261014, in a mock): the top of its ink stands --plus-dist
-     under the list's foot, .48 of a ticket gap (--tik-gap); it is drawn at --plus-mult,
+     under the list's foot; it is drawn at --plus-mult,
      .9, of --plus-size, the 24px it was (--plus-was, 16px, half as large again); its
      lines are --plus-thick, 1.6px, whatever the size; it is --sub, which is #75695a,
      at 42% opacity. the clear air the drawing leaves over its ink is the arm's start
      (5 of 24 units, scaled to the drawing) less half the line, and the margin takes
      it off, so the top of the ink stands at --plus-dist at any size or thickness.
-     the opacity is the drawing's, so the dip of the press keeps its full strength */
+     the opacity is the drawing's, so the dip of the press keeps its full strength.
+     20261017, m1306: --plus-dist is 8px, 1.27 of a ticket gap (--tik-gap), and is
+     counted from the list's visible foot, which stands --list-air under the seat
+     (the list reaches that far past the holder), so the margin adds --list-air.
+     it was .48 of a ticket gap from the seat, which put the ink 4px inside the
+     list's foot */
   body.focus #tikfoot{position:relative; flex:none; height:0; display:flex; justify-content:center; align-items:flex-start;
     margin:calc((var(--line-gap) + 1px) * -1) var(--tik-inset-r) 0 var(--tik-inset-l)}
   body.focus #tiknew{--plus-was:16px; --plus-size:calc(var(--plus-was) * 1.5);
     --plus-mult:.9; --plus-drawn:calc(var(--plus-size) * var(--plus-mult));
-    --plus-thick:1.6; --plus-t:calc(var(--plus-thick) * 1px); --plus-dist:calc(.48 * var(--tik-gap));
+    --plus-thick:1.6; --plus-t:calc(var(--plus-thick) * 1px); --plus-dist:calc(1.27 * var(--tik-gap));
     flex:none; box-sizing:content-box; width:calc(100% * .86 * .6); height:var(--plus-drawn);
-    margin:calc(var(--plus-dist) - 6px - (var(--plus-drawn) * 5 / 24 - var(--plus-t) / 2)) 0 0;
+    margin:calc(var(--list-air) + var(--plus-dist) - 6px - (var(--plus-drawn) * 5 / 24 - var(--plus-t) / 2)) 0 0;
     padding:5px 0 6px; border:1px solid transparent; background:transparent;
     display:flex; align-items:center; justify-content:center;
     color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none}
