@@ -4570,6 +4570,22 @@ def _file(q: Query, p: Path, ctype: str):
     return 404, {"error": "not found"}
 
 
+# how long a browser keeps an Omni ticket artwork before it asks again. The
+# file changes only when a release ships new artwork at the same address, so a
+# day is long enough that a project switch never waits on the picture and short
+# enough that a changed one reaches an installed phone by the next day
+OMNI_ART_MAX_AGE = 86400
+
+
+def _omni_art(p: Path, ctype: str):
+    """One Omni ticket artwork, kept by the browser for OMNI_ART_MAX_AGE.
+    private keeps shared caches out; a missing file still answers no-store."""
+    if not p.is_file():
+        return 404, {"error": "not found"}
+    return Response(p.read_bytes(), status_code=200, media_type=ctype,
+                    headers={"Cache-Control": f"private, max-age={OMNI_ART_MAX_AGE}"})
+
+
 def _get_root(q: Query, _):
     return _packed(q, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
 
@@ -8584,7 +8600,9 @@ ROUTES = [
     # next open rather than a cache later
     *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(q, p, c)), methods=["GET"])
       for path, (p, c) in PHONE_FILES.items() if path not in ("/m", "/m-manifest.json")],
-    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _file(q, p, c)), methods=["GET"])
+    # the Omni ticket artwork is the one picture the browser may keep (see
+    # _omni_art), so these three do not take the no-store above
+    *[Route(path, _endpoint(lambda q, _, p=p, c=c: _omni_art(p, c)), methods=["GET"])
       for path, (p, c) in OMNI_FILES.items()],
     Route("/push/key", _endpoint(_get_push_key), methods=["GET"]),
     Route("/navfiles", _endpoint(_get_navfiles), methods=["GET"]),
