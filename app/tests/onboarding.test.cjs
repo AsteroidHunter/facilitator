@@ -103,7 +103,7 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
 
   // the closing card's save, an email given being the yes
   const answers = { name: "Ada Lovelace", email: "ada@example.org", emailYes: true,
-                    work: "A research tool for my lab", agent: "Both", timeZone: "America/Phoenix" };
+                    work: "A research tool for my lab", timeZone: "America/Phoenix" };
   const saved = await board.call("POST", "/profile", JSON.stringify(answers));
   assert.equal(saved.status, 200, saved.text);
   assert.equal(json(saved).sent, true);
@@ -113,18 +113,22 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   assert.equal(identify.body.event, "$identify");
   assert.deepEqual(identify.body.properties, { $geoip_disable: true, $set: {
     email: "ada@example.org", name: "Ada Lovelace", work: "A research tool for my lab",
-    main_agent: "Both", time_zone: "America/Phoenix" } });
+    time_zone: "America/Phoenix" } });
   const install = JSON.parse(fs.readFileSync(path.join(board.data, "usage-install.json"), "utf8"));
   assert.equal(identify.body.distinct_id, install.install_id);
   const kept = JSON.parse(fs.readFileSync(path.join(board.data, "profile.json"), "utf8"));
   assert.deepEqual(kept, { name: "Ada Lovelace", email: "ada@example.org", email_yes: true,
-                           work: "A research tool for my lab", agent: "Both", time_zone: "America/Phoenix",
+                           work: "A research tool for my lab", time_zone: "America/Phoenix",
                            picture: null });   // drawn by the first page that needs it, never sent
   assert.equal(fs.statSync(path.join(board.data, "profile.json")).mode & 0o777, 0o600);
 
-  // an edit in Settings while the yes holds goes once, alone; the yes taken back sends nothing more
-  await board.call("POST", "/profile", JSON.stringify({ work: "Teaching", timeZone: "America/Phoenix" }));
+  // an edit in Settings while the yes holds goes once, alone; the yes taken back sends nothing more.
+  // a page from before that still sends an agent is taken, and the agent is dropped
+  const edited = await board.call("POST", "/profile", JSON.stringify({ work: "Teaching", agent: "Codex", timeZone: "America/Phoenix" }));
+  assert.equal(edited.status, 200, edited.text);
+  assert.equal("agent" in json(edited), false, "the answer still holds an agent");
   assert.deepEqual(posthog.bodies[1].body.properties, { $geoip_disable: true, $set: { work: "Teaching" } });
+  assert.equal("agent" in JSON.parse(fs.readFileSync(path.join(board.data, "profile.json"), "utf8")), false);
   await board.call("POST", "/profile", JSON.stringify({ emailYes: false }));
   await board.call("POST", "/profile", JSON.stringify({ work: "Writing" }));
   assert.equal(posthog.bodies.length, 2);
@@ -159,7 +163,7 @@ const out = value => JSON.parse(JSON.stringify(value));
 const QUESTION_SOURCE = () => [
   grab("  function said(text){", "  function plain(text)"),
   grab("  const ADDRESS = ", "  // the last card closed"),
-  grab("  const AGENTS = ", "  // the board's marks a card's words"),
+  grab("  const numbered = ", "  // the board's marks a card's words"),
 ].join("\n");
 
 test("the email is checked: an empty Enter and a malformed email keep the question and ask for one", () => {
@@ -198,7 +202,7 @@ function sendOn(field, text) {
 
 test("every question is needed: an empty Enter keeps each question and asks for its answer in one short line", () => {
   const { QUESTIONS } = sendOn("name", "");
-  assert.deepEqual(out(QUESTIONS.map(q => q.field)), ["name", "email", "work", "agent"]);
+  assert.deepEqual(out(QUESTIONS.map(q => q.field)), ["name", "email", "work"]);
   const lines = new Set();
   for (const q of QUESTIONS) {
     for (const text of ["", "   ", "\n"]) {
@@ -213,9 +217,9 @@ test("every question is needed: an empty Enter keeps each question and asks for 
     assert.ok(q.empty.length <= 70 && /^Please /.test(q.empty) && !/\n|skip/i.test(q.empty), "not one short line: " + q.empty);
     lines.add(q.empty);
   }
-  assert.equal(lines.size, 4, "two questions ask for their answer with the same line");
+  assert.equal(lines.size, 3, "two questions ask for their answer with the same line");
   // an answer goes through, and only the email is checked beyond being there
-  for (const [field, text] of [["name", "Ada"], ["email", "ada@example.org"], ["work", "Research"], ["agent", "2"]]) {
+  for (const [field, text] of [["name", "Ada"], ["email", "ada@example.org"], ["work", "Research"]]) {
     const { sent, calls, card } = sendOn(field, text);
     assert.equal(sent, true, field);
     assert.deepEqual(calls.find(c => c[0] === "sent"), ["sent", text]);
@@ -230,33 +234,36 @@ test("every question is needed: an empty Enter keeps each question and asks for 
   assert.ok(ONBOARDING.includes("card.asking = card.askingAt = null;"), "an answer leaves the ask on the page");
 });
 
-test("the main agent is asked as three numbered choices, Claude Code, Codex and Both, picked by number or by name", () => {
+test("no question asks for a choice, and a question that did would take a number or a name", () => {
   const context = vm.createContext({});
   vm.runInContext([QUESTION_SOURCE(), grab("  function readAnswer(q, text){", "  // ---- sending, and the answer"),
-                   "this.readAnswer = readAnswer; this.q = QUESTIONS.find(q => q.field === 'agent');"].join("\n"), context);
-  const { q, readAnswer } = context;
-  assert.deepEqual(out(q.choices), ["Claude Code", "Codex", "Both"]);
-  assert.equal(q.note, "1. Claude Code\n2. Codex\n3. Both\n\nSend a number or a name.");
-  for (const [text, picked] of [["1", "Claude Code"], ["2", "Codex"], ["3", "Both"], ["#3", "Both"], [" 3. ", "Both"],
-                                ["Both", "Both"], ["both", "Both"], ["BOTH.", "Both"], ["claude", "Claude Code"], ["codex", "Codex"]])
+                   "this.readAnswer = readAnswer; this.QUESTIONS = QUESTIONS;"].join("\n"), context);
+  const { QUESTIONS, readAnswer } = context;
+  for (const q of QUESTIONS) assert.ok(!q.choices && !q.note, q.field + " still asks for a choice");
+  const q = { choices: ["Red", "Green", "Both"] };
+  for (const [text, picked] of [["1", "Red"], ["3", "Both"], ["#3", "Both"], [" 3. ", "Both"], ["both", "Both"], ["BOTH.", "Both"], ["green", "Green"]])
     assert.equal(readAnswer(q, text), picked, "read " + JSON.stringify(text));
   // a number past the list, or other words, are kept as typed
   for (const text of ["4", "0", "Neither", "both of them"]) assert.equal(readAnswer(q, text), text, "changed " + text);
+  // the answers to the questions asked are kept as typed
+  for (const text of ["2", "Claude Code", "Ada"]) assert.equal(readAnswer(QUESTIONS[0], text), text, "changed " + text);
 });
 
-test("the last page lists Both as the main agent under what you told us", () => {
+test("the last page lists the name, the email and the work under what you told us, and no main agent", () => {
   const context = vm.createContext({ HINT: "reply" });
   vm.runInContext([
     grab("  function plain(text){", "  // the answer a message gives"),
     grab("  const key = name =>", "  // the timings."),
-    "const profile = { name: 'Ada', email: 'ada@example.org', work: 'Research', agent: 'Both', timeZone: null };",
+    "const profile = { name: 'Ada', email: 'ada@example.org', work: 'Research', timeZone: null };",
     grab("  function pageRaw(card, i){", "  // every card's words were written"),
     "this.pageRaw = pageRaw;",
   ].join("\n"), context);
   const card = { asking: null, askingAt: null,
-                 pages: ["name", "email", "work", "agent", null].map((field, i) => ({ field, head: i ? "Got it." : null })) };
-  assert.match(context.pageRaw(card, 4), /Here is what you told us:\n\n- Name: Ada\n- Email: ada@example\\.org\n- Work: Research\n- Main agent: Both/);
-  assert.match(context.pageRaw(card, 3), /3\. Both/);
+                 pages: ["name", "email", "work", null].map((field, i) => ({ field, head: i ? "Got it." : null })) };
+  const last = context.pageRaw(card, 3);
+  assert.match(last, /Here is what you told us:\n\n- Name: Ada\n- Email: ada@example\\.org\n- Work: Research$/m);
+  assert.doesNotMatch(last, /agent/i);
+  assert.match(last, /To change any of the previous answers/);
 });
 
 // the page's own finish() (the done chord and the cross of the last card both call it) and keepProfile()
@@ -289,11 +296,10 @@ async function finishWith(answers, { run = "finish()", ok = true } = {}) {
 
 test("marking the last card done with an answer missing goes back to the first question unanswered", async () => {
   const names = calls => calls.map(c => c[0]);
-  const all = { name: "Ada", email: "ada@example.org", work: "Research", agent: "Codex" };
-  // the email, the work or the agent missing: that question again with its short line, and nothing saved
-  for (const [field, given] of [["email", { name: "Ada" }], ["work", { name: "Ada", email: "ada@example.org" }],
-                                ["agent", { name: "Ada", email: "ada@example.org", work: "Research" }]]) {
-    const run = await finishWith({ name: null, email: null, work: null, agent: null, ...given });
+  const all = { name: "Ada", email: "ada@example.org", work: "Research" };
+  // the email or the work missing: that question again with its short line, and nothing saved
+  for (const [field, given] of [["email", { name: "Ada" }], ["work", { name: "Ada", email: "ada@example.org" }]]) {
+    const run = await finishWith({ name: null, email: null, work: null, ...given });
     assert.deepEqual(names(run.calls).filter(n => n === "fetch" || n === "postMessage"), [], "saved with no " + field);
     assert.equal(run.finished, false);
     assert.deepEqual(run.calls[0], ["show", 1], "not back on the onboarding card");
@@ -303,7 +309,7 @@ test("marking the last card done with an answer missing goes back to the first q
     assert.ok(names(run.calls).includes("printReply"), "the line is not shown");
   }
   // no name: the first question, as before, with no line put up
-  const noName = await finishWith({ name: null, email: null, work: null, agent: null });
+  const noName = await finishWith({ name: null, email: null, work: null });
   assert.deepEqual(names(noName.calls), ["show", "leaveHistory", "nudge"]);
   assert.equal(noName.onboard.asking, null);
   // everything given: saved, with the email and the yes
@@ -313,13 +319,13 @@ test("marking the last card done with an answer missing goes back to the first q
   assert.equal(save[2].email, "ada@example.org");
   assert.equal(save[2].emailYes, true);
   assert.equal(save[2].work, "Research");
-  assert.equal(save[2].agent, "Codex");
+  assert.equal("agent" in save[2], false, "the save still carries an agent");
   assert.equal(both.finished, true);
   assert.equal(both.onboard.asking, null);
 });
 
 test("the answers are saved as soon as the summary card is passed, so the bug on the last card has a name and email", async () => {
-  const all = { name: "Ada", email: "ada@example.org", work: "Research", agent: "Codex" };
+  const all = { name: "Ada", email: "ada@example.org", work: "Research" };
   const names = calls => calls.map(c => c[0]);
   // any move from the onboarding card to a card after it keeps the profile, and nothing else does
   assert.ok(ONBOARDING.includes("if (cards[at] === onboard && i > cards.indexOf(onboard)) keepProfile();"));
@@ -360,14 +366,14 @@ test("the board keeps the onboarding up once the frame has saved the profile, un
   assert.equal(other.frames[0].gone, true);
 });
 
-test("the onboarding is Welcome, one onboarding card of four needed questions, four 101 cards and You are all set up", () => {
+test("the onboarding is Welcome, one onboarding card of three needed questions, four 101 cards and You are all set up", () => {
   const titles = [...grab("  const CARDS = [", "  // the timings.").matchAll(/title: "([^"]+)"/g)].map(m => m[1]);
   assert.deepEqual(titles, ["Welcome!", "Let's onboard you onto the Facilitator!", "101: Atomizing asks",
                             "101: Tickets", "101: Hotkeys", "101: Phone App", "You are all set up"]);
   assert.doesNotMatch(ONBOARDING, /Orchestrator Agent|id: "orchestrator"/);
   // the questions are the onboarding card's replies, each tied to the field it fills, and each asks again when empty
   for (const [field, ask] of [["name", "What should we call you?"], ["email", "What's your email?"],
-                              ["work", "What will you mostly use Facilitator for?"], ["agent", "Which agent do you use most?"]])
+                              ["work", "What will you mostly use Facilitator for?"]])
     assert.match(ONBOARDING, new RegExp(`\\{ field: "${field}", ask: "${ask.replace("?", "\\?")}", noun: "[^"]+", empty: [A-Z]+_EMPTY`), field);
   assert.match(ONBOARDING, /\{ field: "email", [^}]*check: emailProblem \}/, "the email is not checked");
   assert.doesNotMatch(ONBOARDING, /EMAIL_ASK|go to PostHog|You can skip this one/);
@@ -560,14 +566,14 @@ test("the way to change an answer is said once, on the last page, under the answ
   vm.runInContext([
     grab("  function plain(text){", "  // the answer a message gives"),
     grab("  const key = name =>", "  // the timings."),
-    "const profile = { name: 'Ada', email: 'ada@example.org', work: 'Research', agent: 'Codex', timeZone: null };",
+    "const profile = { name: 'Ada', email: 'ada@example.org', work: 'Research', timeZone: null };",
     grab("  function pageRaw(card, i){", "  // every card's words were written"),
     "this.pageRaw = pageRaw; this.BACK_LINE = BACK_LINE;",
   ].join("\n"), context);
   const back = "To change any of the previous answers, press **Control + Shift + ↑**";
   assert.equal(context.BACK_LINE, back);
   const card = { asking: null, askingAt: null,
-                 pages: ["name", "email", "work", "agent", null].map((field, i) => ({ field, head: i ? "Got it." : null })) };
+                 pages: ["name", "email", "work", null].map((field, i) => ({ field, head: i ? "Got it." : null })) };
   const pages = card.pages.map((p, i) => context.pageRaw(card, i));
   for (const raw of pages.slice(0, -1)) assert.doesNotMatch(raw, /change|Control.Shift.↑/, "a question page says how to change an answer");
   const last = pages.at(-1);
@@ -584,7 +590,7 @@ function moves({ at = 1, answers = {}, pending = [] } = {}) {
   const cards = [{ spec: { id: "welcome" } }, onboard, { spec: { id: "cards" } }, { spec: { id: "tickets" } }, { spec: { id: "hotkeys" } },
                  { spec: { id: "phone" } }, { spec: { id: "fin" } }];
   const context = vm.createContext({
-    calls, onboard, cards, profile: { name: null, email: null, work: null, agent: null, ...answers },
+    calls, onboard, cards, profile: { name: null, email: null, work: null, ...answers },
     show: note("show"), leaveHistory: note("leaveHistory"), printReply: note("printReply"),
     render: (el, raw) => calls.push(["render", raw]), pageRaw: (card, i) => i + ":" + card.asking,
   });
@@ -599,14 +605,13 @@ function moves({ at = 1, answers = {}, pending = [] } = {}) {
 }
 
 test("the cards after the onboarding card open only once every question is answered", () => {
-  const all = { name: "Ada", email: "ada@example.org", work: "Research", agent: "Codex" };
+  const all = { name: "Ada", email: "ada@example.org", work: "Research" };
   // the Welcome card to the onboarding card is free
   const welcome = moves({ at: 0 });
   welcome.go(1);
   assert.deepEqual(out(welcome.calls), [["show", 1]]);
   // a step on, or a click on a later card's ticket, with a question unanswered: the card stays, and asks for that answer
-  for (const [field, answers] of [["name", {}], ["email", { name: "Ada" }], ["work", { name: "Ada", email: "ada@example.org" }],
-                                  ["agent", { name: "Ada", email: "ada@example.org", work: "Research" }]]) {
+  for (const [field, answers] of [["name", {}], ["email", { name: "Ada" }], ["work", { name: "Ada", email: "ada@example.org" }]]) {
     for (const move of [m => m.go(1), m => m.select("cards"), m => m.select("hotkeys")]) {
       const m = moves({ answers });
       move(m);
@@ -618,7 +623,7 @@ test("the cards after the onboarding card open only once every question is answe
     }
   }
   // the last answer still on its way in: held back, with no line
-  const landing = moves({ answers: { name: "Ada", email: "ada@example.org", work: "Research" }, pending: [{}] });
+  const landing = moves({ answers: { name: "Ada", email: "ada@example.org" }, pending: [{}] });
   landing.go(1);
   assert.deepEqual(out(landing.calls), []);
   // every answer in: the next card, and back to the Welcome card, as before
@@ -753,8 +758,9 @@ test("a frame that did not get the onboarding is taken away and not put up again
 
 test("the Profile section is in Settings on the Mac, editable, and on the phone, shown", () => {
   const mac = MAC.slice(MAC.indexOf('<div data-section="profile" data-label="Profile">'), MAC.indexOf('<div data-section="appearance"'));
-  for (const id of ["setname", "setemail", "setwork", "setagent", "settz"])
+  for (const id of ["setname", "setemail", "setwork", "settz"])
     assert.ok(mac.includes(`id="${id}"`), id);
+  assert.doesNotMatch(mac, /setagent|Main agent/i, "the Mac's Profile still has a main agent");
   // no switch and no subtitles: the email is the yes, and clearing it takes the yes back
   assert.doesNotMatch(mac, /setemailyes|Feedback emails|role="switch"|sethelp|avatar/i);
   // the picture: an empty square the page fills from the board's stored number, one of twelve drawings, 19 to 30
@@ -773,7 +779,8 @@ test("the Profile section is in Settings on the Mac, editable, and on the phone,
   assert.ok(MAC.includes('if (key === "email") change.emailYes = input.value.trim() !== "";'));
   assert.ok(MAC.includes('fetch("/profile", { method: "POST", body: JSON.stringify({ ...change, timeZone: hereZone() }) })'));
   const phone = PHONE.slice(PHONE.indexOf('<div data-section="profile" data-label="Profile">'), PHONE.indexOf('<div data-section="appearance"'));
-  for (const id of ["pfpic", "pfname", "pfemail", "pfwork", "pfagent", "pftz"]) assert.ok(phone.includes(`id="${id}"`), id);
+  for (const id of ["pfpic", "pfname", "pfemail", "pfwork", "pftz"]) assert.ok(phone.includes(`id="${id}"`), id);
+  assert.doesNotMatch(phone, /pfagent|Main agent/i, "the phone's Profile still has a main agent");
   assert.doesNotMatch(phone, /<input/, "the phone writes the profile");
   // the phone's Profile is the Mac's: the picture beside the name and email with no label, no feedback switch or
   // status, no note and no subtitles, and the picture and the time zone drawn by the shared code

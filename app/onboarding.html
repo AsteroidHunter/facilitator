@@ -8,7 +8,7 @@
 <!-- the server writes the board's version in here (#npversion in index.html) -->
 <meta name="facilitator-version" content="">
 <!-- Facilitator's first run, as a run of real cards: Welcome, one onboarding
-     card whose questions (the name, the email, the work, the main agent) come
+     card whose questions (the name, the email, the work) come
      one after another as its replies, three short 101 cards, a Bonus card about
      the phone and a last card, FIN. Each reply is
      a page of the onboarding card's history and knows the field it asks for,
@@ -972,9 +972,9 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const NEXT_ATOMIZING = "Press " + key("control + shift + →") + " to continue!";
   // the FIN card's key to end the run, with the chord in the words it was given
   const FINISH = "Press " + key("control + shift + Backspace") + " to mark this card done and open your board.";
-  // the main agent's choices. what anyone types that is not one of them is kept
-  // as typed. the work question has none: its answer is the person's own words
-  const AGENTS = ["Claude Code", "Codex", "Both"];
+  // a question may give choices, listed in its note: a number or a choice's own
+  // words pick one, and what anyone types that is not one of them is kept as
+  // typed. none does now: each answer is the person's own words
   const numbered = list => list.map((one, i) => (i + 1) + ". " + one).join("\n");
   // the onboarding card's questions, one reply of the card each, in order.
   // field is where the answer is kept and noun what a correction calls it.
@@ -984,15 +984,12 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const NAME_EMPTY = "Please enter your name to go on.";
   const EMAIL_EMPTY = "Please enter your email to go on.";
   const WORK_EMPTY = "Please say what you will use Facilitator for to go on.";
-  const AGENT_EMPTY = "Please pick your main agent to go on.";
   const EMAIL_BAD = "That does not look like an email. Please try name@example.com.";
   const emailProblem = text => !text ? EMAIL_EMPTY : address(said(text)) ? "" : EMAIL_BAD;
   const QUESTIONS = [
     { field: "name", ask: "What should we call you?", noun: "name", empty: NAME_EMPTY },
     { field: "email", ask: "What's your email?", noun: "email", empty: EMAIL_EMPTY, check: emailProblem },
     { field: "work", ask: "What will you mostly use Facilitator for?", noun: "answer", empty: WORK_EMPTY },
-    { field: "agent", ask: "Which agent do you use most?", noun: "main agent", empty: AGENT_EMPTY,
-      choices: AGENTS, note: numbered(AGENTS) + "\n\nSend a number or a name." },
   ];
   // the board's marks a card's words can hold, each written as a character of
   // its own that render below swaps for the mark: the four section chips of the
@@ -1071,7 +1068,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // are saved as the board's profile (and again when the last card is marked
   // done). the time zone is not asked:
   // it is read off the machine the page runs on, and shown on the last page
-  const profile = { name: null, email: null, work: null, agent: null, timeZone: null };
+  const profile = { name: null, email: null, work: null, timeZone: null };
   try { profile.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (e) {}
   window.onboardingProfile = profile;
 
@@ -1371,8 +1368,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     return parts.filter(Boolean).join("\n\n");
   }
   function keptRaw(){
-    const rows = [["Name", profile.name], ["Email", profile.email],
-                  ["Work", profile.work], ["Main agent", profile.agent]];
+    const rows = [["Name", profile.name], ["Email", profile.email], ["Work", profile.work]];
     const list = rows.map(([k, v]) => "- " + k + ": " + (v == null ? "not answered" : plain(v)));
     if (profile.timeZone) list.push("- Time zone: " + plain(profile.timeZone));
     return "Here is what you told us:\n\n" + list.join("\n");
@@ -1726,8 +1722,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   async function saveProfile(){
     const email = address(profile.email);
     const body = { name: profile.name.slice(0, 200), email, emailYes: email != null,
-                   work: profile.work && profile.work.slice(0, 2000), agent: profile.agent && profile.agent.slice(0, 100),
-                   timeZone: profile.timeZone };
+                   work: profile.work && profile.work.slice(0, 2000), timeZone: profile.timeZone };
     try { return (await fetch("/profile", { method: "POST", body: JSON.stringify(body) })).ok; } catch (e) { return false; }
   }
   // the summary card passed (any move to a card after the onboarding card, which

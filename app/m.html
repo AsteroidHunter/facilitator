@@ -1878,7 +1878,6 @@ for (const type of ["gesturestart", "gesturechange"])
           </div>
         </div>
         <div class="setrow setstat"><div class="setlabel"><span>Work</span></div><span id="pfwork" class="setvalue"></span></div>
-        <div class="setrow setstat"><div class="setlabel"><span>Main agent</span></div><span id="pfagent" class="setvalue"></span></div>
         <div class="setrow setstat"><div class="setlabel"><span>Time zone</span></div><span id="pftz" class="setvalue"></span></div>
       </div>
       <div data-section="appearance" data-label="Appearance">
@@ -7517,7 +7516,7 @@ ComposeFormat.preload();
 // opened. The picture is the one the Mac drew for it (none until the Mac has
 // asked), shown and never named; the time zone is written out in plain words
 {
-  const shown = { name: "pfname", email: "pfemail", work: "pfwork", agent: "pfagent" };
+  const shown = { name: "pfname", email: "pfemail", work: "pfwork" };
   const picture = document.getElementById("pfpic");
   let asked = 0;
   const read = () => {

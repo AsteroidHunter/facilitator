@@ -3836,11 +3836,6 @@
       <label class="setlabel" for="setwork"><span>Work</span></label>
       <input type="text" id="setwork" class="setfield" maxlength="2000" autocomplete="off" spellcheck="false">
     </div>
-    <div class="setrow">
-      <label class="setlabel" for="setagent"><span>Main agent</span></label>
-      <input type="text" id="setagent" class="setfield" maxlength="100" list="setagents" autocomplete="off" spellcheck="false">
-      <datalist id="setagents"><option value="Claude Code"></option><option value="Codex"></option></datalist>
-    </div>
     <div class="setrow setstat">
       <div class="setlabel"><span>Time zone</span></div>
       <span id="settz" class="setvalue"></span>
@@ -12354,7 +12349,7 @@ function setEditMode(on){
   // no switch for the feedback emails: giving an email is the yes, and
   // clearing it takes the yes back (the change listener below)
   const profileFields = { name: document.getElementById("setname"), email: document.getElementById("setemail"),
-                          work: document.getElementById("setwork"), agent: document.getElementById("setagent") };
+                          work: document.getElementById("setwork") };
   const timeZone = document.getElementById("settz");
   let profileKept = null;
   // the picture in Profile: one of the twelve drawings in card-logic.js
