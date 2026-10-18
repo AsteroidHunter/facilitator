@@ -390,3 +390,32 @@ test("a new line inside a code block carries no list marker", async () => {
     await phone.page.close();
   }
 });
+
+// ---- the field's own selection call --------------------------------------------
+// A textarea's setSelectionRange takes a direction as well as two ends, and
+// the page hands one over when it puts a pick back. The editor's face dropped
+// it, so a pick made leftwards came back made rightwards.
+
+test("the row's selection call keeps the direction it is given", async () => {
+  const { page, problems } = await desktopRow("A pick made leftwards");
+  try {
+    await lay(page, "abcdefghij");
+    const pick = (from, to, way) => page.evaluate(([where, a, b, w]) => {
+      const row = document.querySelector(where);
+      row.setSelectionRange(a, b, w);
+      return [row.selectionStart, row.selectionEnd, row.selectionDirection];
+    }, [ROW, from, to, way]);
+    assert.deepEqual(await pick(2, 6, "backward"), [2, 6, "backward"]);
+    await chord(page, "ArrowLeft", "Shift");
+    await settle(80);
+    const read = await rowRead(page);
+    assert.deepEqual([read.from, read.to], [1, 6], "Shift and Left did not grow the pick at its start");
+    assert.deepEqual(await pick(2, 6, "forward"), [2, 6, "forward"]);
+    assert.deepEqual(await pick(2, 6), [2, 6, "forward"]);
+    // an anchor past its head still reads as the pick made leftwards
+    assert.deepEqual(await pick(6, 2), [2, 6, "backward"]);
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});

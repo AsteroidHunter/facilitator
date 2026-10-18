@@ -994,11 +994,15 @@
       select: {
         value: () => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }),
       },
+      // an anchor and a head, which is how a caller holding the editor's own
+      // pick hands it back, or a start, an end and a direction, as a field
+      // takes them: backward puts the head at the start
       setSelectionRange: {
-        value: (from, to) => {
+        value: (from, to, direction) => {
           const length = view.state.doc.length;
-          const anchor = Math.max(0, Math.min(from == null ? 0 : from, length));
-          const head = Math.max(0, Math.min(to == null ? anchor : to, length));
+          let anchor = Math.max(0, Math.min(from == null ? 0 : from, length));
+          let head = Math.max(0, Math.min(to == null ? anchor : to, length));
+          if (direction === "backward" && anchor < head) [anchor, head] = [head, anchor];
           view.dispatch({ selection: { anchor, head } });
         },
       },
