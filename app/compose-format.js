@@ -683,6 +683,32 @@
   // them without changing Left/Right word navigation.
   const MOVES_TEXT = /^(Shift-)?Alt-Arrow(Up|Down)$/;
 
+  // ---- Backspace after an emoji ---------------------------------------------
+  // The plain field takes a whole emoji with one Backspace: a skin tone, a
+  // keycap or a flag's tags go with the picture they belong to. The editor's
+  // own Backspace takes the last piece of a cluster, which is right for an
+  // accent written as a mark of its own and wrong for these, so an emoji is
+  // taken whole here and everything else is left to the editor.
+  const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u;   // the last is a keycap
+  let graphemes = null;
+  function deleteEmojiBackward(view) {
+    const state = view.state, range = state.selection.main;
+    if (state.selection.ranges.length > 1 || !range.empty) return false;
+    if (typeof Intl !== "object" || !Intl.Segmenter) return false;
+    const line = state.doc.lineAt(range.head);
+    const before = line.text.slice(Math.max(0, range.head - line.from - 64), range.head - line.from);
+    graphemes = graphemes || new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    let last = "";
+    for (const piece of graphemes.segment(before)) last = piece.segment;
+    if (last.length < 2 || !EMOJI.test(last)) return false;
+    view.dispatch(state.update({
+      changes: { from: range.head - last.length, to: range.head },
+      scrollIntoView: true,
+      userEvent: "delete.backward",
+    }));
+    return true;
+  }
+
   // ---- the reader's own keyboard and spelling --------------------------------
   // The editor turns the browser's spelling check, the phone's word correction
   // and its capital at the start of a sentence off on its content. The plain
@@ -702,6 +728,7 @@
     const keys = [
       ...PAGE_CHORDS,
       ...C.historyKeymap,
+      { key: "Backspace", run: deleteEmojiBackward, shift: deleteEmojiBackward },
       // The editor's stock return bindings are not among the three things that
       // may answer a return in this row, so they are left out. Which of the
       // three does answer it is decided in enterKey. The line moves and copies

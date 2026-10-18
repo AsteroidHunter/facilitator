@@ -324,3 +324,32 @@ test("a new item inside a numbered list numbers the items after it on", async ()
     await page.close();
   }
 });
+
+// ---- Backspace after an emoji --------------------------------------------------
+// The plain field takes a whole emoji with one Backspace. The editor took the
+// last piece of one: a skin tone off a hand, the keycap off a digit, a tag off
+// a flag, leaving a different picture behind.
+
+test("Backspace after an emoji takes all of it, as the plain field does", async () => {
+  const { page, problems } = await desktopRow("Backspace after an emoji");
+  try {
+    for (const [name, text, left] of [
+      ["a skin tone", "ok \u{1F44D}\u{1F3FD}", "ok "],
+      ["a keycap", "ok 1️⃣", "ok "],
+      ["a tagged flag", "ok \u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}", "ok "],
+      ["a family", "ok \u{1F468}‍\u{1F469}‍\u{1F467}", "ok "],
+      // an accent written as a mark of its own is still taken on its own, as
+      // the plain field takes it
+      ["a combining accent", "ok é", "ok e"],
+    ]) {
+      await lay(page, text);
+      await caretTo(page, text.length);
+      await page.keyboard.press("Backspace");
+      await settle(100);
+      assert.equal(await payload(page), left, `Backspace after ${name}`);
+    }
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
