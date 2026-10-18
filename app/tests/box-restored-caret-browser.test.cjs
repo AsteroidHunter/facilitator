@@ -43,6 +43,10 @@ function view(page) {
 async function restored(fx) {
   const id = await fx.card("Restored " + Date.now().toString(36));
   const { page, problems } = await fx.open("/", F.DESKTOP);
+  // the store is written once the page has settled: an editor that puts itself
+  // on later says its row changed, and the empty row would be kept over it
+  await F.pickDesktop(page, id);
+  if (fx === formatted) await F.editorOn(page);
   await page.evaluate(([cardId, text]) => {
     localStorage.setItem("composedrafts", JSON.stringify({ [cardId]: { text, files: [] } }));
   }, [id, DRAFT]);
