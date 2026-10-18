@@ -10005,6 +10005,33 @@ function mdBox(D, cls, w){
     style: "--w:" + w + "px;--air:" + MD_MARKAIR + "px",
   } });
 }
+// backspace after an emoji that ends in a skin tone, a keycap or a tag flag's
+// tags takes the whole picture, the way every text box on the board does.
+// codemirror's own backspace takes one code point off anything that extends a
+// character, which is right for an accent typed as a letter and a mark, and
+// left a bare thumb, a digit and a selector, or half a flag for these.
+// the last code point is compared as a number and not with a regex: chrome's
+// engine misses a skin tone at the end of a string against an anchored class
+function mdEmojiEnd(text){
+  const last = [...text.slice(-2)].pop();
+  const cp = last ? last.codePointAt(0) : 0;
+  return (cp >= 0x1F3FB && cp <= 0x1F3FF) || cp === 0x20E3 || (cp >= 0xE0020 && cp <= 0xE007F);
+}
+let mdGraphemes = null;
+function mdEmojiBack(view){
+  const main = view.state.selection.main;
+  if (view.state.selection.ranges.length > 1 || !main.empty) return false;
+  const line = view.state.doc.lineAt(main.head);
+  const before = line.text.slice(Math.max(0, main.head - line.from - 40), main.head - line.from);
+  if (!mdEmojiEnd(before)) return false;
+  try { mdGraphemes = mdGraphemes || new Intl.Segmenter(undefined, { granularity: "grapheme" }); }
+  catch (e){ return false; }
+  let last = "";
+  for (const s of mdGraphemes.segment(before)) last = s.segment;
+  view.dispatch(view.state.update({ changes: { from: main.head - last.length, to: main.head },
+    scrollIntoView: true, userEvent: "delete.backward" }));
+  return true;
+}
 // seat is a state kept whole across a tab switch, and when there is one the
 // text and the endings are not read at all: that state already carries them,
 // along with the cursor and the undo history
@@ -10021,6 +10048,7 @@ function fileNavMount(host, text, crlf, seat, plain){
     C.history(),
     C.keymap.of([
       { key: "Mod-s", preventDefault: true, run: () => { fileNavSave(); return true; } },
+      { key: "Backspace", run: mdEmojiBack },
       ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
     ]),
     C.collapseOnSelectionFacet.of(true),
@@ -10040,6 +10068,7 @@ function fileNavMount(host, text, crlf, seat, plain){
       C.history(),
       C.keymap.of([
         { key: "Mod-s", preventDefault: true, run: () => { fileNavSave(); return true; } },
+        { key: "Backspace", run: mdEmojiBack },
         ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
       ]),
       C.collapseOnSelectionFacet.of(true),

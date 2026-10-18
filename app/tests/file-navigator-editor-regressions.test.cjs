@@ -451,6 +451,40 @@ test("the first click into a file with front matter lands a caret where it is ai
   }
 });
 
+test("Backspace after an emoji takes it whole, as the board's text boxes do", async () => {
+  const cases = [
+    { name: "skin tone", source: "a\u{1F44D}\u{1F3FD}b", left: "ab" },
+    { name: "keycap", source: "a1\uFE0F\u20E3b", left: "ab" },
+    { name: "tag flag", source: "a\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}b", left: "ab" },
+    { name: "couple with skin tones",
+      source: "a\u{1F469}\u{1F3FD}\u200D\u{1F91D}\u200D\u{1F468}\u{1F3FF}b", left: "ab" },
+    // an accent typed as a letter and a mark goes one mark at a time, in the
+    // board's text boxes and here alike
+    { name: "letter and mark", source: "ae\u0301b", left: "aeb" },
+    { name: "conjunct", source: "a\u0915\u094D\u0937b", left: "a\u0915\u094Db" },
+  ];
+  const page = await mountedEditor("x");
+  try {
+    for (const fixture of cases) {
+      await page.evaluate(text => {
+        fileNavView.dispatch({ changes: { from: 0, to: fileNavView.state.doc.length, insert: text } });
+        fileNavView.focus();
+        fileNavView.dispatch({ selection: { anchor: text.length - 1 } });
+      }, fixture.source);
+      await page.keyboard.press("Backspace");
+      const text = await page.evaluate(() => fileNavView.state.sliceDoc());
+      assert.equal(text, fixture.left, `${fixture.name}: Backspace left ${JSON.stringify(text)}`);
+      await page.keyboard.down("Meta");
+      await page.keyboard.press("z");
+      await page.keyboard.up("Meta");
+      assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), fixture.source,
+        `${fixture.name}: undo did not put the emoji back`);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test("block caret uses CodeMirror coordinates at a bullet gap", async () => {
   const source = [
     "- alpha",
