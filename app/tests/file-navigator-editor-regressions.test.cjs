@@ -426,6 +426,31 @@ test("blocks under a finished drag selection come back as source", async () => {
   }
 });
 
+test("the first click into a file with front matter lands a caret where it is aimed", async () => {
+  const source = "---\ntitle: Click test\nstatus: draft\n---\n\n# Heading\n\n" +
+    "The paragraph under it has words to click on.\n";
+  const page = await mountedEditor(source);
+  try {
+    const target = await page.evaluate(() => {
+      const position = fileNavView.state.sliceDoc().indexOf("words") + 2;
+      const r = fileNavView.coordsAtPos(position, 1);
+      return { position, x: r.left + 1, y: (r.top + r.bottom) / 2, focused: fileNavView.hasFocus };
+    });
+    assert.equal(target.focused, false, "the fixture no longer opens the file unfocused");
+    await page.mouse.click(target.x, target.y);
+    const clicked = await caretState(page);
+    const range = await page.evaluate(() => {
+      const main = fileNavView.state.selection.main;
+      return { from: main.from, to: main.to };
+    });
+    assert.equal(range.from, range.to, `the click selected ${range.from} to ${range.to}`);
+    assert.equal(clicked.pos, target.position, "the click did not land where it was aimed");
+    assert.equal(clicked.source, source);
+  } finally {
+    await page.close();
+  }
+});
+
 test("block caret uses CodeMirror coordinates at a bullet gap", async () => {
   const source = [
     "- alpha",

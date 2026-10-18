@@ -10065,6 +10065,18 @@ function fileNavMount(host, text, crlf, seat, plain){
   fileNavFade(fileNavView.scrollDOM);
   fileNavView.contentDOM.addEventListener("mousedown",
     () => fileNavView && fileNavView.dispatch({ effects: C.setMouseSelecting.of(true) }));
+  // a press on an editor that does not have the focus yet. codemirror focuses
+  // it from inside its own mousedown, before it reads where the press landed,
+  // and the focus wakes the layer around the cursor the file opened with. that
+  // is position 0, the yaml block, which opens and pushes everything under the
+  // pointer down a row, so the press selected back to the row above instead of
+  // putting the caret where it landed. the guard goes up first here, in the
+  // capture phase, so the layer stays as drawn until the button is up. a
+  // focused editor keeps the order above: its reveal has to stand while
+  // codemirror reads the press, or the page moves under the pointer that way
+  fileNavView.dom.addEventListener("mousedown", () => {
+    if (fileNavView && !fileNavView.hasFocus) fileNavView.dispatch({ effects: C.setMouseSelecting.of(true) });
+  }, true);
   document.addEventListener("mouseup", fileNavMouseUp);
   // the two events the board's layer cannot read off the state on its own.
   // they are put on the element rather than handed to codemirror so the
