@@ -617,6 +617,20 @@
   // them without changing Left/Right word navigation.
   const MOVES_TEXT = /^(Shift-)?Alt-Arrow(Up|Down)$/;
 
+  // ---- the reader's own keyboard and spelling --------------------------------
+  // The editor turns the browser's spelling check, the phone's word correction
+  // and its capital at the start of a sentence off on its content. The plain
+  // field keeps all three unless the page says otherwise, and the row is one
+  // row whichever face it wears, so the content is given what the field has.
+  // Read once, from the field as the page made it, before the editor is on.
+  function typingAttributes(ta) {
+    return {
+      spellcheck: ta.spellcheck ? "true" : "false",
+      autocorrect: ta.getAttribute("autocorrect") || "on",
+      autocapitalize: ta.getAttribute("autocapitalize") || "sentences",
+    };
+  }
+
   // ---- the editor a field puts on ------------------------------------------
   function extensions(C, field) {
     const keys = [
@@ -642,6 +656,7 @@
       // the editor writes its own class attribute on every update, so the name
       // the page styles the row by is handed to it rather than set on the node
       C.EditorView.editorAttributes.of({ class: field.shellClass }),
+      C.EditorView.contentAttributes.of(field.typing),
       // What is left of the return key once enterKey and the pack have had it.
       // The pack's continuation answers a quoted or a listed line and declines
       // everything else, so this is where a plain line gets the line it asked
@@ -1147,6 +1162,7 @@
       parked: null,        // the state a held row's editor put aside as it came off
       edited: false,       // the editor changed the words since they were written in
       shellClass: opts.className || "cffield",
+      typing: typingAttributes(ta),   // spelling, correction and capitals, as the field has them
       // a line the page writes in keeps its words in textContent, not in value
       textValue: !!opts.textValue,
       // what an empty row shows, built fresh for each editor that asks
