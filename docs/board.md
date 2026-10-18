@@ -16,6 +16,8 @@ On the Mac board, in the Done section only, a garbage can shows just left of a t
 
 Agents link related cards to each other, such as a card that continues or depends on another, across projects too; the board keeps the links with the cards, through the Bin as well, but does not show them yet.
 
+Agents also note on a card the git branch its work is on and a few words on where that work stands, and read them back with the card's number, project, section and when it was made and last changed, which the board already records; the notes stay with the card, through the Bin as well, and the board does not show any of it yet.
+
 ## The Mac board's top bar
 
 Along the top of the Mac board, from the left: a Home button, which opens the home page and stays pressed while it is open; a pill with the open project's name (while the home page is up, the name of the project you came from, with a down chevron after it); and a few faint project names. At the right end, evenly spaced, the speaker mutes the reply chime, the bug opens the feedback box on its own (see "Improvements" under [The settings page](settings.md#the-settings-page)), and the squid opens the settings page.
