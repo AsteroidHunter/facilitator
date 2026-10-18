@@ -507,7 +507,27 @@
       head: indent + (dash ? dash : String(Math.min(+digits + 1, 999999999)) + closer) + gap,
       markerEnd: indent.length + (dash ? 1 : digits.length + 1) + gap.length,
       indent,
+      number: dash ? null : +digits,
     };
+  }
+
+  // A new item inside a numbered list takes the number after the one it was
+  // made from, so the items after it go on counting from there, as they do
+  // under the phone's own return. Only items that count up one by one are
+  // moved on: a list written all in ones is left the way it was written.
+  function renumber(C, state, line, list, changes) {
+    let item = C.syntaxTree(state).resolveInner(line.from + list.indent.length, 1);
+    while (item && item.name !== "ListItem") item = item.parent;
+    if (!item || !item.parent || item.parent.name !== "OrderedList") return;
+    let count = list.number;
+    for (let next = item.nextSibling; next; next = next.nextSibling) {
+      if (next.name !== "ListItem") continue;
+      const mark = next.firstChild;
+      const digits = mark && mark.name === "ListMark" && /^\d+/.exec(state.sliceDoc(mark.from, mark.to));
+      if (!digits || +digits[0] !== count + 1 || count + 2 > 999999999) return;
+      count++;
+      changes.push({ from: mark.from, to: mark.from + digits[0].length, insert: String(count + 1) });
+    }
   }
 
   // A quote's angles at the head of a line, the last of them finished by its
@@ -558,8 +578,11 @@
     const line = state.doc.lineAt(range.from);
     const list = listContinuation(line.text);
     const head = list && range.from >= line.from + list.markerEnd ? list.head : "";
+    const changes = [{ from: range.from, to: range.to, insert: "\n" + head }];
+    // a pick running into the items below takes their numbers with it
+    if (head && list.number !== null && range.to <= line.to) renumber(C, state, line, list, changes);
     view.dispatch(state.update({
-      changes: { from: range.from, to: range.to, insert: "\n" + head },
+      changes,
       selection: { anchor: range.from + 1 + head.length },
       scrollIntoView: true,
       userEvent: "input",

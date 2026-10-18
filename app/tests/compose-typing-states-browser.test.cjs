@@ -293,3 +293,34 @@ test("return on a quoted line with nothing typed on it ends the quote", async ()
     await mac.page.close();
   }
 });
+
+// ---- a new item inside a numbered list -----------------------------------------
+// The phone's return numbers the items after a new one on, and the Mac's shift
+// and return left them as they were, so the list read 1, 2, 2, 3.
+
+test("a new item inside a numbered list numbers the items after it on", async () => {
+  const { page, problems } = await desktopRow("A new numbered item");
+  try {
+    for (const [text, at, made] of [
+      ["1. a\n2. b\n3. c", 4, "1. a\n2. \n3. b\n4. c"],
+      ["1) a\n2) b", 4, "1) a\n2) \n3) b"],
+      // a level inside keeps its own numbers, and the level's own go on
+      ["1. a\n   1. x\n2. b", 4, "1. a\n2. \n   1. x\n3. b"],
+      // a list that does not count up is left as it was written
+      ["1. a\n1. b", 4, "1. a\n2. \n1. b"],
+    ]) {
+      await lay(page, text);
+      await caretTo(page, at);
+      await chord(page, "Enter", "Shift");
+      await settle(120);
+      assert.equal(await payload(page), made, `shift and return in ${JSON.stringify(text)}`);
+      // and one undo takes the item and the new numbers back together
+      await chord(page, "z", "Meta");
+      await settle(120);
+      assert.equal(await payload(page), text, `undo after ${JSON.stringify(text)}`);
+    }
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});
