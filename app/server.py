@@ -3141,6 +3141,8 @@ def _remove_empty_meta_box(box: dict) -> str:
         for note in _state.get("quicknotes", []):
             if note.get("card") == bid:
                 note["card"] = None
+    # its links go with it, both ways
+    _drop_links(box)
     # its magic box goes with it, once the save that removes the card lands
     if box.get("magic"):
         _magic_sweep_due.append(bid)
@@ -3219,8 +3221,9 @@ def _restore_binned(entry: dict) -> dict:
 
 def _bin_expire(now: float | None = None) -> list:
     """Delete for good every card that has been in the Bin BIN_KEEP_DAYS or
-    more: its record, its quick note link and, once the save lands, its magic
-    box's files. Answers the ids it deleted. Caller holds _lock and saves."""
+    more: its record, its quick note link, its links to and from other cards
+    and, once the save lands, its magic box's files. Answers the ids it
+    deleted. Caller holds _lock and saves."""
     now = time.time() if now is None else now
     entries = _bin_entries()
     gone = [e for e in entries if now - e.get("ts", now) >= BIN_KEEP]
@@ -3230,6 +3233,7 @@ def _bin_expire(now: float | None = None) -> list:
         for note in _state.get("quicknotes", []):
             if note.get("card") == card["id"]:
                 note["card"] = None
+        _drop_links(card)
         if card.get("magic"):
             _magic_sweep_due.append(card["id"])
         _log("expire", card["id"], card.get("title", ""))
@@ -3243,6 +3247,53 @@ def _bin_clock() -> None:
             if _bin_expire():
                 _save()
                 _notify()
+
+
+def _section_name(card: dict) -> str:
+    """The section a card sits in, as the Bin and the links name it."""
+    return ("done" if card.get("done") else "deferred" if card.get("parked")
+            else "docked" if card.get("docked") else "doing")
+
+
+# ---- links between cards ------------------------------------------------------
+# An agent links two related cards by their ids, which never change, so a
+# rename or a move between sections changes nothing here: titles and sections
+# are read when the links are asked for. Each link is kept on the card it starts
+# from, box["links"], oldest first, as {to, ts, agent}: the card it points at,
+# when it was made and the agent that made it. A card never linked carries no
+# field at all, so a board saved before links reads exactly as it was. The links
+# pointing at a card are found by reading every card's own, so nothing is kept
+# twice and the two ways cannot disagree. A card in the Bin keeps its links and
+# brings them back on a restore, though no reading shows them meanwhile; a card
+# deleted for good takes every link to and from it along.
+def _card_links(card: dict) -> list:
+    """One card's own links; a missing or malformed list reads empty."""
+    links = card.get("links")
+    if not isinstance(links, list):
+        return []
+    return [l for l in links if isinstance(l, dict) and isinstance(l.get("to"), str)]
+
+
+def _set_links(card: dict, links: list) -> None:
+    """Keep a card's links, dropping the field once none are left."""
+    if links:
+        card["links"] = links
+    else:
+        card.pop("links", None)
+
+
+def _drop_links(card: dict) -> None:
+    """Every link to and from one card that is gone for good, off the cards on
+    the board and in the Bin. Caller holds _lock and saves."""
+    bid = card["id"]
+    for link in _card_links(card):
+        _log("unlink", bid, "", log_fields={"to": link["to"]}, to=link["to"], why="deleted")
+    for other in _state["boxes"] + [e["card"] for e in _bin_entries()]:
+        links = _card_links(other)
+        kept = [l for l in links if l["to"] != bid]
+        if len(kept) != len(links):
+            _set_links(other, kept)
+            _log("unlink", other["id"], "", log_fields={"to": bid}, to=bid, why="deleted")
 
 
 def _ws(owner: str, wid: str) -> dict | None:
@@ -6614,6 +6665,81 @@ def _post_context(q: Query, text: str):
         return 200, {"ok": True}
 
 
+def _post_link(q: Query, text: str):
+    # one card linked to a card it is related to, by id (see _card_links). the
+    # same link made again is the one already kept, answered as it stands
+    src, dst = q.one("from"), q.one("to")
+    agent = q.one("agent").strip()[:24]
+    if not src or not dst:
+        return 400, {"error": "name both cards: from=ID&to=ID"}
+    if src == dst:
+        return 400, {"error": "a card cannot link to itself"}
+    with _lock:
+        for bid in (src, dst):
+            if _box(bid) is None:
+                return 400, {"error": f"no card {bid} on the board"}
+        card = _box(src)
+        links = _card_links(card)
+        kept = next((l for l in links if l["to"] == dst), None)
+        if kept is not None:
+            return 200, {"ok": True, "added": False, "from": src, **kept}
+        made = {"to": dst, "ts": time.time(), "agent": agent}
+        _set_links(card, links + [made])
+        _log("link", src, "", log_fields={"to": dst}, to=dst, agent=agent)
+        _save()
+        _notify()
+        return 200, {"ok": True, "added": True, "from": src, **made}
+
+
+def _post_unlink(q: Query, text: str):
+    # a link taken away; one that is not there is answered as already gone
+    src, dst = q.one("from"), q.one("to")
+    agent = q.one("agent").strip()[:24]
+    if not src or not dst:
+        return 400, {"error": "name both cards: from=ID&to=ID"}
+    with _lock:
+        card = _box(src)
+        if card is None:
+            return 400, {"error": f"no card {src} on the board"}
+        links = _card_links(card)
+        kept = [l for l in links if l["to"] != dst]
+        if len(kept) == len(links):
+            return 200, {"ok": True, "removed": False}
+        _set_links(card, kept)
+        _log("unlink", src, "", log_fields={"to": dst}, to=dst, agent=agent)
+        _save()
+        _notify()
+        return 200, {"ok": True, "removed": True}
+
+
+def _get_links(q: Query, _):
+    """One card's links both ways: the cards it links to and the cards linking
+    to it, each oldest link first, with the other card's title and section as
+    they are now. A card in the Bin is in neither list until it is restored."""
+    bid = q.one("box")
+    with _lock:
+        card = _box(bid)
+        if card is None:
+            return 400, {"error": f"no card {bid} on the board"}
+
+        def row(other: dict, link: dict) -> dict:
+            ts = link.get("ts", 0)
+            return {"id": other["id"], "title": other.get("title", ""),
+                    "owner": other.get("owner", "facilitator"), "section": _section_name(other),
+                    "ts": ts if isinstance(ts, (int, float)) else 0,
+                    "agent": link.get("agent", "")}
+        links = []
+        for link in _card_links(card):
+            other = _box(link["to"])
+            if other is not None:
+                links.append(row(other, link))
+        back = sorted((row(other, link) for other in _state["boxes"] if other is not card
+                       for link in _card_links(other) if link["to"] == bid),
+                      key=lambda r: r["ts"])
+        return 200, {"box": bid, "title": card.get("title", ""),
+                     "links": links, "backlinks": back}
+
+
 def _omni_number(title: str) -> int | None:
     """The title is the whole v0 Omni contract; cards keep normal ids/state."""
     match = OMNI_TITLE_RE.fullmatch(title or "")
@@ -6864,8 +6990,7 @@ def _get_bin(q: Query, _):
             c = e["card"]
             cards.append({"id": c["id"], "title": c.get("title", ""),
                           "owner": c.get("owner", "facilitator"),
-                          "section": ("done" if c.get("done") else "deferred" if c.get("parked")
-                                      else "docked" if c.get("docked") else "doing"),
+                          "section": _section_name(c),
                           "ts": e.get("ts", 0), "until": e.get("ts", 0) + BIN_KEEP})
         return 200, {"cards": cards, "keepDays": BIN_KEEP_DAYS}
 
@@ -8566,6 +8691,7 @@ ROUTES = [
     Route("/fresh", _state_endpoint(_get_fresh), methods=["GET"]),
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
+    Route("/links", _endpoint(_get_links), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
     Route("/limits", _endpoint(_get_limits), methods=["GET"]),
@@ -8634,6 +8760,8 @@ ROUTES = [
     Route("/dock", _state_endpoint(_post_dock, "text"), methods=["POST"]),
     Route("/worktree", _state_endpoint(_post_worktree, "text"), methods=["POST"]),
     Route("/context", _state_endpoint(_post_context, "text"), methods=["POST"]),
+    Route("/link", _state_endpoint(_post_link, "text"), methods=["POST"]),
+    Route("/unlink", _state_endpoint(_post_unlink, "text"), methods=["POST"]),
     Route("/title", _state_endpoint(_post_title, "text"), methods=["POST"]),
     Route("/create", _state_endpoint(_post_create, "text"), methods=["POST"]),
     Route("/project", _state_endpoint(_post_project, "text"), methods=["POST"]),
