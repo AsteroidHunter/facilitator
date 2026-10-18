@@ -207,6 +207,8 @@ function desktop() {
     // what setTab asks of the rest of the board
     ownerReady: true, validActiveOwnerIds: new Set(["lane", "other"]), LOCKED: null, endDraft: noop,
     applySavedLayout: noop, panelPoll: noop, chatPoll: noop, fileNavPoll: noop, apply: noop,
+    // the crossfade between projects has no page to stand on here
+    boardFadeTake: () => null, boardFadeLand: noop, boardFadeStop: noop,
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox;
   vm.createContext(sandbox);

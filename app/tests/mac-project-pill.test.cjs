@@ -134,6 +134,7 @@ function fixture(over = {}) {
     deselect() { context.selectedId = null; },
     unselectShown() { calls.push("unselect"); context.browsing = true; },
     applySavedLayout() {}, panelPoll() {}, chatPoll() {}, fileNavPoll() {},
+    boardFadeTake() { return null; }, boardFadeLand() {},
     apply(st) { context.renderTabs(st); },
     setHome(on) { context.homeOpen = !!on; context.renderTabs(state); },
     endDraft() { context.draft = null; },

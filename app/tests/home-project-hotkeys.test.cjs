@@ -35,6 +35,7 @@ function fixture(overrides = {}) {
     endDraft() { context.draft = false; calls.push("end-draft"); },
     applySavedLayout() { calls.push("layout"); }, panelPoll() { calls.push("panel"); },
     chatPoll() { calls.push("chat"); }, fileNavPoll() { calls.push("files"); },
+    boardFadeTake() { return null; }, boardFadeLand() {},
     apply() { calls.push("apply"); }, closeProjMenu() {},
     ...overrides,
   });

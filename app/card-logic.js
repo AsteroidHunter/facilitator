@@ -5440,6 +5440,41 @@ function cardsMoving(){
     !!document.querySelector(".answered.motion, .answered.sentflight, .answered.coalesce, .answered.markin, .answered.markout, .answered.markgone, .turnsheet");
 }
 
+// ---- a still copy, for the fade between projects ---------------------------------------
+// both pages fade the project being left out over the one arriving, and the
+// one being left is the same set of boxes the new one is drawn into, so what
+// fades out is a copy of it taken just before the switch. a copy keeps the
+// markup and none of what lives beside it, so the typed text and a drawing are
+// carried over by hand, and the scroll is carried once the copy is on the
+// page (settle). a framed page is left out, since a copy would load and run
+// it a second time, and a player is told not to fetch or play anything. the
+// copy takes no click, no key and no focus. noIds takes every id off it, for
+// a copy that stands somewhere the page's own ids could find it
+function stillCopy(el, { noIds = false } = {}){
+  const copy = el.cloneNode(true);
+  copy.inert = true;
+  copy.setAttribute("aria-hidden", "true");
+  const live = [el, ...el.querySelectorAll("*")], dup = [copy, ...copy.querySelectorAll("*")], scrolls = [];
+  for (let i = 0; i < live.length; i++){
+    const a = live[i], b = dup[i];
+    if (a.scrollTop || a.scrollLeft) scrolls.push([b, a.scrollTop, a.scrollLeft]);
+    if (noIds) b.removeAttribute("id");
+    if (a.tagName === "TEXTAREA" || a.tagName === "INPUT"){ b.value = a.value; b.checked = a.checked; }
+    else if (a.tagName === "CANVAS"){ try { b.getContext("2d").drawImage(a, 0, 0); } catch (err) {} }
+    else if (a.tagName === "IFRAME"){
+      const stub = document.createElement("div");
+      stub.className = b.className;
+      stub.style.cssText = b.style.cssText;
+      b.replaceWith(stub);
+    } else if (a.tagName === "VIDEO" || a.tagName === "AUDIO"){
+      b.removeAttribute("autoplay");
+      b.preload = "none";
+      b.muted = true;
+    }
+  }
+  return { copy, settle(){ for (const [n, top, left] of scrolls){ n.scrollTop = top; n.scrollLeft = left; } } };
+}
+
 // ---- the page turn -----------------------------------------------------------------------
 // the answer to what stands in the sent panel lands on the card on show, and the
 // card turns to a new page in one motion. what the reader was looking at, the

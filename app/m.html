@@ -607,6 +607,20 @@
   body:not(.stated) #empty{display:none}
   #cards{display:flex; flex-direction:column; flex:1 1 auto; min-height:0; position:relative}
   main.blank #cards{display:none}
+  /* a switch to another project crosses the card on the board's own fade, its
+     length and curve (index.html, beside home's): a still copy of the card
+     being left (paneFadeTake) stands over the pane's inside and fades out
+     while what the new project shows there fades in, with no movement. the
+     pane's own fill and edge are the same for both, so they stay put. the
+     copy takes no touch, no key and no focus, and nothing in it moves while
+     it goes */
+  @keyframes panefadein{from{opacity:0}}
+  @keyframes panefadeout{to{opacity:0}}
+  body.paneswap main > :is(#cards, #empty){animation:panefadein .18s ease both}
+  .paneghost{position:absolute; inset:0; display:flex; flex-direction:column; min-height:0;
+    pointer-events:none; animation:panefadeout .18s ease both}
+  .paneghost *{animation:none !important; transition:none !important}
+  body:not(.paneswap) .paneghost, body.home .paneghost{display:none}
   .box{display:none; flex:1 1 auto; min-height:0; flex-direction:column}
   /* the two depths the card's fades are cut to, the desktop's own numbers:
      --replyfade is the ramp, --replyair the clear white the answer leaves over
@@ -3670,9 +3684,58 @@ function deselect(){
   for (const r of document.querySelectorAll("#tiklist .trow")) r.classList.remove("on");
   reachLater();
 }
+// ---- the card's crossfade between projects ------------------------------------
+// the card being left is copied before the switch (stillCopy, card-logic.js),
+// with no ids, so nothing on the page can find it. once the new project is
+// drawn the copy stands over the pane's inside and fades out as the pane's
+// new card, or its empty line, fades in (the stylesheet holds the fade). no
+// copy is taken while the card is not on screen (home, a lane with no card, a
+// swipe under way, a hidden page) or when the reader has asked for less
+// motion, and the switch is the cut it always was
+let paneGhost = null;
+function paneFadeTake(){
+  if (homeOpen || document.hidden) return null;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
+  const pane = document.getElementById("pane"), card = selectedId && els[selectedId]?.box;
+  if (!card || !card.classList.contains("sel") || pane.classList.contains("blank")) return null;
+  if (pane.classList.contains("cardswiping") || document.body.classList.contains("carddrag")) return null;
+  const still = stillCopy(card, { noIds: true });
+  const ghost = document.createElement("div");
+  ghost.className = "paneghost";
+  ghost.inert = true;
+  ghost.setAttribute("aria-hidden", "true");
+  ghost.appendChild(still.copy);
+  return { ...still, ghost, owner: activeOwner };
+}
+// the new project is drawn: the copy goes up and the two fades start together
+function paneFadeLand(fade){
+  if (!fade || activeOwner === fade.owner || homeOpen) return;
+  const cards = document.getElementById("cards");
+  // a switch that lands during a fade takes the copy before it down first,
+  // and the pane's fade begins again
+  paneFadeStop();
+  const ghost = paneGhost = fade.ghost;
+  cards.after(ghost);
+  void cards.offsetWidth;
+  document.body.classList.add("paneswap");
+  fade.settle();   // the copy is laid out from here, so it can take its scroll
+  const end = e => { if (e.target === ghost && ghost === paneGhost) paneFadeStop(); };
+  ghost.addEventListener("animationend", end);
+  ghost.addEventListener("animationcancel", end);
+}
+function paneFadeStop(){
+  if (paneGhost) paneGhost.remove();
+  paneGhost = null;
+  document.body.classList.remove("paneswap");
+}
+// the copy chooseRow takes before it leaves home, so a project chosen from
+// home has none (home has no card on show). left undefined, setTab takes its own
+let paneFadeGiven;
 function setTab(owner){
   if (macHost && parent.macPhoneProject && owner !== parent.macPhoneProject) return;
   if (!validOwners.has(owner)) return;
+  const fade = paneFadeGiven !== undefined ? paneFadeGiven : owner !== activeOwner ? paneFadeTake() : null;
+  paneFadeGiven = undefined;
   // the card on screen is the one this project comes back to. select() records
   // it, but a card can be on screen without select() (the one kept from the
   // last visit), so leaving records it too, and so does coming back from home
@@ -3689,6 +3752,7 @@ function setTab(owner){
     apply(lastState);
     endPhoneTrace(trace, { action: "project", part: "apply" });
   }
+  paneFadeLand(fade);
 }
 // the board's tabs, in the board's order and without the ones the board has
 // closed. this page is a bridge, so its list shows exactly those; a board that
@@ -3792,9 +3856,12 @@ function chooseRow(row){
   closeProjects();
   const ow = row.dataset.owner;
   if (!ow) return;
+  // the card being left, for the crossfade, taken before home goes
+  paneFadeGiven = ow !== activeOwner ? paneFadeTake() : undefined;
   if (ow === activeOwner && !homeOpen && selectedId && !browsing){ unselectShown(); return; }
   if (homeOpen) setHome(false);   // a project leaves home for its board
   setTab(ow);
+  paneFadeGiven = undefined;
 }
 // the list's own taps. the house's press opens home through its own listener
 // (the home page, below), and every row shuts the list

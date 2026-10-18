@@ -3581,6 +3581,18 @@
   @keyframes homefade{from{opacity:0}}
   body.focus.home :is(#newproj, #homepair, #homeline){animation:homefade .18s ease both}
   body.focus.home :is(#npbrand, #nppanel, #npstart){animation:none}
+  /* a switch from one project's board to another's crosses on the same fade:
+     a still copy of the board being left (boardFadeTake) stands over the live
+     stage and fades out while the live stage, already the new project's, fades
+     in, at home's own length and curve, with no movement and no stagger. the
+     copy takes no click, no key and no focus, and nothing in it moves while
+     it goes */
+  @keyframes boardfadeout{to{opacity:0}}
+  body.focus.boardswap #stage:not(.boardghost){animation:homefade .18s ease both}
+  body.focus #stage.boardghost{pointer-events:none; animation:boardfadeout .18s ease both}
+  body.focus #stage.boardghost *{animation:none !important; transition:none !important}
+  body:not(.boardswap) #stage.boardghost,
+  body.focus:is(.home, .pageblank) #stage.boardghost{display:none}
   /* on-canvas edit mode: boxes drag with no keys held and wear small squares
      that snap-resize them. Nothing on the bar turns it on now (setEditMode) */
   body.editmode :is(main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4, #goalbox),
@@ -4251,8 +4263,54 @@ document.addEventListener("click", () => {
     if (els[k].wtmenu) shutWtMenu(els[k].wtpick, els[k].wtmenu);
 });
 
+// ---- the board's crossfade between projects ---------------------------------
+// the stage is one set of boxes that every project draws into, so a switch has
+// no old board left to fade out. a still copy of it (stillCopy, card-logic.js)
+// is taken before the switch, kept off the page while the new project draws
+// into the live stage, and then stood just after the live one, where it covers
+// it and fades out as the live stage fades in (the stylesheet holds the fade,
+// beside home's). it stands after on purpose: an id looked up on the page
+// finds the live box first, never the copy's. no copy is taken while the
+// board is not on screen (home, a new tab, a blank page, a hidden window) or
+// when the reader has asked for less motion, and the switch is the cut it
+// always was
+let boardGhost = null;
+function boardFadeTake(){
+  if (!FOCUS || homeOpen || draft || document.hidden) return null;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
+  const body = document.body, stage = document.getElementById("stage");
+  if (!stage || body.classList.contains("pageblank") || !body.classList.contains("layout-ready")) return null;
+  const still = stillCopy(stage);
+  still.copy.classList.add("boardghost");
+  return { ...still, owner: activeOwner };
+}
+// the new project is drawn: the copy goes up and the two fades start together
+function boardFadeLand(fade){
+  if (!fade || activeOwner === fade.owner || homeOpen || draft) return;
+  const body = document.body, stage = document.getElementById("stage");
+  if (!stage || body.classList.contains("pageblank")) return;   // a blank page fades on its own
+  // a switch that lands during a fade takes the copy before it down first,
+  // and the live stage's fade begins again
+  boardFadeStop();
+  const ghost = boardGhost = fade.copy;
+  stage.after(ghost);
+  void stage.offsetWidth;
+  body.classList.add("boardswap");
+  fade.settle();   // the copy is laid out from here, so it can take its scroll
+  const end = e => { if (e.target === ghost && ghost === boardGhost) boardFadeStop(); };
+  ghost.addEventListener("animationend", end);
+  ghost.addEventListener("animationcancel", end);
+}
+function boardFadeStop(){
+  if (boardGhost) boardGhost.remove();
+  boardGhost = null;
+  document.body.classList.remove("boardswap");
+}
+
 function setTab(owner){
   if (!ownerReady || !validActiveOwnerIds.has(owner)) return;
+  // the board being left, for the crossfade; none when it is not on screen
+  const fade = owner !== activeOwner ? boardFadeTake() : null;
   if (LOCKED && owner !== LOCKED) return;
   if (homeOpen) setHome(false);   // a project tab leaves home for its board
   if (draft) endDraft();   // an unfinished new tab disappears on switching away
@@ -4290,6 +4348,7 @@ function setTab(owner){
   // the stub line back
   fileNavPoll();
   if (lastState) apply(lastState);   // refilter the bar, outline and counters now
+  boardFadeLand(fade);
 }
 
 // clear the selection entirely: without this, a lane with no cards kept
@@ -4886,6 +4945,7 @@ async function pickFolder(slot){
       projNote(msg);
       return;
     }
+    const fade = boardFadeTake();   // the board being left, as in setTab; none from home or a new tab
     endDraft();
     if (validActiveOwnerIds.has(activeOwner)){
       projLeft = activeOwner;   // the project left leads the suggestions, as in setTab
@@ -4893,6 +4953,7 @@ async function pickFolder(slot){
     }
     activeOwner = pr.id; localStorage.setItem("activeproj", pr.id);
     await poll();   // the new lane arrives with its tab label and directory
+    boardFadeLand(fade);
     // home stays up until the lane is drawn, so the old board never shows
     if ((slot === homePick || slot === menuPick) && homeOpen) setHome(false);
   } finally {
@@ -5002,6 +5063,7 @@ window.addEventListener("online", homeWake);
 window.addEventListener("pageshow", homeWake);
 document.addEventListener("visibilitychange", homeWake);
 function setHome(on){
+  boardFadeStop();   // home has its own fade, and a board crossing to another project gives way to it
   homeOpen = !!on;
   try {
     if (homeOpen) localStorage.setItem(HOME_KEY, "1");

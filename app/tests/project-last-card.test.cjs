@@ -43,6 +43,7 @@ function fixture() {
     wearShownEditor() {}, openAtHead() {}, syncDesktopHistoryAvailability() {}, updatePwd() {},
     scrollTo() {}, snapCard() {}, requestAnimationFrame() {}, magicSync() {},
     applySavedLayout() {}, panelPoll() {}, chatPoll() {}, fileNavPoll() {}, apply() {},
+    boardFadeTake() { return null; }, boardFadeLand() {},
     closeProjMenu() {}, deselect() { context.selectedId = null; context.shownId = null; },
   });
   const run = source => vm.runInContext(source, context);

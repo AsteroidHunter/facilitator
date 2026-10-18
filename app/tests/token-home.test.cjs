@@ -880,6 +880,7 @@ function homeBlock({ serve = true, stored = {} } = {}) {
     setEditMode: on => { ctx.editMode = on; },
     renderTabs: st => tabs.push(st),
     magicSync: () => {},   // the card's magic box goes with the board and comes back with it
+    boardFadeStop: () => {},   // a crossfade between projects gives way to home
 
     setInterval: (fn, ms) => { timers.set(++nextTimer, { fn, ms }); return nextTimer; },
     clearInterval: id => { timers.delete(id); },

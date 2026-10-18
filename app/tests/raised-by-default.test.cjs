@@ -93,6 +93,9 @@ function phone() {
     renderTabs: noop, reachLater: noop, apply: noop,
     pickInRow: (st, owner) => st.boxes.find(b => b.owner === owner),
     menuOut: () => null,
+    // less motion asked for, so a project switch is the plain cut and the
+    // crossfade's copy (which needs a real page) is never taken
+    matchMedia: () => ({ matches: true }),
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox;
   vm.createContext(sandbox);

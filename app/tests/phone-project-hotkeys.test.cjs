@@ -62,6 +62,9 @@ function fixture({ menu = "tickets", selected = "a1", browsing = false, projects
     tracePhone() {}, endPhoneTrace() {}, cancelAutoNext() {}, syncPhoneHistory() {}, wearEditor() {},
     openAtHead() {}, seatScroll() {}, renderTabs() {}, reachLater() {}, endProjCarry() {}, syncSpinner() {},
     menuOut: () => menu ? nodes[menu] : null,
+    // less motion asked for, so a project switch is the plain cut and the
+    // crossfade's copy (which needs a real page) is never taken
+    matchMedia: () => ({ matches: true }),
     drawerOpen: () => nodes.tickets.classList.contains("open"),
     setHome: on => { context.homeOpen = on; },
     paintPhonePane(pane, pool) {

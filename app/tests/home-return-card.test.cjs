@@ -43,11 +43,13 @@ function fixture(kind, { selected, lastSel = {}, home = true, owner = "alpha" } 
       validActiveOwnerIds: new Set(["alpha", "beta"]),
       setHome(on) { context.homeOpen = on; },
       endDraft() {}, applySavedLayout() {}, panelPoll() {}, chatPoll() {}, fileNavPoll() {},
+      boardFadeTake() { return null; }, boardFadeLand() {},
     });
     vm.runInContext(between(board, "function setTab(owner){", "// clear the selection entirely:"), context);
   } else {
     Object.assign(context, {
       macHost: null, validOwners: new Set(["alpha", "beta"]), tracePhone() {}, endPhoneTrace() {},
+      paneFadeGiven: undefined, paneFadeTake() { return null; }, paneFadeLand() {},
     });
     vm.runInContext(between(phone, "function setTab(owner){", "// the board's tabs, in the board's order"), context);
     // the phone leaves home before choosing the project (chooseRow)
