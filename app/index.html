@@ -11531,6 +11531,13 @@ const boardShortcutActions = {
   unfold(e){
     if (!miniFocused) unfoldSelected(e, selectedId, selectedId && els[selectedId]);
   },
+  // control+shift+w and s: the top and bottom message bubbles of the card on
+  // screen, as a click on the bubble's arrow. the card has to be the one
+  // holding the keys, as control+s asks
+  bubble(e, shortcut){
+    const card = !draft && boardResponseCard();
+    if (card) answeredKey(e, card.el, shortcut.value);
+  },
   // control+shift+enter outside a composer: the move a double Enter's second press
   // makes. a field that is not a composer keeps the key, and a button does not
   // take it as a press. a field the key itself took off the page, as the goal

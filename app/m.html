@@ -7245,6 +7245,12 @@ const phoneShortcutActions = {
   unfold(e){
     unfoldSelected(e, selectedId, selectedId && els[selectedId]);
   },
+  // control+shift+w and s: the top and bottom message bubbles of the card on
+  // screen, as a tap on the bubble's arrow, never with a menu out or mid-swipe
+  bubble(e, shortcut){
+    const card = phoneResponseCard();
+    if (card) answeredKey(e, card.el, shortcut.value);
+  },
   // control+shift+enter outside a reply box: the move a double Enter's second press
   // makes. a field that is not a reply box keeps the key
   advance(e){

@@ -180,9 +180,11 @@ test("control+s with either case is the response scroll chord and nothing looser
                       { isComposing: true }, { defaultPrevented: true }, { key: "d" }]) {
     assert.notEqual(resolve(chord(null, over))?.action, "responseScroll", JSON.stringify(over));
   }
-  // plain s and the old control+shift+s are nothing at all
+  // plain s is nothing at all, and control+shift+s is the bottom message
+  // bubble's key (bubble-keys.test.cjs), never the scroll
   assert.equal(resolve(chord(null, { ctrlKey: false, key: "s" })), null);
-  assert.equal(resolve(chord(null, { shiftKey: true })), null);
+  const shifted = resolve(chord(null, { shiftKey: true }));
+  assert.deepEqual([shifted?.action, shifted?.value], ["bubble", "sent"]);
   assert.equal(resolve(chord(null), "mini"), null);
 });
 
