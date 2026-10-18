@@ -30,8 +30,10 @@ server.py is found by walking up from this file, or by FACILITATOR_SERVER
 pointing straight at it.
 """
 
+import atexit
 import importlib.util
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -59,7 +61,10 @@ def _load():
         raise AssertionError(
             "server.py was not found above this test. Point FACILITATOR_SERVER at it; "
             "these cases are a gate and are not meant to be skipped.")
-    os.environ.setdefault("FACILITATOR_LOG_DIR", tempfile.mkdtemp(prefix="facil-folderlog-"))
+    # the module's log goes to a folder of its own, removed when the run ends
+    logs = tempfile.mkdtemp(prefix="facil-folderlog-")
+    atexit.register(shutil.rmtree, logs, True)
+    os.environ.setdefault("FACILITATOR_LOG_DIR", logs)
     spec = importlib.util.spec_from_file_location("facilitator_server_folders", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -101,7 +106,6 @@ class FolderBase(unittest.TestCase):
                     os.chmod(os.path.join(root, d), 0o755)
                 except OSError:
                     pass
-        import shutil
         shutil.rmtree(self.outer, ignore_errors=True)
 
     def dirs(self, **kw):
