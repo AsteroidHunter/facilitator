@@ -764,7 +764,8 @@ class NoModel(Case):
     def test_no_entry_is_keyword_only(self):
         index = self.index()
         index.catch_up()
-        self.assertEqual(index.status()["semantic"]["state"], "off")
+        semantic = index.status()["semantic"]
+        self.assertEqual((semantic["state"], semantic["waiting"], semantic["embedded"]), ("off", None, 0))
         answer = self.find(index, "searchable")
         self.assertEqual((answer["mode"], answer["index"]["semantic"]), ("keyword", "off"))
         answer = self.find(index, "searchable", mode="semantic")

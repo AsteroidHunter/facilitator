@@ -1507,8 +1507,9 @@ class Index:
                 info["messages"] = db.execute(
                     "SELECT count(*) FROM (SELECT 1 FROM chunks WHERE kind != 'title' "
                     "GROUP BY card, message)").fetchone()[0]
-                semantic["waiting"] = db.execute(
-                    "SELECT count(*) FROM chunks WHERE vector IS NULL").fetchone()[0]
+                if embedder is not None:   # with no model named, nothing waits for one
+                    semantic["waiting"] = db.execute(
+                        "SELECT count(*) FROM chunks WHERE vector IS NULL").fetchone()[0]
             except sqlite3.Error:
                 pass
             finally:
