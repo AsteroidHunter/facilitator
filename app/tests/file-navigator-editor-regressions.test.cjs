@@ -343,6 +343,37 @@ test("a joined soft break remains keyboard editable", async () => {
   }
 });
 
+test("the file editor and the formatted composer share one copy of the editor", async () => {
+  const page = await browser.newPage();
+  try {
+    // the bundle is held back a moment on its way, so both asks are in flight
+    // together, the way a file opened while a composer's editor is still
+    // arriving is
+    await page.setRequestInterception(true);
+    page.on("request", request => {
+      if (new URL(request.url()).pathname === "/cm-markdown.js")
+        setTimeout(() => request.continue(), 400);
+      else request.continue();
+    });
+    await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
+    const result = await page.evaluate(async () => {
+      const asked = await Promise.all([fileNavBundle(), ComposeFormat.preload()]);
+      const first = window.CM6;
+      await new Promise(resolve => setTimeout(resolve, 900));
+      return {
+        asked,
+        tags: document.querySelectorAll('script[src="/cm-markdown.js"]').length,
+        same: window.CM6 === first,
+      };
+    });
+    assert.deepEqual(result.asked, [true, true]);
+    assert.equal(result.tags, 1, `the editor bundle was fetched ${result.tags} times`);
+    assert.equal(result.same, true, "a second copy of the editor took window.CM6 over");
+  } finally {
+    await page.close();
+  }
+});
+
 test("block caret uses CodeMirror coordinates at a bullet gap", async () => {
   const source = [
     "- alpha",

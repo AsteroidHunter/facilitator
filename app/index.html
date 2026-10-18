@@ -9284,6 +9284,15 @@ function fileNavBoxes(){
 // says so instead of sitting there empty
 function fileNavBundle(){
   if (window.CM6) return Promise.resolve(true);
+  // the formatted composer fetches this same file for its own editor, and its
+  // fetch is this one. two fetches in flight at once run the bundle twice, and
+  // the second copy takes window.CM6 over from under an editor built out of
+  // the first: that editor's drag guard then never comes down, which freezes
+  // the live preview, and the next file cannot be opened at all. a composer
+  // whose fetch has already failed is not asked again, so a server restarted
+  // since then still gets a fetch of its own from here
+  const shared = window.ComposeFormat;
+  if (shared && shared.available()) return shared.preload();
   if (fileNavLoad) return fileNavLoad;
   fileNavLoad = new Promise(res => {
     const s = document.createElement("script");
