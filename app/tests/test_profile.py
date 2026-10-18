@@ -115,7 +115,7 @@ class Case(unittest.TestCase):
             guard.stop()
 
     def sender(self, sharing=lambda: True):
-        S._usage_sender = uc.Sender(transcript=self.dir / "transcript.jsonl", log_dir=self.dir,
+        S._usage_sender = uc.Sender(transcript=self.dir / "transcript.jsonl",
                                     marker=self.dir / "usage-counts.json", index_html=ROOT / "index.html",
                                     sharing=sharing, opener=self.net, install_file=self.dir / "usage-install.json")
         return S._usage_sender

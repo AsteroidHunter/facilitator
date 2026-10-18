@@ -616,7 +616,9 @@ Endpoints:
                                card reaching the page and what stood over it)
                                and notifyresult (whether the card was shown
                                once drawn). A field outside the list or a
-                               value outside its words is a 400.
+                               value outside its words is a 400. A notifycheck
+                               from a phone is also noted in usage-phone.json
+                               for the daily usage counts, at every log level.
                                Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the quick chat panel and the
@@ -806,9 +808,11 @@ lists every field). The thread is no route and
 answers nothing; usage-counts.json beside state.json holds the last day it dealt
 with, and usage-install.json beside it holds the install's random id, which
 every message carries, and the email and the profile's answers when the person
-said yes to feedback mail (POST /profile). With the switch off nothing is sent
-at all, except a message the person writes in the feedback box and sends
-(POST /feedback), which is their own choice and the only one with words in it.
+said yes to feedback mail (POST /profile); usage-phone.json beside it holds the
+five-minute stretches the phone app was opened in. With the switch off nothing
+is sent at all, except a message the person writes in the feedback box and
+sends (POST /feedback), which is their own choice and the only one with words
+in it.
 
 A Mac board whose profile.json is missing or has no name has not been through
 the onboarding: /board-settings.js says so in front of the store
@@ -5890,7 +5894,8 @@ PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.json
                  "settings.json.tmp", "settings.json.bad-*", "vapid-key.pem", "bridge-auth.json",
                  "tokens-cache.json", "tokens-cache.json.tmp", "claude-limits.json",
                  "claude-limits.json.tmp", "usage-counts.json", "usage-counts.json.tmp",
-                 "usage-install.json", "usage-install.json.tmp", "profile.json", "profile.json.tmp",
+                 "usage-install.json", "usage-install.json.tmp", "usage-phone.json", "usage-phone.json.tmp",
+                 "profile.json", "profile.json.tmp",
                  "server.lock")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
 
@@ -5944,6 +5949,11 @@ def _post_clientlog(q: Query, raw: bytes):
         return 400, {"error": "bad incident history"}
     if any(r["kind"] in NOTICE_FIELDS and not _notice_valid(page, r) for r in reports):
         return 400, {"error": "bad notification report"}
+    if (_usage_sender is not None and who.get("client") == "phone"
+            and any(r["kind"] == "notifycheck" for r in reports)):
+        # the phone app opened or came back: kept for the daily usage counts
+        # at every log level, since at error the client file never gets it
+        _usage_sender.phone_opened()
     try:
         written, dropped = _client_batch(page, reports, who)
     except OSError:
@@ -7263,12 +7273,15 @@ def _post_spotify_session(q: Query, text: str):
 # turn it off. usage-counts.json holds only the last day already dealt with;
 # usage-install.json holds the install's random id and, after a yes to feedback
 # mail, the email and the profile's answers that go with it (POST /profile, and
-# the email alone through POST /usage/email below). Both are owner-only and
-# ignored by git.
+# the email alone through POST /usage/email below); usage-phone.json holds
+# only the five-minute stretches the phone app was opened in, noted when POST
+# /clientlog takes its notifycheck report, at every log level. All are
+# owner-only and ignored by git.
 # usage_counts.py is imported only here, so a copy of the board without it, as
 # the tests' fixtures make, sends nothing at all.
 USAGE_MARKER = DATA / "usage-counts.json"
 USAGE_INSTALL = DATA / "usage-install.json"
+USAGE_PHONE = DATA / "usage-phone.json"
 USAGE_SETTING = "usagecounts"
 USAGE_EMAIL_BODY_MAX = 2048
 _usage_sender = None   # the one Sender, made at boot; the thread and the route share it
@@ -7285,9 +7298,9 @@ def _start_usage_counts() -> None:
         import usage_counts
     except ImportError:
         return
-    sender = usage_counts.Sender(transcript=TRANSCRIPT_PATH, log_dir=LOG_DIR, marker=USAGE_MARKER,
+    sender = usage_counts.Sender(transcript=TRANSCRIPT_PATH, marker=USAGE_MARKER,
                                  index_html=HERE / "index.html", sharing=_usage_sharing, log=_info,
-                                 install_file=USAGE_INSTALL)
+                                 install_file=USAGE_INSTALL, phone_file=USAGE_PHONE)
     _usage_sender = sender
     threading.Thread(target=sender.run, args=(_STOPPING,), name="usage-counts", daemon=True).start()
 

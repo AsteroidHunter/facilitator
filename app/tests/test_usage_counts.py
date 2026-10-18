@@ -8,7 +8,7 @@
             a missing or broken file makes a new one; an id that cannot be
             saved sends nothing
   counts    what each field is worked out from: transcript rows by kind, the
-            reply's agent_kind, the phone's notifycheck lines, the rough minutes
+            reply's agent_kind, the phone's openings, the rough minutes
   once      a day goes once: marked before it is sent, never again after a
             restart, and a board that never sent starts counting on its first day
   email     a yes and an address are saved and told to PostHog once, as the one
@@ -67,11 +67,6 @@ def at(day: dt.date, hour: int, minute: int, second: int = 0) -> float:
     return dt.datetime(day.year, day.month, day.day, hour, minute, second).timestamp()
 
 
-def utc_line(t: float) -> str:
-    when = dt.datetime.fromtimestamp(t, dt.timezone.utc)
-    return when.strftime("%Y-%m-%dT%H:%M:%S.") + f"{when.microsecond // 1000:03d}Z"
-
-
 def fixture_rows():
     """A day of the board as transcript.jsonl keeps it, words and paths and
     all, in the order the board writes it."""
@@ -96,17 +91,11 @@ def fixture_rows():
     ]
 
 
-def phone_lines():
-    """The day's client log: one phone opening counts; a push the phone's
-    worker took in the background and the Mac's own phone view do not."""
-    return [
-        {"ts": utc_line(at(DAY, 20, 1)), "level": "info", "kind": "notifycheck", "page": "phone",
-         "client": "phone", "window": "0123456789abcdef", "source": "start", "perm": "granted", "reg": True, "sub": "yes"},
-        {"ts": utc_line(at(DAY, 21, 1)), "level": "info", "kind": "pushreceived", "page": "phone",
-         "client": "phone", "outcome": "shown"},
-        {"ts": utc_line(at(DAY, 22, 1)), "level": "info", "kind": "notifycheck", "page": "phone",
-         "client": "chrome", "source": "start", "perm": "default", "reg": True, "sub": "no"},
-    ]
+def phone_record():
+    """usage-phone.json as the server keeps it: the phone app opened at 20:01,
+    kept as the start of its five-minute stretch, and once the day before
+    the first transcript day, which no day asked for here counts."""
+    return {"opened": [int(at(DAY, 20, 1) // 300 * 300), int(at(BEFORE - dt.timedelta(days=1), 9, 0))]}
 
 
 EXPECTED = {
@@ -166,7 +155,7 @@ def no_network(*args, **kwargs):
 
 
 class Board(unittest.TestCase):
-    """A folder with a transcript, a client log, an index.html and nothing sent."""
+    """A folder with a transcript, a phone record, an index.html and nothing sent."""
 
     def setUp(self):
         self.guards = [mock.patch("urllib.request.urlopen", no_network),
@@ -175,8 +164,6 @@ class Board(unittest.TestCase):
         for guard in self.guards:
             guard.start()
         self.dir = Path(tempfile.mkdtemp(prefix="usage-counts-test-"))
-        self.logs = self.dir / "logs"
-        self.logs.mkdir()
         self.transcript = self.dir / "transcript.jsonl"
         self.marker = self.dir / "usage-counts.json"
         self.install = self.dir / "usage-install.json"
@@ -184,9 +171,8 @@ class Board(unittest.TestCase):
         self.index = self.dir / "index.html"
         self.index.write_text('<span id="npversion">v0.2.259</span>')
         self.write_rows(fixture_rows())
-        with open(self.logs / f"client-{DAY:%Y%m%d}.jsonl", "w") as f:
-            for line in phone_lines():
-                f.write(json.dumps(line) + "\n")
+        self.phone = self.dir / "usage-phone.json"
+        self.phone.write_text(json.dumps(phone_record()))
         self.today = DAY
         self.on = True
         self.lines = []
@@ -211,7 +197,7 @@ class Board(unittest.TestCase):
         raise AssertionError("a second id was made")
 
     def sender(self, **over):
-        args = dict(transcript=self.transcript, log_dir=self.logs, marker=self.marker, index_html=self.index,
+        args = dict(transcript=self.transcript, phone_file=self.phone, marker=self.marker, index_html=self.index,
                     sharing=lambda: self.on, log=lambda kind, **fields: self.lines.append((kind, fields)),
                     opener=self.net, today=lambda: self.today, new_id=self.new_id, install_file=self.install)
         args.update(over)
@@ -247,7 +233,7 @@ class Board(unittest.TestCase):
 
 class Payload(Board):
     def test_the_message_is_exactly_these_fields_and_flags(self):
-        counts = uc.day_counts([DAY], self.transcript, self.logs)[DAY]
+        counts = uc.day_counts([DAY], self.transcript, self.phone)[DAY]
         body = uc.payload(DAY, counts, "v0.2.259", {"os": "macOS", "os_version": "26"}, INSTALL)
         self.assertEqual(body, {
             "api_key": "phc_pmdWA3oMUgUWGLyLkXvDFSzYQgvTotFQyA93BWXTdJ9K",
@@ -265,7 +251,7 @@ class Payload(Board):
         })
 
     def test_after_a_yes_the_message_is_the_same_without_the_no_profile_flag(self):
-        counts = uc.day_counts([DAY], self.transcript, self.logs)[DAY]
+        counts = uc.day_counts([DAY], self.transcript, self.phone)[DAY]
         system = {"os": "macOS", "os_version": "26"}
         plain = uc.payload(DAY, counts, "v0.2.259", system, INSTALL)
         identified = uc.payload(DAY, counts, "v0.2.259", system, INSTALL, identified=True)
@@ -299,7 +285,7 @@ class Payload(Board):
         self.assertNotIn("Cookie", sent["headers"])
 
     def test_making_a_payload_keeps_nothing(self):
-        counts = uc.day_counts([DAY], self.transcript, self.logs)[DAY]
+        counts = uc.day_counts([DAY], self.transcript, self.phone)[DAY]
         uc.payload(DAY, counts, "v0.2.259", uc.os_fields(), INSTALL)
         uc.identify_payload(INSTALL, EMAIL)
         self.assertFalse(self.marker.exists() or self.install.exists(), "a payload kept an id or anything else")
@@ -333,7 +319,7 @@ class Payload(Board):
 
 class Counts(Board):
     def test_each_count_comes_from_the_rows_of_its_own_kind(self):
-        counts = uc.day_counts([BEFORE, DAY, AFTER], self.transcript, self.logs)
+        counts = uc.day_counts([BEFORE, DAY, AFTER], self.transcript, self.phone)
         self.assertEqual(counts[DAY], EXPECTED)
         self.assertEqual(counts[BEFORE], {**{k: 0 for k in EXPECTED}, "minutes_used": 5, "messages_sent": 1,
                                           "phone_used": False})
@@ -344,7 +330,7 @@ class Counts(Board):
             f.write("not json at all\n")
             f.write('{"ts": "a string", "kind": "user"}\n')
             f.write('{"ts": ' + str(at(DAY, 23, 1)) + ', "kind": "user", "box": "9", "te')
-        counts = uc.day_counts([DAY], self.transcript, self.logs)
+        counts = uc.day_counts([DAY], self.transcript, self.phone)
         self.assertEqual(counts[DAY]["messages_sent"], 3)
 
     def test_a_long_history_is_read_from_its_end(self):
@@ -354,7 +340,7 @@ class Counts(Board):
             seen = []
             real = uc._row
             with mock.patch.object(uc, "_row", lambda line: seen.append(1) or real(line)):
-                counts = uc.day_counts([DAY], self.transcript, self.logs)
+                counts = uc.day_counts([DAY], self.transcript, self.phone)
         self.assertEqual(counts[DAY], EXPECTED)
         self.assertLess(len(seen), 100, "the whole history was read for one day")
 
@@ -379,8 +365,40 @@ class Counts(Board):
 
     def test_a_phone_opening_alone_is_a_used_day(self):
         self.write_rows([])
-        counts = uc.day_counts([DAY], self.transcript, self.logs)
+        counts = uc.day_counts([DAY], self.transcript, self.phone)
         self.assertEqual(counts[DAY], {**{k: 0 for k in EXPECTED}, "minutes_used": 5, "phone_used": True})
+
+    def test_the_phone_record_holds_each_stretch_once_owner_only_and_only_a_week_or_so(self):
+        self.phone.unlink()
+        board = self.sender()
+        board.phone_opened(at(DAY, 20, 1))
+        board.phone_opened(at(DAY, 20, 4))                             # the same stretch
+        board.phone_opened(at(DAY, 20, 6))
+        self.assertEqual(json.loads(self.phone.read_text()),
+                         {"opened": [int(at(DAY, 20, 0)), int(at(DAY, 20, 5))]})
+        self.assertEqual(self.phone.stat().st_mode & 0o777, 0o600)
+        board.phone_opened(at(DAY + dt.timedelta(days=uc.BACKLOG_DAYS + 3), 9, 0))
+        self.assertEqual(json.loads(self.phone.read_text()),
+                         {"opened": [int(at(DAY + dt.timedelta(days=uc.BACKLOG_DAYS + 3), 9, 0))]},
+                         "openings older than any day a look can send were kept")
+        counts = uc.day_counts([DAY], self.transcript, self.phone)
+        self.assertFalse(counts[DAY]["phone_used"])
+
+    def test_a_broken_or_missing_phone_record_is_no_openings(self):
+        self.write_rows([])
+        for body in ("not json", '{"opened": "x"}', '{"opened": ["9", true, 1.5]}', "[]"):
+            self.phone.write_text(body)
+            self.assertEqual(uc.day_counts([DAY], self.transcript, self.phone), {}, body)
+        self.phone.unlink()
+        self.assertEqual(uc.day_counts([DAY], self.transcript, self.phone), {})
+
+    def test_a_phone_record_that_cannot_be_written_is_said_and_the_opening_goes_uncounted(self):
+        board = self.sender()
+        with mock.patch("os.replace", self.refuse_writing(self.phone)):
+            board.phone_opened(at(DAY, 23, 1))
+        self.assertEqual(json.loads(self.phone.read_text()), phone_record())
+        self.assertEqual(self.lines, [("usage", {"what": "phone", "outcome": "unsaved", "reason": "Permission denied"})])
+        self.assertFalse(self.phone.with_name("usage-phone.json.tmp").exists())
 
 
 class OncePerDay(Board):
@@ -548,9 +566,10 @@ class InstallId(Board):
         self.assertEqual(uc.Install(self.install, self.never).get()["install_id"], sent)
 
     def test_by_default_it_sits_beside_the_marker(self):
-        board = uc.Sender(transcript=self.transcript, log_dir=self.logs, marker=self.marker,
+        board = uc.Sender(transcript=self.transcript, marker=self.marker,
                           index_html=self.index, sharing=lambda: True)
         self.assertEqual(board.install.path, self.marker.with_name("usage-install.json"))
+        self.assertEqual(board.phone.path, self.marker.with_name("usage-phone.json"))
 
     def test_a_good_file_is_used_as_it_is(self):
         old = "22222222-2222-4222-8222-222222222222"
@@ -1069,7 +1088,7 @@ class Server(unittest.TestCase):
         self.assertEqual(sender.marker, s.DATA / "usage-counts.json")
         self.assertEqual(s.DATA, ROOT.parent / "data")
         self.assertEqual(sender.transcript, s.TRANSCRIPT_PATH)
-        self.assertEqual(sender.log_dir, s.LOG_DIR)
+        self.assertEqual(sender.phone.path, s.DATA / "usage-phone.json")
         self.assertIs(sender.sharing, s._usage_sharing)
         self.assertIsNone(sender.opener, "the board's own sender is not on the standard urlopen")
         self.assertIn("_start_usage_counts()", Path(ROOT / "server.py").read_text().split("def main()")[1])
@@ -1078,15 +1097,72 @@ class Server(unittest.TestCase):
         self.assertIn("/usage-counts.json", (ROOT.parent / ".gitignore").read_text().split("\n"))
         self.assertEqual(sender.install.path, s.DATA / "usage-install.json")
         self.assertIs(s._usage_sender, sender, "the route would not reach the board's own sender")
-        for name in ("usage-install.json", "usage-install.json.tmp"):
+        for name in ("usage-install.json", "usage-install.json.tmp", "usage-phone.json", "usage-phone.json.tmp"):
             self.assertIn(name, s.PRIVATE_FILES)
             self.assertIn("/" + name, (ROOT.parent / ".gitignore").read_text().split("\n"))
+
+    def phone_reports(self, reports, client="phone"):
+        """One batch to POST /clientlog the way m.html sends it (card-report.js
+        reportNotice): the phone page, its kind of window, and the reports."""
+        batch = {"page": "phone", "client": client, "window": "0123456789abcdef", "reports": reports}
+        return self.server._post_clientlog(self.server._query({"query_string": b""}), json.dumps(batch).encode())
+
+    def board_of_its_own(self, level):
+        """The board's own sender, made the way the board makes it at boot, with
+        its files in a temporary folder and the log at this level."""
+        s, folder = self.server, Path(tempfile.mkdtemp(prefix=f"usage-counts-phone-{level}-"))
+        for name, path in (("TRANSCRIPT_PATH", folder / "transcript.jsonl"),
+                           ("USAGE_MARKER", folder / "usage-counts.json"),
+                           ("USAGE_INSTALL", folder / "usage-install.json"),
+                           ("USAGE_PHONE", folder / "usage-phone.json"), ("LOG_LEVEL", level)):
+            patch = mock.patch.object(s, name, path, create=True)
+            patch.start()
+            self.addCleanup(patch.stop)
+        with mock.patch.object(s.threading, "Thread", mock.MagicMock()):
+            s._start_usage_counts()
+        return folder, s._usage_sender
+
+    def test_a_phone_opening_is_counted_at_every_log_level(self):
+        # a new install logs errors only (run.config.example.json), and there the
+        # client file never gets a notifycheck line; the phone opening must be
+        # counted all the same, and a day used only on the phone sent
+        for level in ("error", "info"):
+            with self.subTest(level=level):
+                folder, sender = self.board_of_its_own(level)
+                day = dt.date.today()
+                status, _ = self.phone_reports([{"kind": "notifycheck", "source": "start", "perm": "granted",
+                                                 "reg": True, "sub": "yes"}])
+                self.assertEqual(status, 200)
+                (folder / "usage-counts.json").write_text(json.dumps({"through": (day - dt.timedelta(days=1)).isoformat()}))
+                net = FakeNet()
+                sender.opener, sender.today = net, lambda: day + dt.timedelta(days=1)
+                self.assertTrue(sender.look())
+                self.assertEqual(net.days, [day.isoformat()], "a day used only on the phone was not sent")
+                props = net.requests[0]["body"]["properties"]
+                self.assertEqual({k: props[k] for k in EXPECTED},
+                                 {**{k: 0 for k in EXPECTED}, "minutes_used": 5, "phone_used": True})
+
+    def test_only_a_phone_opening_is_noted_and_nothing_but_its_time(self):
+        folder, _ = self.board_of_its_own("error")
+        record = folder / "usage-phone.json"
+        check = {"kind": "notifycheck", "source": "start", "perm": "default", "reg": True, "sub": "no"}
+        self.assertEqual(self.phone_reports([check], client="chrome")[0], 200)   # /m opened in a desktop browser
+        self.assertEqual(self.phone_reports([{"kind": "notifylost", "source": "return", "reg": True}])[0], 200)
+        self.assertEqual(self.phone_reports([{**check, "perm": "nope"}])[0], 400)  # a batch refused
+        self.assertFalse(record.exists(), "something other than the phone app opening was noted")
+        self.assertEqual(self.phone_reports([check])[0], 200)
+        kept = json.loads(record.read_text())
+        self.assertEqual(list(kept), ["opened"])
+        [when] = kept["opened"]
+        self.assertIs(type(when), int)
+        self.assertEqual(when % 300, 0)
+        self.assertEqual(record.stat().st_mode & 0o777, 0o600)
 
     def sender_in_temp(self, net=None, sharing=None):
         """The board's sender, as the route will find it, kept in a temporary folder."""
         s = self.server
         net = net or FakeNet()
-        s._usage_sender = uc.Sender(transcript=self.dir / "transcript.jsonl", log_dir=self.dir,
+        s._usage_sender = uc.Sender(transcript=self.dir / "transcript.jsonl",
                                     marker=self.dir / "usage-counts.json", index_html=self.dir / "index.html",
                                     sharing=sharing or s._usage_sharing, log=s._info, opener=net)
         return net

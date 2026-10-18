@@ -44,6 +44,8 @@ __pycache__/
 /usage-counts.json.tmp
 /usage-install.json
 /usage-install.json.tmp
+/usage-phone.json
+/usage-phone.json.tmp
 /profile.json
 /profile.json.tmp
 /seed.json

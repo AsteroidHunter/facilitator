@@ -2,7 +2,8 @@
 counts about the day before to the Facilitator project in PostHog, unless the
 board's "Share daily usage counts" setting (Settings, Improvements) is off.
 
-What is counted comes out of what the board already keeps, and nothing else:
+What is counted comes out of these two files beside state.json, and nothing
+else:
 
   transcript.jsonl   the board's own record of what happened, one row per
                      event with its time. Rows are counted by kind and never
@@ -11,8 +12,10 @@ What is counted comes out of what the board already keeps, and nothing else:
                      ("project") and completed agent replies ("agent"), each
                      reply split by the agent_kind the board writes on it
                      (claude, codex or other).
-  client-<day>.jsonl the pages' log. A "notifycheck" line from a phone is the
-                     phone app opening or coming back, which is phone use.
+  usage-phone.json   when the phone app opened or came back, which is phone
+                     use: the start of each five-minute stretch that held
+                     one, kept by the server when it takes the phone's
+                     notifycheck report (PhoneUse), at every log level.
 
 A day is sent only when it was used: one of the owner's own actions is in the
 transcript that day, or the phone app was opened. Minutes used are rough: every
@@ -73,8 +76,9 @@ The server starts Sender.run on a thread of its own once the board is up, and
 every failure is caught and written down. Only link_person, link_email,
 unlink_email and send_feedback run on a request (POST /profile, POST
 /usage/email and POST /feedback in server.py), and each sends at most one
-message. No log line ever holds an email address, any other answer, a feedback
-message, an install id or the token.
+message; phone_opened runs on POST /clientlog and sends nothing. No log line
+ever holds an email address, any other answer, a feedback message, an install
+id or the token.
 
 For tests, FACILITATOR_POSTHOG_ENDPOINT points every send at a local stub. It
 is honoured only for an http address on this Mac (127.0.0.1 or localhost), so
@@ -87,6 +91,7 @@ import os
 import platform
 import re
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -111,6 +116,7 @@ RETRY_AFTER = 3600        # seconds before trying again after a send that failed
 BACKLOG_DAYS = 7          # the most missed days sent at once; older ones are dropped
 BLOCK = 300               # seconds in one stretch of minutes used
 SLACK = 3600              # seconds of transcript read past the oldest day, for rows a little out of order
+PHONE_KEEP = (BACKLOG_DAYS + 2) * 86400   # seconds of phone openings kept: every day a look can still send
 READ_CHUNK = 65536        # bytes the transcript is read backwards in
 
 # the transcript kinds that are the owner's own doing: a message sent, a card
@@ -219,41 +225,55 @@ def _row(line: bytes):
     return row
 
 
-def _phone_opens(log_dir: Path, day: dt.date) -> list[float]:
-    """When the phone app opened or came back on that day: the notifycheck
-    lines a phone wrote into that day's client files."""
-    start, end = _day_bounds(day)
-    times = []
-    try:
-        files = sorted(log_dir.glob(f"client-{day:%Y%m%d}*.jsonl"))
-    except OSError:
-        return times
-    for path in files:
+class PhoneUse:
+    """When the phone app opened or came back, for the counts alone, in one
+    owner-only file: {"opened": [...]}, the start of each five-minute stretch
+    (epoch seconds) that held an opening. The server notes one when it takes
+    the phone's notifycheck report, whatever the log level, so a board logging
+    errors only still counts phone use. Only the last PHONE_KEEP seconds are
+    kept, and nothing else ever: no words, no card, no path, nobody's details.
+    A file that is missing or unreadable reads as no openings."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lock = threading.Lock()
+
+    def read(self) -> list[int]:
         try:
-            with open(path, "rb") as f:
-                for line in f:
-                    if b'"notifycheck"' not in line or b'"phone"' not in line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                        when = dt.datetime.strptime(rec["ts"], "%Y-%m-%dT%H:%M:%S.%fZ")
-                    except (ValueError, KeyError, TypeError):
-                        continue
-                    if rec.get("kind") != "notifycheck" or rec.get("client") != "phone":
-                        continue
-                    t = when.replace(tzinfo=dt.timezone.utc).timestamp()
-                    if start <= t < end:
-                        times.append(t)
-        except OSError:
-            continue
-    return times
+            opened = json.loads(self.path.read_text())["opened"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return []
+        return [t for t in opened if type(t) is int] if isinstance(opened, list) else []
+
+    def note(self, now: float) -> None:
+        """Keeps the stretch now falls in, once. Raises OSError and leaves the
+        file as it was when it cannot be written."""
+        block = int(now // BLOCK) * BLOCK
+        with self.lock:
+            opened = self.read()
+            if block in opened:
+                return
+            body = {"opened": sorted(t for t in {*opened, block} if t >= now - PHONE_KEEP)}
+            tmp = self.path.with_name(self.path.name + ".tmp")
+            try:
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    f.write(json.dumps(body) + "\n")
+                os.replace(tmp, self.path)
+            except OSError:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                raise
 
 
-def day_counts(days: list[dt.date], transcript: Path, log_dir: Path) -> dict:
+def day_counts(days: list[dt.date], transcript: Path, phone_file: Path) -> dict:
     """{day: counts} for each of these days that was used; a day nobody used
     is left out. One pass over the transcript serves every day asked for."""
     if not days:
         return {}
+    opened = PhoneUse(phone_file).read()
     tally = {day: {"owner": [], "user": 0, "create": set(), "done": set(), "project": 0,
                    "claude": 0, "codex": 0, "other": 0} for day in days}
     since = _day_bounds(min(days))[0] - SLACK
@@ -280,7 +300,8 @@ def day_counts(days: list[dt.date], transcript: Path, log_dir: Path) -> dict:
             t[agent_kind(row.get("agent_kind"))] += 1
     out = {}
     for day, t in tally.items():
-        phone = _phone_opens(log_dir, day)
+        start, end = _day_bounds(day)
+        phone = [when for when in opened if start <= when < end]
         used = t["owner"] + phone
         if not used:
             continue
@@ -533,13 +554,15 @@ class Sender:
     log(kind, **fields) is the board's own INFO line; every outside call
     (the clock, the network, a fresh id) can be handed in for the tests."""
 
-    def __init__(self, *, transcript: Path, log_dir: Path, marker: Path, index_html: Path,
+    def __init__(self, *, transcript: Path, marker: Path, index_html: Path,
                  sharing: Callable[[], bool], log: Callable = lambda *a, **k: None,
                  opener=None, today: Callable[[], dt.date] = dt.date.today,
-                 new_id: Callable[[], uuid.UUID] = uuid.uuid4, install_file: Path | None = None) -> None:
-        self.transcript, self.log_dir, self.marker, self.index_html = transcript, log_dir, marker, index_html
+                 new_id: Callable[[], uuid.UUID] = uuid.uuid4, install_file: Path | None = None,
+                 phone_file: Path | None = None) -> None:
+        self.transcript, self.marker, self.index_html = transcript, marker, index_html
         self.sharing, self.log, self.opener, self.today, self.new_id = sharing, log, opener, today, new_id
         self.install = Install(install_file or marker.with_name("usage-install.json"), new_id)
+        self.phone = PhoneUse(phone_file or marker.with_name("usage-phone.json"))
         self.identifying = threading.Lock()   # one identify at a time: a request's and a look's
         self.through: dt.date | None = None   # every day up to this one is dealt with
 
@@ -677,6 +700,15 @@ class Sender:
         self.log("usage", what="feedback", outcome=outcome, **({"reason": why} if why else {}))
         return outcome
 
+    def phone_opened(self, now: float | None = None) -> None:
+        """The phone app opened or came back: kept in usage-phone.json for the
+        day's counts. Sends nothing; a file that cannot be written is said in
+        a log line and the opening goes uncounted."""
+        try:
+            self.phone.note(time.time() if now is None else now)
+        except OSError as e:
+            self.log("usage", what="phone", outcome="unsaved", reason=e.strerror or type(e).__name__)
+
     def look(self) -> bool:
         """One look: a saved email PostHog has not been told goes first, then
         the days. False when a send failed and is to be tried again later."""
@@ -699,7 +731,7 @@ class Sender:
             return True
         first = max(self.through + dt.timedelta(days=1), yesterday - dt.timedelta(days=BACKLOG_DAYS - 1))
         days = [first + dt.timedelta(days=n) for n in range((yesterday - first).days + 1)]
-        counts = day_counts(days, self.transcript, self.log_dir)
+        counts = day_counts(days, self.transcript, self.phone.path)
         version, system = app_version(self.index_html), os_fields()
         for day in days:
             if day not in counts:
