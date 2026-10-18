@@ -84,6 +84,16 @@ When two cards are related, because one continues, splits from, depends on or an
 
 `agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. Links outlast renames and section moves and go when either card is deleted for good. The board does not show them yet, so still name the other card by its title in replies.
 
+## Card properties
+
+When you start work for a card on a git branch, set the card's branch, and its status in a few words on where that work stands; change the status as the work moves, and when the work is merged or dropped, clear both with an empty value:
+
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=BRANCH&status=building&agent=claude"
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&status=waiting+on+review&agent=claude"
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=&status=&agent=claude"
+
+`agent=` names you, as on `/link`. Each is one line of free text, up to 200 characters (write a space as `+`), kept with when it was set and by whom; setting the value it already has changes nothing. The status is your own word and is not the card's section or colour. `GET /props?box=ID` answers the card's `id` (it never changes; the board shows `m12` as 12), `title`, `owner` (its lane), `section`, `made`, `changed`, `branch` and `status`. `made` and `changed` are read from `transcript.jsonl` each time, never copied: the card's create row and its newest row, so a message, a rename, a move or a link counts as a change and reading a card does not. Times are seconds since 1970, as on `/links`. The branch and the status outlast renames and restarts, wait in the Bin with the card and go when it is deleted for good. The board does not show any of this.
+
 ## Status changes
 
 - Only the owner closes. The agent flags duplicates and proposes merges; Done comes from the owner's hand or explicit word.
