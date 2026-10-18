@@ -38,8 +38,6 @@ async function setTabs(closed) {
 before(async () => {
   fx = await launch({
     files: ["home-widgets.js", "home-widgets.css", "tokens.py", "limits.py"], onlyBin: true,
-    // the server copy never opens the system chooser; each test also answers the page's request itself
-    env: { FACILITATOR_PICKDIR_STUB: "/nonexistent-folder-for-the-stub" },
   });
   ids = [];
   for (const n of ["orchard", "harbor-notes", "ledger-app"]) ids.push(await fx.makeProject(n));
@@ -47,17 +45,13 @@ before(async () => {
 });
 after(async () => { if (fx) await fx.stop(); });
 
-// the chooser answers with whatever the test last set; limits and counts are invented
+// limits and counts are invented
 async function openPage(view) {
   const { context, page } = await fx.openBoard(null, view);
-  const stub = { answer: { cancelled: true }, asked: 0 };
   await page.setRequestInterception(true);
   page.on("request", request => {
     const p = new URL(request.url()).pathname;
-    if (p === "/pickdir") {
-      stub.asked++;
-      request.respond({ status: 200, contentType: "application/json", body: JSON.stringify(stub.answer) });
-    } else if (p === "/limits") {
+    if (p === "/limits") {
       request.respond({ status: 200, contentType: "application/json", body: JSON.stringify(LIMITS) });
     } else if (p === "/tokens/daily") {
       const days = Array.from({ length: 371 }, (_, k) => ({ date: new Date(Date.parse("2026-09-30") - (370 - k) * 864e5).toISOString().slice(0, 10),
@@ -65,7 +59,26 @@ async function openPage(view) {
       request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ days, found: { claude: true, codex: true } }) });
     } else request.continue();
   });
-  return { context, page, stub };
+  return { context, page };
+}
+// the board's folder picker, as a reader works it: the start button opens it, a
+// path typed in its field goes to that folder, and Choose answers it. no folder
+// closes it with the cross instead. the copy's home is its own folder, so the
+// picker lists nothing else
+async function pick(page, folder) {
+  await page.click("#npstart", { delay: 10 });
+  await page.waitForFunction(() => globalThis.FolderPicker?.isOpen() && document.querySelector(".fp-panel [data-f=path]"));
+  if (folder == null) {
+    await page.click(".fp-panel .fp-x", { delay: 10 });
+    await page.waitForFunction(() => !FolderPicker.isOpen());
+    return;
+  }
+  await page.evaluate(p => { const f = document.querySelector(".fp-panel [data-f=path]"); f.focus(); f.value = p; }, folder);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(name => document.querySelector(".fp-panel .fp-loc .fp-nm")?.textContent === name &&
+    !document.querySelector(".fp-panel .fp-go").disabled, {}, path.basename(folder));
+  await page.click(".fp-panel .fp-go", { delay: 10 });
+  await page.waitForFunction(() => !FolderPicker.isOpen());
 }
 async function goHome(page) {
   await page.click("#homeico", { delay: 10 });
@@ -209,18 +222,16 @@ test("a click on a closed project's row reopens its tab and shows its board", as
 test("the start button on home makes the new tab, names an open folder, reopens a closed one, and a cancel does nothing", async () => {
   await setTabs([ids[2]]);
   const st0 = await state();
-  const { context, page, stub } = await openPage(SIZES[0]);
+  const { context, page } = await openPage(SIZES[0]);
   try {
     await goHome(page);
-    // cancelled: still home, nothing made
-    stub.answer = { cancelled: true };
-    await page.click("#npstart", { delay: 10 });
-    await sleep(500);
-    assert.equal(stub.asked, 1);
+    // closed with the cross: still home, nothing made
+    await pick(page, null);
+    await sleep(300);
     assert.equal((await where(page, ids[0])).home, true);
+    assert.deepEqual(Object.keys((await state()).pwds).sort(), Object.keys(st0.pwds).sort());
     // a folder already behind an open tab: named, not refused, still home, nothing made
-    stub.answer = { path: st0.pwds[ids[0]] };
-    await page.click("#npstart", { delay: 10 });
+    await pick(page, st0.pwds[ids[0]]);
     await page.waitForFunction(() => document.getElementById("projnote").classList.contains("show"));
     let at = await where(page, ids[0]);
     assert.equal(at.note, "that folder is already open as orchard");
@@ -228,8 +239,7 @@ test("the start button on home makes the new tab, names an open folder, reopens 
     assert.deepEqual(Object.keys((await state()).pwds).sort(), Object.keys(st0.pwds).sort());
     // a folder whose tab was closed: that tab comes back and its board shows
     await page.evaluate(() => document.getElementById("projnote").classList.remove("show"));
-    stub.answer = { path: st0.pwds[ids[2]] };
-    await page.click("#npstart", { delay: 10 });
+    await pick(page, st0.pwds[ids[2]]);
     await page.waitForFunction(() => !document.body.classList.contains("home"));
     at = await where(page, ids[2]);
     assert.equal(at.closed, false);
@@ -239,8 +249,7 @@ test("the start button on home makes the new tab, names an open folder, reopens 
     await goHome(page);
     const fresh = path.join(fx.fixtureDir, "projects", "fresh-folder");
     fs.mkdirSync(fresh, { recursive: true });
-    stub.answer = { path: fresh };
-    await page.click("#npstart", { delay: 10 });
+    await pick(page, fresh);
     await page.waitForFunction(() => !document.body.classList.contains("home"));
     await page.waitForFunction(() => [...document.querySelectorAll("#tabbar .ptab")].some(t => t.dataset.owner === "fresh-folder" && t.classList.contains("on")));
     at = await where(page, "fresh-folder");
@@ -254,7 +263,7 @@ test("the start button on home makes the new tab, names an open folder, reopens 
 test("the new tab behaves as before: a marked row, an inert open row, a closed row that reopens, the button's note", async () => {
   await setTabs([ids[2]]);
   const st0 = await state();
-  const { context, page, stub } = await openPage(SIZES[0]);
+  const { context, page } = await openPage(SIZES[0]);
   try {
     await goPlus(page);
     const m = await measure(page);
@@ -268,8 +277,7 @@ test("the new tab behaves as before: a marked row, an inert open row, a closed r
     assert.equal(at.draft, true);
     assert.equal(at.choosing, true);
     // the button names an open folder and stays on the new tab
-    stub.answer = { path: st0.pwds[ids[1]] };
-    await page.click("#npstart", { delay: 10 });
+    await pick(page, st0.pwds[ids[1]]);
     await page.waitForFunction(() => document.getElementById("projnote").classList.contains("show"));
     at = await where(page, ids[1]);
     assert.equal(at.note, "that folder is already open as harbor-notes");

@@ -79,7 +79,7 @@ const dom = { active: null };
 const box = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
 
 function fixture(over = {}) {
-  const ids = {}, windowListeners = {}, docListeners = {}, writes = [], opens = [], fetches = [], calls = [];
+  const ids = {}, windowListeners = {}, docListeners = {}, writes = [], opens = [], fetches = [], calls = [], pickers = [];
   const make = (id, tag = "div", cls = "") => { const el = element(tag, cls); el.id = id; ids[id] = el; return el; };
   const body = make("body", "body", "focus");
   for (const id of ["homeico", "projpill", "chimebtn", "setbtn"]) body.appendChild(make(id, "button", "qn-glass"));
@@ -125,11 +125,12 @@ function fixture(over = {}) {
     fetch: async (url, options) => {
       fetches.push({ url, method: options?.method || "GET", body: options?.body });
       if (url === "/tabs") { writes.push(JSON.parse(options.body)); return { json: async () => ({}) }; }
-      if (url === "/pickdir") return { status: 200, json: async () => ({ path: "/Users/me/garden/" }) };
       if (url.startsWith("/project?")) return { ok: true, json: async () => ({ id: "garden" }) };
       throw new Error("unexpected fetch " + url);
     },
     open: (...args) => { opens.push(args); },
+    // the board's folder picker (folder-picker.js), answering with the folder chosen in it
+    FolderPicker: { open: async opts => { pickers.push(opts); return { machine: "this", path: "/Users/me/garden", name: "garden", short: "~/garden" }; } },
     browse(id) { context.selectedId = id; context.browsing = true; },
     deselect() { context.selectedId = null; },
     unselectShown() { calls.push("unselect"); context.browsing = true; },
@@ -143,6 +144,7 @@ function fixture(over = {}) {
   });
   const run = source => vm.runInContext(source, context);
   run(logic);
+  context.folderPickerBundle = async () => true;   // the picker and its sheet, as if fetched
   run(between("function setTab(owner){", "// clear the selection entirely:"));
   run(between("function tabClosed(ow, st){", "// ---- the one-time carry-over"));
   run(between("function rowsOf(state){", "function nav("));
@@ -156,7 +158,7 @@ function fixture(over = {}) {
   const place = () => rows().forEach((r, i) => { r.rect = () => box(54, 51 + 32 * i, 208, 32); });
   place();
   const win = (type, extra = {}) => { for (const fn of windowListeners[type] || []) fn({ buttons: 1, button: 0, preventDefault() {}, stopImmediatePropagation() {}, ...extra }); };
-  return { context, state, ids, body, menu, list, fresh, writes, opens, fetches, calls, store, rows, row, place, win,
+  return { context, state, ids, body, menu, list, fresh, writes, opens, fetches, calls, pickers, store, rows, row, place, win,
     get: code => vm.runInContext(code, context),
     open: () => ids.projpill.fire("click"),
     isOpen: () => body.classes.has("projopen"),
@@ -500,13 +502,17 @@ test("a row dragged out of the list opens its project in a window of its own; ba
   assert.equal(g.opens.length, 0); assert.equal(g.get("projCarry"), null);
 });
 
-test("\"Open a new folder\" opens the Mac's folder chooser and lands on the new project, from Home too", async () => {
+test("\"Open a new folder\" opens the board's folder picker and lands on the new project, from Home too", async () => {
   const f = fixture({ homeOpen: true });
   f.open(); f.fresh.fire("click");
   assert.equal(f.isOpen(), false);
   for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r));
-  assert.deepEqual(f.fetches.map(x => x.url), ["/pickdir", "/project?name=garden"]);
-  assert.equal(f.fetches[1].body, "/Users/me/garden");
+  assert.equal(f.pickers.length, 1);
+  assert.equal(f.pickers[0].kind, "panel");
+  assert.equal(f.pickers[0].back, f.ids.projpill, "the focus goes back to the pill once the list has shut");
+  assert.deepEqual(f.fetches.map(x => x.url), ["/project?name=garden"]);
+  assert.equal(f.fetches[0].body, "/Users/me/garden");
+  assert.doesNotMatch(html, /\/pickdir/);
   assert.equal(f.context.activeOwner, "garden"); assert.equal(f.store.get("activeproj"), "garden");
   assert.equal(f.context.homeOpen, false); assert.equal(f.store.get("projleft"), "marlow");
 });

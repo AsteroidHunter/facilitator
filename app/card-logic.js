@@ -80,6 +80,12 @@ function installCardPageGuard(win = window){
     if (!e.metaKey) e.preventDefault();
     if (e.key === "Escape") closeCardPicture();
   }, true);
+  // while the board's folder picker is open the keys are its own too, and the
+  // page's wait until it closes (folder-picker.js, which stops each one)
+  win.folderPickerKeys = true;
+  win.addEventListener("keydown", e => {
+    if (win.FolderPicker && win.FolderPicker.isOpen()) win.FolderPicker.key(e);
+  }, true);
 
   let menu = null, returnTo = null;
   const downloads = new WeakSet();
@@ -2197,6 +2203,61 @@ function writeTabs(rec){
 function labelOf(state, owner){
   const dir = (state.pwds || {})[owner] || "";
   return dir.split("/").filter(Boolean).pop() || owner;
+}
+
+// ---- "Open a new folder" ------------------------------------------------------------
+// the board's own folder picker (folder-picker.js) and its sheet, fetched the
+// first time a folder is asked for and never on boot. the picker waits for
+// both, so nothing of it is drawn unstyled. answers whether it loaded: a
+// server from before their routes answers 404, and the page says a restart is
+// needed. a load that failed is tried afresh on the next ask
+let folderPickerLoad = null;
+function folderPickerBundle(){
+  if (globalThis.FolderPicker && document.getElementById("fpsheet")?.sheet) return Promise.resolve(true);
+  if (folderPickerLoad) return folderPickerLoad;
+  folderPickerLoad = new Promise(res => {
+    let left = 2, good = true;
+    const done = ok => {
+      good = good && ok;
+      if (--left) return;
+      if (!good || !globalThis.FolderPicker) folderPickerLoad = null;
+      res(good && !!globalThis.FolderPicker);
+    };
+    let sheet = document.getElementById("fpsheet");
+    if (sheet?.sheet) done(true);
+    else {
+      if (!sheet){
+        sheet = document.createElement("link");
+        sheet.id = "fpsheet"; sheet.rel = "stylesheet"; sheet.href = "/folder-picker.css";
+        document.head.append(sheet);
+      }
+      sheet.addEventListener("load", () => done(true), { once: true });
+      sheet.addEventListener("error", () => { sheet.remove(); done(false); }, { once: true });
+    }
+    if (globalThis.FolderPicker){ done(true); return; }
+    const s = document.createElement("script");
+    s.src = "/folder-picker.js";
+    s.onload = () => done(true);
+    s.onerror = () => { s.remove(); done(false); };
+    document.head.append(s);
+  });
+  return folderPickerLoad;
+}
+// the words a refused project is named with, the same on the board and the
+// phone: the server states its refusal and these repeat it in plain words. a
+// duplicate answer with no visible tab of that name means the id collides with
+// a reserved internal lane: older servers refuse those, so the words must not
+// claim the folder is already open
+function projectRefusal(pr, st, name){
+  let msg = { "body must be a folder under home": "that folder is outside your home folder",
+              "empty name": "that folder has no usable name" }[pr?.error]
+          || "could not create that project";
+  if (pr?.error === "duplicate project"){
+    const named = st && allRowsOf(st).some(ow => labelOf(st, ow) === name);
+    msg = named ? "a project named " + name + " is already open"
+                : "that name is reserved right now, the folder can be added after the next server restart";
+  }
+  return msg;
 }
 
 // which replies the owner has laid eyes on: box id -> how many replies the
