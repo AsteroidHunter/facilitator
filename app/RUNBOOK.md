@@ -76,6 +76,14 @@ A card left unnamed gets a made-up name such as "Thistledown Pixie Waltz"; when 
 
 Omni cards are the one exception: never rename an Omni card. An Omni card is the person's place for random or miscellaneous discussion about existing cards or the state of the project. It is recognised by its title alone, which is exactly `Omni Ticket #N` for a whole number N from 1 up (for example `Omni Ticket #4`); there is no separate flag, and the page shows the same card as "Omni Card #N".
 
+## Links between cards
+
+When two cards are related, because one continues, splits from, depends on or answers the other, link them by id, from that one to the other. A link may join cards of different lanes:
+
+    curl -sS -X POST "http://127.0.0.1:$PORT/link?from=ID&to=OTHER&agent=claude"
+
+`agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. Links outlast renames and section moves and go when either card is deleted for good. The board does not show them yet, so still name the other card by its title in replies.
+
 ## Status changes
 
 - Only the owner closes. The agent flags duplicates and proposes merges; Done comes from the owner's hand or explicit word.
