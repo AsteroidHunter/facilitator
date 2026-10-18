@@ -253,3 +253,43 @@ test("a span that runs over a line break is drawn as the characters the card sho
     await page.close();
   }
 });
+
+// ---- return on a quoted line with nothing typed on it -------------------------
+// A marker with nothing typed after it ends the list, and the editor's own
+// return on a quoted line with nothing typed after its angle wrote the line
+// above back as a bare angle, drawn as a stray ">" in the quote, and laid
+// another quoted line under it, so the quote never ended.
+
+test("return on a quoted line with nothing typed on it ends the quote", async () => {
+  const phone = await phoneRow("Ending a quote on the phone", true);
+  try {
+    const { page } = phone;
+    for (const [typed, ended] of [["> said", "> said\n"], ["> - item", "> - item\n"]]) {
+      await lay(page, "");
+      await page.keyboard.type(typed);
+      await page.keyboard.press("Enter");
+      await settle(150);
+      assert.equal(await payload(page), typed + "\n" + typed.replace(/[^>\- ].*$/, ""),
+        "the return key did not carry the quote down");
+      await page.keyboard.press("Enter");
+      await settle(150);
+      const read = await rowRead(page);
+      assert.equal(read.payload, ended, "a return on the empty quoted line did not end the quote");
+      assert.equal(read.angles, 0, "an angle was left standing in the drawn quote");
+    }
+    assert.deepEqual(phone.problems, []);
+  } finally {
+    await phone.page.close();
+  }
+  const mac = await desktopRow("Ending a quote on the Mac");
+  try {
+    await lay(mac.page, "> said\n> ");
+    await caretTo(mac.page, 9);
+    await chord(mac.page, "Enter", "Shift");
+    await settle(150);
+    assert.equal(await payload(mac.page), "> said\n", "shift and return on an empty quoted line did not end it");
+    assert.deepEqual(mac.problems, []);
+  } finally {
+    await mac.page.close();
+  }
+});

@@ -510,18 +510,32 @@
     };
   }
 
+  // A quote's angles at the head of a line, the last of them finished by its
+  // space, which is where a quote begins in this row
+  const QUOTED = /^ {0,3}(?:>[ \t]?)*>[ \t]/;
+
   // The line the caret is on when it is a marker with nothing typed after it,
   // and null otherwise. That is the one line a new line ends the list on
   // instead of laying another marker out, and it is the one case the editor's
   // own markdown continuation is not allowed to answer: on a second item it
   // keeps the marker and pushes a blank line above it, which leaves the reader
-  // with a list they asked to be finished with.
+  // with a list they asked to be finished with. A quote's angles count as a
+  // marker the same way, alone or in front of a list's: on a quoted line with
+  // nothing after them the continuation writes the line back as a bare angle
+  // and lays another quoted line under it, so the quote never ends.
   function emptyItem(view) {
     const range = view.state.selection.main;
     const line = view.state.doc.lineAt(range.from);
-    const list = listContinuation(line.text);
-    if (!list || !list.empty) return null;
-    if (range.from < line.from + list.markerEnd || range.to > line.to) return null;
+    const angles = QUOTED.exec(line.text);
+    const head = angles ? angles[0].length : 0;
+    const rest = line.text.slice(head);
+    const list = listContinuation(rest);
+    let markerEnd = head;
+    if (list) {
+      if (!list.empty) return null;
+      markerEnd += list.markerEnd;
+    } else if (!head || rest.trim()) return null;
+    if (range.from < line.from + markerEnd || range.to > line.to) return null;
     return line;
   }
 
