@@ -1179,8 +1179,10 @@ test("the board's own policy holds nothing a sealed page would inherit and be st
 // the phone's box script, the separate one at the foot of m.html, run against
 // stand-ins for the page: card "a" has an open box and card "b" none. the drawer
 // is a model of the page's: its face and side are the box script's own, and
-// out, shut and the run it goes back on are the stand-ins'
-function phoneBoxScript(page) {
+// out, shut and the run it goes back on are the stand-ins'. card "a"'s box is
+// already drawn, as the page has it once it has read it, unless drawn is false.
+// draws: what the view was asked to draw, [box, seen]
+function phoneBoxScript(page, { drawn = true } = {}) {
   const start = page.indexOf("<script>\n// ---- the card's magic box, in the card list's drawer");
   const src = page.slice(start + "<script>".length, page.indexOf("</script>", start));
   const classes = new Set(), listeners = {}, calls = [], drawer = { settings: false, runs: [] };
@@ -1217,7 +1219,7 @@ function phoneBoxScript(page) {
     tiklist: { animate: animate("list rows"), style: { marginBottom: "-7px" }, getBoundingClientRect: () => ({ bottom: parts.listEnd }) },
     listEnd: 1e9 };
   const face = () => (classes.has("boxface") ? "box" : "list") + " from the " + tickets.dataset.side;
-  const paneClasses = new Set(), paneListeners = {};
+  const paneClasses = new Set(), paneListeners = {}, draws = [];
   const cardPane = { getAnimations: () => [], animate: animate("card"), offsetWidth: 0,
     classList: { add: c => paneClasses.add(c), remove: c => paneClasses.delete(c), contains: c => paneClasses.has(c) },
     addEventListener: (type, fn) => { paneListeners[type] = fn; } };
@@ -1237,7 +1239,8 @@ function phoneBoxScript(page) {
     stopList: () => { classes.delete("swapface"); for (const a of ctx.listPlay) a.cancel(); ctx.listPlay = []; },
     settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
-    magicView: () => ({ body, want: () => ({ height: 89 }), waiting: () => false, draw() {}, clear() {} }),
+    magicView: () => ({ body, want: () => ({ height: 89 }), waiting: () => false,
+      draw: (box, seen) => draws.push([box, seen]), clear() {} }),
     MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
     menuOut: () => classes.has("open") ? tickets : drawer.settings ? settings : null,
     drawerOpen: () => classes.has("open"),
@@ -1260,11 +1263,18 @@ function phoneBoxScript(page) {
     fetch: url => { calls.push(url); return new Promise(() => {}); },
     apply: () => calls.push("apply"), select: () => calls.push("select"), deselect: () => calls.push("deselect"),
     openDrawer: () => calls.push("list"), listSlack: () => ctx.spareRoom ?? 7, drawerPane: () => null,
+    // the page's building of the cards near the one on show: here the card on
+    // show alone, unless a test says which
+    reachCards() {}, pullGoing: () => false,
+    nearbyCards: () => ({ build: new Set([ctx.shownId]), keep: new Set([ctx.shownId]) }),
     phoneShortcutActions: {}, menuShortcutActions: {},
     addEventListener: (type, fn, opts) => { (listeners[type] = listeners[type] || []).push({ fn, opts }); },
   };
-  vm.runInContext(src, vm.createContext(ctx));
-  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners, body, pageEl, notch, box, parts };
+  const context = vm.createContext(ctx);
+  vm.runInContext(src, context);
+  if (drawn) vm.runInContext(`PB.id = "a"; PB.rev = 1; PB.drawn = true;`, context);
+  const PB = vm.runInContext("PB", context);
+  return { ctx, classes, tickets, listeners, calls, drawer, anims, paneClasses, paneListeners, body, pageEl, notch, box, parts, draws, PB };
 }
 
 test("on the phone the box comes down in the card list's own drawer, from the right, pulled the other way from the list", () => {
@@ -1318,8 +1328,12 @@ test("on the phone the box comes down in the card list's own drawer, from the ri
   ctx.openDrawer();
   assert.ok(!classes.has("boxface") && calls.at(-1) === "list", "the cards button always brings the list");
   ctx.apply({});
-  assert.ok(calls.includes("apply") && calls.some(c => String(c).startsWith("/magic/body?box=a")),
-    "every reading is the page's own, and then the box is read for the card on screen");
+  assert.ok(calls.includes("apply") && !calls.some(c => String(c).startsWith("/magic/body")),
+    "every reading is the page's own, and a box drawn at its revision is not read again");
+  // a page that has not read the box yet reads it for the card on screen
+  const fresh = phoneBoxScript(page, { drawn: false });
+  fresh.ctx.apply({});
+  assert.ok(fresh.calls.some(c => String(c).startsWith("/magic/body?box=a")), "the card on screen's box was not read");
 });
 
 test("control shift period does for the box what control shift comma does for the list", async () => {
@@ -1654,6 +1668,147 @@ test("a pull from the right edge on a card with no box dips the card once, and n
   const mouse = (type, x) => fire(type, { button: 0, clientX: x, clientY: 400, timeStamp: 5000 });
   mouse("mousedown", 398); mouse("mousemove", 300); mouse("mouseup", 300);
   assert.ok(dipped(), "the mouse follows the same rule, once its touch's leftovers are past");
+});
+
+// the phone's box script with every box a picture: what it fetched (asked),
+// the pictures it let go (revoked), and pictures that come only when the test
+// lets them (slow), each read as 640 x 400
+function phoneBoxPictures({ slow = false } = {}) {
+  const page = phoneBoxScript(read("m.html"), { drawn: false });
+  const { ctx } = page;
+  const asked = [], revoked = [], waiting = [];
+  let made = 0;
+  ctx.fetch = url => {
+    asked.push(url);
+    const id = new URL(url, "http://phone").searchParams.get("box");
+    if (url.startsWith("/magic/img")) {
+      const picture = { ok: true, blob: async () => ({}) };
+      return slow ? new Promise(r => waiting.push(() => r(picture))) : Promise.resolve(picture);
+    }
+    const rev = ctx.lastState.boxes.find(b => b.id === id).magic.rev;
+    return Promise.resolve({ ok: true, json: async () => ({ box: id, rev, kind: "image", src: `/magic/img?box=${id}&rev=${rev}` }) });
+  };
+  ctx.URL = { createObjectURL: () => "blob:" + ++made, revokeObjectURL: u => revoked.push(u) };
+  ctx.Image = class { decode() { return Promise.resolve(); } get naturalWidth() { return 640; } get naturalHeight() { return 400; } };
+  const fetched = kind => asked.filter(u => u.startsWith("/magic/" + kind)).map(u => new URL(u, "http://phone").searchParams.get("box"));
+  const near = (build, keep = build) => { ctx.nearbyCards = () => ({ build: new Set(build), keep: new Set(keep) }); };
+  const tick = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r)); };
+  const land = async () => { while (waiting.length) waiting.shift()(); await tick(); };
+  return { ...page, asked, revoked, fetched, near, tick, land };
+}
+
+test("the phone fetches boxes only for the cards it builds, once for each revision, and lets go of the ones it no longer keeps", async () => {
+  const { ctx, PB, draws, fetched, near, tick, revoked } = phoneBoxPictures();
+  const card = (id, more = {}) => ({ id, owner: "p", done: false, magic: { open: true, rev: 1 }, ...more });
+  ctx.lastState = { boxes: ["a", "b", "c", "d", "e", "f", "g"].map(id => card(id)).concat(
+    card("shut", { magic: { open: false, rev: 1 } }), card("done", { done: true }), card("other", { owner: "q" }),
+    { id: "none", owner: "p", done: false }) };
+  // b on show, a and c beside it (and cards that have no open box of this project's)
+  ctx.shownId = "b";
+  near(["a", "b", "c", "shut", "done", "other", "none"], ["a", "b", "c", "d", "g"]);
+  ctx.reachCards();
+  await tick();
+  assert.deepEqual(fetched("body").sort(), ["a", "b", "c"], "only the open boxes of the cards it builds");
+  assert.deepEqual(fetched("img").sort(), ["a", "b", "c"], "and their pictures with them");
+  // the next readings build the same cards: nothing is fetched again
+  ctx.reachCards(); ctx.reachCards();
+  await tick();
+  assert.equal(fetched("body").length, 3, "a box was fetched again at the same revision");
+  // a new revision on a card beside it: that box alone, once, and its old picture let go
+  ctx.lastState.boxes.find(b => b.id === "c").magic = { open: true, rev: 2 };
+  ctx.reachCards(); ctx.reachCards();
+  await tick();
+  assert.deepEqual(fetched("body").sort(), ["a", "b", "c", "c"]);
+  assert.equal(revoked.length, 1, "the old revision's picture was kept");
+  // the card on show's box is drawn at once, picture and size in hand
+  ctx.select();
+  assert.equal(draws.length, 1, "the box waited for a fetch it already had");
+  assert.deepEqual([...draws[0][1].natural], [640, 400]);
+  // a swipe to c: d is built and fetched, a leaves the cards kept and is let go; f, never
+  // near, and g, kept but never built, are never fetched
+  ctx.shownId = "c";
+  near(["b", "c", "d"], ["b", "c", "d", "e"]);
+  ctx.select();
+  assert.equal(draws.length, 2, "the card beside it was not drawn at once");
+  ctx.reachCards();
+  await tick();
+  assert.deepEqual(fetched("body").sort(), ["a", "b", "c", "c", "d"]);
+  assert.ok(!PB.bodies.has("a"), "a card no longer kept still holds its box");
+  assert.equal(revoked.length, 2, "its picture was kept");
+  assert.ok(!fetched("body").some(id => ["e", "f", "g", "shut", "done", "other", "none"].includes(id)), "a box fetched for a card never built");
+  // while a pull or a swipe is going, the building waits, and the fetching with it
+  ctx.pullGoing = () => true;
+  near(["c", "d", "e"]);
+  ctx.reachCards();
+  await tick();
+  assert.equal(fetched("body").length, 5, "a box was fetched during a pull");
+  ctx.pullGoing = () => false;
+  ctx.reachCards();
+  await tick();
+  assert.deepEqual(fetched("body").sort(), ["a", "b", "c", "c", "d", "e"]);
+  // nothing was ever fetched for another card, and the page's own reading fetches no box
+  ctx.apply({});
+  await tick();
+  assert.equal(fetched("body").length, 6);
+});
+
+test("the card on show's box is fetched first, and the cards beside it wait for it", async () => {
+  const { ctx, fetched, near, tick, land } = phoneBoxPictures({ slow: true });
+  ctx.lastState = { boxes: ["a", "b", "c"].map(id => ({ id, owner: "p", done: false, magic: { open: true, rev: 1 } })) };
+  near(["b", "a", "c"]);
+  ctx.select();
+  ctx.reachCards();
+  await tick();
+  assert.deepEqual(fetched("body"), ["a"], "a card beside it shared the line with the box on show");
+  assert.deepEqual(fetched("img"), ["a"]);
+  await land();
+  assert.deepEqual(fetched("body").sort(), ["a", "b", "c"], "the cards beside it were not fetched once it was in");
+  ctx.reachCards();
+  await land();
+  assert.equal(fetched("body").length, 3);
+});
+
+test("a box not ready yet is held: the drawer never comes out tall and blank, and it comes out at its own size once its picture is in", async () => {
+  const fire = (ctx, listeners, type, e) => { for (const l of listeners[type] || []) l.fn(e); };
+  const at = (x, y = 400) => ({ touches: [{ clientX: x, clientY: y }], timeStamp: 0 });
+  const press = ctx => { const e = { prevented: false, preventDefault() { this.prevented = true; } }; ctx.phoneShortcutActions.boxDrawer(e); return e.prevented; };
+  // a pull from the right edge as the card arrives, before its picture is in
+  let p = phoneBoxPictures({ slow: true });
+  p.ctx.select();
+  await p.tick();
+  fire(p.ctx, p.listeners, "touchstart", at(398));
+  assert.ok(!p.classes.has("boxface") && p.tickets.dataset.side === "left", "the drawer took the box's face before it was ready");
+  fire(p.ctx, p.listeners, "touchmove", at(300));
+  fire(p.ctx, p.listeners, "touchend", { timeStamp: 0 });
+  assert.ok(!p.calls.some(c => String(c).startsWith("show")), "the drawer came out with nothing to show");
+  assert.ok(!p.paneClasses.has("nudge"), "the card dipped as if it had no box");
+  assert.equal(p.draws.length, 0);
+  await p.land();
+  assert.deepEqual(p.calls.filter(c => String(c).startsWith("show")), ["show box from the right"], "the held box did not come out");
+  assert.deepEqual([...p.draws.at(-1)[1].natural], [640, 400], "it came out without its picture's size");
+  // the key as the card arrives: held the same way, and it comes out once
+  p = phoneBoxPictures({ slow: true });
+  p.ctx.select();
+  await p.tick();
+  assert.equal(press(p.ctx), true, "the key was left to type a period");
+  assert.ok(!p.calls.some(c => String(c).startsWith("show")) && !p.paneClasses.has("nudge"));
+  await p.land();
+  assert.deepEqual(p.calls.filter(c => String(c).startsWith("show")), ["show box from the right"]);
+  // the key again lets it go, and so does a touch anywhere else, the list, or another card
+  for (const letGo of [
+    p => press(p.ctx),
+    p => fire(p.ctx, p.listeners, "touchstart", at(200)),
+    p => p.ctx.openDrawer(),
+    p => { p.ctx.shownId = "b"; p.ctx.select(); p.ctx.shownId = "a"; },
+  ]) {
+    p = phoneBoxPictures({ slow: true });
+    p.ctx.select();
+    await p.tick();
+    press(p.ctx);
+    letGo(p);
+    await p.land();
+    assert.ok(!p.calls.some(c => String(c).startsWith("show box")), "a box let go came out: " + letGo);
+  }
 });
 
 test("the Mac box's words can be selected and copied, and command+a picks only them", () => {

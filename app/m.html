@@ -7888,9 +7888,20 @@ if (parent === window) {
 // period as control+shift+comma brings the list. it never comes by itself: it
 // waits on its card, and goes back when its card leaves the screen or the box
 // is put away. it stands apart from the page's own script and reaches into it
-// only through the few names it wraps at the foot here
+// only through the few names it wraps at the foot here.
+// what a box holds is fetched only for the cards the page builds (the card on
+// show and the ones beside it, nearbyCards' build), once for each revision,
+// with its picture fetched and decoded and its size kept, so a box beside the
+// card on show opens at its own size with its picture in it. what was fetched
+// is let go when its card leaves the cards the page keeps.
+// bodies: card id -> {asked, rev, box, seen, wait}, box and seen (the picture,
+// {src, natural}) set once both are in. drawn: the box shows its card's
+// content. held: the box was asked for before it could show at its own size,
+// and comes out once it can. after: the card on show's fetch the cards beside
+// it wait for
 const MAGIC_EDGE = 28;   // the pull's own strip, EDGE in the drawer's gesture
-const PB = { el: document.getElementById("mbface"), id: null, rev: 0, asked: 0 };
+const PB = { el: document.getElementById("mbface"), id: null, rev: 0, asked: 0,
+  bodies: new Map(), drawn: false, held: false, after: null };
 PB.view = magicView(PB.el, { placed: () => phoneMagicFit(), tall: true,
   openSite: url => window.open(url, "_blank", "noopener,noreferrer") });
 // the cross takes a tap and never the keys. with the box out, Tab stays in the
@@ -7926,30 +7937,133 @@ function phoneMagicSync(){
 // the box gone with everything in it, and the drawer back if it was out for it
 function phoneMagicOff(){
   if (tickets.classList.contains("boxface") && drawerOpen()) closeDrawer();
+  PB.held = false;
   if (PB.id === null) return;
-  PB.id = null; PB.rev = 0; PB.asked++;
+  PB.id = null; PB.rev = 0; PB.asked++; PB.drawn = false;
   PB.view.clear();
+  phoneMagicShows(null);
 }
-async function phoneMagicLoad(id, rev){
+// the card on show's box: drawn at once if the page already has it, and
+// otherwise when it and its picture are in. another card's box is cleared
+// first; a new revision of the same card's leaves the last one shown meanwhile
+function phoneMagicLoad(id, rev){
   const asked = ++PB.asked;
+  if (PB.id !== id){ PB.view.clear(); phoneMagicShows(null); PB.drawn = false; }
   PB.id = id; PB.rev = rev;
-  let box = null;
-  try {
-    const r = await fetch("/magic/body?box=" + encodeURIComponent(id), { cache: "no-store", credentials: "same-origin" });
-    if (r.ok) box = await r.json();
-  } catch (e) {}
-  // the card on screen or its box changed while this was in the air
-  if (asked !== PB.asked) return;
-  // nothing came: the next reading of the board asks again
-  if (!box){ PB.rev = 0; return; }
-  PB.view.draw(box);
+  const have = PB.bodies.get(id);
+  if (have && have.box && (have.asked === rev || have.rev === rev)){ phoneMagicDraw(have); return; }
+  phoneMagicFetch(id, rev).then(have => {
+    // the card on screen or its box changed while this was in the air
+    if (asked !== PB.asked) return;
+    // nothing came: the next reading of the board asks again
+    if (!have){ PB.rev = 0; return; }
+    phoneMagicDraw(have);
+  });
+}
+function phoneMagicDraw(have){
+  PB.view.draw(have.box, have.seen);
+  phoneMagicShows(have.seen);
+  PB.drawn = true;
   phoneMagicFit();
+}
+// what a card's box holds, fetched once for each revision and kept, with its
+// picture fetched and decoded before the box counts as in. a newer revision
+// than the one asked for is kept as itself. a fetch that comes back for a
+// card let go meanwhile is let go too
+function phoneMagicFetch(id, rev){
+  const have = PB.bodies.get(id);
+  if (have && (have.asked === rev || have.rev === rev)) return have.wait;
+  if (have) phoneMagicForget(have);
+  const ask = { asked: rev, rev, box: null, seen: null };
+  ask.wait = fetch("/magic/body?box=" + encodeURIComponent(id), { cache: "no-store", credentials: "same-origin" })
+    .then(r => r.ok ? r.json() : null).catch(() => null).then(async box => {
+      if (PB.bodies.get(id) !== ask) return null;
+      if (!box){ PB.bodies.delete(id); return null; }
+      const seen = box.kind === "image" && box.src ? await phoneMagicPicture(box.src) : null;
+      if (PB.bodies.get(id) !== ask){ if (seen) URL.revokeObjectURL(seen.src); return null; }
+      Object.assign(ask, { rev: box.rev, box, seen });
+      return ask;
+    });
+  PB.bodies.set(id, ask);
+  return ask.wait;
+}
+// a box's picture as the page's own copy, held in its memory only, decoded and
+// its size read, so the box takes its shape at once (the view's seen). one that
+// will not come is left to the view, which fetches it itself as it always did
+async function phoneMagicPicture(src){
+  try {
+    const r = await fetch(src, { cache: "no-store", credentials: "same-origin" });
+    if (!r.ok) return null;
+    const url = URL.createObjectURL(await r.blob()), img = new Image();
+    img.src = url;
+    await img.decode().catch(() => {});
+    return { src: url, natural: [img.naturalWidth, img.naturalHeight], img };
+  } catch (e) { return null; }
+}
+// a picture let go, and the one the box shows (PB.seen), which is let go only
+// once the box shows another and no card's box still holds it
+function phoneMagicForget(have){
+  const seen = have.seen;
+  have.seen = null;
+  if (seen && seen !== PB.seen) URL.revokeObjectURL(seen.src);
+}
+function phoneMagicShows(seen){
+  const was = PB.seen;
+  PB.seen = seen;
+  if (was && was !== seen && ![...PB.bodies.values()].some(h => h.seen === was)) URL.revokeObjectURL(was.src);
+}
+// as the page builds its cards (reachCards): the open box of each card it
+// builds is fetched, and what was fetched for a card it no longer keeps, or
+// for a box shut or past its revision, is let go. the card on show's own is
+// kept while it shows. the card on show's box comes first: while it is still
+// on its way the cards beside it wait for it, so on a slow line they do not
+// share the line with the box being looked at
+function phoneMagicAhead(){
+  if (!lastState) return;
+  const { build, keep } = nearbyCards();
+  const open = id => {
+    const b = lastState.boxes.find(x => x.id === id);
+    return b && b.owner === activeOwner && !b.done && b.magic && b.magic.open ? b : null;
+  };
+  const first = PB.id !== null && PB.bodies.get(PB.id);
+  if (first && !first.box){
+    if (PB.after !== first.wait){
+      const wait = PB.after = first.wait;
+      wait.then(() => { if (PB.after === wait){ PB.after = null; reachCards(); } });
+    }
+  } else for (const id of build){
+    const b = open(id);
+    if (b) phoneMagicFetch(id, b.magic.rev);
+  }
+  for (const [id, have] of PB.bodies){
+    if (id === PB.id) continue;
+    const b = keep.has(id) && open(id);
+    if (b && (have.asked === b.magic.rev || have.rev === b.magic.rev)) continue;
+    PB.bodies.delete(id);
+    phoneMagicForget(have);
+  }
+}
+// the box can come out at its own size: its card's box is drawn, and holds no
+// picture still on its way
+function phoneMagicReady(){
+  const b = phoneMagicCard();
+  return !!b && PB.drawn && PB.id === b.id && !PB.view.waiting();
+}
+// a box asked for before it was ready comes out as soon as it is, as the key
+// would bring it, unless another drawer than the card list is out by then
+function phoneMagicHeld(){
+  if (!PB.held || !phoneMagicReady()) return;
+  PB.held = false;
+  const out = menuOut();
+  if (out && out !== tickets) return;
+  if (out === tickets && tickets.classList.contains("boxface")) return;
+  drawerKey(null, true);
 }
 // the box at its own size in the drawer: the drawer's width and height are the
 // room it is fitted to, its height no more than leaves the gap under it equal
 // to the gap over it with the card at its lowest (phoneMagicCap, below), so
 // longer words scroll inside it under its fade; a picture still on its way
-// keeps it hidden
+// keeps it hidden. a box held for its size comes out once it is fitted
 let phoneMagicCap = () => Infinity;
 // how far the box's top edge stands over the first mark of the card list (the
 // section names' pill, below): the box grows upward by it, so what it shows is
@@ -7964,6 +8078,7 @@ function phoneMagicFit(){
   Object.assign(PB.el.style, { width: at.width + "px", height: at.height + raise + "px",
     visibility: PB.view.waiting() ? "hidden" : "" });
   if (tickets.classList.contains("boxface")) fitList();
+  if (PB.held) phoneMagicHeld();
 }
 addEventListener("resize", () => phoneMagicFit());
 // how far down the box reaches, from the box's top: its own foot, the bottom
@@ -7993,12 +8108,17 @@ function phoneMagicClose(){
 // drawer's own gesture, which then takes the drawer from whichever side it
 // stands on: the left edge's strip the card list, the right edge's the box. on
 // a card with no box the drawer stays on the left, and a pull from the right
-// edge brings nothing out but dips the card, as the key does there (edgeDip)
+// edge brings nothing out but dips the card, as the key does there (edgeDip).
+// on a card whose box is not ready (phoneMagicReady) the drawer stays on the
+// left too, so it never comes out tall and blank, and the pull holds the box
+// to come out once it is (edgeDip). a touch anywhere but the right edge lets a
+// held box go
 for (const type of ["touchstart", "mousedown"]) addEventListener(type, e => {
   const at = e.touches ? e.touches[0] : e;
   if (!at || (type === "mousedown" && e.button !== 0)) return;
+  if (at.clientX < innerWidth - MAGIC_EDGE) PB.held = false;
   if (at.clientX <= MAGIC_EDGE) drawerFace(false);
-  else if (at.clientX >= innerWidth - MAGIC_EDGE) drawerFace(!!phoneMagicCard());
+  else if (at.clientX >= innerWidth - MAGIC_EDGE) drawerFace(phoneMagicReady());
   if (type === "touchstart") edgeDipUntil = Infinity;
   if (type === "touchstart" || !(e.timeStamp <= edgeDipUntil)) edgeDipBegin(at, e);
 }, { capture: true, passive: true });
@@ -8007,16 +8127,21 @@ for (const type of ["touchstart", "mousedown"]) addEventListener(type, e => {
 // across than down. a tap at the edge, a pull that goes down or rightwards, a
 // card with a box (the drawer comes out), a press on the typing row or with a
 // menu out, and the left edge's pull dip nothing. the mouse follows the same
-// rule, and the mouse events a touch leaves behind are let be
+// rule, and the mouse events a touch leaves behind are let be. the same swipe
+// on a card whose box is not ready yet dips nothing and holds the box instead
 let edgeDip = null, edgeDipUntil = -Infinity;
 const edgeDipBegin = (at, e) => {
-  edgeDip = at.clientX >= innerWidth - MAGIC_EDGE && !homeOpen && shownId && !phoneMagicCard()
+  edgeDip = at.clientX >= innerWidth - MAGIC_EDGE && !homeOpen && shownId && !phoneMagicReady()
     && !menuOut() && !e.target?.closest?.(".bottombar") ? { x: at.clientX, y: at.clientY } : null;
 };
 const edgeDipMove = at => {
   if (!edgeDip) return;
   const dx = edgeDip.x - at.clientX, dy = Math.abs(at.clientY - edgeDip.y);
-  if (dx >= 6 && dx > dy){ edgeDip = null; cardNudge(); }
+  if (dx >= 6 && dx > dy){
+    edgeDip = null;
+    if (phoneMagicCard()){ PB.held = true; phoneMagicHeld(); }
+    else cardNudge();
+  }
   else if (dy >= 6 && dy > Math.abs(dx)) edgeDip = null;
 };
 addEventListener("touchmove", e => { if (e.touches[0]) edgeDipMove(e.touches[0]); }, { passive: true });
@@ -8032,11 +8157,19 @@ addEventListener("mouseup", () => { edgeDip = null; }, { passive: true });
 // types nothing, and coming out takes the caret out of its box (runMenu). on
 // a card with no box the period types nothing either (left alone, the phone
 // types a period into the reply box and corrects the word before it), and
-// the card dips and comes back up, so the press is seen to have been heard
+// the card dips and comes back up, so the press is seen to have been heard.
+// on a card whose box is not ready yet the period holds the box, which comes
+// out once it is (phoneMagicHeld, which comes through here with no key), and
+// the period again lets it go
 let drawerSwap = 0;
 function drawerKey(e, box){
-  e.preventDefault();
+  if (e) e.preventDefault();
   if (box && !phoneMagicCard()){ cardNudge(); return; }
+  if (!box) PB.held = false;
+  else if (!phoneMagicReady() && !(menuOut() === tickets && tickets.classList.contains("boxface"))){
+    PB.held = !PB.held;
+    return;
+  }
   const swap = ++drawerSwap, same = tickets.classList.contains("boxface") === box;
   if (menuOut() === tickets){ if (same) closeDrawer(); else drawerSwapFace(box, swap); return; }
   if (same || !listMoving()){ drawerFace(box); showMenu(tickets); return; }
@@ -8046,7 +8179,7 @@ function drawerKey(e, box){
   const moving = [tickets, tikwin, cardPane].flatMap(el => el.getAnimations())
     .filter(a => a.transitionProperty === "transform" || a.id === "list-run");
   Promise.all(moving.map(a => a.finished.catch(() => {}))).then(() => {
-    if (swap !== drawerSwap || menuOut() === tickets || listMoving() || (box && !phoneMagicCard())) return;
+    if (swap !== drawerSwap || menuOut() === tickets || listMoving() || (box && !phoneMagicReady())) return;
     drawerFace(box);
     showMenu(tickets);
   });
@@ -8159,17 +8292,25 @@ function drawerSwapFirstFrame(playing){
 }
 // the page's own script, reached through the names it already has: every
 // reading, every card put on show or taken off it, the cards button, which
-// always brings the list, the drawer's drop, and the two drawer keys, with the
+// always brings the list and lets a held box go, the building of the cards
+// near the one on show, which fetches their boxes (phoneMagicAhead) unless it
+// waits out a pull, the drawer's drop, and the two drawer keys, with the
 // drawers shut and with one out. out for the box, the drop leaves the card as
 // far under the box's bottom edge (phoneMagicFoot) as the list leaves it under
 // the list's own foot: the drawer's spare under that, and the list's air
 // (--list-air, by which the list reaches past the drawer's foot) given back
 {
   const applyReading = apply, selectCard = select, deselectCard = deselect, openList = openDrawer, listSpare = listSlack;
+  const buildCards = reachCards;
   apply = function(state){ applyReading(state); phoneMagicSync(); };
   select = function(id, opts){ selectCard(id, opts); phoneMagicSync(); };
   deselect = function(){ deselectCard(); phoneMagicSync(); };
-  openDrawer = function(){ drawerFace(false); openList(); };
+  openDrawer = function(){ PB.held = false; drawerFace(false); openList(); };
+  reachCards = function(){
+    const later = !lastState || pullGoing();
+    buildCards();
+    if (!later) phoneMagicAhead();
+  };
   // how much further than its air a full list's window reaches down, so its foot
   // stands GAP_BELOW.list of the gap above over the card (place, under): a bottom
   // margin on the list itself, the sheet's own (--list-air) and this further
