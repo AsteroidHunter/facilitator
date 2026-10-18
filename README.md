@@ -61,7 +61,7 @@ facilitator update
 ## What leaves your Mac
 
 - Once a day, counts about the day before: messages sent, cards made and closed, projects added, agent replies and phone app openings, with the app version and the main macOS version number, under a random id made for your install. Never a word you typed, a card title, a folder or a path.
-- Your profile (the email you give when you set up, your name, what you use Facilitator for, your main agent and your time zone) goes only after you have given an email, and only while the daily counts switch is on.
+- Your profile (the email you give when you set up, your name, what you use Facilitator for and your time zone) goes only after you have given an email, and only while the daily counts switch is on.
 - The switch is "Share daily usage counts" in Settings, under Improvements. With it off, nothing leaves your Mac, except feedback you send.
 - Feedback is the one thing sent with words: a message you write in the feedback box in Settings, under Improvements, goes with your name and email only when you press send, after three seconds in which you can cancel.
 - Nothing you type into a card or the magic box is ever sent.

@@ -7,7 +7,7 @@ Once a day the board sends one message of counts about the day before to the Fac
 What leaves the Mac, exactly:
 
 - Every used day, unless the switch is off: one message of counts, the app version and the main macOS version number, under the install id. Never a word anybody typed, a name, a card title, a folder or a path.
-- Only after a yes to feedback emails (an email given, in the onboarding or in Settings, Profile; there is no switch for it), and only while the "Share daily usage counts" switch is on: your email, name, what you will mostly use Facilitator for, your main agent and your time zone, each only if given. They go once, at the yes; after that, an answer you change goes again on its own, and one you clear is removed there.
+- Only after a yes to feedback emails (an email given, in the onboarding or in Settings, Profile; there is no switch for it), and only while the "Share daily usage counts" switch is on: your email, name, what you will mostly use Facilitator for and your time zone, each only if given. They go once, at the yes; after that, an answer you change goes again on its own, and one you clear is removed there.
 - Taking the yes back, by clearing the email in Settings, Profile, sends nothing more, and the Mac forgets your email and answers; what PostHog already holds stays there. A later yes sends them all again.
 - With the switch off nothing leaves, the profile included, except a message you write in the feedback box and send.
 - Without the yes, the profile never leaves the Mac.
