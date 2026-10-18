@@ -5009,9 +5009,12 @@ def _get_upload(q: Query, _):
         p = base / fn
         if p.is_file() and p.resolve().parent == base.resolve() and p.suffix.lower() in UPLOAD_TYPES:
             disposition = "attachment" if q.one("download") == "1" or p.suffix.lower() in (".doc", ".docx") else "inline"
+            # the name starts with a unique timestamp and the file never changes,
+            # so the browser may keep it for good; private keeps shared caches out
             return FileResponse(p, media_type=UPLOAD_TYPES[p.suffix.lower()], filename=re.sub(r"^\d{13,19}-", "", fn),
                                 content_disposition_type=disposition,
-                                headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                                headers={"Cache-Control": "private, max-age=31536000, immutable",
+                                         "X-Content-Type-Options": "nosniff",
                                          "Content-Security-Policy": "sandbox"})
     return 404, {"error": "not found"}
 
