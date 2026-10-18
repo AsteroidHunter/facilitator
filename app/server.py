@@ -636,6 +636,45 @@ Endpoints:
                                last answer cannot push the answers out of the
                                window, and the live page is left out by the
                                card's own record rather than by matching text
+  GET  /search?q=WORDS[&lane=L][&section=S][&from=A][&to=B][&date=D][&sort=O]
+              [&mode=M][&prefix=1][&limit=N][&offset=K]
+                            -> the cards that match, best first, from the
+                               search index card_search.py keeps: {mode, q,
+                               results, total, limit, offset, index, ms}, with
+                               words (all or any) when the words were searched
+                               and fallback when the mode asked for could not
+                               be had, saying why. Each result is {card, title,
+                               lane, section, created, changed, score, mode,
+                               ranks: {keyword, semantic}, similarity, match:
+                               {kind, message, ts, snippet, marks}}: marks are
+                               the [start, end] of each matched word in the
+                               snippet, which is plain text. q searches every
+                               card's title and every user, agent, note and
+                               progress message; with no words the answer
+                               lists the cards the filters allow, newest
+                               first. lane and section (doing, docked,
+                               deferred, done, bin) may repeat or be comma
+                               separated; the Bin is searched only when named.
+                               from and to are a day (YYYY-MM-DD, in this Mac's
+                               time zone, to taking the whole day), an ISO
+                               8601 time or seconds, on when cards were made
+                               (date=created, the default), last changed
+                               (changed) or on the messages' own times
+                               (message). sort is relevance (with words),
+                               created or changed. mode is auto (hybrid when
+                               the model is ready, keyword when not), keyword,
+                               semantic or hybrid; prefix=1 lets the last word
+                               match the start of longer ones. limit is 1 to
+                               100 (20), offset up to 200. Times are seconds.
+                               A bad request is a 400 that never repeats what
+                               it asked, and a board without card_search.py,
+                               or whose index could not start, answers 503
+  GET  /search/status       -> {ready, building, keyword: fts5|like, cards,
+                               binned, messages, chunks, file, semantic: {state:
+                               off|loading|ready|unavailable, reason, backend,
+                               model, dims, embedded, waiting}}: whether the
+                               index is built and current, what it holds, and
+                               where the search by meaning stands and why
   GET  /log?lines=N         -> tail of the day's server log file, the dated one
                                in data/logs/;
                                $FACILITATOR_LOG names another file instead
@@ -797,7 +836,9 @@ its own agent). Each owner has its own busy/claim slot and listener-presence
 tracking, so the lanes drain the same board without blocking each other.
 
 State persists to state.json next to this file; every send/reply also appends
-to transcript.jsonl so the discussion survives anything. The desktop pages'
+to transcript.jsonl so the discussion survives anything. search-index.sqlite
+beside them is built from those two by a thread of its own (card_search.py)
+and may be deleted at any time: the board builds it again. The desktop pages'
 settings and the Spotify sign-in persist to settings.json beside it. A first-ever start
 (no state.json) seeds the board title and boxes from seed.json if present;
 the shipped seed.example.json holds a title and no boxes, so a new install
@@ -2938,6 +2979,12 @@ def _commit_side_effects() -> None:
             _magic_sweep(bid)
         except Exception as e:
             _side_effect_failure("magicsweepfail", bid, reason=type(e).__name__)
+    # the search index reads what this save installed, on its own thread
+    if _card_search is not None:
+        try:
+            _card_search.wake()
+        except Exception as e:
+            _side_effect_failure("searchwakefail", reason=type(e).__name__)
 
 
 def _discard_side_effects() -> None:
@@ -4859,6 +4906,80 @@ def _get_history(q: Query, _):
                  "replyMeta": meta[-HISTORY_MAX:] if meta else []}
 
 
+# ---- card search ------------------------------------------------------------------
+# The search over every card and message (GET /search) answers from an index
+# that card_search.py keeps beside state.json, on a thread of its own: each save
+# wakes it (_commit_side_effects), and it reads the board through _search_cards
+# below, the only place it takes the lock. run.config.json's "search" entry
+# names the model that searches by meaning, when there is one (docs/search.md),
+# and its optional packages may sit in SEARCH_PACKAGES, which an update's sync of
+# requirements.txt leaves alone. card_search.py is imported only here, so a copy
+# of the board without it, as the tests' fixtures make, runs as it always did.
+SEARCH_INDEX = DATA / "search-index.sqlite"
+SEARCH_PACKAGES = DATA / "search-packages"
+_card_search = None   # the one index, made at boot; the thread and the routes share it
+
+
+def _search_card(card: dict, section: str, binned) -> dict:
+    stamps = (card.get("docked_ts"), card.get("parked_ts"), card.get("done_ts"), binned)
+    return {"id": card.get("id"), "title": card.get("title", ""),
+            "lane": card.get("owner", "facilitator"), "section": section, "ts": card.get("ts", 0),
+            "stamp": max((s for s in stamps if isinstance(s, (int, float))), default=0)}
+
+
+def _search_cards() -> tuple[list, int]:
+    """What the search index reads of the board, in one held stretch of the
+    lock: each card on the board and in the Bin, and the transcript's size at
+    that moment. Every append to the transcript happens inside a save under
+    this same lock, so each row up to that size belongs to a card this reading
+    names, or to one deleted for good. A card's stamp is the latest time it
+    moved to its section or went into the Bin."""
+    with _lock:
+        try:
+            size = TRANSCRIPT_PATH.stat().st_size
+        except FileNotFoundError:
+            size = 0
+        cards = [_search_card(b, _section_name(b), None) for b in _state["boxes"]]
+        entries = _state.get("bin")
+        for e in entries if isinstance(entries, list) else ():
+            if isinstance(e, dict) and isinstance(e.get("card"), dict):
+                cards.append(_search_card(e["card"], "bin", e.get("ts")))
+    return cards, size
+
+
+def _start_card_search() -> None:
+    global _card_search
+    try:
+        import card_search
+    except Exception:
+        return   # not installed, or not loadable: the board runs on without search
+    try:
+        config = json.loads((DATA / "run.config.json").read_text()).get("search")
+    except Exception:
+        config = None
+    try:
+        index = card_search.Index(SEARCH_INDEX, TRANSCRIPT_PATH, _search_cards,
+                                  row_text=_row_reply_full, is_boundary=_is_reply_schema_boundary,
+                                  config=config, packages=SEARCH_PACKAGES, log=_info)
+        threading.Thread(target=index.run, args=(_STOPPING,), name="card-search", daemon=True).start()
+    except Exception as e:
+        _error("searchfail", step="start", reason=type(e).__name__)
+        return
+    _card_search = index
+
+
+def _get_search(q: Query, _):
+    if _card_search is None:
+        return 503, {"error": "search is not running on this board"}
+    return _card_search.search(q)
+
+
+def _get_search_status(q: Query, _):
+    if _card_search is None:
+        return 503, {"error": "search is not running on this board"}
+    return 200, _card_search.status()
+
+
 def _get_log(q: Query, _):
     try:
         n = int(q.one("lines", "120"))
@@ -5974,6 +6095,7 @@ PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.json
                  "claude-limits.json.tmp", "usage-counts.json", "usage-counts.json.tmp",
                  "usage-install.json", "usage-install.json.tmp", "usage-phone.json", "usage-phone.json.tmp",
                  "profile.json", "profile.json.tmp",
+                 "search-index.sqlite", "search-index.sqlite-wal", "search-index.sqlite-shm",
                  "server.lock")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
 
@@ -6855,6 +6977,13 @@ def _post_bin(q: Query, text: str):
         return 200, {"ok": True, "box": bid, "rev": _state["rev"]}
 
 
+def _section_name(card: dict) -> str:
+    """The section a card is in, by its flags: the one rule the Bin's list and
+    the search index both read it by."""
+    return ("done" if card.get("done") else "deferred" if card.get("parked")
+            else "docked" if card.get("docked") else "doing")
+
+
 def _get_bin(q: Query, _):
     """The Bin, newest first: each card's id, title, owner, the section it
     left and when it went in, with when it is deleted for good."""
@@ -6864,8 +6993,7 @@ def _get_bin(q: Query, _):
             c = e["card"]
             cards.append({"id": c["id"], "title": c.get("title", ""),
                           "owner": c.get("owner", "facilitator"),
-                          "section": ("done" if c.get("done") else "deferred" if c.get("parked")
-                                      else "docked" if c.get("docked") else "doing"),
+                          "section": _section_name(c),
                           "ts": e.get("ts", 0), "until": e.get("ts", 0) + BIN_KEEP})
         return 200, {"cards": cards, "keepDays": BIN_KEEP_DAYS}
 
@@ -8566,6 +8694,8 @@ ROUTES = [
     Route("/fresh", _state_endpoint(_get_fresh), methods=["GET"]),
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
+    Route("/search", _endpoint(_get_search), methods=["GET"]),
+    Route("/search/status", _endpoint(_get_search_status), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
     Route("/limits", _endpoint(_get_limits), methods=["GET"]),
@@ -9149,6 +9279,7 @@ def main() -> None:
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
         _start_usage_counts()
+        _start_card_search()
         threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
         server.run(sockets=[sock, bridge_sock])
     except Exception as error:
