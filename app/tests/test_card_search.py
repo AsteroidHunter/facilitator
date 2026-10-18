@@ -594,7 +594,7 @@ class Semantic(Case):
         b.row("user", "m1", "my car broke down on the motorway", ts=day(2026, 9, 2))
         b.row("user", "m2", "renew the automobile cover before it lapses", ts=day(2026, 9, 3))
         b.row("user", "m3", "order more printer paper", ts=day(2026, 9, 4))
-        self.fake = S.FakeEmbedder(dims=1024)   # wide, so few words share a bucket by chance
+        self.fake = S.FakeEmbedder(dims=1024)   # wide, so unrelated words stay far apart
         self.ix = self.index(embedder=self.fake)
         self.ix.catch_up()
         self.ix._load_model()
@@ -729,6 +729,17 @@ class Vectors(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "wrong shape"):
             S._unit(numpy, [[1.0] * 4], 8)
         self.assertEqual(S._unit(numpy, [[0.0] * 8], 8).tolist(), [[0.0] * 8])
+
+    def test_the_fake_model_keeps_unrelated_words_apart(self):
+        # a thousand words that share nothing with the query, against one
+        # filed under the same concept: the stand-in for meaning must not be
+        # drowned by chance likeness, as a board of many words would show
+        fake = S.FakeEmbedder(dims=256)
+        query = S._unit(numpy, fake.embed([S.QUERY_PREFIX + "automobile"]), 256)[0]
+        others = S._unit(numpy, fake.embed([f"word{n}" for n in range(1000)]), 256)
+        self.assertLess(float(numpy.abs(others @ query).max()), 0.35)
+        car = S._unit(numpy, fake.embed([S._document("Errands", "my car")]), 256)[0]
+        self.assertGreater(float(car @ query), 0.5)
 
     def test_rows_are_replaced_dropped_and_packed(self):
         v = S.Vectors(numpy, 4)

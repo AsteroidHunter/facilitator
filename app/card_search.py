@@ -44,6 +44,7 @@ sync of requirements.txt leaves alone.
 from __future__ import annotations
 
 import collections
+import functools
 import hashlib
 import json
 import math
@@ -455,17 +456,29 @@ def _unprefixed(text: str) -> str:
     return text
 
 
+@functools.lru_cache(maxsize=8192)
+def _fake_direction(word: str, dims: int):
+    np = _numpy()
+    seed = int.from_bytes(hashlib.blake2b(word.encode(), digest_size=8).digest(), "big")
+    direction = np.random.default_rng(seed).standard_normal(dims).astype(np.float32)
+    direction.setflags(write=False)
+    return direction
+
+
 class FakeEmbedder(Embedder):
     """A stand-in model for the tests, and for trying the semantic half on a
-    scratch board: each word, or the concept FAKE_CONCEPTS files it under,
-    adds one to a bucket picked by its hash, so two texts are near when they
-    share words or concepts, and that is all it knows. It reads past the
-    prefixes the way the real model does, and keeps the last texts it was
-    handed, so a test can see what reached it."""
+    scratch board. Each word, or the concept FAKE_CONCEPTS files it under,
+    stands for a direction of its own, random but the same on every run, and
+    a text is the sum of its words' directions. Two texts are near when they
+    share words or concepts and nearly unrelated otherwise, since random
+    directions in this many dimensions are close to perpendicular; that is
+    all it knows of meaning. It reads past the prefixes the way the real model
+    does, and keeps the last texts it was handed, so a test can see what
+    reached it."""
 
     backend = "fake"
 
-    def __init__(self, model: str = "fake", dims: int = 64, concepts: dict | None = None,
+    def __init__(self, model: str = "fake", dims: int = 256, concepts: dict | None = None,
                  delay: float = 0.0) -> None:
         super().__init__(model, dims)
         self.concepts = FAKE_CONCEPTS if concepts is None else concepts
@@ -480,9 +493,7 @@ class FakeEmbedder(Embedder):
         out = np.zeros((len(texts), self.dims), np.float32)
         for row, text in enumerate(texts):
             for word in _WORD.findall(_unprefixed(text).lower()):
-                word = self.concepts.get(word, word)
-                digest = hashlib.blake2b(word.encode(), digest_size=4).digest()
-                out[row, int.from_bytes(digest, "big") % self.dims] += 1.0
+                out[row] += _fake_direction(self.concepts.get(word, word), self.dims)
         return out
 
 
