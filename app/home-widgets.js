@@ -78,7 +78,7 @@
   const LINE = "#E0592B";                       // the daily line, dotted and faint
   const AVG_LINE = PALETTE[4];                  // the 7-day average, solid, a shade deeper
   const DAILY_DASH = "0 5";                     // round dots 5px apart
-  const DAILY_ALPHA = 0.7;                      // the daily line's opacity, the average's stays full
+  const DAILY_ALPHA = 1;                        // the daily line's opacity, the average's stays full
   const YEAR = 365, AVG = 7;
   // the panel asks for the year and the six days before it, so the line's
   // first average is a whole week's like every other

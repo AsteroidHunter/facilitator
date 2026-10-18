@@ -317,7 +317,7 @@ test("the line draws each day's total solid and the trailing seven-day average d
   assert.doesNotMatch(solid[3], /dasharray|opacity/, "the average is solid and fully opaque");
   assert.ok(svg.includes(`class="tk-path" d="${path}" fill="none" stroke="${W.LINE}" ` +
                          `stroke-opacity="${W.DAILY_ALPHA}" stroke-dasharray="${W.DAILY_DASH}"`));
-  assert.equal(W.DAILY_ALPHA, 0.7, "the daily line is at 70% opacity");
+  assert.equal(W.DAILY_ALPHA, 1, "the daily line is at 100% opacity");
   assert.ok(W.PALETTE.includes(W.AVG_LINE));
   for (const c of [W.LINE, W.AVG_LINE]) assert.ok(hsl(c).h >= 8 && hsl(c).h <= 30, `${c} is the same warm family`);
   assert.doesNotMatch(svg, /linearGradient|tk-area/, "no fill under the line");
