@@ -6488,6 +6488,11 @@ function makeBox(b, i, state){
       noteTyping(ta);
       draftSave(b.id);   // kept on this Mac as it is typed (card-logic.js)
     });
+    // a focus moves no scroll inside the field, so a caret put at the end of a
+    // draft past the cap by the keys (Enter, Tab, the place keys, a draft just
+    // restored) would stand out of sight: the rule above is asked once more a
+    // frame later, after a click has put the caret where it fell
+    ta.addEventListener("focus", () => requestAnimationFrame(tick));
     // a click into the composer or a key typed there is using the card
     readOnCompose(ta, b.id, useCard);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
