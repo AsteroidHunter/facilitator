@@ -59,8 +59,10 @@ function world({ editor = false, open = true, typing = true } = {}) {
   };
   const MB = { el, id: "c1" };
   const listeners = {};
+  // no response piped out beside the card, so the key is the box's (pipeJump
+  // is read in piped-reply-unit.test.cjs)
   const sandbox = {
-    MB, els, document: doc, shownId: "c1", draft: false,
+    MB, els, document: doc, shownId: "c1", draft: false, pipeJump: () => false,
     boardResponseCard: () => sandbox.card, card: { id: "c1", el: els.c1 },
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
   };
