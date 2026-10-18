@@ -3364,22 +3364,36 @@ def _card_prop(card: dict, name: str) -> dict | None:
 
 
 def _card_times(bid: str, owner: str, ts) -> tuple:
-    """When one card was made and when it last changed, read from the
-    transcript each time they are asked for. Made is the card's create row. A
-    card made without one, as a new project's first card is (the row is the
-    project's) and the seed's cards are, takes the earliest record of it there
-    is: its lane's project row, its own first row or its ts. Last changed is
-    its newest row, or its ts if that is later. An id an older board handed out
-    again after a deletion starts over there, since the rows before are another
-    card's. Either is None only for a card the board has no time for at all."""
-    created = first = newest = project = None
-    # only lines naming the card or its lane are read whole: each name as a
-    # row writes it, quotes and all
-    marks = (json.dumps(bid), json.dumps(owner))
+    """When one card was made and when it last changed (see _cards_times)."""
+    return _cards_times([(bid, owner, ts)])[bid]
+
+
+# the card or lane a transcript row is about, as the row writes it, quotes and
+# all: its box comes before its text, so the first box in a line is the row's
+ROW_BOX = re.compile(r'"box"\s*:\s*("(?:[^"\\]|\\.)*")')
+
+
+def _cards_times(cards: list) -> dict:
+    """When each of several cards was made and when it last changed, read from
+    the transcript in one pass each time they are asked for. cards holds
+    (id, owner, ts) for each; the answer maps each id to (made, changed). Made
+    is the card's create row. A card made without one, as a new project's first
+    card is (the row is the project's) and the seed's cards are, takes the
+    earliest record of it there is: its lane's project row, its own first row
+    or its ts. Last changed is its newest row, or its ts if that is later. An
+    id an older board handed out again after a deletion starts over there,
+    since the rows before are another card's. Either is None only for a card
+    the board has no time for at all."""
+    seen = {bid: [None, None, None] for bid, _, _ in cards}   # created, first, newest
+    owners = {owner for _, owner, _ in cards}
+    project = {}   # lane -> the time of its project row
+    # only lines about one of the cards or their lanes are read whole
+    marks = {json.dumps(name) for name in (*seen, *owners)}
     try:
         with TRANSCRIPT_PATH.open(errors="replace") as transcript:
             for line in transcript:
-                if not any(mark in line for mark in marks):
+                named = ROW_BOX.search(line)
+                if named is None or named.group(1) not in marks:
                     continue
                 try:
                     event = json.loads(line)
@@ -3388,24 +3402,31 @@ def _card_times(bid: str, owner: str, ts) -> tuple:
                 if not isinstance(event, dict) or not _a_time(event.get("ts")):
                     continue
                 row, kind, at = event.get("box"), event.get("kind"), event["ts"]
-                if row == owner and kind == "project":
-                    project = at
-                if row != bid:
+                if not isinstance(row, str):
+                    continue
+                if row in owners and kind == "project":
+                    project[row] = at
+                times = seen.get(row)
+                if times is None:
                     continue
                 if kind in ("delete", "expire"):
-                    created = first = newest = None
+                    times[:] = [None, None, None]
                     continue
                 if kind == "create":
-                    created = at
-                first = at if first is None else first
-                newest = at if newest is None else max(newest, at)
+                    times[0] = at
+                times[1] = at if times[1] is None else times[1]
+                times[2] = at if times[2] is None else max(times[2], at)
     except FileNotFoundError:
         pass
-    own = ts if _a_time(ts) else None
-    made = created if created is not None else min(
-        (t for t in (project, first, own) if t is not None), default=None)
-    changed = max((t for t in (newest, own) if t is not None), default=None)
-    return made, changed
+    answer = {}
+    for bid, owner, ts in cards:
+        created, first, newest = seen[bid]
+        own = ts if _a_time(ts) else None
+        made = created if created is not None else min(
+            (t for t in (project.get(owner), first, own) if t is not None), default=None)
+        changed = max((t for t in (newest, own) if t is not None), default=None)
+        answer[bid] = (made, changed)
+    return answer
 
 
 def _ws(owner: str, wid: str) -> dict | None:
@@ -7072,6 +7093,41 @@ def _get_links(q: Query, _):
                      "links": links, "backlinks": back}
 
 
+def _get_links_all(q: Query, _):
+    """Every link on the board and every card at either end of one, in one
+    reading, for the page that draws them: links oldest first, each {from, to,
+    ts, agent}, and the cards in board order, each with its properties as
+    /props reads them. What the cards keep is read under the lock and their
+    times from the transcript after it, in one pass for them all. A link with
+    a card in the Bin at either end is in no reading, as on /links, and comes
+    back with a restore. now is the board's clock, for the page's today."""
+    with _lock:
+        board = {card["id"] for card in _state["boxes"]}
+        links, touched = [], set()
+        for card in _state["boxes"]:
+            for link in _card_links(card):
+                if link["to"] not in board:
+                    continue
+                ts, agent = link.get("ts", 0), link.get("agent", "")
+                links.append({"from": card["id"], "to": link["to"], "ts": ts if _a_time(ts) else 0,
+                              "agent": agent if isinstance(agent, str) else ""})
+                touched.update((card["id"], link["to"]))
+        heads = []
+        for card in _state["boxes"]:
+            if card["id"] not in touched:
+                continue
+            head = {"id": card["id"], "title": card.get("title", ""),
+                    "owner": card.get("owner", "facilitator"), "section": _section_name(card)}
+            props = {name: _card_prop(card, name) for name in CARD_PROPS}
+            heads.append((head, props, card.get("ts")))
+        now = time.time()
+    times = _cards_times([(head["id"], head["owner"], ts) for head, _, ts in heads])
+    cards = [{**head, "made": times[head["id"]][0], "changed": times[head["id"]][1], **props}
+             for head, props, _ in heads]
+    links.sort(key=lambda link: link["ts"])   # stable, so a tie keeps board order
+    return 200, {"now": now, "cards": cards, "links": links}
+
+
 def _get_props(q: Query, _):
     """One card's properties (see card properties). What the card keeps is read
     under the lock and its two times from the transcript after it, as /thread
@@ -9088,6 +9144,7 @@ ROUTES = [
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
     Route("/links", _endpoint(_get_links), methods=["GET"]),
+    Route("/links/all", _endpoint(_get_links_all), methods=["GET"]),
     Route("/props", _endpoint(_get_props), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
