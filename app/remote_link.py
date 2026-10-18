@@ -146,9 +146,10 @@ def _write_private(path: Path, text: str) -> None:
 
 class Store:
     """data/remote/: servers.json, the servers `remote add` saved, each
-    {id, name, dest, home, python, join, added} with join the SHA-256 of the
-    server's join key; and keys.json, {lanes: {lane: {hash, server, ts}}},
-    the one agent key each server lane has, by its SHA-256. Both owner-only."""
+    {id, name, dest, home, top, python, join, added}, with top the home with
+    its links followed and join the SHA-256 of the server's join key; and
+    keys.json, {lanes: {lane: {hash, server, ts}}}, the one agent key each
+    server lane has, by its SHA-256. Both owner-only."""
 
     def __init__(self, data: Path):
         self.dir = Path(data) / "remote"
@@ -466,6 +467,7 @@ def program_text(op: str, *args) -> bytes:
 # the helper and the program above will run on
 PROBE = r'''
 printf 'home=%s\n' "$HOME"
+printf 'real=%s\n' "$(cd "$HOME" 2>/dev/null && pwd -P)"
 printf 'system=%s\n' "$(uname -s 2>/dev/null)"
 py="$(command -v python3 2>/dev/null)"
 printf 'python=%s\n' "$py"
@@ -580,7 +582,11 @@ def probe(dest: str) -> dict:
     if not found.get("python") or (major, minor) < (3, 7):
         raise Problem(f"{dest} has no python3 of 3.7 or newer on the path a login gets.",
                       "The agent's helper and the folder listing run on it. Install python3 there, then run this again.")
-    return {"home": home.rstrip("/") or "/", "system": found.get("system", ""), "python": found["python"]}
+    # the home with its links followed, which is how the folder listing and
+    # the helper name every path there; the socket is made under home itself
+    real = found.get("real", "")
+    return {"home": home.rstrip("/") or "/", "top": real if real.startswith("/") else home.rstrip("/") or "/",
+            "system": found.get("system", ""), "python": found["python"]}
 
 
 def install(dest: str, rec: dict, join_key: str, clone: Path) -> dict:
@@ -841,7 +847,8 @@ class Remote:
             links = dict(self.links)
         out = []
         for sid, link in sorted(links.items()):
-            home = link.rec["home"]
+            # the real home, as the listing names its paths
+            home = link.rec.get("top") or link.rec["home"]
             out.append({"id": sid, "name": link.rec["name"], "kind": "server", "online": link.up,
                         "top": home, "home": home, "sep": "/",
                         "places": [{"id": "home", "name": home.rstrip("/").rsplit("/", 1)[-1] or home,

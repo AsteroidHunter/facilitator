@@ -2095,8 +2095,8 @@ def remote_add(words):
         while sid in taken:
             sid, n = f"{base}-{n}", n + 1
     join_key = remote_link.new_key()
-    rec = {"id": sid, "name": shown, "dest": dest, "home": found["home"], "python": found["python"],
-           "join": remote_link.digest(join_key), "added": round(time.time())}
+    rec = {"id": sid, "name": shown, "dest": dest, "home": found["home"], "top": found["top"],
+           "python": found["python"], "join": remote_link.digest(join_key), "added": round(time.time())}
     try:
         answer = remote_link.install(dest, rec, join_key, CLONE)
     except remote_link.Problem as failed:
@@ -2129,6 +2129,10 @@ def remote_add(words):
         else:
             print(f"⚠ The link to {shown} is not up yet ({link.get('reason', 'starting')}). "
                   "The board keeps trying; facilitator remote list shows it.")
+            if link.get("reason") == "forward refused":
+                print(f"  The ssh server on {shown} refused to forward the link's socket. It needs")
+                print("  AllowStreamLocalForwarding and AllowTcpForwarding left on in its sshd_config")
+                print("  (both are on unless changed), and the latter at least \"remote\".")
     print()
     print(f"Next: on the board, Open a new folder and choose {shown} to pick a folder there.")
     print("Then start your agent in that folder on the server and ask it to onboard.")
@@ -2149,6 +2153,8 @@ def remote_list():
     for s in servers:
         state = "link up" if s.get("up") else f"link down ({s.get('reason') or 'starting'})"
         print(f"{s['name']}  {s['dest']}  {state}")
+        if s.get("reason") == "forward refused":
+            print("  its ssh server needs AllowStreamLocalForwarding and AllowTcpForwarding on")
 
 
 def remote_remove(named):

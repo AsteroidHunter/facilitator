@@ -111,6 +111,7 @@ class RemoteCommand(unittest.TestCase):
         saved = self.servers()
         self.assertEqual([(s["id"], s["name"], s["dest"]) for s in saved],
                          [("lab-example-org", "lab.example.org", "you@lab.example.org")])
+        self.assertEqual((saved[0]["home"], saved[0]["top"]), (str(self.home), str(self.home)))
         self.assertNotIn(self.join_key(), (self.data / "remote" / "servers.json").read_text())
         code, listed = self.cli("remote", "list")
         self.assertEqual(code, 0)
@@ -118,6 +119,15 @@ class RemoteCommand(unittest.TestCase):
         # the login is BatchMode every time
         for line in self.log.read_text().splitlines():
             self.assertIn("BatchMode=yes", line)
+
+    def test_a_home_reached_through_a_link_is_kept_with_its_real_path(self):
+        real = self.root / "real-home"
+        self.home.rename(real)
+        self.home.symlink_to(real)
+        code, said = self.cli("remote", "add", "you@lab")
+        self.assertEqual(code, 0, said)
+        saved = self.servers()[0]
+        self.assertEqual((saved["home"], saved["top"]), (str(self.home), str(real)))
 
     def test_a_skill_name_already_in_use_is_left_and_named(self):
         mine = self.home / ".claude" / "skills" / "facilitator"

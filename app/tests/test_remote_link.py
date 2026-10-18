@@ -157,6 +157,15 @@ class Keys(unittest.TestCase):
         self.assertIsNone(self.remote.lane_of(first))
         self.assertEqual(self.remote.lane_of(second), ("demo", "lab"))
 
+    def test_a_server_is_listed_for_the_picker_at_its_real_home(self):
+        recs = self.remote.store.servers()
+        self.remote.store.save_servers([{**recs[0], "home": "/home/you", "top": "/data/home/you"}])
+        self.remote.reload()
+        machine = self.remote.machines()[0]
+        self.assertEqual((machine["id"], machine["kind"], machine["online"]), ("lab", "server", False))
+        self.assertEqual((machine["top"], machine["home"]), ("/data/home/you", "/data/home/you"))
+        self.assertEqual(machine["places"], [{"id": "home", "name": "you", "path": "/data/home/you"}])
+
     def test_a_removed_servers_keys_go(self):
         key = self.remote.mint("demo", "lab")
         self.remote.store.save_servers([])
