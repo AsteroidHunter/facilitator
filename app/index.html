@@ -10246,6 +10246,16 @@ async function fileNavPoll(){
   fileNavList();
 }
 fileNavPoll(); setInterval(fileNavPoll, FILENAV_POLL);
+// a reload or a closed window is one more way off a file, and the one way the
+// panel has no line of its own to answer with, so chrome's own question about
+// leaving the page asks it instead. unsaved work is unsaved wherever it is
+// held: in the open editor, or kept whole for a tab that has been left
+addEventListener("beforeunload", e => {
+  const open = !!fileNavView && !!fileNavOpen && fileNavView.state.sliceDoc() !== fileNavClean;
+  if (!open && !Object.values(fileNavKeep).some(k => k.state.sliceDoc() !== k.clean)) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 
 // the picture, clicked, grows out of the panel until it fills the screen over a
 // dark veil, and shrinks back into the panel on the next click outside it or on

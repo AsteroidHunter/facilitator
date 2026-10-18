@@ -507,6 +507,28 @@ test("a click on save leaves the keys in the file", async () => {
   }
 });
 
+test("leaving the page holds while a file has unsaved work", async () => {
+  const page = await mountedEditor("on disk");
+  try {
+    const leave = () => page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    assert.equal(await leave(), false, "a file with nothing typed in it held the page");
+    await setCursor(page, 7);
+    await page.keyboard.type(" and more");
+    assert.equal(await leave(), true, "unsaved work in the open file did not hold the page");
+    // kept for another tab: the panel is down, the work is not
+    await page.evaluate(() => fileNavTearDown(true));
+    assert.equal(await leave(), true, "unsaved work kept for another tab did not hold the page");
+    await page.evaluate(() => { fileNavKeep = {}; });
+    assert.equal(await leave(), false, "the page held with no unsaved work anywhere");
+  } finally {
+    await page.close();
+  }
+});
+
 test("block caret uses CodeMirror coordinates at a bullet gap", async () => {
   const source = [
     "- alpha",
