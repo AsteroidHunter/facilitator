@@ -27,9 +27,11 @@ const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const KEYBOARD = 336;                     // an iPhone keyboard with its accessory bar, in css px
 const ROW = "article.box.sel textarea";   // the card's typing row, whichever face it wears
+// tokens.py answers the home panel the pages warm at idle; the config below
+// turns its log folders off, so it reads nothing of the machine's own
 const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
                 "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
-                "index.html", "page.html"];
+                "index.html", "page.html", "tokens.py"];
 
 let browser = null;
 let child = null;
@@ -218,6 +220,7 @@ before(async () => {
   // the file navigator mounts only on the lanes a board names for it
   await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({
     compose_format_default: true, navigator_lanes: ["pastureland"],
+    token_logs: { claude: [], codex: [] },
   }));
   await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "compose formatting fixture",
