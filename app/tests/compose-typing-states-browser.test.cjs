@@ -89,3 +89,35 @@ test("the formatted row checks spelling, corrects and capitalises as the plain f
     }
   }
 });
+
+// ---- words the page writes into a row the reader is in -----------------------
+// A message taken back after a failed send, or a file's address, is written
+// into the row while the caret can still be in it. The span the caret is beside
+// shows its markers while the row is being typed in, so a Backspace there is
+// never taken out of sight; a row written into went on drawing them away.
+
+test("words written into the row under the caret keep the caret's markers on show", async () => {
+  const { page, problems } = await desktopRow("Words written under the caret");
+  try {
+    await lay(page, "draft");
+    await caretTo(page, 5);
+    // what taking a failed message back writes (sentBack in card-logic.js)
+    await page.evaluate(where => {
+      const row = document.querySelector(where);
+      row.value = row.value + "\n\ntaken **back**";
+    }, ROW);
+    await settle(150);
+    const read = await rowRead(page);
+    assert.equal(read.payload, "draft\n\ntaken **back**");
+    assert.equal(read.to, read.payload.length, "the caret did not go to the end of the words");
+    assert.deepEqual(read.strong, ["**back**"],
+      "the span beside the caret was drawn without its markers while the row was being typed in");
+    // and the next key takes the character the reader can see
+    await page.keyboard.press("Backspace");
+    await settle(120);
+    assert.equal(await payload(page), "draft\n\ntaken **back*");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});

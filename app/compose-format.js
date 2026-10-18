@@ -840,6 +840,10 @@
           if (text === view.state.doc.toString()) return;
           view.setState(freshState(field.C, field, text, text.length));
           field.edited = false;
+          // a fresh state starts asleep, as a row nobody is in should. the
+          // caret staying in it through the write is no focus event, so the
+          // layer is told here that the row is still being typed in
+          if (hasCaret(view)) view.dispatch({ effects: awakeEffect.of(true) });
         },
       },
       selectionStart: { get: () => view.state.selection.main.from },
