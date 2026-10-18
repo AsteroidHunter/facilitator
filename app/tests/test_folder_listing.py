@@ -8,20 +8,26 @@ What is proved:
             Linux keeps them; an unknown machine is refused.
   listing   one folder's own subfolders, sorted with numbers read as numbers,
             with their dates and counts; the trail from home down; home as ~.
+            A huge folder or a slow disk is read only so far and says so, a
+            folder on another disk is not counted, and past the turns the
+            board says it is busy.
   fence     nothing outside home, by .., by an absolute path or by a link,
             and a link out of home is not listed; a home reached through a
-            link is fenced the same.
+            link is fenced the same; another account's ~name is never looked
+            up; home written in other letters is outside; a link put in place
+            after the fence looked is not followed.
   hidden    dot folders and folders with the system's hidden flag stay out,
-            and a typed path through one is refused.
+            and a typed path through one is refused, and so is a link to one.
   typed     ~, a path relative to the folder on show, an absolute path; a
             missing folder and a file are refused in plain words that never
-            hold the path.
+            hold the path; a path past 4096 bytes is refused and a deep one
+            is answered at once.
   unread    a folder the board may not read answers unreadable, not an error;
             on macOS Desktop, Documents and Downloads are not read from home
             until the board has listed each one itself.
   mkdir     a new folder is made after its name is checked: empty, slash,
-            leading dot, control and reserved characters, length, a clash;
-            only inside home.
+            leading dot, control, invisible and reserved characters, length,
+            a clash; only inside home; at most so many in a minute.
   routes    /machines, /dirs and /mkdir are routes and /pickdir is gone.
 
     python3 -B -m unittest tests/test_folder_listing.py
@@ -31,6 +37,7 @@ pointing straight at it.
 """
 
 import atexit
+import fcntl
 import importlib.util
 import os
 import shutil
@@ -80,6 +87,15 @@ def Q(**kw):
     return q
 
 
+def _folder_of(p):
+    """The folder a path or an open folder's descriptor names."""
+    if not isinstance(p, int):
+        return Path(p)
+    if hasattr(fcntl, "F_GETPATH"):
+        return Path(fcntl.fcntl(p, fcntl.F_GETPATH, bytes(1024)).split(b"\0")[0].decode())
+    return Path(os.readlink(f"/proc/self/fd/{p}"))
+
+
 class FolderBase(unittest.TestCase):
     def setUp(self):
         self.outer = Path(tempfile.mkdtemp(prefix="facil-folders-")).resolve()
@@ -94,6 +110,7 @@ class FolderBase(unittest.TestCase):
         self._home = os.environ.get("HOME")
         os.environ["HOME"] = str(self.home)
         SERVER._folders_read.clear()
+        SERVER._folders_made.clear()
 
     def tearDown(self):
         if self._home is None:
@@ -196,6 +213,47 @@ class Listing(FolderBase):
             status, answer = self.dirs()
         self.assertEqual([d["name"] for d in answer["dirs"]], ["Desktop", "Documents", "Downloads"])
         self.assertEqual(answer["more"], 5)
+        self.assertFalse(answer["cut"])
+
+    def test_a_huge_folder_or_a_slow_disk_is_read_only_so_far_and_says_so(self):
+        with mock.patch.object(SERVER, "FOLDER_SCAN_MAX", 3):
+            status, answer = self.dirs()
+        self.assertEqual(status, 200)
+        self.assertTrue(answer["cut"])
+        self.assertLessEqual(len(answer["dirs"]), 3)
+        with mock.patch.object(SERVER, "FOLDER_SCAN_TIME", -1):
+            status, answer = self.dirs()
+        self.assertEqual((status, answer["cut"], answer["dirs"]), (200, True, []))
+        self.assertFalse(self.dirs()[1]["cut"])
+
+    def test_a_folder_on_another_disk_is_listed_but_not_counted(self):
+        real = SERVER._folder_rows
+
+        def mounted(at, p, home):
+            # notes stands for a share or a drive put inside home
+            rows, cut = real(at, p, home)
+            return [(n, f, m, d + 1 if n == "notes" else d) for n, f, m, d in rows], cut
+        with mock.patch.object(SERVER, "_folder_rows", mounted):
+            status, answer = self.dirs()
+        counts = {d["name"]: d["items"] for d in answer["dirs"]}
+        self.assertEqual((counts["notes"], counts["projects"]), (None, 2))
+
+    def test_listings_and_new_folders_wait_for_a_turn_and_then_say_the_board_is_busy(self):
+        held = [SERVER._folder_turns.acquire(timeout=1) for _ in range(SERVER.FOLDER_TURNS)]
+        try:
+            self.assertTrue(all(held))
+            busy = (503, {"error": "the board is still reading other folders"})
+            with mock.patch.object(SERVER, "FOLDER_TURN_WAIT", 0.05):
+                started = time.monotonic()
+                self.assertEqual(self.dirs(), busy)
+                self.assertEqual(SERVER._post_mkdir(Q(path=str(self.home), name="made"), ""), busy)
+                self.assertLess(time.monotonic() - started, 1.0)
+            self.assertFalse((self.home / "made").exists())
+        finally:
+            for _ in held:
+                SERVER._folder_turns.release()
+        self.assertEqual(self.dirs()[0], 200)
+        self.assertEqual(SERVER._post_mkdir(Q(path=str(self.home), name="made"), "")[0], 200)
 
 
 class Fence(FolderBase):
@@ -229,6 +287,65 @@ class Fence(FolderBase):
         self.assertEqual(answer["top"], str(self.home))
         self.assertEqual(answer["path"], str(self.home / "notes"))
 
+    @unittest.skipIf(os.name == "nt", "no account lookup by ~name here")
+    def test_another_accounts_tilde_is_never_looked_up(self):
+        import pwd
+        asked = []
+
+        def lookup(name):
+            asked.append(name)
+            raise KeyError(name)
+        outside = (400, {"error": "outside the home folder"})
+        with mock.patch.object(pwd, "getpwnam", lookup):
+            for kw in [{"path": "~root"}, {"path": "~nosuchaccount"}, {"path": "~root/x"},
+                       {"path": "x", "from": "~root"}, {"path": "x", "from": "~nosuchaccount"}]:
+                self.assertEqual(self.dirs(**kw), outside, kw)
+                self.assertEqual(SERVER._post_mkdir(Q(name="made", **kw), ""), outside, kw)
+        self.assertEqual(asked, [], "an account was looked up")
+        # ~ alone and ~ before a separator are still home
+        self.assertEqual(self.dirs(path="~" + os.sep + "notes")[1]["path"], str(self.home / "notes"))
+
+    def test_home_written_in_other_letters_is_outside(self):
+        # on a disk that ignores case this is home itself; the fence compares
+        # the path as written, so it refuses rather than guesses
+        for path in [str(self.home).upper(), str(self.home / "notes").swapcase()]:
+            self.assertEqual(self.dirs(path=path), (400, {"error": "outside the home folder"}), path)
+
+    @unittest.skipUnless(SERVER.FOLDER_FDS, "this system reaches a folder by its path")
+    def test_a_link_put_in_place_after_the_fence_looked_is_not_followed(self):
+        # what lies outside home where each link leads, by the names inside
+        for rel in ["outer-only", "website/outer-only"]:
+            (self.outer / "elsewhere" / rel).mkdir(parents=True)
+        real = SERVER._folder_named
+
+        def swap(name):
+            def named(q, home):
+                found, why = real(q, home)
+                # the folder the fence just passed becomes a link out of home
+                target = self.home / name
+                shutil.rmtree(target)
+                os.symlink(self.outer / "elsewhere", target)
+                return found, why
+            return named
+        # the folder itself, then a folder on the way down to it
+        for swapped, path in [("notes", self.home / "notes"), ("projects", self.home / "projects" / "website")]:
+            with mock.patch.object(SERVER, "_folder_named", swap(swapped)):
+                status, answer = SERVER._post_mkdir(Q(path=str(path), name="made"), "")
+            self.assertEqual((status, answer), (400, {"error": "that folder could not be made"}), swapped)
+            self.assertEqual([p for p in (self.outer / "elsewhere").rglob("made")], [], swapped)
+            os.unlink(self.home / swapped)
+            (self.home / swapped / "website").mkdir(parents=True)
+            with mock.patch.object(SERVER, "_folder_named", swap(swapped)):
+                status, answer = self.dirs(path=str(path))
+            self.assertEqual((status, answer["unreadable"], answer["dirs"]), (200, True, []), swapped)
+            self.assertNotIn("outer-only", str(answer))
+            os.unlink(self.home / swapped)
+            (self.home / swapped / "website").mkdir(parents=True)
+        # left alone, the same folders are listed and made in
+        self.assertEqual(SERVER._post_mkdir(Q(path=str(self.home / "notes"), name="made"), "")[0], 200)
+        self.assertTrue((self.home / "notes" / "made").is_dir())
+        self.assertEqual(self.names(path=str(self.home / "projects")), ["website"])
+
 
 class Hidden(FolderBase):
     def test_dot_folders_stay_hidden_and_cannot_be_typed(self):
@@ -242,6 +359,17 @@ class Hidden(FolderBase):
         os.chflags(self.home / "Library", stat.UF_HIDDEN)
         self.assertNotIn("Library", self.names())
         self.assertEqual(self.dirs(path="~/Library"), (400, {"error": "that folder is hidden"}))
+
+    def test_a_link_into_a_hidden_folder_is_not_listed(self):
+        os.symlink(self.home / ".secret", self.home / "plain-name")
+        os.symlink(self.home / ".secret" / "inner", self.home / "deeper-name")
+        status, answer = self.dirs()
+        self.assertNotIn("plain-name", str(answer))
+        self.assertNotIn("deeper-name", str(answer))
+        self.assertEqual(self.dirs(path="~/plain-name"), (400, {"error": "that folder is hidden"}))
+        # a link to a folder that is not hidden is listed as before
+        os.symlink(self.home / "notes", self.home / "notes-link")
+        self.assertIn("notes-link", self.names())
 
 
 class Typed(FolderBase):
@@ -270,6 +398,22 @@ class Typed(FolderBase):
         self.assertEqual(self.dirs(path="~/notes/todo.txt"), (400, {"error": "that is a file, not a folder"}))
         self.assertEqual(self.dirs(path="~/no\x00pe")[0], 400)
 
+    def test_a_path_past_the_longest_a_system_takes_is_refused_and_a_deep_one_is_quick(self):
+        too_long = "~/" + "a/" * (SERVER.FOLDER_PATH_MAX // 2)
+        self.assertEqual(self.dirs(path=too_long), (400, {"error": "that path is too long"}))
+        self.assertEqual(self.dirs(path="a", **{"from": too_long}), (400, {"error": "that path is too long"}))
+        self.assertEqual(SERVER._post_mkdir(Q(path=too_long, name="x"), ""), (400, {"error": "that path is too long"}))
+        # just under the limit, one step per folder: answered at once
+        deep = "a/" * (SERVER.FOLDER_PATH_MAX // 2 - 8)
+        started = time.monotonic()
+        self.assertEqual(self.dirs(path="~/" + deep), (400, {"error": "no folder there"}))
+        self.assertEqual(self.dirs(path="~/.secret/" + deep), (400, {"error": "that folder is hidden"}))
+        self.assertLess(time.monotonic() - started, 1.0)
+        # a real tree 100 folders deep lists with its whole trail
+        (self.home / os.path.join(*["d"] * 100)).mkdir(parents=True)
+        status, answer = self.dirs(path="~/" + "/".join(["d"] * 100))
+        self.assertEqual((status, len(answer["trail"])), (200, 101))
+
 
 @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "a folder cannot be closed to this user")
 class Unreadable(FolderBase):
@@ -289,7 +433,7 @@ class Unreadable(FolderBase):
         real = os.scandir
 
         def scandir(p):
-            read.append(Path(p))
+            read.append(_folder_of(p))
             return real(p)
         guarded = {self.home / "Desktop", self.home / "Documents", self.home / "Downloads"}
         with mock.patch.object(SERVER.sys, "platform", "darwin"), mock.patch.object(SERVER.os, "scandir", scandir):
@@ -328,6 +472,34 @@ class NewFolder(FolderBase):
             self.assertEqual(self.mkdir(name), (400, {"error": words}), repr(name))
         self.assertEqual(sorted(p.name for p in (self.home / "projects").iterdir()), ["garden-planner", "website"])
         self.assertEqual(self.mkdir("x" * 255)[0], 200)
+
+    def test_control_and_invisible_characters_are_refused(self):
+        control = "a folder name cannot hold a control character"
+        invisible = "a folder name cannot hold an invisible character"
+        cases = {chr(0x7F): control, chr(0x85): control, chr(0x9B): control,
+                 chr(0x202E): invisible, chr(0x2066): invisible, chr(0x200E): invisible, chr(0x200B): invisible,
+                 chr(0xFEFF): invisible, chr(0x00AD): invisible, chr(0x2028): invisible, chr(0x2029): invisible,
+                 chr(0xE0041): invisible}
+        for c, words in cases.items():
+            self.assertEqual(self.mkdir("plan" + c + "s"), (400, {"error": words}), hex(ord(c)))
+        self.assertEqual(sorted(p.name for p in (self.home / "projects").iterdir()), ["garden-planner", "website"])
+        # letters of any script, emoji and the joiners they are written with
+        for name in ["café", "日本語", "\U0001F468" + chr(0x200D) + "\U0001F469", "می" + chr(0x200C) + "خواهم",
+                     chr(0x2764) + chr(0xFE0F)]:
+            self.assertEqual(self.mkdir(name)[0], 200, ascii(name))
+
+    def test_new_folders_are_capped_in_any_one_minute(self):
+        with mock.patch.object(SERVER, "FOLDER_MAKES", 3):
+            # a refusal is not counted: three are made around it
+            self.assertEqual(self.mkdir("made-0")[0], 200)
+            self.assertEqual(self.mkdir("website")[0], 400)
+            for i in (1, 2):
+                self.assertEqual(self.mkdir(f"made-{i}")[0], 200)
+            self.assertEqual(self.mkdir("one-more"), (429, {"error": "too many new folders in a minute, try again shortly"}))
+            self.assertFalse((self.home / "projects" / "one-more").exists())
+            # a minute later there is room again
+            SERVER._folders_made[:] = [t - 61 for t in SERVER._folders_made]
+            self.assertEqual(self.mkdir("one-more")[0], 200)
 
     def test_a_clash_is_refused(self):
         self.assertEqual(self.mkdir("website"), (400, {"error": "a folder by that name is already here"}))

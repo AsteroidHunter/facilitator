@@ -150,11 +150,15 @@ Endpoints:
                                P for the folder picker and answers {ok, name,
                                path}. N is refused (400, in plain words) when it
                                is empty, holds a slash, starts with a dot, holds
-                               < > : " | ? * or a control character, runs past
+                               < > : " | ? *, a control character or an
+                               invisible one (the two joiners aside), runs past
                                255 bytes, is a name Windows keeps for itself
                                (on Windows), or is already there. P follows
-                               /dirs's rules. M is the machine, "this" (the only
-                               one) when it is left out
+                               /dirs's rules, and the folder is made inside P
+                               reached from home without following a link. Past
+                               30 new folders in a minute the board answers 429.
+                               M is the machine, "this" (the only one) when it
+                               is left out
   POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
                                that sends a nonempty meta card here closes it to
                                done instead, so old tabs cannot erase a thread
@@ -664,23 +668,30 @@ Endpoints:
   GET  /dirs?path=P[&from=F][&machine=M] -> one folder's subfolders for the
                                folder picker (folder-picker.js). Empty P is
                                home, ~ is home, and a relative P is taken from
-                               the folder F. Answers {machine, path, name,
+                               the folder F; another account's ~name is never
+                               looked up. Answers {machine, path, name,
                                short (home written as ~), top, parent (null at
                                home), trail (the folders from home down, each
                                {name, path}), dirs (each {name, path, modified,
                                items, itemsCut}), more (rows past the 2000
-                               listed), unreadable}. Hidden folders (a leading
-                               dot, or the system's own hidden mark) and links
-                               that lead out of home are left out. items counts
+                               listed), cut (the folder was read only so far:
+                               past 50000 names or 2 seconds), unreadable}.
+                               Hidden folders (a leading dot, or the system's
+                               own hidden mark) and links that lead out of home
+                               or into a hidden folder are left out. items counts
                                the names inside a folder that do not start with
                                a dot, up to 9999 (itemsCut past that), within
-                               0.4 seconds for one listing, and on macOS not for
+                               0.4 seconds for one listing, not for a folder on
+                               another disk, and on macOS not for
                                Desktop, Documents and Downloads until the board
                                has listed that one itself, so opening the picker
                                does not make macOS ask about all three. A P
-                               outside home, through a hidden folder, missing or
-                               a file is refused (400) in plain words; a folder
-                               the board may not read answers unreadable: true
+                               outside home, through a hidden folder, missing,
+                               a file or past 4096 bytes is refused (400) in
+                               plain words; a folder the board may not read
+                               answers unreadable: true. At most 8 listings and
+                               new folders are under way at once; past that,
+                               after 2 seconds, the board answers 503
   GET  /tokens/daily?days=N -> the tokens the local coding agents spent per
                                day, what the home page's charts draw: the last
                                N days (1 to 3660, 365 when absent) ending today,
@@ -884,6 +895,7 @@ import tempfile
 import threading
 import time
 import traceback
+import unicodedata
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
@@ -5050,11 +5062,20 @@ def _get_limits(q: Query, _):
 # home folder and hidden folders stay hidden. Paths go out the way this system
 # writes them, and the page shows what it is given without taking a path apart
 FOLDER_ROWS_MAX = 2000      # folders one listing names; the rest are only counted
+FOLDER_SCAN_MAX = 50000     # names one listing reads in a folder before it stops
+FOLDER_SCAN_TIME = 2.0      # seconds one listing may spend reading its folder
 FOLDER_COUNT_MAX = 9999     # names counted inside one folder before it stops
 FOLDER_COUNT_TIME = 0.4     # seconds the counts of one listing may take in all
+FOLDER_PATH_MAX = 4096      # bytes in a typed path, the longest most systems take
 FOLDER_NAME_MAX = 255       # bytes in a new folder's name, the usual file system limit
+FOLDER_TURNS = 8            # listings and new folders under way at once
+FOLDER_TURN_WAIT = 2.0      # seconds one waits for a turn before the board says it is busy
+FOLDER_MAKES = 30           # new folders the board makes in any one minute
 # refused on every system, so a folder made here keeps its name on any other
 FOLDER_NAME_BAD = frozenset('<>:"|?*')
+# the two joiners are the only invisible characters a name may hold: emoji
+# and some scripts are written with them
+FOLDER_NAME_JOINERS = frozenset((chr(0x200C), chr(0x200D)))
 WINDOWS_NAMES = frozenset({"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
                            *(f"lpt{i}" for i in range(1, 10))})
 # macOS asks once before a program reads inside Desktop, Documents or
@@ -5065,6 +5086,19 @@ WINDOWS_NAMES = frozenset({"con", "prn", "aux", "nul", *(f"com{i}" for i in rang
 # board may not read says so in the picker, and the picker never asks again
 # on its own
 _folders_read: set = set()
+# a listing waiting on a stalled disk (a network share that stopped
+# answering) holds its worker thread until the system gives up. The turns
+# keep such listings to a few threads, so the rest of the board goes on
+_folder_turns = threading.BoundedSemaphore(FOLDER_TURNS)
+_folders_made: list = []    # when each new folder of the last minute was made
+_folders_made_lock = threading.Lock()
+# a folder is reached from home one name at a time through open folders, and
+# each folder on the way is opened only to look names up in where the system
+# allows it, so one that may be passed through but not read still passes.
+# Without those calls (Windows) a folder is reached by its path
+FOLDER_PASS = getattr(os, "O_SEARCH", 0) or getattr(os, "O_PATH", 0) or os.O_RDONLY
+FOLDER_FDS = (os.open in os.supports_dir_fd and os.mkdir in os.supports_dir_fd
+              and os.scandir in os.supports_fd and hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY"))
 
 
 def _home() -> Path:
@@ -5102,17 +5136,22 @@ def _hidden_mark(st) -> bool:
 
 
 def _hidden_below(p: Path, top: Path) -> bool:
-    """Whether any folder from just under top down to p is hidden."""
-    at = p
-    while at != top and top in at.parents:
-        if at.name.startswith("."):
+    """Whether any folder from just under top down to p is hidden. One step
+    per folder, so a deep path costs no more than its length."""
+    try:
+        names = p.relative_to(top).parts
+    except ValueError:
+        return False
+    at = top
+    for name in names:
+        at = at / name
+        if name.startswith("."):
             return True
         try:
             if _hidden_mark(at.stat()):
                 return True
         except OSError:
             pass
-        at = at.parent
     return False
 
 
@@ -5165,16 +5204,31 @@ def _get_machines(q: Query, _):
     return 200, {"machines": _machines()}
 
 
+def _typed_path(text: str, home: Path):
+    """A typed path, with ~ alone or before a separator read as home. Another
+    account's ~name is never looked up, so no answer can tell which accounts
+    the machine has: it is None, which the fence refuses as outside home."""
+    if not text.startswith("~"):
+        return Path(text)
+    if text != "~" and text[1] not in (os.sep, os.altsep or os.sep):
+        return None
+    return Path(str(home) + text[1:])
+
+
 def _folder_named(q: Query, home: Path):
     """The folder a request's path names, resolved, and None; or None and
     the words for why not. The words never hold the path."""
     raw = q.one("path").strip()
     base = q.one("from").strip()
+    if max(len(raw.encode("utf-8", "surrogatepass")), len(base.encode("utf-8", "surrogatepass"))) > FOLDER_PATH_MAX:
+        return None, "that path is too long"
     try:
-        p = Path(raw).expanduser() if raw else home
-        if not p.is_absolute():
-            start = Path(base).expanduser() if base else home
-            p = (start if start.is_absolute() else home) / p
+        p = _typed_path(raw, home) if raw else home
+        if p is not None and not p.is_absolute():
+            start = _typed_path(base, home) if base else home
+            p = None if start is None else (start if start.is_absolute() else home) / p
+        if p is None:
+            return None, "outside the home folder"
         p = p.resolve()
     except (OSError, RuntimeError, ValueError):
         return None, "that path cannot be read"
@@ -5199,27 +5253,74 @@ def _natural(name: str) -> list:
     return [int(part) if i % 2 else part for i, part in enumerate(re.split(r"(\d+)", name.casefold()))]
 
 
-def _folder_rows(p: Path, home: Path) -> list:
-    """p's own subfolders, sorted, as (name, path, modified). Raises OSError
-    for a folder the board may not read."""
-    rows = []
-    with os.scandir(p) as entries:
+@contextlib.contextmanager
+def _folder_turn():
+    """One of the FOLDER_TURNS, or False when none came free in time."""
+    got = _folder_turns.acquire(timeout=FOLDER_TURN_WAIT)
+    try:
+        yield got
+    finally:
+        if got:
+            _folder_turns.release()
+
+
+@contextlib.contextmanager
+def _opened(p: Path, home: Path, read: bool = True):
+    """p, a folder the fence has passed, held open to be listed (read) or to
+    have a folder made in it. It is reached from home one name at a time and
+    no name on the way may be a link, so a link put in its place after the
+    fence looked is refused (OSError) instead of followed out of home. Where
+    the system cannot do that, p itself."""
+    if not FOLDER_FDS:
+        yield p
+        return
+    names = p.relative_to(home).parts
+    last = len(names) - 1
+    fd = os.open(home, (os.O_RDONLY if read and last < 0 else FOLDER_PASS) | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for i, name in enumerate(names):
+            down = os.open(name, (os.O_RDONLY if read and i == last else FOLDER_PASS) | os.O_DIRECTORY | os.O_NOFOLLOW,
+                           dir_fd=fd)
+            os.close(fd)
+            fd = down
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _folder_rows(at, p: Path, home: Path) -> tuple:
+    """p's own subfolders, sorted, as (name, path, modified, disk), read
+    through at (p opened, or p), and whether the reading stopped short: a
+    folder of more than FOLDER_SCAN_MAX names, or a disk slower than
+    FOLDER_SCAN_TIME, is read that far and no further. Raises OSError for a
+    folder the board may not read."""
+    rows, seen, cut = [], 0, False
+    ends = time.monotonic() + FOLDER_SCAN_TIME
+    with os.scandir(at) as entries:
         for e in entries:
+            seen += 1
+            if seen > FOLDER_SCAN_MAX or time.monotonic() > ends:
+                cut = True
+                break
             if e.name.startswith("."):
                 continue
             try:
                 if not e.is_dir():
                     continue
                 st = e.stat()
-                full = Path(e.path)
-                if e.is_symlink() and not _inside(full.resolve(), home):
-                    continue   # a link out of home would only lead to a refusal
-            except (OSError, RuntimeError):
+                full = p / e.name
+                # a link is listed only where it may be opened: inside home and
+                # not into a hidden folder, since anything else is refused
+                if e.is_symlink():
+                    target = full.resolve()
+                    if not _inside(target, home) or _hidden_below(target, home):
+                        continue
+            except (OSError, RuntimeError, ValueError):
                 continue
             if not _hidden_mark(st):
-                rows.append((e.name, full, st.st_mtime))
+                rows.append((e.name, full, st.st_mtime, st.st_dev))
     rows.sort(key=lambda row: _natural(row[0]))
-    return rows
+    return rows, cut
 
 
 def _count_names(p: Path):
@@ -5255,24 +5356,31 @@ def _get_dirs(q: Query, _):
     answer = {"machine": "this", "path": str(p), "name": p.name or str(p),
               "short": "~" if p == home else "~" + os.sep + str(p.relative_to(home)),
               "top": str(home), "parent": str(p.parent) if p != home else None,
-              "trail": trail, "dirs": [], "more": 0, "unreadable": False}
-    try:
-        rows = _folder_rows(p, home)
-    except OSError:
-        answer["unreadable"] = True
-        return 200, answer
-    guarded = _guarded(home)
-    if p in guarded:
-        _folders_read.add(p)
-    unasked = guarded - _folders_read
-    answer["more"] = max(0, len(rows) - FOLDER_ROWS_MAX)
-    ends = time.monotonic() + FOLDER_COUNT_TIME
-    for name, full, modified in rows[:FOLDER_ROWS_MAX]:
-        items = _count_names(full) if full not in unasked and time.monotonic() < ends else None
-        row = {"name": name, "path": str(full), "modified": modified, "items": items}
-        if items is not None and items > FOLDER_COUNT_MAX:
-            row.update(items=FOLDER_COUNT_MAX, itemsCut=True)
-        answer["dirs"].append(row)
+              "trail": trail, "dirs": [], "more": 0, "cut": False, "unreadable": False}
+    with _folder_turn() as turn:
+        if not turn:
+            return 503, {"error": "the board is still reading other folders"}
+        try:
+            with _opened(p, home) as at:
+                disk = os.stat(at).st_dev
+                rows, answer["cut"] = _folder_rows(at, p, home)
+        except OSError:
+            answer["unreadable"] = True
+            return 200, answer
+        guarded = _guarded(home)
+        if p in guarded:
+            _folders_read.add(p)
+        unasked = guarded - _folders_read
+        answer["more"] = max(0, len(rows) - FOLDER_ROWS_MAX)
+        ends = time.monotonic() + FOLDER_COUNT_TIME
+        for name, full, modified, on in rows[:FOLDER_ROWS_MAX]:
+            # a folder on another disk is a share or a drive put there: counting
+            # it would read that disk, which may be slow or gone
+            items = _count_names(full) if full not in unasked and on == disk and time.monotonic() < ends else None
+            row = {"name": name, "path": str(full), "modified": modified, "items": items}
+            if items is not None and items > FOLDER_COUNT_MAX:
+                row.update(items=FOLDER_COUNT_MAX, itemsCut=True)
+            answer["dirs"].append(row)
     return 200, answer
 
 
@@ -5284,8 +5392,13 @@ def _folder_name_problem(name: str):
         return "a folder name cannot hold a slash"
     if name.startswith("."):
         return "a folder name cannot start with a dot"
-    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+    if any(unicodedata.category(c) == "Cc" for c in name):
         return "a folder name cannot hold a control character"
+    # direction marks and overrides, zero-width spaces, line and paragraph
+    # separators: a name holding one can read as another name, or another
+    # ending, in the picker, in Finder and in a terminal
+    if any(unicodedata.category(c) in ("Cf", "Cs", "Zl", "Zp") and c not in FOLDER_NAME_JOINERS for c in name):
+        return "a folder name cannot hold an invisible character"
     if any(c in FOLDER_NAME_BAD for c in name):
         return 'a folder name cannot hold any of < > : " | ? *'
     if len(name.encode("utf-8", "surrogatepass")) > FOLDER_NAME_MAX:
@@ -5306,17 +5419,35 @@ def _post_mkdir(q: Query, _text: str):
     parent, why = _folder_named(q, home)
     if parent is None:
         return 400, {"error": why}
+    # a person names a folder at a time; a caller in a loop is stopped here
+    # before it fills a folder with thousands
+    now = time.monotonic()
+    with _folders_made_lock:
+        _folders_made[:] = [t for t in _folders_made if now - t < 60]
+        if len(_folders_made) >= FOLDER_MAKES:
+            return 429, {"error": "too many new folders in a minute, try again shortly"}
     made = parent / name
-    try:
-        # the system's own answer decides a clash, so a disk that ignores
-        # case refuses Notes beside notes
-        os.mkdir(made)
-    except FileExistsError:
-        return 400, {"error": "a folder by that name is already here"}
-    except PermissionError:
-        return 400, {"error": "the board may not make a folder here"}
-    except OSError:
-        return 400, {"error": "that folder could not be made"}
+    with _folder_turn() as turn:
+        if not turn:
+            return 503, {"error": "the board is still reading other folders"}
+        try:
+            # made inside the folder held open, never by its path, so a link
+            # put in its way since the fence looked cannot lead out of home.
+            # the system's own answer decides a clash, so a disk that ignores
+            # case refuses Notes beside notes
+            with _opened(parent, home, read=False) as at:
+                if isinstance(at, int):
+                    os.mkdir(name, dir_fd=at)
+                else:
+                    os.mkdir(made)
+        except FileExistsError:
+            return 400, {"error": "a folder by that name is already here"}
+        except PermissionError:
+            return 400, {"error": "the board may not make a folder here"}
+        except OSError:
+            return 400, {"error": "that folder could not be made"}
+    with _folders_made_lock:
+        _folders_made.append(now)
     return 200, {"ok": True, "name": name, "path": str(made)}
 
 
