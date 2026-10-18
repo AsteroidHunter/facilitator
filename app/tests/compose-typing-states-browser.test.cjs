@@ -219,3 +219,37 @@ test("a line under a quote that carries no angle of its own is drawn outside the
     await page.close();
   }
 });
+
+test("a span that runs over a line break is drawn as the characters the card shows", async () => {
+  const { page, problems } = await desktopRow("A span over a line break");
+  const drawn = () => page.evaluate(where => {
+    const content = document.querySelector(where).closest(".cffield").querySelector(".cm-content");
+    const of = name => [...content.querySelectorAll(name)].map(node => node.textContent);
+    return { lines: [...content.querySelectorAll(".cm-line")].map(line => line.textContent),
+             em: of(".cf-em"), strong: of(".cf-strong"), strike: of(".cf-strike") };
+  }, ROW);
+  try {
+    for (const text of ["x *one\ntwo* y", "x **bold\nacross** y", "x ~~cut\nacross~~ y"]) {
+      await lay(page, text);
+      await caretTo(page, text.length);
+      await settle(150);
+      const read = await drawn();
+      assert.deepEqual(read.lines, text.split("\n"),
+        `${JSON.stringify(text)}: the markers of a span over a line break were drawn away`);
+      assert.deepEqual([read.em, read.strong, read.strike], [[], [], []],
+        `${JSON.stringify(text)}: a span over a line break was drawn styled`);
+      assert.doesNotMatch(await cardDraws(page, text), /<(em|b|del)>/,
+        "the card now styles a span over a line break, so this check asks the wrong thing");
+    }
+    // a span inside each of two lines is still drawn on both
+    await lay(page, "*one*\n**two** z");
+    await caretTo(page, 15);
+    await settle(150);
+    const both = await drawn();
+    assert.deepEqual([both.em, both.strong], [["one"], ["two"]],
+      "a span inside one line stopped being drawn");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});

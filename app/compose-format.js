@@ -227,15 +227,20 @@
         pull.set(line.number, (pull.get(line.number) || 0) + width);
         headEnd.set(line.number, Math.max(headEnd.get(line.number) || 0, to));
       };
+      // the card draws a span inside one line and leaves one that runs over a
+      // line break as the characters it was typed as, so this does too; a span
+      // inside it that stays on one line is still drawn
+      const oneLine = (from, to) => doc.lineAt(from).number === doc.lineAt(to).number;
       C.syntaxTree(state).iterate({
         enter: node => {
           if (INLINE[node.name]) {
-            out.push(INLINE[node.name].range(node.from, node.to));
+            if (oneLine(node.from, node.to)) out.push(INLINE[node.name].range(node.from, node.to));
             return;
           }
           if (INLINE_MARK[node.name]) {
             const owner = node.node.parent;
-            if (owner && !hot(owner.from, owner.to)) out.push(hide.range(node.from, node.to));
+            if (owner && oneLine(owner.from, owner.to) && !hot(owner.from, owner.to))
+              out.push(hide.range(node.from, node.to));
             return;
           }
           if (node.name === "Blockquote") {
