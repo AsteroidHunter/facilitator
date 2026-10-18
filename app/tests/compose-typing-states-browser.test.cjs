@@ -189,3 +189,33 @@ test("a double click or a drag on drawn words picks the words under the pointer"
     await page.close();
   }
 });
+
+// ---- drawn as the card draws it ------------------------------------------------
+// The row draws its markdown so the reader sees the message the card will show.
+
+// what the card the words are sent to makes of them
+function cardDraws(page, source) {
+  return page.evaluate(text => CardMarkdown.render(text), source);
+}
+
+test("a line under a quote that carries no angle of its own is drawn outside the quote", async () => {
+  const { page, problems } = await desktopRow("A reply under a quote");
+  try {
+    // the Mac's new line does not carry the angle down, so the reply under a
+    // quoted line is a line of its own, and the card shows it outside the quote
+    await lay(page, "");
+    await page.keyboard.type("> said");
+    await chord(page, "Enter", "Shift");
+    await page.keyboard.type("my reply");
+    await settle(150);
+    const read = await rowRead(page);
+    assert.equal(read.payload, "> said\nmy reply");
+    assert.deepEqual(read.lines.map(line => [line.text, line.quote]), [["said", true], ["my reply", false]],
+      "the reply under the quote was drawn inside the quote's bar");
+    assert.equal(await cardDraws(page, read.payload), "<blockquote><p>said</p></blockquote><p>my reply</p>",
+      "the card no longer draws the reply outside the quote, so this check asks the wrong thing");
+    assert.deepEqual(problems, []);
+  } finally {
+    await page.close();
+  }
+});

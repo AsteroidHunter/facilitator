@@ -328,11 +328,12 @@
       // not at the angle: until an ordinary space completes a quote prefix,
       // the angle stays visible and the line keeps its ordinary layout. A line
       // the parser puts inside a quote but which carries no angle of its own,
-      // which is a lazily continued one, is drawn the way the line above it is.
+      // which is a lazily continued one, is an ordinary line as well: the card
+      // the row is sent to ends a quote at the first line without an angle.
       const barred = new Set();
-      for (const n of [...quote.keys()].sort((a, b) => a - b)) {
+      for (const n of quote.keys()) {
         const angle = angles.get(n);
-        if (angle ? angle.live : barred.has(n - 1)) barred.add(n);
+        if (angle && angle.live) barred.add(n);
       }
 
       // one line decoration per line the walk marked, and the quote angles
