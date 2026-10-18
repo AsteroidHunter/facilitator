@@ -1399,9 +1399,9 @@ function composeTurn(id, el){
 // was left. one entry a card: { text, files }, the text as the row holds it,
 // markdown and all, and each file as the board's own address for it with what
 // its square shows. a file still on its way is not kept. nothing here goes to
-// the board. a send or an emptied row takes the entry away, and a card that is
-// gone from the board loses it. the Mac board and its phone view share one
-// browser and so one store; the phone keeps its own
+// the board. a send the board has taken or an emptied row takes the entry away,
+// and a card that is gone from the board loses it. the Mac board and its phone
+// view share one browser and so one store; the phone keeps its own
 const DRAFT_STORE = "composedrafts";
 let draftMemory = {};   // the same map, for a browser that will not keep it
 // an absent entry is an empty store and not a reason to read the memory: the
@@ -1473,7 +1473,16 @@ function draftSave(id){
   const own = (el.trayItems || []).filter(it => it.state === "done" && it.url);
   const held = el.trayHeld || new Set();
   const other = (draftOf(id)?.files || []).filter(f => !held.has(f.url) && !own.some(it => it.url === f.url));
-  draftPut(id, el.ta.value, [...other, ...own.map(draftFile)]);
+  const words = [...draftUnsent(el), el.ta.value].filter(text => String(text).trim()).join("\n\n");
+  draftPut(id, words, [...other, ...own.map(draftFile)]);
+}
+// the words of the Mac board's sends the board has not confirmed: on their way,
+// or held under the fail mark. they live in the page alone (sentLaunch), so the
+// draft keeps them, ahead of the row's own words, until the board has them, and
+// a reload gives them back in the row. the phone's sent list holds only what
+// the board confirmed; its own unsent messages are its operations' to keep
+function draftUnsent(el){
+  return [...(el.sentItems || []).filter(sentUndelivered), ...(el.sentHeld || [])].map(m => m.text);
 }
 // a card just built takes its kept draft back: the words, when the row is
 // empty, with the caret at their end, and the files into its tray. nothing is
@@ -4210,6 +4219,7 @@ function sentLaunch(el, text, route){
   el.sendsOut = (el.sendsOut || 0) + 1;
   el.sendGuard = Infinity;
   syncSent(el, el.sentItems, true);
+  draftSave(draftCardOf(el));   // kept until the board has it (draftUnsent)
   return item;
 }
 function sentSettled(el){
@@ -4223,6 +4233,7 @@ function sentLanded(el, item){
   item.stage = "sent";
   sentSettled(el);
   syncSent(el, el.sentItems);
+  draftSave(draftCardOf(el));
 }
 // one try of a send, under the id it was minted with. the board keeps a receipt
 // beside the message, so a try asked again after a lost answer is answered from
@@ -4277,6 +4288,7 @@ function sentHeldLanded(el, item){
   el.sentItems = [...el.sentItems, item];
   if (!el.sendsOut) el.sendGuard = Date.now();
   syncSent(el, el.sentItems);
+  draftSave(draftCardOf(el));
   if (item.landed) item.landed();
 }
 // the words go back in the typing row, after what is already there and never
