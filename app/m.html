@@ -2484,7 +2484,7 @@ function makeBox(b){
     if (e.altKey) { notePhoneEnter("handler", e, "modifier", ta); return; }
     // control+enter alone is the system's: it opens the copy menu on an iPhone
     if (bareControlEnter(e)) { notePhoneEnter("handler", e, "modifier", ta); return; }
-    if (imeEnter(e)) { notePhoneEnter("handler", e, "composition", ta); return; }
+    if (imeKey(e)) { notePhoneEnter("handler", e, "composition", ta); return; }
     // control+shift+enter is a double Enter pressed at once, and no on-screen
     // keyboard has the key, so it answers whether or not that keyboard is up.
     // it still jumps to the next card, and so does command+enter; only the
@@ -7556,7 +7556,7 @@ ComposeFormat.preload();
     enter: e => {
       if (e.key !== "Enter") return false;
       const now = controlShiftEnter(e);
-      if ((e.shiftKey && !now) || e.altKey || bareControlEnter(e) || imeEnter(e)) return false;
+      if ((e.shiftKey && !now) || e.altKey || bareControlEnter(e) || imeKey(e)) return false;
       return now || !document.body.classList.contains("kb");
     },
   });

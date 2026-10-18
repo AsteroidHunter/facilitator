@@ -705,9 +705,10 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing &&
       e.code === "Digit0" ? true : null,
   },
+  // an Escape an input method takes is its own (imeKey)
   {
     action: "escape", mini: false,
-    match: e => e.key === "Escape" ? true : null,
+    match: e => e.key === "Escape" && !imeKey(e) ? true : null,
   },
   // Enter alone selects the card on screen and puts the caret in its
   // composer. only the desktop board answers it, and only where nothing is
@@ -830,11 +831,12 @@ function bareControlEnter(e){
   return e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
 }
 
-// an Enter an input method takes, which confirms the words it was building and
-// sends nothing. WebKit ends the composition before that Enter arrives, so it
-// comes with isComposing false and only its keyCode, 229, says so. the
-// formatter's own Enter rule reads the same two (compose-format.js)
-function imeEnter(e){
+// a key an input method takes: its Enter confirms the words it was building and
+// sends nothing, and its Escape lets them go and leaves the caret where it is.
+// WebKit ends the composition before that key arrives, so it comes with
+// isComposing false and only its keyCode, 229, says so. the formatter's own
+// Enter rule reads the same two (compose-format.js)
+function imeKey(e){
   return e.isComposing || e.keyCode === 229;
 }
 
@@ -7909,7 +7911,7 @@ function settingsOverlay(host, source, opts){
   }
   veil.addEventListener("keydown", e => {
     e.stopPropagation();
-    if (e.key === "Escape"){ e.preventDefault(); close(); }
+    if (e.key === "Escape" && !imeKey(e)){ e.preventDefault(); close(); }
   });
   // a press that starts and ends on the veil, outside the page, puts it away;
   // a selection dragged out of the page and let go on the veil does not
@@ -8083,7 +8085,7 @@ function feedbackOverlay(host, row, opts){
   }
   veil.addEventListener("keydown", e => {
     e.stopPropagation();
-    if (e.key === "Escape"){ e.preventDefault(); close(); }
+    if (e.key === "Escape" && !imeKey(e)){ e.preventDefault(); close(); }
   });
   // a press that starts and ends on the veil, outside the sheet, puts it away;
   // a selection dragged out of the box and let go on the veil does not
