@@ -14,7 +14,8 @@ A:B and -O exit ask it; -R A:B forwards the Unix socket A to the Unix socket B
 with A made for the account alone (sshd's StreamLocalBindMask 0177). A command
 through -S needs the master's socket to answer, or falls back to a login of
 its own, as ssh with ControlMaster=no does. Every argument line is appended to
-FAKE_SSH_LOG when that is set."""
+FAKE_SSH_LOG when that is set, and FAKE_SSH_PATH, when set, is the PATH a
+command gets on the "server"."""
 
 import os
 import socket
@@ -167,7 +168,9 @@ def master(control):
 
 def run(command):
     env = {**os.environ, "HOME": HOME}
-    return subprocess.run(["sh", "-c", command], cwd=HOME, env=env).returncode
+    if os.environ.get("FAKE_SSH_PATH"):
+        env["PATH"] = os.environ["FAKE_SSH_PATH"]
+    return subprocess.run(["/bin/sh", "-c", command], cwd=HOME, env=env).returncode
 
 
 def main():
