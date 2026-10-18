@@ -281,6 +281,26 @@ test("a folder the board may not read shows a short message, and a board that do
   assert.match(old.p.drawPanel(), /needs the board&#39;s server restarted/);
 });
 
+test("both drawings stand before anything has answered, and say a slow listing is on its way", async () => {
+  let answer;
+  const ask = url => url === "/machines" ? server().ask(url) : new Promise(r => { answer = r; });
+  for (const kind of ["panel", "drop"]) {
+    const p = new FP.Picker({ kind }, { ask, store: store(), now: () => NOW });
+    const draw = () => kind === "drop" ? p.drawDrop() : p.drawPanel();
+    assert.doesNotThrow(draw, "drawn before the machines answer");
+    const started = p.start();
+    await new Promise(r => setImmediate(r));
+    assert.doesNotThrow(draw, "drawn while the first listing is out");
+    assert.equal(p.off, true);
+    await new Promise(r => setTimeout(r, 200));
+    assert.match(draw(), /<div class="fp-ld"><span class="fp-spin">\|<\/span>Reading folders on This Mac<\/div>/);
+    answer({ ok: true, status: 200, json: { machine: "this", path: HOME, name: "robin", short: "~", top: HOME, parent: null,
+      trail: [{ name: "robin", path: HOME }], dirs: [], more: 0, unreadable: false } });
+    await started;
+    assert.match(draw(), /No folders inside robin/);
+  }
+});
+
 test("names and paths are written as text, never as markup", async () => {
   const { p, s } = await picker();
   s.tree[HOME].push('<img src=x onerror="alert(1)">'); s.tree[HOME + '/<img src=x onerror="alert(1)">'] = [];

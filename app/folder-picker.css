@@ -254,9 +254,11 @@
 .fp-a .fp-ls{flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:2px; padding:4px}
 .fp-a .fp-ls > .fp-card, .fp-a .fp-ls > .fp-ld{margin:auto}
 /* column view (mock B): a column per folder, the row scrolled to the last,
-   the folders along the path in the settings page's light grey */
+   the folders along the path in the settings page's light grey. three
+   columns fill the row, as mock B's three 206px columns fill its 620, so a
+   wider or narrower panel keeps that share; never under 170px */
 .fp-a .fp-cols{flex:1; min-height:0; display:flex; overflow-x:auto; overflow-y:hidden}
-.fp-a .fp-col{flex:none; width:206px; overflow-y:auto; padding:4px; display:flex; flex-direction:column; gap:1px;
+.fp-a .fp-col{flex:none; width:max(170px, calc(100% / 3)); overflow-y:auto; padding:4px; display:flex; flex-direction:column; gap:1px;
   border-right:var(--edge) solid rgba(0,0,0,.08)}
 .fp-a .fp-col .fp-fr{padding:5px 8px}
 .fp-a .fp-col .fp-fr.fp-path{background:color-mix(in srgb, #000 4.5%, #fff); outline:none}

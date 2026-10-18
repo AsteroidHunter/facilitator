@@ -385,12 +385,15 @@
       const m = this.M;
       return this.loading ? '<div class="fp-ld"><span class="fp-spin">|</span>Reading folders on ' + esc(m ? m.name : "this machine") + "</div>" : "";
     }
+    // what the well holds in place of folders, or null when there are folders
+    // to show: the machines could not be read, the first listing is still on
+    // its way (said once it takes a while), or the folder may not be read
     stopped(){
       if (this.failed) return '<div class="fp-card">' + mark("lock") + '<div class="fp-cardt">' + esc(this.failed) + "</div></div>";
       if (!this.at) return this.waitLine();
       if (this.at.unreadable) return '<div class="fp-card">' + mark("lock") + '<div class="fp-cardt">' + esc(this.at.name) +
         ' cannot be read</div><div class="fp-cardw">The board may not look inside this folder.</div></div>';
-      return "";
+      return null;
     }
     nameField(){
       const n = this.naming;
@@ -450,7 +453,7 @@
     }
     drawList(){
       const stop = this.stopped();
-      if (stop) return '<div class="fp-ls">' + stop + "</div>" + this.notes();
+      if (stop !== null) return '<div class="fp-ls">' + stop + "</div>" + this.notes();
       const L = this.at, now = this.now();
       let h = '<div class="fp-lh"><span class="fp-c-n">Name</span><span class="fp-c-d">Modified</span><span class="fp-c-c">Items</span><span class="fp-c-x"></span></div>';
       h += '<div class="fp-ls' + (this.fresh ? " fp-fresh" : "") + '">';
@@ -471,7 +474,7 @@
     }
     drawColumns(){
       const stop = this.stopped();
-      if (stop) return '<div class="fp-cols"><div class="fp-col fp-wide">' + stop + "</div></div>" + this.notes();
+      if (stop !== null) return '<div class="fp-cols"><div class="fp-col fp-wide">' + stop + "</div></div>" + this.notes();
       const cols = this.columns(), m = this.M;
       let h = '<div class="fp-cols">';
       cols.forEach((c, k) => {
@@ -528,7 +531,7 @@
         '" data-a="goto"' + this.target(p.path) + ">" + esc(p.id === "home" ? "Home" : p.name) + "</button>").join("") + "</div>";
       h += '<div class="fp-ls' + (this.fresh ? " fp-fresh" : "") + '">';
       const stop = this.stopped();
-      if (stop) h += stop;
+      if (stop !== null) h += stop;
       else {
         const rows = this.rows();
         if (!rows.length) h += '<div class="fp-empty">No folders inside ' + esc(L.name) + "</div>";
