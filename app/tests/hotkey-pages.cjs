@@ -181,6 +181,8 @@ const KEYS = {
   "ctrl+shift+enter": { key: "Enter", code: "Enter", ctrlKey: true, shiftKey: true },
   "ctrl+r": { key: "r", code: "KeyR", ctrlKey: true },
   "ctrl+s": { key: "s", code: "KeyS", ctrlKey: true },
+  "ctrl+shift+s": { key: "S", code: "KeyS", ctrlKey: true, shiftKey: true },
+  "ctrl+shift+w": { key: "W", code: "KeyW", ctrlKey: true, shiftKey: true },
   "ctrl+u": { key: "u", code: "KeyU", ctrlKey: true },
   "ctrl+shift+]": { key: "}", code: "BracketRight", ctrlKey: true, shiftKey: true },
   "ctrl+shift+[": { key: "{", code: "BracketLeft", ctrlKey: true, shiftKey: true },

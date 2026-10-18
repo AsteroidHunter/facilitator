@@ -3394,7 +3394,7 @@
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
      white well listing the open folders, the current one bold, then the
-     raised start button that opens the system folder chooser. All landing
+     raised start button that opens the board's folder picker. All landing
      type is Inter (row paths stay grey mono); no text on this screen may
      be orange: orange lives only in the well's text selection and in its
      scrollbar thumb. Centers in the page's frame, untouched by the stage
@@ -3980,10 +3980,10 @@
 <!-- the new-project landing lives outside the stage: it centers on the real
      window, untouched by the stage transform or any saved drag layout.
      One screen: the wordmark, the open-folders well, the start button that
-     opens the system folder chooser. -->
+     opens the board's folder picker. -->
 <div id="newproj">
   <div id="nphome">
-    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.2.441</span></span></div>
+    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.2.445</span></span></div>
     <div id="nppanel">
       <div id="nphead">Active Folders</div>
       <div id="nprows"></div>
@@ -4637,7 +4637,7 @@ projChev.addEventListener("keydown", e => {
   projChev.click();
 });
 // the list's own clicks: a row chooses its project, the last row opens the
-// Mac's folder chooser as the home page's button does. the release that ends
+// board's folder picker as the home page's button does. the release that ends
 // a carry is not a choice
 projMenu.addEventListener("click", e => {
   const row = e.target.closest?.(".projrow");
@@ -4913,31 +4913,31 @@ document.getElementById("homeico").addEventListener("click", () => {
   }
   if (lastState) renderHome(lastState, true);
 });
-// the start button hands folder choosing to the system: GET /pickdir opens
-// the desktop chooser and answers with the chosen path, which then creates
-// the lane the same way the old in-page browser did. the home page asks the
-// same way and ends the same way, on the new project's own board, and so does
-// "Open a new folder" at the foot of the pill's list, from wherever it is
+// the start button opens the board's own folder picker (folder-picker.js), the
+// panel with its list and column views, and the folder chosen in it then
+// creates the lane the same way the old in-page browser did. the home page
+// asks the same way and ends the same way, on the new project's own board, and
+// so does "Open a new folder" at the foot of the pill's list, from wherever it
+// is. the picker gives the focus back to where it was, or to the pill when the
+// list it was opened from has shut
 const homePick = { picking: false }, menuPick = { picking: false };
 document.getElementById("npstart").addEventListener("click", () => pickFolder(draft || (homeOpen ? homePick : null)));
 async function pickFolder(slot){
-  if (!slot || slot.picking) return;   // one chooser at a time
+  if (!slot || slot.picking) return;   // one picker at a time
   slot.picking = true;
   const here = () => slot === menuPick || (slot === homePick ? homeOpen : !!draft);
   try {
-    const x = await fetch("/pickdir").catch(() => null);
-    if (!here()) return;   // the page was left while the chooser sat open
-    if (!x){ projNote("could not reach the server"); return; }
-    if (x.status === 404){
-      // a live server from before the endpoint: only a restart adds it
-      projNote("the system picker needs the server restart");
-      return;
-    }
-    const r = await x.json().catch(() => null);
-    if (r?.cancelled) return;   // dismissed the chooser: nothing to say
-    if (!r?.path){ projNote("could not open the folder picker"); return; }
-    const path = r.path.replace(/\/+$/, "") || r.path;
-    const name = path.split("/").filter(Boolean).pop() || "project";
+    // a live server from before the picker's routes answers 404: only a
+    // restart adds them
+    if (!await folderPickerBundle()){ projNote("the folder picker needs the server restart"); return; }
+    if (!here()) return;
+    const r = await FolderPicker.open({ kind: "panel",
+      back: slot === menuPick ? projPill : document.getElementById("npstart") });
+    if (!here()) return;   // the page was left while the picker sat open
+    if (!r?.path) return;  // closed without a choice: nothing to say
+    // the server names the folder and writes its path, so nothing here takes
+    // a path apart, whatever system the board runs on
+    const path = r.path, name = r.name || "project";
     // a folder already behind a tab: name that tab instead of refusing. a
     // folder whose tab was closed is the reopening itself, not a refusal: the
     // lane is still the server's, and picking its folder here says
@@ -4953,19 +4953,9 @@ async function pickFolder(slot){
         { method: "POST", body: path }).catch(() => null);
     const pr = px ? await px.json().catch(() => null) : null;
     if (!px?.ok || !pr?.id){
-      // the server states its refusal; the note repeats it in plain words.
-      // a duplicate answer with no visible tab of that name means the id
-      // collides with a reserved internal lane: older servers refuse those,
-      // so the note must not claim the folder is already open
-      let msg = { "body must be a folder under home": "that folder is outside your home folder",
-                  "empty name": "that folder has no usable name" }[pr?.error]
-              || "could not create that project";
-      if (pr?.error === "duplicate project"){
-        const named = lastState && allRowsOf(lastState).some(ow => labelOf(lastState, ow) === name);
-        msg = named ? "a project named " + name + " is already open"
-                    : "that name is reserved right now, the folder can be added after the next server restart";
-      }
-      projNote(msg);
+      // the server states its refusal; the note repeats it in plain words
+      // (projectRefusal, card-logic.js, which the phone says them with too)
+      projNote(projectRefusal(pr, lastState, name));
       return;
     }
     const fade = boardFadeTake();   // the board being left, as in setTab; none from home or a new tab
@@ -11559,6 +11549,13 @@ const boardShortcutActions = {
   },
   unfold(e){
     if (!miniFocused) unfoldSelected(e, selectedId, selectedId && els[selectedId]);
+  },
+  // control+shift+w and s: the top and bottom message bubbles of the card on
+  // screen, as a click on the bubble's arrow. the card has to be the one
+  // holding the keys, as control+s asks
+  bubble(e, shortcut){
+    const card = !draft && boardResponseCard();
+    if (card) answeredKey(e, card.el, shortcut.value);
   },
   // control+shift+enter outside a composer: the move a double Enter's second press
   // makes. a field that is not a composer keeps the key, and a button does not

@@ -176,8 +176,8 @@ test("control S is only the response scroll, never a destination or the diagnost
   for (const key of ["s", "S"]) {
     assert.deepEqual(plain(resolve(event(key, { ctrlKey: true }))), { action: "responseScroll", value: true });
     assert.equal(resolve(event(key, { ctrlKey: true }), "mini"), null);
-    // the old chord with shift is nothing now
-    assert.equal(resolve(event(key, { ctrlKey: true, shiftKey: true })), null);
+    // with shift it is the bottom message bubble's key (bubble-keys.test.cjs), never the scroll
+    assert.deepEqual(plain(resolve(event(key, { ctrlKey: true, shiftKey: true }))), { action: "bubble", value: "sent" });
   }
   // the diagnostic keeps its own chord and letter
   assert.deepEqual(plain(resolve(event("m", { ctrlKey: true, shiftKey: true }))), { action: "diagnostic", value: true });

@@ -80,6 +80,12 @@ function installCardPageGuard(win = window){
     if (!e.metaKey) e.preventDefault();
     if (e.key === "Escape") closeCardPicture();
   }, true);
+  // while the board's folder picker is open the keys are its own too, and the
+  // page's wait until it closes (folder-picker.js, which stops each one)
+  win.folderPickerKeys = true;
+  win.addEventListener("keydown", e => {
+    if (win.FolderPicker && win.FolderPicker.isOpen()) win.FolderPicker.key(e);
+  }, true);
 
   let menu = null, returnTo = null;
   const downloads = new WeakSet();
@@ -769,6 +775,18 @@ const CARD_SHORTCUT_DEFINITIONS = [
     action: "drawerSection", mini: false,
     match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
       !e.repeat && !e.isComposing ? DRAWER_SECTION_STEPS.get(e.code) || null : null,
+  },
+  // control+shift+w and control+shift+s open or cut back the card's top and
+  // bottom message bubbles, as a press on the bubble's arrow does (answeredKey).
+  // like control+s they are read off the letter the key types. no text box or
+  // editor here gives either chord a meaning, so they work from the card's
+  // composer too. they stand after the chords read off a physical key, so a
+  // layout whose ; or ' key types an s or a w keeps that key for those
+  {
+    action: "bubble", mini: false,
+    match: e => e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey &&
+      !e.repeat && !e.isComposing && !e.defaultPrevented
+      ? (e.key === "w" || e.key === "W" ? "answered" : e.key === "s" || e.key === "S" ? "sent" : null) : null,
   },
   // control+s scrolls the selected card's response while held: down, or up
   // when a tap is followed at once by a hold. A held key's repeats are
@@ -2199,6 +2217,61 @@ function labelOf(state, owner){
   return dir.split("/").filter(Boolean).pop() || owner;
 }
 
+// ---- "Open a new folder" ------------------------------------------------------------
+// the board's own folder picker (folder-picker.js) and its sheet, fetched the
+// first time a folder is asked for and never on boot. the picker waits for
+// both, so nothing of it is drawn unstyled. answers whether it loaded: a
+// server from before their routes answers 404, and the page says a restart is
+// needed. a load that failed is tried afresh on the next ask
+let folderPickerLoad = null;
+function folderPickerBundle(){
+  if (globalThis.FolderPicker && document.getElementById("fpsheet")?.sheet) return Promise.resolve(true);
+  if (folderPickerLoad) return folderPickerLoad;
+  folderPickerLoad = new Promise(res => {
+    let left = 2, good = true;
+    const done = ok => {
+      good = good && ok;
+      if (--left) return;
+      if (!good || !globalThis.FolderPicker) folderPickerLoad = null;
+      res(good && !!globalThis.FolderPicker);
+    };
+    let sheet = document.getElementById("fpsheet");
+    if (sheet?.sheet) done(true);
+    else {
+      if (!sheet){
+        sheet = document.createElement("link");
+        sheet.id = "fpsheet"; sheet.rel = "stylesheet"; sheet.href = "/folder-picker.css";
+        document.head.append(sheet);
+      }
+      sheet.addEventListener("load", () => done(true), { once: true });
+      sheet.addEventListener("error", () => { sheet.remove(); done(false); }, { once: true });
+    }
+    if (globalThis.FolderPicker){ done(true); return; }
+    const s = document.createElement("script");
+    s.src = "/folder-picker.js";
+    s.onload = () => done(true);
+    s.onerror = () => { s.remove(); done(false); };
+    document.head.append(s);
+  });
+  return folderPickerLoad;
+}
+// the words a refused project is named with, the same on the board and the
+// phone: the server states its refusal and these repeat it in plain words. a
+// duplicate answer with no visible tab of that name means the id collides with
+// a reserved internal lane: older servers refuse those, so the words must not
+// claim the folder is already open
+function projectRefusal(pr, st, name){
+  let msg = { "body must be a folder under home": "that folder is outside your home folder",
+              "empty name": "that folder has no usable name" }[pr?.error]
+          || "could not create that project";
+  if (pr?.error === "duplicate project"){
+    const named = st && allRowsOf(st).some(ow => labelOf(st, ow) === name);
+    msg = named ? "a project named " + name + " is already open"
+                : "that name is reserved right now, the folder can be added after the next server restart";
+  }
+  return msg;
+}
+
 // which replies the owner has laid eyes on: box id -> how many replies the
 // card carried when it was last opened; selecting a card counts as reading the
 // reply it shows. the board keeps this, one record per card, so a card opened
@@ -3019,9 +3092,7 @@ function answeredPanel(room){
     // ends picking out some of the words is a copy rather than a request
     if (e.target && e.target.closest && e.target.closest("a, button, audio, video")) return;
     if (boxHasSelection(panel)) return;
-    // the class is the way the run is heading, so a press that catches a run
-    // turns it round rather than repeating it
-    openAnswered(panel, !panel.classList.contains("open"));
+    toggleAnswered(panel);
   });
   // whether a batch runs past the preview can only be read off a panel that is
   // laid out, and a card that is not on screen is not. so it is read again
@@ -3035,6 +3106,28 @@ function answeredPanel(room){
     panel.answWatch.observe(panel.querySelector(".answstack"));
   }
   return panel;
+}
+
+// what a press on the panel's arrow does, and the bubble keys with it
+// (answeredKey). a batch shown whole has no arrow and nothing more to show. the
+// class is the way the run is heading, so a press that catches a run turns it
+// round rather than repeating it. true means the panel was opened or cut back
+function toggleAnswered(panel){
+  if (!panel || !panel.classList.contains("more")) return false;
+  openAnswered(panel, !panel.classList.contains("open"));
+  return true;
+}
+
+// control+shift+w and s: the card's top bubble (el.answ, the messages the reply
+// on the card answered) and its bottom one (el.sent, the newest of the bubbles
+// still waiting at its foot), each opened or cut back as a press on its arrow
+// does. they come from where the section chords may come from; a card with no
+// such bubble, or one shown whole, leaves the key alone
+function answeredKey(e, el, which){
+  const panel = el && (which === "sent" ? el.sent : el.answ);
+  if (!panel || !panel.classList.contains("more") || !sectionChordSource(e.target, el)) return false;
+  e.preventDefault();
+  return toggleAnswered(panel);
 }
 
 // the open and the cut back, run the way the old answered box ran its fold,

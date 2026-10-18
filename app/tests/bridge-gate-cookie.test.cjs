@@ -20,6 +20,7 @@ const PASS = "Tp" + crypto.randomBytes(8).toString("hex") + "9!";
 const NAME = "__Host-facilitator_session";
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 const DESKTOP = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+// the copy's home folder, by name: what the folder picker's /machines names
 const STUB = "stub-folder-for-test";
 const CROSS = { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "User-Agent": PHONE };
 let fixture;
@@ -69,12 +70,14 @@ before(async () => {
   fs.cpSync(path.join(ROOT, "assets"), path.join(app, "assets"), { recursive: true });
   execFileSync(PYTHON, ["-c", `import bridge_auth; bridge_auth.set_password(${JSON.stringify(PASS)})`], { cwd: app });
   const port = await freePortPair();
+  const home = path.join(outer, STUB);
+  fs.mkdirSync(home);
   const env = { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: path.join(outer, "logs"),
-    FACILITATOR_PICKDIR_STUB: STUB };
+    HOME: home };
   const child = spawn(PYTHON, [path.join(app, "server.py")], { cwd: app, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   for (const stream of [child.stdout, child.stderr]) stream.on("data", data => { output += data; });
-  fixture = { outer, app, port, bridge: port + 1, child, origin: `http://127.0.0.1:${port + 1}` };
+  fixture = { outer, app, port, bridge: port + 1, child, origin: `http://127.0.0.1:${port + 1}`, home: fs.realpathSync(home) };
   for (let i = 0; ; i++) {
     if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
     try { if ((await request(port + 1, "/auth/check")).status === 200) break; } catch {}
@@ -204,7 +207,7 @@ test("a cross-site GET of a route that acts is refused with the Lax cookie prese
   const reasonLines = () => refusals().lines.filter(line => line.reason === "cross-site-get");
   const before = board();
   const lineCount = reasonLines().length;
-  const routes = ["/wait?owner=facilitator&timeout=0", "/fresh?owner=facilitator", "/pickdir", "/state", "/m/state",
+  const routes = ["/wait?owner=facilitator&timeout=0", "/fresh?owner=facilitator", "/machines", "/state", "/m/state",
     "/unread?owner=facilitator", "/dirs", "/log", "/push/key", "/page", `/thread?box=${card}`, "/navfiles",
     "/uploads/none.png"];
   for (const route of routes) {
@@ -218,11 +221,11 @@ test("a cross-site GET of a route that acts is refused with the Lax cookie prese
   assert.equal((await read("/fresh?owner=facilitator", { ...CROSS, "Sec-Fetch-Site": "Cross-Site" })).status, 403,
     "the header value is read without regard to case");
   assert.equal(board(), before, "a refused cross-site GET changed the board file");
-  assert.equal((await read("/pickdir", CROSS)).text.includes(STUB), false);
+  assert.equal((await read("/machines", CROSS)).text.includes(STUB), false);
 
   const fresh = reasonLines().slice(lineCount);
   const routesLogged = fresh.map(line => line.route).sort();
-  assert.deepEqual(routesLogged, ["/dirs", "/fresh", "/log", "/m/state", "/navfiles", "/page", "/pickdir", "/push/key",
+  assert.deepEqual(routesLogged, ["/dirs", "/fresh", "/log", "/m/state", "/machines", "/navfiles", "/page", "/push/key",
     "/state", "/thread", "/unread", "/uploads/*", "/wait"].sort(), "one line per route, none for the repeats");
   assert.deepEqual({ ...fresh.find(line => line.route === "/fresh"), ts: 0 }, { ts: 0, level: "info", kind: "signinrefused",
     method: "GET", route: "/fresh", cookie_header: true, cookies: 1, session_cookie: true, session_known: true,
@@ -233,7 +236,7 @@ test("a cross-site GET of a route that acts is refused with the Lax cookie prese
     assert.equal(text.includes(secret), false, `the log holds ${secret.slice(0, 6)}`);
 
   // the same requests from the bridge's own page do act: the claim lands, and the second message is folded in
-  assert.deepEqual(JSON.parse((await read("/pickdir", { "Sec-Fetch-Site": "same-origin" })).text), { path: STUB });
+  assert.equal(JSON.parse((await read("/machines", { "Sec-Fetch-Site": "same-origin" })).text).machines[0].top, fixture.home);
   const claim = await read("/wait?owner=facilitator&timeout=0", { "Sec-Fetch-Site": "same-origin" });
   assert.equal(claim.status, 200);
   assert.deepEqual(JSON.parse(claim.text).messages, ["first words"]);

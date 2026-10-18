@@ -146,6 +146,15 @@ Endpoints:
                                returns the id; the lane starts with Omni Ticket #1;
                                a taken id walks numbered suffixes (-2, -3) until
                                free; empty names and bad folders are refused (400)
+  POST /mkdir?path=P&name=N[&machine=M] -> makes the folder N inside the folder
+                               P for the folder picker and answers {ok, name,
+                               path}. N is refused (400, in plain words) when it
+                               is empty, holds a slash, starts with a dot, holds
+                               < > : " | ? * or a control character, runs past
+                               255 bytes, is a name Windows keeps for itself
+                               (on Windows), or is already there. P follows
+                               /dirs's rules. M is the machine, "this" (the only
+                               one) when it is left out
   POST /delete?box=ID       -> legacy empty-meta removal route. A stale caller
                                that sends a nonempty meta card here closes it to
                                done instead, so old tabs cannot erase a thread
@@ -271,6 +280,10 @@ Endpoints:
                                framing, while the root and bridge remain unframeable
   GET  /magic-box.js        -> where a card's magic box stands beside the card, and
                                the sealed page an agent's html is shown in
+  GET  /folder-picker.js, /folder-picker.css -> the board's own folder picker
+                               and its sheet, what "Open a new folder" opens on
+                               the board, the typed page and the phone page,
+                               fetched the first time a folder is asked for
   GET  /manifest.json, /sw.js -> what makes the board page installable as a Mac
                                app: its web app manifest, whose name the
                                installed app's bundle and dock icon are taken
@@ -639,10 +652,35 @@ Endpoints:
   GET  /log?lines=N         -> tail of the day's server log file, the dated one
                                in data/logs/;
                                $FACILITATOR_LOG names another file instead
-  GET  /dirs?path=P         -> the subdirectories of P (name + absolute path)
-                               for the page's folder chooser; empty P means the
-                               home directory; hidden folders are excluded and
-                               paths outside the home directory are refused
+  GET  /machines            -> the machines the folder picker may list, each
+                               {id, name, kind, online, top, home, sep, places}:
+                               today only this one, id "this", named by its
+                               system ("This Mac", "This PC", "This computer").
+                               top is the highest folder it lists (home), sep
+                               the system's path separator, places its home and
+                               the Desktop, Documents and Downloads it has
+                               (the XDG names where Linux keeps them), found
+                               without reading inside them
+  GET  /dirs?path=P[&from=F][&machine=M] -> one folder's subfolders for the
+                               folder picker (folder-picker.js). Empty P is
+                               home, ~ is home, and a relative P is taken from
+                               the folder F. Answers {machine, path, name,
+                               short (home written as ~), top, parent (null at
+                               home), trail (the folders from home down, each
+                               {name, path}), dirs (each {name, path, modified,
+                               items, itemsCut}), more (rows past the 2000
+                               listed), unreadable}. Hidden folders (a leading
+                               dot, or the system's own hidden mark) and links
+                               that lead out of home are left out. items counts
+                               the names inside a folder that do not start with
+                               a dot, up to 9999 (itemsCut past that), within
+                               0.4 seconds for one listing, and on macOS not for
+                               Desktop, Documents and Downloads until the board
+                               has listed that one itself, so opening the picker
+                               does not make macOS ask about all three. A P
+                               outside home, through a hidden folder, missing or
+                               a file is refused (400) in plain words; a folder
+                               the board may not read answers unreadable: true
   GET  /tokens/daily?days=N -> the tokens the local coding agents spent per
                                day, what the home page's charts draw: the last
                                N days (1 to 3660, 365 when absent) ending today,
@@ -672,13 +710,6 @@ Endpoints:
                                at once from the last reading; one five minutes
                                old is renewed in the background. limits.py
                                beside this file says where each number comes from
-  GET  /pickdir             -> the system folder chooser on the desktop this
-                               server runs in: blocks until a folder is chosen,
-                               then {"path": "..."}; a dismissed chooser answers
-                               {"cancelled": true}, a real failure {"error": "..."}.
-                               With FACILITATOR_PICKDIR_STUB set on the server
-                               process the value answers at once and no dialog
-                               ever opens, so tests can drive the flow headless
   POST /ws/goal?owner&ws    -> body = the workspace's goal text
   POST /ws/task?owner&ws[&id][&status][&del=1] -> body = task text; no id creates,
                                status one of pending|ongoing|done, del removes
@@ -3191,6 +3222,8 @@ def _remove_empty_meta_box(box: dict) -> str:
         for note in _state.get("quicknotes", []):
             if note.get("card") == bid:
                 note["card"] = None
+    # its links go with it, both ways
+    _drop_links(box)
     # its magic box goes with it, once the save that removes the card lands
     if box.get("magic"):
         _magic_sweep_due.append(bid)
@@ -3269,8 +3302,9 @@ def _restore_binned(entry: dict) -> dict:
 
 def _bin_expire(now: float | None = None) -> list:
     """Delete for good every card that has been in the Bin BIN_KEEP_DAYS or
-    more: its record, its quick note link and, once the save lands, its magic
-    box's files. Answers the ids it deleted. Caller holds _lock and saves."""
+    more: its record, its quick note link, its links to and from other cards
+    and, once the save lands, its magic box's files. Answers the ids it
+    deleted. Caller holds _lock and saves."""
     now = time.time() if now is None else now
     entries = _bin_entries()
     gone = [e for e in entries if now - e.get("ts", now) >= BIN_KEEP]
@@ -3280,6 +3314,7 @@ def _bin_expire(now: float | None = None) -> list:
         for note in _state.get("quicknotes", []):
             if note.get("card") == card["id"]:
                 note["card"] = None
+        _drop_links(card)
         if card.get("magic"):
             _magic_sweep_due.append(card["id"])
         _log("expire", card["id"], card.get("title", ""))
@@ -3293,6 +3328,134 @@ def _bin_clock() -> None:
             if _bin_expire():
                 _save()
                 _notify()
+
+
+def _section_name(card: dict) -> str:
+    """The section a card sits in, as the Bin and the links name it."""
+    return ("done" if card.get("done") else "deferred" if card.get("parked")
+            else "docked" if card.get("docked") else "doing")
+
+
+# ---- links between cards ------------------------------------------------------
+# An agent links two related cards by their ids, which never change, so a
+# rename or a move between sections changes nothing here: titles and sections
+# are read when the links are asked for. Each link is kept on the card it starts
+# from, box["links"], oldest first, as {to, ts, agent}: the card it points at,
+# when it was made and the agent that made it. A card never linked carries no
+# field at all, so a board saved before links reads exactly as it was. The links
+# pointing at a card are found by reading every card's own, so nothing is kept
+# twice and the two ways cannot disagree. A card in the Bin keeps its links and
+# brings them back on a restore, though no reading shows them meanwhile; a card
+# deleted for good takes every link to and from it along.
+def _card_links(card: dict) -> list:
+    """One card's own links; a missing or malformed list reads empty."""
+    links = card.get("links")
+    if not isinstance(links, list):
+        return []
+    return [l for l in links if isinstance(l, dict) and isinstance(l.get("to"), str)]
+
+
+def _set_links(card: dict, links: list) -> None:
+    """Keep a card's links, dropping the field once none are left."""
+    if links:
+        card["links"] = links
+    else:
+        card.pop("links", None)
+
+
+def _drop_links(card: dict) -> None:
+    """Every link to and from one card that is gone for good, off the cards on
+    the board and in the Bin. Caller holds _lock and saves."""
+    bid = card["id"]
+    for link in _card_links(card):
+        _log("unlink", bid, "", log_fields={"to": link["to"]}, to=link["to"], why="deleted")
+    for other in _state["boxes"] + [e["card"] for e in _bin_entries()]:
+        links = _card_links(other)
+        kept = [l for l in links if l["to"] != bid]
+        if len(kept) != len(links):
+            _set_links(other, kept)
+            _log("unlink", other["id"], "", log_fields={"to": bid}, to=bid, why="deleted")
+
+
+# ---- card properties ------------------------------------------------------------
+# What an agent, and later a properties panel, reads about one card at a glance
+# from GET /props. Most of it the board already keeps, and it is read from
+# there each time and copied nowhere: the id, which never changes and is the
+# number the pages show after the m; the lane (owner) and the section; when the
+# card was made, the time of its create row in the transcript; and when it last
+# changed, the time of the newest transcript row about it, since every change
+# the board makes to a card writes one (_card_times). Two properties are new
+# and are kept on the card itself, each as {value, ts, agent}: the value as the
+# agent working the card gave it, when it was set and by which agent.
+# box["branch"] is the git branch the card's work is on and box["status"] a
+# short word on where that work stands. An agent sets either with POST /props
+# and clears it with an empty one, and a card without one carries no field, so
+# a board saved before them reads exactly as it was. The branch is not the
+# card's worktree (_post_worktree), which a page picks from the lane's own
+# checkouts. Both live on the card's own record, so they outlast renames and
+# restarts, wait in the Bin with the card, and go when it is deleted for good.
+CARD_PROPS = ("branch", "status")
+PROP_MAX = 200
+
+
+def _a_time(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _card_prop(card: dict, name: str) -> dict | None:
+    """One of the properties an agent sets on a card, as kept; a missing or
+    malformed one is none."""
+    prop = card.get(name)
+    if not isinstance(prop, dict) or not isinstance(prop.get("value"), str) or not prop["value"]:
+        return None
+    ts, agent = prop.get("ts", 0), prop.get("agent", "")
+    return {"value": prop["value"], "ts": ts if _a_time(ts) else 0,
+            "agent": agent if isinstance(agent, str) else ""}
+
+
+def _card_times(bid: str, owner: str, ts) -> tuple:
+    """When one card was made and when it last changed, read from the
+    transcript each time they are asked for. Made is the card's create row. A
+    card made without one, as a new project's first card is (the row is the
+    project's) and the seed's cards are, takes the earliest record of it there
+    is: its lane's project row, its own first row or its ts. Last changed is
+    its newest row, or its ts if that is later. An id an older board handed out
+    again after a deletion starts over there, since the rows before are another
+    card's. Either is None only for a card the board has no time for at all."""
+    created = first = newest = project = None
+    # only lines naming the card or its lane are read whole: each name as a
+    # row writes it, quotes and all
+    marks = (json.dumps(bid), json.dumps(owner))
+    try:
+        with TRANSCRIPT_PATH.open(errors="replace") as transcript:
+            for line in transcript:
+                if not any(mark in line for mark in marks):
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict) or not _a_time(event.get("ts")):
+                    continue
+                row, kind, at = event.get("box"), event.get("kind"), event["ts"]
+                if row == owner and kind == "project":
+                    project = at
+                if row != bid:
+                    continue
+                if kind in ("delete", "expire"):
+                    created = first = newest = None
+                    continue
+                if kind == "create":
+                    created = at
+                first = at if first is None else first
+                newest = at if newest is None else max(newest, at)
+    except FileNotFoundError:
+        pass
+    own = ts if _a_time(ts) else None
+    made = created if created is not None else min(
+        (t for t in (project, first, own) if t is not None), default=None)
+    changed = max((t for t in (newest, own) if t is not None), default=None)
+    return made, changed
 
 
 def _ws(owner: str, wid: str) -> dict | None:
@@ -5019,64 +5182,284 @@ def _get_limits(q: Query, _):
     return 200, shown
 
 
-def _get_dirs(q: Query, _):
-    # the page's folder chooser: one folder's subdirectories, rooted at
-    # and fenced to the user's home; hidden folders stay out of sight
+# ---- the folder picker -------------------------------------------------------
+# "Open a new folder" opens a picker the board draws itself (folder-picker.js),
+# on the Mac board, the typed page and the phone page alike. It reads three
+# routes: /machines names the machines it may list and their places, /dirs
+# lists one folder of one machine, and /mkdir makes a folder in one. Only this
+# machine is known, as "this": another machine later is one more entry in
+# _machines() and one more answer from _machine(). Everything is fenced to the
+# home folder and hidden folders stay hidden. Paths go out the way this system
+# writes them, and the page shows what it is given without taking a path apart
+FOLDER_ROWS_MAX = 2000      # folders one listing names; the rest are only counted
+FOLDER_COUNT_MAX = 9999     # names counted inside one folder before it stops
+FOLDER_COUNT_TIME = 0.4     # seconds the counts of one listing may take in all
+FOLDER_NAME_MAX = 255       # bytes in a new folder's name, the usual file system limit
+# refused on every system, so a folder made here keeps its name on any other
+FOLDER_NAME_BAD = frozenset('<>:"|?*')
+WINDOWS_NAMES = frozenset({"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
+                           *(f"lpt{i}" for i in range(1, 10))})
+# macOS asks once before a program reads inside Desktop, Documents or
+# Downloads. A listing of home counts what is inside each folder it names,
+# which would ask about all three at once the first time the picker opens, so
+# those three are not counted until the board has listed that folder itself in
+# this run: the reader opened it, and macOS asked then, once. A folder the
+# board may not read says so in the picker, and the picker never asks again
+# on its own
+_folders_read: set = set()
+
+
+def _home() -> Path:
+    """The home folder with its links followed, so a home reached through a
+    link is fenced the same as one that is not."""
     home = Path.home()
+    try:
+        return home.resolve()
+    except OSError:
+        return home
+
+
+def _inside(p: Path, top: Path) -> bool:
+    return p == top or top in p.parents
+
+
+def _machine_name() -> str:
+    return {"darwin": "This Mac", "win32": "This PC"}.get(sys.platform, "This computer")
+
+
+def _machine(q: Query):
+    """The machine a request names, "this" when it names none, None for one
+    the board does not know."""
+    named = q.one("machine") or "this"
+    return named if named == "this" else None
+
+
+def _hidden_mark(st) -> bool:
+    """The system's own hidden mark, where it keeps one: macOS's hidden flag
+    (which ~/Library wears) and Windows's hidden and system attributes."""
+    if getattr(st, "st_flags", 0) & getattr(stat, "UF_HIDDEN", 0):
+        return True
+    hidden = getattr(stat, "FILE_ATTRIBUTE_HIDDEN", 0) | getattr(stat, "FILE_ATTRIBUTE_SYSTEM", 0)
+    return bool(getattr(st, "st_file_attributes", 0) & hidden)
+
+
+def _hidden_below(p: Path, top: Path) -> bool:
+    """Whether any folder from just under top down to p is hidden."""
+    at = p
+    while at != top and top in at.parents:
+        if at.name.startswith("."):
+            return True
+        try:
+            if _hidden_mark(at.stat()):
+                return True
+        except OSError:
+            pass
+        at = at.parent
+    return False
+
+
+def _guarded(home: Path) -> set:
+    return {home / "Desktop", home / "Documents", home / "Downloads"} if sys.platform == "darwin" else set()
+
+
+def _user_dirs(home: Path) -> dict:
+    """Desktop, Documents and Downloads as this system names them: from the
+    XDG user folders file where there is one (Linux, often in the reader's own
+    language), the English names under home otherwise."""
+    found = {"desktop": home / "Desktop", "documents": home / "Documents", "downloads": home / "Downloads"}
+    try:
+        text = (home / ".config" / "user-dirs.dirs").read_text(errors="replace")
+    except OSError:
+        return found
+    keys = {"XDG_DESKTOP_DIR": "desktop", "XDG_DOCUMENTS_DIR": "documents", "XDG_DOWNLOAD_DIR": "downloads"}
+    for line in text.splitlines():
+        m = re.fullmatch(r'\s*(XDG_[A-Z]+_DIR)\s*=\s*"([^"]*)"\s*', line)
+        if not m or m.group(1) not in keys:
+            continue
+        value = m.group(2)
+        if value.startswith("$HOME"):
+            value = str(home) + value[len("$HOME"):]
+        try:
+            p = Path(value).resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if p.is_absolute() and p != home and _inside(p, home):
+            found[keys[m.group(1)]] = p
+    return found
+
+
+def _machines() -> list:
+    home = _home()
+    places = [{"id": "home", "name": home.name or str(home), "path": str(home)}]
+    for place, p in _user_dirs(home).items():
+        # is_dir reads the folder's own entry and nothing inside it, which
+        # macOS does not ask about
+        try:
+            if p.is_dir() and not _hidden_below(p, home):
+                places.append({"id": place, "name": p.name, "path": str(p)})
+        except OSError:
+            continue
+    return [{"id": "this", "name": _machine_name(), "kind": "computer", "online": True,
+             "top": str(home), "home": str(home), "sep": os.sep, "places": places}]
+
+
+def _get_machines(q: Query, _):
+    return 200, {"machines": _machines()}
+
+
+def _folder_named(q: Query, home: Path):
+    """The folder a request's path names, resolved, and None; or None and
+    the words for why not. The words never hold the path."""
     raw = q.one("path").strip()
+    base = q.one("from").strip()
     try:
-        p = (Path(raw).expanduser() if raw else home).resolve()
-    except OSError:
-        return 400, {"error": "bad path"}
-    if p != home and home not in p.parents:
-        return 400, {"error": "outside the home directory"}
-    if not p.is_dir():
-        return 400, {"error": "not a directory"}
+        p = Path(raw).expanduser() if raw else home
+        if not p.is_absolute():
+            start = Path(base).expanduser() if base else home
+            p = (start if start.is_absolute() else home) / p
+        p = p.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None, "that path cannot be read"
+    # the fence comes first, so nothing is said about anything outside home
+    if not _inside(p, home):
+        return None, "outside the home folder"
+    if _hidden_below(p, home):
+        return None, "that folder is hidden"
     try:
-        subs = sorted((c for c in p.iterdir()
-                       if c.is_dir() and not c.name.startswith(".")),
-                      key=lambda c: c.name.lower())
-    except OSError:
-        return 400, {"error": "unreadable directory"}
-    return 200, {"path": str(p),
-                 "parent": str(p.parent) if p != home else None,
-                 "dirs": [{"name": c.name, "path": str(c)} for c in subs]}
+        if not p.exists():
+            return None, "no folder there"
+        if not p.is_dir():
+            return None, "that is a file, not a folder"
+    except (OSError, ValueError):
+        return None, "that path cannot be read"
+    return p, None
 
 
-def _get_pickdir(q: Query, _):
-    # tests must never open the dialog: FACILITATOR_PICKDIR_STUB set on
-    # the server process answers with its value instead of the chooser
-    stub = os.environ.get("FACILITATOR_PICKDIR_STUB")
-    if stub:
-        return 200, {"path": stub}
+def _natural(name: str) -> list:
+    """A name's sort key: case left out and numbers read as numbers, so
+    run-9 comes before run-10. The split leaves the digits at odd places."""
+    return [int(part) if i % 2 else part for i, part in enumerate(re.split(r"(\d+)", name.casefold()))]
+
+
+def _folder_rows(p: Path, home: Path) -> list:
+    """p's own subfolders, sorted, as (name, path, modified). Raises OSError
+    for a folder the board may not read."""
+    rows = []
+    with os.scandir(p) as entries:
+        for e in entries:
+            if e.name.startswith("."):
+                continue
+            try:
+                if not e.is_dir():
+                    continue
+                st = e.stat()
+                full = Path(e.path)
+                if e.is_symlink() and not _inside(full.resolve(), home):
+                    continue   # a link out of home would only lead to a refusal
+            except (OSError, RuntimeError):
+                continue
+            if not _hidden_mark(st):
+                rows.append((e.name, full, st.st_mtime))
+    rows.sort(key=lambda row: _natural(row[0]))
+    return rows
+
+
+def _count_names(p: Path):
+    """How many names inside p do not start with a dot, stopped one past
+    FOLDER_COUNT_MAX; None for a folder the board may not read."""
+    n = 0
     try:
-        # activate the chooser first so it opens frontmost and its
-        # sidebar and search take clicks; restore the prior front app
-        # after. (osascript dialogs open unfocused otherwise.)
-        r = subprocess.run(
-            ["osascript",
-             "-e", 'tell application "System Events"',
-             "-e", 'set prior to first process whose frontmost is true',
-             "-e", 'activate',
-             "-e", 'set picked to POSIX path of (choose folder with prompt "Open a new folder")',
-             "-e", 'set frontmost of prior to true',
-             "-e", 'return picked',
-             "-e", 'end tell'],
-            capture_output=True, text=True, timeout=300)
-    except subprocess.TimeoutExpired:
-        # a chooser left unanswered closes with the subprocess; to the
-        # page that is the same quiet non-choice as a cancel
-        return 200, {"cancelled": True}
-    except OSError as e:
-        return 200, {"error": str(e)}
-    if r.returncode != 0:
-        # the chooser exits nonzero on cancel (-128); anything else
-        # nonzero is a real failure and says so
-        err = (r.stderr or "").strip()
-        if not err or "-128" in err:
-            return 200, {"cancelled": True}
-        return 200, {"error": err}
-    return 200, {"path": r.stdout.strip()}
+        with os.scandir(p) as entries:
+            for e in entries:
+                if not e.name.startswith("."):
+                    n += 1
+                    if n > FOLDER_COUNT_MAX:
+                        break
+    except OSError:
+        return None
+    return n
+
+
+def _get_dirs(q: Query, _):
+    if _machine(q) is None:
+        return 400, {"error": "no such machine"}
+    home = _home()
+    p, why = _folder_named(q, home)
+    if p is None:
+        return 400, {"error": why}
+    trail, at = [], p
+    while True:
+        trail.append({"name": at.name or str(at), "path": str(at)})
+        if at == home:
+            break
+        at = at.parent
+    trail.reverse()
+    answer = {"machine": "this", "path": str(p), "name": p.name or str(p),
+              "short": "~" if p == home else "~" + os.sep + str(p.relative_to(home)),
+              "top": str(home), "parent": str(p.parent) if p != home else None,
+              "trail": trail, "dirs": [], "more": 0, "unreadable": False}
+    try:
+        rows = _folder_rows(p, home)
+    except OSError:
+        answer["unreadable"] = True
+        return 200, answer
+    guarded = _guarded(home)
+    if p in guarded:
+        _folders_read.add(p)
+    unasked = guarded - _folders_read
+    answer["more"] = max(0, len(rows) - FOLDER_ROWS_MAX)
+    ends = time.monotonic() + FOLDER_COUNT_TIME
+    for name, full, modified in rows[:FOLDER_ROWS_MAX]:
+        items = _count_names(full) if full not in unasked and time.monotonic() < ends else None
+        row = {"name": name, "path": str(full), "modified": modified, "items": items}
+        if items is not None and items > FOLDER_COUNT_MAX:
+            row.update(items=FOLDER_COUNT_MAX, itemsCut=True)
+        answer["dirs"].append(row)
+    return 200, answer
+
+
+def _folder_name_problem(name: str):
+    """Why a new folder may not have this name, in plain words, or None."""
+    if not name:
+        return "a folder needs a name"
+    if "/" in name or "\\" in name:
+        return "a folder name cannot hold a slash"
+    if name.startswith("."):
+        return "a folder name cannot start with a dot"
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+        return "a folder name cannot hold a control character"
+    if any(c in FOLDER_NAME_BAD for c in name):
+        return 'a folder name cannot hold any of < > : " | ? *'
+    if len(name.encode("utf-8", "surrogatepass")) > FOLDER_NAME_MAX:
+        return "that name is too long"
+    if sys.platform == "win32" and (name.rstrip(" .") != name or name.split(".")[0].lower() in WINDOWS_NAMES):
+        return "Windows keeps that name for itself"
+    return None
+
+
+def _post_mkdir(q: Query, _text: str):
+    if _machine(q) is None:
+        return 400, {"error": "no such machine"}
+    name = q.one("name").strip()
+    why = _folder_name_problem(name)
+    if why:
+        return 400, {"error": why}
+    home = _home()
+    parent, why = _folder_named(q, home)
+    if parent is None:
+        return 400, {"error": why}
+    made = parent / name
+    try:
+        # the system's own answer decides a clash, so a disk that ignores
+        # case refuses Notes beside notes
+        os.mkdir(made)
+    except FileExistsError:
+        return 400, {"error": "a folder by that name is already here"}
+    except PermissionError:
+        return 400, {"error": "the board may not make a folder here"}
+    except OSError:
+        return 400, {"error": "that folder could not be made"}
+    return 200, {"ok": True, "name": name, "path": str(made)}
 
 
 def _get_upload(q: Query, _):
@@ -6675,6 +7058,142 @@ def _post_context(q: Query, text: str):
         return 200, {"ok": True}
 
 
+def _post_link(q: Query, text: str):
+    # one card linked to a card it is related to, by id (see _card_links). the
+    # same link made again is the one already kept, answered as it stands
+    src, dst = q.one("from"), q.one("to")
+    agent = q.one("agent").strip()[:24]
+    if not src or not dst:
+        return 400, {"error": "name both cards: from=ID&to=ID"}
+    if src == dst:
+        return 400, {"error": "a card cannot link to itself"}
+    with _lock:
+        for bid in (src, dst):
+            if _box(bid) is None:
+                return 400, {"error": f"no card {bid} on the board"}
+        card = _box(src)
+        links = _card_links(card)
+        kept = next((l for l in links if l["to"] == dst), None)
+        if kept is not None:
+            return 200, {"ok": True, "added": False, "from": src, **kept}
+        made = {"to": dst, "ts": time.time(), "agent": agent}
+        _set_links(card, links + [made])
+        _log("link", src, "", log_fields={"to": dst}, to=dst, agent=agent)
+        _save()
+        _notify()
+        return 200, {"ok": True, "added": True, "from": src, **made}
+
+
+def _post_unlink(q: Query, text: str):
+    # a link taken away; one that is not there is answered as already gone
+    src, dst = q.one("from"), q.one("to")
+    agent = q.one("agent").strip()[:24]
+    if not src or not dst:
+        return 400, {"error": "name both cards: from=ID&to=ID"}
+    with _lock:
+        card = _box(src)
+        if card is None:
+            return 400, {"error": f"no card {src} on the board"}
+        links = _card_links(card)
+        kept = [l for l in links if l["to"] != dst]
+        if len(kept) == len(links):
+            return 200, {"ok": True, "removed": False}
+        _set_links(card, kept)
+        _log("unlink", src, "", log_fields={"to": dst}, to=dst, agent=agent)
+        _save()
+        _notify()
+        return 200, {"ok": True, "removed": True}
+
+
+def _get_links(q: Query, _):
+    """One card's links both ways: the cards it links to and the cards linking
+    to it, each oldest link first, with the other card's title and section as
+    they are now. A card in the Bin is in neither list until it is restored."""
+    bid = q.one("box")
+    with _lock:
+        card = _box(bid)
+        if card is None:
+            return 400, {"error": f"no card {bid} on the board"}
+
+        def row(other: dict, link: dict) -> dict:
+            ts = link.get("ts", 0)
+            return {"id": other["id"], "title": other.get("title", ""),
+                    "owner": other.get("owner", "facilitator"), "section": _section_name(other),
+                    "ts": ts if isinstance(ts, (int, float)) else 0,
+                    "agent": link.get("agent", "")}
+        links = []
+        for link in _card_links(card):
+            other = _box(link["to"])
+            if other is not None:
+                links.append(row(other, link))
+        back = sorted((row(other, link) for other in _state["boxes"] if other is not card
+                       for link in _card_links(other) if link["to"] == bid),
+                      key=lambda r: r["ts"])
+        return 200, {"box": bid, "title": card.get("title", ""),
+                     "links": links, "backlinks": back}
+
+
+def _get_props(q: Query, _):
+    """One card's properties (see card properties). What the card keeps is read
+    under the lock and its two times from the transcript after it, as /thread
+    reads it. A card in the Bin has none to read until it is restored, as with
+    its links."""
+    bid = q.one("box")
+    if not bid:
+        return 400, {"error": "name the card: box=ID"}
+    with _lock:
+        card = _box(bid)
+        if card is None:
+            return 400, {"error": f"no card {bid} on the board"}
+        owner, ts = card.get("owner", "facilitator"), card.get("ts")
+        head = {"id": bid, "title": card.get("title", ""), "owner": owner,
+                "section": _section_name(card)}
+        props = {name: _card_prop(card, name) for name in CARD_PROPS}
+    made, changed = _card_times(bid, owner, ts)
+    return 200, {**head, "made": made, "changed": changed, **props}
+
+
+def _post_props(q: Query, text: str):
+    # a card's branch or status set by the agent working it, or cleared by an
+    # empty one (see card properties). one that already holds the asked-for
+    # value is kept as it stands, with its own time and agent
+    bid = q.one("box")
+    agent = q.one("agent").strip()[:24]
+    # an empty value clears, so a blank one is told apart from none given
+    given = parse_qs(q.raw, keep_blank_values=True)
+    asked = {name: given[name][0].strip() for name in CARD_PROPS if name in given}
+    if not bid:
+        return 400, {"error": "name the card: box=ID"}
+    if not asked:
+        return 400, {"error": "name a property: branch=NAME or status=TEXT, empty to clear it"}
+    for name, value in asked.items():
+        if len(value) > PROP_MAX:
+            return 400, {"error": f"a {name} is at most {PROP_MAX} characters"}
+        if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            return 400, {"error": f"a {name} is one line of plain text"}
+    with _lock:
+        card = _box(bid)
+        if card is None:
+            return 400, {"error": f"no card {bid} on the board"}
+        saved = False
+        for name, value in asked.items():
+            kept = _card_prop(card, name)
+            if (kept["value"] if kept else "") == value:
+                continue
+            if value:
+                card[name] = {"value": value, "ts": time.time(), "agent": agent}
+            else:
+                card.pop(name, None)
+            _log(name, bid, "", log_fields={"action": "set" if value else "clear"},
+                 agent=agent, **{name: value})
+            saved = True
+        if saved:
+            _save()
+            _notify()
+        return 200, {"ok": True, "saved": saved, "id": bid,
+                     **{name: _card_prop(card, name) for name in CARD_PROPS}}
+
+
 def _omni_number(title: str) -> int | None:
     """The title is the whole v0 Omni contract; cards keep normal ids/state."""
     match = OMNI_TITLE_RE.fullmatch(title or "")
@@ -6851,12 +7370,14 @@ def _post_project(q: Query, text: str, found: dict | None = None):
             while f"{slug}-{n}" in taken:
                 n += 1
             slug = f"{slug}-{n}"
-        home = Path.home()
+        # fenced as the folder picker is (_home), so a home reached through a
+        # link takes the folders the picker shows in it
+        home = _home()
         try:
             d = Path(text).expanduser().resolve() if text else None
-        except OSError:
+        except (OSError, RuntimeError, ValueError):
             d = None
-        if found is None and (d is None or not d.is_dir() or (d != home and home not in d.parents)):
+        if found is None and (d is None or not d.is_dir() or not _inside(d, home)):
             return 400, {"error": "body must be a folder under home"}
         record = {"id": slug, "name": name, "dir": str(d)}
         if found is not None:
@@ -7034,8 +7555,7 @@ def _get_bin(q: Query, _):
             c = e["card"]
             cards.append({"id": c["id"], "title": c.get("title", ""),
                           "owner": c.get("owner", "facilitator"),
-                          "section": ("done" if c.get("done") else "deferred" if c.get("parked")
-                                      else "docked" if c.get("docked") else "doing"),
+                          "section": _section_name(c),
                           "ts": e.get("ts", 0), "until": e.get("ts", 0) + BIN_KEEP})
         return 200, {"cards": cards, "keepDays": BIN_KEEP_DAYS}
 
@@ -7355,7 +7875,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|waitnewest|home\.chart"
+    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|waitnewest|home\.chart|folderview"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096
@@ -8568,7 +9088,7 @@ _last_overload: dict = {}
 # read routes, the ones that share READ_SLOTS: every GET except the small
 # answers that a command loop or a waking phone depends on
 UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/push/key", "/worktrees",
-                            "/dirs", "/pickdir", "/upload",
+                            "/dirs", "/machines", "/upload",
                             "/remote/servers", "/remote/machines", "/remote/dirs"})
 
 
@@ -8713,8 +9233,9 @@ async def _not_found(request: Request, error: Exception) -> Response:
 async def _lifespan(app):
     global _LOOP
     _LOOP = asyncio.get_running_loop()
-    # the routes' locked work is short, but a folder chooser or a git listing
-    # can hold a thread for a while: room for those and the rest at once
+    # the routes' locked work is short, but a folder listing waiting on the
+    # system's permission window or a git listing can hold a thread for a
+    # while: room for those and the rest at once
     anyio.to_thread.current_default_thread_limiter().total_tokens = THREAD_POOL_SIZE
     try:
         yield
@@ -8740,11 +9261,14 @@ ROUTES = [
     Route("/fresh", _state_endpoint(_get_fresh), methods=["GET"]),
     Route("/thread", _endpoint(_get_thread), methods=["GET"]),
     Route("/history", _endpoint(_get_history), methods=["GET"]),
+    Route("/links", _endpoint(_get_links), methods=["GET"]),
+    Route("/props", _endpoint(_get_props), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
     Route("/limits", _endpoint(_get_limits), methods=["GET"]),
+    Route("/machines", _endpoint(_get_machines), methods=["GET"]),
     Route("/dirs", _endpoint(_get_dirs), methods=["GET"]),
-    Route("/pickdir", _endpoint(_get_pickdir), methods=["GET"]),
+    Route("/mkdir", _endpoint(_post_mkdir, "text"), methods=["POST"]),
     Route("/uploads/{rest:path}", _endpoint(_get_upload), methods=["GET"]),
     Route("/laneimg/{rest:path}", _endpoint(_get_laneimg), methods=["GET"]),
     # the vendored editor, one prebuilt file beside index.html. The page
@@ -8756,6 +9280,8 @@ ROUTES = [
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/mac-phone-view.js", _static("mac-phone-view.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/magic-box.js", _static("magic-box.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/folder-picker.js", _static("folder-picker.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/folder-picker.css", _static("folder-picker.css", "text/css; charset=utf-8"), methods=["GET"]),
     Route("/compose-format.js", _endpoint(_get_compose_format), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.js", _static("home-widgets.js", "application/javascript; charset=utf-8"), methods=["GET"]),
@@ -8808,6 +9334,9 @@ ROUTES = [
     Route("/dock", _state_endpoint(_post_dock, "text"), methods=["POST"]),
     Route("/worktree", _state_endpoint(_post_worktree, "text"), methods=["POST"]),
     Route("/context", _state_endpoint(_post_context, "text"), methods=["POST"]),
+    Route("/link", _state_endpoint(_post_link, "text"), methods=["POST"]),
+    Route("/unlink", _state_endpoint(_post_unlink, "text"), methods=["POST"]),
+    Route("/props", _state_endpoint(_post_props, "text"), methods=["POST"]),
     Route("/title", _state_endpoint(_post_title, "text"), methods=["POST"]),
     Route("/create", _state_endpoint(_post_create, "text"), methods=["POST"]),
     # a plain endpoint that takes the lock itself, once a server's folder has
