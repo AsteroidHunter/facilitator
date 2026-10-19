@@ -104,11 +104,12 @@
   .squidmark img{display:block; width:108.95%; max-width:none; height:auto; margin:-5.83% 0 0 -4.48%}
   /* the squid stands in a glass circle at the bar's right end (the bar's
      glass), mirroring the house at its left end */
-  #setbtn, #feedbackbtn, #graphbtn{display:flex; align-items:center; padding:2px; flex:none;
+  #setbtn, #feedbackbtn{display:flex; align-items:center; padding:2px; flex:none;
     color:var(--sub); cursor:pointer; transition:color .2s}
   /* the links mark stands first of the right end's marks, so it holds the right
      edge in the speaker's place and the speaker takes the gap the others keep */
-  #graphbtn{margin-left:auto}
+  #graphbtn{display:flex; align-items:center; padding:2px; flex:none;
+    color:var(--sub); cursor:pointer; transition:color .2s; margin-left:auto}
   #graphbtn + #chimebtn{margin-left:0}
 
   /* ---- the app's enclosure ----------------------------------------------- */
@@ -3189,31 +3190,43 @@
       0 8px 20px rgba(0,0,0,.06)}
   /* the controls: the mark centred, in the sub ink and the full ink under a
      pointer */
-  body.focus :is(#homeico, #graphbtn, #chimebtn, #feedbackbtn, #setbtn){
+  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn){
     flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;
     margin:0; padding:0; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
     color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
-  body.focus :is(#homeico, #graphbtn, #chimebtn, #feedbackbtn, #setbtn):hover{color:var(--ink)}
-  body.focus :is(#homeico, #graphbtn, #chimebtn, #feedbackbtn) svg{display:block; flex:none}
-  /* the speaker still holds the right edge, or the links mark does when it
-     stands before it */
+  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn):hover{color:var(--ink)}
+  body.focus :is(#homeico, #chimebtn, #feedbackbtn) svg{display:block; flex:none}
+  /* the speaker still holds the right edge */
   body.focus .bar #chimebtn{margin-left:auto}
-  body.focus .bar #graphbtn{margin-left:auto}
-  /* the links mark, the speaker, the bug and the squid stand the house's gap to
-     the pill apart, 11px of box that draws as 10px (#tabrow's gap): the bar's
-     own 8px and 3px more before each after the first, so the four are evenly
-     spaced. the squid stays the bar's inset from the window's right edge, as
-     the house is from its left (20261010) */
+  /* the speaker, the bug and the squid stand the house's gap to the pill apart,
+     11px of box that draws as 10px (#tabrow's gap): the bar's own 8px and 3px
+     more before the bug and before the squid, so the three are evenly spaced.
+     the squid stays the bar's inset from the window's right edge, as the house
+     is from its left (20261010) */
   body.focus .bar :is(#feedbackbtn, #setbtn){margin-left:3px}
+  /* the links mark is one more of these circles, before the speaker: it takes
+     the right edge's push from the speaker, and the speaker takes the 3px the
+     bug and the squid keep, so the four stand evenly spaced */
+  body.focus #graphbtn{
+    flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;
+    margin:0; padding:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
+    transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+  body.focus #graphbtn:hover{color:var(--ink)}
+  body.focus #graphbtn svg{display:block; flex:none}
+  body.focus .bar #graphbtn{margin-left:auto}
   body.focus .bar #graphbtn + #chimebtn{margin-left:3px}
   /* the glass's own press, the phone's: a little larger and a whiter face,
      held long enough that a quick click still shows it (glassPress, in the
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #graphbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+    transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
+  body.focus #graphbtn.pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the pill takes that press with the same few pixels of growth: a scale of
      1.06 is 2px on a 32px circle but 4.5px to 15px of width on a pill as wide
@@ -4805,7 +4818,7 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-for (const btn of ["homeico", "projpill", "graphbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"].map(id => document.getElementById(id))){
+for (const btn of ["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn", "npstart"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0 && btn.classList.contains("qn-glass")) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -12774,6 +12787,10 @@ function openLinkedCard(id){
 }
 {
   const btn = document.getElementById("graphbtn");
+  // the bar's glass press (glassPress), as the other circles take it
+  const glass = glassPress(btn);
+  btn.addEventListener("pointerdown", e => { if (e.button === 0) glass.press(); });
+  for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
   btn.addEventListener("click", async () => {
     if (!await graphBundle()){
       btn.title = "The links could not be loaded; a board started before they were added needs a restart";
