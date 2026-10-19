@@ -1,7 +1,7 @@
 /* The links sheet (graph.js): the graph and the timeline of the links between
    cards. It is the settings page's Mac window (.sp-veil and .sp-page.sp-mac in
-   card-tokens.css), its veil, white paper, corners, window buttons and fade,
-   grown to nearly the whole window, since a graph needs the room. Its pills are
+   card-tokens.css), its veil, white paper, corners and fade, grown to nearly
+   the whole window, since a graph needs the room. Its pills are
    the home chart's (.tk-pill in home-widgets.css), the floating chips and the
    hover card are the board's glass (.qn-glass), and the drawing itself stands
    on the board's paper. Loaded after card-tokens.css, whose colours and faces
@@ -9,10 +9,9 @@
 
 .lg-veil .lg-page.sp-mac{inset:40px 48px; display:flex; flex-direction:column}
 
-/* the bar: the window buttons, the title, a count of what is drawn, and the
-   choices at the right */
+/* the bar: the title, a count of what is drawn, the choices, and at the right
+   end the cross that puts the sheet away */
 .lg-head{gap:14px; padding:12px 16px 11px 20px}
-.lg-head .sp-lights{margin-right:4px}
 .lg-title{flex:none}
 .lg-count{flex:1; min-width:0; font:400 11.5px/1 var(--mono); color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .lg-tools{flex:0 1 auto; display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:8px 10px}
@@ -21,7 +20,16 @@
 .lg-depth{display:flex; align-items:center; gap:7px}
 .lg-depth[hidden]{display:none}
 .lg-label{font:500 12px/16px var(--sans); color:var(--sub)}
-.lg-close{width:22px; height:22px; border:none; border-radius:50%; background:#FF5F57; color:#4D0000; cursor:pointer}
+/* the cross: the magic box's (card-tokens.css, .mbclose; MAGIC_CROSS in
+   card-logic.js) at the card bar's mark size in its round seat of soft red,
+   shaded with the one press shade, its tap reaching past it */
+.lg-close{--lg-x:17px; --lg-pink:#FF7A72; position:relative; flex:none; display:grid; place-items:center;
+  width:var(--lg-x); height:var(--lg-x); padding:0; border:none; border-radius:50%;
+  background:var(--lg-pink); color:#1e1e1e; cursor:pointer}
+.lg-close:hover, .lg-close:active{background:color-mix(in srgb, #000 var(--press), var(--lg-pink))}
+.lg-close:focus-visible{outline:2px solid var(--line); outline-offset:1px}
+.lg-close svg{width:var(--bar-mark); height:var(--bar-mark)}
+.lg-close::after{content:""; position:absolute; inset:-8px}
 
 /* a pill: the page switcher's small rounded rectangle on the paper, holding
    names of one width, the one on sitting on a white seat that slides */

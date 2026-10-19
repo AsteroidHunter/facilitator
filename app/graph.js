@@ -243,6 +243,10 @@ const PAUSE = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true
 const FIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
   'stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>' +
   '<path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+// the cross that puts the sheet away: MAGIC_CROSS in card-logic.js, the magic
+// box's own, drawn on a 10 grid as one svg of --bar-mark
+const CROSS = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3333" stroke-linecap="round" ' +
+  'aria-hidden="true"><path d="M1.936 1.936L8.064 8.064M8.064 1.936L1.936 8.064"></path></svg>';
 
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -303,18 +307,13 @@ function pill(name, options, pick){
   };
 }
 
-function lights(close){
-  if (typeof root.settingsLights === "function"){
-    const group = root.settingsLights(close);
-    const red = group.querySelector(".sp-red");
-    if (red) red.setAttribute("aria-label", "Close");
-    return group;
-  }
-  const red = el("button", "lg-close", "×");
-  red.type = "button";
-  red.setAttribute("aria-label", "Close");
-  red.addEventListener("click", close);
-  return red;
+function cross(close){
+  const x = el("button", "lg-close");
+  x.type = "button";
+  x.setAttribute("aria-label", "Close");
+  x.innerHTML = CROSS;
+  x.addEventListener("click", close);
+  return x;
 }
 
 function build(){
@@ -344,7 +343,7 @@ function build(){
   const count = el("span", "lg-count");
   const tools = el("div", "lg-tools");
   tools.append(view.box, scope.box, depthWrap, colour.box, find);
-  head.append(lights(close), title, count, tools);
+  head.append(title, count, tools, cross(close));
 
   const body = el("div", "lg-body");
   const canvas = el("canvas", "lg-canvas");
