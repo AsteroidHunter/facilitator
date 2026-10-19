@@ -8843,3 +8843,175 @@ function showRemoteFade(faded){
   if (note.textContent !== words) note.textContent = words;
   note.hidden = false;
 }
+
+// ---- searching the cards ---------------------------------------------------------
+// the Mac board's search (the magnifier in its bar, index.html) asks the board's
+// GET /search as the words are typed and draws what it answers. what it works
+// out on the way is here, so it can be checked without a page: the route, the
+// matched words of a snippet and a title, the groups, and the search itself.
+// the phone does not search yet
+const SEARCH_PAUSE = 150;   // ms the field is left alone before it searches
+const SEARCH_LIMIT = 20;    // cards one search shows at most
+const SEARCH_WORD = /[\p{L}\p{M}\p{N}_]+/gu;   // a word, as the board's index reads one
+// the section names a result is shown with: the board's own four, under both
+// the names the search answers with and the names the ticket list keeps
+const SEARCH_SECTIONS = { todo: "Doing", doing: "Doing", docked: "Docked", deferred: "Deferred", done: "Done" };
+function searchSectionName(section){ return SEARCH_SECTIONS[section] || ""; }
+// whether what is typed holds a word to search for. the board answers a query
+// with no word in it with every card, which a search box never means
+function searchHasWords(q){ return /[\p{L}\p{N}_]/u.test(String(q || "")); }
+// what one search asks: the last word may be the start of a longer one, since
+// the field searches while it is typed into, and a project's own window
+// searches its own project alone
+function searchRoute(q, lane){
+  return "/search?q=" + encodeURIComponent(String(q || "").trim()) + "&prefix=1&limit=" + SEARCH_LIMIT +
+    (lane ? "&lane=" + encodeURIComponent(lane) : "");
+}
+// a text as its runs of plain and marked words, each [start, end] of marks in
+// the page's own string units. the runs are set as text, so nothing the board
+// answers is ever read as markup. marks out of order or over each other are
+// put right, and any past the text's end are cut there
+function searchSplit(text, marks){
+  text = String(text || "");
+  const spans = (Array.isArray(marks) ? marks : [])
+    .filter(m => Array.isArray(m) && Number.isInteger(m[0]) && Number.isInteger(m[1]))
+    .map(([a, b]) => [Math.max(0, Math.min(a, text.length)), Math.max(0, Math.min(b, text.length))])
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0]);
+  const out = [];
+  let at = 0;
+  for (const [a, b] of spans){
+    const start = Math.max(a, at);
+    if (b <= start) continue;
+    if (start > at) out.push({ text: text.slice(at, start), mark: false });
+    const last = out[out.length - 1];
+    if (start === at && last && last.mark) last.text += text.slice(start, b);
+    else out.push({ text: text.slice(start, b), mark: true });
+    at = b;
+  }
+  if (at < text.length) out.push({ text: text.slice(at), mark: false });
+  return out;
+}
+// the board counts a snippet's marks in characters, as Python does, where the
+// page counts its strings in UTF-16 units: a character past the basic plane,
+// an emoji say, is one there and two here. so each mark is moved onto the
+// page's own count before the snippet is cut
+function searchPieces(snippet, marks){
+  const text = String(snippet || ""), units = [0];
+  for (const ch of text) units.push(units[units.length - 1] + ch.length);
+  const unit = n => units[Math.max(0, Math.min(n, units.length - 1))];
+  return searchSplit(text, (Array.isArray(marks) ? marks : [])
+    .filter(m => Array.isArray(m) && Number.isInteger(m[0]) && Number.isInteger(m[1]))
+    .map(([a, b]) => [unit(a), unit(b)]));
+}
+// the title is not always the piece of the card the board matched, so its own
+// words are marked here: each word that starts with a word typed, the way the
+// board marks a snippet, and each word the board marked in the snippet, which
+// catches the other forms of a word it matches ("searching" finds "search")
+function searchTitlePieces(title, q, snippetPieces){
+  const text = String(title || "");
+  const typed = [...new Set((String(q || "").toLowerCase().match(SEARCH_WORD) || []))];
+  const seen = new Set((snippetPieces || []).filter(p => p.mark).map(p => p.text.toLowerCase()));
+  const marks = [];
+  for (const m of text.matchAll(SEARCH_WORD)){
+    const word = m[0].toLowerCase();
+    if (seen.has(word) || typed.some(t => word.startsWith(t))) marks.push([m.index, m.index + m[0].length]);
+  }
+  return searchSplit(text, marks);
+}
+// the cards found, in a group for each project. the groups come in the order
+// their best card does, so the first card shown is still the board's best;
+// rows is every card in the order they are shown, which the arrows walk
+function searchGroups(results){
+  const groups = [], byLane = new Map();
+  for (const r of Array.isArray(results) ? results : []){
+    if (!r || typeof r.card !== "string") continue;
+    let group = byLane.get(r.lane);
+    if (!group){ group = { lane: r.lane, rows: [] }; byLane.set(r.lane, group); groups.push(group); }
+    group.rows.push(r);
+  }
+  return { groups, rows: groups.flatMap(g => g.rows) };
+}
+// what the panel says when the board could not search, in plain words
+function searchTrouble(status, body){
+  if (status === 404) return "Search starts working once the board restarts";
+  if (status === 503) return "Search is not running on this board";
+  const error = body && typeof body.error === "string" ? body.error : "";
+  if (status === 400 && error) return error[0].toUpperCase() + error.slice(1);
+  return "The board did not answer. Try again in a moment";
+}
+// the search the panel holds, apart from its drawing: what is typed, what is on
+// show and the card picked. typing only ever sets a timer, so the field never
+// waits for the board; the search goes once the field has been left alone for
+// SEARCH_PAUSE, a newer search cancels an older one still out, and an answer
+// that comes back after the words changed is dropped, so a slow answer never
+// stands over a newer one. until the new answer lands the last one stays on
+// show, so the list does not flash empty between keys.
+//   phase   empty (nothing to search for), results, none (no card matches) or
+//           trouble (note says why)
+//   hot     the place of the picked card in rows, the first on every answer
+// ask(url, signal) is the page's fetch and answers {status, body}; changed is
+// told after every change to what is on show
+function cardSearch({ ask, lane = null, later = setTimeout, cancel = clearTimeout, changed = () => {} }){
+  const s = { q: "", phase: "empty", groups: [], rows: [], hot: -1, note: "", building: false, waiting: false };
+  let turn = 0, timer = 0, out = null, onLand = null;
+  const halt = () => {
+    cancel(timer);
+    timer = 0;
+    onLand = null;
+    if (out){ out.abort(); out = null; }
+  };
+  const clear = () => Object.assign(s, { phase: "empty", groups: [], rows: [], hot: -1, note: "", building: false, waiting: false });
+  async function run(mine){
+    timer = 0;
+    const control = typeof AbortController === "function" ? new AbortController() : null;
+    out = control;
+    let status = 0, body = null;
+    try { ({ status, body } = await ask(searchRoute(s.q, lane), control ? control.signal : undefined)); }
+    catch (err){ if (err && err.name === "AbortError") return; }
+    if (mine !== turn) return;   // typed over while it was out
+    out = null;
+    s.waiting = false;
+    if (status === 200 && body && Array.isArray(body.results)){
+      const found = searchGroups(body.results);
+      Object.assign(s, { groups: found.groups, rows: found.rows, phase: found.rows.length ? "results" : "none",
+        hot: found.rows.length ? 0 : -1, note: "", building: !!body.index && body.index.ready === false });
+    } else {
+      Object.assign(s, { groups: [], rows: [], phase: "trouble", hot: -1, note: searchTrouble(status, body), building: false });
+    }
+    changed(s);
+    const told = onLand;
+    onLand = null;
+    if (told) told(s.picked());
+  }
+  s.type = q => {
+    s.q = String(q == null ? "" : q);
+    halt();
+    const mine = ++turn;
+    if (!searchHasWords(s.q)){ clear(); changed(s); return; }
+    s.waiting = true;
+    timer = later(() => run(mine), SEARCH_PAUSE);
+  };
+  // the arrows: one card down or up, stopping at either end, as Spotlight does
+  s.move = step => {
+    if (!s.rows.length) return;
+    const to = Math.max(0, Math.min(s.rows.length - 1, s.hot + step));
+    if (to !== s.hot){ s.hot = to; changed(s); }
+  };
+  // the pointer moving over a card picks it
+  s.point = at => {
+    if (at >= 0 && at < s.rows.length && at !== s.hot){ s.hot = at; changed(s); }
+  };
+  s.picked = () => s.rows[s.hot] || null;
+  // Enter: told the picked card at once, or, while the words typed have not
+  // been searched yet, once they have. a search still waiting out its pause
+  // goes now, and the first card it finds is the one picked
+  s.settle = told => {
+    if (!s.waiting){ told(s.picked()); return; }
+    onLand = told;
+    if (timer){ cancel(timer); timer = 0; run(turn); }
+  };
+  // the panel shut: nothing more goes out, and what was typed and found stays
+  s.halt = () => { halt(); turn++; s.waiting = false; };
+  return s;
+}

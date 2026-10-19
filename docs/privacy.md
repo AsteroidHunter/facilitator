@@ -15,7 +15,11 @@ What leaves the Mac, exactly:
 
 ## Who can reach the board
 
-Only your own Mac can use the board: its address works only on this Mac, and it refuses any request another website sets off. Another site may open the board's page but cannot change anything or show the board inside its own page. The phone reaches the board only through the phone link, which needs the phone password. A magic box can be filled only from the Mac itself; a signed-in phone can see one and close it. An agent on one of your own servers reaches the board only through that server's ssh link, which only your account on the server can use, and only with its own key, which opens its own project's cards and nothing else (see [Agents on your own servers](servers.md)). The files the board keeps about your work, attachments and logs included, can be read only by your Mac account.
+Only your own Mac can use the board: its address works only on this Mac, and it refuses any request another website sets off. Another site may open the board's page but cannot change anything or show the board inside its own page. The phone reaches the board only through the phone link, which needs the phone password. A magic box can be filled only from the Mac itself; a signed-in phone can see one and close it. An agent on one of your own servers reaches the board only through that server's ssh link, which only your account on the server can use, and only with its own key, which opens its own project's cards and nothing else (see [Agents on your own servers](servers.md)). The files the board keeps about your work, attachments, logs and the search index included, can be read only by your Mac account.
+
+## Search
+
+The search index (`data/search-index.sqlite`) holds the words of your cards so the board can search them, and it never leaves the Mac. The model that searches by meaning, once you set one up, runs on this Mac too: the board sends text only to a model at a `127.0.0.1` or `localhost` address. See [Searching cards and messages](search.md).
 
 ## The log
 

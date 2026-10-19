@@ -339,15 +339,15 @@ test("the round glass Home button is back at the bar's left as it was, pressed w
   const list = html.slice(html.indexOf('<div id="projmenu"'), html.indexOf("</div>\n", html.indexOf('<button id="projnew"')) + 7);
   assert.deepEqual([...list.matchAll(/id="(\w+)"/g)].map(m => m[1]), ["projmenu", "projlist", "projsep", "projnew"]);
   // its look: the 32px glass circle, the sub ink and the full ink under a pointer, 11px of glass gap to the pill
-  const c = rule(sheet, "body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn)");
+  const c = rule(sheet, "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn)");
   assert.equal(decl(c, "width"), "32px"); assert.equal(decl(c, "height"), "32px"); assert.equal(decl(c, "border-radius"), "50%");
   assert.equal(decl(c, "color"), "var(--sub)");
-  assert.equal(decl(rule(sheet, "body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn):hover"), "color"), "var(--ink)");
+  assert.equal(decl(rule(sheet, "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn):hover"), "color"), "var(--ink)");
   assert.equal(parseFloat(decl(rule(sheet, "body.focus #tabrow"), "gap")), 11);
   // the press, and stays pressed while Home is up
-  assert.match(sheet, /body\.focus :is\(#homeico, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart\)\.pressed\{transform:scale\(1\.06\)/);
+  assert.match(sheet, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart\)\.pressed\{transform:scale\(1\.06\)/);
   assert.match(sheet, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
-  assert.match(html, /for \(const btn of \["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn", "npstart"\]/);
+  assert.match(html, /for \(const btn of \["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"\]/);
   assert.match(html, /document\.getElementById\("homeico"\)\.setAttribute\("aria-pressed", String\(homeOpen\)\)/);
   // Command + 0 clicks it, and a press on it opens Home
   assert.match(html, /if \(!homeOpen\) document\.getElementById\("homeico"\)\.click\(\)/);
@@ -519,7 +519,7 @@ test("\"Open a new folder\" opens the board's folder picker and lands on the new
 
 test("the house, the pill and the right-hand circles keep their places: no plus, no lens, no row of names", () => {
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
-  const order = ["homeico", "projpill", "tabbar", "chimebtn", "feedbackbtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
+  const order = ["homeico", "projpill", "tabbar", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "the bar's order changed");
   assert.doesNotMatch(html, /installbtn|beforeinstallprompt|Install app/, "the install button is gone for good");
   assert.doesNotMatch(html, /ptabplus|class="ptab"|"ptab"\)|tabKillMark|function placeSeat/);
@@ -691,18 +691,20 @@ test("unread names are Plex's 600 and the rest its 400, in the pill, the faint n
 });
 
 // ---- round 5 (20261010): the right-hand pair ------------------------------------
-test("the speaker, the bug and the squid stand the house's gap to the pill apart, and the squid the house's inset from its edge", () => {
+test("the magnifier, the speaker, the bug and the squid stand the house's gap to the pill apart, and the squid the house's inset from its edge", () => {
   const houseToPill = parseFloat(decl(rule(sheet, "body.focus #tabrow"), "gap"));
   const barGap = parseFloat(decl(rule(sheet, "body.focus .bar"), "gap"));
-  const squid = parseFloat(decl(rule(sheet, "body.focus .bar :is(#feedbackbtn, #setbtn)"), "margin-left"));
-  assert.equal(barGap + squid, houseToPill, "speaker to bug to squid is not house to pill");
+  const squid = parseFloat(decl(rule(sheet, "body.focus .bar :is(#chimebtn, #feedbackbtn, #setbtn)"), "margin-left"));
+  assert.equal(barGap + squid, houseToPill, "magnifier to speaker to bug to squid is not house to pill");
   assert.equal(houseToPill, 11);
   // the bar is inset the same on both sides and has no side padding, so the squid is as far from the right
   // edge as the house is from the left
   assert.match(sheet, /body\.focus \.bar\{\s*margin:var\(--app-inset\) var\(--app-inset\) 0;/);
   assert.equal(decl(rule(sheet, "body.focus .bar"), "padding"), "1px 0 6px");
-  // the squid is the bar's last piece, and the speaker still holds the right end with an auto margin
+  // the squid is the bar's last piece, and the magnifier, just before the speaker, holds the right end's
+  // run with an auto margin
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
   assert.ok(bar.lastIndexOf('id="setbtn"') > bar.lastIndexOf('id="chimebtn"'));
-  assert.equal(decl(rule(sheet, "body.focus .bar #chimebtn"), "margin-left"), "auto");
+  assert.ok(bar.lastIndexOf('id="chimebtn"') > bar.lastIndexOf('id="searchbtn"'));
+  assert.equal(decl(rule(sheet, "body.focus .bar #searchbtn"), "margin-left"), "auto");
 });

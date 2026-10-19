@@ -532,8 +532,8 @@ test("the last card shows the board's speaker, bug and squid buttons, the speake
   // where the board's bar puts them: its inset, 40px height with 1px and 6px padding, 8px gap, 32px circles,
   // and 3px more before the bug and the squid
   assert.ok(MAC.includes("body.focus .bar{height:40px; padding:1px 0 6px; gap:8px}"));
-  assert.ok(MAC.includes("body.focus .bar :is(#feedbackbtn, #setbtn){margin-left:3px}"));
-  assert.match(MAC, /body\.focus :is\(#homeico, #chimebtn, #feedbackbtn, #setbtn\)\{\s*flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;/);
+  assert.ok(MAC.includes("body.focus .bar :is(#chimebtn, #feedbackbtn, #setbtn){margin-left:3px}"));
+  assert.match(MAC, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn\)\{\s*flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;/);
   assert.match(rule("#obbar"), /position:fixed; top:var\(--app-inset\); right:var\(--app-inset\); height:40px; padding:1px 0 6px;\s*border-bottom:1px solid transparent; display:flex; align-items:center; gap:8px;/);
   assert.ok(MAC.includes("border-bottom-color:transparent; border-bottom-width:1px;"), "the board's bar lost its clear bottom row");
   assert.match(rule("#obbar button"), /width:32px; height:32px;[^}]*border-radius:50%/);

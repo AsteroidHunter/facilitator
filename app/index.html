@@ -3252,28 +3252,31 @@
       0 8px 20px rgba(0,0,0,.06)}
   /* the controls: the mark centred, in the sub ink and the full ink under a
      pointer */
-  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn){
+  body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn){
     flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;
     margin:0; padding:0; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
     color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
-  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn):hover{color:var(--ink)}
-  body.focus :is(#homeico, #chimebtn, #feedbackbtn) svg{display:block; flex:none}
-  /* the speaker still holds the right edge */
-  body.focus .bar #chimebtn{margin-left:auto}
-  /* the speaker, the bug and the squid stand the house's gap to the pill apart,
-     11px of box that draws as 10px (#tabrow's gap): the bar's own 8px and 3px
-     more before the bug and before the squid, so the three are evenly spaced.
-     the squid stays the bar's inset from the window's right edge, as the house
-     is from its left (20261010) */
-  body.focus .bar :is(#feedbackbtn, #setbtn){margin-left:3px}
+  body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn):hover{color:var(--ink)}
+  body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn) svg{display:block; flex:none}
+  /* the magnifier holds the right edge's run, just left of the speaker */
+  body.focus .bar #searchbtn{margin-left:auto}
+  /* the magnifier, the speaker, the bug and the squid stand the house's gap to
+     the pill apart, 11px of box that draws as 10px (#tabrow's gap): the bar's
+     own 8px and 3px more before each after the magnifier, so the four are
+     evenly spaced. the squid stays the bar's inset from the window's right
+     edge, as the house is from its left (20261010) */
+  body.focus .bar :is(#chimebtn, #feedbackbtn, #setbtn){margin-left:3px}
+  /* the magnifier stays pressed while the search is open, as the house does
+     while Home is up */
+  body.focus.searchopen #searchbtn{color:var(--ink); --qn-tint:.95; --qn-edge:3}
   /* the glass's own press, the phone's: a little larger and a whiter face,
      held long enough that a quick click still shows it (glassPress, in the
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the pill takes that press with the same few pixels of growth: a scale of
      1.06 is 2px on a 32px circle but 4.5px to 15px of width on a pill as wide
@@ -3442,6 +3445,78 @@
   #projmenu .projrow.lifted{z-index:1; background:var(--card); box-shadow:0 4px 14px rgba(0,0,0,.14); transition:none}
   #projmenu .projrow.tearing{opacity:.45}
   #projsep{flex:none; height:var(--edge); margin:4px 8px; background:var(--line)}
+  /* ---- the search ---------------------------------------------------------- */
+  /* the magnifier in the bar opens a search over every card, drawn after
+     macOS Spotlight: one floating panel centred near the window's top, a large
+     field led by the magnifier, and under it, in the same panel, the cards
+     that match as they come in, in a group for each project, the picked one
+     on the list's own light ink. it is the pill's list's glass with the list's
+     one line top rim, at the list's 14px round and on the settings page's
+     floating shadow, over the list's own shade, and it comes and goes on the
+     list's own timings. the shade takes the click that shuts it, as the
+     list's does */
+  #searchshade, #searchpanel{display:none}
+  body.focus #searchshade{display:block; position:fixed; inset:0; z-index:41; visibility:hidden; pointer-events:none;
+    background-color:color-mix(in srgb, var(--ink) 0%, transparent);
+    transition:background-color .26s ease, visibility 0s linear .26s}
+  body.focus.searchopen #searchshade{visibility:visible; pointer-events:auto;
+    background-color:color-mix(in srgb, var(--ink) 24%, transparent);
+    transition:background-color .26s ease, visibility 0s}
+  body.focus #searchpanel{--search-top:max(64px, 16vh);
+    display:flex; flex-direction:column; position:fixed; z-index:42; left:0; right:0; top:var(--search-top);
+    box-sizing:border-box; width:min(640px, calc(100vw - 48px)); max-height:calc(100vh - var(--search-top) - 48px);
+    margin:0 auto; border-radius:14px; overflow:hidden; -webkit-user-select:none; user-select:none;
+    box-shadow:
+      inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+      inset 0 0 0 1px var(--qn-ring),
+      inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+      inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+      0 1px 3px rgba(0,0,0,.08),
+      0 12px 32px rgba(0,0,0,.14);
+    visibility:hidden; opacity:0; transform:translateY(-4px) scale(.98); transform-origin:50% 0;
+    transition:opacity .14s ease-out, transform .14s ease-out, visibility 0s linear .14s}
+  body.focus.searchopen #searchpanel{visibility:visible; opacity:1; transform:none;
+    transition:opacity .16s ease-out, transform .22s cubic-bezier(.2,.9,.25,1), visibility 0s}
+  @media (prefers-reduced-motion: reduce){
+    body.focus :is(#searchshade, #searchpanel), body.focus.searchopen :is(#searchshade, #searchpanel){transition-duration:0s}
+  }
+  /* the field: the magnifier in the sub ink, and the words at Spotlight's
+     large size in the board's own face, on the glass with nothing round them.
+     the caret is the board's block, which takes every text field and stands
+     at the top of a field's box, so the field is exactly its one line tall and
+     the row centres it */
+  #searchfield{flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 20px 0 18px}
+  #searchfield svg{display:block; flex:none; color:var(--sub)}
+  #searchq{flex:1; min-width:0; height:28px; margin:0; padding:0; border:none; outline:none; border-radius:0;
+    background:transparent; box-shadow:none; font:400 21px/28px var(--sans); color:var(--ink)}
+  #searchq::placeholder{color:var(--sub); opacity:.6}
+  /* what is under the field: a hairline, then the cards, a group for each
+     project under its name, or one quiet line. it scrolls inside the panel
+     with no bar, as the pill's list does */
+  #searchlist{flex:0 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
+    padding:0 6px 6px; border-top:var(--edge) solid var(--line)}
+  #searchlist::-webkit-scrollbar{display:none}
+  #searchlist .sgroup{padding:10px 12px 4px; font:600 12px/16px var(--sans); color:var(--sub);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  #searchlist .sgroup:first-child{padding-top:12px}
+  /* a card: its title, with its section at the right as a ticket's age stands,
+     and under them the words the board matched, two lines at most. the title
+     is in the regular weight, as Spotlight names a result, so the matched
+     words, in the full ink and the board's bold, stand out in the title as
+     they do in the snippet. the picked card wears the light ink a row of the
+     pill's list wears under the pointer */
+  #searchlist .srow{display:block; padding:8px 12px 9px; border-radius:9px; cursor:pointer;
+    transition:background-color .12s ease-out}
+  #searchlist .srow.hot{background:color-mix(in srgb, var(--ink) 6%, transparent)}
+  #searchlist .shead{display:flex; align-items:baseline; gap:12px}
+  #searchlist .stitle{flex:1 1 auto; min-width:0; font:400 15px/20px var(--sans); color:var(--ink);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  #searchlist .ssect{flex:none; font:400 12px/16px var(--mono); color:var(--sub)}
+  #searchlist .ssnip{margin-top:2px; font:400 13px/18px var(--sans); color:var(--sub);
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere}
+  #searchlist mark{background:none; color:var(--ink); font-weight:600}
+  #searchlist .snote{padding:12px 12px 6px; font:400 13px/18px var(--sans); color:var(--sub)}
+  #searchlist .srow + .snote, #searchlist .sgroup + .snote{padding-top:8px}
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
      white well listing the open folders, the current one bold, then the
@@ -3868,6 +3943,7 @@
   </span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
+  <button id="searchbtn" class="qn-glass" type="button" title="Search cards" aria-label="Search cards" aria-haspopup="dialog" aria-expanded="false" aria-controls="searchpanel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg></button>
   <button id="chimebtn" class="qn-glass" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
   <button id="feedbackbtn" class="qn-glass" type="button" title="Share feedback" aria-label="Share feedback" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></button>
   <button id="setbtn" class="qn-glass" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
@@ -3879,6 +3955,13 @@
   <div id="projlist"></div>
   <div id="projsep"></div>
   <button id="projnew" class="projrow" type="button"><span class="pline"><span class="pnum" aria-hidden="true">+</span><span class="pname">Open a new folder</span></span></button>
+</div>
+<!-- the search the magnifier opens: the field, then the cards that match,
+     which drawSearch draws into #searchlist, over a shade of its own -->
+<div id="searchshade"></div>
+<div id="searchpanel" class="qn-glass" role="dialog" aria-label="Search cards">
+  <div id="searchfield"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg><input id="searchq" type="text" placeholder="Search cards" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchlist" aria-label="Search cards"></div>
+  <div id="searchlist" role="listbox" aria-label="Cards"></div>
 </div>
 
 <!-- the settings, one group to a section: the page in card-logic.js builds the
@@ -4875,7 +4958,7 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-for (const btn of ["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn", "npstart"].map(id => document.getElementById(id))){
+for (const btn of ["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0 && btn.classList.contains("qn-glass")) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -13316,6 +13399,181 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     }
   }, { passive: false });
 }
+
+// ---- the search ------------------------------------------------------------------
+// the magnifier in the bar opens a search over every card, macOS Spotlight's
+// panel in the board's glass. the field takes the keys at once, and the cards
+// that match come in under it as the words are typed (cardSearch in
+// card-logic.js), a group for each project, the first card picked. the arrows
+// move the pick, and Enter or a click opens that card the way a click on its
+// ticket does, in its own project. Escape, a press outside or the magnifier
+// again shuts it. while it is open the keys are its own and the board's wait,
+// as they do for the folder picker. what was typed stays, so opened again it
+// searches the same words, picked whole so that typing replaces them
+const searchBtn = document.getElementById("searchbtn");
+const searchPanel = document.getElementById("searchpanel");
+const searchField = document.getElementById("searchq");
+const searchList = document.getElementById("searchlist");
+let searchOpen = false;
+let searchDrawn = null;   // the answer the list was last built from
+// what held the focus before the search opened, which Escape gives it back to,
+// as Spotlight goes back to where you were. a press on the magnifier is heard
+// before it moves the focus onto the magnifier, and counts for a moment
+let searchBack = null, searchPress = null;
+document.addEventListener("pointerdown", e => {
+  if (!searchOpen && searchBtn.contains(e.target)) searchPress = { el: document.activeElement, at: Date.now() };
+}, true);
+const boardSearch = cardSearch({
+  lane: LOCKED || null,   // a project's own window searches that project alone
+  ask: async (url, signal) => {
+    const r = await fetch(url, { signal, cache: "no-store" });
+    let body = null;
+    try { body = await r.json(); } catch (err) {}
+    return { status: r.status, body };
+  },
+  changed: () => drawSearch(),
+});
+// the runs of a title or a snippet, the matched words in a mark of their own
+function searchRuns(el, pieces){
+  for (const p of pieces) el.appendChild(p.mark ? h("mark", null, p.text) : document.createTextNode(p.text));
+  return el;
+}
+// the list under the field: the cards in their groups, or one quiet line. it
+// is built again only for a new answer; moving the pick moves the mark alone,
+// so the list never jumps under the arrows
+function drawSearch(){
+  const s = boardSearch;
+  if (!searchDrawn || searchDrawn.rows !== s.rows || searchDrawn.phase !== s.phase || searchDrawn.note !== s.note){
+    searchDrawn = { rows: s.rows, phase: s.phase, note: s.note };
+    searchList.textContent = "";
+    searchList.scrollTop = 0;
+    const note = text => searchList.appendChild(h("div", "snote", text));
+    if (s.phase === "empty") note("Card titles and everything in them, " + (LOCKED ? "in this project" : "in every project"));
+    else if (s.phase === "trouble") note(s.note);
+    else if (s.phase === "none") note("No cards match “" + s.q.trim() + "”");
+    let at = 0;
+    for (const group of s.groups){
+      searchList.appendChild(h("div", "sgroup", lastState ? labelOf(lastState, group.lane) : group.lane))
+        .setAttribute("role", "presentation");
+      for (const r of group.rows){
+        const row = h("div", "srow");
+        row.id = "searchrow" + at;
+        row.dataset.at = String(at++);
+        row.setAttribute("role", "option");
+        const snip = searchPieces(r.match?.snippet, r.match?.marks);
+        const b = lastState?.boxes.find(x => x.id === r.card);
+        const head = row.appendChild(h("div", "shead"));
+        searchRuns(head.appendChild(h("span", "stitle")), searchTitlePieces(r.title, s.q, snip));
+        head.appendChild(h("span", "ssect", searchSectionName(b ? cardSection(b) : r.section)));
+        // a title the board matched is the title above, said once
+        if (r.match && r.match.kind !== "title" && snip.length) searchRuns(row.appendChild(h("div", "ssnip")), snip);
+        searchList.appendChild(row);
+      }
+    }
+    if (s.building) note("Still reading the board, so some cards may be missing");
+  }
+  searchField.setAttribute("aria-expanded", String(s.rows.length > 0));
+  for (const row of searchList.querySelectorAll(".srow")){
+    const on = Number(row.dataset.at) === s.hot;
+    row.classList.toggle("hot", on);
+    row.setAttribute("aria-selected", String(on));
+    if (on){ searchField.setAttribute("aria-activedescendant", row.id); row.scrollIntoView({ block: "nearest" }); }
+  }
+  if (s.hot < 0) searchField.removeAttribute("aria-activedescendant");
+}
+drawSearch();
+function openSearch(){
+  if (searchOpen || !FOCUS) return;
+  // whatever else had the keys lets them go: the pill's list, a page's menu and the small card
+  closeProjMenu();
+  if (pageMenu) shutPageMenu();
+  miniHold(false);
+  searchBack = searchPress && Date.now() - searchPress.at < 1000 ? searchPress.el : document.activeElement;
+  searchPress = null;
+  searchOpen = true;
+  document.body.classList.add("searchopen");
+  searchBtn.setAttribute("aria-expanded", "true");
+  searchField.focus({ preventScroll: true });
+  searchField.select();
+  boardSearch.type(searchField.value);   // the same words, searched again on the board as it is now
+}
+// shut by Escape the focus goes back to what held it before: a card's typing
+// box, the magnifier when the keys reached it, or nothing. shut by a press
+// outside or by a card opening it goes where that press or that card takes it
+function closeSearch(back = true){
+  if (!searchOpen) return;
+  searchOpen = false;
+  boardSearch.halt();
+  document.body.classList.remove("searchopen");
+  searchBtn.setAttribute("aria-expanded", "false");
+  const to = back && searchBack && searchBack.isConnected && searchBack !== document.body && searchBack !== searchField ? searchBack : null;
+  searchBack = null;
+  if (to) to.focus({ preventScroll: true });
+  else if (document.activeElement === searchField) searchField.blur();
+}
+// a card found opens the way a click on its ticket opens it: in its own
+// project, switched to first when it is not the one on screen (opened again if
+// it was closed, and the home page left for it), with its section on show in
+// the ticket list, and then selected, and so read. a card the board no longer
+// holds, or one in another project from a project's own window, opens nothing
+function openFound(r){
+  closeSearch(false);
+  const b = r && lastState?.boxes.find(x => x.id === r.card);
+  if (!b || !validActiveOwnerIds.has(b.owner) || (LOCKED && b.owner !== LOCKED)) return;
+  const view = cardSection(b);
+  if (b.owner !== activeOwner || homeOpen || draft){
+    setTicketViewOf(b.owner, view);
+    lastSel[b.owner] = b.id;   // the project opens on this card rather than the one it was left on
+    if (tabClosed(b.owner)) reopenTab(b.owner);
+    else setTab(b.owner);
+    if (activeOwner !== b.owner || homeOpen) return;
+  } else if (view && view !== curView()) setView(view);
+  if (els[b.id]) select(b.id);
+}
+searchBtn.addEventListener("click", () => { if (searchOpen) closeSearch(); else openSearch(); });
+searchField.addEventListener("input", e => { if (!e.isComposing) boardSearch.type(searchField.value); });
+searchField.addEventListener("compositionend", () => boardSearch.type(searchField.value));
+// a press in the panel never takes the focus out of the field
+searchPanel.addEventListener("mousedown", e => { if (e.target !== searchField) e.preventDefault(); });
+searchList.addEventListener("mousemove", e => {
+  const row = e.target.closest?.(".srow");
+  if (row) boardSearch.point(Number(row.dataset.at));
+});
+searchList.addEventListener("click", e => {
+  const row = e.target.closest?.(".srow");
+  if (row) openFound(boardSearch.rows[Number(row.dataset.at)]);
+});
+// a press anywhere else shuts it, on the shade, which takes that press
+document.addEventListener("pointerdown", e => {
+  if (searchOpen && !searchPanel.contains(e.target) && !searchBtn.contains(e.target)) closeSearch(false);
+}, true);
+// the Mac's phone view takes the window over, and a search under it could not be reached
+addEventListener("resize", () => { if (searchOpen && document.body.classList.contains("phoneview-active")) closeSearch(false); });
+// the block caret is placed once the panel has finished coming in
+searchPanel.addEventListener("transitionend", e => { if (e.target === searchPanel && e.propertyName === "transform") queueFatCaret(); });
+// every key while it is open, before the board hears it: Escape shuts it, the
+// up and down arrows move the pick, Enter opens the picked card, and the rest
+// are the field's own. Enter pressed before the words on show have been
+// searched waits for that search and opens its first card. the Chrome
+// shortcuts the board blocks stay blocked, since its guard never hears them
+addEventListener("keydown", e => {
+  if (!searchOpen) return;
+  e.stopImmediatePropagation();
+  if ((e.metaKey || e.ctrlKey) && e.cancelable && !e.defaultPrevented && chromeShortcutBlocked(e)) e.preventDefault();
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.target !== searchField) searchField.focus({ preventScroll: true });
+  const bare = !e.metaKey && !e.ctrlKey && !e.altKey;
+  if (e.key === "Escape"){ e.preventDefault(); closeSearch(); }
+  else if (bare && !e.shiftKey && (e.key === "ArrowDown" || e.key === "ArrowUp")){
+    e.preventDefault();
+    boardSearch.move(e.key === "ArrowDown" ? 1 : -1);
+  }
+  else if (bare && e.key === "Enter"){
+    e.preventDefault();
+    if (!e.repeat) boardSearch.settle(r => { if (r && searchOpen) openFound(r); });
+  }
+  else if (e.key === "Tab") e.preventDefault();   // the field is the panel's one stop
+}, true);
 
 // ---- the fat caret --------------------------------------------------------
 // a terminal style block cursor stands in for the native caret on every
