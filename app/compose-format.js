@@ -201,9 +201,11 @@
     const emphasis = D.mark({ class: "cf-em" });
     const strong = D.mark({ class: "cf-strong" });
     const strike = D.mark({ class: "cf-strike" });
+    const code = D.mark({ class: "cf-code" });
+    const link = D.mark({ class: "cf-link" });
     const breakable = D.mark({ class: "cf-first" });
-    const INLINE = { Emphasis: emphasis, StrongEmphasis: strong, Strikethrough: strike };
-    const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true };
+    const INLINE = { Emphasis: emphasis, StrongEmphasis: strong, Strikethrough: strike, InlineCode: code };
+    const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true, CodeMark: true };
 
     function build(state, awake, picked) {
       const doc = state.doc, out = [];
@@ -235,6 +237,7 @@
       // line break as the characters it was typed as, so this does too; a span
       // inside it that stays on one line is still drawn
       const oneLine = (from, to) => doc.lineAt(from).number === doc.lineAt(to).number;
+      const heading = new Map();   // line number -> its heading's level
       C.syntaxTree(state).iterate({
         enter: node => {
           if (INLINE[node.name]) {
@@ -242,9 +245,54 @@
             return;
           }
           if (INLINE_MARK[node.name]) {
+            // a fence's backticks are a block's and not a span's, and stay
             const owner = node.node.parent;
-            if (owner && oneLine(owner.from, owner.to) && !hot(owner.from, owner.to))
+            if (owner && INLINE[owner.name] && oneLine(owner.from, owner.to) && !hot(owner.from, owner.to))
               out.push(hide.range(node.from, node.to));
+            return;
+          }
+          // A link written out, [words](address), is drawn as its words, and
+          // its brackets and address come back while the caret touches it. A
+          // bare address is drawn as a link and has nothing to hide. The card
+          // links both the same way.
+          if (node.name === "Link") {
+            const marks = node.node.getChildren("LinkMark");
+            if (marks.length < 4 || !node.node.getChild("URL") || !oneLine(node.from, node.to)) return;
+            if (marks[1].from > marks[0].to) out.push(link.range(marks[0].to, marks[1].from));
+            if (!hot(node.from, node.to)) {
+              out.push(hide.range(node.from, marks[0].to));
+              out.push(hide.range(marks[1].from, node.to));
+            }
+            return;   // the walk carries on inside it, so its words still format
+          }
+          if (node.name === "URL") {
+            // an address inside a link over a line break is a bare one, as
+            // the card reads that link: a line at a time, so the address runs
+            // as far as its own line's reading of it does
+            const owner = node.node.parent;
+            if (owner && owner.name === "Link" && !oneLine(owner.from, owner.to)) {
+              const line = doc.lineAt(node.from), at = node.from - line.from;
+              C.markdownLanguage.parser.parse(line.text).iterate({ enter: bare => {
+                if (bare.name === "URL" && bare.from === at && bare.to > bare.from &&
+                    !/^(Link|Image|Autolink)$/.test(bare.node.parent.name))
+                  out.push(link.range(node.from, line.from + bare.to));
+              } });
+              return;
+            }
+            if (!owner || !/^(Link|Image|Autolink)$/.test(owner.name)) out.push(link.range(node.from, node.to));
+            return;
+          }
+          // A heading is drawn at its size once its space is typed, as the card
+          // draws it, and its hashes show while the caret is on its line, as in
+          // Obsidian. A heading's underline (a line of dashes under words) is
+          // left as typed: it is half of a list's marker while it is typed.
+          if (/^ATXHeading[1-6]$/.test(node.name)) {
+            const mark = node.node.firstChild, line = doc.lineAt(node.from);
+            if (!mark || mark.name !== "HeaderMark") return;
+            const gap = /^[ \t]+/.exec(line.text.slice(mark.to - line.from));
+            if (!gap) return;
+            heading.set(line.number, +node.name.slice(-1));
+            if (!hot(line.from, line.to)) out.push(hide.range(mark.from, mark.to + gap[0].length));
             return;
           }
           if (node.name === "Blockquote") {
@@ -347,8 +395,9 @@
 
       // one line decoration per line the walk marked, and the quote angles
       // taken off every line that is drawn as a quote
-      for (const n of new Set([...quote.keys(), ...hang.keys()])) {
+      for (const n of new Set([...quote.keys(), ...hang.keys(), ...heading.keys()])) {
         const line = doc.line(n), classes = [], attributes = {};
+        if (heading.has(n)) classes.push("cf-h" + heading.get(n));
         if (hang.has(n)) {
           classes.push("cf-li");
           // a line further down an item starts on the item's column as well,
@@ -452,6 +501,16 @@
       ".cf-em": { fontStyle: "italic" },
       ".cf-strong": { fontWeight: "650" },
       ".cf-strike": { textDecoration: "line-through" },
+      // a code span, a link and a heading, at the card's own sizes and faces
+      ".cf-code": { fontFamily: "var(--mono, ui-monospace, monospace)", background: "var(--paper, #F2EFE8)",
+                    borderRadius: "var(--sq, 3px)" },
+      ".cf-link": { textDecoration: "underline", textUnderlineOffset: "2px" },
+      ".cf-h1": { fontSize: "1.55em", fontWeight: "650" },
+      ".cf-h2": { fontSize: "1.35em", fontWeight: "650" },
+      ".cf-h3": { fontSize: "1.2em", fontWeight: "650" },
+      ".cf-h4": { fontSize: "1.1em", fontWeight: "650" },
+      ".cf-h5": { fontSize: "1em", fontWeight: "650" },
+      ".cf-h6": { fontSize: ".92em", fontWeight: "650" },
       // a run of the line's own characters given the width of the column it
       // stands for: the indent, and the marker with its air. text-indent is put
       // back because an inline block inherits the line's negative one
