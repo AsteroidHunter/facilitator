@@ -262,13 +262,17 @@ def server_socket(rec: dict) -> str:
 # program, so a path never passes through the server's shell.
 
 PROGRAM = r'''
-import json, os, re, stat, subprocess, sys, time
+import json, os, re, stat, subprocess, sys, time, unicodedata
 
 ROWS_MAX = 2000
+SCAN_MAX = 50000
+SCAN_TIME = 2.0
 COUNT_MAX = 9999
 COUNT_TIME = 0.4
+PATH_MAX = 4096
 NAME_MAX = 255
 NAME_BAD = set('<>:"|?*')
+JOINERS = set((chr(0x200C), chr(0x200D)))
 
 
 def top():
@@ -297,12 +301,26 @@ def hidden_below(p, t):
     return False
 
 
+def typed(text, t):
+    """~ alone or before a slash is home; another account's ~name is never
+    looked up, so no answer can tell which accounts there are."""
+    if not text.startswith("~"):
+        return text
+    if text == "~" or text[1] == "/":
+        return t + text[1:]
+    return None
+
+
 def named(path, base, t):
+    if max(len(path.encode("utf-8", "surrogatepass")), len(base.encode("utf-8", "surrogatepass"))) > PATH_MAX:
+        return None, "that path is too long"
     try:
-        p = os.path.expanduser(path) if path else t
-        if not os.path.isabs(p):
-            start = os.path.expanduser(base) if base else t
-            p = os.path.join(start if os.path.isabs(start) else t, p)
+        p = typed(path, t) if path else t
+        if p is not None and not os.path.isabs(p):
+            start = typed(base, t) if base else t
+            p = None if start is None else os.path.join(start if os.path.isabs(start) else t, p)
+        if p is None:
+            return None, "outside the home folder"
         p = os.path.realpath(p)
     except (OSError, ValueError):
         return None, "that path cannot be read"
@@ -325,23 +343,33 @@ def natural(name):
 
 
 def rows(p, t):
-    out = []
+    """p's subfolders, sorted, and whether the reading stopped short: a folder
+    of more than SCAN_MAX names, or a disk slower than SCAN_TIME, is read that
+    far and no further. A link is listed only where it may be opened."""
+    out, seen, cut = [], 0, False
+    ends = time.monotonic() + SCAN_TIME
     with os.scandir(p) as entries:
         for e in entries:
+            seen += 1
+            if seen > SCAN_MAX or time.monotonic() > ends:
+                cut = True
+                break
             if e.name.startswith("."):
                 continue
             try:
                 if not e.is_dir():
                     continue
                 st = e.stat()
-                if e.is_symlink() and not inside(os.path.realpath(e.path), t):
-                    continue
+                if e.is_symlink():
+                    target = os.path.realpath(e.path)
+                    if not inside(target, t) or hidden_below(target, t):
+                        continue
             except (OSError, RuntimeError):
                 continue
             if not hidden_mark(st):
                 out.append((e.name, e.path, st.st_mtime))
     out.sort(key=lambda row: natural(row[0]))
-    return out
+    return out, cut
 
 
 def count(p):
@@ -373,9 +401,9 @@ def op_dirs(path, base):
     answer = {"path": p, "name": os.path.basename(p) or p,
               "short": "~" if p == t else "~/" + os.path.relpath(p, t),
               "top": t, "parent": os.path.dirname(p) if p != t else None,
-              "trail": trail, "dirs": [], "more": 0, "unreadable": False}
+              "trail": trail, "dirs": [], "more": 0, "cut": False, "unreadable": False}
     try:
-        found = rows(p, t)
+        found, answer["cut"] = rows(p, t)
     except OSError:
         answer["unreadable"] = True
         return {"answer": answer}
@@ -397,8 +425,10 @@ def name_problem(name):
         return "a folder name cannot hold a slash"
     if name.startswith("."):
         return "a folder name cannot start with a dot"
-    if any(ord(c) < 32 or ord(c) == 127 for c in name):
+    if any(unicodedata.category(c) == "Cc" for c in name):
         return "a folder name cannot hold a control character"
+    if any(unicodedata.category(c) in ("Cf", "Cs", "Zl", "Zp") and c not in JOINERS for c in name):
+        return "a folder name cannot hold an invisible character"
     if any(c in NAME_BAD for c in name):
         return 'a folder name cannot hold any of < > : " | ? *'
     if len(name.encode("utf-8", "surrogatepass")) > NAME_MAX:

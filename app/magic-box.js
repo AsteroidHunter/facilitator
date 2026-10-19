@@ -46,14 +46,19 @@
   // more room, and the box would drift from its card with it: there the gap to
   // the card stops at GAP of the card's width, and the gap to the workspace's
   // edge takes the rest. Under that share, and wherever the board is shrunk to
-  // fit, the box stands as it always has
-  function place(card, fit, want) {
+  // fit, the box stands as it always has.
+  // side "left" stands it in the room left of the card instead, the same way
+  // turned over: fit.left is then the screen x of the workspace's inner left
+  // edge, and the gap is kept to the card's left edge. The agent's response
+  // piped out beside a long reply (index.html) stands either side
+  function place(card, fit, want, side) {
     const scale = fit.scale || 1;
-    const edge = (fit.right - fit.tx) / scale;   // the workspace's right edge, on the stage
+    const leftward = side === "left";
+    const edge = ((leftward ? fit.left : fit.right) - fit.tx) / scale;   // the workspace's edge, on the stage
     const clear = (fit.clear || 0) / scale;
     const middle = card.top + card.height / 2;
-    const right = card.left + card.width;
-    const room = edge - right;
+    const near = leftward ? card.left : card.left + card.width;
+    const room = leftward ? near - edge : edge - near;
     let width = Math.max(0, Math.min(card.height * WIDE, room - 2 * clear)), height = width / SHAPE;
     const shown = height >= card.height / 2;
     const top = middle - height / 2;
@@ -62,7 +67,8 @@
     const spare = (room - width) / 2;
     const held = scale >= 1 ? Math.min(spare, GAP * card.width) : spare;
     ({ width, height } = fitRoom({ width, height }, want));
-    const left = right + (room - width) / 2 - (spare - held);
+    const gap = (room - width) / 2 - (spare - held);
+    const left = leftward ? near - gap - width : near + gap;
     return { left, top, width, height, shown };
   }
   // what the box shows, at its own size inside a room {width, height}: want as

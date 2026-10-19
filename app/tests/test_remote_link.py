@@ -312,7 +312,8 @@ class Program(unittest.TestCase):
 
     def test_the_home_listing_is_the_pickers_shape(self):
         out = self.run_op("dirs", "", "")["answer"]
-        self.assertEqual(set(out), {"path", "name", "short", "top", "parent", "trail", "dirs", "more", "unreadable"})
+        self.assertEqual(set(out), {"path", "name", "short", "top", "parent", "trail", "dirs", "more", "cut", "unreadable"})
+        self.assertFalse(out["cut"])
         self.assertEqual(out["path"], str(self.home))
         self.assertEqual(out["short"], "~")
         self.assertIsNone(out["parent"])
@@ -330,7 +331,10 @@ class Program(unittest.TestCase):
     def test_the_pickers_refusals_in_its_words(self):
         for path, said in (("/", "outside the home folder"), ("outward", "outside the home folder"),
                            (".secret", "that folder is hidden"), ("nothing", "no folder there"),
-                           ("afile", "that is a file, not a folder")):
+                           ("afile", "that is a file, not a folder"),
+                           # another account's home is never looked up
+                           ("~root", "outside the home folder"), ("~nobody/x", "outside the home folder"),
+                           ("a" * 5000, "that path is too long")):
             with self.subTest(path=path):
                 self.assertEqual(self.run_op("dirs", path, ""), {"error": said})
 
@@ -342,6 +346,9 @@ class Program(unittest.TestCase):
                          {"error": "a folder by that name is already here"})
         self.assertEqual(self.run_op("mkdir", str(self.home), ".dot"),
                          {"error": "a folder name cannot start with a dot"})
+        self.assertEqual(self.run_op("mkdir", str(self.home), "a\u202eb"),
+                         {"error": "a folder name cannot hold an invisible character"})
+        self.assertTrue(self.run_op("mkdir", str(self.home), "a\u200db")["answer"]["ok"])   # a joiner may stand
 
     def test_describe_names_the_real_folder_and_its_repository(self):
         repo = self.home / "alpha"

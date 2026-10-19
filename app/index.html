@@ -49,7 +49,7 @@
      text and fields opt back in; buttons inside those areas stay unselectable.
      Keep this here, outside the styles shared with the phone. */
   body, button{-webkit-user-select:none; user-select:none}
-  .reply, .mreply, .answmsg, #magicbox .mbtext, .cm-content, input, textarea,
+  .reply, .mreply, .answmsg, #magicbox .mbtext, #pipebox .mbtext, .cm-content, input, textarea,
   [contenteditable=""], [contenteditable="true" i], [contenteditable="plaintext-only" i]{
     -webkit-user-select:text; user-select:text;
   }
@@ -541,6 +541,8 @@
      card, each kept in step with the box's own classes. the lowered card
      below still sits level, though it fades the same */
   body.focus:not(.home, .editmode):where(.mbon.mbheld) main{box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}
+  /* the same while the response piped out beside it holds the keys (pipeHold) */
+  body.focus:not(.home, .editmode):where(.pipekeys) main{box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}
   /* and it sits level with the board once it is lowered, by a double click on
      the empty board and nothing else. browsed to or selected, it stands up
      either way. its edge line stays. its magic box sits level with it, held
@@ -1626,6 +1628,53 @@
   #magicbox::-webkit-scrollbar, #magicbox *::-webkit-scrollbar{display:none}
   #magicbox .mbbody{overflow-x:hidden}
   #magicbox .mbtext{padding:var(--mb-lead) var(--mb-inset, 16px) var(--mb-inset, 16px)}
+  /* a long reply's second step (pipeStep). the typing row grows to the cap
+     above, its first step, and once what is typed runs past that it stands at
+     --pipe-tall, which the script works out from where the response's first
+     two lines stand on the card, and scrolls inside that */
+  body.focus .box.sel.piped :is(textarea, .cffield .cm-scroller){max-height:var(--pipe-tall)}
+  /* the response piped out beside the card at that step (pipeSync): the magic
+     box's sheet, placed and sized as the box is and rising and sinking as it
+     does (magicRise), on the card's white with the box's corners and shadows,
+     the faint one and the card's own while it holds the keys. it has no edge
+     and no bar, and is never faded: its words dissolve at both ends of their
+     scroll as the box's do (the view's --upband and --downband), and stand in
+     the card answer's own type with its inset on every side */
+  #pipebox{display:none}
+  body.focus #pipebox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
+  body.focus:is(.home, .editmode) #pipebox.on{display:none}
+  #pipebox{background:var(--card); border:none; border-radius:var(--mb-round);
+    box-shadow:var(--shade-lighter); transition:box-shadow .2s}
+  #pipebox.keys{box-shadow:var(--shade-raised)}
+  body.lowered #pipebox.on{box-shadow:none}
+  #pipebox.rising{--rise:0; transition:none;
+    box-shadow:0 calc(3px * var(--rise)) calc(14px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
+      0 calc(1px * var(--rise)) calc(2px * var(--rise)) rgba(60,45,20,calc(.06 * var(--rise)))}
+  #pipebox.rising.keys{
+    box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
+      0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
+  #pipebox.rising > *{opacity:var(--rise)}
+  #pipebox .mbbar{display:none}
+  #pipebox, #pipebox *{scrollbar-width:none}
+  #pipebox::-webkit-scrollbar, #pipebox *::-webkit-scrollbar{display:none}
+  #pipebox .mbbody{margin:0; overflow-x:hidden}
+  #pipebox .mbtext{padding:var(--mb-inset); font-size:18px; line-height:1.55}
+  #pipebox .mbtext[contenteditable]{outline:none}   /* with the response's caret in it (pipeEnter) */
+  /* the brace from the card to it (pipeLine): a } on the card's right and a {
+     on its left, straight lines meeting square, dashed as the box's lines are
+     and in the card's edge colour, beneath the card and the response, with the
+     same shadow on its group */
+  #pipeline{display:none}
+  body.focus #pipeline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
+    overflow:visible; pointer-events:none; z-index:0}
+  body.focus #pipeline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
+  body.lowered #pipeline.on > g{filter:none}
+  body.focus:is(.home, .editmode) #pipeline.on{display:none}
+  /* piped to the card's left, it lies over the ticket list and the clock, which
+     fade well down while it stands there (body.pipeleft) over the time and
+     curve it rises on (RISE_MS), and come back as it sinks */
+  body.focus :is(#tickets, #clockbox){transition:opacity 1s cubic-bezier(.455, .03, .515, .955)}
+  body.focus.pipeleft :is(#tickets, #clockbox){opacity:.26}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
@@ -3965,6 +4014,15 @@
 <!-- the lines from the card to its magic box, two dashed lines beneath the
      card and the box: before the card on the page, so it is drawn over them -->
 <svg id="mbline" aria-hidden="true"></svg>
+<!-- the card's response piped out beside it while a long reply is typed: the
+     magic box's sheet and placing, with no edge (pipeSync); its bar is never
+     shown, and is there for the box's view, which measures one. then the brace
+     that ties it to the card, beneath the card as the box's lines are -->
+<section id="pipebox" class="magicbox" aria-label="The agent's response">
+  <div class="mbbar"></div>
+  <div class="mbbody"></div>
+</section>
+<svg id="pipeline" aria-hidden="true"></svg>
 <main>
   <div id="rail" class="trio">
     <span id="rail-start"></span>
@@ -3983,7 +4041,7 @@
      opens the board's folder picker. -->
 <div id="newproj">
   <div id="nphome">
-    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.2.445</span></span></div>
+    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.2.448</span></span></div>
     <div id="nppanel">
       <div id="nphead">Active Folders</div>
       <div id="nprows"></div>
@@ -5817,11 +5875,15 @@ function boxHasSelection(el){
 // snap reads the same rounded number, so the answer's last line keeps its phase
 // to the pixel
 // skip is a depth at the wrapper's head left out of the band: the seat of the
-// sent bubbles, which the snap below does not count
-function boxBand(reply, wrap, skip = 0){
+// sent bubbles, which the snap below does not count. scale: the screen's pixels
+// to the answer's own, for the band the ramp is cut to (watchBand): the edges
+// are read on screen and the mask counts in the answer's pixels, so on a stage
+// drawn smaller the band read unscaled came short of the foot, by more the
+// taller the row, and the answer ran on at full ink into the row's line
+function boxBand(reply, wrap, skip = 0, scale = 1){
   const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
-  const b = reply.getBoundingClientRect().bottom -
-            (wrap.getBoundingClientRect().top + skip - clear);
+  const b = (reply.getBoundingClientRect().bottom -
+             (wrap.getBoundingClientRect().top + skip)) / scale + clear;
   return Math.max(0, Math.round(b));
 }
 
@@ -5840,7 +5902,7 @@ function watchBand(el){
   // (sentBand in card-logic.js), so the fade rides the bubble's top edge and
   // does not jump once it stops; a band that has not changed is not written again
   const write = () => {
-    const band = sentBand(el, boxBand(el.replyview, el.pendwrap));
+    const band = sentBand(el, boxBand(el.replyview, el.pendwrap, 0, stageScale || 1));
     if (band === el.bandAt) return;
     el.bandAt = band;
     el.box.style.setProperty("--boxband", band + "px");
@@ -6473,7 +6535,8 @@ function makeBox(b, i, state){
       if (!ta.offsetParent || !ta.clientHeight) return;
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + "px";
-      seatSquare(ta, send);
+      pipeStep(b.id);   // past the cap, the row's second step and the response piped out
+      seatSquare(ta, send, stageScale || 1);
       send.classList.toggle("show", ta.value.trim().length > 0 || traySendable(els[b.id]) || arrowAgainFor(b.id));
       riseBand(ta);
     };
@@ -8138,33 +8201,35 @@ function magicClose(){
 // it holds follow (#magicbox.rising), and the line's strength are t eased in
 // and out, so it starts and settles calmly. a click, a key or a scroll in the
 // box while it rises plays the rest RISE_FAST times as fast. then: what to do
-// once it is flat again, which is to take it off the page
+// once it is flat again, which is to take it off the page. box: what rises,
+// the magic box (MB) or the response piped out beside the card (PIPE), each
+// with its own el, line and rise
 const RISE_MS = 1000, RISE_FAST = 3;
-function magicRiseSet(t){
-  MB.rise.t = t;
+function magicRiseSet(t, box = MB){
+  box.rise.t = t;
   const p = t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
-  MB.el.style.setProperty("--rise", p.toFixed(4));
-  MB.line.style.opacity = p.toFixed(4);
+  box.el.style.setProperty("--rise", p.toFixed(4));
+  box.line.style.opacity = p.toFixed(4);
 }
-function magicRise(dir, then = null){
-  const r = MB.rise;
+function magicRise(dir, then = null, box = MB){
+  const r = box.rise;
   r.dir = dir; r.fast = 1; r.then = then;
-  MB.el.classList.add("rising");
-  if (!r.raf){ r.last = performance.now(); r.raf = requestAnimationFrame(magicRiseStep); }
+  box.el.classList.add("rising");
+  if (!r.raf){ r.last = performance.now(); r.raf = requestAnimationFrame(now => magicRiseStep(now, box)); }
 }
-function magicRiseStep(now){
-  const r = MB.rise;
+function magicRiseStep(now, box = MB){
+  const r = box.rise;
   const t = Math.min(1, Math.max(0, r.t + r.dir * r.fast * (now - r.last) / RISE_MS));
   r.last = now;
-  magicRiseSet(t);
-  if (r.dir > 0 ? t < 1 : t > 0){ r.raf = requestAnimationFrame(magicRiseStep); return; }
+  magicRiseSet(t, box);
+  if (r.dir > 0 ? t < 1 : t > 0){ r.raf = requestAnimationFrame(next => magicRiseStep(next, box)); return; }
   const then = r.then;
-  magicRiseStop();
-  if (t >= 1) MB.el.classList.remove("rising");
+  magicRiseStop(box);
+  if (t >= 1) box.el.classList.remove("rising");
   if (then) then();
 }
-function magicRiseStop(){
-  const r = MB.rise;
+function magicRiseStop(box = MB){
+  const r = box.rise;
   cancelAnimationFrame(r.raf);
   r.raf = 0; r.dir = 0; r.then = null;
 }
@@ -8284,9 +8349,27 @@ function magicHold(inside){
 // a click in the box and the key both come here, before the focus has moved
 function magicRemember(){
   if (!MB.el || MB.el.classList.contains("held")) return;
-  const el = MB.id != null && els[MB.id];
+  MB.came = keysCame(MB.id);
+}
+// the card's typing box as the keys leave it for the box or for the response
+// piped out beside it (pipeRemember): its selection, or null when the owner
+// was not typing in it
+function keysCame(id){
+  const el = id != null && els[id];
   const ta = el && el.field.focused() ? el.ta : null;
-  MB.came = ta && { id: MB.id, ta, start: ta.selectionStart, end: ta.selectionEnd, dir: ta.selectionDirection };
+  return ta && { id, ta, start: ta.selectionStart, end: ta.selectionEnd, dir: ta.selectionDirection };
+}
+// and back into it with its caret and selection as they were: false with no
+// typing box to go back to
+function keysBack(came){
+  const el = came && els[came.id];
+  if (!el || el.ta !== came.ta) return false;
+  el.ta.focus({ preventScroll: true });
+  // the editor's range is an anchor and a head, a plain field's is a start, an end and a direction
+  const back = came.dir === "backward";
+  if (el.field.formatted()) el.ta.setSelectionRange(back ? came.end : came.start, back ? came.start : came.end);
+  else el.ta.setSelectionRange(came.start, came.end, came.dir);
+  return true;
 }
 // the box takes the keys as a click in it takes them: the card's typing box or
 // button lets go of the focus and the box is the held one. a page or a site in
@@ -8302,16 +8385,9 @@ function magicEnter(){
 // card itself with nothing focused. whatever in the box held the focus lets go
 function magicBack(){
   if (!boardMagicHeld()) return;
-  const came = MB.came, el = came && els[came.id];
+  const came = MB.came;
   magicHold(false);
-  if (el && el.ta === came.ta){
-    el.ta.focus({ preventScroll: true });
-    // the editor's range is an anchor and a head, a plain field's is a start, an end and a direction
-    const back = came.dir === "backward";
-    if (el.field.formatted()) el.ta.setSelectionRange(back ? came.end : came.start, back ? came.start : came.end);
-    else el.ta.setSelectionRange(came.start, came.end, came.dir);
-    return;
-  }
+  if (keysBack(came)) return;
   const live = document.activeElement;
   if (live && MB.el.contains(live)) live.blur();
 }
@@ -8372,6 +8448,339 @@ addEventListener("keydown", e => {
   e.preventDefault();
   getSelection().selectAllChildren(words);
 });
+
+// ---- the response piped out beside a long reply -------------------------------
+// the card's typing row grows in two steps. it grows a line at a time to the
+// sheet's cap, its first step; once what is typed runs past that, it stands at
+// once at its second, as tall as leaves the response's first two lines whole
+// under the card's head (pipeTall), and the card's response is piped out beside
+// the card (pipeSync), to be read while the reply is typed. it stands right of
+// the card, or left of it, over the ticket list and the clock, when the card's
+// magic box stands on the right or the right has no room for it. it is placed
+// and sized as the box is (MagicBox.place), drawn by the box's view
+// (magicView), rises and sinks as the box does (magicRise) and takes the keys
+// as the box does: a click in it, control+option toward it (pipeJump), and
+// control+option+up and down, for which it is the card's response while it is
+// out (cardAnswerOff); control+S scrolls it while it holds them. the reply
+// sent, or cut back under the first step, it goes back into the card. the
+// phone, and the Mac's own phone view, keep one step
+const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"), id: null, raw: null,
+  side: null, came: null, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } };
+if (PIPE.el){
+  PIPE.view = magicView(PIPE.el, { placed: () => pipePlace() });
+  PIPE.body = PIPE.view.body;
+  // its words as the card's answer is to the response's caret (replyCaret) and
+  // to control+S (responseScrollKey): one handle, kept for as long as the page
+  if (window.ResizeObserver) PIPE.sized = new ResizeObserver(() => pipePlace());
+  PIPE.part = { replyview: PIPE.body, box: PIPE.el, get reply(){ return PIPE.body.querySelector(".mbtext"); } };
+}
+
+// the row's two steps, once each card's tick has set it to its words' own
+// height. words: the row was measured just now, so its height is its words';
+// false keeps what it measured last (a fit, the card changing size). the first
+// step is the sheet's cap, read off the row while it stands under it, and the
+// second is never under the first
+function pipeStep(id, words = true){
+  const el = els[id];
+  if (!el || !el.field) return;
+  const row = el.field.view ? el.field.view.scrollDOM : el.ta;
+  if (words) el.rowWords = parseFloat(row.style.height) || 0;
+  const piped = el.box.classList.contains("piped");
+  if (!piped) el.rowFirst = parseFloat(getComputedStyle(row).maxHeight) || 0;
+  if (el.rowFirst && el.rowWords > el.rowFirst + 0.5){
+    const tall = Math.round(Math.max(el.rowFirst, pipeTall(el, row)));
+    if (!piped || Math.abs(el.rowTall - tall) > 1){
+      el.rowTall = tall;
+      el.box.style.setProperty("--pipe-tall", tall + "px");
+    }
+    if (row.style.height !== el.rowTall + "px") row.style.height = el.rowTall + "px";
+    if (!piped){
+      el.box.classList.add("piped");
+      // the answer to its head, where the two lines left in sight are its first
+      el.pipeScroll = el.replyview.scrollTop;
+      el.replyview.scrollTop = 0;
+    }
+  } else if (piped){
+    el.box.classList.remove("piped");
+    // cut back under the first step, the answer goes back to where it was read;
+    // sent, the row is empty and the card's next page keeps its own place
+    if (el.pipeScroll != null && /\S/.test(el.field.text())) el.replyview.scrollTop = el.pipeScroll;
+    el.pipeScroll = null;
+  }
+  if (id === shownId) pipeSync();
+}
+
+// the second step: the row as tall as it can stand with the response's first
+// two lines (pipeLines) still at full ink over the answer's fade at the card's
+// foot, which is --replyfade over the answer's clear air above the top of what
+// stands at the foot: the answer's own margin under it, as boxBand reads it,
+// which the snap (snapCard) can widen. read off the card as it is laid out
+// now, with the answer at its head, so the title's lines, the answered bubbles
+// over the response, the sent panel and the card's own size all count. a
+// response of one line keeps that one, and one with none keeps the response's
+// top. what is read off the page is the screen's, and is turned into the
+// stage's pixels, which the answer, its scroll and the row are in
+function pipeTall(el, row){
+  const view = el.replyview, S = stageScale || 1;
+  const fade = parseFloat(getComputedStyle(el.box).getPropertyValue("--replyfade")) || 0;
+  const air = parseFloat(getComputedStyle(view).marginBottom) || 0;
+  const lines = pipeLines(el.reply, 2);
+  const foot = lines == null ? el.reply.getBoundingClientRect().top : lines;
+  // how much more the row may take: from the top of what stands at the foot up
+  // to that line's foot with the answer at its head, less the fade and the air
+  const room = (el.pendwrap.getBoundingClientRect().top - foot) / S - view.scrollTop - fade - air;
+  return row.getBoundingClientRect().height / S + room;
+}
+
+// the foot of a response's first n lines on screen, read off its words as
+// they are laid out, a heading, a list or a code block alike, or of as many as
+// it has; null for one with no words. a button's words (a code block's copy)
+// are not the response's
+function pipeLines(reply, n){
+  const walk = document.createTreeWalker(reply, NodeFilter.SHOW_TEXT), range = document.createRange();
+  const lines = [];
+  for (let t = walk.nextNode(); t; t = walk.nextNode()){
+    if (!/\S/.test(t.data) || t.parentElement?.closest("button")) continue;
+    range.selectNodeContents(t);
+    for (const r of range.getClientRects()){
+      if (r.height < 1) continue;
+      const line = lines.find(l => r.top < l.bottom - 1 && r.bottom > l.top + 1);
+      if (line){ line.top = Math.min(line.top, r.top); line.bottom = Math.max(line.bottom, r.bottom); }
+      else if (lines.length < n) lines.push({ top: r.top, bottom: r.bottom });
+      else if (r.top >= lines[n - 1].bottom - 1) return lines[n - 1].bottom;
+    }
+  }
+  return lines.length ? lines[lines.length - 1].bottom : null;
+}
+
+// the card whose response is piped out, or null: the card on screen, on the
+// board, its row at the second step, with a response to show. shut: the same
+// card with its row back under the step instead, which it sinks back into
+function pipeCard(shut){
+  const cls = document.body.classList;
+  if (!FOCUS || shownId == null || draft || phoneWanted || cls.contains("home") || cls.contains("editmode")) return null;
+  const el = els[shownId];
+  if (!el || !el.box.classList.contains("sel")) return null;
+  const out = el.box.classList.contains("piped") && /\S/.test(el.reply.textContent);
+  return out === !shut ? el : null;
+}
+function pipeSync(){
+  if (!PIPE.el) return;
+  const el = pipeCard();
+  if (!el){
+    // the row cut back or the reply sent on the card on screen: it sinks back
+    // into the card. anything else takes it off at once
+    if (PIPE.id === null) return;
+    if (PIPE.id === shownId && pipeCard(true)) pipeSink();
+    else pipeOff();
+    return;
+  }
+  // the response the card shows, its live one (a new answer is held back from
+  // the card while the reply is typed, and from here with it)
+  const raw = el.reply.dataset.raw || "";
+  if (PIPE.id !== shownId){
+    pipeOff();
+    PIPE.id = shownId;
+    magicRiseSet(0, PIPE);
+    PIPE.el.classList.add("rising");
+    pipeDraw(raw);
+  } else if (PIPE.raw !== raw) pipeDraw(raw);
+  // out again while it sank: it rises back from where it is
+  else if (PIPE.rise.then) magicRise(1, null, PIPE);
+  pipePlace();
+}
+function pipeDraw(raw){
+  PIPE.raw = raw;
+  PIPE.view.draw({ kind: "markdown", text: raw });
+  const words = PIPE.part.reply;
+  if (words && PIPE.sized) PIPE.sized.observe(words);
+  PIPE.el.classList.add("on");
+}
+// off the page with what it held, at once, and left risen for the next
+function pipeOff(){
+  if (!PIPE.el) return;
+  PIPE.el.classList.remove("on", "keys", "rising");
+  document.body.classList.remove("pipeleft", "pipekeys");
+  magicRiseStop(PIPE);
+  magicRiseSet(1, PIPE);
+  PIPE.line.classList.remove("on");
+  if (PIPE.id === null) return;
+  PIPE.id = null; PIPE.raw = null; PIPE.side = null; PIPE.came = null;
+  if (PIPE.sized) PIPE.sized.disconnect();
+  PIPE.view.clear();
+}
+// back into the card: the rise played backwards, and the ticket list and the
+// clock coming back with it; one not on screen just goes
+function pipeSink(){
+  if (!PIPE.el || PIPE.rise.then) return;
+  if (!PIPE.el.classList.contains("on") || PIPE.el.style.visibility === "hidden"){ pipeOff(); return; }
+  PIPE.el.classList.remove("keys");
+  document.body.classList.remove("pipeleft", "pipekeys");
+  magicRise(-1, pipeOff, PIPE);
+}
+
+// beside the card where the magic box stands (magicRoom, MagicBox.place), on
+// the right, or on the left while the card's box stands on the right or the
+// right has no room for it. a side it took stays its side for as long as it
+// is out, unless the box comes to it or its room goes. with no room either
+// side it is hidden where it is, still out, and is back when the window gives
+// it the room, as the box is
+function pipePlace(){
+  if (!PIPE.el || !PIPE.el.classList.contains("on")) return;
+  PIPE.line.classList.remove("on");
+  const room = magicRoom();
+  const fit = room && { ...room.fit, left: frameLimits().left - FRAME_CLEAR };
+  const most = room && { right: room.most, left: MagicBox.place(room.rect, fit, null, "left") };
+  const free = { right: !!most && most.right.shown && !boardMagicShown(), left: !!most && most.left.shown };
+  const side = free[PIPE.side] ? PIPE.side : free.right ? "right" : free.left ? "left" : null;
+  if (!side){
+    PIPE.el.style.visibility = "hidden";
+    document.body.classList.remove("pipeleft");
+    return;
+  }
+  PIPE.side = side;
+  const at = MagicBox.place(room.rect, fit, PIPE.view.want(most[side], room.S), side);
+  Object.assign(PIPE.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
+    height: at.height + "px", visibility: "" });
+  document.body.classList.toggle("pipeleft", side === "left" && !PIPE.rise.then);
+  pipeLine(room.rect, at, side, most[side]);
+  if (PIPE.rise.t < 1 && !PIPE.rise.raf) magicRise(1, null, PIPE);
+}
+
+// the brace from the card to it, a } on the card's right and a { on its left,
+// in the stage's pixels: straight lines meeting square, its spine in the middle
+// of the gap between the card's edge and the response's. its arms reach the
+// card level with the response's top and foot, in by the response's corner
+// (round), and its point reaches the response a set way under its top arm:
+// where the magic box's first line stands on the largest box beside this card
+// (TWO), or half way down a response too short for that. so the upper part
+// keeps its height and the lower part stretches with the response's. each
+// segment is dashed from its start, the arms from their corners and the point
+// from the spine, each starting half the line's width back so the corners
+// close. a gap narrower than the box's lines take (TWO.gap) gives null
+function pipeBrace(card, box, side, most, round = 0){
+  const s = side === "left" ? -1 : 1;
+  const from = s > 0 ? card.left + card.width : card.left;
+  const to = s > 0 ? box.left : box.left + box.width;
+  if (s * (to - from) < TWO.gap) return null;
+  const spine = (from + to) / 2, w = TWO.width / 2;
+  const top = box.top + round, foot = box.top + box.height - round;
+  const point = top + Math.min(most.height * TWO.share, (foot - top) / 2);
+  return { spine, top, point, foot, segments: [
+    [spine + s * w, top, from, top], [spine, top - w, spine, point],
+    [spine - s * w, point, to, point],
+    [spine + s * w, foot, from, foot], [spine, foot + w, spine, point]] };
+}
+function pipeLine(card, box, side, most){
+  const brace = pipeBrace(card, box, side, most, parseFloat(getComputedStyle(PIPE.el).borderTopLeftRadius) || 0);
+  if (!brace) return;
+  // the card's own edge colour, read off the card, as the box's lines are. it is
+  // drawn again only when it has moved: each key typed at the second step places it
+  const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
+  const drawn = '<g>' + brace.segments.map(([x1, y1, x2, y2]) => '<path d="M' + x1.toFixed(2) + ' ' +
+    y1.toFixed(2) + 'L' + x2.toFixed(2) + ' ' + y2.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' +
+    TWO.width + '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+  if (drawn !== PIPE.drawn){ PIPE.drawn = drawn; PIPE.line.innerHTML = drawn; }
+  PIPE.line.classList.add("on");
+}
+
+// which of the card and the response holds the keys, as with the magic box
+// (magicHold): a click or the focus in it hands them over, a click anywhere
+// else or the focus going into the card hands them back. the card settles
+// while it holds them (body.pipekeys), and it wears the card's own shadow
+function pipeHold(inside){
+  if (!PIPE.el) return;
+  const on = inside && PIPE.el.classList.contains("on");
+  PIPE.el.classList.toggle("keys", on);
+  document.body.classList.toggle("pipekeys", on);
+  if (!on) PIPE.came = null;
+}
+// out beside the card on screen, and not hidden for want of room
+function pipeShown(){
+  return !!PIPE.el && PIPE.id !== null && PIPE.id === shownId && PIPE.el.classList.contains("on") &&
+    PIPE.el.style.visibility !== "hidden" && !PIPE.rise.then;
+}
+// where the owner is on the card as it takes the keys (magicRemember)
+function pipeRemember(){
+  if (PIPE.el && !pipeHeld()) PIPE.came = keysCame(shownId);
+}
+// the keys put in it: the magic box lets go, and the response's caret stands in
+// its words, where it stood last or at the first line on show, so shift and the
+// arrows select in it as in the card's answer
+function pipeEnter(){
+  pipeRemember();
+  magicHold(false);
+  pipeHold(true);
+  replyCaret(PIPE.part);
+}
+// and back (magicBack): the typing box as it was, or the card itself
+function pipeBack(){
+  if (!pipeHeld()) return;
+  const came = PIPE.came;
+  pipeHold(false);
+  if (keysBack(came)) return;
+  const live = document.activeElement;
+  if (live && PIPE.el.contains(live)) live.blur();
+}
+// control+option+right and left while it is out: toward its side the keys go
+// into it, and away from it they come back to the card. true when the key was
+// its own; one that is not (toward the magic box, or from it) is the box's
+function pipeJump(e, dir){
+  if (!pipeShown()) return false;
+  const toward = (PIPE.side === "left") === (dir < 0);
+  if (pipeHeld()){
+    e.preventDefault();
+    if (!toward && !e.repeat) pipeBack();
+    return true;
+  }
+  if (!toward || boardMagicHeld()) return false;
+  e.preventDefault();
+  if (!e.repeat) pipeEnter();
+  return true;
+}
+// control+option+up and down: while it is out, it is the card's response
+cardAnswerOff = id => id === shownId && pipeShown() ? { holds: node => PIPE.el.contains(node), go: pipeEnter } : null;
+if (PIPE.el){
+  addEventListener("pointerdown", e => {
+    if (e.target.closest?.("#picfull")) return;
+    const into = PIPE.el.contains(e.target);
+    if (into) pipeRemember();
+    pipeHold(into);
+  }, true);
+  addEventListener("focusin", e => {
+    if (PIPE.el.contains(e.target)) pipeHold(true);
+    else if (e.target.closest?.("main")) pipeHold(false);
+  }, true);
+  // the owner at it while it rises: the rest plays out faster (magicHurry)
+  for (const type of ["pointerdown", "keydown", "wheel"]) addEventListener(type, e => {
+    if (PIPE.rise.dir > 0 && PIPE.el.contains(e.target)) PIPE.rise.fast = RISE_FAST;
+  }, { capture: true, passive: true });
+  // command+a in it picks its words alone
+  addEventListener("keydown", e => {
+    const words = pipeHeld() && PIPE.part.reply;
+    if (!words || !(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "a") return;
+    const t = e.target;
+    if (t?.closest?.("input, textarea, [contenteditable]") && !PIPE.el.contains(t)) return;
+    e.preventDefault();
+    getSelection().selectAllChildren(words);
+  });
+  // what moves the card or changes what it shows is followed at once: the card
+  // and everything in it (its size, its row, its response), the stage's fit,
+  // the magic box beside it and the board's own state. the second step is
+  // worked out again from the card as it now stands; each pass writes only what
+  // has changed, so its own writes come back to nothing
+  const follow = () => {
+    const el = shownId != null && els[shownId];
+    if (el && el.box.classList.contains("piped")) pipeStep(shownId, false);
+    else pipeSync();
+  };
+  const watch = new MutationObserver(follow);
+  const card = document.querySelector("main"), stage = document.getElementById("stage");
+  if (card) watch.observe(card, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "style"] });
+  if (stage) watch.observe(stage, { attributes: true, attributeFilter: ["style"] });
+  if (MB.el) watch.observe(MB.el, { attributes: true, attributeFilter: ["class", "style"] });
+  watch.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+}
 
 // the dormant quick-chat panel, bound to one lane, one card and one listener.
 // Those bindings named a project's own lane, so they are cleared here: with no
@@ -11422,6 +11831,17 @@ function boardMagicScrollCard(){
   if (!MB.scroller) MB.scroller = { replyview: MB.body, box: MB.el };
   return { id: "magic:" + MB.id, owner: card.owner, el: MB.scroller };
 }
+// the card's response piped out beside it (pipeSync), in the card's place while
+// it holds the keys (pipeHold), by a click in it or the keys: its words scroll
+// by the same motion, with the same guards
+function pipeHeld(){
+  return typeof PIPE === "object" && !!PIPE.el && PIPE.el.classList.contains("on") && PIPE.el.classList.contains("keys");
+}
+function pipeScrollCard(){
+  const card = boardResponseCard();
+  if (!card || !pipeHeld() || PIPE.id === null) return null;
+  return { id: "pipe:" + PIPE.id, owner: card.owner, el: PIPE.part };
+}
 // a key typed in an agent's page, which the board never hears from a sealed
 // frame, as magicView hands it over (the page says it, MagicBox.pageDoc): the
 // same three the board's own listeners take for control+s, the chord that
@@ -11499,9 +11919,12 @@ const boardShortcutActions = {
   },
   // control+option+right: into the card's magic box, from the card or from
   // typing in its box; left: back out. with no box on screen, or left with the
-  // keys not in it, the key is not ours and goes on untouched. a held key goes once
+  // keys not in it, the key is not ours and goes on untouched. a held key goes once.
+  // with the card's response piped out beside it, the keys go to it and back
+  // on its own side first (pipeJump)
   magicJump(e, shortcut){
     if (draft || !boardResponseCard()) return;
+    if (pipeJump(e, shortcut.value)) return;
     const held = boardMagicHeld();
     if (shortcut.value < 0 ? !held : !boardMagicShown()) return;
     e.preventDefault();
@@ -11597,7 +12020,7 @@ const boardShortcutActions = {
     if (to) setView(to);
   },
   responseScroll(e){
-    responseScrollKey(e, boardMagicHeld() ? boardMagicScrollCard : boardResponseCard);
+    responseScrollKey(e, pipeHeld() ? pipeScrollCard : boardMagicHeld() ? boardMagicScrollCard : boardResponseCard);
   },
 };
 
@@ -13274,8 +13697,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // scrolled out of sight still counts as inside, and the block then hangs
     // over whatever is drawn under the panel. the response's caret (replyCaret) is
     // bounded the same way by the answer's own scroller, less the band the sent
-    // panel and the typing row lay over its foot
-    const pane = el.closest(".cm-scroller, .replyview") || el;
+    // panel and the typing row lay over its foot, and by the scroller of the
+    // response piped out beside a long reply while it stands in that (pipeEnter)
+    const pane = el.closest(".cm-scroller, .replyview, #pipebox .mbbody") || el;
     let clip = pane.getBoundingClientRect();
     if (pane.classList.contains("replyview")){
       const band = (parseFloat(getComputedStyle(pane).getPropertyValue("--boxband")) || 0) * scaleX;

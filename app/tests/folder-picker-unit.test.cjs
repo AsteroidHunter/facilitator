@@ -71,6 +71,8 @@ async function picker(opts = {}, over = {}){
 }
 const names = p => p.rows().map(r => r.name);
 const strip = html => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+// the column view's path bar alone, its two layers whole
+const pathbarOf = html => (html.match(/<div class="fp-pathbar"><div class="fp-crumbs">[\s\S]*?<\/div><\/div>/) || [""])[0];
 
 test("dates and counts read as the mocks write them", () => {
   assert.equal(FP.when(AT, NOW), "Today, 09:41");
@@ -163,7 +165,7 @@ test("columns run from the first column to the folder on show, and a typed path 
   assert.equal((html.match(/class="fp-col[ "]/g) || []).length, 3);
   assert.match(html, /class="fp-fr fp-cur"[^>]*>.*?website/);
   assert.match(html, /class="fp-pathbar"/);
-  assert.match(strip(html.slice(html.indexOf("fp-pathbar"))), /This Mac › robin › projects › website › assets/);
+  assert.equal(strip(pathbarOf(html)), "robin › projects › website › assets");
 });
 
 test("the view switch shows the chosen view, keeps the choice as the board's setting, and the list has its columns", async () => {
@@ -199,7 +201,46 @@ test("the panel holds what mocks A and B hold, and the cross stands at the bar's
   await p.go(HOME + "/projects/website");
   p.menu = "loc";
   const menu = p.drawPanel().match(/<div class="fp-menu qn-glass" role="menu">([\s\S]*?)<\/div>/)[1];
-  assert.deepEqual(strip(menu).split(" "), ["website", "projects", "robin", "This", "Mac"]);
+  assert.deepEqual(strip(menu).split(" "), ["website", "projects", "robin"]);
+});
+
+test("the location pop-up and the path bar name home and the folders down to the one on show, never the machine", async () => {
+  const { p } = await picker({}, { store: store({ folderview: "columns" }) });
+  const bar = () => { const html = p.drawPanel(); return html.slice(0, html.indexOf('<div class="fp-bd">')); };
+  const menu = () => (bar().match(/<div class="fp-menu qn-glass" role="menu">([\s\S]*?)<\/div>/) || [])[1];
+  const pathbar = () => pathbarOf(p.drawPanel());
+  // at home: the button and its menu name home alone, with the house
+  p.menu = "loc";
+  assert.match(bar(), /data-a="menu"[^>]*><svg[^>]*><path d="M3 10\.5[^"]*"\/>.*?<span class="fp-nm">robin<\/span>/);
+  assert.equal(strip(menu()), "robin");
+  assert.equal((menu().match(/class="fp-mr/g) || []).length, 1);
+  assert.equal(strip(pathbar()), "robin");
+  // deeper down: the folder on show first, home last, and nothing past home
+  await p.go(HOME + "/projects/website/assets");
+  p.menu = "loc";
+  assert.deepEqual([...menu().matchAll(/<span class="fp-nm">([^<]*)<\/span>/g)].map(m => m[1]), ["assets", "website", "projects", "robin"]);
+  assert.deepEqual([...menu().matchAll(/data-t="(\d+)"/g)].map(m => p.targets[+m[1]]),
+    [HOME + "/projects/website/assets", HOME + "/projects/website", HOME + "/projects", HOME]);
+  assert.equal(strip(pathbar()), "robin › projects › website › assets");
+  assert.equal((pathbar().match(/class="fp-crumb[ "]/g) || []).length, 4);
+  for (const html of [bar(), pathbar()]){
+    assert.doesNotMatch(html, /This Mac/);
+    assert.doesNotMatch(html, /M20 16V7/, "the machine's mark");
+  }
+  // the sidebar keeps its Machines section
+  assert.match(strip(p.drawPanel()), /Machines This Mac/);
+  // before the first listing answers, the button names home, not the machine
+  let answer;
+  const s = server();
+  const waiting = new FP.Picker({}, { ask: url => url === "/machines" ? s.ask(url) : new Promise(r => { answer = r; }), store: store(), now: () => NOW });
+  const started = waiting.start();
+  await new Promise(r => setImmediate(r));
+  const early = waiting.drawPanel();
+  const button = early.slice(early.indexOf('data-a="menu"'), early.indexOf("</button>", early.indexOf('data-a="menu"')));
+  assert.match(button, /<span class="fp-nm">robin<\/span>/);
+  assert.doesNotMatch(button, /This Mac|M20 16V7/);
+  answer(await s.ask("/dirs?path=" + encodeURIComponent(HOME)));
+  await started;
 });
 
 test("the drop holds what mock C holds", async () => {
@@ -307,6 +348,21 @@ test("names and paths are written as text, never as markup", async () => {
   await p.go(HOME);
   assert.doesNotMatch(p.drawPanel(), /<img/);
   assert.doesNotMatch(p.drawDrop(), /<img/);
+  // the count of folders left out is drawn only as a number
+  p.at = { ...p.at, more: '<img src=x onerror="alert(1)">' };
+  assert.doesNotMatch(p.drawPanel() + p.drawDrop(), /<img|more folders/);
+});
+
+test("a listing the server stopped short says not every folder is listed", async () => {
+  const { p } = await picker({ kind: "drop" });
+  p.at = { ...p.at, more: 18000 };
+  assert.match(p.drawDrop(), /<div class="fp-empty">18000 more folders here are not listed<\/div>/);
+  assert.match(strip(p.drawPanel()), /18000 more folders here are not listed/);
+  p.at = { ...p.at, more: 0, cut: true };
+  assert.match(p.drawDrop(), /<div class="fp-empty">Not every folder here is listed<\/div>/);
+  assert.match(p.drawPanel(), /<div class="fp-note">Not every folder here is listed<\/div>/);
+  p.at = { ...p.at, cut: false };
+  assert.doesNotMatch(p.drawPanel() + p.drawDrop(), /folders here are not listed|Not every folder/);
 });
 
 test("the sheet and the code keep the house rules: no purple, no accent, no dashes, every class the picker's own", () => {

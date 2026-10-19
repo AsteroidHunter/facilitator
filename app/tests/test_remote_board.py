@@ -9,8 +9,11 @@ server going away and coming back, with a message sent meanwhile delivered.
             the join key beside them for the account alone, the skill's links
             are made, and the Mac keeps the key's hash, never the key; nothing
             secret is printed; the link comes up
-  listing   /remote/dirs lists the server's home in the picker's shape, hidden
-            folders left out; /remote/machines names the server online
+  listing   the picker's /machines names the server online after this Mac, and
+            /dirs and /mkdir with its id list and make its folders there, in
+            the picker's shape and by this Mac's rules: hidden folders left
+            out, another account's ~name and an overlong path refused, a
+            folder name with an invisible character refused
   project   a project on the server keeps its server, and its folder is the
             server's
   agent     inspect joins and keeps the lane's key and curl config for the
@@ -196,26 +199,25 @@ class ServerEndToEnd(unittest.TestCase):
         self.assertEqual(self.mode(self.data / "remote" / "servers.json"), 0o600)
         self.assertEqual(self.mode(top / "board.sock"), 0o600)
 
-        # listing
-        status, listed = self.get("/remote/dirs?machine=fake&path=")
-        self.assertEqual(status, 200, listed)
-        self.assertEqual(listed["machine"], "fake")
-        self.assertEqual(listed["path"], str(self.home))
-        self.assertEqual([d["name"] for d in listed["dirs"]], ["demo", "other"])
-        _, machines = self.get("/remote/machines")
-        self.assertEqual([(m["id"], m["kind"], m["online"]) for m in machines["machines"]], [("fake", "server", True)])
-        # the folder picker's own routes: this Mac first, then the server, its
-        # folders listed and made there
+        # listing, through the folder picker's own routes: this Mac first, then
+        # the server, its folders listed and made there
         _, picker = self.get("/machines")
-        self.assertEqual([(m["id"], m["kind"]) for m in picker["machines"]], [("this", "computer"), ("fake", "server")])
+        self.assertEqual([(m["id"], m["kind"], m["online"]) for m in picker["machines"]],
+                         [("this", "computer", True), ("fake", "server", True)])
         self.assertEqual(picker["machines"][1]["top"], str(self.home))
-        status, through = self.get("/dirs?machine=fake&path=")
-        self.assertEqual((status, through["machine"], [d["name"] for d in through["dirs"]]),
-                         (200, "fake", ["demo", "other"]))
+        status, listed = self.get("/dirs?machine=fake&path=")
+        self.assertEqual(status, 200, listed)
+        self.assertEqual((listed["machine"], listed["path"], listed["cut"]), ("fake", str(self.home), False))
+        self.assertEqual([d["name"] for d in listed["dirs"]], ["demo", "other"])
         status, made = self.call("POST", f"/mkdir?machine=fake&path={self.home / 'other'}&name=fresh")
         self.assertEqual((status, made["path"]), (200, str(self.home / "other" / "fresh")))
         self.assertTrue((self.home / "other" / "fresh").is_dir())
         self.assertEqual(self.get("/dirs?machine=nowhere&path=")[1], {"error": "no such machine"})
+        # this Mac's own rules hold for a server's folders, before ssh is asked
+        self.assertEqual(self.get("/dirs?machine=fake&path=" + "a" * 5000), (400, {"error": "that path is too long"}))
+        self.assertEqual(self.get("/dirs?machine=fake&path=~root"), (400, {"error": "outside the home folder"}))
+        status, refused = self.call("POST", f"/mkdir?machine=fake&path={self.home}&name=a%E2%80%AEb")
+        self.assertEqual((status, refused["error"]), (400, "a folder name cannot hold an invisible character"))
 
         # projects
         status, made = self.call("POST", "/project?name=demo&machine=fake", str(self.home / "demo"))

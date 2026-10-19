@@ -184,7 +184,7 @@ class Gate(unittest.TestCase):
     def test_nothing_outside_the_agents_routes(self):
         for method, path in (("GET", "/state"), ("GET", "/m/state"), ("GET", "/navfile"),
                              ("GET", "/navfiles"), ("GET", "/laneimg/demo/a.png"), ("POST", "/magic"),
-                             ("GET", "/dirs"), ("GET", "/remote/dirs"), ("POST", "/project"),
+                             ("GET", "/dirs"), ("GET", "/machines"), ("POST", "/mkdir"), ("POST", "/project"),
                              ("POST", "/remote/reload"), ("POST", "/send"), ("POST", "/done"),
                              ("POST", "/close"), ("GET", "/uploads/x.png"), ("GET", "/"), ("GET", "/m"),
                              ("POST", "/settings"), ("GET", "/log"), ("GET", "/thread")):
