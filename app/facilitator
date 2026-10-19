@@ -71,24 +71,25 @@
       again, show prints what the board says it holds. Prints the board's
       answer as one JSON line; exits 1 with the board's own words when it
       refuses, and with the status line when the board is down.
-  facilitator remote add you@server [--name NAME]
+  facilitator remote pair [--name NAME]
   facilitator remote list
   facilitator remote remove NAME
       connect one of the owner's own servers to this board, so an agent
-      running there works a project's cards like one on this Mac. add logs
-      in with ssh as `ssh you@server` would, with the owner's ssh key and
-      never a password, reads the server's home and its python3 (3.7 or
-      newer), puts the skill, the runbook and the docs in ~/.facilitator on
-      the server with the skill's links beside the agents' other skills
-      (never over something else's), writes the server's join key there,
-      saves the server in data/remote/servers.json (the key as its SHA-256)
-      and tells a running board, which starts the server's ssh link and
-      keeps it up from then on. The server's folders are then on the
-      board's folder picker. Running it again for the same server puts the
-      skill there afresh with a new join key. list shows each server and
-      whether its link is up; remove forgets a server on this Mac, with its
-      projects' keys, and leaves the server's own files for the owner to
-      delete. Never writes a password or a key to the terminal.
+      running there works a project's cards like one on this Mac. Nothing
+      here logs in to a server: the server connects out to the running
+      board's agent door, a listener on this Mac's tailnet addresses alone.
+      pair asks the board for a pairing code (good once, for 10 minutes) and
+      prints the one line the owner runs on the server, logged in there by
+      hand, and the code it asks for: that puts the skill, the runbook and
+      the docs in ~/.facilitator on the server, trades the code for the
+      server's own key and starts the server's link, which keeps connecting
+      out to the board from then on. --name names the server; otherwise it
+      takes the server's host name, and pairing a name again pairs that
+      server afresh. The server's folders are then on the board's folder
+      picker. list shows each server and whether its link is connected;
+      remove forgets a server on this Mac, with its projects' keys, and
+      leaves the server's own files for the owner to delete. add is retired:
+      the board no longer logs in to servers.
   facilitator bridge [on|off] [--dry-run]
       switch the persistent phone bridge on or off. With no on/off word it
       toggles the current Tailscale Serve state. Turning it on prints a QR
@@ -2020,16 +2021,15 @@ def cmd_magic(args):
     print(json.dumps(answer, ensure_ascii=False))
 
 
-REMOTE_HELP = """usage: facilitator remote add you@server [--name NAME]
+REMOTE_HELP = """usage: facilitator remote pair [--name NAME]
        facilitator remote list
        facilitator remote remove NAME
 
 Connect one of your own servers to this board, so an agent running there can
-work a project's cards. add logs in with your ssh key, as `ssh you@server`
-does, never with a password; puts the facilitator skill in ~/.facilitator on
-the server; and starts the link, which the board keeps up by itself from then
-on. list shows each server and its link; remove forgets a server on this Mac."""
-REMOTE_WAIT = 30.0      # seconds add waits for a running board's link to come up
+work a project's cards. Nothing logs in to the server: the server connects out
+to the board over Tailscale. pair prints one line to run on the server, logged
+in there yourself, and the pairing code it asks for. list shows each server and
+whether it is connected; remove forgets a server on this Mac."""
 
 
 def board_call(method, route, timeout=5):
@@ -2049,112 +2049,71 @@ def board_call(method, route, timeout=5):
         return None, None
 
 
-def server_host(dest):
-    """The host part of an ssh destination, for the server's name: you@lab
-    and ssh://you@lab:2222 are both lab."""
-    rest = dest[len("ssh://"):] if dest.startswith("ssh://") else dest
-    rest = rest.rsplit("@", 1)[-1]
-    if rest.startswith("["):
-        return rest[1:].split("]", 1)[0]
-    return rest.split(":", 1)[0] if dest.startswith("ssh://") else rest
-
-
-def remote_add(words):
-    import remote_link
-    dest, name, at = None, None, 0
-    while at < len(words):
-        if words[at] == "--name":
-            if at + 1 == len(words):
-                sys.exit("remote add: --name needs a value")
-            name = words[at + 1].strip()
-            at += 2
-            continue
-        if dest is not None:
+def remote_pair(words):
+    name = None
+    if words:
+        if len(words) != 2 or words[0] != "--name" or not words[1].strip():
             sys.exit(REMOTE_HELP)
-        dest = words[at]
-        at += 1
-    why = remote_link.destination_problem(dest or "")
-    if why:
-        sys.exit(problem(f"remote add: {why}.", blank=False))
-    store = remote_link.Store(DATA)
-    servers = store.servers()
-    before = next((s for s in servers if s["dest"] == dest), None)
-    print(f"Logging in to {dest} with ssh.")
-    try:
-        found = remote_link.probe(dest)
-    except remote_link.Problem as failed:
-        sys.exit(problem(failed.headline, *failed.steps))
-    ok(f"Logged in to {dest}: home {found['home']}, python3 at {found['python']}.")
-    shown = name or (before["name"] if before else server_host(dest)) or dest
-    if before is not None:
-        sid = before["id"]
-    else:
-        base = remote_link.slug(shown) or "server"
-        taken = {s["id"] for s in servers}
-        sid, n = base, 2
-        while sid in taken:
-            sid, n = f"{base}-{n}", n + 1
-    join_key = remote_link.new_key()
-    rec = {"id": sid, "name": shown, "dest": dest, "home": found["home"], "top": found["top"],
-           "python": found["python"], "join": remote_link.digest(join_key), "added": round(time.time())}
-    try:
-        answer = remote_link.install(dest, rec, join_key, CLONE)
-    except remote_link.Problem as failed:
-        sys.exit(problem(failed.headline, *failed.steps))
-    ok(f"The facilitator skill is on {shown}, in ~/{remote_link.REMOTE_DIR}/skill.")
-    for link, how in sorted(answer.get("links", {}).items()):
-        if how == "taken":
-            print(f"⚠ {link} already holds something else and was left as it is.")
-            print(f"  An agent there finds the skill once that name links to {answer.get('skill', '')}"
-                  "/.agents/skills/facilitator.")
-    store.save_servers([s for s in servers if s["id"] != sid] + [rec])
-    status, said = board_call("POST", "/remote/reload")
+        name = words[1].strip()
+    status, said = board_call("POST", "/remote/pair/new" + ("?" + urlencode({"name": name}) if name else ""))
     if status is None:
-        skipped(f"The board is not running: the link to {shown} starts with it (facilitator run).")
-    elif status == 404:
-        print(f"⚠ The running board predates servers: restart it (facilitator restart) to start the link to {shown}.")
-    elif status != 200:
-        print(f"⚠ The board did not take the new server: {(said or {}).get('error', status)}.")
-    else:
-        ends = time.monotonic() + REMOTE_WAIT
-        link = {}
-        while time.monotonic() < ends:
-            _, listed = board_call("GET", "/remote/servers")
-            link = next((s for s in (listed or {}).get("servers", []) if s.get("id") == sid), {})
-            if link.get("up"):
-                break
-            time.sleep(0.5)
-        if link.get("up"):
-            ok(f"The link to {shown} is up.")
-        else:
-            print(f"⚠ The link to {shown} is not up yet ({link.get('reason', 'starting')}). "
-                  "The board keeps trying; facilitator remote list shows it.")
-            if link.get("reason") == "forward refused":
-                print(f"  The ssh server on {shown} refused to forward the link's socket. It needs")
-                print("  AllowStreamLocalForwarding and AllowTcpForwarding left on in its sshd_config")
-                print("  (both are on unless changed), and the latter at least \"remote\".")
+        sys.exit(problem("The board is not running.",
+                         "Start it with facilitator run, then pair again: the server connects to the running board.",
+                         blank=False))
+    if status == 404:
+        sys.exit(problem("The running board predates pairing.",
+                         "Restart it with facilitator restart, then pair again.", blank=False))
+    if status != 200 or not isinstance(said, dict) or not isinstance(said.get("code"), str):
+        sys.exit(problem(f"The board gave no pairing code: {(said or {}).get('error', status)}.", blank=False))
+    addresses = [a for a in said.get("addresses") or [] if isinstance(a, str)]
+    if not addresses:
+        sys.exit(problem("The board is not listening on the tailnet yet.",
+                         "Turn Tailscale on on this Mac and give the board half a minute to see it, then pair again.",
+                         "If macOS asked whether Python may accept incoming connections, allow it.", blank=False))
+    v4 = [a for a in addresses if ":" not in a]
+    url = f"http://{v4[0] if v4 else '[' + addresses[0] + ']'}:{said['port']}"
+    print("On the server, logged in there yourself, run this line and paste the code when it asks:")
     print()
-    print(f"Next: on the board, Open a new folder and choose {shown} to pick a folder there.")
-    print("Then start your agent in that folder on the server and ask it to onboard.")
+    print(f"  curl -fsS --noproxy '*' {url}/remote/setup | python3 - {url}")
+    print()
+    print(f"Pairing code: {said['code']}   (works once, for {said.get('minutes', 10)} minutes)")
+    print()
+    print("It puts the facilitator skill in ~/.facilitator on the server and starts the server's")
+    print("link, which connects out to this board over Tailscale. Nothing logs in to the server.")
+
+
+def heard_words(heard):
+    if not isinstance(heard, (int, float)):
+        return "not heard from since the board started"
+    ago = max(0, round(time.time() - heard))
+    if ago < 120:
+        return f"last heard {ago} seconds ago"
+    if ago < 7200:
+        return f"last heard {ago // 60} minutes ago"
+    return f"last heard {ago // 3600} hours ago"
 
 
 def remote_list():
     import remote_link
     status, said = board_call("GET", "/remote/servers")
-    if status == 200 and isinstance(said, dict):
-        servers = said.get("servers", [])
+    running = status == 200 and isinstance(said, dict)
+    if running:
+        servers, door = said.get("servers", []), said.get("door")
     else:
-        # the board is down, or older than servers and in need of a restart
-        why = "board not running" if status is None else "restart the board to start it"
-        servers = [{**s, "up": False, "reason": why} for s in remote_link.Store(DATA).servers()]
+        # the board is down, or older than pairing and in need of a restart
+        servers, door = [{"name": s["name"]} for s in remote_link.Store(DATA).servers()], None
     if not servers:
-        print("No servers. Add one with: facilitator remote add you@server")
-        return
+        print("No servers. Pair one with: facilitator remote pair")
     for s in servers:
-        state = "link up" if s.get("up") else f"link down ({s.get('reason') or 'starting'})"
-        print(f"{s['name']}  {s['dest']}  {state}")
-        if s.get("reason") == "forward refused":
-            print("  its ssh server needs AllowStreamLocalForwarding and AllowTcpForwarding on")
+        if not running:
+            state = "not connected (" + ("board not running" if status is None else "restart the board") + ")"
+        elif s.get("up"):
+            state = "connected"
+        else:
+            state = "not connected, " + heard_words(s.get("heard"))
+        print(f"{s['name']}  {state}")
+    if running and isinstance(door, dict) and not door.get("open"):
+        print("⚠ The board is not listening on the tailnet, so no server can reach it: is Tailscale on?")
 
 
 def remote_remove(named):
@@ -2165,13 +2124,22 @@ def remote_remove(named):
     hit = next((s for s in servers if s["id"] == named or s["name"].casefold() == folded), None)
     if hit is None:
         sys.exit(problem(f"No server named {named}.", "facilitator remote list shows the servers.", blank=False))
-    store.save_servers([s for s in servers if s is not hit])
-    status, _ = board_call("POST", "/remote/reload")
-    ok(f"Forgot {hit['name']} on this Mac; its link is down and its projects' keys no longer work.")
+    status, said = board_call("POST", "/remote/forget?" + urlencode({"server": hit["id"]}))
     if status is None:
+        # the board is down, so the file is the only record, and the board
+        # drops that server's keys when it starts
+        store.save_servers([s for s in servers if s is not hit])
+        ok(f"Forgot {hit['name']} on this Mac; its projects' keys no longer work.")
         skipped("The board is not running; it starts without that server.")
-    print(f"On {hit['name']} itself, ~/{remote_link.REMOTE_DIR} and the skill's links in ~/.agents/skills "
-          "and ~/.claude/skills can be deleted by hand.")
+    elif status == 200:
+        ok(f"Forgot {hit['name']} on this Mac; its link and its projects' keys no longer work.")
+    else:
+        sys.exit(problem(f"The board did not forget {hit['name']}: {(said or {}).get('error', status)}.", blank=False))
+    print(f"On {hit['name']} itself the link stops at its next try. ~/{REMOTE_TOP} and the skill's links")
+    print("in ~/.agents/skills and ~/.claude/skills there can be deleted by hand.")
+
+
+REMOTE_TOP = ".facilitator"
 
 
 def cmd_remote(args):
@@ -2182,12 +2150,16 @@ def cmd_remote(args):
             return
         sys.exit(REMOTE_HELP)
     action, rest = words[0], words[1:]
-    if action == "add" and rest:
-        remote_add(rest)
+    if action == "pair":
+        remote_pair(rest)
     elif action == "list" and not rest:
         remote_list()
     elif action == "remove" and len(rest) == 1:
         remote_remove(rest[0])
+    elif action == "add":
+        sys.exit(problem("facilitator remote add is retired: the board no longer logs in to servers.",
+                         "Run facilitator remote pair, then run the line it prints on the server,",
+                         "logged in there yourself.", blank=False))
     else:
         sys.exit(REMOTE_HELP)
 
