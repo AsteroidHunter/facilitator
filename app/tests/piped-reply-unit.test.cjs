@@ -6,8 +6,8 @@
 // box the row stands in rises to the second over the magic box's time and curve,
 // the row's last line staying where it was, and it sinks back only once the
 // words are a whole line under the first step. With the box up the response is
-// piped out beside the card, where the magic box stands (MagicBox.place,
-// either side of the card), on the right unless the card's
+// piped out beside the card as a second magic box (MagicBox.place, either side
+// of the card, on the box's own rules and steps), on the right unless the card's
 // box stands there or the right has no room, and tied to the card by a square
 // dashed brace whose lower part stretches with it.
 // Control + Option toward it puts the keys in it and away brings them back, and
@@ -487,7 +487,7 @@ function placer({ box = false, roomRight = true, roomLeft = true } = {}) {
     },
     magicRoom: () => ({ S: 1, rect, fit, most: { ...most, shown: roomRight } }),
     frameLimits: () => ({ left: fit.left + 16 }), FRAME_CLEAR: 16,
-    boardMagicShown: () => box, pipeLine: () => {}, magicRise: () => {},
+    boardMagicShown: () => box, pipeLine: () => {}, boxRise: () => {},
     document: { body: { classList: { toggle: (c, yes) => (yes ? body.add(c) : body.delete(c)), remove: c => body.delete(c) } } },
   });
   vm.runInContext(fn("pipePlace"), context);
@@ -531,6 +531,62 @@ test("it stands on the right, on the left when the box is there or the right has
   sinking.PIPE.rise.then = () => {};
   sinking.context.pipePlace();
   assert.equal(sinking.body.has("pipeleft"), false);
+});
+
+// ---- coming and going ------------------------------------------------------------------
+test("the response comes, rises and sinks by the magic box's own steps, frame for frame with the box", () => {
+  // both boxes on one clock, through the steps cut out of the page
+  const clock = { t: 0 }, asked = new Map();
+  let next = 1;
+  const fake = () => {
+    const cls = new Set();
+    return { style: { props: {}, setProperty(k, v) { this.props[k] = v; }, visibility: "" },
+      classList: { add: c => cls.add(c), remove: c => cls.delete(c), contains: c => cls.has(c),
+        toggle: (c, yes = !cls.has(c)) => (yes ? cls.add(c) : cls.delete(c), yes) } };
+  };
+  const box = () => ({ el: fake(), line: { style: {} }, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } });
+  const MB = box(), PIPE = { ...box(), ground: { style: {} } };
+  const context = vm.createContext({ MB, PIPE, performance: { now: () => clock.t },
+    requestAnimationFrame: cb => { asked.set(next, cb); return next++; }, cancelAnimationFrame: id => asked.delete(id) });
+  vm.runInContext(cut("const RISE_MS = ", "\n") + "\n" + cut("function riseEase(", "\n") + "\n" +
+    ["magicRiseSet", "magicRise", "magicRiseStep", "magicRiseStop", "boxCome", "boxRise", "boxBack", "boxSink"].map(fn).join(""), context);
+  const frame = () => { clock.t += 1000 / 60; const due = [...asked]; asked.clear(); for (const [, cb] of due) cb(clock.t); };
+  const look = b => [b.el.style.props["--rise"], b.line.style.opacity, b.el.classList.contains("rising")];
+  // new on the page: flat, then risen over the same frames
+  for (const b of [MB, PIPE]) { context.boxCome(b, 0); b.el.classList.add("on"); context.boxRise(b); }
+  assert.deepEqual(look(PIPE), ["0.0000", "0.0000", true]);
+  for (let i = 0; i < 70; i++) {
+    frame();
+    assert.deepEqual(look(PIPE), look(MB), `frame ${i}`);
+    assert.equal(PIPE.ground.style.opacity, MB.el.style.props["--rise"], "the patch of board under it with it");
+  }
+  assert.deepEqual(look(MB), ["1.0000", "1.0000", false]);
+  // put away: both sink on the same frames and go on the same one
+  const gone = { MB: -1, PIPE: -1 };
+  let f = 0;
+  context.boxSink(MB, () => { gone.MB = f; });
+  context.boxSink(PIPE, () => { gone.PIPE = f; });
+  for (f = 1; f <= 70; f++) { frame(); if (gone.MB < 0) assert.deepEqual(look(PIPE), look(MB), `sinking, frame ${f}`); }
+  assert.ok(gone.MB > 55 && gone.MB === gone.PIPE, `gone together: ${JSON.stringify(gone)}`);
+  // wanted again while it sinks, each rises back from where it is; one not on screen just goes
+  for (const b of [MB, PIPE]) { b.rise.t = 1; context.boxSink(b, () => {}); }
+  for (let i = 0; i < 20; i++) frame();
+  for (const b of [MB, PIPE]) context.boxBack(b);
+  for (let i = 0; i < 70; i++) { frame(); assert.deepEqual(look(PIPE), look(MB)); }
+  let off = 0;
+  PIPE.el.style.visibility = "hidden";
+  context.boxSink(PIPE, () => off++);
+  assert.equal(off, 1, "hidden, it just goes");
+  // and both paths go through those steps: the box's and the response's, and the response has no rise of its own
+  assert.match(fn("magicLoad"), /boxCome\(MB, t\);/);
+  assert.match(fn("magicPlace"), /boxRise\(MB\);/);
+  assert.match(fn("magicSink"), /boxSink\(MB, magicOff\);/);
+  assert.match(fn("magicSync"), /boxBack\(MB\);/);
+  assert.match(fn("pipeSync"), /boxCome\(PIPE, 0\);[\s\S]*boxBack\(PIPE\);/);
+  assert.match(fn("pipePlace"), /boxRise\(PIPE\);/);
+  assert.match(fn("pipeSink"), /boxSink\(PIPE, pipeOff\);/);
+  for (const name of ["pipeSync", "pipePlace", "pipeSink"])
+    assert.ok(!/magicRise\(|magicRiseSet\(|"rising"/.test(fn(name)), name + " moves it by a step of its own");
 });
 
 // ---- the keys ------------------------------------------------------------------------
@@ -624,27 +680,43 @@ test("control+S scrolls it while it holds the keys, and command+A picks its word
 });
 
 // ---- the look --------------------------------------------------------------------------
-test("it has no edge and no bar, the box's corners and shadows, words fading at both ends, and it is never faded", () => {
+test("it is a second magic box on the box's own rules, with no edge and no bar, its words fading at both ends", () => {
   const style = HTML.slice(0, HTML.indexOf("</style>")).replace(/\/\*[\s\S]*?\*\//g, "");
   const rule = sel => {
-    const found = style.match(new RegExp("\\n  " + sel.replace(/[.()]/g, "\\$&") + "\\{([^}]*)\\}"));
+    const found = style.match(new RegExp("\\n  " + sel.replace(/[.()*>:]/g, "\\$&") + "\\{([^}]*)\\}"));
     assert.ok(found, "no rule " + sel);
     return found[1];
   };
-  assert.match(style, /\n  #pipebox\{background:var\(--card\); border:none; border-radius:var\(--mb-round\);\s*box-shadow:var\(--shade-lighter\); transition:box-shadow \.2s\}/);
-  assert.equal(rule("#pipebox.keys"), "box-shadow:var(--shade-raised)");
+  // every rule that places, shades, fades or raises the box is the pipe's too, word for word
+  const both = ":is(#magicbox, #pipebox)";
+  for (const sel of [both, "body.focus " + both + ".on", both + ".held", "body.lowered " + both + ".on",
+    both + ".rising", both + ".rising.held", both + ".rising > *"]) rule(sel);
+  assert.match(rule(both + ".rising > *"), /^opacity:var\(--rise\)$/);
+  assert.ok(style.includes("\n  :is(#magicbox, #pipebox){background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);"));
+  assert.match(rule(both + ".held"), /opacity:1/);
+  // and nothing of its own moves it: its only rules are its look
+  const own = style.match(/\n  #pipebox[^{]*\{[^}]*\}/g) || [];
+  assert.deepEqual(own.map(r => r.trim().split("{")[0]), ["#pipebox, #pipebox.rising", "#pipebox .mbbar",
+    "#pipebox, #pipebox *", "#pipebox::-webkit-scrollbar, #pipebox *::-webkit-scrollbar", "#pipebox .mbbody",
+    "#pipebox .mbtext", "#pipebox .mbtext[contenteditable]"]);
+  assert.ok(!own.join("").match(/opacity|shadow|transition|--rise|transform/), "a motion of its own");
+  // no edge: the box's, kept clear in both its states, so it measures as the box does
+  assert.equal(rule("#pipebox, #pipebox.rising"), "border-color:transparent");
   assert.equal(rule("#pipebox .mbbar"), "display:none");
-  assert.equal(rule("body.lowered #pipebox.on"), "box-shadow:none");
-  assert.ok(!/#pipebox[^{]*\{[^}]*opacity:var\(--shade-unselected\)/.test(style), "never faded as the box is");
   // the sheet's words, which fade at both ends of their scroll (--upband, --downband)
   assert.match(HTML, /<section id="pipebox" class="magicbox"/);
   assert.match(read("card-tokens.css"), /\.magicbox \.mbbody:is\(\[data-kind="text"\], \[data-kind="markdown"\]\)\{\s*-webkit-mask-image:linear-gradient\(to bottom,/);
   assert.match(fn("pipeDraw"), /PIPE\.view\.draw\(\{ kind: "markdown", text: raw \}\);/);
-  // the shadows rise as the box's do, with the box's own numbers
-  const unrise = s => s.replace(/calc\(([^)]*?) \* var\(--rise\)\)/g, "$1").replace(/\s+/g, " ").trim();
-  const shade = name => style.match(new RegExp("--" + name + ":([^;]*);"))[1].replace(/\s+/g, " ").trim();
-  assert.equal(unrise(rule("#pipebox.rising").replace(/^--rise:0; transition:none;\s*box-shadow:/, "")), shade("shade-lighter"));
-  assert.equal(unrise(rule("#pipebox.rising.keys").replace(/^\s*box-shadow:/, "")), shade("shade-raised"));
+  // held, it is held as the box is
+  assert.match(fn("pipeHold"), /PIPE\.el\.classList\.toggle\("held", on\);/);
+  assert.match(fn("pipeHeld"), /PIPE\.el\.classList\.contains\("held"\)/);
+  // the patch of the board under it: the board's own paper in its shape, under it
+  // and over the ticket list, coming with its rise and placed with it
+  assert.ok(HTML.indexOf('<div id="pipeground"') < HTML.indexOf('<section id="pipebox"'), "beneath it on the page");
+  assert.match(rule("body.focus #pipeground.on"), /position:fixed; z-index:1;[^}]*background:var\(--paper\); border-radius:var\(--mb-round\)/);
+  assert.match(fn("magicRiseSet"), /if \(box\.ground\) box\.ground\.style\.opacity = p\.toFixed\(4\);/);
+  assert.match(fn("pipePlace"), /Object\.assign\(PIPE\.el\.style, rect, \{ visibility: "" \}\);[\s\S]*Object\.assign\(PIPE\.ground\.style, rect\); PIPE\.ground\.classList\.add\("on"\);/);
+  assert.match(fn("pipeOff"), /PIPE\.ground\.classList\.remove\("on"\)/);
   // the brace wears the box's lines' shadow and sits beneath the card
   assert.match(style, /\n  body\.focus #pipeline\.on > g\{filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)\}/);
   assert.ok(HTML.indexOf('<svg id="pipeline"') < HTML.indexOf("<main>"));
@@ -656,14 +728,14 @@ test("it has no edge and no bar, the box's corners and shadows, words fading at 
   // its words are selectable, as the box's are
   assert.match(style, /#magicbox \.mbtext, #pipebox \.mbtext,/);
   // no accent and no purple anywhere it is dressed
-  const own = (style.match(/\n  [^\n{]*#pipe(box|line)[^{]*\{[^}]*\}/g) || []).join("");
-  assert.ok(own.length > 200 && !/accent|purple|#[0-9a-f]{3,8}\b/i.test(own));
+  const dressed = (style.match(/\n  [^\n{]*#pipe(box|line|ground)[^{]*\{[^}]*\}/g) || []).join("");
+  assert.ok(dressed.length > 200 && !/accent|purple|#[0-9a-f]{3,8}\b/i.test(dressed));
 });
 
 // ---- the phone --------------------------------------------------------------------------
 test("the phone page keeps one step and pipes nothing, and neither does the Mac's phone view", () => {
   const phone = read("m.html");
-  for (const name of ["pipebox", "pipeline", "pipeStep", "pipeSync", "cardAnswerOff", "row-box", "tallrow", "rowRise"])
+  for (const name of ["pipebox", "pipeline", "pipeground", "pipeStep", "pipeSync", "cardAnswerOff", "row-box", "tallrow", "rowRise"])
     assert.ok(!phone.includes(name), "the phone has " + name);
   // the Mac board pipes only for its own card on screen, never in its phone view
   const card = vm.createContext({ FOCUS: true, shownId: "c1", draft: false, phoneWanted: false,

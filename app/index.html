@@ -1556,18 +1556,21 @@
      worked in: the one held wears the card's own shadow (--shade-raised, above)
      and the other the faint one (--shade-lighter) at 60% (--shade-unselected),
      eased over the card's own .2s. a box comes in faint, since the card is what
-     was being worked in */
-  #magicbox{display:none}
-  body.focus #magicbox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
-  body.focus.home #magicbox.on, body.focus.editmode #magicbox.on{display:none}
-  #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
+     was being worked in.
+     the card's response piped out beside a long reply (#pipebox, pipeSync) is
+     a second box on these same rules, so it stands, fades, rises and sinks as
+     the box does; what is its own look is under them */
+  :is(#magicbox, #pipebox){display:none}
+  body.focus :is(#magicbox, #pipebox).on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
+  body.focus.home :is(#magicbox, #pipebox).on, body.focus.editmode :is(#magicbox, #pipebox).on{display:none}
+  :is(#magicbox, #pipebox){background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
     box-shadow:var(--shade-lighter); opacity:var(--shade-unselected); transition:box-shadow .2s, opacity .2s}
-  #magicbox.held{box-shadow:var(--shade-raised); opacity:1}
+  :is(#magicbox, #pipebox).held{box-shadow:var(--shade-raised); opacity:1}
   /* and never a shadow its card does not wear: with the card lowered to sit
      level with the page (body.lowered, from a double click on the empty
      board; card-logic.js), the box sits level too, held or not. raised again,
      the card and the box are as above */
-  body.lowered #magicbox.on{box-shadow:none}
+  body.lowered :is(#magicbox, #pipebox).on{box-shadow:none}
   /* it rises out of the page when it first comes on a card and sinks back into
      it when it is put away (magicRise); coming back with its card it is simply
      there. --rise runs from 0, flat with the page with nothing on it, to
@@ -1576,14 +1579,14 @@
      follow it together, and its edge line (the border) and its line too
      (#mbline). risen, the
      class comes off and the rules above hold it, with the same numbers */
-  #magicbox.rising{--rise:0; transition:none;
+  :is(#magicbox, #pipebox).rising{--rise:0; transition:none;
     border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent);
     box-shadow:0 calc(3px * var(--rise)) calc(14px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
       0 calc(1px * var(--rise)) calc(2px * var(--rise)) rgba(60,45,20,calc(.06 * var(--rise)))}
-  #magicbox.rising.held{
+  :is(#magicbox, #pipebox).rising.held{
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
-  #magicbox.rising > *{opacity:var(--rise)}
+  :is(#magicbox, #pipebox).rising > *{opacity:var(--rise)}
   /* the two lines that tie the box to its card, as the owner chose them in the
      connector mock (magicLine): the card's own edge colour, dashed, 4/3 px,
      straight across the gap from the card's right edge to the box's left
@@ -1621,28 +1624,23 @@
      it was and the bar's line rises over it */
   body.focus .box.sel.tallrow :is(textarea, .cffield .cm-scroller){max-height:var(--row-box)}
   body.focus .box.sel.tallrow .compose{min-height:var(--row-box)}
-  /* the response piped out beside the card at that step (pipeSync): the magic
-     box's sheet, placed and sized as the box is and rising and sinking as it
-     does (magicRise), on the card's white with the box's corners and shadows,
-     the faint one and the card's own while it holds the keys. it has no edge
-     and no bar, and is never faded: its words dissolve at both ends of their
-     scroll as the box's do (the view's --upband and --downband), and stand in
-     the card answer's own type with its inset on every side */
-  #pipebox{display:none}
-  body.focus #pipebox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
-  body.focus:is(.home, .editmode) #pipebox.on{display:none}
-  #pipebox{background:var(--card); border:none; border-radius:var(--mb-round);
-    box-shadow:var(--shade-lighter); transition:box-shadow .2s}
-  #pipebox.keys{box-shadow:var(--shade-raised)}
-  body.lowered #pipebox.on{box-shadow:none}
-  #pipebox.rising{--rise:0; transition:none;
-    box-shadow:0 calc(3px * var(--rise)) calc(14px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
-      0 calc(1px * var(--rise)) calc(2px * var(--rise)) rgba(60,45,20,calc(.06 * var(--rise)))}
-  #pipebox.rising.keys{
-    box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
-      0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
-  #pipebox.rising > *{opacity:var(--rise)}
+  /* the response piped out beside the card at the second step (pipeSync): a
+     second magic box, on the box's own rules above. its own look: no edge (the
+     box's, kept clear, so it measures as the box does), no bar, its words
+     dissolving at both ends of their scroll as the box's do (the view's
+     --upband and --downband), in the card answer's own type with its inset on
+     every side */
+  #pipebox, #pipebox.rising{border-color:transparent}
   #pipebox .mbbar{display:none}
+  /* the patch of the board it stands on (pipePlace): the board's own paper in
+     its shape, under it and over what it lies on, the ticket list and the clock
+     on the card's left, which would show through the box's faint face. it comes
+     with the box's rise (magicRiseSet), so on the bare board it is never seen
+     and over the list it clears the box's room as the box rises */
+  #pipeground{display:none}
+  body.focus #pipeground.on{display:block; position:fixed; z-index:1; pointer-events:none;
+    background:var(--paper); border-radius:var(--mb-round)}
+  body.focus:is(.home, .editmode) #pipeground.on{display:none}
   #pipebox, #pipebox *{scrollbar-width:none}
   #pipebox::-webkit-scrollbar, #pipebox *::-webkit-scrollbar{display:none}
   #pipebox .mbbody{margin:0; overflow-x:hidden}
@@ -4002,10 +4000,12 @@
 <!-- the lines from the card to its magic box, two dashed lines beneath the
      card and the box: before the card on the page, so it is drawn over them -->
 <svg id="mbline" aria-hidden="true"></svg>
-<!-- the card's response piped out beside it while a long reply is typed: the
-     magic box's sheet and placing, with no edge (pipeSync); its bar is never
-     shown, and is there for the box's view, which measures one. then the brace
-     that ties it to the card, beneath the card as the box's lines are -->
+<!-- the card's response piped out beside it while a long reply is typed: a
+     second magic box, with no edge (pipeSync); its bar is never shown, and is
+     there for the box's view, which measures one. under it the patch of the
+     board it stands on, and after it the brace that ties it to the card,
+     beneath the card as the box's lines are -->
+<div id="pipeground" aria-hidden="true"></div>
 <section id="pipebox" class="magicbox" aria-label="The agent's response">
   <div class="mbbar"></div>
   <div class="mbbody"></div>
@@ -8010,7 +8010,7 @@ function magicSync(){
   if (MB.id !== b.id || MB.rev !== b.magic.rev) magicLoad(b.id, b.magic.rev, !!was && !was.has(b.id));
   else {
     // opened again while it was sinking: it rises back from where it is
-    if (MB.rise.then) magicRise(1);
+    boxBack(MB);
     magicPlace();
   }
 }
@@ -8039,8 +8039,7 @@ function magicLoad(id, rev, fresh){
   const t = id === MB.id && MB.rise.raf ? MB.rise.t : fresh ? 0 : 1;
   magicOff();
   MB.el.classList.toggle("held", held);
-  magicRiseSet(t);
-  MB.el.classList.toggle("rising", t < 1);
+  boxCome(MB, t);
   const asked = ++MB.asked;
   MB.id = id; MB.rev = rev;
   // already here, as it is once the board has read it: drawn now, in the
@@ -8199,6 +8198,8 @@ function magicRiseSet(t, box = MB){
   const p = riseEase(t);
   box.el.style.setProperty("--rise", p.toFixed(4));
   box.line.style.opacity = p.toFixed(4);
+  // and the patch of the board under it, for a box that has one (PIPE)
+  if (box.ground) box.ground.style.opacity = p.toFixed(4);
 }
 function magicRise(dir, then = null, box = MB){
   const r = box.rise;
@@ -8231,9 +8232,27 @@ for (const type of ["pointerdown", "keydown", "wheel"]) addEventListener(type, m
 // wherever it has got to, and then off the page. a box that is not on screen
 // just goes
 function magicSink(){
-  if (!MB.el || MB.rise.then) return;
-  if (!MB.el.classList.contains("on") || MB.el.style.visibility === "hidden"){ magicOff(); return; }
-  magicRise(-1, magicOff);
+  boxSink(MB, magicOff);
+}
+// the steps every box beside the card takes, the magic box (MB) and the
+// response piped out beside a long reply (PIPE) alike: it comes flat (t 0) or
+// risen (t 1), rises once it is first placed and shown, rises back from where
+// it is when it is wanted again while it sinks, and sinks from wherever it has
+// got to before it goes (off). one not on screen just goes
+function boxCome(box, t){
+  magicRiseSet(t, box);
+  box.el.classList.toggle("rising", t < 1);
+}
+function boxRise(box){
+  if (box.rise.t < 1 && !box.rise.raf) magicRise(1, null, box);
+}
+function boxBack(box){
+  if (box.rise.then) magicRise(1, null, box);
+}
+function boxSink(box, off){
+  if (!box.el || box.rise.then) return;
+  if (!box.el.classList.contains("on") || box.el.style.visibility === "hidden"){ off(); return; }
+  magicRise(-1, off, box);
 }
 // beside the card's own rectangle, read off the page the way the fit reads the
 // regions: screen pixels, less the stage's origin, over the stage's scale. the
@@ -8257,7 +8276,7 @@ function magicPlace(){
   if (MB.el.style.visibility === "hidden") return;
   // shown: its lines to the card, and the rise if it is new on the card
   magicLine(rect, at);
-  if (MB.rise.t < 1 && !MB.rise.raf) magicRise(1);
+  boxRise(MB);
 }
 // the card's rectangle on the stage, the fit's edges and the largest box
 // there is room for beside it, or null with no card laid out to stand beside
@@ -8447,14 +8466,16 @@ addEventListener("keydown", e => {
 // piped out beside the card (pipeSync), to be read while the reply is typed. it
 // stands right of the card, or left of it, over the ticket list and the clock,
 // when the card's magic box stands on the right or the right has no room for
-// it. it is placed and sized as the box is (MagicBox.place), drawn by the box's
-// view (magicView), rises and sinks as the box does (magicRise) and takes the
-// keys as the box does: a click in it, control+option toward it (pipeJump),
-// and control+option+up and down, for which it is the card's response while it
-// is out (cardAnswerOff); control+S scrolls it while it holds them. the reply
-// sent, or cut back clearly under the first step, it goes back into the card.
-// the phone, and the Mac's own phone view, keep one step
-const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"), id: null, raw: null,
+// it. it is a second magic box: placed and sized as the box is
+// (MagicBox.place), drawn by the box's view (magicView), on the box's own
+// rules, coming, rising and sinking by the box's own steps (boxCome, boxRise,
+// boxSink), and taking the keys as the box does: a click in it, control+option
+// toward it (pipeJump), and control+option+up and down, for which it is the
+// card's response while it is out (cardAnswerOff); control+S scrolls it while
+// it holds them. the reply sent, or cut back clearly under the first step, it
+// goes back into the card. the phone, and the Mac's own phone view, keep one step
+const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"),
+  ground: document.getElementById("pipeground"), id: null, raw: null,
   side: null, came: null, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } };
 if (PIPE.el){
   PIPE.view = magicView(PIPE.el, { placed: () => pipePlace() });
@@ -8631,14 +8652,17 @@ function pipeSync(){
   // the card while the reply is typed, and from here with it)
   const raw = el.reply.dataset.raw || "";
   if (PIPE.id !== shownId){
+    // new beside the card: it comes flat, as a box new on its card does, and
+    // rises once it is placed
     pipeOff();
     PIPE.id = shownId;
-    magicRiseSet(0, PIPE);
-    PIPE.el.classList.add("rising");
+    boxCome(PIPE, 0);
     pipeDraw(raw);
-  } else if (PIPE.raw !== raw) pipeDraw(raw);
-  // out again while it sank: it rises back from where it is
-  else if (PIPE.rise.then) magicRise(1, null, PIPE);
+  } else {
+    if (PIPE.raw !== raw) pipeDraw(raw);
+    // out again while it sank: it rises back from where it is
+    boxBack(PIPE);
+  }
   pipePlace();
 }
 function pipeDraw(raw){
@@ -8651,24 +8675,23 @@ function pipeDraw(raw){
 // off the page with what it held, at once, and left risen for the next
 function pipeOff(){
   if (!PIPE.el) return;
-  PIPE.el.classList.remove("on", "keys", "rising");
+  PIPE.el.classList.remove("on", "held", "rising");
   document.body.classList.remove("pipeleft", "pipekeys");
   magicRiseStop(PIPE);
   magicRiseSet(1, PIPE);
   PIPE.line.classList.remove("on");
+  if (PIPE.ground) PIPE.ground.classList.remove("on");
   if (PIPE.id === null) return;
   PIPE.id = null; PIPE.raw = null; PIPE.side = null; PIPE.came = null;
   if (PIPE.sized) PIPE.sized.disconnect();
   PIPE.view.clear();
 }
-// back into the card: the rise played backwards, and the ticket list and the
-// clock coming back with it; one not on screen just goes
+// back into the card: it sinks as the box sinks, and the ticket list and the
+// clock come back with it; one not on screen just goes
 function pipeSink(){
   if (!PIPE.el || PIPE.rise.then) return;
-  if (!PIPE.el.classList.contains("on") || PIPE.el.style.visibility === "hidden"){ pipeOff(); return; }
-  PIPE.el.classList.remove("keys");
-  document.body.classList.remove("pipeleft", "pipekeys");
-  magicRise(-1, pipeOff, PIPE);
+  document.body.classList.remove("pipeleft");
+  boxSink(PIPE, pipeOff);
 }
 
 // beside the card where the magic box stands (magicRoom, MagicBox.place), on
@@ -8687,16 +8710,19 @@ function pipePlace(){
   const side = free[PIPE.side] ? PIPE.side : free.right ? "right" : free.left ? "left" : null;
   if (!side){
     PIPE.el.style.visibility = "hidden";
+    if (PIPE.ground) PIPE.ground.classList.remove("on");
     document.body.classList.remove("pipeleft");
     return;
   }
   PIPE.side = side;
   const at = MagicBox.place(room.rect, fit, PIPE.view.want(most[side], room.S), side);
-  Object.assign(PIPE.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
-    height: at.height + "px", visibility: "" });
+  const rect = { left: at.left + "px", top: at.top + "px", width: at.width + "px", height: at.height + "px" };
+  Object.assign(PIPE.el.style, rect, { visibility: "" });
+  // the patch of the board under it, in its place and shape
+  if (PIPE.ground){ Object.assign(PIPE.ground.style, rect); PIPE.ground.classList.add("on"); }
   document.body.classList.toggle("pipeleft", side === "left" && !PIPE.rise.then);
   pipeLine(room.rect, at, side, most[side]);
-  if (PIPE.rise.t < 1 && !PIPE.rise.raf) magicRise(1, null, PIPE);
+  boxRise(PIPE);
 }
 
 // the brace from the card to it, a } on the card's right and a { on its left,
@@ -8739,11 +8765,12 @@ function pipeLine(card, box, side, most){
 // which of the card and the response holds the keys, as with the magic box
 // (magicHold): a click or the focus in it hands them over, a click anywhere
 // else or the focus going into the card hands them back. the card settles
-// while it holds them (body.pipekeys), and it wears the card's own shadow
+// while it holds them (body.pipekeys), and it is held as the box is (.held),
+// standing whole on the card's own shadow
 function pipeHold(inside){
   if (!PIPE.el) return;
   const on = inside && PIPE.el.classList.contains("on");
-  PIPE.el.classList.toggle("keys", on);
+  PIPE.el.classList.toggle("held", on);
   document.body.classList.toggle("pipekeys", on);
   if (!on) PIPE.came = null;
 }
@@ -11887,7 +11914,7 @@ function boardMagicScrollCard(){
 // it holds the keys (pipeHold), by a click in it or the keys: its words scroll
 // by the same motion, with the same guards
 function pipeHeld(){
-  return typeof PIPE === "object" && !!PIPE.el && PIPE.el.classList.contains("on") && PIPE.el.classList.contains("keys");
+  return typeof PIPE === "object" && !!PIPE.el && PIPE.el.classList.contains("on") && PIPE.el.classList.contains("held");
 }
 function pipeScrollCard(){
   const card = boardResponseCard();
