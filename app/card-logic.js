@@ -8621,9 +8621,10 @@ function magicView(el, hooks = {}){
 // ---- projects on the owner's servers -------------------------------------------------
 // a project whose folder is on one of the owner's servers names that server
 // (state.projects[i].server), and the board says for each server whether its
-// ssh link is up and whether it has been down long enough that its projects
-// fade (remote.servers[id].faded, 30 seconds, so a short drop never flashes
-// it). a server the board no longer knows has no link at all and fades at once
+// link, which the server keeps connected out to the board, is up and whether
+// it has gone unheard long enough that its projects fade (remote.servers[id]
+// .faded, 30 seconds, so a short drop never flashes it). a server the board
+// no longer knows has no link at all and fades at once
 function remoteServerOf(state, owner){
   const p = ((state && state.projects) || []).find(x => x && x.id === owner);
   return p && p.server ? p.server : "";
@@ -8657,7 +8658,7 @@ function folderRefusal(pr, state, folder){
   return projectRefusal(pr, state, folder.name);
 }
 // the folder a project row shows: a server's project as the server's name and
-// its path there, the way ssh writes one
+// its path there, name:/path
 function lanePlace(state, owner){
   const dir = (state.pwds || {})[owner] || "";
   const sid = remoteServerOf(state, owner);

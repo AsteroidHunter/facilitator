@@ -36,14 +36,14 @@ After reading the separate `/fresh` result as described below, answer with a com
 
 ## From a server
 
-An agent can also run on one of the owner's own servers, reached from the Mac with `facilitator remote add`. There `scripts/onboard.py inspect` answers `"remote": true` and the board is on the Mac, reached through an ssh link the Mac keeps up; the server has no `run.config.json` and no port. Every curl in this runbook works the same with two changes: put `-K` and the file `inspect` names in its `curl` field in front of it, and write `http://localhost` in place of `http://127.0.0.1:$PORT`:
+An agent can also run on one of the owner's own servers, paired with the board by `facilitator remote pair`. There `scripts/onboard.py inspect` answers `"remote": true` and the board is on the Mac, reached by connecting out to its agent door over Tailscale; the board never logs in to the server, and the server has no `run.config.json` and no port. Every curl in this runbook works the same with two changes: put `-K` and the file `inspect` names in its `curl` field in front of it, and write the `base` it answers, `http://board`, in place of `http://127.0.0.1:$PORT`:
 
-    curl -sS -K ~/.facilitator/agents/LANE.curl "http://localhost/fresh?owner=LANE"
-    curl -sS -K ~/.facilitator/agents/LANE.curl -X POST --data-binary @reply.txt "http://localhost/reply?box=ID"
+    curl -sS -K ~/.facilitator/agents/LANE.curl "http://board/fresh?owner=LANE"
+    curl -sS -K ~/.facilitator/agents/LANE.curl -X POST --data-binary @reply.txt "http://board/reply?box=ID"
 
-- That file holds your lane's own key, given to you when you joined; it is for this account alone. Never print it, copy it or put it on a card.
+- That file holds your lane's own key, given to you when you joined, and sends the call on to the board's real address; it is for this account alone. Never print it, copy it or put it, the key or the board's address on a card.
 - Only your own lane answers: `/wait`, `/ack`, `/fresh`, `/unread` and `/create` with `owner=` your lane, and `/reply`, `/note`, `/working`, `/ping`, `/title`, `/testing`, `/park`, `/progress` and `/context` on your lane's cards. Everything else, `/state` and the magic box included, is refused.
-- When the link is down a call fails to connect. The card waits and so do the owner's messages, which queue on the Mac: keep working, and try the call again a minute later. `scripts/onboard.py wait` keeps trying through a drop by itself.
+- When the connection is down a call fails to connect. The card waits and so do the owner's messages, which queue on the Mac: keep working, and try the call again a minute later. `scripts/onboard.py wait` keeps trying through a drop by itself.
 
 ## Replies
 

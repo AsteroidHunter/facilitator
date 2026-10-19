@@ -61,7 +61,7 @@ test("a project on this Mac never fades, whatever a server does", () => {
   assert.equal(sandbox.remoteFaded({}, "near"), null);
 });
 
-test("a server's project shows its folder the way ssh writes it", () => {
+test("a server's project shows its folder as the server's name and its path", () => {
   const { sandbox } = page();
   const st = state({ lab: { name: "Lab box", up: true, faded: false } });
   assert.equal(sandbox.lanePlace(st, "far"), "Lab box:/home/you/far");
