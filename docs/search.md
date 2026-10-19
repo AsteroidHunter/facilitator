@@ -1,6 +1,6 @@
 # Searching cards and messages
 
-The board can search every card and every message on it: each card's title, what you sent, the agent's replies, its notes and its progress notes. It can also list cards by their details alone, such as the cards made during a date range. There is no search bar yet; this page is about the search itself, which the board answers at `GET /search`.
+The board can search every card and every message on it: each card's title, what you sent, the agent's replies, its notes and its progress notes. It can also list cards by their details alone, such as the cards made during a date range. On the Mac board, the magnifier in the top bar opens a search panel over this (see [Searching the cards](board.md#searching-the-cards)); this page is about the search itself, which the board answers at `GET /search`.
 
 ## How it works
 
