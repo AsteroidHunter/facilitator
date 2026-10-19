@@ -3858,14 +3858,19 @@ test("three, four or five bubbles standing in one place fall together: one pause
 });
 
 test("in a column, the one over the foot lands first and each one above after it, from the foot up, a beat apart", () => {
-  const s = columnScene(5, Array(5).fill("delivered")), { el, bubbles, ringFor, frame } = s;
+  const s = columnScene(5, Array(5).fill("delivered")), { el, ringFor, frame } = s;
+  // the column as each frame draws it (a middle message the joined preview
+  // shows leaves its bubble for its own line from its touch, so its words do
+  // not say when the bubble lands)
+  const shape = s.context.sentColumnShape;
+  let drawn = null;
+  s.context.sentColumnShape = (plan, ms) => (drawn = shape(plan, ms));
   ringFor(s.merge.OUT_MS);
-  const copies = wordCopies(bubbles()[0].querySelector(".sentgoo"));
   const stopped = Array(5).fill(null);
   for (let ms = 17; ms <= 4000 && el.sentMerge; ms += 2) {
     frame(ms);
-    // the moment each one's words reach the joined head (0 here), where its fall stops
-    copies.forEach((one, i) => { if (stopped[i] === null && i < 4 && shifted(one) >= -1e-6) stopped[i] = ms; });
+    // the moment each one reaches the joined head, where its fall stops
+    if (drawn) drawn.joints.forEach((joint, i) => { if (stopped[i] === null && joint.share >= 1) stopped[i] = ms; });
   }
   // the moment each one landed, top first: each later than the one under it
   for (let i = 0; i < 3; i++) assert.ok(stopped[i] > stopped[i + 1], `bubble ${i + 1} stopped before bubble ${i + 2} under it`);
