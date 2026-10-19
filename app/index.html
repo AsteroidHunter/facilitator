@@ -14216,6 +14216,10 @@ addEventListener("keydown", e => {
   function place(){
     raf = 0;
     if (!cur || !cur.isConnected){ cur = null; hide(); return; }
+    // the search field's block waits for its panel to finish growing in, and
+    // the panel's transitionend lays it: laid on the panel's first frame, it
+    // stood where the field was then and moved once the panel had landed
+    if (cur === searchField && searchPanel.getAnimations().some(a => a.transitionProperty === "transform")){ hide(); return; }
     const collapsed = isField ? cur.selectionStart === cur.selectionEnd : getSelection().isCollapsed;
     if (!collapsed){ hide(); return; }   // a selection marks its own spot
     const c = isField ? fieldCaret(cur) : ceCaret(cur);
