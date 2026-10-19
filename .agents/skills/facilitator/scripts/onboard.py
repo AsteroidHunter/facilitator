@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """Resolve this checkout's board lane and receive one confirmed claim.
 
-On one of the owner's servers, where `facilitator remote add` put this skill
-in ~/.facilitator/skill with remote.json beside it, the board is on the
-owner's Mac and is reached through the ssh link the Mac keeps up: the Unix
-socket ~/.facilitator/board.sock, with a key in a header. inspect joins the
-lane, which gives this agent its own key for it, kept in
+On one of the owner's servers, where the setup program (scripts/pair.py) put
+this skill in ~/.facilitator/skill with remote.json beside it, the board is
+on the owner's Mac and is reached by connecting out to its agent door over
+the tailnet, never by the Mac logging in here. inspect makes sure this
+server's link runs (scripts/link.py), then joins the lane with the server's
+key, which gives this agent a key of its own for the lane, kept in
 ~/.facilitator/agents/<lane>.key with a curl config beside it (both for this
-account alone); wait listens with that key, and keeps trying through a
-dropped link until its own deadline. Runs on python3 3.7 and newer."""
+account alone); wait listens with that key, and keeps trying through a drop
+until its own deadline. Runs on python3 3.7 and newer."""
 
 import argparse
 import http.client
 import json
 import os
-import socket
+import re
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -26,10 +28,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[4]
 RUNBOOK = REPO / "app" / "RUNBOOK.md"
 REMOTE_FILE = REPO / "remote.json"
+LINK = Path(__file__).resolve().parent / "link.py"
 LISTEN_SECONDS = 420
 CLIENT_SLACK = 10
-LINK_RETRY = 3          # seconds between tries while a server's link is down
-ACK_PATIENCE = 60       # seconds an ack is tried again through a dropped link
+LINK_RETRY = 3          # seconds between tries while the board cannot be reached
+ACK_PATIENCE = 60       # seconds an ack is tried again through a drop
+WAIT_CYCLE = 25         # seconds one /wait call from a server may last
+REMOTE_BASE = "http://board"   # what an agent on a server writes for the board
+LANE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
 
 
 def output(status, **fields):
@@ -130,53 +136,60 @@ def resolve_board(state, name):
 # ---- on one of the owner's servers ----------------------------------------------
 
 class LinkDown(Exception):
-    """The ssh link to the Mac is down, or the board behind it is."""
+    """The board's door does not answer: the tailnet, the Mac or the board is
+    away."""
 
 
-class UnixConnection(http.client.HTTPConnection):
-    def __init__(self, path, timeout):
-        super().__init__("localhost", timeout=timeout)
-        self.socket_path = path
-
-    def connect(self):
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(self.timeout)
-        sock.connect(str(self.socket_path))
-        self.sock = sock
+# no proxy, ever: a proxy named in this account's settings would be handed
+# the lane's key with every call
+OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def remote_record():
-    """remote.json, which `facilitator remote add` wrote beside this skill on a
-    server, or None on the Mac."""
+    """remote.json, which the setup program (scripts/pair.py) wrote beside
+    this skill on a server: {server, name, board, home}. None on the Mac."""
     try:
         rec = json.loads(REMOTE_FILE.read_text())
     except (OSError, ValueError):
         return None
     if not isinstance(rec, dict) or not isinstance(rec.get("home"), str) or not rec["home"].startswith("/"):
         return None
+    if not isinstance(rec.get("board"), str) or not re.fullmatch(r"https?://[^/?#\s]+", rec["board"]):
+        return None
     return rec
 
 
 def remote_request(rec, method, route, key, body=None, timeout=10):
-    """(status, answer) from the board through the link; LinkDown when the
-    link or the board does not answer."""
-    conn = UnixConnection(Path(rec["home"]) / "board.sock", timeout)
+    """(status, answer) from the board's door; LinkDown when nothing answers."""
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Authorization": "Bearer " + key}
     if data is not None:
         headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(rec["board"].rstrip("/") + route, data=data, method=method, headers=headers)
     try:
-        conn.request(method, route, body=data, headers=headers)
-        response = conn.getresponse()
-        raw = response.read()
-    except (OSError, http.client.HTTPException) as problem:
-        raise LinkDown(str(problem))
-    finally:
-        conn.close()
+        with OPENER.open(request, timeout=timeout) as response:
+            raw, status = response.read(), response.status
+    except urllib.error.HTTPError as refused:
+        with refused:
+            raw, status = refused.read(), refused.code
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as problem:
+        reason = getattr(problem, "reason", problem)
+        raise LinkDown(getattr(reason, "strerror", None) or type(reason).__name__)
     try:
-        return response.status, json.loads(raw)
+        return status, json.loads(raw)
     except ValueError:
-        return response.status, None
+        return status, None
+
+
+def ensure_link(rec):
+    """This server's link to the board (scripts/link.py), started when it is
+    not running, so the folder picker reaches this server whenever an agent
+    here has joined."""
+    try:
+        subprocess.run([sys.executable, "-B", str(LINK), "start", "--quiet"], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def private_write(path, text):
@@ -195,13 +208,25 @@ def key_files(rec, owner):
     return agents / (owner + ".key"), agents / (owner + ".curl")
 
 
+def remote_base(rec):
+    """The address an agent here writes in its curl lines. For the board's
+    plain address it is REMOTE_BASE, which the curl config sends on to the
+    board, so the board's real address stays in that file."""
+    return REMOTE_BASE if rec["board"].startswith("http://") else rec["board"].rstrip("/")
+
+
 def save_key(rec, owner, key):
-    """The lane's key, and a curl config that carries it with the socket, so
-    the runbook's curl lines work with -K and never show the key in ps."""
+    """The lane's key, and a curl config that carries it, sends the runbook's
+    curl lines on to the board's door and never through a proxy, so they
+    work with -K and the key never shows in ps."""
     held, config = key_files(rec, owner)
-    sock = str(Path(rec["home"]) / "board.sock").replace("\\", "\\\\").replace('"', '\\"')
+    lines = [f'header = "Authorization: Bearer {key}"', 'noproxy = "*"']
+    if rec["board"].startswith("http://"):
+        door = urllib.parse.urlsplit(rec["board"])
+        host = f"[{door.hostname}]" if ":" in (door.hostname or "") else door.hostname
+        lines.append(f'connect-to = "::{host}:{door.port or 80}"')
     private_write(held, key + "\n")
-    private_write(config, f'unix-socket = "{sock}"\nheader = "Authorization: Bearer {key}"\n')
+    private_write(config, "\n".join(lines) + "\n")
     return config
 
 
@@ -219,20 +244,21 @@ def inspect_remote(args, rec):
         asked = {"path": str(path), "git": str(git) if git else None}
     else:
         asked = {"board": args.board}
+    ensure_link(rec)
     try:
-        join = (Path(rec["home"]) / "join.key").read_text().strip()
+        server_key = (Path(rec["home"]) / "server.key").read_text().strip()
     except OSError:
-        output("key_refused", detail="this server has no join key: run facilitator remote add on the Mac again",
+        output("key_refused", detail="this server has no key: pair it again with facilitator remote pair on the Mac",
                **common)
         return
     try:
-        status, answer = remote_request(rec, "POST", "/remote/join", join, asked)
+        status, answer = remote_request(rec, "POST", "/remote/join", server_key, asked)
     except LinkDown as problem:
         output("link_down", detail=str(problem), **common)
         return
     if status == 401:
         output("key_refused", detail="the board does not know this server's key: "
-                                     "run facilitator remote add on the Mac again", **common)
+                                     "pair it again with facilitator remote pair on the Mac", **common)
         return
     if status != 200 or not isinstance(answer, dict) or not isinstance(answer.get("status"), str):
         output("different_server", **common)
@@ -241,20 +267,27 @@ def inspect_remote(args, rec):
     key = answer.pop("key", None)
     answer.pop("server", None)
     if found == "ready":
-        if not isinstance(key, str) or not key or not isinstance(answer.get("owner"), str):
+        if not isinstance(key, str) or not key or not isinstance(answer.get("owner"), str) \
+                or not LANE_ID.fullmatch(answer["owner"]):
             output("protocol_error", detail="join answered no key", **common)
             return
         config = save_key(rec, answer["owner"], key)
-        output("ready", owner=answer["owner"], curl=f"-K {config}", base="http://localhost",
+        output("ready", owner=answer["owner"], curl=f"-K {config}", base=remote_base(rec),
                runbook=str(RUNBOOK), **common)
         return
     output(found, **answer, **common)
 
 
 def wait_remote(args, rec):
-    """One listen through the link. A link that is down is tried again until
-    the listen's own deadline; a hand-off is confirmed through a short drop."""
+    """One listen through the door, made of /wait calls of at most
+    WAIT_CYCLE seconds inside the listen's own deadline, so a call cut off by
+    a drop is gone from the board before a message sent while the project is
+    faded could be handed to it. Through a drop it keeps trying until the
+    deadline, and a hand-off is confirmed through a short drop."""
     owner = args.owner
+    if not LANE_ID.fullmatch(owner):
+        output("project_unknown", owner=owner)
+        return
     held, _ = key_files(rec, owner)
     try:
         key = held.read_text().strip()
@@ -263,6 +296,7 @@ def wait_remote(args, rec):
         return
     deadline = time.monotonic() + args.timeout
     dropped = False
+    look = True      # read the lane's state before the next call
 
     def refused():
         output("key_refused", owner=owner, detail="the board no longer takes this lane's key: run inspect to join again")
@@ -270,33 +304,35 @@ def wait_remote(args, rec):
     while True:
         settling = False
         try:
-            status, lane = remote_request(rec, "GET", "/remote/lane", key)
-            if status == 401:
-                refused()
-                return
-            if status != 200 or not isinstance(lane, dict):
-                output("protocol_error", detail="the lane's state did not come back")
-                return
-            # after a dropped link, a hand-off nobody confirmed and a listener
-            # still counted are this listen's own, cut off by the drop: the
-            # card comes back by itself and the board lets the listen go once
-            # it sees it gone, so this waits for both
-            if lane.get("busy") and (lane.get("confirmed") or not dropped):
-                output("claim_held", owner=owner, box=lane["busy"])
-                return
-            if lane.get("listening") and not dropped:
-                output("listener_present", owner=owner)
-                return
-            settling = bool(lane.get("busy") or lane.get("listening"))
-            remaining = int(deadline - time.monotonic())
+            if look:
+                status, lane = remote_request(rec, "GET", "/remote/lane", key)
+                if status == 401:
+                    refused()
+                    return
+                if status != 200 or not isinstance(lane, dict):
+                    output("protocol_error", detail="the lane's state did not come back")
+                    return
+                # after a drop, a hand-off nobody confirmed and a listener
+                # still counted are this listen's own, cut off by the drop: the
+                # card comes back by itself and the board lets the call go
+                # once it sees it gone, so this waits for both
+                if lane.get("busy") and (lane.get("confirmed") or not dropped):
+                    output("claim_held", owner=owner, box=lane["busy"])
+                    return
+                if lane.get("listening") and not dropped:
+                    output("listener_present", owner=owner)
+                    return
+                settling = bool(lane.get("busy") or lane.get("listening"))
             if not settling:
+                remaining = int(deadline - time.monotonic())
                 if remaining < 1:
                     output("idle", owner=owner)
                     return
-                query = urllib.parse.urlencode({"owner": owner, "timeout": remaining, "agent": args.agent})
-                status, claim = remote_request(rec, "GET", f"/wait?{query}", key, timeout=remaining + CLIENT_SLACK)
+                cycle = min(remaining, WAIT_CYCLE)
+                query = urllib.parse.urlencode({"owner": owner, "timeout": cycle, "agent": args.agent})
+                status, claim = remote_request(rec, "GET", f"/wait?{query}", key, timeout=cycle + CLIENT_SLACK)
         except LinkDown:
-            dropped = True
+            dropped, look = True, True
             if time.monotonic() + LINK_RETRY >= deadline:
                 output("link_down", owner=owner)
                 return
@@ -317,9 +353,11 @@ def wait_remote(args, rec):
         token = claim.get("ack")
         if not token:
             if claim.get("idle"):
-                output("idle", owner=owner)
-            else:
-                output("protocol_error", detail="wait response has no claim or state")
+                # this listen's own call ran its course: the next one follows
+                # at once, with nothing to look at first
+                dropped, look = False, False
+                continue
+            output("protocol_error", detail="wait response has no claim or state")
             return
         receipt = urllib.parse.urlencode({"owner": owner, "token": token})
         patience = time.monotonic() + ACK_PATIENCE

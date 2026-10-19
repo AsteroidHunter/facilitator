@@ -714,10 +714,11 @@ Endpoints:
                                owner's servers (remote_link.py), kind "server",
                                its top and home the account's home there with
                                its links followed, and online while its link
-                               is up. /dirs and /mkdir with a server's id for M
-                               read and make its folders there, over the link's
-                               own login, by the same rules, limits and words
-                               as this Mac's; a server whose link is down is
+                               is connected. /dirs and /mkdir with a server's
+                               id for M ask that server's link, which connected
+                               out to the board, to read and make its folders
+                               there, by the same rules, limits and words as
+                               this Mac's; a server that is not connected is
                                refused in plain words
   GET  /dirs?path=P[&from=F][&machine=M] -> one folder's subfolders for the
                                folder picker (folder-picker.js). Empty P is
@@ -800,31 +801,40 @@ Endpoints:
                                card green and resets the steal timer, no release.
                                The messages the claim holds at that moment are
                                read from then on (pendingStates on /state)
-  The owner's servers (remote_link.py; a board without that file has none):
+  The owner's servers (remote_link.py; a board without that file has none).
+  The board never logs in to a server: each one connects out to the agent
+  door, a listener on this Mac's tailnet addresses alone (DOOR_PORT), open
+  while a server is paired or a pairing code waits:
   POST /project?name=N&machine=S -> body = a folder on server S: the board asks
-                               the server over its link for the folder's real
-                               path, that it is a folder in that account's home
-                               and not hidden, and its git repository, then
-                               makes the lane as above with {server, git}
-                               stored beside {id, name, dir}. 400 in plain words
-                               for a folder that is not one, an unknown server
-                               or one whose link is down. A server lane's
+                               the server's link for the folder's real path,
+                               that it is a folder in that account's home and
+                               not hidden, and its git repository, then makes
+                               the lane as above with {server, git} stored
+                               beside {id, name, dir}. 400 in plain words for
+                               a folder that is not one, an unknown server or
+                               one that is not connected. A server lane's
                                folder is never read on this Mac: no internal
                                folder, navigator or worktree list for it
-  GET  /remote/servers      -> {servers: [{id, name, dest, up, since, reason,
-                               faded}]}: each server and its link, for
-                               `facilitator remote list`. Local only
-  POST /remote/reload       -> read data/remote/servers.json again, after
-                               `facilitator remote add` or `remove`: a new
-                               server's link starts, a removed one's stops and
-                               its lanes' keys go. {ok, servers}. Local only
+  GET  /remote/servers      -> {servers: [{id, name, up, faded, heard,
+                               paired}], door: {port, open}}: each server and
+                               whether its link is connected, and whether the
+                               door is listening, for `facilitator remote
+                               list`. Local only
+  POST /remote/pair/new[?name=N] -> {code, minutes, port, addresses}: a pairing
+                               code for `facilitator remote pair`, good once
+                               for 10 minutes, with where the door listens.
+                               Local only; the code is kept as its hash and
+                               never written to the log
+  POST /remote/forget?server=S -> the server off this board, its lanes' keys
+                               with it. {ok}. Local only
   The folder picker lists each server beside this Mac (see /machines, /dirs
   and /mkdir). /state carries remote: {servers: {id: {name, up, faded}}},
-  and the phone's live section the same on every reading: faded once a link
-  has been down
-  FADE_AFTER (30) seconds, which is when the pages fade that server's
-  projects. A request that came through a link is decided by RemoteGate
-  before anything here sees it: POST /remote/join with the server's join key
+  and the phone's live section the same on every reading: faded once a
+  server has gone unheard FADE_AFTER (30) seconds, which is when the pages
+  fade that server's projects. A request through the door is decided by
+  RemoteGate before anything here sees it: GET /remote/setup is the setup
+  program, POST /remote/pair trades a code for the server's key, POST
+  /remote/link is the link's poll, POST /remote/join with the server's key
   gives an agent its lane's key, GET /remote/lane answers that lane's busy
   and listening state, and the agent routes answer for that lane alone
   GET  /fresh?owner=O       -> while O's agent holds a card: any messages that
@@ -1924,6 +1934,36 @@ def _configured_port() -> int:
 
 PORT = _configured_port()
 BRIDGE_PORT = PORT + 1  # a distinct socket; never infer trust from Host or proxy headers
+
+
+def _door_port() -> tuple:
+    """(port, loopback) for the agent door the owner's servers connect out to
+    (remote_link.py): run.config.json's agent_port when it is a whole number
+    from 1 to 65535, else remote_link.DOOR_PORT, on this Mac's tailnet
+    addresses. A test's copy (FACILITATOR_TEST_PORT set) has a door only when
+    FACILITATOR_TEST_AGENT_PORT names its port, and then on loopback alone, so
+    no test board ever listens on the tailnet. (None, False) for no door, and
+    for a port that is one of the board's own pair, since the door's
+    connections are told apart by their port."""
+    if remote_link is None:
+        return None, False
+    if os.environ.get("FACILITATOR_TEST_PORT"):
+        named = os.environ.get("FACILITATOR_TEST_AGENT_PORT")
+        port, loopback = (int(named) if named else None), True
+    else:
+        try:
+            value = json.loads((DATA / "run.config.json").read_text()).get("agent_port")
+            port = None if isinstance(value, bool) else int(value)
+        except Exception:
+            port = None
+        port = port if port is not None and 1 <= port <= 65535 else remote_link.DOOR_PORT
+        loopback = False
+    if port in (PORT, BRIDGE_PORT):
+        return None, False
+    return port, loopback
+
+
+DOOR_PORT, DOOR_LOOPBACK = _door_port()
 # ---- the transport's bounds ------------------------------------------------------
 # What the board accepts at once and how long it lets a peer sit on the line.
 # The numbers are for one Mac serving one desktop, one phone through the
@@ -5351,8 +5391,8 @@ def _get_limits(q: Query, _):
 # routes: /machines names the machines it may list and their places, /dirs
 # lists one folder of one machine, and /mkdir makes a folder in one. This
 # machine is "this"; each of the owner's servers (remote_link.py) is one more
-# machine, listed and asked over its own ssh link, by the same rules and with
-# the same answers. Everything is fenced to the home folder and hidden folders
+# machine, asked through the link it keeps to the board, by the same rules and
+# with the same answers. Everything is fenced to the home folder and hidden folders
 # stay hidden. Paths go out the way each system writes them, and the page shows
 # what it is given without taking a path apart
 FOLDER_ROWS_MAX = 2000      # folders one listing names; the rest are only counted
@@ -5658,8 +5698,8 @@ def _get_dirs(q: Query, _):
         paths = _server_paths(q)
         if paths is None:
             return 400, {"error": "that path is too long"}
-        # read on the server over its link's own login, in this shape and by
-        # the same rules (remote_link.PROGRAM)
+        # read on the server by its link, in this shape and by the same rules
+        # (scripts/link.py in the skill), and checked for that shape here
         return _remote.list_dirs(server, *paths)
     home = _home()
     p, why = _folder_named(q, home)
@@ -5731,7 +5771,7 @@ def _server_mkdir(q: Query, server: str):
     """/mkdir on one of the owner's servers, held to this Mac's own rules
     first: the same names, the same longest path and the same count of new
     folders a minute, shared with this Mac's. The server then makes it inside
-    its own home by the same fence (remote_link.PROGRAM)."""
+    its own home by the same fence (scripts/link.py in the skill)."""
     name = q.one("name").strip()
     why = _folder_name_problem(name)
     if why:
@@ -7704,12 +7744,14 @@ def _post_create(q: Query, text: str):
 def _post_project_route(q: Query, text: str):
     """/project for a folder on this Mac, or with machine= for a folder on
     one of the owner's servers. The server is asked about its folder before
-    the board's lock is taken, since that is a round trip over ssh."""
+    the board's lock is taken, since that is a round trip to its link."""
     machine = q.one("machine")
     if not machine or machine == "this":
         return _run_state_request(_post_project, q, text)
     if _remote is None:
         return 400, {"error": "no such machine"}
+    if len(text.encode("utf-8", "surrogatepass")) > FOLDER_PATH_MAX:
+        return 400, {"error": "that path is too long"}
     status, found = _remote.describe(machine, text)
     if status != 200 or not isinstance(found, dict):
         return status, found
@@ -7795,11 +7837,14 @@ def _post_project(q: Query, text: str, found: dict | None = None):
 
 
 # ---- the owner's servers -----------------------------------------------------------
-# remote_link.py keeps each server's ssh link, its keys and what is run there;
-# here are the routes the Mac's own pages and command ask it through, and what
-# its gate asks of the board. _remote is made by main and stays None in a copy
-# of the board that does not run, so nothing here starts a link by itself
+# remote_link.py keeps the servers that connect out to the board's agent door,
+# their keys and the questions the board asks their links; here are the routes
+# the Mac's own pages and command ask it through, and what its gate asks of the
+# board. _remote and _door are made by main and stay None in a copy of the
+# board that does not run, so nothing here opens the door by itself
 _remote = None
+_door = None
+DOOR_OPEN_WAIT = 6.0     # seconds a first pairing code waits for the door to open
 
 
 def _remote_projects(sid: str) -> list:
@@ -7846,15 +7891,35 @@ class _RemoteBoard:
 def _get_remote_servers(q: Query, _):
     if not q.local:
         return 404, {"error": "not found"}
-    return 200, {"servers": _remote.listing() if _remote is not None else []}
+    door = {"port": _door.port, "open": bool(_door.open)} if _door is not None else None
+    return 200, {"servers": _remote.listing() if _remote is not None else [], "door": door}
 
 
-def _post_remote_reload(q: Query, _text: str):
+def _post_remote_pair_new(q: Query, _text: str):
+    """A pairing code for `facilitator remote pair`, with where the door
+    listens, which the command prints for the owner to run on the server.
+    The door opens with the first code, as a board that keeps no servers
+    listens on no tailnet address, so this waits a moment for it. The answer
+    goes to this Mac alone; neither the code nor an address is written to
+    the log."""
+    if not q.local:
+        return 404, {"error": "not found"}
+    if _remote is None or _door is None:
+        return 400, {"error": "this board has no agent door"}
+    code = _remote.new_code(q.one("name") or None)
+    _door.poke()
+    return 200, {"code": code, "minutes": round(remote_link.CODE_LIFE / 60),
+                 "port": _door.port, "addresses": _door.wait_open(DOOR_OPEN_WAIT)}
+
+
+def _post_remote_forget(q: Query, _text: str):
     if not q.local:
         return 404, {"error": "not found"}
     if _remote is None:
-        return 400, {"error": "this board runs no links"}
-    return 200, {"ok": True, "servers": _remote.reload()}
+        return 400, {"error": "this board keeps no servers"}
+    if not _remote.forget_server(q.one("server")):
+        return 400, {"error": "no such server"}
+    return 200, {"ok": True}
 
 
 def _post_close(q: Query, text: str):
@@ -8979,7 +9044,7 @@ def _via_gate(scope: dict) -> bool:
     than the board's own, or marked by Tailscale Serve. The bridge gate has
     already signed it in and checked its origin, which is how a signed-in
     phone may use the few routes that are not only the Mac's. A request that
-    came through a server's link is neither, so it takes neither's routes."""
+    came through the agent door is neither, so it takes neither's routes."""
     server = scope.get("server") or (None, None)
     if remote_link is not None and tuple(server) == remote_link.SERVER_MARK:
         return False
@@ -9714,7 +9779,8 @@ ROUTES = [
     # been read: a folder on this Mac goes straight into the state request
     Route("/project", _endpoint(_post_project_route, "text"), methods=["POST"]),
     Route("/remote/servers", _endpoint(_get_remote_servers), methods=["GET"]),
-    Route("/remote/reload", _endpoint(_post_remote_reload, "text"), methods=["POST"]),
+    Route("/remote/pair/new", _endpoint(_post_remote_pair_new, "text"), methods=["POST"]),
+    Route("/remote/forget", _endpoint(_post_remote_forget, "text"), methods=["POST"]),
     Route("/close", _state_endpoint(_post_close, "text"), methods=["POST"]),
     Route("/delete", _state_endpoint(_post_delete, "text"), methods=["POST"]),
     Route("/bin", _state_endpoint(_get_bin), methods=["GET"]),
@@ -9904,6 +9970,87 @@ def _unframeable(send, scope=None):
 
 # -- the wire ---------------------------------------------------------------------------
 
+DOOR_KEEPALIVE = (10, 5, 3)   # seconds idle, seconds between probes, probes missed
+
+
+def _door_connection(transport) -> bool:
+    """Whether a connection came in on the agent door: TCP, and its own end
+    on the door's port."""
+    sock = transport.get_extra_info("socket")
+    if sock is None or sock.family not in (socket.AF_INET, socket.AF_INET6):
+        return False
+    local = transport.get_extra_info("sockname")
+    return bool(local) and local[1] == DOOR_PORT
+
+
+def _keep_alive(sock) -> None:
+    """TCP keepalive on a door connection, so a server that went silent (the
+    tailnet down, the machine asleep) is let go in about 25 seconds instead
+    of being held until something is written to it. Each option where the
+    system has it."""
+    if sock is None:
+        return
+    idle, every, misses = DOOR_KEEPALIVE
+    for level, name, value in ((socket.SOL_SOCKET, "SO_KEEPALIVE", 1),
+                               (socket.IPPROTO_TCP, "TCP_KEEPALIVE", idle),   # macOS
+                               (socket.IPPROTO_TCP, "TCP_KEEPIDLE", idle),    # Linux
+                               (socket.IPPROTO_TCP, "TCP_KEEPINTVL", every),
+                               (socket.IPPROTO_TCP, "TCP_KEEPCNT", misses)):
+        option = getattr(socket, name, None)
+        if option is not None:
+            with contextlib.suppress(OSError):
+                sock.setsockopt(level, option, value)
+
+
+async def _keep_door(server) -> None:
+    """The agent door's listening sockets, on the board's loop: every
+    remote_link.DOOR_LOOK seconds, or at once when poked, the addresses the
+    door should have are read off the loop (Tailscale's status, which can take
+    a moment), a new one is opened and one that went away is closed. A socket
+    that cannot be opened is written down without its address and tried again
+    next look."""
+    loop = asyncio.get_running_loop()
+    held: dict = {}
+    failed: set = set()
+    poked = asyncio.Event()
+    _door._wake = (loop, poked)
+    try:
+        while not server.should_exit:
+            wanted = await loop.run_in_executor(None, _door.wanted)
+            if wanted is not None:
+                before = len(held)
+                for address in sorted(set(held) - set(wanted)):
+                    held.pop(address).close()
+                for address in wanted:
+                    if address in held:
+                        continue
+                    try:
+                        sock = remote_link.listen_door(address, _door.port, loopback=_door.loopback)
+                        opened = await loop.create_server(server.create_protocol, sock=sock,
+                                                          backlog=LISTEN_BACKLOG)
+                    except (OSError, ValueError) as error:
+                        if address not in failed:
+                            failed.add(address)
+                            _error("remotedoor", port=_door.port, reason=type(error).__name__)
+                        continue
+                    failed.discard(address)
+                    held[address] = opened
+                    server.servers.append(opened)   # closed with the others at the stop
+                if sorted(held) != _door.open or len(held) != before:
+                    _info("remotedoor", port=_door.port, open=len(held))
+                _door.open = sorted(held)
+            ends = loop.time() + remote_link.DOOR_LOOK
+            while not server.should_exit and loop.time() < ends and not poked.is_set():
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(poked.wait(), timeout=0.5)
+            poked.clear()
+    finally:
+        _door._wake = None
+        for opened in held.values():
+            opened.close()
+        _door.open = []
+
+
 class BoardProtocol(H11Protocol):
     """uvicorn's HTTP/1.1 protocol with two clocks it does not keep itself.
     A connection that has opened and not yet sent a request is cut after
@@ -9928,13 +10075,18 @@ class BoardProtocol(H11Protocol):
 
     def connection_made(self, transport) -> None:
         super().connection_made(transport)
-        # the board's one Unix socket is the end of the servers' links: its
-        # requests carry remote_link's mark for an address, which no request
-        # over TCP can, and RemoteGate decides every one of them
-        sock = transport.get_extra_info("socket")
-        if remote_link is not None and sock is not None and sock.family == socket.AF_UNIX:
+        # a connection on the agent door, told by its port, which is never
+        # one of the board's own pair: its requests carry remote_link's mark
+        # for an address, which none on the board's own ports can, and
+        # RemoteGate decides every one of them. A peer that is not on the
+        # tailnet is not read at all
+        if DOOR_PORT is not None and _door_connection(transport):
+            peer = transport.get_extra_info("peername")
+            if not remote_link.door_peer_ok(peer[0] if peer else None, loopback=DOOR_LOOPBACK):
+                transport.abort()
+                return
             self.server = remote_link.SERVER_MARK
-            self.client = None
+            _keep_alive(transport.get_extra_info("socket"))
         self._first_timer = self.loop.call_later(FIRST_REQUEST_TIMEOUT, self._first_request_late)
 
     def on_response_complete(self) -> None:
@@ -10007,9 +10159,33 @@ class BoardServer(uvicorn.Server):
     SIGHUP, which uvicorn does not watch, ends the run as cleanly as the other
     two rather than killing the process mid-write."""
 
+    _door_task = None
+
     @contextlib.contextmanager
     def capture_signals(self):
         yield
+
+    async def startup(self, sockets=None) -> None:
+        """uvicorn's start, then the agent door's sockets, which come and go
+        with this Mac's tailnet addresses and so are opened here rather than
+        handed in: each one with the same protocol as the board's own."""
+        await super().startup(sockets=sockets)
+        config = self.config
+
+        def create_protocol(_loop=None):
+            return config.http_protocol_class(config=config, server_state=self.server_state,
+                                              app_state=self.lifespan.state, _loop=_loop)
+
+        self.create_protocol = create_protocol
+        if _door is not None:
+            self._door_task = asyncio.ensure_future(_keep_door(self))
+
+    async def shutdown(self, sockets=None) -> None:
+        if self._door_task is not None:
+            self._door_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._door_task
+        await super().shutdown(sockets=sockets)
 
 
 class TransportLogHandler(logging.Handler):
@@ -10142,12 +10318,13 @@ def _require_bridge_components():
 def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
-    inner = build_app()
+    routes = build_app()
+    app = SiteGuard(bridge_gate(routes, BRIDGE_PORT, _info))
     if remote_link is not None:
-        # inside the bridge gate, which lets a request on the Unix socket by as
-        # one of the Mac's own, and outside every route
-        inner = remote_link.RemoteGate(inner, _RemoteBoard())
-    app = SiteGuard(bridge_gate(inner, BRIDGE_PORT, _info))
+        # outermost: a request through the agent door is the gate's alone,
+        # answered there or handed straight to the routes, and never reaches
+        # the Mac's own guard or the phone's gate, which pass it nothing
+        app = remote_link.RemoteGate(app, _RemoteBoard(), routes=routes)
     config = uvicorn.Config(
         app, host="127.0.0.1", port=PORT,
         log_config=None, access_log=False, server_header=False,
@@ -10164,8 +10341,16 @@ def _make_server(bridge_gate=None) -> BoardServer:
 _stop_reason: str | None = None
 
 
+def _tailnet_status():
+    """Tailscale's status for the agent door: {} when Tailscale is not on
+    this Mac, so the door holds nothing, and None when it could not be read,
+    so the door keeps what it has."""
+    ts = _tailscale_command()
+    return _tailscale_json(ts, ["status", "--json"]) if ts else {}
+
+
 def main() -> None:
-    global _remote
+    global _remote, _door
     _quiet_uvicorn()
     _warn_legacy_config()
 
@@ -10204,17 +10389,14 @@ def main() -> None:
         raise SystemExit(1) from None
     server = _make_server(bridge_gate)
 
-    # the end of the servers' links on this Mac, for this account alone. A
-    # board that cannot make it runs without links rather than not at all
-    remote_sock = None
+    # the owner's servers, which connect out to the agent door. Its sockets
+    # are opened once the board runs (BoardServer.startup), on this Mac's
+    # tailnet addresses as Tailscale says them, and on nothing else
     if remote_link is not None:
-        try:
-            _remote = remote_link.Remote(DATA, note=lambda kind, **fields: _info(kind, **fields))
-            remote_sock = remote_link.listen_socket(_remote.board_socket)
-        except OSError:
-            _remote = None
-            _error("remotefail", reason="the socket for the servers' links could not be made; "
-                                        "the board runs without them")
+        _remote = remote_link.Remote(DATA, CLONE, note=lambda kind, **fields: _info(kind, **fields))
+        if DOOR_PORT is not None:
+            _door = remote_link.Door(DOOR_PORT, read_status=_tailnet_status, loopback=DOOR_LOOPBACK,
+                                     needed=_remote.needs_door)
 
     def stopping(signum, frame) -> None:
         """Ctrl-C, a kill, or the terminal closing: the reason is remembered and
@@ -10229,6 +10411,10 @@ def main() -> None:
         _STOPPING.set()
         server.should_exit = True
         _notify()
+        if _remote is not None:
+            # the servers' polls go home at once. On a thread of its own,
+            # since this handler may have stopped the loop inside the lock
+            threading.Thread(target=_remote.stop, name="remote-stop", daemon=True).start()
 
     for stopper in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(stopper, stopping)
@@ -10255,8 +10441,8 @@ def main() -> None:
         _start_card_search()
         threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
         if _remote is not None:
-            _remote.reload()   # each server's link starts on its own thread
-        server.run(sockets=[sock, bridge_sock, *([remote_sock] if remote_sock is not None else [])])
+            _remote.reload()   # the paired servers, each waiting for its link
+        server.run(sockets=[sock, bridge_sock])
     except Exception as error:
         # the last word about a start that died of something rather than being
         # asked to stop: the stop line below says only which type ended it, and
@@ -10271,11 +10457,7 @@ def main() -> None:
         sock.close()
         bridge_sock.close()
         if _remote is not None:
-            _remote.stop()   # every link's ssh ends with the board
-            if remote_sock is not None:
-                remote_sock.close()
-                with contextlib.suppress(OSError):
-                    os.unlink(_remote.board_socket)
+            _remote.stop()   # every question still waiting is answered
 
 
 if __name__ == "__main__":
