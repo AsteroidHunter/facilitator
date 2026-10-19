@@ -219,6 +219,7 @@
         picked.ranges.some(range => range.to >= from && range.from <= to);
       const quote = new Map();   // line number -> how deep the quote is
       const angles = new Map();  // line number -> the run its quote markers take
+      const apart = new Map();   // line number -> the runs standing after a list marker
       const hang = new Map();    // line number -> the column its text hangs on
       const pull = new Map();    // line number -> how far its first line is pulled back
       const marker = new Set();  // the lines a marker is actually written on
@@ -324,12 +325,20 @@
             // and not room another marker has already been given
             while (from > line.from && /[ \t]/.test(line.text[from - 1 - line.from])) from--;
             if (from > line.from) from = node.from;
+            // angles with only spaces between them are one run; a quote after
+            // a list marker is a run of its own, and the marker between the
+            // two stays on show
+            // (end is where the run's last angle stands, drawn or not)
             const held = angles.get(line.number);
-            angles.set(line.number, held
-              ? { from: Math.min(held.from, from),
-                  to: live || !held.live ? Math.max(held.to, to) : held.to,
-                  live: held.live || live }
-              : { from, to, live });
+            const runs = held ? [held, ...(apart.get(line.number) || [])] : [];
+            const last = runs[runs.length - 1];
+            if (!last) angles.set(line.number, { from, to, live, end: to });
+            else if (/^[ \t]*$/.test(line.text.slice(last.end - line.from, from - line.from))) {
+              last.from = Math.min(last.from, from);
+              last.to = live || !last.live ? Math.max(last.to, to) : last.to;
+              last.live = last.live || live;
+              last.end = Math.max(last.end, to);
+            } else apart.set(line.number, [...(apart.get(line.number) || []), { from, to, live, end: to }]);
             return;
           }
           if (node.name === "ListItem") {
@@ -448,9 +457,10 @@
           // somewhere else (">> deep" took an x at its start as ">> xdeep"),
           // or broke the quote it was in.
           const mark = angles.get(n);
-          if (mark) {
-            out.push(hide.range(mark.from, mark.to));
-            atoms.push(hide.range(mark.from, mark.to));
+          for (const run of [mark, ...(apart.get(n) || []).filter(other => other.live)]) {
+            if (!run) continue;
+            out.push(hide.range(run.from, run.to));
+            atoms.push(hide.range(run.from, run.to));
           }
         }
         // a quoted line that is not drawn as one is an ordinary line, and is
