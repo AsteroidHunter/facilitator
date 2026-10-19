@@ -144,6 +144,14 @@ function cardAt({ S = 1, top = 52, height = 760, head = 110, answ = 80, count = 
     });
   }, getBoundingClientRect: () => ({ top: scr(viewTop + answ - m.scroll) }), textContent: count ? "words" : "" };
   row.getBoundingClientRect = () => ({ height: scr(rendered()), bottom: scr(foot - 1) });
+  // its scroll as a browser keeps it: the words' height inside the row's own,
+  // and the scroll held between the two, kept where it was as the row changes height
+  let scrolled = 0;
+  Object.defineProperties(row, {
+    scrollHeight: { get: () => parseFloat(row.style.height) || 44 },
+    clientHeight: { get: () => rendered() },
+    scrollTop: { get: () => (scrolled = Math.max(0, Math.min(scrolled, row.scrollHeight - row.clientHeight))), set: v => { scrolled = v; } },
+  });
   const view = { get scrollTop() { return m.scroll; }, set scrollTop(v) { m.scroll = v; } };
   const el = {
     box: { classList: { contains: c => classes.has(c), add: c => classes.add(c), remove: c => classes.delete(c),
@@ -304,6 +312,27 @@ test("the decision moves nothing it measures: the words keep their height and th
   assert.ok(reaches.every(v => close(v, card.reach)), "and the line under the top bar the same");
   assert.equal(el.rowTall, tall);
   assert.ok(card.classes.has("piped"));
+});
+
+test("the box opens over the words: with the caret up in them, what is out of sight under the row stays under it as the box rises", () => {
+  for (const hidden of [2 * ROWLINE, 0]) {
+    const card = cardAt();
+    const { type, frame, settle, el } = stepper(card);
+    type(300);
+    const words = Math.round(card.reach + 40);
+    type(words);
+    assert.ok(card.classes.has("piped"));
+    // the caret a few lines up in the words, as the keys leave it, with two lines under the row's view
+    // (or at the end, with none)
+    const row = card.row, under = () => row.scrollHeight - row.scrollTop - row.clientHeight;
+    row.scrollTop = row.scrollHeight - row.clientHeight - hidden;
+    assert.ok(Math.abs(under() - hidden) < 1e-6);
+    const seen = [];
+    for (let i = 0; i < 70; i++) { frame(); seen.push(under()); }
+    settle();
+    assert.ok(card.seat() === el.rowTall && card.rendered() === el.rowTall, "risen, the row filling the box");
+    assert.ok(seen.every(v => Math.abs(v - hidden) < 0.51), `the words' foot held where it stood: ${Math.min(...seen)} to ${Math.max(...seen)} under, against ${hidden}`);
+  }
 });
 
 test("deleted back clearly under the first step the box sinks to the words on the same curve; sent it is down at once", () => {

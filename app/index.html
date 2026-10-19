@@ -8716,15 +8716,31 @@ function rowFlat(el){
   rowBox(el);
 }
 // its height where the rise has got to: from the row's own height under the
-// first step (its words', or the first step's) up to the second
+// first step (its words', or the first step's) up to the second. the row's
+// words keep their foot where it stands as the box changes height: what is
+// out of sight under the row stays under it, so the box opens and closes over
+// the words and never under them. a scrolled row left to itself keeps its
+// top, and with the caret up in the words that took the caret up with the box
+// and brought the lines under it into sight. what is under it is read once
+// for a move (rowKept), and again only once the words or the scroll have
+// changed by other hands, so a scroll rounded to the screen's pixels does not
+// creep over the frames
 function rowBox(el){
   const r = el.rowRise, up = !!r && r.t > 0;
+  const row = el.field.view ? el.field.view.scrollDOM : el.ta, kept = el.rowKept;
+  const under = kept && kept.height === row.scrollHeight && Math.abs(kept.top - row.scrollTop) < 1 ? kept.under
+    : row.scrollHeight - row.scrollTop - row.clientHeight;
+  let moved = false;
   if (up){
     const low = Math.min(el.rowFirst, el.rowWords), high = Math.max(low, el.rowTall || 0);
     const px = (low + (high - low) * riseEase(r.t)).toFixed(2) + "px";
-    if (el.rowBoxAt !== px){ el.rowBoxAt = px; el.box.style.setProperty("--row-box", px); }
+    if (el.rowBoxAt !== px){ el.rowBoxAt = px; el.box.style.setProperty("--row-box", px); moved = true; }
   }
-  if (el.box.classList.contains("tallrow") !== up) el.box.classList.toggle("tallrow", up);
+  if (el.box.classList.contains("tallrow") !== up){ el.box.classList.toggle("tallrow", up); moved = true; }
+  if (!moved) return;
+  const at = row.scrollHeight - row.clientHeight - under;
+  if (Math.abs(row.scrollTop - at) > 0.5) row.scrollTop = at;
+  el.rowKept = { under, top: row.scrollTop, height: row.scrollHeight };
 }
 
 // the second step: the row as tall as it can stand with the response's first
