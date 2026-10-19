@@ -1679,9 +1679,9 @@
   #pipebox .mbtext{padding:var(--mb-inset); font-size:18px; line-height:1.55}
   #pipebox .mbtext[contenteditable]{outline:none}   /* with the response's caret in it (pipeEnter) */
   /* the brace from the card to it (pipeLine): a { to it on the card's right
-     and a } to it on its left, two sets of three straight lines meeting square,
-     dashed as the box's lines are and in the card's edge colour, beneath the
-     card and the response, with the same shadow on its group */
+     and a } to it on its left, two sets of three straight lines meeting square
+     and touching neither, dashed as the box's lines are and in the card's edge
+     colour, beneath the card and the response, with the same shadow on its group */
   #pipeline{display:none}
   body.focus #pipeline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none; z-index:0}
@@ -8600,8 +8600,9 @@ addEventListener("keydown", e => {
 // it holds them. the reply sent, or cut back clearly under the first step, it
 // goes back into the card. the phone, and the Mac's own phone view, keep one
 // step. it rises and sinks quicker than the box, over PIPE_MS on the box's
-// curve, and dims what it stands for and over to PIPE_DIM (pipeDim)
-const PIPE_MS = 600, PIPE_DIM = .1;
+// curve, and dims what it stands for and over to PIPE_DIM (pipeDim). its brace
+// stops PIPE_CLEAR short of the card and of it (pipeBrace)
+const PIPE_MS = 600, PIPE_DIM = .1, PIPE_CLEAR = 8;
 const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"),
   ground: document.getElementById("pipeground"), id: null, raw: null, ms: PIPE_MS,
   aside: ["tickets", "clockbox"].map(id => document.getElementById(id)).filter(Boolean), dim: pipeDim,
@@ -8753,8 +8754,8 @@ function pipeTall(el){
 // the foot of a response's first n lines on screen, read off its words as
 // they are laid out, a heading, a list or a code block alike, or of as many as
 // it has; null for one with no words. a button's words (a code block's copy)
-// are not the response's
-function pipeLines(reply, n){
+// are not the response's. whole: the last of those lines, its top and foot
+function pipeLines(reply, n, whole = false){
   const walk = document.createTreeWalker(reply, NodeFilter.SHOW_TEXT), range = document.createRange();
   const lines = [];
   for (let t = walk.nextNode(); t; t = walk.nextNode()){
@@ -8765,10 +8766,11 @@ function pipeLines(reply, n){
       const line = lines.find(l => r.top < l.bottom - 1 && r.bottom > l.top + 1);
       if (line){ line.top = Math.min(line.top, r.top); line.bottom = Math.max(line.bottom, r.bottom); }
       else if (lines.length < n) lines.push({ top: r.top, bottom: r.bottom });
-      else if (r.top >= lines[n - 1].bottom - 1) return lines[n - 1].bottom;
+      else if (r.top >= lines[n - 1].bottom - 1) return whole ? lines[n - 1] : lines[n - 1].bottom;
     }
   }
-  return lines.length ? lines[lines.length - 1].bottom : null;
+  const last = lines[lines.length - 1];
+  return !last ? null : whole ? last : last.bottom;
 }
 
 // the card whose response is piped out, or null: the card on screen, on the
@@ -8892,35 +8894,46 @@ function pipePlace(){
 }
 
 // the brace from the card to it, in the stage's pixels: a { when it stands on
-// the card's right and a } on its left, its arms reaching it and its point the
-// card. two sets of three straight lines meeting square, one over the other:
-// the upper runs from its top arm along the spine and out to the card, and the
-// lower from the card back to the spine, down it and out along its foot arm.
-// the spine stands in the middle of the gap between the card's edge and the
-// response's; the arms reach the response level with its top and foot, in by
-// its corner (round); the two sets' lines to the card stand a dash's gap apart
-// either side of the point, a set way under the top arm: where the magic box's
-// first line stands on the largest box beside this card (TWO), or half way
-// down a response too short for that. so the upper set keeps its height and
-// the lower stretches with the response. each line is dashed from the corner
-// it leaves, and the spines from the point, each starting half the line's
-// width back so the corners close. a gap narrower than the box's lines take
-// (TWO.gap) gives null
-function pipeBrace(card, box, side, most, round = 0){
+// the card's right and a } on its left, its arms reaching toward it and its
+// point toward the card. two sets of three straight lines meeting square, one
+// over the other: the upper runs from its top arm along the spine and out
+// toward the card, and the lower from the card back along the spine, down it
+// and out along its foot arm. the spine stands in the middle of the gap
+// between the card's edge and the response's, and no line touches either: each
+// stops clear short of the edge it points to. the top arm is level with the
+// middle of the response's first line (lead, down from its top), and the foot
+// arm with its foot, in by its corner (round). the two lines toward the card
+// stand a line of the response's words (apart) apart, either side of the
+// point, a set way under the top arm: where the magic box's first line stands
+// on the largest box beside this card (TWO), or half way down a response too
+// short for that, and no further apart than half of what is left of the brace.
+// so the upper set keeps its height and the lower stretches with the response.
+// each line is dashed from the corner it leaves, and the spines from the
+// point, each starting half the line's width back so the corners close. a gap
+// with no room on either side of the spine for a clear end and a dash gives null
+function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = TWO.space + TWO.width, clear = 0 } = {}){
   const s = side === "left" ? -1 : 1;
   const from = s > 0 ? card.left + card.width : card.left;
   const to = s > 0 ? box.left : box.left + box.width;
-  if (s * (to - from) < TWO.gap) return null;
-  const spine = (from + to) / 2, w = TWO.width / 2, nub = (TWO.space + TWO.width) / 2;
-  const top = box.top + round, foot = box.top + box.height - round;
+  const spine = (from + to) / 2, w = TWO.width / 2;
+  if (s * (to - from) / 2 < clear + w + TWO.dash) return null;
+  const top = box.top + lead, foot = box.top + box.height - round;
   const point = top + Math.min(most.height * TWO.share, (foot - top) / 2);
-  const up = point - nub, down = point + nub;
-  const upper = [[spine - s * w, top, to, top], [spine, up + w, spine, top], [spine + s * w, up, from, up]];
-  const lower = [[spine + s * w, down, from, down], [spine, down - w, spine, foot], [spine - s * w, foot, to, foot]];
+  const nub = Math.min(apart / 2, (foot - top) / 4);
+  const up = point - nub, down = point + nub, near = to - s * clear, far = from + s * clear;
+  const upper = [[spine - s * w, top, near, top], [spine, up + w, spine, top], [spine + s * w, up, far, up]];
+  const lower = [[spine + s * w, down, far, down], [spine, down - w, spine, foot], [spine - s * w, foot, near, foot]];
   return { spine, top, point, foot, upper, lower, segments: [...upper, ...lower] };
 }
 function pipeLine(card, box, side, most){
-  const brace = pipeBrace(card, box, side, most, parseFloat(getComputedStyle(PIPE.el).borderTopLeftRadius) || 0);
+  // the response's first line, from its top as it stands with its words at
+  // their head, in the stage's pixels as the box is, and one line of its words
+  const words = PIPE.part.reply, S = stageScale || 1;
+  const round = parseFloat(getComputedStyle(PIPE.el).borderTopLeftRadius) || 0;
+  const first = words && pipeLines(words, 1, true);
+  const lead = first ? ((first.top + first.bottom) / 2 - PIPE.el.getBoundingClientRect().top) / S + PIPE.body.scrollTop : round;
+  const apart = words ? parseFloat(getComputedStyle(words).lineHeight) || 0 : 0;
+  const brace = pipeBrace(card, box, side, most, { round, lead, apart, clear: PIPE_CLEAR });
   if (!brace) return;
   // the card's own edge colour, read off the card, as the box's lines are. it is
   // drawn again only when it has moved: each key typed at the second step places it

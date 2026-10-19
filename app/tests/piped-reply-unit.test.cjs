@@ -97,6 +97,10 @@ vm.runInContext(fn("pipeLines"), lines);
 test("the foot of the response's first two lines is read off its words as laid out", () => {
   const two = laidOut([[[100, 123]], [[128, 151]], [[156, 179]]]);
   assert.equal(lines.pipeLines(two, 2), 151);
+  // or the whole of the last of them, its top and its foot
+  assert.deepEqual({ ...lines.pipeLines(two, 1, true) }, { top: 100, bottom: 123 });
+  assert.deepEqual({ ...lines.pipeLines(laidOut([[[100, 123]]]), 2, true) }, { top: 100, bottom: 123 });
+  assert.equal(lines.pipeLines(laidOut([]), 1, true), null);
   // words split over several runs of one line (a link, bold) are one line, the tallest run's foot
   const runs = laidOut([[[100, 123], [99, 124]], [[128, 151], [127.5, 153]], [[156, 179]]]);
   assert.equal(lines.pipeLines(runs, 2), 153);
@@ -443,16 +447,18 @@ const brace = vm.createContext({});
 vm.runInContext(cut("const TWO = {", "\n") + "\n" + fn("pipeBrace"), brace);
 const TWO = vm.runInContext("TWO", brace);
 
-test("the brace is a { to a response on the card's right and a } to one on its left: six square lines in two sets", () => {
+test("the brace is a { to a response on the card's right and a } to one on its left: six square lines in two sets, touching neither", () => {
   const card = { left: 466, top: 52, width: 507, height: 760 };
   const most = { height: 684 };
+  // the response's first line 34 down from its top, a line of its words 27.9 high, ends 8 short
+  const LEAD = 34, APART = 27.9, CLEAR = 8, opts = { round: 14, lead: LEAD, apart: APART, clear: CLEAR };
   const segs = b => b.segments.map(s => s.map(v => Math.round(v * 100) / 100));
   const level = g => g[1] === g[3], upright = g => g[0] === g[2];
   for (const side of ["right", "left"]) {
     const s = side === "left" ? -1 : 1;
     const x = s > 0 ? 973 + 48 : 466 - 48 - 400;
-    const tall = brace.pipeBrace(card, { left: x, top: 90, width: 400, height: 684 }, side, most, 14);
-    const short = brace.pipeBrace(card, { left: x, top: 90, width: 400, height: 300 }, side, most, 14);
+    const tall = brace.pipeBrace(card, { left: x, top: 90, width: 400, height: 684 }, side, most, opts);
+    const short = brace.pipeBrace(card, { left: x, top: 90, width: 400, height: 300 }, side, most, opts);
     const edge = s > 0 ? 973 : 466, near = s > 0 ? x : x + 400;
     for (const b of [tall, short]) {
       assert.ok(close(b.spine, (edge + near) / 2), side + ": its spine in the middle of the gap");
@@ -465,35 +471,52 @@ test("the brace is a { to a response on the card's right and a } to one on its l
         assert.equal(set.map(level).join(), "true,false,true");
         assert.ok(set.every(g => Math.abs(g[0] - b.spine) <= TWO.width / 2 + 1e-9));
       }
-      // the arms reach the response's edge and the two lines of the point the card's:
-      // { on the right, its arms out to the right; } on the left, out to the left
+      // the arms point to the response's edge and the two lines of the point to the card's,
+      // each stopping CLEAR short of it: { on the right, its arms out to the right; } on the left, out to the left
       const [topArm, , upPoint] = b.upper, [downPoint, , footArm] = b.lower;
-      for (const arm of [topArm, footArm]) assert.ok(arm[2] === near && Math.sign(arm[2] - b.spine) === s, side + ": an arm to the response");
-      for (const nub of [upPoint, downPoint]) assert.ok(nub[2] === edge && Math.sign(nub[2] - b.spine) === -s, side + ": the point to the card");
-      // the two lines of the point a dash's gap apart, either side of it, so the sets stand apart
-      assert.ok(close(downPoint[1] - upPoint[1], TWO.space + TWO.width));
+      for (const arm of [topArm, footArm]) assert.ok(close(arm[2], near - s * CLEAR) && Math.sign(arm[2] - b.spine) === s, side + ": an arm toward the response");
+      for (const nub of [upPoint, downPoint]) assert.ok(close(nub[2], edge + s * CLEAR) && Math.sign(nub[2] - b.spine) === -s, side + ": the point toward the card");
+      // no end of any line within CLEAR of either box
+      const xs = b.segments.flatMap(g => [g[0], g[2]]), lo = Math.min(edge, near), hi = Math.max(edge, near);
+      assert.ok(xs.every(v => v >= lo + CLEAR - 1e-9 && v <= hi - CLEAR + 1e-9), side + ": touching neither box");
+      // the two lines of the point a line of the response's words apart, either side of it
+      assert.ok(close(downPoint[1] - upPoint[1], APART));
       assert.ok(close((downPoint[1] + upPoint[1]) / 2, b.point));
       // each spine is dashed from the point, so the corners there close
       assert.ok(close(b.upper[1][1], upPoint[1] + TWO.width / 2) && close(b.lower[1][1], downPoint[1] - TWO.width / 2));
     }
-    assert.ok(close(tall.top, 104) && close(tall.foot, 90 + 684 - 14), "in by the corner at its top and foot");
+    assert.ok(close(tall.top, 90 + LEAD), "its top arm level with the middle of the response's first line");
+    assert.ok(close(tall.foot, 90 + 684 - 14), "its foot arm in by the corner at the foot");
     assert.ok(close(tall.point - tall.top, short.point - short.top), "the upper set keeps its height");
     assert.ok(close(tall.point - tall.top, most.height * TWO.share), "where the box's first line stands");
     assert.ok((tall.foot - tall.point) - (short.foot - short.point) > 300, "the lower set stretches with the response");
     assert.deepEqual(segs(tall).slice(0, 3), segs(short).slice(0, 3), "and only the lower set");
     assert.notDeepEqual(segs(tall).slice(3), segs(short).slice(3));
   }
-  // a response so short the point would pass the middle has it at the middle
-  const tiny = brace.pipeBrace(card, { left: 1021, top: 300, width: 400, height: 100 }, "right", most, 14);
+  // a response so short the point would pass the middle has it at the middle, the
+  // two lines there no further apart than half of what is left of the brace
+  const tiny = brace.pipeBrace(card, { left: 1021, top: 300, width: 400, height: 100 }, "right", most, opts);
   assert.ok(close(tiny.point, (tiny.top + tiny.foot) / 2));
-  // no room for a line between them, no brace
-  assert.equal(brace.pipeBrace(card, { left: 976, top: 90, width: 400, height: 300 }, "right", most, 14), null);
-  // it is drawn as the box's lines are: the card's edge colour, the box's dashes and width
+  assert.ok(tiny.lower[0][1] - tiny.upper[2][1] <= (tiny.foot - tiny.top) / 2 + 1e-9);
+  // with no word lines given it starts in by the corner, as the box does
+  assert.ok(close(brace.pipeBrace(card, { left: 1021, top: 90, width: 400, height: 684 }, "right", most, { round: 14 }).top, 104));
+  // no room either side of the spine for a clear end and a dash, no brace
+  assert.equal(brace.pipeBrace(card, { left: 976, top: 90, width: 400, height: 300 }, "right", most, opts), null);
+  const least = 2 * (CLEAR + TWO.width / 2 + TWO.dash);
+  assert.equal(brace.pipeBrace(card, { left: 973 + least - 1, top: 90, width: 400, height: 300 }, "right", most, opts), null);
+  assert.ok(brace.pipeBrace(card, { left: 973 + least + 1, top: 90, width: 400, height: 300 }, "right", most, opts));
+  // it is drawn as the box's lines are: the card's edge colour, the box's dashes and width,
+  // from the response's own first line and line of words, clear of both boxes
   const draw = fn("pipeLine");
   assert.match(draw, /borderTopColor/);
   assert.match(draw, /stroke-dasharray="' \+ TWO\.dash \+ ' ' \+ TWO\.space/);
   assert.match(draw, /stroke-width="' \+\s*TWO\.width/);
   assert.ok(!/accent|purple|#[0-9a-f]{3,6}/i.test(draw), "no colour of its own");
+  assert.match(draw, /const first = words && pipeLines\(words, 1, true\);/);
+  assert.match(draw, /\(\(first\.top \+ first\.bottom\) \/ 2 - PIPE\.el\.getBoundingClientRect\(\)\.top\) \/ S \+ PIPE\.body\.scrollTop/);
+  assert.match(draw, /parseFloat\(getComputedStyle\(words\)\.lineHeight\)/);
+  assert.match(draw, /pipeBrace\(card, box, side, most, \{ round, lead, apart, clear: PIPE_CLEAR \}\)/);
+  assert.match(HTML, /const PIPE_MS = \d+, PIPE_DIM = \.1, PIPE_CLEAR = 8;/);
 });
 
 // ---- which side --------------------------------------------------------------------
