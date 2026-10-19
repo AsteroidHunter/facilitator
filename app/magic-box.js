@@ -184,6 +184,12 @@
   // has nothing to scroll and looks as it always did. It stands ahead of the
   // agent's own styles, which may still say otherwise
   const CALM = "<style>*{scrollbar-width:none}*::-webkit-scrollbar{display:none}html{overflow-x:auto}</style>";
+  // the phone's page takes a finger itself, and a quick second tap on one of
+  // its buttons would zoom the whole phone page: the phone's rule for every
+  // element (m.html), which its sheet does not reach in the frame, restated
+  // there. It stands ahead of the agent's own styles, which may still say
+  // otherwise
+  const TAPS = "<style>*{touch-action:manipulation}</style>";
   // word: when given, the page tells the board it is still itself each time it
   // finishes loading, by posting the word to it. A page that has sent its frame
   // elsewhere loads without saying it, and the board puts the page back.
@@ -191,14 +197,15 @@
   // board's keys a sealed frame keeps (PAGE_BACK, PAGE_CREATE) and scrolls and
   // says its keys for control+S (PAGE_SCROLL); the Mac's box asks for it.
   // tall: the page says its height and nothing more, for the phone's drawer,
-  // which lays the page out that tall and scrolls the box
+  // which lays the page out that tall and scrolls the box, and keeps a second
+  // tap from zooming (TAPS)
   function pageDoc(html, word, sized, tall) {
     const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
     const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT : "";
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
       (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
-      '<meta name="referrer" content="no-referrer">' + (sized ? CALM : "") + '<script>' + KEYS_GUARD + '</script>' + hello +
+      '<meta name="referrer" content="no-referrer">' + (sized ? CALM : tall ? TAPS : "") + '<script>' + KEYS_GUARD + '</script>' + hello +
       String(html == null ? "" : html);
   }
   // a website runs as itself, on its own origin, which is never the board's;

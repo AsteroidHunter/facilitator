@@ -1853,16 +1853,24 @@ test("the Mac's box hides every scrollbar and a page wider than it scrolls sidew
   assert.match(read("RUNBOOK.md"), /The box is narrow: on the Mac board a page is laid out between about 220 and 400 pixels wide/);
 });
 
-test("on the phone a page taller than the box is laid out at its own height under a cover as tall, so the box scrolls it", () => {
+test("on the phone a page taller than the box is laid out at its own height, takes a finger itself and the box scrolls it", () => {
   const MB = api();
   // the phone's page says its height and nothing more: no keys relayed, no calm
   const tall = MB.pageDoc("<p>x</p>", "w", false, true);
   assert.match(tall, /parent\.postMessage\(W \+ ' ' \+ h, '\*'\)/);
   assert.ok(!/ArrowLeft|' create'|scrollbar/.test(tall));
   assert.match(read("m.html"), /PB\.view = magicView\(PB\.el, \{ placed: \(\) => phoneMagicFit\(\), tall: true,/);
-  // the sheet: frame and cover as tall as the page, never shorter than the box
+  // a second tap on the page never zooms the phone page, ahead of the agent's
+  // own styles; the Mac's page and a page with neither are left as they were
+  const taps = "<style>*{touch-action:manipulation}</style>";
+  assert.ok(tall.includes(taps) && tall.indexOf(taps) < tall.indexOf("<p>x</p>"));
+  assert.ok(!MB.pageDoc("<p>x</p>", "w", true).includes("touch-action") && !MB.pageDoc("<p>x</p>", "w").includes("touch-action"));
+  // the sheet: frame and a site's cover as tall as the page, never shorter
+  // than the box. an agent's page wears no cover, which no finger takes off
   const m = read("m.html");
   assert.match(m, /#mbface \.mbframe, #mbface \.mbcover\{height:max\(100%, var\(--mb-page, 0px\)\)\}\s*#mbface \.mbcover\{bottom:auto\}/);
+  assert.match(m, /#mbface \.mbbody\[data-kind="html"\] > \.mbcover\{display:none\}/);
+  assert.ok(!/#mbface[^{}]*\[data-kind="url"\][^{}]*\.mbcover\{display:none\}/.test(m), "a site keeps its cover");
   // and the view: the height the page says goes on the body, a new page starts
   // from none, and a page that keeps growing past its frame by the same amount is stopped
   const body = { style: { props: {}, setProperty(k, v) { this.props[k] = v; }, removeProperty(k) { delete this.props[k]; } },
