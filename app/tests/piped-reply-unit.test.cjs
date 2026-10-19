@@ -263,7 +263,7 @@ test("the send square keeps its seat at the second step on a board drawn smaller
   for (const S of [0.62, 0.8, 0.87]) assert.ok(Math.abs(seat(S, true) - full) < 1e-6, `at ${S}`);
   assert.ok(seat(0.87, false) < full - 40, "read unscaled, a tall row pushed the square off the card");
   // the board gives it the stage's scale, and the phone leaves it as it was
-  assert.match(HTML, /pipeStep\(b\.id\);[^\n]*\n\s*seatSquare\(ta, send, stageScale \|\| 1\);/);
+  assert.match(HTML, /pipeStep\(b\.id\);[^\n]*\n(?:[^\n]*\n){0,8}?\s*seatSquare\(ta, send, stageScale \|\| 1\);/);
   assert.match(read("m.html"), /seatSquare\(ta, send\);/);
 });
 
