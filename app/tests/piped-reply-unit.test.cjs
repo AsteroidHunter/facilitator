@@ -9,7 +9,7 @@
 // piped out beside the card as a second magic box (MagicBox.place, either side
 // of the card, on the box's own rules and steps), on the right unless the card's
 // box stands there or the right has no room, and tied to the card by a square
-// dashed brace whose lower part stretches with it.
+// dashed brace of two sets of three lines whose lower set stretches with it.
 // Control + Option toward it puts the keys in it and away brings them back, and
 // up and down treat it as the card's response. The phone page keeps one step
 // and pipes nothing. Run from the pages' own source, no browser: the functions
@@ -428,10 +428,11 @@ const brace = vm.createContext({});
 vm.runInContext(cut("const TWO = {", "\n") + "\n" + fn("pipeBrace"), brace);
 const TWO = vm.runInContext("TWO", brace);
 
-test("the brace is a } on the card's right and a { on its left, square and dashed, its lower part stretching", () => {
+test("the brace is a { to a response on the card's right and a } to one on its left: six square lines in two sets", () => {
   const card = { left: 466, top: 52, width: 507, height: 760 };
   const most = { height: 684 };
   const segs = b => b.segments.map(s => s.map(v => Math.round(v * 100) / 100));
+  const level = g => g[1] === g[3], upright = g => g[0] === g[2];
   for (const side of ["right", "left"]) {
     const s = side === "left" ? -1 : 1;
     const x = s > 0 ? 973 + 48 : 466 - 48 - 400;
@@ -440,20 +441,32 @@ test("the brace is a } on the card's right and a { on its left, square and dashe
     const edge = s > 0 ? 973 : 466, near = s > 0 ? x : x + 400;
     for (const b of [tall, short]) {
       assert.ok(close(b.spine, (edge + near) / 2), side + ": its spine in the middle of the gap");
-      // every segment straight, so every corner square
-      for (const [x1, y1, x2, y2] of b.segments) assert.ok(x1 === x2 || y1 === y2, "no slant and no curve");
-      // the arms reach the card's edge, the point the response's
-      const ends = b.segments.map(g => g[2]);
-      assert.equal(ends.filter(v => v === edge).length, 2, side + ": two arms to the card");
-      assert.equal(ends.filter(v => v === near).length, 1, side + ": one point to the response");
-      // the arms reach out toward the card from the spine, the point toward the response
-      for (const g of b.segments) if (g[1] === g[3]) assert.ok(Math.sign(g[2] - b.spine) === (g[2] === edge ? -s : s));
+      // six lines, an upper set of three and a lower set of three, every one straight, so every corner square
+      assert.equal(b.segments.length, 6);
+      assert.deepEqual([b.upper.length, b.lower.length], [3, 3]);
+      for (const g of b.segments) assert.ok(level(g) !== upright(g), "no slant and no curve");
+      // each set: a level line, an upright one, a level one, turning square at the spine
+      for (const set of [b.upper, b.lower]) {
+        assert.equal(set.map(level).join(), "true,false,true");
+        assert.ok(set.every(g => Math.abs(g[0] - b.spine) <= TWO.width / 2 + 1e-9));
+      }
+      // the arms reach the response's edge and the two lines of the point the card's:
+      // { on the right, its arms out to the right; } on the left, out to the left
+      const [topArm, , upPoint] = b.upper, [downPoint, , footArm] = b.lower;
+      for (const arm of [topArm, footArm]) assert.ok(arm[2] === near && Math.sign(arm[2] - b.spine) === s, side + ": an arm to the response");
+      for (const nub of [upPoint, downPoint]) assert.ok(nub[2] === edge && Math.sign(nub[2] - b.spine) === -s, side + ": the point to the card");
+      // the two lines of the point a dash's gap apart, either side of it, so the sets stand apart
+      assert.ok(close(downPoint[1] - upPoint[1], TWO.space + TWO.width));
+      assert.ok(close((downPoint[1] + upPoint[1]) / 2, b.point));
+      // each spine is dashed from the point, so the corners there close
+      assert.ok(close(b.upper[1][1], upPoint[1] + TWO.width / 2) && close(b.lower[1][1], downPoint[1] - TWO.width / 2));
     }
     assert.ok(close(tall.top, 104) && close(tall.foot, 90 + 684 - 14), "in by the corner at its top and foot");
-    assert.ok(close(tall.point - tall.top, short.point - short.top), "the upper part keeps its height");
+    assert.ok(close(tall.point - tall.top, short.point - short.top), "the upper set keeps its height");
     assert.ok(close(tall.point - tall.top, most.height * TWO.share), "where the box's first line stands");
-    assert.ok((tall.foot - tall.point) - (short.foot - short.point) > 300, "the lower part stretches with the response");
-    assert.notDeepEqual(segs(tall), segs(short));
+    assert.ok((tall.foot - tall.point) - (short.foot - short.point) > 300, "the lower set stretches with the response");
+    assert.deepEqual(segs(tall).slice(0, 3), segs(short).slice(0, 3), "and only the lower set");
+    assert.notDeepEqual(segs(tall).slice(3), segs(short).slice(3));
   }
   // a response so short the point would pass the middle has it at the middle
   const tiny = brace.pipeBrace(card, { left: 1021, top: 300, width: 400, height: 100 }, "right", most, 14);
