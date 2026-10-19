@@ -5601,21 +5601,36 @@ function sentGooPath(U, L, r, k, bow, ext){
   // the two faces, and gone a corner and three quarters away, so a narrower
   // bubble's far corners keep their own round while it flows out to the
   // wider's width
+  // neither the reach nor the bulge comes into the rows of the outline's head
+  // and foot corners, and both come in over a corner's length past them: on a
+  // short bubble the joint's reach ran down to its foot, swelled the corner
+  // there out past the foot row and the column's side, and the trace cut it
+  // square there, and in a column two bubbles at the joined head bulged at it
   const faceTop = Math.min(U.bottom, L.top), faceFoot = Math.max(U.bottom, L.top);
-  const reachAt = fy => k * (1 - sentSmooth((Math.max(0, faceTop - fy, fy - faceFoot) - .75 * r) / r));
+  const top = Math.min(U.top, L.top), bottom = Math.max(U.bottom, L.bottom);
+  const clear = fy => sentSmooth((Math.min(fy - top, bottom - fy) - r) / r);
+  const reachAt = fy => k * (1 - sentSmooth((Math.max(0, faceTop - fy, fy - faceFoot) - .75 * r) / r)) * clear(fy);
+  // nor does the reach come into the columns of the corners a bubble stands
+  // out past the other's side with, which the side would cut square too: they
+  // are kept whole as far as it stands out by a corner, and blend again as the
+  // narrower one flows out
+  const keep = [];
+  const standsOut = (by, x) => { if (by > 0) keep.push([x, sentSmooth(by / r)]); };
+  standsOut(Math.abs(L.left - U.left), left);
+  standsOut(Math.abs(U.right - L.right), right - r);
+  const kept = fx => keep.reduce((f, [x, s]) => f * (1 - s * (1 - sentSmooth(Math.max(x - fx, 0, fx - x - r) / r))), 1);
   const field = (fx, fy) => {
-    const u = (fx - middle) / span, swell = u * u < 1 ? bow * (1 - u * u) * (1 - u * u) : 0;
+    const u = (fx - middle) / span, swell = u * u < 1 ? bow * (1 - u * u) * (1 - u * u) * clear(fy) : 0;
     const du = sentBoxDistance(fx, fy, U, r) - (swell ? swell * Math.max(0, Math.min(1, (fy - uMid) / uHalf)) : 0);
     const dl = sentBoxDistance(fx, fy, L, r) - (swell ? swell * Math.max(0, Math.min(1, (lMid - fy) / lHalf)) : 0);
     let d = Math.min(du, dl);
-    const kk = reachAt(fy);
+    const kk = reachAt(fy) * kept(fx);
     if (kk > 0){
       const h = Math.max(kk - Math.abs(du - dl), 0) / kk;
       d -= h * h * kk / 4;
     }
     return Math.max(d, fx - right, left - fx);
   };
-  const top = Math.min(U.top, L.top), bottom = Math.max(U.bottom, L.bottom);
   const near = r + k / 2 + bow + 2;
   const from = Math.min(U.bottom, L.top) - near, to = Math.max(U.bottom, L.top) + near;
   const loops = [];

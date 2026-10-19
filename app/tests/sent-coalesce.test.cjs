@@ -339,6 +339,63 @@ test("the outline never swells past the column's sides or above the earlier bubb
   }
 });
 
+// the outline inside the squares of a joint's outer corners: the upper box's
+// head, the lower box's foot, and a corner one stands out past the other's side
+// with by a corner or more. how far it stands off the bubbles' own boxes at most
+function cornerOff(context, U, L, r, d, ext, boxes) {
+  const squares = [[U.left, U.top], [U.right - r, U.top], [L.left, L.bottom - r], [L.right - r, L.bottom - r]];
+  if (L.left - U.left >= r) squares.push([U.left, U.bottom - r]);
+  if (U.right - L.right >= r) squares.push([U.right - r, U.bottom - r]);
+  if (U.left - L.left >= r) squares.push([L.left, L.top]);
+  if (L.right - U.right >= r) squares.push([L.right - r, L.top]);
+  let worst = 0;
+  for (const s of d.split("Z").filter(s => s.includes("M")))
+    for (const [x, y] of s.replace("M", "").split("L").map(p => p.trim().split(/\s+/).map(Number)).map(([x, y]) => [x + ext.left, y + ext.top]))
+      if (squares.some(([cx, cy]) => x >= cx - 1e-6 && x <= cx + r + 1e-6 && y >= cy - 1e-6 && y <= cy + r + 1e-6))
+        worst = Math.max(worst, Math.min(...boxes.map(b => context.sentBoxDistance(x, y, b, r))));
+  return worst;
+}
+test("the outline's outer corners keep their own round on every frame, in a pair and in a column", () => {
+  // the reach and the bulge used to run into the head and foot corners of a
+  // short bubble and the corner a wider one stands out with, and the trace cut
+  // them square there from about 400ms until the joint let go
+  const { context } = load();
+  const pair = (U0, L0, W, H, r) => {
+    const L1 = { left:0, top:Math.max(0, Math.min(L0.top, H - 2 * r)), right:W, bottom:H };
+    return { U0, L0, L1, U1:{ left:0, top:0, right:W, bottom:Math.min(H, Math.max(U0.bottom - U0.top, L1.top + 2 * r)) }, r };
+  };
+  const pairs = [spec(),
+    pair({ left:0, top:-64, right:240, bottom:12 }, { left:60, top:38, right:240, bottom:94 }, 240, 94, 18),
+    pair({ left:0, top:-120, right:240, bottom:-26 }, { left:120, top:38, right:240, bottom:94 }, 240, 94, 18),
+    pair({ left:90, top:-32.5, right:240, bottom:20 }, { left:150, top:45.6, right:240, bottom:98.1 }, 240, 98.1, 18),
+    pair({ left:40, top:-50, right:200, bottom:-11 }, { left:0, top:6, right:200, bottom:66 }, 200, 66, 12)];
+  for (const s of pairs) {
+    const ext = { left:-20, top:Math.min(s.U0.top, 0) - 20, right:s.L1.right + 20, bottom:s.L1.bottom + 20 };
+    for (let ms = 0; ms <= 1000; ms += 8) {
+      const shape = context.sentMergeShape(s, ms / 1000);
+      const d = context.sentGooPath(shape.U, shape.L, s.r, shape.k, shape.bow, ext);
+      if (d.includes("A")) continue;
+      const off = cornerOff(context, shape.U, shape.L, s.r, d, ext, [shape.U, shape.L]);
+      assert.ok(off < .05, `a corner stands ${off.toFixed(2)}px off its round at ${ms}ms (${JSON.stringify(s.L0)})`);
+    }
+  }
+  for (const [talls, widths] of [[[52.5, 52.5, 52.5, 52.5, 52.5], [150, 110, 190, 130, 170]], [[52.5, 99, 52.5, 52.5], [90, 260, 150, 120]]]) {
+    const { B0, W, H, r } = columnOf(talls, widths);
+    const plan = context.sentColumnPlan(B0, W, H, r);
+    const ext = { left:-10, top:B0[0].top - 10, right:W + 10, bottom:H + 10 };
+    for (let ms = 0; ms <= plan.end; ms += 8) {
+      const state = context.sentColumnShape(plan, ms);
+      state.boxes.slice(0, -1).forEach((U, i) => {
+        const L = state.boxes[i + 1];
+        const d = context.sentGooPath(U, L, r, state.joints[i].k, state.joints[i].bow, ext);
+        if (d.includes("A")) return;
+        const off = cornerOff(context, U, L, r, d, ext, state.boxes);
+        assert.ok(off < .05, `a column's corner stands ${off.toFixed(2)}px off its round at ${ms}ms (joint ${i + 1})`);
+      });
+    }
+  }
+});
+
 test("the drops are drawn with a clip path over a plain face, never a blur, filter or mask, and nothing in the layer takes a press", () => {
   const sheet = code.slice(code.indexOf(".sentgoo{"), code.indexOf(".sentgoo-ground{") + 80);
   assert.match(sheet, /\.sentgoo\{position:absolute; left:0; top:0; pointer-events:none\}/);
