@@ -105,42 +105,75 @@ test("the merge keeps the owner's order: the word goes out, and the earlier bubb
   assert.match(reduced.slice(0, reduced.indexOf("\n}")), /\.sentgoo > \.sentgoo-mark\.markin\{animation:none !important\}/);
 });
 
-test("the fall sets off softly, lands without passing its place, and leaves the tab joint's curve as it was", () => {
-  const { run } = load();
-  const [x1, y1, x2, y2] = plain(run("FALL_EASE"));
-  assert.deepEqual([x1, y1, x2, y2], [.4, 0, .2, 1]);
-  // no speed at the start or at the landing, and both handles inside the unit box, so nothing overshoots
-  assert.equal(y1, 0, "the fall sets off at speed");
-  assert.equal(y2, 1, "the fall lands at speed");
-  for (const v of [x1, y1, x2, y2]) assert.ok(v >= 0 && v <= 1, "a handle stands outside the unit box");
-  const fall = run("FALL_CURVE");
-  let last = 0;
-  for (let ms = 0; ms <= 800; ms++) {
-    const y = fall(ms / 800);
-    assert.ok(y >= last - 1e-12 && y <= 1 + 1e-12, `the fall goes back or past its landing at ${ms}ms`);
-    last = y;
+test("a drop falls from rest on a steady pull, drag holds it to a steady speed, and it is drawn in to its place without passing it", () => {
+  const { context, run } = load();
+  const pull = run("DROP_PULL"), drift = run("DROP_DRIFT");
+  // from rest: at first half the pull times the square of the time, as a dropped thing falls
+  for (const ms of [5, 10, 20]) {
+    const free = .5 * pull * ms * ms;
+    assert.ok(Math.abs(context.sentDropFall(ms) - free) / free < .01, `the fall at ${ms}ms is not a fall from rest`);
   }
-  // seen to set off as the word goes: a tenth of the way by 150ms, half by 300ms
-  assert.ok(fall(150 / 800) >= .1 && fall(300 / 800) >= .5, "the fall creeps before it is seen to start");
-  assert.ok(fall(50 / 800) < .02, "the fall does not set off softly");
+  // then never faster than the drift, and nearly at it by a second
+  let last = 0, lastSpeed = 0;
+  for (let ms = 0; ms <= 2000; ms++) {
+    const d = context.sentDropFall(ms), v = context.sentDropSpeed(ms);
+    assert.ok(d >= last - 1e-12 && v >= lastSpeed - 1e-12 && v <= drift + 1e-12, `the fall goes back, slows or runs away at ${ms}ms`);
+    if (ms) assert.ok(Math.abs((d - last) - (v + lastSpeed) / 2) < 1e-3, `the speed is not the fall's at ${ms}ms`);
+    last = d;
+    lastSpeed = v;
+  }
+  assert.ok(context.sentDropSpeed(1000) > .95 * drift, "drag does not hold the fall to its drift");
+  for (const d of [10, 100, 600]) assert.ok(Math.abs(context.sentDropFall(context.sentDropFallTime(d)) - d) < 1e-6);
+  // drawn in: from its touch to its place, never back and never past it, whatever speed it set off at
+  for (const m0 of [0, .5, 1, run("DROP_EAGER")]) {
+    let prev = 0;
+    for (let u = 0; u <= 1.0001; u += .001) {
+      const p = context.sentDropSwallow(u, m0);
+      assert.ok(p >= prev - 1e-12 && p <= 1 + 1e-12, `a drop drawn in at ${m0} goes back or past its place`);
+      prev = p;
+    }
+    assert.equal(context.sentDropSwallow(1, m0), 1);
+    // and it sets off at the speed it fell at, m0 times its mean
+    assert.ok(Math.abs(context.sentDropSwallow(1e-7, m0) / 1e-7 - m0) < 1e-3);
+  }
+  assert.ok(run("DROP_EAGER") <= 3, "a drop drawn in could pass its place");
   // the tab joint in index.html runs on the curve two bubbles used to come together on
   assert.deepEqual(plain(run("MERGE_EASE")), [.6, 0, .3, 1]);
+});
+
+test("a small drop joins faster than a big one: its times go as its size to the power one and a half, held between 0.8 and 1.5 times a one-line bubble's", () => {
+  const { context, run } = load();
+  const size = run("DROP_SIZE");
+  assert.equal(context.sentDropScale(size), 1);
+  assert.ok(Math.abs(context.sentDropScale(size * 1.2) - Math.pow(1.2, 1.5)) < 1e-12);
+  assert.equal(context.sentDropScale(size * 4), 1.5);
+  assert.equal(context.sentDropScale(size / 4), .8);
+  // the neck widens fastest at the touch, thin on the first frame after it, and eases into the side
+  const neck = x => context.sentNeck(x), frame = 1000 / 60 / run("DROP_NECK_MS");
+  assert.equal(neck(0), 0);
+  assert.equal(neck(1), 1);
+  assert.ok(neck(frame) > .1 && neck(frame) < .3, `the neck is ${neck(frame).toFixed(2)} of the side a frame after the touch`);
+  assert.ok(neck(.5) > .7, "the neck is not mostly open half way");
+  for (let x = 0; x < 1; x += .01) {
+    assert.ok(neck(x + .01) >= neck(x), "the neck narrowed");
+    assert.ok(neck(x + .01) - neck(x) <= neck(.01) + 1e-12, "the neck widens faster later than at the touch");
+  }
 });
 
 // two one-line bubbles on the phone (read-v7 in the simulator runs), in the
 // joined bubble's own px: the earlier one 18pt narrower, 17pt of room between
 // them, and the joined one laid out bottom up from the later one's foot. the
 // ends as sentMerge works them out: the later bubble standing where it is, and
-// the earlier one's head landing on the joined bubble's, its foot sunk a corner
-// each way past the later one's head
+// the earlier one's head landing on the joined bubble's, keeping its own
+// height, with the neck filling what stands between it and the later one
 const R = 17.73;
+function pair(U0, L0, W, H, r) {
+  const L1 = { left: 0, top: Math.max(0, Math.min(L0.top, H - 2 * r)), right: W, bottom: H };
+  const U1 = { left: 0, top: 0, right: W, bottom: Math.min(H, U0.bottom - U0.top) };
+  return { U0, L0, U1, L1, r, W, H };
+}
 function spec() {
-  const U0 = { left: 18, top: -28, right: 171, bottom: 25 };
-  const L0 = { left: 0, top: 42, right: 171, bottom: 95 };
-  const W = 171, H = 95;
-  const L1 = { left: 0, top: Math.max(0, Math.min(L0.top, H - 2 * R)), right: W, bottom: H };
-  const U1 = { left: 0, top: 0, right: W, bottom: Math.min(H, Math.max(U0.bottom - U0.top, L1.top + 2 * R)) };
-  return { U0, L0, U1, L1, r: R };
+  return pair({ left: 18, top: -28, right: 171, bottom: 25 }, { left: 0, top: 42, right: 171, bottom: 95 }, 171, 95, R);
 }
 
 test("only the earlier bubble falls: straight down at its own height until it touches, and the later one stands still", () => {
@@ -148,14 +181,15 @@ test("only the earlier bubble falls: straight down at its own height until it to
   const s = spec();
   assert.deepEqual(s.L1, { ...s.L0, left: 0 }, "the later bubble's end is not where it stands");
   const tall = s.U0.bottom - s.U0.top;
-  let touched = false, lastTop = s.U0.top;
+  let touched = false, lastFall = s.U0.top;
   for (let ms = 0; ms <= 1000; ms += 4) {
     const shape = context.sentMergeShape(s, ms / 1000);
     assert.ok(Math.abs(shape.L.top - s.L0.top) < 1e-9 && Math.abs(shape.L.bottom - s.L0.bottom) < 1e-9,
       `the later bubble moved at ${ms}ms`);
-    assert.ok(shape.U.top >= lastTop - 1e-9, `the earlier bubble went back up at ${ms}ms`);
-    assert.ok(shape.U.top <= s.U1.top + 1e-9, `the earlier bubble fell past its landing at ${ms}ms`);
-    lastTop = shape.U.top;
+    // the head the words ride never goes back up and never passes its landing
+    assert.ok(shape.fall >= lastFall - 1e-9, `the earlier bubble went back up at ${ms}ms`);
+    assert.ok(shape.fall <= s.U1.top + 1e-9, `the earlier bubble fell past its landing at ${ms}ms`);
+    lastFall = shape.fall;
     if (shape.U.bottom > s.L0.top + 1e-9) touched = true;
     // over the room between the two it keeps its height: nothing stretches where it can be seen
     if (!touched) assert.ok(Math.abs(shape.U.bottom - shape.U.top - tall) < 1e-9, `the earlier bubble stretched at ${ms}ms`);
@@ -164,7 +198,33 @@ test("only the earlier bubble falls: straight down at its own height until it to
   assert.ok(touched, "the earlier bubble never reached the later one");
   // the travel is the fall's: none after the first four fifths
   const landed = context.sentMergeShape(s, .8);
-  assert.ok(Math.abs(landed.U.top - s.U1.top) < 1e-9 && Math.abs(landed.U.bottom - s.U1.bottom) < 1e-9);
+  assert.ok(Math.abs(landed.fall - s.U1.top) < 1e-9 && Math.abs(landed.U.bottom - s.U1.bottom) < 1e-9);
+});
+
+test("the joined body's head dips a little past its place as the drop is drawn in, comes back over it less, and is still before the joined copy comes up, while the words land without passing theirs", () => {
+  const { context, run } = load();
+  // the tests' pair and a mac pair that falls further
+  for (const s of [spec(), pair({ left: 0, top: -64, right: 240, bottom: 12 }, { left: 60, top: 38, right: 240, bottom: 94 }, 240, 94, 18)]) {
+    const plan = context.sentMergePlan(s);
+    const dip = Math.min(s.r / 3, run("DROP_DIP") * (plan.drop - plan.from));
+    let deepest = { by: 0, ms: 0 }, over = { by: 0, ms: 0 };
+    for (let ms = 0; ms <= 1000; ms += 2) {
+      const shape = context.sentMergeShape(s, ms / 1000);
+      const by = shape.U.top - shape.fall;
+      if (ms <= plan.touch) assert.equal(by, 0, `the outline's head left the words' before the two touched, at ${ms}ms`);
+      if (by > deepest.by) deepest = { by, ms };
+      if (-by > over.by) over = { by: -by, ms };
+      if (ms >= 800) assert.ok(Math.abs(by) < .35, `the head still wobbles ${by.toFixed(2)}px as the joined copy comes up, at ${ms}ms`);
+    }
+    assert.ok(Math.abs(deepest.by - dip) < .05, `the head dips ${deepest.by.toFixed(2)}px, not ${dip.toFixed(2)}px`);
+    assert.ok(deepest.ms > plan.touch && deepest.ms <= plan.lands + 120, `the head dips at ${deepest.ms}ms, not as the drop is drawn in`);
+    assert.ok(dip <= s.r / 3 + 1e-9 && dip > 1, "the dip is not a small share of the drop");
+    // it comes back over its place by about a third as much, half the body's period later
+    assert.ok(over.by / dip > .2 && over.by / dip < .45, `the head rights itself ${(over.by / dip).toFixed(2)} of the dip over its place`);
+    assert.ok(Math.abs(over.ms - deepest.ms - plan.period / 2) < 40, `the head comes back ${over.ms - deepest.ms}ms after its dip, not half of ${plan.period}ms`);
+    const last = context.sentMergeShape(s, 1);
+    assert.equal(last.U.top, s.U1.top, "the head is not in its place on the last frame");
+  }
 });
 const EXT = { left: -12, top: -40, right: 183, bottom: 107 };
 // the outline's loops, as points back in the joined bubble's px
@@ -187,12 +247,13 @@ function columnOf(talls, widths = talls.map(() => 150)) {
   return { B0, W, H, r:18 };
 }
 
-test("a column all lets go at once, keeps the room between its bubbles while they all fall, and falls as things fall: from rest, its distance the square of the time", () => {
-  const { context } = load();
+test("a column all lets go at once, keeps the room between its bubbles while they all fall, and falls as drops fall: from rest on a steady pull, held to a steady speed", () => {
+  const { context, run } = load();
   const { B0, W, H, r } = columnOf([52.5, 52.5, 99, 52.5, 52.5]);
   const plan = context.sentColumnPlan(B0, W, H, r);
   const at = ms => context.sentColumnShape(plan, ms);
-  const first = Math.min(...plan.falls.map(f => f.lands));
+  const first = Math.min(...plan.falls.map(f => f.touch));
+  assert.equal(plan.drift, run("DROP_DRIFT"));
   // the first frame is the column as it stood, and the foot never moves down or up
   at(0).boxes.forEach((box, i) => assert.deepEqual(plain({ top:box.top, bottom:box.bottom }), { top:B0[i].top, bottom:B0[i].bottom }));
   for (const ms of [first / 4, first / 2, first * .99]) {
@@ -200,47 +261,57 @@ test("a column all lets go at once, keeps the room between its bubbles while the
     const fallen = tops.slice(0, -1).map((top, i) => top - B0[i].top);
     assert.ok(fallen.every(d => d > 0 && Math.abs(d - fallen[0]) < 1e-9), `the bubbles over the foot did not fall as one at ${ms}ms`);
     assert.equal(tops.at(-1), B0.at(-1).top, "the foot moved");
-    assert.ok(Math.abs(fallen[0] - .5 * plan.pull * ms * ms) < 1e-9, "the fall is not from rest on a steady pull");
+    assert.ok(Math.abs(fallen[0] - context.sentDropFall(ms, plan.drift)) < 1e-9, "the column does not fall as a drop falls");
   }
-  // twice the time, four times the way
-  const d = ms => at(ms).boxes[0].top - B0[0].top;
-  assert.ok(Math.abs(d(first / 2) - 4 * d(first / 4)) < 1e-9);
-  assert.equal(load().run("COLUMN_PULL"), 1.25e-3);
+  // the ones still falling keep the room between them until each touches, at the drift by then
+  const top = plan.falls[0], second = plan.falls[1];
+  for (let ms = 0; ms < second.touch; ms += 10) {
+    const boxes = at(ms).boxes;
+    assert.ok(Math.abs((boxes[1].top - boxes[0].bottom) - (B0[1].top - B0[0].bottom)) < 1e-9, `the room between the top two closed at ${ms}ms`);
+  }
+  assert.ok(context.sentDropSpeed(top.touch, plan.drift) > .9 * plan.drift, "the top one is not at the drift when it touches");
 });
 
-test("in a column the one over the foot lands first and each one above a moment later, at the joined head, where it stops", () => {
-  const { context, run } = load();
-  for (const talls of [[52.5, 52.5, 52.5], [52.5, 52.5, 52.5, 52.5, 52.5], [99, 52.5, 99, 52.5, 52.5]]) {
+test("in a column each one over the foot meets what stands under it in turn, from the foot up, a beat apart, and its words stop at the joined head", () => {
+  const { context } = load();
+  for (const talls of [[52.5, 52.5, 52.5], [52.5, 52.5, 52.5, 52.5, 52.5], [99, 52.5, 99, 52.5, 52.5], Array(10).fill(52.5)]) {
     const { B0, W, H, r } = columnOf(talls);
     const plan = context.sentColumnPlan(B0, W, H, r);
-    const lands = plan.falls.map(f => f.lands);
-    for (let i = 0; i < lands.length - 1; i++) assert.ok(lands[i] > lands[i + 1], `bubble ${i + 1} lands before bubble ${i + 2} under it (${lands})`);
-    // with bubbles of one height the landings come closer as the ones above gather speed
-    if (talls.every(h => h === talls[0])) {
-      const gaps = lands.slice(0, -1).map((t, i) => t - lands[i + 1]).reverse();
-      for (let i = 0; i < gaps.length - 1; i++) assert.ok(gaps[i] > gaps[i + 1], `the landings did not come closer (${gaps})`);
+    const touches = plan.falls.map(f => f.touch), lands = plan.falls.map(f => f.lands);
+    for (let i = 0; i < lands.length - 1; i++) {
+      assert.ok(lands[i] > lands[i + 1], `bubble ${i + 1} lands before bubble ${i + 2} under it (${lands})`);
+      // each neck is seen on its own: the next touch comes no sooner than 90ms after
+      assert.ok(touches[i] - touches[i + 1] >= 90, `two of ${talls.length} touch ${touches[i] - touches[i + 1]}ms apart (${touches})`);
     }
     plan.falls.forEach((f, i) => {
-      // its foot touches what it lands on before its head lands, never after
+      // touched before it lands, never after, and its words at the joined head from its landing on
       assert.ok(f.touch <= f.lands);
-      const before = context.sentColumnShape(plan, f.lands - 1).boxes[i].top;
-      const after = [f.lands, f.lands + 50, plan.end].map(ms => context.sentColumnShape(plan, ms).boxes[i].top);
-      assert.ok(before < 0, `bubble ${i + 1} reached the joined head early`);
-      assert.deepEqual(after, [0, 0, 0], `bubble ${i + 1} did not stop at the joined head`);
+      const share = ms => context.sentColumnShape(plan, ms).joints[i].share;
+      if (f.lands > f.touch) assert.ok(share(f.lands - 1) < 1, `bubble ${i + 1} reached the joined head early`);
+      assert.deepEqual([f.lands, f.lands + 50, plan.end].map(share), [1, 1, 1], `bubble ${i + 1} did not stop at the joined head`);
+      assert.equal(context.sentColumnShape(plan, plan.end).boxes[i].top, 0, `bubble ${i + 1} is not at the joined head at the end`);
     });
-    assert.equal(plan.end, plan.last + run("COLUMN_SETTLE_MS"));
+    assert.ok(plan.end >= plan.last + 200, "the joined copy does not come up after the top one has landed");
   }
 });
 
-test("a tall column falls on a harder pull rather than taking longer than COLUMN_LONGEST_MS", () => {
+test("a tall column drifts faster rather than taking much longer, but never so fast its joins run together", () => {
   const { context, run } = load();
-  const { B0, W, H, r } = columnOf(Array(10).fill(99));
-  const plan = context.sentColumnPlan(B0, W, H, r);
-  assert.ok(plan.pull > run("COLUMN_PULL"));
-  assert.ok(Math.abs(plan.last - run("COLUMN_LONGEST_MS")) < 1e-6, `a ten-bubble column takes ${plan.last}ms`);
-  // and the five short ones keep the steady pull
+  const longest = plan => Math.max(...plan.falls.map(f => f.drop));
+  const ten = columnOf(Array(10).fill(52.5));
+  const plan = context.sentColumnPlan(ten.B0, ten.W, ten.H, ten.r);
+  assert.ok(plan.drift > run("DROP_DRIFT"));
+  assert.ok(Math.abs(context.sentDropFallTime(longest(plan), plan.drift) - run("COLUMN_LONGEST_MS")) < 1, "a ten-bubble column falls longer than it should");
+  // the five short ones keep the steady drift
   const five = columnOf(Array(5).fill(52.5));
-  assert.equal(context.sentColumnPlan(five.B0, five.W, five.H, five.r).pull, run("COLUMN_PULL"));
+  assert.equal(context.sentColumnPlan(five.B0, five.W, five.H, five.r).drift, run("DROP_DRIFT"));
+  // and a very tall one is held to COLUMN_DRIFT_MOST, its touches still a beat apart
+  for (const talls of [Array(16).fill(52.5), Array(10).fill(99)]) {
+    const tall = columnOf(talls);
+    const p = context.sentColumnPlan(tall.B0, tall.W, tall.H, tall.r);
+    assert.equal(p.drift, run("COLUMN_DRIFT_MOST"));
+    p.falls.slice(0, -1).forEach((f, i) => assert.ok(f.touch - p.falls[i + 1].touch >= 90, "a very tall column's joins run together"));
+  }
 });
 
 test("a column's outline is exactly its bubbles on the first frame and exactly the joined bubble once it has settled", () => {
@@ -261,9 +332,19 @@ test("a column's outline is exactly its bubbles on the first frame and exactly t
   assert.equal(Math.min(...end.boxes.map(b => b.top)), 0);
   assert.equal(Math.max(...end.boxes.map(b => b.bottom)), H);
   assert.ok(end.joints.every(j => j.k === 0 && j.bow === 0), "the joints have not let go once settled");
-  // the bubbles over the column come down on the fall's own curve, which is the square of the time
-  const curve = context.sentCurve(plain(load().run("COLUMN_EASE")));
-  for (const f of [.1, .3, .5, .8]) assert.ok(Math.abs(curve(f) - f * f) < 1e-6);
+  assert.ok(end.dip === 0, "the joined body still wobbles once settled");
+  // the bubbles over the column come down the way its top one falls, a keyframe a frame apart
+  context.getComputedStyle = () => ({ transform: "none" });
+  const top = plan.falls[0], share = ms => context.sentDropAt(top, ms, plan.drift) / top.drop;
+  const glide = context.sentGlide({ animate: (keys, options) => ({ keys, options }) }, 0, -200, share, top.lands);
+  assert.equal(glide.options.duration, top.lands);
+  assert.equal(glide.options.easing, "linear");
+  assert.ok(glide.keys.length > top.lands / 20, "the glide has too few keyframes to follow the fall");
+  for (const key of glide.keys) {
+    const y = Number(/translate\(0px,([-\d.e]+)px\)/.exec(key.transform)[1]);
+    assert.ok(Math.abs(y + 200 * (1 - share(key.offset * top.lands))) < 1e-9, "the glide leaves the top one's fall");
+  }
+  assert.equal(glide.keys.at(-1).transform, "translate(0px,0px)");
 });
 
 test("the outline is exactly the two bubbles on the first frame and exactly the joined bubble on the last", () => {
@@ -282,8 +363,11 @@ test("the outline is exactly the two bubbles on the first frame and exactly the 
   assert.deepEqual(plain(last.U), s.U1);
   assert.deepEqual(plain(last.L), s.L1);
   assert.ok(last.k < 1e-9 && last.bow < 1e-9, "the joint has not settled on the last frame");
-  // the head and the foot overlap by a corner each way, so their union is one rounded bubble
-  assert.ok(s.U1.bottom - s.L1.top >= 2 * R - 1e-9, "the joined bubble keeps a joint");
+  // the neck fills the whole side between the two, so their outline is one rounded bubble
+  const d1 = context.sentGooPath(last.U, last.L, R, last.k, last.bow, EXT, last.N);
+  const joined = context.sentBoxPath({ left: 0, top: 0, right: s.W, bottom: s.H }, R,
+    v => (v - EXT.left).toFixed(2), v => (v - EXT.top).toFixed(2));
+  assert.equal(d1, joined, "the last frame is not exactly the joined bubble");
   assert.equal(s.U1.left, s.L1.left);
   assert.equal(s.U1.right, s.L1.right);
 });
@@ -294,12 +378,12 @@ test("as the earlier bubble falls the two swell toward each other, touch in the 
   let touched = null, joint = [];
   for (let ms = 0; ms <= 1000; ms += 4) {
     const shape = context.sentMergeShape(s, ms / 1000);
-    const d = context.sentGooPath(shape.U, shape.L, R, shape.k, shape.bow, EXT);
+    const d = context.sentGooPath(shape.U, shape.L, R, shape.k, shape.bow, EXT, shape.N);
     const shapes = loops(d);
-    if (ms < 150) assert.equal(shapes.length, 2, `the two touched at ${ms}ms, before any approach was seen`);
+    if (ms < 100) assert.equal(shapes.length, 2, `the two touched at ${ms}ms, before any approach was seen`);
     if (touched === null && shapes.length === 1) {
       touched = ms;
-      assert.ok(shape.U.top - s.U0.top >= 4, `the two touched before the earlier one was seen to fall (${shape.U.top - s.U0.top}px)`);
+      assert.ok(shape.U.top - s.U0.top >= 8, `the two touched before the earlier one was seen to fall (${shape.U.top - s.U0.top}px)`);
     }
     // the joint's narrowest row while the neck is forming: the rows between
     // where the two faces stood
@@ -314,7 +398,7 @@ test("as the earlier bubble falls the two swell toward each other, touch in the 
     }
   }
   assert.ok(touched !== null, "the two never touched");
-  assert.ok(touched >= 150 && touched <= 330, `the two touch at ${touched}ms, not about a quarter of a second into the fall`);
+  assert.ok(touched >= 100 && touched <= 330, `the two touch at ${touched}ms, not a tenth to a third of a second into the fall`);
   // a neck, narrower than the side the two share, that widens
   const shared = s.U0.right - Math.max(s.U0.left, s.L0.left);
   assert.ok(joint.length >= 2, "the neck was never seen");
@@ -335,6 +419,197 @@ test("the outline never swells past the column's sides or above the earlier bubb
       assert.ok(x <= right + 1e-6 && x >= left - 1e-6, `the outline swells sideways at ${ms}ms (${x})`);
       assert.ok(y >= Math.min(shape.U.top, shape.L.top) - 1e-6 && y <= Math.max(shape.U.bottom, shape.L.bottom) + 1e-6,
         `the outline swells past the top or the foot at ${ms}ms (${y})`);
+    }
+  }
+});
+
+// ---- the corners never turn pointy ----------------------------------------------------------
+// pairs as the two pages stand them, in the joined bubble's own px. on the Mac a
+// corner is 18px, one line 56px tall and two 76px, with 26px between two
+// bubbles, and the joined one is laid out up from the later one's foot, cut at
+// two lines (94px) or three (114px) where it is cut. the first is the owner's
+// report: a bubble of two lines falling onto a shorter one of one line, whose
+// foot corner squared off and came round again just before the join was done
+const PAIRS = [
+  ["two lines over a shorter line, joined cut", pair({ left: 0, top: -64, right: 240, bottom: 12 }, { left: 60, top: 38, right: 240, bottom: 94 }, 240, 94, 18)],
+  ["a short line over two lines", pair({ left: 140, top: -44, right: 240, bottom: 12 }, { left: 0, top: 38, right: 240, bottom: 114 }, 240, 114, 18)],
+  ["a short line over a long cut one", pair({ left: 150, top: -62, right: 240, bottom: -6 }, { left: 0, top: 20, right: 240, bottom: 114 }, 240, 114, 18)],
+  ["two full lines", pair({ left: 0, top: -42, right: 240, bottom: 14 }, { left: 0, top: 40, right: 240, bottom: 96 }, 240, 96, 18)],
+  ["a cut bubble over a shorter line", pair({ left: 0, top: -120, right: 240, bottom: -26 }, { left: 120, top: 38, right: 240, bottom: 94 }, 240, 94, 18)],
+  ["the phone's pair", spec()],
+  ["the Mac magic box's pair", pair({ left: 40, top: -50, right: 200, bottom: -11 }, { left: 0, top: 6, right: 200, bottom: 66 }, 200, 66, 12)],
+];
+const extOf = s => ({ left: -20, top: Math.min(s.U0.top, 0) - 20, right: s.W + 20, bottom: s.H + 20 });
+// an outline's loops, drawn in ext's px, back in the joined bubble's px
+const loopsIn = (d, ext) => d.split("Z").filter(one => one.includes("M")).map(one => one.replace("M", "").split("L")
+  .map(p => p.trim().split(/\s+/).map(Number)).map(([x, y]) => [x + ext.left, y + ext.top]));
+// a path of whole boxes: every corner drawn is an arc of the bubbles' own round
+function arcsOf(d) {
+  return [...d.matchAll(/A([\d.]+) ([\d.]+)/g)].map(m => [Number(m[1]), Number(m[2])]);
+}
+// how far the outline stands off the bubbles' own outline, the plain union of
+// their boxes, inside the squares of the outer corners: the top box's head and
+// the foot box's foot. none at all is the corners keeping their round
+function cornerOff(context, boxes, r, top, foot, points) {
+  const squares = [[top.left, top.top], [top.right - r, top.top], [foot.left, foot.bottom - r], [foot.right - r, foot.bottom - r]];
+  let worst = 0;
+  for (const [x, y] of points) for (const [cx, cy] of squares) {
+    if (x < cx - 1e-6 || x > cx + r + 1e-6 || y < cy - 1e-6 || y > cy + r + 1e-6) continue;
+    const off = Math.min(...boxes.map(b => context.sentBoxDistance(x, y, b, r)));
+    if (Math.abs(off) > Math.abs(worst)) worst = off;
+  }
+  return worst;
+}
+// the tightest convex bend along a loop: the radius of the circle through points
+// four pixels apart along it, read every half pixel. the trace's rows, half a
+// pixel apart, read a corner's own 18px arc as no tighter than about 12px; a
+// corner squared off reads under 6
+function tightest(points) {
+  const ring = [];
+  let next = 0;
+  points.forEach((a, i) => {
+    const b = points[(i + 1) % points.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    for (; next < len; next += .5) ring.push([a[0] + (b[0] - a[0]) * next / len, a[1] + (b[1] - a[1]) * next / len]);
+    next -= len;
+  });
+  let area = 0;
+  ring.forEach(([x1, y1], i) => { const [x2, y2] = ring[(i + 1) % ring.length]; area += x1 * y2 - x2 * y1; });
+  let least = Infinity;
+  const n = ring.length;
+  for (let i = 0; i < n; i++) {
+    const a = ring[(i - 8 + n) % n], b = ring[i], c = ring[(i + 8) % n];
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (cross * Math.sign(area) <= 1e-9) continue;
+    const ab = Math.hypot(b[0] - a[0], b[1] - a[1]), bc = Math.hypot(c[0] - b[0], c[1] - b[1]), ca = Math.hypot(a[0] - c[0], a[1] - c[1]);
+    least = Math.min(least, ab * bc * ca / (2 * Math.abs(cross)));
+  }
+  return least;
+}
+
+test("the corners never turn pointy: the outer corners keep the bubbles' own round on every frame of a join, and nothing bends sharper than half a corner", () => {
+  const { context } = load();
+  for (const [name, s] of PAIRS) {
+    const ext = extOf(s);
+    for (let ms = 0; ms <= 1000; ms += 8) {
+      const shape = context.sentMergeShape(s, ms / 1000);
+      const d = context.sentGooPath(shape.U, shape.L, s.r, shape.k, shape.bow, ext, shape.N);
+      if (d.includes("A")) {
+        for (const [rx, ry] of arcsOf(d)) assert.ok(rx === s.r && ry === s.r, `${name}: a corner drawn at ${rx}px at ${ms}ms`);
+        continue;
+      }
+      const loops = loopsIn(d, ext);
+      const off = cornerOff(context, [shape.U, shape.L], s.r, shape.U, shape.L, loops.flat());
+      assert.ok(Math.abs(off) <= .05, `${name}: a corner stands ${off.toFixed(2)}px off the bubbles' own at ${ms}ms`);
+      for (const loop of loops) {
+        const bend = tightest(loop);
+        assert.ok(bend >= s.r / 2, `${name}: the outline bends at ${bend.toFixed(1)}px, sharper than half a corner, at ${ms}ms`);
+      }
+    }
+  }
+});
+
+test("a column's outer corners keep their round on every frame of its fall too", () => {
+  const { context } = load();
+  for (const [talls, widths] of [[[52.5, 99, 52.5, 52.5], [90, 260, 150, 120]], [[52.5, 52.5, 52.5], [200, 120, 160]]]) {
+    const { B0, W, H, r } = columnOf(talls, widths);
+    const plan = context.sentColumnPlan(B0, W, H, r);
+    const ext = { left: -20, top: B0[0].top - 20, right: W + 20, bottom: H + 20 };
+    // each joint's face keeps its own pair's outer corners, so the column's
+    // head, the top joint's, and its foot, the last one's, keep theirs
+    for (let ms = 0; ms <= plan.end; ms += 8) {
+      const st = context.sentColumnShape(plan, ms);
+      st.boxes.slice(0, -1).forEach((box, i) => {
+        const next = st.boxes[i + 1];
+        const d = context.sentGooPath(box, next, r, st.joints[i].k, st.joints[i].bow, ext, st.joints[i].N);
+        if (d.includes("A")) return;
+        const loops = loopsIn(d, ext);
+        const off = cornerOff(context, [box, next], r, box, next, loops.flat());
+        assert.ok(Math.abs(off) <= .05, `a corner of ${talls.length} stands ${off.toFixed(2)}px off the bubbles' own at ${ms}ms`);
+        for (const loop of loops) assert.ok(tightest(loop) >= r / 2, `a column of ${talls.length} bends sharper than half a corner at ${ms}ms`);
+      });
+    }
+  }
+});
+
+test("two drops landed one inside the other are drawn as the outer one, which is what tracing them draws", () => {
+  const { context } = load();
+  const r = 18, ext = { left: -20, top: -20, right: 140, bottom: 140 };
+  const px = v => (v - ext.left).toFixed(2), py = v => (v - ext.top).toFixed(2);
+  const outer = { left: 0, top: 0, right: 108, bottom: 56 }, inner = { left: 48, top: 0, right: 108, bottom: 56 };
+  for (const [U, L] of [[inner, outer], [outer, inner]])
+    assert.equal(context.sentGooPath(U, L, r, 1.5 * r, 0, ext, context.sentNeckBox(U, L, r, 1)), context.sentBoxPath(outer, r, px, py));
+  // traced, with the inner one a hundredth of a pixel past the outer's head, it stands within a tenth of a pixel of the outer box
+  const nudged = { ...inner, top: -.01 };
+  const d = context.sentGooPath(nudged, outer, r, 1.5 * r, 0, ext, context.sentNeckBox(nudged, outer, r, 1));
+  assert.ok(!d.includes("A"), "the nudged pair was not traced");
+  for (const [x, y] of loopsIn(d, ext).flat())
+    assert.ok(Math.abs(context.sentBoxDistance(x, y, { ...outer, top: -.01 }, r)) < .1, `the traced outline stands off the outer box at ${x}, ${y}`);
+});
+
+test("each joint of a column meets as two drops meet: swells before its own touch, its own neck from then, in the middle of the side the two share and only widening, and one piece from then on", () => {
+  const { context } = load();
+  const { B0, W, H, r } = columnOf([52.5, 52.5, 99, 52.5, 52.5], [90, 160, 260, 200, 140]);
+  const plan = context.sentColumnPlan(B0, W, H, r);
+  const ext = { left: -20, top: B0[0].top - 20, right: W + 20, bottom: H + 20 };
+  plan.falls.forEach((f, i) => {
+    let wide = 0, swelled = false;
+    for (let ms = 0; ms <= plan.end; ms += 4) {
+      const st = context.sentColumnShape(plan, ms), joint = st.joints[i], U = st.boxes[i], L = st.boxes[i + 1];
+      if (ms < f.touch) {
+        assert.equal(joint.N, null, `joint ${i + 1} has a neck before its touch, at ${ms}ms`);
+        if (joint.bow > 1) swelled = true;
+        continue;
+      }
+      if (ms === f.touch) continue;
+      const d = context.sentGooPath(U, L, r, joint.k, joint.bow, ext, joint.N);
+      assert.equal((d.match(/M/g) || []).length, 1, `joint ${i + 1} came apart at ${ms}ms, after its touch at ${f.touch}ms`);
+      const from = Math.max(U.left, L.left), to = Math.min(U.right, L.right);
+      assert.ok(Math.abs((joint.N.left + joint.N.right) / 2 - (from + to) / 2) < 1e-6, `joint ${i + 1}'s neck is not in the middle at ${ms}ms`);
+      assert.ok(joint.N.right - joint.N.left >= wide - 1e-9, `joint ${i + 1}'s neck narrowed at ${ms}ms`);
+      wide = joint.N.right - joint.N.left;
+    }
+    assert.ok(swelled, `joint ${i + 1}'s faces never swelled toward each other before they touched`);
+    assert.ok(Math.abs(wide - W) < 1e-6, `joint ${i + 1}'s neck does not fill the side at the end`);
+  });
+});
+
+test("once the two drops touch they stay one piece to the last frame, and the neck, in the middle of the side they share, only widens until it fills it", () => {
+  const { context } = load();
+  for (const [name, s] of PAIRS) {
+    const ext = extOf(s);
+    let joined = null, wide = 0;
+    for (let ms = 0; ms <= 1000; ms += 8) {
+      const shape = context.sentMergeShape(s, ms / 1000);
+      const d = context.sentGooPath(shape.U, shape.L, s.r, shape.k, shape.bow, ext, shape.N);
+      const pieces = (d.match(/M/g) || []).length;
+      if (joined === null && pieces === 1) joined = ms;
+      if (joined !== null) assert.equal(pieces, 1, `${name}: the joined drops came apart at ${ms}ms`);
+      if (!shape.N) continue;
+      const from = Math.max(shape.U.left, shape.L.left), to = Math.min(shape.U.right, shape.L.right);
+      assert.ok(shape.N.left >= from - 1e-9 && shape.N.right <= to + 1e-9, `${name}: the neck passed the side the two share at ${ms}ms`);
+      assert.ok(Math.abs((shape.N.left + shape.N.right) / 2 - (from + to) / 2) < 1e-6, `${name}: the neck is not in the middle at ${ms}ms`);
+      assert.ok(shape.N.right - shape.N.left >= wide - 1e-9, `${name}: the neck narrowed at ${ms}ms`);
+      wide = shape.N.right - shape.N.left;
+    }
+    assert.ok(joined !== null && joined < 500, `${name}: the two did not become one (${joined})`);
+    const last = context.sentMergeShape(s, 1);
+    assert.equal(last.N.left, 0, `${name}: the neck does not fill the side on the last frame`);
+    assert.equal(last.N.right, s.W);
+  }
+});
+
+test("while the two differ in width the earlier foot stays a corner and a half over the later one's foot, giving way by at most half a corner, so the step's meniscus never runs into a corner", () => {
+  const { context } = load();
+  for (const [name, s] of PAIRS) {
+    const tall = s.U0.bottom - s.U0.top, tall1 = s.U1.bottom - s.U1.top;
+    for (let ms = 0; ms <= 1000; ms += 4) {
+      const shape = context.sentMergeShape(s, ms / 1000);
+      const step = Math.max(Math.abs(shape.U.left - shape.L.left), Math.abs(shape.U.right - shape.L.right));
+      const free = shape.fall + tall + (tall1 - tall) * shape.sunk;
+      assert.ok(shape.U.bottom <= free + 1e-9, `${name}: the earlier foot stretched at ${ms}ms`);
+      if (step < 1) continue;
+      assert.ok(shape.U.bottom <= shape.L.bottom - 1.5 * s.r + 1e-9 || shape.U.bottom >= free - s.r / 2 - 1e-9,
+        `${name}: the earlier foot came within a corner and a half of the later one's at ${ms}ms`);
     }
   }
 });

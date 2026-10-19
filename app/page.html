@@ -1818,13 +1818,19 @@ document.getElementById("npstart").addEventListener("click", async () => {
     // the server names the folder and writes its path, so nothing here takes
     // a path apart, whatever system the board runs on
     const path = r.path, name = r.name || "project";
+    // r.machine is this Mac or one of the owner's servers, which the folder
+    // is kept with: the same path on another machine is another folder
+    const server = r.machine && r.machine !== "this" ? r.machine : "";
+    const serverOf = ow => ((lastState.projects || []).find(p => p && p.id === ow) || {}).server || "";
     // a folder already behind an open tab: name that tab instead of refusing
     const open = lastState && rowsOf(lastState)
-      .find(ow => (lastState.pwds || {})[ow] === path);
+      .find(ow => (lastState.pwds || {})[ow] === path && serverOf(ow) === server);
     if (open){ projNote("that folder is already open as " + labelOf(lastState, open)); return; }
-    const px = await fetch("/project?name=" + encodeURIComponent(name),
+    const px = await fetch("/project?name=" + encodeURIComponent(name) + (server ? "&machine=" + encodeURIComponent(server) : ""),
         { method: "POST", body: path }).catch(() => null);
     const pr = px ? await px.json().catch(() => null) : null;
+    // a server answers its refusal in plain words already
+    if (server && !px?.ok && pr?.error){ projNote(pr.error); return; }
     if (!px?.ok || !pr?.id){
       // the server states its refusal; the note repeats it in plain words.
       // a duplicate answer with no visible tab of that name means the id

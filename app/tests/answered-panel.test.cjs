@@ -1976,7 +1976,8 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     assert.match(text, /if \(!held && el\.reply\.dataset\.raw !== rawReply\)\{/, `${where} swaps an answer it was told to hold`);
     assert.match(text, /watchReading\((els\[b\.id\]|card)\);/, `${where} does not watch the reader's scrolling`);
     assert.match(text, /noteTyping\(ta\);/, `${where} does not note the reader's typing`);
-    assert.match(text, /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap\)\)/, `${where} does not hold the band for a run`);
+    // (the Mac board reads the band in its stage's pixels, which the phone does not scale)
+    assert.match(text, /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap(, 0, stageScale \|\| 1)?\)\)/, `${where} does not hold the band for a run`);
     assert.match(text, /turnAgain = /, `${where} cannot show an answer it held back`);
   }
   // the sends: both pages draw the message faded as an arrival when it is sent,
@@ -3843,9 +3844,12 @@ test("three, four or five bubbles standing in one place fall together: one pause
       assert.ok(Math.abs(moved[i] - moved[0]) < 1e-9, `bubble ${i + 1} of ${count} fell another way than the top one`);
     }
     assert.equal(moved[count - 1], 0, "the bubble at the foot moved");
-    for (let ms = 40; ms <= 1400 && el.sentMerge; ms += 17) frame(ms);
-    frame(1417);
+    const end = el.sentMerge.end;
+    for (let ms = 40; ms <= end && el.sentMerge; ms += 17) frame(ms);
+    frame(end);
+    frame(end + 17);
     assert.ok(el.sentMerge === null, `the column of ${count} did not land`);
+    assert.ok(end < 2000, `the column of ${count} takes ${end}ms`);
     assert.equal(bubbles().length, 1, `${count} bubbles did not end as one`);
     assert.deepEqual(bubbles()[0].querySelector(".answstack").children.map(row => row.dataset.text), V.slice(0, count));
     assert.deepEqual(marks(bubbles()), ["Read"]);
@@ -3853,21 +3857,21 @@ test("three, four or five bubbles standing in one place fall together: one pause
   }
 });
 
-test("in a column, the one over the foot lands first and each one above a moment later, from the foot up", () => {
+test("in a column, the one over the foot lands first and each one above after it, from the foot up, a beat apart", () => {
   const s = columnScene(5, Array(5).fill("delivered")), { el, bubbles, ringFor, frame } = s;
   ringFor(s.merge.OUT_MS);
   const copies = wordCopies(bubbles()[0].querySelector(".sentgoo"));
   const stopped = Array(5).fill(null);
-  for (let ms = 17; ms <= 1400 && el.sentMerge; ms += 2) {
+  for (let ms = 17; ms <= 4000 && el.sentMerge; ms += 2) {
     frame(ms);
     // the moment each one's words reach the joined head (0 here), where its fall stops
     copies.forEach((one, i) => { if (stopped[i] === null && i < 4 && shifted(one) >= -1e-6) stopped[i] = ms; });
   }
   // the moment each one landed, top first: each later than the one under it
   for (let i = 0; i < 3; i++) assert.ok(stopped[i] > stopped[i + 1], `bubble ${i + 1} stopped before bubble ${i + 2} under it`);
-  // and the moments come closer as the ones above have gathered speed
+  // and a beat apart, each drawn in on its own rather than in one run down
   const gaps = [stopped[2] - stopped[3], stopped[1] - stopped[2], stopped[0] - stopped[1]];
-  assert.ok(gaps[0] > gaps[1] && gaps[1] > gaps[2], `the landings did not come closer: ${gaps}`);
+  assert.ok(gaps.every(gap => gap >= 90), `the landings run together: ${gaps}`);
 });
 
 test("no two messages ever stand at the joined head together: a middle bubble's words have left it before the one above lands", () => {
@@ -3881,20 +3885,21 @@ test("no two messages ever stand at the joined head together: a middle bubble's 
   const copies = wordCopies(layer), joined = layer.querySelectorAll(".sentgoo-words").at(-1);
   const strength = one => Number(one.style.opacity || 1);
   const landedAt = Array(5).fill(null), seen = [];
-  for (let ms = 17; ms <= 1400 && el.sentMerge; ms += 2) {
+  for (let ms = 17; ms <= 4000 && el.sentMerge; ms += 2) {
     frame(ms);
     seen.push({ ms, x: copies.map(across), y: copies.map(shifted), strength: copies.map(strength), joined: Number(joined.style.opacity) });
     // landed: at the joined head (0 here) or past it, on the way to its own place
     copies.forEach((one, i) => { if (i < 4 && landedAt[i] === null && shifted(one) >= -1e-6) landedAt[i] = seen.length - 1; });
   }
   const end = seen.at(-1);
-  // the top's words stand in their joined place, across as well as down, on the frame it lands,
-  // which is before the joined bubble's copy comes up over them
+  // the top's words stand in their joined place down on the frame it lands, and across too
+  // before the joined bubble's copy comes up over them, which is after the top landed
   const top = seen[landedAt[0]];
   assert.ok(top, "the top bubble never landed");
-  assert.equal(top.x[0], end.x[0], "the top's words were still on their way across when it landed");
   assert.equal(top.y[0], end.y[0]);
-  assert.ok(seen.slice(0, landedAt[0]).every(f => f.joined === 0), "the joined bubble's copy came up before the top landed");
+  const up = seen.findIndex(f => f.joined > 0);
+  assert.ok(up > landedAt[0], "the joined bubble's copy came up before the top landed");
+  assert.equal(seen[up].x[0], end.x[0], "the top's words were still on their way across when the joined copy came up");
   // the second message's first line stands in the joined bubble's preview here; the others are under its cut
   assert.ok(end.y[1] > 0 && end.strength[1] === 1, "the second message's words did not go to their place");
   for (let i = 1; i <= 3; i++) {

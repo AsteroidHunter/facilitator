@@ -23,6 +23,11 @@ let keyPanels = null;
 // makes the Tab move out of the title in its own listener, and walks the rest of
 // the card with cardTab
 let keyboardTitle = false;
+// cardAnswerOff: where a card's response stands while it is not on the card, for
+// control+option+up and down (cardPlace): a function of the card's id answering
+// {holds(node), go()}, or null while it is on the card. the desktop's is the
+// response piped out beside a long reply; the phone has none
+let cardAnswerOff = null;
 // answeredRoomChanged: what a page does once the panel that stands ABOVE the
 // answer, holding the messages that answer was given, has taken its room or
 // given it back. it rides at the head of the answer's own scroller rather than
@@ -711,9 +716,10 @@ const CARD_SHORTCUT_DEFINITIONS = [
     match: e => e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing &&
       e.code === "Digit0" ? true : null,
   },
+  // an Escape an input method takes is its own (imeKey)
   {
     action: "escape", mini: false,
-    match: e => e.key === "Escape" ? true : null,
+    match: e => e.key === "Escape" && !imeKey(e) ? true : null,
   },
   // Enter alone selects the card on screen and puts the caret in its
   // composer. only the desktop board answers it, and only where nothing is
@@ -846,6 +852,15 @@ function controlShiftEnter(e){
 // move is on control+shift+enter and this key goes to the system untouched
 function bareControlEnter(e){
   return e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey;
+}
+
+// a key an input method takes: its Enter confirms the words it was building and
+// sends nothing, and its Escape lets them go and leaves the caret where it is.
+// WebKit ends the composition before that key arrives, so it comes with
+// isComposing false and only its keyCode, 229, says so. the formatter's own
+// Enter rule reads the same two (compose-format.js)
+function imeKey(e){
+  return e.isComposing || e.keyCode === 229;
 }
 
 // The card on screen stands raised, wearing its drop shadow, for as long as it
@@ -1409,9 +1424,9 @@ function composeTurn(id, el){
 // was left. one entry a card: { text, files }, the text as the row holds it,
 // markdown and all, and each file as the board's own address for it with what
 // its square shows. a file still on its way is not kept. nothing here goes to
-// the board. a send or an emptied row takes the entry away, and a card that is
-// gone from the board loses it. the Mac board and its phone view share one
-// browser and so one store; the phone keeps its own
+// the board. a send the board has taken or an emptied row takes the entry away,
+// and a card that is gone from the board loses it. the Mac board and its phone
+// view share one browser and so one store; the phone keeps its own
 const DRAFT_STORE = "composedrafts";
 let draftMemory = {};   // the same map, for a browser that will not keep it
 // an absent entry is an empty store and not a reason to read the memory: the
@@ -1483,7 +1498,16 @@ function draftSave(id){
   const own = (el.trayItems || []).filter(it => it.state === "done" && it.url);
   const held = el.trayHeld || new Set();
   const other = (draftOf(id)?.files || []).filter(f => !held.has(f.url) && !own.some(it => it.url === f.url));
-  draftPut(id, el.ta.value, [...other, ...own.map(draftFile)]);
+  const words = [...draftUnsent(el), el.ta.value].filter(text => String(text).trim()).join("\n\n");
+  draftPut(id, words, [...other, ...own.map(draftFile)]);
+}
+// the words of the Mac board's sends the board has not confirmed: on their way,
+// or held under the fail mark. they live in the page alone (sentLaunch), so the
+// draft keeps them, ahead of the row's own words, until the board has them, and
+// a reload gives them back in the row. the phone's sent list holds only what
+// the board confirmed; its own unsent messages are its operations' to keep
+function draftUnsent(el){
+  return [...(el.sentItems || []).filter(sentUndelivered), ...(el.sentHeld || [])].map(m => m.text);
 }
 // a card just built takes its kept draft back: the words, when the row is
 // empty, with the caret at their end, and the files into its tray. nothing is
@@ -2995,12 +3019,15 @@ function backoffMs(tries){ return Math.min(RETRY_MAX_MS, RETRY_MIN_MS * 2 ** Mat
 // the plus is not seated here: it has left the row for a bar of its own, and
 // that bar stands it on the row's own floor, so it holds
 // the bottom however many lines the row has grown to. css alone puts it there,
-// so a margin written onto it here could only lift it off the floor it keeps
-function seatSquare(ta, square){
+// so a margin written onto it here could only lift it off the floor it keeps.
+// scale: the screen's pixels to the row's own, where the page draws it scaled
+// (the Mac board's stage), so the row's height on screen is read in the same
+// pixels as its lines; a tall row read unscaled pushed the square off the card
+function seatSquare(ta, square, scale = 1){
   const cs = getComputedStyle(ta);
   const lh = parseFloat(cs.lineHeight);
   const pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
-  const hgt = ta.getBoundingClientRect().height;
+  const hgt = ta.getBoundingClientRect().height / scale;
   if (!lh || !hgt) return;
   const lines = Math.max(1, Math.round((ta.scrollHeight - pt - pb) / lh));
   const foot = ta.scrollHeight > ta.clientHeight + 1 ? hgt - pb : pt + lines * lh;
@@ -4295,6 +4322,7 @@ function sentLaunch(el, text, route){
   el.sendsOut = (el.sendsOut || 0) + 1;
   el.sendGuard = Infinity;
   syncSent(el, el.sentItems, true);
+  draftSave(draftCardOf(el));   // kept until the board has it (draftUnsent)
   return item;
 }
 function sentSettled(el){
@@ -4308,6 +4336,7 @@ function sentLanded(el, item){
   item.stage = "sent";
   sentSettled(el);
   syncSent(el, el.sentItems);
+  draftSave(draftCardOf(el));
 }
 // one try of a send, under the id it was minted with. the board keeps a receipt
 // beside the message, so a try asked again after a lost answer is answered from
@@ -4362,6 +4391,7 @@ function sentHeldLanded(el, item){
   el.sentItems = [...el.sentItems, item];
   if (!el.sendsOut) el.sendGuard = Date.now();
   syncSent(el, el.sentItems);
+  draftSave(draftCardOf(el));
   if (item.landed) item.landed();
 }
 // the words go back in the typing row, after what is already there and never
@@ -4703,38 +4733,40 @@ function dropSent(el){
 // MERGE_OUT_MS and fall the same way. the send's flight is 650ms and the
 // earlier messages glide in 340ms; the merge is longer than either, since what
 // it shows is a change of shape the eye has to follow, not a thing arriving:
-// the earlier bubble falls over the merge's first four fifths and the joint
-// settles over the last. from the moment the later bubble matches to the
-// moment it is one, 1.3s.
-// the fall: the earlier bubble moves straight down, keeping its height, on a
-// curve with no speed at its start and none at its landing, and nothing past
-// it (FALL_EASE); the later bubble stands where it is. as the earlier one
-// nears, its foot and the later one's head each bulge toward the other, the
-// bulges meet in the middle of the side they share, a neck forms there and
-// widens to the whole side as the foot sinks into the later bubble, the
-// narrower one flows out to the wider's width, and the joint settles into
-// one rounded bubble with nothing over or under it. the outline is drawn on every
-// frame as one clip path over a plain grey face (sentGooPath), the smooth union
-// of the two rounded boxes, so it is exactly the two boxes on the first frame
-// and exactly the joined bubble on the last. no blur, filter or mask: a blur
-// and threshold is what costs a phone's frames. the words ride on copies of
-// the two bubbles (sentSnapshot) to their places in the joined one, which is
-// already laid out, hidden, under them, and a copy of the joined bubble comes
-// up over the last fifth, so a merge that ends past its preview's cut
-// dissolves the new words into the cut and brings its arrow in rather than
-// switching to it
+// the drops meet and are one over the first third or so, the joined body
+// rights itself and the narrower one flows out over the merge's first four
+// fifths, and the joined bubble's copy comes up over the last. from the moment
+// the later bubble matches to the moment it is one, 1.3s.
+// the fall, drawn as two drops of that size, one falling onto the other, the
+// way drops meet (how drops meet, below): the earlier bubble falls straight
+// down from rest, keeping its height (sentDropFall); the later bubble stands
+// where it is. as the earlier one nears, its foot and the later one's head
+// swell toward each other, the swells touch near a point in the middle of the
+// side they share, a thin neck stands there and widens to the whole side, fast
+// at first, the gap on either side of it closing from the neck outward, and
+// the earlier drop is drawn into the later one (sentDropSwallow), its words
+// with it to their place and never past it, the waist this leaves filling in
+// as its foot sinks into the later bubble. the joined body's head dips a
+// little past its place and rights itself, a little less each time
+// (sentDropWobble), settling into one rounded bubble that never parts on the
+// way, and the narrower one flows out to the wider's width. the four outer
+// corners keep the bubbles' own round on every frame
+// (sentMergeShape). the outline is drawn on every frame as one clip path over
+// a plain grey face (sentGooPath), the smooth union of the two rounded boxes
+// and the neck, so it is exactly the two boxes on the first frame and exactly
+// the joined bubble on the last. no blur, filter or mask: a blur and threshold
+// is what costs a phone's frames, and would soften the words. the words ride
+// on copies of the two bubbles (sentSnapshot) to their places in the joined
+// one, which is already laid out, hidden, under them, and a copy of the joined
+// bubble comes up over the last fifth, so a merge that ends past its
+// preview's cut dissolves the new words into the cut and brings its arrow in
+// rather than switching to it
 const MERGE_OUT_MS = 300;
 const MERGE_IN_MS = 400;    // MARK_IN_MS, the sheet's --answ-come
 const MERGE_MS = 1000;
-// the earlier bubble falls over the first four fifths, and the joint settles
-// over the last
+// the narrower one has flowed out, and the joined body has stilled, by the end
+// of the first four fifths; the joined bubble's copy comes up over the last
 const MERGE_TRAVEL = .8;
-// how far it has fallen: from no speed, so it sets off softly, to no speed at
-// its landing, which it never passes (both handles stay inside the unit box).
-// a tenth of the way down at 143ms and half way at 281ms, where the curve
-// below is at 211ms and 370ms, so the fall is seen to start as the word goes
-const FALL_EASE = [.4, 0, .2, 1];
-const FALL_CURVE = sentCurve(FALL_EASE);
 // the curve two bubbles came together on before the earlier one fell: slow to
 // start and long to settle, with nothing past the end. the tab joint in
 // index.html runs its own join on it
@@ -4916,10 +4948,11 @@ function sentMerge(el, run){
   // the joined bubble is laid out up from the later one's foot, so the later
   // bubble stands where it is: its box ends where it starts, flowed out to the
   // joined bubble's width. the earlier one falls until its head is the joined
-  // bubble's head, its foot sunk into the later one by a corner each way past
-  // that one's own head, so the joint is gone once it has landed
+  // bubble's head, keeping its own height, and the neck fills whatever stands
+  // between its foot and the later one's head, so the joint is gone once it
+  // has landed (sentMergeShape)
   const L1 = { left:0, top:Math.max(0, Math.min(L0.top, H - 2 * r)), right:W, bottom:H };
-  const U1 = { left:0, top:0, right:W, bottom:Math.min(H, Math.max(U0.bottom - U0.top, L1.top + 2 * r)) };
+  const U1 = { left:0, top:0, right:W, bottom:Math.min(H, U0.bottom - U0.top) };
   const aStart = { x:U0.left, y:U0.top };
   const aEnd = { x:x(aTo.left) - (aFrom.left - A.left) / s.x, y:y(aTo.top) - (aFrom.top - A.top) / s.y };
   // words the cut will hide stay where they stood and fade as the earlier
@@ -4984,12 +5017,13 @@ function sentMerge(el, run){
   const spec = { U0, L0, U1, L1, r };
   const mix = (p, q, f) => p + (q - p) * f;
   const put = t => {
-    const { U, L, k, bow, ey, ew, sunk } = sentMergeShape(spec, t);
-    face.style.clipPath = 'path("' + sentGooPath(U, L, r, k, bow, ext) + '")';
+    const { U, L, N, k, bow, ey, ew, sunk, slide } = sentMergeShape(spec, t);
+    face.style.clipPath = 'path("' + sentGooPath(U, L, r, k, bow, ext, N) + '")';
     const ay = mix(aStart.y, aEnd.y, ey);
     aWords.style.transform = "translate(" + mix(aStart.x, aEnd.x, ew) + "px," + ay + "px)";
-    // the later words keep their line until the earlier bubble lands on them
-    bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, sunk) + "px)";
+    // the later words keep their line until the earlier drop touches them, then
+    // slide to their place more gently than the drop is drawn in
+    bWords.style.transform = "translate(" + mix(bStart.x, bEnd.x, ew) + "px," + mix(bStart.y, bEnd.y, slide) + "px)";
     // later words the joined bubble's cut hides go as the earlier foot sinks over
     // them, and are not drawn under it, where its arrow passes
     if (hidden){
@@ -4997,7 +5031,7 @@ function sentMerge(el, run){
       bWords.style.clipPath = "inset(" + Math.max(0, U.bottom - bStart.y) + "px 0 0 0)";
     }
     if (foot){
-      foot.place(L, sunk);
+      foot.place(L, slide);
       if (aClip) foot.under(aClip, ay + aCut);
     }
     if (mark) mark.style.top = L.bottom + "px";
@@ -5012,16 +5046,14 @@ function sentMerge(el, run){
       if (el.sentRoom) el.sentRoom();
     }
   };
-  // the bubbles the merge moves glide down with the fall, on its own curve
+  // the bubbles the merge moves glide down with the fall, the way the words fall
+  const lands = sentMergePlan(spec).lands;
   for (const { node, rect } of around){
     if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
     const after = node.getBoundingClientRect(), scale = sentScale(node, after);
     const dx = (rect.left - after.left) / scale.x, dy = (rect.top - after.top) / scale.y;
     if (Math.abs(dx) <= .5 && Math.abs(dy) <= .5) continue;
-    const transform = getComputedStyle(node).transform || "none";
-    run.shifts.push(node.animate(
-      [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
-      { duration:MERGE_MS * MERGE_TRAVEL, easing:"cubic-bezier(" + FALL_EASE.join(",") + ")" }));
+    run.shifts.push(sentGlide(node, dx, dy, ms => sentMergeShape(spec, ms / MERGE_MS).ey, lands));
   }
   put(0);   // the two bubbles as they stood, before any frame
   const t0 = performance.now();
@@ -5133,16 +5165,21 @@ function sentMergeLand(el){
 // ---- a column falling together -----------------------------------------------------------
 // three or more bubbles side by side standing in one place do not join two at
 // a time (the owner's word): once the word under each has gone they all let go
-// at the same moment and fall the way stacked blocks dropped together fall.
-// each falls from rest on the same steady pull (COLUMN_PULL), so while they all
-// fall they keep the room between them; the bubble at the foot stands where it
-// is, as the later bubble of a pair does, and the one just above it lands on it
-// first; each one above lands on the one below a moment later, the moments
-// coming closer as the ones higher up have gathered more speed, so the column
-// settles from the foot up. each lands with its head at the joined bubble's
-// head and stops there, as a dropped block stops, and its joint with what it
-// landed on settles over COLUMN_SETTLE_MS, as a pair's joint does over the
-// last fifth of its merge. the outline is each neighbouring pair's own
+// at the same moment and fall together, from rest on the same steady pull and
+// held to the same steady speed by drag (sentDropFall), so while they all fall
+// they keep the room between them. the bubble at the foot stands where it is,
+// as the later bubble of a pair does, and each bubble over it meets what stands
+// under it as two drops meet (how drops meet, below): the one just above the
+// foot first, its own swells touching, its own neck widening, drawn in and
+// giving the joined body its own dip, and then each one above in turn, from
+// the foot up. a drop drawn in goes quicker than the ones above fall, so a gap
+// opens over it and the next one falls across it to a fresh touch: each join
+// is seen on its own, a beat apart, rather than the column running down into
+// the joined bubble in one motion, which is what it did when the bubbles fell
+// as blocks, ever faster, and landed a few frames apart. a drop keeps its own
+// width while it falls and flows out to the joined width as it touches, at the
+// owner's gentler pace (COLUMN_FLOW_MS). each lands with its head at the
+// joined bubble's head. the outline is each neighbouring pair's own
 // (sentGooPath), on a grey face of its own, the faces together their union.
 // the words ride on copies of the bubbles. the top bubble's go to the joined
 // bubble's head. those of a bubble in the middle land there with it and are
@@ -5150,13 +5187,21 @@ function sentMergeLand(el){
 // joined bubble, or, where its cut hides them, faded out from the moment their
 // bubble touches what it lands on, so no two messages ever stand at the joined
 // head together. the foot's go as a pair's later words do, as the one over
-// it sinks onto them (in a column its words are always under the cut). the joined
-// bubble's copy comes up once the top one has landed. two bubbles keep the
-// pair's fall (sentMerge)
-const COLUMN_PULL = 1.25e-3;      // px per ms, per ms, in the joined bubble's own px
-// a column so tall its top would take longer than this falls on a harder pull instead
-const COLUMN_LONGEST_MS = 900;
+// it sinks onto them (in a column its words are always under the cut). the
+// joined bubble's copy comes up once every drop has flowed out and the body is
+// still. two bubbles keep the pair's fall (sentMerge)
+// a column so tall its top would take longer than this to land falls faster,
+// but never faster than COLUMN_DRIFT_MOST, so even a very tall column's joins
+// come a beat apart, about a ninth of a second for one-line bubbles
+const COLUMN_LONGEST_MS = 1500;
+const COLUMN_DRIFT_MOST = .75;
+// the joined bubble's copy comes up over the column's last COLUMN_SETTLE_MS
 const COLUMN_SETTLE_MS = 200;
+// a drop flows out to the joined width over this long, the pair's own pace, no
+// faster than 2.2 of the way a second, from COLUMN_FLOW_LEAD_MS before its
+// touch, as a pair's narrower one sets off a little before the two touch
+const COLUMN_FLOW_MS = 700;
+const COLUMN_FLOW_LEAD_MS = 100;
 // the bubbles from the i-th down that stand where it stands
 function sentColumnOf(panels, i){
   const stands = sentStands(panels[i].sentMsgs);
@@ -5264,7 +5309,7 @@ function sentColumnMerge(el, run){
     return { x:x(R.left) - offset(i).x, y:y(R.top) + pad - offset(i).y };
   });
   const plan = sentColumnPlan(B0, W, H, r);
-  const { falls, last, end } = plan;
+  const { falls, end } = plan;
   // the layer
   const layer = document.createElement("div");
   layer.className = "sentgoo";
@@ -5328,20 +5373,21 @@ function sentColumnMerge(el, run){
     const state = sentColumnShape(plan, ms);
     state.boxes.forEach((box, i) => {
       if (i < n - 1) faces[i].style.clipPath = 'path("' +
-        sentGooPath(box, state.boxes[i + 1], r, state.joints[i].k, state.joints[i].bow, ext) + '")';
+        sentGooPath(box, state.boxes[i + 1], r, state.joints[i].k, state.joints[i].bow, ext, state.joints[i].N) + '")';
     });
-    if (still) still.place(state.boxes[n - 1], state.joints[n - 2].sunk);
+    if (still) still.place(state.boxes[n - 1], state.joints[n - 2].slide);
     words.forEach((holderOf, i) => {
       const start = B0[i], home = homes[i];
-      // sunk onto it by the one above, and its share of its own fall
-      const over = i ? state.joints[i - 1].sunk : 0;
+      // touched by the one above, and sunk over by it
+      const over = i ? state.joints[i - 1].slide : 0, sunk = i ? state.joints[i - 1].sunk : 0;
       let at, strength = 1;
       if (i === n - 1){
         const to = home || { x:start.left, y:start.top };
         at = { x:mix(start.left, to.x, state.ewFoot), y:mix(start.top, to.y, over) };
-        // words the joined cut hides are not drawn under the one sinking over them
+        // words the joined cut hides go as the one over them sinks over them, and
+        // are not drawn under it
         if (!home){
-          strength = 1 - over;
+          strength = 1 - sunk;
           holderOf.style.clipPath = "inset(" + Math.max(0, state.boxes[n - 2].bottom - at.y) + "px 0 0 0)";
         }
       } else {
@@ -5349,15 +5395,14 @@ function sentColumnMerge(el, run){
         const down = { x:mix(start.left, landed[i].x, fall.ew), y:mix(start.top, landed[i].y, fall.share) };
         at = down;
         if (i){
-          // a middle bubble's words leave the joined head before the one above lands
-          // there: to their own place in the joined bubble from their own landing,
-          // or, where its cut hides them, gone from their own touch
+          // a middle bubble's words leave the joined head before the one above
+          // touches, so its words never pass over them on their way in: to their
+          // own place in the joined bubble, or, where its cut hides them, gone,
+          // both from their own touch
           const mine = falls[i], above = falls[i - 1];
-          const clear = from => sentSmooth((ms - from) / Math.max(1, above.lands - from));
-          if (home){
-            const go = clear(mine.lands);
-            at = { x:mix(down.x, home.x, go), y:mix(down.y, home.y, go) };
-          } else strength = 1 - clear(mine.touch);
+          const clear = sentSmooth((ms - mine.touch) / Math.max(1, above.touch - mine.touch));
+          if (home) at = { x:mix(down.x, home.x, clear), y:mix(down.y, home.y, clear) };
+          else strength = 1 - clear;
         }
       }
       holderOf.style.transform = "translate(" + at.x + "px," + at.y + "px)";
@@ -5365,7 +5410,7 @@ function sentColumnMerge(el, run){
       if (clips[i]) still.under(clips[i], at.y + cuts[i]);
     });
     if (mark) mark.style.top = state.boxes[n - 1].bottom + "px";
-    joined.style.opacity = String(sentSmooth((ms - last) / COLUMN_SETTLE_MS));
+    joined.style.opacity = String(sentSmooth((ms - end) / COLUMN_SETTLE_MS + 1));
     const left = Math.min(0, rise * (1 - state.joints[0].share));
     floor.style.top = left + "px";
     floor.style.height = -left + "px";
@@ -5375,16 +5420,14 @@ function sentColumnMerge(el, run){
       if (el.sentRoom) el.sentRoom();
     }
   };
-  // the bubbles above the column come down with its top one, on the same pull
+  // the bubbles above the column come down with its top one, the way it falls
+  const top = falls[0];
   for (const { node, rect } of around){
     if (!sentMotionVisible(node) || typeof node.animate !== "function") continue;
     const now = node.getBoundingClientRect(), scale = sentScale(node, now);
     const dx = (rect.left - now.left) / scale.x, dy = (rect.top - now.top) / scale.y;
     if (Math.abs(dx) <= .5 && Math.abs(dy) <= .5) continue;
-    const transform = getComputedStyle(node).transform || "none";
-    run.shifts.push(node.animate(
-      [{ transform:"translate(" + dx + "px," + dy + "px) " + (transform === "none" ? "" : transform) }, { transform }],
-      { duration:falls[0].lands, easing:"cubic-bezier(" + COLUMN_EASE.join(",") + ")" }));
+    run.shifts.push(sentGlide(node, dx, dy, ms => top.drop > 0 ? sentDropAt(top, ms, plan.drift) / top.drop : 1, top.lands));
   }
   put(0);   // the bubbles as they stood, before any frame
   const t0 = performance.now();
@@ -5399,113 +5442,319 @@ function sentColumnMerge(el, run){
   };
   run.raf = requestAnimationFrame(step);
 }
-// a fall from rest on a steady pull, as a css curve: the distance is the square
-// of the time, exactly
-const COLUMN_EASE = [1 / 3, 0, 2 / 3, 1 / 3];
 // the column's fall worked out once, from where its bubbles stand (B0, top to
 // foot, in the joined bubble's own px) and the joined bubble's width, height
 // and corner. the foot stands, flowed out to the joined width; each bubble
-// over it falls from rest until its head is the joined head, the one landing
-// on the foot sunk into it by a corner each way past the foot's head, as a
-// pair's is. for each: its drop, the room under it, where its foot meets what
-// it lands on (under: the foot's head, or the joined head the one under it
-// has landed at), the box it ends as (U1), the moment it lands and the moment
-// its foot touches. last is when the top one lands, end when it has settled
+// over it falls from rest until it touches what stands under it, the foot or
+// the drop under it as that one stands at the moment, and is then drawn in
+// until its head is the joined head, the one landing on the foot sunk into it
+// by a corner each way past the foot's head, as a pair's is. worked from the
+// foot up, since each falls onto the one under it as that one is drawn in and
+// dips. for each: its drop, the room under it, the box it ends as (U1), the
+// moment it touches, how it is drawn in, the moment it lands and its neck's
+// length (sentDropMeet); and the kicks each gives the joined body, which dips
+// and rights itself (sentColumnWobble). drift is the speed the drops are held
+// to, faster for a column so tall its top would take longer than
+// COLUMN_LONGEST_MS, up to COLUMN_DRIFT_MOST. last is when the top one lands,
+// end when every drop has flowed out, the body is still and the joined
+// bubble's copy has come up
 function sentColumnPlan(B0, W, H, r){
   const n = B0.length, L0 = B0[n - 1];
   const L1 = { left:0, top:Math.max(0, Math.min(L0.top, H - 2 * r)), right:W, bottom:H };
   const falls = B0.slice(0, -1).map((U0, i) => {
-    const onFoot = i === n - 2, tall = U0.bottom - U0.top;
-    return { U0, tall, drop:Math.max(0, -U0.top), gap:Math.max(0, B0[i + 1].top - U0.bottom),
-      under:onFoot ? L0.top : 0,
+    const onFoot = i === n - 2, tall = U0.bottom - U0.top, under = B0[i + 1];
+    const scale = sentDropScale(Math.min(tall, under.bottom - under.top) / 2);
+    return { U0, tall, drop:Math.max(0, -U0.top), gap:Math.max(0, under.top - U0.bottom),
+      S:DROP_SWALLOW_MS * scale, neckMs:DROP_NECK_MS * scale,
       U1:{ left:0, top:0, right:W, bottom:Math.min(H, Math.max(tall, (onFoot ? L1.top : 0) + 2 * r)) } };
   });
   const longest = Math.max(1, ...falls.map(f => f.drop));
-  const pull = Math.max(COLUMN_PULL, 2 * longest / (COLUMN_LONGEST_MS * COLUMN_LONGEST_MS));
-  const after = d => Math.sqrt(2 * Math.max(0, d) / pull);   // ms to fall d from rest
-  for (const f of falls){
-    f.lands = after(f.drop);
-    f.touch = Math.min(f.lands, after(f.under - f.tall - f.U0.top));
+  let drift = DROP_DRIFT;
+  if (sentDropFallTime(longest, drift) > COLUMN_LONGEST_MS){
+    let lo = drift, hi = 20 * drift;
+    for (let i = 0; i < 40; i++){ drift = (lo + hi) / 2; if (sentDropFallTime(longest, drift) > COLUMN_LONGEST_MS) lo = drift; else hi = drift; }
+    drift = Math.min(hi, COLUMN_DRIFT_MOST);
   }
-  const last = Math.max(...falls.map(f => f.lands));
-  return { falls, L0, L1, W, r, pull, last, end:last + COLUMN_SETTLE_MS };
+  const plan = { falls, L0, L1, W, r, drift, period:DROP_WOBBLE_MS * sentDropScale(H / 2), kicks:[] };
+  for (let i = n - 2; i >= 0; i--){
+    const f = falls[i], below = i < n - 2 ? falls[i + 1] : null;
+    const drawn = sentDropMeet(f, ms => below ? sentColumnHead(plan, below, ms) : L0.top, drift);
+    plan.kicks.push({ at:f.touch + f.S / 2, by:Math.min(r / 3, DROP_DIP * drawn) });
+  }
+  plan.last = Math.max(...falls.map(f => f.lands));
+  // the body is still once its wobble stays under a third of a pixel
+  let still = 0;
+  for (let ms = Math.max(...plan.kicks.map(kick => kick.at)); ms < plan.last + 3000; ms += 4)
+    if (Math.abs(sentColumnWobble(plan, ms)) >= 1 / 3) still = ms;
+  const flowed = Math.max(...falls.map(f => f.touch)) - COLUMN_FLOW_LEAD_MS + COLUMN_FLOW_MS;
+  plan.end = Math.max(plan.last, still, flowed) + COLUMN_SETTLE_MS;
+  return plan;
+}
+// the joined body's dip at ms, its head below its place: each drop drawn in
+// kicks it, half way through being drawn in, by as much as it brings, and each
+// kick's wobble dies away on the body's own period. never more than a third of
+// a corner, however the kicks fall together
+function sentColumnWobble(plan, ms){
+  let dip = 0;
+  for (const kick of plan.kicks) dip += kick.by * sentDropWobble(ms - kick.at, plan.period);
+  return Math.max(-plan.r / 3, Math.min(plan.r / 3, dip));
+}
+// the head of one drop of the column at ms, as what falls onto it sees it: its
+// fall and how far it has been drawn in, and the body's dip once it has joined it
+function sentColumnHead(plan, f, ms){
+  return f.U0.top + sentDropAt(f, ms, plan.drift) + sentColumnWobble(plan, ms) * sentSmooth((ms - f.touch) / Math.max(1, f.S));
 }
 // the column at ms into its fall. for each bubble over the foot: its box, how
-// far it has fallen as a share of its drop (share), how far it has flowed out
-// to the joined width (ew, whole by its landing), how far its foot has sunk
-// into what it landed on (sunk: from the touch to the end of its settling),
-// and its joint with what is
-// under it, bulging as the room between them closes (bow) and reaching across
-// as they meet (k), let go as it settles, as a pair's are (sentMergeShape).
-// the foot flows out as the one landing on it falls and settles
-function sentColumnShape({ falls, L0, L1, r, pull }, ms){
+// far its words have fallen as a share of its drop (share), how far it has
+// flowed out to the joined width (ew, from its touch), how far its foot has
+// sunk into what it landed on (sunk, as it is drawn in), how far the words it
+// touches have slid (slide), and its joint with what is under it: the swells as
+// the room between them closes (bow), the neck from the touch (N) and the
+// meniscus reaching across as they meet (k), let go over the column's last
+// COLUMN_SETTLE_MS, as a pair's are (sentMergeShape). the foot flows out from
+// the first touch. dip is the joined body's
+function sentColumnShape(plan, ms){
+  const { falls, L0, L1, r, drift, end } = plan;
   const mix = (p, q, f) => p + (q - p) * f;
+  const letgo = sentSmooth((ms - end) / COLUMN_SETTLE_MS + 1);
+  const dip = sentColumnWobble(plan, ms) * (1 - letgo);
   const boxes = [], joints = [];
   for (const f of falls){
-    const fallen = ms >= f.lands ? f.drop : Math.min(f.drop, .5 * pull * ms * ms);
-    const sunk = sentSmooth((ms - f.touch) / (f.lands - f.touch + COLUMN_SETTLE_MS));
-    // flowed out by its landing, so the top one's words stand in their joined place
-    // before the joined bubble's copy comes up over them, as a pair's do
-    const ew = sentSmooth(ms / Math.max(1, f.lands));
+    const fallen = sentDropAt(f, ms, drift);
+    const sunk = ms < f.touch ? 0 : f.S ? sentDropSwallow((ms - f.touch) / f.S, f.m0) : 1;
+    const ew = sentSmooth((ms - f.touch + COLUMN_FLOW_LEAD_MS) / COLUMN_FLOW_MS);
     const top = f.U0.top + fallen;
-    boxes.push({ left:mix(f.U0.left, f.U1.left, ew), right:mix(f.U0.right, f.U1.right, ew), top,
+    boxes.push({ left:mix(f.U0.left, f.U1.left, ew), right:mix(f.U0.right, f.U1.right, ew),
+      top:top + dip * sentSmooth((ms - f.touch) / Math.max(1, f.S)),
       bottom:top + f.tall + (f.U1.bottom - f.U1.top - f.tall) * sunk });
-    joints.push({ share:f.drop > 0 ? fallen / f.drop : 1, ew, sunk, settle:sentSmooth((ms - f.lands) / COLUMN_SETTLE_MS) });
+    joints.push({ share:f.drop > 0 ? fallen / f.drop : 1, ew, sunk, slide:sentSmooth((ms - f.touch) / MERGE_SLIDE_MS) });
   }
   const onFoot = falls[falls.length - 1], footSunk = joints[joints.length - 1].sunk;
-  const ewFoot = sentSmooth(ms / (onFoot.lands + COLUMN_SETTLE_MS));
+  const ewFoot = sentSmooth((ms - onFoot.touch + COLUMN_FLOW_LEAD_MS) / COLUMN_FLOW_MS);
   boxes.push({ left:mix(L0.left, L1.left, ewFoot), right:mix(L0.right, L1.right, ewFoot),
     top:mix(L0.top, L1.top, footSunk), bottom:mix(L0.bottom, L1.bottom, footSunk) });
   falls.forEach((f, i) => {
-    const room = Math.max(0, boxes[i + 1].top - (boxes[i].top + f.tall));
-    const near = f.gap > 0 ? 1 - Math.min(1, room / f.gap) : 1;
-    const bulge = Math.max(4, .3 * f.gap), reach = Math.max(1.5 * r, 1.65 * f.gap);
-    joints[i].bow = bulge * sentSmooth(near / .8) * (1 - sentSmooth(joints[i].sunk / .55));
-    joints[i].k = reach * sentSmooth((near - .45) / .5) * (1 - joints[i].settle);
+    const U = boxes[i], L = boxes[i + 1], joint = joints[i];
+    const neck = ms < f.touch ? 0 : sentNeck((ms - f.touch) / f.neckMs);
+    joint.bow = sentSwell(f.gap, L.top - U.bottom, ms >= f.touch) * (1 - letgo);
+    joint.k = 1.5 * r * sentSmooth(neck / .5) * (1 - letgo);
+    joint.N = neck > 0 ? sentNeckBox(U, L, r, neck) : null;
   });
-  return { boxes, joints, ewFoot };
+  return { boxes, joints, ewFoot, dip };
 }
 
-// the two bubbles at one moment t (0 to 1) of their merge: the earlier box U
-// falling from where it stood (U0) to the joined bubble's head (U1), the later
-// box L standing where it stood (L0, which L1 keeps but for its width), how
-// far the sides they share bulge toward each other (bow) and how far their
-// union reaches across (k). the earlier box falls over the first MERGE_TRAVEL
-// and the joint settles over the rest, so the joined bubble's copy comes up
-// over words that have already landed. it falls at its own height until its
-// foot reaches the later one's head, and from there its foot sinks into the
-// later one (sunk, 0 at the touch and 1 on landing) while its head lands, so
-// nothing over the later bubble's head ever stretches. the bulging and the
-// reach follow how near the two faces have come rather than the clock, so
-// whatever the distance they swell toward each other, touch in the middle of
-// the side they share before the faces meet, and the neck widens from there;
-// the bulge lets go as the foot sinks and the reach over the last half, and
-// the joint settles into one rounded bubble. ey is the fall, ew across: the
-// narrower bubble flowing out to the wider's width, and its words, a shorter
-// message's moving left to the joined bubble's edge, which go at the gentler
-// pace the owner asked for:
-// over the whole of the travel from a tenth in, 700ms, rather than 450ms from
-// a fifth in, the fastest frame a little under two thirds as fast as it was
+// ---- how drops meet ------------------------------------------------------------------------
+// one drop meeting another, for a pair and for every joint of a column alike,
+// as high speed footage of drops coalescing shows it and the physics of it has
+// it. a drop falls from rest on a steady pull, and the drag on it holds it to a
+// steady speed (sentDropFall): it goes (v * v / g) ln cosh(g t / v) in t, a fall
+// from rest at first and a steady drift after. as two drops near, their facing
+// sides swell toward each other and touch near a point (sentSwell); a thin neck
+// forms there and widens very fast, fastest at the touch, as a liquid bridge
+// does (sentNeck), and the drop is drawn into the one under it, quicker than
+// it fell (sentDropSwallow). the joined body overshoots, its head dipping past
+// its place, and rights itself in a wobble that dies away (sentDropWobble),
+// the outline smooth throughout.
+// these drops are thicker than water, which would throw a droplet back up as
+// it joined: they never part, and the wobble dies within a period or two. how
+// long a drop takes goes as its own time does, which grows with its size to
+// the power one and a half, so a small drop joins faster than a big one
+// (sentDropScale), held between 0.8 and 1.5 times a one-line bubble's so
+// neither end drags. all in the joined bubble's own px
+const DROP_PULL = 1.25e-3;     // px per ms, per ms
+const DROP_DRIFT = .5;         // px per ms: the steady speed drag holds a drop to
+const DROP_SIZE = 28;          // a one-line bubble's half height: the drop the times below are for
+const DROP_NECK_MS = 130;      // the neck, from a point to the whole side
+const DROP_SWALLOW_MS = 110;   // drawn in, from the touch to its place
+const DROP_EAGER = 2.5;        // the fastest a drop drawn in sets off, as a share of its mean speed
+const DROP_WOBBLE_MS = 260;    // the joined body's own period
+const DROP_DAMP = .35;         // the wobble's damping, a share of what would stop it dead
+const DROP_DIP = .12;          // the dip, a share of how far the drop is drawn in, at most a third of a corner
+function sentDropScale(size){
+  return Math.max(.8, Math.min(1.5, Math.pow(Math.max(0, size) / DROP_SIZE, 1.5)));
+}
+// how far a drop let go at rest has fallen at ms, and how fast it is going
+function sentDropFall(ms, drift = DROP_DRIFT){
+  if (!(ms > 0)) return 0;
+  const x = DROP_PULL * ms / drift;
+  return drift * drift / DROP_PULL * (x + Math.log1p(Math.exp(-2 * x)) - Math.LN2);
+}
+function sentDropSpeed(ms, drift = DROP_DRIFT){
+  return ms > 0 ? drift * Math.tanh(DROP_PULL * ms / drift) : 0;
+}
+// and how long it takes to fall d
+function sentDropFallTime(d, drift = DROP_DRIFT){
+  if (!(d > 0)) return 0;
+  const e = d * DROP_PULL / (drift * drift);
+  return drift / DROP_PULL * (e + Math.log(1 + Math.sqrt(1 - Math.exp(-2 * e))));
+}
+// the share of the way a drop drawn in has gone, u from its touch (0) to its
+// place (1): setting off at m0 times its mean speed, the speed it fell at, and
+// coming to rest at its place without passing it (m0 at most 3)
+function sentDropSwallow(u, m0){
+  const f = Math.max(0, Math.min(1, u));
+  return m0 * f * (1 - f) * (1 - f) + f * f * (3 - 2 * f);
+}
+// the joined body's head, past its place, ms after a kick: down first, back up
+// over its place a little less, and so on, on the body's own period, the first
+// dip 1. a damped spring, as a joined drop's own shape swings and settles
+const sentWobbles = new Map();
+function sentDropWobble(ms, period){
+  if (!(ms > 0) || !(period > 0)) return 0;
+  let w = sentWobbles.get(period);
+  if (!w){
+    const wd = 2 * Math.PI / period, decay = DROP_DAMP * wd / Math.sqrt(1 - DROP_DAMP * DROP_DAMP);
+    const peak = Math.atan(wd / decay) / wd;
+    sentWobbles.set(period, w = { wd, decay, peak, top:Math.sin(wd * peak) });
+  }
+  return Math.exp(-w.decay * (ms - w.peak)) * Math.sin(w.wd * ms) / w.top;
+}
+// the neck's share of the side the two share, from the touch (x 0) to the
+// whole side (x 1): fastest at the touch and slower as it fills, as a liquid
+// bridge widens. a real one goes as the square root of the time, half the side
+// in the first frame here, which reads as a pop rather than a neck; this one is
+// a quarter of the side a frame in, and eases into the side's ends
+function sentNeck(x){
+  const f = Math.max(0, Math.min(1, x));
+  return 1 - (1 - f) * (1 - f);
+}
+// the neck at that share: a box in the middle of the side U and L share, its
+// ends inside both faces
+function sentNeckBox(U, L, r, neck){
+  const left = Math.max(U.left, L.left), right = Math.min(U.right, L.right);
+  const middle = (left + right) / 2, half = Math.max(0, right - left) / 2 * neck;
+  const a = U.bottom - r, b = L.top + r;
+  return { left:middle - half, right:middle + half, top:Math.min(a, b), bottom:Math.max(a, b) };
+}
+// how far the faces of two drops swell toward each other, gap apart at first
+// and room apart now: growing as the room closes, until the two touch with a
+// fifth of the gap left on either side (MERGE_TOUCH); once touched, giving way
+// as the faces meet, slower than the room closes, so the touch runs out along
+// the side to its ends as the gap narrows to nothing and no flat slit is left.
+// a drop drawn in before its swells have met keeps them growing until they do
+function sentSwell(gap, room, touched){
+  const reach = gap * (1 - MERGE_TOUCH), bulge = reach / 2;
+  const grow = gap > reach ? sentSmooth((gap - Math.max(0, room)) / (gap - reach)) : 1;
+  if (!touched) return bulge * grow;
+  return reach > 0 ? bulge * Math.min(grow, Math.sqrt(Math.max(0, Math.min(1, room / reach)))) : 0;
+}
+// when a falling drop f touches what stands under it, whose head is under(ms):
+// once the room between them has closed to the swells' reach, or sooner where
+// it would reach its place first, since a drop drawn in comes to rest there
+// without passing it. sets the touch, how far it has fallen then (from), how
+// it is drawn in (S, m0) and when it lands, and answers how far it is drawn.
+// one with no way to fall has its foot let down over the same S all the same
+function sentDropMeet(f, under, drift){
+  const reach = f.gap * (1 - MERGE_TOUCH);
+  const met = at => {
+    const fallen = sentDropFall(at, drift);
+    return f.drop - fallen <= sentDropSpeed(at, drift) * f.S / DROP_EAGER || under(at) - (f.U0.bottom + fallen) <= reach;
+  };
+  // four ms at a time, then the ms
+  let at = 0;
+  while (at < 20000 && !met(at)) at += 4;
+  if (at) for (let back = at - 3; back < at; back++) if (met(back)){ at = back; break; }
+  f.touch = at;
+  f.from = Math.min(f.drop, sentDropFall(at, drift));
+  const left = f.drop - f.from;
+  f.m0 = left > .5 ? Math.min(DROP_EAGER, sentDropSpeed(at, drift) * f.S / left) : 0;
+  f.lands = f.touch + f.S;
+  return Math.max(0, left);
+}
+// how far a drop's words have fallen at ms: free until the touch, then drawn in
+function sentDropAt(f, ms, drift){
+  if (ms < f.touch) return Math.min(f.drop, sentDropFall(ms, drift));
+  if (!f.S || ms >= f.lands) return f.drop;
+  return f.from + (f.drop - f.from) * sentDropSwallow((ms - f.touch) / f.S, f.m0);
+}
+// a bubble a merge moves, gliding from dx, dy away to where it stands, the way
+// share goes from 0 to 1 over ms: a keyframe a frame apart, joined straight
+function sentGlide(node, dx, dy, share, ms){
+  const transform = getComputedStyle(node).transform || "none";
+  const own = transform === "none" ? "" : " " + transform;
+  const steps = Math.max(1, Math.ceil(ms / SENT_FRAME_MS));
+  const keys = [];
+  for (let i = 0; i <= steps; i++){
+    const left = 1 - share(ms * i / steps);
+    keys.push({ offset:i / steps, transform:"translate(" + dx * left + "px," + dy * left + "px)" + own });
+  }
+  return node.animate(keys, { duration:Math.max(1, ms), easing:"linear" });
+}
+
+// the two bubbles at one moment t (0 to 1) of their merge, drawn as two drops
+// of that size, the earlier falling onto the later and the two running into one
+// body that never parts (how drops meet, above). U is the earlier box falling
+// from where it stood (U0) to the joined bubble's head (U1), L the later box
+// standing where it stood (L0, which L1 keeps but for its width). the earlier
+// box falls at its own height (fall, and ey its share of the way), and its
+// words with it, until the swells touch; a thin neck (N) stands where they
+// touched and widens across the whole side, its sides running into the two
+// faces on concave curves that reach k (the meniscus), the swells going into
+// it, and the earlier drop is drawn in, its foot sinking into the later drop
+// (sunk, 0 at the touch and 1 on landing), its words landing in their place and
+// passing nothing. the later words slide to theirs more gently (slide). the
+// head, which carries no words of its own, dips a little past its place and
+// rights itself (sentDropWobble), let go before the joined bubble's copy comes
+// up over the last fifth. the four outer corners keep the bubbles' own round
+// on every frame: nothing blends near them (sentGooPath), and while the two
+// still differ in width the step between them is kept a corner and a half off
+// the outer corners, the earlier foot stopping over the later one's foot
+// corner and giving way by at most half a corner, so its meniscus has room and
+// never runs into a corner. ew is across: the narrower bubble flowing out to
+// the wider's width, and its words, a shorter message's moving left to the
+// joined bubble's edge, at the gentler pace the owner asked for: over the
+// whole of the travel from a tenth in, 700ms, rather than 450ms from a fifth
+// in, the fastest frame a little under two thirds as fast as it was
 const MERGE_ACROSS_FROM = .1;
-function sentMergeShape({ U0, L0, U1, L1, r }, t){
-  const ey = FALL_CURVE(Math.min(1, t / MERGE_TRAVEL));
+// the share of the room closed when the swells touch
+const MERGE_TOUCH = .6;
+// the later words, the joined cut and its arrow, from the touch to their place
+const MERGE_SLIDE_MS = 360;
+// the head's wobble is let go from here to the end of the travel
+const MERGE_STILL = .65;
+// what a merge's frames share, worked out once per merge: the earlier drop's
+// fall and the room under it, its touch and how it is drawn in (sentDropMeet),
+// its neck, and the joined body's period and dip
+const sentMergePlans = new WeakMap();
+function sentMergePlan(spec){
+  let plan = sentMergePlans.get(spec);
+  if (plan) return plan;
+  const { U0, L0, U1, L1, r } = spec;
+  const tall = U0.bottom - U0.top, scale = sentDropScale(Math.min(tall, L0.bottom - L0.top) / 2);
+  // the way the room between the two closes: the earlier one's fall, and the
+  // later one's rise where its place in the joined bubble is higher than it stands
+  plan = { U0, tall, drop:Math.max(0, (U1.top - U0.top) + (L0.top - L1.top)), gap:Math.max(0, L0.top - U0.bottom),
+    S:DROP_SWALLOW_MS * scale, neckMs:DROP_NECK_MS * scale, period:DROP_WOBBLE_MS * sentDropScale((L1.bottom - U1.top) / 2) };
+  const drawn = sentDropMeet(plan, () => L0.top, DROP_DRIFT);
+  plan.kick = plan.touch + plan.S / 2;
+  plan.dip = Math.min(r / 3, DROP_DIP * drawn);
+  sentMergePlans.set(spec, plan);
+  return plan;
+}
+function sentMergeShape(spec, t){
+  const { U0, L0, U1, L1, r } = spec;
+  const plan = sentMergePlan(spec), ms = t * MERGE_MS;
+  const ey = plan.drop > 0 ? sentDropAt(plan, ms, DROP_DRIFT) / plan.drop : 1;
   const ew = sentSmooth((t - MERGE_ACROSS_FROM) / (MERGE_TRAVEL - MERGE_ACROSS_FROM));
   const mix = (p, q, f) => p + (q - p) * f;
   const across = (from, to) => ({ left:mix(from.left, to.left, ew), right:mix(from.right, to.right, ew) });
-  const gap = Math.max(0, L0.top - U0.bottom);
-  // the share of the fall at which the two faces would meet with no help
-  const travel = (U1.top - U0.top) + (L0.top - L1.top);
-  const meet = travel > 0 ? Math.min(1, gap / travel) : 0;
-  const near = meet > 0 ? ey / meet : 1;
-  const from = Math.min(meet, .9);
-  const sunk = sentSmooth((ey - from) / (1 - from));
-  const top = mix(U0.top, U1.top, ey), tall = U0.bottom - U0.top;
-  const U = { ...across(U0, U1), top, bottom:top + tall + (U1.bottom - U1.top - tall) * sunk };
+  const touched = ms >= plan.touch;
+  const sunk = !touched ? 0 : plan.S ? sentDropSwallow((ms - plan.touch) / plan.S, plan.m0) : 1;
+  const slide = touched ? sentSmooth((ms - plan.touch) / MERGE_SLIDE_MS) : 0;
+  // fall is where the words' head stands; the outline's head dips past it
+  const fall = mix(U0.top, U1.top, ey), tall = U0.bottom - U0.top;
+  const still = 1 - sentSmooth((t - MERGE_STILL) / (MERGE_TRAVEL - MERGE_STILL));
+  const head = fall + plan.dip * sentDropWobble(ms - plan.kick, plan.period) * still;
+  const U = { ...across(U0, U1), top:head, bottom:fall + tall + (U1.bottom - U1.top - tall) * sunk };
   const L = { ...across(L0, L1), top:mix(L0.top, L1.top, ey), bottom:mix(L0.bottom, L1.bottom, ey) };
-  const bulge = Math.max(4, .3 * gap), reach = Math.max(1.5 * r, 1.65 * gap);
-  const bow = bulge * sentSmooth(near / .8) * (1 - sentSmooth(sunk / .55));
-  const k = reach * sentSmooth((near - .45) / .5) * (1 - sentSmooth((t - .4) / .45));
-  return { U, L, k, bow, ey, ew, sunk };
+  // the foot is let down only once the step is under a pixel, where nothing of it shows
+  const step = sentSmooth(Math.max(Math.abs(U.left - L.left), Math.abs(U.right - L.right)));
+  U.bottom = Math.min(U.bottom, Math.max(L.bottom - 1.5 * r * step, U.bottom - r / 2));
+  const bow = sentSwell(plan.gap, L.top - U.bottom, touched);
+  const neck = touched ? sentNeck((ms - plan.touch) / plan.neckMs) : 0;
+  const k = 1.5 * r * sentSmooth(neck / .5) * (1 - sentSmooth((t - MERGE_TRAVEL) / (1 - MERGE_TRAVEL)));
+  const N = neck > 0 ? sentNeckBox(U, L, r, neck) : null;
+  return { U, L, N, k, bow, ey, ew, sunk, slide, fall };
 }
 
 // a css cubic-bezier as a function of its x, found by halving
@@ -5552,63 +5801,123 @@ function sentBoxPath(b, r, px, py){
     "V" + py(b.bottom - c) + arc + px(b.right - c) + " " + py(b.bottom) + "H" + px(b.left + c) +
     arc + px(b.left) + " " + py(b.bottom - c) + "V" + py(b.top + c) + arc + px(b.left + c) + " " + py(b.top) + "Z";
 }
+// the smooth union of two distances, reaching k: the plain union where they
+// differ by k or more
+function sentBlend(a, b, k){
+  if (!(k > 0)) return Math.min(a, b);
+  const h = Math.max(k - Math.abs(a - b), 0) / k;
+  return Math.min(a, b) - h * h * k / 4;
+}
 // the two bubbles' outline at one moment of the merge, as path data in the
 // face's own px (ext is the face's box): U the earlier, L the later, r their
-// corner, k the reach of their smooth union and bow how far the sides they
-// share bulge toward each other. with neither, it is the two boxes as they
-// are. with them, the outline is found row by row, half a pixel apart, where
-// the two can touch, and is the boxes' own above and below that band; the
-// union is never let out past the two boxes' outer sides, so the joint
-// fills in but never swells past the column's edge
-function sentGooPath(U, L, r, k, bow, ext){
+// corner, k the reach of the meniscus where they and the neck meet, bow how far
+// the sides they share swell toward each other and N the neck, a box between
+// the two faces with its ends inside them, or null. with no reach, swell or
+// neck it is the two boxes as they are, and once the two stand at one width
+// and are one body it is exactly the joined bubble. otherwise the outline is
+// found row by row, half a pixel apart, where the two can touch, and is the
+// boxes' own above and below that band. the union is never let out past the
+// two boxes' outer sides, so the joint fills in but never swells past the
+// column's edge. the four outer corners, the earlier box's head and the later
+// one's foot, keep the bubbles' own round on every frame: the reach falls away
+// to nothing over a corner's length as it nears each corner's square, so
+// nothing swells a corner out or squares it off against a side, the head or
+// the foot, which is what turned the corners pointy before the join was done
+function sentGooPath(U, L, r, k, bow, ext, N = null){
   const px = v => (v - ext.left).toFixed(2), py = v => (v - ext.top).toFixed(2);
-  if (k < .01 && bow < .01) return sentBoxPath(U, r, px, py) + sentBoxPath(L, r, px, py);
+  const neck = N && N.right - N.left > .01 && N.bottom > N.top ? N : null;
   const right = Math.max(U.right, L.right), left = Math.min(U.left, L.left);
-  const shared = Math.max(U.left, L.left), middle = (shared + right) / 2, span = Math.max(1, (right - shared) / 2);
+  const top = Math.min(U.top, L.top), bottom = Math.max(U.bottom, L.bottom);
+  // one width and one body: the two overlap by a corner each way, or the neck
+  // fills the whole side between them
+  if (bow < .01 && Math.abs(U.left - L.left) < 1e-6 && Math.abs(U.right - L.right) < 1e-6 &&
+      (Math.min(U.bottom, L.bottom) - Math.max(U.top, L.top) >= 2 * r - 1e-6 || neck && neck.left <= left + 1e-6 &&
+        neck.right >= right - 1e-6 && neck.top <= U.bottom - r + 1e-6 && neck.bottom >= L.top + r - 1e-6))
+    return sentBoxPath({ left, top, right, bottom }, r, px, py);
+  if (k < .01 && bow < .01 && !neck) return sentBoxPath(U, r, px, py) + sentBoxPath(L, r, px, py);
+  // one inside the other, as two drops of a column are once both have landed at
+  // the joined head: the outer one, which the union never passes and whose
+  // sides and corners the reach is kept off, so tracing it draws it to within a
+  // tenth of a pixel
+  const holds = (a, b) => b.left >= a.left - 1e-6 && b.right <= a.right + 1e-6 && b.top >= a.top - 1e-6 && b.bottom <= a.bottom + 1e-6;
+  if (bow < .01 && (holds(U, L) || holds(L, U))) return sentBoxPath(holds(U, L) ? U : L, r, px, py);
+  // the swells run the length of the side the two share, highest in its middle
+  // and rounder there than at its ends, so they meet near a point, as drops do
+  const shared = Math.max(U.left, L.left), sharedRight = Math.min(U.right, L.right);
+  const middle = (shared + sharedRight) / 2, span = Math.max(1, (sharedRight - shared) / 2);
   const uMid = (U.top + U.bottom) / 2, uHalf = Math.max(1, (U.bottom - U.top) / 2);
   const lMid = (L.top + L.bottom) / 2, lHalf = Math.max(1, (L.bottom - L.top) / 2);
-  // the reach is the joint's alone: whole within three quarters of a corner of
-  // the two faces, and gone a corner and three quarters away, so a narrower
-  // bubble's far corners keep their own round while it flows out to the
-  // wider's width
-  const faceTop = Math.min(U.bottom, L.top), faceFoot = Math.max(U.bottom, L.top);
-  const reachAt = fy => k * (1 - sentSmooth((Math.max(0, faceTop - fy, fy - faceFoot) - .75 * r) / r));
-  const field = (fx, fy) => {
-    const u = (fx - middle) / span, swell = u * u < 1 ? bow * (1 - u * u) * (1 - u * u) : 0;
-    const du = sentBoxDistance(fx, fy, U, r) - (swell ? swell * Math.max(0, Math.min(1, (fy - uMid) / uHalf)) : 0);
-    const dl = sentBoxDistance(fx, fy, L, r) - (swell ? swell * Math.max(0, Math.min(1, (lMid - fy) / lHalf)) : 0);
-    let d = Math.min(du, dl);
-    const kk = reachAt(fy);
-    if (kk > 0){
-      const h = Math.max(kk - Math.abs(du - dl), 0) / kk;
-      d -= h * h * kk / 4;
+  // the squares of the four outer corners, by their top left points, and of
+  // the two at the joint as far as they too stand at the head or the foot (in a
+  // column every bubble over the foot lands at the joined head)
+  const atHead = 1 - sentSmooth((L.top - top) / r), atFoot = 1 - sentSmooth((bottom - U.bottom) / r);
+  const corners = [[U.left, U.top, 1], [U.right - r, U.top, 1], [L.left, L.bottom - r, 1], [L.right - r, L.bottom - r, 1],
+    [L.left, L.top, atHead], [L.right - r, L.top, atHead], [U.left, U.bottom - r, atFoot], [U.right - r, U.bottom - r, atFoot]]
+    .filter(([, , w]) => w > 0);
+  // and the reach is held under twice the way to the nearest outer side, the
+  // head or the foot, so what it swells never reaches them to be cut off there,
+  // which squares a corner (as a narrower bubble's step closed, the upper
+  // bubble's corner beside it was squared against the side)
+  const reachAt = (fx, fy) => {
+    let f = 1;
+    for (const [cx, cy, w] of corners){
+      const dx = Math.max(cx - fx, 0, fx - cx - r), dy = Math.max(cy - fy, 0, fy - cy - r);
+      if (dx >= r || dy >= r) continue;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < r) f *= 1 - w * (1 - sentSmooth(d / r));
     }
+    const kk = k * f, edge = 2 * Math.min(fx - left, right - fx, fy - top, bottom - fy);
+    return kk > 0 && edge > 0 ? kk * edge / (kk + edge) : 0;
+  };
+  // the neck's own meniscus lets go as it reaches the ends of the side the two
+  // share: there its sides lie on the narrower bubble's, and a union of two
+  // edges lying on each other swells them out
+  const neckReach = neck ? sentSmooth(Math.min(neck.left - shared, sharedRight - neck.right) / r) : 0;
+  const field = (fx, fy) => {
+    const u = (fx - middle) / span, v = 1 - u * u, swell = v > 0 && bow > 0 ? bow * v * v * v : 0;
+    const du = sentBoxDistance(fx, fy, U, r) - (swell ? swell * (1 - atFoot) * Math.max(0, Math.min(1, (fy - uMid) / uHalf)) : 0);
+    const dl = sentBoxDistance(fx, fy, L, r) - (swell ? swell * (1 - atHead) * Math.max(0, Math.min(1, (lMid - fy) / lHalf)) : 0);
+    const kk = k > 0 ? reachAt(fx, fy) : 0;
+    let d = sentBlend(du, dl, kk);
+    if (neck) d = sentBlend(d, sentBoxDistance(fx, fy, neck, 0), kk * neckReach);
     return Math.max(d, fx - right, left - fx);
   };
-  const top = Math.min(U.top, L.top), bottom = Math.max(U.bottom, L.bottom);
   const near = r + k / 2 + bow + 2;
-  const from = Math.min(U.bottom, L.top) - near, to = Math.max(U.bottom, L.top) + near;
+  const from = Math.min(U.bottom, L.top, neck ? neck.top : Infinity) - near;
+  const to = Math.max(U.bottom, L.top, neck ? neck.bottom : -Infinity) + near;
   const loops = [];
   let loop = null;
+  // a row's edge between a point outside and one inside, to a hundredth of a
+  // pixel; tried first within four pixels of the row above's, where it nearly
+  // always is, which halves the work of a frame
+  const edge = (out, inn, fy, steps) => {
+    for (let i = 0; i < steps; i++){ const m = (out + inn) / 2; if (field(m, fy) < 0) inn = m; else out = m; }
+    return inn;
+  };
+  const near4 = (was, inside, fy, side) => {
+    const out = was - 4 * side, inn = was + 4 * side;
+    return (inn - inside) * side <= 0 && field(out, fy) >= 0 && field(inn, fy) < 0 ? edge(out, inn, fy, 10) : null;
+  };
+  let last = null;
   for (let fy = top + .01; ; fy = Math.min(fy + .5, bottom - .01)){
     let across = null;
     if (fy < from) across = sentBoxRow(U, r, fy);
     else if (fy > to) across = sentBoxRow(L, r, fy);
     else {
       let inside = null, low = Infinity;
-      for (let i = 0; i <= 12; i++){
+      if (last && field((last[0] + last[1]) / 2, fy) < 0){ inside = (last[0] + last[1]) / 2; low = -1; }
+      else for (let i = 0; i <= 12; i++){
         const fx = i < 10 ? left + (right - left) * (i + .5) / 10 : i === 10 ? middle : i === 11 ? (U.left + U.right) / 2 : (L.left + L.right) / 2;
         const f = field(fx, fy);
         if (f < low){ low = f; inside = fx; }
       }
       if (low < 0){
-        let out = left - 1, inn = inside;
-        for (let i = 0; i < 16; i++){ const m = (out + inn) / 2; if (field(m, fy) < 0) inn = m; else out = m; }
-        let inn2 = inside, out2 = right + 1;
-        for (let i = 0; i < 16; i++){ const m = (inn2 + out2) / 2; if (field(m, fy) < 0) inn2 = m; else out2 = m; }
+        const inn = (last && near4(last[0], inside, fy, 1)) ?? edge(left - 1, inside, fy, 16);
+        const inn2 = (last && near4(last[1], inside, fy, -1)) ?? edge(right + 1, inside, fy, 16);
         across = [inn, inn2];
       }
     }
+    last = across;
     if (across){
       if (!loop) loops.push(loop = []);
       loop.push([fy, across[0], across[1]]);
@@ -6908,6 +7217,9 @@ function editTitle(id, opts){
     fitTitle(t);
   };
   t.onkeydown = e => {
+    // a key an input method takes is the name's own (imeKey): its Enter does
+    // not save the name, nor its Escape throw it away
+    if (imeKey(e)){ e.stopPropagation(); return; }
     // control+shift+enter keeps the name as Enter does, then goes on to the
     // page's own control+shift+enter, the move to the card that has waited
     // longest. control+enter alone is the system's
@@ -7127,19 +7439,24 @@ function replyCaretOff(el){
 // up lands in the response and down in the box. the title is opened as Tab opens
 // it (editTitle) and the box takes the caret as the page's Tab puts it there
 // (toBox); leaving the title keeps its name and leaving the box keeps a half-typed
-// message, as Tab does. answers true when it moved the focus
+// message, as Tab does. a response the page has put off the card (cardAnswerOff)
+// is the response's place while it is there. answers true when it moved the focus
 function cardPlace(id, step, toBox){
   const el = els[id];
   if (!el) return false;
+  const off = typeof cardAnswerOff === "function" ? cardAnswerOff(id) : null;
   const live = document.activeElement;
-  const at = live && el.titleEl.contains(live) ? 0 : live && live === el.reply ? 1 : el.field.focused() ? 2 : 1.5;
+  const answer = !!live && (off ? off.holds(live) : live === el.reply);
+  const at = live && el.titleEl.contains(live) ? 0 : answer ? 1 : el.field.focused() ? 2 : 1.5;
   const to = at === 1.5 ? (step < 0 ? 1 : 2) : at + step;
   if (to < 0 || to > 2 || to === at) return false;
   if (to === 0){
     if (el.titleEl.isContentEditable) el.titleEl.focus();
     else editTitle(id);
-  } else if (to === 1) replyCaret(el);
-  else toBox(el);
+  } else if (to === 1){
+    if (off) off.go();
+    else replyCaret(el);
+  } else toBox(el);
   return true;
 }
 
@@ -7982,7 +8299,7 @@ function settingsOverlay(host, source, opts){
   }
   veil.addEventListener("keydown", e => {
     e.stopPropagation();
-    if (e.key === "Escape"){ e.preventDefault(); close(); }
+    if (e.key === "Escape" && !imeKey(e)){ e.preventDefault(); close(); }
   });
   // a press that starts and ends on the veil, outside the page, puts it away;
   // a selection dragged out of the page and let go on the veil does not
@@ -8156,7 +8473,7 @@ function feedbackOverlay(host, row, opts){
   }
   veil.addEventListener("keydown", e => {
     e.stopPropagation();
-    if (e.key === "Escape"){ e.preventDefault(); close(); }
+    if (e.key === "Escape" && !imeKey(e)){ e.preventDefault(); close(); }
   });
   // a press that starts and ends on the veil, outside the sheet, puts it away;
   // a selection dragged out of the box and let go on the veil does not
@@ -8456,4 +8773,245 @@ function magicView(el, hooks = {}){
     return !!img && (!view.natural || !img.complete && !view.known);
   };
   return view;
+}
+
+// ---- projects on the owner's servers -------------------------------------------------
+// a project whose folder is on one of the owner's servers names that server
+// (state.projects[i].server), and the board says for each server whether its
+// ssh link is up and whether it has been down long enough that its projects
+// fade (remote.servers[id].faded, 30 seconds, so a short drop never flashes
+// it). a server the board no longer knows has no link at all and fades at once
+function remoteServerOf(state, owner){
+  const p = ((state && state.projects) || []).find(x => x && x.id === owner);
+  return p && p.server ? p.server : "";
+}
+// {server, name} while the project's server is faded, null otherwise
+function remoteFaded(state, owner){
+  const sid = remoteServerOf(state, owner);
+  if (!sid) return null;
+  const s = ((state.remote || {}).servers || {})[sid];
+  return s && !s.faded ? null : { server: sid, name: (s && s.name) || sid };
+}
+// the project a folder the picker chose already is, or null: the same path on
+// the same machine, so a server's /home/you/app is never a folder of this Mac
+function folderProject(state, folder){
+  if (!state || !folder) return null;
+  const sid = folder.machine && folder.machine !== "this" ? folder.machine : "";
+  return allRowsOf(state).find(ow => (state.pwds || {})[ow] === folder.path && remoteServerOf(state, ow) === sid) || null;
+}
+// the route that makes a project of a folder the picker chose: a server's
+// folder names its machine, and the board reads the folder there before it
+// keeps the project. a folder on this Mac asks exactly as it always did
+function projectRoute(folder){
+  const server = folder.machine && folder.machine !== "this" ? folder.machine : "";
+  return "/project?name=" + encodeURIComponent(folder.name || "project") +
+    (server ? "&machine=" + encodeURIComponent(server) : "");
+}
+// a refused folder in plain words: a server answers in plain words already
+// (its link down, its folder outside its home), this Mac's by projectRefusal
+function folderRefusal(pr, state, folder){
+  if (folder.machine && folder.machine !== "this" && pr && pr.error && pr.error !== "duplicate project") return pr.error;
+  return projectRefusal(pr, state, folder.name);
+}
+// the folder a project row shows: a server's project as the server's name and
+// its path there, the way ssh writes one
+function lanePlace(state, owner){
+  const dir = (state.pwds || {})[owner] || "";
+  const sid = remoteServerOf(state, owner);
+  if (!sid) return dir;
+  const s = ((state.remote || {}).servers || {})[sid];
+  return ((s && s.name) || sid) + ":" + dir;
+}
+// the fade over the project on screen, the same on the board and the phone: the
+// body's remotedown class, which each page's sheet dims the project by, and one
+// line saying why. none of it takes the pointer, so the composer still takes
+// typing and sending; what is sent waits on the Mac until the link is back
+function showRemoteFade(faded){
+  document.body.classList.toggle("remotedown", !!faded);
+  let note = document.getElementById("remotenote");
+  if (!faded){
+    if (note) note.hidden = true;
+    return;
+  }
+  if (!note){
+    note = document.createElement("div");
+    note.id = "remotenote";
+    note.setAttribute("role", "status");
+    document.body.appendChild(note);
+  }
+  const words = faded.name + " is not connected. What you send waits here and reaches the agent when the link is back.";
+  if (note.textContent !== words) note.textContent = words;
+  note.hidden = false;
+}
+
+// ---- searching the cards ---------------------------------------------------------
+// the Mac board's search (the magnifier in its bar, index.html) asks the board's
+// GET /search as the words are typed and draws what it answers. what it works
+// out on the way is here, so it can be checked without a page: the route, the
+// matched words of a snippet and a title, the groups, and the search itself.
+// the phone does not search yet
+const SEARCH_PAUSE = 150;   // ms the field is left alone before it searches
+const SEARCH_LIMIT = 20;    // cards one search shows at most
+const SEARCH_WORD = /[\p{L}\p{M}\p{N}_]+/gu;   // a word, as the board's index reads one
+// the section names a result is shown with: the board's own four, under both
+// the names the search answers with and the names the ticket list keeps
+const SEARCH_SECTIONS = { todo: "Doing", doing: "Doing", docked: "Docked", deferred: "Deferred", done: "Done" };
+function searchSectionName(section){ return SEARCH_SECTIONS[section] || ""; }
+// whether what is typed holds a word to search for. the board answers a query
+// with no word in it with every card, which a search box never means
+function searchHasWords(q){ return /[\p{L}\p{N}_]/u.test(String(q || "")); }
+// what one search asks: the last word may be the start of a longer one, since
+// the field searches while it is typed into, and a project's own window
+// searches its own project alone
+function searchRoute(q, lane){
+  return "/search?q=" + encodeURIComponent(String(q || "").trim()) + "&prefix=1&limit=" + SEARCH_LIMIT +
+    (lane ? "&lane=" + encodeURIComponent(lane) : "");
+}
+// a text as its runs of plain and marked words, each [start, end] of marks in
+// the page's own string units. the runs are set as text, so nothing the board
+// answers is ever read as markup. marks out of order or over each other are
+// put right, and any past the text's end are cut there
+function searchSplit(text, marks){
+  text = String(text || "");
+  const spans = (Array.isArray(marks) ? marks : [])
+    .filter(m => Array.isArray(m) && Number.isInteger(m[0]) && Number.isInteger(m[1]))
+    .map(([a, b]) => [Math.max(0, Math.min(a, text.length)), Math.max(0, Math.min(b, text.length))])
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0]);
+  const out = [];
+  let at = 0;
+  for (const [a, b] of spans){
+    const start = Math.max(a, at);
+    if (b <= start) continue;
+    if (start > at) out.push({ text: text.slice(at, start), mark: false });
+    const last = out[out.length - 1];
+    if (start === at && last && last.mark) last.text += text.slice(start, b);
+    else out.push({ text: text.slice(start, b), mark: true });
+    at = b;
+  }
+  if (at < text.length) out.push({ text: text.slice(at), mark: false });
+  return out;
+}
+// the board counts a snippet's marks in characters, as Python does, where the
+// page counts its strings in UTF-16 units: a character past the basic plane,
+// an emoji say, is one there and two here. so each mark is moved onto the
+// page's own count before the snippet is cut
+function searchPieces(snippet, marks){
+  const text = String(snippet || ""), units = [0];
+  for (const ch of text) units.push(units[units.length - 1] + ch.length);
+  const unit = n => units[Math.max(0, Math.min(n, units.length - 1))];
+  return searchSplit(text, (Array.isArray(marks) ? marks : [])
+    .filter(m => Array.isArray(m) && Number.isInteger(m[0]) && Number.isInteger(m[1]))
+    .map(([a, b]) => [unit(a), unit(b)]));
+}
+// the title is not always the piece of the card the board matched, so its own
+// words are marked here: each word that starts with a word typed, the way the
+// board marks a snippet, and each word the board marked in the snippet, which
+// catches the other forms of a word it matches ("searching" finds "search")
+function searchTitlePieces(title, q, snippetPieces){
+  const text = String(title || "");
+  const typed = [...new Set((String(q || "").toLowerCase().match(SEARCH_WORD) || []))];
+  const seen = new Set((snippetPieces || []).filter(p => p.mark).map(p => p.text.toLowerCase()));
+  const marks = [];
+  for (const m of text.matchAll(SEARCH_WORD)){
+    const word = m[0].toLowerCase();
+    if (seen.has(word) || typed.some(t => word.startsWith(t))) marks.push([m.index, m.index + m[0].length]);
+  }
+  return searchSplit(text, marks);
+}
+// the cards found, in a group for each project. the groups come in the order
+// their best card does, so the first card shown is still the board's best;
+// rows is every card in the order they are shown, which the arrows walk
+function searchGroups(results){
+  const groups = [], byLane = new Map();
+  for (const r of Array.isArray(results) ? results : []){
+    if (!r || typeof r.card !== "string") continue;
+    let group = byLane.get(r.lane);
+    if (!group){ group = { lane: r.lane, rows: [] }; byLane.set(r.lane, group); groups.push(group); }
+    group.rows.push(r);
+  }
+  return { groups, rows: groups.flatMap(g => g.rows) };
+}
+// what the panel says when the board could not search, in plain words
+function searchTrouble(status, body){
+  if (status === 404) return "Search starts working once the board restarts";
+  if (status === 503) return "Search is not running on this board";
+  const error = body && typeof body.error === "string" ? body.error : "";
+  if (status === 400 && error) return error[0].toUpperCase() + error.slice(1);
+  return "The board did not answer. Try again in a moment";
+}
+// the search the panel holds, apart from its drawing: what is typed, what is on
+// show and the card picked. typing only ever sets a timer, so the field never
+// waits for the board; the search goes once the field has been left alone for
+// SEARCH_PAUSE, a newer search cancels an older one still out, and an answer
+// that comes back after the words changed is dropped, so a slow answer never
+// stands over a newer one. until the new answer lands the last one stays on
+// show, so the list does not flash empty between keys.
+//   phase   empty (nothing to search for), results, none (no card matches) or
+//           trouble (note says why)
+//   hot     the place of the picked card in rows, the first on every answer
+// ask(url, signal) is the page's fetch and answers {status, body}; changed is
+// told after every change to what is on show
+function cardSearch({ ask, lane = null, later = setTimeout, cancel = clearTimeout, changed = () => {} }){
+  const s = { q: "", phase: "empty", groups: [], rows: [], hot: -1, note: "", building: false, waiting: false };
+  let turn = 0, timer = 0, out = null, onLand = null;
+  const halt = () => {
+    cancel(timer);
+    timer = 0;
+    onLand = null;
+    if (out){ out.abort(); out = null; }
+  };
+  const clear = () => Object.assign(s, { phase: "empty", groups: [], rows: [], hot: -1, note: "", building: false, waiting: false });
+  async function run(mine){
+    timer = 0;
+    const control = typeof AbortController === "function" ? new AbortController() : null;
+    out = control;
+    let status = 0, body = null;
+    try { ({ status, body } = await ask(searchRoute(s.q, lane), control ? control.signal : undefined)); }
+    catch (err){ if (err && err.name === "AbortError") return; }
+    if (mine !== turn) return;   // typed over while it was out
+    out = null;
+    s.waiting = false;
+    if (status === 200 && body && Array.isArray(body.results)){
+      const found = searchGroups(body.results);
+      Object.assign(s, { groups: found.groups, rows: found.rows, phase: found.rows.length ? "results" : "none",
+        hot: found.rows.length ? 0 : -1, note: "", building: !!body.index && body.index.ready === false });
+    } else {
+      Object.assign(s, { groups: [], rows: [], phase: "trouble", hot: -1, note: searchTrouble(status, body), building: false });
+    }
+    changed(s);
+    const told = onLand;
+    onLand = null;
+    if (told) told(s.picked());
+  }
+  s.type = q => {
+    s.q = String(q == null ? "" : q);
+    halt();
+    const mine = ++turn;
+    if (!searchHasWords(s.q)){ clear(); changed(s); return; }
+    s.waiting = true;
+    timer = later(() => run(mine), SEARCH_PAUSE);
+  };
+  // the arrows: one card down or up, stopping at either end, as Spotlight does
+  s.move = step => {
+    if (!s.rows.length) return;
+    const to = Math.max(0, Math.min(s.rows.length - 1, s.hot + step));
+    if (to !== s.hot){ s.hot = to; changed(s); }
+  };
+  // the pointer moving over a card picks it
+  s.point = at => {
+    if (at >= 0 && at < s.rows.length && at !== s.hot){ s.hot = at; changed(s); }
+  };
+  s.picked = () => s.rows[s.hot] || null;
+  // Enter: told the picked card at once, or, while the words typed have not
+  // been searched yet, once they have. a search still waiting out its pause
+  // goes now, and the first card it finds is the one picked
+  s.settle = told => {
+    if (!s.waiting){ told(s.picked()); return; }
+    onLand = told;
+    if (timer){ cancel(timer); timer = 0; run(turn); }
+  };
+  // the panel shut: nothing more goes out, and what was typed and found stays
+  s.halt = () => { halt(); turn++; s.waiting = false; };
+  return s;
 }

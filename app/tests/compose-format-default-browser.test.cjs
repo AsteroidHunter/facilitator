@@ -166,6 +166,9 @@ async function typeOnBoard(board, want) {
     await pickCard(page, board);
     if (want) await page.waitForSelector("article.box.sel .cffield", { timeout: 30000 });
     await page.evaluate(() => ComposeFormat.settled());
+    // the board holds its startup curtain over the cards for a painted frame
+    // after that, and a row under it cannot take the caret yet
+    await page.waitForFunction(() => !document.getElementById("loading"), { timeout: 15000 });
     await page.focus(ROW);
     await page.keyboard.type(TYPED);
     await new Promise(resolve => setTimeout(resolve, 400));

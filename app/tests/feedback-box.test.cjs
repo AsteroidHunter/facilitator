@@ -496,13 +496,13 @@ test("the bar has a bug pill between the speaker and the squid, labelled, with L
 
 test("the pill takes every rule the speaker and the squid take: glass, size, hover, press, spacing and the press script", () => {
   for (const rule of [
-    "body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn){",
-    "body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn):hover{",
-    "body.focus :is(#homeico, #chimebtn, #feedbackbtn) svg{",
-    "body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{",
-    "body.focus .bar :is(#feedbackbtn, #setbtn){margin-left:3px}",
+    "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn){",
+    "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn):hover{",
+    "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn) svg{",
+    "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{",
+    "body.focus .bar :is(#chimebtn, #feedbackbtn, #setbtn){margin-left:3px}",
   ]) assert.ok(MAC.includes(rule), `${rule} is not in the Mac page`);
-  assert.ok(MAC.includes('["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn", "npstart"]'), "the press script skips the pill");
+  assert.ok(MAC.includes('["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"]'), "the press script skips the pill");
 });
 
 test("the phone has no bug pill and no sheet: its feedback box stays in Settings", () => {
@@ -550,6 +550,7 @@ function feedbackSheet({ disabled = false } = {}) {
     clearTimeout: id => { if (d.timers[id - 1]) d.timers[id - 1].fn = null; },
   });
   Object.defineProperty(context.document, "activeElement", { get: () => d.active.el });
+  vm.runInContext(KEYS, context);   // the sheet's Escape asks imeKey
   vm.runInContext(FEEDBACK, context);
   const sheet = vm.runInContext("feedbackOverlay", context)(host, row, { onOpen: () => opened.push(1), onClose: () => closed.push(1) });
   const veil = sheet.root, dialog = veil.kids[0];

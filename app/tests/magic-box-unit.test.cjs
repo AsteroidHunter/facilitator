@@ -267,7 +267,7 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   assert.match(fn, /MagicBox\.place\(rect, fit, MB\.view\.want\(most, S\)\)/);
   // shown, it draws the line to the card from the card's and the box's own
   // rectangles, with no workspace edge to keep it under
-  assert.match(fn, /magicLine\(rect, at\);\n  if \(MB\.rise\.t < 1/);
+  assert.match(fn, /magicLine\(rect, at\);\n  boxRise\(MB\);/);
   assert.match(fn, /visibility: MB\.view\.waiting\(\) \? "hidden" : ""/);
   assert.ok(!/floating|--cardbar-h/.test(fn), "a float is left in the placing");
   // still open: hiding it closes nothing and takes nothing off the page, and
@@ -363,7 +363,7 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   // the board says where it stands and its words' inset, and gives it its face
   // and shadow apart from the sheet (the Mac's test below). it never floats
   // over the card, so it has no paper of its own for that
-  const on = html.slice(html.indexOf("  body.focus #magicbox.on{"), html.indexOf("}", html.indexOf("  body.focus #magicbox.on{")));
+  const on = html.slice(html.indexOf("  body.focus :is(#magicbox, #pipebox).on{"), html.indexOf("}", html.indexOf("  body.focus :is(#magicbox, #pipebox).on{")));
   assert.match(on, /display:flex; position:fixed; z-index:1; --mb-inset:calc\(var\(--pad-x\)\*2\/3\)/);
   assert.ok(!/#magicbox[^{]*\.floating|\.magicbox[^{]*\.floating/.test(html), "a floating box is left");
   // the bar: nothing of its own, the cross's seat with the same gap over and
@@ -604,27 +604,30 @@ test("the cross puts the box away as the agent's close does, and the board keeps
   // it sinks away first (the rise backwards), and is then taken off the page
   assert.match(fn, /if \(b && b\.magic\) b\.magic\.open = false;\s*magicSink\(\);/);
   assert.match(fn, /fetch\("\/magic\/close\?box=" \+ encodeURIComponent\(id\), \{ method: "POST" \}\)/);
-  assert.match(html, /function magicSink\(\)\{[\s\S]*?magicRise\(-1, magicOff\);/);
+  // by the steps every box beside the card takes (boxSink), the response piped out beside a long reply's too
+  assert.match(html, /function magicSink\(\)\{\s*boxSink\(MB, magicOff\);/);
+  assert.match(html, /function boxSink\(box, off\)\{[\s\S]*?magicRise\(-1, off, box\);/);
   // and the agent's own close sinks it the same way, while anything else takes it off at once
   assert.match(html, /const shut = magicCard\(true\);\s*if \(shut && shut\.id === MB\.id\) magicSink\(\);\s*else magicOff\(\);/);
 });
 
 test("the box's edge line fades in and out on the rise with everything else on the box, and is plain once risen", () => {
   const html = read("index.html"), phone = read("m.html");
-  // the box's own rules, with comments left out
-  const rules = html.slice(0, html.indexOf("</style>")).replace(/\/\*[\s\S]*?\*\//g, "").match(/\n  #magicbox[^{\n]*\{[^}]*\}/g);
-  const rising = rules.find(r => /^\s*#magicbox\.rising\{/.test(r));
+  // the box's own rules, with comments left out: its own and those it shares
+  // with the response piped out beside a long reply (#pipebox)
+  const rules = html.slice(0, html.indexOf("</style>")).replace(/\/\*[\s\S]*?\*\//g, "").match(/\n  (?::is\(#magicbox, #pipebox\)|#magicbox)[^{\n]*\{[^}]*\}/g);
+  const rising = rules.find(r => /^\s*:is\(#magicbox, #pipebox\)\.rising\{/.test(r));
   const edge = rising.match(/border-color:color-mix\(in srgb, var\(--line\) calc\(var\(--rise\) \* 100%\), transparent\)/);
   assert.ok(edge, "the edge line does not follow --rise");
   // it is the same --rise the contents and the shadow follow, so the same time and curve
-  assert.match(html, /\n  #magicbox\.rising > \*\{opacity:var\(--rise\)\}/);
+  assert.match(html, /\n  :is\(#magicbox, #pipebox\)\.rising > \*\{opacity:var\(--rise\)\}/);
   assert.match(rising, /\{--rise:0; transition:none;/, "the rise starts flat and the box does not ease on its own");
   // a share of 0% is no line and 100% the line's own colour, as the shadow's alpha is
   assert.match(rising, /box-shadow:0 calc\(3px \* var\(--rise\)\) calc\(14px \* var\(--rise\)\) rgba\(60,45,20,calc\(\.10 \* var\(--rise\)\)\),\s*0 calc\(1px \* var\(--rise\)\) calc\(2px \* var\(--rise\)\) rgba\(60,45,20,calc\(\.06 \* var\(--rise\)\)\)/);
   // nothing else colours the edge, and the shadow's own layers are untouched
   assert.ok(!/border-color/.test(rules.filter(r => r !== rising).join("")), "another rule recolours the edge");
   // the box held after the rise is the rule without the class, the line unscaled
-  assert.match(html, /\n  #magicbox\{background:var\(--card\); border:var\(--edge\) solid var\(--line\);/);
+  assert.match(html, /\n  :is\(#magicbox, #pipebox\)\{background:var\(--card\); border:var\(--edge\) solid var\(--line\);/);
   // the phone's box fades inside the drawer, edge included, and has no rise of its own
   assert.match(phone, /#tickets\{\s*\/\*[^*]*\*\/\s*opacity:var\(--list-v\);/);
   assert.ok(!/#mbface[^{]*\.rising|#mbface[^{]*\{[^}]*--rise/.test(phone), "the phone's box has a rise of its own");
@@ -634,8 +637,8 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   const html = read("index.html");
   assert.match(html, /const RISE_MS = 1000, RISE_FAST = 3;/);
   // what it holds follows the rise, and the line's strength too, shadow and all
-  assert.match(html, /\n  #magicbox\.rising > \*\{opacity:var\(--rise\)\}/);
-  assert.match(html, /MB\.el\.style\.setProperty\("--rise", p\.toFixed\(4\)\);\s*MB\.line\.style\.opacity = p\.toFixed\(4\);/);
+  assert.match(html, /\n  :is\(#magicbox, #pipebox\)\.rising > \*\{opacity:var\(--rise\)\}/);
+  assert.match(html, /function magicRiseSet\(t, box = MB\)\{[\s\S]*?box\.el\.style\.setProperty\("--rise", p\.toFixed\(4\)\);\s*box\.line\.style\.opacity = p\.toFixed\(4\);/);
   // a click, a key or a scroll in the box while it rises hurries the rest
   assert.match(html, /if \(MB\.el && MB\.rise\.dir > 0 && MB\.el\.contains\(e\.target\)\) MB\.rise\.fast = RISE_FAST;/);
   assert.match(html, /for \(const type of \["pointerdown", "keydown", "wheel"\]\) addEventListener\(type, magicHurry/);
@@ -651,7 +654,7 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.ok(html.indexOf('<svg id="mbline"') < html.indexOf("<main>"));
   const rule = html.slice(0, html.indexOf("</style>")).replace(/\/\*[\s\S]*?\*\//g, "").match(/\n  body\.focus #mbline\.on\{[^}]*\}/)[0];
   assert.match(rule, /z-index:0/);
-  assert.match(html, /body\.focus #magicbox\.on\{display:flex; position:fixed; z-index:1;/, "the box's own level, over the lines'");
+  assert.match(html, /body\.focus :is\(#magicbox, #pipebox\)\.on\{display:flex; position:fixed; z-index:1;/, "the box's own level, over the lines'");
   // it wears the card's own shadow, both layers, at the strength a filter gives
   // them (half the blur), and none when the card is lowered, as the box has none.
   // the shadow is on the group inside the svg and never on the svg, a layer of
@@ -910,10 +913,11 @@ test("whichever of the card and the box is held stands up and the other settles,
   assert.deepEqual(anchors.filter(a => /^body\b/.test(a)), [], "a :has() on the body");
   // both ease over the card's own timing, and the shadow is all they change
   assert.match(card, /transition:box-shadow \.2s, opacity \.2s;/);
-  assert.match(html, /\n  #magicbox\{background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);\s*box-shadow:var\(--shade-lighter\); opacity:var\(--shade-unselected\); transition:box-shadow \.2s, opacity \.2s\}/);
+  // the box's rules are the response's piped out beside a long reply too (#pipebox)
+  assert.match(html, /\n  :is\(#magicbox, #pipebox\)\{background:var\(--card\); border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);\s*box-shadow:var\(--shade-lighter\); opacity:var\(--shade-unselected\); transition:box-shadow \.2s, opacity \.2s\}/);
   const style = html.slice(0, html.indexOf("</style>"));
   const rules = [...style.matchAll(/\n  ([^\n{]*\.held[^\n{]*)\{([^}]*)\}/g)];
-  assert.deepEqual(rules.map(r => r[1].trim()), ["#magicbox.held", "#magicbox.rising.held"], "the box's, and the box's as it rises");
+  assert.deepEqual(rules.map(r => r[1].trim()), [":is(#magicbox, #pipebox).held", ":is(#magicbox, #pipebox).rising.held"], "the box's, and the box's as it rises");
   assert.equal(rules[0][2].trim(), "box-shadow:var(--shade-raised); opacity:1", "the box held is whole");
   assert.match(rules[1][2].trim(), /^box-shadow:[^;]*$/);
   assert.match(rule.slice(rule.indexOf("{") + 1, -1), /^box-shadow:var\(--shade-lighter\); opacity:var\(--shade-unselected\)$/);
@@ -937,13 +941,13 @@ test("whichever of the card and the box is held stands up and the other settles,
   assert.equal(mark(), false, "taken off");
   // the box stands in the page on the card's own shadow when held and the faint one,
   // faded, when not
-  assert.match(html, /\n  #magicbox\.held\{box-shadow:var\(--shade-raised\); opacity:1\}/);
+  assert.match(html, /\n  :is\(#magicbox, #pipebox\)\.held\{box-shadow:var\(--shade-raised\); opacity:1\}/);
   // risen, the rising ones are the held one and the settled one exactly
   const unrise = s => s.replace(/calc\(([^)]*?) \* var\(--rise\)\)/g, "$1").replace(/\s+/g, " ").trim();
-  assert.equal(unrise(html.match(/\n  #magicbox\.rising\.held\{\s*box-shadow:([^}]*)\}/)[1]), raised);
-  assert.equal(unrise(html.match(/\n  #magicbox\.rising\{[^}]*?box-shadow:([^}]*)\}/)[1]), lighter);
+  assert.equal(unrise(html.match(/\n  :is\(#magicbox, #pipebox\)\.rising\.held\{\s*box-shadow:([^}]*)\}/)[1]), raised);
+  assert.equal(unrise(html.match(/\n  :is\(#magicbox, #pipebox\)\.rising\{[^}]*?box-shadow:([^}]*)\}/)[1]), lighter);
   // the lowered box has no shadow, and no rule of the lowered card or box touches the fade
-  assert.match(html, /\n  body\.lowered #magicbox\.on\{box-shadow:none\}/);
+  assert.match(html, /\n  body\.lowered :is\(#magicbox, #pipebox\)\.on\{box-shadow:none\}/);
   assert.ok(!/body\.lowered[^{\n]*\{[^}]*opacity/.test(html.slice(0, html.indexOf("</style>"))), "a lowered rule changes the fade");
   // the mark of a box beside the card: on, and not hidden for want of room, read off
   // the box's class and style whatever changes them
@@ -964,19 +968,24 @@ test("whichever of the card and the box is held stands up and the other settles,
   // the box goes off the page settled; the agent's next revision keeps it held
   assert.match(html, /function magicOff\(\)\{\s*if \(!MB\.el\) return;\s*MB\.el\.classList\.remove\("on", "held", "over", "rising"\);/);
   // and risen, unless it was still rising or sinking, or is new on the card
-  assert.match(html, /const held = id === MB\.id && MB\.el\.classList\.contains\("held"\);\s*const t = id === MB\.id && MB\.rise\.raf \? MB\.rise\.t : fresh \? 0 : 1;\s*magicOff\(\);\s*MB\.el\.classList\.toggle\("held", held\);\s*magicRiseSet\(t\);/);
+  assert.match(html, /const held = id === MB\.id && MB\.el\.classList\.contains\("held"\);\s*const t = id === MB\.id && MB\.rise\.raf \? MB\.rise\.t : fresh \? 0 : 1;\s*magicOff\(\);\s*MB\.el\.classList\.toggle\("held", held\);\s*boxCome\(MB, t\);/);
+  assert.match(html, /function boxCome\(box, t\)\{\s*magicRiseSet\(t, box\);\s*box\.el\.classList\.toggle\("rising", t < 1\);/);
 });
 
 // a selector's weight, for the plain ones these rules use: ids, then classes,
-// then elements
-const weight = selector => [(selector.match(/#[\w-]+/g) || []).length, (selector.match(/\.[\w-]+/g) || []).length,
-  (selector.replace(/[#.][\w-]+/g, "").match(/[a-z][\w-]*/g) || []).length];
+// then elements. an :is() of ids alone weighs as one of them
+const weight = sel => {
+  const selector = sel.replace(/:is\((#[\w-]+)(?:, #[\w-]+)*\)/g, "$1");
+  return [(selector.match(/#[\w-]+/g) || []).length, (selector.match(/\.[\w-]+/g) || []).length,
+    (selector.replace(/[#.][\w-]+/g, "").match(/[a-z][\w-]*/g) || []).length];
+};
 const heavier = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 test("the Mac's box has the card's face, edge and shadow; the phone's has no box; a lowered card's box sits level, held or not", () => {
   const html = read("index.html"), phone = read("m.html"), style = code(html.slice(0, html.indexOf("</style>")));
   // the board's box: the card's white, edge line and shadow, with corners twice the card's 7px
-  const face = style.match(/\n  #magicbox\{background:var\(--card\); [^}]*\}/)[0];
+  // its rules, shared with the response piped out beside a long reply (#pipebox)
+  const face = style.match(/\n  :is\(#magicbox, #pipebox\)\{background:var\(--card\); [^}]*\}/)[0];
   const card = html.slice(html.indexOf("  body.focus main{"), html.indexOf("}", html.indexOf("  body.focus main{")));
   assert.match(card, /border:var\(--edge\) solid var\(--line\); background:#fff; border-radius:7px;/);
   assert.match(face, /border:var\(--edge\) solid var\(--line\); border-radius:var\(--mb-round\);/, "the card's own edge");
@@ -984,7 +993,7 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   assert.ok(!/outline/.test(face));
   // and that is the only edge any of the board's box rules draws, its colour
   // alone scaled by the rise while the box comes and goes
-  const borders = style.match(/\n  #magicbox[^{]*\{[^}]*\}/g).join("").match(/border(?!-radius)[\w-]*:[^;}]*/g);
+  const borders = style.match(/\n  (?::is\(#magicbox, #pipebox\)|#magicbox)[^{]*\{[^}]*\}/g).join("").match(/border(?!-radius)[\w-]*:[^;}]*/g);
   assert.deepEqual(borders, ["border:var(--edge) solid var(--line)",
     "border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent)"]);
   // the bar is the card's white with no line under it, the cross's seat its white
@@ -994,11 +1003,12 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   // its words keep the card answer's inset off the sides, and --mb-lead under the bar
   assert.match(style, /\n  #magicbox \.mbtext\{padding:var\(--mb-lead\) var\(--mb-inset, 16px\) var\(--mb-inset, 16px\)\}/);
   // the lowered card's rule outweighs every rule that shades the box, held or not
-  const level = style.match(/\n  (body\.lowered #magicbox\.on)\{box-shadow:none\}/);
+  const level = style.match(/\n  (body\.lowered :is\(#magicbox, #pipebox\)\.on)\{box-shadow:none\}/);
   assert.ok(level, "no rule for a box beside a lowered card");
-  const shading = [...style.matchAll(/\n  ((?:body\.lowered )?#magicbox[^\n{ ]*)\{[^}]*box-shadow:[^}]*\}/g)].map(m => m[1]).filter(s => s !== level[1]);
+  const shading = [...style.matchAll(/\n  ((?:body\.lowered )?(?::is\(#magicbox, #pipebox\)|#magicbox)[^\n{ ]*)\{[^}]*box-shadow:[^}]*\}/g)].map(m => m[1]).filter(s => s !== level[1]);
   // the two, and the same two scaled by the rise as it comes and goes
-  assert.deepEqual(shading, ["#magicbox", "#magicbox.held", "#magicbox.rising", "#magicbox.rising.held"], "the box's shadows");
+  const both = ":is(#magicbox, #pipebox)";
+  assert.deepEqual(shading, [both, both + ".held", both + ".rising", both + ".rising.held"], "the box's shadows");
   for (const s of shading) assert.ok(heavier(weight(level[1]), weight(s)) > 0, level[1] + " does not outweigh " + s);
   assert.ok(html.includes("  body.focus.lowered main{box-shadow:none}"));
   // the shared sheet dresses no box: each page does its own

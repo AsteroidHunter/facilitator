@@ -1578,6 +1578,17 @@
     padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
     border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); pointer-events:none}
   #diagnostictoast:empty{display:none}
+  /* the open project's server has been out of reach for 30 seconds (the
+     board's word for it, remote on the reading): its card and its list fade,
+     and one line where the toast above stands says why. opacity alone, so the
+     drawer keeps its own motion, and nothing here takes a touch, so the
+     composer still takes typing and sending. home has no project */
+  body.remotedown:not(.home) #cards, body.remotedown:not(.home) #tikwin{opacity:.4}
+  #remotenote{position:fixed; z-index:30; left:12px; right:12px;
+    top:calc(env(safe-area-inset-top, 0px) + var(--app-inset) + var(--cardbar-h) + 8px);
+    padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
+    border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); text-align:center; pointer-events:none}
+  body.home #remotenote{display:none}
   body:not(.phone-developer-mode) #setsrc [data-section="diagnostics"],
   body:not(.phone-developer-mode) #settings .sp-item[data-section="diagnostics"],
   body:not(.phone-developer-mode) #settings-diagnostics{display:none!important}
@@ -2494,7 +2505,7 @@ function makeBox(b){
     if (e.altKey) { notePhoneEnter("handler", e, "modifier", ta); return; }
     // control+enter alone is the system's: it opens the copy menu on an iPhone
     if (bareControlEnter(e)) { notePhoneEnter("handler", e, "modifier", ta); return; }
-    if (e.isComposing) { notePhoneEnter("handler", e, "composition", ta); return; }
+    if (imeKey(e)) { notePhoneEnter("handler", e, "composition", ta); return; }
     // control+shift+enter is a double Enter pressed at once, and no on-screen
     // keyboard has the key, so it answers whether or not that keyboard is up.
     // it still jumps to the next card, and so does command+enter; only the
@@ -3920,7 +3931,8 @@ async function pickFolder(){
 // phone is on the project
 async function addFolderProject(folder){
   const st = lastState;
-  const open = st && allRowsOf(st).find(ow => (st.pwds || {})[ow] === folder.path);
+  // the same folder on the same machine: a server's or this Mac's
+  const open = folderProject(st, folder);
   if (open){
     if (!tabShut(st, open)) return "that folder is already open as " + labelOf(st, open);
     const rec = tabRecord(st);
@@ -3929,11 +3941,10 @@ async function addFolderProject(folder){
     landOnProject(open);
     return null;
   }
-  const px = await fetch("/project?name=" + encodeURIComponent(folder.name || "project"),
-      { method: "POST", body: folder.path }).catch(() => null);
+  const px = await fetch(projectRoute(folder), { method: "POST", body: folder.path }).catch(() => null);
   const pr = px ? await px.json().catch(() => null) : null;
   if (!px) return "could not reach the board";
-  if (!px.ok || !pr?.id) return projectRefusal(pr, st, folder.name);
+  if (!px.ok || !pr?.id) return folderRefusal(pr, st, folder);
   await poll();   // the new lane arrives with its tab label and folder
   landOnProject(pr.id);
   return null;
@@ -5757,6 +5768,8 @@ function apply(state){
   for (const id of Object.keys(shelf)) if (!onBoard.has(id)) delete shelf[id];
   // and so does its kept draft, after the row's last word on the way out
   draftKeep(onBoard);
+  // a project on a server whose link has been down for 30 seconds is faded
+  showRemoteFade(remoteFaded(state, activeOwner));
   // only the cards built are drawn, with the card on show and one just made
   // built first if they are not (reachCards builds the cards around it). any
   // other card is drawn from this reading when it is built
@@ -6227,6 +6240,8 @@ async function readBoard(){
           // names the moment it happened by it
           if (typeof data.now === "number") lastState.now = data.now;
           renderTickets(lastState);   // who is listening moves without the revision moving
+          // and so does a server's link, which fades its projects
+          showRemoteFade(remoteFaded(lastState, activeOwner));
           syncSelectedHistory();
           endPhoneTrace(rendering, { rev: lastRev }, null, true);
         } else {
@@ -7630,7 +7645,7 @@ ComposeFormat.preload();
     enter: e => {
       if (e.key !== "Enter") return false;
       const now = controlShiftEnter(e);
-      if ((e.shiftKey && !now) || e.altKey || bareControlEnter(e) || e.isComposing) return false;
+      if ((e.shiftKey && !now) || e.altKey || bareControlEnter(e) || imeKey(e)) return false;
       return now || !document.body.classList.contains("kb");
     },
   });

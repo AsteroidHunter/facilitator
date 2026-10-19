@@ -426,7 +426,8 @@ test("both pages draw no ring round the response with its caret in it, and keep 
 
 test("Mac board: the block caret in the response is bounded by the answer's scroller less the band over its foot", () => {
   const body = between(mac, "function ceCaret(el){", "\n  }\n");
-  assert.match(body, /el\.closest\("\.cm-scroller, \.replyview"\)/);
+  // (and by the scroller of the response piped out beside a long reply, where it stands in that)
+  assert.match(body, /el\.closest\("\.cm-scroller, \.replyview, #pipebox \.mbbody"\)/);
   assert.match(body, /getPropertyValue\("--boxband"\)/);
 });
 

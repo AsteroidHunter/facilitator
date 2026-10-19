@@ -34,6 +34,17 @@ After reading the separate `/fresh` result as described below, answer with a com
 
       curl -s "http://127.0.0.1:$PORT/unread?owner=facilitator"
 
+## From a server
+
+An agent can also run on one of the owner's own servers, reached from the Mac with `facilitator remote add`. There `scripts/onboard.py inspect` answers `"remote": true` and the board is on the Mac, reached through an ssh link the Mac keeps up; the server has no `run.config.json` and no port. Every curl in this runbook works the same with two changes: put `-K` and the file `inspect` names in its `curl` field in front of it, and write `http://localhost` in place of `http://127.0.0.1:$PORT`:
+
+    curl -sS -K ~/.facilitator/agents/LANE.curl "http://localhost/fresh?owner=LANE"
+    curl -sS -K ~/.facilitator/agents/LANE.curl -X POST --data-binary @reply.txt "http://localhost/reply?box=ID"
+
+- That file holds your lane's own key, given to you when you joined; it is for this account alone. Never print it, copy it or put it on a card.
+- Only your own lane answers: `/wait`, `/ack`, `/fresh`, `/unread` and `/create` with `owner=` your lane, and `/reply`, `/note`, `/working`, `/ping`, `/title`, `/testing`, `/park`, `/progress` and `/context` on your lane's cards. Everything else, `/state` and the magic box included, is refused.
+- When the link is down a call fails to connect. The card waits and so do the owner's messages, which queue on the Mac: keep working, and try the call again a minute later. `scripts/onboard.py wait` keeps trying through a drop by itself.
+
 ## Replies
 
 - 100 to 150 words or fewer. Plain conversational tone: no coined shorthand, no unexplained jargon; a term either gets defined by what it concretely does or gets dropped. Paragraph breaks and short lists over walls of text. Depth comes from choosing what to say, not from length.

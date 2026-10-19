@@ -27,6 +27,10 @@ before(async () => {
         "/card-logic.js": "card-logic.js",
         "/card-report.js": "card-report.js",
         "/compose-format.js": "compose-format.js",
+        "/board-settings.js": "board-settings.js",
+        "/mac-phone-view.js": "mac-phone-view.js",
+        "/magic-box.js": "magic-box.js",
+        "/home-widgets.js": "home-widgets.js",
       };
       const file = files[pathname];
       if (!file) {
@@ -426,6 +430,9 @@ async function codeMirrorFixture(source) {
     // the panel directly, so it marks the stage ready itself. without it the
     // editor content is hidden and cannot take focus, so no block is drawn.
     document.body.classList.add("layout-ready");
+    // the startup curtain lifts on the first reading of a board, which this
+    // page never gets, and while it stands it takes every click on the page
+    document.getElementById("loading")?.remove();
     // the panel is owner-mounted now: the slots have to be filled for a lane
     // before that lane can own one, the same order the board's own poll uses.
     // without this FILENAV_MOUNTS.pastureland is undefined and fileNavBuild has no box.
