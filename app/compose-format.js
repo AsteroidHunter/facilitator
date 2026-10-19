@@ -154,6 +154,7 @@
 
   // ---- what the editor draws ------------------------------------------------
   let layerExtension = null;
+  let hideDeco = null;          // the drawing's one way of taking markup out of sight
   let awakeEffect = null;
   let holdEffect = null;
   let themeExtension = null;
@@ -197,7 +198,7 @@
     const D = C.Decoration;
     awakeEffect = C.StateEffect.define();
     holdEffect = C.StateEffect.define();
-    const hide = D.replace({});                       // markup and nothing else
+    const hide = hideDeco = D.replace({});            // markup and nothing else
     const emphasis = D.mark({ class: "cf-em" });
     const strong = D.mark({ class: "cf-strong" });
     const strike = D.mark({ class: "cf-strike" });
@@ -850,6 +851,41 @@
     return markupBack || (() => false);
   }
 
+  // ---- deleting to the row's edge -------------------------------------------
+  // Command with Backspace or Delete takes the words up to the row's edge. The
+  // editor finds that edge where the row's first or last character on show
+  // stands, so a span's marker hidden there was left behind and came back as
+  // a stray character: Command and Backspace after "`code` and more" left a
+  // lone backtick in the row. Markup hidden at the edge goes with the words
+  // here. A quote's angles stay: they are the quote, and not words in it. A
+  // pick is the editor's to delete.
+  function deleteToRowEdge(C, view, forward) {
+    const state = view.state, range = state.selection.main;
+    if (state.selection.ranges.length > 1 || !range.empty) return false;
+    const line = state.doc.lineAt(range.head), drawn = state.field(layerExtension).deco;
+    let edge = view.moveToLineBoundary(range, forward).head;
+    for (let moved = true; moved;) {
+      moved = false;
+      drawn.between(Math.max(line.from, edge - 1), Math.min(line.to, edge + 1), (from, to, value) => {
+        if (value !== hideDeco) return;
+        if (!forward && to === edge && from < edge) { edge = from; moved = true; }
+        if (forward && from === edge && to > edge) { edge = to; moved = true; }
+      });
+    }
+    const angles = QUOTED.exec(line.text);
+    if (!forward && angles) edge = Math.max(edge, line.from + angles[0].length);
+    const head = range.head;
+    const target = forward ? (head < edge ? edge : Math.min(state.doc.length, head + 1))
+      : (head > edge ? edge : Math.max(0, head - 1));
+    if (target === head) return true;
+    view.dispatch(state.update({
+      changes: { from: Math.min(head, target), to: Math.max(head, target) },
+      selection: { anchor: Math.min(head, target) },
+      scrollIntoView: true, userEvent: forward ? "delete.forward" : "delete.backward",
+    }));
+    return true;
+  }
+
   // ---- Tab in a list ---------------------------------------------------------
   // Tab nests a list item under the one above it and Shift+Tab brings it back
   // out a level, as in Obsidian, on every line of the pick that has a marker
@@ -1007,6 +1043,8 @@
       { key: "Backspace", run: deleteMarkupBackward(C) },
       { key: "Backspace", run: deleteEmojiBackward, shift: deleteEmojiBackward },
       { key: "Tab", run: view => listIndent(C, view, false), shift: view => listIndent(C, view, true) },
+      { mac: "Mod-Backspace", run: view => deleteToRowEdge(C, view, false) },
+      { mac: "Mod-Delete", run: view => deleteToRowEdge(C, view, true) },
       // The editor's stock return bindings are not among the two things that
       // may answer a return in this row, so they are left out. Which of the two
       // does answer it is decided in enterKey. The line moves and copies are
