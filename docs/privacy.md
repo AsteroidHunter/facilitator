@@ -15,7 +15,7 @@ What leaves the Mac, exactly:
 
 ## Who can reach the board
 
-Only your own Mac can use the board: its address works only on this Mac, and it refuses any request another website sets off. Another site may open the board's page but cannot change anything or show the board inside its own page. The phone reaches the board only through the phone link, which needs the phone password. A magic box can be filled only from the Mac itself; a signed-in phone can see one and close it. An agent on one of your own servers reaches the board only by connecting out to its agent door, which listens on the Mac's Tailscale addresses alone, and only with its own key, which opens its own project's cards and nothing else; the board never logs in to a server (see [Agents on your own servers](servers.md)). The files the board keeps about your work, attachments and logs included, can be read only by your Mac account.
+Only your own Mac can use the board: its address works only on this Mac, and it refuses any request another website sets off. Another site may open the board's page but cannot change anything or show the board inside its own page. The phone reaches the board only through the phone link, which needs the phone password. A magic box can be filled only from the Mac itself; a signed-in phone can see one and close it. An agent on one of your own servers reaches the board only through that server's ssh link, which only your account on the server can use, and only with its own key, which opens its own project's cards and nothing else (see [Agents on your own servers](servers.md)). The files the board keeps about your work, attachments, logs and the search index included, can be read only by your Mac account.
 
 ## Search
 
