@@ -5,7 +5,8 @@ every connection, as a tailnet that goes away does. Nothing logs in
 anywhere: the server side connects out to the door, as on a real server.
 
   pair      `facilitator remote pair` prints the line to run on the server and
-            a code; the setup program, fetched from the door with no key,
+            a code; that line, run in a terminal there with the code typed at
+            its prompt, fetches the setup program from the door with no key,
             trades the code for the server's key, puts the skill, the runbook
             and the docs in ~/.facilitator/skill for the account alone, links
             the skill and starts the link, which connects; the Mac keeps the
@@ -30,7 +31,9 @@ anywhere: the server side connects out to the door, as on a real server.
 
 import json
 import os
+import pty
 import re
+import select
 import shutil
 import signal
 import socket
@@ -43,6 +46,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+import warnings
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -255,6 +259,51 @@ class ServerEndToEnd(unittest.TestCase):
         return subprocess.run(argv, cwd=self.home / "demo", env=env, input=stdin, capture_output=True, text=True,
                               timeout=120, start_new_session=True)
 
+    def in_terminal(self, line, answer, seconds=120):
+        """A line run in a terminal on the server, as the owner types it
+        there, with answer typed at the prompt that asks for it: (exit
+        status, all that showed)."""
+        env = {**self.env, "HOME": str(self.home)}
+        for name in ("FACILITATOR_TEST_PORT", "FACILITATOR_TEST_AGENT_PORT", "FACILITATOR_LOG_DIR"):
+            env.pop(name, None)
+        # the relay's threads make forkpty warn; the child does nothing but
+        # exec the shell, so no lock it could be left holding matters
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pid, fd = pty.fork()
+        if pid == 0:
+            try:
+                os.chdir(self.home)
+                os.execve("/bin/sh", ["/bin/sh", "-c", line], env)
+            finally:
+                os._exit(127)
+        seen, answered, status = b"", False, None
+        ends = time.monotonic() + seconds
+        try:
+            while time.monotonic() < ends:
+                ready, _, _ = select.select([fd], [], [], 0.2)
+                if ready:
+                    try:
+                        chunk = os.read(fd, 4096)
+                    except OSError:
+                        chunk = b""
+                    seen += chunk
+                    if not answered and b"Pairing code from the Mac:" in seen:
+                        os.write(fd, (answer + "\n").encode())
+                        answered = True
+                    if chunk:
+                        continue
+                done, code = os.waitpid(pid, os.WNOHANG)
+                if done:
+                    status = os.waitstatus_to_exitcode(code)
+                    break
+        finally:
+            os.close(fd)
+            if status is None:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+        return status, seen.decode("utf-8", "replace").replace("\r\n", "\n")
+
     def helper(self, *words, wait=True):
         script = self.home / ".agents" / "skills" / "facilitator" / "scripts" / "onboard.py"
         argv = [sys.executable, "-B", str(script), *words]
@@ -302,14 +351,18 @@ class ServerEndToEnd(unittest.TestCase):
         with NO_PROXY.open(door + "/remote/setup", timeout=10) as r:
             setup = r.read()
         self.assertEqual(setup, (CLONE / ".agents/skills/facilitator/scripts/pair.py").read_bytes())
-        (self.root / "setup.py").write_bytes(setup)
-        ran = self.on_server([sys.executable, "-B", str(self.root / "setup.py"), door], stdin=code + "\n")
-        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
-        self.assertIn("Paired with the board as lab.", ran.stdout)
-        self.assertIn("The link is connected.", ran.stdout)
+        # the owner's one line, in a terminal on the server, the code typed
+        # at its prompt: the program comes in on standard input, so the code
+        # has to come from the terminal
+        printed = line.group(0).replace(line.group(1), door)
+        status, shown = self.in_terminal(printed, code)
+        self.assertEqual(status, 0, shown)
+        self.assertIn("Pairing code from the Mac:", shown)
+        self.assertIn("Paired with the board as lab.", shown)
+        self.assertIn("The link is connected.", shown)
         top = self.home / ".facilitator"
         server_key = (top / "server.key").read_text().strip()
-        self.assertNotIn(server_key, ran.stdout + ran.stderr + paired.stdout)
+        self.assertNotIn(server_key, shown + paired.stdout)
         self.assertEqual((self.mode(top), self.mode(top / "server.key"), self.mode(top / "agents")),
                          (0o700, 0o600, 0o700))
         for rel in ("skill/.agents/skills/facilitator/SKILL.md", "skill/.agents/skills/facilitator/scripts/onboard.py",
@@ -325,9 +378,9 @@ class ServerEndToEnd(unittest.TestCase):
         self.assertEqual(self.mode(self.data / "remote" / "servers.json"), 0o600)
         self.assertTrue(self.online(True, 10))
         # the code worked once
-        again = self.on_server([sys.executable, "-B", str(self.root / "setup.py"), door], stdin=code + "\n")
-        self.assertEqual(again.returncode, 1)
-        self.assertIn("that code is not known or has run out", again.stdout)
+        status, shown = self.in_terminal(printed, code)
+        self.assertEqual(status, 1, shown)
+        self.assertIn("that code is not known or has run out", shown)
 
         # listing, through the folder picker's own routes: this Mac first, then
         # the server, its folders listed and made there by its link

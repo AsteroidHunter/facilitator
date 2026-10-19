@@ -59,18 +59,26 @@ def board_url(text):
 
 
 def read_code():
-    """The pairing code, typed or pasted at the terminal. With no terminal
-    (a test, or a pipe of its own) the first line of standard input."""
+    """The pairing code, typed or pasted at the terminal, which is where it
+    has to come from: standard input is the program itself when it is piped
+    in. Opened as getpass opens it, unbuffered, since a terminal cannot be
+    opened for buffered reading and writing at once. With no terminal (a
+    test, or a pipe of its own) the first line of standard input."""
     try:
-        tty = open("/dev/tty", "r+")
+        fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
     except OSError:
-        tty = None
-    if tty is not None:
-        with tty:
-            tty.write("Pairing code from the Mac: ")
-            tty.flush()
-            return tty.readline().strip()
-    return sys.stdin.readline().strip()
+        return sys.stdin.readline().strip()
+    try:
+        os.write(fd, b"Pairing code from the Mac: ")
+        line = b""
+        while not line.endswith(b"\n") and len(line) < 256:
+            chunk = os.read(fd, 256)
+            if not chunk:
+                break
+            line += chunk
+        return line.decode("utf-8", "replace").strip()
+    finally:
+        os.close(fd)
 
 
 def private_dir(path):
