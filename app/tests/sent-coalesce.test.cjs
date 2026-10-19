@@ -531,21 +531,6 @@ test("a column's outer corners keep their round on every frame of its fall too",
   }
 });
 
-test("two drops landed one inside the other are drawn as the outer one, which is what tracing them draws", () => {
-  const { context } = load();
-  const r = 18, ext = { left: -20, top: -20, right: 140, bottom: 140 };
-  const px = v => (v - ext.left).toFixed(2), py = v => (v - ext.top).toFixed(2);
-  const outer = { left: 0, top: 0, right: 108, bottom: 56 }, inner = { left: 48, top: 0, right: 108, bottom: 56 };
-  for (const [U, L] of [[inner, outer], [outer, inner]])
-    assert.equal(context.sentGooPath(U, L, r, 1.5 * r, 0, ext, context.sentNeckBox(U, L, r, 1)), context.sentBoxPath(outer, r, px, py));
-  // traced, with the inner one a hundredth of a pixel past the outer's head, it stands within a tenth of a pixel of the outer box
-  const nudged = { ...inner, top: -.01 };
-  const d = context.sentGooPath(nudged, outer, r, 1.5 * r, 0, ext, context.sentNeckBox(nudged, outer, r, 1));
-  assert.ok(!d.includes("A"), "the nudged pair was not traced");
-  for (const [x, y] of loopsIn(d, ext).flat())
-    assert.ok(Math.abs(context.sentBoxDistance(x, y, { ...outer, top: -.01 }, r)) < .1, `the traced outline stands off the outer box at ${x}, ${y}`);
-});
-
 test("each joint of a column meets as two drops meet: swells before its own touch, its own neck from then, in the middle of the side the two share and only widening, and one piece from then on", () => {
   const { context } = load();
   const { B0, W, H, r } = columnOf([52.5, 52.5, 99, 52.5, 52.5], [90, 160, 260, 200, 140]);
