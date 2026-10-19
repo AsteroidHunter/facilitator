@@ -98,17 +98,23 @@ function positions(doc, C, wraps = new Set(), face = "formatted") {
       add(line.from + starts[k], line.from + starts[k], `before "${piece}"`);
       add(line.from + starts[k + 1], line.from + starts[k + 1], `after "${piece}"`);
     }
-    if (line.item) {
-      const it = line.item;
-      add(it.markerFrom, it.markerFrom, `line ${line.n + 1} before the marker`);
-      add(it.markerTo, it.markerTo, `line ${line.n + 1} inside the marker`);
-      add(it.gapTo, it.gapTo, `line ${line.n + 1} after the marker`);
-      if (it.indent > 1) add(line.from + 1, line.from + 1, `line ${line.n + 1} inside the indent`);
+    // either side of every list marker and inside it, and inside its indent
+    for (const it of line.items) {
+      add(it.markerFrom, it.markerFrom, `line ${line.n + 1} before a marker`);
+      add(it.markerTo, it.markerTo, `line ${line.n + 1} inside a marker`);
+      add(it.gapTo, it.gapTo, `line ${line.n + 1} after a marker`);
+      if (it.item.markCol > 1) add(line.from + it.item.quoteLen + 1, line.from + it.item.quoteLen + 1,
+                                   `line ${line.n + 1} inside the indent`);
     }
-    if (line.quote) for (let p = line.quote.from; p <= line.quote.to; p++)
-      add(p, p, `line ${line.n + 1} angle ${p - line.from}`);
+    // before, between and after a quote's angles (the formatted face leaves
+    // out the places between hidden angles, which no caret can reach there)
+    for (const q of [...line.quotes, ...line.inners]) {
+      add(line.from + q.from, line.from + q.from, `line ${line.n + 1} before an angle`);
+      add(line.from + q.from + 1, line.from + q.from + 1, `line ${line.n + 1} after an angle`);
+      add(line.from + q.to, line.from + q.to, `line ${line.n + 1} after an angle's space`);
+    }
     if (line.heading) {
-      add(line.from + 1, line.from + 1, `line ${line.n + 1} inside the hashes`);
+      add(line.heading.from + 1, line.heading.from + 1, `line ${line.n + 1} inside the hashes`);
       add(line.heading.to, line.heading.to, `line ${line.n + 1} after the hashes`);
     }
     if (line.inline != null && C) {

@@ -95,6 +95,9 @@ const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const QUOTE_LIVE = /^ {0,3}(?:>[ \t]?)*>[ \t]/;          // box: the angles drawn as a bar
 const ITEM = /^([-*+]|\d{1,9}[.)])([ \t]+)/;             // obsidian: a marker and its space
 const BARE = /^[ \t]*(?:[-*+]|\d{1,9}[.)])$/;            // a marker whose space is not typed yet
+// a heading, or hashes alone (a heading with no words, which ends a list's
+// words as one does, though it is drawn as its hashes until a space comes)
+const ENDS_TEXT = /^(?:#{1,6}[ \t]+|#{1,6}$)/;
 
 // A line's containers, outermost first, as the editor's own markdown commands
 // read them (a quote's angle, a list item's marker), each with where it
@@ -169,7 +172,17 @@ function structure(doc) {
       if (rec.depth > lastDepth) blankAbove = true;
     }
     lastDepth = rec.depth;
-    if (rec.depth) reset(0);   // a quote at the margin ends a list standing outside it
+    // a quote at the margin ends a list standing outside it; one indented as
+    // far as an item's words is inside that item, as the card and the editor
+    // read it
+    let around = null;
+    if (rec.depth) {
+      const lead = rec.quotes[0].from, outer = stackAt(0);
+      if (outer.some(entry => lead >= entry.contentCol)) {
+        while (lead < outer[outer.length - 1].contentCol) outer.pop();
+        around = outer.slice();
+      } else reset(0);
+    }
     const body = text.slice(at);
     const stack = stackAt(rec.depth);
     const indent = columns(/^[ \t]*/.exec(body)[0]);
@@ -238,9 +251,8 @@ function structure(doc) {
       // an item's words are what a lazy line may go on; a heading is not words
       openText = !!text.slice(off).trim() && !HEADING.test(text.slice(off));
       blankAbove = false;
-    } else if (stack.length && !BARE.test(body) &&
-               (stack.some(entry => indent >= entry.contentCol) ||
-                !(HEADING.test(body.trimStart()) || !openText || blankAbove))) {
+    } else if (stack.length && (stack.some(entry => indent >= entry.contentCol) ||
+               !(BARE.test(body) || ENDS_TEXT.test(body.trimStart()) || !openText || blankAbove))) {
       // a line inside a list that is not an item of its own: the item's (card).
       // Obsidian leaves a line written at the margin outside the list; the
       // card shows it as the item's, and so does the row. A line indented as
@@ -254,7 +266,8 @@ function structure(doc) {
       rec.kind = "cont";
       rec.carried = stack.slice();
       rec.cont = { owner, lazy: indent < owner.contentCol, indent };
-      openText = true;
+      // a marker still waiting for its space is an empty item, not words
+      openText = !BARE.test(body) && !ENDS_TEXT.test(body.trimStart());
       blankAbove = false;
     } else {
       reset(rec.depth);
@@ -266,12 +279,22 @@ function structure(doc) {
       const outer = rec.items[0].item.parent;
       for (let p = outer; p; p = p.parent) rec.carried.unshift(p);
     }
-    // a heading, at the margin or inside a quote or an item
+    if (around) {
+      // a quote inside an item: the item's own, under its column
+      rec.carried = [...around, ...rec.carried];
+      if (rec.kind === "plain") {
+        rec.kind = "cont";
+        rec.cont = { owner: around[around.length - 1], lazy: false, indent: rec.quotes[0].from };
+      }
+    }
+    // a heading, at the margin or inside a quote or an item; what is drawn
+    // away is its hashes and the space after them
     const words = text.slice(rec.inline - line.from);
+    const lead = words.length - words.trimStart().length;
     const head = (rec.kind === "item" ? HEADING : /^[ \t]{0,3}(#{1,6})[ \t]+/).exec(rec.kind === "cont" ? words.trimStart() : words);
     if (head && (indent < 4 || rec.kind !== "plain")) {
-      const lead = rec.kind === "cont" ? words.length - words.trimStart().length : 0;
-      rec.heading = { level: head[1].length, from: rec.inline + lead, to: rec.inline + lead + head[0].length };
+      const end = rec.kind === "cont" ? lead + head[0].length : head[0].length;
+      rec.heading = { level: head[1].length, from: rec.inline + (rec.kind === "item" ? 0 : lead), to: rec.inline + end };
       if (rec.kind === "plain") rec.kind = "heading";
       rec.inline = rec.heading.to;
     }
@@ -280,7 +303,7 @@ function structure(doc) {
       item: entry, own: false, from: entry.quoteLen + entry.markCol,
       to: entry.quoteLen + entry.contentCol, space: entry.gap,
     }));
-    rec.contexts = [...rec.quotes, ...carried, ...chain];
+    rec.contexts = [...rec.quotes, ...carried, ...chain].sort((a, b) => a.from - b.from);
     for (const q of rec.quotes) q.live = rec.carry >= q.to;
   }
   return out;

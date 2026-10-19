@@ -78,6 +78,26 @@ test("Tab nests a list item and Shift+Tab brings it out; elsewhere Tab leaves th
   assert.equal(M.tab(M.st("- a", 2), false, "plain").blurred, true);
 });
 
+test("the matrix places a caret at every kind of marker, angle, hash and span", () => {
+  const labels = doc => W.positions(doc, C).map(p => p.label);
+  for (const [doc, want] of [
+    // (a place already made under another name keeps its first one)
+    ["- one\n  - two", ["line 1 inside a marker", "line 1 after a marker", "line 2 before a marker", "line 2 inside the indent"]],
+    ["1. one", ["line 1 inside a marker", "line 1 after a marker"]],
+    ["> quoted", ["line 1 after an angle's space"]],
+    ["text\n> q", ["line 2 after an angle's space"]],
+    ["- > q", ["line 1 after an angle's space"]],
+    ["# Title", ["line 1 inside the hashes", "line 1 after the hashes"]],
+    ["**bold** x", ["bold marker start", "between the bold marker's characters", "the whole bold picked", "inside the bold"]],
+    ["a `c` [l](https://x.y)", ["before the code", "before the link", "link marker end", "the link's words picked"]],
+  ]) {
+    const have = labels(doc);
+    for (const label of want) assert.ok(have.includes(label), `${JSON.stringify(doc)} has no position "${label}": ${have.join(", ")}`);
+  }
+  // and no caret between angles drawn away, which nobody can reach
+  assert.ok(!W.positions(">> deep", C).some(p => p.head === 1), "a caret between hidden angles");
+});
+
 test("every cell of the walk's matrix has an answer", () => {
   let cells = 0;
   for (const face of ["formatted", "plain"]) {
