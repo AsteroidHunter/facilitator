@@ -497,6 +497,20 @@
     return themeExtension;
   }
 
+  // ---- a list marker under a line of text -----------------------------------
+  // A dash, a star, a plus or a number with its space is a list item at the
+  // head of any line, right under a line of text as much as on an empty first
+  // line. That is how Obsidian reads a list, a line at a time, and how the
+  // sent card draws one. The parser follows CommonMark, which lets an item
+  // break into a paragraph only once it has words and, numbered, only from 1:
+  // under a line of text "- " read as that line's heading underline and "2. b"
+  // as more of its words, so the bullet came only with the next character and
+  // Backspace and a new line on it did what they do to text. A marker like
+  // that ends the paragraph above it here, and the list it starts is read as
+  // any list is.
+  const LIST_BREAK = { parseBlock: [{ name: "ListBreak",
+    endLeaf: (cx, line) => /^(?:[-*+]|\d{1,9}[.)])[ \t]/.test(line.text.slice(line.pos)) }] };
+
   // ---- inserting a line inside a list --------------------------------------
   const LIST_LINE = /^([ \t]*)(?:([-*+])|(\d{1,9})([.)]))([ \t]+)(.*)$/;
 
@@ -757,7 +771,7 @@
       // and a backspace taking a whole marker off at once, are both what a
       // reader of this row already has. Which of them answers the return key,
       // and when, is decided in enterKey above.
-      C.markdown({ base: C.markdownLanguage }),
+      C.markdown({ base: C.markdownLanguage, extensions: LIST_BREAK }),
       C.history(),
       // the editor writes its own class attribute on every update, so the name
       // the page styles the row by is handed to it rather than set on the node
