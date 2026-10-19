@@ -8617,3 +8617,72 @@ function magicView(el, hooks = {}){
   };
   return view;
 }
+
+// ---- projects on the owner's servers -------------------------------------------------
+// a project whose folder is on one of the owner's servers names that server
+// (state.projects[i].server), and the board says for each server whether its
+// ssh link is up and whether it has been down long enough that its projects
+// fade (remote.servers[id].faded, 30 seconds, so a short drop never flashes
+// it). a server the board no longer knows has no link at all and fades at once
+function remoteServerOf(state, owner){
+  const p = ((state && state.projects) || []).find(x => x && x.id === owner);
+  return p && p.server ? p.server : "";
+}
+// {server, name} while the project's server is faded, null otherwise
+function remoteFaded(state, owner){
+  const sid = remoteServerOf(state, owner);
+  if (!sid) return null;
+  const s = ((state.remote || {}).servers || {})[sid];
+  return s && !s.faded ? null : { server: sid, name: (s && s.name) || sid };
+}
+// the project a folder the picker chose already is, or null: the same path on
+// the same machine, so a server's /home/you/app is never a folder of this Mac
+function folderProject(state, folder){
+  if (!state || !folder) return null;
+  const sid = folder.machine && folder.machine !== "this" ? folder.machine : "";
+  return allRowsOf(state).find(ow => (state.pwds || {})[ow] === folder.path && remoteServerOf(state, ow) === sid) || null;
+}
+// the route that makes a project of a folder the picker chose: a server's
+// folder names its machine, and the board reads the folder there before it
+// keeps the project. a folder on this Mac asks exactly as it always did
+function projectRoute(folder){
+  const server = folder.machine && folder.machine !== "this" ? folder.machine : "";
+  return "/project?name=" + encodeURIComponent(folder.name || "project") +
+    (server ? "&machine=" + encodeURIComponent(server) : "");
+}
+// a refused folder in plain words: a server answers in plain words already
+// (its link down, its folder outside its home), this Mac's by projectRefusal
+function folderRefusal(pr, state, folder){
+  if (folder.machine && folder.machine !== "this" && pr && pr.error && pr.error !== "duplicate project") return pr.error;
+  return projectRefusal(pr, state, folder.name);
+}
+// the folder a project row shows: a server's project as the server's name and
+// its path there, the way ssh writes one
+function lanePlace(state, owner){
+  const dir = (state.pwds || {})[owner] || "";
+  const sid = remoteServerOf(state, owner);
+  if (!sid) return dir;
+  const s = ((state.remote || {}).servers || {})[sid];
+  return ((s && s.name) || sid) + ":" + dir;
+}
+// the fade over the project on screen, the same on the board and the phone: the
+// body's remotedown class, which each page's sheet dims the project by, and one
+// line saying why. none of it takes the pointer, so the composer still takes
+// typing and sending; what is sent waits on the Mac until the link is back
+function showRemoteFade(faded){
+  document.body.classList.toggle("remotedown", !!faded);
+  let note = document.getElementById("remotenote");
+  if (!faded){
+    if (note) note.hidden = true;
+    return;
+  }
+  if (!note){
+    note = document.createElement("div");
+    note.id = "remotenote";
+    note.setAttribute("role", "status");
+    document.body.appendChild(note);
+  }
+  const words = faded.name + " is not connected. What you send waits here and reaches the agent when the link is back.";
+  if (note.textContent !== words) note.textContent = words;
+  note.hidden = false;
+}

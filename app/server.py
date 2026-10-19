@@ -659,13 +659,21 @@ Endpoints:
                                $FACILITATOR_LOG names another file instead
   GET  /machines            -> the machines the folder picker may list, each
                                {id, name, kind, online, top, home, sep, places}:
-                               today only this one, id "this", named by its
+                               this one first, id "this", named by its
                                system ("This Mac", "This PC", "This computer").
                                top is the highest folder it lists (home), sep
                                the system's path separator, places its home and
                                the Desktop, Documents and Downloads it has
                                (the XDG names where Linux keeps them), found
-                               without reading inside them
+                               without reading inside them. Then each of the
+                               owner's servers (remote_link.py), kind "server",
+                               its top and home the account's home there with
+                               its links followed, and online while its link
+                               is up. /dirs and /mkdir with a server's id for M
+                               read and make its folders there, over the link's
+                               own login, by the same rules, limits and words
+                               as this Mac's; a server whose link is down is
+                               refused in plain words
   GET  /dirs?path=P[&from=F][&machine=M] -> one folder's subfolders for the
                                folder picker (folder-picker.js). Empty P is
                                home, ~ is home, and a relative P is taken from
@@ -747,6 +755,33 @@ Endpoints:
                                card green and resets the steal timer, no release.
                                The messages the claim holds at that moment are
                                read from then on (pendingStates on /state)
+  The owner's servers (remote_link.py; a board without that file has none):
+  POST /project?name=N&machine=S -> body = a folder on server S: the board asks
+                               the server over its link for the folder's real
+                               path, that it is a folder in that account's home
+                               and not hidden, and its git repository, then
+                               makes the lane as above with {server, git}
+                               stored beside {id, name, dir}. 400 in plain words
+                               for a folder that is not one, an unknown server
+                               or one whose link is down. A server lane's
+                               folder is never read on this Mac: no internal
+                               folder, navigator or worktree list for it
+  GET  /remote/servers      -> {servers: [{id, name, dest, up, since, reason,
+                               faded}]}: each server and its link, for
+                               `facilitator remote list`. Local only
+  POST /remote/reload       -> read data/remote/servers.json again, after
+                               `facilitator remote add` or `remove`: a new
+                               server's link starts, a removed one's stops and
+                               its lanes' keys go. {ok, servers}. Local only
+  The folder picker lists each server beside this Mac (see /machines, /dirs
+  and /mkdir). /state carries remote: {servers: {id: {name, up, faded}}},
+  and the phone's live section the same on every reading: faded once a link
+  has been down
+  FADE_AFTER (30) seconds, which is when the pages fade that server's
+  projects. A request that came through a link is decided by RemoteGate
+  before anything here sees it: POST /remote/join with the server's join key
+  gives an agent its lane's key, GET /remote/lane answers that lane's busy
+  and listening state, and the agent routes answer for that lane alone
   GET  /fresh?owner=O       -> while O's agent holds a card: any messages that
                                landed on that card after the claim, handed over
                                and folded into the claim, so the one reply
@@ -902,6 +937,13 @@ import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse, quote
+
+# the owner's servers and their links. A copy of the board without the file,
+# as the tests' fixtures make, has no links, no socket for them and no gate
+try:
+    import remote_link
+except ImportError:
+    remote_link = None
 
 HERE = Path(__file__).resolve().parent
 # the checkout, the folder that was cloned: app/, which holds this file and the
@@ -2096,13 +2138,23 @@ def _lane_pwds() -> dict:
             **{p["id"]: p["dir"] for p in _state.get("projects", [])}}
 
 
+def _lane_server(lane: str) -> str | None:
+    """The server a project lane's folder is on, or None for a folder on this
+    Mac. A server lane's dir is a path on that server, so nothing that reads
+    this Mac's disk may follow it: the same path here is another folder."""
+    for p in _state.get("projects", []):
+        if isinstance(p, dict) and p.get("id") == lane:
+            return p.get("server") or None
+    return None
+
+
 def _lane_internal(lane: str) -> Path | None:
     """A lane's own internal folder, <lane dir>/<lane id>-internal: where that
     project keeps the files that belong to it and never get pushed. A lane whose
     folder is this checkout keeps it at the checkout's top, where git ignores
-    it. None for a lane nobody has heard of."""
+    it. None for a lane nobody has heard of, and for a server lane."""
     d = _lane_pwds().get(lane)
-    return Path(d) / (lane + "-internal") if d else None
+    return Path(d) / (lane + "-internal") if d and not _lane_server(lane) else None
 
 
 # the lanes the file navigator is mounted on, and the two folders each of them
@@ -2128,7 +2180,7 @@ def _nav_roots(lane: str) -> list[tuple]:
     A lane the panel is not mounted on, and a lane nobody has heard of, yield
     nothing, and every route then refuses."""
     d = _lane_pwds().get(lane) if lane in NAV_LANES else None
-    if not d:
+    if not d or _lane_server(lane):
         return []
     out = []
     for kind in NAV_KINDS:
@@ -2341,7 +2393,7 @@ def _lane_worktrees(lane: str) -> dict:
     would be a quiet lie. A wrapper with no same-name checkout under it simply
     has no repository, which is the true answer for it."""
     d = _lane_pwds().get(lane)
-    if not d:
+    if not d or _lane_server(lane):
         return {"current": "", "names": []}
     hit = _WT_CACHE.get(lane)
     if hit and time.time() - hit[0] < _WT_TTL:
@@ -4316,7 +4368,15 @@ def _live_section() -> dict:
             "name": _agent_names.get(ow) or "claude",
             "alive": _waiters.get(ow, 0) > 0 or (now - _last_wait.get(ow, 0.0)) < 900 or bool(_state["busy"].get(ow)),
         } for ow in OWNERS},
+        # each server's link, on every reading: it moves without the revision
+        "remote": _remote_reading(),
     }
+
+
+def _remote_reading() -> dict:
+    """{servers: {id: {name, up, faded}}}: what the pages fade a server's
+    projects by. Empty on a board that runs no links."""
+    return {"servers": _remote.status() if _remote is not None else {}}
 
 
 def _phone_state(since: int | None, ops: list[str], epoch: str = "") -> bytes:
@@ -4574,6 +4634,9 @@ def _ui_state() -> dict:
         "pwd": str(CLONE),
         "pwds": _lane_pwds(),
         "projects": st.get("projects", []),
+        # each server's link: whether it is up, and whether it has been down
+        # long enough that the pages fade that server's projects
+        "remote": _remote_reading(),
         "busy": st["busy"],
         "queued": len(st["inbox"]),
         "title": st.get("title", "facilitator"),
@@ -5138,11 +5201,12 @@ def _get_limits(q: Query, _):
 # "Open a new folder" opens a picker the board draws itself (folder-picker.js),
 # on the Mac board, the typed page and the phone page alike. It reads three
 # routes: /machines names the machines it may list and their places, /dirs
-# lists one folder of one machine, and /mkdir makes a folder in one. Only this
-# machine is known, as "this": another machine later is one more entry in
-# _machines() and one more answer from _machine(). Everything is fenced to the
-# home folder and hidden folders stay hidden. Paths go out the way this system
-# writes them, and the page shows what it is given without taking a path apart
+# lists one folder of one machine, and /mkdir makes a folder in one. This
+# machine is "this"; each of the owner's servers (remote_link.py) is one more
+# machine, listed and asked over its own ssh link, by the same rules and with
+# the same answers. Everything is fenced to the home folder and hidden folders
+# stay hidden. Paths go out the way each system writes them, and the page shows
+# what it is given without taking a path apart
 FOLDER_ROWS_MAX = 2000      # folders one listing names; the rest are only counted
 FOLDER_SCAN_MAX = 50000     # names one listing reads in a folder before it stops
 FOLDER_SCAN_TIME = 2.0      # seconds one listing may spend reading its folder
@@ -5203,9 +5267,15 @@ def _machine_name() -> str:
 
 def _machine(q: Query):
     """The machine a request names, "this" when it names none, None for one
-    the board does not know."""
+    the board does not know. A server's id is answered by _server_machine."""
     named = q.one("machine") or "this"
     return named if named == "this" else None
+
+
+def _server_machine(q: Query) -> str | None:
+    """The id of one of the owner's servers a request names, or None."""
+    named = q.one("machine")
+    return named if named and _remote is not None and _remote.server(named) else None
 
 
 def _hidden_mark(st) -> bool:
@@ -5278,8 +5348,10 @@ def _machines() -> list:
                 places.append({"id": place, "name": p.name, "path": str(p)})
         except OSError:
             continue
+    # then each of the owner's servers, online while its link is up
+    servers = _remote.machines() if _remote is not None else []
     return [{"id": "this", "name": _machine_name(), "kind": "computer", "online": True,
-             "top": str(home), "home": str(home), "sep": os.sep, "places": places}]
+             "top": str(home), "home": str(home), "sep": os.sep, "places": places}, *servers]
 
 
 def _get_machines(q: Query, _):
@@ -5421,9 +5493,26 @@ def _count_names(p: Path):
     return n
 
 
+def _server_paths(q: Query):
+    """A server's path and from, or None when either is past this Mac's own
+    FOLDER_PATH_MAX, which is refused before anything goes over the link."""
+    path, base = q.one("path").strip(), q.one("from").strip()
+    if max(len(path.encode("utf-8", "surrogatepass")), len(base.encode("utf-8", "surrogatepass"))) > FOLDER_PATH_MAX:
+        return None
+    return path, base
+
+
 def _get_dirs(q: Query, _):
     if _machine(q) is None:
-        return 400, {"error": "no such machine"}
+        server = _server_machine(q)
+        if server is None:
+            return 400, {"error": "no such machine"}
+        paths = _server_paths(q)
+        if paths is None:
+            return 400, {"error": "that path is too long"}
+        # read on the server over its link's own login, in this shape and by
+        # the same rules (remote_link.PROGRAM)
+        return _remote.list_dirs(server, *paths)
     home = _home()
     p, why = _folder_named(q, home)
     if p is None:
@@ -5490,8 +5579,35 @@ def _folder_name_problem(name: str):
     return None
 
 
+def _server_mkdir(q: Query, server: str):
+    """/mkdir on one of the owner's servers, held to this Mac's own rules
+    first: the same names, the same longest path and the same count of new
+    folders a minute, shared with this Mac's. The server then makes it inside
+    its own home by the same fence (remote_link.PROGRAM)."""
+    name = q.one("name").strip()
+    why = _folder_name_problem(name)
+    if why:
+        return 400, {"error": why}
+    paths = _server_paths(q)
+    if paths is None:
+        return 400, {"error": "that path is too long"}
+    now = time.monotonic()
+    with _folders_made_lock:
+        _folders_made[:] = [t for t in _folders_made if now - t < 60]
+        if len(_folders_made) >= FOLDER_MAKES:
+            return 429, {"error": "too many new folders in a minute, try again shortly"}
+    status, answer = _remote.make_dir(server, paths[0], name)
+    if status == 200:
+        with _folders_made_lock:
+            _folders_made.append(now)
+    return status, answer
+
+
 def _post_mkdir(q: Query, _text: str):
     if _machine(q) is None:
+        server = _server_machine(q)
+        if server is not None:
+            return _server_mkdir(q, server)
         return 400, {"error": "no such machine"}
     name = q.one("name").strip()
     why = _folder_name_problem(name)
@@ -7401,10 +7517,28 @@ def _post_create(q: Query, text: str):
         return 200, {**result, "rev": _state["rev"], "card": _phone_box(made)}
 
 
-def _post_project(q: Query, text: str):
+def _post_project_route(q: Query, text: str):
+    """/project for a folder on this Mac, or with machine= for a folder on
+    one of the owner's servers. The server is asked about its folder before
+    the board's lock is taken, since that is a round trip over ssh."""
+    machine = q.one("machine")
+    if not machine or machine == "this":
+        return _run_state_request(_post_project, q, text)
+    if _remote is None:
+        return 400, {"error": "no such machine"}
+    status, found = _remote.describe(machine, text)
+    if status != 200 or not isinstance(found, dict):
+        return status, found
+    return _run_state_request(_post_project, q, text,
+                              {"server": machine, "dir": found["path"], "git": found.get("git")})
+
+
+def _post_project(q: Query, text: str, found: dict | None = None):
     # a new project lane from the page's plus tab: slug the name,
     # store {id, name, dir} so restarts keep it, give the lane its
-    # per-owner slots; the tab appears with its one general-purpose Omni card
+    # per-owner slots; the tab appears with its one general-purpose Omni card.
+    # found is a server's folder as _post_project_route read it, kept with
+    # the server's id and its repository
     name = q.one("name").strip()
     slug = "".join(c if c.isalnum() else "-" for c in name.lower())
     while "--" in slug:
@@ -7416,14 +7550,16 @@ def _post_project(q: Query, text: str):
     # link takes the folders the picker shows in it. the folder is looked at
     # before the board's lock is taken, and a body longer than any path is
     # refused unread: resolving one takes time that grows with its square
+    # a server's folder (found) was read on that server and is never looked
+    # for on this Mac
     home = _home()
     d = None
-    if text and len(text.encode("utf-8", "surrogatepass")) <= FOLDER_PATH_MAX:
+    if found is None and text and len(text.encode("utf-8", "surrogatepass")) <= FOLDER_PATH_MAX:
         try:
             d = Path(text).expanduser().resolve()
         except (OSError, RuntimeError, ValueError):
             d = None
-    if d is None or not d.is_dir() or not _inside(d, home):
+    if found is None and (d is None or not d.is_dir() or not _inside(d, home)):
         return 400, {"error": "body must be a folder under home"}
     with _lock:
         # a taken id walks numbered suffixes until free; built-in owner
@@ -7436,7 +7572,12 @@ def _post_project(q: Query, text: str):
             while f"{slug}-{n}" in taken:
                 n += 1
             slug = f"{slug}-{n}"
-        _state.setdefault("projects", []).append({"id": slug, "name": name, "dir": str(d)})
+        record = {"id": slug, "name": name, "dir": str(d)}
+        if found is not None:
+            record = {"id": slug, "name": name, "dir": found["dir"], "server": found["server"],
+                      **({"git": found["git"]} if found.get("git") else {})}
+            d = found["dir"]
+        _state.setdefault("projects", []).append(record)
         _state["busy"].setdefault(slug, None)
         _state["claimed"].setdefault(slug, [])
         _state["busy_ts"].setdefault(slug, 0.0)
@@ -7465,7 +7606,71 @@ def _post_project(q: Query, text: str):
         # state does not know, until a restart
         _register_owner(slug)
         _notify()
-        return 200, {"ok": True, "id": slug, "name": name, "dir": str(d)}
+        return 200, {"ok": True, "id": slug, "name": name, "dir": str(d),
+                     **({"machine": found["server"]} if found is not None else {})}
+
+
+# ---- the owner's servers -----------------------------------------------------------
+# remote_link.py keeps each server's ssh link, its keys and what is run there;
+# here are the routes the Mac's own pages and command ask it through, and what
+# its gate asks of the board. _remote is made by main and stays None in a copy
+# of the board that does not run, so nothing here starts a link by itself
+_remote = None
+
+
+def _remote_projects(sid: str) -> list:
+    with _lock:
+        return [dict(p) for p in _state.get("projects", [])
+                if isinstance(p, dict) and p.get("server") == sid]
+
+
+def _remote_presence(lane: str) -> dict:
+    """A lane's claim and listener, what a server's helper checks before it
+    listens: the card held, whether its hand-off was confirmed (one that was
+    not is a claim that died on the wire and comes back by itself), whether
+    a listener is on the line and how long since one was."""
+    with _lock:
+        busy = _state["busy"].get(lane)
+        rec = _state.get("ack", {}).get(lane) or {}
+        return {"busy": busy,
+                "confirmed": bool(busy and rec.get("box") == busy and rec.get("confirmed")),
+                "listening": _waiters.get(lane, 0) > 0,
+                "gap": round(time.time() - _last_wait.get(lane, 0.0), 1)}
+
+
+def _remote_box_lane(bid: str) -> str | None:
+    with _lock:
+        b = _box(bid)
+        return b.get("owner", "facilitator") if b else None
+
+
+class _RemoteBoard:
+    """What RemoteGate asks of the board, each in its own short hold of the lock."""
+    projects = staticmethod(_remote_projects)
+    presence = staticmethod(_remote_presence)
+    box_lane = staticmethod(_remote_box_lane)
+
+    @property
+    def remote(self):
+        return _remote
+
+    @staticmethod
+    def log(kind: str, **fields) -> None:
+        _info(kind, **fields)
+
+
+def _get_remote_servers(q: Query, _):
+    if not q.local:
+        return 404, {"error": "not found"}
+    return 200, {"servers": _remote.listing() if _remote is not None else []}
+
+
+def _post_remote_reload(q: Query, _text: str):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if _remote is None:
+        return 400, {"error": "this board runs no links"}
+    return 200, {"ok": True, "servers": _remote.reload()}
 
 
 def _post_close(q: Query, text: str):
@@ -8582,8 +8787,11 @@ def _via_gate(scope: dict) -> bool:
     """Whether the request came in through the phone's door: on another port
     than the board's own, or marked by Tailscale Serve. The bridge gate has
     already signed it in and checked its origin, which is how a signed-in
-    phone may use the few routes that are not only the Mac's."""
+    phone may use the few routes that are not only the Mac's. A request that
+    came through a server's link is neither, so it takes neither's routes."""
     server = scope.get("server") or (None, None)
+    if remote_link is not None and tuple(server) == remote_link.SERVER_MARK:
+        return False
     headers = {k.lower() for k, _ in scope.get("headers") or ()}
     return server[1] != PORT or b"x-forwarded-for" in headers or b"tailscale-headers-info" in headers
 
@@ -9051,7 +9259,8 @@ _last_overload: dict = {}
 # read routes, the ones that share READ_SLOTS: every GET except the small
 # answers that a command loop or a waking phone depends on
 UNCOUNTED_GETS = frozenset({"/unread", "/op", "/fresh", "/wait", "/push/key", "/worktrees",
-                            "/dirs", "/machines", "/upload"})
+                            "/dirs", "/machines", "/upload",
+                            "/remote/servers"})
 
 
 def _overload(which: str, route: str) -> None:
@@ -9301,7 +9510,11 @@ ROUTES = [
     Route("/props", _state_endpoint(_post_props, "text"), methods=["POST"]),
     Route("/title", _state_endpoint(_post_title, "text"), methods=["POST"]),
     Route("/create", _state_endpoint(_post_create, "text"), methods=["POST"]),
-    Route("/project", _state_endpoint(_post_project, "text"), methods=["POST"]),
+    # a plain endpoint that takes the lock itself, once a server's folder has
+    # been read: a folder on this Mac goes straight into the state request
+    Route("/project", _endpoint(_post_project_route, "text"), methods=["POST"]),
+    Route("/remote/servers", _endpoint(_get_remote_servers), methods=["GET"]),
+    Route("/remote/reload", _endpoint(_post_remote_reload, "text"), methods=["POST"]),
     Route("/close", _state_endpoint(_post_close, "text"), methods=["POST"]),
     Route("/delete", _state_endpoint(_post_delete, "text"), methods=["POST"]),
     Route("/bin", _state_endpoint(_get_bin), methods=["GET"]),
@@ -9515,6 +9728,13 @@ class BoardProtocol(H11Protocol):
 
     def connection_made(self, transport) -> None:
         super().connection_made(transport)
+        # the board's one Unix socket is the end of the servers' links: its
+        # requests carry remote_link's mark for an address, which no request
+        # over TCP can, and RemoteGate decides every one of them
+        sock = transport.get_extra_info("socket")
+        if remote_link is not None and sock is not None and sock.family == socket.AF_UNIX:
+            self.server = remote_link.SERVER_MARK
+            self.client = None
         self._first_timer = self.loop.call_later(FIRST_REQUEST_TIMEOUT, self._first_request_late)
 
     def on_response_complete(self) -> None:
@@ -9722,7 +9942,12 @@ def _require_bridge_components():
 def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
-    app = SiteGuard(bridge_gate(build_app(), BRIDGE_PORT, _info))
+    inner = build_app()
+    if remote_link is not None:
+        # inside the bridge gate, which lets a request on the Unix socket by as
+        # one of the Mac's own, and outside every route
+        inner = remote_link.RemoteGate(inner, _RemoteBoard())
+    app = SiteGuard(bridge_gate(inner, BRIDGE_PORT, _info))
     config = uvicorn.Config(
         app, host="127.0.0.1", port=PORT,
         log_config=None, access_log=False, server_header=False,
@@ -9740,6 +9965,7 @@ _stop_reason: str | None = None
 
 
 def main() -> None:
+    global _remote
     _quiet_uvicorn()
     _warn_legacy_config()
 
@@ -9778,6 +10004,18 @@ def main() -> None:
         raise SystemExit(1) from None
     server = _make_server(bridge_gate)
 
+    # the end of the servers' links on this Mac, for this account alone. A
+    # board that cannot make it runs without links rather than not at all
+    remote_sock = None
+    if remote_link is not None:
+        try:
+            _remote = remote_link.Remote(DATA, note=lambda kind, **fields: _info(kind, **fields))
+            remote_sock = remote_link.listen_socket(_remote.board_socket)
+        except OSError:
+            _remote = None
+            _error("remotefail", reason="the socket for the servers' links could not be made; "
+                                        "the board runs without them")
+
     def stopping(signum, frame) -> None:
         """Ctrl-C, a kill, or the terminal closing: the reason is remembered and
         the ordinary shutdown runs, so the file gets a stop line to match its
@@ -9815,7 +10053,9 @@ def main() -> None:
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
         _start_usage_counts()
         threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
-        server.run(sockets=[sock, bridge_sock])
+        if _remote is not None:
+            _remote.reload()   # each server's link starts on its own thread
+        server.run(sockets=[sock, bridge_sock, *([remote_sock] if remote_sock is not None else [])])
     except Exception as error:
         # the last word about a start that died of something rather than being
         # asked to stop: the stop line below says only which type ended it, and
@@ -9829,6 +10069,12 @@ def main() -> None:
         _info("stop", reason=_stop_reason or (ended.__name__ if ended else "end of stream"))
         sock.close()
         bridge_sock.close()
+        if _remote is not None:
+            _remote.stop()   # every link's ssh ends with the board
+            if remote_sock is not None:
+                remote_sock.close()
+                with contextlib.suppress(OSError):
+                    os.unlink(_remote.board_socket)
 
 
 if __name__ == "__main__":

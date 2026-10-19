@@ -253,7 +253,30 @@
       if (!m || this.busy) return null;
       if (id === m.id) return this.go(m.top, { place: id, base: m.top });
       const p = (m.places || []).find(x => x.id === id);
-      return p ? this.go(p.path, { place: id, base: p.path }) : null;
+      if (p) return this.go(p.path, { place: id, base: p.path });
+      const other = this.machines.find(x => x.id === id);
+      return other ? this.switchMachine(other) : null;
+    }
+    // another machine, one of the owner's servers: its home, listed there. the
+    // listings kept are this machine's, so they go with it, and a switch that
+    // could not list the other machine stays where it was and says why. an
+    // offline machine is not asked at all
+    async switchMachine(x){
+      if (x.online === false){
+        this.note = x.name + " is offline";
+        this.changed();
+        return false;
+      }
+      const was = { id: this.machineId, cache: this.cache, fwd: this.fwd, place: this.place };
+      this.machineId = x.id;
+      this.cache = new Map();
+      this.fwd = [];
+      const ok = await this.go(x.home, { place: x.id, base: x.top });
+      if (!ok && this.machineId === x.id){
+        Object.assign(this, { machineId: was.id, cache: was.cache, fwd: was.fwd, place: was.place });
+        this.changed();
+      }
+      return ok;
     }
     goTyped(text){
       const t = String(text == null ? "" : text).trim();

@@ -1,0 +1,17 @@
+# Agents on your own servers
+
+An agent can run on one of your own servers, reached with ssh, and work a project's cards on your Mac's board as an agent on the Mac does. The scripts and folders on the server keep working whether or not the board is connected; only the cards wait for the link.
+
+Before you start: `ssh you@server` has to log you in from the Mac without asking for a password, with your ssh key (macOS keeps the key's passphrase in the Keychain). Log in that way once by hand first, so ssh has asked you about the server's own key and remembers it: the board never answers that question for you, and a server whose key ssh does not know yet is refused with "Host key verification failed". The server needs python3 3.7 or newer and curl, as most Linux servers have, and its ssh server has to allow forwarding, which it does unless someone turned it off: `AllowStreamLocalForwarding` and `AllowTcpForwarding` in its `sshd_config` must not be `no` (the second can be `remote`). Nothing else is installed there, and no password is ever saved.
+
+Connecting a server: run `facilitator remote add you@server` on the Mac, with `--name lab` to give it a shorter name. It logs in, puts the Facilitator skill, the runbook and these docs in `~/.facilitator` on the server, links the skill where Claude Code and Codex look for skills, and starts the link. From then on the board keeps the link up whenever it runs, and brings it back by itself after the Mac sleeps, the network changes or the server restarts. Add as many servers as you like. `facilitator remote list` shows each server and whether its link is up, and `facilitator remote remove lab` forgets one on the Mac; the files in `~/.facilitator` on the server and the skill's links there stay until you delete them. Running `remote add` again for the same server puts the skill there afresh.
+
+Adding a project on a server: on the board, choose Open a new folder, pick the server under Machines, browse to the folder and choose it. The project's row then shows the server's name before its path, for example `lab:/home/you/app`.
+
+Starting the agent: on the server, start Claude Code or Codex in the project's folder and ask it to onboard (`/facilitator onboard` in Claude Code, `$facilitator onboard` in Codex), as on the Mac. It joins that project and is given a key of its own, which opens only that project's cards.
+
+When the link is down: once the link has been down for 30 seconds, the project fades on the Mac board and the phone, with one line saying the server is not connected. A shorter drop does not show at all. You can still type and send: messages wait on the Mac, and the agent gets them as soon as the link is back. Meanwhile the agent goes on working on the server and keeps listening for the board.
+
+Who can reach the board from a server: the link ends on the server in a socket that only your own account there can open, so another user on the server cannot reach the board through it. Each agent's key works only for its own project's cards, and the server's own key only lets an agent join; the Mac keeps fingerprints of the keys, never the keys themselves, and no key is written to a log or a card. An agent on a server cannot read the board's other projects, your Mac's files or a card's magic box.
+
+Not yet: the file panel and the pictures from a server project's notes folder, and a magic box filled by an agent on a server.

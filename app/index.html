@@ -355,6 +355,22 @@
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
 
+  /* ---- a project on a server out of reach --------------------------------- */
+  /* the open project's server has been out of reach for 30 seconds (the
+     board's word for it, remote on the state): the board under the bar fades
+     and one line over it says why. opacity alone, so nothing on the stage
+     moves, and nothing here takes the pointer, so the card's composer still
+     takes typing and sending. home has no project and shows neither; the
+     stage's own opacity transition (body.focus #stage) carries the fade */
+  body.remotedown:not(.home) #stage{opacity:.4}
+  #remotenote{
+    position:fixed; top:52px; left:50%; transform:translateX(-50%); z-index:30;
+    max-width:min(60ch, calc(100vw - 40px)); padding:8px 14px; pointer-events:none;
+    font:13px/1.4 var(--sans); color:var(--ink); text-align:center;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+  }
+  body.home #remotenote{display:none}
+
   /* ---- the startup curtain: the phone's globe (m.html #loading) ----------- */
   /* over the whole window from the page's first paint until the board can be
      used, then the phone's 260ms fade (curtainDrawn, by poll). the same white,
@@ -4927,7 +4943,7 @@ function renderHome(st, onHome = !draft && homeOpen){
   const box = document.getElementById("nprows");
   const owners = allRowsOf(st);
   const from = onHome ? "" : draft.from;
-  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "") + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + from + (onHome ? "|home" : "");
+  const sig = owners.map(ow => ow + labelOf(st, ow) + lanePlace(st, ow) + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + from + (onHome ? "|home" : "");
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.textContent = "";
@@ -4935,7 +4951,7 @@ function renderHome(st, onHome = !draft && homeOpen){
     const shut = tabClosed(ow, st);
     const row = h("div", "nprow" + (!onHome && ow === from ? " sel" : "") + (shut ? " shut" : ""));
     row.appendChild(h("span", "npname", labelOf(st, ow)));
-    row.appendChild(h("span", "nppath", (st.pwds || {})[ow] || ""));
+    row.appendChild(h("span", "nppath", lanePlace(st, ow)));
     if (shut) row.title = "click to reopen this project";
     if (shut || onHome) row.addEventListener("click", () => { if (shut) reopenTab(ow); else setTab(ow); });
     box.appendChild(row);
@@ -4978,26 +4994,24 @@ async function pickFolder(slot){
     if (!here()) return;   // the page was left while the picker sat open
     if (!r?.path) return;  // closed without a choice: nothing to say
     // the server names the folder and writes its path, so nothing here takes
-    // a path apart, whatever system the board runs on
-    const path = r.path, name = r.name || "project";
-    // a folder already behind a tab: name that tab instead of refusing. a
-    // folder whose tab was closed is the reopening itself, not a refusal: the
-    // lane is still the server's, and picking its folder here says
-    // which one is wanted back
-    const open = lastState && allRowsOf(lastState)
-      .find(ow => (lastState.pwds || {})[ow] === path);
+    // a path apart, whatever system the board runs on; r.machine is this Mac
+    // or one of the owner's servers. a folder already behind a tab, the same
+    // path on the same machine (folderProject, card-logic.js): name that tab
+    // instead of refusing. a folder whose tab was closed is the reopening
+    // itself, not a refusal: the lane is still the server's, and picking its
+    // folder here says which one is wanted back
+    const open = folderProject(lastState, r);
     if (open){
       if (tabClosed(open)) reopenTab(open);
       else projNote("that folder is already open as " + labelOf(lastState, open));
       return;
     }
-    const px = await fetch("/project?name=" + encodeURIComponent(name),
-        { method: "POST", body: path }).catch(() => null);
+    const px = await fetch(projectRoute(r), { method: "POST", body: r.path }).catch(() => null);
     const pr = px ? await px.json().catch(() => null) : null;
     if (!px?.ok || !pr?.id){
       // the server states its refusal; the note repeats it in plain words
-      // (projectRefusal, card-logic.js, which the phone says them with too)
-      projNote(projectRefusal(pr, lastState, name));
+      // (folderRefusal, card-logic.js, which the phone says them with too)
+      projNote(folderRefusal(pr, lastState, r));
       return;
     }
     const fade = boardFadeTake();   // the board being left, as in setTab; none from home or a new tab
@@ -6967,6 +6981,9 @@ function apply(state){
   }
   // and so does its kept draft, after the row's last word on the way out
   draftKeep(onBoard);
+  // a project on a server whose link has been down for 30 seconds is faded,
+  // on every reading and at once on a switch to it or away
+  showRemoteFade(remoteFaded(state, activeOwner));
   // a selection carried over from another lane (a reload into an empty lane,
   // or the selected card's lane changing) never renders on this tab
   if (FOCUS && selectedId && activeOwner !== DRAFT){
