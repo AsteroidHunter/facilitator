@@ -38,11 +38,11 @@ test("the workspace pane paints nothing but keeps its 7px box, so the stage is f
   assert.match(html, /function frameLimits\(\)\{\s*const frame = document\.getElementById\("appframe"\)/);
 });
 
-test("the house, speaker and squid are glass circles, and the pill a glass capsule at their height", () => {
-  const circles = rules("body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn)");
+test("the house, magnifier, speaker and squid are glass circles, and the pill a glass capsule at their height", () => {
+  const circles = rules("body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn)");
   assert.equal(decl(circles, "border-radius"), "50%");
   assert.equal(decl(circles, "width"), "32px"); assert.equal(decl(circles, "height"), "32px");
-  for (const id of ["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn"])
+  for (const id of ["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"])
     assert.match(html, new RegExp(`<button id="${id}" class="qn-glass"`), id + " is not glass");
   const pill = rules("body.focus #projpill, body.focus #npstart.qn-glass");
   assert.equal(decl(pill, "height"), "32px");

@@ -87,9 +87,9 @@ test("the plus is the board's plus on no glass, tuned: .9 of 24px, 1.6px lines, 
   // none of the bar's glass: its stack, its zoom rule, its press and its press list
   assert.match(MAC, /body\.focus :is\(\.bar \.qn-glass, #projmenu\), body\.focus\.home :is\(#nppanel, #npstart\)\.qn-glass\{/);
   assert.match(MAC, /body\.p3zoom \.bar \.qn-glass\{backdrop-filter:none; -webkit-backdrop-filter:none\}/);
-  assert.match(MAC, /body\.focus :is\(#homeico, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart\)\.pressed\{/);
+  assert.match(MAC, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart\)\.pressed\{/);
   assert.match(MAC, /body\.focus :is\(#projpill, #npstart\)\.pressed\{transform:scale\(var\(--press-x, 1\.06\), 1\.06\)\}/);
-  assert.match(MAC, /for \(const btn of \["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn", "npstart"\]\.map/);
+  assert.match(MAC, /for \(const btn of \["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"\]\.map/);
   // every rule and line of script that names it (the holder's markup, which
   // also holds the arrows' glass, is checked above)
   for (const line of MAC.split("\n").filter(line => /tiknew/.test(line) && !line.startsWith('<div id="tickets">')))
