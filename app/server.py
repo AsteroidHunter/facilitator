@@ -284,6 +284,12 @@ Endpoints:
                                and its sheet, what "Open a new folder" opens on
                                the board, the typed page and the phone page,
                                fetched the first time a folder is asked for
+  GET  /graph.js, /graph.css, /graph-force.js -> the links between cards
+                               drawn as a graph and a timeline on a sheet over
+                               the Mac board, its rules and the vendored
+                               d3-force that lays the graph out, fetched the
+                               first time the links are opened; the sheet
+                               reads GET /links/all
   GET  /manifest.json, /sw.js -> what makes the board page installable as a Mac
                                app: its web app manifest, whose name the
                                installed app's bundle and dock icon are taken
@@ -9165,6 +9171,12 @@ ROUTES = [
     Route("/magic-box.js", _static("magic-box.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/folder-picker.js", _static("folder-picker.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/folder-picker.css", _static("folder-picker.css", "text/css; charset=utf-8"), methods=["GET"]),
+    # the links between cards drawn (graph.js), its sheet's rules and the
+    # vendored d3-force it lays the graph out with, each fetched by the board
+    # the first time the links are opened and never on boot
+    Route("/graph.js", _static("graph.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/graph.css", _static("graph.css", "text/css; charset=utf-8"), methods=["GET"]),
+    Route("/graph-force.js", _static("graph-force.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/compose-format.js", _endpoint(_get_compose_format), methods=["GET"]),
     Route("/card-report.js", _static("card-report.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/home-widgets.js", _static("home-widgets.js", "application/javascript; charset=utf-8"), methods=["GET"]),
