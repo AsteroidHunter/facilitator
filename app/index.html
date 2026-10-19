@@ -1632,9 +1632,9 @@
   #magicbox .mbbody{overflow-x:hidden}
   #magicbox .mbtext{padding:var(--mb-lead) var(--mb-inset, 16px) var(--mb-inset, 16px)}
   /* a long reply's steps (pipeStep). the row keeps its words' own height, to
-     the cap above, its first step, and scrolls inside that. once the words pass
-     half way to the second step the box it stands in rises to the second
-     (rowRise), and sinks back once they are clearly under the first: the row's
+     the cap above, its first step, and scrolls inside that. once the words
+     would reach the line under the card's top bar the box it stands in rises
+     to the second (rowRise), and sinks back once they are clearly under the first: the row's
      cap and the bar's least height are both --row-box while it is up
      (.tallrow), so the row stands on the bar's floor with its last line where
      it was and the bar's line rises over it */
@@ -8572,9 +8572,9 @@ addEventListener("keydown", e => {
 // ---- the response piped out beside a long reply -------------------------------
 // the card's typing row grows in two steps. it grows a line at a time to the
 // sheet's cap, its first step, and scrolls inside that; once what is typed
-// passes half way from there to its second step, as tall as leaves the
-// response's first two lines whole under the card's head (pipeTall), the box
-// the row stands in rises to the second (rowRise), and the card's response is
+// would reach the line right under the card's top bar (pipeReach), the box the
+// row stands in rises to its second step, as tall as leaves the response's
+// first two lines whole under the card's head (pipeTall, rowRise), and the card's response is
 // piped out beside the card (pipeSync), to be read while the reply is typed. it
 // stands right of the card, or left of it, over the ticket list and the clock,
 // when the card's magic box stands on the right or the right has no room for
@@ -8613,11 +8613,13 @@ function pipeStep(id, words = true){
   if (words) el.rowWords = parseFloat(row.style.height) || 0;
   const was = el.box.classList.contains("piped"), rs = getComputedStyle(row);
   if (!el.box.classList.contains("tallrow")) el.rowFirst = parseFloat(rs.maxHeight) || 0;
-  if (el.rowFirst && (was || el.rowWords > el.rowFirst + 0.5)){
+  const over = el.rowFirst && el.rowWords > el.rowFirst + 0.5;
+  if (el.rowFirst && (was || over)){
     const tall = Math.round(Math.max(el.rowFirst, pipeTall(el)));
     if (!(Math.abs((el.rowTall || 0) - tall) <= 1)) el.rowTall = tall;
   }
-  const out = pipeOut(was, el.rowWords, el.rowFirst, el.rowTall || 0, parseFloat(rs.lineHeight) || 0);
+  const line = parseFloat(rs.lineHeight) || 0;
+  const out = pipeOut(was, el.rowWords, el.rowFirst, !was && over ? pipeReach(el, row, rs, line) : 0, line);
   if (out !== was){
     el.box.classList.toggle("piped", out);
     if (out){
@@ -8640,14 +8642,27 @@ function pipeStep(id, words = true){
 }
 
 // whether the row stands at its second step with the response piped out, from
-// the words' height, the two steps and the row's line, all in the row's own
-// pixels: once the words pass half way from the first step to the second, and
-// from then on until they are a whole line under the first, so a key typed and
-// taken back at either edge moves nothing
-function pipeOut(was, words, first, tall, line){
+// the words' height, the first step, the height at which the words reach the
+// line under the card's top bar (pipeReach) and the row's line, all in the
+// row's own pixels: once the words reach that line, and from then on until
+// they are a whole line under the first step, so a key typed and taken back at
+// either edge moves nothing
+function pipeOut(was, words, first, reach, line){
   if (!first) return false;
   if (was) return words > first - line;
-  return words > (first + Math.max(first, tall)) / 2 + 0.5;
+  return words > Math.max(first, reach) + 0.5;
+}
+
+// how tall the words stand once their first line is the line right under the
+// card's top bar: from the row's foot, where they stand, up to the bar's foot,
+// less that line, with the row's own padding over the first line. read off the
+// card as it is laid out, in the stage's pixels the row is in; nothing the
+// steps move changes it, as the row's foot stands on the bar's floor and the
+// top bar at the card's head
+function pipeReach(el, row, rs, line){
+  const S = stageScale || 1;
+  const foot = row.getBoundingClientRect().bottom, bar = el.topbar.getBoundingClientRect().bottom;
+  return (foot - bar) / S - line + (parseFloat(rs.paddingTop) || 0);
 }
 
 // the box the typing row stands in, rising from the first step (t 0) to the
