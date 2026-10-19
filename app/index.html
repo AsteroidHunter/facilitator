@@ -1612,11 +1612,15 @@
   #magicbox::-webkit-scrollbar, #magicbox *::-webkit-scrollbar{display:none}
   #magicbox .mbbody{overflow-x:hidden}
   #magicbox .mbtext{padding:var(--mb-lead) var(--mb-inset, 16px) var(--mb-inset, 16px)}
-  /* a long reply's second step (pipeStep). the typing row grows to the cap
-     above, its first step, and once what is typed runs past that it stands at
-     --pipe-tall, which the script works out from where the response's first
-     two lines stand on the card, and scrolls inside that */
-  body.focus .box.sel.piped :is(textarea, .cffield .cm-scroller){max-height:var(--pipe-tall)}
+  /* a long reply's steps (pipeStep). the row keeps its words' own height, to
+     the cap above, its first step, and scrolls inside that. once the words pass
+     half way to the second step the box it stands in rises to the second
+     (rowRise), and sinks back once they are clearly under the first: the row's
+     cap and the bar's least height are both --row-box while it is up
+     (.tallrow), so the row stands on the bar's floor with its last line where
+     it was and the bar's line rises over it */
+  body.focus .box.sel.tallrow :is(textarea, .cffield .cm-scroller){max-height:var(--row-box)}
+  body.focus .box.sel.tallrow .compose{min-height:var(--row-box)}
   /* the response piped out beside the card at that step (pipeSync): the magic
      box's sheet, placed and sized as the box is and rising and sinking as it
      does (magicRise), on the card's white with the box's corners and shadows,
@@ -8188,9 +8192,11 @@ function magicClose(){
 // the magic box (MB) or the response piped out beside the card (PIPE), each
 // with its own el, line and rise
 const RISE_MS = 1000, RISE_FAST = 3;
+// the rise's curve, eased in and out: the typing row's box rises on it too (rowRise)
+function riseEase(t){ return t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t); }
 function magicRiseSet(t, box = MB){
   box.rise.t = t;
-  const p = t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
+  const p = riseEase(t);
   box.el.style.setProperty("--rise", p.toFixed(4));
   box.line.style.opacity = p.toFixed(4);
 }
@@ -8434,19 +8440,20 @@ addEventListener("keydown", e => {
 
 // ---- the response piped out beside a long reply -------------------------------
 // the card's typing row grows in two steps. it grows a line at a time to the
-// sheet's cap, its first step; once what is typed runs past that, it stands at
-// once at its second, as tall as leaves the response's first two lines whole
-// under the card's head (pipeTall), and the card's response is piped out beside
-// the card (pipeSync), to be read while the reply is typed. it stands right of
-// the card, or left of it, over the ticket list and the clock, when the card's
-// magic box stands on the right or the right has no room for it. it is placed
-// and sized as the box is (MagicBox.place), drawn by the box's view
-// (magicView), rises and sinks as the box does (magicRise) and takes the keys
-// as the box does: a click in it, control+option toward it (pipeJump), and
-// control+option+up and down, for which it is the card's response while it is
-// out (cardAnswerOff); control+S scrolls it while it holds them. the reply
-// sent, or cut back under the first step, it goes back into the card. the
-// phone, and the Mac's own phone view, keep one step
+// sheet's cap, its first step, and scrolls inside that; once what is typed
+// passes half way from there to its second step, as tall as leaves the
+// response's first two lines whole under the card's head (pipeTall), the box
+// the row stands in rises to the second (rowRise), and the card's response is
+// piped out beside the card (pipeSync), to be read while the reply is typed. it
+// stands right of the card, or left of it, over the ticket list and the clock,
+// when the card's magic box stands on the right or the right has no room for
+// it. it is placed and sized as the box is (MagicBox.place), drawn by the box's
+// view (magicView), rises and sinks as the box does (magicRise) and takes the
+// keys as the box does: a click in it, control+option toward it (pipeJump),
+// and control+option+up and down, for which it is the card's response while it
+// is out (cardAnswerOff); control+S scrolls it while it holds them. the reply
+// sent, or cut back clearly under the first step, it goes back into the card.
+// the phone, and the Mac's own phone view, keep one step
 const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"), id: null, raw: null,
   side: null, came: null, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } };
 if (PIPE.el){
@@ -8461,36 +8468,94 @@ if (PIPE.el){
 // the row's two steps, once each card's tick has set it to its words' own
 // height. words: the row was measured just now, so its height is its words';
 // false keeps what it measured last (a fit, the card changing size). the first
-// step is the sheet's cap, read off the row while it stands under it, and the
-// second is never under the first
+// step is the sheet's cap, read off the row while its box stands at it, and
+// the second is never under the first. the decision (pipeOut) reads the words
+// and the two steps, and nothing it moves changes them: the row's own height
+// is only ever its words' (the tick's), and the second step is read off the
+// room the row's box takes, whatever its height
 function pipeStep(id, words = true){
   const el = els[id];
   if (!el || !el.field) return;
   const row = el.field.view ? el.field.view.scrollDOM : el.ta;
   if (words) el.rowWords = parseFloat(row.style.height) || 0;
-  const piped = el.box.classList.contains("piped");
-  if (!piped) el.rowFirst = parseFloat(getComputedStyle(row).maxHeight) || 0;
-  if (el.rowFirst && el.rowWords > el.rowFirst + 0.5){
-    const tall = Math.round(Math.max(el.rowFirst, pipeTall(el, row)));
-    if (!piped || Math.abs(el.rowTall - tall) > 1){
-      el.rowTall = tall;
-      el.box.style.setProperty("--pipe-tall", tall + "px");
-    }
-    if (row.style.height !== el.rowTall + "px") row.style.height = el.rowTall + "px";
-    if (!piped){
-      el.box.classList.add("piped");
+  const was = el.box.classList.contains("piped"), rs = getComputedStyle(row);
+  if (!el.box.classList.contains("tallrow")) el.rowFirst = parseFloat(rs.maxHeight) || 0;
+  if (el.rowFirst && (was || el.rowWords > el.rowFirst + 0.5)){
+    const tall = Math.round(Math.max(el.rowFirst, pipeTall(el)));
+    if (!(Math.abs((el.rowTall || 0) - tall) <= 1)) el.rowTall = tall;
+  }
+  const out = pipeOut(was, el.rowWords, el.rowFirst, el.rowTall || 0, parseFloat(rs.lineHeight) || 0);
+  if (out !== was){
+    el.box.classList.toggle("piped", out);
+    if (out){
       // the answer to its head, where the two lines left in sight are its first
       el.pipeScroll = el.replyview.scrollTop;
       el.replyview.scrollTop = 0;
+    } else {
+      // cut back, the answer goes back to where it was read; sent, the row is
+      // empty and the card's next page keeps its own place
+      if (el.pipeScroll != null && /\S/.test(el.field.text())) el.replyview.scrollTop = el.pipeScroll;
+      el.pipeScroll = null;
     }
-  } else if (piped){
-    el.box.classList.remove("piped");
-    // cut back under the first step, the answer goes back to where it was read;
-    // sent, the row is empty and the card's next page keeps its own place
-    if (el.pipeScroll != null && /\S/.test(el.field.text())) el.replyview.scrollTop = el.pipeScroll;
-    el.pipeScroll = null;
   }
+  // the row's box: up while the response is out, down to the row's words when
+  // it goes back in, and down at once when the row is emptied (sent)
+  if (out) rowRise(el, 1);
+  else if (!/\S/.test(el.field.text())) rowFlat(el);
+  else if (el.rowRise && el.rowRise.t > 0) rowRise(el, -1);
   if (id === shownId) pipeSync();
+}
+
+// whether the row stands at its second step with the response piped out, from
+// the words' height, the two steps and the row's line, all in the row's own
+// pixels: once the words pass half way from the first step to the second, and
+// from then on until they are a whole line under the first, so a key typed and
+// taken back at either edge moves nothing
+function pipeOut(was, words, first, tall, line){
+  if (!first) return false;
+  if (was) return words > first - line;
+  return words > (first + Math.max(first, tall)) / 2 + 0.5;
+}
+
+// the box the typing row stands in, rising from the first step (t 0) to the
+// second (t 1) on the magic box's time and curve (RISE_MS, riseEase), and
+// sinking back to the row's own height. its height, --row-box, is the row's
+// cap and the bar's least height while it is up (.tallrow): the row keeps its
+// words' height on the bar's floor inside it, so its last line, where the caret
+// is, stays where it was and the bar's line rises and sinks over it
+function rowRise(el, dir){
+  const r = el.rowRise || (el.rowRise = { t: 0, dir: 0, raf: 0, last: 0 });
+  r.dir = dir;
+  if (!r.raf && (dir > 0 ? r.t < 1 : r.t > 0)){
+    r.last = performance.now();
+    r.raf = requestAnimationFrame(now => rowRiseStep(el, now));
+  }
+  rowBox(el);
+}
+function rowRiseStep(el, now){
+  const r = el.rowRise;
+  r.t = Math.min(1, Math.max(0, r.t + r.dir * (now - r.last) / RISE_MS));
+  r.last = now;
+  rowBox(el);
+  r.raf = (r.dir > 0 ? r.t < 1 : r.t > 0) ? requestAnimationFrame(next => rowRiseStep(el, next)) : 0;
+}
+function rowFlat(el){
+  const r = el.rowRise;
+  if (!r) return;
+  cancelAnimationFrame(r.raf);
+  r.raf = 0; r.dir = 0; r.t = 0;
+  rowBox(el);
+}
+// its height where the rise has got to: from the row's own height under the
+// first step (its words', or the first step's) up to the second
+function rowBox(el){
+  const r = el.rowRise, up = !!r && r.t > 0;
+  if (up){
+    const low = Math.min(el.rowFirst, el.rowWords), high = Math.max(low, el.rowTall || 0);
+    const px = (low + (high - low) * riseEase(r.t)).toFixed(2) + "px";
+    if (el.rowBoxAt !== px){ el.rowBoxAt = px; el.box.style.setProperty("--row-box", px); }
+  }
+  if (el.box.classList.contains("tallrow") !== up) el.box.classList.toggle("tallrow", up);
 }
 
 // the second step: the row as tall as it can stand with the response's first
@@ -8502,8 +8567,12 @@ function pipeStep(id, words = true){
 // over the response, the sent panel and the card's own size all count. a
 // response of one line keeps that one, and one with none keeps the response's
 // top. what is read off the page is the screen's, and is turned into the
-// stage's pixels, which the answer, its scroll and the row are in
-function pipeTall(el, row){
+// stage's pixels, which the answer, its scroll and the row are in. the room
+// the row takes is its box's, the row and the send square's own seat in the
+// bar (the compose), which is the row while it stands under the first step
+// and the box's height while the box is up, so the step reads the same at
+// every height of the box and of the words in it
+function pipeTall(el){
   const view = el.replyview, S = stageScale || 1;
   const fade = parseFloat(getComputedStyle(el.box).getPropertyValue("--replyfade")) || 0;
   const air = parseFloat(getComputedStyle(view).marginBottom) || 0;
@@ -8512,7 +8581,7 @@ function pipeTall(el, row){
   // how much more the row may take: from the top of what stands at the foot up
   // to that line's foot with the answer at its head, less the fade and the air
   const room = (el.pendwrap.getBoundingClientRect().top - foot) / S - view.scrollTop - fade - air;
-  return row.getBoundingClientRect().height / S + room;
+  return el.send.parentNode.getBoundingClientRect().height / S + room;
 }
 
 // the foot of a response's first n lines on screen, read off its words as

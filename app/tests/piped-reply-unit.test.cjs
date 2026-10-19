@@ -1,15 +1,19 @@
 // A long reply on the Mac board: the typing row grows to the sheet's cap, its
-// first step, and past that stands at once at its second, as tall as leaves the
-// response's first two lines whole above the answer's fade, read off the card as
-// it is laid out, whatever the card's height, its title, the bubbles over the
-// response or the stage's scale. At the second step the response is piped out
-// beside the card, where the magic box stands (MagicBox.place, either side of
-// the card), on the right unless the card's box stands there or the right has no
-// room, and tied to the card by a square dashed brace whose lower part stretches
-// with it. Control + Option toward it puts the keys in it and away brings them
-// back, and up and down treat it as the card's response. The phone page keeps
-// one step and pipes nothing. Run from the pages' own source, no browser: the
-// functions are cut out of index.html as written.
+// first step, and scrolls there. Once the words pass half way from there to its
+// second step, as tall as leaves the response's first two lines whole above the
+// answer's fade (read off the card as it is laid out, whatever the card's
+// height, its title, the bubbles over the response or the stage's scale), the
+// box the row stands in rises to the second over the magic box's time and curve,
+// the row's last line staying where it was, and it sinks back only once the
+// words are a whole line under the first step. With the box up the response is
+// piped out beside the card, where the magic box stands (MagicBox.place,
+// either side of the card), on the right unless the card's
+// box stands there or the right has no room, and tied to the card by a square
+// dashed brace whose lower part stretches with it.
+// Control + Option toward it puts the keys in it and away brings them back, and
+// up and down treat it as the card's response. The phone page keeps one step
+// and pipes nothing. Run from the pages' own source, no browser: the functions
+// are cut out of index.html as written.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const fs = require("node:fs");
@@ -113,17 +117,19 @@ test("the foot of the response's first two lines is read off its words as laid o
 // a card laid out on a stage drawn at scale S, everything in stage pixels and
 // read in the screen's: the head (title and top bar) over the answer, the
 // answered bubbles at the answer's head, then the response's lines, and at the
-// foot the row under its hairline. the row stands at the height it was set to,
-// under the cap in force: the sheet's first step, or --pipe-tall once piped
-const FADE = 22;
+// foot the bar: its seat (the compose) holds the row at its words' height under
+// the cap in force, the sheet's first step or the box's height while the box is
+// up (.tallrow, --row-box), and the seat is at least that box's height
+const FADE = 22, ROWLINE = 25.5;
 function cardAt({ S = 1, top = 52, height = 760, head = 110, answ = 80, count = 12, line = 27.9, glyph = 23,
   first = 252, air = 3.5 } = {}) {
   const m = { scroll: 0, text: "typed words" };
   const classes = new Set(["sel"]), boxStyle = {};
   const row = { style: { height: "44px" } };
-  const piped = () => classes.has("piped");
-  const cap = () => (piped() ? parseFloat(boxStyle["--pipe-tall"]) : first);
-  const rendered = () => Math.min(parseFloat(row.style.height) || 44, cap());
+  const up = () => classes.has("tallrow");
+  const boxH = () => parseFloat(boxStyle["--row-box"]);
+  const rendered = () => Math.min(parseFloat(row.style.height) || 44, up() ? boxH() : first);
+  const seat = () => (up() ? Math.max(rendered(), boxH()) : rendered());
   const viewTop = top + head, foot = top + height - 22;
   const scr = v => v * S;
   const reply = { get texts() {
@@ -135,50 +141,176 @@ function cardAt({ S = 1, top = 52, height = 760, head = 110, answ = 80, count = 
   row.getBoundingClientRect = () => ({ height: scr(rendered()) });
   const view = { get scrollTop() { return m.scroll; }, set scrollTop(v) { m.scroll = v; } };
   const el = {
-    box: { classList: { contains: c => classes.has(c), add: c => classes.add(c), remove: c => classes.delete(c) },
+    box: { classList: { contains: c => classes.has(c), add: c => classes.add(c), remove: c => classes.delete(c),
+      toggle: (c, yes = !classes.has(c)) => (yes ? classes.add(c) : classes.delete(c), yes) },
       style: { setProperty: (k, v) => { boxStyle[k] = v; }, getPropertyValue: k => boxStyle[k] || "" } },
     replyview: view, reply, ta: row,
-    pendwrap: { getBoundingClientRect: () => ({ top: scr(foot - 1 - rendered()) }) },
+    pendwrap: { getBoundingClientRect: () => ({ top: scr(foot - 1 - seat()) }) },
+    send: { parentNode: { getBoundingClientRect: () => ({ height: scr(seat()) }) } },
     field: { view: null, text: () => m.text },
   };
   // the second line's foot with the answer at its head, and what the fade needs under it
   const secondFoot = count >= 2 ? viewTop + answ + line + (line - glyph) / 2 + glyph
     : count === 1 ? viewTop + answ + (line - glyph) / 2 + glyph : viewTop + answ;
-  return { el, row, m, classes, boxStyle, S, first, air, rendered, pendTop: () => foot - 1 - rendered(), secondFoot };
+  return { el, row, m, classes, boxStyle, S, first, air, rendered, seat, pendTop: () => foot - 1 - seat(), secondFoot };
 }
+// the steps cut out of the page, on a clock of their own: frame() is one 1/60 s
+// frame of it, running what asked for one
 function stepper(card) {
-  const synced = [];
+  const synced = [], clock = { t: 0 }, asked = new Map();
+  let next = 1;
   const context = vm.createContext(domFor({
     els: { c1: card.el }, shownId: "c1", stageScale: card.S, pipeSync: () => synced.push(1),
-    getComputedStyle: node => node === card.row ? { maxHeight: card.first + "px" }
+    getComputedStyle: node => node === card.row ? { maxHeight: card.first + "px", lineHeight: ROWLINE + "px" }
       : node === card.el.replyview ? { marginBottom: card.air + "px" }
       : { getPropertyValue: k => (k === "--replyfade" ? FADE + "px" : "") },
+    RISE_MS: Number(cut("const RISE_MS = ", ",").slice("const RISE_MS = ".length)),
+    performance: { now: () => clock.t },
+    requestAnimationFrame: cb => { asked.set(next, cb); return next++; },
+    cancelAnimationFrame: id => asked.delete(id),
   }));
-  vm.runInContext(fn("pipeStep") + fn("pipeTall") + fn("pipeLines"), context);
+  vm.runInContext(cut("function riseEase(", "\n") + "\n" + ["pipeStep", "pipeOut", "rowRise", "rowRiseStep", "rowFlat", "rowBox",
+    "pipeTall", "pipeLines"].map(fn).join(""), context);
   // the row's tick: set to its words' own height, then the steps
   const type = words => { card.row.style.height = words + "px"; context.pipeStep("c1"); };
-  return { context, type, synced };
+  const frame = () => {
+    clock.t += 1000 / 60;
+    const due = [...asked]; asked.clear();
+    for (const [, cb] of due) cb(clock.t);
+  };
+  const settle = () => { for (let i = 0; i < 200 && asked.size; i++) frame(); };
+  const piped = () => card.classes.has("piped");
+  return { context, type, frame, settle, synced, piped, el: card.el, pending: () => asked.size };
 }
 
-test("the row grows to the first step, then stands at the second at once", () => {
+test("the row grows to the first step and scrolls there, and its box rises only past half way to the second", () => {
   const card = cardAt();
-  const { type, synced } = stepper(card);
-  for (const words of [44, 95, 146, 197, 248, 252]) {
+  const { type, frame, settle, synced, piped, el } = stepper(card);
+  for (const words of [44, 95, 146, 197, 248]) {
     type(words);
-    assert.equal(card.classes.has("piped"), false, `${words} is under the first step`);
+    assert.equal(piped(), false, `${words} is under the first step`);
     assert.equal(card.rendered(), words, "a line at a time");
+    assert.equal(card.seat(), words, "the bar as tall as the row");
   }
-  type(260);
-  assert.equal(card.classes.has("piped"), true, "past the first step");
-  const tall = parseFloat(card.boxStyle["--pipe-tall"]);
-  assert.ok(tall > card.first + 100, `a step well over the first: ${tall}`);
-  assert.equal(card.rendered(), tall, "the whole second step at once, not the words' height");
-  type(300); type(1200);
-  assert.equal(card.rendered(), tall, "and it holds there as the reply runs on, scrolling inside");
-  type(240);
-  assert.equal(card.classes.has("piped"), false, "cut back under the first step");
-  assert.equal(card.rendered(), 240);
-  assert.ok(synced.length > 0, "the card on screen pipes its response or takes it back each time");
+  // over the first step: held there, scrolling, and nothing out yet
+  type(300);
+  const tall = el.rowTall, half = (card.first + tall) / 2;
+  assert.ok(tall > card.first + 100, `a second step well over the first: ${tall}`);
+  for (const words of [274, 300, 350, half - 1, half]) {
+    type(words);
+    assert.equal(piped(), false, `${words} is not past half way (${half})`);
+    assert.equal(card.rendered(), card.first, "the row at the first step");
+    assert.equal(card.seat(), card.first, "and its box with it");
+    assert.equal(card.classes.has("tallrow"), false);
+  }
+  // past half way: out, and the box rises over the magic box's second on its curve
+  type(half + 2);
+  assert.equal(piped(), true, "past half way");
+  assert.ok(synced.length > 0, "the card on screen pipes its response");
+  assert.equal(card.seat(), card.first, "the box has not jumped");
+  const ease = vm.runInContext("riseEase", stepper(cardAt()).context);
+  const seen = [];
+  for (let i = 1; i <= 60; i++) {
+    frame();
+    seen.push(card.seat());
+    const t = Math.min(1, i / 60);
+    assert.ok(Math.abs(card.seat() - (card.first + (tall - card.first) * ease(t))) < 0.02, `frame ${i} on the curve`);
+  }
+  settle();
+  assert.equal(card.seat(), tall, "risen to the second step");
+  const steps = seen.map((v, i) => v - (i ? seen[i - 1] : card.first));
+  assert.ok(steps.every(d => d >= 0), "upward only");
+  assert.ok(Math.max(...steps) <= 2.01 * (tall - card.first) / 60, "never faster than twice its mean pace");
+  assert.ok(steps[0] < 0.01 * (tall - card.first) && steps[59] < 0.01 * (tall - card.first), "it starts and settles calmly");
+  // the words under the box stand at its foot at their own height, never stretched to its top
+  assert.equal(card.rendered(), half + 2, "the row as tall as its words, the box's room above them");
+  type(tall + 200);
+  assert.equal(card.rendered(), tall, "and once they run past it they scroll inside it");
+});
+
+test("typing and deleting at either edge never flicks it between piped and not", () => {
+  const out = vm.createContext({});
+  vm.runInContext(fn("pipeOut"), out);
+  const first = 252, tall = 527, line = 25.5, half = (first + tall) / 2;
+  // out past half way, and only then
+  assert.equal(out.pipeOut(false, half, first, tall, line), false);
+  assert.equal(out.pipeOut(false, half + 1, first, tall, line), true);
+  assert.equal(out.pipeOut(false, 300, first, tall, line), false, "over the first step is not enough");
+  // once out, held until a whole line under the first step
+  for (const words of [half, 300, first, first - line + 1]) assert.equal(out.pipeOut(true, words, first, tall, line), true, `${words} holds it out`);
+  assert.equal(out.pipeOut(true, first - line, first, tall, line), false);
+  assert.equal(out.pipeOut(true, 44, first, tall, line), false, "sent");
+  // a second step no taller than the first: out past the first, held the same way
+  assert.equal(out.pipeOut(false, first + 1, first, first - 30, line), true);
+  assert.equal(out.pipeOut(false, 0, 0, 0, line), false, "a row not laid out");
+
+  // through the page's steps: a line typed and taken back at the upper edge, over and over
+  const card = cardAt();
+  const { type, frame, piped, el } = stepper(card);
+  type(300);
+  const edge = (card.first + el.rowTall) / 2;
+  const above = edge + ROWLINE / 2, below = edge - ROWLINE / 2;
+  const seen = [];
+  for (let i = 0; i < 20; i++) {
+    type(i % 2 ? below : above);
+    seen.push(piped());
+    frame(); frame();
+  }
+  assert.deepEqual(seen, seen.map(() => true), "out at the first line past half way, and it stays out");
+  assert.equal(el.rowRise.dir, 1, "its box never turned back");
+  // and at the lower edge, deleting: held at the first step's last line, in a line under it
+  for (let i = 0; i < 6; i++) { type(card.first - 4.5); frame(); assert.equal(piped(), true, "a line under the first step's cap still holds it"); }
+  type(card.first - ROWLINE - 4.5);
+  assert.equal(piped(), false, "a whole line under: back in");
+  const back = [];
+  for (let i = 0; i < 20; i++) { type(i % 2 ? card.first - ROWLINE - 4.5 : card.first - 4.5); back.push(piped()); frame(); }
+  assert.deepEqual(back, back.map(() => false), "typed back up to the first step it stays in, until half way again");
+});
+
+test("the decision moves nothing it measures: the words keep their height and the second step reads the same as the box rises", () => {
+  const card = cardAt();
+  const { context, type, frame, el } = stepper(card);
+  type(300);
+  const tall = el.rowTall;
+  type(500);
+  const reads = [];
+  for (let i = 0; i < 70; i++) {
+    frame();
+    // the page follows its own writes (the observer's pipeStep with no new words)
+    context.pipeStep("c1", false);
+    reads.push(context.pipeTall(el));
+    assert.equal(card.row.style.height, "500px", "the row's own height is only ever its words'");
+    assert.equal(el.rowWords, 500);
+  }
+  assert.ok(reads.every(v => Math.abs(v - tall) < 0.5), `the second step at every height of the box: ${Math.min(...reads)} to ${Math.max(...reads)}`);
+  assert.equal(el.rowTall, tall);
+  assert.ok(card.classes.has("piped"));
+});
+
+test("deleted back clearly under the first step the box sinks to the words on the same curve; sent it is down at once", () => {
+  const card = cardAt();
+  const { type, frame, settle, piped, el, pending } = stepper(card);
+  type(300); type(600); settle();
+  const tall = el.rowTall;
+  const words = card.first - ROWLINE - 4.5;
+  type(words);
+  assert.equal(piped(), false);
+  assert.equal(card.seat(), tall, "it has not dropped");
+  const seen = [];
+  while (pending()) { frame(); seen.push(card.seat()); }
+  assert.ok(seen.length >= 59 && seen.length <= 61, `over the second: ${seen.length} frames`);
+  assert.ok(seen.every((v, i) => v <= (i ? seen[i - 1] : tall)), "downward only");
+  assert.equal(card.seat(), words, "down to the row's own height");
+  assert.equal(card.classes.has("tallrow"), false);
+  assert.ok(Math.abs(seen.at(-2) - words) < 0.5, "and the box comes off at the words' height, with no step at the end");
+  // sent: the row empties and the box is down in the same breath
+  type(300); type(600); settle();
+  card.m.text = "";
+  type(44);
+  assert.equal(piped(), false);
+  assert.equal(card.classes.has("tallrow"), false, "down at once");
+  assert.equal(card.seat(), 44);
+  assert.equal(pending(), 0);
 });
 
 test("the second step leaves the response's first two lines whole, at every card height, title, bubble and scale", () => {
@@ -189,13 +321,13 @@ test("the second step leaves the response's first two lines whole, at every card
         for (const answ of [0, 80, 160])
           for (const air of [3.5, 25.05]) {
             const card = cardAt({ S, height, head, answ, air });
-            const { type } = stepper(card);
-            type(600);
-            const tall = parseFloat(card.boxStyle["--pipe-tall"]);
+            const { type, settle, el } = stepper(card);
+            type(300); type(2000); settle();
+            const tall = el.rowTall;
             const name = JSON.stringify({ S, height, head, answ, air });
             assert.ok(tall >= card.first, name + " never under the first step");
             if (tall > card.first) {
-              // the row's top: the second line's foot, the fade and the clear air over it, to a pixel
+              // the box's top: the second line's foot, the fade and the clear air over it, to a pixel
               const gap = card.pendTop() - (card.secondFoot + FADE + air);
               assert.ok(Math.abs(gap) <= 1, `${name}: ${gap}`);
               seen++;
@@ -209,8 +341,8 @@ test("the second step leaves the response's first two lines whole, at every card
 test("a response of one line keeps that line, and one with none keeps its top", () => {
   for (const count of [1, 0]) {
     const card = cardAt({ count });
-    const { type } = stepper(card);
-    type(600);
+    const { type, settle } = stepper(card);
+    type(300); type(2000); settle();
     const gap = card.pendTop() - (card.secondFoot + FADE + card.air);
     assert.ok(Math.abs(gap) <= 1, `${count} lines: ${gap}`);
   }
@@ -218,16 +350,18 @@ test("a response of one line keeps that line, and one with none keeps its top", 
 
 test("the answer goes to its head at the second step and back where it was when cut back, not when sent", () => {
   const card = cardAt();
-  const { type } = stepper(card);
+  const { type, settle, el } = stepper(card);
   card.m.scroll = 340;
-  type(600);
+  type(300);
+  assert.equal(card.m.scroll, 340, "not yet: under half way");
+  type(2000);
   assert.equal(card.m.scroll, 0, "its first two lines in sight");
-  const tall = parseFloat(card.boxStyle["--pipe-tall"]);
+  settle();
   assert.ok(Math.abs(card.pendTop() - (card.secondFoot + FADE + card.air)) <= 1, "measured as at its head");
-  assert.ok(tall > card.first);
+  assert.ok(el.rowTall > card.first);
   type(200);
   assert.equal(card.m.scroll, 340, "cut back, it is read on where it was");
-  type(600);
+  type(2000);
   card.m.text = "";
   type(44);
   assert.equal(card.m.scroll, 0, "sent, the row is empty and the answer stays at its head");
@@ -235,16 +369,18 @@ test("the answer goes to its head at the second step and back where it was when 
 
 test("a card that changes size while piped takes a new second step, and its own writes settle", () => {
   const card = cardAt();
-  const { context, type } = stepper(card);
-  type(600);
-  const before = card.boxStyle["--pipe-tall"];
+  const { context, type, settle, el } = stepper(card);
+  type(300); type(2000); settle();
+  const before = el.rowTall, box = card.boxStyle["--row-box"];
   // the window and the layout settings change the card; nothing is typed (words: false)
   context.pipeStep("c1", false);
-  assert.equal(card.boxStyle["--pipe-tall"], before, "unchanged, nothing is written again");
+  assert.equal(el.rowTall, before, "unchanged");
+  assert.equal(card.boxStyle["--row-box"], box, "nothing is written again");
   const taller = cardAt({ height: 860 });
   const t = stepper(taller);
-  t.type(600);
-  assert.ok(parseFloat(taller.boxStyle["--pipe-tall"]) > parseFloat(before), "a taller card has a taller second step");
+  t.type(300); t.type(2000); t.settle();
+  assert.ok(taller.el.rowTall > before, "a taller card has a taller second step");
+  assert.equal(taller.seat(), taller.el.rowTall, "and its box stands at it");
 });
 
 test("the send square keeps its seat at the second step on a board drawn smaller than its stage", () => {
@@ -527,7 +663,7 @@ test("it has no edge and no bar, the box's corners and shadows, words fading at 
 // ---- the phone --------------------------------------------------------------------------
 test("the phone page keeps one step and pipes nothing, and neither does the Mac's phone view", () => {
   const phone = read("m.html");
-  for (const name of ["pipebox", "pipeline", "pipeStep", "pipeSync", "cardAnswerOff", "pipe-tall"])
+  for (const name of ["pipebox", "pipeline", "pipeStep", "pipeSync", "cardAnswerOff", "row-box", "tallrow", "rowRise"])
     assert.ok(!phone.includes(name), "the phone has " + name);
   // the Mac board pipes only for its own card on screen, never in its phone view
   const card = vm.createContext({ FOCUS: true, shownId: "c1", draft: false, phoneWanted: false,
