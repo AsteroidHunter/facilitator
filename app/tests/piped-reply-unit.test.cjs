@@ -498,10 +498,12 @@ test("the brace is a { to a response on the card's right and a } to one on its l
 
 // ---- which side --------------------------------------------------------------------
 function placer({ box = false, roomRight = true, roomLeft = true } = {}) {
-  const classes = new Set(["on"]), body = new Set(), style = {};
-  const PIPE = { side: null, rise: { t: 1, raf: 0, then: null },
+  const classes = new Set(["on"]), style = {};
+  const tickets = { style: { opacity: "" } }, clock = { style: { opacity: "" } }, reply = { style: { opacity: "" } };
+  const PIPE = { side: null, rise: { t: 1, raf: 0, then: null }, id: "c1",
     el: { classList: { contains: c => classes.has(c) }, style },
     line: { classList: { remove() {}, add() {} } },
+    aside: [tickets, clock], dimmed: null, dimAt: { reply: "", aside: "" },
     view: { want: () => ({ height: 400 }) } };
   const rect = { ...CARD };
   const fit = fitAt(1512);
@@ -516,10 +518,12 @@ function placer({ box = false, roomRight = true, roomLeft = true } = {}) {
     magicRoom: () => ({ S: 1, rect, fit, most: { ...most, shown: roomRight } }),
     frameLimits: () => ({ left: fit.left + 16 }), FRAME_CLEAR: 16,
     boardMagicShown: () => box, pipeLine: () => {}, boxRise: () => {},
-    document: { body: { classList: { toggle: (c, yes) => (yes ? body.add(c) : body.delete(c)), remove: c => body.delete(c) } } },
+    els: { c1: { reply } },
   });
-  vm.runInContext(fn("pipePlace"), context);
-  return { context, PIPE, body, style, set: v => Object.assign(context, v) };
+  vm.runInContext(cut("const PIPE_MS = ", "\n") + "\n" + cut("function riseEase(", "\n") + "\n" + fn("pipePlace") + fn("pipeDim"), context);
+  // what stands dimmed: the ticket list and the clock, and the card's own response
+  const dims = () => ({ tickets: tickets.style.opacity, clock: clock.style.opacity, reply: reply.style.opacity });
+  return { context, PIPE, style, dims, set: v => Object.assign(context, v) };
 }
 
 test("it stands on the right, on the left when the box is there or the right has no room, and keeps its side", () => {
@@ -527,13 +531,13 @@ test("it stands on the right, on the left when the box is there or the right has
   right.context.pipePlace();
   assert.equal(right.PIPE.side, "right");
   assert.ok(parseFloat(right.style.left) > CARD.left + CARD.width, "right of the card");
-  assert.equal(right.body.has("pipeleft"), false, "the ticket list and the clock stay as they are");
+  assert.deepEqual(right.dims(), { tickets: "", clock: "", reply: "0.1000" }, "the ticket list and the clock stay as they are; the card's response is down to a tenth");
 
   const left = placer({ box: true });
   left.context.pipePlace();
   assert.equal(left.PIPE.side, "left", "the card's box stands on the right");
   assert.ok(parseFloat(left.style.left) + parseFloat(left.style.width) < CARD.left, "left of the card, over the ticket list");
-  assert.equal(left.body.has("pipeleft"), true, "the ticket list and the clock fade down");
+  assert.deepEqual(left.dims(), { tickets: "0.1000", clock: "0.1000", reply: "0.1000" }, "the ticket list and the clock down to a tenth too");
 
   const narrow = placer({ roomRight: false });
   narrow.context.pipePlace();
@@ -547,18 +551,22 @@ test("it stands on the right, on the left when the box is there or the right has
   right.set({ boardMagicShown: () => true });
   right.context.pipePlace();
   assert.equal(right.PIPE.side, "left");
-  assert.equal(right.body.has("pipeleft"), true);
+  assert.deepEqual(right.dims(), { tickets: "0.1000", clock: "0.1000", reply: "0.1000" });
 
-  // no room either side: hidden where it is, the ticket list as it was
+  // no room either side: hidden where it is, nothing dimmed
   const none = placer({ roomRight: false, roomLeft: false });
   none.context.pipePlace();
   assert.equal(none.style.visibility, "hidden");
-  assert.equal(none.body.has("pipeleft"), false);
-  // sinking back into the card, the ticket list comes back with it
+  assert.deepEqual(none.dims(), { tickets: "", clock: "", reply: "" });
+  left.set({ magicRoom: () => null });
+  left.context.pipePlace();
+  assert.deepEqual(left.dims(), { tickets: "", clock: "", reply: "" }, "out and dimming, then its room gone: back as they were");
+  // sinking back into the card, what it dims comes back as far as it has sunk
   const sinking = placer({ box: true });
   sinking.PIPE.rise.then = () => {};
+  sinking.PIPE.rise.t = 0.5;
   sinking.context.pipePlace();
-  assert.equal(sinking.body.has("pipeleft"), false);
+  assert.deepEqual(sinking.dims(), { tickets: "0.5500", clock: "0.5500", reply: "0.5500" });
 });
 
 // ---- coming and going ------------------------------------------------------------------
@@ -573,7 +581,7 @@ test("the response comes, rises and sinks by the magic box's own steps and curve
         toggle: (c, yes = !cls.has(c)) => (yes ? cls.add(c) : cls.delete(c), yes) } };
   };
   const box = () => ({ el: fake(), line: { style: {} }, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } });
-  const PIPE_MS = Number(cut("const PIPE_MS = ", ";").slice("const PIPE_MS = ".length));
+  const PIPE_MS = Number(cut("const PIPE_MS = ", ",").slice("const PIPE_MS = ".length));
   const RISE_MS = Number(cut("const RISE_MS = ", ",").slice("const RISE_MS = ".length));
   assert.ok(PIPE_MS >= 400 && PIPE_MS <= 0.7 * RISE_MS, `quicker than the box, and still a motion: ${PIPE_MS} against ${RISE_MS}`);
   assert.match(HTML, /ground: document\.getElementById\("pipeground"\), id: null, raw: null, ms: PIPE_MS,/);
@@ -633,6 +641,62 @@ test("the response comes, rises and sinks by the magic box's own steps and curve
   assert.match(fn("pipeSink"), /boxSink\(PIPE, pipeOff\);/);
   for (const name of ["pipeSync", "pipePlace", "pipeSink"])
     assert.ok(!/magicRise\(|magicRiseSet\(|"rising"/.test(fn(name)), name + " moves it by a step of its own");
+});
+
+test("the ticket list and the clock, piped left, and the card's own response go down to a tenth on the pipe's own frames, and back as it sinks", () => {
+  const clock = { t: 0 }, asked = new Map();
+  let next = 1;
+  const cls = new Set();
+  const style = () => ({ opacity: "" });
+  const tickets = { style: style() }, clockbox = { style: style() }, reply = { style: style() }, other = { style: style() };
+  const PIPE = { el: { style: { props: {}, setProperty(k, v) { this.props[k] = v; }, visibility: "" },
+      classList: { add: c => cls.add(c), remove: c => cls.delete(c), contains: c => cls.has(c),
+        toggle: (c, yes = !cls.has(c)) => (yes ? cls.add(c) : cls.delete(c), yes) } },
+    line: { style: {} }, ground: { style: {} }, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null },
+    id: "c1", side: "left", aside: [tickets, clockbox], dimmed: null, dimAt: { reply: "", aside: "" } };
+  const context = vm.createContext({ PIPE, MB: PIPE, els: { c1: { reply }, c2: { reply: other } }, performance: { now: () => clock.t },
+    requestAnimationFrame: cb => { asked.set(next, cb); return next++; }, cancelAnimationFrame: id => asked.delete(id) });
+  vm.runInContext(cut("const RISE_MS = ", "\n") + "\n" + cut("const PIPE_MS = ", "\n") + "\n" + cut("function riseEase(", "\n") + "\n" +
+    ["magicRiseSet", "magicRise", "magicRiseStep", "magicRiseStop", "boxCome", "boxRise", "boxSink", "pipeDim"].map(fn).join(""), context);
+  PIPE.ms = vm.runInContext("PIPE_MS", context);
+  PIPE.dim = vm.runInContext("pipeDim", context);
+  assert.equal(vm.runInContext("PIPE_DIM", context), 0.1);
+  assert.match(HTML, /aside: \["tickets", "clockbox"\]\.map\(id => document\.getElementById\(id\)\)\.filter\(Boolean\), dim: pipeDim,/);
+  const frame = () => { clock.t += 1000 / 60; const due = [...asked]; asked.clear(); for (const [, cb] of due) cb(clock.t); };
+  // --rise is written to four places, as the dims are: the same within that
+  const rise = () => Number(PIPE.el.style.props["--rise"]);
+  const want = () => (rise() > 0 ? 1 - 0.9 * rise() : "");
+  const dims = () => [tickets.style.opacity, clockbox.style.opacity, reply.style.opacity];
+  const inStep = (got, what) => got.forEach(v => assert.ok(want() === "" ? v === "" || Number(v) > 0.9998 : Math.abs(Number(v) - want()) < 2e-4,
+    what + ": " + got + " against " + want()));
+  // coming: flat and nothing dimmed, then each frame of its rise the same share of the way to a tenth
+  context.boxCome(PIPE, 0); cls.add("on"); context.boxRise(PIPE);
+  assert.deepEqual(dims(), ["", "", ""], "nothing dimmed while it is flat");
+  let frames = 0;
+  while (asked.size) {
+    frame(); frames++;
+    inStep(dims(), `frame ${frames}`);
+  }
+  assert.ok(Math.abs(frames - PIPE.ms / (1000 / 60)) <= 1, "over the pipe's own time");
+  assert.deepEqual(dims(), ["0.1000", "0.1000", "0.1000"], "risen: a tenth");
+  // going: back the same way, frame for frame, and nothing left dimmed once it is off
+  context.boxSink(PIPE, () => { cls.delete("on"); context.magicRiseSet(1, PIPE); });
+  const seen = [];
+  while (asked.size) { frame(); if (cls.has("on")) { inStep(dims(), "sinking"); seen.push(Number(reply.style.opacity || 1)); } }
+  assert.ok(seen.length > 20 && seen.every((v, i) => !i || v >= seen[i - 1]), "coming back up, never down");
+  assert.deepEqual(dims(), ["", "", ""], "off: all as they were");
+  // piped right, the ticket list and the clock are left alone and only the response dims
+  PIPE.side = "right";
+  context.boxCome(PIPE, 0); cls.add("on"); context.boxRise(PIPE);
+  while (asked.size) frame();
+  assert.deepEqual(dims(), ["", "", "0.1000"]);
+  // another card's response out: the first card's comes back whole
+  PIPE.id = "c2";
+  context.pipeDim();
+  assert.deepEqual([reply.style.opacity, other.style.opacity], ["", "0.1000"]);
+  // and a placing that changes nothing writes nothing
+  other.style = { set opacity(v) { throw new Error("written again: " + v); }, get opacity() { return "0.1"; } };
+  context.pipeDim();
 });
 
 // ---- the keys ------------------------------------------------------------------------
@@ -787,9 +851,10 @@ test("it is a second magic box on the box's own rules, always whole, its shadow 
   // the brace wears the box's lines' shadow and sits beneath the card
   assert.match(style, /\n  body\.focus #pipeline\.on > g\{filter:drop-shadow\(0 2px 9px rgba\(60,45,20,\.18\)\) drop-shadow\(0 1px 1\.5px rgba\(60,45,20,\.10\)\)\}/);
   assert.ok(HTML.indexOf('<svg id="pipeline"') < HTML.indexOf("<main>"));
-  // piped left, the ticket list and the clock fade well down, and back
-  assert.equal(rule("body.focus.pipeleft :is(#tickets, #clockbox)"), "opacity:.26");
-  assert.match(rule("body.focus :is(#tickets, #clockbox)"), /^transition:opacity 1s /);
+  // what it dims, the ticket list and the clock piped left and the card's response,
+  // is dimmed on its own frames (pipeDim), with no fade or easing of the sheet's own over it
+  assert.ok(!/:is\(#tickets, #clockbox\)\{|pipeleft/.test(style), "the ticket list and the clock have a fade of their own");
+  assert.match(fn("magicRiseSet"), /if \(box\.dim\) box\.dim\(p\);/);
   // the card settles while it holds the keys, as for the box, at the same weight
   assert.ok(style.includes("\n  body.focus:not(.home, .editmode):where(.pipekeys) main{box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}"));
   // its words are selectable, as the box's are

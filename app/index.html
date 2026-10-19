@@ -1665,7 +1665,10 @@
      its shape, under it and over what it lies on, the ticket list and the clock
      on the card's left, which would show through it while it is part way
      risen. it comes with the box's rise (magicRiseSet), so on the bare board it
-     is never seen and over the list it clears the box's room as the box rises */
+     is never seen and over the list it clears the box's room as the box rises.
+     the list and the clock themselves go down to a tenth as it rises and come
+     back as it sinks, frame for frame with it, as the card's own copy of the
+     response does (pipeDim) */
   #pipeground{display:none}
   body.focus #pipeground.on{display:block; position:fixed; z-index:1; pointer-events:none;
     background:var(--paper); border-radius:var(--mb-round)}
@@ -1685,11 +1688,6 @@
   body.focus #pipeline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
   body.lowered #pipeline.on > g{filter:none}
   body.focus:is(.home, .editmode) #pipeline.on{display:none}
-  /* piped to the card's left, it lies over the ticket list and the clock, which
-     fade well down while it stands there (body.pipeleft) over the time and
-     curve it rises on (RISE_MS), and come back as it sinks */
-  body.focus :is(#tickets, #clockbox){transition:opacity 1s cubic-bezier(.455, .03, .515, .955)}
-  body.focus.pipeleft :is(#tickets, #clockbox){opacity:.26}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
@@ -8323,8 +8321,10 @@ function magicRiseSet(t, box = MB){
   const p = riseEase(t);
   box.el.style.setProperty("--rise", p.toFixed(4));
   box.line.style.opacity = p.toFixed(4);
-  // and the patch of the board under it, for a box that has one (PIPE)
+  // and the patch of the board under it, and what it dims as it comes, for a
+  // box that has them (PIPE)
   if (box.ground) box.ground.style.opacity = p.toFixed(4);
+  if (box.dim) box.dim(p);
 }
 function magicRise(dir, then = null, box = MB){
   const r = box.rise;
@@ -8599,10 +8599,13 @@ addEventListener("keydown", e => {
 // card's response while it is out (cardAnswerOff); control+S scrolls it while
 // it holds them. the reply sent, or cut back clearly under the first step, it
 // goes back into the card. the phone, and the Mac's own phone view, keep one
-// step. it rises and sinks quicker than the box, over PIPE_MS on the box's curve
-const PIPE_MS = 600;
+// step. it rises and sinks quicker than the box, over PIPE_MS on the box's
+// curve, and dims what it stands for and over to PIPE_DIM (pipeDim)
+const PIPE_MS = 600, PIPE_DIM = .1;
 const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"),
   ground: document.getElementById("pipeground"), id: null, raw: null, ms: PIPE_MS,
+  aside: ["tickets", "clockbox"].map(id => document.getElementById(id)).filter(Boolean), dim: pipeDim,
+  dimmed: null, dimAt: { reply: "", aside: "" },
   side: null, came: null, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } };
 if (PIPE.el){
   PIPE.view = magicView(PIPE.el, { placed: () => pipePlace() });
@@ -8818,7 +8821,7 @@ function pipeDraw(raw){
 function pipeOff(){
   if (!PIPE.el) return;
   PIPE.el.classList.remove("on", "held", "rising");
-  document.body.classList.remove("pipeleft", "pipekeys");
+  document.body.classList.remove("pipekeys");
   magicRiseStop(PIPE);
   magicRiseSet(1, PIPE);
   PIPE.line.classList.remove("on");
@@ -8828,20 +8831,41 @@ function pipeOff(){
   if (PIPE.sized) PIPE.sized.disconnect();
   PIPE.view.clear();
 }
-// back into the card: it sinks as the box sinks, and the ticket list and the
-// clock come back with it; one not on screen just goes
+// back into the card: it sinks as the box sinks, and what it dimmed comes back
+// with it; one not on screen just goes
 function pipeSink(){
   if (!PIPE.el || PIPE.rise.then) return;
-  document.body.classList.remove("pipeleft");
   boxSink(PIPE, pipeOff);
+}
+
+// what it dims as it comes out, on its own rise (magicRiseSet, p the rise
+// eased): the card's own copy of the response, and on the card's left the
+// ticket list and the clock it lies over, each down to a tenth (PIPE_DIM) once
+// it is risen and whole again once it is flat, on the same frames. hidden for
+// want of room, or off the page, it dims nothing. each is written only when it
+// changes, so the card's watch (follow) hears nothing of a placing that moved nothing
+function pipeDim(p = riseEase(PIPE.rise.t)){
+  const el = PIPE.id === null ? null : els[PIPE.id] || null;
+  const shown = !!el && PIPE.el.classList.contains("on") && PIPE.el.style.visibility !== "hidden";
+  const a = shown && p > 0 ? (1 - (1 - PIPE_DIM) * p).toFixed(4) : "";
+  const aside = PIPE.side === "left" ? a : "";
+  if (PIPE.dimmed !== el){
+    if (PIPE.dimmed) PIPE.dimmed.reply.style.opacity = "";
+    PIPE.dimmed = el; PIPE.dimAt.reply = "";
+  }
+  if (el && PIPE.dimAt.reply !== a){ PIPE.dimAt.reply = a; el.reply.style.opacity = a; }
+  if (PIPE.dimAt.aside !== aside){
+    PIPE.dimAt.aside = aside;
+    for (const node of PIPE.aside) node.style.opacity = aside;
+  }
 }
 
 // beside the card where the magic box stands (magicRoom, MagicBox.place), on
 // the right, or on the left while the card's box stands on the right or the
 // right has no room for it. a side it took stays its side for as long as it
 // is out, unless the box comes to it or its room goes. with no room either
-// side it is hidden where it is, still out, and is back when the window gives
-// it the room, as the box is
+// side it is hidden where it is, still out, dimming nothing, and is back when
+// the window gives it the room, as the box is
 function pipePlace(){
   if (!PIPE.el || !PIPE.el.classList.contains("on")) return;
   PIPE.line.classList.remove("on");
@@ -8853,7 +8877,7 @@ function pipePlace(){
   if (!side){
     PIPE.el.style.visibility = "hidden";
     if (PIPE.ground) PIPE.ground.classList.remove("on");
-    document.body.classList.remove("pipeleft");
+    pipeDim();
     return;
   }
   PIPE.side = side;
@@ -8862,7 +8886,7 @@ function pipePlace(){
   Object.assign(PIPE.el.style, rect, { visibility: "" });
   // the patch of the board under it, in its place and shape
   if (PIPE.ground){ Object.assign(PIPE.ground.style, rect); PIPE.ground.classList.add("on"); }
-  document.body.classList.toggle("pipeleft", side === "left" && !PIPE.rise.then);
+  pipeDim();
   pipeLine(room.rect, at, side, most[side]);
   boxRise(PIPE);
 }
