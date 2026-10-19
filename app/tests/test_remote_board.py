@@ -204,6 +204,18 @@ class ServerEndToEnd(unittest.TestCase):
         self.assertEqual([d["name"] for d in listed["dirs"]], ["demo", "other"])
         _, machines = self.get("/remote/machines")
         self.assertEqual([(m["id"], m["kind"], m["online"]) for m in machines["machines"]], [("fake", "server", True)])
+        # the folder picker's own routes: this Mac first, then the server, its
+        # folders listed and made there
+        _, picker = self.get("/machines")
+        self.assertEqual([(m["id"], m["kind"]) for m in picker["machines"]], [("this", "computer"), ("fake", "server")])
+        self.assertEqual(picker["machines"][1]["top"], str(self.home))
+        status, through = self.get("/dirs?machine=fake&path=")
+        self.assertEqual((status, through["machine"], [d["name"] for d in through["dirs"]]),
+                         (200, "fake", ["demo", "other"]))
+        status, made = self.call("POST", f"/mkdir?machine=fake&path={self.home / 'other'}&name=fresh")
+        self.assertEqual((status, made["path"]), (200, str(self.home / "other" / "fresh")))
+        self.assertTrue((self.home / "other" / "fresh").is_dir())
+        self.assertEqual(self.get("/dirs?machine=nowhere&path=")[1], {"error": "no such machine"})
 
         # projects
         status, made = self.call("POST", "/project?name=demo&machine=fake", str(self.home / "demo"))

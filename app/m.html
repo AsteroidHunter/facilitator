@@ -3931,7 +3931,8 @@ async function pickFolder(){
 // phone is on the project
 async function addFolderProject(folder){
   const st = lastState;
-  const open = st && allRowsOf(st).find(ow => (st.pwds || {})[ow] === folder.path);
+  // the same folder on the same machine: a server's or this Mac's
+  const open = folderProject(st, folder);
   if (open){
     if (!tabShut(st, open)) return "that folder is already open as " + labelOf(st, open);
     const rec = tabRecord(st);
@@ -3940,11 +3941,10 @@ async function addFolderProject(folder){
     landOnProject(open);
     return null;
   }
-  const px = await fetch("/project?name=" + encodeURIComponent(folder.name || "project"),
-      { method: "POST", body: folder.path }).catch(() => null);
+  const px = await fetch(projectRoute(folder), { method: "POST", body: folder.path }).catch(() => null);
   const pr = px ? await px.json().catch(() => null) : null;
   if (!px) return "could not reach the board";
-  if (!px.ok || !pr?.id) return projectRefusal(pr, st, folder.name);
+  if (!px.ok || !pr?.id) return folderRefusal(pr, st, folder);
   await poll();   // the new lane arrives with its tab label and folder
   landOnProject(pr.id);
   return null;

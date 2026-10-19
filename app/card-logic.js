@@ -8475,6 +8475,27 @@ function remoteFaded(state, owner){
   const s = ((state.remote || {}).servers || {})[sid];
   return s && !s.faded ? null : { server: sid, name: (s && s.name) || sid };
 }
+// the project a folder the picker chose already is, or null: the same path on
+// the same machine, so a server's /home/you/app is never a folder of this Mac
+function folderProject(state, folder){
+  if (!state || !folder) return null;
+  const sid = folder.machine && folder.machine !== "this" ? folder.machine : "";
+  return allRowsOf(state).find(ow => (state.pwds || {})[ow] === folder.path && remoteServerOf(state, ow) === sid) || null;
+}
+// the route that makes a project of a folder the picker chose: a server's
+// folder names its machine, and the board reads the folder there before it
+// keeps the project. a folder on this Mac asks exactly as it always did
+function projectRoute(folder){
+  const server = folder.machine && folder.machine !== "this" ? folder.machine : "";
+  return "/project?name=" + encodeURIComponent(folder.name || "project") +
+    (server ? "&machine=" + encodeURIComponent(server) : "");
+}
+// a refused folder in plain words: a server answers in plain words already
+// (its link down, its folder outside its home), this Mac's by projectRefusal
+function folderRefusal(pr, state, folder){
+  if (folder.machine && folder.machine !== "this" && pr && pr.error && pr.error !== "duplicate project") return pr.error;
+  return projectRefusal(pr, state, folder.name);
+}
 // the folder a project row shows: a server's project as the server's name and
 // its path there, the way ssh writes one
 function lanePlace(state, owner){

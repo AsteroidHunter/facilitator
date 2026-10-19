@@ -4936,26 +4936,24 @@ async function pickFolder(slot){
     if (!here()) return;   // the page was left while the picker sat open
     if (!r?.path) return;  // closed without a choice: nothing to say
     // the server names the folder and writes its path, so nothing here takes
-    // a path apart, whatever system the board runs on
-    const path = r.path, name = r.name || "project";
-    // a folder already behind a tab: name that tab instead of refusing. a
-    // folder whose tab was closed is the reopening itself, not a refusal: the
-    // lane is still the server's, and picking its folder here says
-    // which one is wanted back
-    const open = lastState && allRowsOf(lastState)
-      .find(ow => (lastState.pwds || {})[ow] === path);
+    // a path apart, whatever system the board runs on; r.machine is this Mac
+    // or one of the owner's servers. a folder already behind a tab, the same
+    // path on the same machine (folderProject, card-logic.js): name that tab
+    // instead of refusing. a folder whose tab was closed is the reopening
+    // itself, not a refusal: the lane is still the server's, and picking its
+    // folder here says which one is wanted back
+    const open = folderProject(lastState, r);
     if (open){
       if (tabClosed(open)) reopenTab(open);
       else projNote("that folder is already open as " + labelOf(lastState, open));
       return;
     }
-    const px = await fetch("/project?name=" + encodeURIComponent(name),
-        { method: "POST", body: path }).catch(() => null);
+    const px = await fetch(projectRoute(r), { method: "POST", body: r.path }).catch(() => null);
     const pr = px ? await px.json().catch(() => null) : null;
     if (!px?.ok || !pr?.id){
       // the server states its refusal; the note repeats it in plain words
-      // (projectRefusal, card-logic.js, which the phone says them with too)
-      projNote(projectRefusal(pr, lastState, name));
+      // (folderRefusal, card-logic.js, which the phone says them with too)
+      projNote(folderRefusal(pr, lastState, r));
       return;
     }
     const fade = boardFadeTake();   // the board being left, as in setTab; none from home or a new tab

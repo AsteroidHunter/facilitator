@@ -250,14 +250,29 @@ class Gate(unittest.TestCase):
 
     # -- logs
     def test_no_key_reaches_the_log(self):
-        said = self.join({"path": "/home/you/demo"})[1]
-        call(self.gate, "GET", "/wait", "owner=notes", key=said["key"])
-        call(self.gate, "GET", "/state", key=said["key"])
-        call(self.gate, "GET", "/wait", "owner=demo", key="made-up-key")
-        self.join({"path": "/x"}, key="made-up-join")
+        # the lines as the board's own formatter writes them, caught here: the
+        # logger is shared by every test file loaded in one run, and another's
+        # teardown may take the board's file handler away
+        import io
+        caught = io.StringIO()
+        handler = logging.StreamHandler(caught)
+        handler.setFormatter(server.JsonLineFormatter())
+        log = logging.getLogger("facilitator")
+        was = log.level
+        log.addHandler(handler)
+        log.setLevel(logging.DEBUG)
+        try:
+            said = self.join({"path": "/home/you/demo"})[1]
+            call(self.gate, "GET", "/wait", "owner=notes", key=said["key"])
+            call(self.gate, "GET", "/state", key=said["key"])
+            call(self.gate, "GET", "/wait", "owner=demo", key="made-up-key")
+            self.join({"path": "/x"}, key="made-up-join")
+        finally:
+            log.removeHandler(handler)
+            log.setLevel(was)
         for handler in logging.getLogger("facilitator").handlers:
             handler.flush()
-        text = "".join(p.read_text() for p in Path(_logs).glob("*") if p.is_file())
+        text = caught.getvalue() + "".join(p.read_text() for p in Path(_logs).glob("*") if p.is_file())
         self.assertIn("remoterefused", text)
         self.assertIn("remotejoin", text)
         for secret in (self.join_key, self.other_join, self.demo, self.notes, said["key"], "made-up-key", "made-up-join"):

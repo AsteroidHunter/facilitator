@@ -654,13 +654,18 @@ Endpoints:
                                $FACILITATOR_LOG names another file instead
   GET  /machines            -> the machines the folder picker may list, each
                                {id, name, kind, online, top, home, sep, places}:
-                               today only this one, id "this", named by its
+                               this one first, id "this", named by its
                                system ("This Mac", "This PC", "This computer").
                                top is the highest folder it lists (home), sep
                                the system's path separator, places its home and
                                the Desktop, Documents and Downloads it has
                                (the XDG names where Linux keeps them), found
-                               without reading inside them
+                               without reading inside them. Then each of the
+                               owner's servers as /remote/machines gives it,
+                               kind "server" and online while its link is up.
+                               /dirs and /mkdir with a server's id for M read
+                               and make its folders there, as /remote/dirs and
+                               /remote/mkdir do
   GET  /dirs?path=P[&from=F][&machine=M] -> one folder's subfolders for the
                                folder picker (folder-picker.js). Empty P is
                                home, ~ is home, and a relative P is taken from
@@ -5186,11 +5191,12 @@ def _get_limits(q: Query, _):
 # "Open a new folder" opens a picker the board draws itself (folder-picker.js),
 # on the Mac board, the typed page and the phone page alike. It reads three
 # routes: /machines names the machines it may list and their places, /dirs
-# lists one folder of one machine, and /mkdir makes a folder in one. Only this
-# machine is known, as "this": another machine later is one more entry in
-# _machines() and one more answer from _machine(). Everything is fenced to the
-# home folder and hidden folders stay hidden. Paths go out the way this system
-# writes them, and the page shows what it is given without taking a path apart
+# lists one folder of one machine, and /mkdir makes a folder in one. This
+# machine is "this"; each of the owner's servers (remote_link.py) is one more
+# machine, listed and asked over its own ssh link, by the same rules and with
+# the same answers. Everything is fenced to the home folder and hidden folders
+# stay hidden. Paths go out the way each system writes them, and the page shows
+# what it is given without taking a path apart
 FOLDER_ROWS_MAX = 2000      # folders one listing names; the rest are only counted
 FOLDER_COUNT_MAX = 9999     # names counted inside one folder before it stops
 FOLDER_COUNT_TIME = 0.4     # seconds the counts of one listing may take in all
@@ -5229,9 +5235,15 @@ def _machine_name() -> str:
 
 def _machine(q: Query):
     """The machine a request names, "this" when it names none, None for one
-    the board does not know."""
+    the board does not know. A server's id is answered by _server_machine."""
     named = q.one("machine") or "this"
     return named if named == "this" else None
+
+
+def _server_machine(q: Query) -> str | None:
+    """The id of one of the owner's servers a request names, or None."""
+    named = q.one("machine")
+    return named if named and _remote is not None and _remote.server(named) else None
 
 
 def _hidden_mark(st) -> bool:
@@ -5299,8 +5311,10 @@ def _machines() -> list:
                 places.append({"id": place, "name": p.name, "path": str(p)})
         except OSError:
             continue
+    # then each of the owner's servers, online while its link is up
+    servers = _remote.machines() if _remote is not None else []
     return [{"id": "this", "name": _machine_name(), "kind": "computer", "online": True,
-             "top": str(home), "home": str(home), "sep": os.sep, "places": places}]
+             "top": str(home), "home": str(home), "sep": os.sep, "places": places}, *servers]
 
 
 def _get_machines(q: Query, _):
@@ -5382,6 +5396,10 @@ def _count_names(p: Path):
 
 def _get_dirs(q: Query, _):
     if _machine(q) is None:
+        server = _server_machine(q)
+        if server is not None:
+            # read on the server over its link's own login, in this shape
+            return _remote.list_dirs(server, q.one("path").strip(), q.one("from").strip())
         return 400, {"error": "no such machine"}
     home = _home()
     p, why = _folder_named(q, home)
@@ -5439,6 +5457,9 @@ def _folder_name_problem(name: str):
 
 def _post_mkdir(q: Query, _text: str):
     if _machine(q) is None:
+        server = _server_machine(q)
+        if server is not None:
+            return _remote.make_dir(server, q.one("path").strip(), q.one("name").strip())
         return 400, {"error": "no such machine"}
     name = q.one("name").strip()
     why = _folder_name_problem(name)

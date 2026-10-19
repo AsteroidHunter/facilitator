@@ -69,6 +69,28 @@ test("a server's project shows its folder the way ssh writes it", () => {
   assert.equal(sandbox.lanePlace(st, "nobody"), "");
 });
 
+test("a folder the picker chose is the same project only on the same machine", () => {
+  const { sandbox } = page();
+  const st = { ...state({ lab: { name: "lab", up: true, faded: false } }), boxes: [],
+               pwds: { far: "/home/you/far", near: "/home/you/far" },
+               projects: [{ id: "far", dir: "/home/you/far", server: "lab" }, { id: "near", dir: "/home/you/far" }] };
+  assert.equal(sandbox.folderProject(st, { machine: "lab", path: "/home/you/far" }), "far");
+  assert.equal(sandbox.folderProject(st, { machine: "this", path: "/home/you/far" }), "near");
+  assert.equal(sandbox.folderProject(st, { machine: "farm", path: "/home/you/far" }), null);
+  assert.equal(sandbox.folderProject(st, { machine: "this", path: "/elsewhere" }), null);
+});
+
+test("a server's folder is made a project with its machine, and refused in its own words", () => {
+  const { sandbox } = page();
+  assert.equal(sandbox.projectRoute({ machine: "lab", name: "my app" }), "/project?name=my%20app&machine=lab");
+  assert.equal(sandbox.projectRoute({ machine: "this", name: "notes" }), "/project?name=notes");
+  assert.equal(sandbox.projectRoute({ name: "" }), "/project?name=project");
+  assert.equal(sandbox.folderRefusal({ error: "lab is not connected" }, {}, { machine: "lab", name: "x" }),
+               "lab is not connected");
+  assert.equal(sandbox.folderRefusal({ error: "body must be a folder under home" }, {}, { machine: "this", name: "x" }),
+               "that folder is outside your home folder");
+});
+
 test("the fade is the body's class and one line, and it goes again when the link is back", () => {
   const { sandbox, classes, byId, made } = page();
   sandbox.showRemoteFade({ server: "lab", name: "Lab box" });
