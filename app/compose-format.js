@@ -209,7 +209,7 @@
     const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true, CodeMark: true };
 
     function build(state, awake, picked) {
-      const doc = state.doc, out = [];
+      const doc = state.doc, out = [], atoms = [];   // atoms: the hidden angles the caret steps over
       // The raw characters come back around the cursor and nowhere else, and
       // only while the row is being typed in: a row nobody is in is a row to
       // read. A range counts as touched at either edge, so the markers are
@@ -442,22 +442,28 @@
           // other. Drawing the bar and the angles together would be one quote
           // written twice, and it would move the line's words sideways under a
           // caret that only arrived to read them. The characters stay in the
-          // document, so the caret walks them one at a time, a pick still
-          // carries them and the markdown the row sends still has them.
+          // document, so a pick still carries them and the markdown the row
+          // sends still has them. The caret steps over them whole: a caret
+          // standing between two angles nobody can see typed its words
+          // somewhere else (">> deep" took an x at its start as ">> xdeep"),
+          // or broke the quote it was in.
           const mark = angles.get(n);
-          if (mark) out.push(hide.range(mark.from, mark.to));
+          if (mark) {
+            out.push(hide.range(mark.from, mark.to));
+            atoms.push(hide.range(mark.from, mark.to));
+          }
         }
         // a quoted line that is not drawn as one is an ordinary line, and is
         // left the ordinary line it already is
         if (classes.length || attributes.style)
           out.push(D.line({ class: classes.join(" "), attributes }).range(line.from));
       }
-      return D.set(out, true);
+      return { deco: D.set(out, true), atoms: D.set(atoms, true) };
     }
 
     layerExtension = C.StateField.define({
       create: state => ({ awake: false, held: false, shown: false, picked: state.selection,
-                          deco: build(state, false, state.selection) }),
+                          ...build(state, false, state.selection) }),
       update: (value, tr) => {
         let awake = value.awake, held = value.held;
         for (const effect of tr.effects) {
@@ -475,9 +481,10 @@
         if (shown === value.shown && picked.eq(value.picked) && !tr.docChanged &&
             C.syntaxTree(tr.state) === C.syntaxTree(tr.startState))
           return awake === value.awake && held === value.held ? value : { ...value, awake, held };
-        return { awake, held, shown, picked, deco: build(tr.state, shown, picked) };
+        return { awake, held, shown, picked, ...build(tr.state, shown, picked) };
       },
-      provide: field => C.EditorView.decorations.from(field, value => value.deco),
+      provide: field => [C.EditorView.decorations.from(field, value => value.deco),
+                         C.EditorView.atomicRanges.of(view => view.state.field(field).atoms)],
     });
     return layerExtension;
   }
@@ -808,10 +815,20 @@
   // did nothing at all.
   function paragraphEdge(view, forward) {
     const doc = view.state.doc, range = view.state.selection.main;
+    // a line's start is where its words start: past a quote's hidden angles,
+    // where Home stops as well and a character typed stays in the quote
+    const atoms = view.state.field(layerExtension).atoms;
+    const start = line => {
+      let at = line.from;
+      atoms.between(line.from, line.from, (from, to) => { if (from === line.from) at = to; });
+      return at;
+    };
+    let head = range.head;
+    if (!forward && range.empty && head === start(doc.lineAt(head))) head = doc.lineAt(head).from;
     const p = !range.empty ? (forward ? range.to : range.from)
-      : forward ? Math.min(doc.length, range.head + 1) : Math.max(0, range.head - 1);
+      : forward ? Math.min(doc.length, head + 1) : Math.max(0, head - 1);
     const line = doc.lineAt(p);
-    view.dispatch({ selection: { anchor: forward ? line.to : line.from }, scrollIntoView: true, userEvent: "select" });
+    view.dispatch({ selection: { anchor: forward ? line.to : start(line) }, scrollIntoView: true, userEvent: "select" });
     return true;
   }
   function paragraphStep(view, forward) {
@@ -904,8 +921,9 @@
         if (forward && from === edge && to > edge) { edge = to; moved = true; }
       });
     }
-    const angles = QUOTED.exec(line.text);
-    if (!forward && angles) edge = Math.max(edge, line.from + angles[0].length);
+    if (!forward) state.field(layerExtension).atoms.between(line.from, line.from, (from, to) => {
+      if (from === line.from) edge = Math.max(edge, to);
+    });
     const head = range.head;
     const target = forward ? (head < edge ? edge : Math.min(state.doc.length, head + 1))
       : (head > edge ? edge : Math.max(0, head - 1));
@@ -1105,6 +1123,24 @@
       // on a line with neither it makes one line and no more.
       C.EditorView.domEventHandlers({
         paste: pasteMarkdown,
+        // A character typed with the caret between a quote's hidden angles,
+        // or over a pick that starts or ends at them, goes in where the
+        // editor's own caret is. The browser can only stand its caret beside
+        // the hidden run: typed there, ">> one" took the character after its
+        // angles, and a pick starting right after them broke its line in two.
+        beforeinput: (event, view) => {
+          if (event.inputType !== "insertText" || event.isComposing || event.data == null) return false;
+          const range = view.state.selection.main;
+          let near = false;
+          view.state.field(layerExtension).atoms.between(range.from, range.to, (from, to) => {
+            if (from < range.head && range.head < to) near = true;
+            if (!range.empty && ((range.from >= from && range.from <= to) || (range.to >= from && range.to <= to))) near = true;
+          });
+          if (!near) return false;
+          event.preventDefault();
+          view.dispatch(view.state.replaceSelection(event.data), { userEvent: "input.type", scrollIntoView: true });
+          return true;
+        },
         keydown: (event, view) => {
           if (event.key !== "Enter") {
             if (event.code === "Enter" || event.code === "NumpadEnter" || event.keyCode === 13)
