@@ -792,10 +792,42 @@
                        "Alt-Ctrl-ArrowUp", "Alt-Ctrl-ArrowDown"]
     .map(key => ({ key, run: () => true }));
 
-  // Keep Option/Alt with Up/Down available for native caret movement and
-  // selection. The stock bindings move or copy whole logical lines; exclude
-  // them without changing Left/Right word navigation.
+  // Option/Alt with Up/Down is caret movement and selection, as in a plain
+  // field. The stock bindings move or copy whole logical lines; exclude them
+  // without changing Left/Right word navigation (see paragraphEdge for what
+  // the keys do instead).
   const MOVES_TEXT = /^(Shift-)?Alt-Arrow(Up|Down)$/;
+
+  // The Mac's paragraph keys, made here the way the browser makes them in a
+  // plain field: Option and Up go to the start of the paragraph (a line of
+  // the message), or from its start to the start of the one above, and Option
+  // and Down to its end, or the end of the one below; a pick closes up at its
+  // near end first. With Shift the pick's head goes a paragraph up or down,
+  // keeping its place across the line. Left to the browser, the marker drawn
+  // at a list line's head stopped them: on a list's first line Option and Up
+  // did nothing at all.
+  function paragraphEdge(view, forward) {
+    const doc = view.state.doc, range = view.state.selection.main;
+    const p = !range.empty ? (forward ? range.to : range.from)
+      : forward ? Math.min(doc.length, range.head + 1) : Math.max(0, range.head - 1);
+    const line = doc.lineAt(p);
+    view.dispatch({ selection: { anchor: forward ? line.to : line.from }, scrollIntoView: true, userEvent: "select" });
+    return true;
+  }
+  function paragraphStep(view, forward) {
+    const doc = view.state.doc, range = view.state.selection.main, line = doc.lineAt(range.head);
+    let head = forward ? doc.length : 0;
+    if (line.number !== (forward ? doc.lines : 1)) {
+      const next = doc.line(line.number + (forward ? 1 : -1));
+      // the row of the next paragraph that meets this one: its first going
+      // down, its last going up
+      const here = view.coordsAtPos(range.head), row = view.coordsAtPos(forward ? next.from : next.to);
+      const found = here && row ? view.posAtCoords({ x: here.left, y: (row.top + row.bottom) / 2 }) : null;
+      head = Math.max(next.from, Math.min(next.to, found == null ? next.from : found));
+    }
+    view.dispatch({ selection: { anchor: range.anchor, head }, scrollIntoView: true, userEvent: "select" });
+    return true;
+  }
 
   // ---- Backspace after an emoji ---------------------------------------------
   // The plain field takes a whole emoji with one Backspace: a skin tone, a
@@ -1045,6 +1077,8 @@
       { key: "Tab", run: view => listIndent(C, view, false), shift: view => listIndent(C, view, true) },
       { mac: "Mod-Backspace", run: view => deleteToRowEdge(C, view, false) },
       { mac: "Mod-Delete", run: view => deleteToRowEdge(C, view, true) },
+      { key: "Alt-ArrowUp", run: view => paragraphEdge(view, false), shift: view => paragraphStep(view, false) },
+      { key: "Alt-ArrowDown", run: view => paragraphEdge(view, true), shift: view => paragraphStep(view, true) },
       // The editor's stock return bindings are not among the two things that
       // may answer a return in this row, so they are left out. Which of the two
       // does answer it is decided in enterKey. The line moves and copies are

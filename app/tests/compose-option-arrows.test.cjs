@@ -4,8 +4,9 @@
 // The editor's stock keymap moves the caret's line up or down on Option (Alt)
 // with Up or Down, and copies it with Shift added. A wrapped paragraph is one
 // line to the editor, so in the composer those chords moved or copied whole
-// paragraphs of the message. The composer leaves those four bindings out, and
-// keeps every caret and selection binding the stock keymap has.
+// paragraphs of the message. The composer leaves those four bindings out,
+// makes the keys its own paragraph moves, and keeps every caret and selection
+// binding the stock keymap has.
 //
 // No browser: the bundle and compose-format.js are loaded into a bare context
 // with a navigator saying which platform it is, which is all the bundle reads
@@ -194,14 +195,17 @@ for (const platform of Object.keys(PLATFORMS)) {
     });
   });
 
-  test(`${platform}: Option or Alt with Up or Down, with or without Shift, reaches no composer binding`, () => {
+  // The keys are the composer's own paragraph moves (paragraphEdge and
+  // paragraphStep in compose-format.js), made the way the browser makes them
+  // in a plain field. Left to the browser, they stuck on a list line behind
+  // the marker the composer draws there. They move the caret and never the
+  // message's lines.
+  test(`${platform}: Option or Alt with Up or Down, with or without Shift, moves the caret and never the message's lines`, () => {
     const { C, api } = load(platform);
     for (const chord of LINE_CHORDS) {
       const result = press(composerState(C, api), C, platform, chord);
-      assert.equal(result.reached.length, 0,
-        `${chordName(chord)} still reaches a composer binding`);
-      assert.equal(result.preventDefault, false,
-        `${chordName(chord)} would still keep the key from the browser`);
+      assert.ok(result.reached.length > 0, `${chordName(chord)} reaches no composer binding`);
+      assert.notEqual(result.outcome, "declined", `${chordName(chord)} was declined`);
       assert.equal(result.text, TEXT, `${chordName(chord)} changed the message`);
     }
   });
