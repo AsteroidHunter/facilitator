@@ -104,8 +104,12 @@
   .squidmark img{display:block; width:108.95%; max-width:none; height:auto; margin:-5.83% 0 0 -4.48%}
   /* the squid stands in a glass circle at the bar's right end (the bar's
      glass), mirroring the house at its left end */
-  #setbtn, #feedbackbtn{display:flex; align-items:center; padding:2px; flex:none;
+  #setbtn, #feedbackbtn, #graphbtn{display:flex; align-items:center; padding:2px; flex:none;
     color:var(--sub); cursor:pointer; transition:color .2s}
+  /* the links mark stands first of the right end's marks, so it holds the right
+     edge in the speaker's place and the speaker takes the gap the others keep */
+  #graphbtn{margin-left:auto}
+  #graphbtn + #chimebtn{margin-left:0}
 
   /* ---- the app's enclosure ----------------------------------------------- */
   /* the ticket list and the card stand on the board's own background: the
@@ -3185,28 +3189,31 @@
       0 8px 20px rgba(0,0,0,.06)}
   /* the controls: the mark centred, in the sub ink and the full ink under a
      pointer */
-  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn){
+  body.focus :is(#homeico, #graphbtn, #chimebtn, #feedbackbtn, #setbtn){
     flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;
     margin:0; padding:0; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
     color:var(--sub); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
-  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn):hover{color:var(--ink)}
-  body.focus :is(#homeico, #chimebtn, #feedbackbtn) svg{display:block; flex:none}
-  /* the speaker still holds the right edge */
+  body.focus :is(#homeico, #graphbtn, #chimebtn, #feedbackbtn, #setbtn):hover{color:var(--ink)}
+  body.focus :is(#homeico, #graphbtn, #chimebtn, #feedbackbtn) svg{display:block; flex:none}
+  /* the speaker still holds the right edge, or the links mark does when it
+     stands before it */
   body.focus .bar #chimebtn{margin-left:auto}
-  /* the speaker, the bug and the squid stand the house's gap to the pill apart,
-     11px of box that draws as 10px (#tabrow's gap): the bar's own 8px and 3px
-     more before the bug and before the squid, so the three are evenly spaced.
-     the squid stays the bar's inset from the window's right edge, as the house
-     is from its left (20261010) */
+  body.focus .bar #graphbtn{margin-left:auto}
+  /* the links mark, the speaker, the bug and the squid stand the house's gap to
+     the pill apart, 11px of box that draws as 10px (#tabrow's gap): the bar's
+     own 8px and 3px more before each after the first, so the four are evenly
+     spaced. the squid stays the bar's inset from the window's right edge, as
+     the house is from its left (20261010) */
   body.focus .bar :is(#feedbackbtn, #setbtn){margin-left:3px}
+  body.focus .bar #graphbtn + #chimebtn{margin-left:3px}
   /* the glass's own press, the phone's: a little larger and a whiter face,
      held long enough that a quick click still shows it (glassPress, in the
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#homeico, #graphbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the pill takes that press with the same few pixels of growth: a scale of
      1.06 is 2px on a 32px circle but 4.5px to 15px of width on a pill as wide
@@ -3801,6 +3808,7 @@
   </span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
+  <button id="graphbtn" class="qn-glass" type="button" title="Links between cards" aria-label="Links between cards" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.586 5.414-5.172 5.172"/><path d="m18.586 13.414-5.172 5.172"/><path d="M6 12h12"/><circle cx="12" cy="20" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="20" cy="12" r="2"/><circle cx="4" cy="12" r="2"/></svg></button>
   <button id="chimebtn" class="qn-glass" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
   <button id="feedbackbtn" class="qn-glass" type="button" title="Share feedback" aria-label="Share feedback" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></button>
   <button id="setbtn" class="qn-glass" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
@@ -4797,7 +4805,7 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-for (const btn of ["homeico", "projpill", "chimebtn", "feedbackbtn", "setbtn", "npstart"].map(id => document.getElementById(id))){
+for (const btn of ["homeico", "projpill", "graphbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0 && btn.classList.contains("qn-glass")) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -12694,6 +12702,103 @@ document.getElementById("taskstatus").addEventListener("click", () => {
       car.scrollLeft += e.deltaY;
     }
   }, { passive: false });
+}
+
+// ---- the links between cards ----------------------------------------------
+// the mark on the bar before the speaker opens the links agents have made
+// between cards (graph.js), drawn as a graph and as a timeline on a sheet over
+// the board. the sheet's script, its rules and the d3-force it lays the graph
+// out with are fetched the first time it opens, as the folder picker's are; a
+// load that failed is tried afresh on the next press. while the sheet is up
+// the board's keys are quiet, as under Settings, and a card picked on it is
+// shown here (openLinkedCard)
+let graphLoad = null;
+function graphBundle(){
+  if (globalThis.LinkGraph && document.getElementById("graphsheet")?.sheet) return Promise.resolve(true);
+  if (graphLoad) return graphLoad;
+  graphLoad = new Promise(res => {
+    let left = 3, good = true;
+    const done = ok => {
+      good = good && ok;
+      if (--left) return;
+      if (!good || !globalThis.LinkGraph) graphLoad = null;
+      res(good && !!globalThis.LinkGraph);
+    };
+    let sheet = document.getElementById("graphsheet");
+    if (sheet?.sheet) done(true);
+    else {
+      if (!sheet){
+        sheet = document.createElement("link");
+        sheet.id = "graphsheet"; sheet.rel = "stylesheet"; sheet.href = "/graph.css";
+        document.head.append(sheet);
+      }
+      sheet.addEventListener("load", () => done(true), { once: true });
+      sheet.addEventListener("error", () => { sheet.remove(); done(false); }, { once: true });
+    }
+    const script = (src, ready) => new Promise(ok => {
+      if (ready()){ ok(true); return; }
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = () => ok(true);
+      s.onerror = () => { s.remove(); ok(false); };
+      document.head.append(s);
+    });
+    // the layout first, since the sheet asks for it when it draws
+    script("/graph-force.js", () => !!globalThis.d3?.forceSimulation)
+      .then(ok => { done(ok); return ok && script("/graph.js", () => !!globalThis.LinkGraph); })
+      .then(done);
+  });
+  return graphLoad;
+}
+// a card picked on the links sheet: its project (opened again if its tab was
+// closed), its workspace, the project's board rather than a blank page, the
+// section of the ticket list it stands in, and the card itself, selected. a
+// project's own window shows its own cards only, so a card of another lane
+// answers false and the sheet stays up
+function openLinkedCard(id){
+  const b = lastState?.boxes.find(x => x.id === id);
+  if (!b || !els[id] || !validActiveOwnerIds.has(b.owner) || (LOCKED && b.owner !== LOCKED)) return false;
+  if (tabClosed(b.owner)) reopenTab(b.owner);
+  else if (homeOpen || b.owner !== activeOwner) setTab(b.owner);
+  if (activeOwner !== b.owner || homeOpen) return false;
+  const ws = ((lastState.workspaces || {})[b.owner] || []).find(w => w.id === b.ws);
+  if (ws && curWs(lastState)?.id !== ws.id){ selectedWs = ws.id; selectedTask = taskFilter = null; }
+  if (!onBoardPage()){
+    const board = pageRow(lastState, b.owner).find(p => p.kind !== "blank");
+    if (board) setPage(board.id);
+  }
+  const section = cardSection(b);
+  if (section && section !== curView()) setView(section);
+  select(id);
+  return selectedId === id;
+}
+{
+  const btn = document.getElementById("graphbtn");
+  btn.addEventListener("click", async () => {
+    if (!await graphBundle()){
+      btn.title = "The links could not be loaded; a board started before they were added needs a restart";
+      return;
+    }
+    btn.title = "Links between cards";
+    const st = lastState;
+    const shown = !homeOpen && selectedId && st?.boxes.find(b => b.id === selectedId);
+    LinkGraph.open({
+      lanes: st ? allRowsOf(st).map(ow => ({ id: ow, name: labelOf(st, ow) })) : [],
+      focus: shown ? { id: shown.id, title: shown.title } : null,
+      openCard: openLinkedCard,
+      store: settingsStore,
+      onOpen(){
+        setOpen = true;
+        document.body.classList.add("setopen");
+        btn.setAttribute("aria-expanded", "true");
+      },
+      onClose(){
+        setOpen = false;
+        document.body.classList.remove("setopen");
+        btn.setAttribute("aria-expanded", "false");
+      },
+    });
+  });
 }
 
 // ---- the fat caret --------------------------------------------------------
