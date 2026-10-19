@@ -5871,11 +5871,15 @@ function boxHasSelection(el){
 // snap reads the same rounded number, so the answer's last line keeps its phase
 // to the pixel
 // skip is a depth at the wrapper's head left out of the band: the seat of the
-// sent bubbles, which the snap below does not count
-function boxBand(reply, wrap, skip = 0){
+// sent bubbles, which the snap below does not count. scale: the screen's pixels
+// to the answer's own, for the band the ramp is cut to (watchBand): the edges
+// are read on screen and the mask counts in the answer's pixels, so on a stage
+// drawn smaller the band read unscaled came short of the foot, by more the
+// taller the row, and the answer ran on at full ink into the row's line
+function boxBand(reply, wrap, skip = 0, scale = 1){
   const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
-  const b = reply.getBoundingClientRect().bottom -
-            (wrap.getBoundingClientRect().top + skip - clear);
+  const b = (reply.getBoundingClientRect().bottom -
+             (wrap.getBoundingClientRect().top + skip)) / scale + clear;
   return Math.max(0, Math.round(b));
 }
 
@@ -5894,7 +5898,7 @@ function watchBand(el){
   // (sentBand in card-logic.js), so the fade rides the bubble's top edge and
   // does not jump once it stops; a band that has not changed is not written again
   const write = () => {
-    const band = sentBand(el, boxBand(el.replyview, el.pendwrap));
+    const band = sentBand(el, boxBand(el.replyview, el.pendwrap, 0, stageScale || 1));
     if (band === el.bandAt) return;
     el.bandAt = band;
     el.box.style.setProperty("--boxband", band + "px");

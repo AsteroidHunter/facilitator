@@ -267,6 +267,26 @@ test("the send square keeps its seat at the second step on a board drawn smaller
   assert.match(read("m.html"), /seatSquare\(ta, send\);/);
 });
 
+test("the answer's fade ends on the top of the row's line on a board drawn smaller than its stage", () => {
+  // the band the mask is cut to, in the answer's own pixels: the scroller's foot
+  // and the row's top read on screen at S, the clear air in the answer's pixels
+  const context = vm.createContext({ getComputedStyle: () => ({ marginBottom: "25px" }) });
+  vm.runInContext(fn("boxBand"), context);
+  for (const S of [1, 0.87, 0.62])
+    for (const band of [45, 262, 423]) {
+      const reply = { getBoundingClientRect: () => ({ bottom: 800 * S }) };
+      const wrap = { getBoundingClientRect: () => ({ top: (800 - (band - 25)) * S }) };
+      assert.equal(context.boxBand(reply, wrap, 0, S), band, `${band} at ${S}`);
+    }
+  // read unscaled at .87, a band of 423 came 54 short: the answer ran on at full ink into the line
+  const reply = { getBoundingClientRect: () => ({ bottom: 800 * 0.87 }) };
+  const wrap = { getBoundingClientRect: () => ({ top: (800 - 398) * 0.87 }) };
+  assert.ok(423 - context.boxBand(reply, wrap) > 50);
+  // the band written for the mask takes the stage's scale; the snap's own reading is as it was
+  assert.match(fn("watchBand"), /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap, 0, stageScale \|\| 1\)\)/);
+  assert.match(fn("snapCard"), /boxBand\(view, el\.pendwrap, seat\) - answH/);
+});
+
 // ---- the brace ------------------------------------------------------------------------
 const brace = vm.createContext({});
 vm.runInContext(cut("const TWO = {", "\n") + "\n" + fn("pipeBrace"), brace);
