@@ -785,6 +785,57 @@
     return markupBack || (() => false);
   }
 
+  // ---- Tab in a list ---------------------------------------------------------
+  // Tab nests a list item under the one above it and Shift+Tab brings it back
+  // out a level, as in Obsidian, on every line of the pick that has a marker
+  // of its own. The nesting is written in spaces as wide as the marker above,
+  // or the item's own with nothing above it, which the parser and the card
+  // read as the next level down. On a line with no marker the key is left to
+  // the page, whose Tab steps out of the box (cardTab in card-logic.js).
+  const MARKER = /^(?:\d{1,9}[.)]|[-+*])[ \t]+/;
+  function markerWidth(state, node) {
+    const found = MARKER.exec(state.sliceDoc(node.from, state.doc.lineAt(node.from).to));
+    return found ? found[0].length : 0;
+  }
+  // the outermost list item whose marker, with its space, is on this line
+  function ownItem(C, state, line) {
+    let found = null;
+    C.syntaxTree(state).iterate({ from: line.from, to: line.to, enter: node => {
+      if (found || node.name === "FencedCode" || node.name === "CodeBlock") return false;
+      if (node.name === "ListItem" && node.from >= line.from && markerWidth(state, node)) {
+        found = node.node;
+        return false;
+      }
+    } });
+    return found;
+  }
+  function listIndent(C, view, outward) {
+    const state = view.state, doc = state.doc, range = state.selection.main, changes = [];
+    let listed = false;
+    for (let n = doc.lineAt(range.from).number, last = doc.lineAt(range.to).number; n <= last; n++) {
+      const line = doc.line(n), item = ownItem(C, state, line);
+      if (!item) continue;
+      listed = true;
+      if (!outward) {
+        // after the quote's angles, where the item's own indent starts
+        const at = line.from + /^(?: {0,3}> ?)*/.exec(line.text)[0].length;
+        const above = item.prevSibling && item.prevSibling.name === "ListItem" ? item.prevSibling : null;
+        changes.push({ from: at, insert: " ".repeat((above && markerWidth(state, above)) || markerWidth(state, item)) });
+        continue;
+      }
+      const parent = item.parent && item.parent.parent;
+      if (!parent || parent.name !== "ListItem") continue;
+      const from = line.from + (parent.from - doc.lineAt(parent.from).from);
+      if (from < item.from) changes.push({ from, to: item.from });
+    }
+    if (!listed) return false;
+    if (!changes.length) return true;   // an item at the margin has nowhere further out to go
+    const set = state.changes(changes);
+    view.dispatch({ changes: set, selection: { anchor: set.mapPos(range.anchor, 1), head: set.mapPos(range.head, 1) },
+                    scrollIntoView: true, userEvent: outward ? "delete.dedent" : "input.indent" });
+    return true;
+  }
+
   // ---- the editor a field puts on ------------------------------------------
   function extensions(C, field) {
     const keys = [
@@ -792,6 +843,7 @@
       ...C.historyKeymap,
       { key: "Backspace", run: deleteMarkupBackward(C) },
       { key: "Backspace", run: deleteEmojiBackward, shift: deleteEmojiBackward },
+      { key: "Tab", run: view => listIndent(C, view, false), shift: view => listIndent(C, view, true) },
       // The editor's stock return bindings are not among the two things that
       // may answer a return in this row, so they are left out. Which of the two
       // does answer it is decided in enterKey. The line moves and copies are
