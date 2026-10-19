@@ -550,6 +550,7 @@ function feedbackSheet({ disabled = false } = {}) {
     clearTimeout: id => { if (d.timers[id - 1]) d.timers[id - 1].fn = null; },
   });
   Object.defineProperty(context.document, "activeElement", { get: () => d.active.el });
+  vm.runInContext(KEYS, context);   // the sheet's Escape asks imeKey
   vm.runInContext(FEEDBACK, context);
   const sheet = vm.runInContext("feedbackOverlay", context)(host, row, { onOpen: () => opened.push(1), onClose: () => closed.push(1) });
   const veil = sheet.root, dialog = veil.kids[0];

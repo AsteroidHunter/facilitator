@@ -6522,6 +6522,13 @@ function makeBox(b, i, state){
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + "px";
       pipeStep(b.id);   // past the cap, the row's second step and the response piped out
+      // past the cap, words written at the end bring the row's foot with them,
+      // as the phone's row does (revealCaret in m.html). the field's own reveal
+      // stops at the caret's line and leaves the bottom padding out of sight,
+      // the line pressed on the card's edge and the square, which is seated for
+      // a row at its foot, standing a padding above it
+      if (ta.scrollHeight > ta.clientHeight + 1 && ta.selectionEnd === ta.value.length &&
+          ComposeFormat.focused(ta)) ta.scrollTop = ta.scrollHeight;
       seatSquare(ta, send, stageScale || 1);
       send.classList.toggle("show", ta.value.trim().length > 0 || traySendable(els[b.id]) || arrowAgainFor(b.id));
       riseBand(ta);
@@ -6534,6 +6541,11 @@ function makeBox(b, i, state){
       noteTyping(ta);
       draftSave(b.id);   // kept on this Mac as it is typed (card-logic.js)
     });
+    // a focus moves no scroll inside the field, so a caret put at the end of a
+    // draft past the cap by the keys (Enter, Tab, the place keys, a draft just
+    // restored) would stand out of sight: the rule above is asked once more a
+    // frame later, after a click has put the caret where it fell
+    ta.addEventListener("focus", () => requestAnimationFrame(tick));
     // a click into the composer or a key typed there is using the card
     readOnCompose(ta, b.id, useCard);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
@@ -6792,7 +6804,7 @@ function composerArrow(id){
 }
 function composerEnter(e, id){
   const now = controlShiftEnter(e);
-  if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || e.isComposing || bareControlEnter(e)) return;
+  if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || imeKey(e) || bareControlEnter(e)) return;
   e.preventDefault();
   if (e.repeat) return;
   const el = els[id];
@@ -11066,11 +11078,12 @@ function renderMiniCards(state){
       // page's goes on, and so does Escape, which takes the caret out as it does
       // in the large card. control+shift+enter sends, then hands the keys back to
       // the large card and moves on to the card that has waited longest, or does
-      // just that when nothing is typed. control+enter alone is the system's
+      // just that when nothing is typed. control+enter alone is the system's, and
+      // an Enter an input method takes is its own (imeKey)
       ta.addEventListener("keydown", e => {
         if (!pageChord(e) && e.key !== "Escape") e.stopPropagation();
         const now = controlShiftEnter(e);
-        if (e.key === "Enter" && (!e.shiftKey || now) && !e.altKey && !bareControlEnter(e)){
+        if (e.key === "Enter" && (!e.shiftKey || now) && !e.altKey && !bareControlEnter(e) && !imeKey(e)){
           e.preventDefault();
           const sending = fire();
           if (now && !e.repeat) sending.then(sent => {
@@ -12861,7 +12874,7 @@ function setEditMode(on){
     send: document.getElementById("fbsend"), note: document.getElementById("fbnote") }, {
     send: text => fetch("/feedback", { method: "POST", body: JSON.stringify({ message: text }) })
       .then(r => r.ok, () => false),
-    enter: e => e.key === "Enter" && (!e.shiftKey || controlShiftEnter(e)) && !e.altKey && !e.isComposing &&
+    enter: e => e.key === "Enter" && (!e.shiftKey || controlShiftEnter(e)) && !e.altKey && !imeKey(e) &&
       !bareControlEnter(e),
     moved: () => queueFatCaret(),
   });

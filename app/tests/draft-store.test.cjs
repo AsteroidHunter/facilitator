@@ -79,10 +79,13 @@ const kept = () => JSON.parse(store.get("composedrafts") || "{}");
 // the sandbox has arrays of its own, so its values are compared as plain data
 const plain = value => JSON.parse(JSON.stringify(value));
 
+// the sent panel's own passes, which a check may stub for itself
+const REAL = { sentHeldOut: S.sentHeldOut, syncSent: S.syncSent };
 beforeEach(() => {
   store.clear();
   S.els = {};
   S.macPhoneInactive = false;
+  Object.assign(S, REAL);
 });
 
 test("typing is saved under its card, markdown and all, and nothing else", () => {
@@ -192,9 +195,48 @@ test("a file is kept the moment its upload lands, and let go when it is taken ou
 test("words a failed send gives back are kept", () => {
   const c = card("9", "");
   c.sentHeld = [{ text: "came back" }];
-  for (const name of ["sentHeldOut", "syncSent"]) S[name] = noop;
+  S.syncSent = noop;
   S.sentBack(c, c.sentHeld[0]);
   assert.equal(kept()["9"].text, "came back");
+});
+
+test("a Mac send the board has not confirmed stays kept until it has", () => {
+  // the Mac board's sends are held in the page alone (sentLaunch): one on its
+  // way or one that did not get through would be lost to a reload
+  S.syncSent = noop;
+  const c = card("21", "first words");
+  c.sentItems = [];
+  S.draftSave("21");
+  c.ta.value = "";
+  S.draftClear("21");                                  // doSend, at the press
+  const going = S.sentLaunch(c, "first words", "/send?box=21");
+  assert.deepEqual(kept()["21"], { text: "first words", files: [] }, "kept while on its way");
+  S.sentLanded(c, going);
+  assert.equal(kept()["21"], undefined, "the board has it: nothing is kept");
+
+  const lost = S.sentLaunch(c, "did not get through", "/send?box=21");
+  S.sentFailed(c, lost, false);
+  assert.deepEqual(kept()["21"], { text: "did not get through", files: [] }, "kept under its fail mark");
+  c.ta.value = "and more";
+  S.draftSave("21");
+  assert.equal(kept()["21"].text, "did not get through\n\nand more", "the held words first, then the row's");
+  S.sentHeldLanded(c, lost);
+  assert.deepEqual(kept()["21"], { text: "and more", files: [] }, "it landed after all: only the row is kept");
+
+  const again = S.sentLaunch(c, "retried", "/send?box=21");
+  S.sentFailed(c, again, false);
+  S.sentBack(c, again);
+  assert.equal(c.ta.value, "and more\n\nretried");
+  assert.deepEqual(kept()["21"], { text: "and more\n\nretried", files: [] }, "given back: kept once, in the row");
+});
+
+test("the phone's sends are its operations' and never the draft's", () => {
+  // the phone keeps an unsent message in its own store and sends it again
+  // after a reload; its sent list holds only what the board has confirmed
+  const c = card("22", "");
+  c.sentItems = [{ text: "on the board", stage: "sent" }];
+  S.draftSave("22");
+  assert.equal(kept()["22"], undefined);
 });
 
 test("a card that is gone from the board loses its draft", () => {
