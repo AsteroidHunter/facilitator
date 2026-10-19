@@ -272,7 +272,12 @@ test("unfolding leaves the card exactly as it was before the fold went up", asyn
   assert.equal(r.status, 200);
   assert.equal(r.body.testing, false);
   assert.deepEqual(await both(id), unmarked, "a snapshot kept something of the fold");
-  assert.deepEqual(await onDisk(id), unmarkedOnDisk, "the saved card kept something of the fold");
+  // raising and lowering it are changes to the card, so its last changed time
+  // moves on; nothing else of the fold stays
+  const { changed: unfoldedAt, ...unfolded } = await onDisk(id);
+  const { changed: unmarkedAt, ...unmarkedRest } = unmarkedOnDisk;
+  assert.deepEqual(unfolded, unmarkedRest, "the saved card kept something of the fold");
+  assert.ok(unfoldedAt > unmarkedAt, "the fold and its lowering moved the card's last changed time");
   // a second lowering is no change at all
   const rev = (await state()).rev;
   assert.equal((await post("/testing?box=" + id + "&v=0")).body.unchanged, true);

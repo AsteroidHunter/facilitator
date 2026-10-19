@@ -16,7 +16,7 @@ On the Mac board, in the Done section only, a garbage can shows just left of a t
 
 Agents link cards to each other, across projects too, only when you ask them to; they never do it on their own. The board keeps the links with the cards, through the Bin as well (see [The links between cards](#the-links-between-cards)).
 
-Agents also note on a card the git branch its work is on and a few words on where that work stands, and read them back with the card's number, project, section and when it was made and last changed, which the board already records; the notes stay with the card, through the Bin as well, and the board does not show any of it yet.
+Agents also note on a card the git branch its work is on and a few words on where that work stands, and read them back with the card's number, project, section and when it was made and last changed, which the board keeps on each card and moves with every change to it; the notes stay with the card, through the Bin as well, and the board does not show any of it yet.
 
 ## The Mac board's top bar
 

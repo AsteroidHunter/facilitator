@@ -3051,6 +3051,10 @@ def _migrate() -> None:
     # tabs to list by: cards saved before the board stamped them are filled once
     # from the transcript and from then on the routes keep the stamps
     _backfill_rest_stamps()
+    # when each card was made and last changed (2026-10-19): kept on the card
+    # from now on. cards saved before, in the Bin as well, are given both once
+    # from the transcript and from then on _log keeps them
+    _backfill_card_times()
     _state["boxes"] = [b for b in _state["boxes"] if id(b) not in binned]
     _save()
 
@@ -3249,9 +3253,13 @@ def _log(kind: str, box: str, text: str, log_fields: dict | None = None,
     that follows has installed the new state file, and are dropped if it does
     not, so neither the transcript nor the log can say that something happened
     which the board then rolled back. Every caller holds _lock and saves in the
-    same held stretch; the save is what writes these out."""
+    same held stretch; the save is what writes these out.
+
+    Every row about a card comes through here, so this is also where the card's
+    own made and changed times move (see card properties)."""
     event = {"ts": time.time(), "kind": kind, "box": box, "text": text}
     event.update(fields)
+    _note_card_change(box, kind, event["ts"])
     _transcript_due.append((event, kind, box if log_box is None else log_box,
                             len(str(text or "")), dict(log_fields or {})))
 
@@ -3489,12 +3497,18 @@ def _drop_links(card: dict) -> None:
 # What an agent, and later a properties panel, reads about one card at a glance
 # from GET /props. Most of it the board already keeps, and it is read from
 # there each time and copied nowhere: the id, which never changes and is the
-# number the pages show after the m; the lane (owner) and the section; when the
-# card was made, the time of its create row in the transcript; and when it last
-# changed, the time of the newest transcript row about it, since every change
-# the board makes to a card writes one (_card_times). Two properties are new
-# and are kept on the card itself, each as {value, ts, agent}: the value as the
-# agent working the card gave it, when it was set and by which agent.
+# number the pages show after the m; the lane (owner) and the section. When the
+# card was made and when it last changed are kept on the card, box["made"] and
+# box["changed"], so neither depends on the transcript being whole. Every
+# change the board makes to a card writes one transcript row, and _log, which
+# queues every row, moves the card's changed to that row's time, and its made
+# too when the row is its create row; the two can never disagree. A message, a
+# reply, a rename, a move or a link counts and a reading does not. A card saved
+# before the board kept them is given both once, from the transcript, on the
+# next start (_backfill_card_times), and the transcript is not read for them
+# again. Two properties are set by agents and are kept on the card too, each as
+# {value, ts, agent}: the value as the agent working the card gave it, when it
+# was set and by which agent.
 # box["branch"] is the git branch the card's work is on and box["status"] a
 # short word on where that work stands. An agent sets either with POST /props
 # and clears it with an empty one, and a card without one carries no field, so
@@ -3521,9 +3535,49 @@ def _card_prop(card: dict, name: str) -> dict | None:
             "agent": agent if isinstance(agent, str) else ""}
 
 
-def _card_times(bid: str, owner: str, ts) -> tuple:
-    """When one card was made and when it last changed (see _cards_times)."""
-    return _cards_times([(bid, owner, ts)])[bid]
+def _card_times(card: dict) -> tuple:
+    """When one card was made and when it last changed, as the card keeps them.
+    A time that is missing or malformed reads as the card's own ts, or None
+    when it has none either."""
+    own = card.get("ts")
+    own = own if _a_time(own) else None
+    return tuple(card[name] if _a_time(card.get(name)) else own for name in ("made", "changed"))
+
+
+def _note_card_change(bid, kind: str, at: float) -> None:
+    """One transcript row about a card is on its way: the card's last changed
+    time is the row's, and a create row is when it was made. A card in the Bin
+    is moved as well, since the row is about it all the same. Callers hold
+    _lock; a save that fails puts the card back with the rest of the state."""
+    if not isinstance(bid, str) or not bid:
+        return
+    card = _box(bid)
+    if card is None:
+        entry = _binned(bid)
+        card = entry["card"] if entry else None
+    if card is None:
+        return
+    if kind == "create":
+        card["made"] = at
+    card["changed"] = at
+
+
+def _backfill_card_times() -> None:
+    """Give each card missing its made or changed time both, read once from the
+    transcript as /props read them before the card kept them (_logged_times),
+    cards in the Bin with the rest. Nothing else on a card is touched, so a
+    start with every card's times in place reads no transcript and changes
+    nothing. Callers hold _lock or run before serving."""
+    missing = [b for b in _state["boxes"]
+               if not (_a_time(b.get("made")) and _a_time(b.get("changed")))]
+    if not missing:
+        return
+    times = _logged_times([(b["id"], b.get("owner", "facilitator"), b.get("ts")) for b in missing])
+    now = time.time()
+    for b in missing:
+        made, changed = times[b["id"]]
+        b["made"] = now if made is None else made
+        b["changed"] = now if changed is None else changed
 
 
 # the card or lane a transcript row is about, as the row writes it, quotes and
@@ -3531,11 +3585,12 @@ def _card_times(bid: str, owner: str, ts) -> tuple:
 ROW_BOX = re.compile(r'"box"\s*:\s*("(?:[^"\\]|\\.)*")')
 
 
-def _cards_times(cards: list) -> dict:
+def _logged_times(cards: list) -> dict:
     """When each of several cards was made and when it last changed, read from
-    the transcript in one pass each time they are asked for. cards holds
-    (id, owner, ts) for each; the answer maps each id to (made, changed). Made
-    is the card's create row. A card made without one, as a new project's first
+    the transcript in one pass, for the cards saved before the board kept these
+    times itself (_backfill_card_times). cards holds (id, owner, ts) for each;
+    the answer maps each id to (made, changed). Made is the card's create row.
+    A card made without one, as a new project's first
     card is (the row is the project's) and the seed's cards are, takes the
     earliest record of it there is: its lane's project row, its own first row
     or its ts. Last changed is its newest row, or its ts if that is later. An
@@ -7513,10 +7568,9 @@ def _get_links_all(q: Query, _):
     """Every link on the board and every card at either end of one, in one
     reading, for the page that draws them: links oldest first, each {from, to,
     ts, agent}, and the cards in board order, each with its properties as
-    /props reads them. What the cards keep is read under the lock and their
-    times from the transcript after it, in one pass for them all. A link with
-    a card in the Bin at either end is in no reading, as on /links, and comes
-    back with a restore. now is the board's clock, for the page's today."""
+    /props reads them, all under the lock. A link with a card in the Bin at
+    either end is in no reading, as on /links, and comes back with a restore.
+    now is the board's clock, for the page's today."""
     with _lock:
         board = {card["id"] for card in _state["boxes"]}
         links, touched = [], set()
@@ -7528,27 +7582,24 @@ def _get_links_all(q: Query, _):
                 links.append({"from": card["id"], "to": link["to"], "ts": ts if _a_time(ts) else 0,
                               "agent": agent if isinstance(agent, str) else ""})
                 touched.update((card["id"], link["to"]))
-        heads = []
+        cards = []
         for card in _state["boxes"]:
             if card["id"] not in touched:
                 continue
-            head = {"id": card["id"], "title": card.get("title", ""),
-                    "owner": card.get("owner", "facilitator"), "section": _section_name(card)}
-            props = {name: _card_prop(card, name) for name in CARD_PROPS}
-            heads.append((head, props, card.get("ts")))
+            made, changed = _card_times(card)
+            cards.append({"id": card["id"], "title": card.get("title", ""),
+                          "owner": card.get("owner", "facilitator"), "section": _section_name(card),
+                          "made": made, "changed": changed,
+                          **{name: _card_prop(card, name) for name in CARD_PROPS}})
         now = time.time()
-    times = _cards_times([(head["id"], head["owner"], ts) for head, _, ts in heads])
-    cards = [{**head, "made": times[head["id"]][0], "changed": times[head["id"]][1], **props}
-             for head, props, _ in heads]
     links.sort(key=lambda link: link["ts"])   # stable, so a tie keeps board order
     return 200, {"now": now, "cards": cards, "links": links}
 
 
 def _get_props(q: Query, _):
-    """One card's properties (see card properties). What the card keeps is read
-    under the lock and its two times from the transcript after it, as /thread
-    reads it. A card in the Bin has none to read until it is restored, as with
-    its links."""
+    """One card's properties (see card properties), all read from the card
+    under the lock. A card in the Bin has none to read until it is restored,
+    as with its links."""
     bid = q.one("box")
     if not bid:
         return 400, {"error": "name the card: box=ID"}
@@ -7556,12 +7607,11 @@ def _get_props(q: Query, _):
         card = _box(bid)
         if card is None:
             return 400, {"error": f"no card {bid} on the board"}
-        owner, ts = card.get("owner", "facilitator"), card.get("ts")
-        head = {"id": bid, "title": card.get("title", ""), "owner": owner,
-                "section": _section_name(card)}
-        props = {name: _card_prop(card, name) for name in CARD_PROPS}
-    made, changed = _card_times(bid, owner, ts)
-    return 200, {**head, "made": made, "changed": changed, **props}
+        made, changed = _card_times(card)
+        return 200, {"id": bid, "title": card.get("title", ""),
+                     "owner": card.get("owner", "facilitator"), "section": _section_name(card),
+                     "made": made, "changed": changed,
+                     **{name: _card_prop(card, name) for name in CARD_PROPS}}
 
 
 def _post_props(q: Query, text: str):
@@ -7672,14 +7722,18 @@ def _create_box_record(owner: str, title: str) -> dict:
     idx = max([i for i, b in enumerate(_state["boxes"])
                if b["bucket"] == "meta" and b.get("owner") == owner] or [-1]) + 1
     ws0 = (_state.get("workspaces", {}).get(owner) or [{}])[0].get("id")
+    now = time.time()
     made = {
         "id": bid_new, "bucket": "meta", "title": title, "reply": "",
         "reply_full": "", "reply_short": "",
         "pending": [], "done": False, "docked": False, "parked": False, "replies": 0,
         "full_replies": 0, "reply_kind": "",
         "state": "new", "hb": 0,
-        "ball": "me", "ts": time.time(), "owner": owner,
+        "ball": "me", "ts": now, "owner": owner,
         "ws": ws0, "task": None, "agent_ts": 0, "seen": 0, "testing": False,
+        # its own made and changed times (see card properties); a create row
+        # written for it moves both to that row's time
+        "made": now, "changed": now,
     }
     _state["boxes"].insert(idx, made)
     return made

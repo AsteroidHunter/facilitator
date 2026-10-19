@@ -74,7 +74,11 @@ test("a deleted card leaves the board, the phone and the agents, and keeps every
   const state = await saved();
   assert.ok(!state.boxes.some(b => b.id === id));
   assert.ok(!state.inbox.includes(id));
-  assert.deepEqual(state.bin.find(e => e.card.id === id).card, before, "the whole record is kept as it was");
+  // going in the Bin is a change to the card, so only its last changed time moves
+  const { changed: binnedAt, ...inBin } = state.bin.find(e => e.card.id === id).card;
+  const { changed: beforeAt, ...rest } = before;
+  assert.deepEqual(inBin, rest, "the whole record is kept as it was");
+  assert.ok(binnedAt > beforeAt, "and it last changed when it went in");
   assert.deepEqual(await magicFiles(), files, "its magic box file is kept");
 
   const restored = await post(`/bin/restore?box=${id}`);
@@ -84,7 +88,9 @@ test("a deleted card leaves the board, the phone and the agents, and keeps every
   assert.equal(back.docked, true, "and in its own section");
   assert.equal(back.title, "Card to delete");
   assert.ok((await phoneIds()).includes(id));
-  assert.deepEqual((await saved()).boxes.find(b => b.id === id), before, "the record comes back whole");
+  const { changed: restoredAt, ...whole } = (await saved()).boxes.find(b => b.id === id);
+  assert.deepEqual(whole, rest, "the record comes back whole");
+  assert.ok(restoredAt > binnedAt, "last changed when it came back");
   assert.equal((await binList()).cards.length, 0);
   const body = await call("GET", `/magic/body?box=${id}`);
   assert.equal(body.status, 200);
