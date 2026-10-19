@@ -374,8 +374,14 @@
             if (!/\S/.test(lead)) headBox(line, "cf-col", base, head, mark.from);
             const last = doc.lineAt(node.to).number;
             marker.add(line.number);
-            for (let n = line.number; n <= last; n++)
+            // an item inside a quote ends where the quote does, at the first
+            // line without an angle of its own, as the card draws it
+            let quoted = false;
+            for (let up = list.parent; up && !quoted; up = up.parent) quoted = up.name === "Blockquote";
+            for (let n = line.number; n <= last; n++) {
+              if (quoted && n > line.number && !/^ {0,3}>/.test(doc.line(n).text)) break;
               hang.set(n, Math.max(hang.get(n) || 0, column));
+            }
             return;
           }
         },
