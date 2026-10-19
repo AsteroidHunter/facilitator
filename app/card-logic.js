@@ -23,6 +23,11 @@ let keyPanels = null;
 // makes the Tab move out of the title in its own listener, and walks the rest of
 // the card with cardTab
 let keyboardTitle = false;
+// cardAnswerOff: where a card's response stands while it is not on the card, for
+// control+option+up and down (cardPlace): a function of the card's id answering
+// {holds(node), go()}, or null while it is on the card. the desktop's is the
+// response piped out beside a long reply; the phone has none
+let cardAnswerOff = null;
 // answeredRoomChanged: what a page does once the panel that stands ABOVE the
 // answer, holding the messages that answer was given, has taken its room or
 // given it back. it rides at the head of the answer's own scroller rather than
@@ -2995,12 +3000,15 @@ function backoffMs(tries){ return Math.min(RETRY_MAX_MS, RETRY_MIN_MS * 2 ** Mat
 // the plus is not seated here: it has left the row for a bar of its own, and
 // that bar stands it on the row's own floor, so it holds
 // the bottom however many lines the row has grown to. css alone puts it there,
-// so a margin written onto it here could only lift it off the floor it keeps
-function seatSquare(ta, square){
+// so a margin written onto it here could only lift it off the floor it keeps.
+// scale: the screen's pixels to the row's own, where the page draws it scaled
+// (the Mac board's stage), so the row's height on screen is read in the same
+// pixels as its lines; a tall row read unscaled pushed the square off the card
+function seatSquare(ta, square, scale = 1){
   const cs = getComputedStyle(ta);
   const lh = parseFloat(cs.lineHeight);
   const pt = parseFloat(cs.paddingTop), pb = parseFloat(cs.paddingBottom);
-  const hgt = ta.getBoundingClientRect().height;
+  const hgt = ta.getBoundingClientRect().height / scale;
   if (!lh || !hgt) return;
   const lines = Math.max(1, Math.round((ta.scrollHeight - pt - pb) / lh));
   const foot = ta.scrollHeight > ta.clientHeight + 1 ? hgt - pb : pt + lines * lh;
@@ -7249,19 +7257,24 @@ function replyCaretOff(el){
 // up lands in the response and down in the box. the title is opened as Tab opens
 // it (editTitle) and the box takes the caret as the page's Tab puts it there
 // (toBox); leaving the title keeps its name and leaving the box keeps a half-typed
-// message, as Tab does. answers true when it moved the focus
+// message, as Tab does. a response the page has put off the card (cardAnswerOff)
+// is the response's place while it is there. answers true when it moved the focus
 function cardPlace(id, step, toBox){
   const el = els[id];
   if (!el) return false;
+  const off = typeof cardAnswerOff === "function" ? cardAnswerOff(id) : null;
   const live = document.activeElement;
-  const at = live && el.titleEl.contains(live) ? 0 : live && live === el.reply ? 1 : el.field.focused() ? 2 : 1.5;
+  const answer = !!live && (off ? off.holds(live) : live === el.reply);
+  const at = live && el.titleEl.contains(live) ? 0 : answer ? 1 : el.field.focused() ? 2 : 1.5;
   const to = at === 1.5 ? (step < 0 ? 1 : 2) : at + step;
   if (to < 0 || to > 2 || to === at) return false;
   if (to === 0){
     if (el.titleEl.isContentEditable) el.titleEl.focus();
     else editTitle(id);
-  } else if (to === 1) replyCaret(el);
-  else toBox(el);
+  } else if (to === 1){
+    if (off) off.go();
+    else replyCaret(el);
+  } else toBox(el);
   return true;
 }
 

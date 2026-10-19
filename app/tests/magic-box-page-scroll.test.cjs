@@ -207,8 +207,9 @@ test("the Mac board follows control+S in a page whether the keys came by control
   assert.match(key, /if \(!FOCUS \|\| !boardKeysLive\(\)\) return;/);
   assert.match(HTML, /create: \(\) => \{ if \(FOCUS && boardKeysLive\(\)\) newCardHere\(\); \},\s*key: ev => magicPageKey\(ev\),/);
   // and the card's own control+S is the same call as before, with the box in its place only while held
+  // (and the response piped out beside the card in its place while that holds the keys)
   assert.match(cut("const boardShortcutActions = {", "\n};"),
-    /responseScroll\(e\)\{\s*responseScrollKey\(e, boardMagicHeld\(\) \? boardMagicScrollCard : boardResponseCard\);\s*\},/);
+    /responseScroll\(e\)\{\s*responseScrollKey\(e, pipeHeld\(\) \? pipeScrollCard : boardMagicHeld\(\) \? boardMagicScrollCard : boardResponseCard\);\s*\},/);
   // the phone is not given the page's scroll words, and does not ask for them
   assert.ok(/' scroll '|'scroll '/.test(MagicBox.pageDoc("<p>x</p>", "w", true)));
   assert.ok(!/' key '|' scroll '|'scroll '/.test(MagicBox.pageDoc("<p>x</p>", "w", false)));
