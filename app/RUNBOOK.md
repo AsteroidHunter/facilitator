@@ -82,7 +82,7 @@ When two cards are related, because one continues, splits from, depends on or an
 
     curl -sS -X POST "http://127.0.0.1:$PORT/link?from=ID&to=OTHER&agent=claude"
 
-`agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. `GET /links/all` answers every link on the board at once: `links`, oldest first, each `{from, to, ts, agent}`, and `cards`, every card at either end of one, each with the fields `/props` gives it (see Card properties). Links outlast renames and section moves and go when either card is deleted for good. The board does not show them yet, so still name the other card by its title in replies.
+`agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. `GET /links/all` answers every link on the board at once: `links`, oldest first, each `{from, to, ts, agent}`, and `cards`, every card at either end of one, each with the fields `/props` gives it (see Card properties). Links outlast renames and section moves and go when either card is deleted for good. The Mac board draws them as a graph and a timeline from a button in its top bar; still name the other card by its title in replies.
 
 ## Card properties
 
