@@ -492,8 +492,15 @@
   .projrow:active{background:color-mix(in srgb, var(--ink) 8%, transparent)}
   .projrow.lifted{position:relative; z-index:1; background:var(--card);
     box-shadow:0 4px 14px rgba(0,0,0,.14); transition:none}
-  #projsep{flex:none; height:var(--edge); margin:calc(4 * var(--u)) calc(12 * var(--u)); background:var(--line)}
+  #projsep, #projnewsep{flex:none; height:var(--edge); margin:calc(4 * var(--u)) calc(12 * var(--u)); background:var(--line)}
   #projlist{flex:none; display:flex; flex-direction:column}
+  /* "Open a new folder" at the foot, after its own line, as on the Mac's pill
+     list: the monospace face's own plus, grey, standing in the house's column,
+     set a little larger than the names so its arms meet their tall letters (the
+     Mac's 14.6 to 14). a project's own window opens no folder, so it has none */
+  #projnew .pplus{flex:none; width:calc(15 * var(--u)); text-align:center;
+    font:400 calc(16.7 * var(--u))/1 var(--mono); color:var(--sub)}
+  body.oneproject :is(#projnew, #projnewsep){display:none}
 
   /* ---- the app is being opened and the board does not answer: a white screen and one line */
   /* over everything, the startup curtain included, and measured the way the
@@ -1571,6 +1578,17 @@
     padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
     border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); pointer-events:none}
   #diagnostictoast:empty{display:none}
+  /* the open project's server has been out of reach for 30 seconds (the
+     board's word for it, remote on the reading): its card and its list fade,
+     and one line where the toast above stands says why. opacity alone, so the
+     drawer keeps its own motion, and nothing here takes a touch, so the
+     composer still takes typing and sending. home has no project */
+  body.remotedown:not(.home) #cards, body.remotedown:not(.home) #tikwin{opacity:.4}
+  #remotenote{position:fixed; z-index:30; left:12px; right:12px;
+    top:calc(env(safe-area-inset-top, 0px) + var(--app-inset) + var(--cardbar-h) + 8px);
+    padding:10px 12px; background:var(--paper); border:var(--edge) solid var(--line);
+    border-radius:var(--sq); font:13px/1.4 var(--sans); color:var(--ink); text-align:center; pointer-events:none}
+  body.home #remotenote{display:none}
   body:not(.phone-developer-mode) #setsrc [data-section="diagnostics"],
   body:not(.phone-developer-mode) #settings .sp-item[data-section="diagnostics"],
   body:not(.phone-developer-mode) #settings-diagnostics{display:none!important}
@@ -1855,12 +1873,15 @@ for (const type of ["gesturestart", "gesturechange"])
 <input id="titlecatch" type="text" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done">
 <div id="scrim"></div>
 <!-- the places the project's capsule opens: Home, with the board's house, then
-     the projects, which renderTabs draws into #projlist -->
+     the projects, which renderTabs draws into #projlist, then "Open a new
+     folder", which opens the board's folder picker from the capsule -->
 <div id="projshade"></div>
 <div id="projmenu" class="qn-glass" aria-label="Projects">
   <button id="homeico" class="projrow" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg><span class="pname">Home</span><svg class="pcheck" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17.5 19 7"/></svg></button>
   <div id="projsep"></div>
   <div id="projlist"></div>
+  <div id="projnewsep"></div>
+  <button id="projnew" class="projrow" type="button"><span class="pplus" aria-hidden="true">+</span><span class="pname">Open a new folder</span></button>
 </div>
 
 <!-- the settings: card-logic.js builds the page into #setpage from the groups in
@@ -2484,7 +2505,7 @@ function makeBox(b){
     if (e.altKey) { notePhoneEnter("handler", e, "modifier", ta); return; }
     // control+enter alone is the system's: it opens the copy menu on an iPhone
     if (bareControlEnter(e)) { notePhoneEnter("handler", e, "modifier", ta); return; }
-    if (e.isComposing) { notePhoneEnter("handler", e, "composition", ta); return; }
+    if (imeKey(e)) { notePhoneEnter("handler", e, "composition", ta); return; }
     // control+shift+enter is a double Enter pressed at once, and no on-screen
     // keyboard has the key, so it answers whether or not that keyboard is up.
     // it still jumps to the next card, and so does command+enter; only the
@@ -3816,6 +3837,8 @@ function renderTabs(st){
     row.classList.toggle("unread", unread);
     if (unread && !on) others = true;
   }
+  // a project's own window on the Mac shows that project alone and opens no folder
+  document.body.classList.toggle("oneproject", !!(macHost && parent.macPhoneProject));
   const name = homeOpen ? "Home" : labelOf(st, activeOwner);
   const label = document.getElementById("projname");
   if (label.textContent !== name) label.textContent = name;
@@ -3869,13 +3892,69 @@ function chooseRow(row){
   paneFadeGiven = undefined;
 }
 // the list's own taps. the house's press opens home through its own listener
-// (the home page, below), and every row shuts the list
+// (the home page, below), the last row opens the board's folder picker, and
+// every row shuts the list
 projMenu.addEventListener("click", e => {
   const row = e.target.closest?.(".projrow");
   if (!row || projCarried) return;
   if (row === house) closeProjects();
+  else if (row.id === "projnew"){ closeProjects(); pickFolder(); }
   else chooseRow(row);
 });
+
+// ---- "Open a new folder" ----------------------------------------------------------
+// the board's own folder picker (folder-picker.js), its drop (mock C): it rises
+// from the capsule as the list does, the width of the row between the card list
+// and the settings at most. Choose there makes the folder a project, or reopens
+// the project a closed tab holds for it, and the phone lands on that project;
+// a refusal is said in the drop, which stays open for another folder. the
+// focus goes back to the capsule, as Escape on the list gives it. the Mac's
+// narrow phone view is this page, so it opens the same
+let folderPicking = false;
+async function pickFolder(){
+  if (folderPicking) return;   // one picker at a time
+  folderPicking = true;
+  try {
+    // a live server from before the picker's routes answers 404: only a
+    // restart adds them
+    if (!await folderPickerBundle()){ toastNote("The folder picker needs the server restart."); return; }
+    await FolderPicker.open({ kind: "drop", anchor: projBtn, back: projBtn,
+      span: [document.getElementById("tikbtn"), document.getElementById("setbtn")],
+      choose: addFolderProject });
+  } finally {
+    folderPicking = false;
+  }
+}
+// the folder chosen in the drop, as the board's pickFolder takes it: a folder
+// already behind a tab names that tab, a closed one is reopened, any other is
+// made a project. answers the words to show in the drop, or nothing once the
+// phone is on the project
+async function addFolderProject(folder){
+  const st = lastState;
+  // the same folder on the same machine: a server's or this Mac's
+  const open = folderProject(st, folder);
+  if (open){
+    if (!tabShut(st, open)) return "that folder is already open as " + labelOf(st, open);
+    const rec = tabRecord(st);
+    await writeTabs({ order: rec.order.length ? rec.order : allRowsOf(st), closed: rec.closed.filter(ow => ow !== open) });
+    await poll();
+    landOnProject(open);
+    return null;
+  }
+  const px = await fetch(projectRoute(folder), { method: "POST", body: folder.path }).catch(() => null);
+  const pr = px ? await px.json().catch(() => null) : null;
+  if (!px) return "could not reach the board";
+  if (!px.ok || !pr?.id) return folderRefusal(pr, st, folder);
+  await poll();   // the new lane arrives with its tab label and folder
+  landOnProject(pr.id);
+  return null;
+}
+function landOnProject(ow){
+  paneFadeGiven = ow !== activeOwner ? paneFadeTake() : undefined;
+  if (homeOpen) setHome(false);   // a project leaves home for its board
+  setTab(ow);
+  paneFadeGiven = undefined;
+}
 document.getElementById("projshade").addEventListener("click", closeProjects);
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape" || !projOpen()) return;
@@ -5689,6 +5768,8 @@ function apply(state){
   for (const id of Object.keys(shelf)) if (!onBoard.has(id)) delete shelf[id];
   // and so does its kept draft, after the row's last word on the way out
   draftKeep(onBoard);
+  // a project on a server whose link has been down for 30 seconds is faded
+  showRemoteFade(remoteFaded(state, activeOwner));
   // only the cards built are drawn, with the card on show and one just made
   // built first if they are not (reachCards builds the cards around it). any
   // other card is drawn from this reading when it is built
@@ -6159,6 +6240,8 @@ async function readBoard(){
           // names the moment it happened by it
           if (typeof data.now === "number") lastState.now = data.now;
           renderTickets(lastState);   // who is listening moves without the revision moving
+          // and so does a server's link, which fades its projects
+          showRemoteFade(remoteFaded(lastState, activeOwner));
           syncSelectedHistory();
           endPhoneTrace(rendering, { rev: lastRev }, null, true);
         } else {
@@ -7177,6 +7260,12 @@ const phoneShortcutActions = {
   unfold(e){
     unfoldSelected(e, selectedId, selectedId && els[selectedId]);
   },
+  // control+shift+w and s: the top and bottom message bubbles of the card on
+  // screen, as a tap on the bubble's arrow, never with a menu out or mid-swipe
+  bubble(e, shortcut){
+    const card = phoneResponseCard();
+    if (card) answeredKey(e, card.el, shortcut.value);
+  },
   // control+shift+enter outside a reply box: the move a double Enter's second press
   // makes. a field that is not a reply box keeps the key
   advance(e){
@@ -7556,7 +7645,7 @@ ComposeFormat.preload();
     enter: e => {
       if (e.key !== "Enter") return false;
       const now = controlShiftEnter(e);
-      if ((e.shiftKey && !now) || e.altKey || bareControlEnter(e) || e.isComposing) return false;
+      if ((e.shiftKey && !now) || e.altKey || bareControlEnter(e) || imeKey(e)) return false;
       return now || !document.body.classList.contains("kb");
     },
   });

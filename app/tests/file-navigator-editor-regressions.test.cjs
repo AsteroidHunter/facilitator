@@ -54,6 +54,13 @@ before(async () => {
         res.end(await readFile(path.join(ROOT, "compose-format.js")));
         return;
       }
+      // the page's other scripts: without them its own script stops before
+      // the block caret is made
+      if (["/board-settings.js", "/mac-phone-view.js", "/magic-box.js", "/home-widgets.js"].includes(pathname)) {
+        res.setHeader("content-type", "text/javascript; charset=utf-8");
+        res.end(await readFile(path.join(ROOT, pathname.slice(1))));
+        return;
+      }
       res.statusCode = 404;
       res.end("not found");
     } catch (error) {
@@ -89,6 +96,9 @@ async function mountedEditor(source, height = 520) {
     // the stage stays hidden, and so cannot take focus, until a board's layout
     // has been laid out. this page has no board, so it is shown the way that does
     document.body.classList.add("layout-ready");
+    // the startup curtain lifts on the first reading of a board, which this
+    // page never gets, and while it stands it takes every click on the page
+    document.getElementById("loading")?.remove();
     fileNavMounts(["website", "pastureland"]);
     activeOwner = "pastureland";
     fileNavBoxes();
@@ -328,6 +338,192 @@ test("a joined soft break remains keyboard editable", async () => {
     }));
     assert.equal(edited.text, source.replace("\n", ""));
     assert.equal(edited.gaps, 0);
+  } finally {
+    await page.close();
+  }
+});
+
+test("the file editor and the formatted composer share one copy of the editor", async () => {
+  const page = await browser.newPage();
+  try {
+    // the bundle is held back a moment on its way, so both asks are in flight
+    // together, the way a file opened while a composer's editor is still
+    // arriving is
+    await page.setRequestInterception(true);
+    page.on("request", request => {
+      if (new URL(request.url()).pathname === "/cm-markdown.js")
+        setTimeout(() => request.continue(), 400);
+      else request.continue();
+    });
+    await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
+    const result = await page.evaluate(async () => {
+      const asked = await Promise.all([fileNavBundle(), ComposeFormat.preload()]);
+      const first = window.CM6;
+      await new Promise(resolve => setTimeout(resolve, 900));
+      return {
+        asked,
+        tags: document.querySelectorAll('script[src="/cm-markdown.js"]').length,
+        same: window.CM6 === first,
+      };
+    });
+    assert.deepEqual(result.asked, [true, true]);
+    assert.equal(result.tags, 1, `the editor bundle was fetched ${result.tags} times`);
+    assert.equal(result.same, true, "a second copy of the editor took window.CM6 over");
+  } finally {
+    await page.close();
+  }
+});
+
+test("blocks under a finished drag selection come back as source", async () => {
+  const source = "---\ntitle: Drag test\nstatus: draft\n---\n\n# Heading\n\n" +
+    "The paragraph under it has words to drag from.\n\nSecond paragraph.\n";
+  const drag = async (page, fromNeedle, toNeedle) => {
+    const points = await page.evaluate(({ fromNeedle, toNeedle }) => {
+      const text = fileNavView.state.sliceDoc();
+      fileNavView.focus();
+      fileNavView.dispatch({ selection: { anchor: text.indexOf("Second") } });
+      const at = needle => {
+        const r = fileNavView.coordsAtPos(text.indexOf(needle) + 3, 1);
+        return { x: r.left + 1, y: (r.top + r.bottom) / 2 };
+      };
+      return { from: at(fromNeedle), to: at(toNeedle) };
+    }, { fromNeedle, toNeedle });
+    await page.evaluate(() => new Promise(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.mouse.move(points.from.x, points.from.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++)
+      await page.mouse.move(points.from.x + (points.to.x - points.from.x) * i / 8,
+        points.from.y + (points.to.y - points.from.y) * i / 8);
+    await page.mouse.up();
+    await page.evaluate(() => new Promise(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
+  };
+
+  const page = await mountedEditor(source);
+  try {
+    await drag(page, "words", "Drag test");
+    const front = await page.evaluate(() => ({
+      empty: fileNavView.state.selection.main.empty,
+      raw: document.querySelectorAll("#magic4 .md-fm-raw").length,
+    }));
+    assert.equal(front.empty, false, "the drag did not select anything");
+    assert.ok(front.raw > 0, "the front matter under the selection stayed shut");
+
+    await drag(page, "Second", "Heading");
+    const heading = await page.evaluate(() => {
+      const text = fileNavView.state.sliceDoc();
+      const hash = text.indexOf("# Heading") + 1;
+      const space = fileNavView.coordsAtPos(hash, 1), word = fileNavView.coordsAtPos(hash + 1, 1);
+      const mark = [...document.querySelectorAll("#magic4 .cm-line")]
+        .find(line => line.textContent.includes("Heading")).querySelector(".cm-formatting-block");
+      return { space: word.left - space.left, hash: mark ? mark.getBoundingClientRect().width : 0 };
+    });
+    assert.ok(heading.hash > 1, "the fixture no longer brings the hash back under the selection");
+    assert.ok(heading.space > 1, "the hash came back and the space after it stayed hidden");
+  } finally {
+    await page.close();
+  }
+});
+
+test("the first click into a file with front matter lands a caret where it is aimed", async () => {
+  const source = "---\ntitle: Click test\nstatus: draft\n---\n\n# Heading\n\n" +
+    "The paragraph under it has words to click on.\n";
+  const page = await mountedEditor(source);
+  try {
+    const target = await page.evaluate(() => {
+      const position = fileNavView.state.sliceDoc().indexOf("words") + 2;
+      const r = fileNavView.coordsAtPos(position, 1);
+      return { position, x: r.left + 1, y: (r.top + r.bottom) / 2, focused: fileNavView.hasFocus };
+    });
+    assert.equal(target.focused, false, "the fixture no longer opens the file unfocused");
+    await page.mouse.click(target.x, target.y);
+    const clicked = await caretState(page);
+    const range = await page.evaluate(() => {
+      const main = fileNavView.state.selection.main;
+      return { from: main.from, to: main.to };
+    });
+    assert.equal(range.from, range.to, `the click selected ${range.from} to ${range.to}`);
+    assert.equal(clicked.pos, target.position, "the click did not land where it was aimed");
+    assert.equal(clicked.source, source);
+  } finally {
+    await page.close();
+  }
+});
+
+test("Backspace after an emoji takes it whole, as the board's text boxes do", async () => {
+  const cases = [
+    { name: "skin tone", source: "a\u{1F44D}\u{1F3FD}b", left: "ab" },
+    { name: "keycap", source: "a1\uFE0F\u20E3b", left: "ab" },
+    { name: "tag flag", source: "a\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}b", left: "ab" },
+    { name: "couple with skin tones",
+      source: "a\u{1F469}\u{1F3FD}\u200D\u{1F91D}\u200D\u{1F468}\u{1F3FF}b", left: "ab" },
+    // an accent typed as a letter and a mark goes one mark at a time, in the
+    // board's text boxes and here alike
+    { name: "letter and mark", source: "ae\u0301b", left: "aeb" },
+    { name: "conjunct", source: "a\u0915\u094D\u0937b", left: "a\u0915\u094Db" },
+  ];
+  const page = await mountedEditor("x");
+  try {
+    for (const fixture of cases) {
+      await page.evaluate(text => {
+        fileNavView.dispatch({ changes: { from: 0, to: fileNavView.state.doc.length, insert: text } });
+        fileNavView.focus();
+        fileNavView.dispatch({ selection: { anchor: text.length - 1 } });
+      }, fixture.source);
+      await page.keyboard.press("Backspace");
+      const text = await page.evaluate(() => fileNavView.state.sliceDoc());
+      assert.equal(text, fixture.left, `${fixture.name}: Backspace left ${JSON.stringify(text)}`);
+      await page.keyboard.down("Meta");
+      await page.keyboard.press("z");
+      await page.keyboard.up("Meta");
+      assert.equal(await page.evaluate(() => fileNavView.state.sliceDoc()), fixture.source,
+        `${fixture.name}: undo did not put the emoji back`);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
+test("a click on save leaves the keys in the file", async () => {
+  const page = await mountedEditor("start");
+  try {
+    await setCursor(page, 5);
+    await page.keyboard.type(" one");
+    const save = await page.evaluate(() => {
+      const r = document.querySelector("#magic4 .fnavsave").getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, dirty: fileNavHost().classList.contains("dirty") };
+    });
+    assert.equal(save.dirty, true, "typing did not stand the save control up");
+    await page.mouse.click(save.x, save.y);
+    await page.keyboard.type(" two");
+    const after = await page.evaluate(() => ({
+      text: fileNavView.state.sliceDoc(), focused: fileNavView.hasFocus,
+    }));
+    assert.equal(after.focused, true, "the save click took the focus out of the file");
+    assert.equal(after.text, "start one two");
+  } finally {
+    await page.close();
+  }
+});
+
+test("leaving the page holds while a file has unsaved work", async () => {
+  const page = await mountedEditor("on disk");
+  try {
+    const leave = () => page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    assert.equal(await leave(), false, "a file with nothing typed in it held the page");
+    await setCursor(page, 7);
+    await page.keyboard.type(" and more");
+    assert.equal(await leave(), true, "unsaved work in the open file did not hold the page");
+    // kept for another tab: the panel is down, the work is not
+    await page.evaluate(() => fileNavTearDown(true));
+    assert.equal(await leave(), true, "unsaved work kept for another tab did not hold the page");
+    await page.evaluate(() => { fileNavKeep = {}; });
+    assert.equal(await leave(), false, "the page held with no unsaved work anywhere");
   } finally {
     await page.close();
   }

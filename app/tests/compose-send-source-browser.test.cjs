@@ -74,7 +74,11 @@ function sentDom(page) {
     const outside = node => !(row && row.contains(node));
     const tagged = tags => [...box.querySelectorAll(tags)].filter(outside)
       .map(node => node.textContent);
-    const text = [...box.childNodes].map(node => node.textContent).join("");
+    // the card's own words and not the row's: an empty row shows a line drawn
+    // at random, and some of those carry characters a marker is made of
+    const copy = box.cloneNode(true);
+    for (const node of copy.querySelectorAll(".cffield, textarea")) node.remove();
+    const text = copy.textContent;
     return {
       text,
       em: tagged("em, i"),

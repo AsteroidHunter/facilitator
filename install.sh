@@ -259,6 +259,15 @@ fi
 section '2. Chrome'
 if chrome_known; then
   ok 'Chrome found.'
+elif [ "$(uname -s)" != Darwin ]; then
+  # the board runs on a Mac. A server where agents run needs nothing from
+  # this setup: the Mac puts the skill there itself
+  stop_plain 'This setup is for the Mac the board runs on.' \
+    '' \
+    'On a server where your agents run, nothing needs installing here.' \
+    'On your Mac, run: facilitator remote add you@this-server' \
+    '' \
+    'Nothing was changed.'
 else
   stop_plain 'Chrome was not found.' \
     '' \

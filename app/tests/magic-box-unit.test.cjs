@@ -635,7 +635,7 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.match(html, /const RISE_MS = 1000, RISE_FAST = 3;/);
   // what it holds follows the rise, and the line's strength too, shadow and all
   assert.match(html, /\n  #magicbox\.rising > \*\{opacity:var\(--rise\)\}/);
-  assert.match(html, /MB\.el\.style\.setProperty\("--rise", p\.toFixed\(4\)\);\s*MB\.line\.style\.opacity = p\.toFixed\(4\);/);
+  assert.match(html, /function magicRiseSet\(t, box = MB\)\{[\s\S]*?box\.el\.style\.setProperty\("--rise", p\.toFixed\(4\)\);\s*box\.line\.style\.opacity = p\.toFixed\(4\);/);
   // a click, a key or a scroll in the box while it rises hurries the rest
   assert.match(html, /if \(MB\.el && MB\.rise\.dir > 0 && MB\.el\.contains\(e\.target\)\) MB\.rise\.fast = RISE_FAST;/);
   assert.match(html, /for \(const type of \["pointerdown", "keydown", "wheel"\]\) addEventListener\(type, magicHurry/);

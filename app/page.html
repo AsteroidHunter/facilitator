@@ -30,6 +30,28 @@
   }
   @media (min-resolution:2dppx){:root{--edge-drawn:.5px}}
   @media (min-resolution:3dppx){:root{--edge-drawn:calc(2px / 3)}}
+  /* the board's folder picker (folder-picker.css) reads the board's tokens and
+     wears its glass, both card-tokens.css's, which this page does not load:
+     they are here in step with it, on the picker's own layers alone, so
+     nothing else on this page changes */
+  .fp{--sq:4px; --press:10%; --chipoff:.28; --bar-mark:10px; --gentle:cubic-bezier(.42,.06,.38,1)}
+  .fp.qn-glass, .fp .qn-glass{--qn-ring:#c7c7cc;
+    --qn-blur:15px; --qn-sat:180%; --qn-tint:.77; --qn-edge:2;
+    --qn-face:rgba(255,255,255,var(--qn-tint));
+    border:none; border-radius:9px;
+    background-color:var(--qn-face);
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.075 0 0 0 .0375'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(13px at 0 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
+      radial-gradient(13px at 100% 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
+      radial-gradient(11px at 0 100%, rgba(255,255,255,calc(.32 * var(--qn-edge))), rgba(255,255,255,0)),
+      radial-gradient(11px at 100% 100%, rgba(255,255,255,calc(.32 * var(--qn-edge))), rgba(255,255,255,0)),
+      linear-gradient(145deg,
+        rgba(255,255,255,calc(.28 * var(--qn-edge))) 0%,
+        rgba(255,255,255,calc(.11 * var(--qn-edge))) 42%,
+        rgba(255,255,255,0) 84%);
+    backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
+    -webkit-backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat))}
   *{box-sizing:border-box}
   /* Every scroller hides its bar and keeps its scroll: wheel, trackpad and touch
      still move the content, and no lane or gutter is drawn for a bar. Written once
@@ -842,7 +864,7 @@
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
      white well listing the open folders, the current one bold, then the
-     raised start button that opens the system folder chooser. All landing
+     raised start button that opens the board's folder picker. All landing
      type is Inter (row paths stay grey mono); no text on this screen may
      be orange: orange lives only in the well's text selection and in its
      scrollbar thumb. Centers on the real window, untouched by the stage
@@ -1344,7 +1366,7 @@
 <!-- the new-project landing lives outside the stage: it centers on the real
      window, untouched by the stage transform or any saved drag layout.
      One screen: the wordmark, the open-folders well, the start button that
-     opens the system folder chooser. -->
+     opens the board's folder picker. -->
 <div id="newproj">
   <div id="nphome">
     <div id="npbrand">Facilitator</div>
@@ -1393,6 +1415,50 @@
 <script src="/card-markdown.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
+<script>
+// "Open a new folder" opens the board's own folder picker (folder-picker.js),
+// as the board does. this page loads no card-logic.js, so the two pieces of it
+// the picker needs are here, in step with it: the hook that hands every key to
+// the picker while it is open, written before this page's own listeners so it
+// hears them first (installCardPageGuard), and the loader that fetches the
+// picker and its sheet the first time a folder is asked for (folderPickerBundle)
+window.folderPickerKeys = true;
+addEventListener("keydown", e => {
+  if (window.FolderPicker && FolderPicker.isOpen()) FolderPicker.key(e);
+}, true);
+let folderPickerLoad = null;
+function folderPickerBundle(){
+  if (window.FolderPicker && document.getElementById("fpsheet")?.sheet) return Promise.resolve(true);
+  if (folderPickerLoad) return folderPickerLoad;
+  folderPickerLoad = new Promise(res => {
+    let left = 2, good = true;
+    const done = ok => {
+      good = good && ok;
+      if (--left) return;
+      if (!good || !window.FolderPicker) folderPickerLoad = null;
+      res(good && !!window.FolderPicker);
+    };
+    let sheet = document.getElementById("fpsheet");
+    if (sheet?.sheet) done(true);
+    else {
+      if (!sheet){
+        sheet = document.createElement("link");
+        sheet.id = "fpsheet"; sheet.rel = "stylesheet"; sheet.href = "/folder-picker.css";
+        document.head.append(sheet);
+      }
+      sheet.addEventListener("load", () => done(true), { once: true });
+      sheet.addEventListener("error", () => { sheet.remove(); done(false); }, { once: true });
+    }
+    if (window.FolderPicker){ done(true); return; }
+    const s = document.createElement("script");
+    s.src = "/folder-picker.js";
+    s.onload = () => done(true);
+    s.onerror = () => { s.remove(); done(false); };
+    document.head.append(s);
+  });
+  return folderPickerLoad;
+}
+</script>
 <script>
 // the board's own settings, shared with the board page: box places and sizes,
 // the background colour, the outline's width and the task headings below,
@@ -1735,33 +1801,36 @@ function renderHome(st){
     box.appendChild(row);
   }
 }
-// the start button hands folder choosing to the system: GET /pickdir opens
-// the desktop chooser and answers with the chosen path, which then creates
-// the lane the same way the old in-page browser did
+// the start button opens the board's own folder picker (folder-picker.js), as
+// the board's does, and the folder chosen in it then creates the lane the same
+// way the old in-page browser did
 document.getElementById("npstart").addEventListener("click", async () => {
-  if (!draft || draft.picking) return;   // one chooser at a time
+  if (!draft || draft.picking) return;   // one picker at a time
   draft.picking = true;
   try {
-    const x = await fetch("/pickdir").catch(() => null);
-    if (!draft) return;   // the draft was dropped while the chooser sat open
-    if (!x){ projNote("could not reach the server"); return; }
-    if (x.status === 404){
-      // a live server from before the endpoint: only a restart adds it
-      projNote("the system picker needs the server restart");
-      return;
-    }
-    const r = await x.json().catch(() => null);
-    if (r?.cancelled) return;   // dismissed the chooser: nothing to say
-    if (!r?.path){ projNote("could not open the folder picker"); return; }
-    const path = r.path.replace(/\/+$/, "") || r.path;
-    const name = path.split("/").filter(Boolean).pop() || "project";
+    // a live server from before the picker's routes answers 404: only a
+    // restart adds them
+    if (!await folderPickerBundle()){ projNote("the folder picker needs the server restart"); return; }
+    if (!draft) return;
+    const r = await FolderPicker.open({ kind: "panel", back: document.getElementById("npstart") });
+    if (!draft) return;   // the draft was dropped while the picker sat open
+    if (!r?.path) return; // closed without a choice: nothing to say
+    // the server names the folder and writes its path, so nothing here takes
+    // a path apart, whatever system the board runs on
+    const path = r.path, name = r.name || "project";
+    // r.machine is this Mac or one of the owner's servers, which the folder
+    // is kept with: the same path on another machine is another folder
+    const server = r.machine && r.machine !== "this" ? r.machine : "";
+    const serverOf = ow => ((lastState.projects || []).find(p => p && p.id === ow) || {}).server || "";
     // a folder already behind an open tab: name that tab instead of refusing
     const open = lastState && rowsOf(lastState)
-      .find(ow => (lastState.pwds || {})[ow] === path);
+      .find(ow => (lastState.pwds || {})[ow] === path && serverOf(ow) === server);
     if (open){ projNote("that folder is already open as " + labelOf(lastState, open)); return; }
-    const px = await fetch("/project?name=" + encodeURIComponent(name),
+    const px = await fetch("/project?name=" + encodeURIComponent(name) + (server ? "&machine=" + encodeURIComponent(server) : ""),
         { method: "POST", body: path }).catch(() => null);
     const pr = px ? await px.json().catch(() => null) : null;
+    // a server answers its refusal in plain words already
+    if (server && !px?.ok && pr?.error){ projNote(pr.error); return; }
     if (!px?.ok || !pr?.id){
       // the server states its refusal; the note repeats it in plain words.
       // a duplicate answer with no visible tab of that name means the id

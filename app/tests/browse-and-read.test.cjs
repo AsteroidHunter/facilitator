@@ -403,8 +403,8 @@ test("Escape leaves the card selected when something else answered it or holds t
   }
   // the settings page shuts on Escape before the board hears the key, so it
   // says the key is spent and lets no key past it; the menu, the picture and the
-  // quick note already do
-  assert.match(LOGIC, /veil\.addEventListener\("keydown", e => \{\n    e\.stopPropagation\(\);\n    if \(e\.key === "Escape"\)\{ e\.preventDefault\(\); close\(\); \}\n  \}\);/);
+  // quick note already do. an Escape an input method takes is the field's (imeKey)
+  assert.match(LOGIC, /veil\.addEventListener\("keydown", e => \{\n    e\.stopPropagation\(\);\n    if \(e\.key === "Escape" && !imeKey\(e\)\)\{ e\.preventDefault\(\); close\(\); \}\n  \}\);/);
   assert.match(HTML.desktop, /if \(e\.key !== "Escape" \|\| !pageMenu\) return;\n  e\.preventDefault\(\); e\.stopPropagation\(\);/);
   assert.match(HTML.desktop, /if \(e\.key !== "Escape" \|\| !p3Zoom\) return;\n  e\.preventDefault\(\); e\.stopPropagation\(\);/);
   assert.match(LOGIC, /e\.stopPropagation\(\);\n    if \(e\.key === "Escape"\)\{ e\.preventDefault\(\); close\(\); return; \}/);

@@ -15,10 +15,14 @@
  * on either side are a strike, a leading angle AND THE SPACE AFTER IT are a
  * quote bar, and a dash or star and a space is a bullet. A marker is a marker
  * once it is finished being typed and not before: a lone angle, like a lone
- * dash, is the character it was typed as until its space arrives. Inserting a
- * new line inside a list carries the marker down, and the editor's own
+ * dash, is the character it was typed as until its space arrives. Each is
+ * drawn as the card the row is sent to draws it: a span inside one line and
+ * not one that runs over a line break, and a quote only on the lines that
+ * carry their own angle. Inserting a new line inside a list carries the marker
+ * down, moving the numbers after a new numbered item on, and the editor's own
  * continuation carries a quote's angle and its space down the same way; doing
- * it on a marker with nothing typed after it ends the list.
+ * it on a marker or an angle with nothing typed after it ends the list or the
+ * quote. Inside a block of code nothing is carried.
  * Headings, tables, links, code fences and the rest of Markdown are left as
  * plain characters here: this is a message row, not a document editor.
  *
@@ -151,7 +155,17 @@
   // ---- what the editor draws ------------------------------------------------
   let layerExtension = null;
   let awakeEffect = null;
+  let holdEffect = null;
   let themeExtension = null;
+
+  // A press of the pointer holds what is drawn still until the gesture is over.
+  // The markers of the span the caret arrives in come back on show, and when a
+  // click is what put the caret there, the words would move under the pointer
+  // before the second press of a double click or the far end of a drag came
+  // down on them. The hold is let go this long after the pointer comes up,
+  // which is the time a second press takes to arrive, or at once by a key or
+  // a change to the words.
+  const HOLD_MS = 500;
 
   // ---- a list's own column --------------------------------------------------
   // Give the marker and its separator the same width as the hanging indent.
@@ -182,6 +196,7 @@
     if (layerExtension) return layerExtension;
     const D = C.Decoration;
     awakeEffect = C.StateEffect.define();
+    holdEffect = C.StateEffect.define();
     const hide = D.replace({});                       // markup and nothing else
     const emphasis = D.mark({ class: "cf-em" });
     const strong = D.mark({ class: "cf-strong" });
@@ -190,14 +205,15 @@
     const INLINE = { Emphasis: emphasis, StrongEmphasis: strong, Strikethrough: strike };
     const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true };
 
-    function build(state, awake) {
+    function build(state, awake, picked) {
       const doc = state.doc, out = [];
       // The raw characters come back around the cursor and nowhere else, and
       // only while the row is being typed in: a row nobody is in is a row to
       // read. A range counts as touched at either edge, so the markers are
       // already there when the caret arrives rather than one keystroke later.
+      // The cursor read is the one a pointer's hold kept, if one is held.
       const hot = (from, to) => awake &&
-        state.selection.ranges.some(range => range.to >= from && range.from <= to);
+        picked.ranges.some(range => range.to >= from && range.from <= to);
       const quote = new Map();   // line number -> how deep the quote is
       const angles = new Map();  // line number -> the run its quote markers take
       const hang = new Map();    // line number -> the column its text hangs on
@@ -215,15 +231,20 @@
         pull.set(line.number, (pull.get(line.number) || 0) + width);
         headEnd.set(line.number, Math.max(headEnd.get(line.number) || 0, to));
       };
+      // the card draws a span inside one line and leaves one that runs over a
+      // line break as the characters it was typed as, so this does too; a span
+      // inside it that stays on one line is still drawn
+      const oneLine = (from, to) => doc.lineAt(from).number === doc.lineAt(to).number;
       C.syntaxTree(state).iterate({
         enter: node => {
           if (INLINE[node.name]) {
-            out.push(INLINE[node.name].range(node.from, node.to));
+            if (oneLine(node.from, node.to)) out.push(INLINE[node.name].range(node.from, node.to));
             return;
           }
           if (INLINE_MARK[node.name]) {
             const owner = node.node.parent;
-            if (owner && !hot(owner.from, owner.to)) out.push(hide.range(node.from, node.to));
+            if (owner && oneLine(owner.from, owner.to) && !hot(owner.from, owner.to))
+              out.push(hide.range(node.from, node.to));
             return;
           }
           if (node.name === "Blockquote") {
@@ -316,11 +337,12 @@
       // not at the angle: until an ordinary space completes a quote prefix,
       // the angle stays visible and the line keeps its ordinary layout. A line
       // the parser puts inside a quote but which carries no angle of its own,
-      // which is a lazily continued one, is drawn the way the line above it is.
+      // which is a lazily continued one, is an ordinary line as well: the card
+      // the row is sent to ends a quote at the first line without an angle.
       const barred = new Set();
-      for (const n of [...quote.keys()].sort((a, b) => a - b)) {
+      for (const n of quote.keys()) {
         const angle = angles.get(n);
-        if (angle ? angle.live : barred.has(n - 1)) barred.add(n);
+        if (angle && angle.live) barred.add(n);
       }
 
       // one line decoration per line the walk marked, and the quote angles
@@ -378,15 +400,26 @@
     }
 
     layerExtension = C.StateField.define({
-      create: state => ({ awake: false, deco: build(state, false) }),
+      create: state => ({ awake: false, held: false, shown: false, picked: state.selection,
+                          deco: build(state, false, state.selection) }),
       update: (value, tr) => {
-        let awake = value.awake;
-        for (const effect of tr.effects) if (effect.is(awakeEffect)) awake = effect.value;
+        let awake = value.awake, held = value.held;
+        for (const effect of tr.effects) {
+          if (effect.is(awakeEffect)) awake = effect.value;
+          if (effect.is(holdEffect)) held = effect.value;
+        }
+        // a change to the words lets go of a pointer's hold, since what is
+        // drawn has to go with them. until then the cursor and the focus are
+        // read as they stood when the press came down (HOLD_MS)
+        if (tr.docChanged) held = false;
+        const shown = held ? value.shown : awake;
+        const picked = held ? value.picked : tr.state.selection;
         // the document, the cursor, the focus and the parse are the four things
         // any of this reads; a scroll is on none of them
-        if (awake === value.awake && !tr.docChanged && !tr.selection &&
-            C.syntaxTree(tr.state) === C.syntaxTree(tr.startState)) return value;
-        return { awake, deco: build(tr.state, awake) };
+        if (shown === value.shown && picked.eq(value.picked) && !tr.docChanged &&
+            C.syntaxTree(tr.state) === C.syntaxTree(tr.startState))
+          return awake === value.awake && held === value.held ? value : { ...value, awake, held };
+        return { awake, held, shown, picked, deco: build(tr.state, shown, picked) };
       },
       provide: field => C.EditorView.decorations.from(field, value => value.deco),
     });
@@ -478,21 +511,64 @@
       head: indent + (dash ? dash : String(Math.min(+digits + 1, 999999999)) + closer) + gap,
       markerEnd: indent.length + (dash ? 1 : digits.length + 1) + gap.length,
       indent,
+      number: dash ? null : +digits,
     };
   }
+
+  // A new item inside a numbered list takes the number after the one it was
+  // made from, so the items after it go on counting from there, as they do
+  // under the phone's own return. Only items that count up one by one are
+  // moved on: a list written all in ones is left the way it was written.
+  function renumber(C, state, line, list, changes) {
+    let item = C.syntaxTree(state).resolveInner(line.from + list.indent.length, 1);
+    while (item && item.name !== "ListItem") item = item.parent;
+    if (!item || !item.parent || item.parent.name !== "OrderedList") return;
+    let count = list.number;
+    for (let next = item.nextSibling; next; next = next.nextSibling) {
+      if (next.name !== "ListItem") continue;
+      const mark = next.firstChild;
+      const digits = mark && mark.name === "ListMark" && /^\d+/.exec(state.sliceDoc(mark.from, mark.to));
+      if (!digits || +digits[0] !== count + 1 || count + 2 > 999999999) return;
+      count++;
+      changes.push({ from: mark.from, to: mark.from + digits[0].length, insert: String(count + 1) });
+    }
+  }
+
+  // Whether a position stands in a block of code, where a dash, a number or an
+  // angle is the code's own character and no marker at all, as the card shows it
+  function inCode(C, state, pos) {
+    for (let node = C.syntaxTree(state).resolveInner(pos, -1); node; node = node.parent)
+      if (node.name === "FencedCode" || node.name === "CodeBlock") return true;
+    return false;
+  }
+
+  // A quote's angles at the head of a line, the last of them finished by its
+  // space, which is where a quote begins in this row
+  const QUOTED = /^ {0,3}(?:>[ \t]?)*>[ \t]/;
 
   // The line the caret is on when it is a marker with nothing typed after it,
   // and null otherwise. That is the one line a new line ends the list on
   // instead of laying another marker out, and it is the one case the editor's
   // own markdown continuation is not allowed to answer: on a second item it
   // keeps the marker and pushes a blank line above it, which leaves the reader
-  // with a list they asked to be finished with.
-  function emptyItem(view) {
+  // with a list they asked to be finished with. A quote's angles count as a
+  // marker the same way, alone or in front of a list's: on a quoted line with
+  // nothing after them the continuation writes the line back as a bare angle
+  // and lays another quoted line under it, so the quote never ends.
+  function emptyItem(C, view) {
     const range = view.state.selection.main;
     const line = view.state.doc.lineAt(range.from);
-    const list = listContinuation(line.text);
-    if (!list || !list.empty) return null;
-    if (range.from < line.from + list.markerEnd || range.to > line.to) return null;
+    if (inCode(C, view.state, range.from)) return null;
+    const angles = QUOTED.exec(line.text);
+    const head = angles ? angles[0].length : 0;
+    const rest = line.text.slice(head);
+    const list = listContinuation(rest);
+    let markerEnd = head;
+    if (list) {
+      if (!list.empty) return null;
+      markerEnd += list.markerEnd;
+    } else if (!head || rest.trim()) return null;
+    if (range.from < line.from + markerEnd || range.to > line.to) return null;
     return line;
   }
 
@@ -500,7 +576,7 @@
   // nothing typed after it ends the list instead of laying another one out.
   function insertNewline(C, view) {
     const state = view.state, range = state.selection.main;
-    const over = emptyItem(view);
+    const over = emptyItem(C, view);
     if (over) {
       // the empty bullet goes, the caret stays on the line it was on, and the
       // list is over
@@ -513,10 +589,13 @@
       return true;
     }
     const line = state.doc.lineAt(range.from);
-    const list = listContinuation(line.text);
+    const list = inCode(C, state, range.from) ? null : listContinuation(line.text);
     const head = list && range.from >= line.from + list.markerEnd ? list.head : "";
+    const changes = [{ from: range.from, to: range.to, insert: "\n" + head }];
+    // a pick running into the items below takes their numbers with it
+    if (head && list.number !== null && range.to <= line.to) renumber(C, state, line, list, changes);
     view.dispatch(state.update({
-      changes: { from: range.from, to: range.to, insert: "\n" + head },
+      changes,
       selection: { anchor: range.from + 1 + head.length },
       scrollIntoView: true,
       userEvent: "input",
@@ -571,7 +650,7 @@
     // row's own and older than the editor in it. Everything the pack's binding
     // does not answer is the row's own as well: it is bound to a bare return,
     // so a shifted one has always been made here.
-    const ending = !event.shiftKey && !!emptyItem(view);
+    const ending = !event.shiftKey && !!emptyItem(C, view);
     if (event.shiftKey || ending) {
       event.preventDefault();
       // A held return makes one line and not a run of them, which is what it
@@ -617,11 +696,52 @@
   // them without changing Left/Right word navigation.
   const MOVES_TEXT = /^(Shift-)?Alt-Arrow(Up|Down)$/;
 
+  // ---- Backspace after an emoji ---------------------------------------------
+  // The plain field takes a whole emoji with one Backspace: a skin tone, a
+  // keycap or a flag's tags go with the picture they belong to. The editor's
+  // own Backspace takes the last piece of a cluster, which is right for an
+  // accent written as a mark of its own and wrong for these, so an emoji is
+  // taken whole here and everything else is left to the editor.
+  const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u;   // the last is a keycap
+  let graphemes = null;
+  function deleteEmojiBackward(view) {
+    const state = view.state, range = state.selection.main;
+    if (state.selection.ranges.length > 1 || !range.empty) return false;
+    if (typeof Intl !== "object" || !Intl.Segmenter) return false;
+    const line = state.doc.lineAt(range.head);
+    const before = line.text.slice(Math.max(0, range.head - line.from - 64), range.head - line.from);
+    graphemes = graphemes || new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    let last = "";
+    for (const piece of graphemes.segment(before)) last = piece.segment;
+    if (last.length < 2 || !EMOJI.test(last)) return false;
+    view.dispatch(state.update({
+      changes: { from: range.head - last.length, to: range.head },
+      scrollIntoView: true,
+      userEvent: "delete.backward",
+    }));
+    return true;
+  }
+
+  // ---- the reader's own keyboard and spelling --------------------------------
+  // The editor turns the browser's spelling check, the phone's word correction
+  // and its capital at the start of a sentence off on its content. The plain
+  // field keeps all three unless the page says otherwise, and the row is one
+  // row whichever face it wears, so the content is given what the field has.
+  // Read once, from the field as the page made it, before the editor is on.
+  function typingAttributes(ta) {
+    return {
+      spellcheck: ta.spellcheck ? "true" : "false",
+      autocorrect: ta.getAttribute("autocorrect") || "on",
+      autocapitalize: ta.getAttribute("autocapitalize") || "sentences",
+    };
+  }
+
   // ---- the editor a field puts on ------------------------------------------
   function extensions(C, field) {
     const keys = [
       ...PAGE_CHORDS,
       ...C.historyKeymap,
+      { key: "Backspace", run: deleteEmojiBackward, shift: deleteEmojiBackward },
       // The editor's stock return bindings are not among the three things that
       // may answer a return in this row, so they are left out. Which of the
       // three does answer it is decided in enterKey. The line moves and copies
@@ -642,6 +762,7 @@
       // the editor writes its own class attribute on every update, so the name
       // the page styles the row by is handed to it rather than set on the node
       C.EditorView.editorAttributes.of({ class: field.shellClass }),
+      C.EditorView.contentAttributes.of(field.typing),
       // What is left of the return key once enterKey and the pack have had it.
       // The pack's continuation answers a quoted or a listed line and declines
       // everything else, so this is where a plain line gets the line it asked
@@ -825,6 +946,10 @@
           if (text === view.state.doc.toString()) return;
           view.setState(freshState(field.C, field, text, text.length));
           field.edited = false;
+          // a fresh state starts asleep, as a row nobody is in should. the
+          // caret staying in it through the write is no focus event, so the
+          // layer is told here that the row is still being typed in
+          if (hasCaret(view)) view.dispatch({ effects: awakeEffect.of(true) });
         },
       },
       selectionStart: { get: () => view.state.selection.main.from },
@@ -873,11 +998,15 @@
       select: {
         value: () => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }),
       },
+      // an anchor and a head, which is how a caller holding the editor's own
+      // pick hands it back, or a start, an end and a direction, as a field
+      // takes them: backward puts the head at the start
       setSelectionRange: {
-        value: (from, to) => {
+        value: (from, to, direction) => {
           const length = view.state.doc.length;
-          const anchor = Math.max(0, Math.min(from == null ? 0 : from, length));
-          const head = Math.max(0, Math.min(to == null ? anchor : to, length));
+          let anchor = Math.max(0, Math.min(from == null ? 0 : from, length));
+          let head = Math.max(0, Math.min(to == null ? anchor : to, length));
+          if (direction === "backward" && anchor < head) [anchor, head] = [head, anchor];
           view.dispatch({ selection: { anchor, head } });
         },
       },
@@ -1016,6 +1145,26 @@
       view.contentDOM.addEventListener(event, () => {
         if (field.view === view) view.dispatch({ effects: awakeEffect.of(event === "focus") });
       });
+    // A pointer's hold (HOLD_MS), taken in the capture pass on the editor's
+    // outer element so it is in place before the editor reads where the press
+    // landed, and let go a beat after the pointer comes up, or by any key
+    const hold = on => {
+      if (field.view !== view) return;
+      if (view.state.field(layerExtension).held !== on) view.dispatch({ effects: holdEffect.of(on) });
+    };
+    view.dom.addEventListener("pointerdown", () => {
+      clearTimeout(field.holdTimer);
+      hold(true);
+      const up = () => {
+        document.removeEventListener("pointerup", up, true);
+        document.removeEventListener("pointercancel", up, true);
+        clearTimeout(field.holdTimer);
+        field.holdTimer = setTimeout(() => hold(false), HOLD_MS);
+      };
+      document.addEventListener("pointerup", up, true);
+      document.addEventListener("pointercancel", up, true);
+    }, true);
+    view.dom.addEventListener("keydown", () => { clearTimeout(field.holdTimer); hold(false); }, true);
     // one input event per change and never two: the browser's own is kept
     // inside the editor and the page is told once, whether the change came
     // from a keystroke, a paste, a command or a line inserted above
@@ -1057,7 +1206,8 @@
     // an edit that undo could bring back. An untouched empty row is the same
     // row afresh, and several hundred of those are not held for nothing.
     const parked = keep && (view.state.doc.length > 0 || field.edited)
-      ? view.state.update({ effects: awakeEffect.of(false) }).state : null;
+      ? view.state.update({ effects: [awakeEffect.of(false), holdEffect.of(false)] }).state : null;
+    clearTimeout(field.holdTimer);
     field.parked = null;
     moveListeners(field, false);
     dropFace(field);
@@ -1142,11 +1292,13 @@
       seat: null,
       inUpdate: false,     // the editor is in the middle of its own update
       scrollAsk: 0,        // which of the page's scroll writes is the latest
+      holdTimer: 0,        // lets go of a pointer's hold (HOLD_MS)
       // a row attached held puts the editor on only once it is wanted (want)
       wanted: !opts.held,
       parked: null,        // the state a held row's editor put aside as it came off
       edited: false,       // the editor changed the words since they were written in
       shellClass: opts.className || "cffield",
+      typing: typingAttributes(ta),   // spelling, correction and capitals, as the field has them
       // a line the page writes in keeps its words in textContent, not in value
       textValue: !!opts.textValue,
       // what an empty row shows, built fresh for each editor that asks
@@ -1177,8 +1329,6 @@
       focusEl() {
         return this.view ? this.view.contentDOM : this.ta;
       },
-      // the row's own height from its words, which is the two lines every
-      // composer wrote by hand before there was a second face to write them on
       // the row's own height from its words, which is the two lines every
       // composer wrote by hand before there was a second face to write them on
       autosize() {

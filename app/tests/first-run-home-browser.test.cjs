@@ -84,9 +84,7 @@ async function openBoard(board, viewport = { width: 1512, height: 982 }) {
   await page.setRequestInterception(true);
   page.on("request", req => {
     const url = req.url();
-    if (url === board.origin + "/pickdir") {
-      req.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ path: board.chosen }) });
-    } else if (url.startsWith(board.origin + "/") || /^(data|blob):/.test(url)) req.continue();
+    if (url.startsWith(board.origin + "/") || /^(data|blob):/.test(url)) req.continue();
     else req.abort();
   });
   await page.goto(board.origin + "/", { waitUntil: "load" });
@@ -213,7 +211,15 @@ test("a reload of a fresh board comes back to the home page", async () => {
 test("a folder added on the home page becomes the one project tab and leaves home", async () => {
   const { page, context } = await openBoard(boards.fresh);
   try {
+    // the board's folder picker: the copy's own home folder, the chosen
+    // folder's path typed in its field, then Choose
     await page.click("#npstart");
+    await page.waitForFunction(() => globalThis.FolderPicker?.isOpen() && document.querySelector(".fp-panel [data-f=path]"), { timeout: 15000 });
+    await page.evaluate(p => { const f = document.querySelector(".fp-panel [data-f=path]"); f.focus(); f.value = p; }, boards.fresh.chosen);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector(".fp-panel .fp-loc .fp-nm")?.textContent === "chosen-folder" &&
+      !document.querySelector(".fp-panel .fp-go").disabled, { timeout: 15000 });
+    await page.click(".fp-panel .fp-go");
     await page.waitForFunction(() => document.querySelectorAll("#tabbar .ptab").length === 1, { timeout: 15000 });
     await new Promise(resolve => setTimeout(resolve, 800));
     const got = await facts(page);

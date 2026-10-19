@@ -148,3 +148,104 @@ test("while Home is up the capsule reads Home with the board's house before the 
   // and the name it reads while Home is up is still Home
   assert.match(PHONE, /const name = homeOpen \? "Home" : labelOf\(st, activeOwner\);/);
 });
+
+// ---- "Open a new folder" on the phone ------------------------------------------
+test("the list ends with \"Open a new folder\", after its own line, with the monospace plus in the house's column", () => {
+  const menu = between('<div id="projmenu"', "</div>\n\n");
+  const order = ['id="homeico"', 'id="projsep"', 'id="projlist"', 'id="projnewsep"', 'id="projnew"'].map(s => menu.indexOf(s));
+  assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "the list's order: " + order);
+  assert.match(menu, /<button id="projnew" class="projrow" type="button"><span class="pplus" aria-hidden="true">\+<\/span><span class="pname">Open a new folder<\/span><\/button>/);
+  assert.match(between("#projnew .pplus{", "}"), /width:calc\(15 \* var\(--u\)\); text-align:center;\s+font:400 calc\(16\.7 \* var\(--u\)\)\/1 var\(--mono\); color:var\(--sub\)/);
+  assert.match(PHONE, /#projsep, #projnewsep\{flex:none; height:var\(--edge\)/);
+  // a project's own window on the Mac opens no folder
+  assert.match(PHONE, /body\.oneproject :is\(#projnew, #projnewsep\)\{display:none\}/);
+  assert.match(PHONE, /document\.body\.classList\.toggle\("oneproject", !!\(macHost && parent\.macPhoneProject\)\);/);
+  assert.doesNotMatch(PHONE, /\/pickdir/);
+});
+
+function newFolder(over = {}) {
+  const calls = [], fetches = [], opened = [], listeners = {};
+  const el = id => ({ id, addEventListener(type, fn) { (listeners[id + ":" + type] ||= []).push(fn); }, focus() {} });
+  const ids = { projshade: el("projshade"), tikbtn: el("tikbtn"), setbtn: el("setbtn") };
+  const state = over.state || {
+    boxes: [{ id: "a1", owner: "orchard" }, { id: "l1", owner: "ledger" }],
+    projects: [], pwds: { orchard: "/home/robin/orchard", ledger: "/home/robin/ledger" },
+    tabs: { order: ["orchard", "ledger"], closed: ["ledger"] },
+  };
+  const context = {
+    Date, JSON, Promise, Math, setTimeout, clearTimeout, encodeURIComponent,
+    console, lastState: state, homeOpen: true, activeOwner: "orchard", projCarried: false,
+    house: el("homeico"), projBtn: el("projbtn"),
+    projMenu: el("projmenu"),
+    document: { getElementById: id => ids[id], addEventListener() {} },
+    closeProjects: () => calls.push("close"), chooseRow: () => calls.push("row"),
+    folderPickerBundle: async () => over.bundle !== false,
+    toastNote: words => calls.push("toast " + words),
+    FolderPicker: { open: async opts => { opened.push(opts); return null; } },
+    poll: async () => { calls.push("poll"); if (over.made) { state.pwds[over.made] = "/home/robin/" + over.made; state.tabs.order.push(over.made); } },
+    setHome: on => { context.homeOpen = on; calls.push("home " + on); },
+    setTab: ow => calls.push("tab " + ow),
+    paneFadeTake: () => null,
+    fetch: async (url, init) => {
+      fetches.push({ url, method: init?.method || "GET", body: init?.body });
+      if (url === "/tabs") return { json: async () => ({ tabs: JSON.parse(init.body) }) };
+      if (url.startsWith("/project?")) return over.refused
+        ? { ok: false, json: async () => ({ error: over.refused }) }
+        : { ok: true, json: async () => ({ ok: true, id: over.made }) };
+      throw new Error("unexpected " + url);
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "card-logic.js"), "utf8"), context);
+  // the page's own folder picker loader stands in for card-logic.js's
+  context.folderPickerBundle = async () => over.bundle !== false;
+  vm.runInContext(between("// the list's own taps.", "// ---- the press on the row's glass"), context);
+  const row = { id: "projnew", closest: () => row };
+  return { context, calls, fetches, opened, tap: () => listeners["projmenu:click"][0]({ target: row }) };
+}
+const settle = async () => { for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r)); };
+
+test("the row shuts the list and opens the picker's drop from the capsule, between the row's two ends", async () => {
+  const f = newFolder();
+  f.tap();
+  await settle();
+  assert.deepEqual(f.calls, ["close"]);
+  assert.equal(f.opened.length, 1);
+  const o = f.opened[0];
+  assert.equal(o.kind, "drop");
+  assert.equal(o.anchor, f.context.projBtn);
+  assert.equal(o.back, f.context.projBtn, "the focus goes back to the capsule");
+  assert.deepEqual([...o.span].map(x => x.id), ["tikbtn", "setbtn"]);
+  assert.equal(typeof o.choose, "function");
+});
+
+test("Choose in the drop makes a new folder a project and lands on it, leaving home", async () => {
+  const f = newFolder({ made: "garden" });
+  f.tap(); await settle();
+  const said = await f.opened[0].choose({ machine: "this", path: "/home/robin/garden", name: "garden" });
+  assert.equal(said, null);
+  assert.deepEqual(f.fetches.map(x => [x.url, x.method, x.body]), [["/project?name=garden", "POST", "/home/robin/garden"]]);
+  assert.deepEqual(f.calls.slice(1), ["poll", "home false", "tab garden"]);
+});
+
+test("an open project's folder is named in the drop, a closed one is reopened, a refusal is said", async () => {
+  let f = newFolder();
+  f.tap(); await settle();
+  assert.equal(await f.opened[0].choose({ path: "/home/robin/orchard", name: "orchard" }), "that folder is already open as orchard");
+  assert.deepEqual(f.fetches, [], "nothing made");
+  assert.equal(await f.opened[0].choose({ path: "/home/robin/ledger", name: "ledger" }), null);
+  assert.deepEqual(f.fetches.map(x => x.url), ["/tabs"]);
+  assert.deepEqual(JSON.parse(f.fetches[0].body), { order: ["orchard", "ledger"], closed: [] });
+  assert.deepEqual(f.calls.slice(-2), ["home false", "tab ledger"]);
+  f = newFolder({ refused: "body must be a folder under home" });
+  f.tap(); await settle();
+  assert.equal(await f.opened[0].choose({ path: "/elsewhere/x", name: "x" }), "that folder is outside your home folder");
+  assert.ok(!f.calls.some(c => c.startsWith("tab")));
+});
+
+test("a server from before the picker's routes says it needs a restart", async () => {
+  const f = newFolder({ bundle: false });
+  f.tap(); await settle();
+  assert.deepEqual(f.opened, []);
+  assert.deepEqual(f.calls, ["close", "toast The folder picker needs the server restart."]);
+});

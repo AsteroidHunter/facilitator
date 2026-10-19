@@ -34,6 +34,17 @@ After reading the separate `/fresh` result as described below, answer with a com
 
       curl -s "http://127.0.0.1:$PORT/unread?owner=facilitator"
 
+## From a server
+
+An agent can also run on one of the owner's own servers, reached from the Mac with `facilitator remote add`. There `scripts/onboard.py inspect` answers `"remote": true` and the board is on the Mac, reached through an ssh link the Mac keeps up; the server has no `run.config.json` and no port. Every curl in this runbook works the same with two changes: put `-K` and the file `inspect` names in its `curl` field in front of it, and write `http://localhost` in place of `http://127.0.0.1:$PORT`:
+
+    curl -sS -K ~/.facilitator/agents/LANE.curl "http://localhost/fresh?owner=LANE"
+    curl -sS -K ~/.facilitator/agents/LANE.curl -X POST --data-binary @reply.txt "http://localhost/reply?box=ID"
+
+- That file holds your lane's own key, given to you when you joined; it is for this account alone. Never print it, copy it or put it on a card.
+- Only your own lane answers: `/wait`, `/ack`, `/fresh`, `/unread` and `/create` with `owner=` your lane, and `/reply`, `/note`, `/working`, `/ping`, `/title`, `/testing`, `/park`, `/progress` and `/context` on your lane's cards. Everything else, `/state` and the magic box included, is refused.
+- When the link is down a call fails to connect. The card waits and so do the owner's messages, which queue on the Mac: keep working, and try the call again a minute later. `scripts/onboard.py wait` keeps trying through a drop by itself.
+
 ## Replies
 
 - 100 to 150 words or fewer. Plain conversational tone: no coined shorthand, no unexplained jargon; a term either gets defined by what it concretely does or gets dropped. Paragraph breaks and short lists over walls of text. Depth comes from choosing what to say, not from length.
@@ -75,6 +86,24 @@ Each card can have one magic box, for what a reply carries badly and the person 
 A card left unnamed gets a made-up name such as "Thistledown Pixie Waltz"; when you claim one, or one whose title only repeats the message, set a brief accurate title as part of answering it: `POST /title?box=ID`, raw text body. Keep titles short enough to sit on one line. Never set one longer than two lines: the card shrinks a title to keep it on two lines, and whatever still does not fit is cut off at the end of the second line and never seen.
 
 Omni cards are the one exception: never rename an Omni card. An Omni card is the person's place for random or miscellaneous discussion about existing cards or the state of the project. It is recognised by its title alone, which is exactly `Omni Ticket #N` for a whole number N from 1 up (for example `Omni Ticket #4`); there is no separate flag, and the page shows the same card as "Omni Card #N".
+
+## Links between cards
+
+When two cards are related, because one continues, splits from, depends on or answers the other, link them by id, from that one to the other. A link may join cards of different lanes:
+
+    curl -sS -X POST "http://127.0.0.1:$PORT/link?from=ID&to=OTHER&agent=claude"
+
+`agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. Links outlast renames and section moves and go when either card is deleted for good. The board does not show them yet, so still name the other card by its title in replies.
+
+## Card properties
+
+When you start work for a card on a git branch, set the card's branch, and its status in a few words on where that work stands; change the status as the work moves, and when the work is merged or dropped, clear both with an empty value:
+
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=BRANCH&status=building&agent=claude"
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&status=waiting+on+review&agent=claude"
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=&status=&agent=claude"
+
+`agent=` names you, as on `/link`. Each is one line of free text, up to 200 characters (write a space as `+`), kept with when it was set and by whom; setting the value it already has changes nothing. The status is your own word and is not the card's section or colour. `GET /props?box=ID` answers the card's `id` (it never changes; the board shows `m12` as 12), `title`, `owner` (its lane), `section`, `made`, `changed`, `branch` and `status`. `made` and `changed` are read from `transcript.jsonl` each time, never copied: the card's create row and its newest row, so a message, a rename, a move or a link counts as a change and reading a card does not. Times are seconds since 1970, as on `/links`. The branch and the status outlast renames and restarts, wait in the Bin with the card and go when it is deleted for good. The board does not show any of this.
 
 ## Status changes
 

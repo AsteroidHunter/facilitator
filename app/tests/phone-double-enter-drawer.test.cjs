@@ -50,6 +50,7 @@ function phonePage({ view = 'todo' } = {}) {
     els: { card: { ta, field: { focused: () => false }, sentItems: [], meta: { textContent: '' } } },
     controlShiftEnter: e => e.key === 'Enter' && e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey,
     bareControlEnter: e => e.key === 'Enter' && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey,
+    imeKey: e => e.isComposing || e.keyCode === 229,
     traySendable: () => false,
     notePhoneEnter() {}, tracePhone() {}, saveOps() {}, drawSent() {}, ensureCard: id => ctx.els[id],
     undone() {}, drawerNote() {}, endPhoneTrace() {},

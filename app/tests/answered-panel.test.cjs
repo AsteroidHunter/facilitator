@@ -1976,7 +1976,8 @@ test("both pages seat the sent panel at the foot and hand the turn a pass that d
     assert.match(text, /if \(!held && el\.reply\.dataset\.raw !== rawReply\)\{/, `${where} swaps an answer it was told to hold`);
     assert.match(text, /watchReading\((els\[b\.id\]|card)\);/, `${where} does not watch the reader's scrolling`);
     assert.match(text, /noteTyping\(ta\);/, `${where} does not note the reader's typing`);
-    assert.match(text, /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap\)\)/, `${where} does not hold the band for a run`);
+    // (the Mac board reads the band in its stage's pixels, which the phone does not scale)
+    assert.match(text, /sentBand\(el, boxBand\(el\.replyview, el\.pendwrap(, 0, stageScale \|\| 1)?\)\)/, `${where} does not hold the band for a run`);
     assert.match(text, /turnAgain = /, `${where} cannot show an answer it held back`);
   }
   // the sends: both pages draw the message faded as an arrival when it is sent,

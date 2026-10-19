@@ -14,8 +14,9 @@
 // drawing by editing the document would fail here.
 //
 // The angle inside a code span is the reader's own character and is checked to
-// still be there. Lazy continuation and nested depth are checked as the limits
-// they are and not as things being fixed.
+// still be there. A lazily continued line is drawn the way the sent card draws
+// it, outside the quote. Nested depth is checked as the limit it is and not as
+// a thing being fixed.
 //
 // The harness is tests/compose-cdp-fixture.cjs, which connects to a browser
 // that is already running and makes every tab in the background. Nothing here
@@ -53,9 +54,9 @@ const SHAPES = [
   { id: "list-containing-quote", raw: "- > alpha", drawn: ["- alpha"], quotes: 1, bullets: 1 },
   // the angle in the body of a code span is content and stays exactly there
   { id: "quote-code-angle", raw: "> `a > b`", drawn: ["`a > b`"], quotes: 1, angles: 1 },
-  // a limit, not a fix: the bundled parser reads the unprefixed line as part of
-  // the quote and the row draws a bar on it, while the sent card does not
-  { id: "quote-lazy-continuation", raw: "> alpha\nbeta", drawn: ["alpha", "beta"], quotes: 2 },
+  // the bundled parser reads the unprefixed line as part of the quote, and the
+  // sent card does not: the row draws it the card's way, with no bar
+  { id: "quote-lazy-continuation", raw: "> alpha\nbeta", drawn: ["alpha", "beta"], quotes: 1 },
 ];
 
 // input that is not a quote and must keep every character it was typed with

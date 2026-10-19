@@ -38,9 +38,11 @@ const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const ROW = "article.box.sel textarea";   // the card's typing row, whichever face it wears
 const EDGE = 0.75;                        // px two edges may differ by and still be one edge
+// tokens.py answers the home panel the pages warm at idle; the config below
+// turns its log folders off, so it reads nothing of the machine's own
 const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
                 "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
-                "index.html", "page.html"];
+                "index.html", "page.html", "tokens.py"];
 
 // invented content, long enough to wrap several times at the width of a phone
 const WRAPPER = "- An ordinary list item that wraps across several lines at phone " +
@@ -370,7 +372,9 @@ before(async () => {
     await copyFile(path.join(ROOT, "assets", name), path.join(fixtureDir, "assets", name));
   }
   // the board's own default is off; these checks read the editor, so it is on
-  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({ compose_format_default: true }));
+  await writeFile(path.join(dataOf(fixtureDir), "run.config.json"), JSON.stringify({
+    compose_format_default: true, token_logs: { claude: [], codex: [] },
+  }));
   await writeFile(path.join(dataOf(fixtureDir), "seed.json"), JSON.stringify({
     title: "compose column fixture",
     items: [

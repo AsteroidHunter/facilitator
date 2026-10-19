@@ -1,0 +1,342 @@
+/* The folder picker's sheet (folder-picker.js draws it): "Open a new folder"
+   on the Mac board, the typed page and the phone page. It is fetched with the
+   picker the first time a folder is asked for, never on boot.
+   The approved mocks are the spec, copied as measured: the panel is mocks A and
+   B in one, a list or columns in its well, and the drop is mock C, on the phone
+   page. Every class is fp- so nothing here meets a page's own (the phone's
+   tickets are .trow too). The glass is the board's .qn-glass (card-tokens.css),
+   and the colours, faces, --sq, --press, --chipoff, --bar-mark and --gentle are
+   the board's own tokens. What the board keeps under another element is
+   declared again on the picker, with where it comes from. Where the board's
+   file navigator turns a crumb to the accent, the picker uses ink */
+.fp{
+  /* the magic box's bar and its cross's soft red seat (card-tokens.css, .magicbox) */
+  --fp-x:17px; --fp-gap:6.5px; --fp-bar:calc(var(--fp-x) + 2 * var(--fp-gap)); --fp-pink:#FF7A72;
+  /* the fill a project row takes under the pointer (--row-hover, index.html) */
+  --fp-hover:#FFF8EF;
+  /* the faint ink of ticket ages and placeholders, the chevrons' and crumb
+     separators' grey, the folder's brown and a chosen row's outline: the file
+     navigator's (index.html, :is(#magic3, #magic4) .fnavrow) */
+  --fp-faint:#B4AA99; --fp-chev:#C9BFAE; --fp-folder:#C69455; --fp-selline:#EADCC9;
+  box-sizing:border-box; font:14px/1.4 var(--sans); color:var(--ink);
+  -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+}
+.fp *, .fp *::before, .fp *::after{box-sizing:border-box}
+:where(.fp) button{margin:0; font:inherit; color:inherit; -webkit-appearance:none; appearance:none}
+.fp input{-webkit-user-select:text; user-select:text}
+.fp svg.fp-i{display:block; flex:none; width:15px; height:15px}
+
+/* ---- the shade it stands on --------------------------------------------------- */
+/* the one the Mac's project list dims the board with (#projshade, index.html):
+   the board's ink at 24 percent, in over .26s. a click on it closes the
+   picker, as it shuts the list. on the phone it is the phone list's own, the
+   drawers' shade at two thirds (#projshade, m.html) */
+.fp-veil{position:fixed; inset:0; z-index:8000;
+  background-color:color-mix(in srgb, var(--ink) 24%, transparent);
+  animation:fp-veilin .26s ease; transition:background-color .26s ease}
+.fp-veil.fp-soft{background-color:rgba(33,29,23,.12); animation:fp-veilin .16s ease-out; transition:background-color .14s ease-out}
+.fp-veil.fp-going{background-color:transparent; pointer-events:none}
+@keyframes fp-veilin{from{background-color:transparent}}
+
+/* ---- the glass it is drawn on ----------------------------------------------- */
+/* the pill list's 14px corner, the glass's shadows with the bar's one-line top
+   rim (index.html, the bar's glass) and the settings page's own lift off the
+   board (card-tokens.css, .sp-mac). it opens and closes with the pill list's
+   motion: a .16s fade and a .22s rise in, .14s out */
+.fp-panel{position:fixed; z-index:8001; display:flex; flex-direction:column; overflow:hidden; border-radius:14px;
+  animation:fp-fade .16s ease-out both, fp-rise .22s cubic-bezier(.2,.9,.25,1) both;
+  transition:opacity .14s ease-out, transform .14s ease-out}
+.fp-panel.qn-glass{border-radius:14px; box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06),
+    0 12px 32px rgba(0,0,0,.14)}
+.fp-panel > *{position:relative}
+.fp-panel:focus{outline:none}
+@keyframes fp-fade{from{opacity:0}}
+@keyframes fp-rise{from{transform:translateY(-4px) scale(.98)}}
+.fp-panel.fp-going{animation:none; opacity:0; transform:translateY(-4px) scale(.98); pointer-events:none}
+.fp-going *{pointer-events:none}
+@media (prefers-reduced-motion: reduce){
+  .fp-veil, .fp-panel, .fp-menu, .fp-fresh{animation:none; transition:none}
+}
+
+/* ---- the pieces both drawings share ------------------------------------------- */
+/* the bar with a title (the drop's): the magic box's, --fp-bar tall, a line
+   along its foot, and at its right the one cross in its soft red seat */
+.fp-titlebar{flex:none; display:flex; align-items:center; gap:8px; height:var(--fp-bar); padding:0 var(--fp-gap) 0 14px}
+.fp-titlebar::after{content:""; position:absolute; left:0; right:0; bottom:0; height:0; border-top:var(--edge) solid var(--line); pointer-events:none}
+.fp-title{flex:1; min-width:0; font:625 13px/1 var(--inter); color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+/* the cross: MAGIC_CROSS (card-logic.js) at the card bar's mark size in the
+   box's round seat, shaded with the one press shade, its tap reaching past it */
+.fp-x{position:relative; flex:none; display:grid; place-items:center;
+  width:var(--fp-x); height:var(--fp-x); padding:0; border:none; border-radius:50%;
+  background:var(--fp-pink); color:#1e1e1e; cursor:pointer}
+.fp-x:hover, .fp-x:active{background:color-mix(in srgb, #000 var(--press), var(--fp-pink))}
+.fp-x:focus-visible{outline:2px solid var(--line); outline-offset:1px}
+.fp-x svg{display:block; width:var(--bar-mark); height:var(--bar-mark)}
+.fp-x::after{content:""; position:absolute; inset:-8px}
+/* the marks on a bar: the settings page's (card-tokens.css, .sp-icon), with
+   the chips' off fade when they cannot be used */
+.fp-ib{flex:none; display:flex; align-items:center; gap:6px; padding:6px; border:none; background:none;
+  border-radius:var(--sq); color:var(--sub); cursor:pointer; transition:color .18s;
+  font:500 13px/15px var(--sans); white-space:nowrap}
+.fp-ib:hover{color:var(--ink)}
+.fp-ib:disabled{opacity:var(--chipoff); cursor:default}
+.fp-ib:disabled:hover{color:var(--sub)}
+.fp-ib:focus-visible, .fp-btn:focus-visible, .fp-sbi:focus-visible, .fp-mr:focus-visible, .fp-crumb:focus-visible{outline:1.5px solid var(--line); outline-offset:1px}
+/* buttons: the new tab's start button face (index.html, #npstart) at the
+   settings button's padding and disabled fade (card-tokens.css, .sp-btn);
+   Choose wears the ink the settings switch wears when on */
+.fp-btn{flex:none; font:500 14px/1.2 var(--inter); color:var(--ink); background:var(--card);
+  border:var(--edge) solid var(--line); border-radius:7px; padding:calc(9px - var(--edge-drawn)) calc(14px - var(--edge-drawn));
+  cursor:pointer; transition:background-color .12s; white-space:nowrap}
+.fp-btn:hover, .fp-btn:active{background:var(--fp-hover)}
+.fp-btn.fp-go{background:var(--ink); border-color:var(--ink); color:#fff}
+.fp-btn.fp-go:hover, .fp-btn.fp-go:active{background:color-mix(in srgb, #000 var(--press), var(--ink))}
+.fp-btn:disabled{opacity:.6; cursor:default}
+.fp-btn.fp-go:disabled:hover{background:var(--ink)}
+/* a field: the settings field (card-tokens.css, .setfield), a path in the
+   board's mono, the ink's edge while typed in and the warning red when the
+   path it holds was refused */
+.fp-fld{min-width:0; margin:0; padding:7px 10px; font:12.5px/1.35 var(--mono); color:var(--ink);
+  background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--sq); outline:none;
+  transition:border-color .18s}
+.fp-fld:focus{border-color:var(--ink)}
+.fp-fld.fp-bad{border-color:var(--must)}
+.fp-fld::placeholder{color:var(--fp-faint)}
+/* a folder row: the file navigator's row (index.html, .fnavrow), its name in
+   the project list's type */
+.fp-fr{display:flex; align-items:center; gap:7px; flex:none; width:100%; text-align:left; border:none;
+  background:none; border-radius:5px; padding:6px 9px; cursor:pointer;
+  font:400 14px/17px var(--sans); color:var(--ink); overflow:hidden; white-space:nowrap;
+  transition:background-color .12s ease-out}
+.fp-fr:hover, .fp-fr.fp-hot, .fp-fr.fp-sel{background:var(--fp-hover)}
+.fp-fr.fp-hot, .fp-fr.fp-sel{outline:1px solid var(--fp-selline)}
+.fp-fr:focus-visible{outline:1px solid var(--fp-selline)}
+.fp-fr .fp-fi, .fp-fi{color:var(--fp-folder)}
+.fp-fr .fp-nm{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis}
+.fp-fr .fp-dt{flex:none; width:118px; font:11.5px var(--mono); color:var(--sub)}
+.fp-fr .fp-ct{flex:none; width:64px; text-align:right; font:11.5px var(--mono); color:var(--sub)}
+.fp-fr svg.fp-cx{width:12px; height:12px; color:var(--fp-chev)}
+/* the name of a new folder, typed in its own row */
+.fp-rn{flex:1; min-width:0; margin:0; padding:1px 5px; font:inherit; color:var(--ink); background:#fff;
+  border:var(--edge) solid var(--ink); border-radius:var(--sq); outline:none}
+/* a place or a machine in the sidebar or a pop-up: the pill list's row
+   (index.html, #projmenu .projrow), headings from the outline's bucket labels */
+.fp-sbh{padding:10px 12px 4px; font:11px var(--mono); letter-spacing:.09em; text-transform:uppercase; color:var(--sub)}
+.fp-sbi, .fp-mr{position:relative; flex:none; display:flex; align-items:center; gap:10px;
+  width:100%; min-height:32px; padding:0 12px; border:none; border-radius:9px; background:transparent;
+  font:400 14px/17px var(--sans); color:var(--ink); text-align:left; cursor:pointer;
+  transition:background-color .12s ease-out}
+.fp-sbi:hover, .fp-sbi.fp-on, .fp-mr:hover, .fp-mr.fp-on{background:color-mix(in srgb, var(--ink) 6%, transparent)}
+.fp-sbi svg.fp-i, .fp-mr svg.fp-i{color:var(--sub)}
+.fp-sbi.fp-on svg.fp-i, .fp-mr.fp-on svg.fp-i{color:var(--ink)}
+.fp-sbi .fp-nm, .fp-mr .fp-nm{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.fp-sbi.fp-off .fp-nm, .fp-mr.fp-off .fp-nm{color:color-mix(in srgb, var(--sub) 55%, transparent)}
+.fp-mr .fp-fi{color:var(--fp-folder)}
+.fp-tag{flex:none; font:400 10.5px var(--mono); color:var(--fp-faint)}
+.fp-dot{flex:none; width:6px; height:6px; border-radius:50%; background:var(--green)}
+.fp-dot.fp-off{background:none; box-shadow:inset 0 0 0 1px var(--fp-faint)}
+/* a pop-up: the pill's list itself, its separator too */
+.fp-menu{position:absolute; z-index:6; display:flex; flex-direction:column; min-width:220px; max-width:320px; padding:6px; border-radius:14px;
+  animation:fp-fade .16s ease-out both, fp-rise .22s cubic-bezier(.2,.9,.25,1) both; transform-origin:0 0}
+.fp-menu.qn-glass{border-radius:14px; box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06)}
+.fp-msep{flex:none; height:var(--edge); margin:4px 8px; background:var(--line)}
+/* a folder the board may not read: the file navigator's card for a file it
+   cannot open (index.html, .fnavunopen) */
+.fp-card{margin:auto; max-width:320px; text-align:center; display:flex; flex-direction:column; align-items:center; gap:6px; padding:16px}
+.fp-card svg.fp-i{width:22px; height:22px; color:var(--sub); margin-bottom:2px}
+.fp-cardt{font:500 13px var(--sans); color:var(--ink); overflow-wrap:anywhere}
+.fp-cardw{font:12px/1.5 var(--sans); color:var(--sub)}
+/* a listing on its way, once it takes a while: the card's working spinner */
+.fp-ld{margin:auto; display:flex; align-items:center; gap:8px; font:11.5px var(--mono); color:var(--sub)}
+.fp-spin{display:block; width:11px; height:11px; font:600 11px/11px var(--mono); text-align:center; color:var(--ink)}
+.fp-empty{font:italic 12.5px var(--sans); color:var(--fp-faint); padding:8px 12px}
+.fp-note{flex:none; font:10.5px/1.35 var(--mono); color:var(--sub); padding:4px 9px 5px; border-top:var(--edge) solid var(--line)}
+.fp-note.fp-bad{color:var(--must)}
+/* lists fade in on the board's .18s */
+.fp-fresh{animation:fp-fade .18s ease}
+/* the trail of folders: the file navigator's crumbs (index.html, .fnavcrumb),
+   the hover in ink where the navigator's turns to the accent */
+.fp-crumbs{display:flex; align-items:center; gap:1px; min-width:0; overflow:hidden; white-space:nowrap}
+.fp-crumb{flex:none; min-width:0; max-width:160px; border:none; background:none; border-radius:4px; cursor:pointer;
+  padding:2px 4px; font:inherit; color:inherit; overflow:hidden; text-overflow:ellipsis; transition:background-color .12s ease-out}
+.fp-crumb:hover{background:var(--fp-hover); color:var(--ink)}
+.fp-crumb.fp-last{color:var(--ink)}
+.fp-csep{flex:none; color:var(--fp-chev)}
+.fp-crumb svg.fp-i{display:inline-block; width:12px; height:12px; vertical-align:-1px; margin-right:4px}
+/* a list that scrolls dissolves at its ends, the ticket list's ramp;
+   --fp-up and --fp-down are set by the script as it scrolls */
+.fp-ls, .fp-col{-webkit-mask-image:linear-gradient(to bottom,
+    rgba(0,0,0,0) 0, rgba(0,0,0,.35) calc(var(--fp-up, 0px)*.38), rgba(0,0,0,.80) calc(var(--fp-up, 0px)*.72),
+    rgba(0,0,0,1) var(--fp-up, 0px), rgba(0,0,0,1) calc(100% - var(--fp-down, 0px)),
+    rgba(0,0,0,.80) calc(100% - var(--fp-down, 0px)*.72), rgba(0,0,0,.35) calc(100% - var(--fp-down, 0px)*.38), rgba(0,0,0,0) 100%);
+  mask-image:linear-gradient(to bottom,
+    rgba(0,0,0,0) 0, rgba(0,0,0,.35) calc(var(--fp-up, 0px)*.38), rgba(0,0,0,.80) calc(var(--fp-up, 0px)*.72),
+    rgba(0,0,0,1) var(--fp-up, 0px), rgba(0,0,0,1) calc(100% - var(--fp-down, 0px)),
+    rgba(0,0,0,.80) calc(100% - var(--fp-down, 0px)*.72), rgba(0,0,0,.35) calc(100% - var(--fp-down, 0px)*.38), rgba(0,0,0,0) 100%)}
+.fp ::-webkit-scrollbar{display:none}
+.fp *{scrollbar-width:none}
+
+/* ---- the panel: mocks A and B in one -------------------------------------------- */
+/* 792 by 468 on the 1440 by 900 board, the one width that suits both views,
+   centred under the board's 41px bar, never smaller than the sidebar and a
+   list need and never past the window */
+.fp-a{left:0; right:0; top:41px; bottom:0; margin:auto;
+  width:clamp(600px, 55vw, calc(100vw - 32px)); height:clamp(380px, 52vh, calc(100vh - 65px))}
+.fp-a .fp-tb{flex:none; height:44px; display:flex; align-items:center; gap:2px; padding:0 13.5px 0 8px}
+.fp-a .fp-tb::after{content:""; position:absolute; left:0; right:0; bottom:0; border-top:var(--edge) solid var(--line)}
+/* the view switch, as the Mac's own view buttons stand after back and
+   forward: the home chart's pill (home-widgets.css, .tk-pill), two marks of
+   one width, the one showing on a white seat that slides under the other
+   when it is pressed */
+.fp-view{flex:none; position:relative; display:inline-grid; grid-template-columns:1fr 1fr; gap:2px; padding:2px; margin-left:6px;
+  border-radius:7px; background:color-mix(in srgb, var(--paper) 92%, #fff 8%); border:var(--edge) solid var(--line)}
+.fp-thumb{position:absolute; top:2px; bottom:2px; left:2px; width:calc((100% - 6px) / 2);
+  border-radius:5px; background:var(--card); box-shadow:0 1px 2px rgba(60,45,20,.14);
+  transition:transform .28s var(--gentle); pointer-events:none}
+.fp-view[data-on="columns"] .fp-thumb{transform:translateX(calc(100% + 2px))}
+.fp-vs{position:relative; z-index:1; display:grid; place-items:center; width:30px; height:22px; padding:0;
+  border:none; border-radius:5px; background:transparent; color:var(--sub); cursor:pointer;
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:color .18s, box-shadow .16s ease-out}
+.fp-vs:hover, .fp-vs.fp-on{color:var(--ink)}
+.fp-vs:active{box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:color .18s, box-shadow .08s ease-in}
+.fp-vs:focus-visible{outline:1.5px solid var(--line); outline-offset:1px}
+.fp-vs svg.fp-i{width:14px; height:14px}
+@media (prefers-reduced-motion: reduce){ .fp-thumb{transition:none} }
+/* the location pop-up: the project pill's own glass pill */
+.fp-a .fp-locw{position:relative; margin-left:6px; min-width:0}
+.fp-a .fp-loc{display:flex; align-items:center; gap:7px; height:30px; max-width:300px; padding:0 12px 0 11px; border-radius:15px;
+  font:400 14px/17px var(--sans); color:var(--ink); cursor:pointer}
+.fp-a .fp-loc.qn-glass{border-radius:15px; box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06)}
+.fp-a .fp-loc:disabled{cursor:default}
+.fp-a .fp-loc .fp-fi{color:var(--fp-folder)}
+.fp-a .fp-loc svg.fp-i{color:var(--sub)}
+.fp-a .fp-loc svg.fp-i.fp-fi{color:var(--fp-folder)}
+.fp-a .fp-loc .fp-nm{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.fp-a .fp-loc svg.fp-cv{width:12px; height:12px; color:var(--sub)}
+.fp-a .fp-locw .fp-menu{left:0; top:calc(100% + 6px)}
+.fp-a .fp-tb .fp-sp{flex:1}
+.fp-a .fp-tb .fp-x{margin-left:8px}
+.fp-a .fp-bd{flex:1; min-height:0; display:flex; padding:0 12px 0 0}
+.fp-a .fp-sb{flex:none; width:184px; overflow-y:auto; padding:2px 8px 8px}
+/* the folders stand in the new tab's white sunken well (index.html, #nppanel) */
+.fp-a .fp-well{flex:1; min-width:0; margin-top:10px; display:flex; flex-direction:column; overflow:hidden;
+  background:#FFFFFF; border-radius:4px; box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
+/* list view (mock A): Name, Modified, Items */
+.fp-a .fp-lh{flex:none; display:flex; align-items:center; gap:7px; padding:6px 13px 5px;
+  font:11px var(--mono); color:var(--sub); border-bottom:var(--edge) solid var(--line)}
+.fp-a .fp-lh .fp-c-n{flex:1; padding-left:22px}
+.fp-a .fp-lh .fp-c-d{width:118px}
+.fp-a .fp-lh .fp-c-c{width:64px; text-align:right}
+.fp-a .fp-lh .fp-c-x{width:12px}
+.fp-a .fp-ls{flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:2px; padding:4px}
+.fp-a .fp-ls > .fp-card, .fp-a .fp-ls > .fp-ld{margin:auto}
+/* column view (mock B): a column per folder, the row scrolled to the last,
+   the folders along the path in the settings page's light grey. three
+   columns fill the row, as mock B's three 206px columns fill its 620, so a
+   wider or narrower panel keeps that share; never under 170px */
+.fp-a .fp-cols{flex:1; min-height:0; display:flex; overflow-x:auto; overflow-y:hidden}
+.fp-a .fp-col{flex:none; width:max(170px, calc(100% / 3)); overflow-y:auto; padding:4px; display:flex; flex-direction:column; gap:1px;
+  border-right:var(--edge) solid rgba(0,0,0,.08)}
+.fp-a .fp-col .fp-fr{padding:5px 8px}
+.fp-a .fp-col .fp-fr.fp-path{background:color-mix(in srgb, #000 4.5%, #fff); outline:none}
+.fp-a .fp-col .fp-fr.fp-cur{background:var(--fp-hover); outline:1px solid var(--fp-selline)}
+.fp-a .fp-col.fp-wide{width:100%; flex:1}
+.fp-a .fp-col > .fp-card, .fp-a .fp-col > .fp-ld{margin:auto}
+/* the path bar along the well's foot: the file navigator's crumbs in mono */
+.fp-a .fp-pathbar{flex:none; height:30px; display:flex; align-items:center; padding:0 8px;
+  border-top:var(--edge) solid var(--line); font:11.5px var(--mono); color:var(--sub)}
+.fp-a .fp-pathbar .fp-crumbs{flex:1}
+/* the foot: the path field, Cancel and Choose */
+.fp-a .fp-ft{flex:none; height:58px; display:flex; align-items:center; gap:8px; padding:0 12px 0 14px}
+.fp-a .fp-ft label{flex:none; font:12px var(--sans); color:var(--sub)}
+.fp-a .fp-ft .fp-fld{flex:1}
+
+/* ---- the drop: mock C, on the phone page --------------------------------------- */
+/* it rises from the phone's project capsule the way the phone's project list
+   does: from the foot's middle, scaled from .9, .16s and .22s in, .14s out.
+   504 by 630 at most, kept inside the room above the row of buttons (the
+   script sets its place) */
+.fp-c{transform-origin:50% 100%;
+  animation:fp-fade .16s ease-out both, fp-pop .22s cubic-bezier(.2,.9,.25,1) both}
+.fp-c.fp-going{transform:scale(.9)}
+@keyframes fp-pop{from{transform:scale(.9)}}
+/* the machines are the ticket list's section names: chosen by weight and ink,
+   a divider under them, the press shade on press */
+.fp-c .fp-mh{flex:none; display:flex; gap:4px; padding:6px 14px 0}
+.fp-c .fp-mh::after{content:""; position:absolute; left:14px; right:14px; top:calc(100% + 6px); border-top:var(--edge) solid var(--line)}
+.fp-c .fp-mt{flex:1 1 0; min-width:0; display:flex; align-items:center; justify-content:center; gap:6px;
+  padding:6px 0 5px; border:1px solid transparent; border-radius:7px; background:transparent; cursor:pointer;
+  font:500 14px/16px var(--sans); color:var(--sub);
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:color .18s, box-shadow .16s ease-out}
+.fp-c .fp-mt:hover{color:var(--ink)}
+.fp-c .fp-mt.fp-on{color:var(--ink); font-weight:700}
+.fp-c .fp-mt:active{box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:color .18s, box-shadow .08s ease-in}
+.fp-c .fp-mt.fp-off span:last-child{color:color-mix(in srgb, var(--sub) 55%, transparent)}
+/* the trail, with the up arrow before it and the pencil after it */
+.fp-c .fp-nav{flex:none; display:flex; align-items:center; gap:4px; height:38px; margin-top:13px; padding:0 10px 0 8px;
+  font:12.5px var(--mono); color:var(--sub)}
+.fp-c .fp-nav .fp-crumbs{flex:1}
+/* the phone zooms the page to a field typed under 16px, so this one is 16 */
+.fp-c .fp-nav .fp-fld{flex:1; padding:5px 8px; font-size:16px}
+/* the places on a machine: the bar's faint project names (index.html, #tabbar .psug) */
+.fp-c .fp-sc{flex:none; display:flex; flex-wrap:wrap; padding:0 2px}
+.fp-c .fp-psug{flex:none; height:28px; display:flex; align-items:center; margin:0; padding:0 14px; border:none; border-radius:10px; background:none;
+  font:400 14px/17px var(--sans); color:color-mix(in srgb, var(--sub) 55%, transparent); cursor:pointer; transition:color .18s}
+.fp-c .fp-psug:hover, .fp-c .fp-psug.fp-on{color:var(--ink)}
+.fp-c .fp-ls{flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:6.3px; padding:8px 16px 4px}
+.fp-c .fp-ls > .fp-card, .fp-c .fp-ls > .fp-ld{margin:auto}
+/* the folders are tickets (index.html, .trow): white rows on the glass, the
+   chosen ticket's lift under the pointer */
+.fp-c .fp-trow{position:relative; flex:none; display:flex; align-items:center; gap:12px; width:100%; height:52px; padding:0 12px;
+  border:var(--edge) solid var(--line); border-radius:5px; background:#fff; box-shadow:0 1px 4px rgba(60,45,20,.05);
+  overflow:hidden; cursor:pointer; text-align:left;
+  transition:border-color .3s, background-color .3s, box-shadow .2s, transform .2s}
+.fp-c .fp-trow:hover, .fp-c .fp-trow.fp-hot{transform:translateY(-1px); box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+.fp-c .fp-trow .fp-fi{color:var(--fp-folder)}
+.fp-c .fp-ttl{flex:1; min-width:0; display:block; font:500 17px/1.3 var(--sans); color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.fp-c .fp-tmeta{flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:2px}
+.fp-c .fp-tage{font:600 12.5px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums; min-height:16px}
+.fp-c .fp-teng{font:400 10.5px var(--mono); color:var(--fp-faint)}
+.fp-c .fp-trow .fp-rn{font:500 17px/1.3 var(--sans)}
+.fp-c .fp-err{flex:none; padding:8px 12px; font:11px/1.4 var(--mono); color:var(--must)}
+/* the new-card plus under the ticket list (index.html, #tiknew) */
+.fp-c .fp-plus{flex:none; align-self:center; width:calc(100% * .86 * .6); height:calc(24px * .9); box-sizing:content-box;
+  margin:4px 0 6px; padding:5px 0 6px; border:1px solid transparent; border-radius:7px; background:transparent;
+  display:flex; align-items:center; justify-content:center; color:var(--sub); cursor:pointer;
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:color .18s, box-shadow .16s ease-out}
+.fp-c .fp-plus:hover{color:var(--ink)}
+.fp-c .fp-plus:active{box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084); transition:color .18s, box-shadow .08s ease-in}
+.fp-c .fp-plus:disabled{opacity:var(--chipoff); cursor:default}
+.fp-c .fp-plus svg{display:block; width:calc(24px * .9); height:calc(24px * .9); stroke-width:calc(1.6 / .9); opacity:.42}
+.fp-c .fp-plus span{margin-left:6px; font:400 13px var(--sans); opacity:.6}
+.fp-c .fp-ft{flex:none; display:flex; align-items:center; gap:8px; height:60px; padding:0 14px; border-top:var(--edge) solid var(--line)}
+.fp-opens{flex:1; min-width:0; display:flex; flex-direction:column; gap:1px}
+.fp-opens span{font:11px var(--sans); color:var(--sub)}
+.fp-opens code{font:12px var(--mono); color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}

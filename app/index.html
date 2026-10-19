@@ -49,7 +49,7 @@
      text and fields opt back in; buttons inside those areas stay unselectable.
      Keep this here, outside the styles shared with the phone. */
   body, button{-webkit-user-select:none; user-select:none}
-  .reply, .mreply, .answmsg, #magicbox .mbtext, .cm-content, input, textarea,
+  .reply, .mreply, .answmsg, #magicbox .mbtext, #pipebox .mbtext, .cm-content, input, textarea,
   [contenteditable=""], [contenteditable="true" i], [contenteditable="plaintext-only" i]{
     -webkit-user-select:text; user-select:text;
   }
@@ -355,6 +355,22 @@
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
 
+  /* ---- a project on a server out of reach --------------------------------- */
+  /* the open project's server has been out of reach for 30 seconds (the
+     board's word for it, remote on the state): the board under the bar fades
+     and one line over it says why. opacity alone, so nothing on the stage
+     moves, and nothing here takes the pointer, so the card's composer still
+     takes typing and sending. home has no project and shows neither; the
+     stage's own opacity transition (body.focus #stage) carries the fade */
+  body.remotedown:not(.home) #stage{opacity:.4}
+  #remotenote{
+    position:fixed; top:52px; left:50%; transform:translateX(-50%); z-index:30;
+    max-width:min(60ch, calc(100vw - 40px)); padding:8px 14px; pointer-events:none;
+    font:13px/1.4 var(--sans); color:var(--ink); text-align:center;
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+  }
+  body.home #remotenote{display:none}
+
   /* ---- the startup curtain: the phone's globe (m.html #loading) ----------- */
   /* over the whole window from the page's first paint until the board can be
      used, then the phone's 260ms fade (curtainDrawn, by poll). the same white,
@@ -525,6 +541,8 @@
      card, each kept in step with the box's own classes. the lowered card
      below still sits level, though it fades the same */
   body.focus:not(.home, .editmode):where(.mbon.mbheld) main{box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}
+  /* the same while the response piped out beside it holds the keys (pipeHold) */
+  body.focus:not(.home, .editmode):where(.pipekeys) main{box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}
   /* and it sits level with the board once it is lowered, by a double click on
      the empty board and nothing else. browsed to or selected, it stands up
      either way. its edge line stays. its magic box sits level with it, held
@@ -1610,6 +1628,53 @@
   #magicbox::-webkit-scrollbar, #magicbox *::-webkit-scrollbar{display:none}
   #magicbox .mbbody{overflow-x:hidden}
   #magicbox .mbtext{padding:var(--mb-lead) var(--mb-inset, 16px) var(--mb-inset, 16px)}
+  /* a long reply's second step (pipeStep). the typing row grows to the cap
+     above, its first step, and once what is typed runs past that it stands at
+     --pipe-tall, which the script works out from where the response's first
+     two lines stand on the card, and scrolls inside that */
+  body.focus .box.sel.piped :is(textarea, .cffield .cm-scroller){max-height:var(--pipe-tall)}
+  /* the response piped out beside the card at that step (pipeSync): the magic
+     box's sheet, placed and sized as the box is and rising and sinking as it
+     does (magicRise), on the card's white with the box's corners and shadows,
+     the faint one and the card's own while it holds the keys. it has no edge
+     and no bar, and is never faded: its words dissolve at both ends of their
+     scroll as the box's do (the view's --upband and --downband), and stand in
+     the card answer's own type with its inset on every side */
+  #pipebox{display:none}
+  body.focus #pipebox.on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
+  body.focus:is(.home, .editmode) #pipebox.on{display:none}
+  #pipebox{background:var(--card); border:none; border-radius:var(--mb-round);
+    box-shadow:var(--shade-lighter); transition:box-shadow .2s}
+  #pipebox.keys{box-shadow:var(--shade-raised)}
+  body.lowered #pipebox.on{box-shadow:none}
+  #pipebox.rising{--rise:0; transition:none;
+    box-shadow:0 calc(3px * var(--rise)) calc(14px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
+      0 calc(1px * var(--rise)) calc(2px * var(--rise)) rgba(60,45,20,calc(.06 * var(--rise)))}
+  #pipebox.rising.keys{
+    box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
+      0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
+  #pipebox.rising > *{opacity:var(--rise)}
+  #pipebox .mbbar{display:none}
+  #pipebox, #pipebox *{scrollbar-width:none}
+  #pipebox::-webkit-scrollbar, #pipebox *::-webkit-scrollbar{display:none}
+  #pipebox .mbbody{margin:0; overflow-x:hidden}
+  #pipebox .mbtext{padding:var(--mb-inset); font-size:18px; line-height:1.55}
+  #pipebox .mbtext[contenteditable]{outline:none}   /* with the response's caret in it (pipeEnter) */
+  /* the brace from the card to it (pipeLine): a } on the card's right and a {
+     on its left, straight lines meeting square, dashed as the box's lines are
+     and in the card's edge colour, beneath the card and the response, with the
+     same shadow on its group */
+  #pipeline{display:none}
+  body.focus #pipeline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
+    overflow:visible; pointer-events:none; z-index:0}
+  body.focus #pipeline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
+  body.lowered #pipeline.on > g{filter:none}
+  body.focus:is(.home, .editmode) #pipeline.on{display:none}
+  /* piped to the card's left, it lies over the ticket list and the clock, which
+     fade well down while it stands there (body.pipeleft) over the time and
+     curve it rises on (RISE_MS), and come back as it sinks */
+  body.focus :is(#tickets, #clockbox){transition:opacity 1s cubic-bezier(.455, .03, .515, .955)}
+  body.focus.pipeleft :is(#tickets, #clockbox){opacity:.26}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
@@ -3378,7 +3443,7 @@
   /* ---- new-project tab: the owner's landing ------------------------------ */
   /* one centered screen, the dotted grid off: the wordmark over a sunken
      white well listing the open folders, the current one bold, then the
-     raised start button that opens the system folder chooser. All landing
+     raised start button that opens the board's folder picker. All landing
      type is Inter (row paths stay grey mono); no text on this screen may
      be orange: orange lives only in the well's text selection and in its
      scrollbar thumb. Centers in the page's frame, untouched by the stage
@@ -3949,6 +4014,15 @@
 <!-- the lines from the card to its magic box, two dashed lines beneath the
      card and the box: before the card on the page, so it is drawn over them -->
 <svg id="mbline" aria-hidden="true"></svg>
+<!-- the card's response piped out beside it while a long reply is typed: the
+     magic box's sheet and placing, with no edge (pipeSync); its bar is never
+     shown, and is there for the box's view, which measures one. then the brace
+     that ties it to the card, beneath the card as the box's lines are -->
+<section id="pipebox" class="magicbox" aria-label="The agent's response">
+  <div class="mbbar"></div>
+  <div class="mbbody"></div>
+</section>
+<svg id="pipeline" aria-hidden="true"></svg>
 <main>
   <div id="rail" class="trio">
     <span id="rail-start"></span>
@@ -3964,10 +4038,10 @@
 <!-- the new-project landing lives outside the stage: it centers on the real
      window, untouched by the stage transform or any saved drag layout.
      One screen: the wordmark, the open-folders well, the start button that
-     opens the system folder chooser. -->
+     opens the board's folder picker. -->
 <div id="newproj">
   <div id="nphome">
-    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.2.441</span></span></div>
+    <div id="npbrand"><img id="npmark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" alt=""><span id="npbrandcopy"><span id="npbrandname">Facilitator</span><span id="npversion">v0.2.450</span></span></div>
     <div id="nppanel">
       <div id="nphead">Active Folders</div>
       <div id="nprows"></div>
@@ -4621,7 +4695,7 @@ projChev.addEventListener("keydown", e => {
   projChev.click();
 });
 // the list's own clicks: a row chooses its project, the last row opens the
-// Mac's folder chooser as the home page's button does. the release that ends
+// board's folder picker as the home page's button does. the release that ends
 // a carry is not a choice
 projMenu.addEventListener("click", e => {
   const row = e.target.closest?.(".projrow");
@@ -4869,7 +4943,7 @@ function renderHome(st, onHome = !draft && homeOpen){
   const box = document.getElementById("nprows");
   const owners = allRowsOf(st);
   const from = onHome ? "" : draft.from;
-  const sig = owners.map(ow => ow + labelOf(st, ow) + ((st.pwds || {})[ow] || "") + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + from + (onHome ? "|home" : "");
+  const sig = owners.map(ow => ow + labelOf(st, ow) + lanePlace(st, ow) + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + from + (onHome ? "|home" : "");
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.textContent = "";
@@ -4877,7 +4951,7 @@ function renderHome(st, onHome = !draft && homeOpen){
     const shut = tabClosed(ow, st);
     const row = h("div", "nprow" + (!onHome && ow === from ? " sel" : "") + (shut ? " shut" : ""));
     row.appendChild(h("span", "npname", labelOf(st, ow)));
-    row.appendChild(h("span", "nppath", (st.pwds || {})[ow] || ""));
+    row.appendChild(h("span", "nppath", lanePlace(st, ow)));
     if (shut) row.title = "click to reopen this project";
     if (shut || onHome) row.addEventListener("click", () => { if (shut) reopenTab(ow); else setTab(ow); });
     box.appendChild(row);
@@ -4897,59 +4971,47 @@ document.getElementById("homeico").addEventListener("click", () => {
   }
   if (lastState) renderHome(lastState, true);
 });
-// the start button hands folder choosing to the system: GET /pickdir opens
-// the desktop chooser and answers with the chosen path, which then creates
-// the lane the same way the old in-page browser did. the home page asks the
-// same way and ends the same way, on the new project's own board, and so does
-// "Open a new folder" at the foot of the pill's list, from wherever it is
+// the start button opens the board's own folder picker (folder-picker.js), the
+// panel with its list and column views, and the folder chosen in it then
+// creates the lane the same way the old in-page browser did. the home page
+// asks the same way and ends the same way, on the new project's own board, and
+// so does "Open a new folder" at the foot of the pill's list, from wherever it
+// is. the picker gives the focus back to where it was, or to the pill when the
+// list it was opened from has shut
 const homePick = { picking: false }, menuPick = { picking: false };
 document.getElementById("npstart").addEventListener("click", () => pickFolder(draft || (homeOpen ? homePick : null)));
 async function pickFolder(slot){
-  if (!slot || slot.picking) return;   // one chooser at a time
+  if (!slot || slot.picking) return;   // one picker at a time
   slot.picking = true;
   const here = () => slot === menuPick || (slot === homePick ? homeOpen : !!draft);
   try {
-    const x = await fetch("/pickdir").catch(() => null);
-    if (!here()) return;   // the page was left while the chooser sat open
-    if (!x){ projNote("could not reach the server"); return; }
-    if (x.status === 404){
-      // a live server from before the endpoint: only a restart adds it
-      projNote("the system picker needs the server restart");
-      return;
-    }
-    const r = await x.json().catch(() => null);
-    if (r?.cancelled) return;   // dismissed the chooser: nothing to say
-    if (!r?.path){ projNote("could not open the folder picker"); return; }
-    const path = r.path.replace(/\/+$/, "") || r.path;
-    const name = path.split("/").filter(Boolean).pop() || "project";
-    // a folder already behind a tab: name that tab instead of refusing. a
-    // folder whose tab was closed is the reopening itself, not a refusal: the
-    // lane is still the server's, and picking its folder here says
-    // which one is wanted back
-    const open = lastState && allRowsOf(lastState)
-      .find(ow => (lastState.pwds || {})[ow] === path);
+    // a live server from before the picker's routes answers 404: only a
+    // restart adds them
+    if (!await folderPickerBundle()){ projNote("the folder picker needs the server restart"); return; }
+    if (!here()) return;
+    const r = await FolderPicker.open({ kind: "panel",
+      back: slot === menuPick ? projPill : document.getElementById("npstart") });
+    if (!here()) return;   // the page was left while the picker sat open
+    if (!r?.path) return;  // closed without a choice: nothing to say
+    // the server names the folder and writes its path, so nothing here takes
+    // a path apart, whatever system the board runs on; r.machine is this Mac
+    // or one of the owner's servers. a folder already behind a tab, the same
+    // path on the same machine (folderProject, card-logic.js): name that tab
+    // instead of refusing. a folder whose tab was closed is the reopening
+    // itself, not a refusal: the lane is still the server's, and picking its
+    // folder here says which one is wanted back
+    const open = folderProject(lastState, r);
     if (open){
       if (tabClosed(open)) reopenTab(open);
       else projNote("that folder is already open as " + labelOf(lastState, open));
       return;
     }
-    const px = await fetch("/project?name=" + encodeURIComponent(name),
-        { method: "POST", body: path }).catch(() => null);
+    const px = await fetch(projectRoute(r), { method: "POST", body: r.path }).catch(() => null);
     const pr = px ? await px.json().catch(() => null) : null;
     if (!px?.ok || !pr?.id){
-      // the server states its refusal; the note repeats it in plain words.
-      // a duplicate answer with no visible tab of that name means the id
-      // collides with a reserved internal lane: older servers refuse those,
-      // so the note must not claim the folder is already open
-      let msg = { "body must be a folder under home": "that folder is outside your home folder",
-                  "empty name": "that folder has no usable name" }[pr?.error]
-              || "could not create that project";
-      if (pr?.error === "duplicate project"){
-        const named = lastState && allRowsOf(lastState).some(ow => labelOf(lastState, ow) === name);
-        msg = named ? "a project named " + name + " is already open"
-                    : "that name is reserved right now, the folder can be added after the next server restart";
-      }
-      projNote(msg);
+      // the server states its refusal; the note repeats it in plain words
+      // (folderRefusal, card-logic.js, which the phone says them with too)
+      projNote(folderRefusal(pr, lastState, r));
       return;
     }
     const fade = boardFadeTake();   // the board being left, as in setTab; none from home or a new tab
@@ -5813,11 +5875,15 @@ function boxHasSelection(el){
 // snap reads the same rounded number, so the answer's last line keeps its phase
 // to the pixel
 // skip is a depth at the wrapper's head left out of the band: the seat of the
-// sent bubbles, which the snap below does not count
-function boxBand(reply, wrap, skip = 0){
+// sent bubbles, which the snap below does not count. scale: the screen's pixels
+// to the answer's own, for the band the ramp is cut to (watchBand): the edges
+// are read on screen and the mask counts in the answer's pixels, so on a stage
+// drawn smaller the band read unscaled came short of the foot, by more the
+// taller the row, and the answer ran on at full ink into the row's line
+function boxBand(reply, wrap, skip = 0, scale = 1){
   const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
-  const b = reply.getBoundingClientRect().bottom -
-            (wrap.getBoundingClientRect().top + skip - clear);
+  const b = (reply.getBoundingClientRect().bottom -
+             (wrap.getBoundingClientRect().top + skip)) / scale + clear;
   return Math.max(0, Math.round(b));
 }
 
@@ -5836,7 +5902,7 @@ function watchBand(el){
   // (sentBand in card-logic.js), so the fade rides the bubble's top edge and
   // does not jump once it stops; a band that has not changed is not written again
   const write = () => {
-    const band = sentBand(el, boxBand(el.replyview, el.pendwrap));
+    const band = sentBand(el, boxBand(el.replyview, el.pendwrap, 0, stageScale || 1));
     if (band === el.bandAt) return;
     el.bandAt = band;
     el.box.style.setProperty("--boxband", band + "px");
@@ -6469,7 +6535,15 @@ function makeBox(b, i, state){
       if (!ta.offsetParent || !ta.clientHeight) return;
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + "px";
-      seatSquare(ta, send);
+      pipeStep(b.id);   // past the cap, the row's second step and the response piped out
+      // past the cap, words written at the end bring the row's foot with them,
+      // as the phone's row does (revealCaret in m.html). the field's own reveal
+      // stops at the caret's line and leaves the bottom padding out of sight,
+      // the line pressed on the card's edge and the square, which is seated for
+      // a row at its foot, standing a padding above it
+      if (ta.scrollHeight > ta.clientHeight + 1 && ta.selectionEnd === ta.value.length &&
+          ComposeFormat.focused(ta)) ta.scrollTop = ta.scrollHeight;
+      seatSquare(ta, send, stageScale || 1);
       send.classList.toggle("show", ta.value.trim().length > 0 || traySendable(els[b.id]) || arrowAgainFor(b.id));
       riseBand(ta);
     };
@@ -6481,6 +6555,11 @@ function makeBox(b, i, state){
       noteTyping(ta);
       draftSave(b.id);   // kept on this Mac as it is typed (card-logic.js)
     });
+    // a focus moves no scroll inside the field, so a caret put at the end of a
+    // draft past the cap by the keys (Enter, Tab, the place keys, a draft just
+    // restored) would stand out of sight: the rule above is asked once more a
+    // frame later, after a click has put the caret where it fell
+    ta.addEventListener("focus", () => requestAnimationFrame(tick));
     // a click into the composer or a key typed there is using the card
     readOnCompose(ta, b.id, useCard);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
@@ -6739,7 +6818,7 @@ function composerArrow(id){
 }
 function composerEnter(e, id){
   const now = controlShiftEnter(e);
-  if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || e.isComposing || bareControlEnter(e)) return;
+  if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || imeKey(e) || bareControlEnter(e)) return;
   e.preventDefault();
   if (e.repeat) return;
   const el = els[id];
@@ -6902,6 +6981,9 @@ function apply(state){
   }
   // and so does its kept draft, after the row's last word on the way out
   draftKeep(onBoard);
+  // a project on a server whose link has been down for 30 seconds is faded,
+  // on every reading and at once on a switch to it or away
+  showRemoteFade(remoteFaded(state, activeOwner));
   // a selection carried over from another lane (a reload into an empty lane,
   // or the selected card's lane changing) never renders on this tab
   if (FOCUS && selectedId && activeOwner !== DRAFT){
@@ -8131,33 +8213,35 @@ function magicClose(){
 // it holds follow (#magicbox.rising), and the line's strength are t eased in
 // and out, so it starts and settles calmly. a click, a key or a scroll in the
 // box while it rises plays the rest RISE_FAST times as fast. then: what to do
-// once it is flat again, which is to take it off the page
+// once it is flat again, which is to take it off the page. box: what rises,
+// the magic box (MB) or the response piped out beside the card (PIPE), each
+// with its own el, line and rise
 const RISE_MS = 1000, RISE_FAST = 3;
-function magicRiseSet(t){
-  MB.rise.t = t;
+function magicRiseSet(t, box = MB){
+  box.rise.t = t;
   const p = t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
-  MB.el.style.setProperty("--rise", p.toFixed(4));
-  MB.line.style.opacity = p.toFixed(4);
+  box.el.style.setProperty("--rise", p.toFixed(4));
+  box.line.style.opacity = p.toFixed(4);
 }
-function magicRise(dir, then = null){
-  const r = MB.rise;
+function magicRise(dir, then = null, box = MB){
+  const r = box.rise;
   r.dir = dir; r.fast = 1; r.then = then;
-  MB.el.classList.add("rising");
-  if (!r.raf){ r.last = performance.now(); r.raf = requestAnimationFrame(magicRiseStep); }
+  box.el.classList.add("rising");
+  if (!r.raf){ r.last = performance.now(); r.raf = requestAnimationFrame(now => magicRiseStep(now, box)); }
 }
-function magicRiseStep(now){
-  const r = MB.rise;
+function magicRiseStep(now, box = MB){
+  const r = box.rise;
   const t = Math.min(1, Math.max(0, r.t + r.dir * r.fast * (now - r.last) / RISE_MS));
   r.last = now;
-  magicRiseSet(t);
-  if (r.dir > 0 ? t < 1 : t > 0){ r.raf = requestAnimationFrame(magicRiseStep); return; }
+  magicRiseSet(t, box);
+  if (r.dir > 0 ? t < 1 : t > 0){ r.raf = requestAnimationFrame(next => magicRiseStep(next, box)); return; }
   const then = r.then;
-  magicRiseStop();
-  if (t >= 1) MB.el.classList.remove("rising");
+  magicRiseStop(box);
+  if (t >= 1) box.el.classList.remove("rising");
   if (then) then();
 }
-function magicRiseStop(){
-  const r = MB.rise;
+function magicRiseStop(box = MB){
+  const r = box.rise;
   cancelAnimationFrame(r.raf);
   r.raf = 0; r.dir = 0; r.then = null;
 }
@@ -8277,9 +8361,27 @@ function magicHold(inside){
 // a click in the box and the key both come here, before the focus has moved
 function magicRemember(){
   if (!MB.el || MB.el.classList.contains("held")) return;
-  const el = MB.id != null && els[MB.id];
+  MB.came = keysCame(MB.id);
+}
+// the card's typing box as the keys leave it for the box or for the response
+// piped out beside it (pipeRemember): its selection, or null when the owner
+// was not typing in it
+function keysCame(id){
+  const el = id != null && els[id];
   const ta = el && el.field.focused() ? el.ta : null;
-  MB.came = ta && { id: MB.id, ta, start: ta.selectionStart, end: ta.selectionEnd, dir: ta.selectionDirection };
+  return ta && { id, ta, start: ta.selectionStart, end: ta.selectionEnd, dir: ta.selectionDirection };
+}
+// and back into it with its caret and selection as they were: false with no
+// typing box to go back to
+function keysBack(came){
+  const el = came && els[came.id];
+  if (!el || el.ta !== came.ta) return false;
+  el.ta.focus({ preventScroll: true });
+  // the editor's range is an anchor and a head, a plain field's is a start, an end and a direction
+  const back = came.dir === "backward";
+  if (el.field.formatted()) el.ta.setSelectionRange(back ? came.end : came.start, back ? came.start : came.end);
+  else el.ta.setSelectionRange(came.start, came.end, came.dir);
+  return true;
 }
 // the box takes the keys as a click in it takes them: the card's typing box or
 // button lets go of the focus and the box is the held one. a page or a site in
@@ -8295,16 +8397,9 @@ function magicEnter(){
 // card itself with nothing focused. whatever in the box held the focus lets go
 function magicBack(){
   if (!boardMagicHeld()) return;
-  const came = MB.came, el = came && els[came.id];
+  const came = MB.came;
   magicHold(false);
-  if (el && el.ta === came.ta){
-    el.ta.focus({ preventScroll: true });
-    // the editor's range is an anchor and a head, a plain field's is a start, an end and a direction
-    const back = came.dir === "backward";
-    if (el.field.formatted()) el.ta.setSelectionRange(back ? came.end : came.start, back ? came.start : came.end);
-    else el.ta.setSelectionRange(came.start, came.end, came.dir);
-    return;
-  }
+  if (keysBack(came)) return;
   const live = document.activeElement;
   if (live && MB.el.contains(live)) live.blur();
 }
@@ -8365,6 +8460,339 @@ addEventListener("keydown", e => {
   e.preventDefault();
   getSelection().selectAllChildren(words);
 });
+
+// ---- the response piped out beside a long reply -------------------------------
+// the card's typing row grows in two steps. it grows a line at a time to the
+// sheet's cap, its first step; once what is typed runs past that, it stands at
+// once at its second, as tall as leaves the response's first two lines whole
+// under the card's head (pipeTall), and the card's response is piped out beside
+// the card (pipeSync), to be read while the reply is typed. it stands right of
+// the card, or left of it, over the ticket list and the clock, when the card's
+// magic box stands on the right or the right has no room for it. it is placed
+// and sized as the box is (MagicBox.place), drawn by the box's view
+// (magicView), rises and sinks as the box does (magicRise) and takes the keys
+// as the box does: a click in it, control+option toward it (pipeJump), and
+// control+option+up and down, for which it is the card's response while it is
+// out (cardAnswerOff); control+S scrolls it while it holds them. the reply
+// sent, or cut back under the first step, it goes back into the card. the
+// phone, and the Mac's own phone view, keep one step
+const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"), id: null, raw: null,
+  side: null, came: null, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } };
+if (PIPE.el){
+  PIPE.view = magicView(PIPE.el, { placed: () => pipePlace() });
+  PIPE.body = PIPE.view.body;
+  // its words as the card's answer is to the response's caret (replyCaret) and
+  // to control+S (responseScrollKey): one handle, kept for as long as the page
+  if (window.ResizeObserver) PIPE.sized = new ResizeObserver(() => pipePlace());
+  PIPE.part = { replyview: PIPE.body, box: PIPE.el, get reply(){ return PIPE.body.querySelector(".mbtext"); } };
+}
+
+// the row's two steps, once each card's tick has set it to its words' own
+// height. words: the row was measured just now, so its height is its words';
+// false keeps what it measured last (a fit, the card changing size). the first
+// step is the sheet's cap, read off the row while it stands under it, and the
+// second is never under the first
+function pipeStep(id, words = true){
+  const el = els[id];
+  if (!el || !el.field) return;
+  const row = el.field.view ? el.field.view.scrollDOM : el.ta;
+  if (words) el.rowWords = parseFloat(row.style.height) || 0;
+  const piped = el.box.classList.contains("piped");
+  if (!piped) el.rowFirst = parseFloat(getComputedStyle(row).maxHeight) || 0;
+  if (el.rowFirst && el.rowWords > el.rowFirst + 0.5){
+    const tall = Math.round(Math.max(el.rowFirst, pipeTall(el, row)));
+    if (!piped || Math.abs(el.rowTall - tall) > 1){
+      el.rowTall = tall;
+      el.box.style.setProperty("--pipe-tall", tall + "px");
+    }
+    if (row.style.height !== el.rowTall + "px") row.style.height = el.rowTall + "px";
+    if (!piped){
+      el.box.classList.add("piped");
+      // the answer to its head, where the two lines left in sight are its first
+      el.pipeScroll = el.replyview.scrollTop;
+      el.replyview.scrollTop = 0;
+    }
+  } else if (piped){
+    el.box.classList.remove("piped");
+    // cut back under the first step, the answer goes back to where it was read;
+    // sent, the row is empty and the card's next page keeps its own place
+    if (el.pipeScroll != null && /\S/.test(el.field.text())) el.replyview.scrollTop = el.pipeScroll;
+    el.pipeScroll = null;
+  }
+  if (id === shownId) pipeSync();
+}
+
+// the second step: the row as tall as it can stand with the response's first
+// two lines (pipeLines) still at full ink over the answer's fade at the card's
+// foot, which is --replyfade over the answer's clear air above the top of what
+// stands at the foot: the answer's own margin under it, as boxBand reads it,
+// which the snap (snapCard) can widen. read off the card as it is laid out
+// now, with the answer at its head, so the title's lines, the answered bubbles
+// over the response, the sent panel and the card's own size all count. a
+// response of one line keeps that one, and one with none keeps the response's
+// top. what is read off the page is the screen's, and is turned into the
+// stage's pixels, which the answer, its scroll and the row are in
+function pipeTall(el, row){
+  const view = el.replyview, S = stageScale || 1;
+  const fade = parseFloat(getComputedStyle(el.box).getPropertyValue("--replyfade")) || 0;
+  const air = parseFloat(getComputedStyle(view).marginBottom) || 0;
+  const lines = pipeLines(el.reply, 2);
+  const foot = lines == null ? el.reply.getBoundingClientRect().top : lines;
+  // how much more the row may take: from the top of what stands at the foot up
+  // to that line's foot with the answer at its head, less the fade and the air
+  const room = (el.pendwrap.getBoundingClientRect().top - foot) / S - view.scrollTop - fade - air;
+  return row.getBoundingClientRect().height / S + room;
+}
+
+// the foot of a response's first n lines on screen, read off its words as
+// they are laid out, a heading, a list or a code block alike, or of as many as
+// it has; null for one with no words. a button's words (a code block's copy)
+// are not the response's
+function pipeLines(reply, n){
+  const walk = document.createTreeWalker(reply, NodeFilter.SHOW_TEXT), range = document.createRange();
+  const lines = [];
+  for (let t = walk.nextNode(); t; t = walk.nextNode()){
+    if (!/\S/.test(t.data) || t.parentElement?.closest("button")) continue;
+    range.selectNodeContents(t);
+    for (const r of range.getClientRects()){
+      if (r.height < 1) continue;
+      const line = lines.find(l => r.top < l.bottom - 1 && r.bottom > l.top + 1);
+      if (line){ line.top = Math.min(line.top, r.top); line.bottom = Math.max(line.bottom, r.bottom); }
+      else if (lines.length < n) lines.push({ top: r.top, bottom: r.bottom });
+      else if (r.top >= lines[n - 1].bottom - 1) return lines[n - 1].bottom;
+    }
+  }
+  return lines.length ? lines[lines.length - 1].bottom : null;
+}
+
+// the card whose response is piped out, or null: the card on screen, on the
+// board, its row at the second step, with a response to show. shut: the same
+// card with its row back under the step instead, which it sinks back into
+function pipeCard(shut){
+  const cls = document.body.classList;
+  if (!FOCUS || shownId == null || draft || phoneWanted || cls.contains("home") || cls.contains("editmode")) return null;
+  const el = els[shownId];
+  if (!el || !el.box.classList.contains("sel")) return null;
+  const out = el.box.classList.contains("piped") && /\S/.test(el.reply.textContent);
+  return out === !shut ? el : null;
+}
+function pipeSync(){
+  if (!PIPE.el) return;
+  const el = pipeCard();
+  if (!el){
+    // the row cut back or the reply sent on the card on screen: it sinks back
+    // into the card. anything else takes it off at once
+    if (PIPE.id === null) return;
+    if (PIPE.id === shownId && pipeCard(true)) pipeSink();
+    else pipeOff();
+    return;
+  }
+  // the response the card shows, its live one (a new answer is held back from
+  // the card while the reply is typed, and from here with it)
+  const raw = el.reply.dataset.raw || "";
+  if (PIPE.id !== shownId){
+    pipeOff();
+    PIPE.id = shownId;
+    magicRiseSet(0, PIPE);
+    PIPE.el.classList.add("rising");
+    pipeDraw(raw);
+  } else if (PIPE.raw !== raw) pipeDraw(raw);
+  // out again while it sank: it rises back from where it is
+  else if (PIPE.rise.then) magicRise(1, null, PIPE);
+  pipePlace();
+}
+function pipeDraw(raw){
+  PIPE.raw = raw;
+  PIPE.view.draw({ kind: "markdown", text: raw });
+  const words = PIPE.part.reply;
+  if (words && PIPE.sized) PIPE.sized.observe(words);
+  PIPE.el.classList.add("on");
+}
+// off the page with what it held, at once, and left risen for the next
+function pipeOff(){
+  if (!PIPE.el) return;
+  PIPE.el.classList.remove("on", "keys", "rising");
+  document.body.classList.remove("pipeleft", "pipekeys");
+  magicRiseStop(PIPE);
+  magicRiseSet(1, PIPE);
+  PIPE.line.classList.remove("on");
+  if (PIPE.id === null) return;
+  PIPE.id = null; PIPE.raw = null; PIPE.side = null; PIPE.came = null;
+  if (PIPE.sized) PIPE.sized.disconnect();
+  PIPE.view.clear();
+}
+// back into the card: the rise played backwards, and the ticket list and the
+// clock coming back with it; one not on screen just goes
+function pipeSink(){
+  if (!PIPE.el || PIPE.rise.then) return;
+  if (!PIPE.el.classList.contains("on") || PIPE.el.style.visibility === "hidden"){ pipeOff(); return; }
+  PIPE.el.classList.remove("keys");
+  document.body.classList.remove("pipeleft", "pipekeys");
+  magicRise(-1, pipeOff, PIPE);
+}
+
+// beside the card where the magic box stands (magicRoom, MagicBox.place), on
+// the right, or on the left while the card's box stands on the right or the
+// right has no room for it. a side it took stays its side for as long as it
+// is out, unless the box comes to it or its room goes. with no room either
+// side it is hidden where it is, still out, and is back when the window gives
+// it the room, as the box is
+function pipePlace(){
+  if (!PIPE.el || !PIPE.el.classList.contains("on")) return;
+  PIPE.line.classList.remove("on");
+  const room = magicRoom();
+  const fit = room && { ...room.fit, left: frameLimits().left - FRAME_CLEAR };
+  const most = room && { right: room.most, left: MagicBox.place(room.rect, fit, null, "left") };
+  const free = { right: !!most && most.right.shown && !boardMagicShown(), left: !!most && most.left.shown };
+  const side = free[PIPE.side] ? PIPE.side : free.right ? "right" : free.left ? "left" : null;
+  if (!side){
+    PIPE.el.style.visibility = "hidden";
+    document.body.classList.remove("pipeleft");
+    return;
+  }
+  PIPE.side = side;
+  const at = MagicBox.place(room.rect, fit, PIPE.view.want(most[side], room.S), side);
+  Object.assign(PIPE.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px",
+    height: at.height + "px", visibility: "" });
+  document.body.classList.toggle("pipeleft", side === "left" && !PIPE.rise.then);
+  pipeLine(room.rect, at, side, most[side]);
+  if (PIPE.rise.t < 1 && !PIPE.rise.raf) magicRise(1, null, PIPE);
+}
+
+// the brace from the card to it, a } on the card's right and a { on its left,
+// in the stage's pixels: straight lines meeting square, its spine in the middle
+// of the gap between the card's edge and the response's. its arms reach the
+// card level with the response's top and foot, in by the response's corner
+// (round), and its point reaches the response a set way under its top arm:
+// where the magic box's first line stands on the largest box beside this card
+// (TWO), or half way down a response too short for that. so the upper part
+// keeps its height and the lower part stretches with the response's. each
+// segment is dashed from its start, the arms from their corners and the point
+// from the spine, each starting half the line's width back so the corners
+// close. a gap narrower than the box's lines take (TWO.gap) gives null
+function pipeBrace(card, box, side, most, round = 0){
+  const s = side === "left" ? -1 : 1;
+  const from = s > 0 ? card.left + card.width : card.left;
+  const to = s > 0 ? box.left : box.left + box.width;
+  if (s * (to - from) < TWO.gap) return null;
+  const spine = (from + to) / 2, w = TWO.width / 2;
+  const top = box.top + round, foot = box.top + box.height - round;
+  const point = top + Math.min(most.height * TWO.share, (foot - top) / 2);
+  return { spine, top, point, foot, segments: [
+    [spine + s * w, top, from, top], [spine, top - w, spine, point],
+    [spine - s * w, point, to, point],
+    [spine + s * w, foot, from, foot], [spine, foot + w, spine, point]] };
+}
+function pipeLine(card, box, side, most){
+  const brace = pipeBrace(card, box, side, most, parseFloat(getComputedStyle(PIPE.el).borderTopLeftRadius) || 0);
+  if (!brace) return;
+  // the card's own edge colour, read off the card, as the box's lines are. it is
+  // drawn again only when it has moved: each key typed at the second step places it
+  const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
+  const drawn = '<g>' + brace.segments.map(([x1, y1, x2, y2]) => '<path d="M' + x1.toFixed(2) + ' ' +
+    y1.toFixed(2) + 'L' + x2.toFixed(2) + ' ' + y2.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' +
+    TWO.width + '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+  if (drawn !== PIPE.drawn){ PIPE.drawn = drawn; PIPE.line.innerHTML = drawn; }
+  PIPE.line.classList.add("on");
+}
+
+// which of the card and the response holds the keys, as with the magic box
+// (magicHold): a click or the focus in it hands them over, a click anywhere
+// else or the focus going into the card hands them back. the card settles
+// while it holds them (body.pipekeys), and it wears the card's own shadow
+function pipeHold(inside){
+  if (!PIPE.el) return;
+  const on = inside && PIPE.el.classList.contains("on");
+  PIPE.el.classList.toggle("keys", on);
+  document.body.classList.toggle("pipekeys", on);
+  if (!on) PIPE.came = null;
+}
+// out beside the card on screen, and not hidden for want of room
+function pipeShown(){
+  return !!PIPE.el && PIPE.id !== null && PIPE.id === shownId && PIPE.el.classList.contains("on") &&
+    PIPE.el.style.visibility !== "hidden" && !PIPE.rise.then;
+}
+// where the owner is on the card as it takes the keys (magicRemember)
+function pipeRemember(){
+  if (PIPE.el && !pipeHeld()) PIPE.came = keysCame(shownId);
+}
+// the keys put in it: the magic box lets go, and the response's caret stands in
+// its words, where it stood last or at the first line on show, so shift and the
+// arrows select in it as in the card's answer
+function pipeEnter(){
+  pipeRemember();
+  magicHold(false);
+  pipeHold(true);
+  replyCaret(PIPE.part);
+}
+// and back (magicBack): the typing box as it was, or the card itself
+function pipeBack(){
+  if (!pipeHeld()) return;
+  const came = PIPE.came;
+  pipeHold(false);
+  if (keysBack(came)) return;
+  const live = document.activeElement;
+  if (live && PIPE.el.contains(live)) live.blur();
+}
+// control+option+right and left while it is out: toward its side the keys go
+// into it, and away from it they come back to the card. true when the key was
+// its own; one that is not (toward the magic box, or from it) is the box's
+function pipeJump(e, dir){
+  if (!pipeShown()) return false;
+  const toward = (PIPE.side === "left") === (dir < 0);
+  if (pipeHeld()){
+    e.preventDefault();
+    if (!toward && !e.repeat) pipeBack();
+    return true;
+  }
+  if (!toward || boardMagicHeld()) return false;
+  e.preventDefault();
+  if (!e.repeat) pipeEnter();
+  return true;
+}
+// control+option+up and down: while it is out, it is the card's response
+cardAnswerOff = id => id === shownId && pipeShown() ? { holds: node => PIPE.el.contains(node), go: pipeEnter } : null;
+if (PIPE.el){
+  addEventListener("pointerdown", e => {
+    if (e.target.closest?.("#picfull")) return;
+    const into = PIPE.el.contains(e.target);
+    if (into) pipeRemember();
+    pipeHold(into);
+  }, true);
+  addEventListener("focusin", e => {
+    if (PIPE.el.contains(e.target)) pipeHold(true);
+    else if (e.target.closest?.("main")) pipeHold(false);
+  }, true);
+  // the owner at it while it rises: the rest plays out faster (magicHurry)
+  for (const type of ["pointerdown", "keydown", "wheel"]) addEventListener(type, e => {
+    if (PIPE.rise.dir > 0 && PIPE.el.contains(e.target)) PIPE.rise.fast = RISE_FAST;
+  }, { capture: true, passive: true });
+  // command+a in it picks its words alone
+  addEventListener("keydown", e => {
+    const words = pipeHeld() && PIPE.part.reply;
+    if (!words || !(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "a") return;
+    const t = e.target;
+    if (t?.closest?.("input, textarea, [contenteditable]") && !PIPE.el.contains(t)) return;
+    e.preventDefault();
+    getSelection().selectAllChildren(words);
+  });
+  // what moves the card or changes what it shows is followed at once: the card
+  // and everything in it (its size, its row, its response), the stage's fit,
+  // the magic box beside it and the board's own state. the second step is
+  // worked out again from the card as it now stands; each pass writes only what
+  // has changed, so its own writes come back to nothing
+  const follow = () => {
+    const el = shownId != null && els[shownId];
+    if (el && el.box.classList.contains("piped")) pipeStep(shownId, false);
+    else pipeSync();
+  };
+  const watch = new MutationObserver(follow);
+  const card = document.querySelector("main"), stage = document.getElementById("stage");
+  if (card) watch.observe(card, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "style"] });
+  if (stage) watch.observe(stage, { attributes: true, attributeFilter: ["style"] });
+  if (MB.el) watch.observe(MB.el, { attributes: true, attributeFilter: ["class", "style"] });
+  watch.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+}
 
 // the dormant quick-chat panel, bound to one lane, one card and one listener.
 // Those bindings named a project's own lane, so they are cleared here: with no
@@ -9284,6 +9712,15 @@ function fileNavBoxes(){
 // says so instead of sitting there empty
 function fileNavBundle(){
   if (window.CM6) return Promise.resolve(true);
+  // the formatted composer fetches this same file for its own editor, and its
+  // fetch is this one. two fetches in flight at once run the bundle twice, and
+  // the second copy takes window.CM6 over from under an editor built out of
+  // the first: that editor's drag guard then never comes down, which freezes
+  // the live preview, and the next file cannot be opened at all. a composer
+  // whose fetch has already failed is not asked again, so a server restarted
+  // since then still gets a fetch of its own from here
+  const shared = window.ComposeFormat;
+  if (shared && shared.available()) return shared.preload();
   if (fileNavLoad) return fileNavLoad;
   fileNavLoad = new Promise(res => {
     const s = document.createElement("script");
@@ -9353,6 +9790,9 @@ function fileNavBuild(mount){
   const save = h("button", "fnavsave", "save");
   save.title = "save this file";
   save.onclick = () => fileNavSave();
+  // the press is the editor's to keep: a button takes the focus on its way
+  // down, and the words typed straight after a save then went nowhere
+  save.onmousedown = e => e.preventDefault();
   bar.append(back, name, save);
   const edit = h("div", "fnavedit");
   // the image preview and the not-editable info card share one region, shown in
@@ -9969,15 +10409,20 @@ function mdLayer(){
     update: (v, tr) => {
       let lit = v.lit;
       for (const e of tr.effects) if (e.is(mdAwakeEff)) lit = e.value;
-      // the document, the cursor and the focus are three of the four things any
+      // the document, the cursor and the focus are three of the five things any
       // of this depends on. the fourth is the parse: codemirror parses a long
       // file in slices and pushes an empty transaction each time it has more,
-      // so a tree that has moved is a rebuild too. scrolling is on neither
+      // so a tree that has moved is a rebuild too. the fifth is the drag
+      // guard: a drag is drawn asleep, and the guard comes down on its own
+      // once the button is up, so the selection the drag left is woken around
+      // then, or the blocks it ends on stay shut while the pack's own markers
+      // beside them come back. scrolling is on neither
       // list, on purpose. the walk is over the whole file, so a reflowed
       // paragraph's height is known before it is ever scrolled to and the bar
       // under the reader's thumb does not jump as it arrives
       if (lit === v.lit && !tr.docChanged && !tr.selection &&
-          C.syntaxTree(tr.state) === C.syntaxTree(tr.startState)) return v;
+          C.syntaxTree(tr.state) === C.syntaxTree(tr.startState) &&
+          tr.state.field(C.mouseSelectingField, false) === tr.startState.field(C.mouseSelectingField, false)) return v;
       return { lit, deco: build(tr.state, lit) };
     },
     provide: f => C.EditorView.decorations.from(f, v => v.deco),
@@ -9990,6 +10435,33 @@ function mdBox(D, cls, w){
   return D.mark({ class: cls, attributes: {
     style: "--w:" + w + "px;--air:" + MD_MARKAIR + "px",
   } });
+}
+// backspace after an emoji that ends in a skin tone, a keycap or a tag flag's
+// tags takes the whole picture, the way every text box on the board does.
+// codemirror's own backspace takes one code point off anything that extends a
+// character, which is right for an accent typed as a letter and a mark, and
+// left a bare thumb, a digit and a selector, or half a flag for these.
+// the last code point is compared as a number and not with a regex: chrome's
+// engine misses a skin tone at the end of a string against an anchored class
+function mdEmojiEnd(text){
+  const last = [...text.slice(-2)].pop();
+  const cp = last ? last.codePointAt(0) : 0;
+  return (cp >= 0x1F3FB && cp <= 0x1F3FF) || cp === 0x20E3 || (cp >= 0xE0020 && cp <= 0xE007F);
+}
+let mdGraphemes = null;
+function mdEmojiBack(view){
+  const main = view.state.selection.main;
+  if (view.state.selection.ranges.length > 1 || !main.empty) return false;
+  const line = view.state.doc.lineAt(main.head);
+  const before = line.text.slice(Math.max(0, main.head - line.from - 40), main.head - line.from);
+  if (!mdEmojiEnd(before)) return false;
+  try { mdGraphemes = mdGraphemes || new Intl.Segmenter(undefined, { granularity: "grapheme" }); }
+  catch (e){ return false; }
+  let last = "";
+  for (const s of mdGraphemes.segment(before)) last = s.segment;
+  view.dispatch(view.state.update({ changes: { from: main.head - last.length, to: main.head },
+    scrollIntoView: true, userEvent: "delete.backward" }));
+  return true;
 }
 // seat is a state kept whole across a tab switch, and when there is one the
 // text and the endings are not read at all: that state already carries them,
@@ -10007,6 +10479,7 @@ function fileNavMount(host, text, crlf, seat, plain){
     C.history(),
     C.keymap.of([
       { key: "Mod-s", preventDefault: true, run: () => { fileNavSave(); return true; } },
+      { key: "Backspace", run: mdEmojiBack },
       ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
     ]),
     C.collapseOnSelectionFacet.of(true),
@@ -10026,6 +10499,7 @@ function fileNavMount(host, text, crlf, seat, plain){
       C.history(),
       C.keymap.of([
         { key: "Mod-s", preventDefault: true, run: () => { fileNavSave(); return true; } },
+        { key: "Backspace", run: mdEmojiBack },
         ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
       ]),
       C.collapseOnSelectionFacet.of(true),
@@ -10051,6 +10525,18 @@ function fileNavMount(host, text, crlf, seat, plain){
   fileNavFade(fileNavView.scrollDOM);
   fileNavView.contentDOM.addEventListener("mousedown",
     () => fileNavView && fileNavView.dispatch({ effects: C.setMouseSelecting.of(true) }));
+  // a press on an editor that does not have the focus yet. codemirror focuses
+  // it from inside its own mousedown, before it reads where the press landed,
+  // and the focus wakes the layer around the cursor the file opened with. that
+  // is position 0, the yaml block, which opens and pushes everything under the
+  // pointer down a row, so the press selected back to the row above instead of
+  // putting the caret where it landed. the guard goes up first here, in the
+  // capture phase, so the layer stays as drawn until the button is up. a
+  // focused editor keeps the order above: its reveal has to stand while
+  // codemirror reads the press, or the page moves under the pointer that way
+  fileNavView.dom.addEventListener("mousedown", () => {
+    if (fileNavView && !fileNavView.hasFocus) fileNavView.dispatch({ effects: C.setMouseSelecting.of(true) });
+  }, true);
   document.addEventListener("mouseup", fileNavMouseUp);
   // the two events the board's layer cannot read off the state on its own.
   // they are put on the element rather than handed to codemirror so the
@@ -10188,6 +10674,16 @@ async function fileNavPoll(){
   fileNavList();
 }
 fileNavPoll(); setInterval(fileNavPoll, FILENAV_POLL);
+// a reload or a closed window is one more way off a file, and the one way the
+// panel has no line of its own to answer with, so chrome's own question about
+// leaving the page asks it instead. unsaved work is unsaved wherever it is
+// held: in the open editor, or kept whole for a tab that has been left
+addEventListener("beforeunload", e => {
+  const open = !!fileNavView && !!fileNavOpen && fileNavView.state.sliceDoc() !== fileNavClean;
+  if (!open && !Object.values(fileNavKeep).some(k => k.state.sliceDoc() !== k.clean)) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 
 // the picture, clicked, grows out of the panel until it fills the screen over a
 // dark veil, and shrinks back into the panel on the next click outside it or on
@@ -10599,11 +11095,12 @@ function renderMiniCards(state){
       // page's goes on, and so does Escape, which takes the caret out as it does
       // in the large card. control+shift+enter sends, then hands the keys back to
       // the large card and moves on to the card that has waited longest, or does
-      // just that when nothing is typed. control+enter alone is the system's
+      // just that when nothing is typed. control+enter alone is the system's, and
+      // an Enter an input method takes is its own (imeKey)
       ta.addEventListener("keydown", e => {
         if (!pageChord(e) && e.key !== "Escape") e.stopPropagation();
         const now = controlShiftEnter(e);
-        if (e.key === "Enter" && (!e.shiftKey || now) && !e.altKey && !bareControlEnter(e)){
+        if (e.key === "Enter" && (!e.shiftKey || now) && !e.altKey && !bareControlEnter(e) && !imeKey(e)){
           e.preventDefault();
           const sending = fire();
           if (now && !e.repeat) sending.then(sent => {
@@ -11415,6 +11912,17 @@ function boardMagicScrollCard(){
   if (!MB.scroller) MB.scroller = { replyview: MB.body, box: MB.el };
   return { id: "magic:" + MB.id, owner: card.owner, el: MB.scroller };
 }
+// the card's response piped out beside it (pipeSync), in the card's place while
+// it holds the keys (pipeHold), by a click in it or the keys: its words scroll
+// by the same motion, with the same guards
+function pipeHeld(){
+  return typeof PIPE === "object" && !!PIPE.el && PIPE.el.classList.contains("on") && PIPE.el.classList.contains("keys");
+}
+function pipeScrollCard(){
+  const card = boardResponseCard();
+  if (!card || !pipeHeld() || PIPE.id === null) return null;
+  return { id: "pipe:" + PIPE.id, owner: card.owner, el: PIPE.part };
+}
 // a key typed in an agent's page, which the board never hears from a sealed
 // frame, as magicView hands it over (the page says it, MagicBox.pageDoc): the
 // same three the board's own listeners take for control+s, the chord that
@@ -11492,9 +12000,12 @@ const boardShortcutActions = {
   },
   // control+option+right: into the card's magic box, from the card or from
   // typing in its box; left: back out. with no box on screen, or left with the
-  // keys not in it, the key is not ours and goes on untouched. a held key goes once
+  // keys not in it, the key is not ours and goes on untouched. a held key goes once.
+  // with the card's response piped out beside it, the keys go to it and back
+  // on its own side first (pipeJump)
   magicJump(e, shortcut){
     if (draft || !boardResponseCard()) return;
+    if (pipeJump(e, shortcut.value)) return;
     const held = boardMagicHeld();
     if (shortcut.value < 0 ? !held : !boardMagicShown()) return;
     e.preventDefault();
@@ -11541,6 +12052,13 @@ const boardShortcutActions = {
   unfold(e){
     if (!miniFocused) unfoldSelected(e, selectedId, selectedId && els[selectedId]);
   },
+  // control+shift+w and s: the top and bottom message bubbles of the card on
+  // screen, as a click on the bubble's arrow. the card has to be the one
+  // holding the keys, as control+s asks
+  bubble(e, shortcut){
+    const card = !draft && boardResponseCard();
+    if (card) answeredKey(e, card.el, shortcut.value);
+  },
   // control+shift+enter outside a composer: the move a double Enter's second press
   // makes. a field that is not a composer keeps the key, and a button does not
   // take it as a press. a field the key itself took off the page, as the goal
@@ -11583,7 +12101,7 @@ const boardShortcutActions = {
     if (to) setView(to);
   },
   responseScroll(e){
-    responseScrollKey(e, boardMagicHeld() ? boardMagicScrollCard : boardResponseCard);
+    responseScrollKey(e, pipeHeld() ? pipeScrollCard : boardMagicHeld() ? boardMagicScrollCard : boardResponseCard);
   },
 };
 
@@ -12373,7 +12891,7 @@ function setEditMode(on){
     send: document.getElementById("fbsend"), note: document.getElementById("fbnote") }, {
     send: text => fetch("/feedback", { method: "POST", body: JSON.stringify({ message: text }) })
       .then(r => r.ok, () => false),
-    enter: e => e.key === "Enter" && (!e.shiftKey || controlShiftEnter(e)) && !e.altKey && !e.isComposing &&
+    enter: e => e.key === "Enter" && (!e.shiftKey || controlShiftEnter(e)) && !e.altKey && !imeKey(e) &&
       !bareControlEnter(e),
     moved: () => queueFatCaret(),
   });
@@ -13260,8 +13778,9 @@ document.getElementById("taskstatus").addEventListener("click", () => {
     // scrolled out of sight still counts as inside, and the block then hangs
     // over whatever is drawn under the panel. the response's caret (replyCaret) is
     // bounded the same way by the answer's own scroller, less the band the sent
-    // panel and the typing row lay over its foot
-    const pane = el.closest(".cm-scroller, .replyview") || el;
+    // panel and the typing row lay over its foot, and by the scroller of the
+    // response piped out beside a long reply while it stands in that (pipeEnter)
+    const pane = el.closest(".cm-scroller, .replyview, #pipebox .mbbody") || el;
     let clip = pane.getBoundingClientRect();
     if (pane.classList.contains("replyview")){
       const band = (parseFloat(getComputedStyle(pane).getPropertyValue("--boxband")) || 0) * scaleX;
