@@ -593,7 +593,8 @@ def probe(dest: str) -> dict:
         raise Problem(f"Could not log in to {dest} with ssh.",
                       *(["ssh said: " + line for line in said]),
                       f"Make `ssh {dest}` work without a password prompt first: your ssh key on the",
-                      "server, its passphrase in the Keychain or the ssh agent. Then run this again.")
+                      "server, its passphrase in the Keychain or the ssh agent, and the server's own key",
+                      f"accepted once, by logging in with `ssh {dest}` by hand. Then run this again.")
     found = {}
     for line in r.stdout.decode("utf-8", "replace").splitlines():
         key, sep, value = line.partition("=")
