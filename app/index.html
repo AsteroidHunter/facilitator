@@ -9683,6 +9683,15 @@ function fileNavBoxes(){
 // says so instead of sitting there empty
 function fileNavBundle(){
   if (window.CM6) return Promise.resolve(true);
+  // the formatted composer fetches this same file for its own editor, and its
+  // fetch is this one. two fetches in flight at once run the bundle twice, and
+  // the second copy takes window.CM6 over from under an editor built out of
+  // the first: that editor's drag guard then never comes down, which freezes
+  // the live preview, and the next file cannot be opened at all. a composer
+  // whose fetch has already failed is not asked again, so a server restarted
+  // since then still gets a fetch of its own from here
+  const shared = window.ComposeFormat;
+  if (shared && shared.available()) return shared.preload();
   if (fileNavLoad) return fileNavLoad;
   fileNavLoad = new Promise(res => {
     const s = document.createElement("script");
@@ -9752,6 +9761,9 @@ function fileNavBuild(mount){
   const save = h("button", "fnavsave", "save");
   save.title = "save this file";
   save.onclick = () => fileNavSave();
+  // the press is the editor's to keep: a button takes the focus on its way
+  // down, and the words typed straight after a save then went nowhere
+  save.onmousedown = e => e.preventDefault();
   bar.append(back, name, save);
   const edit = h("div", "fnavedit");
   // the image preview and the not-editable info card share one region, shown in
@@ -10368,15 +10380,20 @@ function mdLayer(){
     update: (v, tr) => {
       let lit = v.lit;
       for (const e of tr.effects) if (e.is(mdAwakeEff)) lit = e.value;
-      // the document, the cursor and the focus are three of the four things any
+      // the document, the cursor and the focus are three of the five things any
       // of this depends on. the fourth is the parse: codemirror parses a long
       // file in slices and pushes an empty transaction each time it has more,
-      // so a tree that has moved is a rebuild too. scrolling is on neither
+      // so a tree that has moved is a rebuild too. the fifth is the drag
+      // guard: a drag is drawn asleep, and the guard comes down on its own
+      // once the button is up, so the selection the drag left is woken around
+      // then, or the blocks it ends on stay shut while the pack's own markers
+      // beside them come back. scrolling is on neither
       // list, on purpose. the walk is over the whole file, so a reflowed
       // paragraph's height is known before it is ever scrolled to and the bar
       // under the reader's thumb does not jump as it arrives
       if (lit === v.lit && !tr.docChanged && !tr.selection &&
-          C.syntaxTree(tr.state) === C.syntaxTree(tr.startState)) return v;
+          C.syntaxTree(tr.state) === C.syntaxTree(tr.startState) &&
+          tr.state.field(C.mouseSelectingField, false) === tr.startState.field(C.mouseSelectingField, false)) return v;
       return { lit, deco: build(tr.state, lit) };
     },
     provide: f => C.EditorView.decorations.from(f, v => v.deco),
@@ -10389,6 +10406,33 @@ function mdBox(D, cls, w){
   return D.mark({ class: cls, attributes: {
     style: "--w:" + w + "px;--air:" + MD_MARKAIR + "px",
   } });
+}
+// backspace after an emoji that ends in a skin tone, a keycap or a tag flag's
+// tags takes the whole picture, the way every text box on the board does.
+// codemirror's own backspace takes one code point off anything that extends a
+// character, which is right for an accent typed as a letter and a mark, and
+// left a bare thumb, a digit and a selector, or half a flag for these.
+// the last code point is compared as a number and not with a regex: chrome's
+// engine misses a skin tone at the end of a string against an anchored class
+function mdEmojiEnd(text){
+  const last = [...text.slice(-2)].pop();
+  const cp = last ? last.codePointAt(0) : 0;
+  return (cp >= 0x1F3FB && cp <= 0x1F3FF) || cp === 0x20E3 || (cp >= 0xE0020 && cp <= 0xE007F);
+}
+let mdGraphemes = null;
+function mdEmojiBack(view){
+  const main = view.state.selection.main;
+  if (view.state.selection.ranges.length > 1 || !main.empty) return false;
+  const line = view.state.doc.lineAt(main.head);
+  const before = line.text.slice(Math.max(0, main.head - line.from - 40), main.head - line.from);
+  if (!mdEmojiEnd(before)) return false;
+  try { mdGraphemes = mdGraphemes || new Intl.Segmenter(undefined, { granularity: "grapheme" }); }
+  catch (e){ return false; }
+  let last = "";
+  for (const s of mdGraphemes.segment(before)) last = s.segment;
+  view.dispatch(view.state.update({ changes: { from: main.head - last.length, to: main.head },
+    scrollIntoView: true, userEvent: "delete.backward" }));
+  return true;
 }
 // seat is a state kept whole across a tab switch, and when there is one the
 // text and the endings are not read at all: that state already carries them,
@@ -10406,6 +10450,7 @@ function fileNavMount(host, text, crlf, seat, plain){
     C.history(),
     C.keymap.of([
       { key: "Mod-s", preventDefault: true, run: () => { fileNavSave(); return true; } },
+      { key: "Backspace", run: mdEmojiBack },
       ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
     ]),
     C.collapseOnSelectionFacet.of(true),
@@ -10425,6 +10470,7 @@ function fileNavMount(host, text, crlf, seat, plain){
       C.history(),
       C.keymap.of([
         { key: "Mod-s", preventDefault: true, run: () => { fileNavSave(); return true; } },
+        { key: "Backspace", run: mdEmojiBack },
         ...C.defaultKeymap, ...C.historyKeymap, C.indentWithTab,
       ]),
       C.collapseOnSelectionFacet.of(true),
@@ -10450,6 +10496,18 @@ function fileNavMount(host, text, crlf, seat, plain){
   fileNavFade(fileNavView.scrollDOM);
   fileNavView.contentDOM.addEventListener("mousedown",
     () => fileNavView && fileNavView.dispatch({ effects: C.setMouseSelecting.of(true) }));
+  // a press on an editor that does not have the focus yet. codemirror focuses
+  // it from inside its own mousedown, before it reads where the press landed,
+  // and the focus wakes the layer around the cursor the file opened with. that
+  // is position 0, the yaml block, which opens and pushes everything under the
+  // pointer down a row, so the press selected back to the row above instead of
+  // putting the caret where it landed. the guard goes up first here, in the
+  // capture phase, so the layer stays as drawn until the button is up. a
+  // focused editor keeps the order above: its reveal has to stand while
+  // codemirror reads the press, or the page moves under the pointer that way
+  fileNavView.dom.addEventListener("mousedown", () => {
+    if (fileNavView && !fileNavView.hasFocus) fileNavView.dispatch({ effects: C.setMouseSelecting.of(true) });
+  }, true);
   document.addEventListener("mouseup", fileNavMouseUp);
   // the two events the board's layer cannot read off the state on its own.
   // they are put on the element rather than handed to codemirror so the
@@ -10587,6 +10645,16 @@ async function fileNavPoll(){
   fileNavList();
 }
 fileNavPoll(); setInterval(fileNavPoll, FILENAV_POLL);
+// a reload or a closed window is one more way off a file, and the one way the
+// panel has no line of its own to answer with, so chrome's own question about
+// leaving the page asks it instead. unsaved work is unsaved wherever it is
+// held: in the open editor, or kept whole for a tab that has been left
+addEventListener("beforeunload", e => {
+  const open = !!fileNavView && !!fileNavOpen && fileNavView.state.sliceDoc() !== fileNavClean;
+  if (!open && !Object.values(fileNavKeep).some(k => k.state.sliceDoc() !== k.clean)) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 
 // the picture, clicked, grows out of the panel until it fills the screen over a
 // dark veil, and shrinks back into the panel on the next click outside it or on

@@ -85,7 +85,8 @@ before(async () => {
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.end(await readFile(path.join(ROOT, "index.html")));
     } else if (["/cm-markdown.js", "/card-markdown.js", "/card-logic.js",
-      "/card-report.js", "/compose-format.js"].includes(url.pathname)) {
+      "/card-report.js", "/compose-format.js", "/board-settings.js", "/mac-phone-view.js",
+      "/magic-box.js", "/home-widgets.js"].includes(url.pathname)) {
       res.setHeader("content-type", "text/javascript; charset=utf-8");
       res.end(await readFile(path.join(ROOT, url.pathname.slice(1))));
     } else if (url.pathname === "/card-tokens.css") {
@@ -133,6 +134,9 @@ async function navigator(lane = "pastureland", width = 340) {
     // layout has been laid out. this page has no board, so it is shown the way
     // that does
     document.body.classList.add("layout-ready");
+    // the startup curtain lifts on the first reading of a board, which this
+    // page never gets, and while it stands it takes every click on the page
+    document.getElementById("loading")?.remove();
     fileNavMounts(["website", "pastureland"]);
     activeOwner = selectedLane;
     fileNavBoxes();
