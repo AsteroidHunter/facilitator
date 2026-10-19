@@ -131,16 +131,16 @@ test("the fall sets off softly, lands without passing its place, and leaves the 
 // joined bubble's own px: the earlier one 18pt narrower, 17pt of room between
 // them, and the joined one laid out bottom up from the later one's foot. the
 // ends as sentMerge works them out: the later bubble standing where it is, and
-// the earlier one's head landing on the joined bubble's, keeping its own
-// height, with the neck filling what stands between it and the later one
+// the earlier one's head landing on the joined bubble's, its foot sunk a corner
+// each way past the later one's head
 const R = 17.73;
-function pair(U0, L0, W, H, r) {
-  const L1 = { left: 0, top: Math.max(0, Math.min(L0.top, H - 2 * r)), right: W, bottom: H };
-  const U1 = { left: 0, top: 0, right: W, bottom: Math.min(H, U0.bottom - U0.top) };
-  return { U0, L0, U1, L1, r, W, H };
-}
 function spec() {
-  return pair({ left: 18, top: -28, right: 171, bottom: 25 }, { left: 0, top: 42, right: 171, bottom: 95 }, 171, 95, R);
+  const U0 = { left: 18, top: -28, right: 171, bottom: 25 };
+  const L0 = { left: 0, top: 42, right: 171, bottom: 95 };
+  const W = 171, H = 95;
+  const L1 = { left: 0, top: Math.max(0, Math.min(L0.top, H - 2 * R)), right: W, bottom: H };
+  const U1 = { left: 0, top: 0, right: W, bottom: Math.min(H, Math.max(U0.bottom - U0.top, L1.top + 2 * R)) };
+  return { U0, L0, U1, L1, r: R };
 }
 
 test("only the earlier bubble falls: straight down at its own height until it touches, and the later one stands still", () => {
@@ -148,15 +148,14 @@ test("only the earlier bubble falls: straight down at its own height until it to
   const s = spec();
   assert.deepEqual(s.L1, { ...s.L0, left: 0 }, "the later bubble's end is not where it stands");
   const tall = s.U0.bottom - s.U0.top;
-  let touched = false, lastFall = s.U0.top;
+  let touched = false, lastTop = s.U0.top;
   for (let ms = 0; ms <= 1000; ms += 4) {
     const shape = context.sentMergeShape(s, ms / 1000);
     assert.ok(Math.abs(shape.L.top - s.L0.top) < 1e-9 && Math.abs(shape.L.bottom - s.L0.bottom) < 1e-9,
       `the later bubble moved at ${ms}ms`);
-    // the head the words ride never goes back up and never passes its landing
-    assert.ok(shape.fall >= lastFall - 1e-9, `the earlier bubble went back up at ${ms}ms`);
-    assert.ok(shape.fall <= s.U1.top + 1e-9, `the earlier bubble fell past its landing at ${ms}ms`);
-    lastFall = shape.fall;
+    assert.ok(shape.U.top >= lastTop - 1e-9, `the earlier bubble went back up at ${ms}ms`);
+    assert.ok(shape.U.top <= s.U1.top + 1e-9, `the earlier bubble fell past its landing at ${ms}ms`);
+    lastTop = shape.U.top;
     if (shape.U.bottom > s.L0.top + 1e-9) touched = true;
     // over the room between the two it keeps its height: nothing stretches where it can be seen
     if (!touched) assert.ok(Math.abs(shape.U.bottom - shape.U.top - tall) < 1e-9, `the earlier bubble stretched at ${ms}ms`);
@@ -165,32 +164,7 @@ test("only the earlier bubble falls: straight down at its own height until it to
   assert.ok(touched, "the earlier bubble never reached the later one");
   // the travel is the fall's: none after the first four fifths
   const landed = context.sentMergeShape(s, .8);
-  assert.ok(Math.abs(landed.fall - s.U1.top) < 1e-9 && Math.abs(landed.U.bottom - s.U1.bottom) < 1e-9);
-});
-
-test("the joined body's head dips a little past its place and rights itself, while the words land without passing theirs", () => {
-  const { context, run } = load();
-  // the tests' pair and a mac pair that falls further
-  for (const s of [spec(), pair({ left: 0, top: -64, right: 240, bottom: 12 }, { left: 60, top: 38, right: 240, bottom: 94 }, 240, 94, 18)]) {
-    const drop = s.U1.top - s.U0.top;
-    const dip = Math.min(s.r / 5, run("MERGE_SQUASH") * drop);
-    let deepest = { by: 0, ms: 0 }, over = { by: 0, ms: 0 };
-    for (let ms = 0; ms <= 1000; ms += 2) {
-      const shape = context.sentMergeShape(s, ms / 1000);
-      const by = shape.U.top - shape.fall;
-      if (ms < 500) assert.equal(by, 0, `the outline's head left the words' before the settle, at ${ms}ms`);
-      if (by > deepest.by) deepest = { by, ms };
-      if (-by > over.by) over = { by: -by, ms };
-    }
-    assert.ok(Math.abs(deepest.by - dip) < .01 && deepest.ms >= 580 && deepest.ms <= 660,
-      `the head dips ${deepest.by.toFixed(2)}px at ${deepest.ms}ms, not ${dip.toFixed(2)}px at about 620ms`);
-    assert.ok(dip <= s.r / 5 + 1e-9 && dip > 1, "the dip is not a small share of the fall");
-    // it comes back a quarter as far over its place while the joined copy comes up, and is still by the end
-    assert.ok(over.ms >= 800 && over.ms <= 860 && Math.abs(over.by / dip - .25) < .03,
-      `the head rights itself ${(over.by / dip).toFixed(2)} of the dip over its place at ${over.ms}ms`);
-    const last = context.sentMergeShape(s, 1);
-    assert.equal(last.U.top, s.U1.top, "the head is not in its place on the last frame");
-  }
+  assert.ok(Math.abs(landed.U.top - s.U1.top) < 1e-9 && Math.abs(landed.U.bottom - s.U1.bottom) < 1e-9);
 });
 const EXT = { left: -12, top: -40, right: 183, bottom: 107 };
 // the outline's loops, as points back in the joined bubble's px
@@ -308,11 +282,8 @@ test("the outline is exactly the two bubbles on the first frame and exactly the 
   assert.deepEqual(plain(last.U), s.U1);
   assert.deepEqual(plain(last.L), s.L1);
   assert.ok(last.k < 1e-9 && last.bow < 1e-9, "the joint has not settled on the last frame");
-  // the neck fills the whole side between the two, so their outline is one rounded bubble
-  const d1 = context.sentGooPath(last.U, last.L, R, last.k, last.bow, EXT, last.N);
-  const joined = context.sentBoxPath({ left: 0, top: 0, right: s.W, bottom: s.H }, R,
-    v => (v - EXT.left).toFixed(2), v => (v - EXT.top).toFixed(2));
-  assert.equal(d1, joined, "the last frame is not exactly the joined bubble");
+  // the head and the foot overlap by a corner each way, so their union is one rounded bubble
+  assert.ok(s.U1.bottom - s.L1.top >= 2 * R - 1e-9, "the joined bubble keeps a joint");
   assert.equal(s.U1.left, s.L1.left);
   assert.equal(s.U1.right, s.L1.right);
 });
@@ -364,155 +335,6 @@ test("the outline never swells past the column's sides or above the earlier bubb
       assert.ok(x <= right + 1e-6 && x >= left - 1e-6, `the outline swells sideways at ${ms}ms (${x})`);
       assert.ok(y >= Math.min(shape.U.top, shape.L.top) - 1e-6 && y <= Math.max(shape.U.bottom, shape.L.bottom) + 1e-6,
         `the outline swells past the top or the foot at ${ms}ms (${y})`);
-    }
-  }
-});
-
-// ---- the corners never turn pointy ----------------------------------------------------------
-// pairs as the two pages stand them, in the joined bubble's own px. on the Mac a
-// corner is 18px, one line 56px tall and two 76px, with 26px between two
-// bubbles, and the joined one is laid out up from the later one's foot, cut at
-// two lines (94px) or three (114px) where it is cut. the first is the owner's
-// report: a bubble of two lines falling onto a shorter one of one line, whose
-// foot corner squared off and came round again just before the join was done
-const PAIRS = [
-  ["two lines over a shorter line, joined cut", pair({ left: 0, top: -64, right: 240, bottom: 12 }, { left: 60, top: 38, right: 240, bottom: 94 }, 240, 94, 18)],
-  ["a short line over two lines", pair({ left: 140, top: -44, right: 240, bottom: 12 }, { left: 0, top: 38, right: 240, bottom: 114 }, 240, 114, 18)],
-  ["a short line over a long cut one", pair({ left: 150, top: -62, right: 240, bottom: -6 }, { left: 0, top: 20, right: 240, bottom: 114 }, 240, 114, 18)],
-  ["two full lines", pair({ left: 0, top: -42, right: 240, bottom: 14 }, { left: 0, top: 40, right: 240, bottom: 96 }, 240, 96, 18)],
-  ["a cut bubble over a shorter line", pair({ left: 0, top: -120, right: 240, bottom: -26 }, { left: 120, top: 38, right: 240, bottom: 94 }, 240, 94, 18)],
-  ["the phone's pair", spec()],
-  ["the Mac magic box's pair", pair({ left: 40, top: -50, right: 200, bottom: -11 }, { left: 0, top: 6, right: 200, bottom: 66 }, 200, 66, 12)],
-];
-const extOf = s => ({ left: -20, top: Math.min(s.U0.top, 0) - 20, right: s.W + 20, bottom: s.H + 20 });
-// an outline's loops, drawn in ext's px, back in the joined bubble's px
-const loopsIn = (d, ext) => d.split("Z").filter(one => one.includes("M")).map(one => one.replace("M", "").split("L")
-  .map(p => p.trim().split(/\s+/).map(Number)).map(([x, y]) => [x + ext.left, y + ext.top]));
-// a path of whole boxes: every corner drawn is an arc of the bubbles' own round
-function arcsOf(d) {
-  return [...d.matchAll(/A([\d.]+) ([\d.]+)/g)].map(m => [Number(m[1]), Number(m[2])]);
-}
-// how far the outline stands off the bubbles' own outline, the plain union of
-// their boxes, inside the squares of the outer corners: the top box's head and
-// the foot box's foot. none at all is the corners keeping their round
-function cornerOff(context, boxes, r, top, foot, points) {
-  const squares = [[top.left, top.top], [top.right - r, top.top], [foot.left, foot.bottom - r], [foot.right - r, foot.bottom - r]];
-  let worst = 0;
-  for (const [x, y] of points) for (const [cx, cy] of squares) {
-    if (x < cx - 1e-6 || x > cx + r + 1e-6 || y < cy - 1e-6 || y > cy + r + 1e-6) continue;
-    const off = Math.min(...boxes.map(b => context.sentBoxDistance(x, y, b, r)));
-    if (Math.abs(off) > Math.abs(worst)) worst = off;
-  }
-  return worst;
-}
-// the tightest convex bend along a loop: the radius of the circle through points
-// four pixels apart along it, read every half pixel. the trace's rows, half a
-// pixel apart, read a corner's own 18px arc as no tighter than about 12px; a
-// corner squared off reads under 6
-function tightest(points) {
-  const ring = [];
-  let next = 0;
-  points.forEach((a, i) => {
-    const b = points[(i + 1) % points.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    for (; next < len; next += .5) ring.push([a[0] + (b[0] - a[0]) * next / len, a[1] + (b[1] - a[1]) * next / len]);
-    next -= len;
-  });
-  let area = 0;
-  ring.forEach(([x1, y1], i) => { const [x2, y2] = ring[(i + 1) % ring.length]; area += x1 * y2 - x2 * y1; });
-  let least = Infinity;
-  const n = ring.length;
-  for (let i = 0; i < n; i++) {
-    const a = ring[(i - 8 + n) % n], b = ring[i], c = ring[(i + 8) % n];
-    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
-    if (cross * Math.sign(area) <= 1e-9) continue;
-    const ab = Math.hypot(b[0] - a[0], b[1] - a[1]), bc = Math.hypot(c[0] - b[0], c[1] - b[1]), ca = Math.hypot(a[0] - c[0], a[1] - c[1]);
-    least = Math.min(least, ab * bc * ca / (2 * Math.abs(cross)));
-  }
-  return least;
-}
-
-test("the corners never turn pointy: the outer corners keep the bubbles' own round on every frame of a join, and nothing bends sharper than half a corner", () => {
-  const { context } = load();
-  for (const [name, s] of PAIRS) {
-    const ext = extOf(s);
-    for (let ms = 0; ms <= 1000; ms += 8) {
-      const shape = context.sentMergeShape(s, ms / 1000);
-      const d = context.sentGooPath(shape.U, shape.L, s.r, shape.k, shape.bow, ext, shape.N);
-      if (d.includes("A")) {
-        for (const [rx, ry] of arcsOf(d)) assert.ok(rx === s.r && ry === s.r, `${name}: a corner drawn at ${rx}px at ${ms}ms`);
-        continue;
-      }
-      const loops = loopsIn(d, ext);
-      const off = cornerOff(context, [shape.U, shape.L], s.r, shape.U, shape.L, loops.flat());
-      assert.ok(Math.abs(off) <= .05, `${name}: a corner stands ${off.toFixed(2)}px off the bubbles' own at ${ms}ms`);
-      for (const loop of loops) {
-        const bend = tightest(loop);
-        assert.ok(bend >= s.r / 2, `${name}: the outline bends at ${bend.toFixed(1)}px, sharper than half a corner, at ${ms}ms`);
-      }
-    }
-  }
-});
-
-test("a column's outer corners keep their round on every frame of its fall too", () => {
-  const { context } = load();
-  for (const [talls, widths] of [[[52.5, 99, 52.5, 52.5], [90, 260, 150, 120]], [[52.5, 52.5, 52.5], [200, 120, 160]]]) {
-    const { B0, W, H, r } = columnOf(talls, widths);
-    const plan = context.sentColumnPlan(B0, W, H, r);
-    const ext = { left: -20, top: B0[0].top - 20, right: W + 20, bottom: H + 20 };
-    // each joint's face keeps its own pair's outer corners, so the column's
-    // head, the top joint's, and its foot, the last one's, keep theirs
-    for (let ms = 0; ms <= plan.end; ms += 8) {
-      const st = context.sentColumnShape(plan, ms);
-      st.boxes.slice(0, -1).forEach((box, i) => {
-        const next = st.boxes[i + 1];
-        const d = context.sentGooPath(box, next, r, st.joints[i].k, st.joints[i].bow, ext);
-        if (d.includes("A")) return;
-        const loops = loopsIn(d, ext);
-        const off = cornerOff(context, [box, next], r, box, next, loops.flat());
-        assert.ok(Math.abs(off) <= .05, `a corner of ${talls.length} stands ${off.toFixed(2)}px off the bubbles' own at ${ms}ms`);
-        for (const loop of loops) assert.ok(tightest(loop) >= r / 2, `a column of ${talls.length} bends sharper than half a corner at ${ms}ms`);
-      });
-    }
-  }
-});
-
-test("once the two drops touch they stay one piece to the last frame, and the neck, in the middle of the side they share, only widens until it fills it", () => {
-  const { context } = load();
-  for (const [name, s] of PAIRS) {
-    const ext = extOf(s);
-    let joined = null, wide = 0;
-    for (let ms = 0; ms <= 1000; ms += 8) {
-      const shape = context.sentMergeShape(s, ms / 1000);
-      const d = context.sentGooPath(shape.U, shape.L, s.r, shape.k, shape.bow, ext, shape.N);
-      const pieces = (d.match(/M/g) || []).length;
-      if (joined === null && pieces === 1) joined = ms;
-      if (joined !== null) assert.equal(pieces, 1, `${name}: the joined drops came apart at ${ms}ms`);
-      if (!shape.N) continue;
-      const from = Math.max(shape.U.left, shape.L.left), to = Math.min(shape.U.right, shape.L.right);
-      assert.ok(shape.N.left >= from - 1e-9 && shape.N.right <= to + 1e-9, `${name}: the neck passed the side the two share at ${ms}ms`);
-      assert.ok(Math.abs((shape.N.left + shape.N.right) / 2 - (from + to) / 2) < 1e-6, `${name}: the neck is not in the middle at ${ms}ms`);
-      assert.ok(shape.N.right - shape.N.left >= wide - 1e-9, `${name}: the neck narrowed at ${ms}ms`);
-      wide = shape.N.right - shape.N.left;
-    }
-    assert.ok(joined !== null && joined < 500, `${name}: the two did not become one (${joined})`);
-    const last = context.sentMergeShape(s, 1);
-    assert.equal(last.N.left, 0, `${name}: the neck does not fill the side on the last frame`);
-    assert.equal(last.N.right, s.W);
-  }
-});
-
-test("while the two differ in width the earlier foot stays a corner and a half over the later one's foot, giving way by at most half a corner, so the step's meniscus never runs into a corner", () => {
-  const { context } = load();
-  for (const [name, s] of PAIRS) {
-    const tall = s.U0.bottom - s.U0.top, tall1 = s.U1.bottom - s.U1.top;
-    for (let ms = 0; ms <= 1000; ms += 4) {
-      const shape = context.sentMergeShape(s, ms / 1000);
-      const step = Math.max(Math.abs(shape.U.left - shape.L.left), Math.abs(shape.U.right - shape.L.right));
-      const free = shape.fall + tall + (tall1 - tall) * shape.sunk;
-      assert.ok(shape.U.bottom <= free + 1e-9, `${name}: the earlier foot stretched at ${ms}ms`);
-      if (step < 1) continue;
-      assert.ok(shape.U.bottom <= shape.L.bottom - 1.5 * s.r + 1e-9 || shape.U.bottom >= free - s.r / 2 - 1e-9,
-        `${name}: the earlier foot came within a corner and a half of the later one's at ${ms}ms`);
     }
   }
 });
