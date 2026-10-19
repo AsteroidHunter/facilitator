@@ -11,26 +11,28 @@
  * composer is the plain textarea it has always been and not one line of this
  * file runs on it.
  *
- * What it draws, and nothing else: one star is italic, two are bold, two tildes
- * on either side are a strike, a leading angle AND THE SPACE AFTER IT are a
- * quote bar, and a dash or star and a space is a bullet. A marker is a marker
- * once it is finished being typed and not before: a lone angle, like a lone
- * dash, is the character it was typed as until its space arrives. Each is
+ * What it draws, as Obsidian's live preview draws it: one star is italic, two
+ * are bold, two tildes on either side are a strike, backticks are a code span,
+ * [words](address) is a link and a bare address is one too, hashes and a space
+ * are a heading, a leading angle AND THE SPACE AFTER IT are a quote bar, and a
+ * dash, a star, a plus or a number and a space is a list item, under a line of
+ * text as much as on a line of its own. A marker is a marker once it is
+ * finished being typed and not before: a lone angle, like a lone dash or a
+ * lone hash, is the character it was typed as until its space arrives. Each is
  * drawn as the card the row is sent to draws it: a span inside one line and
  * not one that runs over a line break, and a quote only on the lines that
- * carry their own angle. Inserting a new line inside a list carries the marker
- * down, moving the numbers after a new numbered item on, and the editor's own
- * continuation carries a quote's angle and its space down the same way; doing
+ * carry their own angle. Inserting a new line carries a list's marker or a
+ * quote's angle down, moving the numbers after a new numbered item on; doing
  * it on a marker or an angle with nothing typed after it ends the list or the
- * quote. Inside a block of code nothing is carried.
- * Headings, tables, links, code fences and the rest of Markdown are left as
- * plain characters here: this is a message row, not a document editor.
+ * quote, or moves a nested item out a level. Inside a block of code nothing is
+ * carried. Tables and code fences are left as plain characters here: this is
+ * a message row, not a document editor.
  *
  * The editor is the CodeMirror 6 bundle already vendored beside the pages for
  * the markdown panel (/cm-markdown.js). Only its core, its markdown parser and
  * its history are used; the panel's live preview pack is deliberately not
  * loaded, because that pack draws a whole document's worth of Markdown and
- * this row wants five things drawn and everything else left alone. The layer
+ * shows a line's markers whenever the caret is on it (see below). The layer
  * below is written out of the same primitives the board's own markdown layer
  * uses, so both surfaces are drawn the same way.
  *
@@ -38,16 +40,18 @@
  * line's raw markers back whenever the cursor is anywhere on that line. In a
  * row that is usually one line long that would mean the words never format
  * while they are being typed, so here the raw markers come back for the one
- * span the cursor is actually in or beside. The quote angles are the one thing
- * that never comes back once they are drawn at all: the bar is the whole of a
- * quote here, and a line drawing the bar and the angles together would be one
- * quote written twice under the typist, with the words stepping sideways every
- * time the caret arrived. That holds wherever the quote starts, at the head of
- * the line or after a list marker, and however deep it is. The angles keep
- * their places in the document, so the caret, a picked out passage and the
- * markdown the row sends all go on counting them. Two kinds of angle are never
- * drawn away: one the parser did not call a marker, inside a code span or in
- * the middle of a sentence, and one whose space has not been typed yet.
+ * span the cursor is actually in or beside, as in Obsidian; a heading's hashes
+ * come back while the cursor is on its line. The quote angles are the one
+ * thing that never comes back once they are drawn at all: the bar is the whole
+ * of a quote here, and a line drawing the bar and the angles together would be
+ * one quote written twice under the typist, with the words stepping sideways
+ * every time the caret arrived. That holds wherever the quote starts, at the
+ * head of the line or after a list marker, and however deep it is. The angles
+ * keep their places in the document, so a picked out passage and the markdown
+ * the row sends go on counting them, and the caret steps over them whole. Two
+ * kinds of angle are never drawn away: one the parser did not call a marker,
+ * inside a code span or in the middle of a sentence, and one whose space has
+ * not been typed yet.
  *
  * The textarea does not leave the page while the editor stands in for it. It
  * keeps the field's one public face: its value, its selection, its focus, its
