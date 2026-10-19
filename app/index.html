@@ -1577,8 +1577,9 @@
      eased over the card's own .2s. a box comes in faint, since the card is what
      was being worked in.
      the card's response piped out beside a long reply (#pipebox, pipeSync) is
-     a second box on these same rules, so it stands, fades, rises and sinks as
-     the box does; what is its own look is under them */
+     a second box on these same rules, so it stands where the box does and
+     rises and sinks by its steps; it is never faded, and its face, its shadow
+     and how it looks as it rises are its own, under them */
   :is(#magicbox, #pipebox){display:none}
   body.focus :is(#magicbox, #pipebox).on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
   body.focus.home :is(#magicbox, #pipebox).on, body.focus.editmode :is(#magicbox, #pipebox).on{display:none}
@@ -1598,14 +1599,14 @@
      follow it together, and its edge line (the border) and its line too
      (#mbline). risen, the
      class comes off and the rules above hold it, with the same numbers */
-  :is(#magicbox, #pipebox).rising{--rise:0; transition:none;
+  #magicbox.rising{--rise:0; transition:none;
     border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent);
     box-shadow:0 calc(3px * var(--rise)) calc(14px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise))),
       0 calc(1px * var(--rise)) calc(2px * var(--rise)) rgba(60,45,20,calc(.06 * var(--rise)))}
-  :is(#magicbox, #pipebox).rising.held{
+  #magicbox.rising.held{
     box-shadow:0 calc(2px * var(--rise)) calc(18px * var(--rise)) rgba(60,45,20,calc(.18 * var(--rise))),
       0 calc(1px * var(--rise)) calc(3px * var(--rise)) rgba(60,45,20,calc(.10 * var(--rise)))}
-  :is(#magicbox, #pipebox).rising > *{opacity:var(--rise)}
+  #magicbox.rising > *{opacity:var(--rise)}
   /* the two lines that tie the box to its card, as the owner chose them in the
      connector mock (magicLine): the card's own edge colour, dashed, 4/3 px,
      straight across the gap from the card's right edge to the box's left
@@ -1635,9 +1636,9 @@
   #magicbox .mbbody{overflow-x:hidden}
   #magicbox .mbtext{padding:var(--mb-lead) var(--mb-inset, 16px) var(--mb-inset, 16px)}
   /* a long reply's steps (pipeStep). the row keeps its words' own height, to
-     the cap above, its first step, and scrolls inside that. once the words pass
-     half way to the second step the box it stands in rises to the second
-     (rowRise), and sinks back once they are clearly under the first: the row's
+     the cap above, its first step, and scrolls inside that. once the words
+     would reach the line under the card's top bar the box it stands in rises
+     to the second (rowRise), and sinks back once they are clearly under the first: the row's
      cap and the bar's least height are both --row-box while it is up
      (.tallrow), so the row stands on the bar's floor with its last line where
      it was and the bar's line rises over it */
@@ -1648,14 +1649,31 @@
      box's, kept clear, so it measures as the box does), no bar, its words
      dissolving at both ends of their scroll as the box's do (the view's
      --upband and --downband), in the card answer's own type with its inset on
-     every side */
+     every side. it is always whole, held or not. it draws no edge on its
+     sides: its face is the board's own paper (the card's white there stood out
+     from the board as an edge of its own), and its shadow falls only past its
+     top and its foot, the box's two shadows with each layer pulled in on every
+     side by half again its blur (a negative spread), so not even the blur's
+     faint tail reaches past a side, and moved up past the top and down past the
+     foot to reach there as far as the box's do. it rises and sinks on the box's
+     steps as a whole, its face, shadow and words all on --rise */
   #pipebox, #pipebox.rising{border-color:transparent}
+  #pipebox{opacity:1; background:var(--paper);
+    box-shadow:0 -18px 14px -21px rgba(60,45,20,.10), 0 24px 14px -21px rgba(60,45,20,.10),
+      0 -2px 2px -3px rgba(60,45,20,.06), 0 4px 2px -3px rgba(60,45,20,.06)}
+  #pipebox.held{
+    box-shadow:0 -25px 18px -27px rgba(60,45,20,.18), 0 29px 18px -27px rgba(60,45,20,.18),
+      0 -3.5px 3px -4.5px rgba(60,45,20,.10), 0 5.5px 3px -4.5px rgba(60,45,20,.10)}
+  #pipebox.rising{--rise:0; transition:none; opacity:var(--rise)}
   #pipebox .mbbar{display:none}
   /* the patch of the board it stands on (pipePlace): the board's own paper in
      its shape, under it and over what it lies on, the ticket list and the clock
-     on the card's left, which would show through the box's faint face. it comes
-     with the box's rise (magicRiseSet), so on the bare board it is never seen
-     and over the list it clears the box's room as the box rises */
+     on the card's left, which would show through it while it is part way
+     risen. it comes with the box's rise (magicRiseSet), so on the bare board it
+     is never seen and over the list it clears the box's room as the box rises.
+     the list and the clock themselves go down to a tenth as it rises and come
+     back as it sinks, frame for frame with it, as the card's own copy of the
+     response does (pipeDim) */
   #pipeground{display:none}
   body.focus #pipeground.on{display:block; position:fixed; z-index:1; pointer-events:none;
     background:var(--paper); border-radius:var(--mb-round)}
@@ -1666,20 +1684,15 @@
   #pipebox .mbtext{padding:var(--mb-inset); font-size:18px; line-height:1.55}
   #pipebox .mbtext[contenteditable]{outline:none}   /* with the response's caret in it (pipeEnter) */
   /* the brace from the card to it (pipeLine): a { to it on the card's right
-     and a } to it on its left, two sets of three straight lines meeting square,
-     dashed as the box's lines are and in the card's edge colour, beneath the
-     card and the response, with the same shadow on its group */
+     and a } to it on its left, two sets of three straight lines meeting square
+     and touching neither, dashed as the box's lines are and in the card's edge
+     colour, beneath the card and the response, with the same shadow on its group */
   #pipeline{display:none}
   body.focus #pipeline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none; z-index:0}
   body.focus #pipeline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
   body.lowered #pipeline.on > g{filter:none}
   body.focus:is(.home, .editmode) #pipeline.on{display:none}
-  /* piped to the card's left, it lies over the ticket list and the clock, which
-     fade well down while it stands there (body.pipeleft) over the time and
-     curve it rises on (RISE_MS), and come back as it sinks */
-  body.focus :is(#tickets, #clockbox){transition:opacity 1s cubic-bezier(.455, .03, .515, .955)}
-  body.focus.pipeleft :is(#tickets, #clockbox){opacity:.26}
   /* on the chat lane's tab the same box holds a chat instead of a picture, so an
      agent can be talked to from the board. the look is a faithful copy of the
      reference app's thread, restated here in full rather than borrowed: the
@@ -8319,7 +8332,7 @@ function magicClose(){
 // box while it rises plays the rest RISE_FAST times as fast. then: what to do
 // once it is flat again, which is to take it off the page. box: what rises,
 // the magic box (MB) or the response piped out beside the card (PIPE), each
-// with its own el, line and rise
+// with its own el, line and rise, and a time of its own (ms) where it has one
 const RISE_MS = 1000, RISE_FAST = 3;
 // the rise's curve, eased in and out: the typing row's box rises on it too (rowRise)
 function riseEase(t){ return t < .5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t); }
@@ -8328,8 +8341,10 @@ function magicRiseSet(t, box = MB){
   const p = riseEase(t);
   box.el.style.setProperty("--rise", p.toFixed(4));
   box.line.style.opacity = p.toFixed(4);
-  // and the patch of the board under it, for a box that has one (PIPE)
+  // and the patch of the board under it, and what it dims as it comes, for a
+  // box that has them (PIPE)
   if (box.ground) box.ground.style.opacity = p.toFixed(4);
+  if (box.dim) box.dim(p);
 }
 function magicRise(dir, then = null, box = MB){
   const r = box.rise;
@@ -8339,7 +8354,7 @@ function magicRise(dir, then = null, box = MB){
 }
 function magicRiseStep(now, box = MB){
   const r = box.rise;
-  const t = Math.min(1, Math.max(0, r.t + r.dir * r.fast * (now - r.last) / RISE_MS));
+  const t = Math.min(1, Math.max(0, r.t + r.dir * r.fast * (now - r.last) / (box.ms || RISE_MS)));
   r.last = now;
   magicRiseSet(t, box);
   if (r.dir > 0 ? t < 1 : t > 0){ r.raf = requestAnimationFrame(next => magicRiseStep(next, box)); return; }
@@ -8590,9 +8605,9 @@ addEventListener("keydown", e => {
 // ---- the response piped out beside a long reply -------------------------------
 // the card's typing row grows in two steps. it grows a line at a time to the
 // sheet's cap, its first step, and scrolls inside that; once what is typed
-// passes half way from there to its second step, as tall as leaves the
-// response's first two lines whole under the card's head (pipeTall), the box
-// the row stands in rises to the second (rowRise), and the card's response is
+// would reach the line right under the card's top bar (pipeReach), the box the
+// row stands in rises to its second step, as tall as leaves the response's
+// first two lines whole under the card's head (pipeTall, rowRise), and the card's response is
 // piped out beside the card (pipeSync), to be read while the reply is typed. it
 // stands right of the card, or left of it, over the ticket list and the clock,
 // when the card's magic box stands on the right or the right has no room for
@@ -8603,9 +8618,15 @@ addEventListener("keydown", e => {
 // toward it (pipeJump), and control+option+up and down, for which it is the
 // card's response while it is out (cardAnswerOff); control+S scrolls it while
 // it holds them. the reply sent, or cut back clearly under the first step, it
-// goes back into the card. the phone, and the Mac's own phone view, keep one step
+// goes back into the card. the phone, and the Mac's own phone view, keep one
+// step. it rises and sinks quicker than the box, over PIPE_MS on the box's
+// curve, and dims what it stands for and over to PIPE_DIM (pipeDim). its brace
+// stops PIPE_CLEAR short of the card and of it (pipeBrace)
+const PIPE_MS = 600, PIPE_DIM = .1, PIPE_CLEAR = 8;
 const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"),
-  ground: document.getElementById("pipeground"), id: null, raw: null,
+  ground: document.getElementById("pipeground"), id: null, raw: null, ms: PIPE_MS,
+  aside: ["tickets", "clockbox"].map(id => document.getElementById(id)).filter(Boolean), dim: pipeDim,
+  dimmed: null, dimAt: { reply: "", aside: "" },
   side: null, came: null, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } };
 if (PIPE.el){
   PIPE.view = magicView(PIPE.el, { placed: () => pipePlace() });
@@ -8631,11 +8652,13 @@ function pipeStep(id, words = true){
   if (words) el.rowWords = parseFloat(row.style.height) || 0;
   const was = el.box.classList.contains("piped"), rs = getComputedStyle(row);
   if (!el.box.classList.contains("tallrow")) el.rowFirst = parseFloat(rs.maxHeight) || 0;
-  if (el.rowFirst && (was || el.rowWords > el.rowFirst + 0.5)){
+  const over = el.rowFirst && el.rowWords > el.rowFirst + 0.5;
+  if (el.rowFirst && (was || over)){
     const tall = Math.round(Math.max(el.rowFirst, pipeTall(el)));
     if (!(Math.abs((el.rowTall || 0) - tall) <= 1)) el.rowTall = tall;
   }
-  const out = pipeOut(was, el.rowWords, el.rowFirst, el.rowTall || 0, parseFloat(rs.lineHeight) || 0);
+  const line = parseFloat(rs.lineHeight) || 0;
+  const out = pipeOut(was, el.rowWords, el.rowFirst, !was && over ? pipeReach(el, row, rs, line) : 0, line);
   if (out !== was){
     el.box.classList.toggle("piped", out);
     if (out){
@@ -8658,14 +8681,27 @@ function pipeStep(id, words = true){
 }
 
 // whether the row stands at its second step with the response piped out, from
-// the words' height, the two steps and the row's line, all in the row's own
-// pixels: once the words pass half way from the first step to the second, and
-// from then on until they are a whole line under the first, so a key typed and
-// taken back at either edge moves nothing
-function pipeOut(was, words, first, tall, line){
+// the words' height, the first step, the height at which the words reach the
+// line under the card's top bar (pipeReach) and the row's line, all in the
+// row's own pixels: once the words reach that line, and from then on until
+// they are a whole line under the first step, so a key typed and taken back at
+// either edge moves nothing
+function pipeOut(was, words, first, reach, line){
   if (!first) return false;
   if (was) return words > first - line;
-  return words > (first + Math.max(first, tall)) / 2 + 0.5;
+  return words > Math.max(first, reach) + 0.5;
+}
+
+// how tall the words stand once their first line is the line right under the
+// card's top bar: from the row's foot, where they stand, up to the bar's foot,
+// less that line, with the row's own padding over the first line. read off the
+// card as it is laid out, in the stage's pixels the row is in; nothing the
+// steps move changes it, as the row's foot stands on the bar's floor and the
+// top bar at the card's head
+function pipeReach(el, row, rs, line){
+  const S = stageScale || 1;
+  const foot = row.getBoundingClientRect().bottom, bar = el.topbar.getBoundingClientRect().bottom;
+  return (foot - bar) / S - line + (parseFloat(rs.paddingTop) || 0);
 }
 
 // the box the typing row stands in, rising from the first step (t 0) to the
@@ -8698,15 +8734,31 @@ function rowFlat(el){
   rowBox(el);
 }
 // its height where the rise has got to: from the row's own height under the
-// first step (its words', or the first step's) up to the second
+// first step (its words', or the first step's) up to the second. the row's
+// words keep their foot where it stands as the box changes height: what is
+// out of sight under the row stays under it, so the box opens and closes over
+// the words and never under them. a scrolled row left to itself keeps its
+// top, and with the caret up in the words that took the caret up with the box
+// and brought the lines under it into sight. what is under it is read once
+// for a move (rowKept), and again only once the words or the scroll have
+// changed by other hands, so a scroll rounded to the screen's pixels does not
+// creep over the frames
 function rowBox(el){
   const r = el.rowRise, up = !!r && r.t > 0;
+  const row = el.field.view ? el.field.view.scrollDOM : el.ta, kept = el.rowKept;
+  const under = kept && kept.height === row.scrollHeight && Math.abs(kept.top - row.scrollTop) < 1 ? kept.under
+    : row.scrollHeight - row.scrollTop - row.clientHeight;
+  let moved = false;
   if (up){
     const low = Math.min(el.rowFirst, el.rowWords), high = Math.max(low, el.rowTall || 0);
     const px = (low + (high - low) * riseEase(r.t)).toFixed(2) + "px";
-    if (el.rowBoxAt !== px){ el.rowBoxAt = px; el.box.style.setProperty("--row-box", px); }
+    if (el.rowBoxAt !== px){ el.rowBoxAt = px; el.box.style.setProperty("--row-box", px); moved = true; }
   }
-  if (el.box.classList.contains("tallrow") !== up) el.box.classList.toggle("tallrow", up);
+  if (el.box.classList.contains("tallrow") !== up){ el.box.classList.toggle("tallrow", up); moved = true; }
+  if (!moved) return;
+  const at = row.scrollHeight - row.clientHeight - under;
+  if (Math.abs(row.scrollTop - at) > 0.5) row.scrollTop = at;
+  el.rowKept = { under, top: row.scrollTop, height: row.scrollHeight };
 }
 
 // the second step: the row as tall as it can stand with the response's first
@@ -8738,8 +8790,8 @@ function pipeTall(el){
 // the foot of a response's first n lines on screen, read off its words as
 // they are laid out, a heading, a list or a code block alike, or of as many as
 // it has; null for one with no words. a button's words (a code block's copy)
-// are not the response's
-function pipeLines(reply, n){
+// are not the response's. whole: the last of those lines, its top and foot
+function pipeLines(reply, n, whole = false){
   const walk = document.createTreeWalker(reply, NodeFilter.SHOW_TEXT), range = document.createRange();
   const lines = [];
   for (let t = walk.nextNode(); t; t = walk.nextNode()){
@@ -8750,10 +8802,11 @@ function pipeLines(reply, n){
       const line = lines.find(l => r.top < l.bottom - 1 && r.bottom > l.top + 1);
       if (line){ line.top = Math.min(line.top, r.top); line.bottom = Math.max(line.bottom, r.bottom); }
       else if (lines.length < n) lines.push({ top: r.top, bottom: r.bottom });
-      else if (r.top >= lines[n - 1].bottom - 1) return lines[n - 1].bottom;
+      else if (r.top >= lines[n - 1].bottom - 1) return whole ? lines[n - 1] : lines[n - 1].bottom;
     }
   }
-  return lines.length ? lines[lines.length - 1].bottom : null;
+  const last = lines[lines.length - 1];
+  return !last ? null : whole ? last : last.bottom;
 }
 
 // the card whose response is piped out, or null: the card on screen, on the
@@ -8806,7 +8859,7 @@ function pipeDraw(raw){
 function pipeOff(){
   if (!PIPE.el) return;
   PIPE.el.classList.remove("on", "held", "rising");
-  document.body.classList.remove("pipeleft", "pipekeys");
+  document.body.classList.remove("pipekeys");
   magicRiseStop(PIPE);
   magicRiseSet(1, PIPE);
   PIPE.line.classList.remove("on");
@@ -8816,20 +8869,41 @@ function pipeOff(){
   if (PIPE.sized) PIPE.sized.disconnect();
   PIPE.view.clear();
 }
-// back into the card: it sinks as the box sinks, and the ticket list and the
-// clock come back with it; one not on screen just goes
+// back into the card: it sinks as the box sinks, and what it dimmed comes back
+// with it; one not on screen just goes
 function pipeSink(){
   if (!PIPE.el || PIPE.rise.then) return;
-  document.body.classList.remove("pipeleft");
   boxSink(PIPE, pipeOff);
+}
+
+// what it dims as it comes out, on its own rise (magicRiseSet, p the rise
+// eased): the card's own copy of the response, and on the card's left the
+// ticket list and the clock it lies over, each down to a tenth (PIPE_DIM) once
+// it is risen and whole again once it is flat, on the same frames. hidden for
+// want of room, or off the page, it dims nothing. each is written only when it
+// changes, so the card's watch (follow) hears nothing of a placing that moved nothing
+function pipeDim(p = riseEase(PIPE.rise.t)){
+  const el = PIPE.id === null ? null : els[PIPE.id] || null;
+  const shown = !!el && PIPE.el.classList.contains("on") && PIPE.el.style.visibility !== "hidden";
+  const a = shown && p > 0 ? (1 - (1 - PIPE_DIM) * p).toFixed(4) : "";
+  const aside = PIPE.side === "left" ? a : "";
+  if (PIPE.dimmed !== el){
+    if (PIPE.dimmed) PIPE.dimmed.reply.style.opacity = "";
+    PIPE.dimmed = el; PIPE.dimAt.reply = "";
+  }
+  if (el && PIPE.dimAt.reply !== a){ PIPE.dimAt.reply = a; el.reply.style.opacity = a; }
+  if (PIPE.dimAt.aside !== aside){
+    PIPE.dimAt.aside = aside;
+    for (const node of PIPE.aside) node.style.opacity = aside;
+  }
 }
 
 // beside the card where the magic box stands (magicRoom, MagicBox.place), on
 // the right, or on the left while the card's box stands on the right or the
 // right has no room for it. a side it took stays its side for as long as it
 // is out, unless the box comes to it or its room goes. with no room either
-// side it is hidden where it is, still out, and is back when the window gives
-// it the room, as the box is
+// side it is hidden where it is, still out, dimming nothing, and is back when
+// the window gives it the room, as the box is
 function pipePlace(){
   if (!PIPE.el || !PIPE.el.classList.contains("on")) return;
   PIPE.line.classList.remove("on");
@@ -8841,7 +8915,7 @@ function pipePlace(){
   if (!side){
     PIPE.el.style.visibility = "hidden";
     if (PIPE.ground) PIPE.ground.classList.remove("on");
-    document.body.classList.remove("pipeleft");
+    pipeDim();
     return;
   }
   PIPE.side = side;
@@ -8850,41 +8924,52 @@ function pipePlace(){
   Object.assign(PIPE.el.style, rect, { visibility: "" });
   // the patch of the board under it, in its place and shape
   if (PIPE.ground){ Object.assign(PIPE.ground.style, rect); PIPE.ground.classList.add("on"); }
-  document.body.classList.toggle("pipeleft", side === "left" && !PIPE.rise.then);
+  pipeDim();
   pipeLine(room.rect, at, side, most[side]);
   boxRise(PIPE);
 }
 
 // the brace from the card to it, in the stage's pixels: a { when it stands on
-// the card's right and a } on its left, its arms reaching it and its point the
-// card. two sets of three straight lines meeting square, one over the other:
-// the upper runs from its top arm along the spine and out to the card, and the
-// lower from the card back to the spine, down it and out along its foot arm.
-// the spine stands in the middle of the gap between the card's edge and the
-// response's; the arms reach the response level with its top and foot, in by
-// its corner (round); the two sets' lines to the card stand a dash's gap apart
-// either side of the point, a set way under the top arm: where the magic box's
-// first line stands on the largest box beside this card (TWO), or half way
-// down a response too short for that. so the upper set keeps its height and
-// the lower stretches with the response. each line is dashed from the corner
-// it leaves, and the spines from the point, each starting half the line's
-// width back so the corners close. a gap narrower than the box's lines take
-// (TWO.gap) gives null
-function pipeBrace(card, box, side, most, round = 0){
+// the card's right and a } on its left, its arms reaching toward it and its
+// point toward the card. two sets of three straight lines meeting square, one
+// over the other: the upper runs from its top arm along the spine and out
+// toward the card, and the lower from the card back along the spine, down it
+// and out along its foot arm. the spine stands in the middle of the gap
+// between the card's edge and the response's, and no line touches either: each
+// stops clear short of the edge it points to. the top arm is level with the
+// middle of the response's first line (lead, down from its top), and the foot
+// arm with its foot, in by its corner (round). the two lines toward the card
+// stand a line of the response's words (apart) apart, either side of the
+// point, a set way under the top arm: where the magic box's first line stands
+// on the largest box beside this card (TWO), or half way down a response too
+// short for that, and no further apart than half of what is left of the brace.
+// so the upper set keeps its height and the lower stretches with the response.
+// each line is dashed from the corner it leaves, and the spines from the
+// point, each starting half the line's width back so the corners close. a gap
+// with no room on either side of the spine for a clear end and a dash gives null
+function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = TWO.space + TWO.width, clear = 0 } = {}){
   const s = side === "left" ? -1 : 1;
   const from = s > 0 ? card.left + card.width : card.left;
   const to = s > 0 ? box.left : box.left + box.width;
-  if (s * (to - from) < TWO.gap) return null;
-  const spine = (from + to) / 2, w = TWO.width / 2, nub = (TWO.space + TWO.width) / 2;
-  const top = box.top + round, foot = box.top + box.height - round;
+  const spine = (from + to) / 2, w = TWO.width / 2;
+  if (s * (to - from) / 2 < clear + w + TWO.dash) return null;
+  const top = box.top + lead, foot = box.top + box.height - round;
   const point = top + Math.min(most.height * TWO.share, (foot - top) / 2);
-  const up = point - nub, down = point + nub;
-  const upper = [[spine - s * w, top, to, top], [spine, up + w, spine, top], [spine + s * w, up, from, up]];
-  const lower = [[spine + s * w, down, from, down], [spine, down - w, spine, foot], [spine - s * w, foot, to, foot]];
+  const nub = Math.min(apart / 2, (foot - top) / 4);
+  const up = point - nub, down = point + nub, near = to - s * clear, far = from + s * clear;
+  const upper = [[spine - s * w, top, near, top], [spine, up + w, spine, top], [spine + s * w, up, far, up]];
+  const lower = [[spine + s * w, down, far, down], [spine, down - w, spine, foot], [spine - s * w, foot, near, foot]];
   return { spine, top, point, foot, upper, lower, segments: [...upper, ...lower] };
 }
 function pipeLine(card, box, side, most){
-  const brace = pipeBrace(card, box, side, most, parseFloat(getComputedStyle(PIPE.el).borderTopLeftRadius) || 0);
+  // the response's first line, from its top as it stands with its words at
+  // their head, in the stage's pixels as the box is, and one line of its words
+  const words = PIPE.part.reply, S = stageScale || 1;
+  const round = parseFloat(getComputedStyle(PIPE.el).borderTopLeftRadius) || 0;
+  const first = words && pipeLines(words, 1, true);
+  const lead = first ? ((first.top + first.bottom) / 2 - PIPE.el.getBoundingClientRect().top) / S + PIPE.body.scrollTop : round;
+  const apart = words ? parseFloat(getComputedStyle(words).lineHeight) || 0 : 0;
+  const brace = pipeBrace(card, box, side, most, { round, lead, apart, clear: PIPE_CLEAR });
   if (!brace) return;
   // the card's own edge colour, read off the card, as the box's lines are. it is
   // drawn again only when it has moved: each key typed at the second step places it
