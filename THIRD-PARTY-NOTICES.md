@@ -102,8 +102,8 @@ The token chart's download button draws Lucide's `download`, `loader-circle` and
 `check` the same way (inline static SVG path data, geometry unchanged, 14px with a
 2 stroke), covered by the same ISC License.
 
-The bar's links button (`#graphbtn` in `app/index.html`), which opens the links
-between cards, draws Lucide's `waypoints` the same way, at 15px with a 2 stroke
+The bar's links button, which opened the links between cards and is taken off the
+bar for now, drew Lucide's `waypoints` the same way, at 15px with a 2 stroke
 like the bar's other icons. It was copied from `icons/waypoints.svg` on Lucide's
 main branch on 2026-10-18; it is not part of Feather's set either, so it is
 covered by the same ISC License.
