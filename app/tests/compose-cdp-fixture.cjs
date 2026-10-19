@@ -40,9 +40,11 @@ const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const ROW = "article.box.sel textarea";   // the card's typing row, whichever face it wears
 const EDGE = 0.75;                        // px two edges may differ by and still be one edge
+// tokens.py answers the home panel the pages warm at idle; the config below
+// turns its log folders off, so it reads nothing of the machine's own
 const COPIED = ["m.html", "m-sw.js", "m-manifest.json", "sw.js", "manifest.json", "card-markdown.js", "card-tokens.css",
                 "card-logic.js", "card-report.js", "compose-format.js", "cm-markdown.js",
-                "index.html", "page.html"];
+                "index.html", "page.html", "tokens.py"];
 
 const board = { browser: null, child: null, dir: "", origin: "", session: null, made: 0 };
 
@@ -109,7 +111,9 @@ async function start() {
     await copyFile(path.join(ROOT, "assets", name), path.join(board.dir, "assets", name));
   }
   // the board's own default is off; these checks read the editor, so it is on
-  await writeFile(path.join(data, "run.config.json"), JSON.stringify({ compose_format_default: true }));
+  await writeFile(path.join(data, "run.config.json"), JSON.stringify({
+    compose_format_default: true, token_logs: { claude: [], codex: [] },
+  }));
   await writeFile(path.join(data, "seed.json"), JSON.stringify({
     title: "compose audit fixture",
     items: [
@@ -264,6 +268,12 @@ async function open(route, viewport, opts = {}) {
   const page = await backgroundPage(url);
   const problems = [];
   await page.setViewport(viewport);
+  // A background tab is a hidden page: it paints no frame, so the board's
+  // start never lifts its curtain and no row in it can take a caret. The tab
+  // is told it has the focus instead, a setting on this one tab that moves no
+  // window and brings nothing forward.
+  const emulation = await page.target().createCDPSession();
+  await emulation.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   // The tab was made on the fixture's own url, so the hooks below have to be
   // hung and the page read again for them to be on its first script. Nothing
   // about this brings the tab forward. The desktop pages keep the setting with
@@ -290,6 +300,8 @@ async function open(route, viewport, opts = {}) {
   await page.goto(url.href, { waitUntil: "domcontentloaded" });
   await until(page, () => typeof lastState !== "undefined" && lastState !== null,
     "the board to answer with its state", 20000);
+  await until(page, () => !document.getElementById("loading"),
+    "the board's start to lift its curtain", 20000);
   return { page, problems };
 }
 
