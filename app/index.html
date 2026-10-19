@@ -13668,7 +13668,7 @@ document.addEventListener("pointerdown", e => {
 }, true);
 // the Mac's phone view takes the window over, and a search under it could not be reached
 addEventListener("resize", () => { if (searchOpen && document.body.classList.contains("phoneview-active")) closeSearch(false); });
-// the block caret is placed once the panel has finished coming in
+// the block caret is placed once more when the panel has finished coming in
 searchPanel.addEventListener("transitionend", e => { if (e.target === searchPanel && e.propertyName === "transform") queueFatCaret(); });
 // every key while it is open, before the board hears it: Escape shuts it, the
 // up and down arrows move the pick, Enter opens the picked card, and the rest
@@ -14335,10 +14335,16 @@ addEventListener("keydown", e => {
   function place(){
     raf = 0;
     if (!cur || !cur.isConnected){ cur = null; hide(); return; }
-    // the search field's block waits for its panel to finish growing in, and
-    // the panel's transitionend lays it: laid on the panel's first frame, it
-    // stood where the field was then and moved once the panel had landed
-    if (cur === searchField && searchPanel.getAnimations().some(a => a.transitionProperty === "transform")){ hide(); return; }
+    // the search field's block rides its panel's opening: it is laid again on
+    // every frame the panel's transform or opacity is running, so it stands on
+    // the field's text spot as the panel moves, and it takes the panel's own
+    // opacity, so it fades in with the bar and is whole the frame it lands
+    let fade = "";
+    if (cur === searchField && searchPanel.getAnimations().some(a => a.transitionProperty === "transform" || a.transitionProperty === "opacity")){
+      fade = getComputedStyle(searchPanel).opacity;
+      queue();
+    }
+    for (const el of cells) el.style.opacity = fade;
     const collapsed = isField ? cur.selectionStart === cur.selectionEnd : getSelection().isCollapsed;
     if (!collapsed){ hide(); return; }   // a selection marks its own spot
     const c = isField ? fieldCaret(cur) : ceCaret(cur);

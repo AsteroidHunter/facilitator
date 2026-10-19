@@ -721,3 +721,15 @@ test("no key opens the search: the magnifier is its one way in, and the phone ha
   const phone = fs.readFileSync(path.join(ROOT, "m.html"), "utf8");
   assert.doesNotMatch(phone, /searchbtn|searchpanel|cardSearch|\/search\b/);
 });
+
+test("the block caret rides the panel's opening: laid on every running frame at the panel's opacity, for the search field alone", () => {
+  const place = between(HTML, "  function place(){", "const collapsed = isField");
+  // the search field's case only: the panel's running transform or opacity keeps it laid again
+  assert.match(place, /if \(cur === searchField && searchPanel\.getAnimations\(\)\.some\(a => a\.transitionProperty === "transform" \|\| a\.transitionProperty === "opacity"\)\)\{/);
+  assert.match(place, /fade = getComputedStyle\(searchPanel\)\.opacity;\s+queue\(\);/);
+  // every other surface gets no fade, and the search field gets none once the panel has landed
+  assert.match(place, /let fade = "";/);
+  assert.match(place, /for \(const el of cells\) el\.style\.opacity = fade;/);
+  // the block is never held back while the panel moves
+  assert.doesNotMatch(place, /searchField[^\n]*hide\(\)/);
+});
