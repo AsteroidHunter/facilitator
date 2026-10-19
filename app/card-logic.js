@@ -5576,11 +5576,16 @@ function sentDropSwallow(u, m0){
 // the joined body's head, past its place, ms after a kick: down first, back up
 // over its place a little less, and so on, on the body's own period, the first
 // dip 1. a damped spring, as a joined drop's own shape swings and settles
+const sentWobbles = new Map();
 function sentDropWobble(ms, period){
   if (!(ms > 0) || !(period > 0)) return 0;
-  const wd = 2 * Math.PI / period, decay = DROP_DAMP * wd / Math.sqrt(1 - DROP_DAMP * DROP_DAMP);
-  const peak = Math.atan(wd / decay) / wd;
-  return Math.exp(-decay * (ms - peak)) * Math.sin(wd * ms) / Math.sin(wd * peak);
+  let w = sentWobbles.get(period);
+  if (!w){
+    const wd = 2 * Math.PI / period, decay = DROP_DAMP * wd / Math.sqrt(1 - DROP_DAMP * DROP_DAMP);
+    const peak = Math.atan(wd / decay) / wd;
+    sentWobbles.set(period, w = { wd, decay, peak, top:Math.sin(wd * peak) });
+  }
+  return Math.exp(-w.decay * (ms - w.peak)) * Math.sin(w.wd * ms) / w.top;
 }
 // the neck's share of the side the two share, from the touch (x 0) to the
 // whole side (x 1): fastest at the touch and slower as it fills, as a liquid
@@ -5619,11 +5624,14 @@ function sentSwell(gap, room, touched){
 // one with no way to fall has its foot let down over the same S all the same
 function sentDropMeet(f, under, drift){
   const reach = f.gap * (1 - MERGE_TOUCH);
-  let at = 0;
-  for (; at < 20000; at++){
+  const met = at => {
     const fallen = sentDropFall(at, drift);
-    if (f.drop - fallen <= sentDropSpeed(at, drift) * f.S / DROP_EAGER || under(at) - (f.U0.bottom + fallen) <= reach) break;
-  }
+    return f.drop - fallen <= sentDropSpeed(at, drift) * f.S / DROP_EAGER || under(at) - (f.U0.bottom + fallen) <= reach;
+  };
+  // four ms at a time, then the ms
+  let at = 0;
+  while (at < 20000 && !met(at)) at += 4;
+  if (at) for (let back = at - 3; back < at; back++) if (met(back)){ at = back; break; }
   f.touch = at;
   f.from = Math.min(f.drop, sentDropFall(at, drift));
   const left = f.drop - f.from;
@@ -5805,6 +5813,12 @@ function sentGooPath(U, L, r, k, bow, ext, N = null){
         neck.right >= right - 1e-6 && neck.top <= U.bottom - r + 1e-6 && neck.bottom >= L.top + r - 1e-6))
     return sentBoxPath({ left, top, right, bottom }, r, px, py);
   if (k < .01 && bow < .01 && !neck) return sentBoxPath(U, r, px, py) + sentBoxPath(L, r, px, py);
+  // one inside the other, as two drops of a column are once both have landed at
+  // the joined head: the outer one, which the union never passes and whose
+  // sides and corners the reach is kept off, so tracing it draws it to within a
+  // tenth of a pixel
+  const holds = (a, b) => b.left >= a.left - 1e-6 && b.right <= a.right + 1e-6 && b.top >= a.top - 1e-6 && b.bottom <= a.bottom + 1e-6;
+  if (bow < .01 && (holds(U, L) || holds(L, U))) return sentBoxPath(holds(U, L) ? U : L, r, px, py);
   // the swells run the length of the side the two share, highest in its middle
   // and rounder there than at its ends, so they meet near a point, as drops do
   const shared = Math.max(U.left, L.left), sharedRight = Math.min(U.right, L.right);
