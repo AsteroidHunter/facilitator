@@ -105,35 +105,59 @@ test("the merge keeps the owner's order: the word goes out, and the earlier bubb
   assert.match(reduced.slice(0, reduced.indexOf("\n}")), /\.sentgoo > \.sentgoo-mark\.markin\{animation:none !important\}/);
 });
 
-test("the earlier bubble glides on one curve, from rest to its place with nothing past it, and the neck opens on a sine ease out at the glide's pace", () => {
+test("a drop falls from rest on a steady pull, drag holds it to a steady speed, and it is drawn in to its place without passing it", () => {
   const { context, run } = load();
-  // the curve the pair sank on before the drop work, 750ms rather than the mock's 700, the neck scaled with it
-  assert.deepEqual(plain(run("MERGE_GLIDE")), [.4, 0, .2, 1]);
-  assert.equal(run("MERGE_GLIDE_MS"), 750);
-  assert.equal(run("MERGE_NECK_MS"), Math.round(240 * 750 / 700));
-  const glide = run("sentMergeCurve");
-  assert.equal(glide(0), 0);
-  assert.equal(glide(1), 1);
-  let prev = 0;
-  for (let x = .001; x <= 1.0001; x += .001) {
-    assert.ok(glide(x) >= prev - 1e-12 && glide(x) <= 1 + 1e-12, `the glide goes back or past its place at ${x.toFixed(3)}`);
-    prev = glide(x);
+  const pull = run("DROP_PULL"), drift = run("DROP_DRIFT");
+  // from rest: at first half the pull times the square of the time, as a dropped thing falls
+  for (const ms of [5, 10, 20]) {
+    const free = .5 * pull * ms * ms;
+    assert.ok(Math.abs(context.sentDropFall(ms) - free) / free < .01, `the fall at ${ms}ms is not a fall from rest`);
   }
-  // from rest, and coming to rest
-  assert.ok(glide(.01) < .002, "the glide does not set off from rest");
-  assert.ok(1 - glide(.99) < .001, "the glide does not come to rest");
+  // then never faster than the drift, and nearly at it by a second
+  let last = 0, lastSpeed = 0;
+  for (let ms = 0; ms <= 2000; ms++) {
+    const d = context.sentDropFall(ms), v = context.sentDropSpeed(ms);
+    assert.ok(d >= last - 1e-12 && v >= lastSpeed - 1e-12 && v <= drift + 1e-12, `the fall goes back, slows or runs away at ${ms}ms`);
+    if (ms) assert.ok(Math.abs((d - last) - (v + lastSpeed) / 2) < 1e-3, `the speed is not the fall's at ${ms}ms`);
+    last = d;
+    lastSpeed = v;
+  }
+  assert.ok(context.sentDropSpeed(1000) > .95 * drift, "drag does not hold the fall to its drift");
+  for (const d of [10, 100, 600]) assert.ok(Math.abs(context.sentDropFall(context.sentDropFallTime(d)) - d) < 1e-6);
+  // drawn in: from its touch to its place, never back and never past it, whatever speed it set off at
+  for (const m0 of [0, .5, 1, run("DROP_EAGER")]) {
+    let prev = 0;
+    for (let u = 0; u <= 1.0001; u += .001) {
+      const p = context.sentDropSwallow(u, m0);
+      assert.ok(p >= prev - 1e-12 && p <= 1 + 1e-12, `a drop drawn in at ${m0} goes back or past its place`);
+      prev = p;
+    }
+    assert.equal(context.sentDropSwallow(1, m0), 1);
+    // and it sets off at the speed it fell at, m0 times its mean
+    assert.ok(Math.abs(context.sentDropSwallow(1e-7, m0) / 1e-7 - m0) < 1e-3);
+  }
+  assert.ok(run("DROP_EAGER") <= 3, "a drop drawn in could pass its place");
+  // the tab joint in index.html runs on the curve two bubbles used to come together on
+  assert.deepEqual(plain(run("MERGE_EASE")), [.6, 0, .3, 1]);
+});
+
+test("a small drop joins faster than a big one: its times go as its size to the power one and a half, held between 0.8 and 1.5 times a one-line bubble's", () => {
+  const { context, run } = load();
+  const size = run("DROP_SIZE");
+  assert.equal(context.sentDropScale(size), 1);
+  assert.ok(Math.abs(context.sentDropScale(size * 1.2) - Math.pow(1.2, 1.5)) < 1e-12);
+  assert.equal(context.sentDropScale(size * 4), 1.5);
+  assert.equal(context.sentDropScale(size / 4), .8);
   // the neck widens fastest at the touch, thin on the first frame after it, and eases into the side
-  const neck = x => context.sentNeck(x), frame = 1000 / 60 / run("MERGE_NECK_MS");
+  const neck = x => context.sentNeck(x), frame = 1000 / 60 / run("DROP_NECK_MS");
   assert.equal(neck(0), 0);
   assert.equal(neck(1), 1);
-  assert.ok(Math.abs(neck(.3) - Math.sin(Math.PI / 2 * .3)) < 1e-12, "the neck is not a sine ease out");
-  assert.ok(neck(frame) > .05 && neck(frame) < .2, `the neck is ${neck(frame).toFixed(2)} of the side a frame after the touch`);
+  assert.ok(neck(frame) > .1 && neck(frame) < .3, `the neck is ${neck(frame).toFixed(2)} of the side a frame after the touch`);
+  assert.ok(neck(.5) > .7, "the neck is not mostly open half way");
   for (let x = 0; x < 1; x += .01) {
     assert.ok(neck(x + .01) >= neck(x), "the neck narrowed");
     assert.ok(neck(x + .01) - neck(x) <= neck(.01) + 1e-12, "the neck widens faster later than at the touch");
   }
-  // the tab joint in index.html runs on the curve two bubbles used to come together on
-  assert.deepEqual(plain(run("MERGE_EASE")), [.6, 0, .3, 1]);
 });
 
 // two one-line bubbles on the phone (read-v7 in the simulator runs), in the
@@ -177,27 +201,30 @@ test("only the earlier bubble falls: straight down at its own height until it to
   assert.ok(Math.abs(landed.fall - s.U1.top) < 1e-9 && Math.abs(landed.U.bottom - s.U1.bottom) < 1e-9);
 });
 
-test("the earlier bubble's head rides the glide and comes to rest in its place with no dip: its speed never jumps from one frame to the next and never turns back", () => {
+test("the joined body's head dips a little past its place as the drop is drawn in, comes back over it less, and is still before the joined copy comes up, while the words land without passing theirs", () => {
   const { context, run } = load();
-  const frame = 1000 / 60, glideMs = run("MERGE_GLIDE_MS");
-  const mac = pair({ left: 0, top: -64, right: 240, bottom: 12 }, { left: 60, top: 38, right: 240, bottom: 94 }, 240, 94, 18);
-  // the tests' pair and the mock's Mac pair, which falls 64px
-  for (const s of [spec(), mac]) {
-    const drop = s.U1.top - s.U0.top;
-    let last = s.U0.top, lastSpeed = 0;
-    for (let ms = frame; ms <= 1000; ms += frame) {
+  // the tests' pair and a mac pair that falls further
+  for (const s of [spec(), pair({ left: 0, top: -64, right: 240, bottom: 12 }, { left: 60, top: 38, right: 240, bottom: 94 }, 240, 94, 18)]) {
+    const plan = context.sentMergePlan(s);
+    const dip = Math.min(s.r / 3, run("DROP_DIP") * (plan.drop - plan.from));
+    let deepest = { by: 0, ms: 0 }, over = { by: 0, ms: 0 };
+    for (let ms = 0; ms <= 1000; ms += 2) {
       const shape = context.sentMergeShape(s, ms / 1000);
-      assert.equal(shape.U.top, shape.fall, `the outline's head left the words' at ${ms.toFixed(0)}ms`);
-      const speed = (shape.U.top - last) / frame;
-      assert.ok(speed >= -1e-9, `the head went back up at ${ms.toFixed(0)}ms`);
-      assert.ok(Math.abs(speed - lastSpeed) < .06 * drop / 64, `the head's speed jumped ${(speed - lastSpeed).toFixed(3)}px/ms at ${ms.toFixed(0)}ms`);
-      if (ms >= glideMs) assert.equal(shape.U.top, s.U1.top, `the head is not in its place at ${ms.toFixed(0)}ms`);
-      last = shape.U.top;
-      lastSpeed = speed;
+      const by = shape.U.top - shape.fall;
+      if (ms <= plan.touch) assert.equal(by, 0, `the outline's head left the words' before the two touched, at ${ms}ms`);
+      if (by > deepest.by) deepest = { by, ms };
+      if (-by > over.by) over = { by: -by, ms };
+      if (ms >= 800) assert.ok(Math.abs(by) < .35, `the head still wobbles ${by.toFixed(2)}px as the joined copy comes up, at ${ms}ms`);
     }
+    assert.ok(Math.abs(deepest.by - dip) < .05, `the head dips ${deepest.by.toFixed(2)}px, not ${dip.toFixed(2)}px`);
+    assert.ok(deepest.ms > plan.touch && deepest.ms <= plan.lands + 120, `the head dips at ${deepest.ms}ms, not as the drop is drawn in`);
+    assert.ok(dip <= s.r / 3 + 1e-9 && dip > 1, "the dip is not a small share of the drop");
+    // it comes back over its place by about a third as much, half the body's period later
+    assert.ok(over.by / dip > .2 && over.by / dip < .45, `the head rights itself ${(over.by / dip).toFixed(2)} of the dip over its place`);
+    assert.ok(Math.abs(over.ms - deepest.ms - plan.period / 2) < 40, `the head comes back ${over.ms - deepest.ms}ms after its dip, not half of ${plan.period}ms`);
+    const last = context.sentMergeShape(s, 1);
+    assert.equal(last.U.top, s.U1.top, "the head is not in its place on the last frame");
   }
-  // the mock's pair touches where the mock's glide, stretched to 750ms, does
-  assert.equal(context.sentMergePlan(mac).touch, 190);
 });
 const EXT = { left: -12, top: -40, right: 183, bottom: 107 };
 // the outline's loops, as points back in the joined bubble's px
@@ -220,53 +247,47 @@ function columnOf(talls, widths = talls.map(() => 150)) {
   return { B0, W, H, r:18 };
 }
 
-test("a column all lets go at once: the one over the foot glides onto it as a pair does, and every bubble above rides down with it until its own step sets off", () => {
+test("a column all lets go at once, keeps the room between its bubbles while they all fall, and falls as drops fall: from rest on a steady pull, held to a steady speed", () => {
   const { context, run } = load();
   const { B0, W, H, r } = columnOf([52.5, 52.5, 99, 52.5, 52.5]);
   const plan = context.sentColumnPlan(B0, W, H, r);
   const at = ms => context.sentColumnShape(plan, ms);
-  const curve = run("sentMergeCurve"), glide = (f, ms) => curve((ms - f.start) / run("MERGE_GLIDE_MS"));
-  const onFoot = plan.falls.at(-1), next = plan.falls.at(-2);
-  assert.equal(onFoot.start, 0);
-  assert.ok(next.start > 0, "the second step set off with the first");
+  const first = Math.min(...plan.falls.map(f => f.touch));
+  assert.equal(plan.drift, run("DROP_DRIFT"));
   // the first frame is the column as it stood, and the foot never moves down or up
   at(0).boxes.forEach((box, i) => assert.deepEqual(plain({ top:box.top, bottom:box.bottom }), { top:B0[i].top, bottom:B0[i].bottom }));
-  for (const ms of [next.start / 4, next.start / 2, next.start * .99]) {
+  for (const ms of [first / 4, first / 2, first * .99]) {
     const tops = at(ms).boxes.map(box => box.top);
     const fallen = tops.slice(0, -1).map((top, i) => top - B0[i].top);
     assert.ok(fallen.every(d => d > 0 && Math.abs(d - fallen[0]) < 1e-9), `the bubbles over the foot did not fall as one at ${ms}ms`);
     assert.equal(tops.at(-1), B0.at(-1).top, "the foot moved");
-    assert.ok(Math.abs(fallen[0] - onFoot.by * glide(onFoot, ms)) < 1e-9, "the column does not fall on the first step's glide");
+    assert.ok(Math.abs(fallen[0] - context.sentDropFall(ms, plan.drift)) < 1e-9, "the column does not fall as a drop falls");
   }
-  // the room under each closes on its own step's glide alone, as a pair's does, until it touches
-  plan.falls.forEach((f, i) => {
-    for (let ms = 0; ms < f.touch; ms += 10) {
-      const boxes = at(ms).boxes;
-      const room = boxes[i + 1].top - boxes[i].bottom;
-      assert.ok(Math.abs(room - (f.gap - f.by * glide(f, ms))) < 1e-9, `the room under bubble ${i + 1} closed off its own glide at ${ms}ms`);
-    }
-  });
+  // the ones still falling keep the room between them until each touches, at the drift by then
+  const top = plan.falls[0], second = plan.falls[1];
+  for (let ms = 0; ms < second.touch; ms += 10) {
+    const boxes = at(ms).boxes;
+    assert.ok(Math.abs((boxes[1].top - boxes[0].bottom) - (B0[1].top - B0[0].bottom)) < 1e-9, `the room between the top two closed at ${ms}ms`);
+  }
+  assert.ok(context.sentDropSpeed(top.touch, plan.drift) > .9 * plan.drift, "the top one is not at the drift when it touches");
 });
 
 test("in a column each one over the foot meets what stands under it in turn, from the foot up, a beat apart, and its words stop at the joined head", () => {
-  const { context, run } = load();
+  const { context } = load();
   for (const talls of [[52.5, 52.5, 52.5], [52.5, 52.5, 52.5, 52.5, 52.5], [99, 52.5, 99, 52.5, 52.5], Array(10).fill(52.5)]) {
     const { B0, W, H, r } = columnOf(talls);
     const plan = context.sentColumnPlan(B0, W, H, r);
-    assert.equal(plan.beat, run("COLUMN_BEAT_MS"));
     const touches = plan.falls.map(f => f.touch), lands = plan.falls.map(f => f.lands);
     for (let i = 0; i < lands.length - 1; i++) {
       assert.ok(lands[i] > lands[i + 1], `bubble ${i + 1} lands before bubble ${i + 2} under it (${lands})`);
-      assert.ok(plan.falls[i].start >= plan.falls[i + 1].start, `bubble ${i + 1} set off before bubble ${i + 2} under it`);
-      // each neck is seen on its own: the next touch comes a beat after
-      assert.ok(touches[i] - touches[i + 1] >= plan.beat, `two of ${talls.length} touch ${touches[i] - touches[i + 1]}ms apart (${touches})`);
+      // each neck is seen on its own: the next touch comes no sooner than 90ms after
+      assert.ok(touches[i] - touches[i + 1] >= 90, `two of ${talls.length} touch ${touches[i] - touches[i + 1]}ms apart (${touches})`);
     }
     plan.falls.forEach((f, i) => {
       // touched before it lands, never after, and its words at the joined head from its landing on
       assert.ok(f.touch <= f.lands);
-      assert.equal(f.lands - f.start, run("MERGE_GLIDE_MS"));
       const share = ms => context.sentColumnShape(plan, ms).joints[i].share;
-      assert.ok(share(f.lands - 1) < 1, `bubble ${i + 1} reached the joined head early`);
+      if (f.lands > f.touch) assert.ok(share(f.lands - 1) < 1, `bubble ${i + 1} reached the joined head early`);
       assert.deepEqual([f.lands, f.lands + 50, plan.end].map(share), [1, 1, 1], `bubble ${i + 1} did not stop at the joined head`);
       assert.equal(context.sentColumnShape(plan, plan.end).boxes[i].top, 0, `bubble ${i + 1} is not at the joined head at the end`);
     });
@@ -274,24 +295,23 @@ test("in a column each one over the foot meets what stands under it in turn, fro
   }
 });
 
-test("a tall column takes its beats closer rather than taking much longer, but never so close its joins run together", () => {
+test("a tall column drifts faster rather than taking much longer, but never so fast its joins run together", () => {
   const { context, run } = load();
-  const spread = plan => plan.falls[0].touch - plan.falls.at(-1).touch;
-  // ten short ones keep the beat
+  const longest = plan => Math.max(...plan.falls.map(f => f.drop));
   const ten = columnOf(Array(10).fill(52.5));
   const plan = context.sentColumnPlan(ten.B0, ten.W, ten.H, ten.r);
-  assert.equal(plan.beat, run("COLUMN_BEAT_MS"));
-  assert.ok(spread(plan) <= run("COLUMN_LONGEST_MS"));
-  // twelve take them closer, so the last touch comes COLUMN_LONGEST_MS after the first
-  const twelve = columnOf(Array(12).fill(52.5));
-  const p12 = context.sentColumnPlan(twelve.B0, twelve.W, twelve.H, twelve.r);
-  assert.ok(p12.beat < run("COLUMN_BEAT_MS"));
-  assert.ok(Math.abs(spread(p12) - run("COLUMN_LONGEST_MS")) < 1e-6, `twelve touch over ${spread(p12)}ms`);
-  // and a very tall one is held to COLUMN_BEAT_LEAST_MS, its touches still a beat apart
-  const tall = columnOf(Array(20).fill(52.5));
-  const p = context.sentColumnPlan(tall.B0, tall.W, tall.H, tall.r);
-  assert.equal(p.beat, run("COLUMN_BEAT_LEAST_MS"));
-  p.falls.slice(0, -1).forEach((f, i) => assert.ok(f.touch - p.falls[i + 1].touch >= 90, "a very tall column's joins run together"));
+  assert.ok(plan.drift > run("DROP_DRIFT"));
+  assert.ok(Math.abs(context.sentDropFallTime(longest(plan), plan.drift) - run("COLUMN_LONGEST_MS")) < 1, "a ten-bubble column falls longer than it should");
+  // the five short ones keep the steady drift
+  const five = columnOf(Array(5).fill(52.5));
+  assert.equal(context.sentColumnPlan(five.B0, five.W, five.H, five.r).drift, run("DROP_DRIFT"));
+  // and a very tall one is held to COLUMN_DRIFT_MOST, its touches still a beat apart
+  for (const talls of [Array(16).fill(52.5), Array(10).fill(99)]) {
+    const tall = columnOf(talls);
+    const p = context.sentColumnPlan(tall.B0, tall.W, tall.H, tall.r);
+    assert.equal(p.drift, run("COLUMN_DRIFT_MOST"));
+    p.falls.slice(0, -1).forEach((f, i) => assert.ok(f.touch - p.falls[i + 1].touch >= 90, "a very tall column's joins run together"));
+  }
 });
 
 test("a column's outline is exactly its bubbles on the first frame and exactly the joined bubble once it has settled", () => {
@@ -312,9 +332,10 @@ test("a column's outline is exactly its bubbles on the first frame and exactly t
   assert.equal(Math.min(...end.boxes.map(b => b.top)), 0);
   assert.equal(Math.max(...end.boxes.map(b => b.bottom)), H);
   assert.ok(end.joints.every(j => j.k === 0 && j.bow === 0), "the joints have not let go once settled");
+  assert.ok(end.dip === 0, "the joined body still wobbles once settled");
   // the bubbles over the column come down the way its top one falls, a keyframe a frame apart
   context.getComputedStyle = () => ({ transform: "none" });
-  const top = plan.falls[0], share = ms => context.sentColumnShape(plan, ms).joints[0].share;
+  const top = plan.falls[0], share = ms => context.sentDropAt(top, ms, plan.drift) / top.drop;
   const glide = context.sentGlide({ animate: (keys, options) => ({ keys, options }) }, 0, -200, share, top.lands);
   assert.equal(glide.options.duration, top.lands);
   assert.equal(glide.options.easing, "linear");
