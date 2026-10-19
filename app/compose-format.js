@@ -11,26 +11,28 @@
  * composer is the plain textarea it has always been and not one line of this
  * file runs on it.
  *
- * What it draws, and nothing else: one star is italic, two are bold, two tildes
- * on either side are a strike, a leading angle AND THE SPACE AFTER IT are a
- * quote bar, and a dash or star and a space is a bullet. A marker is a marker
- * once it is finished being typed and not before: a lone angle, like a lone
- * dash, is the character it was typed as until its space arrives. Each is
+ * What it draws, as Obsidian's live preview draws it: one star is italic, two
+ * are bold, two tildes on either side are a strike, backticks are a code span,
+ * [words](address) is a link and a bare address is one too, hashes and a space
+ * are a heading, a leading angle AND THE SPACE AFTER IT are a quote bar, and a
+ * dash, a star, a plus or a number and a space is a list item, under a line of
+ * text as much as on a line of its own. A marker is a marker once it is
+ * finished being typed and not before: a lone angle, like a lone dash or a
+ * lone hash, is the character it was typed as until its space arrives. Each is
  * drawn as the card the row is sent to draws it: a span inside one line and
  * not one that runs over a line break, and a quote only on the lines that
- * carry their own angle. Inserting a new line inside a list carries the marker
- * down, moving the numbers after a new numbered item on, and the editor's own
- * continuation carries a quote's angle and its space down the same way; doing
+ * carry their own angle. Inserting a new line carries a list's marker or a
+ * quote's angle down, moving the numbers after a new numbered item on; doing
  * it on a marker or an angle with nothing typed after it ends the list or the
- * quote. Inside a block of code nothing is carried.
- * Headings, tables, links, code fences and the rest of Markdown are left as
- * plain characters here: this is a message row, not a document editor.
+ * quote, or moves a nested item out a level. Inside a block of code nothing is
+ * carried. Tables and code fences are left as plain characters here: this is
+ * a message row, not a document editor.
  *
  * The editor is the CodeMirror 6 bundle already vendored beside the pages for
  * the markdown panel (/cm-markdown.js). Only its core, its markdown parser and
  * its history are used; the panel's live preview pack is deliberately not
  * loaded, because that pack draws a whole document's worth of Markdown and
- * this row wants five things drawn and everything else left alone. The layer
+ * shows a line's markers whenever the caret is on it (see below). The layer
  * below is written out of the same primitives the board's own markdown layer
  * uses, so both surfaces are drawn the same way.
  *
@@ -38,16 +40,18 @@
  * line's raw markers back whenever the cursor is anywhere on that line. In a
  * row that is usually one line long that would mean the words never format
  * while they are being typed, so here the raw markers come back for the one
- * span the cursor is actually in or beside. The quote angles are the one thing
- * that never comes back once they are drawn at all: the bar is the whole of a
- * quote here, and a line drawing the bar and the angles together would be one
- * quote written twice under the typist, with the words stepping sideways every
- * time the caret arrived. That holds wherever the quote starts, at the head of
- * the line or after a list marker, and however deep it is. The angles keep
- * their places in the document, so the caret, a picked out passage and the
- * markdown the row sends all go on counting them. Two kinds of angle are never
- * drawn away: one the parser did not call a marker, inside a code span or in
- * the middle of a sentence, and one whose space has not been typed yet.
+ * span the cursor is actually in or beside, as in Obsidian; a heading's hashes
+ * come back while the cursor is on its line. The quote angles are the one
+ * thing that never comes back once they are drawn at all: the bar is the whole
+ * of a quote here, and a line drawing the bar and the angles together would be
+ * one quote written twice under the typist, with the words stepping sideways
+ * every time the caret arrived. That holds wherever the quote starts, at the
+ * head of the line or after a list marker, and however deep it is. The angles
+ * keep their places in the document, so a picked out passage and the markdown
+ * the row sends go on counting them, and the caret steps over them whole. Two
+ * kinds of angle are never drawn away: one the parser did not call a marker,
+ * inside a code span or in the middle of a sentence, and one whose space has
+ * not been typed yet.
  *
  * The textarea does not leave the page while the editor stands in for it. It
  * keeps the field's one public face: its value, its selection, its focus, its
@@ -154,6 +158,7 @@
 
   // ---- what the editor draws ------------------------------------------------
   let layerExtension = null;
+  let hideDeco = null;          // the drawing's one way of taking markup out of sight
   let awakeEffect = null;
   let holdEffect = null;
   let themeExtension = null;
@@ -197,16 +202,18 @@
     const D = C.Decoration;
     awakeEffect = C.StateEffect.define();
     holdEffect = C.StateEffect.define();
-    const hide = D.replace({});                       // markup and nothing else
+    const hide = hideDeco = D.replace({});            // markup and nothing else
     const emphasis = D.mark({ class: "cf-em" });
     const strong = D.mark({ class: "cf-strong" });
     const strike = D.mark({ class: "cf-strike" });
+    const code = D.mark({ class: "cf-code" });
+    const link = D.mark({ class: "cf-link" });
     const breakable = D.mark({ class: "cf-first" });
-    const INLINE = { Emphasis: emphasis, StrongEmphasis: strong, Strikethrough: strike };
-    const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true };
+    const INLINE = { Emphasis: emphasis, StrongEmphasis: strong, Strikethrough: strike, InlineCode: code };
+    const INLINE_MARK = { EmphasisMark: true, StrikethroughMark: true, CodeMark: true };
 
     function build(state, awake, picked) {
-      const doc = state.doc, out = [];
+      const doc = state.doc, out = [], atoms = [];   // atoms: the hidden angles the caret steps over
       // The raw characters come back around the cursor and nowhere else, and
       // only while the row is being typed in: a row nobody is in is a row to
       // read. A range counts as touched at either edge, so the markers are
@@ -216,6 +223,7 @@
         picked.ranges.some(range => range.to >= from && range.from <= to);
       const quote = new Map();   // line number -> how deep the quote is
       const angles = new Map();  // line number -> the run its quote markers take
+      const apart = new Map();   // line number -> the runs standing after a list marker
       const hang = new Map();    // line number -> the column its text hangs on
       const pull = new Map();    // line number -> how far its first line is pulled back
       const marker = new Set();  // the lines a marker is actually written on
@@ -235,6 +243,7 @@
       // line break as the characters it was typed as, so this does too; a span
       // inside it that stays on one line is still drawn
       const oneLine = (from, to) => doc.lineAt(from).number === doc.lineAt(to).number;
+      const heading = new Map();   // line number -> its heading's level
       C.syntaxTree(state).iterate({
         enter: node => {
           if (INLINE[node.name]) {
@@ -242,9 +251,54 @@
             return;
           }
           if (INLINE_MARK[node.name]) {
+            // a fence's backticks are a block's and not a span's, and stay
             const owner = node.node.parent;
-            if (owner && oneLine(owner.from, owner.to) && !hot(owner.from, owner.to))
+            if (owner && INLINE[owner.name] && oneLine(owner.from, owner.to) && !hot(owner.from, owner.to))
               out.push(hide.range(node.from, node.to));
+            return;
+          }
+          // A link written out, [words](address), is drawn as its words, and
+          // its brackets and address come back while the caret touches it. A
+          // bare address is drawn as a link and has nothing to hide. The card
+          // links both the same way.
+          if (node.name === "Link") {
+            const marks = node.node.getChildren("LinkMark");
+            if (marks.length < 4 || !node.node.getChild("URL") || !oneLine(node.from, node.to)) return;
+            if (marks[1].from > marks[0].to) out.push(link.range(marks[0].to, marks[1].from));
+            if (!hot(node.from, node.to)) {
+              out.push(hide.range(node.from, marks[0].to));
+              out.push(hide.range(marks[1].from, node.to));
+            }
+            return;   // the walk carries on inside it, so its words still format
+          }
+          if (node.name === "URL") {
+            // an address inside a link over a line break is a bare one, as
+            // the card reads that link: a line at a time, so the address runs
+            // as far as its own line's reading of it does
+            const owner = node.node.parent;
+            if (owner && owner.name === "Link" && !oneLine(owner.from, owner.to)) {
+              const line = doc.lineAt(node.from), at = node.from - line.from;
+              C.markdownLanguage.parser.parse(line.text).iterate({ enter: bare => {
+                if (bare.name === "URL" && bare.from === at && bare.to > bare.from &&
+                    !/^(Link|Image|Autolink)$/.test(bare.node.parent.name))
+                  out.push(link.range(node.from, line.from + bare.to));
+              } });
+              return;
+            }
+            if (!owner || !/^(Link|Image|Autolink)$/.test(owner.name)) out.push(link.range(node.from, node.to));
+            return;
+          }
+          // A heading is drawn at its size once its space is typed, as the card
+          // draws it, and its hashes show while the caret is on its line, as in
+          // Obsidian. A heading's underline (a line of dashes under words) is
+          // left as typed: it is half of a list's marker while it is typed.
+          if (/^ATXHeading[1-6]$/.test(node.name)) {
+            const mark = node.node.firstChild, line = doc.lineAt(node.from);
+            if (!mark || mark.name !== "HeaderMark") return;
+            const gap = /^[ \t]+/.exec(line.text.slice(mark.to - line.from));
+            if (!gap) return;
+            heading.set(line.number, +node.name.slice(-1));
+            if (!hot(line.from, line.to)) out.push(hide.range(mark.from, mark.to + gap[0].length));
             return;
           }
           if (node.name === "Blockquote") {
@@ -275,12 +329,20 @@
             // and not room another marker has already been given
             while (from > line.from && /[ \t]/.test(line.text[from - 1 - line.from])) from--;
             if (from > line.from) from = node.from;
+            // angles with only spaces between them are one run; a quote after
+            // a list marker is a run of its own, and the marker between the
+            // two stays on show
+            // (end is where the run's last angle stands, drawn or not)
             const held = angles.get(line.number);
-            angles.set(line.number, held
-              ? { from: Math.min(held.from, from),
-                  to: live || !held.live ? Math.max(held.to, to) : held.to,
-                  live: held.live || live }
-              : { from, to, live });
+            const runs = held ? [held, ...(apart.get(line.number) || [])] : [];
+            const last = runs[runs.length - 1];
+            if (!last) angles.set(line.number, { from, to, live, end: to });
+            else if (/^[ \t]*$/.test(line.text.slice(last.end - line.from, from - line.from))) {
+              last.from = Math.min(last.from, from);
+              last.to = live || !last.live ? Math.max(last.to, to) : last.to;
+              last.live = last.live || live;
+              last.end = Math.max(last.end, to);
+            } else apart.set(line.number, [...(apart.get(line.number) || []), { from, to, live, end: to }]);
             return;
           }
           if (node.name === "ListItem") {
@@ -326,8 +388,14 @@
             if (!/\S/.test(lead)) headBox(line, "cf-col", base, head, mark.from);
             const last = doc.lineAt(node.to).number;
             marker.add(line.number);
-            for (let n = line.number; n <= last; n++)
+            // an item inside a quote ends where the quote does, at the first
+            // line without an angle of its own, as the card draws it
+            let quoted = false;
+            for (let up = list.parent; up && !quoted; up = up.parent) quoted = up.name === "Blockquote";
+            for (let n = line.number; n <= last; n++) {
+              if (quoted && n > line.number && !/^ {0,3}>/.test(doc.line(n).text)) break;
               hang.set(n, Math.max(hang.get(n) || 0, column));
+            }
             return;
           }
         },
@@ -347,8 +415,9 @@
 
       // one line decoration per line the walk marked, and the quote angles
       // taken off every line that is drawn as a quote
-      for (const n of new Set([...quote.keys(), ...hang.keys()])) {
+      for (const n of new Set([...quote.keys(), ...hang.keys(), ...heading.keys()])) {
         const line = doc.line(n), classes = [], attributes = {};
+        if (heading.has(n)) classes.push("cf-h" + heading.get(n));
         if (hang.has(n)) {
           classes.push("cf-li");
           // a line further down an item starts on the item's column as well,
@@ -386,22 +455,29 @@
           // other. Drawing the bar and the angles together would be one quote
           // written twice, and it would move the line's words sideways under a
           // caret that only arrived to read them. The characters stay in the
-          // document, so the caret walks them one at a time, a pick still
-          // carries them and the markdown the row sends still has them.
+          // document, so a pick still carries them and the markdown the row
+          // sends still has them. The caret steps over them whole: a caret
+          // standing between two angles nobody can see typed its words
+          // somewhere else (">> deep" took an x at its start as ">> xdeep"),
+          // or broke the quote it was in.
           const mark = angles.get(n);
-          if (mark) out.push(hide.range(mark.from, mark.to));
+          for (const run of [mark, ...(apart.get(n) || []).filter(other => other.live)]) {
+            if (!run) continue;
+            out.push(hide.range(run.from, run.to));
+            atoms.push(hide.range(run.from, run.to));
+          }
         }
         // a quoted line that is not drawn as one is an ordinary line, and is
         // left the ordinary line it already is
         if (classes.length || attributes.style)
           out.push(D.line({ class: classes.join(" "), attributes }).range(line.from));
       }
-      return D.set(out, true);
+      return { deco: D.set(out, true), atoms: D.set(atoms, true) };
     }
 
     layerExtension = C.StateField.define({
       create: state => ({ awake: false, held: false, shown: false, picked: state.selection,
-                          deco: build(state, false, state.selection) }),
+                          ...build(state, false, state.selection) }),
       update: (value, tr) => {
         let awake = value.awake, held = value.held;
         for (const effect of tr.effects) {
@@ -419,9 +495,10 @@
         if (shown === value.shown && picked.eq(value.picked) && !tr.docChanged &&
             C.syntaxTree(tr.state) === C.syntaxTree(tr.startState))
           return awake === value.awake && held === value.held ? value : { ...value, awake, held };
-        return { awake, held, shown, picked, deco: build(tr.state, shown, picked) };
+        return { awake, held, shown, picked, ...build(tr.state, shown, picked) };
       },
-      provide: field => C.EditorView.decorations.from(field, value => value.deco),
+      provide: field => [C.EditorView.decorations.from(field, value => value.deco),
+                         C.EditorView.atomicRanges.of(view => view.state.field(field).atoms)],
     });
     return layerExtension;
   }
@@ -452,6 +529,16 @@
       ".cf-em": { fontStyle: "italic" },
       ".cf-strong": { fontWeight: "650" },
       ".cf-strike": { textDecoration: "line-through" },
+      // a code span, a link and a heading, at the card's own sizes and faces
+      ".cf-code": { fontFamily: "var(--mono, ui-monospace, monospace)", background: "var(--paper, #F2EFE8)",
+                    borderRadius: "var(--sq, 3px)" },
+      ".cf-link": { textDecoration: "underline", textUnderlineOffset: "2px" },
+      ".cf-h1": { fontSize: "1.55em", fontWeight: "650" },
+      ".cf-h2": { fontSize: "1.35em", fontWeight: "650" },
+      ".cf-h3": { fontSize: "1.2em", fontWeight: "650" },
+      ".cf-h4": { fontSize: "1.1em", fontWeight: "650" },
+      ".cf-h5": { fontSize: "1em", fontWeight: "650" },
+      ".cf-h6": { fontSize: ".92em", fontWeight: "650" },
       // a run of the line's own characters given the width of the column it
       // stands for: the indent, and the marker with its air. text-indent is put
       // back because an inline block inherits the line's negative one
@@ -497,127 +584,176 @@
     return themeExtension;
   }
 
-  // ---- inserting a line inside a list --------------------------------------
-  const LIST_LINE = /^([ \t]*)(?:([-*+])|(\d{1,9})([.)]))([ \t]+)(.*)$/;
+  // ---- a list marker under a line of text -----------------------------------
+  // A dash, a star, a plus or a number with its space is a list item at the
+  // head of any line, right under a line of text as much as on an empty first
+  // line. That is how Obsidian reads a list, a line at a time, and how the
+  // sent card draws one. The parser follows CommonMark, which lets an item
+  // break into a paragraph only once it has words and, numbered, only from 1:
+  // under a line of text "- " read as that line's heading underline and "2. b"
+  // as more of its words, so the bullet came only with the next character and
+  // Backspace and a new line on it did what they do to text. A marker like
+  // that ends the paragraph above it here, and the list it starts is read as
+  // any list is.
+  const LIST_BREAK = { parseBlock: [{ name: "ListBreak",
+    endLeaf: (cx, line) => /^(?:[-*+]|\d{1,9}[.)])[ \t]/.test(line.text.slice(line.pos)) }] };
 
-  // What the new line starts with, given the line the caret is on. Null means
-  // this is not a list line and a plain break is all that is wanted.
-  function listContinuation(text) {
-    const found = LIST_LINE.exec(text);
-    if (!found) return null;
-    const [, indent, dash, digits, closer, gap, rest] = found;
-    return {
-      empty: !rest.trim(),
-      head: indent + (dash ? dash : String(Math.min(+digits + 1, 999999999)) + closer) + gap,
-      markerEnd: indent.length + (dash ? 1 : digits.length + 1) + gap.length,
-      indent,
-      number: dash ? null : +digits,
-    };
-  }
-
-  // A new item inside a numbered list takes the number after the one it was
-  // made from, so the items after it go on counting from there, as they do
-  // under the phone's own return. Only items that count up one by one are
-  // moved on: a list written all in ones is left the way it was written.
-  function renumber(C, state, line, list, changes) {
-    let item = C.syntaxTree(state).resolveInner(line.from + list.indent.length, 1);
-    while (item && item.name !== "ListItem") item = item.parent;
-    if (!item || !item.parent || item.parent.name !== "OrderedList") return;
-    let count = list.number;
-    for (let next = item.nextSibling; next; next = next.nextSibling) {
-      if (next.name !== "ListItem") continue;
-      const mark = next.firstChild;
-      const digits = mark && mark.name === "ListMark" && /^\d+/.exec(state.sliceDoc(mark.from, mark.to));
-      if (!digits || +digits[0] !== count + 1 || count + 2 > 999999999) return;
-      count++;
-      changes.push({ from: mark.from, to: mark.from + digits[0].length, insert: String(count + 1) });
-    }
-  }
-
-  // Whether a position stands in a block of code, where a dash, a number or an
-  // angle is the code's own character and no marker at all, as the card shows it
-  function inCode(C, state, pos) {
-    for (let node = C.syntaxTree(state).resolveInner(pos, -1); node; node = node.parent)
-      if (node.name === "FencedCode" || node.name === "CodeBlock") return true;
-    return false;
-  }
+  // ---- a new line ------------------------------------------------------------
+  // What a new line carries down is read off the containers the caret's line
+  // stands in, outermost first: the quote angles at its head and the list
+  // items the parse puts it in. That is the editor's own markdown continuation
+  // (insertNewlineContinueMarkup in the vendored pack), worked out here so that
+  // both pages make a new line the one way, Shift and return on the Mac and
+  // the phone's return alike, with the row's own rules on top of it:
+  //   - a quote is carried once its angle has its space, as it is drawn;
+  //   - a line's own marker is its first one, and a marker typed after it is
+  //     the item's words, as Obsidian reads a line;
+  //   - the caret has to be past a marker's space for the marker to go on, and
+  //     inside a block of code nothing is carried;
+  //   - an item with nothing typed in it ends the list, or moves out a level
+  //     when it is nested, and an empty quoted line ends the quote;
+  //   - the spaces before the caret are not kept, but a marker keeps its own;
+  //   - picked words make way for the new line, which is read off the line as
+  //     it stands.
+  // A new numbered item moves the numbers after it on, and an item leaving a
+  // list moves them back, for the items that count up one by one: a list
+  // written all in ones is left the way it was written.
 
   // A quote's angles at the head of a line, the last of them finished by its
   // space, which is where a quote begins in this row
   const QUOTED = /^ {0,3}(?:>[ \t]?)*>[ \t]/;
+  const ANGLE = / {0,3}>( ?)/y;
 
-  // The line the caret is on when it is a marker with nothing typed after it,
-  // and null otherwise. That is the one line a new line ends the list on
-  // instead of laying another marker out, and it is the one case the editor's
-  // own markdown continuation is not allowed to answer: on a second item it
-  // keeps the marker and pushes a blank line above it, which leaves the reader
-  // with a list they asked to be finished with. A quote's angles count as a
-  // marker the same way, alone or in front of a list's: on a quoted line with
-  // nothing after them the continuation writes the line back as a bare angle
-  // and lays another quoted line under it, so the quote never ends.
-  function emptyItem(C, view) {
-    const range = view.state.selection.main;
-    const line = view.state.doc.lineAt(range.from);
-    if (inCode(C, view.state, range.from)) return null;
-    const angles = QUOTED.exec(line.text);
-    const head = angles ? angles[0].length : 0;
-    const rest = line.text.slice(head);
-    const list = listContinuation(rest);
-    let markerEnd = head;
-    if (list) {
-      if (!list.empty) return null;
-      markerEnd += list.markerEnd;
-    } else if (!head || rest.trim()) return null;
-    if (range.from < line.from + markerEnd || range.to > line.to) return null;
-    return line;
+  // The containers in front of a position, each with where its marker starts
+  // and ends, its space included, on its own first line. Null inside code,
+  // where a dash, a number or an angle is the code's own character.
+  function containers(C, state, pos) {
+    const doc = state.doc, line = doc.lineAt(pos), quotes = [], items = [];
+    const live = QUOTED.exec(line.text), liveTo = live ? live[0].length : 0;
+    for (let at = 0;;) {
+      ANGLE.lastIndex = at;
+      const m = ANGLE.exec(line.text);
+      if (!m) break;
+      quotes.push({ quote: true, from: at + m[0].indexOf(">"), to: at + m[0].length, space: m[1],
+                    live: at + m[0].length <= liveTo });
+      at += m[0].length;
+    }
+    for (let node = C.syntaxTree(state).resolveInner(pos, -1); node; node = node.parent) {
+      if (node.name === "FencedCode" || node.name === "CodeBlock") return null;
+      if (node.name !== "ListItem") continue;
+      const first = doc.lineAt(node.from), at = node.from - first.from;
+      // a marker still waiting for its space is the character it was typed as
+      const m = /^(?:(\d{1,9})([.)])|([-+*]))([ \t]+)/.exec(first.text.slice(at));
+      if (m) items.unshift({ item: node, own: first.from === line.from, from: at, to: at + m[0].length,
+                             space: m[4], number: m[1] ? +m[1] : null, mark: m[2] || m[3] });
+    }
+    return { line, quotes, items };
   }
 
-  // Inserting a new line: a list carries its marker down, and a marker with
-  // nothing typed after it ends the list instead of laying another one out.
-  function insertNewline(C, view) {
-    const state = view.state, range = state.selection.main;
-    const over = emptyItem(C, view);
-    if (over) {
-      // the empty bullet goes, the caret stays on the line it was on, and the
-      // list is over
-      view.dispatch(state.update({
-        changes: { from: over.from, to: over.to, insert: "" },
-        selection: { anchor: over.from },
-        scrollIntoView: true,
-        userEvent: "input",
-      }));
-      return true;
+  // a container's marker as the line under it carries it, and its blank: what
+  // a line inside it, under its marker, has in front of its words
+  function marker(c) {
+    if (c.quote) return ">" + c.space;
+    return (c.number == null ? c.mark : String(Math.min(c.number + 1, 999999999)) + c.mark) + c.space;
+  }
+  function blank(c, width) {
+    const angle = c.quote ? ">" : "";
+    if (width != null) return angle.padEnd(width, " ");
+    return angle.padEnd(c.to - c.from - c.space.length, " ") + c.space;
+  }
+
+  // the numbers after a numbered item, counted on from where it now stands:
+  // offset 0 for a new item after it, -2 for the item itself leaving the list
+  function renumber(state, c, offset, changes) {
+    let count = c.number;
+    for (let next = c.item.nextSibling; next; next = next.nextSibling) {
+      if (next.name !== "ListItem") continue;
+      const mark = next.firstChild;
+      const digits = mark && mark.name === "ListMark" && /^\d+/.exec(state.sliceDoc(mark.from, mark.to));
+      if (!digits || +digits[0] !== count + 1 || count + 2 + offset > 999999999) return;
+      count++;
+      changes.push({ from: mark.from, to: mark.from + digits[0].length, insert: String(count + 1 + offset) });
     }
-    const line = state.doc.lineAt(range.from);
-    const list = inCode(C, state, range.from) ? null : listContinuation(line.text);
-    const head = list && range.from >= line.from + list.markerEnd ? list.head : "";
-    const changes = [{ from: range.from, to: range.to, insert: "\n" + head }];
-    // a pick running into the items below takes their numbers with it
-    if (head && list.number !== null && range.to <= line.to) renumber(C, state, line, list, changes);
-    view.dispatch(state.update({
-      changes,
-      selection: { anchor: range.from + 1 + head.length },
-      scrollIntoView: true,
-      userEvent: "input",
+  }
+
+  // The change a new line makes, and whether it carries or ends any markup:
+  // a held return goes on only where it does (enterKey)
+  function newlineChange(C, state) {
+    const range = state.selection.main, pos = range.from, end = range.to, picked = !range.empty;
+    const plain = { changes: { from: pos, to: end, insert: "\n" }, selection: { anchor: pos + 1 }, carries: false };
+    const found = containers(C, state, pos);
+    if (!found) return plain;
+    const { line, quotes, items } = found;
+    const col = pos - line.from;
+    const first = items.find(it => it.own);
+    const c = [...quotes.filter(q => q.live), ...items.filter(it => !it.own || it === first)]
+      .sort((a, b) => a.from - b.from);
+    // a marker standing right at the caret goes down whole with the words
+    // after it, and only the ones before the caret are carried
+    while (c.length && c[c.length - 1].from >= col) c.pop();
+    const d = c[c.length - 1];
+    if (!d || col < d.to) return plain;
+    const take = (changes, anchor) => ({ changes, selection: { anchor }, carries: true });
+    const empty = !/\S/.test(line.text.slice(d.to)) && end <= line.to;
+    if (d.item && empty) {
+      if (!d.own && !/^[\s>]*$/.test(line.text.slice(0, d.to))) return plain;
+      const b = c.length > 1 ? c[c.length - 2] : null;
+      if (b && b.item) {
+        // a nested item moves out to its parent's level, with its marker
+        const at = line.from + b.from, head = marker(b), changes = [{ from: at, to: end, insert: head }];
+        if (d.number != null) renumber(state, d, -2, changes);
+        if (b.number != null) renumber(state, b, 0, changes);
+        return take(changes, at + head.length);
+      }
+      // the list is over, inside any quote it stands in
+      const at = line.from + (b ? b.to : 0), changes = [{ from: at, to: end, insert: "" }];
+      if (d.number != null) renumber(state, d, -2, changes);
+      return take(changes, at);
+    }
+    if (d.quote && empty) {
+      const at = c.every(x => x.quote) ? line.from : line.from + d.from;
+      return take([{ from: at, to: Math.max(end, line.to), insert: "" }], at);
+    }
+    // a line of an item's own words, under its marker, stays in the item when
+    // it is indented as one, and is an ordinary line when it is not
+    const inside = d.item && !d.own;
+    let head = "";
+    if (!inside || /^[\s\d.)\-+*>]*/.exec(line.text)[0].length >= d.to)
+      for (let f = 0, last = c.length - 1; f <= last; f++)
+        head += f === last && !inside ? marker(c[f]) : blank(c[f], f < last ? c[f + 1].from - head.length : null);
+    let g = pos;
+    if (!picked) {
+      const floor = line.from + (inside ? 0 : d.to);
+      while (g > floor && /\s/.test(state.sliceDoc(g - 1, g))) g--;
+    }
+    const changes = [{ from: g, to: end, insert: "\n" + head }];
+    if (d.own && d.number != null && end <= line.to) renumber(state, d, 0, changes);
+    return { changes, selection: { anchor: g + 1 + head.length }, carries: head !== "" };
+  }
+
+  function insertNewline(C, view) {
+    const spec = newlineChange(C, view.state);
+    view.dispatch(view.state.update({
+      changes: spec.changes, selection: spec.selection, scrollIntoView: true, userEvent: "input",
     }));
     return true;
   }
 
   // ---- who answers the return key -------------------------------------------
-  // Three things can answer a return in this row and only one of them may, so
+  // Two things can answer a return in this row and only one of them may, so
   // the choice is made here, once, before any of them has seen the key.
   //
   //   the page's send        the row keeps nothing back and writes nothing
-  //   the row's own line     a shifted return, and a marker being finished with
-  //   the editor's own       a quoted or a listed line carries its marker down
+  //   the row's own line     a shifted return here, and the phone's return in
+  //                          the editor's own key pass, both one new line
+  //                          (insertNewline)
   //
-  // The page's send is the one that was going wrong. The vendored markdown pack
-  // binds the return key to a continuation of its own at a precedence above
-  // anything this file can install, so a return meant for the send wrote a
-  // marker into the row on its way out and the card was sent a line the reader
-  // never typed: "> alpha" arrived as "> alpha\n>". The continuation itself is
-  // wanted, though, and on the phone it is what a reader gets for pressing
-  // return on a quoted line, so it is not taken away. It is simply asked last.
+  // The page's send is the one that once went wrong: the vendored markdown
+  // pack binds the return key to a continuation of its own, and a return meant
+  // for the send wrote a marker into the row on its way out, so the card was
+  // sent a line the reader never typed ("> alpha" arrived as "> alpha\n>").
+  // The pack's binding is now left out altogether (extensions), and the row
+  // makes the continuation itself, the same on both pages.
   //
   // This runs in the CAPTURE phase on the editor's outer element, which stands
   // above the content every editor binding is hung on, so it is answered first
@@ -646,32 +782,18 @@
     if (!field.newline(event)) {
       event.preventDefault(); noteEnter(field, "format", event, "send"); return;
     }
-    // A marker with nothing typed after it ends the list. That rule is this
-    // row's own and older than the editor in it. Everything the pack's binding
-    // does not answer is the row's own as well: it is bound to a bare return,
-    // so a shifted one has always been made here.
-    const ending = !event.shiftKey && !!emptyItem(C, view);
-    if (event.shiftKey || ending) {
+    // A shifted return is made here. Held, it makes one line and not a run
+    // of them, on a list as much as anywhere.
+    if (event.shiftKey) {
       event.preventDefault();
-      // A held return makes one line and not a run of them, which is what it
-      // has always done on the lines the row answers itself. It is not made to
-      // do that anywhere else: a return held down on a quoted or a listed line
-      // goes on carrying the marker down, because that is the editor's own
-      // continuation and this pass is not here to take it away. Ending a list
-      // is the one place a held return does something, and it is the whole of
-      // the correction rather than an exception to it: the list ends once and
-      // the run stops there, instead of a marker and a blank line per repeat.
-      if (event.repeat && !ending) {
-        noteEnter(field, "format", event, "repeat"); return;
-      }
+      if (event.repeat) { noteEnter(field, "format", event, "repeat"); return; }
       insertNewline(C, view);
-      noteEnter(field, "format", event, ending ? "empty-item" : "row-line");
+      noteEnter(field, "format", event, "row-line");
       return;
     }
+    // and the phone's return goes on to the editor's own key pass, which makes
+    // the same line (extensions)
     noteEnter(field, "format", event, "editor");
-    // and what is left is the editor's own continuation, which carries a "> "
-    // or a "- " down a line on every press, held or not, and declines every
-    // line that has neither
   }
 
   // ---- the chords the page owns and the editor must not ---------------------
@@ -691,10 +813,52 @@
                        "Alt-Ctrl-ArrowUp", "Alt-Ctrl-ArrowDown"]
     .map(key => ({ key, run: () => true }));
 
-  // Keep Option/Alt with Up/Down available for native caret movement and
-  // selection. The stock bindings move or copy whole logical lines; exclude
-  // them without changing Left/Right word navigation.
+  // Option/Alt with Up/Down is caret movement and selection, as in a plain
+  // field. The stock bindings move or copy whole logical lines; exclude them
+  // without changing Left/Right word navigation (see paragraphEdge for what
+  // the keys do instead).
   const MOVES_TEXT = /^(Shift-)?Alt-Arrow(Up|Down)$/;
+
+  // The Mac's paragraph keys, made here the way the browser makes them in a
+  // plain field: Option and Up go to the start of the paragraph (a line of
+  // the message), or from its start to the start of the one above, and Option
+  // and Down to its end, or the end of the one below; a pick closes up at its
+  // near end first. With Shift the pick's head goes a paragraph up or down,
+  // keeping its place across the line. Left to the browser, the marker drawn
+  // at a list line's head stopped them: on a list's first line Option and Up
+  // did nothing at all.
+  function paragraphEdge(view, forward) {
+    const doc = view.state.doc, range = view.state.selection.main;
+    // a line's start is where its words start: past a quote's hidden angles,
+    // where Home stops as well and a character typed stays in the quote
+    const atoms = view.state.field(layerExtension).atoms;
+    const start = line => {
+      let at = line.from;
+      atoms.between(line.from, line.from, (from, to) => { if (from === line.from) at = to; });
+      return at;
+    };
+    let head = range.head;
+    if (!forward && range.empty && head === start(doc.lineAt(head))) head = doc.lineAt(head).from;
+    const p = !range.empty ? (forward ? range.to : range.from)
+      : forward ? Math.min(doc.length, head + 1) : Math.max(0, head - 1);
+    const line = doc.lineAt(p);
+    view.dispatch({ selection: { anchor: forward ? line.to : start(line) }, scrollIntoView: true, userEvent: "select" });
+    return true;
+  }
+  function paragraphStep(view, forward) {
+    const doc = view.state.doc, range = view.state.selection.main, line = doc.lineAt(range.head);
+    let head = forward ? doc.length : 0;
+    if (line.number !== (forward ? doc.lines : 1)) {
+      const next = doc.line(line.number + (forward ? 1 : -1));
+      // the row of the next paragraph that meets this one: its first going
+      // down, its last going up
+      const here = view.coordsAtPos(range.head), row = view.coordsAtPos(forward ? next.from : next.to);
+      const found = here && row ? view.posAtCoords({ x: here.left, y: (row.top + row.bottom) / 2 }) : null;
+      head = Math.max(next.from, Math.min(next.to, found == null ? next.from : found));
+    }
+    view.dispatch({ selection: { anchor: range.anchor, head }, scrollIntoView: true, userEvent: "select" });
+    return true;
+  }
 
   // ---- Backspace after an emoji ---------------------------------------------
   // The plain field takes a whole emoji with one Backspace: a skin tone, a
@@ -736,39 +900,261 @@
     };
   }
 
+  // ---- Backspace after a marker ---------------------------------------------
+  // The pack's own Backspace, which takes a list marker or a quote's angle off
+  // whole when the caret stands right after it (deleteMarkupBackward). Its
+  // keymap is left out of this row for the sake of its return key, so its
+  // Backspace is taken from that keymap and put in the row's own.
+  let markupBack = null;
+  function deleteMarkupBackward(C) {
+    if (markupBack) return markupBack;
+    const probe = C.EditorState.create({ extensions: C.markdown() });
+    for (const set of probe.facet(C.keymap))
+      for (const binding of set) if (binding.key === "Backspace" && !markupBack) markupBack = binding.run;
+    return markupBack || (() => false);
+  }
+
+  // ---- deleting to the row's edge -------------------------------------------
+  // Command with Backspace or Delete takes the words up to the row's edge. The
+  // editor finds that edge where the row's first or last character on show
+  // stands, so a span's marker hidden there was left behind and came back as
+  // a stray character: Command and Backspace after "`code` and more" left a
+  // lone backtick in the row. Markup hidden at the edge goes with the words
+  // here. A quote's angles stay: they are the quote, and not words in it. A
+  // pick is the editor's to delete.
+  function deleteToRowEdge(C, view, forward) {
+    const state = view.state, range = state.selection.main;
+    if (state.selection.ranges.length > 1 || !range.empty) return false;
+    const line = state.doc.lineAt(range.head), drawn = state.field(layerExtension).deco;
+    let edge = view.moveToLineBoundary(range, forward).head;
+    for (let moved = true; moved;) {
+      moved = false;
+      drawn.between(Math.max(line.from, edge - 1), Math.min(line.to, edge + 1), (from, to, value) => {
+        if (value !== hideDeco) return;
+        if (!forward && to === edge && from < edge) { edge = from; moved = true; }
+        if (forward && from === edge && to > edge) { edge = to; moved = true; }
+      });
+    }
+    if (!forward) state.field(layerExtension).atoms.between(line.from, line.from, (from, to) => {
+      if (from === line.from) edge = Math.max(edge, to);
+    });
+    const head = range.head;
+    const target = forward ? (head < edge ? edge : Math.min(state.doc.length, head + 1))
+      : (head > edge ? edge : Math.max(0, head - 1));
+    if (target === head) return true;
+    view.dispatch(state.update({
+      changes: { from: Math.min(head, target), to: Math.max(head, target) },
+      selection: { anchor: Math.min(head, target) },
+      scrollIntoView: true, userEvent: forward ? "delete.forward" : "delete.backward",
+    }));
+    return true;
+  }
+
+  // ---- Tab in a list ---------------------------------------------------------
+  // Tab nests a list item under the one above it and Shift+Tab brings it back
+  // out a level, as in Obsidian, on every line of the pick that has a marker
+  // of its own. The nesting is written in spaces as wide as the marker above,
+  // or the item's own with nothing above it, which the parser and the card
+  // read as the next level down. On a line with no marker the key is left to
+  // the page, whose Tab steps out of the box (cardTab in card-logic.js).
+  const MARKER = /^(?:\d{1,9}[.)]|[-+*])[ \t]+/;
+  function markerWidth(state, node) {
+    const found = MARKER.exec(state.sliceDoc(node.from, state.doc.lineAt(node.from).to));
+    return found ? found[0].length : 0;
+  }
+  // the outermost list item whose marker, with its space, is on this line
+  function ownItem(C, state, line) {
+    let found = null;
+    C.syntaxTree(state).iterate({ from: line.from, to: line.to, enter: node => {
+      if (found || node.name === "FencedCode" || node.name === "CodeBlock") return false;
+      if (node.name === "ListItem" && node.from >= line.from && markerWidth(state, node)) {
+        found = node.node;
+        return false;
+      }
+    } });
+    return found;
+  }
+  function listIndent(C, view, outward) {
+    const state = view.state, doc = state.doc, range = state.selection.main, changes = [];
+    let listed = false;
+    for (let n = doc.lineAt(range.from).number, last = doc.lineAt(range.to).number; n <= last; n++) {
+      const line = doc.line(n), item = ownItem(C, state, line);
+      if (!item) continue;
+      listed = true;
+      if (!outward) {
+        // after the quote's angles, where the item's own indent starts
+        const at = line.from + /^(?: {0,3}> ?)*/.exec(line.text)[0].length;
+        const above = item.prevSibling && item.prevSibling.name === "ListItem" ? item.prevSibling : null;
+        changes.push({ from: at, insert: " ".repeat((above && markerWidth(state, above)) || markerWidth(state, item)) });
+        continue;
+      }
+      const parent = item.parent && item.parent.parent;
+      if (!parent || parent.name !== "ListItem") continue;
+      const from = line.from + (parent.from - doc.lineAt(parent.from).from);
+      if (from < item.from) changes.push({ from, to: item.from });
+    }
+    if (!listed) return false;
+    if (!changes.length) return true;   // an item at the margin has nowhere further out to go
+    const set = state.changes(changes);
+    view.dispatch({ changes: set, selection: { anchor: set.mapPos(range.anchor, 1), head: set.mapPos(range.head, 1) },
+                    scrollIntoView: true, userEvent: outward ? "delete.dedent" : "input.indent" });
+    return true;
+  }
+
+  // ---- pasting words with their formatting ----------------------------------
+  // Words copied from a page arrive as markdown, as Obsidian takes them in
+  // (its "Convert pasted HTML to Markdown"): bold, italic, struck and code
+  // words, links, headings, quotes and lists keep their form. A paste with no
+  // formatting in it is left to the editor, which takes its plain words, and
+  // so is one carrying files, which the page puts in the tray.
+  function htmlMarkdown(html) {
+    const body = new DOMParser().parseFromString(html, "text/html").body;
+    let formatted = false;
+    const BLOCK = /^(P|DIV|SECTION|ARTICLE|HEADER|FOOTER|MAIN|ASIDE|FIGURE|UL|OL|LI|BLOCKQUOTE|H[1-6]|PRE|HR|TABLE|TBODY|THEAD|TR)$/;
+    const inline = node => {
+      if (node.nodeType === 3) return node.data.replace(/[ \t\r\n]+/g, " ");
+      if (node.nodeType !== 1) return "";
+      const words = () => [...node.childNodes].map(inline).join("");
+      // the marker hugs the words and the spaces around them stay outside it
+      const wrap = mark => {
+        const [, lead, kept, tail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(words());
+        if (!kept) return lead + tail;
+        formatted = true;
+        return lead + mark + kept + mark + tail;
+      };
+      switch (node.tagName) {
+        case "B": case "STRONG": return wrap("**");
+        case "I": case "EM": return wrap("*");
+        case "S": case "DEL": case "STRIKE": return wrap("~~");
+        case "CODE": {
+          const code = node.textContent;
+          if (!code) return "";
+          formatted = true;
+          return "`" + code + "`";
+        }
+        case "A": {
+          const href = node.getAttribute("href") || "", text = words();
+          if (!/^(https?:|mailto:)/i.test(href) || !text.trim()) return text;
+          formatted = true;
+          return "[" + text.trim() + "](" + href + ")";
+        }
+        case "BR": return "\n";
+        case "IMG": return "";
+        default: return words();
+      }
+    };
+    // a run of nodes as blocks, a blank line between them, or one line apart
+    // inside a list item
+    const blocks = (nodes, tight) => {
+      const out = [];
+      let line = "";
+      const flush = () => { const done = line.replace(/^ +| +$/gm, ""); if (done.trim()) out.push(done.trim()); line = ""; };
+      for (const node of nodes) {
+        if (node.nodeType !== 1 || !BLOCK.test(node.tagName)) { line += inline(node); continue; }
+        flush();
+        const tag = node.tagName;
+        if (/^H[1-6]$/.test(tag)) {
+          formatted = true;
+          out.push("#".repeat(+tag[1]) + " " + blocks(node.childNodes, true).replace(/\n+/g, " "));
+        } else if (tag === "BLOCKQUOTE") {
+          formatted = true;
+          out.push(blocks(node.childNodes, false).split("\n").map(l => (l ? "> " + l : ">")).join("\n"));
+        } else if (tag === "UL" || tag === "OL") {
+          formatted = true;
+          let number = +node.getAttribute("start") || 1;
+          const items = [];
+          for (const li of node.children) {
+            if (li.tagName !== "LI") continue;
+            const mark = tag === "OL" ? (number++) + ". " : "- ";
+            const [first, ...rest] = blocks(li.childNodes, true).split("\n");
+            items.push(mark + first, ...rest.map(l => (l ? " ".repeat(mark.length) + l : l)));
+          }
+          out.push(items.join("\n"));
+        } else if (tag === "PRE") {
+          formatted = true;
+          out.push("```\n" + node.textContent.replace(/\n$/, "") + "\n```");
+        } else if (tag === "HR") {
+          formatted = true;
+          out.push("---");
+        } else {
+          const inner = blocks(node.childNodes, tight);
+          if (inner) out.push(inner);
+        }
+      }
+      flush();
+      return out.join(tight ? "\n" : "\n\n");
+    };
+    const text = blocks(body.childNodes, false);
+    return formatted && text ? text : null;
+  }
+  function pasteMarkdown(event, view) {
+    const data = event.clipboardData;
+    if (!data || (data.files && data.files.length)) return false;
+    const html = data.getData("text/html");
+    if (!html) return false;
+    let text = null;
+    try { text = htmlMarkdown(html); } catch (error) { text = null; }
+    if (text == null) return false;
+    view.dispatch(view.state.replaceSelection(text), { userEvent: "input.paste", scrollIntoView: true });
+    return true;
+  }
+
   // ---- the editor a field puts on ------------------------------------------
   function extensions(C, field) {
     const keys = [
       ...PAGE_CHORDS,
       ...C.historyKeymap,
+      { key: "Backspace", run: deleteMarkupBackward(C) },
       { key: "Backspace", run: deleteEmojiBackward, shift: deleteEmojiBackward },
-      // The editor's stock return bindings are not among the three things that
-      // may answer a return in this row, so they are left out. Which of the
-      // three does answer it is decided in enterKey. The line moves and copies
-      // are left out as well; see MOVES_TEXT.
+      { key: "Tab", run: view => listIndent(C, view, false), shift: view => listIndent(C, view, true) },
+      { mac: "Mod-Backspace", run: view => deleteToRowEdge(C, view, false) },
+      { mac: "Mod-Delete", run: view => deleteToRowEdge(C, view, true) },
+      { key: "Alt-ArrowUp", run: view => paragraphEdge(view, false), shift: view => paragraphStep(view, false) },
+      { key: "Alt-ArrowDown", run: view => paragraphEdge(view, true), shift: view => paragraphStep(view, true) },
+      // The editor's stock return bindings are not among the two things that
+      // may answer a return in this row, so they are left out. Which of the two
+      // does answer it is decided in enterKey. The line moves and copies are
+      // left out as well; see MOVES_TEXT.
       ...C.defaultKeymap.filter(binding =>
         !/Enter/.test(binding.key || "") && !MOVES_TEXT.test(binding.key || "")),
     ];
     return [
       // The strike is the bundle's own GitHub one, two tildes on either side,
       // which is the form the sent card reads. Nothing is put on top of it, so
-      // a lone pair stays the characters it was typed as. The pack's own keymap
-      // comes with it and is wanted: a return carrying a quote's angle down,
-      // and a backspace taking a whole marker off at once, are both what a
-      // reader of this row already has. Which of them answers the return key,
-      // and when, is decided in enterKey above.
-      C.markdown({ base: C.markdownLanguage }),
+      // a lone pair stays the characters it was typed as. The pack's keymap is
+      // left out: the row makes its own new line (insertNewline) and keeps the
+      // pack's Backspace in its own keymap above.
+      C.markdown({ base: C.markdownLanguage, extensions: LIST_BREAK, addKeymap: false }),
       C.history(),
       // the editor writes its own class attribute on every update, so the name
       // the page styles the row by is handed to it rather than set on the node
       C.EditorView.editorAttributes.of({ class: field.shellClass }),
       C.EditorView.contentAttributes.of(field.typing),
-      // What is left of the return key once enterKey and the pack have had it.
-      // The pack's continuation answers a quoted or a listed line and declines
-      // everything else, so this is where a plain line gets the line it asked
-      // for. Anything enterKey already decided has been prevented and never
-      // arrives here at all.
+      // What is left of the return key once enterKey has had it: the phone's
+      // return, which makes the row's new line here. Anything enterKey already
+      // decided has been prevented and never arrives here at all. A held
+      // return goes on carrying a quote or a list down and ends a list once;
+      // on a line with neither it makes one line and no more.
       C.EditorView.domEventHandlers({
+        paste: pasteMarkdown,
+        // A character typed with the caret between a quote's hidden angles,
+        // or over a pick that starts or ends at them, goes in where the
+        // editor's own caret is. The browser can only stand its caret beside
+        // the hidden run: typed there, ">> one" took the character after its
+        // angles, and a pick starting right after them broke its line in two.
+        beforeinput: (event, view) => {
+          if (event.inputType !== "insertText" || event.isComposing || event.data == null) return false;
+          const range = view.state.selection.main;
+          let near = false;
+          view.state.field(layerExtension).atoms.between(range.from, range.to, (from, to) => {
+            if (from < range.head && range.head < to) near = true;
+            if (!range.empty && ((range.from >= from && range.from <= to) || (range.to >= from && range.to <= to))) near = true;
+          });
+          if (!near) return false;
+          event.preventDefault();
+          view.dispatch(view.state.replaceSelection(event.data), { userEvent: "input.type", scrollIntoView: true });
+          return true;
+        },
         keydown: (event, view) => {
           if (event.key !== "Enter") {
             if (event.code === "Enter" || event.code === "NumpadEnter" || event.keyCode === 13)
@@ -784,12 +1170,12 @@
           if (!field.newline(event)) {
             noteEnter(field, "editor", event, "send"); return true;
           }
-          if (event.repeat) {
+          if (event.repeat && !newlineChange(C, view.state).carries) {
             noteEnter(field, "editor", event, "repeat"); return true;
           }
-          const inserted = insertNewline(C, view);
-          noteEnter(field, "editor", event, inserted ? "row-line" : "editor");
-          return inserted;
+          insertNewline(C, view);
+          noteEnter(field, "editor", event, "row-line");
+          return true;
         },
       }),
       C.keymap.of(keys),

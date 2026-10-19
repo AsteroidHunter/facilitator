@@ -327,6 +327,10 @@ test("a quote bar, bullets, a carried marker and an empty bullet that ends the l
     await editorOn(page);
     await page.focus(ROW);
     await page.keyboard.type("> a quoted line");
+    // the quote's angle is carried down, and an empty quoted line ends it
+    await chord(page, "Enter", "Shift");
+    assert.equal(await page.$eval(ROW, row => row.value), "> a quoted line\n> ",
+      "the new line did not carry the quote down");
     await chord(page, "Enter", "Shift");
     await page.keyboard.type("- first");
     await chord(page, "Enter", "Shift");            // the marker is carried down
@@ -1143,9 +1147,12 @@ test("the typed page's reply line formats, sends and keeps its own undo", async 
 
 // ---- what the editor is asked not to do ----------------------------------------------
 
-test("the row draws the five forms and leaves the rest of markdown as characters", async () => {
+// A heading, a code span and a link are drawn as Obsidian and the card draw
+// them, their markup out of sight in a row nobody is typing in; a stray tilde
+// stays the character it is
+test("the row draws headings, code spans and links, and leaves a stray tilde as typed", async () => {
   await clearLane();
-  const id = await card("Only the five", "A reply to answer.");
+  const id = await card("Drawn forms", "A reply to answer.");
   const { page, problems } = await open("/", DESKTOP);
   try {
     await pickDesktopCard(page, id);
@@ -1158,13 +1165,17 @@ test("the row draws the five forms and leaves the rest of markdown as characters
     await settle(250);
     const out = await page.evaluate(() => {
       const content = document.querySelector("article.box.sel .cm-content");
+      const of = name => [...content.querySelectorAll(name)].map(node => node.textContent);
       return { shown: content.innerText,
-               italic: [...content.querySelectorAll(".cf-em")].map(node => node.textContent),
-               struck: [...content.querySelectorAll(".cf-strike")].map(node => node.textContent),
+               headingLine: content.querySelector(".cm-line").className,
+               italic: of(".cf-em"), struck: of(".cf-strike"), code: of(".cf-code"), link: of(".cf-link"),
                payload: document.querySelector("article.box.sel textarea").value };
     });
-    assert.match(out.shown, /# heading/, "a heading's hash was taken away");
-    assert.match(out.shown, /\[a link\]\(https:\/\/example\.invalid\)/, "a link was turned into one");
+    assert.match(out.shown, /^heading$/m, "a heading kept its hash in a row nobody is typing in");
+    assert.match(out.headingLine, /\bcf-h1\b/, "the heading was not drawn as one");
+    assert.deepEqual(out.code, ["code *stars* here"], "the code span was not drawn as code");
+    assert.deepEqual(out.link, ["a link"], "the link was not drawn as its words");
+    assert.doesNotMatch(out.shown, /example\.invalid/, "the link's address stayed on show");
     assert.deepEqual(out.italic, [], "stars inside a code span were drawn as italic");
     assert.match(out.shown, /about ~5 minutes, see ~\/notes/,
       "a stray tilde in prose was read as a strike");

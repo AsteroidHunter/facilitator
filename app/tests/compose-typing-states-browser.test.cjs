@@ -201,12 +201,11 @@ function cardDraws(page, source) {
 test("a line under a quote that carries no angle of its own is drawn outside the quote", async () => {
   const { page, problems } = await desktopRow("A reply under a quote");
   try {
-    // the Mac's new line does not carry the angle down, so the reply under a
-    // quoted line is a line of its own, and the card shows it outside the quote
-    await lay(page, "");
-    await page.keyboard.type("> said");
-    await chord(page, "Enter", "Shift");
-    await page.keyboard.type("my reply");
+    // a reply written under a quoted line, with no angle of its own, is a
+    // line of its own, and the card shows it outside the quote. A new line
+    // carries the angle down, so the reply is laid in as written
+    await lay(page, "> said\nmy reply");
+    await caretTo(page, 15);
     await settle(150);
     const read = await rowRead(page);
     assert.equal(read.payload, "> said\nmy reply");
@@ -264,18 +263,23 @@ test("return on a quoted line with nothing typed on it ends the quote", async ()
   const phone = await phoneRow("Ending a quote on the phone", true);
   try {
     const { page } = phone;
-    for (const [typed, ended] of [["> said", "> said\n"], ["> - item", "> - item\n"]]) {
+    // An empty item in a quote ends the list first and leaves the quote, one
+    // level a press, as an empty nested item moves out a level; the next
+    // return ends the quote
+    for (const [typed, ends] of [["> said", ["> said\n"]], ["> - item", ["> - item\n> ", "> - item\n"]]]) {
       await lay(page, "");
       await page.keyboard.type(typed);
       await page.keyboard.press("Enter");
       await settle(150);
       assert.equal(await payload(page), typed + "\n" + typed.replace(/[^>\- ].*$/, ""),
         "the return key did not carry the quote down");
-      await page.keyboard.press("Enter");
-      await settle(150);
-      const read = await rowRead(page);
-      assert.equal(read.payload, ended, "a return on the empty quoted line did not end the quote");
-      assert.equal(read.angles, 0, "an angle was left standing in the drawn quote");
+      for (const ended of ends) {
+        await page.keyboard.press("Enter");
+        await settle(150);
+        const read = await rowRead(page);
+        assert.equal(read.payload, ended, "a return on the empty quoted line did not end the quote");
+        assert.equal(read.angles, 0, "an angle was left standing in the drawn quote");
+      }
     }
     assert.deepEqual(phone.problems, []);
   } finally {

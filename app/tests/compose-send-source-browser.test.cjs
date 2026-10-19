@@ -148,14 +148,16 @@ test("shift and return still make the row's own new line, and send nothing", asy
     await chord();
     assert.equal((await rowRead(page)).payload, "- one\n- two\n",
       "the empty bullet did not end the list");
-    // A quoted line breaks plainly under this chord. Carrying a quote's angle
-    // down is the editor's own continuation, and that answers a bare return;
-    // the row's own new line is what a shifted one has always made, and it
-    // carries a list marker and nothing else.
+    // A quoted line carries its angle down under this chord too, as the
+    // phone's return does and as Obsidian does, and an empty quoted line
+    // ends the quote: both pages make the one new line (insertNewline)
     await page.keyboard.type("> alpha");
     await chord();
+    assert.equal((await rowRead(page)).payload, "- one\n- two\n> alpha\n> ",
+      "shift and return did not carry the quote's angle down");
+    await chord();
     assert.equal((await rowRead(page)).payload, "- one\n- two\n> alpha\n",
-      "shift and return stopped making the row's own plain new line");
+      "the empty quoted line did not end the quote");
     await page.keyboard.type("plain");
     await chord();
     assert.equal((await rowRead(page)).payload, "- one\n- two\n> alpha\nplain\n",
