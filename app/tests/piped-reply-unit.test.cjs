@@ -835,10 +835,13 @@ test("it is a second magic box on the box's own rules, always whole, its shadow 
     "#pipebox.rising", "#pipebox .mbbar", "#pipebox, #pipebox *", "#pipebox::-webkit-scrollbar, #pipebox *::-webkit-scrollbar",
     "#pipebox .mbbody", "#pipebox .mbtext", "#pipebox .mbtext[contenteditable]"]);
   assert.match(rule("#pipebox"), /^opacity:1;/, "never faded as the box is while the card holds the keys");
+  // and no edge on its sides: its face the board's own paper, whatever colour the board is
+  assert.match(rule("#pipebox"), /^opacity:1; background:var\(--paper\);/);
+  assert.match(HTML, /document\.body\.style\.setProperty\("--paper", pick\.value\);/, "the board's colour is the paper's");
   assert.equal(rule("#pipebox.rising"), "--rise:0; transition:none; opacity:var(--rise)", "it comes and goes as a whole on the box's --rise");
   assert.ok(!own.join("").match(/transform|--shade-unselected/), "no motion or fade of its own");
-  // its shadow: the box's own two, each layer pulled in at the sides by at least its blur,
-  // so nothing reaches past a side, and reaching past the top and the foot as far as the box's
+  // its shadow: the box's own two, each layer pulled in at the sides by half again its blur,
+  // so not even the blur's tail reaches past a side, and reaching past the top and the foot as far as the box's
   const layers = text => text.split(/,\s*(?![^(]*\))/).map(l => {
     const n = l.trim().match(/^0 (-?[\d.]+)(?:px)? ([\d.]+)px(?: (-?[\d.]+)px)? rgba\(60,45,20,(\.\d+)\)$/);
     assert.ok(n, "a layer " + l);
@@ -850,7 +853,7 @@ test("it is a second magic box on the box's own rules, always whole, its shadow 
   for (const [mine, box] of [[rule("#pipebox"), vars[2]], [rule("#pipebox.held"), vars[1]]]) {
     const ls = layers(mine.match(/box-shadow:([^;]*)$/)[1]), theirs = layers(box);
     assert.equal(ls.length, 4, "a layer for the top and one for the foot, for each of the box's two");
-    assert.ok(reach(ls).side <= 0, "nothing past the sides");
+    assert.ok(reach(ls).side <= 0 && ls.every(l => l.blur + l.spread <= -l.blur / 2), "nothing past the sides");
     assert.ok(close(reach(ls).top, reach(theirs).top) && close(reach(ls).foot, reach(theirs).foot), "as far past the top and the foot as the box's");
     for (const l of theirs) assert.equal(ls.filter(m => m.blur === l.blur && m.a === l.a).length, 2, "each of the box's layers, at its blur and strength");
   }

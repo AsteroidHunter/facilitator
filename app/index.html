@@ -1575,8 +1575,8 @@
      was being worked in.
      the card's response piped out beside a long reply (#pipebox, pipeSync) is
      a second box on these same rules, so it stands where the box does and
-     rises and sinks by its steps; it is never faded, and how it looks as it
-     rises and its shadow are its own, under them */
+     rises and sinks by its steps; it is never faded, and its face, its shadow
+     and how it looks as it rises are its own, under them */
   :is(#magicbox, #pipebox){display:none}
   body.focus :is(#magicbox, #pipebox).on{display:flex; position:fixed; z-index:1; --mb-inset:calc(var(--pad-x)*2/3)}
   body.focus.home :is(#magicbox, #pipebox).on, body.focus.editmode :is(#magicbox, #pipebox).on{display:none}
@@ -1646,19 +1646,21 @@
      box's, kept clear, so it measures as the box does), no bar, its words
      dissolving at both ends of their scroll as the box's do (the view's
      --upband and --downband), in the card answer's own type with its inset on
-     every side. it is always whole, held or not, and its shadow falls only
-     past its top and its foot, none past its sides: the box's two shadows with
-     each layer pulled in on every side by its own blur (a negative spread), so
-     none of it reaches past a side, and moved up past the top and down past
-     the foot to reach there as far as the box's do. it rises and sinks on the
-     box's steps as a whole, its face, shadow and words all on --rise */
+     every side. it is always whole, held or not. it draws no edge on its
+     sides: its face is the board's own paper (the card's white there stood out
+     from the board as an edge of its own), and its shadow falls only past its
+     top and its foot, the box's two shadows with each layer pulled in on every
+     side by half again its blur (a negative spread), so not even the blur's
+     faint tail reaches past a side, and moved up past the top and down past the
+     foot to reach there as far as the box's do. it rises and sinks on the box's
+     steps as a whole, its face, shadow and words all on --rise */
   #pipebox, #pipebox.rising{border-color:transparent}
-  #pipebox{opacity:1;
-    box-shadow:0 -11px 14px -14px rgba(60,45,20,.10), 0 17px 14px -14px rgba(60,45,20,.10),
-      0 -1px 2px -2px rgba(60,45,20,.06), 0 3px 2px -2px rgba(60,45,20,.06)}
+  #pipebox{opacity:1; background:var(--paper);
+    box-shadow:0 -18px 14px -21px rgba(60,45,20,.10), 0 24px 14px -21px rgba(60,45,20,.10),
+      0 -2px 2px -3px rgba(60,45,20,.06), 0 4px 2px -3px rgba(60,45,20,.06)}
   #pipebox.held{
-    box-shadow:0 -16px 18px -18px rgba(60,45,20,.18), 0 20px 18px -18px rgba(60,45,20,.18),
-      0 -2px 3px -3px rgba(60,45,20,.10), 0 4px 3px -3px rgba(60,45,20,.10)}
+    box-shadow:0 -25px 18px -27px rgba(60,45,20,.18), 0 29px 18px -27px rgba(60,45,20,.18),
+      0 -3.5px 3px -4.5px rgba(60,45,20,.10), 0 5.5px 3px -4.5px rgba(60,45,20,.10)}
   #pipebox.rising{--rise:0; transition:none; opacity:var(--rise)}
   #pipebox .mbbar{display:none}
   /* the patch of the board it stands on (pipePlace): the board's own paper in
