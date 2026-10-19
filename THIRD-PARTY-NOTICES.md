@@ -102,6 +102,12 @@ The token chart's download button draws Lucide's `download`, `loader-circle` and
 `check` the same way (inline static SVG path data, geometry unchanged, 14px with a
 2 stroke), covered by the same ISC License.
 
+The bar's links button (`#graphbtn` in `app/index.html`), which opens the links
+between cards, draws Lucide's `waypoints` the same way, at 15px with a 2 stroke
+like the bar's other icons. It was copied from `icons/waypoints.svg` on Lucide's
+main branch on 2026-10-18; it is not part of Feather's set either, so it is
+covered by the same ISC License.
+
 ### ISC License
 
 Copyright (c) 2026 Lucide Icons and Contributors
@@ -126,6 +132,11 @@ inline static SVG path data (the `CLIP_ICON` constant, and the gate page's
 sample typing box); the geometry is unchanged, drawn at 17px with a 1.9 stroke.
 No package is installed and nothing is fetched at runtime. Source:
 `https://github.com/feathericons/feather`.
+
+The links sheet's fit button (`app/graph.js`, the `FIT` constant) draws
+Feather's `maximize` the same way, with the path data Lucide publishes for it
+(`icons/maximize.svg` on Lucide's main branch, 2026-10-18), geometry unchanged,
+at 14px with a 2 stroke.
 
 Feather is distributed under the MIT License, whose text is given above, with
 this copyright notice: Copyright (c) 2013-2017 Cole Bemis.

@@ -238,10 +238,6 @@ const KEEP = "linkgraph";   // the reader's choices: view, scope, depth, colour
 // down to ROW_MIN while that brings every row into view
 const LABEL_W = 300, ROW_H = 26, ROW_MIN = 19, AXIS_H = 34, LEGEND_H = 54;
 const TIP_GAP = 14;
-const WAYPOINTS = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.586 5.414-5.172 5.172"/>' +
-  '<path d="m18.586 13.414-5.172 5.172"/><path d="M6 12h12"/><circle cx="12" cy="20" r="2"/><circle cx="12" cy="4" r="2"/>' +
-  '<circle cx="20" cy="12" r="2"/><circle cx="4" cy="12" r="2"/></svg>';
 const PLAY = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10.2 6z" fill="currentColor"/></svg>';
 const PAUSE = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.8 1.8h2.2v8.4H2.8zM7 1.8h2.2v8.4H7z" fill="currentColor"/></svg>';
 const FIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
@@ -1366,7 +1362,7 @@ function onWheel(e){
   if (S.hover || S.hoverArc){ setHover(null, null); }
 }
 
-root.LinkGraph = { logic, open, close, isOpen: () => S.open, ICON: WAYPOINTS,
+root.LinkGraph = { logic, open, close, isOpen: () => S.open,
   // for the checks on the page: what the sheet is showing
   peek: () => S.m && { view: S.view, scope: S.scope, depth: S.depth, colour: S.colour, step: S.step,
     steps: S.edges.length, cards: S.ids ? S.ids.size : S.m.nodes.length, shown: S.shown ? S.shown.ids.size : 0,
