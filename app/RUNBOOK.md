@@ -89,11 +89,11 @@ Omni cards are the one exception: never rename an Omni card. An Omni card is the
 
 ## Links between cards
 
-When two cards are related, because one continues, splits from, depends on or answers the other, link them by id, from that one to the other. A link may join cards of different lanes:
+Link cards only when the person asks you to, and never on your own: do not link cards because they look related, continue, split from, depend on or answer one another. When the person does ask, link them by id, from that one to the other. A link may join cards of different lanes:
 
     curl -sS -X POST "http://127.0.0.1:$PORT/link?from=ID&to=OTHER&agent=claude"
 
-`agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. `GET /links/all` answers every link on the board at once: `links`, oldest first, each `{from, to, ts, agent}`, and `cards`, every card at either end of one, each with the fields `/props` gives it (see Card properties). Links outlast renames and section moves and go when either card is deleted for good. The Mac board draws them as a graph and a timeline from a button in its top bar; still name the other card by its title in replies.
+`agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. `GET /links/all` answers every link on the board at once: `links`, oldest first, each `{from, to, ts, agent}`, and `cards`, every card at either end of one, each with the fields `/props` gives it (see Card properties). Links outlast renames and section moves and go when either card is deleted for good. The Mac board has no button for them in its top bar for now; still name the other card by its title in replies.
 
 ## Card properties
 
