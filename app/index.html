@@ -355,6 +355,16 @@
   body.offline #offline{display:block}
   body.offline .dot{background:#C0442A !important; animation:none}
 
+  /* ---- the phone held: Tailscale Serve not checked yet (phoneOff) ---------- */
+  /* calmer than the offline line, since everything on this Mac works; the
+     offline line, when it is up, says the more urgent thing in its place */
+  #phoneoff{
+    display:none; position:sticky; top:45px; z-index:9;
+    padding:9px 20px; font:13px var(--sans); color:var(--ink);
+    background:var(--card); border-bottom:var(--edge) solid var(--line);
+  }
+  body.phoneoff:not(.offline) #phoneoff{display:block}
+
   /* ---- a project on a server out of reach --------------------------------- */
   /* the open project's server has been out of reach for 30 seconds (the
      board's word for it, remote on the state): the board under the bar fades
@@ -4051,6 +4061,7 @@
 <div id="appframe" aria-hidden="true"></div>
 
 <div id="offline"></div>
+<div id="phoneoff"></div>
 <nav id="toc"></nav>
 <div id="tocgrip"></div>
 
@@ -7286,6 +7297,11 @@ function apply(state){
       ". Messages still queue safely; replies resume when that terminal side wakes.";
     // the bar's own status line went with the strip; the banner below says it
   }
+  // the board's own word while Tailscale Serve is held: what is off and why
+  const phoneOff = typeof state.phoneOff === "string" ? state.phoneOff : "";
+  document.body.classList.toggle("phoneoff", !!phoneOff);
+  const phoneLine = document.getElementById("phoneoff");
+  if (phoneLine.textContent !== phoneOff) phoneLine.textContent = phoneOff;
 }
 
 // ---- the clock: day, time, date, plain text, upper left -------------------

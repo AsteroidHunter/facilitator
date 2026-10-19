@@ -4225,10 +4225,13 @@ def _tailscale_command() -> str | None:
 
 def _tailscale_json(ts: str, args: list[str]) -> dict | None:
     """One bounded, read-only Tailscale query. No command output or exception
-    text escapes this helper because either may contain private machine data."""
+    text escapes this helper because either may contain private machine data.
+    Tailscale's Mac app is also its command, and acts as the command only when
+    it sees a terminal's variables; a board started by an app or at login has
+    none, so TAILSCALE_BE_CLI, Tailscale's own switch for this, says it outright."""
     try:
         result = subprocess.run([ts, *args], capture_output=True, text=True,
-                                encoding="utf-8",
+                                encoding="utf-8", env={**os.environ, "TAILSCALE_BE_CLI": "1"},
                                 timeout=PUSH_BRIDGE_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired, UnicodeError):
         return None
@@ -4806,6 +4809,9 @@ def _ui_state() -> dict:
         # each server's link: whether it is up, and whether it has been down
         # long enough that the pages fade that server's projects
         "remote": _remote_reading(),
+        # what is off and why while Tailscale Serve is held (ServeHold), for
+        # the board's own line; absent once the check has found no old rule
+        **({"phoneOff": _serve_hold} if _serve_hold is not None else {}),
         "busy": st["busy"],
         "queued": len(st["inbox"]),
         "title": st.get("title", "facilitator"),
@@ -9953,7 +9959,7 @@ class SiteGuard:
         self.app = app
         self._noted: dict[str, list] = {}   # reason and route -> [when its window opened, refusals folded into it]
 
-    def _note(self, scope: dict, reason: str) -> None:
+    def _note(self, scope: dict, reason: str, code: int = 403) -> None:
         """One line per reason and route per window, with a count of the ones
         left out, so a page that asks every second writes a line every five.
         Nothing the request carried goes in it, and a failure here never
@@ -9970,7 +9976,7 @@ class SiteGuard:
                 window[1] += 1
                 return
             table[key] = [now, 0]
-            _info("refusal", route=route, code=403, reason=reason,
+            _info("refusal", route=route, code=code, reason=reason,
                   folded=(window[1] if window else 0) or None)
         except Exception:
             pass
@@ -9988,6 +9994,29 @@ class SiteGuard:
         await Response(json.dumps({"error": "request from another site refused"}).encode(),
                        status_code=403, media_type="application/json",
                        headers={"Cache-Control": "no-store", "Connection": "close"})(scope, receive, send)
+
+
+def _serve_marked(scope: dict) -> bool:
+    """Whether a request carries any mark Tailscale Serve puts on what it proxies."""
+    return any(k.lower() in SERVE_MARKS for k, _ in scope.get("headers") or ())
+
+
+class ServeHold(SiteGuard):
+    """While Tailscale Serve has not been checked (_serve_hold, see
+    _refuse_legacy_serve), a request that came through it, on either port, is
+    answered 503 with the sentence saying why, before anything under it has seen
+    it; the board's own page on this Mac is untouched. Written down as SiteGuard
+    writes its refusals, one line per route per window."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        held = _serve_hold
+        if held is None or scope["type"] != "http" or not _serve_marked(scope):
+            await self.app(scope, receive, send)
+            return
+        self._note(scope, "phone off", code=503)
+        await Response(held.encode(), status_code=503, media_type="text/plain; charset=utf-8",
+                       headers={"Cache-Control": "no-store", "Connection": "close",
+                                "Retry-After": str(int(SERVE_CHECK_FIRST))})(scope, receive, _unframeable(send, scope))
 
 
 # the pages the board's own origin may frame: the phone page, for the Mac's
@@ -10334,21 +10363,87 @@ def _legacy_target_in(config: object) -> bool:
     return False
 
 
+# -- Tailscale Serve, checked before anything that came through it is answered --
+#
+# A Serve rule from before the phone had its own port proxied the board's own
+# port, which asks no password. A start that finds one stays down, as it always
+# has. A start that cannot ask (Tailscale not running yet, slow, or answering
+# nothing readable) no longer keeps the board from this Mac: the board starts,
+# ServeHold answers nothing that came through Tailscale Serve, on either port,
+# so the phone is off, and the check is asked again on a thread of its own,
+# SERVE_CHECK_FIRST after the start and twice as long each time after, up to
+# SERVE_CHECK_MAX. The board's reading (phoneOff) and the log say what is off
+# and why, and the hold goes once a check finds no such rule.
+SERVE_CHECK_FIRST = 30.0
+SERVE_CHECK_MAX = 120.0
+# what Tailscale Serve puts on every request it proxies (ipn/ipnlocal/serve.go:
+# X-Forwarded-Host always, X-Forwarded-For with the peer's address, -Proto over
+# HTTPS, the identity headers for a person's own device, the funnel's mark for
+# the internet), each set by Serve itself after it drops what the caller sent,
+# and Forwarded, the standard's own name for the same
+SERVE_MARKS = frozenset({b"x-forwarded-for", b"x-forwarded-host", b"x-forwarded-proto", b"forwarded",
+                         b"tailscale-user-login", b"tailscale-user-name", b"tailscale-user-profile-pic",
+                         b"tailscale-headers-info", b"tailscale-funnel-request"})
+SERVE_LEGACY_TEXT = ("Old Tailscale Serve rule targets the unguarded board port. Run `facilitator bridge off`, "
+                     "then restart the board and run `facilitator bridge on`.")
+SERVE_HELD_TEXT = {
+    "unknown": "The phone is off for now: Tailscale did not answer when the board asked whether an old Serve "
+               "rule points at it, so nothing that comes through Tailscale is answered. The board asks again "
+               "by itself; everything on this Mac works as usual.",
+    "legacy": "The phone is off: " + SERVE_LEGACY_TEXT[0].lower() + SERVE_LEGACY_TEXT[1:],
+}
+
+_serve_hold: str | None = None   # what is off and why, while Serve is held; None once checked
+
+
+def _serve_check() -> str:
+    """One read of Tailscale Serve: "clear" when no rule proxies the board's own
+    port, or this Mac has no tailscale at all; "legacy" when one does; "unknown"
+    when Tailscale could not be asked or answered nothing readable."""
+    ts = _tailscale_command()
+    if ts is None:
+        return "clear"   # no Serve command is installed on this Mac
+    config = _tailscale_json(ts, ["serve", "status", "--json"])
+    if config is None:
+        return "unknown"
+    return "legacy" if _legacy_target_in(config) else "clear"
+
+
 def _refuse_legacy_serve() -> None:
     """Keep an existing Serve rule from exposing the old unguarded port.
 
     The old bridge is persistent, so a freshly installed server must check it
     before it binds. The operator removes that exact rule with `bridge off`,
-    then installs the password and turns the guarded bridge on.
+    then installs the password and turns the guarded bridge on. A check that
+    cannot be made holds Serve instead (ServeHold) and the board starts.
     """
-    ts = _tailscale_command()
-    if ts is None:
-        return  # no Serve command is installed on this Mac
-    config = _tailscale_json(ts, ["serve", "status", "--json"])
-    if config is None:
-        raise SystemExit("Cannot inspect Tailscale Serve; the board stayed down so an old bridge cannot expose it.")
-    if _legacy_target_in(config):
-        raise SystemExit("Old Tailscale Serve rule targets the unguarded board port. Run `facilitator bridge off`, then restart the board and run `facilitator bridge on`.")
+    global _serve_hold
+    verdict = _serve_check()
+    if verdict == "legacy":
+        raise SystemExit(SERVE_LEGACY_TEXT)
+    _serve_hold = SERVE_HELD_TEXT.get(verdict)
+    if _serve_hold is not None:
+        _error("servecheck", outcome=verdict, held=True, again_s=int(SERVE_CHECK_FIRST), reason=_serve_hold)
+
+
+def _serve_watch() -> None:
+    """While Serve is held: the check again, calmly, until it finds no rule on
+    the board's own port, which lifts the hold. A change in what it finds is
+    written down once; a try that finds the same is not."""
+    global _serve_hold
+    wait, tries, said = SERVE_CHECK_FIRST, 0, "unknown"
+    while _serve_hold is not None and not _STOPPING.wait(wait):
+        tries += 1
+        verdict = _serve_check()
+        if verdict == "clear":
+            _serve_hold = None
+            _info("servecheck", outcome="clear", held=False, tries=tries)
+            return
+        if verdict != said:
+            said = verdict
+            _serve_hold = SERVE_HELD_TEXT[verdict]
+            _error("servecheck", outcome=verdict, held=True, tries=tries, reason=_serve_hold)
+        wait = min(wait * 2, SERVE_CHECK_MAX)
 
 
 _BRIDGE_AUTH = None
@@ -10373,7 +10468,7 @@ def _make_server(bridge_gate=None) -> BoardServer:
     if bridge_gate is None:
         bridge_gate = _require_bridge_components()
     routes = build_app()
-    app = SiteGuard(bridge_gate(routes, BRIDGE_PORT, _info))
+    app = ServeHold(SiteGuard(bridge_gate(routes, BRIDGE_PORT, _info)))
     if remote_link is not None:
         # outermost: a request through the agent door is the gate's alone,
         # answered there or handed straight to the routes, and never reaches
@@ -10494,6 +10589,8 @@ def main() -> None:
         _start_usage_counts()
         _start_card_search()
         threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
+        if _serve_hold is not None:
+            threading.Thread(target=_serve_watch, name="serve-check", daemon=True).start()
         if _remote is not None:
             _remote.reload()   # the paired servers, each waiting for its link
         server.run(sockets=[sock, bridge_sock])
