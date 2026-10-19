@@ -511,127 +511,162 @@
   const LIST_BREAK = { parseBlock: [{ name: "ListBreak",
     endLeaf: (cx, line) => /^(?:[-*+]|\d{1,9}[.)])[ \t]/.test(line.text.slice(line.pos)) }] };
 
-  // ---- inserting a line inside a list --------------------------------------
-  const LIST_LINE = /^([ \t]*)(?:([-*+])|(\d{1,9})([.)]))([ \t]+)(.*)$/;
-
-  // What the new line starts with, given the line the caret is on. Null means
-  // this is not a list line and a plain break is all that is wanted.
-  function listContinuation(text) {
-    const found = LIST_LINE.exec(text);
-    if (!found) return null;
-    const [, indent, dash, digits, closer, gap, rest] = found;
-    return {
-      empty: !rest.trim(),
-      head: indent + (dash ? dash : String(Math.min(+digits + 1, 999999999)) + closer) + gap,
-      markerEnd: indent.length + (dash ? 1 : digits.length + 1) + gap.length,
-      indent,
-      number: dash ? null : +digits,
-    };
-  }
-
-  // A new item inside a numbered list takes the number after the one it was
-  // made from, so the items after it go on counting from there, as they do
-  // under the phone's own return. Only items that count up one by one are
-  // moved on: a list written all in ones is left the way it was written.
-  function renumber(C, state, line, list, changes) {
-    let item = C.syntaxTree(state).resolveInner(line.from + list.indent.length, 1);
-    while (item && item.name !== "ListItem") item = item.parent;
-    if (!item || !item.parent || item.parent.name !== "OrderedList") return;
-    let count = list.number;
-    for (let next = item.nextSibling; next; next = next.nextSibling) {
-      if (next.name !== "ListItem") continue;
-      const mark = next.firstChild;
-      const digits = mark && mark.name === "ListMark" && /^\d+/.exec(state.sliceDoc(mark.from, mark.to));
-      if (!digits || +digits[0] !== count + 1 || count + 2 > 999999999) return;
-      count++;
-      changes.push({ from: mark.from, to: mark.from + digits[0].length, insert: String(count + 1) });
-    }
-  }
-
-  // Whether a position stands in a block of code, where a dash, a number or an
-  // angle is the code's own character and no marker at all, as the card shows it
-  function inCode(C, state, pos) {
-    for (let node = C.syntaxTree(state).resolveInner(pos, -1); node; node = node.parent)
-      if (node.name === "FencedCode" || node.name === "CodeBlock") return true;
-    return false;
-  }
+  // ---- a new line ------------------------------------------------------------
+  // What a new line carries down is read off the containers the caret's line
+  // stands in, outermost first: the quote angles at its head and the list
+  // items the parse puts it in. That is the editor's own markdown continuation
+  // (insertNewlineContinueMarkup in the vendored pack), worked out here so that
+  // both pages make a new line the one way, Shift and return on the Mac and
+  // the phone's return alike, with the row's own rules on top of it:
+  //   - a quote is carried once its angle has its space, as it is drawn;
+  //   - a line's own marker is its first one, and a marker typed after it is
+  //     the item's words, as Obsidian reads a line;
+  //   - the caret has to be past a marker's space for the marker to go on, and
+  //     inside a block of code nothing is carried;
+  //   - an item with nothing typed in it ends the list, or moves out a level
+  //     when it is nested, and an empty quoted line ends the quote;
+  //   - the spaces before the caret are not kept, but a marker keeps its own;
+  //   - picked words make way for the new line, which is read off the line as
+  //     it stands.
+  // A new numbered item moves the numbers after it on, and an item leaving a
+  // list moves them back, for the items that count up one by one: a list
+  // written all in ones is left the way it was written.
 
   // A quote's angles at the head of a line, the last of them finished by its
   // space, which is where a quote begins in this row
   const QUOTED = /^ {0,3}(?:>[ \t]?)*>[ \t]/;
+  const ANGLE = / {0,3}>( ?)/y;
 
-  // The line the caret is on when it is a marker with nothing typed after it,
-  // and null otherwise. That is the one line a new line ends the list on
-  // instead of laying another marker out, and it is the one case the editor's
-  // own markdown continuation is not allowed to answer: on a second item it
-  // keeps the marker and pushes a blank line above it, which leaves the reader
-  // with a list they asked to be finished with. A quote's angles count as a
-  // marker the same way, alone or in front of a list's: on a quoted line with
-  // nothing after them the continuation writes the line back as a bare angle
-  // and lays another quoted line under it, so the quote never ends.
-  function emptyItem(C, view) {
-    const range = view.state.selection.main;
-    const line = view.state.doc.lineAt(range.from);
-    if (inCode(C, view.state, range.from)) return null;
-    const angles = QUOTED.exec(line.text);
-    const head = angles ? angles[0].length : 0;
-    const rest = line.text.slice(head);
-    const list = listContinuation(rest);
-    let markerEnd = head;
-    if (list) {
-      if (!list.empty) return null;
-      markerEnd += list.markerEnd;
-    } else if (!head || rest.trim()) return null;
-    if (range.from < line.from + markerEnd || range.to > line.to) return null;
-    return line;
+  // The containers in front of a position, each with where its marker starts
+  // and ends, its space included, on its own first line. Null inside code,
+  // where a dash, a number or an angle is the code's own character.
+  function containers(C, state, pos) {
+    const doc = state.doc, line = doc.lineAt(pos), quotes = [], items = [];
+    const live = QUOTED.exec(line.text), liveTo = live ? live[0].length : 0;
+    for (let at = 0;;) {
+      ANGLE.lastIndex = at;
+      const m = ANGLE.exec(line.text);
+      if (!m) break;
+      quotes.push({ quote: true, from: at + m[0].indexOf(">"), to: at + m[0].length, space: m[1],
+                    live: at + m[0].length <= liveTo });
+      at += m[0].length;
+    }
+    for (let node = C.syntaxTree(state).resolveInner(pos, -1); node; node = node.parent) {
+      if (node.name === "FencedCode" || node.name === "CodeBlock") return null;
+      if (node.name !== "ListItem") continue;
+      const first = doc.lineAt(node.from), at = node.from - first.from;
+      // a marker still waiting for its space is the character it was typed as
+      const m = /^(?:(\d{1,9})([.)])|([-+*]))([ \t]+)/.exec(first.text.slice(at));
+      if (m) items.unshift({ item: node, own: first.from === line.from, from: at, to: at + m[0].length,
+                             space: m[4], number: m[1] ? +m[1] : null, mark: m[2] || m[3] });
+    }
+    return { line, quotes, items };
   }
 
-  // Inserting a new line: a list carries its marker down, and a marker with
-  // nothing typed after it ends the list instead of laying another one out.
-  function insertNewline(C, view) {
-    const state = view.state, range = state.selection.main;
-    const over = emptyItem(C, view);
-    if (over) {
-      // the empty bullet goes, the caret stays on the line it was on, and the
-      // list is over
-      view.dispatch(state.update({
-        changes: { from: over.from, to: over.to, insert: "" },
-        selection: { anchor: over.from },
-        scrollIntoView: true,
-        userEvent: "input",
-      }));
-      return true;
+  // a container's marker as the line under it carries it, and its blank: what
+  // a line inside it, under its marker, has in front of its words
+  function marker(c) {
+    if (c.quote) return ">" + c.space;
+    return (c.number == null ? c.mark : String(Math.min(c.number + 1, 999999999)) + c.mark) + c.space;
+  }
+  function blank(c, width) {
+    const angle = c.quote ? ">" : "";
+    if (width != null) return angle.padEnd(width, " ");
+    return angle.padEnd(c.to - c.from - c.space.length, " ") + c.space;
+  }
+
+  // the numbers after a numbered item, counted on from where it now stands:
+  // offset 0 for a new item after it, -2 for the item itself leaving the list
+  function renumber(state, c, offset, changes) {
+    let count = c.number;
+    for (let next = c.item.nextSibling; next; next = next.nextSibling) {
+      if (next.name !== "ListItem") continue;
+      const mark = next.firstChild;
+      const digits = mark && mark.name === "ListMark" && /^\d+/.exec(state.sliceDoc(mark.from, mark.to));
+      if (!digits || +digits[0] !== count + 1 || count + 2 + offset > 999999999) return;
+      count++;
+      changes.push({ from: mark.from, to: mark.from + digits[0].length, insert: String(count + 1 + offset) });
     }
-    const line = state.doc.lineAt(range.from);
-    const list = inCode(C, state, range.from) ? null : listContinuation(line.text);
-    const head = list && range.from >= line.from + list.markerEnd ? list.head : "";
-    const changes = [{ from: range.from, to: range.to, insert: "\n" + head }];
-    // a pick running into the items below takes their numbers with it
-    if (head && list.number !== null && range.to <= line.to) renumber(C, state, line, list, changes);
-    view.dispatch(state.update({
-      changes,
-      selection: { anchor: range.from + 1 + head.length },
-      scrollIntoView: true,
-      userEvent: "input",
+  }
+
+  // The change a new line makes, and whether it carries or ends any markup:
+  // a held return goes on only where it does (enterKey)
+  function newlineChange(C, state) {
+    const range = state.selection.main, pos = range.from, end = range.to, picked = !range.empty;
+    const plain = { changes: { from: pos, to: end, insert: "\n" }, selection: { anchor: pos + 1 }, carries: false };
+    const found = containers(C, state, pos);
+    if (!found) return plain;
+    const { line, quotes, items } = found;
+    const col = pos - line.from;
+    const first = items.find(it => it.own);
+    const c = [...quotes.filter(q => q.live), ...items.filter(it => !it.own || it === first)]
+      .sort((a, b) => a.from - b.from);
+    // a marker standing right at the caret goes down whole with the words
+    // after it, and only the ones before the caret are carried
+    while (c.length && c[c.length - 1].from >= col) c.pop();
+    const d = c[c.length - 1];
+    if (!d || col < d.to) return plain;
+    const take = (changes, anchor) => ({ changes, selection: { anchor }, carries: true });
+    const empty = !/\S/.test(line.text.slice(d.to)) && end <= line.to;
+    if (d.item && empty) {
+      if (!d.own && !/^[\s>]*$/.test(line.text.slice(0, d.to))) return plain;
+      const b = c.length > 1 ? c[c.length - 2] : null;
+      if (b && b.item) {
+        // a nested item moves out to its parent's level, with its marker
+        const at = line.from + b.from, head = marker(b), changes = [{ from: at, to: end, insert: head }];
+        if (d.number != null) renumber(state, d, -2, changes);
+        if (b.number != null) renumber(state, b, 0, changes);
+        return take(changes, at + head.length);
+      }
+      // the list is over, inside any quote it stands in
+      const at = line.from + (b ? b.to : 0), changes = [{ from: at, to: end, insert: "" }];
+      if (d.number != null) renumber(state, d, -2, changes);
+      return take(changes, at);
+    }
+    if (d.quote && empty) {
+      const at = c.every(x => x.quote) ? line.from : line.from + d.from;
+      return take([{ from: at, to: Math.max(end, line.to), insert: "" }], at);
+    }
+    // a line of an item's own words, under its marker, stays in the item when
+    // it is indented as one, and is an ordinary line when it is not
+    const inside = d.item && !d.own;
+    let head = "";
+    if (!inside || /^[\s\d.)\-+*>]*/.exec(line.text)[0].length >= d.to)
+      for (let f = 0, last = c.length - 1; f <= last; f++)
+        head += f === last && !inside ? marker(c[f]) : blank(c[f], f < last ? c[f + 1].from - head.length : null);
+    let g = pos;
+    if (!picked) {
+      const floor = line.from + (inside ? 0 : d.to);
+      while (g > floor && /\s/.test(state.sliceDoc(g - 1, g))) g--;
+    }
+    const changes = [{ from: g, to: end, insert: "\n" + head }];
+    if (d.own && d.number != null && end <= line.to) renumber(state, d, 0, changes);
+    return { changes, selection: { anchor: g + 1 + head.length }, carries: head !== "" };
+  }
+
+  function insertNewline(C, view) {
+    const spec = newlineChange(C, view.state);
+    view.dispatch(view.state.update({
+      changes: spec.changes, selection: spec.selection, scrollIntoView: true, userEvent: "input",
     }));
     return true;
   }
 
   // ---- who answers the return key -------------------------------------------
-  // Three things can answer a return in this row and only one of them may, so
+  // Two things can answer a return in this row and only one of them may, so
   // the choice is made here, once, before any of them has seen the key.
   //
   //   the page's send        the row keeps nothing back and writes nothing
-  //   the row's own line     a shifted return, and a marker being finished with
-  //   the editor's own       a quoted or a listed line carries its marker down
+  //   the row's own line     a shifted return here, and the phone's return in
+  //                          the editor's own key pass, both one new line
+  //                          (insertNewline)
   //
-  // The page's send is the one that was going wrong. The vendored markdown pack
-  // binds the return key to a continuation of its own at a precedence above
-  // anything this file can install, so a return meant for the send wrote a
-  // marker into the row on its way out and the card was sent a line the reader
-  // never typed: "> alpha" arrived as "> alpha\n>". The continuation itself is
-  // wanted, though, and on the phone it is what a reader gets for pressing
-  // return on a quoted line, so it is not taken away. It is simply asked last.
+  // The page's send is the one that once went wrong: the vendored markdown
+  // pack binds the return key to a continuation of its own, and a return meant
+  // for the send wrote a marker into the row on its way out, so the card was
+  // sent a line the reader never typed ("> alpha" arrived as "> alpha\n>").
+  // The pack's binding is now left out altogether (extensions), and the row
+  // makes the continuation itself, the same on both pages.
   //
   // This runs in the CAPTURE phase on the editor's outer element, which stands
   // above the content every editor binding is hung on, so it is answered first
@@ -660,32 +695,18 @@
     if (!field.newline(event)) {
       event.preventDefault(); noteEnter(field, "format", event, "send"); return;
     }
-    // A marker with nothing typed after it ends the list. That rule is this
-    // row's own and older than the editor in it. Everything the pack's binding
-    // does not answer is the row's own as well: it is bound to a bare return,
-    // so a shifted one has always been made here.
-    const ending = !event.shiftKey && !!emptyItem(C, view);
-    if (event.shiftKey || ending) {
+    // A shifted return is made here. Held, it makes one line and not a run
+    // of them, on a list as much as anywhere.
+    if (event.shiftKey) {
       event.preventDefault();
-      // A held return makes one line and not a run of them, which is what it
-      // has always done on the lines the row answers itself. It is not made to
-      // do that anywhere else: a return held down on a quoted or a listed line
-      // goes on carrying the marker down, because that is the editor's own
-      // continuation and this pass is not here to take it away. Ending a list
-      // is the one place a held return does something, and it is the whole of
-      // the correction rather than an exception to it: the list ends once and
-      // the run stops there, instead of a marker and a blank line per repeat.
-      if (event.repeat && !ending) {
-        noteEnter(field, "format", event, "repeat"); return;
-      }
+      if (event.repeat) { noteEnter(field, "format", event, "repeat"); return; }
       insertNewline(C, view);
-      noteEnter(field, "format", event, ending ? "empty-item" : "row-line");
+      noteEnter(field, "format", event, "row-line");
       return;
     }
+    // and the phone's return goes on to the editor's own key pass, which makes
+    // the same line (extensions)
     noteEnter(field, "format", event, "editor");
-    // and what is left is the editor's own continuation, which carries a "> "
-    // or a "- " down a line on every press, held or not, and declines every
-    // line that has neither
   }
 
   // ---- the chords the page owns and the editor must not ---------------------
@@ -750,38 +771,51 @@
     };
   }
 
+  // ---- Backspace after a marker ---------------------------------------------
+  // The pack's own Backspace, which takes a list marker or a quote's angle off
+  // whole when the caret stands right after it (deleteMarkupBackward). Its
+  // keymap is left out of this row for the sake of its return key, so its
+  // Backspace is taken from that keymap and put in the row's own.
+  let markupBack = null;
+  function deleteMarkupBackward(C) {
+    if (markupBack) return markupBack;
+    const probe = C.EditorState.create({ extensions: C.markdown() });
+    for (const set of probe.facet(C.keymap))
+      for (const binding of set) if (binding.key === "Backspace" && !markupBack) markupBack = binding.run;
+    return markupBack || (() => false);
+  }
+
   // ---- the editor a field puts on ------------------------------------------
   function extensions(C, field) {
     const keys = [
       ...PAGE_CHORDS,
       ...C.historyKeymap,
+      { key: "Backspace", run: deleteMarkupBackward(C) },
       { key: "Backspace", run: deleteEmojiBackward, shift: deleteEmojiBackward },
-      // The editor's stock return bindings are not among the three things that
-      // may answer a return in this row, so they are left out. Which of the
-      // three does answer it is decided in enterKey. The line moves and copies
-      // are left out as well; see MOVES_TEXT.
+      // The editor's stock return bindings are not among the two things that
+      // may answer a return in this row, so they are left out. Which of the two
+      // does answer it is decided in enterKey. The line moves and copies are
+      // left out as well; see MOVES_TEXT.
       ...C.defaultKeymap.filter(binding =>
         !/Enter/.test(binding.key || "") && !MOVES_TEXT.test(binding.key || "")),
     ];
     return [
       // The strike is the bundle's own GitHub one, two tildes on either side,
       // which is the form the sent card reads. Nothing is put on top of it, so
-      // a lone pair stays the characters it was typed as. The pack's own keymap
-      // comes with it and is wanted: a return carrying a quote's angle down,
-      // and a backspace taking a whole marker off at once, are both what a
-      // reader of this row already has. Which of them answers the return key,
-      // and when, is decided in enterKey above.
-      C.markdown({ base: C.markdownLanguage, extensions: LIST_BREAK }),
+      // a lone pair stays the characters it was typed as. The pack's keymap is
+      // left out: the row makes its own new line (insertNewline) and keeps the
+      // pack's Backspace in its own keymap above.
+      C.markdown({ base: C.markdownLanguage, extensions: LIST_BREAK, addKeymap: false }),
       C.history(),
       // the editor writes its own class attribute on every update, so the name
       // the page styles the row by is handed to it rather than set on the node
       C.EditorView.editorAttributes.of({ class: field.shellClass }),
       C.EditorView.contentAttributes.of(field.typing),
-      // What is left of the return key once enterKey and the pack have had it.
-      // The pack's continuation answers a quoted or a listed line and declines
-      // everything else, so this is where a plain line gets the line it asked
-      // for. Anything enterKey already decided has been prevented and never
-      // arrives here at all.
+      // What is left of the return key once enterKey has had it: the phone's
+      // return, which makes the row's new line here. Anything enterKey already
+      // decided has been prevented and never arrives here at all. A held
+      // return goes on carrying a quote or a list down and ends a list once;
+      // on a line with neither it makes one line and no more.
       C.EditorView.domEventHandlers({
         keydown: (event, view) => {
           if (event.key !== "Enter") {
@@ -798,12 +832,12 @@
           if (!field.newline(event)) {
             noteEnter(field, "editor", event, "send"); return true;
           }
-          if (event.repeat) {
+          if (event.repeat && !newlineChange(C, view.state).carries) {
             noteEnter(field, "editor", event, "repeat"); return true;
           }
-          const inserted = insertNewline(C, view);
-          noteEnter(field, "editor", event, inserted ? "row-line" : "editor");
-          return inserted;
+          insertNewline(C, view);
+          noteEnter(field, "editor", event, "row-line");
+          return true;
         },
       }),
       C.keymap.of(keys),
