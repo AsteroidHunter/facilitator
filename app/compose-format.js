@@ -836,6 +836,104 @@
     return true;
   }
 
+  // ---- pasting words with their formatting ----------------------------------
+  // Words copied from a page arrive as markdown, as Obsidian takes them in
+  // (its "Convert pasted HTML to Markdown"): bold, italic, struck and code
+  // words, links, headings, quotes and lists keep their form. A paste with no
+  // formatting in it is left to the editor, which takes its plain words, and
+  // so is one carrying files, which the page puts in the tray.
+  function htmlMarkdown(html) {
+    const body = new DOMParser().parseFromString(html, "text/html").body;
+    let formatted = false;
+    const BLOCK = /^(P|DIV|SECTION|ARTICLE|HEADER|FOOTER|MAIN|ASIDE|FIGURE|UL|OL|LI|BLOCKQUOTE|H[1-6]|PRE|HR|TABLE|TBODY|THEAD|TR)$/;
+    const inline = node => {
+      if (node.nodeType === 3) return node.data.replace(/[ \t\r\n]+/g, " ");
+      if (node.nodeType !== 1) return "";
+      const words = () => [...node.childNodes].map(inline).join("");
+      // the marker hugs the words and the spaces around them stay outside it
+      const wrap = mark => {
+        const [, lead, kept, tail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(words());
+        if (!kept) return lead + tail;
+        formatted = true;
+        return lead + mark + kept + mark + tail;
+      };
+      switch (node.tagName) {
+        case "B": case "STRONG": return wrap("**");
+        case "I": case "EM": return wrap("*");
+        case "S": case "DEL": case "STRIKE": return wrap("~~");
+        case "CODE": {
+          const code = node.textContent;
+          if (!code) return "";
+          formatted = true;
+          return "`" + code + "`";
+        }
+        case "A": {
+          const href = node.getAttribute("href") || "", text = words();
+          if (!/^(https?:|mailto:)/i.test(href) || !text.trim()) return text;
+          formatted = true;
+          return "[" + text.trim() + "](" + href + ")";
+        }
+        case "BR": return "\n";
+        case "IMG": return "";
+        default: return words();
+      }
+    };
+    // a run of nodes as blocks, a blank line between them, or one line apart
+    // inside a list item
+    const blocks = (nodes, tight) => {
+      const out = [];
+      let line = "";
+      const flush = () => { const done = line.replace(/^ +| +$/gm, ""); if (done.trim()) out.push(done.trim()); line = ""; };
+      for (const node of nodes) {
+        if (node.nodeType !== 1 || !BLOCK.test(node.tagName)) { line += inline(node); continue; }
+        flush();
+        const tag = node.tagName;
+        if (/^H[1-6]$/.test(tag)) {
+          formatted = true;
+          out.push("#".repeat(+tag[1]) + " " + blocks(node.childNodes, true).replace(/\n+/g, " "));
+        } else if (tag === "BLOCKQUOTE") {
+          formatted = true;
+          out.push(blocks(node.childNodes, false).split("\n").map(l => (l ? "> " + l : ">")).join("\n"));
+        } else if (tag === "UL" || tag === "OL") {
+          formatted = true;
+          let number = +node.getAttribute("start") || 1;
+          const items = [];
+          for (const li of node.children) {
+            if (li.tagName !== "LI") continue;
+            const mark = tag === "OL" ? (number++) + ". " : "- ";
+            const [first, ...rest] = blocks(li.childNodes, true).split("\n");
+            items.push(mark + first, ...rest.map(l => (l ? " ".repeat(mark.length) + l : l)));
+          }
+          out.push(items.join("\n"));
+        } else if (tag === "PRE") {
+          formatted = true;
+          out.push("```\n" + node.textContent.replace(/\n$/, "") + "\n```");
+        } else if (tag === "HR") {
+          formatted = true;
+          out.push("---");
+        } else {
+          const inner = blocks(node.childNodes, tight);
+          if (inner) out.push(inner);
+        }
+      }
+      flush();
+      return out.join(tight ? "\n" : "\n\n");
+    };
+    const text = blocks(body.childNodes, false);
+    return formatted && text ? text : null;
+  }
+  function pasteMarkdown(event, view) {
+    const data = event.clipboardData;
+    if (!data || (data.files && data.files.length)) return false;
+    const html = data.getData("text/html");
+    if (!html) return false;
+    let text = null;
+    try { text = htmlMarkdown(html); } catch (error) { text = null; }
+    if (text == null) return false;
+    view.dispatch(view.state.replaceSelection(text), { userEvent: "input.paste", scrollIntoView: true });
+    return true;
+  }
+
   // ---- the editor a field puts on ------------------------------------------
   function extensions(C, field) {
     const keys = [
@@ -869,6 +967,7 @@
       // return goes on carrying a quote or a list down and ends a list once;
       // on a line with neither it makes one line and no more.
       C.EditorView.domEventHandlers({
+        paste: pasteMarkdown,
         keydown: (event, view) => {
           if (event.key !== "Enter") {
             if (event.code === "Enter" || event.code === "NumpadEnter" || event.keyCode === 13)
