@@ -53,7 +53,8 @@ const SHAPES = [
   { id: "quote-ordered", raw: "> 1. alpha", drawn: ["1. alpha"], quotes: 1, bullets: 0 },
   { id: "list-containing-quote", raw: "- > alpha", drawn: ["- alpha"], quotes: 1, bullets: 1 },
   // the angle in the body of a code span is content and stays exactly there
-  { id: "quote-code-angle", raw: "> `a > b`", drawn: ["`a > b`"], quotes: 1, angles: 1 },
+  // (the code span shows its backticks while the caret is at it)
+  { id: "quote-code-angle", raw: "> `a > b`", drawn: ["a > b"], drawnAtEnd: ["`a > b`"], quotes: 1, angles: 1 },
   // the bundled parser reads the unprefixed line as part of the quote, and the
   // sent card does not: the row draws it the card's way, with no bar
   { id: "quote-lazy-continuation", raw: "> alpha\nbeta", drawn: ["alpha", "beta"], quotes: 1 },
@@ -110,7 +111,8 @@ for (const surface of SURFACES) {
         for (const [where, read] of Object.entries(reads)) {
           const say = `${shape.id} (${JSON.stringify(shape.raw)}) with the caret at the ${where}`;
           assert.equal(read.payload, shape.raw, `${say}: the row changed the markdown in it`);
-          assert.deepEqual(read.lines.map(line => line.text), shape.drawn,
+          assert.deepEqual(read.lines.map(line => line.text),
+            where === "end" && shape.drawnAtEnd ? shape.drawnAtEnd : shape.drawn,
             `${say}: the row drew something other than one quote`);
           assert.equal(read.lines.filter(line => line.quote).length, shape.quotes,
             `${say}: the wrong number of lines carry a bar`);
@@ -271,8 +273,11 @@ test("a quote begins at the space and not at the angle", async t => {
   }
 });
 
-// on the way back down: the source stays what it was and the drawing follows it
-test("deleting the space gives the angle back as an ordinary character", async () => {
+// On the way back down: the angle and its space are one marker out of sight,
+// which the caret steps over whole, so a pick holding only part of it takes
+// all of it, and the words are left as they were. Typing the marker again
+// puts the quote back.
+test("deleting part of a quote's hidden marker takes the whole marker and the words stay", async () => {
   const { page, problems } = await openCard(SURFACES[0], "The quote trigger in reverse");
   try {
     await lay(page, "> alpha");
@@ -282,26 +287,24 @@ test("deleting the space gives the angle back as an ordinary character", async (
     assert.equal(quoted.lines[0].quote, true, "the draft did not start as a quote");
     assert.equal(quoted.lines[0].text, "alpha", "the draft did not start drawn as a quote");
 
-    // the space alone is taken, which leaves the angle standing in the source
     await caretTo(page, 1, 2);
     await settle(150);
     await page.keyboard.press("Backspace");
     await settle(200);
     const bare = await caretRead(page);
-    assert.equal(bare.payload, ">alpha", "the row changed something other than the space");
-    assert.equal(bare.from, 1, "the caret is not where the space was");
-    assert.equal(bare.to, 1, "the caret kept a selection");
-    assert.equal(bare.lines[0].quote, false, "the angle went on being drawn as a quote");
-    assert.equal(bare.lines[0].text, ">alpha", "the angle did not come back as a character");
+    assert.equal(bare.payload, "alpha", "the row changed something other than the marker");
+    assert.equal(bare.from, 0, "the caret is not where the marker was");
+    assert.equal(bare.to, 0, "the caret kept a selection");
+    assert.equal(bare.lines[0].quote, false, "the bar outlived the marker it was drawn from");
+    assert.equal(bare.lines[0].text, "alpha", "the words were not left alone");
     assert.equal(bare.caretLine, 0, "the caret left the line being edited");
 
-    // and putting it back puts the quote back
-    await page.keyboard.type(" ");
+    await page.keyboard.type("> ");
     await settle(200);
     const again = await caretRead(page);
-    assert.equal(again.payload, "> alpha", "the row did not take the space back");
-    assert.equal(again.from, 2, "the caret is not after the space");
-    assert.equal(again.lines[0].quote, true, "the space did not begin the quote again");
+    assert.equal(again.payload, "> alpha", "the row did not take the marker back");
+    assert.equal(again.from, 2, "the caret is not after the marker");
+    assert.equal(again.lines[0].quote, true, "the marker did not begin the quote again");
     assert.equal(again.lines[0].text, "alpha", "the angle was left standing beside the bar");
     assert.deepEqual(problems, []);
   } finally {
@@ -469,8 +472,8 @@ test("the caret and a picked out passage still count the angles the drawing left
       { from: 0, to: 11, picked: "> text here" },
       "the row's own selection stopped counting the characters it is drawing without");
 
-    // and the caret walks them one at a time: nothing is skipped and nothing is
-    // doubled, whatever the drawing does with the room
+    // and the caret steps over them whole: a caret standing between angles
+    // nobody can see typed its words somewhere else, or broke the quote
     await caretTo(page, 2);
     await settle(150);
     const walk = [(await rowRead(page)).from];
@@ -479,7 +482,7 @@ test("the caret and a picked out passage still count the angles the drawing left
       await settle(120);
       walk.push((await rowRead(page)).from);
     }
-    assert.deepEqual(walk, [2, 1, 0], "the caret did not walk the source one character at a time");
+    assert.deepEqual(walk, [2, 0, 0], "the caret did not step over the hidden angles whole");
 
     // Deleting the prefix from the head of the words takes the whole marker,
     // which is what a backspace on a marker has always done in this row and
