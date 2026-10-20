@@ -1037,13 +1037,15 @@ for (const pane of document.querySelectorAll(".tikpane")){
            "Bonus: after you iterate on a project for a while, tickets/cards act as a knowledge base for your projects." },
     { id: "hotkeys", title: "101: Hotkeys",
       say: "The Facilitator " + MARK.heart + " hotkeys!\n\n" +
+           key("←") + " and " + key("→") + " go to the previous or next card.\n\n" +
+           key("Enter") + " starts typing: " + key("Enter") + " sends, and " + key("Shift + Enter") + " makes a new line.\n\n" +
            key("Command + T") + " creates a new card.\n\n" +
-           key("Control + Shift + ←") + " and " + key("→") + " move between cards, and " +
-           key("Control + Shift + ↑") + " and " + key("↓") + " step through a card's older and newer replies. " +
-           key("Control + Shift + Enter") + " goes to the card that has waited longest on you, and " +
-           key("Control + Shift + Backspace") + " marks a card done.",
-      lights: [["cmd", "t"], ["ctrl", "shift", "left", "right"], ["ctrl", "shift", "up", "down"],
-               ["ctrl", "shift", "return"], ["ctrl", "shift", "delete"]] },
+           "Hold " + key("Control + S") + " to scroll the answer down, or double tap and hold it to scroll up.\n\n" +
+           // the backslash is doubled so the markdown keeps it
+           key("Control + Shift + [") + ", " + key("]") + ", " + key("\\\\") + " and " + key("Delete") +
+           " move the card to Doing, Docked, Deferred or Done.",
+      lights: [["left", "right"], ["return"], ["cmd", "t"], ["ctrl", "s"],
+               ["ctrl", "shift", "[", "]", "\\", "delete"]] },
     { id: "phone", title: "101: Phone App", say: PHONE_APP },
     { id: "fin", title: "You are all set up", closing: true,
       say: "Thank you for trying out the facilitator!\n\n" +
@@ -1185,7 +1187,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function later(fn, ms){ lightTimers.push(setTimeout(fn, ms)); }
   function setLit(names, on, ms){
     for (const name of names){
-      const one = keyboard.querySelector('.obkey[data-k="' + name + '"]');
+      // escaped, so the backslash key's name does not end the selector's string
+      const one = keyboard.querySelector('.obkey[data-k="' + CSS.escape(name) + '"]');
       // a key the pointer is lighting stays lit when a chord's light goes
       if (!one || (!on && hovered.includes(name))) continue;
       one.style.setProperty("--lit-ms", ms + "ms");
@@ -1210,22 +1213,27 @@ for (const pane of document.querySelectorAll(".tikpane")){
   }
   // a key's name on a card (the only words there in bold) lights its keys
   // while the pointer is over it, the way a chord lights, and lets them fade
-  // when the pointer goes. a lone key written after "and" just after a chord,
-  // as in "Control + Shift + ← and →", is that chord with its last key
+  // when the pointer goes. a lone key written after "and" or a comma just after
+  // a chord, as in "Control + Shift + ← and →" or in
+  // "Control + Shift + [, ], \ and Delete", is that chord with its last key
   // changed, so it lights with the chord's other keys
   const KEY_NAMES = { control: "ctrl", shift: "shift", command: "cmd", option: "opt",
                       "←": "left", "→": "right", "↑": "up", "↓": "down",
-                      enter: "return", backspace: "delete", tab: "tab", escape: "esc" };
+                      enter: "return", backspace: "delete", delete: "delete", tab: "tab", escape: "esc" };
   const keysOf = text => text.replace(/\u00a0/g, " ").split("+").map(part => part.trim().toLowerCase())
-                             .map(part => KEY_NAMES[part] || (/^[a-z0-9]$/.test(part) ? part : null));
+                             .map(part => KEY_NAMES[part] || (/^[a-z0-9[\]\\]$/.test(part) ? part : null));
   function chipKeys(chip){
     const keys = keysOf(chip.textContent);
     if (!keys.every(Boolean)) return [];
-    const between = chip.previousSibling, chord = between && between.previousSibling;
-    if (keys.length === 1 && between && between.nodeType === 3 && between.data === " and " &&
-        chord && chord.nodeName === "B"){
+    let at = chip;
+    while (keys.length === 1){
+      const between = at.previousSibling, chord = between && between.previousSibling;
+      if (!(between && between.nodeType === 3 && (between.data === " and " || between.data === ", ") &&
+            chord && chord.nodeName === "B")) break;
       const lead = keysOf(chord.textContent);
-      if (lead.length > 1 && lead.every(Boolean)) return [...lead.slice(0, -1), ...keys];
+      if (!lead.every(Boolean)) break;
+      if (lead.length > 1) return [...lead.slice(0, -1), ...keys];
+      at = chord;
     }
     return keys;
   }

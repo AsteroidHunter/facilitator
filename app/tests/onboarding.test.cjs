@@ -437,13 +437,17 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.ok(ONBOARDING.includes("[MARK.moon]: '<span role=\"img\" class=\"obmark\" aria-label=\"moon\">' + MOON_ICON"));
   assert.match(ONBOARDING, /\.reply \.obcross::before, \.reply \.obcross::after\{[^}]*width:var\(--bar-mark\); height:var\(--cross-t\); background:#1e1e1e/);
   assert.ok(ONBOARDING.includes("el.reply.innerHTML = withMarks(fmt(raw));"));
-  // 101: Hotkeys: the two new lines, a drawn heart, then the sentences and chords it had, Command + T lit first
+  // 101: Hotkeys: its opening line with a drawn heart, then the five core keys, one line each, lit in that order
   const hotkeys = CARDS.find(c => c.id === "hotkeys");
-  assert.ok(hotkeys.say.startsWith(`The Facilitator ${MARK.heart} hotkeys!\n\n**Command + T** creates a new card.\n\n` +
-                                   "**Control + Shift + ←** and **→** move between cards"), hotkeys.say);
-  assert.ok(hotkeys.say.endsWith("**Control + Shift + Backspace** marks a card done."));
-  assert.deepEqual(out(hotkeys.lights), [["cmd", "t"], ["ctrl", "shift", "left", "right"], ["ctrl", "shift", "up", "down"],
-                                    ["ctrl", "shift", "return"], ["ctrl", "shift", "delete"]]);
+  const nb = s => s.replace(/ /g, "\u00a0");
+  assert.equal(hotkeys.say, `The Facilitator ${MARK.heart} hotkeys!\n\n` +
+    "**←** and **→** go to the previous or next card.\n\n" +
+    "**Enter** starts typing: **Enter** sends, and **" + nb("Shift + Enter") + "** makes a new line.\n\n" +
+    "**" + nb("Command + T") + "** creates a new card.\n\n" +
+    "Hold **" + nb("Control + S") + "** to scroll the answer down, or double tap and hold it to scroll up.\n\n" +
+    "**" + nb("Control + Shift + [") + "**, **]**, **\\\\** and **Delete** move the card to Doing, Docked, Deferred or Done.");
+  assert.deepEqual(out(hotkeys.lights), [["left", "right"], ["return"], ["cmd", "t"], ["ctrl", "s"],
+                                    ["ctrl", "shift", "[", "]", "\\", "delete"]]);
   assert.match(ONBOARDING, /const HEART_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" ' \+\s*'stroke-width="2\.4" stroke-linecap="round" stroke-linejoin="round"/);
   assert.doesNotMatch(say("hotkeys"), /❤|♥|\u{1F496}|\u{1F49C}/u, "the heart is an emoji");
   // the page stands on white
@@ -660,6 +664,23 @@ test("a key's name on a card reads as the keys the keyboard lights", () => {
   assert.deepEqual(keysOf(after(nb("Control + Shift + ←"), " and ", "→")), ["ctrl", "shift", "right"]);
   assert.deepEqual(keysOf(after(nb("Control + Shift + ↑"), " and ", "↓")), ["ctrl", "shift", "down"]);
   assert.deepEqual(keysOf(after(nb("Control + Shift + ↑"), " step ", "↓")), ["down"]);
+  // a run of lone keys after a chord, joined by commas and an "and", each lights with the chord
+  const run = (chord, ...rest) => {
+    let at = b(chord);
+    for (let i = 0; i < rest.length; i += 2) {
+      const between = { nodeType: 3, data: rest[i], previousSibling: at }, chip = b(rest[i + 1]);
+      chip.previousSibling = between;
+      at = chip;
+    }
+    return at;
+  };
+  assert.deepEqual(keysOf(b(nb("Control + Shift + ["))), ["ctrl", "shift", "["]);
+  assert.deepEqual(keysOf(run(nb("Control + Shift + ["), ", ", "]")), ["ctrl", "shift", "]"]);
+  assert.deepEqual(keysOf(run(nb("Control + Shift + ["), ", ", "]", ", ", "\\")), ["ctrl", "shift", "\\"]);
+  assert.deepEqual(keysOf(run(nb("Control + Shift + ["), ", ", "]", ", ", "\\", " and ", "Delete")), ["ctrl", "shift", "delete"]);
+  assert.deepEqual(keysOf(run("←", " and ", "→")), ["right"]);
+  assert.deepEqual(keysOf(b(nb("Control + S"))), ["ctrl", "s"]);
+  assert.deepEqual(keysOf(b(nb("Shift + Enter"))), ["shift", "return"]);
   assert.deepEqual(keysOf(b("not a key")), []);
 });
 
