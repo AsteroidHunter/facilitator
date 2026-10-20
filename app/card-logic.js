@@ -8608,7 +8608,9 @@ function magicView(el, hooks = {}){
 // into the Dock and back out (MagicBox.genie, magic-box.js), on both pages. the
 // box is pictured at each end (magicLook), where it stood and where it lands,
 // and the two pictures are drawn on a canvas of the page's, over the shade, in
-// strips two pixels tall whose ends follow the genie's curves. each strip
+// strips two pixels thick whose ends follow the genie's curves: upright ones
+// toward the Mac's place beside the box, level ones into the phone's drawer
+// under it. each strip
 // wears the picture of the end it is nearer, passing from one to the other on
 // its way, so the first frame is the box where it stood and the last is the
 // box where it lands. the box itself waits hidden in its new place meanwhile,
@@ -8867,22 +8869,24 @@ function magicLookDrawn(el){
 }
 
 // the strips drawn by the screen's own graphics (WebGL 2), on a page's canvas,
-// set up once for it and kept: the two pictures, and a row of points down
-// each side of the box, one for each strip's end. between two rows a strip is
-// filled straight from one end to the other at every height, what lies
-// between its two ends spread evenly across it, so the strips' sides follow
+// set up once for it and kept: the two pictures, and a row of points along
+// each side of the box, one for each strip's end. between two of them a strip
+// is filled straight from one end to the other at every point along it (every
+// height for level strips, every point across for upright ones), what lies
+// between its two ends spread evenly between them, so the strips' sides follow
 // the curves and nothing inside one bends unevenly. null where there are no
 // such graphics, and the page lets the box simply fade in where it lands
 const GENIE_DRAW = "#version 300 es\n" +
-  "in vec2 at; in vec4 row; in float strong; uniform vec2 room; out vec2 ends; out float down, wear, strength;" +
-  "void main(){ ends = row.xy; down = row.z; wear = row.w; strength = strong;" +
+  "in vec2 at; in vec4 strip; in float strong; uniform vec2 room; out vec2 ends; out float along, wear, strength;" +
+  "void main(){ ends = strip.xy; along = strip.z; wear = strip.w; strength = strong;" +
   " gl_Position = vec4(at.x / room.x * 2.0 - 1.0, 1.0 - at.y / room.y * 2.0, 0.0, 1.0); }";
 const GENIE_FILL = "#version 300 es\nprecision highp float;" +
-  "in vec2 ends; in float down, wear, strength; uniform sampler2D big, small; uniform vec4 bigAt, smallAt;" +
-  " out vec4 colour;" +
-  "vec4 look(sampler2D t, vec4 a, float u){ return texture(t, vec2(a.x + u * a.y, a.z + down * a.w)); }" +
-  "void main(){ float u = (gl_FragCoord.x - ends.x) / (ends.y - ends.x);" +
-  " colour = mix(look(big, bigAt, u), look(small, smallAt, u), wear) * strength; }";
+  "in vec2 ends; in float along, wear, strength; uniform sampler2D big, small; uniform vec4 bigAt, smallAt;" +
+  " uniform vec2 room; uniform bool upright; out vec4 colour;" +
+  "vec4 look(sampler2D t, vec4 a, vec2 p){ return texture(t, vec2(a.x + p.x * a.y, a.z + p.y * a.w)); }" +
+  "void main(){ float u = ((upright ? room.y - gl_FragCoord.y : gl_FragCoord.x) - ends.x) / (ends.y - ends.x);" +
+  " vec2 p = upright ? vec2(along, u) : vec2(u, along);" +
+  " colour = mix(look(big, bigAt, p), look(small, smallAt, p), wear) * strength; }";
 function magicGenieGL(canvas){
   if (!canvas) return null;
   if (canvas.genie !== undefined) return canvas.genie;
@@ -8907,11 +8911,11 @@ function magicGenieGL(canvas){
   const points = gl.createBuffer();
   gl.bindVertexArray(gl.createVertexArray());
   gl.bindBuffer(gl.ARRAY_BUFFER, points);
-  const point = gl.getAttribLocation(prog, "at"), row = gl.getAttribLocation(prog, "row"), strong = gl.getAttribLocation(prog, "strong");
+  const point = gl.getAttribLocation(prog, "at"), strip = gl.getAttribLocation(prog, "strip"), strong = gl.getAttribLocation(prog, "strong");
   gl.enableVertexAttribArray(point);
   gl.vertexAttribPointer(point, 2, gl.FLOAT, false, 28, 0);
-  gl.enableVertexAttribArray(row);
-  gl.vertexAttribPointer(row, 4, gl.FLOAT, false, 28, 8);
+  gl.enableVertexAttribArray(strip);
+  gl.vertexAttribPointer(strip, 4, gl.FLOAT, false, 28, 8);
   gl.enableVertexAttribArray(strong);
   gl.vertexAttribPointer(strong, 1, gl.FLOAT, false, 28, 24);
   const u = n => gl.getUniformLocation(prog, n);
@@ -8920,7 +8924,7 @@ function magicGenieGL(canvas){
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-  return canvas.genie = { gl, points, room: u("room"), bigAt: u("bigAt"), smallAt: u("smallAt"),
+  return canvas.genie = { gl, points, room: u("room"), bigAt: u("bigAt"), smallAt: u("smallAt"), upright: u("upright"),
     sharp: gl.getExtension("EXT_texture_filter_anisotropic"), pictures: [] };
 }
 // a look put up as one of the two pictures (0 big, 1 small)
@@ -8953,10 +8957,12 @@ function magicGenieDown(G){
 // screen's own frames, and done() as it lands, on the frame the page shows
 // the box again in. canvas is the page's, laid over the window wherever it
 // is: it is drawn at the screen's sharpness, in the window's pixels read off
-// it now. gives the way it is on, whose stop() halts it where it has got to
-// and says so, {s, big, small}, for the next to set off from; null where it
+// it now. upright: the box's place is beside it (the Mac's), and it pours
+// sideways in upright strips; else under it (the phone's drawer), in level
+// ones. gives the way it is on, whose stop() halts it where it has got to and
+// says so, {s, big, small}, for the next to set off from; null where it
 // cannot be drawn
-function magicGenie(canvas, big, small, from, to, ms, done){
+function magicGenie(canvas, big, small, from, to, ms, done, upright){
   const G = magicGenieGL(canvas);
   if (!G || G.gl.isContextLost() || !big || !small) return null;
   const gl = G.gl;
@@ -8972,11 +8978,15 @@ function magicGenie(canvas, big, small, from, to, ms, done){
     look.y0 / look.canvas.height, look.h * look.k / look.canvas.height];
   gl.uniform4fv(G.bigAt, share(big));
   gl.uniform4fv(G.smallAt, share(small));
-  // a strip each two pixels, and a strip more over and under the box, and room
-  // at each end of a row, for the shadow round it
+  gl.uniform1i(G.upright, upright ? 1 : 0);
+  // a strip each two pixels, and a strip more before and after the box (over
+  // and under it, or left and right of it for upright strips), and room at
+  // each end of a strip, for the shadow round it
   const sx = W / room.width, sy = H / room.height;
-  const n = Math.max(8, Math.ceil(Math.max(big.rect.height, small.rect.height) / 2));
-  const across = Math.max(big.edge / big.w, small.edge / small.w), down = Math.max(big.edge / big.h, small.edge / small.h);
+  const length = r => upright ? r.width : r.height;
+  const n = Math.max(8, Math.ceil(Math.max(length(big.rect), length(small.rect)) / 2));
+  const wide = Math.max(big.edge / big.w, small.edge / small.w), tall = Math.max(big.edge / big.h, small.edge / small.h);
+  const across = upright ? tall : wide, beyond = upright ? wide : tall;
   const points = new Float32Array((n + 3) * 14);
   // a strip wears one look or the other, passing from the big to the small
   // about two thirds of its way, where the two are squeezed and stretched
@@ -8984,18 +8994,34 @@ function magicGenie(canvas, big, small, from, to, ms, done){
   // card) only in the last of its way there, so the card never shows through
   // the strips as they pass over it
   const ramp = (q, a, b) => { const x = Math.min(1, Math.max(0, (q - a) / (b - a))); return x * x * (3 - 2 * x); };
+  // upright strips are spread across the box by its two side edges, not each
+  // by its own clock: one passes from the big look to the small where the two
+  // are squeezed and stretched alike (toward, from 0 at the big look's size to
+  // 1 at the small's, by how many times each is squeezed or stretched either
+  // way), and the whole box takes the faint strength as its far edge lands
+  const times = (a, b) => Math.abs(Math.log(a / b));
+  const toward = (w, h) => {
+    const off = times(w, big.rect.width) + times(h, big.rect.height), all = off + times(w, small.rect.width) + times(h, small.rect.height);
+    return all ? off / all : 0;
+  };
+  // each strip's place along the box and its two ends across it, on the canvas
+  const along = upright ? r => (r.x - room.left) * sx : r => (r.y - room.top) * sy;
   const draw = s => {
-    const rows = MagicBox.genie(big.rect, small.rect, s, n), top = rows[0].y, tall = rows[n].y - top;
+    const strips = MagicBox.genie(big.rect, small.rect, s, n, upright), first = along(strips[0]), span = along(strips[n]) - first;
+    const spread = upright && strips[n].x - strips[0].x, far = Math.min(strips[0].q, strips[n].q);
     let i = 0;
     const put = (r, v) => {
-      const y = (top + v * tall - room.top) * sy, l = (r.left - room.left) * sx, e = (r.right - room.left) * sx;
-      const out = across * (e - l), worn = ramp(r.q, .45, .85), strong = big.alpha + (small.alpha - big.alpha) * ramp(r.q, .85, 1);
-      points.set([l - out, y, l, e, v, worn, strong, e + out, y, l, e, v, worn, strong], i);
+      const a = first + v * span;
+      const l = upright ? (r.top - room.top) * sy : (r.left - room.left) * sx, e = upright ? (r.bottom - room.top) * sy : (r.right - room.left) * sx;
+      const worn = upright ? ramp(toward(spread, r.bottom - r.top), .3, .7) : ramp(r.q, .45, .85);
+      const out = across * (e - l), strong = big.alpha + (small.alpha - big.alpha) * ramp(upright ? far : r.q, .85, 1);
+      points.set(upright ? [a, l - out, l, e, v, worn, strong, a, e + out, l, e, v, worn, strong]
+        : [l - out, a, l, e, v, worn, strong, e + out, a, l, e, v, worn, strong], i);
       i += 14;
     };
-    put(rows[0], -down);
-    for (const r of rows) put(r, r.v);
-    put(rows[n], 1 + down);
+    put(strips[0], -beyond);
+    for (const r of strips) put(r, r.v);
+    put(strips[n], 1 + beyond);
     gl.bindBuffer(gl.ARRAY_BUFFER, G.points);
     gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
     gl.clearColor(0, 0, 0, 0);

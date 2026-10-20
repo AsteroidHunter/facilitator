@@ -124,9 +124,18 @@
   // that edge, so no row ever crosses another. rows: how many strips. gives
   // rows + 1 edges, top to bottom, {v, y, left, right, q}: v the row's place
   // down the box (0 to 1), and q how far it has gone, which says how much of
-  // the place's look it wears
+  // the place's look it wears.
+  // upright: the same turned on its side, for a place beside the box (the
+  // Mac's, right of it), as the Dock's genie runs toward a Dock at the side
+  // of the screen: upright strips, the column nearest the place first and
+  // the far one last, so the far edge stays one straight upright line, both
+  // its corners level, and the top and bottom bend into curves between it
+  // and the place. a place wholly left of the box is led into by the left
+  // column. gives edges left to right, {v, x, top, bottom, q}
   const GENIE = { stagger: 0.45 };
-  function genie(big, small, s, rows) {
+  function genie(big, small, s, rows, upright) {
+    const turn = r => upright ? { left: r.top, top: r.left, width: r.height, height: r.width } : r;
+    big = turn(big); small = turn(small);
     const K = GENIE.stagger, up = small.top + small.height <= big.top;
     const ease = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
     const gone = v => ease((s - K * (up ? v : 1 - v)) / (1 - K));
@@ -134,9 +143,9 @@
     const top = go(big.top, small.top, gone(0)), bottom = go(big.top + big.height, small.top + small.height, gone(1));
     const edges = [];
     for (let i = 0; i <= rows; i++) {
-      const v = i / rows, q = gone(v);
-      edges.push({ v, q, y: go(top, bottom, v), left: go(big.left, small.left, q),
-        right: go(big.left + big.width, small.left + small.width, q) });
+      const v = i / rows, q = gone(v), y = go(top, bottom, v), left = go(big.left, small.left, q),
+        right = go(big.left + big.width, small.left + small.width, q);
+      edges.push(upright ? { v, q, x: y, top: left, bottom: right } : { v, q, y, left, right });
     }
     return edges;
   }

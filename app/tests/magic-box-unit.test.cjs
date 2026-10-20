@@ -2229,15 +2229,15 @@ function genieStandIns(box, big){
       looks.push(look);
       return look;
     },
-    magicGenie: (canvas, big, small, from, to, ms, done) => {
-      const run = { canvas, big, small, from, to, ms, done, s: from, stopped: false,
+    magicGenie: (canvas, big, small, from, to, ms, done, upright) => {
+      const run = { canvas, big, small, from, to, ms, done, upright, s: from, stopped: false,
         stop() { run.stopped = true; return { s: run.s, big, small }; } };
       runs.push(run);
       return run;
     } };
 }
 
-test("the genie: the box pours between its two places in level strips, the bottom row first and the top following, no row crossing another", () => {
+test("the genie into a place under the box (the phone's drawer): it pours in level strips, the bottom row first and the top following, no row crossing another", () => {
   const { genie, GENIE } = api();
   // the Mac's two places at 1512 by 982, and the phone's at 375 by 812
   const mac = { big: { left: 75.6, top: 49.1, width: 1360.8, height: 883.8 }, small: { left: 1067.4, top: 125.1, width: 385.9, height: 720 } };
@@ -2275,6 +2275,57 @@ test("the genie: the box pours between its two places in level strips, the botto
   assert.ok(above[0].q > above[10].q);
 });
 
+test("the genie into a place beside the box (the Mac's): it pours sideways in upright strips, the column by the place first and the left edge last, one straight upright line", () => {
+  const { genie, GENIE } = api();
+  // the Mac's two places at 1512 by 982, an agent's page and a picture, and the phone's at 375 by 812
+  const big = { left: 75.6, top: 49.1, width: 1360.8, height: 883.8 };
+  const page = { left: 1067.4, top: 125.1, width: 385.9, height: 720 }, picture = { left: 1067.4, top: 344.6, width: 385.9, height: 281 };
+  const phone = { big: { left: 9.4, top: 20.3, width: 356.3, height: 771.4 }, small: { left: 26.5, top: 31.7, width: 322, height: 391.6 } };
+  for (const [b, small] of [[big, page], [big, picture], [phone.big, phone.small]]) {
+    // at each end every column is the box in that place
+    const at = (r, cols, q) => cols.forEach((e, i) => assert.ok(close(e.top, r.top, 1e-9) && close(e.bottom, r.top + r.height, 1e-9) &&
+      close(e.x, r.left + r.width * i / (cols.length - 1), 1e-9) && e.q === q && close(e.v, i / (cols.length - 1)), JSON.stringify(e)));
+    at(b, genie(b, small, 0, 100, true), 0);
+    at(small, genie(b, small, 1, 100, true), 1);
+    assert.equal(genie(b, small, .5, 100, true).length, 101);
+    for (let i = 0; i <= 100; i++) {
+      const cols = genie(b, small, i / 100, 300, true);
+      cols.forEach((e, j) => {
+        assert.ok(e.bottom > e.top);
+        if (!j) return;
+        assert.ok(e.x > cols[j - 1].x, "no column crosses another");
+        assert.ok(e.q >= cols[j - 1].q, "a column nearer the place is never behind the one left of it");
+      });
+      // the left edge is one column: its two corners go together, each the same share of its way, as it goes in and as it comes out
+      const left = cols[0], share = (now, from, to) => (now - from) / (to - from);
+      assert.ok(close(share(left.top, b.top, small.top), left.q, 1e-9) && close(share(left.bottom, b.top + b.height, small.top + small.height), left.q, 1e-9) &&
+        close(share(left.x, b.left, small.left), left.q, 1e-9));
+    }
+  }
+  for (const small of [page, picture]) {
+    // reducing, the column by the place sets off at once while the left edge holds where it stood
+    const early = genie(big, small, GENIE.stagger * .9, 100, true);
+    assert.ok(early[0].q === 0 && early[0].x === big.left, "the left edge has not set off");
+    assert.ok(early[100].q > .5, "the column by the place is past half way");
+    // the top and bottom bend between them: flat at both ends and steepest between
+    const mid = genie(big, small, .5, 100, true), step = (i, k) => Math.abs(mid[i + 1][k] - mid[i][k]);
+    for (const k of ["top", "bottom"]) assert.ok(step(50, k) > step(5, k) && step(50, k) > step(95, k), k + ": an S");
+    // the right side lands first and the left edge comes in last of all, onto the place's left edge
+    const late = genie(big, small, 1 - GENIE.stagger + 1e-9, 10, true);
+    assert.ok(late[10].q === 1 && late[0].q < .5);
+    // expanding is the same played backwards: the left edge goes out first, the right side settles last
+    const out = genie(big, small, 1 - GENIE.stagger * .9, 100, true);
+    assert.ok(out[0].q < .5 && out[100].q === 1);
+  }
+  // a place wholly left of the box is led into by the left column
+  const leftOf = genie({ left: 500, top: 0, width: 300, height: 400 }, { left: 0, top: 0, width: 100, height: 100 }, .3, 10, true);
+  assert.ok(leftOf[0].q > leftOf[10].q);
+  // turned on its side, it is the level genie with across and down swapped
+  const turn = r => ({ left: r.top, top: r.left, width: r.height, height: r.width });
+  for (const s of [0, .2, .5, .8, 1]) assert.deepEqual(genie(big, page, s, 20, true).map(e => [e.v, e.q, e.x, e.top, e.bottom]),
+    genie(turn(big), turn(page), s, 20).map(e => [e.v, e.q, e.y, e.left, e.right]));
+});
+
 test("on the Mac the box pours out of its place beside the card and back into it as a genie, pictured at both ends and hidden on its way", () => {
   const { ctx, MB } = boardBig();
   const html = read("index.html"), sheet = code(html.slice(0, html.indexOf("</style>")));
@@ -2293,10 +2344,11 @@ test("on the Mac the box pours out of its place beside the card and back into it
   assert.equal(looks.length, 2);
   assert.ok(!looks[0].big && !looks[0].settled && looks[0].at.left === "700px");
   assert.ok(looks[1].big && looks[1].settled);
-  // poured from the small end (1) out to the big (0) over half a second, on the canvas laid over the window as the shade is
+  // poured from the small end (1) out to the big (0) over half a second, on the canvas laid over the window as the shade is,
+  // sideways in upright strips, since its place is beside it
   const up = runs[0];
   assert.ok(up.canvas === MB.genie && up.big === looks[1] && up.small === looks[0]);
-  assert.deepEqual([up.from, up.to, up.ms], [1, 0, 500]);
+  assert.deepEqual([up.from, up.to, up.ms, up.upright], [1, 0, 500, true]);
   assert.deepEqual(rect(MB.genie.style), rect(MB.shade.style));
   assert.ok(MB.move === up && MB.el.classList.contains("moving") && canvasClasses.has("on") && !lines.has("on"), "the box waits hidden");
   // landed: the canvas goes, and the box shows where it stands, placed as it always is
@@ -2306,7 +2358,7 @@ test("on the Mac the box pours out of its place beside the card and back into it
   ctx.magicSmall();
   const down = runs[1];
   assert.ok(down.big === looks[2] && down.small === looks[3] && looks[2].big && !looks[2].settled && !looks[3].big && looks[3].settled);
-  assert.deepEqual([down.from, down.to, down.ms], [0, 1, 500]);
+  assert.deepEqual([down.from, down.to, down.ms, down.upright], [0, 1, 500, true]);
   // turned round on its way, it sets off back from where it had got to, with the same two pictures
   down.s = .3;
   ctx.magicBig(null);
@@ -2373,9 +2425,10 @@ test("on the phone the box pours out of its place in the drawer and back into it
   assert.equal(looks.length, 2);
   assert.ok(!looks[0].big && !looks[0].up && !looks[0].settled && looks[1].big && looks[1].up && looks[1].settled);
   assert.deepEqual(order, ["shade up", "box up", "genie up"]);
+  // in level strips, since the drawer is under it
   const up = runs[0];
   assert.ok(up.canvas === PB.genie && up.big === looks[1] && up.small === looks[0]);
-  assert.deepEqual([up.from, up.to, up.ms], [1, 0, 500]);
+  assert.deepEqual([up.from, up.to, up.ms, up.upright], [1, 0, 500, undefined]);
   assert.ok(PB.move === up && boxClasses.has("moving"), "the box waits hidden");
   up.done();
   assert.ok(!PB.move && !boxClasses.has("moving") && order.at(-1) === "genie down");

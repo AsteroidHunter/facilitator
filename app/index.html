@@ -8516,14 +8516,16 @@ function magicPlaceBig(){
   Object.assign(MB.shade.style, stage(win));
 }
 // the box poured between its place beside the card and its expanded one, as
-// a Mac window pours into the Dock and back out (magicGenie, card-logic.js):
-// it is pictured where it stood (was, magicFrom) and where it now stands, and
+// a Mac window pours into the Dock and back out (magicGenie, card-logic.js),
+// turned on its side since the place is beside it: in upright strips, its
+// left edge one straight line that comes in last and goes out first. it is
+// pictured where it stood (was, magicFrom) and where it now stands, and
 // the genie is drawn from the one to the other on the board's canvas over
 // the shade (#mbgenie), laid over the window as the shade is, while the box
 // waits hidden where it now stands (.moving), laid out at its size, and shows
 // again there as the canvas goes. the time (BIG_MS) is near the Dock's own
 // half a second, and the shade fades on the same time, eased in and out as
-// the genie's rows are (BIG_EASE). on its way nothing else places it
+// the genie's strips are (BIG_EASE). on its way nothing else places it
 // (magicPlace), and once it lands it is placed as it always is. pressed again
 // on its way, it turns round from where it has got to. with reduced motion,
 // or with no graphics to draw the genie, it does not travel: it fades in
@@ -8548,7 +8550,7 @@ function magicMove(was){
     MB.move = null;
     magicGenieOff();
     magicPlace();
-  });
+  }, true);
   if (!move) magicGenieOff();
 }
 function magicGenieOff(){
