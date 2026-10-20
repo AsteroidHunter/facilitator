@@ -2492,6 +2492,8 @@ function makeBox(b){
   });
   // a tap into the row or a key typed there is using the card, so it is read
   readOnCompose(ta, b.id, useCard);
+  // and each change typed or moved in it holds the card back from the agents
+  watchTyping(ta, b.id);
   ta.addEventListener("mousedown", e => takeFocusTap(e, ta));
   // enter sends and shift enter makes a new line, the desktop composer's pair,
   // and only while the on-screen keyboard is down. a phone puts that keyboard

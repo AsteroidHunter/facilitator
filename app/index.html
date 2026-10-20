@@ -6662,6 +6662,8 @@ function makeBox(b, i, state){
     ta.addEventListener("focus", () => requestAnimationFrame(tick));
     // a click into the composer or a key typed there is using the card
     readOnCompose(ta, b.id, useCard);
+    // and each change typed or moved in it holds the card back from the agents
+    watchTyping(ta, b.id);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(tick);
     tick();
     // picked, pasted or dropped, a file goes into the tray and starts uploading
@@ -11386,6 +11388,7 @@ function renderMiniCards(state){
       });
       // reading and typing here count for the card as they do on the large one
       readOnCompose(ta, b.id);
+      watchTyping(ta, b.id);
       box.append(sun, dock, arc, x, title, answwrap, reply, sentwrap, compose);
       el = miniEls[b.id] = { box, title, reply, ta, sun, dock, arc, x, field,
                              answwrap, answ: null, answId: null,

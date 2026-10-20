@@ -73,6 +73,13 @@
   const watchers = new Set();
   let bundleLoad = null;
   let bundleFailed = false;
+  // the input events the editor sends a page for a change the reader made, as
+  // against the ones it sends as it comes on or off, or after the page wrote the
+  // words itself. readerInput below is how a page tells the two apart
+  const readerInputs = new WeakSet();
+  // the kinds the editor marks a change of the words with when the reader made
+  // it, by key, pointer, paste or drop; a write of the page's carries none
+  const READER_EDITS = ["input", "delete", "move", "indent", "undo", "redo"];
 
   // ---- the handshake a page that must not show itself half built waits on ----
   // A composer takes its final face for this load in three ways, and all three
@@ -1192,10 +1199,11 @@
       C.EditorView.updateListener.of(update => {
         if (!update.docChanged) return;
         field.edited = true;
+        const reader = update.transactions.some(tr => READER_EDITS.some(kind => tr.isUserEvent(kind)));
         // the page is told inside the editor's own update, so anything it does
         // in answer must not reach back into the editor's measuring
         field.inUpdate = true;
-        try { field.changed(); } finally { field.inUpdate = false; }
+        try { field.changed(reader); } finally { field.inUpdate = false; }
       }),
     ];
   }
@@ -1691,10 +1699,13 @@
       placeholder: typeof opts.placeholder === "function" ? opts.placeholder : null,
       newline: typeof opts.newline === "function" ? opts.newline : event => event.shiftKey,
       enterTrace: typeof opts.enterTrace === "function" ? opts.enterTrace : null,
-      // one place a page is told the words changed, whichever face is on
-      changed() {
+      // one place a page is told the words changed, whichever face is on;
+      // reader says the reader changed them in the editor
+      changed(reader) {
         const target = this.view ? this.view.dom : this.ta;
-        target.dispatchEvent(new Event("input", { bubbles: true }));
+        const event = new Event("input", { bubbles: true });
+        if (reader) readerInputs.add(event);
+        target.dispatchEvent(event);
       },
       text() { return this.view ? this.view.state.doc.toString() : hostText(this); },
       formatted() { return !!this.view; },
@@ -1794,8 +1805,17 @@
     return field ? field.focused() : document.activeElement === ta;
   }
 
+  // True for an input event a page heard on a row when the reader changed the
+  // words, whichever face the row is wearing: the browser's own, from a key, a
+  // paste, a cut or a drop in the plain field, or the editor's for a change it
+  // took from the reader. The editor coming on or off, and the page's own writes
+  // to the words, are not the reader's.
+  function readerInput(event) {
+    return !!event && (event.isTrusted || readerInputs.has(event));
+  }
+
   return {
-    STORE_KEY, enabled, setEnabled, onChange, attach, focused, fieldOf,
+    STORE_KEY, enabled, setEnabled, onChange, attach, focused, fieldOf, readerInput,
     settled, available,
     // the pages use this to start the fetch early, so the row is already
     // wearing the editor by the time anybody types in it
