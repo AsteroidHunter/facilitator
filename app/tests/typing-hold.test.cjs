@@ -5,10 +5,12 @@
 // moment its hold runs out, not at the end of its wait; changes that keep coming
 // keep the card held; an agent already holding the card is handed none of its
 // new messages through /fresh until the same moment, and a reply before then
-// leaves them queued for /wait; and a report writes nothing, neither state.json
-// nor the transcript, and leaves the card's changed time where it was. read
-// through a real fixture server on a free port; the suite never touches port
-// 8877. every card and message below is invented.
+// leaves them queued for /wait; a report writes nothing, neither state.json
+// nor the transcript, and leaves the card's changed time where it was; and a
+// card the voice layer talks on (sent a message with via=voice) is never held,
+// so its messages go out at once while a typed card beside it waits as ever.
+// read through a real fixture server on a free port; the suite never touches
+// port 8877. every card and message below is invented.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { readFile } = require("node:fs/promises");
@@ -21,6 +23,8 @@ const SEED = { title: "typing hold board", items: [
   { id: "0", bucket: "meta", title: "Standing meta card", owner: "facilitator" },
   { id: "7", bucket: "now", title: "Card A, being typed on", owner: "facilitator" },
   { id: "8", bucket: "now", title: "Card B, left alone", owner: "facilitator" },
+  // spoken to by the voice layer; its title is not what makes it a voice card
+  { id: "9", bucket: "now", title: "Card C, spoken to", owner: "facilitator" },
 ] };
 
 let board;
@@ -72,6 +76,14 @@ async function typing(box) {
 async function send(box, text) {
   assert.equal((await post(`/send?box=${box}`, text)).status, 200);
   return Date.now();
+}
+// a message spoken through the voice layer, sent the way app/voice/board.py
+// sends it; answers when the send started, since the claim it wakes may come
+// back before the send's own answer does
+async function speak(box, text) {
+  const started = Date.now();
+  assert.equal((await post(`/send?box=${box}&via=voice&op=voice-${started}${box}`, text)).status, 200);
+  return started;
 }
 
 async function card(id) {
@@ -231,4 +243,52 @@ test("a reply before the hold runs out leaves the message it was never handed qu
   onTime(t, said.at - last, "A");
   await answer(said);
   assert.deepEqual((await card("7")).answered.map(m => m.text), ["a follow-up typed while the agent works"]);
+});
+
+test("a spoken message goes out at once even with a typing report just before it, and the typed card beside it is still held 7 seconds", async t => {
+  const waiting = listen(30);
+  await sleep(200);
+  // A is typed on and goes first in the queue; C is reported as typed on too,
+  // then spoken to
+  const sentA = await send("7", "a message typed on A");
+  await typing("9");
+  const spoken = await speak("9", "a message spoken on C");
+  const said = await waiting.done;
+  assert.equal(said.box, "9");
+  assert.deepEqual(said.messages, ["a message spoken on C"]);
+  assert.deepEqual(said.message_via, ["voice"]);
+  t.diagnostic(`C came ${said.at - spoken} ms after the send began`);
+  assert.ok(said.at - spoken < LATE_MS, `C came ${said.at - spoken} ms after the send began`);
+  // and A kept its place, held as ever
+  assert.equal(said.queued_after, 1);
+  await answer(said);
+  const typed = await claim(30);
+  assert.equal(typed.box, "7");
+  assert.deepEqual(typed.message_via, [null]);
+  onTime(t, typed.at - sentA, "A");
+  await answer(typed);
+});
+
+test("an agent holding the voice card gets a second spoken message from /fresh at once", async t => {
+  await speak("9", "the spoken question the agent holds");
+  const handed = await claim(30);
+  assert.equal(handed.box, "9");
+  await ack(handed);
+
+  // a report on the voice card starts nothing either
+  await typing("9");
+  const spoken = await speak("9", "a second thing said while the agent works");
+  const fresh = (await get("/fresh?owner=facilitator")).body;
+  const took = Date.now() - spoken;
+  assert.deepEqual(fresh, { box: "9", messages: ["a second thing said while the agent works"],
+                            message_via: ["voice"] });
+  t.diagnostic(`/fresh had it ${took} ms after the send began`);
+  assert.ok(took < LATE_MS, `/fresh had it ${took} ms after the send began`);
+  assert.deepEqual((await get("/unread?owner=facilitator")).body, { queued: 0, claimed: 2 });
+
+  await reply("9");
+  const after = await card("9");
+  assert.deepEqual(after.pendingTexts, []);
+  assert.deepEqual(after.answered.map(m => m.text),
+    ["the spoken question the agent holds", "a second thing said while the agent works"]);
 });

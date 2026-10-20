@@ -6,7 +6,7 @@ The ticket list beside the card, on the Mac board and the phone, has four sectio
 
 On the Mac board, the plus under the ticket list makes a new card, exactly as Command + T does. The list is only as tall as its tickets need, up to its full height, and the plus stands under its foot.
 
-A ticket is green while an agent is working on its card, grey while your message waits for an agent to pick it up, and has a darker title while a reply is unread. The board does not hand out a card, or new messages on a card an agent already holds, until 7 seconds after your last change in its typing box or your last message on it. A folded corner means the agent says a change is ready for you to try; a click on the corner, or Control + U, clears it.
+A ticket is green while an agent is working on its card, grey while your message waits for an agent to pick it up, and has a darker title while a reply is unread. The board does not hand out a card, or new messages on a card an agent already holds, until 7 seconds after your last change in its typing box or your last message on it; a card you speak to by voice is not held, so what you say goes to the agent at once. A folded corner means the agent says a change is ready for you to try; a click on the corner, or Control + U, clears it.
 
 Docked, Deferred and Done list the latest arrival first. Doing lists new cards on top, then the cards waiting on you, oldest first (Settings, Appearance, "Cards waiting on you" turns them to newest first), then the cards queued or being worked on.
 

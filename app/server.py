@@ -78,12 +78,16 @@ Endpoints:
                                could still be sending means it never landed; a
                                much later query cannot tell a never-landed id
                                from one whose receipt has since aged out
-  POST /send?box=ID[&via=mini][&op=OP] -> body = the human's message text (plain text).
+  POST /send?box=ID[&via=mini|voice][&op=OP] -> body = the human's message text (plain text).
                                via states where it was typed: mini is the small
-                               card in the corner, no via at all is the big card
-                               in the middle. Only the literal "mini" is stored
-                               (as the message's via field), so any other value
-                               and any older caller land exactly as before.
+                               card in the corner, voice is words spoken through
+                               the voice layer (app/voice), whose reply is read
+                               aloud, no via at all is the big card in the
+                               middle. Only the literals "mini" and "voice" are
+                               stored (as the message's via field), so any other
+                               value and any older caller land exactly as before.
+                               A card sent a voice message is never held for
+                               typing (see /wait).
                                Sending to a docked or parked card brings it back to
                                Doing in the same saved update. op is an
                                operation id the caller minted before its first
@@ -849,8 +853,9 @@ Endpoints:
                                Answers {box, messages, message_via}, with
                                message_via in the same shape /wait uses: one
                                entry per handed-over message in the same order,
-                               "mini" for a small card message and null for a
-                               big card one. A mini message handed over here
+                               "mini" for a small card message, "voice" for a
+                               spoken one and null for a big card one. A mini
+                               message handed over here
                                becomes the newest message the claim covers, so
                                it is the one that decides /reply's 100 word cap,
                                and the agent has to be able to see it. Nothing
@@ -858,7 +863,9 @@ Endpoints:
                                reader's last change in the card's typing box or
                                last message on it, so the held card comes back
                                with an empty list until then, and a reply before
-                               then leaves those messages queued for /wait;
+                               then leaves those messages queued for /wait. A
+                               card sent a voice message is never held, so its
+                               new messages come at once;
                                {"messages": [], "message_via": []} when nothing
                                new or no card held
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
@@ -870,9 +877,14 @@ Endpoints:
                                {box, title, messages, message_via, queued_after,
                                ack}: messages stays a list of plain strings and
                                message_via runs beside it, one entry per message
-                               in the same order, "mini" for a small card message
+                               in the same order, "mini" for a small card message,
+                               "voice" for a spoken one (its reply is read aloud)
                                and null for a big card one. Also returns
                                {"idle":true} on timeout.
+                               A card is not handed out until 7 seconds after
+                               the reader's last change in its typing box or
+                               last message on it, except a card sent a voice
+                               message (via=voice), which goes out at once.
                                Delivery is confirmed, always: ack carries a short
                                token and the claim counts as provisional until
                                POST /ack names it. There is no unconfirmed mode.
@@ -5150,7 +5162,8 @@ def _get_fresh(q: Query, _):
         have = set(_state["claimed"][owner])
         # the typing hold covers a held card too: while the reader is still at
         # it, nothing new is handed over, so a reply before the hold runs out
-        # does not cover those messages and they wait in the queue for /wait
+        # does not cover those messages and they wait in the queue for /wait.
+        # a voice card is never held, so its new messages come at once
         typing = _typing_left(fbid, time.monotonic())
         fresh = [] if typing else [m for m in fbox["pending"] if m["mid"] not in have]
         if fresh:
@@ -5162,10 +5175,10 @@ def _get_fresh(q: Query, _):
             _log("fresh", fbid, f"{len(fresh)} mid-work message(s) handed over")
             _save()
         # the same marker /wait hands over, in the same shape and order:
-        # "mini" for the small card, null for the big one. A mini
-        # message that lands mid-work becomes the newest claimed one
-        # and brings /reply's 100 word cap with it, so an agent that
-        # never sees the marker gets its reply refused out of nowhere
+        # "mini" for the small card, "voice" for a spoken message, null for
+        # the big one. A mini message that lands mid-work becomes the newest
+        # claimed one and brings /reply's 100 word cap with it, so an agent
+        # that never sees the marker gets its reply refused out of nowhere
         return 200, *_snapshot({"box": fbid, "messages": [m["text"] for m in fresh],
                                 "message_via": [m.get("via") for m in fresh]})
 
@@ -6144,16 +6157,22 @@ def _get_navimg(q: Query, _):
 # whose last change is under TYPING_HOLD old, hands out the lane's next card
 # instead, and wakes for the one it passed over the moment its hold runs out;
 # /fresh hands an agent already holding the card none of its new messages until
-# the same moment. Memory only: nothing here is saved, written to the transcript
-# or shown, and the card itself is not touched.
+# the same moment. A card the voice layer talks on, one sent a message with
+# via=voice, is never held: each spoken message is whole when it lands and the
+# person is waiting to hear the answer, so its sends and typing reports start
+# nothing. Memory only: nothing here is saved, written to the transcript or
+# shown, and the card itself is not touched.
 _typed_at: dict[str, float] = {}   # card id -> time.monotonic() of the last change
+_voice_cards: set[str] = set()     # card ids sent a via=voice message; ids are never reused
 
 
 def _typing_left(bid: str, now: float) -> float:
     """Seconds left on this card's typing hold, 0 when it is not held. Callers
     hold _lock."""
     at = _typed_at.get(bid)
-    return 0.0 if at is None else max(0.0, at + TYPING_HOLD - now)
+    if at is None or bid in _voice_cards:
+        return 0.0
+    return max(0.0, at + TYPING_HOLD - now)
 
 
 def _typing_change(bid: str, now: float) -> None:
@@ -6228,7 +6247,8 @@ def _wait_poll(owner: str):
             now = time.monotonic()
             queued = [i for i in _state["inbox"]
                       if (_box(i) or {}).get("owner", "facilitator") == owner]
-            # a card the reader is typing on is passed over, and keeps its place
+            # a card the reader is typing on is passed over, and keeps its
+            # place; a voice card never is
             bid = next((i for i in queued if not _typing_left(i, now)), None)
             if bid is not None:
                 _state["inbox"].remove(bid)
@@ -6268,9 +6288,10 @@ def _wait_poll(owner: str):
                     "messages": [m["text"] for m in box["pending"]],
                     # where each message was typed, one entry per
                     # message in the same order: "mini" for the small
-                    # card, null for the big one. It rides beside
-                    # messages instead of inside it because agent
-                    # loops elsewhere read messages as plain strings
+                    # card, "voice" for a spoken message, null for the
+                    # big one. It rides beside messages instead of
+                    # inside it because agent loops elsewhere read
+                    # messages as plain strings
                     "message_via": [m.get("via") for m in box["pending"]],
                     "queued_after": sum(1 for i in _state["inbox"]
                                         if (_box(i) or {}).get("owner", "facilitator") == owner),
@@ -7054,9 +7075,13 @@ def _post_navsave(q: Query, raw: bytes):
     return 200, {"ok": True, "mtime": _nav_stamp(p)}
 
 
+# the via values /send keeps on a message: the small card, and the voice layer
+SEND_VIAS = ("mini", "voice")
+
+
 def _post_send(q: Query, text: str):
     bid = q.one("box")
-    via = "mini" if q.one("via") == "mini" else ""
+    via = q.one("via") if q.one("via") in SEND_VIAS else ""
     op = q.one("op")
     if op and not _op_id_ok(op):
         return 400, {"error": "bad operation id"}
@@ -7074,11 +7099,12 @@ def _post_send(q: Query, text: str):
         if box is None or not text:
             return 400, {"error": "bad box or empty text"}
         msg = {"mid": _state["next_mid"], "text": text, "ts": time.time()}
-        # where it was typed: via=mini means the small card in the corner.
-        # Only that literal is kept, so a caller that passes nothing (the
-        # big card, any older sender) stores exactly what it always did
+        # where it was typed: via=mini means the small card in the corner,
+        # via=voice that it was spoken through the voice layer. Only those
+        # literals are kept, so a caller that passes nothing (the big card,
+        # any older sender) stores exactly what it always did
         if via:
-            msg["via"] = "mini"
+            msg["via"] = via
         if op:
             msg["op"] = op
         box["pending"].append(msg)
@@ -7113,7 +7139,11 @@ def _post_send(q: Query, text: str):
              **({"op": op} if op else {}))
         _save()
         # a send is one more change: the reader may be sending a word at a
-        # time, so the card goes out TYPING_HOLD after the last key or send
+        # time, so the card goes out TYPING_HOLD after the last key or send.
+        # a spoken message marks the card as the voice layer's, past the save
+        # so a send that failed marks nothing, and that card is never held
+        if via == "voice":
+            _voice_cards.add(bid)
         _typing_change(bid, time.monotonic())
         _notify()
         return 200, {**result, "rev": _state["rev"]}
