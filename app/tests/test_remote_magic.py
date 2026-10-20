@@ -21,6 +21,18 @@ the skill's scripts/magic.py with the words `facilitator magic` takes.
   secrets   nothing the command prints holds a key or the board's address,
             the board cannot be reached included, and no key is in the
             board's log
+  words     what the command cannot send is refused in the Mac command's
+            own words
+
+And the command against a stand-in door on a raw socket, which sees what it
+puts on the wire:
+
+  body      a body waits for the door's 100 Continue, so one the door
+            refuses on sight is never sent and its answer is never cut off
+  key       each key held is tried by reading the box first, and the body
+            goes only with the key the door let through
+  proxy     a proxy in the account's settings is never used
+  setup     off a server, or with no lane key yet, it says so
 
     python3 -B -m unittest tests/test_remote_magic.py
 """
@@ -30,9 +42,11 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -346,6 +360,197 @@ class MagicFromAServer(unittest.TestCase):
         self.assertIn("magic", text)
         for secret in (self.agent_key, (self.top / "server.key").read_text().strip()):
             self.assertNotIn(secret, text)
+
+    def test_f_what_cannot_be_sent_in_the_macs_words(self):
+        for words in (["0"], ["0", "text"], ["0", "text", "a", "b"], ["0", "text", "a", "--file", "x"],
+                      ["0", "close", "extra"], ["0", "video", "x"], ["0", "text", "--title"],
+                      ["0", "markdown", "--file", "/no/such/file.md"]):
+            with self.subTest(words=words):
+                mac = subprocess.run([sys.executable, "-B", str(self.outer / "app" / "facilitator"), "magic", *words],
+                                     env=self.env, capture_output=True, text=True, timeout=60)
+                here = self.magic(*words)
+                self.assertEqual(here.returncode, mac.returncode)
+                said = here.stderr.replace("magic.py CARD", "facilitator magic CARD")
+                self.assertEqual(said.split("\n\n")[0], mac.stderr.split("\n\n")[0])
+
+
+class Door:
+    """A stand-in for the board's agent door on a raw socket, so what the
+    command puts on the wire is seen as it is: each request's method, target
+    and key, whether it waited for 100 Continue, and how many bytes of its
+    body arrived. answer(method, target, key, length) gives (status, payload,
+    take): take asks for the body with 100 Continue and reads it, and
+    without it the door answers on sight, as the board does to a body past
+    its limit, then counts what still comes."""
+
+    def __init__(self, answer):
+        self.answer = answer
+        self._seen = []
+        self._idle = threading.Event()
+        self._idle.set()
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(8)
+        self.port = self.listener.getsockname()[1]
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    @property
+    def seen(self):
+        """What came, once the request in hand has been counted."""
+        self._idle.wait(10)
+        return self._seen
+
+    def close(self):
+        self.listener.close()
+
+    def _serve(self):
+        while True:
+            try:
+                conn, _ = self.listener.accept()
+            except OSError:
+                return
+            self._idle.clear()
+            with conn:
+                conn.settimeout(10)
+                try:
+                    self._one(conn)
+                except OSError:
+                    pass
+            self._idle.set()
+
+    def _one(self, conn):
+        head = b""
+        while b"\r\n\r\n" not in head:
+            got = conn.recv(1)
+            if not got:
+                return
+            head += got
+        lines = head.decode("latin-1").split("\r\n")
+        method, target, _ = lines[0].split(" ", 2)
+        headers = {k.strip().lower(): v.strip() for k, _, v in (line.partition(":") for line in lines[1:] if line)}
+        key = headers.get("authorization", "")[len("Bearer "):]
+        length = int(headers.get("content-length") or 0)
+        waited = headers.get("expect", "").lower() == "100-continue"
+        status, payload, take = self.answer(method, target, key, length)
+        got = 0
+        if take and length:
+            if waited:
+                conn.sendall(b"HTTP/1.1 100 Continue\r\n\r\n")
+            while got < length:
+                piece = conn.recv(65536)
+                if not piece:
+                    break
+                got += len(piece)
+        raw = json.dumps(payload).encode()
+        conn.sendall(b"HTTP/1.1 %d Answer\r\nContent-Type: application/json\r\nContent-Length: %d\r\n"
+                     b"Connection: close\r\n\r\n" % (status, len(raw)) + raw)
+        if not take:
+            # whatever of the body was on its way while the answer went out
+            time.sleep(0.3)
+            conn.setblocking(False)
+            try:
+                while True:
+                    piece = conn.recv(65536)
+                    if not piece:
+                        break
+                    got += len(piece)
+            except OSError:
+                pass
+        self._seen.append({"method": method, "target": target, "key": key, "waited": waited, "body": got})
+
+
+class TheCommand(unittest.TestCase):
+    """scripts/magic.py with a scratch server home and the stand-in door:
+    two lanes' keys held, card m1 the other lane's."""
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp(prefix="rmc-", dir="/tmp")).resolve()
+        self.top = self.home / ".facilitator"
+        scripts = self.top / "skill" / ".agents" / "skills" / "facilitator" / "scripts"
+        scripts.mkdir(parents=True)
+        self.script = scripts / "magic.py"
+        shutil.copy(CLONE / ".agents" / "skills" / "facilitator" / "scripts" / "magic.py", self.script)
+        (self.top / "agents").mkdir(mode=0o700)
+        self.keys = {"demo": "k-demo-" + "x" * 32, "other": "k-other-" + "y" * 32}
+        for lane, key in self.keys.items():
+            (self.top / "agents" / (lane + ".key")).write_text(key + "\n")
+        self.door = None
+
+    def tearDown(self):
+        if self.door is not None:
+            self.door.close()
+        shutil.rmtree(self.home, ignore_errors=True)
+
+    def serve(self, limit=None):
+        def answer(method, target, key, length):
+            if key not in self.keys.values():
+                return 401, {"error": "this key is not known: join again"}, False
+            if key != self.keys["other"]:
+                return 403, {"error": "this key is for another project"}, False
+            if method == "GET":
+                return 404, {"error": "this card has no magic box"}, False
+            if limit is not None and length > limit:
+                return 413, {"error": "pictures are limited"}, False
+            return 200, {"ok": True, "box": "m1", "kind": "image", "rev": 1, "shown": "inline"}, True
+        self.door = Door(answer)
+        (self.top / "skill" / "remote.json").write_text(json.dumps(
+            {"server": "lab", "name": "lab", "home": str(self.top), "board": f"http://127.0.0.1:{self.door.port}"}))
+
+    def magic(self, *words, **env):
+        r = subprocess.run([sys.executable, "-B", str(self.script), *words], cwd=self.home, capture_output=True,
+                           text=True, timeout=60, env={**os.environ, "HOME": str(self.home), **env})
+        for secret in [*self.keys.values(), "127.0.0.1", f":{self.door.port}" if self.door else "127.0.0.1"]:
+            self.assertNotIn(secret, r.stdout + r.stderr)
+        return r
+
+    def test_a_refused_body_is_never_sent_and_its_answer_comes_back(self):
+        self.serve(limit=MIB)
+        big = self.home / "big.png"
+        big.write_bytes(PNG + b"\x00" * (4 * MIB))
+        r = self.magic("m1", "image", "--file", str(big))
+        self.assertEqual((r.returncode, r.stdout, r.stderr.strip()), (1, "", "magic: pictures are limited"))
+        posted = [s for s in self.door.seen if s["method"] == "POST"]
+        self.assertEqual(len(posted), 1)
+        self.assertEqual((posted[0]["waited"], posted[0]["body"]), (True, 0))
+
+    def test_a_body_goes_after_100_continue_with_the_cards_own_key(self):
+        self.serve()
+        r = self.magic("m1", "text", "words for the box", "--title", "T")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["ok"], True)
+        demo, other = self.keys["demo"], self.keys["other"]
+        self.assertEqual([(s["method"], s["key"]) for s in self.door.seen],
+                         [("GET", demo), ("GET", other), ("POST", other)])
+        self.assertEqual(self.door.seen[0]["target"], "/magic?box=m1")
+        self.assertEqual(self.door.seen[2]["target"], "/magic?box=m1&kind=text&title=T")
+        self.assertEqual((self.door.seen[2]["waited"], self.door.seen[2]["body"]), (True, len("words for the box")))
+        # close, reopen and show carry no body and wait for nothing
+        for action in ("close", "reopen"):
+            self.magic("m1", action)
+            self.assertEqual((self.door.seen[-1]["method"], self.door.seen[-1]["target"],
+                              self.door.seen[-1]["waited"]), ("POST", "/magic/" + action + "?box=m1", False))
+        before = len(self.door.seen)
+        r = self.magic("m1", "show")
+        self.assertEqual((r.returncode, r.stderr.strip()), (1, "magic: this card has no magic box"))
+        self.assertEqual(len(self.door.seen), before + 2)   # the reading is the show
+
+    def test_no_proxy_is_used(self):
+        self.serve()
+        dead = "http://127.0.0.1:9"
+        r = self.magic("m1", "text", "words", http_proxy=dead, HTTP_PROXY=dead, https_proxy=dead,
+                       HTTPS_PROXY=dead, all_proxy=dead, ALL_PROXY=dead)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_off_a_server_or_with_no_key_it_says_so(self):
+        r = self.magic("m1", "text", "words")
+        self.assertEqual((r.returncode, r.stderr.strip()),
+                         (1, "magic: this is not one of the owner's servers; on the Mac run facilitator magic"))
+        self.serve()
+        for held in (self.top / "agents").glob("*.key"):
+            held.unlink()
+        r = self.magic("m1", "text", "words")
+        self.assertEqual((r.returncode, r.stderr.strip()), (1, "magic: no lane on this server has a key yet: onboard first"))
+        self.assertEqual(self.door.seen, [])
 
 
 if __name__ == "__main__":

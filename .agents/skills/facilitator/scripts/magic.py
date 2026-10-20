@@ -13,6 +13,7 @@ one JSON line, or exits 1 with the board's words; never a key or the
 board's address. Runs on python3 3.7 and newer, standard library only."""
 
 import http.client
+import io
 import json
 import re
 import select
@@ -23,8 +24,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[4]
 REMOTE_FILE = REPO / "remote.json"
 LANE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
-TIMEOUT = 60      # seconds: the board asks a website within its own 15 before it answers
+TIMEOUT = 60          # seconds: the board asks a website within its own 15 before it answers
+CONTINUE_WAIT = 5     # seconds a body waits for the board's 100 Continue before it goes anyway
 PIECE = 64 * 1024     # bytes sent at a time, looking for an early answer between them
+HEAD_MAX = 16 * 1024  # bytes of an answer's head read before the body is sent
 
 MAGIC_KINDS = ("text", "markdown", "html", "image", "url")
 MAGIC_ACTIONS = ("close", "reopen", "show")
@@ -61,7 +64,7 @@ def remote_record():
 
 
 def lane_keys(rec):
-    """The lane keys this account holds, by lane name."""
+    """The lane keys this account holds, in their lanes' order."""
     out = []
     for held in sorted((Path(rec["home"]) / "agents").glob("*.key")):
         if not LANE_ID.fullmatch(held.stem):
@@ -75,10 +78,34 @@ def lane_keys(rec):
     return out
 
 
+def first_answer(conn):
+    """What the board says to a request whose body waits on its word: None
+    for 100 Continue, or (status, body) when it answered at once, as it does
+    to a body it will not take. The head is read a byte at a time, so
+    nothing of a later answer is taken from http.client."""
+    head = b""
+    while not head.endswith(b"\r\n\r\n"):
+        got = conn.sock.recv(1)
+        if not got or len(head) > HEAD_MAX:
+            raise ValueError("no answer")
+        head += got
+    line, _, rest = head.partition(b"\r\n")
+    status = int(line.split()[1])
+    if status == 100:
+        return None
+    length = int(http.client.parse_headers(io.BytesIO(rest)).get("Content-Length") or -1)
+    raw = b""
+    while length < 0 or len(raw) < length:
+        got = conn.sock.recv(PIECE)
+        if not got:
+            break
+        raw += got
+    return status, raw
+
+
 def send_body(conn, body):
-    """The body in pieces, stopping once the board has answered: it refuses
-    a body it will not take before reading it, and a client still sending
-    then may lose that answer."""
+    """The body in pieces, stopping once the board has answered, should it
+    answer without asking for the body first."""
     view = memoryview(body)
     try:
         for at in range(0, len(body), PIECE):
@@ -91,7 +118,10 @@ def send_body(conn, body):
 
 def ask(rec, method, route, key, body=None):
     """(status, answer) from the board's door; LinkDown when nothing answers.
-    http.client asks no proxy, so the key goes nowhere but the door."""
+    http.client asks no proxy, so the key goes nowhere but the door. A body
+    waits for the board's 100 Continue: one it will not take is refused
+    before any of it is sent, and that answer is never cut off by a body
+    still on its way."""
     door = urllib.parse.urlsplit(rec["board"])
     kind = http.client.HTTPSConnection if door.scheme == "https" else http.client.HTTPConnection
     try:
@@ -103,12 +133,21 @@ def ask(rec, method, route, key, body=None):
         conn.putheader("Authorization", "Bearer " + key)
         if body is not None:
             conn.putheader("Content-Length", str(len(body)))
-        conn.endheaders()
         if body:
-            send_body(conn, body)
-        response = conn.getresponse()
-        raw, status = response.read(), response.status
-    except (OSError, ValueError, http.client.HTTPException):
+            conn.putheader("Expect", "100-continue")
+        conn.endheaders()
+        early = None
+        if body:
+            if select.select([conn.sock], [], [], CONTINUE_WAIT)[0]:
+                early = first_answer(conn)
+            if early is None:
+                send_body(conn, body)
+        if early is None:
+            response = conn.getresponse()
+            raw, status = response.read(), response.status
+        else:
+            status, raw = early
+    except (OSError, ValueError, IndexError, http.client.HTTPException):
         raise LinkDown()
     finally:
         conn.close()
