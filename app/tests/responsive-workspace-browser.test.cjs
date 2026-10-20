@@ -280,7 +280,7 @@ test("option-drag keeps the box under the pointer while the stage is scaled", as
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
       const after = el.getBoundingClientRect();
       return { scale, movedX: after.x - before.x, movedY: after.y - before.y, dx, dy,
-        gridScreen: 1440 * 0.008 * scale };
+        gridScreen: 1440 * 0.008 / 2 * scale };
     });
     assert.ok(result.scale < 0.9, `expected a scaled stage, got ${result.scale}`);
     // the box should follow the pointer 1:1 on screen (within one snapped grid

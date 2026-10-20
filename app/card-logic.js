@@ -2390,26 +2390,29 @@ function pickInRow(state, owner){
 
 // ---- resizing a box on the board --------------------------------------------------
 // the smallest and largest a box may be dragged to, in whole grid cells (one
-// cell is the star pitch, 11.52 stage pixels; the stage is 125 by 78 cells).
-// the conversation card starts at 46 by 63, the ticket list at 31 by 37, the
-// spotify box at about 24 by 12 and the clock sizes itself to about 18 by 9.
-// a box not named here keeps the plain two-cell floor and no ceiling. these are
-// starting numbers, meant to be tuned
+// cell is a step, 5.76 stage pixels, half the star pitch; the stage is 250 by
+// 156 cells). the conversation card starts at 92 by 126, the ticket list at 62
+// by 74, the spotify box at about 48 by 24 and the clock sizes itself to about
+// 36 by 18. a box not named here keeps the plain four-cell floor and no
+// ceiling. these are starting numbers, meant to be tuned, and the same sizes
+// they were in the old 11.52 cells, so every one is the old number doubled
 const RESIZE_LIMITS = {
-  main:     { minW: 30, maxW: 70, minH: 40, maxH: 76 },   // the conversation card
-  tickets:  { minW: 22, maxW: 46, minH: 16, maxH: 63 },   // no taller than the card starts
-  magic1:   { minW: 16, maxW: 40, minH: 8,  maxH: 24 },   // the spotify box
-  clockbox: { minW: 14, maxW: 34, minH: 7,  maxH: 16 },
+  main:     { minW: 60, maxW: 140, minH: 80, maxH: 152 },   // the conversation card
+  tickets:  { minW: 44, maxW: 92,  minH: 32, maxH: 126 },   // no taller than the card starts
+  magic1:   { minW: 32, maxW: 80,  minH: 16, maxH: 48 },    // the spotify box
+  clockbox: { minW: 28, maxW: 68,  minH: 14, maxH: 32 },
 };
 // one step of an edge-handle drag, as pure arithmetic: s is the box when the
 // grab began (left, top, w, h and the snapped far edges right and bottom, all
 // in stage pixels), dir the handle ("nw", "e" and so on), dx and dy the pull.
 // sizes stay whole cells; a west or north pull moves the origin to a star line
 // and keeps the far edge pinned. only the axes the handle pulls are held to the
-// limits, so a saved size outside them stays put until that edge is dragged
+// limits, so a saved size outside them stays put until that edge is dragged.
+// the star lines are whole cells counted from the first one, a cell in from
+// the stage's edge, as onStar in index.html counts them
 function clampResize(s, dir, dx, dy, grid, lim){
-  const onStar = v => Math.round((v - grid / 2) / grid) * grid + grid / 2;
-  const floor = 2 * grid;
+  const onStar = v => Math.round((v - grid) / grid) * grid + grid;
+  const floor = 4 * grid;
   const minW = Math.max(floor, lim ? lim.minW * grid : 0), maxW = lim ? lim.maxW * grid : Infinity;
   const minH = Math.max(floor, lim ? lim.minH * grid : 0), maxH = lim ? lim.maxH * grid : Infinity;
   const out = {};
@@ -2418,11 +2421,11 @@ function clampResize(s, dir, dx, dy, grid, lim){
   if (dir.includes("e")) w = Math.min(maxW, Math.max(minW, Math.round((s.w + dx) / grid) * grid));
   if (dir.includes("s")) h = Math.min(maxH, Math.max(minH, Math.round((s.h + dy) / grid) * grid));
   if (dir.includes("w")){
-    out.left = Math.min(Math.max(grid / 2, s.right - maxW, onStar(s.left + dx)), s.right - minW);
+    out.left = Math.min(Math.max(grid, s.right - maxW, onStar(s.left + dx)), s.right - minW);
     w = s.right - out.left;
   }
   if (dir.includes("n")){
-    out.top = Math.min(Math.max(grid / 2, s.bottom - maxH, onStar(s.top + dy)), s.bottom - minH);
+    out.top = Math.min(Math.max(grid, s.bottom - maxH, onStar(s.top + dy)), s.bottom - minH);
     h = s.bottom - out.top;
   }
   out.w = w; out.h = h;

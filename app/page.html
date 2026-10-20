@@ -336,11 +336,14 @@
   /* the star field fills the whole window, but its phase is locked to the
      stage: fitStage() slides the pattern's origin to wherever the centered
      stage lands, so the stars under the boxes always line up with them and
-     the field still runs to every window edge with no bands. */
+     the field still runs to every window edge with no bands. a star stands on
+     every edit step (--step, GRID in the script), half the drawing's pitch, so
+     there is one more halfway between each two of the drawing's; each sits in
+     the middle of its tile, so the field is set back half a step */
   body.focus{
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 4.2 L6.5 5.5 L7.8 6 L6.5 6.5 L6 7.8 L5.5 6.5 L4.2 6 L5.5 5.5 Z' fill='%23C9BFAE' fill-opacity='0'/%3E%3C/svg%3E");
-    background-size:var(--grid) var(--grid);
-    background-position:0 var(--bar-h);   /* fitStage refines this per resize */
+    background-size:var(--step) var(--step);
+    background-position:calc(var(--step) / -2) calc(var(--bar-h) - var(--step) / 2);   /* fitStage refines this per resize */
   }
   body.focus.dragging, body.focus.dragging *{cursor:grabbing !important; user-select:none}
   /* the drawn window maps to the area under the bar; every region sits at its
@@ -379,6 +382,7 @@
     --sp-xs:calc(var(--ch)*0.005);  --sp-s:calc(var(--ch)*0.0095);
     --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
     --grid:calc(var(--cw)*0.008);
+    --step:calc(var(--grid) / 2);   /* the edit step and the star field's pitch */
     --pane-w:calc(var(--cw)*0.072); --pane-gap:calc(var(--cw)*0.024);
   }
   body.focus main{
@@ -3211,15 +3215,16 @@ addEventListener("keydown", e => {
   if (typing){ if (e.key === "Escape") t.blur(); return; }
   if (e.altKey && e.shiftKey && e.key.startsWith("Arrow") && dragEnabled){
     // option+shift+arrows: resize the box under the mouse by one grid cell,
-    // sizes snapped to whole cells and remembered like dragged positions
+    // sizes snapped to whole cells, never under four, and remembered like
+    // dragged positions
     const el = document.elementFromPoint(mouse.x, mouse.y)?.closest(REGION_SEL);
     if (el){
       e.preventDefault();
       const r = el.getBoundingClientRect();
       const dw = e.key === "ArrowRight" ? GRID : e.key === "ArrowLeft" ? -GRID : 0;
       const dh = e.key === "ArrowDown" ? GRID : e.key === "ArrowUp" ? -GRID : 0;
-      const w = Math.max(2 * GRID, Math.round((r.width + dw) / GRID) * GRID);
-      const h = Math.max(2 * GRID, Math.round((r.height + dh) / GRID) * GRID);
+      const w = Math.max(4 * GRID, Math.round((r.width + dw) / GRID) * GRID);
+      const h = Math.max(4 * GRID, Math.round((r.height + dh) / GRID) * GRID);
       el.style.width = w + "px"; el.style.height = h + "px";
       settingsStore.setItem("size." + activeOwner + "." + regionId(el), JSON.stringify({ w, h }));
       return;
@@ -3343,8 +3348,10 @@ function fitStage(){
   const tx = Math.max(0, (innerWidth - DW) / 2);
   const ty = Math.max(0, (availH - DH) / 2);
   stage.style.transform = `translate(${tx}px, ${ty}px)`;
-  // slide the window-wide star field so its phase matches the stage's origin
-  document.body.style.backgroundPosition = tx + "px " + (bar + ty) + "px";
+  // slide the window-wide star field so its phase matches the stage's origin,
+  // half a step back so its stars land on the steps (the star field's rule)
+  document.body.style.backgroundPosition =
+    `calc(${tx}px - var(--step) / 2) calc(${bar + ty}px - var(--step) / 2)`;
 }
 addEventListener("resize", fitStage);
 
@@ -3380,9 +3387,10 @@ fitStage();
 }
 
 // every region on the canvas moves: hold Option and drag; positions snap to
-// the star lines and persist per project
-const GRID = 1440 * 0.008;         // the star pitch on the stage
-const onStar = v => Math.round((v - GRID / 2) / GRID) * GRID + GRID / 2;   // nearest star line
+// the star lines and persist per project. the step and the lines are the
+// board's (index.html), so a place either page saves is on the other's lines
+const GRID = 1440 * 0.008 / 2;     // one step on the stage, half the star pitch
+const onStar = v => Math.round((v - GRID) / GRID) * GRID + GRID;   // nearest star line
 const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #todobox, #goalbox";
 function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
 function applySavedLayout(){
@@ -3432,8 +3440,8 @@ addEventListener("pointerdown", e => {
 });
 addEventListener("pointermove", e => {
   if (!dragging) return;
-  dragging.x = Math.max(GRID / 2, onStar(e.clientX - dragging.dx - dragging.sx));
-  dragging.y = Math.max(GRID / 2, onStar(e.clientY - dragging.dy - dragging.sy));
+  dragging.x = Math.max(GRID, onStar(e.clientX - dragging.dx - dragging.sx));
+  dragging.y = Math.max(GRID, onStar(e.clientY - dragging.dy - dragging.sy));
   dragging.el.style.left = dragging.x + "px";
   dragging.el.style.top = dragging.y + "px";
 });
@@ -3568,18 +3576,18 @@ addEventListener("pointermove", e => {
   if (!sizing) return;
   const s = sizing;
   const dx = e.clientX - s.px, dy = e.clientY - s.py;
-  // widths and heights stay whole cells, never under two; a west or north
+  // widths and heights stay whole cells, never under four; a west or north
   // pull moves the origin to a star line and keeps the far edge pinned
-  let w = Math.max(2 * GRID, Math.round((s.w + (s.dir.includes("e") ? dx : 0)) / GRID) * GRID);
-  let h = Math.max(2 * GRID, Math.round((s.h + (s.dir.includes("s") ? dy : 0)) / GRID) * GRID);
+  let w = Math.max(4 * GRID, Math.round((s.w + (s.dir.includes("e") ? dx : 0)) / GRID) * GRID);
+  let h = Math.max(4 * GRID, Math.round((s.h + (s.dir.includes("s") ? dy : 0)) / GRID) * GRID);
   if (s.dir.includes("w")){
-    const left = Math.min(Math.max(GRID / 2, onStar(s.left + dx)), s.right - 2 * GRID);
+    const left = Math.min(Math.max(GRID, onStar(s.left + dx)), s.right - 4 * GRID);
     w = s.right - left;
     s.el.style.left = left + "px";
     s.x = left;
   }
   if (s.dir.includes("n")){
-    const top = Math.min(Math.max(GRID / 2, onStar(s.top + dy)), s.bottom - 2 * GRID);
+    const top = Math.min(Math.max(GRID, onStar(s.top + dy)), s.bottom - 4 * GRID);
     h = s.bottom - top;
     s.el.style.top = top + "px";
     s.y = top;

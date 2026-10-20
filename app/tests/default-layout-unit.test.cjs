@@ -28,7 +28,9 @@ const HTML = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 const ONBOARDING = fs.readFileSync(path.join(ROOT, "onboarding.html"), "utf8");
 
 const STAGE_W = 1440, STAGE_H = 900;
-const GRID = STAGE_W * 0.008;
+// the drawing's star pitch, which the starting layout is placed on. the board's
+// edit step is half of it, so every one of these lines is a star line there too
+const PITCH = STAGE_W * 0.008;
 // the chosen layout, as measured on the owner's open mock (stage points)
 const CHOSEN = {
   clockbox: { x: 28.8, y: 28.8, w: 218.88, h: 103.68 },
@@ -61,8 +63,8 @@ test("the stylesheet's starting places and sizes are the chosen layout", () => {
 });
 
 test("every starting edge is on a star line and every size is whole cells", () => {
-  const onStar = v => { const n = (v - GRID / 2) / GRID; near(n, Math.round(n), v + " in star cells"); };
-  const whole = v => { const n = v / GRID; near(n, Math.round(n), v + " in cells"); };
+  const onStar = v => { const n = (v - PITCH / 2) / PITCH; near(n, Math.round(n), v + " in star cells"); };
+  const whole = v => { const n = v / PITCH; near(n, Math.round(n), v + " in cells"); };
   for (const r of Object.values(CHOSEN)) {
     onStar(r.x); onStar(r.y); onStar(r.x + r.w); onStar(r.y + r.h);
     whole(r.w); whole(r.h);
@@ -77,10 +79,12 @@ test("onboarding.html copies the same list and card places as the board", () => 
 
 // ---- what a new project and a fresh install draw: the real code, a fake page ---
 
+// the line that starts with this, so a GRID inside a function further up is
+// not taken for the board's
 function line(start) {
-  const at = HTML.indexOf(start);
+  const at = HTML.indexOf("\n" + start);
   assert.ok(at >= 0, "found: " + start);
-  return HTML.slice(at, HTML.indexOf("\n", at));
+  return HTML.slice(at + 1, HTML.indexOf("\n", at + 1));
 }
 function between(startAnchor, endMark) {
   const start = HTML.indexOf(startAnchor);
@@ -100,8 +104,7 @@ function fnSource(signature) {
   throw new Error("unbalanced braces after " + signature);
 }
 const SOURCE = [
-  "const GRID = 1440 * 0.008;",
-  line("const onStar = "), line("const REGION_SEL = "),
+  line("const GRID = "), line("const onStar = "), line("const REGION_SEL = "),
   between("const DEFAULT_HIDDEN_REGIONS = new Set([", "]);"),
   fnSource("function regionId(el)"), fnSource("function layoutSource()"),
   fnSource("function regionHidden(owner, id)"), fnSource("function applySavedLayout()"),

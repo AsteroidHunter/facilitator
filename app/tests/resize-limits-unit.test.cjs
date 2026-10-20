@@ -4,10 +4,16 @@
 // inside every limit.
 //
 // What it guards:
+//   - one step is 5.76 stage points, half the star pitch, on the board and on
+//     the typed page, and a pull of one step moves an edge by exactly that.
+//   - the star lines are every old line and one halfway between each two, so a
+//     place saved on the old lines snaps back to the very same number.
 //   - a drag past a box's largest size stops at that size, and past its
-//     smallest stops at that one, for width and height separately.
+//     smallest stops at that one, for width and height separately; the limits
+//     are the sizes they were on the old grid.
 //   - a west or north pull keeps the far edge pinned while it stops.
-//   - a box with no limits keeps the old two-cell floor and has no ceiling.
+//   - a box with no limits keeps the four-cell floor (two of the old cells)
+//     and has no ceiling.
 //   - only the pulled axes are held to the limits, so a saved size outside
 //     them does not jump on the other axis.
 const assert = require("node:assert/strict");
@@ -18,6 +24,7 @@ const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
 const HTML = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+const PAGE = fs.readFileSync(path.join(ROOT, "page.html"), "utf8");
 const noop = () => {};
 const sandbox = {
   document: { createElement: () => ({ style: {}, classList: {} }), getElementById: () => null,
@@ -32,7 +39,19 @@ vm.runInContext(fs.readFileSync(path.join(ROOT, "card-logic.js"), "utf8") +
   "\nthis.RESIZE_LIMITS = RESIZE_LIMITS;", sandbox);
 const { clampResize, RESIZE_LIMITS } = sandbox;
 
-const G = 1440 * 0.008;   // the board's GRID
+// the board's GRID and onStar, as index.html writes them: the lines that start
+// with them, so a GRID inside a function further up is not taken for it
+function line(source, start){
+  const at = source.indexOf("\n" + start);
+  assert.ok(at >= 0, "found: " + start);
+  return source.slice(at + 1, source.indexOf("\n", at + 1));
+}
+function snapOf(source){
+  return vm.runInNewContext(line(source, "const GRID = ") + "\n" + line(source, "const onStar = ") +
+    "\n({ GRID, onStar })");
+}
+const { GRID: G, onStar } = snapOf(HTML);
+const PITCH = 1440 * 0.008;   // the star pitch of the drawing, the old step
 const cells = v => Math.round(v / G * 1000) / 1000;
 // a box as beginSize records it, from its edges in cells
 function box(leftCells, topCells, wCells, hCells){
@@ -47,93 +66,143 @@ const run = (s, dir, dx, dy, id) => {
   return res;
 };
 
+test("one step is 5.76 stage points, half the star pitch, on the board and the typed page", () => {
+  assert.equal(G, PITCH / 2);
+  assert.ok(Math.abs(G - 5.76) < 1e-12, "the step is " + G);
+  const page = snapOf(PAGE);
+  assert.equal(page.GRID, G, "page.html steps as the board does");
+  for (const v of [0, 3, 100, 466.56, 1000.1]) assert.equal(page.onStar(v), onStar(v), "page.html snaps " + v + " as the board does");
+  // the star field is drawn at the same step
+  assert.match(HTML, /--step:calc\(var\(--grid\) \/ 2\);/);
+  assert.match(HTML, /background-size:var\(--step\) var\(--step\);/);
+});
+
+test("a pull of one step moves an edge by 5.76", () => {
+  const card = box(81, 11, 92, 126);
+  const wide = clampResize(card, "e", G, 0, G, RESIZE_LIMITS.main);
+  assert.ok(Math.abs(wide.w - card.w - 5.76) < 1e-9, "east by one step: " + (wide.w - card.w));
+  const tall = clampResize(card, "s", 0, G, G, RESIZE_LIMITS.main);
+  assert.ok(Math.abs(tall.h - card.h - 5.76) < 1e-9, "south by one step: " + (tall.h - card.h));
+  const west = clampResize(card, "w", -G, 0, G, RESIZE_LIMITS.main);
+  assert.ok(Math.abs(card.left - west.left - 5.76) < 1e-9, "west by one step: " + (card.left - west.left));
+  assert.ok(Math.abs(west.left + west.w - card.right) < 1e-9, "the right edge stays pinned");
+  // under half a step snaps back, over half a step takes the next one
+  assert.deepEqual(run(card, "e", 0.45 * G, 0, "main"), { w: 92, h: 126 });
+  assert.deepEqual(run(card, "e", 0.55 * G, 0, "main"), { w: 93, h: 126 });
+});
+
+test("the star lines are every old line and one halfway between each two", () => {
+  const oldStar = v => Math.round((v - PITCH / 2) / PITCH) * PITCH + PITCH / 2;
+  for (let n = 0; n < 125; n++){
+    // a place the old board saved, computed the way it computed it
+    const old = oldStar(n * PITCH + PITCH / 2 + 0.3);
+    assert.ok(Object.is(onStar(old), old), "the old line " + old + " came back as " + onStar(old));
+    const between = old + PITCH / 2;
+    assert.ok(Math.abs(onStar(between) - between) < 1e-9, between + " is a line now");
+    assert.ok(Math.abs(onStar(old + 2.8) - old) < 1e-9, "2.8 past a line snaps back to it");
+    assert.ok(Math.abs(onStar(old + 2.9) - between) < 1e-9, "2.9 past a line takes the next one");
+  }
+});
+
 test("the four boxes each have a smallest and largest width and height", () => {
   assert.deepEqual(Object.keys(RESIZE_LIMITS).sort(), ["clockbox", "magic1", "main", "tickets"]);
   const regions = /const REGION_SEL = "([^"]+)"/.exec(HTML)[1];
   for (const [id, lim] of Object.entries(RESIZE_LIMITS)){
     assert.ok(regions.includes(id === "main" ? "main" : "#" + id), id + " is a board region");
     for (const k of ["minW", "maxW", "minH", "maxH"])
-      assert.ok(Number.isInteger(lim[k]) && lim[k] >= 2, id + " " + k + " is whole cells, at least two");
+      assert.ok(Number.isInteger(lim[k]) && lim[k] >= 4, id + " " + k + " is whole cells, at least four");
     assert.ok(lim.minW < lim.maxW && lim.minH < lim.maxH, id + " smallest is under largest");
-    // the stage is 125 by 78 cells, with half a cell kept clear at the edge
-    assert.ok(lim.maxW <= 124 && lim.maxH <= 77, id + " fits on the stage");
+    // the stage is 250 by 156 cells, with a cell kept clear at the edge
+    assert.ok(lim.maxW <= 248 && lim.maxH <= 154, id + " fits on the stage");
   }
 });
 
+test("the limits are the sizes they were on the old grid", () => {
+  const OLD = {
+    main:     { minW: 30, maxW: 70, minH: 40, maxH: 76 },
+    tickets:  { minW: 22, maxW: 46, minH: 16, maxH: 63 },
+    magic1:   { minW: 16, maxW: 40, minH: 8,  maxH: 24 },
+    clockbox: { minW: 14, maxW: 34, minH: 7,  maxH: 16 },
+  };
+  for (const [id, lim] of Object.entries(OLD))
+    for (const k of Object.keys(lim))
+      assert.ok(Math.abs(RESIZE_LIMITS[id][k] * G - lim[k] * PITCH) < 1e-9, id + " " + k);
+});
+
 test("a drag past the largest size stops at the largest size", () => {
-  const card = box(40.5, 5.5, 46, 63);
-  assert.deepEqual(run(card, "e", 5000, 0, "main"), { w: 70, h: 63 });
-  assert.deepEqual(run(card, "s", 0, 5000, "main"), { w: 46, h: 76 });
-  assert.deepEqual(run(card, "se", 5000, 5000, "main"), { w: 70, h: 76 });
-  const spot = box(6.5, 56.5, 24, 12);
-  assert.deepEqual(run(spot, "se", 5000, 5000, "magic1"), { w: 40, h: 24 });
-  const clock = box(2.5, 2.5, 18, 9);
-  assert.deepEqual(run(clock, "se", 5000, 5000, "clockbox"), { w: 34, h: 16 });
+  const card = box(81, 11, 92, 126);
+  assert.deepEqual(run(card, "e", 5000, 0, "main"), { w: 140, h: 126 });
+  assert.deepEqual(run(card, "s", 0, 5000, "main"), { w: 92, h: 152 });
+  assert.deepEqual(run(card, "se", 5000, 5000, "main"), { w: 140, h: 152 });
+  const spot = box(13, 113, 48, 24);
+  assert.deepEqual(run(spot, "se", 5000, 5000, "magic1"), { w: 80, h: 48 });
+  const clock = box(5, 5, 36, 18);
+  assert.deepEqual(run(clock, "se", 5000, 5000, "clockbox"), { w: 68, h: 32 });
 });
 
 test("a drag past the smallest size stops at the smallest size", () => {
-  const card = box(40.5, 5.5, 46, 63);
-  assert.deepEqual(run(card, "e", -5000, 0, "main"), { w: 30, h: 63 });
-  assert.deepEqual(run(card, "s", 0, -5000, "main"), { w: 46, h: 40 });
-  const tik = box(5.5, 15.5, 31, 37);
-  assert.deepEqual(run(tik, "se", -5000, -5000, "tickets"), { w: 22, h: 16 });
-  const clock = box(2.5, 2.5, 18, 9);
-  assert.deepEqual(run(clock, "se", -5000, -5000, "clockbox"), { w: 14, h: 7 });
+  const card = box(81, 11, 92, 126);
+  assert.deepEqual(run(card, "e", -5000, 0, "main"), { w: 60, h: 126 });
+  assert.deepEqual(run(card, "s", 0, -5000, "main"), { w: 92, h: 80 });
+  const tik = box(11, 31, 62, 74);
+  assert.deepEqual(run(tik, "se", -5000, -5000, "tickets"), { w: 44, h: 32 });
+  const clock = box(5, 5, 36, 18);
+  assert.deepEqual(run(clock, "se", -5000, -5000, "clockbox"), { w: 28, h: 14 });
 });
 
 test("inside the limits a drag still snaps to whole cells as before", () => {
-  const card = box(40.5, 5.5, 46, 63);
-  assert.deepEqual(run(card, "e", 3.2 * G, 0, "main"), { w: 49, h: 63 });
-  assert.deepEqual(run(card, "s", 0, -2.6 * G, "main"), { w: 46, h: 60 });
-  assert.deepEqual(run(card, "w", -4.4 * G, 0, "main"), { w: 50, h: 63, left: 36.5 });
+  const card = box(81, 11, 92, 126);
+  assert.deepEqual(run(card, "e", 6.4 * G, 0, "main"), { w: 98, h: 126 });
+  assert.deepEqual(run(card, "s", 0, -5.2 * G, "main"), { w: 92, h: 121 });
+  assert.deepEqual(run(card, "w", -8.8 * G, 0, "main"), { w: 101, h: 126, left: 72 });
 });
 
 test("a west pull stops at the limit with the right edge pinned", () => {
-  const card = box(40.5, 5.5, 46, 63);   // right edge at 86.5
+  const card = box(81, 11, 92, 126);   // right edge at 173
   const grow = run(card, "w", -5000, 0, "main");
-  assert.deepEqual(grow, { w: 70, h: 63, left: 16.5 });
-  assert.equal(grow.left + grow.w, 86.5);
+  assert.deepEqual(grow, { w: 140, h: 126, left: 33 });
+  assert.equal(grow.left + grow.w, 173);
   const shrink = run(card, "w", 5000, 0, "main");
-  assert.deepEqual(shrink, { w: 30, h: 63, left: 56.5 });
-  assert.equal(shrink.left + shrink.w, 86.5);
+  assert.deepEqual(shrink, { w: 60, h: 126, left: 113 });
+  assert.equal(shrink.left + shrink.w, 173);
 });
 
 test("a north pull stops at the limit with the bottom edge pinned", () => {
-  const tik = box(5.5, 33.5, 31, 37);    // bottom edge at 70.5
+  const tik = box(11, 67, 62, 74);    // bottom edge at 141
   const grow = run(tik, "n", 0, -5000, "tickets");
-  assert.deepEqual(grow, { w: 31, h: 63, top: 7.5 });
-  assert.equal(grow.top + grow.h, 70.5);
+  assert.deepEqual(grow, { w: 62, h: 126, top: 15 });
+  assert.equal(grow.top + grow.h, 141);
   const shrink = run(tik, "n", 0, 5000, "tickets");
-  assert.deepEqual(shrink, { w: 31, h: 16, top: 54.5 });
-  assert.equal(shrink.top + shrink.h, 70.5);
+  assert.deepEqual(shrink, { w: 62, h: 32, top: 109 });
+  assert.equal(shrink.top + shrink.h, 141);
   // the stage's top edge still wins over a largest size it cannot reach
-  const card = box(40.5, 5.5, 46, 63);   // bottom edge at 68.5
-  assert.deepEqual(run(card, "n", 0, -5000, "main"), { w: 46, h: 68, top: 0.5 });
+  const card = box(81, 11, 92, 126);   // bottom edge at 137
+  assert.deepEqual(run(card, "n", 0, -5000, "main"), { w: 92, h: 136, top: 1 });
 });
 
 test("a corner pull toward the top left holds both far edges", () => {
-  const spot = box(30.5, 40.5, 24, 12);  // right 54.5, bottom 52.5
+  const spot = box(61, 81, 48, 24);  // right 109, bottom 105
   const grow = run(spot, "nw", -5000, -5000, "magic1");
-  assert.deepEqual(grow, { w: 40, h: 24, left: 14.5, top: 28.5 });
+  assert.deepEqual(grow, { w: 80, h: 48, left: 29, top: 57 });
   const shrink = run(spot, "nw", 5000, 5000, "magic1");
-  assert.deepEqual(shrink, { w: 16, h: 8, left: 38.5, top: 44.5 });
+  assert.deepEqual(shrink, { w: 32, h: 16, left: 77, top: 89 });
 });
 
-test("other boxes keep the two-cell floor and have no ceiling", () => {
-  const m2 = box(60.5, 20.5, 20, 20);
+test("other boxes keep the four-cell floor and have no ceiling", () => {
+  const m2 = box(121, 41, 40, 40);
   assert.equal(RESIZE_LIMITS.magic2, undefined);
-  assert.deepEqual(run(m2, "se", -5000, -5000, "magic2"), { w: 2, h: 2 });
-  assert.deepEqual(run(m2, "w", 5000, 0, "magic2"), { w: 2, h: 20, left: 78.5 });
-  assert.deepEqual(run(m2, "n", 0, 5000, "magic2"), { w: 20, h: 2, top: 38.5 });
-  assert.deepEqual(run(m2, "se", 50 * G, 50 * G, "magic2"), { w: 70, h: 70 });
+  assert.deepEqual(run(m2, "se", -5000, -5000, "magic2"), { w: 4, h: 4 });
+  assert.deepEqual(run(m2, "w", 5000, 0, "magic2"), { w: 4, h: 40, left: 157 });
+  assert.deepEqual(run(m2, "n", 0, 5000, "magic2"), { w: 40, h: 4, top: 77 });
+  assert.deepEqual(run(m2, "se", 100 * G, 100 * G, "magic2"), { w: 140, h: 140 });
   // a west pull still stops at the stage's left edge
-  assert.deepEqual(run(m2, "w", -5000, 0, "magic2"), { w: 80, h: 20, left: 0.5 });
+  assert.deepEqual(run(m2, "w", -5000, 0, "magic2"), { w: 160, h: 40, left: 1 });
 });
 
 test("a saved size outside a limit only changes on the axis being pulled", () => {
-  const tall = box(5.5, 5.5, 31, 70);     // saved taller than the tickets' 63
-  assert.deepEqual(run(tall, "e", G, 0, "tickets"), { w: 32, h: 70 });
-  assert.deepEqual(run(tall, "s", 0, -G, "tickets"), { w: 31, h: 63 });
+  const tall = box(11, 11, 62, 140);     // saved taller than the tickets' 126
+  assert.deepEqual(run(tall, "e", G, 0, "tickets"), { w: 63, h: 140 });
+  assert.deepEqual(run(tall, "s", 0, -G, "tickets"), { w: 62, h: 126 });
 });
 
 test("the resize handler goes through the clamp and loading a layout does not", () => {
