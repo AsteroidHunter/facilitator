@@ -2099,7 +2099,7 @@ test("on the Mac the expanded box and its shade are written in the stage's pixel
   // the sheet: the shade is the settings page's dimming, over the whole window and the bar, under the box,
   // and the stage stands over the bar while it is up, under the project list, the search and the settings
   const html = read("index.html"), sheet = code(html.slice(0, html.indexOf("</style>")));
-  assert.match(sheet, /body\.focus\.mbbig #mbshade\{visibility:visible; pointer-events:auto;\s*background-color:color-mix\(in srgb, var\(--ink\) 24%, transparent\);\s*transition:background-color \.26s ease, visibility 0s\}/);
+  assert.match(sheet, /body\.focus\.mbbig #mbshade\{visibility:visible; pointer-events:auto;\s*background-color:color-mix\(in srgb, var\(--ink\) 24%, transparent\);\s*transition:background-color \.4s cubic-bezier\(0\.25, 1, 0\.5, 1\), visibility 0s\}/);
   const z = sel => +sheet.match(new RegExp(sel + "\\{[^}]*z-index:(\\d+)"))[1];
   const stage = z("body\\.focus\\.mbup #stage");
   assert.ok(stage > z("\\n  \\.bar") && stage < z("body\\.focus #projshade") && stage < z("body\\.focus #searchshade"), "between the bar and the menus");
@@ -2163,8 +2163,9 @@ test("on the phone the button lifts the box into the top layer over a shade, ins
     if (!shade) shade = el;
     return el;
   };
+  const timers = [];
   Object.assign(ctx, { innerHeight: 874, window: {}, cardPictureStill: () => true, cardPictureShown: null, imeKey: () => false,
-    clearTimeout() {}, setTimeout() {} });
+    clearTimeout() {}, setTimeout: fn => timers.push(fn) });
   const { BIG, grow } = api();
   Object.assign(ctx.MagicBox, { BIG, grow });
   Object.assign(PB.view, { big: false, expand(on) { this.big = !!on; } });
@@ -2184,7 +2185,8 @@ test("on the phone the button lifts the box into the top layer over a shade, ins
   let stopped = 0;
   for (const fn of box.on.touchstart) fn({ stopPropagation: () => stopped++ });
   assert.equal(stopped, 1);
-  // Escape, heard first, puts it back in the drawer at once, the shade with it
+  // Escape, heard first, puts it back in the drawer, with reduced motion at once, and the shade
+  // goes once it has faded
   const esc = listeners.keydown.find(l => l.opts === true);
   const e = { key: "Escape", repeat: false, defaultPrevented: false, taken: false,
     preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() { e.taken = true; } };
@@ -2194,6 +2196,7 @@ test("on the phone the button lifts the box into the top layer over a shade, ins
   assert.equal(box.up, false);
   assert.equal(box.attrs.popover, undefined);
   assert.equal(box.style.left, "");
+  timers.splice(0).forEach(f => f());
   assert.equal(shade.up, false);
   for (const fn of box.on.touchstart) fn({ stopPropagation: () => stopped++ });
   assert.equal(stopped, 1, "back in the drawer, its presses are the drawer's as they always were");
@@ -2210,4 +2213,131 @@ test("on the phone the button lifts the box into the top layer over a shade, ins
   ctx.phoneMagicBig(null);
   vm.runInContext("phoneMagicOff()", ctx);
   assert.equal(PB.view.big, false);
+});
+
+test("on the Mac the box grows out of its place beside the card and shrinks back into it, its own rectangle eased in step with the shade", () => {
+  const { ctx, MB } = boardBig();
+  const html = read("index.html"), sheet = code(html.slice(0, html.indexOf("</style>")));
+  const anims = [], lines = new Set(["on"]);
+  MB.line = { classList: { add: c => lines.add(c), remove: c => lines.delete(c) } };
+  MB.el.animate = (keys, opts) => { const a = { keys: flat(keys), opts: flat(opts), cancelled: false, cancel() { a.cancelled = true; } }; anims.push(a); return a; };
+  // where the box is drawn: its own place, or wherever a move has got to
+  let drawn = null;
+  const small = { left: "700px", top: "120px", width: "400px", height: "600px" };
+  const rect = s => ({ left: s.left, top: s.top, width: s.width, height: s.height });
+  Object.assign(ctx, { cardPictureStill: () => false, getComputedStyle: () => drawn || MB.el.style,
+    magicPlace: () => { if (MB.view.big) ctx.magicPlaceBig(); else Object.assign(MB.el.style, small); } });
+  Object.assign(MB.el.style, small);
+  ctx.magicBig(null);
+  const big = rect(MB.el.style);
+  assert.deepEqual(anims[0].keys, [small, big], "from its place beside the card to the expanded one");
+  assert.deepEqual(anims[0].opts, { duration: 400, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
+  assert.ok(MB.move === anims[0] && MB.el.classList.contains("moving"));
+  // landed, it is placed as it always is
+  anims[0].onfinish();
+  assert.ok(!MB.move && !MB.el.classList.contains("moving"));
+  // and back into its place, over the shade until it lands, its lines to the card drawn once it has
+  ctx.magicSmall();
+  assert.deepEqual(anims[1].keys, [big, small]);
+  assert.ok(MB.el.classList.contains("moving") && !lines.has("on"));
+  // turned round on its way, it sets off again from where it had got to
+  drawn = { left: "500px", top: "100px", width: "800px", height: "700px" };
+  ctx.magicBig(null);
+  assert.ok(anims[1].cancelled);
+  assert.deepEqual(anims[2].keys, [drawn, big]);
+  drawn = null;
+  anims[2].onfinish();
+  // with reduced motion it does not travel: it fades in where it now stands, quickly
+  ctx.cardPictureStill = () => true;
+  ctx.magicSmall();
+  assert.deepEqual(anims[3].keys, [{ opacity: 0, offset: 0 }]);
+  assert.deepEqual(anims[3].opts, { duration: 160, easing: "ease" });
+  assert.ok(!MB.move && !MB.el.classList.contains("moving"));
+  // nothing places it on its way, and the box going stops it where it is
+  assert.match(html, /function magicPlace\(\)\{\s*if \(!MB\.el \|\| !MB\.el\.classList\.contains\("on"\)\) return;\s*if \(MB\.move\) return;/);
+  assert.match(html, /magicRiseSet\(1\);\s*if \(!keep\) magicMoveStop\(\);/);
+  // the shade fades on the same time and curve, quickly with reduced motion, and the box on its way stands over it
+  assert.match(html, /const BIG_MS = 400, BIG_EASE = "cubic-bezier\(0\.25, 1, 0\.5, 1\)", BIG_FADE_MS = 160;/);
+  assert.match(sheet, /body\.focus #mbshade\{[^}]*transition:background-color \.4s cubic-bezier\(0\.25, 1, 0\.5, 1\), visibility 0s linear \.4s\}/);
+  assert.match(sheet, /@media \(prefers-reduced-motion: reduce\)\{\s*body\.focus #mbshade\{transition:background-color \.16s ease, visibility 0s linear \.16s !important\}/);
+  const z = sel => +sheet.match(new RegExp(sel + "\\{[^}]*z-index:(\\d+)"))[1];
+  assert.ok(z("body\\.focus #magicbox\\.moving\\.on") > z("body\\.focus #mbshade"), "on its way back the box stays over the shade");
+  // a small picture shrinks with the box from where it stood
+  assert.match(read("card-tokens.css"), /\.magicbox:is\(\.big, \.moving\) \.mbimg\{object-fit:scale-down\}/);
+});
+
+test("on the phone the box grows out of its place in the drawer and shrinks back into it, in the top layer both ways", () => {
+  const { ctx, PB, box, body, anims } = phoneBoxScript(read("m.html"));
+  const boxClasses = new Set(), timers = [];
+  const popover = el => Object.assign(el, { attrs: {}, up: false,
+    setAttribute(k, v) { el.attrs[k] = v; }, removeAttribute(k) { delete el.attrs[k]; },
+    showPopover() { el.up = true; }, hidePopover() { el.up = false; }, matches: s => s === ":popover-open" && el.up });
+  popover(box);
+  box.classList = { add: c => boxClasses.add(c), remove: c => boxClasses.delete(c), contains: c => boxClasses.has(c) };
+  // in the drawer the box stands where the drawer lays it out; up in the top layer, where its style puts it
+  const px = v => parseFloat(v);
+  let mid = null;
+  box.getBoundingClientRect = () => {
+    const s = box.style;
+    if (box.up && mid) return mid;
+    return box.up ? { left: px(s.left), top: px(s.top), width: px(s.width), height: px(s.height) }
+      : { left: 28, top: 140, width: px(s.width), height: px(s.height) };
+  };
+  ctx.document.createElement = () => popover({ style: {}, addEventListener() {}, getAnimations: () => [], animate() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 402, height: 874 }) });
+  Object.assign(ctx, { innerHeight: 874, window: {}, cardPictureStill: () => false, cardPictureShown: null, imeKey: () => false,
+    clearTimeout() {}, setTimeout: fn => timers.push(fn) });
+  const { BIG, grow } = api();
+  Object.assign(ctx.MagicBox, { BIG, grow });
+  Object.assign(PB.view, { big: false, expand(on) { this.big = !!on; } });
+  body.querySelector = s => s === ".mbaway" ? null : { getBoundingClientRect: () => ({ bottom: 81 }), style: { paddingBottom: "16px" } };
+  const moves = () => anims.filter(a => a.part === "box");
+  const keys = i => flat(moves()[i].keys), opts = i => flat(moves()[i].opts);
+  const rect = s => ({ left: s.left, top: s.top, width: s.width, height: s.height });
+  ctx.phoneMagicFit();
+  const inDrawer = { left: "28px", top: "140px", width: box.style.width, height: box.style.height };
+  ctx.phoneMagicBig(null);
+  const big = rect(box.style);
+  assert.deepEqual(keys(0), [inDrawer, big], "out of its place in the drawer to 95% of the screen");
+  assert.deepEqual(opts(0), { duration: 400, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
+  assert.ok(box.up && PB.move === moves()[0]);
+  moves()[0].onfinish();
+  assert.ok(!PB.move);
+  // back: lifted over the shade again where it stands in the drawer, and carried there
+  ctx.phoneMagicSmall(true);
+  assert.deepEqual(keys(1), [big, inDrawer], "from the expanded place back into its own in the drawer");
+  assert.ok(box.up && box.attrs.popover === "manual" && boxClasses.has("moving"), "up over the shade on its way");
+  // the drawer keeps the foot the box lands with, whatever the moving box measures
+  box.offsetHeight = 400;
+  assert.equal(ctx.phoneMagicFoot(), 89);
+  box.offsetHeight = 89;
+  moves()[1].onfinish();
+  assert.ok(!box.up && box.attrs.popover === undefined && !boxClasses.has("moving") && box.style.left === "", "landed in the drawer");
+  // turned round on its way back, it lands and sets off again from where it had got to
+  ctx.phoneMagicBig(null);
+  moves()[2].onfinish();
+  ctx.phoneMagicSmall(true);
+  mid = { left: 20, top: 80, width: 360, height: 500 };
+  ctx.phoneMagicBig(null);
+  mid = null;
+  assert.ok(moves()[3].cancelled);
+  assert.deepEqual(keys(4), [{ left: "20px", top: "80px", width: "360px", height: "500px" }, big]);
+  moves()[4].onfinish();
+  // the drawer setting out to go back lands a box still on its way at once
+  ctx.phoneMagicSmall(true);
+  ctx.runMenu(ctx.tickets, 0);
+  assert.ok(moves()[5].cancelled && !PB.move && !box.up && !boxClasses.has("moving"));
+  // with reduced motion it does not travel: it fades in where it now stands, quickly
+  ctx.cardPictureStill = () => true;
+  ctx.phoneMagicBig(null);
+  assert.deepEqual(keys(6), [{ opacity: 0 }, { opacity: 1 }]);
+  assert.deepEqual(opts(6), { duration: 160, easing: "ease" });
+  // the button, Escape and the shade glide it back; the drawer, its keys and the box going put it back at once
+  const page = read("m.html");
+  assert.match(page, /escape: \(\) => \{ if \(!cardPictureShown\) phoneMagicSmall\(true\); \} \}\);/);
+  assert.match(page, /if \(PB\.view\.big\) phoneMagicSmall\(true\);\s*else phoneMagicBig\(from\);/);
+  assert.match(page, /shade\.addEventListener\("click", \(\) => phoneMagicSmall\(true\)\);/);
+  assert.match(page, /if \(!e\.repeat\) phoneMagicSmall\(true\);/);
+  assert.match(page, /function phoneMagicOff\(\)\{\s*phoneMagicSmall\(\);/);
+  assert.match(code(page), /#mbface:is\(\.big, \.moving\)\{position:fixed; inset:auto; margin:0;/);
 });
