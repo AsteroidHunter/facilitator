@@ -180,6 +180,9 @@ before(async () => {
   source = patch(source, "FIRST_REQUEST_TIMEOUT = 15.0", `FIRST_REQUEST_TIMEOUT = ${FIRST_REQUEST_S}`);
   source = patch(source, "BODY_READ_TIMEOUT = 30.0", `BODY_READ_TIMEOUT = ${BODY_READ_S}`);
   source = patch(source, "WAIT_SLOTS = 8", `WAIT_SLOTS = ${WAIT_SLOTS}`);
+  // these cases are about the transport, not the typing hold
+  // (typing-hold.test.cjs), so a message sent here is free to go out at once
+  source = patch(source, "TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
   await writeFile(path.join(app, "server.py"), source);
   require('./fixture-auth.cjs').copyBridgeFiles(require('node:path').dirname(path.join(app, "server.py")));
   await writeFile(path.join(dataOf(app), "seed.json"), JSON.stringify({

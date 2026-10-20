@@ -79,6 +79,10 @@ before(async () => {
   let src = await readFile(path.join(ROOT, "server.py"), "utf8");
   src = src.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.ok(src.includes("FACILITATOR_TEST_PORT"), "port rebind anchor");
+  // these cases are about agent names, not the typing hold
+  // (typing-hold.test.cjs), so a message sent here is free to go out at once
+  src = src.replace("TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
+  assert.ok(src.includes("TYPING_HOLD = 0.0"), "typing hold anchor");
   await writeFile(path.join(fixtureDir, "server.py"), src);
   require(path.join(ROOT, "tests", "fixture-auth.cjs")).copyBridgeFiles(fixtureDir);
   await copyFile(path.join(ROOT, "m-manifest.json"), path.join(fixtureDir, "m-manifest.json"));

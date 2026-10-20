@@ -305,6 +305,10 @@ before(async () => {
   assert.match(patched, /BG_STALE = 1\.0/, "the working flag's clock was not patched");
   patched = patched.replace("PUSH_BRIDGE_TIMEOUT = 3.0", "PUSH_BRIDGE_TIMEOUT = 1.0");
   assert.match(patched, /PUSH_BRIDGE_TIMEOUT = 1\.0/, "the bridge timeout was not patched");
+  // these cases are about pushes, not the typing hold (typing-hold.test.cjs),
+  // so a message sent here is free to go out at once
+  patched = patched.replace("TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
+  assert.match(patched, /TYPING_HOLD = 0\.0/, "the typing hold was not patched");
   patched = patched.replace(
     'TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"',
     'TAILSCALE_APP = "/facilitator-test/no-tailscale-app"',
