@@ -575,7 +575,7 @@ test("the brace is a { to a response on the card's right and a } to one on its l
       // each spine is dashed from the point, so the corners there close
       assert.ok(close(b.upper[1][1], upPoint[1] + STROKE / 2) && close(b.lower[1][1], downPoint[1] - STROKE / 2));
     }
-    assert.ok(close(tall.top, 90 + LEAD), "its top arm level with the middle of the response's first line");
+    assert.ok(close(tall.top, 90 + LEAD), "its top arm level with the top of the response's first line");
     assert.ok(close(tall.foot, 90 + 684 - 14), "its foot arm in by the corner at the foot");
     assert.ok(close(tall.point - tall.top, short.point - short.top), "the upper set keeps its height");
     assert.ok(close(tall.point - tall.top, most.height * TWO.share), "where the box's first line stands");
@@ -604,25 +604,38 @@ test("the brace is a { to a response on the card's right and a } to one on its l
   assert.equal(STROKE, TWO.width / 2, "half the box's lines");
   assert.match(fn("magicLine"), /stroke-width="' \+ TWO\.width \+/, "the box's own lines keep their width");
   assert.ok(!/accent|purple|#[0-9a-f]{3,6}/i.test(draw), "no colour of its own");
-  assert.match(draw, /const first = words && pipeLines\(words, 1, true\);/);
-  assert.match(draw, /\(\(first\.top \+ first\.bottom\) \/ 2 - PIPE\.el\.getBoundingClientRect\(\)\.top\) \/ S \+ PIPE\.body\.scrollTop/);
+  // its top arm at the top of the response's first line, as the place reads it (pipeLevel),
+  // with the words' scroll taken back, and in by the corner with no words
+  assert.match(draw, /^function pipeLine\(card, box, side, most, lead\)\{/);
+  assert.match(fn("pipeLevel"), /lead: \(own\.top - PIPE\.el\.getBoundingClientRect\(\)\.top\) \/ S \+ PIPE\.body\.scrollTop/);
+  assert.match(fn("pipePlace"), /pipeLine\(room\.rect, at, side, most\[side\], level && level\.lead\);/);
   assert.match(draw, /parseFloat\(getComputedStyle\(words\)\.lineHeight\)/);
-  assert.match(draw, /pipeBrace\(card, box, side, most, \{ round, lead, apart, clear: PIPE_CLEAR \}\)/);
+  assert.match(draw, /pipeBrace\(card, box, side, most, \{ round, lead: lead == null \? round : lead, apart, clear: PIPE_CLEAR \}\)/);
   assert.match(HTML, /const PIPE_MS = \d+, PIPE_DIM = \.1, PIPE_CLEAR = 8;/);
 });
 
 // ---- which side --------------------------------------------------------------------
-function placer({ box = false, roomRight = true, roomLeft = true } = {}) {
-  const classes = new Set(["on"]), style = {};
-  const tickets = { style: { opacity: "" } }, clock = { style: { opacity: "" } }, reply = { style: { opacity: "" } };
-  const PIPE = { side: null, rise: { t: 1, raf: 0, then: null }, id: "c1",
-    el: { classList: { contains: c => classes.has(c) }, style },
+// card: the first line of the card's own copy of the response (its top), the top
+// of the card's answer and the top of the typing box, on the screen; with none,
+// the response has no words to stand level with. S and sy: the stage's scale and
+// its top on the screen. the pipe's words have their first line LEAD under its top
+const LEAD = 17.86;
+function placer({ box = false, roomRight = true, roomLeft = true, want = 400, card = null, S = 1, sy = 0 } = {}) {
+  const classes = new Set(["on"]), style = {}, body = { scrollTop: 0 };
+  const tickets = { style: { opacity: "" } }, clock = { style: { opacity: "" } };
+  const reply = { style: { opacity: "" }, get first(){ return card && { top: card.first, bottom: card.first + 23.5 * S }; } };
+  const PIPE = { side: null, rise: { t: 1, raf: 0, then: null }, id: "c1", top: null, body,
+    el: { classList: { contains: c => classes.has(c) }, style,
+      getBoundingClientRect: () => ({ top: sy + (parseFloat(style.top) || 0) * S }) },
     line: { classList: { remove() {}, add() {} } },
     aside: [tickets, clock], dimmed: null, dimAt: { reply: "", aside: "" },
-    view: { want: () => ({ height: 400 }) } };
+    view: { want: () => ({ height: want }) } };
+  const words = { get first(){ const top = PIPE.el.getBoundingClientRect().top + (LEAD - body.scrollTop) * S; return { top, bottom: top + 23.5 * S }; } };
+  PIPE.part = { reply: card ? words : null };
   const rect = { ...CARD };
   const fit = fitAt(1512);
   const most = MagicBox.place(rect, fit);
+  const drawn = [];
   const context = vm.createContext({
     PIPE, MagicBox: {
       place: (r, f, want, side) => {
@@ -630,15 +643,18 @@ function placer({ box = false, roomRight = true, roomLeft = true } = {}) {
         return { ...at, shown: side === "left" ? roomLeft && at.shown : roomRight && at.shown };
       },
     },
-    magicRoom: () => ({ S: 1, rect, fit, most: { ...most, shown: roomRight } }),
+    magicRoom: () => ({ S, sr: { x: 0, y: sy }, rect, fit, most: { ...most, shown: roomRight } }),
     frameLimits: () => ({ left: fit.left + 16 }), FRAME_CLEAR: 16,
-    boardMagicShown: () => box, pipeLine: () => {}, boxRise: () => {},
-    els: { c1: { reply } },
+    boardMagicShown: () => box, pipeLine: (...args) => drawn.push(args), boxRise: () => {},
+    // each line read off the page where the stand-ins above lay it
+    pipeLines: node => node.first || null,
+    els: { c1: { reply, replyview: { getBoundingClientRect: () => ({ top: card.view }) },
+      pendwrap: { getBoundingClientRect: () => ({ top: card.pend }) } } },
   });
-  vm.runInContext(cut("const PIPE_MS = ", "\n") + "\n" + cut("function riseEase(", "\n") + "\n" + fn("pipePlace") + fn("pipeDim"), context);
+  vm.runInContext(cut("const PIPE_MS = ", "\n") + "\n" + cut("function riseEase(", "\n") + "\n" + fn("pipePlace") + fn("pipeLevel") + fn("pipeDim"), context);
   // what stands dimmed: the ticket list and the clock, and the card's own response
   const dims = () => ({ tickets: tickets.style.opacity, clock: clock.style.opacity, reply: reply.style.opacity });
-  return { context, PIPE, style, dims, set: v => Object.assign(context, v) };
+  return { context, PIPE, style, dims, drawn, card, fit, set: v => Object.assign(context, v) };
 }
 
 test("it stands on the right, on the left when the box is there or the right has no room, and keeps its side", () => {
@@ -682,6 +698,67 @@ test("it stands on the right, on the left when the box is there or the right has
   sinking.PIPE.rise.t = 0.5;
   sinking.context.pipePlace();
   assert.deepEqual(sinking.dims(), { tickets: "0.5500", clock: "0.5500", reply: "0.5500" });
+});
+
+test("its first line stands level with the card's own first line, and it reaches down to the box's foot at most, either side", () => {
+  for (const box of [false, true]) {
+    const at = placer({ box, want: 143, card: { first: 330, view: 243, pend: 600 } });
+    const side = box ? "left" : "right";
+    const whole = box ? MagicBox.place(CARD, { ...at.fit, left: at.fit.left }, null, "left") : MagicBox.place(CARD, at.fit);
+    const foot = whole.top + whole.height;
+    const place = () => { at.context.pipePlace(); return { top: parseFloat(at.style.top), height: parseFloat(at.style.height) }; };
+    let p = place();
+    assert.equal(at.PIPE.side, side);
+    assert.ok(close(p.top + LEAD, 330), side + ": its first line level with the card's");
+    assert.ok(p.top > whole.top + 100, side + ": well under the box's top, where it stood");
+    assert.ok(close(p.height, 143), side + ": a short response as tall as its words from there");
+    // the brace's top arm at the top of that line
+    let [, drawnAt, drawnSide, , lead] = at.drawn.at(-1);
+    assert.equal(drawnSide, side);
+    assert.ok(close(drawnAt.top + lead, 330), side + ": the brace from the top of the first line");
+    // a long response down to the box's foot, where its words scroll
+    at.PIPE.view.want = () => ({ height: 2000 });
+    p = place();
+    assert.ok(close(p.top + LEAD, 330) && close(p.top + p.height, foot), side + ": a long one ends at the box's foot");
+    // its words scrolled: it stands where it stood, and so does the brace
+    at.PIPE.body.scrollTop = 120;
+    p = place();
+    [, drawnAt, , , lead] = at.drawn.at(-1);
+    assert.ok(close(p.top + LEAD, 330) && close(drawnAt.top + lead, 330), side + ": its scroll moves neither");
+    at.PIPE.body.scrollTop = 0;
+    // the card's line moved, by a scroll, a longer title or the card's size: it follows
+    at.card.first = 300;
+    p = place();
+    assert.ok(close(p.top + LEAD, 300) && close(p.top + p.height, foot), side + ": it follows the card's line");
+    // that line scrolled up past the answer's top: it stays at the answer's top
+    at.card.first = 100;
+    assert.ok(close(place().top + LEAD, 243), side + ": held at the top of the card's answer");
+    // down under the typing box: it stays a line over the typing box
+    at.card.first = 700;
+    assert.ok(close(place().top + LEAD, 600 - 23.5), side + ": held a line over the typing box");
+    // sinking back into the card it keeps where it stood, as the answer goes back where it was read
+    at.card.first = 330;
+    place();
+    at.PIPE.rise.then = () => {};
+    at.card.first = 120;
+    assert.ok(close(place().top + LEAD, 330), side + ": it sinks where it stood");
+    at.PIPE.rise.then = null;
+    assert.ok(close(place().top + LEAD, 243));
+  }
+  // on a board drawn smaller than its stage, in the stage's pixels it stands in
+  const S = 0.87, sy = 20;
+  const small = placer({ want: 143, S, sy, card: { first: sy + 330 * S, view: sy + 243 * S, pend: sy + 600 * S } });
+  small.context.pipePlace();
+  assert.ok(close(parseFloat(small.style.top) + LEAD, 330, 1e-9), "level on a smaller board");
+  // a response with no words to stand level with stands as the box does
+  const none = placer({ want: 143 });
+  none.context.pipePlace();
+  assert.ok(close(parseFloat(none.style.top), MagicBox.place(CARD, none.fit).top));
+  assert.equal(none.drawn.at(-1)[4], null, "and its brace starts in by the corner");
+  // gone, it keeps no place for the next
+  assert.match(fn("pipeOff"), /PIPE\.top = null;/);
+  // the card's answer scrolled moves it, as a change to the card does
+  assert.match(HTML, /addEventListener\("scroll", e => \{\n    const el = PIPE\.id === null \? null : els\[PIPE\.id\];\n    if \(el && e\.target === el\.replyview && pipeShown\(\)\) pipePlace\(\);\n  \}, \{ capture: true, passive: true \}\);/);
 });
 
 // ---- coming and going ------------------------------------------------------------------
