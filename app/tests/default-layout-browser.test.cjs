@@ -25,17 +25,17 @@ const THREE = ["clockbox", "tickets", "main"];
 // the default places and sizes in stage pixels, the stage being 1440 by 900
 const DEFAULT_RECTS = {
   clockbox:{ x:28.8, y:28.8, w:218.88, h:103.68 },
-  tickets:{ x:40.32, y:167.04, w:368.64, h:518.4 },
-  main:{ x:466.56, y:51.84, w:506.88, h:760.32 },
+  tickets:{ x:40.32, y:172.8, w:362.88, h:512.64 },
+  main:{ x:460.8, y:51.84, w:518.4, h:766.08 },
 };
 // the same arrangement written out as a saved layout, with the other boxes put away
 const SAVED_SAME_AS_DEFAULT = {
   "pos.facilitator.clockbox":JSON.stringify({ x:28.8, y:28.8 }),
   "size.facilitator.clockbox":JSON.stringify({ w:218.88, h:103.68 }),
-  "pos.facilitator.tickets":JSON.stringify({ x:40.32, y:167.04 }),
-  "size.facilitator.tickets":JSON.stringify({ w:368.64, h:518.4 }),
-  "pos.facilitator.main":JSON.stringify({ x:466.56, y:51.84 }),
-  "size.facilitator.main":JSON.stringify({ w:506.88, h:760.32 }),
+  "pos.facilitator.tickets":JSON.stringify({ x:40.32, y:172.8 }),
+  "size.facilitator.tickets":JSON.stringify({ w:362.88, h:512.64 }),
+  "pos.facilitator.main":JSON.stringify({ x:460.8, y:51.84 }),
+  "size.facilitator.main":JSON.stringify({ w:518.4, h:766.08 }),
   "hide.facilitator.magic1":"1", "hide.facilitator.magic2":"1", "hide.facilitator.magic3":"1",
   "hide.facilitator.rail":"1", "hide.facilitator.goalbox":"1",
 };
@@ -239,7 +239,7 @@ test("a saved layout wins over the default and is not rewritten", async () => {
     const rects = await stageRects(page);
     assertRects(rects, {
       clockbox:{ x:86.4, y:97.92, w:241.92, h:115.2 },
-      main:{ x:570.24, y:63.36, w:506.88, h:760.32 },
+      main:{ x:570.24, y:63.36, w:518.4, h:766.08 },
     }, "saved layout");
     const kept = await page.evaluate(keys => keys.map(k => settingsStore.getItem(k)), Object.keys(saved));
     assert.deepEqual(kept, Object.values(saved), "every saved key reads back as it was written");

@@ -66,7 +66,7 @@ test("the default player is on star lines, whole rows tall, and keeps its width 
   near((playerBottom - playerTop) / PITCH, 11, "player height in rows");
   near(frac("m1-w") * 1440, 279.936, "player width");
   near(frac("m1-x") * 1440, 113.472, "player left");
-  near(listTop, 167.04, "the list is where the chosen layout puts it");
+  near(listTop, 172.8, "the list is where the chosen layout puts it");
   near(listBottom, 685.44, "the list is the size the chosen layout gives it");
 });
 
