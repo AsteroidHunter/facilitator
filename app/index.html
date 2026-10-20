@@ -1656,32 +1656,34 @@
      window's width and height, in the window's middle (MagicBox.grow), over
      the whole board dimmed as the settings page dims it (.sp-veil in
      card-tokens.css): the board's ink at 24%, its colour fading in and out
-     in step with the box's move (BIG_MS, BIG_EASE), over the whole window and
-     the bar, and taking the click that puts the box back. the shade and the
-     box stay in the stage, so the box is drawn at the board's own scale, and
-     the stage stands over the bar and the board's other layers while they are
-     up (body.mbup, which outlasts the fade out), under the project list, the
-     search, the settings and an open picture, which still open over it.
-     expanded, it wears its held look and draws no lines to its card. on its
-     way either way (.moving) it stands over the shade at full strength from
-     the first frame, so the card never shows through it as it passes over,
-     and once landed beside the card it eases to its own look there. with
-     reduced motion the box does not travel, and the shade keeps a quick fade
-     (BIG_FADE_MS) past the rule that stops every other transition */
+     in step with the box's genie (BIG_MS, BIG_EASE), over the whole window
+     and the bar, and taking the click that puts the box back. the shade and
+     the box stay in the stage, so the box is drawn at the board's own scale,
+     and the stage stands over the bar and the board's other layers while
+     they are up (body.mbup, which outlasts the fade out), under the project
+     list, the search, the settings and an open picture, which still open over
+     it. expanded, it wears its held look and draws no lines to its card. on
+     its way either way the box waits hidden where it lands (.moving), and the
+     genie is drawn over the shade on a canvas the size of the window
+     (#mbgenie, magicMove). with reduced motion the box does not travel, and
+     the shade keeps a quick fade (BIG_FADE_MS) past the rule that stops every
+     other transition */
   #mbshade{display:none}
   body.focus #mbshade{display:block; position:fixed; z-index:60; visibility:hidden; pointer-events:none;
     background-color:color-mix(in srgb, var(--ink) 0%, transparent);
-    transition:background-color .4s cubic-bezier(0.25, 1, 0.5, 1), visibility 0s linear .4s}
+    transition:background-color .5s ease-in-out, visibility 0s linear .5s}
   body.focus.mbbig #mbshade{visibility:visible; pointer-events:auto;
     background-color:color-mix(in srgb, var(--ink) 24%, transparent);
-    transition:background-color .4s cubic-bezier(0.25, 1, 0.5, 1), visibility 0s}
+    transition:background-color .5s ease-in-out, visibility 0s}
   @media (prefers-reduced-motion: reduce){
     body.focus #mbshade{transition:background-color .16s ease, visibility 0s linear .16s !important}
     body.focus.mbbig #mbshade{transition:background-color .16s ease, visibility 0s !important}
   }
   body.focus.mbup #stage{z-index:38}
   body.focus #magicbox.big.on{z-index:61; opacity:1; box-shadow:var(--shade-raised)}
-  body.focus #magicbox.moving.on{z-index:61; opacity:1; transition:box-shadow .2s}
+  body.focus #magicbox.moving.on{visibility:hidden}
+  #mbgenie{display:none}
+  body.focus #mbgenie.on{display:block; position:fixed; z-index:61; pointer-events:none}
   /* a long reply's steps (pipeStep). the row keeps its words' own height, to
      the cap above, its first step, and scrolls inside that. once the words
      would reach the line under the card's top bar the box it stands in rises
@@ -4164,6 +4166,9 @@
   </div>
   <div class="mbbody"></div>
 </section>
+<!-- the canvas the box's genie is drawn on as it expands and goes back, over
+     the shade and the box (magicMove) -->
+<canvas id="mbgenie" aria-hidden="true"></canvas>
 <!-- the lines from the card to its magic box, two dashed lines beneath the
      card and the box: before the card on the page, so it is drawn over them -->
 <svg id="mbline" aria-hidden="true"></svg>
@@ -8166,6 +8171,7 @@ if (MB.el){
   // the green button expands the box and puts it back (magicBig). what held
   // the focus as it was pressed is where the focus goes back to
   MB.shade = document.getElementById("mbshade");
+  MB.genie = document.getElementById("mbgenie");
   MB.grow = MB.el.querySelector(".mbgrow");
   MB.grow.addEventListener("pointerdown", () => { MB.pressFrom = document.activeElement; }, true);
   MB.grow.addEventListener("click", e => {
@@ -8509,57 +8515,72 @@ function magicPlaceBig(){
   Object.assign(MB.el.style, stage(at), { visibility: MB.view.waiting() ? "hidden" : "" });
   Object.assign(MB.shade.style, stage(win));
 }
-// the box carried between its place beside the card and its expanded one, as
-// a Mac window goes down to the Dock and comes back, without the bend: its
-// own left, top, width and height, in the stage's pixels, eased from where it
-// was drawn (from) to where it now stands, and what it holds laid out again at
-// every size on the way, so the words stay sharp and a page lays itself out
-// as it goes. the time and curve (BIG_MS, BIG_EASE) are the picture's as it
-// opens out of its card (CARD_PICTURE_EASE): quick to set off and long to
-// settle, with no overshoot, and a tenth of a second longer than the
-// picture's for the box's longer way. the shade fades on the same time and
-// curve. on its way nothing else places it (magicPlace) and it stands over
-// the shade at full strength (.moving), and once it lands it is placed as it
-// always is. with reduced motion it does not travel: it fades in where it
-// now stands, quickly (BIG_FADE_MS)
-const BIG_MS = 400, BIG_EASE = "cubic-bezier(0.25, 1, 0.5, 1)", BIG_FADE_MS = 160;
-function magicMove(from){
+// the box poured between its place beside the card and its expanded one, as
+// a Mac window pours into the Dock and back out (magicGenie, card-logic.js):
+// it is pictured where it stood (was, magicFrom) and where it now stands, and
+// the genie is drawn from the one to the other on the board's canvas over
+// the shade (#mbgenie), laid over the window as the shade is, while the box
+// waits hidden where it now stands (.moving), laid out at its size, and shows
+// again there as the canvas goes. the time (BIG_MS) is near the Dock's own
+// half a second, and the shade fades on the same time, eased in and out as
+// the genie's rows are (BIG_EASE). on its way nothing else places it
+// (magicPlace), and once it lands it is placed as it always is. pressed again
+// on its way, it turns round from where it has got to. with reduced motion,
+// or with no graphics to draw the genie, it does not travel: it fades in
+// where it now stands, quickly (BIG_FADE_MS)
+const BIG_MS = 500, BIG_EASE = "ease-in-out", BIG_FADE_MS = 160;
+function magicMove(was){
   const s = MB.el.style;
   if (s.visibility === "hidden") return;
-  if (cardPictureStill(window)){ MB.el.animate([{ opacity: 0, offset: 0 }], { duration: BIG_FADE_MS, easing: "ease" }); return; }
-  if (!from) return;
+  if (cardPictureStill(window) || !magicGenieGL(MB.genie)){ MB.el.animate([{ opacity: 0, offset: 0 }], { duration: BIG_FADE_MS, easing: "ease" }); return; }
+  if (!was) return;
+  // the end it now stands at is pictured now, unless a genie turned round on its way has both
+  const look = was.look, now = was.big && was.small ? null : magicLook(MB.el, true);
+  const big = was.big || (MB.view.big ? now : look), small = was.small || (MB.view.big ? look : now);
   MB.line.classList.remove("on");
+  const sh = MB.shade.style;
+  Object.assign(MB.genie.style, { left: sh.left, top: sh.top, width: sh.width, height: sh.height });
+  MB.genie.classList.add("on");
   MB.el.classList.add("moving");
-  const move = MB.move = MB.el.animate([from, { left: s.left, top: s.top, width: s.width, height: s.height }],
-    { duration: BIG_MS, easing: BIG_EASE });
-  move.onfinish = () => {
+  const from = was.s ?? (MB.view.big ? 1 : 0), to = MB.view.big ? 0 : 1;
+  const move = MB.move = magicGenie(MB.genie, big, small, from, to, Math.abs(to - from) * BIG_MS, () => {
     if (MB.move !== move) return;
     MB.move = null;
-    MB.el.classList.remove("moving");
+    magicGenieOff();
     magicPlace();
-  };
+  });
+  if (!move) magicGenieOff();
 }
-// where the box is drawn now, in the stage's pixels, however far a move has
-// got, which stops there. null with reduced motion, where it never travels
-function magicMoveStop(){
-  let at = null;
-  if (!cardPictureStill(window) && MB.el.classList.contains("on")){
-    const cs = getComputedStyle(MB.el);
-    at = { left: cs.left, top: cs.top, width: cs.width, height: cs.height };
-  }
-  if (MB.move){ MB.move.cancel(); MB.move = null; }
+function magicGenieOff(){
+  MB.genie.classList.remove("on");
   MB.el.classList.remove("moving");
-  return at;
+}
+// a genie on its way, stopped where it has got to: how far, and its two
+// pictures, for the next to set off from (magicMove). null when none is
+function magicMoveStop(){
+  const move = MB.move;
+  if (!move) return null;
+  MB.move = null;
+  magicGenieOff();
+  return move.stop();
+}
+// the box pictured where it stands now, for the genie to set off from. null
+// with reduced motion, where it never travels, or a box not on show
+function magicFrom(){
+  if (cardPictureStill(window) || !MB.el.classList.contains("on") || MB.el.style.visibility === "hidden" ||
+    !magicGenieGL(MB.genie)) return null;
+  const look = magicLook(MB.el);
+  return look && { look };
 }
 // the green button: the box expanded, nine tenths of the window, as the
-// owner works in it. it grows out of its place beside the card (magicMove)
+// owner works in it. it pours out of its place beside the card (magicMove)
 // as the shade fades in, risen and in its held look, and the stage stands
 // over the bar until the shade has faded out again (body.mbup). from: what
 // held the focus as it was asked for, which has it again as the box goes back
 function magicBig(from){
   if (!MB.el || !MB.el.classList.contains("on") || MB.view.big) return;
   MB.bigFrom = from && from !== document.body ? from : null;
-  const was = magicMoveStop();
+  const was = magicMoveStop() || magicFrom();
   magicRiseStop(); magicRiseSet(1);
   MB.el.classList.remove("rising");
   clearTimeout(MB.bigDown);
@@ -8568,20 +8589,25 @@ function magicBig(from){
   magicPlace();
   magicMove(was);
 }
-// and back beside its card, shrinking into its place as the shade fades
+// and back beside its card, pouring into its place as the shade fades
 // (magicMove), by the button again, Escape, a click on the shade, or the box
-// going: the focus goes back to what held it as the box was expanded, the
-// typing box with its caret and selection as they were, unless the owner has
-// put it somewhere else on the board meanwhile
+// going. the focus goes back first, so the box is pictured where it lands
+// in the look it then has (magicRefocus)
 function magicSmall(){
   if (!MB.el || !MB.view.big) return;
-  const was = magicMoveStop();
+  const was = magicMoveStop() || magicFrom();
   MB.view.expand(false);
   document.body.classList.remove("mbbig");
   clearTimeout(MB.bigDown);
   MB.bigDown = setTimeout(() => document.body.classList.remove("mbup"), BIG_MS);
   magicPlace();
+  magicRefocus();
   magicMove(was);
+}
+// the focus back to what held it as the box was expanded, the typing box
+// with its caret and selection as they were, unless the owner has put it
+// somewhere else on the board meanwhile
+function magicRefocus(){
   const back = MB.bigFrom, now = document.activeElement;
   MB.bigFrom = null;
   if (!back || !back.isConnected || now === back || (now && now !== document.body && !MB.el.contains(now))) return;
