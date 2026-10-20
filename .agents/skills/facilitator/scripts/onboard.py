@@ -27,6 +27,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 RUNBOOK = REPO / "app" / "RUNBOOK.md"
+PROFILE = REPO / "data" / "profile.json"
 REMOTE_FILE = REPO / "remote.json"
 LINK = Path(__file__).resolve().parent / "link.py"
 LISTEN_SECONDS = 420
@@ -36,6 +37,10 @@ ACK_PATIENCE = 60       # seconds an ack is tried again through a drop
 WAIT_CYCLE = 25         # seconds one /wait call from a server may last
 REMOTE_BASE = "http://board"   # what an agent on a server writes for the board
 LANE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
+# a name the board keeps (server.py's _clean_text): at most 200 characters,
+# and no control character other than a tab or a new line
+NAME_MAX = 200
+NAME_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def output(status, **fields):
@@ -58,6 +63,26 @@ def port():
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     return 8877
+
+
+def first_name(name):
+    """The first word of a name, as typed, or None for no name: a profile
+    may hold a first name alone or a full one, and an agent is given only
+    the first."""
+    if not isinstance(name, str) or NAME_CONTROL.search(name) or len(name.strip()) > NAME_MAX:
+        return None
+    words = name.split()
+    return words[0] if words else None
+
+
+def profile_name():
+    """The first name in the board's profile (data/profile.json), read the
+    way the board reads the name, and nothing else of the profile."""
+    try:
+        name = json.loads(PROFILE.read_text(encoding="utf-8")).get("name")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return first_name(name)
 
 
 def request(method, route, *, timeout=3):
@@ -400,6 +425,10 @@ def inspect(args):
         return
     owner = matches[0]
     common = {"owner": owner, "port": port(), "runbook": str(RUNBOOK)}
+    # the person's first name goes with the runbook, and none for no name
+    name = profile_name()
+    if name:
+        common["name"] = name
     if state["busy"].get(owner):
         output("claim_held", box=state["busy"][owner], **common)
     elif state["listening"].get(owner) or state["listenerGap"].get(owner, 1e9) < 60:

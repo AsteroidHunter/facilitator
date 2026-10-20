@@ -158,6 +158,45 @@ test('ambiguous paths ask for a project, and occupied lanes do not start a dupli
   } finally { await f.close(); }
 });
 
+// the person's first name: the first word of the profile's name as typed,
+// read the way the board reads the name, and nothing else of the profile
+test('inspect gives the first word of the profile name, and no name for none', async () => {
+  const f = await fixture();
+  const profile = path.join(dataOf(f.app), 'profile.json');
+  const others = { email: 'owner@example.invalid', email_yes: true, work: 'garden notes', time_zone: 'Europe/Madrid' };
+  const inspect = async fields => {
+    await fs.writeFile(profile, JSON.stringify({ ...others, ...fields }));
+    return f.run(f.project, 'inspect');
+  };
+  try {
+    assert.equal((await f.run(f.project, 'inspect')).name, 'Fixture');
+    for (const [name, first] of [['Ada', 'Ada'], ['Ada Lovelace', 'Ada'], ['  ada  ', 'ada'],
+      ['María José García', 'María'], ['Ада Лавлейс', 'Ада'], ['Ada\tLovelace\n', 'Ada']]) {
+      const said = await inspect({ name });
+      assert.deepEqual(Object.keys(said), ['status', 'owner', 'port', 'runbook', 'name'], name);
+      assert.equal(said.name, first, name);
+    }
+    // what the board reads as no name: none, blank, not text, a control
+    // character, past 200 characters
+    for (const fields of [{}, { name: '' }, { name: '   ' }, { name: null }, { name: 42 }, { name: 'A\u0007da' },
+      { name: 'A'.repeat(201) }]) {
+      const said = await inspect(fields);
+      assert.equal(said.status, 'ready');
+      assert.deepEqual(Object.keys(said), ['status', 'owner', 'port', 'runbook'], JSON.stringify(fields));
+    }
+    await fs.rm(profile);
+    assert.deepEqual(Object.keys(await f.run(f.project, 'inspect')), ['status', 'owner', 'port', 'runbook']);
+    // a lane already held still names the person beside the runbook
+    await inspect({ name: 'Ada Lovelace' });
+    assert.equal((await post(f, '/send?box=m1', 'First message')).status, 200);
+    assert.equal((await f.run(f.project, 'wait', '--owner', 'garden', '--timeout', '1')).status, 'claim');
+    const held = await f.run(f.project, 'inspect');
+    assert.equal(held.status, 'claim_held');
+    assert.equal(held.name, 'Ada');
+    assert.doesNotMatch(JSON.stringify(held), /Lovelace|owner@example|garden notes|Madrid/);
+  } finally { await f.close(); }
+});
+
 test('one wait confirms a claim, fresh messages are answered, and a working reply defers the turn', async () => {
   const f = await fixture();
   try {
