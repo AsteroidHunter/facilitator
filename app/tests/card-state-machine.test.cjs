@@ -11,6 +11,7 @@ const { saveNotes } = require("./saved-notes.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const REFUSAL = "notes were removed; send progress as a normal /reply under /working";
+const PROGRESS_REFUSAL = "progress updates were removed; send progress as a normal /reply under /working";
 
 let child;
 let fixtureDir;
@@ -227,6 +228,37 @@ test("a card saved in the note state loads in it and leaves it as it always did"
   assert.equal(result.status, 200);
   state = await boxState();
   assert.deepEqual([state.box.state, state.box.ball], ["yours", "you"]);
+});
+
+test("a stale /progress is refused and leaves the card, its claim, its messages and the steal timer as they were", async () => {
+  let result = await api("/send?box=m1", { method: "POST", body: "Check the logs again" });
+  assert.equal(result.status, 200);
+  await claim();
+  const before = await boxState();
+  const threadBefore = (await api("/thread?box=m1&n=50")).body.messages;
+  // the claim's clock, the steal timer, is saved with the rest of the board
+  const savedBefore = await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8");
+
+  result = await api("/progress?box=m1", { method: "POST", body: "Halfway through" });
+  assert.equal(result.status, 400);
+  assert.deepEqual(result.body, { error: PROGRESS_REFUSAL });
+
+  const after = await boxState();
+  assert.deepEqual(shown(after.box), shown(before.box), "a refused progress update changed what the card shows");
+  assert.equal(after.board.busy.facilitator, "m1", "a refused progress update let the claim go");
+  assert.equal(after.board.rev, before.board.rev, "a refused progress update saved the board");
+  assert.deepEqual((await api("/thread?box=m1&n=50")).body.messages, threadBefore);
+  assert.deepEqual((await api("/unread?owner=facilitator")).body, { queued: 0, claimed: 1 });
+  const savedAfter = await readFile(path.join(dataOf(fixtureDir), "state.json"), "utf8");
+  assert.equal(savedAfter, savedBefore, "a refused progress update wrote the board's file");
+  assert.ok(JSON.parse(savedAfter).busy_ts.facilitator > 0, "the claim's steal timer was not running");
+
+  result = await api("/reply?box=m1", { method: "POST", body: "Checked: nothing new in them" });
+  assert.equal(result.status, 200);
+  const answered = await boxState();
+  assert.deepEqual([answered.box.state, answered.box.ball], ["yours", "you"]);
+  assert.deepEqual(answered.box.answered.map(m => m.text), ["Check the logs again"]);
+  assert.equal(answered.board.busy.facilitator, null);
 });
 
 // the board keeps its cardState in the shared card-logic.js; the page view keeps its own

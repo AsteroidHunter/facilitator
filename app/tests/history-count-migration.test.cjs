@@ -17,7 +17,7 @@ const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { appFolder, dataOf } = require("./fixture-auth.cjs");
-const { saveNotes } = require("./saved-notes.cjs");
+const { saveNotes, saveProgress } = require("./saved-notes.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -365,4 +365,38 @@ test("the board keeps the count itself from there on", async () => {
   await stopServer();
   await startServer();
   await agreed(card, 2, "three answers, after a restart");
+});
+
+// a progress update standing on the card puts its answer one page back, the
+// way a note does, and it is not a page itself. The board no longer takes
+// them, so this one is saved into a stopped board's files
+test("a progress update saved before /progress was removed stands over its answer as it always did", async () => {
+  const card = (await post("/create?owner=facilitator", "Progress over one answer")).body.id;
+  await post(`/send?box=${card}`, "The question.");
+  await post(`/reply?box=${card}`, "The answer under the progress.");
+  await stopServer();
+  saveProgress(dataOf(fixtureDir), card, "Halfway through the next part.");
+  await startServer();
+  const shown = await boardBox(card);
+  assert.deepEqual([shown.reply, shown.replyKind, shown.replies], ["Halfway through the next part.", "progress", 1]);
+  await agreed(card, ["The answer under the progress."], "a saved progress update over the one answer");
+
+  const refused = await post(`/progress?box=${card}`, "A progress update sent after the removal.");
+  assert.deepEqual([refused.status, refused.body],
+    [400, { error: "progress updates were removed; send progress as a normal /reply under /working" }]);
+  assert.equal((await boardBox(card)).reply, "Halfway through the next part.",
+    "a refused progress update replaced the saved one");
+
+  // and counted again from the transcript alone, it is still what the card shows
+  await stopServer();
+  const saved = await readState();
+  for (const box of saved.boxes) {
+    delete box.full_replies;
+    delete box.reply_kind;
+  }
+  delete saved.history_counts_version;
+  await writeFile(statePath(), JSON.stringify(saved, null, 1));
+  await startServer();
+  await agreed(card, ["The answer under the progress."], "a saved progress update, counted at startup");
+  assert.equal((await readState()).boxes.find(box => box.id === card).reply_kind, "progress");
 });

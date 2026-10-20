@@ -1,12 +1,12 @@
 // where each sent message stands with the agent, as the board states it to the
 // pages: sent while no agent has confirmed receiving it, delivered once the
 // claim carrying it is confirmed through /ack (or /fresh folds it into such a
-// claim), read once the agent has written back since receiving it (a progress
-// note over its claim, or a note saved before /note was removed that took it
-// toward the answer still to come), and gone into the reply's own batch once
-// the reply lands. read through a real
-// fixture server on a free port; the suite never touches port 8877. every card
-// and message below is invented.
+// claim), read when a note saved before /note was removed took it toward the
+// answer still to come, and gone into the reply's own batch once the reply
+// lands. /note and /progress, which marked messages read while the agent
+// worked, were removed and are refused. read through a real fixture server on
+// a free port; the suite never touches port 8877. every card and message below
+// is invented.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -127,7 +127,7 @@ after(async () => {
   if (outer) await rm(outer, { recursive: true, force: true });
 });
 
-test("a message is sent until its claim is confirmed, delivered after, and read once the agent writes back", async () => {
+test("a message is sent until its claim is confirmed, delivered after, and taken by the reply", async () => {
   await post("/send?box=m1", "Invented first message.");
   assert.deepEqual(await marks("m1"), { texts: ["Invented first message."], states: ["sent"], noted: [] },
     "a message nobody has received is not marked sent");
@@ -144,13 +144,14 @@ test("a message is sent until its claim is confirmed, delivered after, and read 
   const fresh = await api("/fresh?owner=facilitator");
   assert.deepEqual(fresh.body.messages, ["Invented second message."]);
   assert.deepEqual((await marks("m1")).states, ["delivered", "delivered"], "a message /fresh handed over is not delivered");
-  // the agent writes back: everything its claim holds is read, and what lands after is not
+  // a stale progress update is refused and marks nothing
   await post("/send?box=m1", "Invented third message.");
-  await post("/progress?box=m1", "Invented progress words.");
-  assert.deepEqual((await marks("m1")).states, ["read", "read", "sent"], "a progress note did not mark its claim read");
+  const refused = await api("/progress?box=m1", { method: "POST", body: "Invented progress words." });
+  assert.equal(refused.status, 400);
+  assert.deepEqual((await marks("m1")).states, ["delivered", "delivered", "sent"],
+    "a refused progress update moved a delivery mark");
   await api("/fresh?owner=facilitator");
-  assert.deepEqual((await marks("m1")).states, ["read", "read", "delivered"],
-    "a message handed over after the progress note was taken for read");
+  assert.deepEqual((await marks("m1")).states, ["delivered", "delivered", "delivered"]);
   // another card of the lane is untouched by this claim
   await post("/send?box=m3", "Invented message on another card.");
   assert.deepEqual((await marks("m3")).states, ["sent"], "a claim on one card marked another card's message");

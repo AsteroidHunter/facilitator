@@ -522,7 +522,7 @@ test("two quick turns carry independent card ids and titles", async () => {
   ].sort((a, b) => a.box.localeCompare(b.box)));
 });
 
-test("a refused note and a progress note never push", async () => {
+test("a refused note and a refused progress update never push", async () => {
   const noted = await create("A note does not push");
   const ball = (await api("/state")).body.boxes.find(b => b.id === noted).ball;
   assert.equal((await post(`/note?box=${noted}`, "still working")).status, 400);
@@ -533,7 +533,7 @@ test("a refused note and a progress note never push", async () => {
   const claim = await api("/wait?owner=facilitator&timeout=2");
   assert.equal(claim.body.box, id);
   assert.equal((await post(`/ack?owner=facilitator&token=${claim.body.ack}`)).status, 200);
-  assert.equal((await post(`/progress?box=${id}`, "half way")).status, 200);
+  assert.equal((await post(`/progress?box=${id}`, "half way")).status, 400);
   await noPushWithin(400);
   const before = pushes.length;
   assert.equal((await post(`/reply?box=${id}`, "done now")).status, 200);

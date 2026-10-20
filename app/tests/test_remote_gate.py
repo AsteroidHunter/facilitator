@@ -170,8 +170,8 @@ class Gate(unittest.TestCase):
                 self.assertEqual(call(self.gate, method, path, "owner=demo&owner=notes", key=self.demo)[0], 403)
 
     def test_a_key_works_its_own_lanes_cards_by_box(self):
-        # /note goes through only so the board itself can refuse it in words
-        # that say to send progress as a normal /reply under /working
+        # /note and /progress go through only so the board itself can refuse
+        # them in words that say to send progress as a normal /reply under /working
         for path in ("/reply", "/note", "/working", "/ping", "/title", "/testing", "/park",
                      "/progress", "/context"):
             with self.subTest(route=path):

@@ -417,10 +417,14 @@ test("a message's delivery state alone reaches the phone in a lean reading", asy
   assert.deepEqual(caught.cards, [target]);
   await sameAsWhole(late, "a page that skipped the steps between");
   assert.deepEqual(plain(late.lastState.boxes.find(b => b.id === target).pendingStates), ["delivered"]);
-  await step("a progress note over the claim", () => post(`/progress?box=${target}`, "Invented progress note"), ["read"]);
-  await step("a second message while the claim is held", () => post(`/send?box=${target}`, "Invented second message"), ["read", "sent"]);
+  // progress updates were removed: a stale one is refused and saves nothing, so
+  // the board this page last read is still the board
+  const refused = await fetch(board.origin + `/progress?box=${target}`, { method: "POST", body: "Invented progress note" });
+  assert.equal(refused.status, 400);
+  await sameAsWhole(p, "a refused progress update over the claim");
+  await step("a second message while the claim is held", () => post(`/send?box=${target}`, "Invented second message"), ["delivered", "sent"]);
   const folded = await step("the second message folded into the confirmed claim", () => get("/fresh?owner=facilitator"),
-    ["read", "delivered"]);
+    ["delivered", "delivered"]);
   assert.ok(folded.includes("pendingStates"), `the fold did not move the states: ${folded}`);
   await step("the answer lands", () => post(`/reply?box=${target}`, "Invented answer"), []);
   assert.deepEqual(p.problems, []);

@@ -50,4 +50,24 @@ function saveNotes(data, id, texts, { took = false, hb = null } = {}) {
   fs.appendFileSync(path.join(data, "transcript.jsonl"), rows.map(row => JSON.stringify(row)).join("\n") + "\n");
 }
 
-module.exports = { saveNotes };
+// A progress update as a board saved it before POST /progress was removed, the
+// way that route wrote it over a claim it held: the words go on the card over
+// its last completed reply and a progress row goes into the transcript, while
+// the card's reply count, its state, its turn and its heartbeat stay as they
+// were. What the claim marked read went with the claim at the restart.
+function saveProgress(data, id, text) {
+  const statePath = path.join(data, "state.json");
+  const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  const card = state.boxes.find(box => box.id === id);
+  if (!card) throw new Error(`no card ${id} to save a progress update on`);
+  const ts = Date.now() / 1000;
+  card.reply = card.reply_full = card.reply_short = text;
+  card.reply_kind = "progress";
+  card.ts = card.changed = ts;
+  fs.writeFileSync(statePath, JSON.stringify(state, null, 1));
+  fs.appendFileSync(path.join(data, "transcript.jsonl"), JSON.stringify({
+    ts, kind: "progress", box: id, text, reply_full: text, reply_short: text, reply_variants_version: 1,
+  }) + "\n");
+}
+
+module.exports = { saveNotes, saveProgress };
