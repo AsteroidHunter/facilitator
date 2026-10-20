@@ -850,7 +850,12 @@ Endpoints:
                                big card one. A mini message handed over here
                                becomes the newest message the claim covers, so
                                it is the one that decides /reply's 100 word cap,
-                               and the agent has to be able to see it;
+                               and the agent has to be able to see it. Nothing
+                               new is handed over until 7 seconds after the
+                               reader's last change in the card's typing box or
+                               last message on it, so the held card comes back
+                               with an empty list until then, and a reply before
+                               then leaves those messages queued for /wait;
                                {"messages": [], "message_via": []} when nothing
                                new or no card held
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
@@ -2037,10 +2042,11 @@ PAGE_LIMIT = 24
 # purpose: the whole point is that a hand-off lost on the wire comes back while
 # the message still matters, not fifteen minutes later
 ACK_GRACE = 90.0
-# seconds after the reader's last change in a card's typing box before the card
-# may be handed to an agent: the typing hold's one clock, kept here and nowhere
-# else. The pages only say that a change happened, so a tab closed or a phone
-# asleep mid-reply simply stops saying it and its last change runs out here
+# seconds after the reader's last change in a card's typing box or last message
+# on it before the card, or a new message on a card an agent holds, may be
+# handed to an agent: the typing hold's one clock, kept here and nowhere else.
+# The pages only say that a change happened, so a tab closed or a phone asleep
+# mid-reply simply stops saying it and its last change runs out here
 TYPING_HOLD = 7.0
 # Version 1 removes the old convention that treated a line containing only ---
 # as a hidden short/full delimiter. Existing state is split once in _migrate;
@@ -5132,7 +5138,11 @@ def _get_fresh(q: Query, _):
         if fbox is None:
             return 200, {"messages": [], "message_via": []}
         have = set(_state["claimed"][owner])
-        fresh = [m for m in fbox["pending"] if m["mid"] not in have]
+        # the typing hold covers a held card too: while the reader is still at
+        # it, nothing new is handed over, so a reply before the hold runs out
+        # does not cover those messages and they wait in the queue for /wait
+        typing = _typing_left(fbid, time.monotonic())
+        fresh = [] if typing else [m for m in fbox["pending"] if m["mid"] not in have]
         if fresh:
             _state["claimed"][owner].extend(m["mid"] for m in fresh)
             # handed over, so the reply that follows covers them: folded into
@@ -6119,11 +6129,13 @@ def _get_navimg(q: Query, _):
 # it. The Mac board and the phone page say "a change on this card" (POST /typing)
 # each time the reader types, pastes or deletes in the card's typing box or moves
 # its caret there, and the board keeps one thing for it: when the last change
-# came in. /wait passes over a card whose last change is under TYPING_HOLD old,
-# hands out the lane's next card instead, and wakes for the one it passed over
-# the moment its hold runs out. The reader's message landing on the card clears
-# its time, so a send goes out at once. Memory only: nothing here is saved,
-# written to the transcript or shown, and the card itself is not touched.
+# came in. A message the reader sends on the card is one more change, since a
+# reader who sends a word at a time is still typing. /wait passes over a card
+# whose last change is under TYPING_HOLD old, hands out the lane's next card
+# instead, and wakes for the one it passed over the moment its hold runs out;
+# /fresh hands an agent already holding the card none of its new messages until
+# the same moment. Memory only: nothing here is saved, written to the transcript
+# or shown, and the card itself is not touched.
 _typed_at: dict[str, float] = {}   # card id -> time.monotonic() of the last change
 
 
@@ -6134,19 +6146,22 @@ def _typing_left(bid: str, now: float) -> float:
     return 0.0 if at is None else max(0.0, at + TYPING_HOLD - now)
 
 
+def _typing_change(bid: str, now: float) -> None:
+    """A change on the card at now. The latest change is kept, so a report
+    that came in first but is read after a later send cannot move the card's
+    time back. Callers hold _lock."""
+    _typed_at[bid] = max(_typed_at.get(bid, now), now)
+
+
 def _post_typing(q: Query, _):
     # when the change came in, read before the lock: a report that waits there
     # behind a send is still a change made before that send
-    now, came = time.monotonic(), time.time()
+    now = time.monotonic()
     bid = q.one("box")
     with _lock:
-        box = _box(bid)
-        if box is None:
+        if _box(bid) is None:
             return 400, {"error": "bad box"}
-        # the reader's newest message on the card cleared every change that came
-        # in before it, including one that is only read now
-        if not (box["pending"] and box["pending"][-1].get("ts", 0) > came):
-            _typed_at[bid] = now
+        _typing_change(bid, now)
     return 200, {"ok": True}
 
 
@@ -7087,8 +7102,9 @@ def _post_send(q: Query, text: str):
         _log("user", bid, text, log_fields={"op": op} if INCIDENT_OP.fullmatch(op) else None,
              **({"op": op} if op else {}))
         _save()
-        # the reader has sent, so is no longer typing here: the card goes out at once
-        _typed_at.pop(bid, None)
+        # a send is one more change: the reader may be sending a word at a
+        # time, so the card goes out TYPING_HOLD after the last key or send
+        _typing_change(bid, time.monotonic())
         _notify()
         return 200, {**result, "rev": _state["rev"]}
 
