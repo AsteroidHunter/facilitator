@@ -12,6 +12,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { appFolder, dataOf } = require("./fixture-auth.cjs");
+const { saveNotes } = require("./saved-notes.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -27,6 +28,7 @@ let browser;
 let child;
 let fixtureDir;
 let origin;
+let port;
 const uploaded = [];
 
 async function freePort() {
@@ -81,10 +83,48 @@ function near(actual, expected, what) {
   assert.ok(Math.abs(actual - expected) < 0.1, `${what}: ${actual} is not ${expected}`);
 }
 
+async function startServer() {
+  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
+    cwd: fixtureDir,
+    env: { ...process.env, FACILITATOR_TEST_PORT: String(port) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", chunk => { output += chunk; });
+  child.stderr.on("data", chunk => { output += chunk; });
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
+    try {
+      const response = await fetch(origin + "/state");
+      if (response.ok) return;
+    } catch {}
+    await settle(25);
+  }
+  throw new Error(`fixture server did not start:\n${output}`);
+}
+
+async function stopServer() {
+  if (child && child.exitCode === null) {
+    child.kill("SIGTERM");
+    await once(child, "exit");
+  }
+}
+
+// notes a board saved on a card before /note was removed, which the board no
+// longer takes: it is stopped, they are written into its files, and it starts again
+async function savedNotes(id, texts) {
+  await stopServer();
+  saveNotes(dataOf(fixtureDir), id, texts);
+  await startServer();
+}
+
 before(async () => {
   await mkdir(SHOTS, { recursive: true });
   fixtureDir = appFolder("facilitator-phone-");
-  const port = await freePort();
+  port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
@@ -107,27 +147,7 @@ before(async () => {
   }));
 
   origin = `http://127.0.0.1:${port}`;
-  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
-    cwd: fixtureDir,
-    env: { ...process.env, FACILITATOR_TEST_PORT: String(port) },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let output = "";
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", chunk => { output += chunk; });
-  child.stderr.on("data", chunk => { output += chunk; });
-  const deadline = Date.now() + 5000;
-  let ready = false;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
-    try {
-      const response = await fetch(origin + "/state");
-      if (response.ok) { ready = true; break; }
-    } catch {}
-    await settle(25);
-  }
-  if (!ready) throw new Error(`fixture server did not start:\n${output}`);
+  await startServer();
 
   browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -699,8 +719,7 @@ test("the composer sends through /send, the plus attaches a picture, the cross c
 
 test("history arrows ignore progress notes and appear when an older final reply exists", async () => {
   const id = await create("Only final replies belong in history");
-  for (const note of ["Preparing the change", "Checking the change", "Finishing the change"])
-    assert.equal((await api(`/note?box=${id}`, note)).status, 200);
+  await savedNotes(id, ["Preparing the change", "Checking the change", "Finishing the change"]);
   assert.equal((await api(`/reply?box=${id}`, "First final reply")).status, 200);
   const saved = await savedBox(id);
   assert.ok(saved.replies > 1, "the fixture must include the progress-note counter");
@@ -752,7 +771,7 @@ test("history arrows ignore progress notes and appear when an older final reply 
 
 test("legacy phone history retries a failed read and refreshes for identical final text", async () => {
   const id = await create("Identical final replies still have history");
-  await api(`/note?box=${id}`, "Checking the change");
+  await savedNotes(id, ["Checking the change"]);
   await api(`/reply?box=${id}`, "Same final reply");
   const { page, problems } = await openPhone(`/m?box=${id}`, page =>
     page.evaluateOnNewDocument(() => {

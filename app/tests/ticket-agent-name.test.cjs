@@ -118,8 +118,8 @@ test("a name that says no class stays as given, and a progress note changes noth
   const wait = await (await fetch(`${origin}/wait?owner=facilitator&timeout=3&agent=claude-code`)).json();
   assert.equal(wait.box, id);
   assert.equal((await post("/ack?owner=facilitator&token=" + encodeURIComponent(wait.ack))).status, 200);
-  assert.equal((await post("/note?box=" + id, "working on it")).status, 200);
-  assert.equal((await boxOf(id)).agent, "", "a note is not a reply");
+  assert.equal((await post("/progress?box=" + id, "working on it")).status, 200);
+  assert.equal((await boxOf(id)).agent, "", "a progress note is not a reply");
   // another agent arrives on the lane before the reply lands: the claim's agent is credited
   await fetch(`${origin}/wait?owner=facilitator&timeout=1&agent=astra`);
   assert.equal((await post("/reply?box=" + id, "done now")).status, 200);

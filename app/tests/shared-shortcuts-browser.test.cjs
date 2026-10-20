@@ -1655,31 +1655,32 @@ test("desktop history controls appear for a prior reply and share keyboard histo
     });
     await historyShot(page, "after-new-card");
 
-    // A user's message, several progress notes, and one final reply still have
-    // only one agent reply. Notes raise the aggregate replies count but are not
-    // entries the history stepper can navigate.
+    // A user's message and one final reply have only one agent reply, and no
+    // history to step through. Progress notes were removed, so the notes a
+    // stale agent tries on the way are refused and add nothing. Notes a board
+    // saved before then are walked in desktop-history-arrival.test.cjs.
     assert.equal((await api(`/send?box=${id}`, "Initial owner message.")).status, 200);
-    assert.equal((await api(`/note?box=${id}`, "First progress note.")).status, 200);
-    assert.equal((await api(`/note?box=${id}`, "Second progress note.")).status, 200);
+    assert.equal((await api(`/note?box=${id}`, "First progress note.")).status, 400);
+    assert.equal((await api(`/note?box=${id}`, "Second progress note.")).status, 400);
     assert.equal((await api(`/reply?box=${id}`, "First desktop reply.")).status, 200);
     await page.evaluate(() => poll());
     await page.waitForFunction(cardId =>
-      lastState.boxes.find(box => box.id === cardId)?.replies === 3, { timeout: 5000 }, id);
+      lastState.boxes.find(box => box.id === cardId)?.replies === 1, { timeout: 5000 }, id);
     const firstThread = await (await fetch(origin + `/thread?box=${id}&n=200`)).json();
-    assert.deepEqual(firstThread.messages.map(message => message.kind), ["user", "note", "note", "agent"]);
+    assert.deepEqual(firstThread.messages.map(message => message.kind), ["user", "agent"]);
     assert.deepEqual(await page.evaluate(cardId => histList(cardId), id), [],
-      "the note-heavy card unexpectedly had an older agent reply");
+      "the card unexpectedly had an older agent reply");
     assert.equal(await page.evaluate(cardId => els[cardId].box.classList.contains("hashist"), id), false,
-      "progress notes plus the live reply exposed an empty history control");
+      "refused notes plus the live reply exposed an empty history control");
 
-    // The same card must stay correct when it already has those aggregate
-    // counts at page load, not only when the entries arrive during a poll.
+    // The same card must stay correct when it already has that count at page
+    // load, not only when the reply arrives during a poll.
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => lastState !== null, { timeout: 5000 });
     await selectDesktop(page, id);
     assert.deepEqual(await page.evaluate(cardId => histList(cardId), id), []);
     assert.equal(await page.evaluate(cardId => els[cardId].box.classList.contains("hashist"), id), false,
-      "an existing note-heavy card exposed an empty history control after reload");
+      "an existing card with one reply exposed an empty history control after reload");
 
     // A user follow-up and its answer create the first actual prior reply. The
     // first attempt to read that history fails with a JSON service error. The
@@ -1710,7 +1711,7 @@ test("desktop history controls appear for a prior reply and share keyboard histo
     assert.equal((await api(`/reply?box=${id}`, "Second desktop reply.")).status, 200);
     await page.evaluate(() => poll());
     await page.waitForFunction(cardId =>
-      lastState.boxes.find(box => box.id === cardId)?.replies === 4, { timeout: 5000 }, id);
+      lastState.boxes.find(box => box.id === cardId)?.replies === 2, { timeout: 5000 }, id);
     const firstRequestDeadline = Date.now() + 2000;
     while (historyRequests < 1 && Date.now() < firstRequestDeadline) await settle(25);
     assert.equal(historyRequests, 1, "the selected card did not request its changed history");

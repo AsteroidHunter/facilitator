@@ -5,7 +5,9 @@
 // with the card. Cards answered before the board counted them have to be
 // counted once from the transcript, and that count has to agree with the list
 // the stepper itself walks: every final reply the transcript holds, minus the
-// one the card is showing, and progress notes are not pages of it.
+// one the card is showing, and progress notes are not pages of it. The board no
+// longer takes notes, so the notes here are the ones a board saved before then,
+// written into its files while it is down (saved-notes.cjs).
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -15,6 +17,7 @@ const { copyFile, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { appFolder, dataOf } = require("./fixture-auth.cjs");
+const { saveNotes } = require("./saved-notes.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -72,6 +75,14 @@ async function stopServer() {
     child.kill("SIGTERM");
     await once(child, "exit");
   }
+}
+
+// notes a board saved on a card before /note was removed, in the order it
+// wrote them: the board is stopped, they are written, and it starts again
+async function savedNotes(id, texts) {
+  await stopServer();
+  saveNotes(dataOf(fixtureDir), id, texts);
+  await startServer();
 }
 
 function statePath() {
@@ -169,12 +180,11 @@ test("a board answered before the count existed is counted once, from its transc
   await post(`/send?box=${noteOnTop}`, "The question.");
   await post(`/reply?box=${noteOnTop}`, "The one answer.");
   await post(`/send?box=${noteOnTop}`, "A follow-up.");
-  await post(`/note?box=${noteOnTop}`, "Started on the follow-up.");
+  await savedNotes(noteOnTop, ["Started on the follow-up."]);
 
   const notesUnder = (await post("/create?owner=facilitator", "Notes under one answer")).body.id;
   await post(`/send?box=${notesUnder}`, "The question.");
-  await post(`/note?box=${notesUnder}`, "Reading it.");
-  await post(`/note?box=${notesUnder}`, "Still reading it.");
+  await savedNotes(notesUnder, ["Reading it.", "Still reading it."]);
   await post(`/reply?box=${notesUnder}`, "The one answer.");
 
   const untouched = (await post("/create?owner=facilitator", "Never answered")).body.id;
@@ -268,14 +278,14 @@ test("a long note run and a repeated answer are counted the way they are walked"
   await post(`/send?box=${buried}`, "The question this answers.");
   await post(`/reply?box=${buried}`, "The answer under the long run.");
   await post(`/send?box=${buried}`, "One more thing.");
-  for (let i = 0; i < 201; i++) await post(`/note?box=${buried}`, `Progress note number ${i + 1}.`);
+  await savedNotes(buried, Array.from({ length: 201 }, (_, i) => `Progress note number ${i + 1}.`));
 
   const repeated = (await post("/create?owner=facilitator", "A note repeating its answer")).body.id;
   const words = "The same words, in the answer and in the note.";
   await post(`/send?box=${repeated}`, "The question.");
   await post(`/reply?box=${repeated}`, words);
   await post(`/send?box=${repeated}`, "A follow-up.");
-  await post(`/note?box=${repeated}`, words);
+  await savedNotes(repeated, [words]);
 
   // the shape itself: a window of this card's last 200 rows holds no answer
   const window200 = await get(`/thread?box=${buried}&n=200`);
@@ -335,9 +345,14 @@ test("the board keeps the count itself from there on", async () => {
   await post(`/reply?box=${card}`, "The first answer.");
   await agreed(card, 0, "one answer and nothing behind it");
 
-  await post(`/note?box=${card}`, "Working on the next one.");
-  await agreed(card, 1, "a progress note over the first answer");
-  assert.equal((await boardBox(card)).replies, 2, "the aggregate count stopped counting notes");
+  await savedNotes(card, ["Working on the next one."]);
+  await agreed(card, 1, "a saved progress note over the first answer");
+  assert.equal((await boardBox(card)).replies, 2, "the aggregate count stopped counting saved notes");
+  const refused = await post(`/note?box=${card}`, "A note sent after the removal.");
+  assert.deepEqual([refused.status, refused.body],
+    [400, { error: "notes were removed; send progress as a normal /reply under /working" }]);
+  await agreed(card, 1, "a refused note over a saved one");
+  assert.equal((await boardBox(card)).reply, "Working on the next one.", "a refused note replaced the saved one");
 
   await post(`/send?box=${card}`, "The second question.");
   await post(`/reply?box=${card}`, "The second answer.");

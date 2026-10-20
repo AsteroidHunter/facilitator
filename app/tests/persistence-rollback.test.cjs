@@ -223,7 +223,7 @@ test("a failed project save leaves the owner registries as they were: reads and 
   assert.deepEqual(crashes, [], "a crash line was written: " + JSON.stringify(crashes.map(c => [c.route, c.error])));
 });
 
-test("a failed save writes no transcript row and no log line for the event: the reply, the note, and a helper that closes a card", async () => {
+test("a failed save writes no transcript row and no log line for the event: the reply and a helper that closes a card, beside a refused note", async () => {
   const rowsBefore = (await transcript()).length;
   const infoBefore = (await events()).filter(e => ["agent", "note", "done"].includes(e.kind)).length;
   await chmod(dataOf(app), 0o500);
@@ -236,7 +236,8 @@ test("a failed save writes no transcript row and no log line for the event: the 
     await chmod(dataOf(app), 0o700);
   }
   assert.equal(reply.status, 500);
-  assert.equal(note.status, 500);
+  // notes were removed: refused before anything could be saved, disk or no disk
+  assert.equal(note.status, 400);
   assert.equal(close.status, 500);
   const box0 = (await state()).boxes.find(b => b.id === "0");
   assert.equal(box0.replies, 0, "the failed reply changed the card");

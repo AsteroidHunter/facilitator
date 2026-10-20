@@ -9,6 +9,10 @@
 // Every check here samples the control on each animation frame rather than
 // waiting for it to settle, because the bug being pinned was entirely a
 // question of timing: the arrows did end up visible either way.
+//
+// The board no longer takes progress notes, so the notes here are the ones a
+// board saved before then, written into its files while it is down
+// (saved-notes.cjs).
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { spawn } = require("node:child_process");
@@ -19,6 +23,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const puppeteer = require("puppeteer-core");
 const { appFolder, dataOf } = require("./fixture-auth.cjs");
+const { saveNotes } = require("./saved-notes.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const CHROME = process.env.CHROME_PATH ||
@@ -30,6 +35,7 @@ let browser;
 let child;
 let fixtureDir;
 let origin;
+let port;
 
 async function freePort() {
   const server = createServer();
@@ -179,11 +185,49 @@ async function openDesktop(remember = {}) {
   return { page, problems };
 }
 
+async function startServer() {
+  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
+    cwd: fixtureDir,
+    env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: path.join(fixtureDir, "logs") },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", chunk => { output += chunk; });
+  child.stderr.on("data", chunk => { output += chunk; });
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
+    try {
+      const response = await fetch(origin + "/state");
+      if (response.ok) return;
+    } catch {}
+    await settle(25);
+  }
+  throw new Error(`fixture server did not start:\n${output}`);
+}
+
+async function stopServer() {
+  if (child && child.exitCode === null) {
+    child.kill("SIGTERM");
+    await once(child, "exit");
+  }
+}
+
+// notes a board saved on a card before /note was removed, in the order it
+// wrote them: the board is stopped, they are written, and it starts again
+async function savedNotes(id, texts) {
+  await stopServer();
+  saveNotes(dataOf(fixtureDir), id, texts);
+  await startServer();
+}
+
 before(async () => {
   fixtureDir = appFolder("facilitator-history-arrival-");
   const logs = path.join(fixtureDir, "logs");
   await mkdir(logs);
-  const port = await freePort();
+  port = await freePort();
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
@@ -207,27 +251,7 @@ before(async () => {
   }));
 
   origin = `http://127.0.0.1:${port}`;
-  child = spawn(process.env.FACILITATOR_TEST_PYTHON || "python3", [path.join(fixtureDir, "server.py")], {
-    cwd: fixtureDir,
-    env: { ...process.env, FACILITATOR_TEST_PORT: String(port), FACILITATOR_LOG_DIR: logs },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let output = "";
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", chunk => { output += chunk; });
-  child.stderr.on("data", chunk => { output += chunk; });
-  const deadline = Date.now() + 5000;
-  let ready = false;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`fixture server exited:\n${output}`);
-    try {
-      const response = await fetch(origin + "/state");
-      if (response.ok) { ready = true; break; }
-    } catch {}
-    await settle(25);
-  }
-  if (!ready) throw new Error(`fixture server did not start:\n${output}`);
+  await startServer();
 
   browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -263,14 +287,13 @@ test("the board counts final replies apart from progress notes", async () => {
     { replies: 0, older: 0 }, "a card with nothing said on it claimed an older reply");
 
   await api(`/send?box=${id}`, "The opening owner message.");
-  await api(`/note?box=${id}`, "Still reading the notes.");
-  await api(`/note?box=${id}`, "Halfway through.");
+  await savedNotes(id, ["Still reading the notes.", "Halfway through."]);
   await api(`/reply?box=${id}`, "The first final reply.");
   assert.deepEqual(await boardBox(id).then(box => ({ replies: box.replies, older: box.olderReplies })),
     { replies: 3, older: 0 },
     "progress notes were counted as pages of the reply history");
 
-  await api(`/note?box=${id}`, "Picking the next piece up.");
+  await savedNotes(id, ["Picking the next piece up."]);
   assert.deepEqual(await boardBox(id).then(box => box.olderReplies), 1,
     "a note over a final reply hid the reply underneath it");
 
@@ -396,8 +419,7 @@ test("progress notes written before the card's only answer leave no arrows", asy
   await clearLane();
   const id = await create("Working on it");
   await api(`/send?box=${id}`, "The owner's question.");
-  await api(`/note?box=${id}`, "Reading the first half.");
-  await api(`/note?box=${id}`, "Reading the second half.");
+  await savedNotes(id, ["Reading the first half.", "Reading the second half."]);
   await api(`/reply?box=${id}`, "The only final reply.");
   assert.equal((await boardBox(id)).olderReplies, 0);
   const { page, problems } = await openDesktop({ selbox: id, activeproj: "facilitator" });
@@ -419,7 +441,7 @@ test("a progress note written after the only answer makes that answer an older p
   await api(`/send?box=${id}`, "The owner's question.");
   await api(`/reply?box=${id}`, "The answer, later stepped back to.");
   await api(`/send?box=${id}`, "A follow-up question.");
-  await api(`/note?box=${id}`, "Started on the follow-up.");
+  await savedNotes(id, ["Started on the follow-up."]);
   assert.equal((await boardBox(id)).olderReplies, 1);
   const { page, problems } = await openDesktop({ selbox: id, activeproj: "facilitator" });
   try {
@@ -452,7 +474,7 @@ test("a long run of progress notes since the last answer keeps the arrows", asyn
   await api(`/send?box=${id}`, "The question this answers.");
   await api(`/reply?box=${id}`, "The answer under the long run.");
   await api(`/send?box=${id}`, "One more thing.");
-  for (let i = 0; i < 201; i++) await api(`/note?box=${id}`, `Progress note number ${i + 1}.`);
+  await savedNotes(id, Array.from({ length: 201 }, (_, i) => `Progress note number ${i + 1}.`));
   assert.equal((await boardBox(id)).olderReplies, 1);
   // the shape that made this hard: a window of the last 200 rows of this
   // card's conversation holds no answer at all
@@ -488,7 +510,7 @@ test("a progress note repeating the answer word for word keeps the arrows", asyn
   await api(`/send?box=${id}`, "The question.");
   await api(`/reply?box=${id}`, words);
   await api(`/send?box=${id}`, "A follow-up.");
-  await api(`/note?box=${id}`, words);
+  await savedNotes(id, [words]);
   assert.equal((await boardBox(id)).olderReplies, 1);
   const { page, problems } = await openDesktop({ selbox: id, activeproj: "facilitator" });
   try {

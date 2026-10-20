@@ -2,8 +2,9 @@
 // pages: sent while no agent has confirmed receiving it, delivered once the
 // claim carrying it is confirmed through /ack (or /fresh folds it into such a
 // claim), read once the agent has written back since receiving it (a progress
-// note over its claim, or a note that took it toward the answer still to come),
-// and gone into the reply's own batch once the reply lands. read through a real
+// note over its claim, or a note saved before /note was removed that took it
+// toward the answer still to come), and gone into the reply's own batch once
+// the reply lands. read through a real
 // fixture server on a free port; the suite never touches port 8877. every card
 // and message below is invented.
 const assert = require("node:assert/strict");
@@ -14,6 +15,7 @@ const { mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { appFolder, dataOf } = require("./fixture-auth.cjs");
+const { saveNotes } = require("./saved-notes.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const ACK_GRACE_S = 1.5;   // ACK_GRACE in this fixture
@@ -52,6 +54,13 @@ async function startServer() {
   }
 }
 
+async function stopServer() {
+  if (child && child.exitCode === null) {
+    child.kill("SIGTERM");
+    await once(child, "exit");
+  }
+}
+
 async function api(route, options = {}) {
   const response = await fetch(origin + route, options);
   return { status: response.status, body: await response.json() };
@@ -69,7 +78,7 @@ async function phoneCard(id) {
   return (await api("/m/state")).body.boxes.find(b => b.id === id);
 }
 // what the sent panel is drawn from: the queued words beside where each stands,
-// and what a note has already taken toward the answer
+// and what a saved note has already taken toward the answer
 async function marks(id) {
   const b = await card(id);
   return { texts: b.pendingTexts, states: b.pendingStates, noted: b.notedTexts };
@@ -114,10 +123,7 @@ before(async () => {
 });
 
 after(async () => {
-  if (child && child.exitCode === null) {
-    child.kill("SIGTERM");
-    await once(child, "exit");
-  }
+  await stopServer();
   if (outer) await rm(outer, { recursive: true, force: true });
 });
 
@@ -162,15 +168,23 @@ test("a message is sent until its claim is confirmed, delivered after, and read 
   await post(`/reply?box=${other.box}`, "Invented answer to the other card.");
 });
 
-test("a note takes what its claim held off the queue as read, and the completed reply takes it", async () => {
+test("a refused note leaves its claim's messages delivered; a saved note's are read, and the completed reply takes them", async () => {
   await post("/send?box=m2", "Invented message a note covers.");
   const got = await claim("notes");
   assert.equal(got.box, "m2");
   await post(`/ack?owner=facilitator&token=${got.ack}`);
   assert.deepEqual((await marks("m2")).states, ["delivered"]);
-  await post("/note?box=m2", "Invented interim note.");
+  const refused = await api("/note?box=m2", { method: "POST", body: "Invented interim note." });
+  assert.equal(refused.status, 400);
+  assert.deepEqual(await marks("m2"), { texts: ["Invented message a note covers."], states: ["delivered"], noted: [] },
+    "a refused note moved the message it was written over");
+  // the same card as a board from before the removal saved it, with the note
+  // having taken that message off the queue toward the answer still to come
+  await stopServer();
+  saveNotes(dataOf(app), "m2", ["Invented interim note."], { took: true });
+  await startServer();
   assert.deepEqual(await marks("m2"), { texts: [], states: [], noted: ["Invented message a note covers."] },
-    "a message a note took is not kept as read for the answer to come");
+    "a message a saved note took is not kept as read for the answer to come");
   // a later message is sent, and handed over by the next claim
   await post("/send?box=m2", "Invented message after the note.");
   assert.deepEqual(await marks("m2"), { texts: ["Invented message after the note."], states: ["sent"],

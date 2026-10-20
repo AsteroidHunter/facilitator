@@ -112,7 +112,7 @@ test("every event on a card moves its last changed time to that event's row, and
   const made = (await props(a)).made;
   let last = (await props(a)).changed;
   const steps = [[`/title?box=${a}`, "Renamed as it goes"], [`/send?box=${a}`, "a message on it"],
-    [`/reply?box=${a}`, "an answer on it"], [`/note?box=${a}`, "a note on it"],
+    [`/reply?box=${a}`, "an answer on it"],
     [`/dock?box=${a}&v=1`], [`/park?box=${a}&v=1`], [`/done?box=${a}&v=1`], [`/done?box=${a}&v=0`],
     [`/link?from=${a}&to=${b}&agent=claude`], [`/props?box=${a}&branch=v0/changes&agent=claude`],
     [`/props?box=${a}&status=waiting+on+review&agent=claude`], [`/unlink?from=${a}&to=${b}&agent=claude`]];
