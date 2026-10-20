@@ -557,7 +557,7 @@ def serve_targets():
         return set()
     try:
         seen = subprocess.run([ts, "serve", "status", "--json"], capture_output=True, text=True,
-                              encoding="utf-8", timeout=TAILSCALE_STATUS_TIMEOUT)
+                              encoding="utf-8", env=tailscale_env(), timeout=TAILSCALE_STATUS_TIMEOUT)
         config = json.loads(seen.stdout) if seen.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, UnicodeError, ValueError):
         config = None
@@ -2199,12 +2199,20 @@ def find_tailscale():
     return None
 
 
+def tailscale_env():
+    """The environment each tailscale call runs in. Tailscale's Mac app is also
+    its command, and acts as the command only when it sees a terminal's
+    variables; run from an app or at login there are none, so TAILSCALE_BE_CLI,
+    Tailscale's own switch for this, says it outright."""
+    return {**os.environ, "TAILSCALE_BE_CLI": "1"}
+
+
 def tailscale_json(ts, args, label):
     """One bounded, read-only Tailscale query. Its output stays private even
     on failure because status can contain real machine and tailnet names."""
     try:
         r = subprocess.run([ts, *args], capture_output=True, text=True,
-                           encoding="utf-8", timeout=TAILSCALE_STATUS_TIMEOUT)
+                           encoding="utf-8", env=tailscale_env(), timeout=TAILSCALE_STATUS_TIMEOUT)
     except subprocess.TimeoutExpired:
         sys.exit(f"tailscale: {label} did not answer; no changes made")
     except (OSError, UnicodeError):
@@ -2448,7 +2456,7 @@ def change_bridge(ts, command, action):
     """Run one bounded Serve mutation without exposing Tailscale's output."""
     try:
         r = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
-                           timeout=TAILSCALE_CHANGE_TIMEOUT)
+                           env=tailscale_env(), timeout=TAILSCALE_CHANGE_TIMEOUT)
     except subprocess.TimeoutExpired:
         sys.exit(f"tailscale: timed out trying to turn the bridge {action}; inspect `tailscale serve status`")
     except (OSError, UnicodeError):
