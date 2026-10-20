@@ -104,9 +104,12 @@ class NoLogin(unittest.TestCase):
         self.assertEqual(set(link.OPS), set(remote_link.OPS))
 
     def test_the_server_side_runs_no_shell_and_evaluates_nothing(self):
-        server_side = [SKILL / "scripts" / name for name in ("link.py", "pair.py", "onboard.py")]
+        server_side = [SKILL / "scripts" / name for name in ("link.py", "pair.py", "onboard.py", "magic.py")]
         self.assert_none(re.compile(r"shell\s*=\s*True|os\.system|os\.popen|\beval\(|\bexec\(|pickle|marshal"
                                     r"|__import__|importlib"), server_side, "a shell or an evaluation")
+        # the magic box's command only asks the door
+        self.assert_none(re.compile(r"\bsubprocess\b|\bos\.exec|\bos\.spawn"), [SKILL / "scripts" / "magic.py"],
+                         "a program started")
         # the link starts no program but itself, and asks git nothing: a
         # repository is found by reading what git keeps
         link = (SKILL / "scripts" / "link.py").read_text()

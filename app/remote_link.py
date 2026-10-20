@@ -80,7 +80,8 @@ SERVER_MARK = ("facilitator-remote", 0)
 # the setup program the door hands out, and what goes on a server with the key
 SETUP = ".agents/skills/facilitator/scripts/pair.py"
 BUNDLE = (".agents/skills/facilitator/SKILL.md", ".agents/skills/facilitator/scripts/onboard.py",
-          ".agents/skills/facilitator/scripts/link.py", SETUP, "app/RUNBOOK.md")
+          ".agents/skills/facilitator/scripts/link.py", ".agents/skills/facilitator/scripts/magic.py",
+          SETUP, "app/RUNBOOK.md")
 # the three questions a server's link answers
 OPS = frozenset({"dirs", "mkdir", "describe"})
 

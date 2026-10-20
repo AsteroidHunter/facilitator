@@ -83,6 +83,7 @@ class Records(unittest.TestCase):
             self.assertIn(rel, files)
         self.assertIn("docs/servers.md", files)
         self.assertEqual(files[".agents/skills/facilitator/scripts/link.py"][1], 0o700)
+        self.assertEqual(files[".agents/skills/facilitator/scripts/magic.py"][1], 0o700)
         self.assertEqual(files["app/RUNBOOK.md"][1], 0o600)
         self.assertFalse([rel for rel in files if rel.startswith("data") or "/data/" in rel])
 
