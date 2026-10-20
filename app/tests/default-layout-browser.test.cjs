@@ -224,7 +224,7 @@ test("the default layout holds its places and sizes at other window sizes", asyn
 
 test("a saved layout wins over the default and is not rewritten", async () => {
   const { "hide.facilitator.magic2":_hidden, ...rest } = SAVED_SAME_AS_DEFAULT;
-  // places are on star lines (a half cell past a whole one) and sizes are whole cells
+  // places are on star lines (whole steps, here the drawing's own lines) and sizes are whole cells
   const saved = {
     ...rest,
     "pos.facilitator.clockbox":JSON.stringify({ x:86.4, y:97.92 }),

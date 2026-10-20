@@ -27,7 +27,9 @@ const HTML = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 const TOKENS = fs.readFileSync(path.join(ROOT, "card-tokens.css"), "utf8");
 
 const STAGE_H = 900;
-const GRID = 1440 * 0.008;
+// the drawing's star pitch, which the default layout is placed on. the board's
+// edit step is half of it, so every one of these lines is a star line there too
+const PITCH = 1440 * 0.008;
 const near = (a, b, label) => assert.ok(Math.abs(a - b) < 1e-6, `${label}: ${a} is not ${b}`);
 
 // a fraction the stylesheet declares once, as --name:0.123 (or inside calc)
@@ -51,17 +53,17 @@ const cardBottom = (frac("frame-y") + frac("frame-h")) * STAGE_H;
 
 test("the default player starts one star row below the default list", () => {
   assert.ok(playerTop > listBottom, `player top ${playerTop} is not below list bottom ${listBottom}`);
-  near(playerTop - listBottom, GRID, "the list-to-player gap");
+  near(playerTop - listBottom, PITCH, "the list-to-player gap");
   // the list's own scroll area runs a little past its box foot (--list-air)
   const air = Number(/--list-air:(\d+)px/.exec(HTML)[1]);
   assert.ok(playerTop - listBottom > air, "the gap clears the list's overhang");
 });
 
 test("the default player is on star lines, whole rows tall, and keeps its width and left edge", () => {
-  const onStar = v => { const rows = (v - GRID / 2) / GRID; near(rows, Math.round(rows), v + " in star rows"); };
+  const onStar = v => { const rows = (v - PITCH / 2) / PITCH; near(rows, Math.round(rows), v + " in star rows"); };
   onStar(playerTop);
   onStar(playerBottom);
-  near((playerBottom - playerTop) / GRID, 11, "player height in rows");
+  near((playerBottom - playerTop) / PITCH, 11, "player height in rows");
   near(frac("m1-w") * 1440, 279.936, "player width");
   near(frac("m1-x") * 1440, 113.472, "player left");
   near(listTop, 167.04, "the list is where the chosen layout puts it");
@@ -98,10 +100,12 @@ test("the player's top and height are named only by its default and its own rule
 
 // ---- saved places: the real applySavedLayout against a fake page -----------
 
+// the line that starts with this, so a GRID inside a function further up is
+// not taken for the board's
 function line(start){
-  const at = HTML.indexOf(start);
+  const at = HTML.indexOf("\n" + start);
   assert.ok(at >= 0, "found: " + start);
-  return HTML.slice(at, HTML.indexOf("\n", at));
+  return HTML.slice(at + 1, HTML.indexOf("\n", at + 1));
 }
 function fnSource(signature){
   const start = HTML.indexOf(signature);
@@ -114,8 +118,7 @@ function fnSource(signature){
   throw new Error("unbalanced braces after " + signature);
 }
 const SOURCE = [
-  "const GRID = 1440 * 0.008;",
-  line("const onStar = "), line("const REGION_SEL = "),
+  line("const GRID = "), line("const onStar = "), line("const REGION_SEL = "),
   fnSource("function regionId(el)"), fnSource("function layoutSource()"),
   fnSource("function applySavedLayout()"),
   "this.apply = owner => { activeOwner = owner; applySavedLayout(); };",

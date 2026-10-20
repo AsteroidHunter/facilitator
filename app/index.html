@@ -457,11 +457,14 @@
   /* the star field fills the whole window, but its phase is locked to the
      stage: fitStage() slides the pattern's origin to wherever the centered
      stage lands, so the stars under the boxes always line up with them and
-     the field still runs to every window edge with no bands. */
+     the field still runs to every window edge with no bands. a star stands on
+     every edit step (--step, GRID in the script), half the drawing's pitch, so
+     there is one more halfway between each two of the drawing's; each sits in
+     the middle of its tile, so the field is set back half a step */
   body.focus{
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 4.2 L6.5 5.5 L7.8 6 L6.5 6.5 L6 7.8 L5.5 6.5 L4.2 6 L5.5 5.5 Z' fill='%23C9BFAE' fill-opacity='0'/%3E%3C/svg%3E");
-    background-size:var(--grid) var(--grid);
-    background-position:0 var(--bar-h);   /* fitStage refines this per resize */
+    background-size:var(--step) var(--step);
+    background-position:calc(var(--step) / -2) calc(var(--bar-h) - var(--step) / 2);   /* fitStage refines this per resize */
   }
   body.focus.dragging, body.focus.dragging *{cursor:grabbing !important; user-select:none}
   /* the drawn window maps to the area under the bar; every region sits at its
@@ -519,6 +522,7 @@
     --tik-gap:calc(var(--ch)*0.007);
     --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
     --grid:calc(var(--cw)*0.008);
+    --step:calc(var(--grid) / 2);   /* the edit step and the star field's pitch */
     --pane-w:calc(var(--cw)*0.072); --pane-gap:calc(var(--cw)*0.024);
   }
   body.focus main{
@@ -12722,8 +12726,10 @@ function fitStage(){
   stageScale = scale; stageTx = tx; stageTy = ty;
   stage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
   lastFitW = innerWidth;
-  // slide the window-wide star field so its phase matches the stage's origin
-  document.body.style.backgroundPosition = tx + "px " + (STAGE_BAR + ty) + "px";
+  // slide the window-wide star field so its phase matches the stage's origin,
+  // half a step back so its stars land on the steps (the star field's rule)
+  document.body.style.backgroundPosition =
+    `calc(${tx}px - var(--step) / 2) calc(${STAGE_BAR + ty}px - var(--step) / 2)`;
   applyRespNav();   // show or hide the pan arrow for the current mode and pane
   seatPagePill();   // the stage's foot has moved, and the pill sits against it
   magicSync();      // and the card's magic box follows the card, or goes in the phone view
@@ -12847,9 +12853,13 @@ document.addEventListener("click", e => {
 fitStage();
 
 // every region on the canvas moves: hold Option and drag; positions snap to
-// the star lines and persist per project
-const GRID = 1440 * 0.008;         // the star pitch on the stage
-const onStar = v => Math.round((v - GRID / 2) / GRID) * GRID + GRID / 2;   // nearest star line
+// the star lines and persist per project. a step is half the drawing's star
+// pitch, for finer sizes, so the lines are the drawing's own and one halfway
+// between each two. they are whole steps counted from the first, a step in
+// from the edge, as the old lines were counted, so a place saved on an old
+// line comes back as the very same number
+const GRID = 1440 * 0.008 / 2;     // one step on the stage, half the star pitch
+const onStar = v => Math.round((v - GRID) / GRID) * GRID + GRID;   // nearest star line
 const REGION_SEL = "main, #clockbox, #rail, #tickets, #magic1, #magic2, #magic3, #magic4, #goalbox";
 function regionId(el){ return el.tagName === "MAIN" ? "main" : el.id; }
 // each tab keeps its own layout, and a tab that has never been arranged at all
@@ -13072,8 +13082,8 @@ addEventListener("pointermove", e => {
   if (!dragging) return;
   // the pointer delta is in screen pixels; divide by the stage scale to move the
   // box the right number of stage-local pixels while the stage is scaled down
-  dragging.x = Math.max(GRID / 2, onStar((e.clientX - dragging.dx - dragging.sx) / stageScale));
-  dragging.y = Math.max(GRID / 2, onStar((e.clientY - dragging.dy - dragging.sy) / stageScale));
+  dragging.x = Math.max(GRID, onStar((e.clientX - dragging.dx - dragging.sx) / stageScale));
+  dragging.y = Math.max(GRID, onStar((e.clientY - dragging.dy - dragging.sy) / stageScale));
   dragging.el.style.left = dragging.x + "px";
   dragging.el.style.top = dragging.y + "px";
 });
@@ -13412,7 +13422,7 @@ addEventListener("pointermove", e => {
   if (!sizing) return;
   const s = sizing;
   const dx = (e.clientX - s.px) / stageScale, dy = (e.clientY - s.py) / stageScale;
-  // widths and heights stay whole cells, never under two; a west or north
+  // widths and heights stay whole cells, never under four; a west or north
   // pull moves the origin to a star line and keeps the far edge pinned. the
   // card, the tickets, the spotify box and the clock also stop at their own
   // smallest and largest size (RESIZE_LIMITS in card-logic.js)
