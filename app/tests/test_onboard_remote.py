@@ -6,7 +6,8 @@ where it must never take a server lane's path for a folder there.
             with the server's key and keeps the lane's key and a curl config
             (the key, the door, no proxy) for the account alone, and never
             prints the key; a join the board refuses, no server key, or no
-            board says so
+            board says so; a ready join gives the first word of the name the
+            board sent, and none for no name or a join that is not ready
   wait      a claim is confirmed before it is printed, without its receipt;
             each /wait call is at most WAIT_CYCLE seconds and the lane is
             looked at once, not before every call; a held card, a missing
@@ -178,6 +179,34 @@ class OnAServer(unittest.TestCase):
         said = self.run_helper("inspect")[1]
         self.assertEqual((said["status"], said["owner"]), ("listener_present", "demo"))
         self.assertFalse((self.top / "agents" / "demo.key").exists())
+
+    def test_a_ready_join_gives_the_first_name_alone(self):
+        self.serve()
+        for given, first in (("Ada", "Ada"), ("Ada Lovelace", "Ada"), ("  ada  ", "ada"),
+                             ("María José García", "María"), ("Ада Лавлейс", "Ада")):
+            with self.subTest(name=given):
+                Handler.answers["/remote/join"] = (200, {"status": "ready", "owner": "demo", "server": "lab",
+                                                         "key": KEY, "name": given})
+                said = self.run_helper("inspect")[1]
+                self.assertEqual(said["name"], first)
+                self.assertEqual(list(said), ["status", "owner", "curl", "base", "runbook", "name", "remote", "server"])
+        for given in (None, "", "   ", 42, "A\x07da"):
+            with self.subTest(name=given):
+                Handler.answers["/remote/join"] = (200, {"status": "ready", "owner": "demo", "key": KEY, "name": given})
+                said = self.run_helper("inspect")[1]
+                self.assertEqual(said["status"], "ready")
+                self.assertNotIn("name", said)
+        # a board from before the name gives none
+        Handler.answers["/remote/join"] = (200, {"status": "ready", "owner": "demo", "key": KEY})
+        self.assertNotIn("name", self.run_helper("inspect")[1])
+
+    def test_a_join_that_is_not_ready_passes_no_name_on(self):
+        Handler.answers["/remote/join"] = (200, {"status": "listener_present", "owner": "demo", "server": "lab",
+                                                 "name": "Ada"})
+        self.serve()
+        said = self.run_helper("inspect")[1]
+        self.assertEqual(said["status"], "listener_present")
+        self.assertNotIn("name", said)
 
     def test_a_proxy_in_the_accounts_settings_is_never_used(self):
         Handler.answers["/remote/join"] = (200, {"status": "ready", "owner": "demo", "key": KEY})

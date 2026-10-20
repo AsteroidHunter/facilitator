@@ -10,7 +10,7 @@ What leaves the Mac, exactly:
 - Only after a yes to feedback emails (an email given, in the onboarding or in Settings, Profile; there is no switch for it), and only while the "Share daily usage counts" switch is on: your email, name, what you will mostly use Facilitator for and your time zone, each only if given. They go once, at the yes; after that, an answer you change goes again on its own, and one you clear is removed there.
 - Taking the yes back, by clearing the email in Settings, Profile, sends nothing more, and the Mac forgets your email and answers; what PostHog already holds stays there. A later yes sends them all again.
 - With the switch off nothing leaves, the profile included, except a message you write in the feedback box and send.
-- Without the yes, the profile never leaves the Mac.
+- Without the yes, the profile never leaves the Mac, except the first word of your name, which an agent on one of your own servers is given when it joins (see [Agents on your own servers](servers.md)).
 - A message from the feedback box in Settings, Improvements: the one thing sent with words. Only when you press send and let the three seconds to cancel pass (text only, at most 5000 characters), as one "feedback sent" event under the install id with your name and email attached to it. It goes whether or not the switch is on, because sending feedback is its own choice, and its words are never written to a log.
 
 ## Who can reach the board

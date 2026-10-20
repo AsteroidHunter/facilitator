@@ -839,7 +839,8 @@ Endpoints:
   RemoteGate before anything here sees it: GET /remote/setup is the setup
   program, POST /remote/pair trades a code for the server's key, POST
   /remote/link is the link's poll, POST /remote/join with the server's key
-  gives an agent its lane's key, GET /remote/lane answers that lane's busy
+  gives an agent its lane's key and the first word of the profile's name
+  (none for no name), GET /remote/lane answers that lane's busy
   and listening state, and the agent routes answer for that lane alone
   GET  /fresh?owner=O       -> while O's agent holds a card: any messages that
                                landed on that card after the claim, handed over
@@ -969,7 +970,8 @@ the onboarding: /board-settings.js says so in front of the store
 before it can be used. The profile stays on this Mac unless the person says
 yes to feedback mail: then its email, name, work answer and time zone go to
 PostHog once, as that person's properties, and again only when one of them
-changes, never on a daily message.
+changes, never on a daily message. The one exception is the first word of the
+name, which an agent on one of the owner's servers is given when it joins.
 """
 
 from __future__ import annotations
@@ -7974,6 +7976,10 @@ class _RemoteBoard:
     presence = staticmethod(_remote_presence)
     box_lane = staticmethod(_remote_box_lane)
 
+    @staticmethod
+    def first_name():
+        return _profile_first_name()
+
     @property
     def remote(self):
         return _remote
@@ -8729,6 +8735,16 @@ def _profile_read() -> dict:
 
 def _profile_complete(rec: dict) -> bool:
     return bool(rec["name"])
+
+
+def _profile_first_name() -> str | None:
+    """The first word of the profile's name as typed, or None for no name:
+    what an agent on one of the owner's servers is given when it joins
+    (POST /remote/join), and nothing else of the profile. The skill's helper
+    gives an agent on this Mac the same word, read from this file itself."""
+    with _profile_lock:
+        name = _profile_read()["name"]
+    return name.split()[0] if name else None
 
 
 _profile_seen: tuple = (None, False)   # (the file's stamp, complete) as last read

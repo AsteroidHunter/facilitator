@@ -895,7 +895,8 @@ class RemoteGate:
 
     board is the server's side of it: board.remote (the Remote, or None when
     the board keeps no servers), board.projects(server id), board.presence
-    (lane) and board.box_lane(box), each taking the board's lock itself, and
+    (lane), board.box_lane(box) and board.first_name() (the first word of the
+    profile's name, or None), each taking the board's lock itself, and
     board.log(kind, **fields). A line names a route and a reason, never a
     key, a code or an address."""
 
@@ -1043,4 +1044,9 @@ class RemoteGate:
             answer["box"] = presence.get("busy")
         if status == "ready":
             answer["key"] = remote.mint(lane, rec["id"])
+            # the first word of the name in the owner's profile, the one
+            # thing of it an agent here is given, and none for no name
+            name = await self._in_thread(self.board.first_name)
+            if name:
+                answer["name"] = name
         await _reply(send, 200, answer)

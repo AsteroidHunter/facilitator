@@ -19,7 +19,9 @@ answered by the gate, or refused.
             401
   join      the server's key gives the lane its path names a fresh key, a
             wrong one is 401, a lane with a listener or a held card gets no
-            key, and a join sees only its own server's lanes
+            key, and a join sees only its own server's lanes; a ready join
+            carries the first word of the profile's name and nothing else of
+            the profile, and a join without a key carries no name
   marks     a request through the door is never local and never the phone's;
             one on the board's own ports passes to the board's guards
             untouched and never straight to the routes; a connection on the
@@ -144,8 +146,11 @@ class Gate(unittest.TestCase):
         self.gate = remote_link.RemoteGate(self.outer, server._RemoteBoard(), routes=self.routes)
         self.demo = server._remote.mint("demo", "lab")
         self.notes = server._remote.mint("notes", "lab")
+        self.profile_path = server.PROFILE_PATH
+        server.PROFILE_PATH = self.data / "profile.json"
 
     def tearDown(self):
+        server.PROFILE_PATH = self.profile_path
         if server._remote is not None:
             server._remote.stop()
         server._remote = None
@@ -258,7 +263,8 @@ class Gate(unittest.TestCase):
                              ("POST", "/send"), ("POST", "/typing"), ("POST", "/done"), ("POST", "/close"),
                              ("GET", "/uploads/x.png"),
                              ("GET", "/"), ("GET", "/m"), ("POST", "/settings"), ("GET", "/log"),
-                             ("GET", "/thread"), ("GET", "/remote/pair"), ("POST", "/remote/setup")):
+                             ("GET", "/thread"), ("GET", "/remote/pair"), ("POST", "/remote/setup"),
+                             ("GET", "/profile"), ("POST", "/profile")):
             with self.subTest(route=path):
                 self.assertEqual(call(self.gate, method, path, "owner=demo&box=m1", key=self.demo)[0], 403)
                 self.assertEqual(call(self.gate, method, path, "owner=demo&box=m1")[0], 401)
@@ -334,6 +340,40 @@ class Gate(unittest.TestCase):
         said = self.join({"path": "/home/you/demo"})[1]
         self.assertEqual((said["status"], said["box"]), ("claim_held", "m1"))
         self.assertNotIn("key", said)
+
+    def profile(self, **fields):
+        server.PROFILE_PATH.write_text(json.dumps({
+            "email": "owner@example.invalid", "email_yes": True, "work": "garden notes",
+            "time_zone": "Europe/Madrid", "picture": 20, **fields}))
+
+    def test_a_ready_join_carries_the_first_name_and_nothing_else_of_the_profile(self):
+        for given, first in (("Ada", "Ada"), ("Ada Lovelace", "Ada"), ("  ada  ", "ada"),
+                             ("María José García", "María"), ("Ада Лавлейс", "Ада")):
+            with self.subTest(name=given):
+                self.profile(name=given)
+                status, said = self.join({"path": "/home/you/demo"})
+                self.assertEqual((status, said["status"], said["name"]), (200, "ready", first))
+                self.assertEqual(sorted(said), ["key", "name", "owner", "server", "status"])
+        for given in ("", "   ", None, "A\x07da"):
+            with self.subTest(name=given):
+                self.profile(name=given)
+                said = self.join({"path": "/home/you/demo"})[1]
+                self.assertEqual(said["status"], "ready")
+                self.assertNotIn("name", said)
+        self.profile()
+        self.assertNotIn("name", self.join({"path": "/home/you/demo"})[1])
+        server.PROFILE_PATH.unlink()
+        self.assertNotIn("name", self.join({"path": "/home/you/demo"})[1])
+
+    def test_a_join_that_gets_no_key_gets_no_name(self):
+        self.profile(name="Ada Lovelace")
+        server._waiters["demo"] = 1
+        self.assertNotIn("name", self.join({"path": "/home/you/demo"})[1])
+        server._waiters["demo"] = 0
+        server._state["busy"]["demo"] = "m1"
+        self.assertNotIn("name", self.join({"path": "/home/you/demo"})[1])
+        self.assertNotIn("name", self.join({"board": "mine"})[1])
+        self.assertEqual(self.join({"path": "/home/you/demo"}, key="wrong")[0], 401)
 
     # -- marks
     def test_a_door_request_is_never_local_or_the_phones(self):

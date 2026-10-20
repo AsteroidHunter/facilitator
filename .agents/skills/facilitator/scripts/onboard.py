@@ -291,14 +291,18 @@ def inspect_remote(args, rec):
     found = answer.pop("status")
     key = answer.pop("key", None)
     answer.pop("server", None)
+    # the board has no profile here: a join it answers ready carries the
+    # person's first name, given on with the runbook as on the Mac
+    name = first_name(answer.pop("name", None))
     if found == "ready":
         if not isinstance(key, str) or not key or not isinstance(answer.get("owner"), str) \
                 or not LANE_ID.fullmatch(answer["owner"]):
             output("protocol_error", detail="join answered no key", **common)
             return
         config = save_key(rec, answer["owner"], key)
+        named = {"name": name} if name else {}
         output("ready", owner=answer["owner"], curl=f"-K {config}", base=remote_base(rec),
-               runbook=str(RUNBOOK), **common)
+               runbook=str(RUNBOOK), **named, **common)
         return
     output(found, **answer, **common)
 
