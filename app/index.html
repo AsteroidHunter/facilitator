@@ -8168,6 +8168,10 @@ if (MB.el){
     else magicBig(from);
   });
   MB.shade.addEventListener("click", () => magicSmall());
+  // a press on the cross or the green button leaves the focus where it is: a
+  // button the mouse goes down on takes the focus, which would hand the box
+  // the keys (focusin, below) as it is put away or expanded
+  for (const b of [MB.el.querySelector(".mbclose"), MB.grow]) b.addEventListener("mousedown", e => e.preventDefault());
 }
 // the card the box belongs to, or null: the card on screen, on this tab, not
 // done, with an open box. the classes are read rather than the flags, since the
@@ -8668,6 +8672,9 @@ addEventListener("pointerdown", e => {
   // opened from the box leaves the box held
   if (e.target.closest?.("#picfull")) return;
   const into = !!MB.el?.contains(e.target);
+  // and one on the box's cross or green button leaves the box held or not as
+  // it was: the card keeps its look while the box sinks away or expands
+  if (into && e.target.closest?.(".mbclose, .mbgrow")) return;
   if (into) magicRemember();
   magicHold(into);
 }, true);
