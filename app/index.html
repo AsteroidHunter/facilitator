@@ -12280,6 +12280,21 @@ function pipeScrollCard(){
   if (!card || !pipeHeld() || PIPE.id === null) return null;
   return { id: "pipe:" + PIPE.id, owner: card.owner, el: PIPE.part };
 }
+// and while it is out with the keys still on the card, typing in its box, on
+// its title or on the card itself: it is the card's response, so its words
+// scroll by the same motion, pressed from the same places on the card and with
+// the same guards as the card's own copy (responseScrollSource), which stays
+// where it is. the card with its words in the place of the response is one
+// for as long as the card is, so a double tap stands on it
+function pipeScrollTyped(){
+  const card = boardResponseCard();
+  if (!card || typeof PIPE !== "object" || pipeHeld() || !pipeShown() || card.id !== PIPE.id) return null;
+  if (PIPE.typedFor !== card.el){
+    PIPE.typedFor = card.el;
+    PIPE.typed = Object.create(card.el, { replyview: { value: PIPE.body } });
+  }
+  return { id: "pipe:" + PIPE.id, owner: card.owner, el: PIPE.typed };
+}
 // a key typed in an agent's page, which the board never hears from a sealed
 // frame, as magicView hands it over (the page says it, MagicBox.pageDoc): the
 // same three the board's own listeners take for control+s, the chord that
@@ -12458,7 +12473,8 @@ const boardShortcutActions = {
     if (to) setView(to);
   },
   responseScroll(e){
-    responseScrollKey(e, pipeHeld() ? pipeScrollCard : boardMagicHeld() ? boardMagicScrollCard : boardResponseCard);
+    responseScrollKey(e, pipeHeld() ? pipeScrollCard : boardMagicHeld() ? boardMagicScrollCard :
+      pipeScrollTyped() ? pipeScrollTyped : boardResponseCard);
   },
 };
 

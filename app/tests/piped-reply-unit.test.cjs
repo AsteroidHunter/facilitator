@@ -1005,9 +1005,115 @@ test("control+option+up and down treat it as the card's response while it is out
   assert.match(HTML, /\ncardAnswerOff = id => id === shownId && pipeShown\(\) \? \{ holds: node => PIPE\.el\.contains\(node\), go: pipeEnter \} : null;/);
 });
 
+test("control+S and its double tap, typed in the card's box with the response out, scroll the piped words as they scroll the card's", () => {
+  // the page's own motion (card-logic.js) on a hand-driven clock, and the page's own choice of what scrolls
+  let now = 0, next = 1;
+  const due = new Map();
+  const frames = (n, ms = 20) => {
+    for (let i = 0; i < n; i++) { now += ms; const fns = [...due.values()]; due.clear(); for (const f of fns) f(now); }
+  };
+  const settle = () => { for (let i = 0; i < 200 && due.size; i++) frames(1); };
+  const context = vm.createContext({ performance: { now: () => now }, requestAnimationFrame: f => (due.set(next, f), next++),
+    cancelAnimationFrame: id => due.delete(id), addEventListener() {}, setTimeout: () => 0, clearTimeout() {} });
+  vm.runInContext(read("card-logic.js"), context);
+  // a little tree: contains walks parents; the typing box is a field, as a textarea is
+  const doc = { visibilityState: "visible" };
+  const node = (parent, field = false) => ({ parent, isConnected: true, animations: [],
+    animate(f, o) { const run = { f, o, cancel() {} }; this.animations.push(run); return run; },
+    contains(other) { for (let at = other; at; at = at.parent) if (at === this) return true; return false; },
+    closest(sel) { if (sel === ".cm-editor") return null; for (let at = this; at; at = at.parent) if (at.field) return at; return null; },
+    field });
+  const scroller = (parent, top, whole, client) => {
+    const view = Object.assign(node(parent), { ownerDocument: doc, scrollHeight: whole, clientHeight: client, writes: [] });
+    let at = top;
+    Object.defineProperty(view, "scrollTop", { get: () => at, set: v => { at = v; view.writes.push(v); } });
+    view.children = [node(view)];
+    return view;
+  };
+  doc.body = node(null);
+  const box = node(doc.body), replyview = scroller(box, 0, 1600, 573);
+  const card = { box, replyview, reply: replyview.children[0], pendwrap: node(box), answwrap: node(replyview), titleEl: node(box, true) };
+  card.ta = node(card.pendwrap, true);
+  const pipe = node(doc.body), body = scroller(pipe, 0, 1623, 511);
+  const state = { shown: true, held: false, boxHeld: false };
+  Object.assign(context, {
+    els: { c1: card }, PIPE: { id: "c1", el: pipe, body, part: { replyview: body, box: pipe } },
+    pipeShown: () => state.shown, pipeHeld: () => state.held, boardMagicHeld: () => state.boxHeld,
+    boardMagicScrollCard: () => null, boardResponseCard: () => ({ id: "c1", owner: "p1", el: card }),
+  });
+  vm.runInContext(fn("pipeScrollCard") + fn("pipeScrollTyped") + "var actions = {" + cut("  responseScroll(e){", "\n  },") + "\n  }};", context);
+  const press = (target = card.ta) => {
+    const e = { key: "s", target, ctrlKey: true, shiftKey: false, metaKey: false, altKey: false, isComposing: false,
+      repeat: false, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; } };
+    context.actions.responseScroll(e);
+    return e;
+  };
+  const release = () => context.responseScrollKeyUp({ key: "s", ctrlKey: true, shiftKey: false, metaKey: false, altKey: false });
+  const held = ms => context.responseHeldPath(ms);
+  doc.activeElement = card.ta;
+
+  // held from the typing box: the piped words go down from the first frame at the card's own pace
+  assert.equal(press().defaultPrevented, true, "the chord is taken from the box");
+  frames(20);
+  assert.ok(Math.abs(body.scrollTop - held(400)) < 1e-6, "the piped words, at the card's pace");
+  assert.deepEqual(replyview.writes, [], "the card's own copy stays where it is");
+  release();
+  settle();
+  const down = body.scrollTop;
+  assert.ok(down > held(400), "and let go, they ease off as the card's do");
+  // the double tap: a quick second press goes back up
+  now += 1000;
+  press(); release(); now += 100;
+  press();
+  frames(10);
+  release();
+  settle();
+  assert.ok(body.scrollTop < down, "the double tap goes up the piped words");
+  assert.deepEqual(replyview.writes, []);
+  // from its title too, as from the card's
+  doc.activeElement = card.titleEl;
+  now += 1000;
+  const before = body.scrollTop;
+  assert.equal(press(card.titleEl).defaultPrevented, true);
+  frames(5);
+  release(); settle();
+  assert.ok(body.scrollTop > before, "pressed on the title");
+  doc.activeElement = card.ta;
+  // the response going back mid-motion: the motion stops
+  now += 1000;
+  const was = body.scrollTop;
+  press();
+  frames(2);
+  state.shown = false;
+  frames(5);
+  assert.equal(due.size, 0, "no motion on a response that has gone back");
+  assert.ok(body.scrollTop - was < 10);
+  context.dropResponseScroll();
+  // nothing piped out: the card's own response scrolls, as before
+  now += 1000;
+  press();
+  frames(20);
+  assert.ok(Math.abs(replyview.scrollTop - held(400)) < 1e-6, "the card's response, as before");
+  release(); settle();
+  // the keys in the piped words, or in the magic box: theirs, as before
+  state.shown = true; state.held = true;
+  assert.equal(vm.runInContext("pipeScrollTyped()", context), null);
+  state.held = false; state.boxHeld = true;
+  replyview.writes.length = 0; body.writes.length = 0;
+  now += 1000;
+  press(); frames(5); release(); settle();
+  assert.deepEqual([replyview.writes, body.writes], [[], []], "the magic box's, which has nothing here");
+  // one card with the piped words in its place for as long as the card is the same, so a double tap stands
+  state.boxHeld = false;
+  const a = vm.runInContext("pipeScrollTyped()", context), b = vm.runInContext("pipeScrollTyped()", context);
+  assert.equal(a.el, b.el);
+  assert.equal(a.el.replyview, body);
+  assert.equal(a.el.ta, card.ta, "the card's own typing box, title and parts");
+});
+
 test("control+S scrolls it while it holds the keys, and command+A picks its words alone", () => {
   assert.match(cut("const boardShortcutActions = {", "\n};"),
-    /responseScroll\(e\)\{\s*responseScrollKey\(e, pipeHeld\(\) \? pipeScrollCard : boardMagicHeld\(\) \? boardMagicScrollCard : boardResponseCard\);/);
+    /responseScroll\(e\)\{\s*responseScrollKey\(e, pipeHeld\(\) \? pipeScrollCard : boardMagicHeld\(\) \? boardMagicScrollCard :\s*pipeScrollTyped\(\) \? pipeScrollTyped : boardResponseCard\);/);
   const scroll = fn("pipeScrollCard");
   assert.match(scroll, /if \(!card \|\| !pipeHeld\(\) \|\| PIPE\.id === null\) return null;/);
   // the words it scrolls are its body, and the caret's own words count as the page
