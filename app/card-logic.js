@@ -5832,6 +5832,31 @@ function noteTyping(ta){
   if (typeof ComposeFormat === "object" && ComposeFormat && ComposeFormat.focused(ta)) ta.typedAt = Date.now();
 }
 
+// the typing hold: the board does not hand a card to an agent while the reader is
+// still typing on it, and keeps the one clock for that itself (TYPING_HOLD in
+// server.py). the page only says "a change on this card" each time the reader makes
+// one in the card's row: words typed, pasted, cut or deleted, or the caret or the
+// selection moved, by a key that moves it or by a press in the row while it already
+// has the caret. the caret coming into the row, what the row holds, and the page's
+// own writes to it (a send emptying it, a draft put back, the editor coming on) say
+// nothing. a report is never waited for, and one that fails is let go
+const CARET_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
+function reportTyping(id){
+  fetch("/typing?box=" + encodeURIComponent(id), { method: "POST" }).catch(() => {});
+}
+function watchTyping(ta, id){
+  ta.addEventListener("input", e => { if (ComposeFormat.readerInput(e)) reportTyping(id); });
+  // control with them is the board's own chords (another card, the answer, the
+  // title), which move no caret
+  ta.addEventListener("keydown", e => {
+    if (e.isTrusted && CARET_KEYS.has(e.key) && !e.ctrlKey && ComposeFormat.focused(ta)) reportTyping(id);
+  });
+  // asked before the press lands, so the press that brings the caret in is focus
+  ta.addEventListener("pointerdown", e => {
+    if (e.isTrusted && ComposeFormat.focused(ta)) reportTyping(id);
+  });
+}
+
 function stillMotion(){
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }

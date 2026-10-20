@@ -300,3 +300,18 @@ test("same-origin, typed-address and header-less GETs of the same routes still w
   }
   assert.equal(refusals().lines.length, before, "an allowed GET wrote a refusal line");
 });
+
+test("a typing report through the phone's door is a write of its own page, as a send is", async () => {
+  const card = JSON.parse((await write("/create", "fixture")).text).id;
+  const route = `/typing?box=${card}`;
+  const before = board();
+  assert.equal((await request(fixture.bridge, route, "POST", null, { Origin: fixture.origin })).status, 401);
+  for (const extra of [{ Origin: "https://other.example" }, { Origin: `http://127.0.0.1:${fixture.port}` },
+    { Origin: "null" }, {}]) {
+    const answer = await request(fixture.bridge, route, "POST", null, { ...fixture.cookie, ...extra });
+    assert.equal(answer.status, 403, JSON.stringify(extra));
+    assert.match(answer.text, /origin refused/);
+  }
+  assert.equal((await write(route)).status, 200);
+  assert.equal(board(), before, "a typing report changed the board file");
+});

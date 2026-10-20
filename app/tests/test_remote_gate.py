@@ -212,7 +212,8 @@ class Gate(unittest.TestCase):
                              ("GET", "/navfiles"), ("GET", "/laneimg/demo/a.png"), ("POST", "/magic"),
                              ("GET", "/dirs"), ("GET", "/machines"), ("POST", "/mkdir"), ("POST", "/project"),
                              ("POST", "/remote/pair/new"), ("POST", "/remote/forget"), ("GET", "/remote/servers"),
-                             ("POST", "/send"), ("POST", "/done"), ("POST", "/close"), ("GET", "/uploads/x.png"),
+                             ("POST", "/send"), ("POST", "/typing"), ("POST", "/done"), ("POST", "/close"),
+                             ("GET", "/uploads/x.png"),
                              ("GET", "/"), ("GET", "/m"), ("POST", "/settings"), ("GET", "/log"),
                              ("GET", "/thread"), ("GET", "/remote/pair"), ("POST", "/remote/setup")):
             with self.subTest(route=path):
