@@ -608,7 +608,7 @@ test("the brace is a { to a response on the card's right and a } to one on its l
   // with the words' scroll taken back, and in by the corner with no words
   assert.match(draw, /^function pipeLine\(card, box, side, most, lead\)\{/);
   assert.match(fn("pipeLevel"), /lead: \(own\.top - PIPE\.el\.getBoundingClientRect\(\)\.top\) \/ S \+ PIPE\.body\.scrollTop/);
-  assert.match(fn("pipePlace"), /pipeLine\(room\.rect, at, side, most\[side\], level && level\.lead\);/);
+  assert.match(fn("pipePlace"), /pipeLine\(room\.rect, at, side, most\[side\], level && level\.lead \+ level\.ink \+ PIPE_STROKE \/ 2\);/);
   assert.match(draw, /parseFloat\(getComputedStyle\(words\)\.lineHeight\)/);
   assert.match(draw, /pipeBrace\(card, box, side, most, \{ round, lead: lead == null \? round : lead, apart, clear: PIPE_CLEAR \}\)/);
   assert.match(HTML, /const PIPE_MS = \d+, PIPE_DIM = \.1, PIPE_CLEAR = 8;/);
@@ -618,8 +618,9 @@ test("the brace is a { to a response on the card's right and a } to one on its l
 // card: the first line of the card's own copy of the response (its top), the top
 // of the card's answer and the top of the typing box, on the screen; with none,
 // the response has no words to stand level with. S and sy: the stage's scale and
-// its top on the screen. the pipe's words have their first line LEAD under its top
-const LEAD = 17.86;
+// its top on the screen. the pipe's words have their first line LEAD under its top,
+// and the tops of that line's tall letters INK under the line's top
+const LEAD = 17.86, INK = 4.68;
 function placer({ box = false, roomRight = true, roomLeft = true, want = 400, card = null, S = 1, sy = 0 } = {}) {
   const classes = new Set(["on"]), style = {}, body = { scrollTop: 0 };
   const tickets = { style: { opacity: "" } }, clock = { style: { opacity: "" } };
@@ -647,7 +648,7 @@ function placer({ box = false, roomRight = true, roomLeft = true, want = 400, ca
     frameLimits: () => ({ left: fit.left + 16 }), FRAME_CLEAR: 16,
     boardMagicShown: () => box, pipeLine: (...args) => drawn.push(args), boxRise: () => {},
     // each line read off the page where the stand-ins above lay it
-    pipeLines: node => node.first || null,
+    pipeLines: node => node.first || null, pipeInk: () => INK, PIPE_STROKE: STROKE,
     els: { c1: { reply, replyview: { getBoundingClientRect: () => ({ top: card.view }) },
       pendwrap: { getBoundingClientRect: () => ({ top: card.pend }) } } },
   });
@@ -712,10 +713,11 @@ test("its first line stands level with the card's own first line, and it reaches
     assert.ok(close(p.top + LEAD, 330), side + ": its first line level with the card's");
     assert.ok(p.top > whole.top + 100, side + ": well under the box's top, where it stood");
     assert.ok(close(p.height, 143), side + ": a short response as tall as its words from there");
-    // the brace's top arm at the top of that line
+    // the brace's top end, the top edge of its top arm, on the tops of that line's tall letters
     let [, drawnAt, drawnSide, , lead] = at.drawn.at(-1);
+    const arm = 330 + INK + STROKE / 2;
     assert.equal(drawnSide, side);
-    assert.ok(close(drawnAt.top + lead, 330), side + ": the brace from the top of the first line");
+    assert.ok(close(drawnAt.top + lead, arm), side + ": the brace from the top of the first line's letters");
     // a long response down to the box's foot, where its words scroll
     at.PIPE.view.want = () => ({ height: 2000 });
     p = place();
@@ -724,7 +726,7 @@ test("its first line stands level with the card's own first line, and it reaches
     at.PIPE.body.scrollTop = 120;
     p = place();
     [, drawnAt, , , lead] = at.drawn.at(-1);
-    assert.ok(close(p.top + LEAD, 330) && close(drawnAt.top + lead, 330), side + ": its scroll moves neither");
+    assert.ok(close(p.top + LEAD, 330) && close(drawnAt.top + lead, arm), side + ": its scroll moves neither");
     at.PIPE.body.scrollTop = 0;
     // the card's line moved, by a scroll, a longer title or the card's size: it follows
     at.card.first = 300;
@@ -759,6 +761,42 @@ test("its first line stands level with the card's own first line, and it reaches
   assert.match(fn("pipeOff"), /PIPE\.top = null;/);
   // the card's answer scrolled moves it, as a change to the card does
   assert.match(HTML, /addEventListener\("scroll", e => \{\n    const el = PIPE\.id === null \? null : els\[PIPE\.id\];\n    if \(el && e\.target === el\.replyview && pipeShown\(\)\) pipePlace\(\);\n  \}, \{ capture: true, passive: true \}\);/);
+});
+
+test("the brace's top is the tops of the first line's tall letters, in the type of the response's first words", () => {
+  // a font whose ascent is 1.025 of its size and whose tall letters reach 0.78 of it
+  const make = ({ texts, canvas = true, metrics = true }) => {
+    const asked = [];
+    const pen = { font: "", measureText(s) {
+      asked.push([this.font, s]);
+      const size = parseFloat(this.font.split(" ")[2]);
+      return metrics ? { fontBoundingBoxAscent: size * 1.025, actualBoundingBoxAscent: size * 0.78 } : { width: 10 };
+    } };
+    const context = vm.createContext({
+      PIPE: {}, NodeFilter: { SHOW_TEXT: 4 },
+      getComputedStyle: node => ({ fontStyle: "normal", fontWeight: node.weight || "400", fontSize: node.size, fontFamily: "Plex" }),
+      document: {
+        createTreeWalker: () => { let i = -1; return { nextNode: () => texts[++i] || null }; },
+        createElement: () => ({ getContext: () => canvas ? pen : null }),
+      },
+    });
+    vm.runInContext(fn("pipeInk"), context);
+    return { context, asked };
+  };
+  const node = (size, weight, button = false) => ({ size, weight, closest: () => button ? {} : null });
+  const words = { size: "18px" };
+  // past blank words and a button's, the first of the words: here a heading's type
+  const heading = make({ texts: [{ data: " \n ", parentElement: node("18px") }, { data: "Copy", parentElement: node("13px", "400", true) },
+    { data: "Heading", parentElement: node("24px", "600") }, { data: "words", parentElement: node("18px") }] });
+  assert.ok(close(heading.context.pipeInk(words), 24 * (1.025 - 0.78)));
+  assert.deepEqual(heading.asked, [["normal 600 24px Plex", "Hdl"]]);
+  // the answer's own type
+  const plain = make({ texts: [{ data: "Only the brace's lines", parentElement: node("18px") }] });
+  assert.ok(close(plain.context.pipeInk(words), 18 * (1.025 - 0.78)));
+  // with no words of its own, the words' type; with no canvas or no measures, nothing
+  assert.ok(close(make({ texts: [] }).context.pipeInk(words), 18 * (1.025 - 0.78)));
+  assert.equal(make({ texts: [], canvas: false }).context.pipeInk(words), 0);
+  assert.equal(make({ texts: [], metrics: false }).context.pipeInk(words), 0);
 });
 
 // ---- coming and going ------------------------------------------------------------------

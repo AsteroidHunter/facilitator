@@ -8949,7 +8949,9 @@ function pipePlace(){
   // the patch of the board under it, in its place and shape
   if (PIPE.ground){ Object.assign(PIPE.ground.style, rect); PIPE.ground.classList.add("on"); }
   pipeDim();
-  pipeLine(room.rect, at, side, most[side], level && level.lead);
+  // the brace's top end, the top edge of its top arm, on the tops of its first
+  // line's tall letters
+  pipeLine(room.rect, at, side, most[side], level && level.lead + level.ink + PIPE_STROKE / 2);
   boxRise(PIPE);
 }
 
@@ -8959,8 +8961,9 @@ function pipePlace(){
 // response and the card's size. that line scrolled up past the top of the
 // card's answer, or down under the typing box, it stays at the nearer of the
 // two: the answer's top, or a line over the typing box. lead: how far under
-// its own top its first line stands, its words at their head. null for a
-// response with no words in either
+// its own top its first line stands, its words at their head; ink: how far
+// under that line's top its tall letters' tops stand (pipeInk), where the
+// brace starts. null for a response with no words in either
 function pipeLevel(room){
   const el = PIPE.id === null ? null : els[PIPE.id], words = PIPE.part.reply;
   const first = el && pipeLines(el.reply, 1, true), own = words && pipeLines(words, 1, true);
@@ -8968,7 +8971,25 @@ function pipeLevel(room){
   const S = room.S, view = el.replyview.getBoundingClientRect().top;
   const under = el.pendwrap.getBoundingClientRect().top - (first.bottom - first.top);
   const top = Math.max(view, Math.min(under, first.top));
-  return { top: (top - room.sr.y) / S, lead: (own.top - PIPE.el.getBoundingClientRect().top) / S + PIPE.body.scrollTop };
+  return { top: (top - room.sr.y) / S, lead: (own.top - PIPE.el.getBoundingClientRect().top) / S + PIPE.body.scrollTop,
+    ink: pipeInk(words) };
+}
+// the top of a line's words as they are seen, the tops of its tall letters (an
+// l, a d, a capital), under the top the page lays the line out from: the
+// font's own ascent less theirs, in the type of the first of the words, a
+// heading's or the answer's, measured by a canvas and so in the stage's pixels
+// the type is set in. nothing where no canvas can measure it
+function pipeInk(words){
+  const walk = document.createTreeWalker(words, NodeFilter.SHOW_TEXT);
+  let t = walk.nextNode();
+  while (t && (!/\S/.test(t.data) || t.parentElement?.closest("button"))) t = walk.nextNode();
+  const cs = getComputedStyle(t ? t.parentElement : words);
+  const pen = PIPE.pen || (PIPE.pen = document.createElement("canvas").getContext("2d"));
+  if (!pen) return 0;
+  pen.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+  const m = pen.measureText("Hdl");
+  if (!(m.fontBoundingBoxAscent > 0 && m.actualBoundingBoxAscent > 0)) return 0;
+  return Math.max(0, m.fontBoundingBoxAscent - m.actualBoundingBoxAscent);
 }
 
 // the brace from the card to it, in the stage's pixels: a { when it stands on
@@ -8979,10 +9000,11 @@ function pipeLevel(room){
 // and out along its foot arm. the spine stands in the middle of the gap
 // between the card's edge and the response's, and no line touches either: each
 // stops clear short of the edge it points to. the top arm is level with the
-// top of the response's first line (lead, down from its top), and the foot
-// arm with its foot, in by its corner (round). the two lines toward the card
-// stand a line of the response's words (apart) apart, either side of the
-// point, a set way under the top arm: where the magic box's first line stands
+// tops of the tall letters of the response's first line (lead, down from its
+// top, its own top edge there), and the foot arm with its foot, in by its
+// corner (round). the two lines toward the card stand a line of the
+// response's words (apart) apart, either side of the point, a set way under
+// the top arm: where the magic box's first line stands
 // on the largest box beside this card (TWO), or half way down a response too
 // short for that, and no further apart than half of what is left of the brace.
 // so the upper set keeps its height and the lower stretches with the response.
@@ -9004,9 +9026,9 @@ function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = TWO
   return { spine, top, point, foot, upper, lower, segments: [...upper, ...lower] };
 }
 function pipeLine(card, box, side, most, lead){
-  // the top of the response's first line, down from its top as it stands with
-  // its words at their head (pipeLevel), in the stage's pixels as the box is,
-  // and one line of its words
+  // the top arm, at the tops of the tall letters of the response's first line,
+  // down from its top as it stands with its words at their head (pipeLevel),
+  // in the stage's pixels as the box is, and one line of its words
   const words = PIPE.part.reply;
   const round = parseFloat(getComputedStyle(PIPE.el).borderTopLeftRadius) || 0;
   const apart = words ? parseFloat(getComputedStyle(words).lineHeight) || 0 : 0;
