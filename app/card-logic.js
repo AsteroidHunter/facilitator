@@ -169,6 +169,7 @@ function installCardPageGuard(win = window){
     }
     if (!url) status.textContent = "This link is not a web address.";
     shown.appendChild(status); doc.body.appendChild(shown);
+    cardTopLayer(shown, link);
     const rect = link.getBoundingClientRect();
     const x = e.clientX || rect.left, y = e.clientY || rect.bottom;
     shown.style.left = Math.max(8, Math.min(x, win.innerWidth - shown.offsetWidth - 8)) + "px";
@@ -536,6 +537,26 @@ function cardPictureLayer(doc){
   return layer;
 }
 
+// the phone's magic box stands expanded in the browser's top layer, over
+// everything else on the page (m.html, phoneMagicBig). a layer opened from
+// inside it, the picture opened full screen or a link's menu, goes up there
+// too, over it, and comes down again as it shuts. from anywhere else, and on
+// the Mac, whose box is never there, nothing changes
+function cardTopLayer(layer, from){
+  const box = from?.closest?.(".magicbox.big");
+  if (!box || typeof layer.showPopover !== "function") return;
+  let up = false;
+  try { up = box.matches(":popover-open"); } catch (e) {}
+  if (!up) return;
+  layer.setAttribute("popover", "manual");
+  layer.showPopover();
+}
+function cardTopLayerOff(layer){
+  if (!layer.hasAttribute("popover")) return;
+  try { layer.hidePopover(); } catch (e) {}
+  layer.removeAttribute("popover");
+}
+
 // back is what had focus before the press that opened it, given back on close.
 // answers false for a picture that has not drawn, which has nothing to show
 function openCardPicture(img, back){
@@ -549,6 +570,7 @@ function openCardPicture(img, back){
   const from = cardPictureRect(img), seen = from && cardPictureSeen(img);
   layer.appendChild(big);
   layer.classList.add("on");
+  cardTopLayer(layer, img);
   const to = cardPictureFit(img.naturalWidth, img.naturalHeight, cardPictureBox(layer));
   cardPicturePlace(big, to);
   img.classList.add("picfull-from");
@@ -609,6 +631,7 @@ function closeCardPicture(){
     z.big.remove(); z.dim.cancel();
     z.img.classList.remove("picfull-from");
     z.layer.classList.remove("on");
+    cardTopLayerOff(z.layer);
     cardPictureShown = null;
   };
   // landed, the card's own picture is shown under the copy, which fades off it,
@@ -8261,9 +8284,12 @@ function feedbackOverlay(host, row, opts){
 // foot on the phone, and a body .mbbody), says where
 // the box stands and how big, and asks the view what it shows wants (want, for
 // MagicBox.place or MagicBox.fit, magic-box.js). hooks.placed is called when
-// what it shows has a size it did not have, and hooks.openSite(url) opens a
-// site that will not be framed in a new page. the box shows what it holds and
-// nothing else: its title is kept by the board and not drawn
+// what it shows has a size it did not have, hooks.openSite(url) opens a site
+// that will not be framed in a new page, and hooks.escape hears Escape typed
+// in an agent's page. the bar holds the cross (.mbclose) and, at its other
+// end, the green button that expands the box (.mbgrow, view.expand). the box
+// shows what it holds and nothing else: its title is kept by the board and
+// not drawn
 
 // the mark for opening in a new page: a page with an arrow leaving it at the top
 // right, drawn in the line's own colour
@@ -8277,6 +8303,16 @@ const MAGIC_NEW_PAGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColo
 // (10 - 1.3333), laid at 45 degrees about the middle
 const MAGIC_CROSS = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3333" ' +
   'stroke-linecap="round" aria-hidden="true"><path d="M1.936 1.936L8.064 8.064M8.064 1.936L1.936 8.064"></path></svg>';
+// the green button at the bar's other end, which expands the box over the
+// board and puts it back: the Mac's own green window button's marks on the
+// same 10 grid, in the same ink. two small triangles on the diagonal, their
+// square corners out at the top left and the bottom right while the box is at
+// its size (expand), and turned in to meet in the middle while it is expanded
+// (reduce). their corners are rounded by a thin stroke of the same ink
+const MAGIC_MARK = d => '<svg viewBox="0 0 10 10" fill="currentColor" stroke="currentColor" stroke-width=".6" ' +
+  'stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"></path></svg>';
+const MAGIC_GROW = MAGIC_MARK("M1.8 1.8H6L1.8 6ZM8.2 8.2H4L8.2 4Z");
+const MAGIC_SHRINK = MAGIC_MARK("M4.2 4.2H0.8L4.2 0.8ZM5.8 5.8H9.2L5.8 9.2Z");
 // a site's name as the site gives it, or its address's host without "www."
 function magicSiteName(box){
   const site = ((box.preview || {}).site || "").trim();
@@ -8289,6 +8325,8 @@ function magicView(el, hooks = {}){
   const placed = () => { if (hooks.placed) hooks.placed(); };
   const cross = el.querySelector(".mbclose");
   if (cross) cross.innerHTML = MAGIC_CROSS;
+  const grow = el.querySelector(".mbgrow");
+  if (grow) grow.innerHTML = MAGIC_GROW;
   // the words' two fuzzes, the ticket list's own (tickBands): how far they have
   // scrolled up, --upband, and how far they still can, --downband, in whole
   // pixels and capped at the box's --mb-fade. the bar stands at the box's top
@@ -8434,6 +8472,8 @@ function magicView(el, hooks = {}){
     else if (hooks.back && e.data === run.word + " back") hooks.back();
     // and command+T, which the page stops so Chrome opens no tab
     else if (hooks.create && e.data === run.word + " create") hooks.create();
+    // and Escape, which puts the expanded box back to its size
+    else if (e.data === run.word + " escape"){ if (hooks.escape) hooks.escape(); }
     // where the page stands, for control+S (MagicBox.pageDoc, PAGE_SCROLL):
     // how far it has scrolled, how tall it is and how tall its window is, and
     // the last of the board's asks it has done. Where it stands is not taken
@@ -8461,7 +8501,9 @@ function magicView(el, hooks = {}){
     }
     else if ((hooks.sized || hooks.tall) && e.data.startsWith(run.word + " ")){
       const tall = Math.ceil(+e.data.slice(run.word.length + 1));
-      if (tall > 0 && hooks.heard) hooks.heard(tall, run.frame.clientWidth);
+      // a height said while the box is expanded is for that width alone, which
+      // the box never takes beside its card, so it is not kept for it
+      if (tall > 0 && hooks.heard && !view.big) hooks.heard(tall, run.frame.clientWidth);
       if (tall > 0 && tall !== run.height){
         run.height = tall;
         if (hooks.tall) pageTall(run);
@@ -8529,12 +8571,34 @@ function magicView(el, hooks = {}){
   // a picture still on its way, or a page that has not yet said its height on
   // a board that sizes the box to it: the box is kept hidden, so it never
   // shows at the wrong size first. a picture whose size is already known
-  // (seen) is shown at once
+  // (seen) is shown at once. expanded, the box's size is not the page's, so a
+  // page is never waited for
   view.waiting = () => {
     const run = view.page;
-    if (hooks.sized && run && view.body.dataset.kind === "html" && !run.height && Date.now() - run.since < PAGE_WAIT) return true;
+    if (hooks.sized && !view.big && run && view.body.dataset.kind === "html" && !run.height && Date.now() - run.since < PAGE_WAIT) return true;
     const img = view.body.dataset.kind === "image" && view.body.querySelector(".mbimg");
     return !!img && (!view.natural || !img.complete && !view.known);
+  };
+  // the box expanded over the board by its green button, or back at its own
+  // size: where it then stands is each page's to say. the button's mark and
+  // words turn with it. an agent's page the board sizes the box to
+  // (hooks.sized) is laid out wider while the box is expanded and says its
+  // height at that width: the height it had said at the box's own width is
+  // kept, and is the box's again as it comes back, until the page says another
+  view.big = false;
+  view.expand = on => {
+    on = !!on;
+    if (on === view.big) return;
+    view.big = on;
+    el.classList.toggle("big", on);
+    if (grow){
+      grow.innerHTML = on ? MAGIC_SHRINK : MAGIC_GROW;
+      grow.setAttribute("aria-label", on ? "Reduce the magic box" : "Expand the magic box");
+    }
+    const run = view.page;
+    if (!hooks.sized || !run) return;
+    if (on) run.small = run.height;
+    else if (run.small) run.height = run.small;
   };
   return view;
 }

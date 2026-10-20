@@ -1257,9 +1257,22 @@
   /* the cross stands half as far again from the box's side and foot as the
      board's does: the whole of its offset from the box's outer edge (--mb-gap
      and the edge line) times 1.5, i.e. --mb-seat from the inside of the line.
-     the bar keeps its height, and the cross rises within it */
-  #mbface .mbbar{padding-right:var(--mb-seat)}
-  #mbface .mbclose{top:calc(var(--mb-gap) - var(--mb-seat))}
+     the bar keeps its height, and the cross rises within it. the green button
+     that expands the box is its mirror at the bottom left corner */
+  #mbface .mbbar{padding:0 var(--mb-seat)}
+  #mbface :is(.mbclose, .mbgrow){top:calc(var(--mb-gap) - var(--mb-seat))}
+  /* expanded (phoneMagicBig), the box stands in the browser's top layer, over
+     everything on the page whatever moves or clips the drawer it lives in,
+     with nothing of it moved, so a page in it keeps running as it was:
+     95% of the screen's width and height in its middle, kept inside the safe
+     areas, clear of the notch and the home bar (MagicBox.grow). the browser's
+     own look for that layer is set aside. under it the whole page is dimmed
+     by the board's ink at 24%, as the board dims for its settings, in a shade
+     of its own in the same layer (#mbshade), which takes the tap that puts the
+     box back */
+  #mbface.big{position:fixed; inset:auto; margin:0; padding:0; color:inherit; max-width:none; max-height:none}
+  #mbshade{position:fixed; inset:0; width:auto; height:auto; margin:0; padding:0; border:0;
+    background:color-mix(in srgb, var(--ink) 24%, transparent); -webkit-tap-highlight-color:transparent}
   #mbface .mbbody{margin:var(--mb-air) 0 0; border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
   #mbface .mbbody[data-kind="image"]{margin:0}
   #mbface .mbbody:is([data-kind="html"], [data-kind="url"]):has(> .mbframe){margin:0}
@@ -1843,10 +1856,11 @@ for (const type of ["gesturestart", "gesturechange"])
     <div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div>
     <!-- the card's magic box, which this same drawer brings down in place of the
          list when it is pulled out for the box. its bar comes after what it
-         holds, at its foot -->
+         holds, at its foot, with the button that expands it at its left -->
     <section id="mbface" class="magicbox" aria-label="magic box">
       <div class="mbbody"></div>
       <div class="mbbar">
+        <button type="button" class="mbgrow" aria-label="Expand the magic box"></button>
         <button type="button" class="mbclose" aria-label="Close the magic box"></button>
       </div>
     </section>
@@ -8091,7 +8105,8 @@ const MAGIC_EDGE = 28;   // the pull's own strip, EDGE in the drawer's gesture
 const PB = { el: document.getElementById("mbface"), id: null, rev: 0, asked: 0,
   bodies: new Map(), drawn: false, held: false, after: null };
 PB.view = magicView(PB.el, { placed: () => phoneMagicFit(), tall: true,
-  openSite: url => window.open(url, "_blank", "noopener,noreferrer") });
+  openSite: url => window.open(url, "_blank", "noopener,noreferrer"),
+  escape: () => { if (!cardPictureShown) phoneMagicSmall(); } });
 // the cross takes a tap and never the keys. with the box out, Tab stays in the
 // drawer (keepTabInMenu) and the cross was its one stop, so a Tab to get back
 // to the reply box put the keys on it and the next space or return shut the
@@ -8100,6 +8115,20 @@ PB.view = magicView(PB.el, { placed: () => phoneMagicFit(), tall: true,
 const PB_CROSS = PB.el.querySelector(".mbclose");
 PB_CROSS.tabIndex = -1;
 PB_CROSS.addEventListener("click", () => phoneMagicClose());
+// the green button at the bar's other end expands the box over the dimmed
+// page and puts it back (phoneMagicBig), and like the cross takes a tap and
+// never the keys. a browser that cannot lift the box over the page
+// (the top layer) leaves the button out
+const PB_GROW = PB.el.querySelector(".mbgrow");
+PB_GROW.tabIndex = -1;
+PB_GROW.hidden = typeof PB.el.showPopover !== "function";
+PB_GROW.addEventListener("pointerdown", () => { PB.pressFrom = document.activeElement; }, true);
+PB_GROW.addEventListener("click", e => {
+  const from = e.detail && PB.pressFrom ? PB.pressFrom : document.activeElement;
+  PB.pressFrom = null;
+  if (PB.view.big) phoneMagicSmall();
+  else phoneMagicBig(from);
+});
 // the card the box belongs to, or null: the card on screen, on this project,
 // not done, with an open box
 function phoneMagicCard(){
@@ -8124,6 +8153,7 @@ function phoneMagicSync(){
 }
 // the box gone with everything in it, and the drawer back if it was out for it
 function phoneMagicOff(){
+  phoneMagicSmall();
   if (tickets.classList.contains("boxface") && drawerOpen()) closeDrawer();
   PB.held = false;
   if (PB.id === null) return;
@@ -8136,7 +8166,7 @@ function phoneMagicOff(){
 // first; a new revision of the same card's leaves the last one shown meanwhile
 function phoneMagicLoad(id, rev){
   const asked = ++PB.asked;
-  if (PB.id !== id){ PB.view.clear(); phoneMagicShows(null); PB.drawn = false; }
+  if (PB.id !== id){ phoneMagicSmall(); PB.view.clear(); phoneMagicShows(null); PB.drawn = false; }
   PB.id = id; PB.rev = rev;
   const have = PB.bodies.get(id);
   if (have && have.box && (have.asked === rev || have.rev === rev)){ phoneMagicDraw(have); return; }
@@ -8258,6 +8288,7 @@ let phoneMagicCap = () => Infinity;
 // fitted to its height less that and the foot stays where it was
 let phoneMagicRaise = () => 0;
 function phoneMagicFit(){
+  if (PB.view.big){ phoneMagicPlaceBig(); return; }
   const cap = phoneMagicCap(), raise = phoneMagicRaise();
   const room = { width: tickets.clientWidth, height: Math.min(tickets.clientHeight, cap) - raise };
   if (!room.width || !(room.height > 0)) return;
@@ -8272,10 +8303,97 @@ addEventListener("resize", () => phoneMagicFit());
 // how far down the box reaches, from the box's top: its own foot, the bottom
 // edge it is drawn with, whatever it holds. the box has an edge line, so the
 // white it keeps under its words is drawn and the card may not stand over it
-// (listSlack, below)
+// (listSlack, below). expanded, the drawer under the shade keeps the foot the
+// box had in it
 function phoneMagicFoot(){
-  return PB.el.offsetHeight;
+  return PB.view.big ? PB.foot : PB.el.offsetHeight;
 }
+// the green button: the box expanded over the dimmed page, 95% of the screen in
+// its middle, inside the safe areas (MagicBox.grow), a site that will not be
+// framed a square. the box is lifted into the browser's top layer where it
+// stands in the drawer, with nothing of it moved, so a page in it keeps
+// running and lays itself out again at the new width; the shade goes up
+// first, under it, and both fade in as the board's settings do. the drawer
+// stays out behind them, its pulls held off (below). from: what held the focus
+// as it was asked for, which has it again as the box goes back
+const PB_BIG_MS = 260;
+let phoneSafe = null;
+function phoneMagicPlaceBig(){
+  if (!phoneSafe){
+    phoneSafe = document.createElement("div");
+    phoneSafe.style.cssText = "position:fixed; top:env(safe-area-inset-top, 0px); right:env(safe-area-inset-right, 0px);" +
+      " bottom:env(safe-area-inset-bottom, 0px); left:env(safe-area-inset-left, 0px); visibility:hidden; pointer-events:none";
+    document.body.append(phoneSafe);
+  }
+  const safe = phoneSafe.getBoundingClientRect();
+  const at = MagicBox.grow({ left: 0, top: 0, width: innerWidth, height: innerHeight }, MagicBox.BIG.phone,
+    !!PB.view.body.querySelector(".mbaway"), { left: safe.left, top: safe.top, width: safe.width, height: safe.height });
+  Object.assign(PB.el.style, { left: at.left + "px", top: at.top + "px", width: at.width + "px", height: at.height + "px",
+    visibility: PB.view.waiting() ? "hidden" : "" });
+}
+function phoneMagicShade(){
+  if (PB.shade) return PB.shade;
+  const shade = PB.shade = document.createElement("div");
+  shade.id = "mbshade";
+  shade.setAttribute("popover", "manual");
+  shade.setAttribute("aria-hidden", "true");
+  shade.addEventListener("click", () => phoneMagicSmall());
+  for (const type of ["touchstart", "mousedown"]) shade.addEventListener(type, e => e.stopPropagation(), { passive: true });
+  document.body.append(shade);
+  return shade;
+}
+function phoneMagicBig(from){
+  if (PB.view.big || !PB.drawn || typeof PB.el.showPopover !== "function") return;
+  PB.foot = PB.el.offsetHeight;
+  PB.bigFrom = from && from !== document.body ? from : null;
+  const shade = phoneMagicShade(), still = cardPictureStill(window);
+  clearTimeout(PB.shadeDown);
+  shade.getAnimations().forEach(a => a.cancel());
+  shade.style.pointerEvents = "";
+  if (!shade.matches(":popover-open")) shade.showPopover();
+  PB.el.setAttribute("popover", "manual");
+  PB.view.expand(true);
+  PB.el.showPopover();
+  phoneMagicPlaceBig();
+  if (still) return;
+  shade.animate([{ opacity: 0 }, { opacity: 1 }], { duration: PB_BIG_MS, easing: "ease" });
+  PB.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: PB_BIG_MS, easing: "ease" });
+}
+// and back in the drawer at once, by the button again, Escape, a tap on the
+// shade, the drawer going or the box going, as the shade fades out: the focus
+// goes back to what held it as the box was expanded, unless it has been put
+// somewhere else on the page meanwhile
+function phoneMagicSmall(){
+  if (!PB.view.big) return;
+  PB.view.expand(false);
+  try { PB.el.hidePopover(); } catch (e) {}
+  PB.el.removeAttribute("popover");
+  Object.assign(PB.el.style, { left: "", top: "", width: "", height: "" });
+  phoneMagicFit();
+  // the shade fading out takes no tap: the page under it is the owner's again
+  const shade = PB.shade, hide = () => { try { shade.hidePopover(); } catch (e) {} };
+  shade.style.pointerEvents = "none";
+  if (cardPictureStill(window)) hide();
+  else {
+    shade.getAnimations().forEach(a => a.cancel());
+    shade.animate([{ opacity: 1 }, { opacity: 0 }], { duration: PB_BIG_MS, easing: "ease", fill: "forwards" });
+    PB.shadeDown = setTimeout(() => { shade.getAnimations().forEach(a => a.cancel()); hide(); }, PB_BIG_MS);
+  }
+  const back = PB.bigFrom, now = document.activeElement;
+  PB.bigFrom = null;
+  if (!back || !back.isConnected || now === back || (now && now !== document.body && !PB.el.contains(now))) return;
+  back.focus({ preventScroll: true });
+}
+// while it is expanded every press on it and on its shade is its own: none
+// starts a pull of the drawer behind it, which hears presses on the whole page
+for (const type of ["touchstart", "mousedown"]) PB.el.addEventListener(type, e => { if (PB.view.big) e.stopPropagation(); }, { passive: true });
+// Escape puts it back, ahead of the drawer's own Escape, which would put the
+// drawer away. an open picture over it keeps Escape for itself
+addEventListener("keydown", e => {
+  if (!PB.view.big || e.key !== "Escape" || e.defaultPrevented || imeKey(e)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (!e.repeat) phoneMagicSmall();
+}, true);
 // the cross: the drawer goes back and the box is put away, as the board's
 // cross does; what it held is kept, and the card's agent brings it back by
 // filling it again. the card on screen gets a magic of its own, shut: the one
@@ -8352,6 +8470,7 @@ addEventListener("mouseup", () => { edgeDip = null; }, { passive: true });
 let drawerSwap = 0;
 function drawerKey(e, box){
   if (e) e.preventDefault();
+  phoneMagicSmall();
   if (box && !phoneMagicCard()){ cardNudge(); return; }
   if (!box) PB.held = false;
   else if (!phoneMagicReady() && !(menuOut() === tickets && tickets.classList.contains("boxface"))){
@@ -8482,14 +8601,20 @@ function drawerSwapFirstFrame(playing){
 // reading, every card put on show or taken off it, the cards button, which
 // always brings the list and lets a held box go, the building of the cards
 // near the one on show, which fetches their boxes (phoneMagicAhead) unless it
-// waits out a pull, the drawer's drop, and the two drawer keys, with the
-// drawers shut and with one out. out for the box, the drop leaves the card as
+// waits out a pull, the drawer's drop, its runs, and the two drawer keys, with
+// the drawers shut and with one out. out for the box, the drop leaves the card as
 // far under the box's bottom edge (phoneMagicFoot) as the list leaves it under
 // the list's own foot: the drawer's spare under that, and the list's air
 // (--list-air, by which the list reaches past the drawer's foot) given back
 {
   const applyReading = apply, selectCard = select, deselectCard = deselect, openList = openDrawer, listSpare = listSlack;
-  const buildCards = reachCards;
+  const buildCards = reachCards, moveMenu = runMenu;
+  // the drawer setting out to go back, by any key, tap or menu, puts an
+  // expanded box back in it first
+  runMenu = function(panel, v, ...more){
+    if (panel === tickets && !(v > 0)) phoneMagicSmall();
+    return moveMenu(panel, v, ...more);
+  };
   apply = function(state){ applyReading(state); phoneMagicSync(); };
   select = function(id, opts){ selectCard(id, opts); phoneMagicSync(); };
   deselect = function(){ deselectCard(); phoneMagicSync(); };

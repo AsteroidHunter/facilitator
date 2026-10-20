@@ -393,10 +393,11 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
     assert.ok(x >= 10 + 2 * 3, where + ": the seat leaves under 3px about the 10px mark");
   }
   // the phone's cross stands half as far again from the box's side and foot, in the page's own
-  // units, with the bar's height as it was; the board's cross is left where it is
+  // units, with the bar's height as it was, and the expand button as far from the other side;
+  // the board's cross is left where it is
   assert.match(own, /--mb-seat:calc\(1\.5 \* var\(--mb-gap\) \+ \.5 \* var\(--edge\)\)/);
-  assert.match(phone, /#mbface \.mbbar\{padding-right:var\(--mb-seat\)\}/);
-  assert.match(phone, /#mbface \.mbclose\{top:calc\(var\(--mb-gap\) - var\(--mb-seat\)\)\}/);
+  assert.match(phone, /#mbface \.mbbar\{padding:0 var\(--mb-seat\)\}/);
+  assert.match(phone, /#mbface :is\(\.mbclose, \.mbgrow\)\{top:calc\(var\(--mb-gap\) - var\(--mb-seat\)\)\}/);
   assert.ok(!/--mb-seat/.test(sheet + html), "the board's cross is moved");
   // the line: the ticket list's under its section names, word for word, in
   // each page (#tikhead::after): the card's hairline as a top edge of no
@@ -427,13 +428,14 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   assert.ok(phoneBody > 0 && phoneBody < phoneBar, "the phone's bar is not at its box's foot");
   // words run out to the box's sides, the line's ends, with no frame to keep off
   assert.match(sheet, /\.magicbox \.mbtext\{padding:var\(--mb-lead\) 0 var\(--mb-inset, 16px\);/);
-  // one cross, a button that closes the box, in the bar, on the board and on
-  // the phone alike
+  // one cross, a button that closes the box, at the bar's right, and at its left
+  // the green button that expands it, on the board and on the phone alike
   for (const [page, open] of [[html, '<section id="magicbox" class="magicbox">'], [phone, '<section id="mbface" class="magicbox"']]) {
     const section = page.slice(page.indexOf(open), page.indexOf("</section>", page.indexOf(open)));
     assert.ok(section.length > 0, open);
     const bar = section.slice(section.indexOf('<div class="mbbar">'), section.indexOf("</div>", section.indexOf('<div class="mbbar">')));
     assert.equal(bar.trim().split("\n").slice(1).map(l => l.trim()).join(""),
+      '<button type="button" class="mbgrow" aria-label="Expand the magic box"></button>' +
       '<button type="button" class="mbclose" aria-label="Close the magic box"></button>');
     assert.ok(!/mblight/.test(page), "a light is left on the page");
   }
@@ -606,8 +608,9 @@ test("the cross puts the box away as the agent's close does, and the board keeps
   // it sinks away first (the rise backwards), and is then taken off the page
   assert.match(fn, /if \(b && b\.magic\) b\.magic\.open = false;\s*magicSink\(\);/);
   assert.match(fn, /fetch\("\/magic\/close\?box=" \+ encodeURIComponent\(id\), \{ method: "POST" \}\)/);
-  // by the steps every box beside the card takes (boxSink), the response piped out beside a long reply's too
-  assert.match(html, /function magicSink\(\)\{\s*boxSink\(MB, magicOff\);/);
+  // by the steps every box beside the card takes (boxSink), the response piped
+  // out beside a long reply's too, from beside its card if it was expanded
+  assert.match(html, /function magicSink\(\)\{\s*magicSmall\(\);\s*boxSink\(MB, magicOff\);/);
   assert.match(html, /function boxSink\(box, off\)\{[\s\S]*?magicRise\(-1, off, box\);/);
   // and the agent's own close sinks it the same way, while anything else takes it off at once
   assert.match(html, /const shut = magicCard\(true\);\s*if \(shut && shut\.id === MB\.id\) magicSink\(\);\s*else magicOff\(\);/);
@@ -649,7 +652,7 @@ test("the box rises out of the page as it first comes, its line with it, and fas
   assert.match(html, /const was = MB\.known;\s*if \(lastState\)\{\s*MB\.known = new Set\(lastState\.boxes\.filter\(x => x\.magic && x\.magic\.open\)\.map\(x => x\.id\)\);/);
   assert.match(html, /magicLoad\(b\.id, b\.magic\.rev, !!was && !was\.has\(b\.id\)\)/);
   assert.match(html, /const t = id === MB\.id && MB\.rise\.raf \? MB\.rise\.t : fresh \? 0 : 1;/);
-  assert.match(html, /function magicOff\(\)\{[\s\S]*?magicRiseStop\(\);\s*magicRiseSet\(1\);/);
+  assert.match(html, /function magicOff\(keep\)\{[\s\S]*?magicRiseStop\(\);\s*magicRiseSet\(1\);/);
   // the lines lie beneath the card and the box: before the card on the page,
   // at the card's level, and under the box's; the card's own edge colour,
   // never the accent
@@ -693,7 +696,8 @@ test("flipping to a card shows its box and lines in the same frame: what it hold
   // page never shown is measured ahead in a sealed frame of its own, unseen,
   // which runs as the shown one does and goes when it is done
   assert.match(html, /heard: \(height, width\) => \{ if \(MB\.id\) MB\.heights\.set\(MB\.id \+ ":" \+ MB\.rev, \{ w: width, h: height \}\); \}/);
-  assert.match(view, /if \(tall > 0 && hooks\.heard\) hooks\.heard\(tall, run\.frame\.clientWidth\);/);
+  // (but not a height said while the box is expanded, at a width it never has beside its card)
+  assert.match(view, /if \(tall > 0 && hooks\.heard && !view\.big\) hooks\.heard\(tall, run\.frame\.clientWidth\);/);
   const measure = html.slice(html.indexOf("function magicMeasure(){"), html.indexOf("function magicDraw("));
   assert.match(measure, /frame\.setAttribute\("sandbox", MagicBox\.PAGE_SANDBOX\);/);
   assert.match(measure, /frame\.srcdoc = MagicBox\.pageDoc\(have\.box\.html \|\| "", word, true\);/);
@@ -968,10 +972,11 @@ test("whichever of the card and the box is held stands up and the other settles,
   assert.equal(stands(false, "on", "held"), true, "on, shown and held");
   assert.equal(stands(true, "on"), false, "open but hidden for want of room: the card is as if it had none");
   assert.equal(stands(false), false, "off the page");
-  // the box goes off the page settled; the agent's next revision keeps it held
-  assert.match(html, /function magicOff\(\)\{\s*if \(!MB\.el\) return;\s*MB\.el\.classList\.remove\("on", "held", "over", "rising"\);/);
+  // the box goes off the page settled, and put back first if it was expanded;
+  // the agent's next revision keeps it held, and expanded
+  assert.match(html, /function magicOff\(keep\)\{\s*if \(!MB\.el\) return;\s*if \(!keep\) magicSmall\(\);\s*MB\.el\.classList\.remove\("on", "held", "over", "rising"\);/);
   // and risen, unless it was still rising or sinking, or is new on the card
-  assert.match(html, /const held = id === MB\.id && MB\.el\.classList\.contains\("held"\);\s*const t = id === MB\.id && MB\.rise\.raf \? MB\.rise\.t : fresh \? 0 : 1;\s*magicOff\(\);\s*MB\.el\.classList\.toggle\("held", held\);\s*boxCome\(MB, t\);/);
+  assert.match(html, /const held = id === MB\.id && MB\.el\.classList\.contains\("held"\);\s*const t = id === MB\.id && MB\.rise\.raf \? MB\.rise\.t : fresh \? 0 : 1;\s*magicOff\(id === MB\.id\);\s*MB\.el\.classList\.toggle\("held", held\);\s*boxCome\(MB, t\);/);
   assert.match(html, /function boxCome\(box, t\)\{\s*magicRiseSet\(t, box\);\s*box\.el\.classList\.toggle\("rising", t < 1\);/);
 });
 
@@ -1225,7 +1230,8 @@ function phoneBoxScript(page, { drawn = true } = {}) {
   // 8px over its foot, where the window they scroll in ends; and the list's
   // two parts, its names and its rows, the rows reaching 7px past the drawer
   const box = { offsetHeight: 89, style: {}, querySelector: () => ({ addEventListener() {} }), animate: animate("box"),
-    getBoundingClientRect: () => ({ top: 0, bottom: 89, height: 89 }) };
+    getBoundingClientRect: () => ({ top: 0, bottom: 89, height: 89 }), on: {},
+    addEventListener(type, fn) { (box.on[type] = box.on[type] || []).push(fn); } };
   const words = { getBoundingClientRect: () => ({ bottom: 81 }), style: { paddingBottom: "16px" } };
   const body = { scrollHeight: 60, clientHeight: 60, querySelector: () => words, getBoundingClientRect: () => ({ bottom: 81 }) };
   const parts = { mbface: box, tikhead: { animate: animate("list names"), style: {} },
@@ -1271,7 +1277,7 @@ function phoneBoxScript(page, { drawn = true } = {}) {
         { transitionProperty: "visibility", finished: new Promise(() => {}) }];
       drawer.land = async () => { land(); drawer.runs = []; await new Promise(r => setImmediate(r)); };
     },
-    listMoving: () => drawer.runs.length > 0,
+    listMoving: () => drawer.runs.length > 0, runMenu() {},
     fitList: now => { if (now){ ctx.listDrop = classes.has("boxface") ? 90 : 120; ctx.listLift = classes.has("boxface") ? 4 : 10; } }, poll() {},
     fetch: url => { calls.push(url); return new Promise(() => {}); },
     apply: () => calls.push("apply"), select: () => calls.push("select"), deselect: () => calls.push("deselect"),
@@ -1904,4 +1910,304 @@ test("on the phone a page taller than the box is laid out at its own height, tak
   assert.equal(body.style.props["--mb-page"], "2780px", "a page chasing its own frame is held");
   view.draw({ kind: "html", html: "<p>y</p>" });
   assert.equal(body.style.props["--mb-page"], undefined, "a new page starts at the box's own height");
+});
+
+// ---- the box expanded ---------------------------------------------------------
+// a green button at the other end of the box's bar from the cross, the top left
+// on the board and the bottom left on the phone, expands the box over the
+// dimmed board: nine tenths of the Mac's window and 95% of the phone's screen,
+// in the middle, with what it holds laid out again at that size. the same
+// button, Escape or a click on the shade puts it back
+const flat = o => JSON.parse(JSON.stringify(o));
+
+test("expanded, the box is nine tenths of the Mac's window and 95% of the phone's screen, in the middle", () => {
+  const { BIG, grow } = api();
+  assert.equal(BIG.mac, 0.9);
+  assert.equal(BIG.phone, 0.95);
+  const mac = flat(grow({ left: 0, top: 0, width: 1512, height: 982 }, BIG.mac));
+  assert.ok(close(mac.width, 1360.8) && close(mac.height, 883.8), "nine tenths each way");
+  assert.ok(close(mac.left, 75.6) && close(mac.top, 49.1), "the same margin either side");
+  const phone = flat(grow({ left: 0, top: 0, width: 375, height: 812 }, BIG.phone));
+  assert.ok(close(phone.width, 356.25) && close(phone.height, 771.4));
+  assert.ok(close(phone.left, 9.375) && close(phone.top, 20.3));
+  // a room that does not start at the window's corner keeps the box in its own middle
+  const off = flat(grow({ left: 100, top: 40, width: 1000, height: 600 }, BIG.mac));
+  assert.ok(close(off.left + off.width / 2, 600) && close(off.top + off.height / 2, 340));
+});
+
+test("on the phone the expanded box keeps inside the safe areas, clear of the notch and the home bar", () => {
+  const { BIG, grow } = api();
+  const screen = { left: 0, top: 0, width: 375, height: 812 }, safe = { left: 0, top: 50, width: 375, height: 812 - 50 - 34 };
+  const at = flat(grow(screen, BIG.phone, false, safe));
+  assert.ok(close(at.left, 9.375) && close(at.width, 356.25), "across, 95% of the screen");
+  assert.equal(at.top, 50, "under the notch");
+  assert.equal(at.top + at.height, 812 - 34, "over the home bar");
+  const whole = grow(screen, BIG.phone, false, screen), exact = grow(screen, BIG.phone);
+  for (const k of ["left", "top", "width", "height"]) assert.ok(close(whole[k], exact[k]), "no safe areas, 95% exactly: " + k);
+});
+
+test("a site that will not be framed stays a square when expanded, as large as the shorter side allows, in the middle", () => {
+  const { BIG, grow } = api();
+  const at = flat(grow({ left: 0, top: 0, width: 1512, height: 982 }, BIG.mac, true));
+  assert.ok(close(at.width, 883.8) && close(at.height, 883.8));
+  assert.ok(close(at.left + at.width / 2, 756) && close(at.top + at.height / 2, 491));
+  const phone = flat(grow({ left: 0, top: 0, width: 375, height: 812 }, BIG.phone, true, { left: 0, top: 50, width: 375, height: 728 }));
+  assert.ok(close(phone.width, 356.25) && close(phone.height, 356.25));
+  assert.ok(close(phone.top + phone.height / 2, 50 + 728 / 2), "in the middle of the safe part");
+});
+
+test("the green button mirrors the cross at the bar's other end: its seat, ink, shade, outline and reach, in a soft green", () => {
+  const sheet = boxSheet();
+  const rule = sel => sheet.match(new RegExp("\\n" + sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\{([^}]*)\\}"))[1].replace(/\s+/g, " ");
+  const cross = rule(".magicbox .mbclose"), grow = rule(".magicbox .mbgrow");
+  for (const part of ["position:relative", "flex:none", "display:grid", "place-items:center", "width:var(--mb-x)",
+    "height:var(--mb-x)", "padding:0", "border:none", "border-radius:50%", "color:#1e1e1e", "cursor:pointer"])
+    assert.ok(cross.includes(part) && grow.includes(part), part);
+  assert.match(grow, /background:var\(--mb-green\)/);
+  assert.match(grow, /margin-right:auto/, "it stands at the bar's left, and the cross stays at its right");
+  assert.match(sheet, /\.magicbox \.mbgrow:hover, \.magicbox \.mbgrow:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mb-green\)\)\}/);
+  assert.match(sheet, /\.magicbox \.mbgrow:focus-visible\{outline:2px solid var\(--line\); outline-offset:1px\}/);
+  assert.match(sheet, /\.magicbox \.mbgrow svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
+  assert.match(sheet, /\.magicbox \.mbgrow::after\{content:""; position:absolute; inset:-8px\}/);
+  // the bar itself is as it was: the cross at its right
+  assert.match(sheet.match(/\.magicbox \.mbbar\{([^}]*)\}/)[1], /justify-content:flex-end/);
+  // a soft green: light, more green than red or blue, and never the accent purple
+  const green = sheet.match(/--mb-green:#([0-9A-F]{6});/i)[1];
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(green.slice(i, i + 2), 16));
+  assert.ok(g > r + 40 && g > b + 30, "green");
+  assert.ok((Math.max(r, g, b) + Math.min(r, g, b)) / 2 / 255 > 0.6, "pastel, as light as the cross's soft red");
+  assert.ok(!/432BFF/i.test(sheet), "never the accent purple");
+  // on the phone it is the cross's mirror at the bottom left corner
+  const phone = read("m.html");
+  assert.match(phone, /#mbface \.mbbar\{padding:0 var\(--mb-seat\)\}/);
+  assert.match(phone, /#mbface :is\(\.mbclose, \.mbgrow\)\{top:calc\(var\(--mb-gap\) - var\(--mb-seat\)\)\}/);
+});
+
+// the shared view, its marks and its expand, on stand-ins
+function expandView(hooks = {}) {
+  const logic = read("card-logic.js");
+  const src = logic.slice(logic.indexOf("const MAGIC_CROSS = "), logic.indexOf("// a site's name as the site gives it"))
+    + logic.slice(logic.indexOf("function magicView("), logic.indexOf("\n}\n", logic.indexOf("function magicView(")) + 3);
+  const classes = new Set(), body = { dataset: {}, style: { setProperty() {} }, addEventListener() {}, querySelector: () => null };
+  const grow = { innerHTML: "", label: "", setAttribute(k, v) { if (k === "aria-label") grow.label = v; } };
+  const el = { classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
+    querySelector: s => s === ".mbbody" ? body : s === ".mbgrow" ? grow : { innerHTML: "" } };
+  const ctx = vm.createContext({ getComputedStyle: () => ({ getPropertyValue: () => "0" }), addEventListener() {}, h() {}, MagicBox: {} });
+  vm.runInContext(src, ctx);
+  const view = ctx.magicView(el, hooks);
+  return { view, grow, classes, marks: { grow: vm.runInContext("MAGIC_GROW", ctx), shrink: vm.runInContext("MAGIC_SHRINK", ctx) } };
+}
+
+test("the button's mark is the expand mark at the box's size and the reduce mark while it is expanded", () => {
+  const { view, grow, classes, marks } = expandView();
+  for (const mark of [marks.grow, marks.shrink]) {
+    assert.match(mark, /^<svg viewBox="0 0 10 10" fill="currentColor"/, "the cross's 10 grid, in the button's ink");
+    assert.equal((mark.match(/Z/g) || []).length, 2, "two triangles");
+  }
+  // expand: the square corners out at the top left and the bottom right; reduce: in, meeting in the middle
+  assert.match(marks.grow, /M1\.8 1\.8H6L1\.8 6ZM8\.2 8\.2H4L8\.2 4Z/);
+  assert.match(marks.shrink, /M4\.2 4\.2H0\.8L4\.2 0\.8ZM5\.8 5\.8H9\.2L5\.8 9\.2Z/);
+  assert.equal(grow.innerHTML, marks.grow, "drawn into the button as the box is made");
+  assert.equal(view.big, false);
+  view.expand(true);
+  assert.equal(view.big, true);
+  assert.ok(classes.has("big"));
+  assert.equal(grow.innerHTML, marks.shrink);
+  assert.equal(grow.label, "Reduce the magic box");
+  view.expand(false);
+  assert.ok(!classes.has("big"));
+  assert.equal(grow.innerHTML, marks.grow);
+  assert.equal(grow.label, "Expand the magic box");
+});
+
+test("an agent's page the board sizes the box to keeps the height it said at the box's own width while it is expanded", () => {
+  const { view } = expandView({ sized: true });
+  view.page = { height: 640 };
+  view.expand(true);
+  view.page.height = 300;   // what it says laid out at the expanded width
+  view.expand(false);
+  assert.equal(view.page.height, 640, "the box comes back at the height it had");
+  // and a page is never waited for while the box is expanded, whose size is not the page's
+  assert.match(read("card-logic.js"), /if \(hooks\.sized && !view\.big && run && view\.body\.dataset\.kind === "html" && !run\.height/);
+  // the phone lays its page out as tall as the page says, at any width, so nothing is kept there
+  const phone = expandView({ tall: true }).view;
+  phone.page = { height: 640 };
+  phone.expand(true); phone.page.height = 300; phone.expand(false);
+  assert.equal(phone.page.height, 300);
+});
+
+test("Escape typed in an agent's page is said to the board, unless the page answered it itself", () => {
+  const { pageDoc } = api();
+  for (const doc of [pageDoc("<p>x</p>", "w", true), pageDoc("<p>x</p>", "w", false, true)]) {
+    const hello = doc.slice(doc.indexOf('<script>addEventListener("load"') + 8, doc.indexOf("</script>", doc.indexOf('<script>addEventListener("load"')));
+    // (the Mac's page also says its keys for control+S, which are not Escape's)
+    const keys = [], posted = [], later = [];
+    const on = (type, fn, capture) => { if (type === "keydown") keys.push({ fn, capture }); };
+    const ctx = vm.createContext({ addEventListener: on, document: { addEventListener() {} },
+      parent: { postMessage: m => { if (!/^w key /.test(m)) posted.push(m); } }, setTimeout: fn => later.push(fn) });
+    vm.runInContext(hello, ctx);
+    const press = e => { for (const k of keys) k.fn({ key: "", isComposing: false, defaultPrevented: false, ...e }); later.splice(0).forEach(f => f()); };
+    press({ key: "Escape" });
+    assert.deepEqual(posted, ["w escape"], "said once, as the word, a space and escape");
+    press({ key: "Escape", defaultPrevented: true });
+    press({ key: "Escape", isComposing: true });
+    press({ key: "a" });
+    assert.deepEqual(posted, ["w escape"], "a page's own Escape, a composition and other keys are its own");
+  }
+  // the view hands it to the board's hook
+  assert.match(read("card-logic.js"), /else if \(e\.data === run\.word \+ " escape"\)\{ if \(hooks\.escape\) hooks\.escape\(\); \}/);
+});
+
+// the board's expanded box, cut out of index.html and run on stand-ins: a
+// stage at 0.8 shifted 20 across and 41 down, in a 1200 by 800 window
+function boardBig() {
+  const html = read("index.html");
+  const src = html.slice(html.indexOf("function magicPlaceBig(){"), html.indexOf("// the card's rectangle on the stage, the fit's edges"));
+  const calls = [], boxClasses = new Set(["on"]), bodyClasses = new Set(), inBox = new Set(), timers = [], listeners = {};
+  const set = s => ({ add: (...c) => c.forEach(x => s.add(x)), remove: (...c) => c.forEach(x => s.delete(x)), contains: c => s.has(c) });
+  const doc = { activeElement: null, body: { classList: set(bodyClasses) },
+    getElementById: () => ({ getBoundingClientRect: () => ({ x: 20, y: 41 }) }) };
+  doc.activeElement = doc.body;
+  const field = name => ({ name, isConnected: true, focus() { doc.activeElement = this; calls.push("focus " + name); } });
+  const MB = { el: { classList: set(boxClasses), style: {}, contains: x => inBox.has(x), animate() { calls.push("fade"); } },
+    body: { querySelector: () => null }, shade: { style: {} }, came: null,
+    view: { big: false, waiting: () => false, expand(on) { this.big = on; calls.push("expand " + on); } } };
+  const ctx = vm.createContext({ MB, document: doc, stageScale: 0.8, innerWidth: 1200, innerHeight: 800, MagicBox: api(), window: {},
+    magicPlace: () => { calls.push("place"); if (MB.view.big) ctx.magicPlaceBig(); }, magicRiseStop() {}, magicRiseSet() {},
+    cardPictureStill: () => true, setTimeout: fn => timers.push(fn), clearTimeout() {},
+    keysBack: came => { came.ta.focus(); calls.push("caret back"); return true; },
+    boardKeysLive: () => true, projOpen: () => false, searchOpen: false, p3Zoom: null, cardPictureShown: null, imeKey: () => false,
+    addEventListener: (type, fn) => { listeners[type] = fn; } });
+  vm.runInContext(src, ctx);
+  const escape = (more = {}) => { const e = { key: "Escape", repeat: false, defaultPrevented: false, taken: false,
+    preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() { e.taken = true; }, ...more };
+    listeners.keydown(e); return e; };
+  return { ctx, MB, doc, calls, bodyClasses, inBox, timers, field, escape };
+}
+
+test("on the Mac the expanded box and its shade are written in the stage's pixels: the box nine tenths of the window, the shade all of it", () => {
+  const { ctx, MB } = boardBig();
+  MB.view.big = true;
+  ctx.magicPlaceBig();
+  const px = v => parseFloat(v);
+  // on the window: the stage's shift plus its scale times the stage's pixels
+  const screen = s => ({ left: 20 + px(s.left) * .8, top: 41 + px(s.top) * .8, width: px(s.width) * .8, height: px(s.height) * .8 });
+  const box = screen(MB.el.style), shade = screen(MB.shade.style);
+  assert.ok(close(box.left, 60) && close(box.top, 40) && close(box.width, 1080) && close(box.height, 720), JSON.stringify(box));
+  assert.ok(close(shade.left, 0) && close(shade.top, 0) && close(shade.width, 1200) && close(shade.height, 800), JSON.stringify(shade));
+  assert.equal(MB.el.style.visibility, "");
+  // the sheet: the shade is the settings page's dimming, over the whole window and the bar, under the box,
+  // and the stage stands over the bar while it is up, under the project list, the search and the settings
+  const html = read("index.html"), sheet = code(html.slice(0, html.indexOf("</style>")));
+  assert.match(sheet, /body\.focus\.mbbig #mbshade\{visibility:visible; pointer-events:auto;\s*background-color:color-mix\(in srgb, var\(--ink\) 24%, transparent\);\s*transition:background-color \.26s ease, visibility 0s\}/);
+  const z = sel => +sheet.match(new RegExp(sel + "\\{[^}]*z-index:(\\d+)"))[1];
+  const stage = z("body\\.focus\\.mbup #stage");
+  assert.ok(stage > z("\\n  \\.bar") && stage < z("body\\.focus #projshade") && stage < z("body\\.focus #searchshade"), "between the bar and the menus");
+  assert.ok(z("body\\.focus #magicbox\\.big\\.on") > z("body\\.focus #mbshade"), "the box over its shade");
+  assert.ok(html.indexOf('<div id="mbshade"') > html.indexOf('<div id="stage">') && html.indexOf('<div id="mbshade"') < html.indexOf('<section id="magicbox"'),
+    "the shade stands in the stage, under the box");
+});
+
+test("on the Mac the button expands the box and Escape puts it back, the focus back where it was", () => {
+  const { ctx, MB, doc, calls, bodyClasses, inBox, timers, field, escape } = boardBig();
+  const typing = field("typing box"), button = field("button");
+  inBox.add(button);
+  ctx.magicBig(typing);
+  assert.equal(MB.view.big, true);
+  assert.ok(bodyClasses.has("mbbig") && bodyClasses.has("mbup"), "the shade up and the stage over the bar");
+  doc.activeElement = button;   // the press put the focus on the button
+  const e = escape();
+  assert.ok(e.defaultPrevented && e.taken, "Escape is the box's, ahead of the board's own");
+  assert.equal(MB.view.big, false);
+  assert.ok(!bodyClasses.has("mbbig") && bodyClasses.has("mbup"), "the shade fades out with the stage still over the bar");
+  timers.splice(0).forEach(f => f());
+  assert.ok(!bodyClasses.has("mbup"), "and the stage goes back under it once the shade has faded");
+  assert.equal(doc.activeElement, typing, "the focus is back in the typing box");
+  // the typing box's caret and selection as they were, when the box remembered them
+  MB.came = { ta: typing };
+  ctx.magicBig(typing); doc.activeElement = button; ctx.magicSmall();
+  assert.equal(calls[calls.length - 1], "caret back");
+  // the owner's focus put somewhere else on the board meanwhile stays there
+  const other = field("title");
+  ctx.magicBig(typing); doc.activeElement = other; ctx.magicSmall();
+  assert.equal(doc.activeElement, other);
+  // something over the box that holds the keys keeps Escape for itself
+  ctx.magicBig(null);
+  ctx.searchOpen = true;
+  assert.equal(escape().taken, false);
+  assert.equal(MB.view.big, true);
+  ctx.searchOpen = false;
+  assert.equal(escape({ defaultPrevented: true }).taken, false, "an Escape something on the board already answered");
+  assert.equal(MB.view.big, true);
+  escape();
+  assert.equal(MB.view.big, false);
+  // the wiring: the button both ways, the shade, a page's Escape, the box going, and the same card's next revision
+  const html = read("index.html");
+  assert.match(html, /MB\.grow\.addEventListener\("click", e => \{[\s\S]*?if \(MB\.view\.big\) magicSmall\(\);\s*else magicBig\(from\);/);
+  assert.match(html, /MB\.shade\.addEventListener\("click", \(\) => magicSmall\(\)\);/);
+  assert.match(html, /escape: \(\) => magicEscape\(\),/);
+  assert.match(html, /if \(MB\.view\.big\)\{ magicPlaceBig\(\); return; \}/);
+});
+
+test("on the phone the button lifts the box into the top layer over a shade, inside the safe areas, and the drawer puts it back first", () => {
+  const { ctx, PB, box, body, listeners } = phoneBoxScript(read("m.html"));
+  const order = [];
+  const popover = (el, name) => Object.assign(el, { attrs: {}, up: false,
+    setAttribute(k, v) { el.attrs[k] = v; }, removeAttribute(k) { delete el.attrs[k]; },
+    showPopover() { el.up = true; order.push(name + " up"); }, hidePopover() { el.up = false; order.push(name + " down"); },
+    matches: s => s === ":popover-open" && el.up, getAnimations: () => [], animate() {} });
+  popover(box, "box");
+  let shade = null;
+  ctx.document.createElement = () => {
+    const el = popover({ style: {}, addEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 47, width: 402, height: 874 - 47 - 34 }) }, "shade");
+    if (!shade) shade = el;
+    return el;
+  };
+  Object.assign(ctx, { innerHeight: 874, window: {}, cardPictureStill: () => true, cardPictureShown: null, imeKey: () => false,
+    clearTimeout() {}, setTimeout() {} });
+  const { BIG, grow } = api();
+  Object.assign(ctx.MagicBox, { BIG, grow });
+  Object.assign(PB.view, { big: false, expand(on) { this.big = !!on; } });
+  body.querySelector = s => s === ".mbaway" ? null : { getBoundingClientRect: () => ({ bottom: 81 }), style: { paddingBottom: "16px" } };
+  ctx.phoneMagicBig(null);
+  assert.equal(PB.view.big, true);
+  assert.deepEqual(order, ["shade up", "box up"], "the shade goes up first, under the box");
+  assert.equal(box.attrs.popover, "manual");
+  const px = v => parseFloat(v);
+  assert.ok(close(px(box.style.width), 402 * .95) && close(px(box.style.left), 402 * .025), "95% of the screen across");
+  assert.equal(px(box.style.top), 47, "under the notch");
+  assert.equal(px(box.style.top) + px(box.style.height), 874 - 34, "over the home bar");
+  // the drawer under the shade keeps the foot the box had in it
+  box.offsetHeight = 793;
+  assert.equal(ctx.phoneMagicFoot(), 89);
+  // every press on the box is its own while it is expanded: no pull of the drawer starts
+  let stopped = 0;
+  for (const fn of box.on.touchstart) fn({ stopPropagation: () => stopped++ });
+  assert.equal(stopped, 1);
+  // Escape, heard first, puts it back in the drawer at once, the shade with it
+  const esc = listeners.keydown.find(l => l.opts === true);
+  const e = { key: "Escape", repeat: false, defaultPrevented: false, taken: false,
+    preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() { e.taken = true; } };
+  esc.fn(e);
+  assert.ok(e.taken && e.defaultPrevented);
+  assert.equal(PB.view.big, false);
+  assert.equal(box.up, false);
+  assert.equal(box.attrs.popover, undefined);
+  assert.equal(box.style.left, "");
+  assert.equal(shade.up, false);
+  for (const fn of box.on.touchstart) fn({ stopPropagation: () => stopped++ });
+  assert.equal(stopped, 1, "back in the drawer, its presses are the drawer's as they always were");
+  // the drawer setting out to go back, by any of its ways, and its keys, put the box back first
+  ctx.phoneMagicBig(null);
+  ctx.runMenu(ctx.tickets, 0);
+  assert.equal(PB.view.big, false);
+  ctx.phoneMagicBig(null);
+  ctx.runMenu(ctx.tickets, 1);
+  assert.equal(PB.view.big, true, "the drawer coming out leaves it");
+  vm.runInContext("drawerKey(null, true)", ctx);
+  assert.equal(PB.view.big, false);
+  // and the box going, or another card's
+  ctx.phoneMagicBig(null);
+  vm.runInContext("phoneMagicOff()", ctx);
+  assert.equal(PB.view.big, false);
 });

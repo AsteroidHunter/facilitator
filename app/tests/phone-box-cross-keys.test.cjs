@@ -21,19 +21,24 @@ const between = (from, to) => {
   return html.slice(at, html.indexOf(to, at));
 };
 
-// the drawer out with the box's face: the cross is the only control on show
+// the drawer out with the box's face: the cross and, at the bar's other end, the
+// green button that expands the box are the only controls on show
 function page(){
   const body = { tagName: "BODY" };
   const doc = { activeElement: body };
   const closes = [];
-  const cross = {
-    tagName: "BUTTON", tabIndex: 0, disabled: false, listeners: {},
-    getClientRects: () => [{}],
-    focus(){ doc.activeElement = cross; },
-    addEventListener(type, fn){ cross.listeners[type] = fn; },
+  const button = () => {
+    const b = {
+      tagName: "BUTTON", tabIndex: 0, disabled: false, hidden: false, listeners: {},
+      getClientRects: () => [{}],
+      focus(){ doc.activeElement = b; },
+      addEventListener(type, fn){ b.listeners[type] = fn; },
+    };
+    return b;
   };
-  const face = { querySelector: s => s === ".mbclose" ? cross : null };
-  const drawer = { querySelectorAll: () => [cross] };
+  const cross = button(), grow = button();
+  const face = { querySelector: s => s === ".mbclose" ? cross : s === ".mbgrow" ? grow : null };
+  const drawer = { querySelectorAll: () => [grow, cross] };
   doc.getElementById = id => id === "mbface" ? face : null;
   const ctx = vm.createContext({
     document: doc, menuOut: () => drawer, magicView: () => ({}),
@@ -48,16 +53,18 @@ function page(){
     ctx.probe.keepTabInMenu(e);
     return e;
   };
-  return { doc, cross, closes, tab };
+  return { doc, cross, grow, closes, tab };
 }
 
-test("Tab with the box out never puts the keys on its cross", () => {
+test("Tab with the box out never puts the keys on its cross, or on the button that expands it", () => {
   const p = page();
   for (const shift of [false, true, false]){
     const e = p.tab(shift);
     assert.notEqual(p.doc.activeElement, p.cross, `${shift ? "Shift+Tab" : "Tab"} put the keys on the box's cross`);
+    assert.notEqual(p.doc.activeElement, p.grow, `${shift ? "Shift+Tab" : "Tab"} put the keys on the box's expand button`);
     assert.ok(e.prevented, "Tab left the drawer for the card behind it");
   }
+  assert.equal(p.grow.tabIndex, -1);
 });
 
 test("a tap on the cross still puts the box away", () => {
