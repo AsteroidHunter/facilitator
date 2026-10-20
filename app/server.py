@@ -244,8 +244,10 @@ Endpoints:
                                card carries only magic: {open, kind, rev, ts},
                                which /state sends for cards that have one; the
                                transcript gets the kind and size, never the
-                               content. Local only: the phone bridge refuses
-                               every /magic route
+                               content. The phone bridge refuses every /magic
+                               route; the agent door lets an agent on a server
+                               fill, close, reopen and read back (GET /magic)
+                               the box of its own lane's cards and no other
   POST /magic/close?box=ID  -> hide the box and keep what it holds; {ok, open}.
                                404 when the card has no box
   POST /magic/reopen?box=ID -> show it again; {ok, open}

@@ -7,9 +7,12 @@ answered by the gate, or refused.
             a lane by owner=, on the routes that name a card by box=, and for
             its own lane's state; a missing, wrong or replaced key is 401, and
             so is the server's own key on an agent's route
+  magic     the magic box's routes (fill, close, reopen, read back) work on
+            the key's own lane's cards alone, and the body reaches the route
+            whole, past the box's largest picture, for the route to refuse
   routes    anything outside the agent's routes is 403, the board's reading,
-            the files, the magic box, the folder routes and the Mac's own
-            remote routes among them
+            the files, the page's reading of a magic box, the folder routes
+            and the Mac's own remote routes among them
   door      the setup program needs no key and is the skill's own; a pairing
             code trades for a server key once and a wrong one is 401; the
             link's poll needs the server's key, and an agent's key or none is
@@ -206,10 +209,50 @@ class Gate(unittest.TestCase):
         self.assertFalse(said["listening"])
         self.nothing_behind()   # answered by the gate itself
 
+    # -- magic
+    def test_a_key_works_its_own_lanes_magic_boxes(self):
+        for method, path in (("POST", "/magic"), ("POST", "/magic/close"), ("POST", "/magic/reopen"),
+                             ("GET", "/magic")):
+            with self.subTest(route=(method, path)):
+                self.assertTrue(self.reached(method, path, "box=m1&kind=text", key=self.demo, body=b"words"))
+                for box in ("m2", "m3", "m4", "nope"):
+                    self.assertEqual(call(self.gate, method, path, "box=" + box + "&kind=text", key=self.demo,
+                                          body=b"words"),
+                                     (403, {"error": "this key is for another project"}))
+                self.assertEqual(call(self.gate, method, path, "box=m1&box=m2&kind=text", key=self.demo)[0], 403)
+                self.assertEqual(call(self.gate, method, path, "kind=text", key=self.demo)[0], 403)
+                for key in (None, "wrong", self.server_key):
+                    self.assertEqual(call(self.gate, method, path, "box=m1&kind=text", key=key),
+                                     (401, {"error": "this key is not known: join again"}))
+        self.assertTrue(self.reached("POST", "/magic", "box=m2&kind=text", key=self.notes, body=b"words"))
+        self.assertEqual(self.outer.scopes, [])
+
+    def test_the_magic_box_body_reaches_its_route_whole(self):
+        got = []
+
+        async def route(scope, receive, send):
+            body = b""
+            while True:
+                event = await receive()
+                body += event.get("body", b"")
+                if not event.get("more_body"):
+                    break
+            got.append(len(body))
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"{}"})
+
+        gate = remote_link.RemoteGate(self.outer, server._RemoteBoard(), routes=route)
+        for size in (server.MAX_TEXT_BODY + 1, server.MAGIC_IMAGE_MAX, server.MAGIC_IMAGE_MAX + 1):
+            with self.subTest(size=size):
+                self.assertEqual(call(gate, "POST", "/magic", "box=m1&kind=image", key=self.demo,
+                                      body=b"\x00" * size)[0], 200)
+                self.assertEqual(got[-1], size)
+
     # -- routes
     def test_nothing_outside_the_agents_routes(self):
         for method, path in (("GET", "/state"), ("GET", "/m/state"), ("GET", "/navfile"),
-                             ("GET", "/navfiles"), ("GET", "/laneimg/demo/a.png"), ("POST", "/magic"),
+                             ("GET", "/navfiles"), ("GET", "/laneimg/demo/a.png"), ("GET", "/magic/body"),
+                             ("GET", "/magic/img"), ("POST", "/magic/body"),
                              ("GET", "/dirs"), ("GET", "/machines"), ("POST", "/mkdir"), ("POST", "/project"),
                              ("POST", "/remote/pair/new"), ("POST", "/remote/forget"), ("GET", "/remote/servers"),
                              ("POST", "/send"), ("POST", "/done"), ("POST", "/close"), ("GET", "/uploads/x.png"),
