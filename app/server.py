@@ -915,14 +915,16 @@ Endpoints:
                                The removed quiet query is rejected so a stale
                                agent contract cannot turn progress into an
                                accidental final handover.
-  POST /note?box=ID&ctx=S   -> the named interim-note action: stores the body
-                               and ctx summary like /reply (reply, count,
-                               agent_ts, ts, context), consumes and releases
-                               any held claim, and enters the explicit note
-                               state with a fresh heartbeat. note is green
-                               while the work lives and rests grey if it dies;
-                               it never hands the ball to "you". A normal
-                               /reply is the sole final handover action.
+                               Progress goes out the same way: a normal reply
+                               sent while /working is on, which always answers
+                               the messages it was handed.
+  POST /note                -> removed (2026-10-19): always a 400 saying
+                               notes were removed and to send progress as a
+                               normal /reply under /working. Nothing on the
+                               card, its claim or its messages changes. Notes
+                               saved before then keep loading and showing in
+                               each card's history, and a card saved in the
+                               note state leaves it as it always did.
 
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
 discussion, this repo's agent) or a project lane (the project under discussion,
@@ -2996,7 +2998,8 @@ def _migrate() -> None:
     #   handed     the messages the claim in force handed over, written whole by
     #              each claim and emptied when that claim is let go
     #   batch      what the progress notes on the way have already consumed
-    #              toward the completed reply still to come
+    #              toward the completed reply still to come. Since /note was
+    #              removed only a saved card holds one between replies
     #   batch_gap  a hand-over reached the agent that this board has no record
     #              of, so the batch cannot be stated and the reply that follows
     #              says unknown rather than offering a part of itself as the
@@ -3677,7 +3680,8 @@ def _pages(owner: str) -> list:
 #                 queued    a message from the reader waits on the agent (grey)
 #                 working   the flag's heartbeat is beating (green)
 #                 note      an interim progress note while its heartbeat is
-#                           beating (green; no turn waits on the reader)
+#                           beating (green; no turn waits on the reader). Only
+#                           a card saved before /note was removed can be in it
 #                 deferred  working, plus a reply that becomes the reader's turn the
 #                           moment the work ends (green)
 #                 yours     an unanswered reply awaits the reader (yellow)
@@ -3688,8 +3692,6 @@ def _pages(owner: str) -> list:
 #                                          the reader has answered
 #                 /reply                   -> yours; flag still beating ->
 #                                          deferred; leftover msgs -> queued
-#                 /note                    -> note, starts heartbeat, consumes
-#                                          and releases a claim, ball stays me
 #                 /progress                no turn handed over; claim stays held
 #                 /working v=1, /ping      -> working (note/deferred stay)
 #                 flag drop or 75s expiry  -> deferred hands its turn over and
@@ -3699,6 +3701,8 @@ def _pages(owner: str) -> list:
 # "you" -> yours, else rest. Expiry is swept lazily at /state and /wait,
 # beside the unacked-claim clock, and by /working itself.
 
+# note stays green, so a card saved in it still leaves it when its heartbeat
+# runs out, exactly as it did while /note was taken
 GREEN = ("working", "note", "deferred")
 
 
@@ -3786,8 +3790,8 @@ def _release_claim(b: dict, for_answer: bool = False) -> str:
     and return to the queue exactly once. Callers hold _lock.
 
     for_answer says what becomes of the messages that claim handed over. The
-    agent writing about them passes it: a progress note keeps them for the
-    completed reply still to come, and that reply takes them. Every other way of
+    agent answering them passes it: the reply takes them, together with
+    anything a note saved before /note was removed kept for it. Every other way of
     letting a claim go is discarding them unanswered, which is exactly what
     dismissing a card does -- drop what is queued and clear the claim -- so the
     default drops them from the answer as well as from the queue, and no later
@@ -3840,8 +3844,9 @@ def _pending_states(b: dict) -> list:
     All three belong to the claim in force. A claim that ends without an
     answer (dismissed, stolen back, never acked) leaves its messages waiting to
     be handed over again, and they are sent again until the next claim is
-    confirmed. What a /note consumed has left the queue and is noted instead
-    (_noted_texts); what a /reply answered is the reply's own batch."""
+    confirmed. What a note saved before /note was removed consumed has left
+    the queue and is noted instead (_noted_texts); what a /reply answered is
+    the reply's own batch."""
     ow = b.get("owner", "facilitator")
     rec = (_state.get("ack") or {}).get(ow) or {}
     held = _state["busy"].get(ow) == b["id"] and rec.get("box") == b["id"]
@@ -3860,11 +3865,12 @@ def _pending_states(b: dict) -> list:
 
 
 def _noted_texts(b: dict) -> list:
-    """The messages a /note has already consumed toward the completed reply still
-    to come, in the order they were handed over. They were delivered and written
-    back about, so read, and they are no longer queued; the completed reply
-    takes them as part of its batch. Empty while the association is unknown.
-    Callers hold _lock."""
+    """The messages a note has already consumed toward the completed reply still
+    to come, in the order they were handed over. Only a card saved before /note
+    was removed can hold any: a reply takes what its claim held in the same step
+    it lets the claim go. They were delivered and written back about, so read,
+    and they are no longer queued; the completed reply takes them as part of its
+    batch. Empty while the association is unknown. Callers hold _lock."""
     if b.get("batch_gap"):
         return []
     batch = b.get("batch")
@@ -3909,18 +3915,17 @@ def _consume_claim(b: dict, claimed: set, for_answer: bool) -> None:
     claim is let go. This is _release_claim's own step; callers hold _lock.
 
     Only the lane's actual claim identities are folded in, and only when the
-    agent is writing about them. A progress note consumes a claim without
-    finishing the answer, so what it consumed waits here for the completed reply
-    still to come, and several notes may each consume their own claim toward
-    that one reply. Anything else letting a claim go -- a card dismissed above
-    all -- discards those messages unanswered, and they are dropped here so no
-    later reply can inherit them.
+    agent is answering them. The reply takes the batch straight after, beside
+    whatever a note saved before /note was removed left waiting here for it
+    (those notes consumed a claim without finishing the answer). Anything else
+    letting a claim go -- a card dismissed above all -- discards those messages
+    unanswered, and they are dropped here so no later reply can inherit them.
 
     A record left behind by a claim that was cleared some other way cannot reach
     an answer either: nothing is folded in unless the lane still names the mid.
     So the batch is made of claim identities and never of an inference drawn
-    from a message no longer being in the queue, which is a thing a progress
-    note and a dismissal do alike and which therefore says nothing.
+    from a message no longer being in the queue, which is a thing a saved note
+    and a dismissal did alike and which therefore says nothing.
 
     A claim naming a mid this board has no record of is a hand-over it never
     saw, which is what a claim standing across the upgrade looks like. The batch
@@ -4502,8 +4507,8 @@ def _phone_box(b: dict) -> dict:
         # the operation id each queued message was sent under, or null for a
         # message that came without one: the phone matches its own rows by it
         "pendingOps": [m.get("op") for m in b["pending"]],
-        # where each queued message stands with the agent, and what a note has
-        # already taken toward the answer still to come (_pending_states)
+        # where each queued message stands with the agent, and what a saved
+        # note has already taken toward the answer still to come (_pending_states)
         "pendingStates": _pending_states(b),
         "notedTexts": _noted_texts(b),
         "agentTs": b.get("agent_ts", 0), "agent": b.get("agent", ""), "seen": b.get("seen", 0), "turnTs": b.get("turn_ts", 0),
@@ -4734,8 +4739,8 @@ def _ui_state() -> dict:
                 "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
                 # where each queued message stands with the agent, one entry per
                 # pendingTexts entry: sent, delivered or read, and the messages a
-                # note has already taken toward the answer still to come, which
-                # are read and no longer queued (_pending_states, _noted_texts)
+                # saved note has already taken toward the answer still to come,
+                # which are read and no longer queued (_pending_states, _noted_texts)
                 "pendingStates": _pending_states(b),
                 "notedTexts": _noted_texts(b),
                 "ws": b.get("ws"), "task": b.get("task"),
@@ -7077,7 +7082,7 @@ def _post_reply(q: Query, text: str):
         if box is None:
             return 400, {"error": "bad box"}
         if "quiet" in q:
-            return 400, {"error": "quiet replies were removed; use /note for progress"}
+            return 400, {"error": "quiet replies were removed; send progress as a normal /reply under /working"}
         # the summary strip is optional as of 20260821: the owner had
         # the summary box taken off the card, so nothing displays it and
         # the agent no longer writes one. a ctx that is passed is still
@@ -7121,9 +7126,9 @@ def _post_reply(q: Query, text: str):
             box["context"] = ctx
         _release_claim(box, for_answer=True)
         # What this reply answers, recorded with the reply itself. It is made of
-        # the board's own claim identities and of nothing else: what the
-        # progress notes on the way consumed, and what the claim in force at
-        # this moment handed over, which the release above has just folded in.
+        # the board's own claim identities and of nothing else: what the claim
+        # in force at this moment handed over, which the release above has just
+        # folded in, and what a note saved before /note was removed consumed.
         # A claim that was dismissed unanswered is in neither, so this reply
         # cannot inherit it; a message that arrived after the claim was handed
         # over by nothing and waits in the queue for a reply that is given it.
@@ -7134,10 +7139,10 @@ def _post_reply(q: Query, text: str):
         # is not the same as a reply that was handed nothing.
         box["answered"] = _take_answered(box)
         box["reply_id"] = _next_reply_id(bid)
-        # when this reply was completed. agent_ts above cannot mean that: a
-        # progress note moves that stamp and leaves this one standing, which is
-        # what lets a card opened later age the box over its answer by the
-        # answer's own clock
+        # when this reply was completed. agent_ts above cannot mean that: on a
+        # card saved with a note over its answer that stamp is the note's, and
+        # this one is what lets a card opened later age the box over its answer
+        # by the answer's own clock
         box["reply_ts"] = now
         # which agent this reply is from, as its class name: the one that took
         # the claim, or the lane's listener now when the reply came unclaimed.
@@ -7165,46 +7170,13 @@ def _post_reply(q: Query, text: str):
         return 200, {"ok": True}
 
 
-def _post_note(q: Query, text: str):
-    # The sole background-progress action. It releases a held claim,
-    # owns an explicit note state and keeps the turn with the agent,
-    # so it can never turn yellow when its heartbeat ends.
-    bid = q.one("box")
-    with _lock:
-        box = _box(bid)
-        if box is None:
-            return 400, {"error": "bad box"}
-        ctx = q.one("ctx").strip()
-        if ctx and len(ctx.split()) > 50:
-            return 400, {"error": "context strip over 50 words"}
-        ow = box.get("owner", "facilitator")
-        _last_wait[ow] = time.time()  # a note proves that agent is alive too
-        _set_reply_variants(box, text)
-        box["replies"] += 1
-        # a note is not a page of the reply history: it adds none and hides
-        # none, so the final reply it was written over becomes an older page
-        box["reply_kind"] = "note"
-        box["agent_ts"] = time.time()
-        box["ts"] = time.time()
-        if ctx:
-            box["context"] = ctx
-        # the claim goes, and the messages it covered leave the pending list
-        # with it. but a note is not an answer, so the claim is let go FOR the
-        # answer: what it consumed is kept for the completed reply still to
-        # come, and several notes may each consume their own claim toward that
-        # one reply. nothing here writes answered, reply_id or reply_ts either,
-        # so the last completed reply keeps its own name, its own completion
-        # time and its own batch while this note stands over it, and no page can
-        # present this note as an answer to anything
-        _release_claim(box, for_answer=True)
-        box["ball"] = "me"
-        box["hb"] = time.time()
-        box["state"] = "note"
-        _log("note", bid, text, reply_full=text, reply_short=text,
-             reply_variants_version=REPLY_VARIANTS_VERSION)
-        _save()
-        _notify()
-        return 200, {"ok": True}
+def _post_note_removed(q: Query, text: str):
+    # notes were removed 2026-10-19: a note released the claim and started a
+    # green heartbeat of its own without answering, so a card could sit green
+    # with the reader's message still waiting under it. progress is a normal
+    # /reply under /working now, which always answers what it was handed. an
+    # agent still calling this is told so, and nothing on the board moves
+    return 400, {"error": "notes were removed; send progress as a normal /reply under /working"}
 
 
 def _post_done(q: Query, text: str):
@@ -9815,7 +9787,8 @@ ROUTES = [
     Route("/send", _state_endpoint(_post_send, "text"), methods=["POST"]),
     Route("/ack", _state_endpoint(_post_ack, "text"), methods=["POST"]),
     Route("/reply", _state_endpoint(_post_reply, "text"), methods=["POST"]),
-    Route("/note", _state_endpoint(_post_note, "text"), methods=["POST"]),
+    # a refusal and nothing else, so a plain endpoint: it never takes the lock
+    Route("/note", _endpoint(_post_note_removed, "text"), methods=["POST"]),
     Route("/done", _state_endpoint(_post_done, "text"), methods=["POST"]),
     Route("/working", _state_endpoint(_post_working, "text"), methods=["POST"]),
     Route("/ping", _state_endpoint(_post_ping, "text"), methods=["POST"]),

@@ -85,7 +85,10 @@ BUNDLE = (".agents/skills/facilitator/SKILL.md", ".agents/skills/facilitator/scr
 OPS = frozenset({"dirs", "mkdir", "describe"})
 
 # what an agent on a server may ask with its lane's key, and how the lane it
-# names is read: from owner=, from the card box= names, or the key's own lane
+# names is read: from owner=, from the card box= names, or the key's own lane.
+# /note only answers that notes were removed and changes nothing; it is still
+# let through so a stale agent on a server reads that answer, which says what
+# to do instead, rather than this door's bare refusal
 AGENT_ROUTES = {
     ("GET", "/wait"): "owner", ("POST", "/ack"): "owner", ("GET", "/fresh"): "owner",
     ("GET", "/unread"): "owner", ("POST", "/create"): "owner",
