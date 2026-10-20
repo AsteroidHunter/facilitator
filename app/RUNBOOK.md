@@ -42,7 +42,7 @@ An agent can also run on one of the owner's own servers, paired with the board b
     curl -sS -K ~/.facilitator/agents/LANE.curl -X POST --data-binary @reply.txt "http://board/reply?box=ID"
 
 - That file holds your lane's own key, given to you when you joined, and sends the call on to the board's real address; it is for this account alone. Never print it, copy it or put it, the key or the board's address on a card.
-- Only your own lane answers: `/wait`, `/ack`, `/fresh`, `/unread` and `/create` with `owner=` your lane, and `/reply`, `/working`, `/ping`, `/title`, `/testing`, `/park`, `/progress` and `/context` on your lane's cards. Everything else, `/state` and the magic box included, is refused.
+- Only your own lane answers: `/wait`, `/ack`, `/fresh`, `/unread` and `/create` with `owner=` your lane, and `/reply`, `/working`, `/ping`, `/title`, `/testing`, `/park` and `/context` on your lane's cards. Everything else, `/state` and the magic box included, is refused.
 - When the connection is down a call fails to connect. The card waits and so do the owner's messages, which queue on the Mac: keep working, and try the call again a minute later. `scripts/onboard.py wait` keeps trying through a drop by itself.
 
 ## Replies
