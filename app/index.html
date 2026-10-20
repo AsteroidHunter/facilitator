@@ -8617,7 +8617,8 @@ addEventListener("keydown", e => {
 // stands right of the card, or left of it, over the ticket list and the clock,
 // when the card's magic box stands on the right or the right has no room for
 // it. it is a second magic box: placed and sized as the box is
-// (MagicBox.place), drawn by the box's view (magicView), on the box's own
+// (MagicBox.place), with its first line lowered level with the card's
+// (pipeLevel), drawn by the box's view (magicView), on the box's own
 // rules, coming, rising and sinking by the box's own steps (boxCome, boxRise,
 // boxSink), and taking the keys as the box does: a click in it, control+option
 // toward it (pipeJump), and control+option+up and down, for which it is the
@@ -8634,7 +8635,7 @@ const PIPE = { el: document.getElementById("pipebox"), line: document.getElement
   ground: document.getElementById("pipeground"), id: null, raw: null, ms: PIPE_MS,
   aside: ["tickets", "clockbox"].map(id => document.getElementById(id)).filter(Boolean), dim: pipeDim,
   dimmed: null, dimAt: { reply: "", aside: "" },
-  side: null, came: null, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } };
+  side: null, came: null, top: null, rise: { t: 1, dir: 0, fast: 1, raf: 0, last: 0, then: null } };
 if (PIPE.el){
   PIPE.view = magicView(PIPE.el, { placed: () => pipePlace() });
   PIPE.body = PIPE.view.body;
@@ -8876,7 +8877,7 @@ function pipeOff(){
   PIPE.line.classList.remove("on");
   if (PIPE.ground) PIPE.ground.classList.remove("on");
   if (PIPE.id === null) return;
-  PIPE.id = null; PIPE.raw = null; PIPE.side = null; PIPE.came = null;
+  PIPE.id = null; PIPE.raw = null; PIPE.side = null; PIPE.came = null; PIPE.top = null;
   if (PIPE.sized) PIPE.sized.disconnect();
   PIPE.view.clear();
 }
@@ -8914,7 +8915,11 @@ function pipeDim(p = riseEase(PIPE.rise.t)){
 // right has no room for it. a side it took stays its side for as long as it
 // is out, unless the box comes to it or its room goes. with no room either
 // side it is hidden where it is, still out, dimming nothing, and is back when
-// the window gives it the room, as the box is
+// the window gives it the room, as the box is. it stands lower than the box:
+// its first line level with the first line of the card's own copy
+// (pipeLevel), and from there as tall as its words, down to the whole box's
+// foot at most, where a long response scrolls. sinking, it keeps where it
+// stood
 function pipePlace(){
   if (!PIPE.el || !PIPE.el.classList.contains("on")) return;
   PIPE.line.classList.remove("on");
@@ -8930,14 +8935,61 @@ function pipePlace(){
     return;
   }
   PIPE.side = side;
-  const at = MagicBox.place(room.rect, fit, PIPE.view.want(most[side], room.S), side);
+  const want = PIPE.view.want(most[side], room.S);
+  const at = MagicBox.place(room.rect, fit, want, side);
+  const level = pipeLevel(room);
+  if (level){
+    const foot = most[side].top + most[side].height;
+    if (!PIPE.rise.then || PIPE.top == null) PIPE.top = level.top - level.lead;
+    at.top = PIPE.top;
+    at.height = Math.min(want ? want.height : Infinity, foot - at.top);
+  }
   const rect = { left: at.left + "px", top: at.top + "px", width: at.width + "px", height: at.height + "px" };
   Object.assign(PIPE.el.style, rect, { visibility: "" });
   // the patch of the board under it, in its place and shape
   if (PIPE.ground){ Object.assign(PIPE.ground.style, rect); PIPE.ground.classList.add("on"); }
   pipeDim();
-  pipeLine(room.rect, at, side, most[side]);
+  // the brace's top end, the top edge of its top arm, on the tops of its first
+  // line's tall letters
+  pipeLine(room.rect, at, side, most[side], level && level.lead + level.ink + PIPE_STROKE / 2);
   boxRise(PIPE);
+}
+
+// where its words' first line stands, in the stage's pixels: the top of the
+// first line of the card's own copy of the response (the one it dims), as the
+// card lays it out now, so it follows the card's scroll, what stands over the
+// response and the card's size. that line scrolled up past the top of the
+// card's answer, or down under the typing box, it stays at the nearer of the
+// two: the answer's top, or a line over the typing box. lead: how far under
+// its own top its first line stands, its words at their head; ink: how far
+// under that line's top its tall letters' tops stand (pipeInk), where the
+// brace starts. null for a response with no words in either
+function pipeLevel(room){
+  const el = PIPE.id === null ? null : els[PIPE.id], words = PIPE.part.reply;
+  const first = el && pipeLines(el.reply, 1, true), own = words && pipeLines(words, 1, true);
+  if (!first || !own) return null;
+  const S = room.S, view = el.replyview.getBoundingClientRect().top;
+  const under = el.pendwrap.getBoundingClientRect().top - (first.bottom - first.top);
+  const top = Math.max(view, Math.min(under, first.top));
+  return { top: (top - room.sr.y) / S, lead: (own.top - PIPE.el.getBoundingClientRect().top) / S + PIPE.body.scrollTop,
+    ink: pipeInk(words) };
+}
+// the top of a line's words as they are seen, the tops of its tall letters (an
+// l, a d, a capital), under the top the page lays the line out from: the
+// font's own ascent less theirs, in the type of the first of the words, a
+// heading's or the answer's, measured by a canvas and so in the stage's pixels
+// the type is set in. nothing where no canvas can measure it
+function pipeInk(words){
+  const walk = document.createTreeWalker(words, NodeFilter.SHOW_TEXT);
+  let t = walk.nextNode();
+  while (t && (!/\S/.test(t.data) || t.parentElement?.closest("button"))) t = walk.nextNode();
+  const cs = getComputedStyle(t ? t.parentElement : words);
+  const pen = PIPE.pen || (PIPE.pen = document.createElement("canvas").getContext("2d"));
+  if (!pen) return 0;
+  pen.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+  const m = pen.measureText("Hdl");
+  if (!(m.fontBoundingBoxAscent > 0 && m.actualBoundingBoxAscent > 0)) return 0;
+  return Math.max(0, m.fontBoundingBoxAscent - m.actualBoundingBoxAscent);
 }
 
 // the brace from the card to it, in the stage's pixels: a { when it stands on
@@ -8948,10 +9000,11 @@ function pipePlace(){
 // and out along its foot arm. the spine stands in the middle of the gap
 // between the card's edge and the response's, and no line touches either: each
 // stops clear short of the edge it points to. the top arm is level with the
-// middle of the response's first line (lead, down from its top), and the foot
-// arm with its foot, in by its corner (round). the two lines toward the card
-// stand a line of the response's words (apart) apart, either side of the
-// point, a set way under the top arm: where the magic box's first line stands
+// tops of the tall letters of the response's first line (lead, down from its
+// top, its own top edge there), and the foot arm with its foot, in by its
+// corner (round). the two lines toward the card stand a line of the
+// response's words (apart) apart, either side of the point, a set way under
+// the top arm: where the magic box's first line stands
 // on the largest box beside this card (TWO), or half way down a response too
 // short for that, and no further apart than half of what is left of the brace.
 // so the upper set keeps its height and the lower stretches with the response.
@@ -8972,15 +9025,14 @@ function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = TWO
   const lower = [[spine + s * w, down, far, down], [spine, down - w, spine, foot], [spine - s * w, foot, near, foot]];
   return { spine, top, point, foot, upper, lower, segments: [...upper, ...lower] };
 }
-function pipeLine(card, box, side, most){
-  // the response's first line, from its top as it stands with its words at
-  // their head, in the stage's pixels as the box is, and one line of its words
-  const words = PIPE.part.reply, S = stageScale || 1;
+function pipeLine(card, box, side, most, lead){
+  // the top arm, at the tops of the tall letters of the response's first line,
+  // down from its top as it stands with its words at their head (pipeLevel),
+  // in the stage's pixels as the box is, and one line of its words
+  const words = PIPE.part.reply;
   const round = parseFloat(getComputedStyle(PIPE.el).borderTopLeftRadius) || 0;
-  const first = words && pipeLines(words, 1, true);
-  const lead = first ? ((first.top + first.bottom) / 2 - PIPE.el.getBoundingClientRect().top) / S + PIPE.body.scrollTop : round;
   const apart = words ? parseFloat(getComputedStyle(words).lineHeight) || 0 : 0;
-  const brace = pipeBrace(card, box, side, most, { round, lead, apart, clear: PIPE_CLEAR });
+  const brace = pipeBrace(card, box, side, most, { round, lead: lead == null ? round : lead, apart, clear: PIPE_CLEAR });
   if (!brace) return;
   // the card's own edge colour, read off the card, as the box's lines are. it is
   // drawn again only when it has moved: each key typed at the second step places it
@@ -9084,6 +9136,13 @@ if (PIPE.el){
     else pipeSync();
   };
   const watch = new MutationObserver(follow);
+  // and the card's answer scrolled, which moves the first line it stands level
+  // with (pipeLevel): past the answer's fade a scroll writes nothing the watch
+  // would hear
+  addEventListener("scroll", e => {
+    const el = PIPE.id === null ? null : els[PIPE.id];
+    if (el && e.target === el.replyview && pipeShown()) pipePlace();
+  }, { capture: true, passive: true });
   const card = document.querySelector("main"), stage = document.getElementById("stage");
   if (card) watch.observe(card, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "style"] });
   if (stage) watch.observe(stage, { attributes: true, attributeFilter: ["style"] });
@@ -12221,6 +12280,21 @@ function pipeScrollCard(){
   if (!card || !pipeHeld() || PIPE.id === null) return null;
   return { id: "pipe:" + PIPE.id, owner: card.owner, el: PIPE.part };
 }
+// and while it is out with the keys still on the card, typing in its box, on
+// its title or on the card itself: it is the card's response, so its words
+// scroll by the same motion, pressed from the same places on the card and with
+// the same guards as the card's own copy (responseScrollSource), which stays
+// where it is. the card with its words in the place of the response is one
+// for as long as the card is, so a double tap stands on it
+function pipeScrollTyped(){
+  const card = boardResponseCard();
+  if (!card || typeof PIPE !== "object" || pipeHeld() || !pipeShown() || card.id !== PIPE.id) return null;
+  if (PIPE.typedFor !== card.el){
+    PIPE.typedFor = card.el;
+    PIPE.typed = Object.create(card.el, { replyview: { value: PIPE.body } });
+  }
+  return { id: "pipe:" + PIPE.id, owner: card.owner, el: PIPE.typed };
+}
 // a key typed in an agent's page, which the board never hears from a sealed
 // frame, as magicView hands it over (the page says it, MagicBox.pageDoc): the
 // same three the board's own listeners take for control+s, the chord that
@@ -12399,7 +12473,8 @@ const boardShortcutActions = {
     if (to) setView(to);
   },
   responseScroll(e){
-    responseScrollKey(e, pipeHeld() ? pipeScrollCard : boardMagicHeld() ? boardMagicScrollCard : boardResponseCard);
+    responseScrollKey(e, pipeHeld() ? pipeScrollCard : boardMagicHeld() ? boardMagicScrollCard :
+      pipeScrollTyped() ? pipeScrollTyped : boardResponseCard);
   },
 };
 
