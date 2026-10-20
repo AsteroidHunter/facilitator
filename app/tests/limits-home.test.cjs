@@ -313,10 +313,10 @@ test("the box asks for /limits and nothing else, and only the limits box does", 
 });
 
 // ---- the rules the pages carry ---------------------------------------------------------------
-test("the bars wear the token chart's colours: the line's colour for the fill, the heatmap's lightest tint for the track", async () => {
+test("the bars wear the token chart's colours: the line's colour for the fill, the heatmap's second tint for the track", async () => {
   const W = widgets();
   assert.equal(W.LIMIT_FILL, W.LINE, "the daily line's colour");
-  assert.equal(W.LIMIT_TRACK, W.PALETTE[1], "the heatmap's lightest tint");
+  assert.equal(W.LIMIT_TRACK, W.PALETTE[2], "the heatmap's second tint");
   assert.equal(W.LIMIT_FILL, "#E0592B");
   assert.equal(W.LIMIT_TRACK, "#FCD8C2");
   const root = makeRoot();

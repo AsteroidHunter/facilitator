@@ -238,6 +238,11 @@ test("the colour scale runs light to deep red-orange, and a day with nothing is 
     assert.ok(c.s > 0.6, "and saturated");
   }
   for (let i = 1; i < warm.length; i++) assert.ok(warm[i].l < warm[i - 1].l, "each step is deeper");
+  // the four first tints are kept, the deepest last, and the added shades are faint
+  assert.equal(W.PALETTE.at(-1), "#C9401B", "the busiest days are the old deepest red");
+  assert.deepEqual([...W.PALETTE].filter(c => ["#FCD8C2", "#F7A67C", "#EC6B3C", "#C9401B"].includes(c)),
+                   ["#FCD8C2", "#F7A67C", "#EC6B3C", "#C9401B"]);
+  assert.ok(warm.every(c => c.l >= hsl("#C9401B").l), "nothing is deeper than it");
 
   // a log scale over the active days: nothing is level 0, the busiest is the
   // deepest, a busier day is never lighter, and days spread evenly over the

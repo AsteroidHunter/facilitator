@@ -74,9 +74,9 @@
   // the height a chart is drawn to when its view has none of its own yet
   const VIEW_H = 200;
   // the scale: a warm grey for nothing, then six red-oranges, light to deep
-  const PALETTE = ["#EEEAE4", "#FCD8C2", "#F7A67C", "#EC6B3C", "#C9401B", "#9B2E15", "#6F1F11"];
+  const PALETTE = ["#EEEAE4", "#FFECDC", "#FCD8C2", "#FABF9F", "#F7A67C", "#EC6B3C", "#C9401B"];
   const LINE = "#E0592B";                       // the daily line, dotted and faint
-  const AVG_LINE = PALETTE[4];                  // the 7-day average, solid, a shade deeper
+  const AVG_LINE = PALETTE[6];                  // the 7-day average, solid, a shade deeper
   const DAILY_DASH = "0 5";                     // round dots 5px apart
   const DAILY_ALPHA = 1;                        // the daily line's opacity, the average's stays full
   const YEAR = 365, AVG = 7;
@@ -1112,8 +1112,8 @@
   const LIMIT_ROWS = [["claude", "five_hour", "Claude 5-hour"], ["claude", "weekly", "Claude weekly"],
                       ["codex", "five_hour", "Codex 5-hour"], ["codex", "weekly", "Codex weekly"]];
   // the bars wear the chart's colours: the daily line's colour for the fill and
-  // the heatmap's lightest tint for the track
-  const LIMIT_FILL = LINE, LIMIT_TRACK = PALETTE[1];
+  // the heatmap's second tint for the track
+  const LIMIT_FILL = LINE, LIMIT_TRACK = PALETTE[2];
   const LIMITS_KEY = "home.limits";
   // while the server says it is renewing its reading the box asks again, this
   // often and at most this many times in a row
