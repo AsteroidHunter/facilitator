@@ -228,7 +228,7 @@ test("the heatmap's squares grow with the view's height, never under 12, and fil
 
 test("the colour scale runs light to deep red-orange, and a day with nothing is a faint warm grey", () => {
   const { W } = widgets();
-  assert.equal(W.PALETTE.length, 5);
+  assert.equal(W.PALETTE.length, 7);
   const [empty, ...warm] = W.PALETTE.map(hsl);
   assert.ok(empty.s < 0.25 && empty.l > 0.85, "the empty square is a faint grey");
   const [r, g, b] = [1, 3, 5].map(i => parseInt(W.PALETTE[0].slice(i, i + 2), 16));
@@ -239,24 +239,40 @@ test("the colour scale runs light to deep red-orange, and a day with nothing is 
   }
   for (let i = 1; i < warm.length; i++) assert.ok(warm[i].l < warm[i - 1].l, "each step is deeper");
 
-  // quartiles of the active days: nothing is level 0, the busiest is the deepest,
-  // a busier day is never lighter, and a hundred days share the four steps evenly
-  const values = [0, 0, ...Array.from({ length: 100 }, (_, i) => (i + 1) * 1e6)];
+  // a log scale over the active days: nothing is level 0, the busiest is the
+  // deepest, a busier day is never lighter, and days spread evenly over the
+  // powers of ten share the six steps evenly
+  const values = [0, 0, ...Array.from({ length: 150 }, (_, i) => 10 ** (4 + i * 0.03))];
   const sc = W.scale(values);
   assert.equal(sc.level(0), 0);
   assert.equal(sc.colour(0), W.PALETTE[0]);
-  assert.equal(sc.level(100e6), 4);
-  assert.equal(sc.level(1e6), 1);
+  assert.equal(sc.level(values.at(-1)), 6);
+  assert.equal(sc.level(1e4), 1);
   const levels = values.map(sc.level);
   for (let i = 1; i < levels.length; i++) assert.ok(levels[i] >= levels[i - 1]);
-  for (const step of [1, 2, 3, 4]) {
+  for (const step of [1, 2, 3, 4, 5, 6]) {
     const n = levels.filter(l => l === step).length;
     assert.ok(n >= 24 && n <= 26, `step ${step} holds ${n} days`);
   }
+  // a year from 126K to 3.06B a day: 500M and 3B are two shades, and no two
+  // days six times apart share one
+  const year = Array.from({ length: 184 }, (_, i) => 10 ** (5.1 + i * 4.386 / 183));
+  const wide = W.scale(year);
+  assert.ok(wide.level(500e6) < wide.level(3e9), "500M is lighter than 3B");
+  for (const a of year) for (const b of year)
+    if (b >= 6 * a) assert.notEqual(wide.level(a), wide.level(b), `${a} and ${b}`);
+  // a step is never wider than a factor of 10^0.75, the quietest days going to the lightest
+  const deep = W.scale([10, 1e3, 1e9]);
+  assert.deepEqual([...deep.cuts].map(c => Math.round(Math.log10(c) * 100) / 100), [5.25, 6, 6.75, 7.5, 8.25]);
+  assert.equal(deep.level(10), 1);
+  assert.equal(deep.level(1e3), 1);
   // one enormous day does not wash every other day out to the lightest step
   const spike = W.scale([...Array.from({ length: 40 }, (_, i) => (i + 1) * 1e6), 5e12]);
-  assert.equal(spike.level(40e6), 4);
-  assert.equal(W.scale([0, 7]).level(7), 4, "a single active day is the deepest");
+  assert.equal(spike.level(40e6), 5);
+  assert.equal(spike.level(5e12), 6);
+  assert.equal(new Set(Array.from({ length: 40 }, (_, i) => spike.level((i + 1) * 1e6))).size, 5);
+  assert.equal(W.scale([0, 7]).level(7), 6, "a single active day is the deepest");
+  assert.equal(W.scale([7, 7, 7]).level(7), 6, "days all alike are the deepest");
   // what the squares are painted with is the palette and nothing else
   const model = W.heatmapModel(daysEnding("2026-09-27", 371));
   const fills = new Set([...W.heatmapSvg(model).matchAll(/class="tk-day"[^>]*fill="([^"]+)"/g)].map(m => m[1]));
