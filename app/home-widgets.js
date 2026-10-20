@@ -31,8 +31,17 @@
 //            started. The line starts on the day use began this year
 //            (pictureStart), its foot still the total from January 1, and
 //            the mark is left out when that day comes before the start.
-//            The Mac saves it as a download, a phone offers it to
-//            the share sheet so it can go to Photos or Files
+//            The Mac saves it as a download, as does a phone whose
+//            browser cannot share a file; then the overlay shows it
+//   overlay  the picture just made, in a box of the board's glass over the
+//            dimmed page, about 3 by 2 for the line and shorter for the
+//            heatmap's wider picture, under its file name and over two
+//            buttons: "Open in Finder" (the Mac's download only), which asks
+//            the board to show the saved file in Finder, and "Share", which
+//            hands the file to the system's share sheet where the browser
+//            can (on a phone, to go to Photos or Files) and copies the
+//            picture otherwise. The cross, Escape and a press outside the
+//            box put it away
 //   view     both charts are drawn to the height of the view they are shown
 //            in, never stretched: the heatmap's squares grow until its seven
 //            rows fill it, and the line is as wide as the heatmap, a week of
@@ -65,8 +74,10 @@
 // it is given and owns nothing outside it, so either can later sit in a shared
 // widget system on its own. The drawing is plain SVG written as text; the
 // models under it are plain data, which is what the tests hold them to.
-// Nothing here fetches except the panel, and only /tokens/daily, and the
-// limits box, and only /limits.
+// Nothing here fetches except the panel, and only /tokens/daily, the
+// limits box, and only /limits, and the overlay's "Open in Finder", and only
+// POST /tokens/picture/reveal. The overlay is the one thing set down outside
+// the element a widget is given: it covers the whole page while it is up.
 (function () {
   const WEEKS = 53;
   const LEFT = 34, TOP = 20;                    // room for the day and month names
@@ -933,17 +944,19 @@
     const pad = n => String(n).padStart(2, "0");
     return `facilitator-tokens-${kind}-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.png`;
   };
-  // a phone offers the file to the share sheet, to go to Photos or Files; the
-  // Mac, and a phone whose browser cannot share a file, saves a download
+  // the picture as a file the browser can hand to the share sheet, or null
+  // where it cannot
+  function shareable(win, blob, name) {
+    const nav = win && win.navigator;
+    if (!nav || typeof nav.canShare !== "function" || typeof File !== "function") return null;
+    const file = new File([blob], name, { type: "image/png" });
+    return nav.canShare({ files: [file] }) ? file : null;
+  }
+  // a phone that can share a file keeps the picture for the overlay's Share,
+  // which opens the share sheet, to go to Photos or Files; the Mac, and a
+  // phone whose browser cannot share a file, saves a download
   async function deliver(doc, blob, name, share) {
-    const nav = doc.defaultView && doc.defaultView.navigator;
-    if (share && nav && typeof nav.canShare === "function" && typeof File === "function") {
-      const file = new File([blob], name, { type: "image/png" });
-      if (nav.canShare({ files: [file] })) {
-        try { await nav.share({ files: [file], title: PIC_TITLE }); return "shared"; }
-        catch (err) { if (err && err.name === "AbortError") return "closed"; }
-      }
-    }
+    if (share && shareable(doc.defaultView, blob, name)) return "ready";
     const url = URL.createObjectURL(blob), link = doc.createElement("a");
     link.href = url; link.download = name; link.style.display = "none";
     // the board's link guard (card-logic.js) takes every link click for a card's
@@ -954,12 +967,173 @@
     setTimeout(() => URL.revokeObjectURL(url), 30000);
     return "downloaded";
   }
-  // paint the picture of a chart and hand it over. shape and look are for tests
+  // paint the picture of a chart and hand it over: what became of it (ready,
+  // downloaded), the PNG and its file name. shape and look are for tests
   async function picture({ doc, kind, days, installed, look, share, shape, now }) {
     const face = look || lookOf(doc.documentElement);
     const [logo] = await Promise.all([loadLogo(), loadFaces(doc, face)]);
     const canvas = pictureCanvas(doc, pictureModel(kind, days, installed, shape), face, logo);
-    return deliver(doc, await pictureBlob(canvas), pictureName(kind, now == null ? Date.now() : now), share);
+    const blob = await pictureBlob(canvas), name = pictureName(kind, now == null ? Date.now() : now);
+    return { outcome: await deliver(doc, blob, name, share), blob, name };
+  }
+
+  // ---- the picture's overlay -----------------------------------------------
+  // the picture just made, shown on the board's glass (.qn-glass) over the
+  // settings page's veil (.sp-veil), both in card-tokens.css, which every page
+  // that draws the panel loads; the sizes are home-widgets.css's. Over the
+  // picture its file name, with a check when it was saved, and the magic box's
+  // cross; under it a line for what went wrong and the buttons. A press that
+  // starts and ends on the veil, Escape and the cross put it away, no key goes
+  // on to the page it covers, and focus cannot wander behind it. It is taken
+  // out of the page once its fade has run, and its picture's address with it
+  const SHOT_ICONS = {
+    check: ICON('<path d="M20 6 9 17l-5-5"/>'),
+    // Lucide's folder and share (ISC)
+    finder: ICON('<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>'),
+    share: ICON('<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" x2="12" y1="2" y2="15"/>'),
+  };
+  // the card bar's cross (MAGIC_CROSS in card-logic.js)
+  const SHOT_CROSS = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3333" ' +
+    'stroke-linecap="round" aria-hidden="true"><path d="M1.936 1.936L8.064 8.064M8.064 1.936L1.936 8.064"></path></svg>';
+  const SHOT_FADE = 320;                        // the veil's .26s fade out, and a little over
+  const SHOT_WORDS = { finder: "Could not open Finder.", share: "Could not share the picture." };
+  const KIND_NAMES = { heatmap: "heatmap", line: "line chart" };
+  // Share: the system's share sheet where the browser can hand it the file,
+  // else the picture onto the clipboard. shared, closed (the sheet put away
+  // unsent), copied or failed
+  async function sharePicture(win, blob, name) {
+    const file = shareable(win, blob, name);
+    if (file) {
+      try { await win.navigator.share({ files: [file], title: PIC_TITLE }); return "shared"; }
+      catch (err) { if (err && err.name === "AbortError") return "closed"; }
+    }
+    const clip = win && win.navigator && win.navigator.clipboard;
+    if (clip && typeof clip.write === "function" && typeof ClipboardItem === "function") {
+      try { await clip.write([new ClipboardItem({ "image/png": blob })]); return "copied"; }
+      catch (err) {}
+    }
+    return "failed";
+  }
+  // Open in Finder: the board finds the saved file by its name and the SHA-256
+  // of its bytes, and is never handed a path (POST /tokens/picture/reveal)
+  async function revealPicture(blob, name) {
+    const sum = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    const sha256 = Array.from(new Uint8Array(sum), b => b.toString(16).padStart(2, "0")).join("");
+    const r = await fetch("/tokens/picture/reveal", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, sha256 }) });
+    const answer = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(answer.error || SHOT_WORDS.finder);
+    return answer;
+  }
+  function overlay(doc, { blob, name, kind, saved, finder, reveal, share, later, cancel }) {
+    const el = (tag, cls, text) => element(doc, tag, cls, text);
+    const veil = el("div", "qn-veil sp-veil tk-shot-veil");
+    const box = el("div", "qn-glass tk-shot");
+    box.dataset.kind = kind;
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-modal", "true");
+    box.setAttribute("aria-label", saved ? "Chart downloaded" : "Chart picture");
+    // a press on bare glass leaves focus on the box, so Escape still reaches the veil
+    box.tabIndex = -1;
+    const head = el("div", "tk-shot-head");
+    const title = el("div", "tk-shot-title");
+    if (saved) {
+      const tick = el("span", "tk-shot-saved");
+      tick.innerHTML = SHOT_ICONS.check;
+      title.appendChild(tick);
+    }
+    title.appendChild(el("span", "tk-shot-name", name));
+    const cross = el("button", "tk-shot-x");
+    cross.type = "button";
+    cross.setAttribute("aria-label", "Close");
+    cross.title = "Close";
+    cross.innerHTML = SHOT_CROSS;
+    head.appendChild(title);
+    head.appendChild(cross);
+    const url = URL.createObjectURL(blob);
+    const pic = el("img", "tk-shot-pic");
+    pic.src = url;
+    pic.alt = `${PIC_TITLE}, ${KIND_NAMES[kind] || kind}`;
+    const foot = el("div", "tk-shot-foot");
+    const note = el("span", "tk-shot-note");
+    note.setAttribute("role", "status");
+    foot.appendChild(note);
+    const button = (act, label, main) => {
+      const b = el("button", "tk-shot-btn" + (main ? " main" : ""));
+      b.type = "button";
+      b.dataset.act = act;
+      b.innerHTML = SHOT_ICONS[act] + `<span>${esc(label)}</span>`;
+      foot.appendChild(b);
+      return b;
+    };
+    const open = finder ? button("finder", "Open in Finder") : null;
+    const send = button("share", "Share", true);
+    box.appendChild(head);
+    box.appendChild(pic);
+    box.appendChild(foot);
+    veil.appendChild(box);
+    doc.body.appendChild(veil);
+
+    let shown = true, downOutside = false, copiedTimer = null;
+    const back = doc.activeElement;
+    const say = words => { note.textContent = words; };
+    const hold = e => { if (shown && !box.contains(e.target)) box.focus({ preventScroll: true }); };
+    function close() {
+      if (!shown) return;
+      shown = false;
+      if (copiedTimer != null) { cancel(copiedTimer); copiedTimer = null; }
+      veil.classList.remove("open");
+      veil.setAttribute("aria-hidden", "true");
+      doc.removeEventListener("focusin", hold);
+      if (back && back.isConnected && typeof back.focus === "function") back.focus({ preventScroll: true });
+      else if (box.contains(doc.activeElement)) doc.activeElement.blur();
+      later(() => { veil.remove(); URL.revokeObjectURL(url); }, SHOT_FADE);
+    }
+    // a button at work says so to the pointer and takes no second press
+    const busy = (b, on) => { b.dataset.busy = on ? "1" : ""; b.setAttribute("aria-busy", String(on)); };
+    if (open) open.addEventListener("click", () => {
+      if (open.dataset.busy === "1") return;
+      say("");
+      busy(open, true);
+      Promise.resolve().then(() => reveal(blob, name))
+        .catch(err => { if (shown) say((err && err.message) || SHOT_WORDS.finder); })
+        .then(() => busy(open, false));
+    });
+    // the share sheet is opened inside the press itself, which a phone asks for
+    send.addEventListener("click", () => {
+      if (send.dataset.busy === "1") return;
+      say("");
+      busy(send, true);
+      Promise.resolve(share(blob, name)).catch(() => "failed").then(outcome => {
+        busy(send, false);
+        if (!shown) return;
+        if (outcome === "failed") return say(SHOT_WORDS.share);
+        if (outcome !== "copied") return;
+        // the button says it is done for a moment, as the download button does
+        send.innerHTML = SHOT_ICONS.check + "<span>Copied</span>";
+        if (copiedTimer != null) cancel(copiedTimer);
+        copiedTimer = later(() => { copiedTimer = null; send.innerHTML = SHOT_ICONS.share + "<span>Share</span>"; }, DONE_MS);
+      });
+    });
+    cross.addEventListener("click", close);
+    veil.addEventListener("keydown", e => {
+      e.stopPropagation();
+      if (e.key === "Escape" && !e.isComposing) { e.preventDefault(); close(); }
+    });
+    // a press that starts and ends on the veil, outside the box, puts it away;
+    // a selection dragged out of the box and let go on the veil does not
+    veil.addEventListener("pointerdown", e => { downOutside = e.target === veil; });
+    veil.addEventListener("click", e => {
+      if (downOutside && e.target === veil) close();
+      downOutside = false;
+    });
+    doc.addEventListener("focusin", hold);
+    // laid out closed once, so the veil and the box have a fade to run
+    void veil.offsetWidth;
+    veil.classList.add("open");
+    veil.setAttribute("aria-hidden", "false");
+    if (typeof box.focus === "function") box.focus({ preventScroll: true });
+    return { root: veil, box, close, isOpen: () => shown, finder: open, share: send, note };
   }
 
   // ---- the panel -----------------------------------------------------------
@@ -1079,29 +1253,40 @@
       loadFaces(doc, lookOf(box));
     }
     // idle: the download icon; busy: the spinner while the picture is made and
-    // handed over (a download started, or the share sheet answered); done: the
-    // check, for a moment, then back to idle. A picture that failed, or a share
-    // sheet closed without sending, goes straight back to idle
+    // handed over; done: the check, for a moment, then back to idle. A picture
+    // that failed goes straight back to idle, and so does one kept for a
+    // phone's share sheet, which nothing has saved yet
     function mark(state) {
       save.dataset.state = state;
       if (state === "busy") save.setAttribute("aria-busy", "true"); else save.removeAttribute("aria-busy");
     }
+    // the overlay showing the last picture, one at a time; reveal and share are
+    // for tests
+    let shot = null;
+    const reveal = opts.reveal || revealPicture;
+    const share = opts.sharePicture || ((blob, name) => sharePicture(doc.defaultView, blob, name));
     function download() {
       if (saving || destroyed || save.disabled) return Promise.resolve();
       saving = true;
       if (doneTimer != null) { cancel(doneTimer); doneTimer = null; }
       mark("busy");
-      const began = clock();
-      return picture({ doc, kind: view, days: data.days, installed: data.installed, look: lookOf(box),
+      const began = clock(), kind = view;
+      return picture({ doc, kind, days: data.days, installed: data.installed, look: lookOf(box),
                        share: !!opts.share, now: began })
-        .catch(() => "failed")
-        .then(outcome => new Promise(done => later(done, Math.max(0, SPIN_MIN - (clock() - began)))).then(() => outcome))
-        .then(outcome => {
+        .catch(() => ({ outcome: "failed" }))
+        .then(made => new Promise(done => later(done, Math.max(0, SPIN_MIN - (clock() - began)))).then(() => made))
+        .then(({ outcome, blob, name }) => {
           saving = false;
           if (destroyed) return;
-          if (outcome !== "shared" && outcome !== "downloaded") return mark("idle");
-          mark("done");
-          doneTimer = later(() => { doneTimer = null; mark("idle"); }, DONE_MS);
+          if (outcome !== "ready" && outcome !== "downloaded") return mark("idle");
+          if (outcome === "downloaded") {
+            mark("done");
+            doneTimer = later(() => { doneTimer = null; mark("idle"); }, DONE_MS);
+          } else mark("idle");
+          if (shot) shot.close();
+          // Open in Finder only for the Mac's own download
+          shot = overlay(doc, { blob, name, kind, saved: outcome === "downloaded",
+                                finder: outcome === "downloaded" && !opts.share, reveal, share, later, cancel });
         });
     }
     save.addEventListener("click", download);
@@ -1133,12 +1318,13 @@
     function destroy() {
       destroyed = true;
       if (doneTimer != null) cancel(doneTimer);
+      if (shot) shot.close();
       if (observer) observer.disconnect();
       for (const layer of Object.values(layers)) if (layer.tkDispose) layer.tkDispose();
       status.busy(false);
     }
     draw();
-    return { root: box, show, refresh, tick, destroy, download, view: () => view };
+    return { root: box, show, refresh, tick, destroy, download, view: () => view, overlay: () => shot };
   }
 
   // ---- the limits box ------------------------------------------------------
@@ -1298,7 +1484,7 @@
     PALETTE, LINE, AVG_LINE, DAILY_DASH, DAILY_ALPHA, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
     compact, longDay, scale, rolling, niceAxis, geometry, totalLine, yearStart, fetchDays,
     useStart, pictureStart, MIN_SILENCE, MIN_SHOWN,
-    SHAPES, SHAPE_OF, PIC_SCALE, pictureModel, pictureName, picture,
+    SHAPES, SHAPE_OF, PIC_SCALE, pictureModel, pictureName, picture, overlay, sharePicture,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
     viewHtml, seat, panel, limitRows, ago, limits, LIMIT_FILL, LIMIT_TRACK, LIMITS_KEY, TOKENS_KEY,

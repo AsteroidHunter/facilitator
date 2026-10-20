@@ -1,7 +1,8 @@
 /* The home page's widgets (home-widgets.js): the token panel, its pill and its
    two charts. Drawn from the board's own colours and faces in card-tokens.css,
    so a page loads this sheet after that one. Nothing here reaches outside
-   .tk-panel, so the panel can be set down on any page that loads both. */
+   .tk-panel but the picture's overlay (.tk-shot-veil, at the foot), which
+   covers the page, so the panel can be set down on any page that loads both. */
 
 /* the panel: no box, its words and chart standing on the page itself, as in
    the screenshot on the card (20261013). its edge is kept but drawn clear, so nothing
@@ -226,3 +227,81 @@
 .lm-fill{display:block; height:100%; transition:width .7s var(--gentle)}
 .lm-pct{min-width:4ch; color:var(--ink); font-weight:600; text-align:right; font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion: reduce){ .lm-fill{transition:none} }
+
+/* ---- the picture's overlay ---------------------------------------------------
+   the picture just made, over the whole page: the settings page's veil
+   (.qn-veil.sp-veil in card-tokens.css, the board's ink at 24%, fading in and
+   out by its colour) with a box of the board's glass (.qn-glass, the project
+   list's) in its middle. the box is --shot-w wide and at least two thirds of
+   that tall, 3 by 2, for the line's 2:1 picture; for the heatmap's 3:1 it is
+   shorter by exactly the height the wider picture saves, so the picture is as
+   wide in both and only the height changes. the picture fills the width less
+   --shot-m at each side, which is also the air above the file name and under
+   the buttons; the height left over is shared between the gap over the
+   picture and the gap under it. a window too small for the full width gets a
+   smaller box of the same shape, never nearer than 48px to an edge */
+.tk-shot-veil, .tk-shot-veil.open{display:grid; place-items:center; padding:0}
+.tk-shot{--shot-w:min(960px, calc(100vw - 96px), calc((100vh - 96px) * 3 / 2)); --shot-m:28px;
+  position:relative; box-sizing:border-box; display:flex; flex-direction:column; justify-content:space-between; gap:16px;
+  width:var(--shot-w); min-height:calc(var(--shot-w) * 2 / 3); padding:var(--shot-m); border-radius:14px; outline:none;
+  color:var(--ink); font:400 13px/18px var(--sans);
+  opacity:0; transform:translateY(4px) scale(.98);
+  transition:opacity .2s ease-out, transform .26s var(--gentle)}
+.tk-shot[data-kind="heatmap"]{min-height:calc(var(--shot-w) * 2 / 3 - (var(--shot-w) - 2 * var(--shot-m)) / 6)}
+.tk-shot-veil.open .tk-shot{opacity:1; transform:none}
+/* the file name, set like the panel's heading, with the download button's
+   green check before it once the file is saved, and at the right the magic
+   box's cross: a round seat of soft red with the card bar's mark, shaded with
+   the one press shade, its tap reaching past it */
+.tk-shot-head{flex:none; display:flex; align-items:center; gap:12px; height:20px}
+.tk-shot-title{flex:1; min-width:0; display:flex; align-items:center; gap:7px}
+.tk-shot-saved{flex:none; display:flex; color:var(--green)}
+.tk-shot-saved svg{display:block; width:15px; height:15px}
+.tk-shot-name{min-width:0; font:600 14px/18px var(--sans); color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tk-shot-x{--shot-pink:#FF7A72; position:relative; flex:none; display:grid; place-items:center;
+  width:17px; height:17px; padding:0; border:none; border-radius:50%;
+  background:var(--shot-pink); color:#1e1e1e; cursor:pointer}
+.tk-shot-x:hover, .tk-shot-x:active{background:color-mix(in srgb, #000 var(--press), var(--shot-pink))}
+.tk-shot-x:focus-visible{outline:2px solid var(--line); outline-offset:1px}
+.tk-shot-x svg{display:block; width:10px; height:10px}
+.tk-shot-x::after{content:""; position:absolute; inset:-8px}
+/* the picture: its own shape before it has loaded, so the box never jumps,
+   on the board's paper with the 7px corners of things let into the card and
+   a hairline and a soft shadow, so the paper reads against the glass */
+.tk-shot-pic{flex:none; display:block; box-sizing:border-box; width:100%; height:auto; aspect-ratio:2 / 1;
+  border-radius:7px; background:var(--paper);
+  box-shadow:0 0 0 1px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.07), 0 8px 20px rgba(0,0,0,.06)}
+.tk-shot[data-kind="heatmap"] .tk-shot-pic{aspect-ratio:3 / 1}
+/* the foot: what went wrong, if anything, on the left in the muted ink, and
+   the buttons at the right. a button wears the download button's face, the
+   pill's paper and edge and corners and its pressed shade; Share, the one
+   the picture is made for, is the ink with the card's white words */
+.tk-shot-foot{flex:none; display:flex; align-items:center; gap:8px; min-height:32px}
+.tk-shot-note{flex:1; min-width:0; font:400 12px/16px var(--sans); color:var(--sub)}
+.tk-shot-btn{flex:none; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  height:32px; padding:0 14px; border-radius:7px;
+  background:color-mix(in srgb, var(--paper) 92%, #fff 8%); border:var(--edge) solid var(--line);
+  color:var(--ink); font:500 13px/16px var(--sans); white-space:nowrap; cursor:pointer;
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:background-color .18s, box-shadow .16s ease-out}
+.tk-shot-btn svg{display:block; flex:none; width:14px; height:14px}
+.tk-shot-btn:hover{background:var(--card)}
+.tk-shot-btn:active{
+  box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:background-color .18s, box-shadow .08s ease-in}
+.tk-shot-btn.main{background:var(--ink); border-color:var(--ink); color:var(--card)}
+.tk-shot-btn.main:hover{background:color-mix(in srgb, var(--ink) 86%, var(--card))}
+.tk-shot-btn.main:active{box-shadow:inset 0 1.8px 4.2px rgba(0,0,0,.4), inset 0 .6px 1.2px rgba(0,0,0,.3)}
+.tk-shot-btn:focus-visible{outline:1.5px solid #E0592B; outline-offset:1px}
+.tk-shot-btn[data-busy="1"]{cursor:progress}
+/* a phone, or a window as narrow: the box nearly the screen's width, and the
+   buttons share the foot's width at a finger's height, what went wrong on a
+   line of its own under them */
+@media (max-width:600px){
+  .tk-shot{--shot-w:calc(100vw - 24px); --shot-m:16px; gap:14px}
+  .tk-shot-foot{flex-wrap:wrap}
+  .tk-shot-note{order:1; flex-basis:100%}
+  .tk-shot-note:empty{display:none}
+  .tk-shot-btn{flex:1 1 0; height:44px; font-size:15px}
+}
+@media (prefers-reduced-motion: reduce){ .tk-shot{transition:none; transform:none} }

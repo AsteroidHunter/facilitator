@@ -568,8 +568,12 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   // the pill slides and the two chart layers crossfade
   assert.match(read("card-tokens.css"), /\*\{scrollbar-width:none\}\n\*::-webkit-scrollbar\{display:none\}/);
   assert.doesNotMatch(css, /scrollbar|\bscroll-behavior/);
-  // the pill's seat, the two chart layers and the download button's icons
-  assert.equal([...css.matchAll(/transition:[^;}]*(opacity|left|transform)/g)].length, 3);
+  // the pill's seat, the two chart layers and the download button's icons;
+  // past the panel, the picture's overlay fades its box in and out
+  const [inPanel, inShot] = [css.slice(0, css.indexOf(".tk-shot-veil")), css.slice(css.indexOf(".tk-shot-veil"))];
+  assert.equal([...inPanel.matchAll(/transition:[^;}]*(opacity|left|transform)/g)].length, 3);
+  assert.deepEqual([...inShot.matchAll(/transition:[^;}]*/g)].map(m => m[0]).filter(t => /opacity|transform/.test(t)),
+    ["transition:opacity .2s ease-out, transform .26s var(--gentle)"]);
   assert.match(rule(".tk-layer"), /transition:opacity \.22s var\(--gentle\)/);
   assert.match(rule(".tk-thumb"), /transition:transform \.28s var\(--gentle\)/);
   assert.doesNotMatch(WIDGETS, /smooth|scrollTo\(|scrollBy\(|requestAnimationFrame/);
@@ -1158,12 +1162,13 @@ test("the picture is painted in the board's inks and the squid's own file, never
   }
 });
 
-test("pressing the button saves the chart on show, once at a time, as a download on the board and a share on the phone", async () => {
+test("pressing the button saves the chart on show, once at a time, and opens the overlay: a download on the board, kept for the share sheet on the phone", async () => {
   class FakeFile { constructor(parts, name, opts) { this.name = name; this.type = opts.type; } }
   const days = daysEnding("2026-09-27", 371);
   const run = async (share, canShare, closed = false) => {
     const { W } = widgets({ File: FakeFile, setTimeout: () => 0, URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} } });
     const doc = makeDocument();
+    doc.removeEventListener = () => {};
     const seen = { shared: [], clicked: [], canvases: [], states: [] };
     doc.defaultView = {
       navigator: canShare ? { canShare: d => d.files.length === 1, share: async d => {
@@ -1199,8 +1204,16 @@ test("pressing the button saves the chart on show, once at a time, as a download
     seen.busyAria = save.getAttribute("aria-busy");
     await Promise.all([first.then(() => {}), flush().then(waits => { seen.spinWait = waits; }), second]);
     seen.states.push(save.dataset.state);
+    // the overlay is up once the spinner has had its time, over the whole page
+    const shot = p.overlay();
+    seen.overlays = doc.body.children.filter(n => n.className.includes("tk-shot-veil")).length;
+    seen.saved = !!shot && walk(shot.box).some(n => n.className === "tk-shot-saved");
+    seen.buttons = shot ? walk(shot.box).filter(n => n.className.startsWith("tk-shot-btn")).map(n => n.dataset.act) : [];
+    seen.name = shot && walk(shot.box).find(n => n.className === "tk-shot-name").textContent;
     seen.doneWait = await flush();
     seen.states.push(save.dataset.state);
+    // the overlay's Share opens the sheet, inside its own press
+    if (shot) { shot.share.click(); await flush(); }
     return seen;
   };
   const board = await run(false, true);
@@ -1210,15 +1223,215 @@ test("pressing the button saves the chart on show, once at a time, as a download
   assert.deepEqual(board.spinWait, [500], "the spinner stays at least half a second");
   assert.deepEqual(board.doneWait, [1500], "the check stays a moment");
   assert.deepEqual(board.canvases, [[3600, 1800]], "3x of 1200 x 600 for the line, once for the two presses");
-  assert.deepEqual(board.shared, [], "the board never opens a share sheet");
-  assert.deepEqual(board.clicked, [["facilitator-tokens-line-2026-10-16.png", "blob:x"]]);
+  assert.deepEqual(board.clicked, [["facilitator-tokens-line-2026-10-16.png", "blob:x"]], "the download as it always was");
+  assert.equal(board.overlays, 1, "one overlay for the two presses");
+  assert.equal(board.name, "facilitator-tokens-line-2026-10-16.png");
+  assert.equal(board.saved, true, "the check says the file is saved");
+  assert.deepEqual(board.buttons, ["finder", "share"], "Open in Finder, then Share");
+  assert.deepEqual(board.shared, [["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"]],
+    "the Mac's Share hands the file to the share sheet where the browser can");
   const phone = await run(true, true);
-  assert.deepEqual(phone.shared, [["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"]]);
-  assert.deepEqual(phone.clicked, [], "a share that works is not also saved");
-  assert.deepEqual(phone.states, ["busy", "done", "idle"]);
+  assert.deepEqual(phone.clicked, [], "a phone that can share the file saves nothing on the press");
+  assert.deepEqual(phone.states, ["busy", "idle", "idle"], "nothing is saved yet, so no check");
+  assert.equal(phone.overlays, 1);
+  assert.equal(phone.saved, false);
+  assert.deepEqual(phone.buttons, ["share"], "no Finder on a phone");
+  assert.deepEqual(phone.shared, [["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"]],
+    "the phone's share sheet opens from the overlay's Share, with the same file and title");
   const fallback = await run(true, false);
   assert.equal(fallback.shared.length, 0);
   assert.equal(fallback.clicked.length, 1, "a phone that cannot share a file falls back to a download");
+  assert.deepEqual(fallback.buttons, ["share"], "and still has no Finder");
+  assert.equal(fallback.saved, true);
   const closed = await run(true, true, true);
-  assert.deepEqual(closed.states, ["busy", "idle", "idle"], "a share sheet closed without sending goes straight back, no check");
+  assert.deepEqual(closed.shared, [], "a share sheet closed without sending sends nothing");
+});
+
+// ---- the picture's overlay -----------------------------------------------------------
+// a page for the overlay alone: the small DOM, its focus listeners and a
+// navigator the test describes
+function shotPage(nav = {}) {
+  const doc = makeDocument();
+  doc.removeEventListener = (type, fn) => { doc.listeners[type] = (doc.listeners[type] || []).filter(f => f !== fn); };
+  doc.defaultView = { navigator: nav };
+  return doc;
+}
+// one event to a node's own listeners, as the browser would hand it over
+function send(node, type, fields = {}) {
+  const e = { target: node, isComposing: false, stopped: false, prevented: false,
+    stopPropagation() { e.stopped = true; }, preventDefault() { e.prevented = true; }, ...fields };
+  for (const fn of node.listeners[type] || []) fn(e);
+  return e;
+}
+function openShot(extra = {}) {
+  const timers = [], revoked = [];
+  const { W } = widgets({ URL: { createObjectURL: () => "blob:shot", revokeObjectURL: url => revoked.push(url) } });
+  const doc = shotPage();
+  const shot = W.overlay(doc, { blob: { size: 1 }, name: "facilitator-tokens-line-2026-10-20.png", kind: "line",
+    saved: true, finder: true, reveal: async () => ({ ok: true }), share: async () => "shared",
+    later: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {}, ...extra });
+  const run = () => timers.splice(0).map(([fn, ms]) => { fn(); return ms; });
+  return { W, doc, shot, timers, revoked, run, veil: doc.body.children[0], box: shot.box };
+}
+
+test("the overlay is the board's glass over the settings page's veil, the picture under its name and over the buttons", () => {
+  const { doc, shot, veil, box } = openShot();
+  assert.equal(veil, shot.root);
+  assert.equal(veil.className, "qn-veil sp-veil tk-shot-veil open", "the settings page's veil, open");
+  assert.equal(veil.getAttribute("aria-hidden"), "false");
+  assert.equal(box.className, "qn-glass tk-shot", "the board's glass");
+  assert.equal(box.dataset.kind, "line");
+  assert.equal(box.getAttribute("role"), "dialog");
+  assert.equal(box.getAttribute("aria-modal"), "true");
+  assert.equal(box.tabIndex, -1, "a press on bare glass keeps the focus in the box");
+  assert.deepEqual(box.children.map(n => n.className), ["tk-shot-head", "tk-shot-pic", "tk-shot-foot"]);
+  const [head, pic, foot] = box.children;
+  assert.deepEqual(walk(head).map(n => n.className), ["tk-shot-title", "tk-shot-saved", "tk-shot-name", "tk-shot-x"]);
+  assert.equal(walk(head).find(n => n.className === "tk-shot-name").textContent, "facilitator-tokens-line-2026-10-20.png");
+  const cross = head.children[1];
+  assert.equal(cross.tagName, "BUTTON");
+  assert.equal(cross.getAttribute("aria-label"), "Close");
+  assert.match(cross.innerHTML, /M1\.936 1\.936L8\.064 8\.064M8\.064 1\.936L1\.936 8\.064/, "the card bar's cross");
+  assert.equal(pic.tagName, "IMG");
+  assert.equal(pic.src, "blob:shot");
+  assert.equal(pic.alt, "Token consumption per day, line chart");
+  assert.deepEqual(foot.children.map(n => [n.className, n.dataset.act]),
+    [["tk-shot-note", undefined], ["tk-shot-btn", "finder"], ["tk-shot-btn main", "share"]]);
+  assert.match(foot.children[1].innerHTML, /<span>Open in Finder<\/span>/);
+  assert.match(foot.children[2].innerHTML, /<span>Share<\/span>/);
+  assert.equal(doc.listeners.focusin.length, 1, "focus is held in the box while it is up");
+  // the phone's overlay, before anything is saved: no check and no Finder
+  const phone = openShot({ saved: false, finder: false, kind: "heatmap" });
+  assert.equal(phone.box.dataset.kind, "heatmap");
+  assert.equal(walk(phone.box).some(n => n.className === "tk-shot-saved"), false);
+  assert.deepEqual(walk(phone.box).filter(n => n.tagName === "BUTTON").map(n => n.dataset.act || "close"), ["close", "share"]);
+  assert.equal(phone.box.children[1].alt, "Token consumption per day, heatmap");
+});
+
+test("the cross, Escape and a press that starts and ends outside the box close the overlay, and it leaves the page", () => {
+  const byCross = openShot();
+  byCross.box.children[0].children[1].click();
+  assert.equal(byCross.shot.isOpen(), false);
+  assert.equal(byCross.veil.className, "qn-veil sp-veil tk-shot-veil", "the veil fades out");
+  assert.equal(byCross.veil.getAttribute("aria-hidden"), "true");
+  assert.deepEqual(byCross.doc.listeners.focusin, [], "the focus hold is let go");
+  assert.equal(byCross.doc.body.children.length, 1, "still there while it fades");
+  assert.deepEqual(byCross.run(), [320], "taken out once the .26s fade has run");
+  assert.equal(byCross.doc.body.children.length, 0);
+  assert.deepEqual(byCross.revoked, ["blob:shot"], "and its picture's address with it");
+
+  const byKey = openShot();
+  const other = send(byKey.veil, "keydown", { key: "a" });
+  assert.equal(other.stopped, true, "no key goes on to the page behind");
+  assert.equal(byKey.shot.isOpen(), true);
+  assert.equal(send(byKey.veil, "keydown", { key: "Escape", isComposing: true }).prevented, false, "an input method's Escape is its own");
+  assert.equal(byKey.shot.isOpen(), true);
+  const esc = send(byKey.veil, "keydown", { key: "Escape" });
+  assert.equal(esc.prevented, true);
+  assert.equal(byKey.shot.isOpen(), false);
+
+  const byPress = openShot();
+  send(byPress.veil, "pointerdown", { target: byPress.box });
+  send(byPress.veil, "click", { target: byPress.veil });
+  assert.equal(byPress.shot.isOpen(), true, "a drag out of the box let go on the veil does not close it");
+  send(byPress.veil, "pointerdown", { target: byPress.veil });
+  send(byPress.veil, "click", { target: byPress.box });
+  assert.equal(byPress.shot.isOpen(), true, "nor a press inside the box");
+  send(byPress.veil, "pointerdown", { target: byPress.veil });
+  send(byPress.veil, "click", { target: byPress.veil });
+  assert.equal(byPress.shot.isOpen(), false, "a press outside it does");
+  byPress.shot.close();
+  assert.deepEqual(byPress.run(), [320], "closing twice takes it out once");
+});
+
+test("Open in Finder asks with the picture and its name, and says what went wrong", async () => {
+  const asked = [];
+  const ok = openShot({ reveal: async (blob, name) => { asked.push([blob.size, name]); return { ok: true }; } });
+  const finder = ok.shot.finder;
+  finder.click();
+  finder.click();
+  await settle();
+  assert.deepEqual(asked, [[1, "facilitator-tokens-line-2026-10-20.png"]], "once while it is at work");
+  assert.equal(ok.shot.note.textContent, "");
+  assert.equal(finder.getAttribute("aria-busy"), "false");
+  const lost = openShot({ reveal: async () => { throw new Error("The picture is not in Downloads."); } });
+  lost.shot.finder.click();
+  await settle();
+  assert.equal(lost.shot.note.textContent, "The picture is not in Downloads.", "the board's own words");
+  assert.equal(lost.shot.note.getAttribute("role"), "status");
+  const dumb = openShot({ reveal: async () => { throw {}; } });
+  dumb.shot.finder.click();
+  await settle();
+  assert.equal(dumb.shot.note.textContent, "Could not open Finder.");
+  // the route the page asks: the name and the digest, never a path
+  const code = WIDGETS.slice(WIDGETS.indexOf("async function revealPicture"), WIDGETS.indexOf("function overlay("));
+  assert.match(code, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(code, /fetch\("\/tokens\/picture\/reveal", \{ method: "POST"/);
+  assert.match(code, /body: JSON\.stringify\(\{ name, sha256 \}\)/);
+});
+
+test("Share hands the file to the share sheet where the browser can, and otherwise copies the picture and says so", async () => {
+  class FakeFile { constructor(parts, name, opts) { this.parts = parts; this.name = name; this.type = opts.type; } }
+  class FakeItem { constructor(items) { this.items = items; } }
+  const blob = { size: 1 };
+  const outcome = async nav => {
+    const { W } = widgets({ File: FakeFile, ClipboardItem: FakeItem });
+    return W.sharePicture({ navigator: nav }, blob, "facilitator-tokens-heatmap-2026-10-20.png");
+  };
+  const sent = [], wrote = [];
+  assert.equal(await outcome({ canShare: d => d.files[0].type === "image/png", share: async d => sent.push(d) }), "shared");
+  assert.equal(sent[0].files[0].name, "facilitator-tokens-heatmap-2026-10-20.png");
+  assert.equal(sent[0].files[0].parts[0], blob);
+  assert.equal(sent[0].title, "Token consumption per day");
+  assert.equal(await outcome({ canShare: () => true, share: async () => { throw Object.assign(new Error("x"), { name: "AbortError" }); } }),
+    "closed", "a sheet put away unsent");
+  const clipboard = { write: async items => wrote.push(items) };
+  assert.equal(await outcome({ canShare: () => false, clipboard }), "copied", "no file sharing: the clipboard");
+  assert.equal(await outcome({ clipboard }), "copied", "no Web Share at all: the clipboard");
+  assert.equal(wrote[0][0].items["image/png"], blob, "the picture itself, as a PNG");
+  assert.equal(await outcome({ canShare: () => true, share: async () => { throw new Error("denied"); }, clipboard }), "copied",
+    "a share that failed for another reason falls back to a copy");
+  assert.equal(await outcome({ clipboard: { write: async () => { throw new Error("no"); } } }), "failed");
+  assert.equal(await outcome({}), "failed");
+
+  // on the button: Copied for a moment, as the download button's check stays
+  const copied = openShot({ share: () => Promise.resolve("copied") });
+  copied.shot.share.click();
+  await settle();
+  assert.match(copied.shot.share.innerHTML, /<path d="M20 6 9 17l-5-5"\/>.*<span>Copied<\/span>/);
+  assert.deepEqual(copied.run(), [1500]);
+  assert.match(copied.shot.share.innerHTML, /<span>Share<\/span>/);
+  assert.equal(copied.shot.note.textContent, "");
+  const failed = openShot({ share: () => Promise.resolve("failed") });
+  failed.shot.share.click();
+  await settle();
+  assert.equal(failed.shot.note.textContent, "Could not share the picture.");
+  const closed = openShot({ share: () => Promise.resolve("closed") });
+  closed.shot.share.click();
+  await settle();
+  assert.equal(closed.shot.note.textContent, "", "a sheet put away unsent says nothing");
+  assert.match(closed.shot.share.innerHTML, /<span>Share<\/span>/);
+});
+
+test("the overlay's box is 3 by 2 around the line's picture and shorter by the saved height for the heatmap's", () => {
+  const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = sel => (css.match(new RegExp(sel.replace(/[.[\]"=]/g, "\\$&") + "\\{([^}]*)\\}")) || [])[1] || "";
+  const box = rule(".tk-shot");
+  assert.match(box, /--shot-w:min\(960px, calc\(100vw - 96px\), calc\(\(100vh - 96px\) \* 3 \/ 2\)\); --shot-m:28px/);
+  assert.match(box, /width:var\(--shot-w\); min-height:calc\(var\(--shot-w\) \* 2 \/ 3\); padding:var\(--shot-m\)/);
+  assert.match(rule('.tk-shot[data-kind="heatmap"]'),
+    /min-height:calc\(var\(--shot-w\) \* 2 \/ 3 - \(var\(--shot-w\) - 2 \* var\(--shot-m\)\) \/ 6\)/,
+    "the 2:1 picture's height less the 3:1 one's, at the same width");
+  assert.match(rule(".tk-shot-pic"), /width:100%; height:auto; aspect-ratio:2 \/ 1/);
+  assert.match(rule('.tk-shot[data-kind="heatmap"] .tk-shot-pic'), /aspect-ratio:3 \/ 1/);
+  // the sizes the board's window gives it: the content is under two thirds of
+  // the width tall, so the box is 3 by 2 to the pixel
+  const w = 960, m = 28, head = 20, gap = 16, foot = 32;
+  const content = pic => 2 * m + head + foot + 2 * gap + pic;
+  assert.ok(content((w - 2 * m) / 2) < w * 2 / 3);
+  assert.ok(content((w - 2 * m) / 3) < w * 2 / 3 - (w - 2 * m) / 6);
+  // nothing new in colour: the board's inks, its glass and the panel's own marks
+  const sheet = css.slice(css.indexOf(".tk-shot-veil"));
+  for (const hex of sheet.match(/#[0-9a-fA-F]{3,6}\b/g) || []) assert.ok(["#FF7A72", "#1e1e1e", "#fff", "#000", "#E0592B"].includes(hex), hex);
+  assert.doesNotMatch(sheet, /432BFF|--accent/i);
 });
