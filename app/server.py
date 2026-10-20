@@ -2031,6 +2031,11 @@ PAGE_LIMIT = 24
 # purpose: the whole point is that a hand-off lost on the wire comes back while
 # the message still matters, not fifteen minutes later
 ACK_GRACE = 90.0
+# seconds after the reader's last change in a card's typing box before the card
+# may be handed to an agent: the typing hold's one clock, kept here and nowhere
+# else. The pages only say that a change happened, so a tab closed or a phone
+# asleep mid-reply simply stops saying it and its last change runs out here
+TYPING_HOLD = 7.0
 # Version 1 removes the old convention that treated a line containing only ---
 # as a hidden short/full delimiter. Existing state is split once in _migrate;
 # every new reply has explicit fields and the Markdown renderer is never asked
@@ -6107,6 +6112,42 @@ def _get_navimg(q: Query, _):
                              "Content-Security-Policy": "sandbox"})
 
 
+# -- the typing hold -------------------------------------------------------------
+# The board does not hand a card to an agent while the reader is still typing on
+# it. The Mac board and the phone page say "a change on this card" (POST /typing)
+# each time the reader types, pastes or deletes in the card's typing box or moves
+# its caret there, and the board keeps one thing for it: when the last change
+# came in. /wait passes over a card whose last change is under TYPING_HOLD old,
+# hands out the lane's next card instead, and wakes for the one it passed over
+# the moment its hold runs out. The reader's message landing on the card clears
+# its time, so a send goes out at once. Memory only: nothing here is saved,
+# written to the transcript or shown, and the card itself is not touched.
+_typed_at: dict[str, float] = {}   # card id -> time.monotonic() of the last change
+
+
+def _typing_left(bid: str, now: float) -> float:
+    """Seconds left on this card's typing hold, 0 when it is not held. Callers
+    hold _lock."""
+    at = _typed_at.get(bid)
+    return 0.0 if at is None else max(0.0, at + TYPING_HOLD - now)
+
+
+def _post_typing(q: Query, _):
+    # when the change came in, read before the lock: a report that waits there
+    # behind a send is still a change made before that send
+    now, came = time.monotonic(), time.time()
+    bid = q.one("box")
+    with _lock:
+        box = _box(bid)
+        if box is None:
+            return 400, {"error": "bad box"}
+        # the reader's newest message on the card cleared every change that came
+        # in before it, including one that is only read now
+        if not (box["pending"] and box["pending"][-1].get("ts", 0) > came):
+            _typed_at[bid] = now
+    return 200, {"ok": True}
+
+
 # -- the agent's long poll, in three locked steps ------------------------------
 # The waiting itself happens on the event loop (WaitRoute below), so a hundred
 # agents waiting would cost a hundred coroutines and no threads at all. What
@@ -6138,7 +6179,8 @@ def _wait_leave(owner: str) -> None:
 def _wait_poll(owner: str):
     """One pass over the lane: the clocks, the steal-back, then a claim if a
     box is waiting. Answers the claim, or None when there is nothing to say
-    yet."""
+    yet, together with the seconds until the first card passed over for typing
+    comes off its hold (None when none was), which is when to look again."""
     with _lock:
         # the short clock first: a hand-off nobody confirmed comes back
         # after 90 seconds, long before the steal-back below notices
@@ -6156,8 +6198,11 @@ def _wait_poll(owner: str):
                     _state["inbox"].insert(0, stale)
                 _save()
         if _state["busy"][owner] is None:
-            bid = next((i for i in _state["inbox"]
-                        if (_box(i) or {}).get("owner", "facilitator") == owner), None)
+            now = time.monotonic()
+            queued = [i for i in _state["inbox"]
+                      if (_box(i) or {}).get("owner", "facilitator") == owner]
+            # a card the reader is typing on is passed over, and keeps its place
+            bid = next((i for i in queued if not _typing_left(i, now)), None)
             if bid is not None:
                 _state["inbox"].remove(bid)
                 box = _box(bid)
@@ -6205,8 +6250,9 @@ def _wait_poll(owner: str):
                     # the receipt this hand-off has to come back with
                     "ack": token,
                 }
-                return payload
-        return None
+                return payload, None
+            return None, min((_typing_left(i, now) for i in queued), default=None)
+        return None, None
 
 
 def _rollback_claim(owner: str, bid: str, token: str) -> bool:
@@ -7039,6 +7085,8 @@ def _post_send(q: Query, text: str):
         _log("user", bid, text, log_fields={"op": op} if INCIDENT_OP.fullmatch(op) else None,
              **({"op": op} if op else {}))
         _save()
+        # the reader has sent, so is no longer typing here: the card goes out at once
+        _typed_at.pop(bid, None)
         _notify()
         return 200, {**result, "rev": _state["rev"]}
 
@@ -9495,7 +9543,7 @@ class WaitRoute:
                         return   # nobody is listening any more: claim nothing, say nothing
                     seen = _change_version
                     try:
-                        outcome = await run_in_threadpool(_run_state_request, _wait_poll, owner)
+                        outcome, held = await run_in_threadpool(_run_state_request, _wait_poll, owner)
                     except SaveFailed:
                         # a claim, a bounce or a steal-back could not be saved
                         # and has been put back; the listener is told the same
@@ -9528,7 +9576,9 @@ class WaitRoute:
                     if remaining <= 0 or _STOPPING.is_set():
                         await _send_response(_answer(200, {"idle": True}, route=route), scope, receive, send)
                         return
-                    await _changed(seen, min(remaining, 5), gone)
+                    # a card passed over for typing is due the moment its hold
+                    # runs out, which no change to the board announces
+                    await _changed(seen, min(remaining, 5, held or remaining), gone)
             finally:
                 await run_in_threadpool(_wait_leave, owner)
         finally:
@@ -9813,6 +9863,7 @@ ROUTES = [
     Route("/clientlog", _endpoint(_post_clientlog, "raw", CLIENT_MAX_BODY, "report batch too large"), methods=["POST"]),
     Route("/navsave", _endpoint(_post_navsave, "raw", MAX_TEXT_BODY), methods=["POST"]),
     Route("/send", _state_endpoint(_post_send, "text"), methods=["POST"]),
+    Route("/typing", _endpoint(_post_typing), methods=["POST"]),
     Route("/ack", _state_endpoint(_post_ack, "text"), methods=["POST"]),
     Route("/reply", _state_endpoint(_post_reply, "text"), methods=["POST"]),
     Route("/note", _state_endpoint(_post_note, "text"), methods=["POST"]),
