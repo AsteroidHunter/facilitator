@@ -80,7 +80,8 @@ SERVER_MARK = ("facilitator-remote", 0)
 # the setup program the door hands out, and what goes on a server with the key
 SETUP = ".agents/skills/facilitator/scripts/pair.py"
 BUNDLE = (".agents/skills/facilitator/SKILL.md", ".agents/skills/facilitator/scripts/onboard.py",
-          ".agents/skills/facilitator/scripts/link.py", SETUP, "app/RUNBOOK.md")
+          ".agents/skills/facilitator/scripts/link.py", ".agents/skills/facilitator/scripts/magic.py",
+          SETUP, "app/RUNBOOK.md")
 # the three questions a server's link answers
 OPS = frozenset({"dirs", "mkdir", "describe"})
 
@@ -88,13 +89,19 @@ OPS = frozenset({"dirs", "mkdir", "describe"})
 # names is read: from owner=, from the card box= names, or the key's own lane.
 # /note and /progress only answer that they were removed and change nothing;
 # they are still let through so a stale agent on a server reads that answer,
-# which says what to do instead, rather than this door's bare refusal
+# which says what to do instead, rather than this door's bare refusal. The
+# magic box is filled, closed, reopened and read back on the lane's own cards
+# as on the Mac; its body goes to its route unread here, so the route's own
+# limits and refusals answer it, and what the page reads (/magic/body,
+# /magic/img) stays the Mac's
 AGENT_ROUTES = {
     ("GET", "/wait"): "owner", ("POST", "/ack"): "owner", ("GET", "/fresh"): "owner",
     ("GET", "/unread"): "owner", ("POST", "/create"): "owner",
     ("POST", "/reply"): "box", ("POST", "/note"): "box", ("POST", "/working"): "box",
     ("POST", "/ping"): "box", ("POST", "/title"): "box", ("POST", "/testing"): "box",
     ("POST", "/park"): "box", ("POST", "/progress"): "box", ("POST", "/context"): "box",
+    ("POST", "/magic"): "box", ("POST", "/magic/close"): "box", ("POST", "/magic/reopen"): "box",
+    ("GET", "/magic"): "box",
     ("GET", "/remote/lane"): "lane",
 }
 # the door's own routes, which the gate answers itself

@@ -366,7 +366,8 @@ class ServerEndToEnd(unittest.TestCase):
         self.assertEqual((self.mode(top), self.mode(top / "server.key"), self.mode(top / "agents")),
                          (0o700, 0o600, 0o700))
         for rel in ("skill/.agents/skills/facilitator/SKILL.md", "skill/.agents/skills/facilitator/scripts/onboard.py",
-                    "skill/.agents/skills/facilitator/scripts/link.py", "skill/app/RUNBOOK.md",
+                    "skill/.agents/skills/facilitator/scripts/link.py",
+                    "skill/.agents/skills/facilitator/scripts/magic.py", "skill/app/RUNBOOK.md",
                     "skill/docs/README.md", "skill/docs/servers.md", "skill/remote.json"):
             self.assertTrue((top / rel).is_file(), rel)
         self.assertEqual(json.loads((top / "skill" / "remote.json").read_text())["board"], door)
