@@ -248,9 +248,11 @@ test("the row grows to the first step and scrolls there, and its box rises only 
   assert.ok(steps[0] < 0.01 * (tall - card.first) && steps[59] < 0.01 * (tall - card.first), "it starts and settles calmly");
   // the words are taller than the box by then, so they fill it and scroll inside it
   assert.equal(card.rendered(), tall, "the row as tall as the box, with no room above its words");
-  // cut back under it, they stand at its foot at their own height, never stretched to its top
+  // cut back under it, they stand at its foot at their own height, never stretched to its top,
+  // and the box comes down with them
   type(tall - 100);
-  assert.equal(card.rendered(), tall - 100, "the row as tall as its words, the box's room above them");
+  assert.equal(card.rendered(), tall - 100, "the row as tall as its words");
+  assert.equal(card.seat(), tall - 100, "and its box no taller");
 });
 
 test("typing and deleting at either edge never flicks it between piped and not", () => {
@@ -358,6 +360,65 @@ test("deleted back clearly under the first step the box sinks to the words on th
   assert.equal(piped(), false);
   assert.equal(card.classes.has("tallrow"), false, "down at once");
   assert.equal(card.seat(), 44);
+  assert.equal(pending(), 0);
+});
+
+test("words deleted while it is out take the box down with them, and it goes back in only a whole line under the first step", () => {
+  const card = cardAt();
+  const { type, frame, settle, piped, el, pending } = stepper(card);
+  const lines = n => n * ROWLINE + 2 * ROWPAD;
+  type(300); type(lines(30)); settle();
+  const tall = el.rowTall;
+  assert.ok(piped() && card.seat() === tall, "out, the box at the second step");
+  // a run of lines selected and deleted, or cut: down to ten, at once and still out
+  type(lines(10));
+  assert.ok(lines(10) > card.first && lines(10) < tall);
+  assert.equal(piped(), true, "ten lines are over the first step: still out");
+  assert.equal(card.seat(), lines(10), "the box as tall as the ten lines");
+  assert.equal(card.rendered(), lines(10));
+  assert.equal(pending(), 0, "nothing left to play out");
+  // a line typed back, then more than the box holds: it grows with them to the second step and no further
+  type(lines(11));
+  assert.equal(card.seat(), lines(11));
+  type(lines(40));
+  assert.equal(card.seat(), tall, "back at the second step");
+  assert.equal(card.rendered(), tall, "the words scrolling in it");
+  // backspaced line by line: over the second step it holds, under it the box follows each line
+  const seen = [];
+  for (let n = 39; n >= 1; n--) {
+    type(lines(n));
+    seen.push({ n, out: piped(), seat: card.seat() });
+    if (!piped()) break;
+  }
+  for (const s of seen.filter(s => s.out)) assert.equal(s.seat, Math.min(tall, lines(s.n)), `${s.n} lines`);
+  const back = seen.at(-1);
+  assert.ok(back.n === Math.floor((card.first - ROWLINE - 2 * ROWPAD) / ROWLINE), `in at ${back.n} lines, a whole line under the first step`);
+  assert.ok(seen.at(-2).out && lines(seen.at(-2).n) > card.first - ROWLINE, "held out until then");
+  // and in, the box sinks the rest of the way to the words on the rise's curve
+  const from = card.seat();
+  const sink = [];
+  while (pending()) { frame(); sink.push(card.seat()); }
+  assert.ok(from <= lines(back.n + 1) + 1e-9 && sink.every(v => v <= from + 1e-9), "never back up");
+  assert.equal(card.seat(), lines(back.n));
+  assert.equal(card.classes.has("tallrow"), false);
+  // ten lines left out, then a run deleted that takes it under: it sinks from the ten lines' height, not the second step
+  type(lines(30)); settle();
+  type(lines(10));
+  type(lines(4));
+  assert.equal(piped(), false);
+  assert.equal(card.seat(), lines(10), "the sink starts where the box stood");
+  const down = [];
+  while (pending()) { frame(); down.push(card.seat()); }
+  assert.ok(down.length >= 59 && down.length <= 61, `over the second: ${down.length} frames`);
+  assert.ok(down.every((v, i) => v <= (i ? down[i - 1] : lines(10))), "downward only");
+  assert.equal(card.seat(), lines(4));
+  // all of it selected and deleted: down at once, as when sent
+  type(lines(30)); settle();
+  card.m.text = "";
+  type(lines(1));
+  assert.equal(piped(), false);
+  assert.equal(card.classes.has("tallrow"), false, "down at once");
+  assert.equal(card.seat(), lines(1));
   assert.equal(pending(), 0);
 });
 
