@@ -508,8 +508,8 @@
     /* the rail starts where the layout mock put it away, centred under the card
        at the width it had there before the card was widened (it took the card's
        place and width until m1330) */
-    --rail-x:calc(var(--ox) + var(--cw)*0.34);     --rail-w:calc(var(--cw)*0.32);
-    --rail-y:0.9536;
+    --railbox-x:calc(var(--ox) + var(--cw)*0.34);  --railbox-w:calc(var(--cw)*0.32);
+    --railbox-y:0.9536;
     --tg-x:calc(var(--ox) + var(--cw)*0.748);      --tg-w:calc(var(--cw)*0.216);
     --tg-y:0.032;    --tg-h:0.4096;
     --m2-x:calc(var(--ox) + var(--cw)*0.732);      --m2-w:calc(var(--cw)*0.2);
@@ -2874,9 +2874,9 @@
   body.focus #rail{
     position:fixed;
     /* under the chat card, centred on it */
-    left:var(--rail-x);
-    width:var(--rail-w);
-    top:calc(var(--oy) + var(--ch)*var(--rail-y));
+    left:var(--railbox-x);
+    width:var(--railbox-w);
+    top:calc(var(--oy) + var(--ch)*var(--railbox-y));
     height:calc(2*var(--grid));   /* centered track lands exactly on a dot row */
     display:flex; align-items:center; gap:10px; border:none;
   }

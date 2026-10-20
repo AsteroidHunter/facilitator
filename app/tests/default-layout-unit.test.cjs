@@ -111,9 +111,12 @@ function startOf(id) {
   }
   if (id === "rail") {
     const rule = between("  body.focus #rail{", "}");
-    assert.match(rule, /left:var\(--rail-x\);\s*width:var\(--rail-w\);\s*top:calc\(var\(--oy\) \+ var\(--ch\)\*var\(--rail-y\)\);\s*height:calc\(2\*var\(--grid\)\);/);
-    return { x: frac(HTML, "rail-x") * STAGE_W, y: frac(HTML, "rail-y") * STAGE_H,
-      w: frac(HTML, "rail-w") * STAGE_W, h: 2 * frac(HTML, "grid") * STAGE_W };
+    // --rail-x is another rail's (the task chip reads it, the parked right
+    // toolbar sets it), so the board never declares it
+    assert.ok(!/--rail-x\s*:/.test(HTML), "--rail-x is declared on the board");
+    assert.match(rule, /left:var\(--railbox-x\);\s*width:var\(--railbox-w\);\s*top:calc\(var\(--oy\) \+ var\(--ch\)\*var\(--railbox-y\)\);\s*height:calc\(2\*var\(--grid\)\);/);
+    return { x: frac(HTML, "railbox-x") * STAGE_W, y: frac(HTML, "railbox-y") * STAGE_H,
+      w: frac(HTML, "railbox-w") * STAGE_W, h: 2 * frac(HTML, "grid") * STAGE_W };
   }
   throw new Error("no starting place for " + id);
 }
