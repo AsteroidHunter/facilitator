@@ -3,8 +3,8 @@
 //
 //   heatmap  a year as 53 week columns of 7 day squares, Sunday on top, the way
 //            a contribution graph is drawn. One square per day of the last
-//            365, a red-orange scale from light to deep by where the day
-//            falls among the year's active days (quartiles), a faint warm
+//            365, a red-orange scale from light to deep by the day's count on
+//            a log scale under the year's busiest day, a faint warm
 //            grey for a day with none, month names over the columns, a total
 //            for the year and a tip with the day and its count, shown on
 //            hover, or on a phone on a tap
@@ -73,8 +73,8 @@
   const MIN_STEP = 12;
   // the height a chart is drawn to when its view has none of its own yet
   const VIEW_H = 200;
-  // the scale: a warm grey for nothing, then four red-oranges, light to deep
-  const PALETTE = ["#EEEAE4", "#FCD8C2", "#F7A67C", "#EC6B3C", "#C9401B"];
+  // the scale: a warm grey for nothing, then six red-oranges, light to deep
+  const PALETTE = ["#EEEAE4", "#FCD8C2", "#F7A67C", "#EC6B3C", "#C9401B", "#9B2E15", "#6F1F11"];
   const LINE = "#E0592B";                       // the daily line, dotted and faint
   const AVG_LINE = PALETTE[4];                  // the 7-day average, solid, a shade deeper
   const DAILY_DASH = "0 5";                     // round dots 5px apart
@@ -215,24 +215,31 @@
   }
 
   // ---- the colour scale ----------------------------------------------------
-  // the year's active days, cut at their quartiles: a day at or past the top
-  // quartile is the deepest red, one under the first is the lightest. Ranking
-  // rather than a straight share of the busiest day keeps one enormous day
-  // from washing every other square out to the lightest step
+  // the year's active days on a log scale, from the quietest to the busiest
+  // cut into one equal step per shade, each step at most a factor of 10^0.75,
+  // about 5.6, with any day under the bottom on the lightest. Quartiles put
+  // every day in the busiest quarter on one shade, 500M and 3B alike. The top
+  // is held to the top quartile plus 1.5 times the quartiles' spread (of the
+  // logs), so one enormous day does not wash every other square out
+  const STEP = 0.75;
   function quantile(sorted, q) {
     const at = (sorted.length - 1) * q, lo = Math.floor(at), hi = Math.ceil(at);
     return sorted[lo] + (sorted[hi] - sorted[lo]) * (at - lo);
   }
+  function logCuts(active) {
+    const shades = PALETTE.length - 1, logs = active.map(Math.log10);
+    const q1 = quantile(logs, 0.25), q3 = quantile(logs, 0.75);
+    const top = Math.min(logs[logs.length - 1], q3 + 1.5 * (q3 - q1));
+    const step = Math.min(STEP, (top - logs[0]) / shades), bottom = top - shades * step;
+    const at = Array.from({ length: shades - 1 }, (_, k) => k + 1);
+    // days all alike are all the deepest
+    if (!(step > 0)) return at.map(() => active[0]);
+    return at.map(k => 10 ** (bottom + k * step));
+  }
   function scale(values) {
     const active = values.filter(v => v > 0).sort((a, b) => a - b);
-    const cuts = active.length ? [0.25, 0.5, 0.75].map(q => quantile(active, q)) : [];
-    const level = v => {
-      if (!(v > 0) || !cuts.length) return 0;
-      if (v >= cuts[2]) return 4;
-      if (v >= cuts[1]) return 3;
-      if (v >= cuts[0]) return 2;
-      return 1;
-    };
+    const cuts = active.length ? logCuts(active) : [];
+    const level = v => (v > 0 && cuts.length ? 1 + cuts.filter(c => v >= c).length : 0);
     return { cuts, level, colour: v => PALETTE[level(v)] };
   }
 
