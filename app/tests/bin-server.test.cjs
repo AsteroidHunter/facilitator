@@ -8,8 +8,18 @@ const { readFile, readdir, writeFile } = require("node:fs/promises");
 const path = require("node:path");
 const { startBoard } = require("./board-fixture.cjs");
 
+// these cases are about the Bin, not the typing hold (typing-hold.test.cjs), so
+// a message sent here is free to go out at once
+async function noTypingHold({ app }) {
+  const file = path.join(app, "server.py");
+  const source = await readFile(file, "utf8");
+  const patched = source.replace("TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
+  assert.notEqual(patched, source, "test server typing hold was not patched");
+  await writeFile(file, patched);
+}
+
 let board;
-before(async () => { board = await startBoard(); });
+before(async () => { board = await startBoard({ prepare: noTypingHold }); });
 after(async () => { if (board) await board.stop(); });
 
 async function call(method, route, body) {

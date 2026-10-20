@@ -59,8 +59,12 @@ before(async () => {
   const app = path.join(outer, "app");
   fs.mkdirSync(app);
   const source = fs.readFileSync(path.join(ROOT, "server.py"), "utf8");
-  const patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
-  assert.notEqual(patched, source, "test server port was not patched");
+  const ported = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
+  assert.notEqual(ported, source, "test server port was not patched");
+  // these cases are about the gate, not the typing hold (typing-hold.test.cjs),
+  // so a message sent here is free to go out at once
+  const patched = ported.replace("TYPING_HOLD = 7.0", "TYPING_HOLD = 0.0");
+  assert.notEqual(patched, ported, "test server typing hold was not patched");
   fs.writeFileSync(path.join(app, "server.py"), patched);
   copyBridgeFiles(app);
   for (const name of ["index.html", "m.html", "m-sw.js", "m-manifest.json", "card-markdown.js", "card-tokens.css",

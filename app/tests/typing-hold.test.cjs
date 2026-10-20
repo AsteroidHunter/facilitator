@@ -1,12 +1,14 @@
 // the typing hold: a card the reader is typing on is not handed to an agent
-// until seven seconds after the last change its page reported (POST /typing),
-// while the lane's other cards go out as ever; a listener already waiting gets
-// the card the moment its hold runs out, not at the end of its wait; reports
-// that keep coming keep the card held; the reader's message on the card clears
-// the hold at once; and a report writes nothing, neither state.json nor the
-// transcript, and leaves the card's changed time where it was. read through a
-// real fixture server on a free port; the suite never touches port 8877. every
-// card and message below is invented.
+// until seven seconds after the last change on it, a change being a report from
+// its page (POST /typing) or a message the reader sends on it, while the lane's
+// other cards go out as ever; a listener already waiting gets the card the
+// moment its hold runs out, not at the end of its wait; changes that keep coming
+// keep the card held; an agent already holding the card is handed none of its
+// new messages through /fresh until the same moment, and a reply before then
+// leaves them queued for /wait; and a report writes nothing, neither state.json
+// nor the transcript, and leaves the card's changed time where it was. read
+// through a real fixture server on a free port; the suite never touches port
+// 8877. every card and message below is invented.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { readFile } = require("node:fs/promises");
@@ -37,24 +39,44 @@ async function get(route) {
   return { status: response.status, body: await response.json() };
 }
 
-// the agent's own two calls, and its answer, so the lane is free again
+// the agent's own calls, and its answer, so the lane is free again
 async function claim(timeout) {
   const started = Date.now();
   const said = await get(`/wait?owner=facilitator&timeout=${timeout}&agent=claude`);
   assert.equal(said.status, 200);
   return { ...said.body, at: Date.now(), took: Date.now() - started };
 }
-async function answer(handed) {
+async function ack(handed) {
   assert.equal((await post(`/ack?owner=facilitator&token=${handed.ack}`)).status, 200);
-  assert.equal((await post(`/reply?box=${handed.box}`, "an invented answer")).status, 200);
+}
+async function reply(box, text = "an invented answer") {
+  assert.equal((await post(`/reply?box=${box}`, text)).status, 200);
+}
+async function answer(handed) {
+  await ack(handed);
+  await reply(handed.box);
+}
+// a listener opened now, whose answer is noted when it comes
+function listen(timeout) {
+  const waiting = { said: null };
+  waiting.done = claim(timeout).then(said => { waiting.said = said; return said; });
+  return waiting;
 }
 
+// the reader's two kinds of change, each answering when the board has it
 async function typing(box) {
   const said = await post(`/typing?box=${box}`);
   assert.deepEqual(said, { status: 200, body: { ok: true } });
   return Date.now();
 }
+async function send(box, text) {
+  assert.equal((await post(`/send?box=${box}`, text)).status, 200);
+  return Date.now();
+}
 
+async function card(id) {
+  return (await get("/state")).body.boxes.find(b => b.id === id);
+}
 async function files() {
   return {
     state: await readFile(path.join(board.data, "state.json"), "utf8"),
@@ -64,69 +86,149 @@ async function files() {
   };
 }
 
+function onTime(t, since, what) {
+  t.diagnostic(`${what} came ${since} ms after the last change`);
+  assert.ok(since >= HOLD_MS - 50 && since <= HOLD_MS + LATE_MS, `${what} came ${since} ms after the last change`);
+}
+
 test("a report names a card the board has", async () => {
   assert.equal((await post("/typing?box=nosuchcard")).status, 400);
   assert.equal((await post("/typing")).status, 400);
 });
 
-test("the card being typed on waits, the next one goes, and the waiting listener gets it when the hold runs out", async () => {
-  assert.equal((await post("/send?box=7", "first message on A")).status, 200);
-  assert.equal((await post("/send?box=8", "first message on B")).status, 200);
-
+test("a report writes nothing and moves nothing", async () => {
   const kept = await files();
-  let last = 0;
-  for (let i = 0; i < 3; i++) last = await typing("7");
-  // nothing written and nothing moved: the time lives in the server's memory only
+  for (let i = 0; i < 3; i++) await typing("7");
+  // the time lives in the server's memory only
   assert.deepEqual(await files(), kept);
-
-  // A is first in the queue, and B is handed out instead of it, at once
-  const first = await claim(30);
-  assert.equal(first.box, "8");
-  assert.ok(first.took < 1000, `B took ${first.took} ms`);
-  await answer(first);
-
-  // a listener asked now, with a long wait, is told about A once its hold ends
-  const second = await claim(30);
-  assert.equal(second.box, "7");
-  assert.deepEqual(second.messages, ["first message on A"]);
-  const since = second.at - last;
-  assert.ok(since >= HOLD_MS - 50, `A came ${since} ms after the last report`);
-  assert.ok(since <= HOLD_MS + LATE_MS, `A came ${since} ms after the last report`);
-  await answer(second);
 });
 
-test("reports that keep coming keep the card held for as long as they come", async () => {
-  assert.equal((await post("/send?box=7", "second message on A")).status, 200);
-  let last = await typing("7");
-  const waiting = claim(60);
-  let handed = null;
-  waiting.then(said => { handed = said; });
-  // one report every two seconds for ten seconds: longer than the hold itself
-  for (let i = 0; i < 5; i++) {
-    await sleep(2000);
-    assert.equal(handed, null, "the card went out while it was still being typed on");
+test("a send with no typing after it goes out 7 seconds after the send", async t => {
+  const waiting = listen(30);
+  const sent = await send("7", "a message and nothing typed after it");
+  await sleep(HOLD_MS - 1000);
+  assert.equal(waiting.said, null, "the card went out at the send");
+  const said = await waiting.done;
+  assert.equal(said.box, "7");
+  assert.deepEqual(said.messages, ["a message and nothing typed after it"]);
+  onTime(t, said.at - sent, "A");
+  await answer(said);
+});
+
+test("a reader sending a word at a time while typing gets the card handed out once, 7 seconds after the last change", async t => {
+  // the listener is open before the first word, as an agent's always is
+  const waiting = listen(60);
+  await sleep(200);
+  const words = ["Because", "you", "read", "my", "messages"];
+  let last = 0;
+  for (const [i, word] of words.entries()) {
+    if (i) await sleep(2000);
+    last = await send("7", word);
+    assert.equal(waiting.said, null, `the card went out at word ${i + 1}`);
+    await sleep(1000);
+    assert.equal(waiting.said, null, `the card went out after word ${i + 1}`);
     last = await typing("7");
   }
-  const said = await waiting;
+  const said = await waiting.done;
   assert.equal(said.box, "7");
-  const since = said.at - last;
-  assert.ok(since >= HOLD_MS - 50 && since <= HOLD_MS + LATE_MS, `A came ${since} ms after the last report`);
+  assert.deepEqual(said.messages, words);
+  onTime(t, said.at - last, "A");
   await answer(said);
 });
 
-test("the reader's message on the card clears its hold at once", async () => {
-  assert.equal((await post("/send?box=7", "third message on A")).status, 200);
-  await typing("7");
-  const waiting = claim(60);
-  let handed = null;
-  waiting.then(said => { handed = said; });
-  await sleep(1000);
-  assert.equal(handed, null, "the card went out while it was still being typed on");
-  const sent = Date.now();
-  assert.equal((await post("/send?box=7", "fourth message on A")).status, 200);
-  const said = await waiting;
+test("changes that keep coming keep the card held, and the lane's other card goes out as ever", async t => {
+  await send("7", "a message on A, typed on after");
+  const sentB = await send("8", "a message on B, left alone");
+  let last = await typing("7");
+  let second = null;
+  // one report on A every two seconds for twelve seconds: longer than the hold
+  // itself, and going on while B is handed out and answered
+  const typist = (async () => {
+    for (let i = 0; i < 6; i++) {
+      await sleep(2000);
+      if (second) assert.equal(second.said, null, "A went out while it was still being typed on");
+      last = await typing("7");
+    }
+  })();
+  // A is first in the queue; B goes out at the end of its own hold while A is
+  // still being typed on, and A keeps its place behind it
+  const first = await claim(60);
+  assert.equal(first.box, "8");
+  assert.equal(first.queued_after, 1);
+  onTime(t, first.at - sentB, "B");
+  await answer(first);
+  second = listen(60);
+  await typist;
+  assert.equal(second.said, null, "A went out while it was still being typed on");
+  const said = await second.done;
   assert.equal(said.box, "7");
-  assert.deepEqual(said.messages, ["third message on A", "fourth message on A"]);
-  assert.ok(said.at - sent < LATE_MS, `A came ${said.at - sent} ms after the send`);
+  assert.deepEqual(said.messages, ["a message on A, typed on after"]);
+  onTime(t, said.at - last, "A");
   await answer(said);
+});
+
+test("an agent holding the card gets its new messages from /fresh only 7 seconds after the last change", async t => {
+  await send("7", "the question the agent holds");
+  const handed = await claim(30);
+  assert.equal(handed.box, "7");
+  await ack(handed);
+
+  await typing("7");
+  await send("7", "a first thought while the agent works");
+  const last = await send("7", "and a second");
+  // right after: the held card is named, and nothing new is handed over
+  assert.deepEqual((await get("/fresh?owner=facilitator")).body,
+    { box: "7", messages: [], message_via: [] });
+  assert.deepEqual((await get("/unread?owner=facilitator")).body, { queued: 2, claimed: 1 });
+  assert.deepEqual((await card("7")).pendingStates, ["delivered", "sent", "sent"]);
+
+  // asked every tenth of a second, /fresh hands both over once the hold is out
+  let fresh;
+  for (;;) {
+    fresh = (await get("/fresh?owner=facilitator")).body;
+    if (fresh.messages.length || Date.now() - last > HOLD_MS + 2000) break;
+    await sleep(100);
+  }
+  assert.deepEqual(fresh.messages, ["a first thought while the agent works", "and a second"]);
+  onTime(t, Date.now() - last, "/fresh's messages");
+  assert.deepEqual((await get("/unread?owner=facilitator")).body, { queued: 0, claimed: 3 });
+  assert.deepEqual((await card("7")).pendingStates, ["delivered", "delivered", "delivered"]);
+
+  await reply("7");
+  const after = await card("7");
+  assert.deepEqual(after.pendingTexts, []);
+  assert.deepEqual(after.answered.map(m => m.text),
+    ["the question the agent holds", "a first thought while the agent works", "and a second"]);
+});
+
+test("a reply before the hold runs out leaves the message it was never handed queued, and /wait hands it out after the hold", async t => {
+  await send("7", "the question before the follow-up");
+  const handed = await claim(30);
+  assert.equal(handed.box, "7");
+  await ack(handed);
+
+  await typing("7");
+  await send("7", "a follow-up typed while the agent works");
+  const last = await typing("7");
+  // the agent reads /fresh before its reply, as it must, and is handed nothing
+  assert.deepEqual((await get("/fresh?owner=facilitator")).body.messages, []);
+  await reply("7", "an answer to the question alone");
+
+  // the reply answered what it was handed and nothing more
+  const after = await card("7");
+  assert.deepEqual(after.answered.map(m => m.text), ["the question before the follow-up"]);
+  assert.deepEqual(after.pendingTexts, ["a follow-up typed while the agent works"]);
+  assert.deepEqual(after.pendingStates, ["sent"]);
+  assert.equal(after.state, "queued");
+  assert.equal(after.queuePos, 1);
+  assert.deepEqual((await get("/unread?owner=facilitator")).body, { queued: 1, claimed: 0 });
+
+  // the follow-up waits on the card as a queued message, and goes out with the
+  // card once the hold is out
+  const said = await claim(30);
+  assert.equal(said.box, "7");
+  assert.deepEqual(said.messages, ["a follow-up typed while the agent works"]);
+  onTime(t, said.at - last, "A");
+  await answer(said);
+  assert.deepEqual((await card("7")).answered.map(m => m.text), ["a follow-up typed while the agent works"]);
 });
