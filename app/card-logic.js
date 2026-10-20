@@ -2391,11 +2391,11 @@ function pickInRow(state, owner){
 // ---- resizing a box on the board --------------------------------------------------
 // the smallest and largest a box may be dragged to, in whole grid cells (one
 // cell is a step, 5.76 stage pixels, half the star pitch; the stage is 250 by
-// 156 cells). the conversation card starts at 92 by 126, the ticket list at 62
-// by 74, the spotify box at about 48 by 24 and the clock sizes itself to about
-// 36 by 18. a box not named here keeps the plain four-cell floor and no
-// ceiling. these are starting numbers, meant to be tuned, and the same sizes
-// they were in the old 11.52 cells, so every one is the old number doubled
+// 156 cells). the conversation card starts at 90 by 133, the ticket list at 63
+// by 89, the spotify box at about 49 by 22 and the clock at 38 by 18 (the
+// layout mock's, m1330). a box not named here keeps the plain four-cell floor
+// and no ceiling. these are starting numbers, meant to be tuned, and the same
+// sizes they were in the old 11.52 cells, so every one is the old number doubled
 const RESIZE_LIMITS = {
   main:     { minW: 60, maxW: 140, minH: 80, maxH: 152 },   // the conversation card
   tickets:  { minW: 44, maxW: 92,  minH: 32, maxH: 126 },   // no taller than the card starts
