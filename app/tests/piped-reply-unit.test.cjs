@@ -534,8 +534,8 @@ test("the answer's fade ends on the top of the row's line on a board drawn small
 
 // ---- the brace ------------------------------------------------------------------------
 const brace = vm.createContext({});
-vm.runInContext(cut("const TWO = {", "\n") + "\n" + fn("pipeBrace"), brace);
-const TWO = vm.runInContext("TWO", brace);
+vm.runInContext(cut("const TWO = {", "\n") + "\n" + cut("const PIPE_STROKE = ", "\n") + "\n" + fn("pipeBrace"), brace);
+const TWO = vm.runInContext("TWO", brace), STROKE = vm.runInContext("PIPE_STROKE", brace);
 
 test("the brace is a { to a response on the card's right and a } to one on its left: six square lines in two sets, touching neither", () => {
   const card = { left: 466, top: 52, width: 507, height: 760 };
@@ -559,7 +559,7 @@ test("the brace is a { to a response on the card's right and a } to one on its l
       // each set: a level line, an upright one, a level one, turning square at the spine
       for (const set of [b.upper, b.lower]) {
         assert.equal(set.map(level).join(), "true,false,true");
-        assert.ok(set.every(g => Math.abs(g[0] - b.spine) <= TWO.width / 2 + 1e-9));
+        assert.ok(set.every(g => Math.abs(g[0] - b.spine) <= STROKE / 2 + 1e-9));
       }
       // the arms point to the response's edge and the two lines of the point to the card's,
       // each stopping CLEAR short of it: { on the right, its arms out to the right; } on the left, out to the left
@@ -573,7 +573,7 @@ test("the brace is a { to a response on the card's right and a } to one on its l
       assert.ok(close(downPoint[1] - upPoint[1], APART));
       assert.ok(close((downPoint[1] + upPoint[1]) / 2, b.point));
       // each spine is dashed from the point, so the corners there close
-      assert.ok(close(b.upper[1][1], upPoint[1] + TWO.width / 2) && close(b.lower[1][1], downPoint[1] - TWO.width / 2));
+      assert.ok(close(b.upper[1][1], upPoint[1] + STROKE / 2) && close(b.lower[1][1], downPoint[1] - STROKE / 2));
     }
     assert.ok(close(tall.top, 90 + LEAD), "its top arm level with the middle of the response's first line");
     assert.ok(close(tall.foot, 90 + 684 - 14), "its foot arm in by the corner at the foot");
@@ -592,15 +592,17 @@ test("the brace is a { to a response on the card's right and a } to one on its l
   assert.ok(close(brace.pipeBrace(card, { left: 1021, top: 90, width: 400, height: 684 }, "right", most, { round: 14 }).top, 104));
   // no room either side of the spine for a clear end and a dash, no brace
   assert.equal(brace.pipeBrace(card, { left: 976, top: 90, width: 400, height: 300 }, "right", most, opts), null);
-  const least = 2 * (CLEAR + TWO.width / 2 + TWO.dash);
+  const least = 2 * (CLEAR + STROKE / 2 + TWO.dash);
   assert.equal(brace.pipeBrace(card, { left: 973 + least - 1, top: 90, width: 400, height: 300 }, "right", most, opts), null);
   assert.ok(brace.pipeBrace(card, { left: 973 + least + 1, top: 90, width: 400, height: 300 }, "right", most, opts));
-  // it is drawn as the box's lines are: the card's edge colour, the box's dashes and width,
-  // from the response's own first line and line of words, clear of both boxes
+  // it is drawn as the box's lines are: the card's edge colour and the box's dashes, at half
+  // the box's width, from the response's own first line and line of words, clear of both boxes
   const draw = fn("pipeLine");
   assert.match(draw, /borderTopColor/);
   assert.match(draw, /stroke-dasharray="' \+ TWO\.dash \+ ' ' \+ TWO\.space/);
-  assert.match(draw, /stroke-width="' \+\s*TWO\.width/);
+  assert.match(draw, /stroke-width="' \+\s*PIPE_STROKE \+/);
+  assert.equal(STROKE, TWO.width / 2, "half the box's lines");
+  assert.match(fn("magicLine"), /stroke-width="' \+ TWO\.width \+/, "the box's own lines keep their width");
   assert.ok(!/accent|purple|#[0-9a-f]{3,6}/i.test(draw), "no colour of its own");
   assert.match(draw, /const first = words && pipeLines\(words, 1, true\);/);
   assert.match(draw, /\(\(first\.top \+ first\.bottom\) \/ 2 - PIPE\.el\.getBoundingClientRect\(\)\.top\) \/ S \+ PIPE\.body\.scrollTop/);
