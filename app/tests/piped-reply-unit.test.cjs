@@ -248,9 +248,11 @@ test("the row grows to the first step and scrolls there, and its box rises only 
   assert.ok(steps[0] < 0.01 * (tall - card.first) && steps[59] < 0.01 * (tall - card.first), "it starts and settles calmly");
   // the words are taller than the box by then, so they fill it and scroll inside it
   assert.equal(card.rendered(), tall, "the row as tall as the box, with no room above its words");
-  // cut back under it, they stand at its foot at their own height, never stretched to its top
+  // cut back under it, they stand at its foot at their own height, never stretched to its top,
+  // and the box comes down with them
   type(tall - 100);
-  assert.equal(card.rendered(), tall - 100, "the row as tall as its words, the box's room above them");
+  assert.equal(card.rendered(), tall - 100, "the row as tall as its words");
+  assert.equal(card.seat(), tall - 100, "and its box no taller");
 });
 
 test("typing and deleting at either edge never flicks it between piped and not", () => {
@@ -358,6 +360,65 @@ test("deleted back clearly under the first step the box sinks to the words on th
   assert.equal(piped(), false);
   assert.equal(card.classes.has("tallrow"), false, "down at once");
   assert.equal(card.seat(), 44);
+  assert.equal(pending(), 0);
+});
+
+test("words deleted while it is out take the box down with them, and it goes back in only a whole line under the first step", () => {
+  const card = cardAt();
+  const { type, frame, settle, piped, el, pending } = stepper(card);
+  const lines = n => n * ROWLINE + 2 * ROWPAD;
+  type(300); type(lines(30)); settle();
+  const tall = el.rowTall;
+  assert.ok(piped() && card.seat() === tall, "out, the box at the second step");
+  // a run of lines selected and deleted, or cut: down to ten, at once and still out
+  type(lines(10));
+  assert.ok(lines(10) > card.first && lines(10) < tall);
+  assert.equal(piped(), true, "ten lines are over the first step: still out");
+  assert.equal(card.seat(), lines(10), "the box as tall as the ten lines");
+  assert.equal(card.rendered(), lines(10));
+  assert.equal(pending(), 0, "nothing left to play out");
+  // a line typed back, then more than the box holds: it grows with them to the second step and no further
+  type(lines(11));
+  assert.equal(card.seat(), lines(11));
+  type(lines(40));
+  assert.equal(card.seat(), tall, "back at the second step");
+  assert.equal(card.rendered(), tall, "the words scrolling in it");
+  // backspaced line by line: over the second step it holds, under it the box follows each line
+  const seen = [];
+  for (let n = 39; n >= 1; n--) {
+    type(lines(n));
+    seen.push({ n, out: piped(), seat: card.seat() });
+    if (!piped()) break;
+  }
+  for (const s of seen.filter(s => s.out)) assert.equal(s.seat, Math.min(tall, lines(s.n)), `${s.n} lines`);
+  const back = seen.at(-1);
+  assert.ok(back.n === Math.floor((card.first - ROWLINE - 2 * ROWPAD) / ROWLINE), `in at ${back.n} lines, a whole line under the first step`);
+  assert.ok(seen.at(-2).out && lines(seen.at(-2).n) > card.first - ROWLINE, "held out until then");
+  // and in, the box sinks the rest of the way to the words on the rise's curve
+  const from = card.seat();
+  const sink = [];
+  while (pending()) { frame(); sink.push(card.seat()); }
+  assert.ok(from <= lines(back.n + 1) + 1e-9 && sink.every(v => v <= from + 1e-9), "never back up");
+  assert.equal(card.seat(), lines(back.n));
+  assert.equal(card.classes.has("tallrow"), false);
+  // ten lines left out, then a run deleted that takes it under: it sinks from the ten lines' height, not the second step
+  type(lines(30)); settle();
+  type(lines(10));
+  type(lines(4));
+  assert.equal(piped(), false);
+  assert.equal(card.seat(), lines(10), "the sink starts where the box stood");
+  const down = [];
+  while (pending()) { frame(); down.push(card.seat()); }
+  assert.ok(down.length >= 59 && down.length <= 61, `over the second: ${down.length} frames`);
+  assert.ok(down.every((v, i) => v <= (i ? down[i - 1] : lines(10))), "downward only");
+  assert.equal(card.seat(), lines(4));
+  // all of it selected and deleted: down at once, as when sent
+  type(lines(30)); settle();
+  card.m.text = "";
+  type(lines(1));
+  assert.equal(piped(), false);
+  assert.equal(card.classes.has("tallrow"), false, "down at once");
+  assert.equal(card.seat(), lines(1));
   assert.equal(pending(), 0);
 });
 
@@ -473,8 +534,8 @@ test("the answer's fade ends on the top of the row's line on a board drawn small
 
 // ---- the brace ------------------------------------------------------------------------
 const brace = vm.createContext({});
-vm.runInContext(cut("const TWO = {", "\n") + "\n" + fn("pipeBrace"), brace);
-const TWO = vm.runInContext("TWO", brace);
+vm.runInContext(cut("const TWO = {", "\n") + "\n" + cut("const PIPE_STROKE = ", "\n") + "\n" + fn("pipeBrace"), brace);
+const TWO = vm.runInContext("TWO", brace), STROKE = vm.runInContext("PIPE_STROKE", brace);
 
 test("the brace is a { to a response on the card's right and a } to one on its left: six square lines in two sets, touching neither", () => {
   const card = { left: 466, top: 52, width: 507, height: 760 };
@@ -498,7 +559,7 @@ test("the brace is a { to a response on the card's right and a } to one on its l
       // each set: a level line, an upright one, a level one, turning square at the spine
       for (const set of [b.upper, b.lower]) {
         assert.equal(set.map(level).join(), "true,false,true");
-        assert.ok(set.every(g => Math.abs(g[0] - b.spine) <= TWO.width / 2 + 1e-9));
+        assert.ok(set.every(g => Math.abs(g[0] - b.spine) <= STROKE / 2 + 1e-9));
       }
       // the arms point to the response's edge and the two lines of the point to the card's,
       // each stopping CLEAR short of it: { on the right, its arms out to the right; } on the left, out to the left
@@ -512,7 +573,7 @@ test("the brace is a { to a response on the card's right and a } to one on its l
       assert.ok(close(downPoint[1] - upPoint[1], APART));
       assert.ok(close((downPoint[1] + upPoint[1]) / 2, b.point));
       // each spine is dashed from the point, so the corners there close
-      assert.ok(close(b.upper[1][1], upPoint[1] + TWO.width / 2) && close(b.lower[1][1], downPoint[1] - TWO.width / 2));
+      assert.ok(close(b.upper[1][1], upPoint[1] + STROKE / 2) && close(b.lower[1][1], downPoint[1] - STROKE / 2));
     }
     assert.ok(close(tall.top, 90 + LEAD), "its top arm level with the middle of the response's first line");
     assert.ok(close(tall.foot, 90 + 684 - 14), "its foot arm in by the corner at the foot");
@@ -531,15 +592,17 @@ test("the brace is a { to a response on the card's right and a } to one on its l
   assert.ok(close(brace.pipeBrace(card, { left: 1021, top: 90, width: 400, height: 684 }, "right", most, { round: 14 }).top, 104));
   // no room either side of the spine for a clear end and a dash, no brace
   assert.equal(brace.pipeBrace(card, { left: 976, top: 90, width: 400, height: 300 }, "right", most, opts), null);
-  const least = 2 * (CLEAR + TWO.width / 2 + TWO.dash);
+  const least = 2 * (CLEAR + STROKE / 2 + TWO.dash);
   assert.equal(brace.pipeBrace(card, { left: 973 + least - 1, top: 90, width: 400, height: 300 }, "right", most, opts), null);
   assert.ok(brace.pipeBrace(card, { left: 973 + least + 1, top: 90, width: 400, height: 300 }, "right", most, opts));
-  // it is drawn as the box's lines are: the card's edge colour, the box's dashes and width,
-  // from the response's own first line and line of words, clear of both boxes
+  // it is drawn as the box's lines are: the card's edge colour and the box's dashes, at half
+  // the box's width, from the response's own first line and line of words, clear of both boxes
   const draw = fn("pipeLine");
   assert.match(draw, /borderTopColor/);
   assert.match(draw, /stroke-dasharray="' \+ TWO\.dash \+ ' ' \+ TWO\.space/);
-  assert.match(draw, /stroke-width="' \+\s*TWO\.width/);
+  assert.match(draw, /stroke-width="' \+\s*PIPE_STROKE \+/);
+  assert.equal(STROKE, TWO.width / 2, "half the box's lines");
+  assert.match(fn("magicLine"), /stroke-width="' \+ TWO\.width \+/, "the box's own lines keep their width");
   assert.ok(!/accent|purple|#[0-9a-f]{3,6}/i.test(draw), "no colour of its own");
   assert.match(draw, /const first = words && pipeLines\(words, 1, true\);/);
   assert.match(draw, /\(\(first\.top \+ first\.bottom\) \/ 2 - PIPE\.el\.getBoundingClientRect\(\)\.top\) \/ S \+ PIPE\.body\.scrollTop/);

@@ -1682,8 +1682,9 @@
   #pipebox .mbtext[contenteditable]{outline:none}   /* with the response's caret in it (pipeEnter) */
   /* the brace from the card to it (pipeLine): a { to it on the card's right
      and a } to it on its left, two sets of three straight lines meeting square
-     and touching neither, dashed as the box's lines are and in the card's edge
-     colour, beneath the card and the response, with the same shadow on its group */
+     and touching neither, dashed as the box's lines are at half their width
+     (PIPE_STROKE) and in the card's edge colour, beneath the card and the
+     response, with the same shadow on its group */
   #pipeline{display:none}
   body.focus #pipeline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
     overflow:visible; pointer-events:none; z-index:0}
@@ -8605,8 +8606,10 @@ addEventListener("keydown", e => {
 // goes back into the card. the phone, and the Mac's own phone view, keep one
 // step. it rises and sinks quicker than the box, over PIPE_MS on the box's
 // curve, and dims what it stands for and over to PIPE_DIM (pipeDim). its brace
-// stops PIPE_CLEAR short of the card and of it (pipeBrace)
+// stops PIPE_CLEAR short of the card and of it (pipeBrace), its lines
+// PIPE_STROKE wide, half the box's lines (TWO.width)
 const PIPE_MS = 600, PIPE_DIM = .1, PIPE_CLEAR = 8;
+const PIPE_STROKE = TWO.width / 2;
 const PIPE = { el: document.getElementById("pipebox"), line: document.getElementById("pipeline"),
   ground: document.getElementById("pipeground"), id: null, raw: null, ms: PIPE_MS,
   aside: ["tickets", "clockbox"].map(id => document.getElementById(id)).filter(Boolean), dim: pipeDim,
@@ -8656,9 +8659,11 @@ function pipeStep(id, words = true){
       el.pipeScroll = null;
     }
   }
-  // the row's box: up while the response is out, down to the row's words when
-  // it goes back in, and down at once when the row is emptied (sent)
-  if (out) rowRise(el, 1);
+  // the row's box: up while the response is out, to the second step or to the
+  // words where they stand under it (rowHigh), so words deleted take it down
+  // with them; sinking from there to the row's words when it goes back in; and
+  // down at once when the row is emptied (sent)
+  if (out){ el.rowHigh = Math.min(el.rowTall || 0, el.rowWords); rowRise(el, 1); }
   else if (!/\S/.test(el.field.text())) rowFlat(el);
   else if (el.rowRise && el.rowRise.t > 0) rowRise(el, -1);
   if (id === shownId) pipeSync();
@@ -8718,7 +8723,9 @@ function rowFlat(el){
   rowBox(el);
 }
 // its height where the rise has got to: from the row's own height under the
-// first step (its words', or the first step's) up to the second. the row's
+// first step (its words', or the first step's) up to the second, or to the
+// words where they stand under it (rowHigh, kept from the last key while the
+// response was out, so a sink starts where the box stood). the row's
 // words keep their foot where it stands as the box changes height: what is
 // out of sight under the row stays under it, so the box opens and closes over
 // the words and never under them. a scrolled row left to itself keeps its
@@ -8734,7 +8741,7 @@ function rowBox(el){
     : row.scrollHeight - row.scrollTop - row.clientHeight;
   let moved = false;
   if (up){
-    const low = Math.min(el.rowFirst, el.rowWords), high = Math.max(low, el.rowTall || 0);
+    const low = Math.min(el.rowFirst, el.rowWords), high = Math.max(low, el.rowHigh || 0);
     const px = (low + (high - low) * riseEase(r.t)).toFixed(2) + "px";
     if (el.rowBoxAt !== px){ el.rowBoxAt = px; el.box.style.setProperty("--row-box", px); moved = true; }
   }
@@ -8931,11 +8938,11 @@ function pipePlace(){
 // each line is dashed from the corner it leaves, and the spines from the
 // point, each starting half the line's width back so the corners close. a gap
 // with no room on either side of the spine for a clear end and a dash gives null
-function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = TWO.space + TWO.width, clear = 0 } = {}){
+function pipeBrace(card, box, side, most, { round = 0, lead = round, apart = TWO.space + PIPE_STROKE, clear = 0 } = {}){
   const s = side === "left" ? -1 : 1;
   const from = s > 0 ? card.left + card.width : card.left;
   const to = s > 0 ? box.left : box.left + box.width;
-  const spine = (from + to) / 2, w = TWO.width / 2;
+  const spine = (from + to) / 2, w = PIPE_STROKE / 2;
   if (s * (to - from) / 2 < clear + w + TWO.dash) return null;
   const top = box.top + lead, foot = box.top + box.height - round;
   const point = top + Math.min(most.height * TWO.share, (foot - top) / 2);
@@ -8960,7 +8967,7 @@ function pipeLine(card, box, side, most){
   const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
   const drawn = '<g>' + brace.segments.map(([x1, y1, x2, y2]) => '<path d="M' + x1.toFixed(2) + ' ' +
     y1.toFixed(2) + 'L' + x2.toFixed(2) + ' ' + y2.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' +
-    TWO.width + '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+    PIPE_STROKE + '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
   if (drawn !== PIPE.drawn){ PIPE.drawn = drawn; PIPE.line.innerHTML = drawn; }
   PIPE.line.classList.add("on");
 }
