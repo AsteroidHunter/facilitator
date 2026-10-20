@@ -1261,9 +1261,9 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
   --mb-x:17px; --mb-gap:6.5px; --mb-bar:calc(var(--mb-x) + 2 * var(--mb-gap)); --mb-air:8px; --mb-fade:22px; --mb-lead:6px;
   /* --mb-round is the corner the page gives the box, twice the card's 7px: the
      bar and what the box holds are rounded to it too, inside the edge line, so
-     nothing of theirs pokes out of a corner. --mb-pink is the cross's circle,
-     a soft red */
-  --mb-round:14px; --mb-pink:#FF7A72}
+     nothing of theirs pokes out of a corner. --mb-green is the expand button's
+     circle, a soft green beside the cross's soft red, --mb-pink */
+  --mb-round:14px; --mb-green:#8AD6A0; --mb-pink:#FF7A72}
 /* its bar: nothing of its own but the line along its foot, the edge it
    shares with what the box holds, which dissolves as it goes under it (the
    fuzz, below).
@@ -1289,6 +1289,21 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .magicbox .mbclose:focus-visible{outline:2px solid var(--line); outline-offset:1px}
 .magicbox .mbclose svg{width:var(--bar-mark); height:var(--bar-mark)}
 .magicbox .mbclose::after{content:""; position:absolute; inset:-8px}
+/* at the bar's other end, the cross turned over: one green button that
+   expands the box over the dimmed board and puts it back (view.expand,
+   card-logic.js), with the cross's seat, gap, ink, shade and reach, standing
+   as far in from the box's left side as the cross does from its right. its
+   mark is the expand mark while the box is at its size and the reduce mark
+   while it is expanded. a page that cannot lift the box over everything
+   leaves it out (hidden) */
+.magicbox .mbgrow{position:relative; flex:none; display:grid; place-items:center; margin-right:auto;
+  width:var(--mb-x); height:var(--mb-x); padding:0; border:none; border-radius:50%;
+  background:var(--mb-green); color:#1e1e1e; cursor:pointer}
+.magicbox .mbgrow[hidden]{display:none}
+.magicbox .mbgrow:hover, .magicbox .mbgrow:active{background:color-mix(in srgb, #000 var(--press), var(--mb-green))}
+.magicbox .mbgrow:focus-visible{outline:2px solid var(--line); outline-offset:1px}
+.magicbox .mbgrow svg{width:var(--bar-mark); height:var(--bar-mark)}
+.magicbox .mbgrow::after{content:""; position:absolute; inset:-8px}
 /* what it holds stops short of the far edge by --mb-air, so nothing runs to
    it; a picture is the exception, which fills its box to the edge in its own
    shape. words that scroll dissolve at both ends of their scroll as
@@ -1341,6 +1356,10 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    site fills the body edge to edge on its own white */
 .magicbox .mbimg{display:block; width:100%; height:100%; object-fit:contain}
 .magicbox .mbframe{display:block; width:100%; height:100%; border:0; background:var(--card)}
+/* expanded, the box keeps its size whatever it holds: a picture stands in its
+   middle on the box's white, as large as fits and still never past its own
+   size, and words, a page or a site are laid out again at the box's width */
+.magicbox.big .mbimg{object-fit:scale-down}
 /* the clear cover over a page or a site while the pointer is not over the box
    (the board's magicPointer): the pointer lands on it, so the board knows it
    came, and it comes off at once, before any click */
@@ -1374,6 +1393,13 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 #picfull{display:none; position:fixed; inset:0; z-index:9000;
   cursor:zoom-out; -webkit-tap-highlight-color:transparent}
 #picfull.on{display:block}
+/* opened from the phone's expanded magic box it stands in the top layer over
+   it (cardTopLayer), where the browser's own look for such a layer is set
+   aside, so it is drawn as it always is. its parts are placed from its edges,
+   so the browser's own spacing inside it moves none of them */
+#picfull[popover], .app-link-menu[popover]{margin:0; color:inherit}
+#picfull[popover]{width:auto; height:auto; border:0; overflow:visible; background:none}
+.app-link-menu[popover]{right:auto; bottom:auto}
 /* the fingers' pinches, pans and double taps on it are the picture's, and never
    the page's. it declares no touch-action of its own: the phone's touch-action
    stays manipulation everywhere (tests/phone-page-zoom.test.cjs), and the

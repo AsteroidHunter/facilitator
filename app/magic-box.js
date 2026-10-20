@@ -86,6 +86,29 @@
     }
     return { width, height };
   }
+  // the box expanded over the dimmed board, by the green button at the other
+  // end of its bar from the cross: BIG of the room's width and of its height,
+  // centred in it. the room is the Mac's window and the phone's screen,
+  // {left, top, width, height}. inside: the part of the room it must keep to
+  // (the phone's screen inside its safe areas, clear of the notch and the home
+  // bar), whose edges cut it. square: a site that will not be framed, which
+  // stays a square, as large as the shorter side allows, in the middle
+  const BIG = { mac: 0.9, phone: 0.95 };
+  function grow(room, share, square, inside) {
+    let width = room.width * share, height = room.height * share;
+    let left = room.left + (room.width - width) / 2, top = room.top + (room.height - height) / 2;
+    if (inside) {
+      const right = Math.min(left + width, inside.left + inside.width), bottom = Math.min(top + height, inside.top + inside.height);
+      left = Math.max(left, inside.left); top = Math.max(top, inside.top);
+      width = Math.max(0, right - left); height = Math.max(0, bottom - top);
+    }
+    if (square) {
+      const side = Math.min(width, height);
+      left += (width - side) / 2; top += (height - side) / 2;
+      width = height = side;
+    }
+    return { left, top, width, height };
+  }
   // a page an agent wrote runs sealed off: its frame has scripts and nothing
   // else, so its origin is its own and never the board's (no same origin, no
   // forms, no popups, no way to the top window). Its buttons, fields and
@@ -131,6 +154,12 @@
   const PAGE_BACK = "addEventListener('keydown', e => {" +
     "if (e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && e.key === 'ArrowLeft') {" +
     "e.preventDefault(); parent.postMessage(W + ' back', '*'); } }, true);";
+  // Escape typed in the page puts the expanded box back to its size, and it too
+  // never reaches the board from a sealed frame: the page says it, the word, a
+  // space and "escape". It is read once every listener has had the key, so a
+  // page that answers Escape itself (by preventDefault) keeps it
+  const PAGE_ESCAPE = "addEventListener('keydown', e => { if (e.key === 'Escape' && !e.isComposing)" +
+    " setTimeout(() => { if (!e.defaultPrevented) parent.postMessage(W + ' escape', '*'); }); }, true);";
   // command+T, the board's key for a new card, typed in the page would never
   // reach the board either, and Chrome would open a tab for it: the page stops
   // it and says it to the board, the word, a space and "create". Command alone,
@@ -194,14 +223,14 @@
   // finishes loading, by posting the word to it. A page that has sent its frame
   // elsewhere loads without saying it, and the board puts the page back.
   // sized: the page says its own height too (PAGE_HEIGHT), and relays the
-  // board's keys a sealed frame keeps (PAGE_BACK, PAGE_CREATE) and scrolls and
-  // says its keys for control+S (PAGE_SCROLL); the Mac's box asks for it.
-  // tall: the page says its height and nothing more, for the phone's drawer,
-  // which lays the page out that tall and scrolls the box, and keeps a second
-  // tap from zooming (TAPS)
+  // board's keys a sealed frame keeps (PAGE_BACK, PAGE_CREATE, PAGE_ESCAPE) and
+  // scrolls and says its keys for control+S (PAGE_SCROLL); the Mac's box asks
+  // for it. tall: the page says its height and Escape and nothing more, for the
+  // phone's drawer, which lays the page out that tall and scrolls the box, and
+  // keeps a second tap from zooming (TAPS)
   function pageDoc(html, word, sized, tall) {
     const W = JSON.stringify(String(word)).replace(/</g, "\\u003c");
-    const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT : "";
+    const told = sized ? PAGE_BACK + PAGE_CREATE + PAGE_ESCAPE + PAGE_HEIGHT + PAGE_SCROLL : tall ? PAGE_HEIGHT + PAGE_ESCAPE : "";
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
       (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
@@ -212,5 +241,5 @@
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
 })(globalThis);

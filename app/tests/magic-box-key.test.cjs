@@ -237,8 +237,9 @@ test("command+T in a page is stopped in the frame and said to the board, which m
     document: { addEventListener() {}, body: null }, parent: { postMessage: (...a) => posted.push(a) } });
   for (const code of scripts(mac).slice(1)) vm.runInContext(code, ctx);
   const keys = on.filter(l => l.type === "keydown");
-  // back, create, and the one that says the keys for control+S (PAGE_SCROLL)
-  assert.ok(keys.length === 3 && keys.every(l => l.capture === true), "heard in capture, ahead of the page's own listeners");
+  // back, create, Escape for the expanded box (PAGE_ESCAPE), and the one that
+  // says the keys for control+S (PAGE_SCROLL)
+  assert.ok(keys.length === 4 && keys.every(l => l.capture === true), "heard in capture, ahead of the page's own listeners");
   const press = extra => {
     const e = { ctrlKey: false, altKey: false, metaKey: true, shiftKey: false, key: "t", code: "KeyT", prevented: false,
       preventDefault() { this.prevented = true; }, ...extra };
