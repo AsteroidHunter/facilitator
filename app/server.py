@@ -350,8 +350,8 @@ Endpoints:
                                Serve proxy targets this board. The push is
                                signed with a VAPID token openssl produces; the
                                phone's worker uses that event identity directly.
-                               Progress notes never push. A subscription the
-                               push service reports gone (404, 410) is dropped.
+                               A subscription the push service reports gone
+                               (404, 410) is dropped.
                                Each subscribe, unsubscribe, drop and skipped
                                session writes one log line with a short hash of
                                the endpoint and the number now stored
@@ -797,10 +797,12 @@ Endpoints:
   POST /assign?box=ID&task=T -> file a chat under a task (empty task unfiles)
   POST /dismiss?box=ID      -> drop the box's queued messages unanswered (they
                                stay in the transcript)
-  POST /progress?box=ID     -> interim note while holding a claim; keeps the
-                               card green and resets the steal timer, no release.
-                               The messages the claim holds at that moment are
-                               read from then on (pendingStates on /state)
+  POST /progress            -> removed (2026-10-19), as /note was: always a 400
+                               saying progress updates were removed and to send
+                               progress as a normal /reply under /working.
+                               Nothing on the card, its claim, its messages or
+                               the steal timer changes. Progress notes saved
+                               before then keep loading and showing
   The owner's servers (remote_link.py; a board without that file has none).
   The board never logs in to a server: each one connects out to the agent
   door, a listener on this Mac's tailnet addresses alone (DOOR_PORT), open
@@ -917,7 +919,9 @@ Endpoints:
                                accidental final handover.
                                Progress goes out the same way: a normal reply
                                sent while /working is on, which always answers
-                               the messages it was handed.
+                               the messages it was handed. This is the only
+                               message an agent sends on a card; /note and
+                               /progress were removed.
   POST /note                -> removed (2026-10-19): always a 400 saying
                                notes were removed and to send progress as a
                                normal /reply under /working. Nothing on the
@@ -3692,7 +3696,6 @@ def _pages(owner: str) -> list:
 #                                          the reader has answered
 #                 /reply                   -> yours; flag still beating ->
 #                                          deferred; leftover msgs -> queued
-#                 /progress                no turn handed over; claim stays held
 #                 /working v=1, /ping      -> working (note/deferred stay)
 #                 flag drop or 75s expiry  -> deferred hands its turn over and
 #                                          lands yours; working/note land at _rest
@@ -3835,29 +3838,23 @@ def _pending_states(b: dict) -> list:
                    confirmed claim counts from the moment it is handed over:
                    /fresh has no receipt of its own and nothing is ever handed
                    over twice
-      "read"       the agent has written back since it was handed over: a
-                   /progress note posted while its claim held it. The board
-                   cannot see inside an agent, so read means written back about,
-                   never merely opened; a message read and not yet written about
-                   stays delivered
 
-    All three belong to the claim in force. A claim that ends without an
-    answer (dismissed, stolen back, never acked) leaves its messages waiting to
-    be handed over again, and they are sent again until the next claim is
-    confirmed. What a note saved before /note was removed consumed has left
-    the queue and is noted instead (_noted_texts); what a /reply answered is
-    the reply's own batch."""
+    Both belong to the claim in force. A claim that ends without an answer
+    (dismissed, stolen back, never acked) leaves its messages waiting to be
+    handed over again, and they are sent again until the next claim is
+    confirmed. "read", written back about, came from a /progress note over the
+    claim; /progress was removed and a claim never outlives a restart, so no
+    queued message is read any more. What a note saved before /note was removed
+    consumed has left the queue and is read there instead (_noted_texts); what a
+    /reply answered is the reply's own batch."""
     ow = b.get("owner", "facilitator")
     rec = (_state.get("ack") or {}).get(ow) or {}
     held = _state["busy"].get(ow) == b["id"] and rec.get("box") == b["id"]
     claimed = set(_state["claimed"].get(ow) or []) if held else set()
-    read = set(rec.get("read") or []) if held else set()
     out = []
     for m in b["pending"]:
         mid = m.get("mid")
-        if mid in claimed and mid in read:
-            out.append("read")
-        elif mid in claimed and rec.get("confirmed"):
+        if mid in claimed and rec.get("confirmed"):
             out.append("delivered")
         else:
             out.append("sent")
@@ -4738,7 +4735,7 @@ def _ui_state() -> dict:
                 # page shows unstamped
                 "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
                 # where each queued message stands with the agent, one entry per
-                # pendingTexts entry: sent, delivered or read, and the messages a
+                # pendingTexts entry: sent or delivered, and the messages a
                 # saved note has already taken toward the answer still to come,
                 # which are read and no longer queued (_pending_states, _noted_texts)
                 "pendingStates": _pending_states(b),
@@ -6180,7 +6177,7 @@ def _wait_poll(owner: str):
                 _state["busy_ts"][owner] = time.time()
                 # who took it: the name this lane's listener gave on the /wait
                 # that won the claim, kept on the card until the reply lands so a
-                # progress note or a later listener cannot change who is credited
+                # later listener cannot change who is credited
                 claimant = _agent_class(owner)
                 if claimant:
                     box["claim_agent"] = claimant
@@ -8145,29 +8142,14 @@ def _post_assign(q: Query, text: str):
         return 200, {"ok": True}
 
 
-def _post_progress(q: Query, text: str):  # interim note during a build: keeps
-    bid = q.one("box")                     # the claim (card stays green) and
-    with _lock:                            # heartbeats
-        box = _box(bid)
-        ow = box.get("owner", "facilitator") if box else None
-        if box is None or _state["busy"].get(ow) != bid:
-            return 400, {"error": "not holding this box"}
-        _set_reply_variants(box, text)
-        box["reply_kind"] = "progress"   # interim words, not a page of the history
-        box["ts"] = time.time()
-        _state["busy_ts"][ow] = time.time()   # resets the 15-min steal
-        # the agent has written back about everything its claim holds so far, so
-        # those messages are read (_pending_states). a message /fresh folds in
-        # after this is delivered and not read until the next note. the record
-        # belongs to this claim and goes with it
-        rec = _state.get("ack", {}).get(ow)
-        if rec and rec.get("box") == bid:
-            rec["read"] = list(_state["claimed"][ow])
-        _log("progress", bid, text, reply_full=text, reply_short=text,
-             reply_variants_version=REPLY_VARIANTS_VERSION)
-        _save()
-        _notify()
-        return 200, {"ok": True}
+def _post_progress_removed(q: Query, text: str):
+    # progress updates were removed 2026-10-19 with /note: a progress update
+    # put words on the card while the claim held the reader's message, so the
+    # card stayed green with that message unanswered at the bottom. progress is
+    # a normal /reply under /working now. an agent still calling this is told
+    # so, and nothing moves: not the card, the claim, its messages or the steal
+    # timer
+    return 400, {"error": "progress updates were removed; send progress as a normal /reply under /working"}
 
 
 def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswered
@@ -9819,7 +9801,8 @@ ROUTES = [
     Route("/pages/new", _state_endpoint(_post_pages_new, "text"), methods=["POST"]),
     Route("/pages/del", _state_endpoint(_post_pages_del, "text"), methods=["POST"]),
     Route("/assign", _state_endpoint(_post_assign, "text"), methods=["POST"]),
-    Route("/progress", _state_endpoint(_post_progress, "text"), methods=["POST"]),
+    # a refusal and nothing else, like /note: it never takes the lock
+    Route("/progress", _endpoint(_post_progress_removed, "text"), methods=["POST"]),
     Route("/dismiss", _state_endpoint(_post_dismiss, "text"), methods=["POST"]),
     Route("/push/subscribe", _state_endpoint(_post_push_subscribe, "text"), methods=["POST"]),
     Route("/push/unsubscribe", _state_endpoint(_post_push_unsubscribe, "text"), methods=["POST"]),
