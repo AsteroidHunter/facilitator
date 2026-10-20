@@ -1269,11 +1269,16 @@
      own look for that layer is set aside. under it the whole page is dimmed
      by the board's ink at 24%, as the board dims for its settings, in a shade
      of its own in the same layer (#mbshade), which takes the tap that puts the
-     box back. on its way back to the drawer (.moving) it stays up there, over
-     the shade, until it lands */
-  #mbface:is(.big, .moving){position:fixed; inset:auto; margin:0; padding:0; color:inherit; max-width:none; max-height:none}
+     box back. on its way either way the box waits hidden where it lands
+     (.moving), and its genie is drawn over the shade and the box on a canvas
+     of the whole screen, the last thing in that layer (#mbgenie,
+     phoneMagicMove) */
+  #mbface.big{position:fixed; inset:auto; margin:0; padding:0; color:inherit; max-width:none; max-height:none}
+  #mbface.moving{visibility:hidden}
   #mbshade{position:fixed; inset:0; width:auto; height:auto; margin:0; padding:0; border:0;
     background:color-mix(in srgb, var(--ink) 24%, transparent); -webkit-tap-highlight-color:transparent}
+  #mbgenie{position:fixed; inset:0; width:100%; height:100%; margin:0; padding:0; border:0; background:transparent;
+    pointer-events:none}
   #mbface .mbbody{margin:var(--mb-air) 0 0; border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
   #mbface .mbbody[data-kind="image"]{margin:0}
   #mbface .mbbody:is([data-kind="html"], [data-kind="url"]):has(> .mbframe){margin:0}
@@ -8308,16 +8313,16 @@ addEventListener("resize", () => phoneMagicFit());
 // edge it is drawn with, whatever it holds. the box has an edge line, so the
 // white it keeps under its words is drawn and the card may not stand over it
 // (listSlack, below). expanded, the drawer under the shade keeps the foot the
-// box had in it, and on the box's way back the foot it lands with
+// box had in it
 function phoneMagicFoot(){
-  return PB.view.big || PB.move ? PB.foot : PB.el.offsetHeight;
+  return PB.view.big ? PB.foot : PB.el.offsetHeight;
 }
 // the green button: the box expanded over the dimmed page, 95% of the screen in
 // its middle, inside the safe areas (MagicBox.grow), a site that will not be
 // framed a square. the box is lifted into the browser's top layer where it
 // stands in the drawer, with nothing of it moved, so a page in it keeps
 // running and lays itself out again at the new width; the shade goes up
-// first, under it, and fades in as the box grows out of its place in the
+// first, under it, and fades in as the box pours out of its place in the
 // drawer (phoneMagicMove). the drawer stays out behind them, its pulls held
 // off (below). from: what held the focus as it was asked for, which has it
 // again as the box goes back
@@ -8346,61 +8351,75 @@ function phoneMagicShade(){
   document.body.append(shade);
   return shade;
 }
-// the box carried between its place in the drawer and its expanded one, as
-// the board's is (magicMove, index.html), on the same time and curve: its own
-// left, top, width and height on the screen, eased from where it was drawn
-// (from) to where it now stands, what it holds laid out again at every size
-// on the way. it travels in the top layer both ways, over the shade, and
-// lands back in the drawer once it is there. with reduced motion it does not
-// travel: it fades in where it now stands, quickly
-const PB_BIG_MS = 400, PB_BIG_EASE = "cubic-bezier(0.25, 1, 0.5, 1)", PB_FADE_MS = 160;
+// the box poured between its place in the drawer and its expanded one, as
+// the board's is (magicMove, index.html), on the same time and curve: it is
+// pictured where it stood (was, phoneMagicFrom) and where it now stands, and
+// the genie is drawn from the one to the other (magicGenie, card-logic.js) on
+// a canvas over the whole screen, put up last in the top layer so it stands
+// over the shade and the box, while the box waits hidden where it now stands
+// (.moving), in the top layer or back in the drawer, and shows again there as
+// the canvas goes. with reduced motion, or with no graphics to draw the
+// genie, it does not travel: it fades in where it now stands, quickly
+const PB_BIG_MS = 500, PB_BIG_EASE = "ease-in-out", PB_FADE_MS = 160;
 const phoneMagicTime = () => cardPictureStill(window) ? { duration: PB_FADE_MS, easing: "ease" }
   : { duration: PB_BIG_MS, easing: PB_BIG_EASE };
-function phoneMagicMove(from){
+function phoneMagicMove(was){
   const s = PB.el.style;
   if (s.visibility === "hidden") return;
-  if (cardPictureStill(window)){ PB.el.animate([{ opacity: 0 }, { opacity: 1 }], phoneMagicTime()); return; }
-  if (!from) return;
-  if (!PB.view.big){
-    // on its way back: where it stands in the drawer, then up over the shade again to get there
-    PB.foot = PB.el.offsetHeight;
-    const r = PB.el.getBoundingClientRect();
-    PB.el.setAttribute("popover", "manual");
-    PB.el.classList.add("moving");
-    PB.el.showPopover();
-    Object.assign(s, { left: r.left + "px", top: r.top + "px" });
+  if (cardPictureStill(window) || !magicGenieGL(phoneGenie())){
+    PB.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: PB_FADE_MS, easing: "ease" });
+    return;
   }
-  const move = PB.move = PB.el.animate([from, { left: s.left, top: s.top, width: s.width, height: s.height }], phoneMagicTime());
-  move.onfinish = () => {
+  if (!was) return;
+  // the end it now stands at is pictured now, unless a genie turned round on its way has both
+  const look = was.look, now = was.big && was.small ? null : magicLook(PB.el, true);
+  const big = was.big || (PB.view.big ? now : look), small = was.small || (PB.view.big ? look : now);
+  const canvas = phoneGenie();
+  if (canvas.matches(":popover-open")) canvas.hidePopover();
+  canvas.showPopover();
+  PB.el.classList.add("moving");
+  const from = was.s ?? (PB.view.big ? 1 : 0), to = PB.view.big ? 0 : 1;
+  const move = PB.move = magicGenie(canvas, big, small, from, to, Math.abs(to - from) * PB_BIG_MS, () => {
     if (PB.move !== move) return;
     PB.move = null;
-    if (!PB.view.big) phoneMagicLand();
+    phoneGenieOff();
     phoneMagicFit();
-  };
+  });
+  if (!move) phoneGenieOff();
 }
-// out of the top layer and back in its place in the drawer
-function phoneMagicLand(){
+// the genie's canvas, made the first time it is wanted
+function phoneGenie(){
+  if (PB.genie) return PB.genie;
+  const canvas = PB.genie = document.createElement("canvas");
+  canvas.id = "mbgenie";
+  canvas.setAttribute("popover", "manual");
+  canvas.setAttribute("aria-hidden", "true");
+  document.body.append(canvas);
+  return canvas;
+}
+function phoneGenieOff(){
   PB.el.classList.remove("moving");
-  try { PB.el.hidePopover(); } catch (e) {}
-  PB.el.removeAttribute("popover");
-  Object.assign(PB.el.style, { left: "", top: "" });
+  try { PB.genie.hidePopover(); } catch (e) {}
 }
-// where the box is drawn now on the screen, however far a move has got,
-// which stops there: one on its way back lands in the drawer at once. null
-// with reduced motion, where it never travels
+// a genie on its way, stopped where it has got to: how far, and its two
+// pictures, for the next to set off from (phoneMagicMove). null when none is
 function phoneMagicMoveStop(){
-  const r = cardPictureStill(window) ? null : PB.el.getBoundingClientRect();
-  const at = r && r.width ? { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" } : null;
   const move = PB.move;
-  if (!move) return at;
+  if (!move) return null;
   PB.move = null;
-  move.cancel();
-  if (!PB.view.big) phoneMagicLand();
-  return at;
+  phoneGenieOff();
+  return move.stop();
+}
+// the box pictured where it stands now, for the genie to set off from. null
+// with reduced motion, where it never travels, or a box not on show
+function phoneMagicFrom(){
+  if (cardPictureStill(window) || !PB.drawn || PB.el.style.visibility === "hidden" || !magicGenieGL(phoneGenie())) return null;
+  const look = magicLook(PB.el);
+  return look && { look };
 }
 function phoneMagicBig(from){
   if (PB.view.big || !PB.drawn || typeof PB.el.showPopover !== "function") return;
-  const was = phoneMagicMoveStop();
+  const was = phoneMagicMoveStop() || phoneMagicFrom();
   PB.foot = PB.el.offsetHeight;
   PB.bigFrom = from && from !== document.body ? from : null;
   const shade = phoneMagicShade();
@@ -8418,13 +8437,13 @@ function phoneMagicBig(from){
 // and back in the drawer, by the button again, Escape, a tap on the shade, the
 // drawer going or the box going, as the shade fades out. glide: the button,
 // Escape and the shade, after which the drawer stays where it is, and the box
-// shrinks back into its place in it (phoneMagicMove); the drawer going or the
+// pours back into its place in it (phoneMagicMove); the drawer going or the
 // box going put it back at once, and land it at once if it is still on its
 // way. the focus goes back to what held it as the box was expanded, unless it
 // has been put somewhere else on the page meanwhile
 function phoneMagicSmall(glide){
   if (!PB.view.big){ if (!glide && PB.move) phoneMagicMoveStop(); return; }
-  const was = phoneMagicMoveStop();
+  const was = phoneMagicMoveStop() || (glide ? phoneMagicFrom() : null);
   PB.view.expand(false);
   try { PB.el.hidePopover(); } catch (e) {}
   PB.el.removeAttribute("popover");

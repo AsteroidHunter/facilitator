@@ -1358,10 +1358,8 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .magicbox .mbframe{display:block; width:100%; height:100%; border:0; background:var(--card)}
 /* expanded, the box keeps its size whatever it holds: a picture stands in its
    middle on the box's white, as large as fits and still never past its own
-   size, and words, a page or a site are laid out again at the box's width.
-   so too on its way back (.moving), so a small picture shrinks with the box
-   from where it stood and never jumps out to fill it first */
-.magicbox:is(.big, .moving) .mbimg{object-fit:scale-down}
+   size, and words, a page or a site are laid out again at the box's width */
+.magicbox.big .mbimg{object-fit:scale-down}
 /* the clear cover over a page or a site while the pointer is not over the box
    (the board's magicPointer): the pointer lands on it, so the board knows it
    came, and it comes off at once, before any click */

@@ -110,6 +110,36 @@
     }
     return { left, top, width, height };
   }
+  // the box poured between its expanded place (big) and its own (small) as a
+  // Mac window pours into the Dock and back out (the Dock's Genie effect),
+  // drawn as thin level strips, each with its own left and right ends. s is
+  // how far it has gone, 0 at big and 1 at small; the way out is the same
+  // played backwards. each row of the box sets off on a clock of its own, the
+  // bottom row at once and the top row a share of the way later (stagger),
+  // and goes the rest of the way eased in and out, so the bottom narrows and
+  // swings toward the place first while the top holds, the two sides bend
+  // into curves between them, and the top follows the bottom in. a place
+  // wholly above the box is led into by the top row. the rows stand evenly
+  // between the box's top and bottom edges, which each go with the row at
+  // that edge, so no row ever crosses another. rows: how many strips. gives
+  // rows + 1 edges, top to bottom, {v, y, left, right, q}: v the row's place
+  // down the box (0 to 1), and q how far it has gone, which says how much of
+  // the place's look it wears
+  const GENIE = { stagger: 0.45 };
+  function genie(big, small, s, rows) {
+    const K = GENIE.stagger, up = small.top + small.height <= big.top;
+    const ease = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+    const gone = v => ease((s - K * (up ? v : 1 - v)) / (1 - K));
+    const go = (a, b, p) => a + (b - a) * p;
+    const top = go(big.top, small.top, gone(0)), bottom = go(big.top + big.height, small.top + small.height, gone(1));
+    const edges = [];
+    for (let i = 0; i <= rows; i++) {
+      const v = i / rows, q = gone(v);
+      edges.push({ v, q, y: go(top, bottom, v), left: go(big.left, small.left, q),
+        right: go(big.left + big.width, small.left + small.width, q) });
+    }
+    return edges;
+  }
   // a page an agent wrote runs sealed off: its frame has scripts and nothing
   // else, so its origin is its own and never the board's (no same origin, no
   // forms, no popups, no way to the top window). Its buttons, fields and
@@ -242,5 +272,5 @@
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, GENIE, genie, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
 })(globalThis);
