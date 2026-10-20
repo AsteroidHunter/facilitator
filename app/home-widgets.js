@@ -24,11 +24,14 @@
 //            seat slides from one name to the other; the choice is
 //            remembered in this browser. A download button stands beside the
 //            pill and saves the chart on show as a picture (see picture)
-//   picture  the chart on show, the whole year, drawn on a canvas at three
+//   picture  the chart on show, the whole of it, drawn on a canvas at three
 //            times the size into a 3:2 PNG with its heading, axis names,
 //            legend and foot, the squid and "Facilitator" at the top right,
 //            and on the line a vertical mark on the day the board was first
-//            started. The Mac saves it as a download, a phone offers it to
+//            started. The line starts on the day use began this year
+//            (pictureStart), its foot still the total from January 1, and
+//            the mark is left out when that day comes before the start.
+//            The Mac saves it as a download, a phone offers it to
 //            the share sheet so it can go to Photos or Files
 //   view     both charts are drawn to the height of the view they are shown
 //            in, never stretched: the heatmap's squares grow until its seven
@@ -206,6 +209,35 @@
     const at = days.findIndex(d => d.date >= first);
     return at < 0 ? 0 : at;
   }
+  // where use began in a run of days: the first day with any use, skipping
+  // each early stretch followed by a silence of MIN_SILENCE days or more when
+  // that silence and the days after it are each longer than the stretch, so a
+  // short trial months before is skipped and a holiday in the middle is not.
+  // A silence running up to the last day never counts, and at least MIN_SHOWN
+  // days are left
+  const MIN_SILENCE = 30, MIN_SHOWN = 28;
+  function useStart(days) {
+    const n = days.length, used = days.map(d => (d.total || 0) > 0);
+    let start = used.indexOf(true);
+    if (start < 0) return 0;
+    for (let i = start; i < n; ) {
+      if (used[i]) { i++; continue; }
+      let j = i;
+      while (j < n && !used[j]) j++;   // the silence is i to j - 1
+      if (j === n) break;
+      const stretch = i - start;
+      if (i > start && j - i >= MIN_SILENCE && j - i > stretch && n - j > stretch) start = j;
+      i = j;
+    }
+    return Math.max(0, Math.min(start, n - MIN_SHOWN));
+  }
+  // where the line's picture starts: January 1, or the day use began this
+  // year when that is later. The days before it stay in the reading, for its
+  // first average
+  function pictureStart(days) {
+    const from = yearStart(days);
+    return from + useStart(days.slice(from));
+  }
   // how many days to ask the route for: the heatmap's year and the week of
   // average before it, or, from January 1 to today and that week, if more
   function fetchDays(now) {
@@ -365,11 +397,11 @@
     const ticks = Array.from({ length: best.count }, (_, i) => Number((i * best.step).toPrecision(12)));
     return { top: best.top, step: best.step, ticks };
   }
-  // size and pad draw it to a place of another size, as the picture does
-  function lineModel(days, h, size, pad = PAD) {
+  // size and pad draw it to a place of another size, and from0 from another
+  // day, as the picture does
+  function lineModel(days, h, size, pad = PAD, from0 = yearStart(days)) {
     const geo = size || geometry(h);
     const LW = geo.width, LH = geo.height;
-    const from0 = yearStart(days);
     const avg = rolling(days.map(d => d.total || 0)).slice(from0);
     const shown = days.slice(from0);
     const axis = niceAxis(Math.max(0, ...shown.map(d => d.total || 0)));
@@ -633,8 +665,9 @@
   // the chart on show saved as a PNG: the heatmap 1200 x 400 laid out, 3:1, the
   // line 1200 x 600, 2:1, and drawn at three times that so the words stay
   // crisp on a phone's screen. It is drawn
-  // on a canvas from the same models as the screen, but for the whole year
-  // at once, never the part the lane has scrolled to. The words use the
+  // on a canvas from the same models as the screen, but for the whole of it
+  // at once, never the part the lane has scrolled to, and the line from the
+  // day use began this year (pictureStart), not January 1. The words use the
   // board's own faces (the sheet's --sans, and Inter for the name at the
   // top right and the repo link under it, which the file carries itself so
   // it is set the same with or without the network) and its inks, and only
@@ -668,10 +701,12 @@
       out.heat = heatmapModel(days, 0, { width, height, left: area.x + left, step, gap, cell, rows, top, radius: 3 });
       return out;
     }
+    // the line starts where use began this year (pictureStart); its foot still
+    // sums from January 1, so "this year" holds
     const bottom = 30;
     out.line = lineModel(days, 0, { width, height: area.y + area.h },
-                         { left: PIC_PAD + 50, right: PIC_PAD, top: area.y + 8, bottom });
-    // the mark is on the day's own place on the axis, and only when that day is in the year shown
+                         { left: PIC_PAD + 50, right: PIC_PAD, top: area.y + 8, bottom }, pictureStart(days));
+    // the mark is on the day's own place on the axis, and only when that day is among the days shown
     const at = installed && out.line.points.find(p => p.date === installed);
     if (at) out.install = { x: at.x, y1: out.line.box.top, y2: out.line.box.top + out.line.box.h, label: INSTALLED };
     return out;
@@ -1262,6 +1297,7 @@
   window.TokenWidgets = {
     PALETTE, LINE, AVG_LINE, DAILY_DASH, DAILY_ALPHA, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
     compact, longDay, scale, rolling, niceAxis, geometry, totalLine, yearStart, fetchDays,
+    useStart, pictureStart, MIN_SILENCE, MIN_SHOWN,
     SHAPES, SHAPE_OF, PIC_SCALE, pictureModel, pictureName, picture,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,

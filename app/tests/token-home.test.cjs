@@ -1072,6 +1072,76 @@ test("the picture's line view marks the install day, and leaves the mark out whe
   assert.equal(W.pictureModel("heatmap", days, inside).install, null, "never on the heatmap");
 });
 
+// a reading whose days have use where `on` says, `level` tokens each
+const usedOn = (last, n, on, level = 5e6) => daysEnding(last, n).map(d => ({ ...d, total: on(d.date) ? level : 0 }));
+
+test("the line's picture starts where use began, on each year the rule was chosen on and on the real days", () => {
+  const { W } = widgets();
+  // each year as runs of days without and with use, and the start the research found for it
+  const { years } = JSON.parse(read("tests/fixtures/chart-start-years.json"));
+  assert.equal(years.length, 24);
+  assert.equal(W.MIN_SILENCE, 30);
+  assert.equal(W.MIN_SHOWN, 28);
+  const reading = y => {
+    const used = y.runs.flatMap((n, k) => Array(n).fill(k % 2 === 1));
+    assert.equal(used.length, y.days, y.name);
+    const last = new Date(Date.parse(y.first + "T00:00:00Z") + (y.days - 1) * 864e5).toISOString().slice(0, 10);
+    const days = daysEnding(last, y.days, k => (used[k] ? 1000 : 0));
+    assert.equal(days[0].date, y.first, y.name);
+    return days;
+  };
+  for (const y of years) {
+    const days = reading(y);
+    assert.equal(days[W.useStart(days)].date, y.start, y.name);
+  }
+  // the real days as the panel reads them: the picture starts on April 1, the
+  // screen keeps January 1, and the foot is still the year's
+  const real = reading(years.find(y => y.name.startsWith("real daily totals")));
+  assert.equal(real.at(-1).date, "2026-10-19");
+  assert.equal(real[W.pictureStart(real)].date, "2026-04-01");
+  const m = W.pictureModel("line", real, "2026-08-03");
+  assert.equal(m.line.points[0].date, "2026-04-01");
+  assert.equal(m.line.points.at(-1).date, "2026-10-19");
+  assert.deepEqual([m.line.points[0].from, m.line.points[0].span], ["2026-03-26", 7], "the first average still takes the six days before");
+  assert.ok(m.install, "the install day comes after the start, so it is drawn");
+  assert.equal(m.install.x, m.line.points.find(p => p.date === "2026-08-03").x);
+  assert.equal(m.total, real.slice(W.yearStart(real)).reduce((n, d) => n + d.total, 0), "the total from January 1");
+  assert.equal(m.when, "this year");
+  assert.equal(W.lineModel(real).points[0].date, "2026-01-01", "the line on screen is unchanged");
+});
+
+test("the line's picture skips an early trial but not a holiday, and always shows four weeks", () => {
+  const { W } = widgets();
+  const pic = (days, installed = null) => W.pictureModel("line", days, installed);
+  // a week's trial in January, then nothing until May 11, then steady use; the
+  // board was first started in the trial's wake, before the new start
+  const trial = usedOn("2026-10-19", 371, d => (d >= "2026-01-12" && d <= "2026-01-18" ? 1 : d >= "2026-05-11"));
+  const t = pic(trial, "2026-02-02");
+  assert.equal(t.line.points[0].date, "2026-05-11");
+  assert.equal(t.install, null, "the install day is before the start, so the mark is left out");
+  assert.deepEqual([t.line.points[0].from, t.line.points[0].span], ["2026-05-05", 7]);
+  assert.equal(t.line.points[0].avg, 5e6 / 7, "the six days before it count, as they did");
+  assert.equal(t.total, trial.slice(W.yearStart(trial)).reduce((n, d) => n + d.total, 0), "the trial is still in this year's total");
+  assert.equal(W.lineModel(trial).points[0].date, "2026-01-01", "the screen keeps January 1");
+  assert.equal(pic(trial, "2026-06-01").install.label, "Facilitator installed", "a later install day is still marked");
+  // five weeks off in the summer after six months of use: no crop
+  const holiday = usedOn("2026-10-19", 371, d => d < "2026-07-01" || d > "2026-08-04");
+  assert.equal(pic(holiday).line.points[0].date, "2026-01-01");
+  assert.equal(pic(holiday).line.points[0].from, "2025-12-26");
+  // steady use from March 3, the day it began
+  assert.equal(pic(usedOn("2026-10-19", 371, d => d >= "2026-03-03")).line.points[0].date, "2026-03-03");
+  // use that stopped, with nothing since: a silence up to today never counts
+  assert.equal(pic(usedOn("2026-10-19", 371, d => d >= "2026-02-01" && d < "2026-05-01")).line.points[0].date, "2026-02-01");
+  // early in a year at least 28 days are shown, from January 1 when there are fewer
+  const feb = pic(usedOn("2026-02-10", 371, d => d >= "2026-02-01"));
+  assert.equal(feb.line.points.length, 28);
+  assert.equal(feb.line.points[0].date, "2026-01-14");
+  assert.equal(pic(usedOn("2026-01-20", 371, d => d >= "2026-01-15")).line.points[0].date, "2026-01-01");
+  // no use this year at all, and no days at all
+  assert.equal(pic(usedOn("2026-10-19", 371, () => false)).line.points[0].date, "2026-01-01");
+  assert.equal(W.useStart([]), 0);
+});
+
 test("the picture is painted in the board's inks and the squid's own file, never purple and never the accent", () => {
   const code = WIDGETS.slice(WIDGETS.indexOf("// ---- the picture"), WIDGETS.indexOf("// ---- the panel"));
   assert.match(code, /LOGO_SRC = "\/m-splash-squid\.png"/, "the board's own logo file");
