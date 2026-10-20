@@ -1,8 +1,9 @@
 // Browser-free pin for the layout the owner set in the 2026-10-20 layout mock
 // (m1330) as the board's starting layout: the clock, the ticket list and the
 // card at these places and sizes (stage points, the stage being 1440 by 900),
-// and every other box put away at its own starting place. It reads the numbers
-// out of the real stylesheet, and runs the real layoutSource, regionHidden and
+// every other box put away at its own starting place, and the card's magic box
+// at the size and gap set there. It reads the numbers out of the real
+// stylesheet and magic-box.js, and runs the real layoutSource, regionHidden and
 // applySavedLayout in a fake page, so what is shown is what a new project and a
 // fresh install would draw.
 //
@@ -10,6 +11,9 @@
 //   - the stylesheet's starting places and sizes are the owner's, for all nine
 //     boxes; the three on screen are whole edit steps with every edge on a star
 //     line, and onboarding.html's copy of them matches index.html.
+//   - the card's magic box, beside the starting card in the laptop's 1512 wide
+//     window, is 385.92 by 720 and stands 52.19 right of the card, level with
+//     its middle, and keeps that gap in a wider window.
 //   - a fresh install (nothing saved at all) and a new project (nothing saved for
 //     it, and nothing for the facilitator project either) show the clock, the
 //     list and the card, hide the rest, and write no inline place or size, so the
@@ -41,6 +45,8 @@ const LAYOUT = {
   magic4: { x: 1054.08, y: 685.44, w: 288, h: 172.8, hidden: true },
   goalbox: { x: 1134.72, y: 743.04, w: 276.48, h: 126.72, hidden: true },
 };
+// and the card's magic box in the laptop's window, set in the same mock
+const MAGIC = { width: 385.92, height: 720, gap: 52.19 };
 const SHOWN = Object.keys(LAYOUT).filter(id => !LAYOUT[id].hidden);
 const HIDDEN = Object.keys(LAYOUT).filter(id => LAYOUT[id].hidden);
 const CHOSEN = Object.fromEntries(SHOWN.map(id => [id, LAYOUT[id]]));
@@ -128,6 +134,36 @@ test("every starting edge of the three boxes on screen is on a star line and eve
 test("onboarding.html copies the same list and card places as the board", () => {
   for (const name of ["tik-x", "tik-y", "tik-w", "tik-h", "frame-x", "frame-y", "frame-w", "frame-h"]) {
     near(frac(ONBOARDING, name), frac(HTML, name), "--" + name);
+  }
+});
+
+// ---- the card's magic box beside the starting card -----------------------------
+
+function magicBox() {
+  const scope = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "magic-box.js"), "utf8"), scope);
+  return scope.MagicBox;
+}
+// the workspace in a window w wide, as magicPlace hands it over (the magic box
+// tests' own model): the frame's inner right edge 6.5 in from the window's side
+const fitAt = w => ({ scale: 1, tx: Math.max(0, (w - 1440) / 2), right: w - 6.5, clear: 16 });
+
+test("the card's magic box is the owner's size and stands where it was set, in the laptop's window and wider", () => {
+  const { place } = magicBox();
+  const card = { left: startOf("main").x, top: startOf("main").y, width: startOf("main").w, height: startOf("main").h };
+  const right = card.left + card.width, middle = card.top + card.height / 2;
+  const at = place(card, fitAt(1512));
+  assert.equal(at.shown, true);
+  near(at.width, MAGIC.width, "width");
+  near(at.height, MAGIC.height, "height");
+  near(at.left - right, MAGIC.gap, "gap from the card's right edge", 0.01);
+  near(at.top + at.height / 2, middle, "level with the card's middle");
+  // a wider window is only more room: the box keeps its size and its gap
+  for (const w of [1600, 1920, 2560]) {
+    const wide = place(card, fitAt(w));
+    near(wide.width, MAGIC.width, w + " width");
+    near(wide.height, MAGIC.height, w + " height");
+    near(wide.left - right, MAGIC.gap, w + " gap", 0.02);
   }
 });
 

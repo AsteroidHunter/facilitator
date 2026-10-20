@@ -40,7 +40,7 @@ const close = (a, b, by = 1e-6) => Math.abs(a - b) < by;
 // ---- where it stands -----------------------------------------------------------
 // the card where a new board puts it, in stage pixels, and the workspace in a
 // window w wide (as the magic box tests have them), with its left edge too
-const CARD = { left: 1440 * 0.324, top: 900 * 0.0576, width: 1440 * 0.352, height: 900 * 0.8448 };
+const CARD = { left: 1440 * 0.32, top: 900 * 0.0576, width: 1440 * 0.36, height: 900 * 0.8512 };
 const fitAt = (w, more = {}) => ({ scale: 1, tx: Math.max(0, (w - 1440) / 2), right: w - 6.5, left: 6.5, clear: 16, ...more });
 
 test("left of the card the box stands as it does on the right, turned over", () => {

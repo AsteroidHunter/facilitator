@@ -1,6 +1,6 @@
 // Where a card's magic box stands, worked out without a browser: at full size
-// nine tenths of the card's height and 1.14 times the width of an iPhone 13
-// mini screen as tall as the card, smaller when the room right of the card is
+// the size the owner set in the layout mock, 125/133 of the card's height tall
+// and 67/133 of it wide, smaller when the room right of the card is
 // short, in the middle of that room so the gap to the card and the gap to the
 // workspace's edge are equal, level with the card's middle, and not shown at
 // all, never over the card, when the window has no room for it; inside that
@@ -32,10 +32,11 @@ function api() {
   return scope.MagicBox;
 }
 const { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom } = api();
-const PHONE = 375 / 812;
+// the box the owner set in the layout mock (m1330), in stage pixels, beside the card there
+const SET = { width: 385.92, height: 720, gap: 52.19 };
 const close = (a, b, by = 1e-6) => Math.abs(a - b) < by;
 // the card where a new board puts it (index.html --frame-*), in stage pixels
-const CARD = { left: 1440 * 0.324, top: 900 * 0.0576, width: 1440 * 0.352, height: 900 * 0.8448 };
+const CARD = { left: 1440 * 0.32, top: 900 * 0.0576, width: 1440 * 0.36, height: 900 * 0.8512 };
 const RIGHT = c => c.left + c.width;
 const MIDDLE = r => r.top + r.height / 2;
 // the workspace in a window w wide, as magicPlace hands it over: the frame's
@@ -54,30 +55,30 @@ function besideRight(at, card, fit) {
   assert.ok(close(gapCard, gapEdge) || held, `gaps ${gapCard} and ${gapEdge}`);
   assert.ok(gapCard >= fit.clear / fit.scale - 1e-6, `gap ${gapCard} under the clearance`);
   assert.ok(close(MIDDLE(at), MIDDLE(card)), `middle ${MIDDLE(at)} against ${MIDDLE(card)}`);
-  assert.ok(at.height <= TALL * card.height + 1e-6, "never taller than nine tenths of the card");
+  assert.ok(at.height <= TALL * card.height + 1e-6, "never taller than its share of the card");
   return gapCard;
 }
 
-test("the shape: an iPhone 13 mini screen as tall as the card, 5% off each end, 7% wider each side", () => {
-  assert.equal(TALL, 0.9);
-  assert.ok(close(WIDE, PHONE * 1.14));
-  assert.ok(close(SHAPE, PHONE * 1.14 / 0.9));
+test("the shape: the size set in the layout mock, as shares of the starting card's height", () => {
+  assert.ok(close(TALL, SET.height / CARD.height), `tall ${TALL}`);
+  assert.ok(close(WIDE, SET.width / CARD.height), `wide ${WIDE}`);
+  assert.ok(close(SHAPE, SET.width / SET.height));
   // no size of its own: a card twice as tall, with room for it, has a box twice as big
   const tall = place({ ...CARD, height: CARD.height }, fitAt(3000));
   const half = place({ ...CARD, height: CARD.height / 2 }, fitAt(3000));
   assert.ok(close(tall.width, 2 * half.width) && close(tall.height, 2 * half.height));
 });
 
-test("in the Mac's 1512 window: nine tenths of the card's height, 1.14 times the phone's width", () => {
+test("in the Mac's 1512 window: the size and gap set in the layout mock, level with the card's middle", () => {
   const fit = fitAt(1512);
   const at = place(CARD, fit);
-  const phone = { height: CARD.height, width: CARD.height * PHONE };   // the box as it was
-  assert.ok(close(at.height / phone.height, 0.9), `height ${at.height / phone.height}`);
-  assert.ok(close(at.width / phone.width, 1.14), `width ${at.width / phone.width}`);
-  assert.ok(close(at.top - CARD.top, 0.05 * CARD.height), "5% of the card's height off the top");
-  assert.ok(close(CARD.top + CARD.height - (at.top + at.height), 0.05 * CARD.height), "and 5% off the foot");
+  assert.ok(close(at.width, SET.width), `width ${at.width}`);
+  assert.ok(close(at.height, SET.height), `height ${at.height}`);
+  const off = (CARD.height - SET.height) / 2;
+  assert.ok(close(at.top - CARD.top, off), "the same off the card's top");
+  assert.ok(close(CARD.top + CARD.height - (at.top + at.height), off), "as off its foot");
   const gap = besideRight(at, CARD, fit);
-  assert.ok(gap > 16, `room to spare: ${gap}`);
+  assert.ok(close(gap, SET.gap, 0.01), `the gap set in the mock: ${gap}`);
 });
 
 test("a narrower window shrinks it, keeping the shape and the middle, with the least gap either side", () => {
@@ -107,7 +108,7 @@ test("a card made shorter or moved takes its box with it", () => {
     besideRight(at, card, fit);
   }
   const shorter = place({ ...CARD, height: 480 }, fit);
-  assert.ok(close(shorter.height, TALL * 480), "a short enough card has a box nine tenths as tall as itself");
+  assert.ok(close(shorter.height, TALL * 480), "a short enough card has a box its share as tall as itself");
 });
 
 test("the room is read through the stage's scale and shift, in both panes", () => {
@@ -242,9 +243,10 @@ test("words take their own height up to the largest box, then scroll; a page or 
   assert.deepEqual([short.width, short.height], [most.width, 180], "the full width, their own height");
   const long = sizedRight(SIZED({ height: 5000 }));
   assert.deepEqual(long, most, "no taller than the largest box, and then exactly where it stood");
-  // a short one hangs from the largest box's top, which is 5% of the card's
-  // height under the card's own top, and keeps its left and right as before
-  assert.ok(close(short.top - CARD.top, 0.05 * CARD.height));
+  // a short one hangs from the largest box's top, which is half of what the
+  // box leaves of the card's height under the card's own top, and keeps its
+  // left and right as before
+  assert.ok(close(short.top - CARD.top, (1 - TALL) / 2 * CARD.height));
   assert.ok(short.top + short.height < MIDDLE(CARD), "well above the card's middle");
   assert.equal(short.left, most.left);
   assert.deepEqual(place(CARD, fitAt(1512), null), most, "a page or a site asks for nothing");
@@ -1848,9 +1850,9 @@ test("the Mac's box hides every scrollbar and a page wider than it scrolls sidew
   assert.match(read("card-tokens.css"), /\.magicbox \.mbframe\{display:block; width:100%; height:100%;/);
   // the runbook gives agents the box's real width: full size beside the board's
   // card, down to the narrowest box still shown, half the card's height tall
-  assert.equal(Math.round(CARD.height * WIDE), 400);
-  assert.equal(Math.round(CARD.height / 2 * SHAPE), 222);
-  assert.match(read("RUNBOOK.md"), /The box is narrow: on the Mac board a page is laid out between about 220 and 400 pixels wide/);
+  assert.equal(Math.round(CARD.height * WIDE), 386);
+  assert.equal(Math.round(CARD.height / 2 * SHAPE), 205);
+  assert.match(read("RUNBOOK.md"), /The box is narrow: on the Mac board a page is laid out between about 205 and 386 pixels wide \(386 when/);
 });
 
 test("on the phone a page taller than the box is laid out at its own height, takes a finger itself and the box scrolls it", () => {

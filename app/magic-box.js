@@ -6,18 +6,19 @@
    length on the board is in the 1440 by 900 stage's own pixels. */
 (function (root) {
   "use strict";
-  // the box at full size, as shares of the card's height: an iPhone 13 mini
-  // screen's shape (375 by 812 points) as tall as the card, then 5% taken off
-  // its top and 5% off its foot, and 7% of its width added on each side. SHAPE
-  // is width over height. Shares only, so the box's size always comes from the
-  // card and the window
-  const TALL = 0.9;
-  const WIDE = 375 / 812 * 1.14;
+  // the box at full size, as shares of the card's height: the size the owner
+  // set in the layout mock (m1330), 67 by 125 edit steps (385.92 by 720)
+  // beside the starting card, 133 steps (766.08) tall. SHAPE is width over
+  // height. Shares only, so the box's size always comes from the card and the
+  // window
+  const TALL = 125 / 133;
+  const WIDE = 67 / 133;
   const SHAPE = WIDE / TALL;
   // the most the box stands from its card at the board's full size, as a share
   // of the card's width: the gap the Mac laptop's window gives the box, never
-  // more, so on a larger window it stays as near its card as it is there
-  const GAP = 0.0945;
+  // more, so on a larger window it stays as near its card as it is there. with
+  // the starting card that is 52.19, where the owner set it in the mock
+  const GAP = 0.1007;
   // card: the card's rectangle, {left, top, width, height}. fit: the stage's
   // transform and the workspace, {scale, tx, right, clear}, right the screen x
   // of the workspace's inner right edge and clear the room the fit keeps
