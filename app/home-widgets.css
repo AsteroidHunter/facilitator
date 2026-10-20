@@ -157,7 +157,8 @@
 .tk-sum{white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis}
 .tk-sum b{color:var(--ink); font-weight:600}
 .tk-legend{display:inline-flex; align-items:center; gap:calc(3 * var(--u, 1px)); margin-left:auto; white-space:nowrap}
-.tk-legend i{display:inline-block; width:calc(10 * var(--u, 1px)); height:calc(10 * var(--u, 1px)); border-radius:calc(2 * var(--u, 1px));
+/* the heatmap's seven swatches, small enough to stay beside the total on a phone */
+.tk-legend i{display:inline-block; width:calc(8 * var(--u, 1px)); height:calc(8 * var(--u, 1px)); border-radius:calc(2 * var(--u, 1px));
   box-shadow:inset 0 0 0 .6px rgba(60,45,20,.05)}
 .tk-legend i:first-of-type{margin-left:calc(5 * var(--u, 1px))}
 .tk-legend i:last-of-type{margin-right:calc(5 * var(--u, 1px))}
