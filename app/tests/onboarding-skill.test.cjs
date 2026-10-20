@@ -319,3 +319,13 @@ test('the skill and the RUNBOOK loop state the 7 minute listen and no longer the
   }
   assert.doesNotMatch(runbook, /timeout=50\b/);
 });
+
+test('the RUNBOOK says once, in its reply rules, to call the person by the name given at joining', async () => {
+  const runbook = await fs.readFile(path.join(ROOT, 'RUNBOOK.md'), 'utf8');
+  const sentence = 'Call the person by the name you were given when you joined; when you were given none, use no name.';
+  assert.equal(runbook.split(sentence).length, 2);
+  assert.ok(runbook.split('\n## Replies\n')[1].split('\n## ')[0].includes(`\n- ${sentence}\n`));
+  assert.doesNotMatch(runbook, /\{name\}/);
+  const skill = await fs.readFile(path.join(ROOT, '../.agents/skills/facilitator/SKILL.md'), 'utf8');
+  assert.match(skill, /Its JSON result names the lane, port, and absolute `runbook` path, and carries the person's first name in `name` when their profile holds one\./);
+});
