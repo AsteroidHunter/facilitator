@@ -959,6 +959,45 @@ class PersonLink(Board):
         self.assertEqual(self.sets()[-1]["$set"], PERSON)
         self.assertTrue(self.saved()["identify_done"])
 
+    def test_a_link_that_does_not_wait_keeps_the_person_now_and_tells_posthog_on_a_thread_of_its_own(self):
+        board = self.sender()
+        release = threading.Event()
+        net = self.net
+
+        def slow(req, timeout=None):
+            release.wait(10)
+            return net(req, timeout)
+
+        def told():
+            for thread in threading.enumerate():
+                if thread.name == "usage-identify":
+                    thread.join(5)
+
+        board.opener = slow
+        self.assertEqual(board.link_person(PERSON, True, wait=False), "kept")
+        saved = self.saved()
+        self.assertEqual((saved["email"], saved["answers"]["name"], saved["identify_done"]), (EMAIL, "Ada Lovelace", False))
+        self.assertEqual(net.requests, [], "PostHog answered before the link did")
+        release.set()
+        told()
+        self.assertEqual(self.sets(), [{"$geoip_disable": True, "$set": PERSON}])
+        self.assertTrue(self.saved()["identify_done"])
+        self.assertEqual(board.link_person(PERSON, True, wait=False), "kept")
+        told()
+        self.assertEqual(len(net.requests), 1, "the same person was told twice")
+        # the rules are the waiting link's: no yes or no address keeps nothing, the switch off sends nothing
+        self.assertEqual(board.link_person(PERSON, False, wait=False), "no")
+        self.assertEqual(board.link_person({**PERSON, "email": "not an address"}, True, wait=False), "bad")
+        self.on = False
+        board.link_person({**PERSON, "work": "Teaching"}, True, wait=False)
+        told()
+        self.assertEqual(len(net.requests), 1, "an identify went with the switch off")
+        # a throw on the thread is written down, as a look's is
+        board.sharing = lambda: 1 / 0
+        board.link_person({**PERSON, "work": "Writing"}, True, wait=False)
+        told()
+        self.assertEqual(self.lines[-1], ("usage", {"what": "identify", "outcome": "error", "reason": "ZeroDivisionError"}))
+
     def test_a_record_from_before_the_answers_counts_its_email_as_told(self):
         self.install.write_text(json.dumps({"install_id": INSTALL, "feedback_yes": True, "email": EMAIL,
                                             "identify_done": True}))

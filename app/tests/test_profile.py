@@ -11,7 +11,9 @@
             profile is not complete, and says nothing of the profile itself
   posthog   with the yes the email and the answers go to the usage sender's
             link_person, once, then only a change; without it nothing is sent,
-            and taking it back sends nothing and forgets them there
+            and taking it back sends nothing and forgets them there. The save
+            answers before PostHog does, slow or refusing, and the identify
+            goes afterwards on a thread of its own
   sample    POST /onboarding/sample makes ~/facilitator-sample with its
             internal folder and its wiki the first time, and never touches a
             folder, a file or a link already holding the name
@@ -33,7 +35,10 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 from unittest import mock
@@ -107,6 +112,7 @@ class Case(unittest.TestCase):
         S._settings = {"rev": 0, "values": {}, "spotify": {}}
 
     def tearDown(self):
+        self.settle()
         S._usage_sender = None
         self.info.stop()
         self.paths.stop()
@@ -118,6 +124,13 @@ class Case(unittest.TestCase):
                                     marker=self.dir / "usage-counts.json", index_html=ROOT / "index.html",
                                     sharing=sharing, opener=self.net, install_file=self.dir / "usage-install.json")
         return S._usage_sender
+
+    @staticmethod
+    def settle():
+        """Waits for the identifies the saves handed to threads of their own."""
+        for thread in threading.enumerate():
+            if thread.name == "usage-identify":
+                thread.join(5)
 
     def call(self, method, path, body=None, headers=None, port=None):
         """One request through the route's own wrapper, as the board's page
@@ -358,6 +371,7 @@ class Picture(Case):
         picture = self.call("GET", "/profile")[1]["picture"]
         self.assertIn(picture, self.TWELVE)
         self.call("POST", "/profile", {"work": "Something else"})
+        self.settle()
         self.assertNotIn("picture", S._profile_person(S._profile_read()))
         self.assertTrue(self.net.bodies, "nothing was sent at all, so this proves nothing")
         self.assertNotIn("picture", json.dumps(self.net.bodies))
@@ -408,7 +422,9 @@ class PostHog(Case):
     def test_the_yes_sends_the_email_and_the_answers_once_as_the_persons_properties(self):
         self.sender()
         status, answer = self.call("POST", "/profile", ANSWERS)
-        self.assertEqual((status, answer["sent"]), (200, True))
+        self.assertEqual((status, answer["ok"]), (200, True))
+        self.assertNotIn("sent", answer, "the save still says what PostHog did, so it waited on it")
+        self.settle()
         [body] = self.net.bodies
         install = json.loads((self.dir / "usage-install.json").read_text())["install_id"]
         self.assertEqual(body, {"api_key": uc.TOKEN, "event": "$identify", "distinct_id": install,
@@ -416,21 +432,22 @@ class PostHog(Case):
                                     "email": EMAIL, "name": "Ada Lovelace", "work": ANSWERS["work"],
                                     "time_zone": "Europe/London"}}})
         self.call("POST", "/profile", {"name": "Ada Lovelace", "timeZone": "Europe/London"})
+        self.settle()
         self.assertEqual(len(self.net.bodies), 1, "a save that changed nothing was sent")
 
     def test_an_answer_edited_while_the_yes_holds_is_sent_once_alone(self):
         self.sender()
-        self.call("POST", "/profile", ANSWERS)
-        self.call("POST", "/profile", {"work": "Teaching"})
-        self.call("POST", "/profile", {"work": None})
+        for change in (ANSWERS, {"work": "Teaching"}, {"work": None}):
+            self.call("POST", "/profile", change)
+            self.settle()
         self.assertEqual(self.sets()[1:], [{"$geoip_disable": True, "$set": {"work": "Teaching"}},
                                            {"$geoip_disable": True, "$unset": ["work"]}])
 
     def test_an_agent_a_page_from_before_sends_never_leaves(self):
         self.sender()
-        self.call("POST", "/profile", {**ANSWERS, "agent": "Claude Code"})
-        self.call("POST", "/profile", {"agent": "Codex"})
-        self.call("POST", "/profile", {"agent": None})
+        for change in ({**ANSWERS, "agent": "Claude Code"}, {"agent": "Codex"}, {"agent": None}):
+            self.call("POST", "/profile", change)
+            self.settle()
         self.assertEqual(len(self.net.bodies), 1)
         self.assertNotIn("agent", json.dumps(self.net.bodies))
 
@@ -443,26 +460,80 @@ class PostHog(Case):
 
     def test_taking_the_yes_back_sends_nothing_more_and_forgets_it_there(self):
         self.sender()
-        self.call("POST", "/profile", ANSWERS)
-        self.call("POST", "/profile", {"emailYes": False})
-        self.call("POST", "/profile", {"work": "Teaching"})
+        for change in (ANSWERS, {"emailYes": False}, {"work": "Teaching"}):
+            self.call("POST", "/profile", change)
+            self.settle()
         self.assertEqual(len(self.net.bodies), 1)
         kept = json.loads((self.dir / "usage-install.json").read_text())
         self.assertEqual((kept["feedback_yes"], kept["email"], kept["answers"]), (False, None, {}))
         self.assertEqual(self.kept()["email"], EMAIL, "the address left the profile with the yes")
         self.call("POST", "/profile", {"emailYes": True})
+        self.settle()
         self.assertEqual(self.sets()[-1]["$set"]["work"], "Teaching")
         self.assertEqual(len(self.net.bodies), 2)
 
     def test_the_switch_off_keeps_the_yes_and_sends_nothing(self):
         self.sender(sharing=lambda: False)
         status, answer = self.call("POST", "/profile", ANSWERS)
-        self.assertEqual((status, answer["sent"], answer["emailYes"]), (200, False, True))
+        self.assertEqual((status, answer["emailYes"]), (200, True))
+        self.settle()
         self.assertEqual(self.net.bodies, [])
+        self.assertFalse(json.loads((self.dir / "usage-install.json").read_text())["identify_done"])
 
     def test_a_board_without_the_usage_sender_keeps_the_profile_and_sends_nothing(self):
-        self.assertEqual(self.call("POST", "/profile", ANSWERS)[1]["sent"], False)
+        self.assertEqual(self.call("POST", "/profile", ANSWERS)[0], 200)
         self.assertEqual(self.kept()["email_yes"], True)
+
+    def test_the_save_answers_before_a_slow_posthog_does_and_the_identify_still_goes(self):
+        # PostHog holds its answer until the test lets it go, as a slow one
+        # would: the save, and the last card's same save after it, answer first
+        sender = self.sender()
+        release, answered = threading.Event(), []
+        net = self.net
+
+        def slow(req, timeout=None):
+            net(req, timeout)
+            release.wait(10)
+            answered.append(time.monotonic())
+            return Answer()
+
+        sender.opener = slow
+        took = []
+        for _ in range(2):
+            start = time.monotonic()
+            status, answer = self.call("POST", "/profile", ANSWERS)
+            took.append(time.monotonic() - start)
+            self.assertEqual((status, answer["ok"], answer["complete"]), (200, True, True))
+        self.assertEqual(answered, [], "the save waited for PostHog")
+        self.assertLess(max(took), 2, "a save took past the two seconds the board waits before it takes the onboarding away")
+        self.assertFalse(S._profile_needed(), "the profile was not kept before PostHog answered")
+        release.set()
+        self.settle()
+        # the same one identify as before, once: the second save changed nothing it holds
+        install = json.loads((self.dir / "usage-install.json").read_text())
+        self.assertEqual(self.net.bodies, [{"api_key": uc.TOKEN, "event": "$identify", "distinct_id": install["install_id"],
+                                            "properties": {"$geoip_disable": True, "$set": {
+                                                "email": EMAIL, "name": "Ada Lovelace", "work": ANSWERS["work"],
+                                                "time_zone": "Europe/London"}}}])
+        self.assertTrue(install["identify_done"])
+
+    def test_the_save_answers_while_posthog_refuses_and_the_identify_goes_on_a_later_look(self):
+        sender = self.sender()
+        net = self.net
+
+        def refusing(req, timeout=None):
+            net(req, timeout)
+            raise urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+
+        sender.opener = refusing
+        self.assertEqual(self.call("POST", "/profile", ANSWERS)[0], 200)
+        self.settle()
+        self.assertEqual(len(self.net.bodies), 1)
+        self.assertFalse(json.loads((self.dir / "usage-install.json").read_text())["identify_done"])
+        sender.opener = self.net
+        self.assertEqual(sender.identify(), "sent")
+        self.assertEqual(self.net.bodies[1], self.net.bodies[0], "the identify that went later is not the same")
+        self.assertTrue(json.loads((self.dir / "usage-install.json").read_text())["identify_done"])
 
     def test_the_two_email_rules_are_one(self):
         for value in ("ada@example.org", " ada@example.org ", "ada", "ada@", "a b@example.org", "ada@example",

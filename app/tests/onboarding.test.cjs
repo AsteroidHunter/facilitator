@@ -4,9 +4,12 @@
 // makes the sample project in the home folder, takes the profile the closing
 // card saves, and from then on opens as a board. With an email given, the
 // email and the answers reach PostHog's capture API once, which here is a
-// listener on this machine: the copied usage_counts.py is pointed at it, so
-// nothing can reach the real PostHog. The page files are read for what the
-// onboarding and the Profile section say. Nothing here touches port 8877.
+// listener on this machine: the copied usage_counts.py and the board's
+// FACILITATOR_POSTHOG_ENDPOINT are pointed at it, so nothing can reach the
+// real PostHog. The save answers before PostHog does, however slow it is or
+// when it refuses, and the identify goes afterwards. The page files are read
+// for what the onboarding and the Profile section say. Nothing here touches
+// port 8877.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -21,17 +24,45 @@ const ONBOARDING = fs.readFileSync(path.join(ROOT, "onboarding.html"), "utf8");
 const MAC = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 const PHONE = fs.readFileSync(path.join(ROOT, "m.html"), "utf8");
 
-// PostHog's capture API, as far as the board's sender needs it: every body kept
-async function fakePostHog() {
-  const bodies = [];
+// PostHog's capture API, as far as the board's sender needs it: every body kept.
+// held: each answer waits until release(), as a slow PostHog's would
+async function fakePostHog({ held = false } = {}) {
+  const bodies = [], waiting = [];
+  let answered = 0;
   const server = http.createServer((req, res) => {
     let raw = "";
     req.on("data", chunk => { raw += chunk; });
-    req.on("end", () => { bodies.push({ path: req.url, body: JSON.parse(raw) }); res.end("{\"status\": 1}"); });
+    req.on("end", () => {
+      bodies.push({ path: req.url, body: JSON.parse(raw) });
+      const answer = () => { answered++; res.end("{\"status\": 1}"); };
+      if (held) waiting.push(answer);
+      else answer();
+    });
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  return { bodies, url: `http://127.0.0.1:${server.address().port}/i/v0/e/`, close: () => new Promise(r => server.close(r)) };
+  return { bodies, url: `http://127.0.0.1:${server.address().port}/i/v0/e/`, get answered() { return answered; },
+           release: () => { held = false; waiting.splice(0).forEach(answer => answer()); },
+           close: () => { held = false; waiting.splice(0).forEach(answer => answer()); return new Promise(r => server.close(r)); } };
 }
+
+// a port on this machine that nothing listens on: connections to it are refused
+async function refusingPort() {
+  const server = http.createServer();
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+
+async function until(check, what, ms = 5000) {
+  const end = Date.now() + ms;
+  while (!(await check())) {
+    assert.ok(Date.now() < end, "timed out waiting for " + what);
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
+const installOf = board => JSON.parse(fs.readFileSync(path.join(board.data, "usage-install.json"), "utf8"));
 
 // the sender copied beside the board with its endpoint on the fake
 function senderAt(app, url) {
@@ -66,7 +97,7 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   const board = await startBoard({
     seed: { title: "facilitator", items: [] },
     extra: ["onboarding.html"],
-    env: { HOME: home },
+    env: { HOME: home, FACILITATOR_POSTHOG_ENDPOINT: posthog.url },
     prepare: ({ app }) => { noProfile(app); senderAt(app, posthog.url); },
   });
   t.after(async () => { await board.stop(); await posthog.close(); fs.rmSync(home, { recursive: true, force: true }); });
@@ -106,7 +137,9 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
                     work: "A research tool for my lab", timeZone: "America/Phoenix" };
   const saved = await board.call("POST", "/profile", JSON.stringify(answers));
   assert.equal(saved.status, 200, saved.text);
-  assert.equal(json(saved).sent, true);
+  assert.equal("sent" in json(saved), false, "the save still says what PostHog did, so it waited on it");
+  // PostHog is told afterwards, on a thread of its own
+  await until(() => installOf(board).identify_done, "the identify");
   assert.equal(posthog.bodies.length, 1);
   const [identify] = posthog.bodies;
   assert.equal(identify.path, "/i/v0/e/");
@@ -114,7 +147,7 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   assert.deepEqual(identify.body.properties, { $geoip_disable: true, $set: {
     email: "ada@example.org", name: "Ada Lovelace", work: "A research tool for my lab",
     time_zone: "America/Phoenix" } });
-  const install = JSON.parse(fs.readFileSync(path.join(board.data, "usage-install.json"), "utf8"));
+  const install = installOf(board);
   assert.equal(identify.body.distinct_id, install.install_id);
   const kept = JSON.parse(fs.readFileSync(path.join(board.data, "profile.json"), "utf8"));
   assert.deepEqual(kept, { name: "Ada Lovelace", email: "ada@example.org", email_yes: true,
@@ -127,6 +160,8 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   const edited = await board.call("POST", "/profile", JSON.stringify({ work: "Teaching", agent: "Codex", timeZone: "America/Phoenix" }));
   assert.equal(edited.status, 200, edited.text);
   assert.equal("agent" in json(edited), false, "the answer still holds an agent");
+  await until(() => installOf(board).identify_done, "the edit's identify");
+  assert.equal(posthog.bodies.length, 2);
   assert.deepEqual(posthog.bodies[1].body.properties, { $geoip_disable: true, $set: { work: "Teaching" } });
   assert.equal("agent" in JSON.parse(fs.readFileSync(path.join(board.data, "profile.json"), "utf8")), false);
   await board.call("POST", "/profile", JSON.stringify({ emailYes: false }));
@@ -142,6 +177,51 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   const log = fs.readdirSync(board.logs).map(f => fs.readFileSync(path.join(board.logs, f), "utf8")).join("");
   for (const value of ["Ada", "ada@example.org", "research", "Teaching", "Writing", install.install_id])
     assert.ok(!log.includes(value), "the log holds " + value);
+});
+
+// the board takes the onboarding away two seconds after its readings stop asking
+// for it unless the frame's save has answered (onboardingWatch in index.html), so
+// the save must never wait on PostHog
+test("the profile save answers before PostHog does, slow or refusing, and the identify still goes once", async t => {
+  const answers = JSON.stringify({ name: "Ada Lovelace", email: "ada@example.org", emailYes: true,
+                                   work: "A research tool for my lab", timeZone: "America/Phoenix" });
+  const boardAt = url => startBoard({ extra: ["onboarding.html"], env: { FACILITATOR_POSTHOG_ENDPOINT: url },
+                                      prepare: ({ app }) => { noProfile(app); senderAt(app, url); } });
+  const timed = async board => {
+    const start = Date.now();
+    const saved = await board.call("POST", "/profile", answers);
+    return { saved, ms: Date.now() - start };
+  };
+
+  // a PostHog that holds its answer: the summary card's save and the last card's same save both answer first
+  const slow = await fakePostHog({ held: true });
+  const board = await boardAt(slow.url);
+  t.after(async () => { await board.stop(); await slow.close(); });
+  for (const which of ["the summary card's save", "the last card's save"]) {
+    const { saved, ms } = await timed(board);
+    assert.equal(saved.status, 200, saved.text);
+    assert.equal(slow.answered, 0, which + " waited for PostHog");
+    assert.ok(ms < 2000, which + " took " + ms + " ms, past the two seconds the board waits before it takes the onboarding away");
+  }
+  assert.equal("onboarding" in json(await board.call("GET", "/state")), false);
+  await until(() => slow.bodies.length === 1, "the identify to reach PostHog");
+  slow.release();
+  await until(() => installOf(board).identify_done, "PostHog's answer to the identify");
+  assert.equal(slow.bodies.length, 1, "the last card's save told PostHog again");
+  assert.deepEqual(slow.bodies[0].body.properties, { $geoip_disable: true, $set: {
+    email: "ada@example.org", name: "Ada Lovelace", work: "A research tool for my lab", time_zone: "America/Phoenix" } });
+
+  // a PostHog that refuses: the save answers at once and the identify is kept for a later look
+  const url = `http://127.0.0.1:${await refusingPort()}/i/v0/e/`;
+  const offline = await boardAt(url);
+  t.after(() => offline.stop());
+  const { saved, ms } = await timed(offline);
+  assert.equal(saved.status, 200, saved.text);
+  assert.ok(ms < 2000, "the save took " + ms + " ms");
+  const logged = () => fs.readdirSync(offline.logs).map(f => fs.readFileSync(path.join(offline.logs, f), "utf8")).join("");
+  await until(() => /"what": "identify", "outcome": "failed"/.test(logged()), "the identify to fail");
+  const kept = installOf(offline);
+  assert.deepEqual([kept.feedback_yes, kept.email, kept.identify_done], [true, "ada@example.org", false]);
 });
 
 test("a board that already has a profile opens as a board", async t => {

@@ -558,8 +558,10 @@ Endpoints:
                                yes, then only an answer that changes. Without
                                the yes nothing leaves, and a yes taken back is
                                forgotten there (unlink_email) with nothing
-                               sent. Answers the stored profile with ok and
-                               sent (PostHog holds the person as saved). Local
+                               sent. Answers the stored profile with ok at
+                               once: PostHog is told afterwards, on a thread
+                               the usage sender starts for it, so a slow or
+                               unreachable PostHog never holds the save up. Local
                                only like /usage/email, body capped at 8192
                                bytes, and no log line holds a value
   GET  /onboarding          -> onboarding.html, the onboarding the Mac board
@@ -8842,19 +8844,19 @@ def _profile_person(rec: dict) -> dict:
     return {key: value for key, value in named.items() if value is not None}
 
 
-def _profile_link(rec: dict) -> bool:
+def _profile_link(rec: dict) -> None:
     """The usage sender's record follows the profile's yes. With the yes, the
-    email and the answers go to link_person, which keeps them and tells
-    PostHog only what it has not been told, so a save that changed nothing it
-    holds sends nothing; without it, a yes kept there is forgotten and nothing
-    is sent. True when PostHog holds the person as they are now."""
+    email and the answers go to link_person, which keeps them now and tells
+    PostHog, on a thread of its own, only what it has not been told, so a save
+    that changed nothing it holds sends nothing and no save waits on PostHog;
+    without it, a yes kept there is forgotten and nothing is sent."""
     sender = _usage_sender
     if sender is None:
-        return False
+        return
     if rec["email_yes"]:
-        return sender.link_person(_profile_person(rec), True) == "sent"
-    sender.unlink_email()
-    return False
+        sender.link_person(_profile_person(rec), True, wait=False)
+    else:
+        sender.unlink_email()
 
 
 def _get_profile(q: Query, _):
@@ -8925,9 +8927,9 @@ def _post_profile(q: Query, text: str):
             rec["email_yes"] = False   # the yes goes with the address
         _profile_write(rec)
         _info("profile", fields=",".join(sorted(new)), yes=rec["email_yes"])
-    # outside the lock: telling PostHog can take the sender's whole timeout
-    sent = _profile_link(rec)
-    return 200, {"ok": True, **_profile_answer(rec), "sent": sent}
+    # outside the lock: taking the yes back waits for an identify already on its way
+    _profile_link(rec)
+    return 200, {"ok": True, **_profile_answer(rec)}
 
 
 # ---- the onboarding ---------------------------------------------------------------

@@ -112,9 +112,11 @@ The server starts Sender.run on a thread of its own once the board is up, and
 every failure is caught and written down. Only link_person, link_email,
 unlink_email and send_feedback run on a request (POST /profile, POST
 /usage/email and POST /feedback in server.py), and each sends at most one
-message; phone_opened runs on POST /clientlog and sends nothing. No log line
-ever holds an email address, any other answer, a feedback message, an install
-id or the token.
+message; POST /profile asks link_person not to wait, so its identify goes on
+a thread of its own (identify_soon) and the save never waits on PostHog.
+phone_opened runs on POST /clientlog and sends nothing. No log line ever holds
+an email address, any other answer, a feedback message, an install id or the
+token.
 
 For tests, FACILITATOR_POSTHOG_ENDPOINT points every send at a local stub. It
 is honoured only for an http address on this Mac (127.0.0.1 or localhost), so
@@ -755,7 +757,7 @@ class Sender:
             self.log("usage", what="identify", outcome=outcome, **({"reason": why} if why else {}))
             return outcome
 
-    def link_person(self, person, yes) -> str:
+    def link_person(self, person, yes, wait=True) -> str:
         """The person said yes to being emailed for feedback: keeps the yes, the
         address and the answers that go with it (clean_answers: name, work,
         time_zone) next to the install id, in place of the ones kept, then
@@ -766,13 +768,14 @@ class Sender:
         sent. Returns "no", "bad" or "unsaved" for those and for a file that
         cannot be written, else what identify() answers: "sent", "off" (kept,
         goes when the switch is on), "failed" (kept, goes on a later look) or
-        "refused"."""
+        "refused". With wait=False the keeping is the same, PostHog is told
+        on a thread of its own (identify_soon) and the answer is "kept"."""
         if yes is not True:
             return "no"
         address = clean_email(person.get("email") if isinstance(person, dict) else None)
         if address is None:
             return "bad"
-        return self._link(address, clean_answers(person))
+        return self._link(address, clean_answers(person), wait)
 
     def link_email(self, email, yes) -> str:
         """link_person with the email alone: the answers already kept stay as
@@ -784,13 +787,30 @@ class Sender:
             return "bad"
         return self._link(address, None)
 
-    def _link(self, address: str, answers: dict | None) -> str:
+    def _link(self, address: str, answers: dict | None, wait: bool = True) -> str:
         try:
             self.install.link(address, answers)
         except OSError as e:
             self.log("usage", what="identify", outcome="unsaved", reason=e.strerror or type(e).__name__)
             return "unsaved"
+        if not wait:
+            self.identify_soon()
+            return "kept"
         return self.identify()
+
+    def identify_soon(self) -> threading.Thread:
+        """identify() on a thread of its own, for a request that must answer
+        without waiting on PostHog. It reads the saved person when it runs,
+        so it follows the rules identify() does; a throw is written down, as a
+        look's is, and the thread is a daemon."""
+        def tell():
+            try:
+                self.identify()
+            except Exception as e:
+                self.log("usage", what="identify", outcome="error", reason=type(e).__name__)
+        thread = threading.Thread(target=tell, name="usage-identify", daemon=True)
+        thread.start()
+        return thread
 
     def unlink_email(self) -> str:
         """The person took the yes back: the address and the answers are
