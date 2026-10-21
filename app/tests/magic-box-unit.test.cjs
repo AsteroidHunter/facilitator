@@ -2559,6 +2559,54 @@ test("on the Mac the button expands the box and Escape puts it back, the focus b
   assert.match(html, /if \(MB\.view\.big\)\{ magicPlaceBig\(\); return; \}/);
 });
 
+test("on the Mac a box that held the keys as it was expanded still holds them as it goes back, and one that did not lets them go", () => {
+  const { ctx, MB, doc, calls, inBox, field, escape } = boardBig();
+  const typing = field("typing box"), frame = field("page");
+  inBox.add(frame);
+  frame.blur = () => { doc.activeElement = doc.body; calls.push("blur page"); };
+  ctx.magicHold = inside => { MB.el.classList[inside ? "add" : "remove"]("held"); calls.push("hold " + inside); };
+  const held = () => MB.el.classList.contains("held");
+  // held as it was expanded (a click in it, or control+option+right): the keys stay in the box as it
+  // goes back by the button, Escape or the dimmed board (all magicSmall), even with the typing box
+  // read as what had the focus when it was asked for
+  MB.el.classList.add("held");
+  for (const from of [null, typing]) {
+    ctx.magicBig(from);
+    calls.length = 0;
+    escape();
+    assert.equal(MB.view.big, false);
+    assert.ok(held() && doc.activeElement === doc.body, "the box holds the keys");
+    assert.ok(!calls.some(c => /^(focus|hold|caret|blur)/.test(c)), calls.join(", "));
+  }
+  // a page in it that had them keeps them
+  ctx.magicBig(frame); doc.activeElement = frame; ctx.magicSmall();
+  assert.ok(held() && doc.activeElement === frame);
+  // given back to the card while it was expanded (control+option+left), they stay there
+  ctx.magicBig(null); MB.el.classList.remove("held"); doc.activeElement = typing; ctx.magicSmall();
+  assert.ok(!held() && doc.activeElement === typing);
+  // not held as it was expanded, then clicked into: the keys go back to the typing box and the box lets go
+  ctx.magicBig(typing); MB.el.classList.add("held"); doc.activeElement = doc.body; ctx.magicSmall();
+  assert.ok(!held() && doc.activeElement === typing);
+  // and with nothing to go back to, whatever in the box took them lets go too
+  ctx.magicBig(null); MB.el.classList.add("held"); doc.activeElement = frame; ctx.magicSmall();
+  assert.ok(!held() && doc.activeElement === doc.body, "the page in it lets go");
+  // the press on the dimmed board that puts it back leaves the box held or not as it was, as one on
+  // the cross or the green button does, and like them it takes the focus from nothing
+  const html = read("index.html"), on = {}, classes = new Set(["on"]);
+  const el = { contains: () => false, classList: { contains: c => classes.has(c), toggle: (c, yes) => (yes ? classes.add(c) : classes.delete(c)) } };
+  vm.runInContext(html.slice(html.indexOf("function magicHold("), html.indexOf('addEventListener("focusin"')),
+    vm.createContext({ MB: { el, came: null }, addEventListener: (type, fn) => { on[type] = fn; } }));
+  const shade = { closest: sel => (sel === "#mbshade" ? shade : null) }, board = { closest: () => null };
+  classes.add("held"); on.pointerdown({ target: shade });
+  assert.equal(classes.has("held"), true, "held");
+  on.pointerdown({ target: board });
+  assert.equal(classes.has("held"), false, "a press anywhere else on the board still takes the keys");
+  on.pointerdown({ target: shade });
+  assert.equal(classes.has("held"), false, "not held");
+  assert.match(html, /for \(const b of \[MB\.el\.querySelector\("\.mbclose"\), MB\.grow, MB\.shade\]\) b\.addEventListener\("mousedown", e => e\.preventDefault\(\)\);/);
+  assert.match(html, /MB\.bigFrom = from && from !== document\.body \? from : null;\s*MB\.bigHeld = MB\.el\.classList\.contains\("held"\);/);
+});
+
 test("on the phone the button lifts the box into the top layer over a shade, inside the safe areas, and the drawer puts it back first", () => {
   const { ctx, PB, box, body, listeners } = phoneBoxScript(read("m.html"));
   const order = [];
