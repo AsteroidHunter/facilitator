@@ -709,6 +709,23 @@ test("101: Phone App holds his words with the photo of the phone app in the boar
   // the line under its bar is the card bar's own, as the board draws it under its box's bar (v0.2.508)
   assert.ok(ONBOARDING.includes("  #magicbox .mbbar{background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}"));
   assert.match(ONBOARDING, /body\.focus \.box\.sel \.topbar\{[^}]*box-shadow:inset 0 calc\(-1 \* var\(--edge-drawn\)\) 0 var\(--line\);/);
+  // its two lines to the card are the board's: the svg before the card, its rules, and TWO, magicTwo and magicLine
+  // word for word, taken off at every placing and drawn once the box is shown, as magicPlace does
+  assert.ok(MAC.includes('<svg id="mbline" aria-hidden="true"></svg>'));
+  assert.ok(ONBOARDING.includes('</section>\n<!-- the lines from the card to its magic box, two dashed lines beneath the\n' +
+    '     card and the box: before the card on the page, so it is drawn over them -->\n' +
+    '<svg id="mbline" aria-hidden="true"></svg>\n<div id="obstage">'));
+  for (const start of ["  #mbline{", "  body.focus #mbline.on{", "  body.focus #mbline.on > g{"])
+    assert.equal(rule(ONBOARDING, start), rule(MAC, start));
+  const piece = (source, start, end) => { const at = source.indexOf(start); assert.ok(at >= 0, start); return source.slice(at, source.indexOf(end, at) + end.length); };
+  const unindent = text => text.replace(/^  /gm, "");
+  assert.ok(ONBOARDING.includes("\n  " + piece(MAC, "const TWO = {", "};") + "\n"));
+  assert.equal(unindent(piece(ONBOARDING, "  function magicTwo(card, box){", "\n  }\n")), piece(MAC, "function magicTwo(card, box){", "\n}\n"));
+  assert.equal(unindent(piece(ONBOARDING, "  function magicLine(card, box){", "\n  }\n")).replaceAll("BOX.line", "MB.line"),
+    piece(MAC, "function magicLine(card, box){", "\n}\n"));
+  assert.ok(MAC.includes('  MB.line.classList.remove("on");\n  const room = magicRoom();') && MAC.includes("  magicLine(rect, at);\n  boxRise(MB);"));
+  assert.ok(ONBOARDING.includes('BOX.el.classList.toggle("on", on);\n    BOX.line.classList.remove("on");\n    if (!on) return;'));
+  assert.ok(ONBOARDING.includes('height: seat.height + "px", visibility: "" });\n    // shown: its lines to the card\n    magicLine(rect, seat);\n  }'));
   // a plain lossy WebP, RIFF and one VP8 chunk with nothing after it, so it holds no Exif, XMP or ICC chunk
   const picture = fs.readFileSync(path.join(ROOT, "assets", "phone_app_on_stand.webp"));
   assert.equal(picture.toString("latin1", 0, 4) + picture.toString("latin1", 8, 16), "RIFFWEBPVP8 ");

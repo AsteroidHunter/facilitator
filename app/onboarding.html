@@ -638,11 +638,12 @@
      drawn at full strength in the shadow a box wears while it is held (.held
      there), the card's own: nothing here can hold the box, and the faint look
      a box wears beside the card being worked in, its lighter shadow at 60%,
-     would only wash the photo out.
+     would only wash the photo out. its two lines to the card are the board's
+     too (#mbline below).
      left out: the bar's two buttons (nothing here expands or closes the
      box), the rise (a box already open on a card is simply there when the
-     card is shown), the lines to the card, the expanded box and its shade,
-     the lowered card, home and edit mode */
+     card is shown), the lines' fade as the box moves (it never moves here),
+     the expanded box and its shade, the lowered card, home and edit mode */
   body.focus{--shade-raised:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1}
@@ -655,6 +656,19 @@
   #magicbox .mbbar{background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
   #magicbox .mbbar::after{display:none}
   #magicbox .mbbody{overflow:hidden}
+  /* the two lines that tie the box to its card, as the owner chose them in the
+     connector mock (magicLine): the card's own edge colour, dashed, 4/3 px,
+     straight across the gap from the card's right edge to the box's left
+     edge, and no further. they lie beneath the card and the box (#mbline,
+     before the card, under the box's z-index), and wear the card's own
+     shadow, its two layers at the strength a filter gives them (a filter's
+     blur is the spread of the blur a box-shadow asks for, so half of it).
+     the shadow is on the group inside the svg, not on the svg, so it is
+     painted once with the lines (m1216). they come and go with the box */
+  #mbline{display:none}
+  body.focus #mbline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
+    overflow:visible; pointer-events:none; z-index:0}
+  body.focus #mbline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
   /* a click on the photo opens nothing here, so it keeps the plain pointer */
   #magicbox .mbimg{cursor:default}
 
@@ -783,6 +797,9 @@
   <div class="mbbar"></div>
   <div class="mbbody" data-kind="image"></div>
 </section>
+<!-- the lines from the card to its magic box, two dashed lines beneath the
+     card and the box: before the card on the page, so it is drawn over them -->
+<svg id="mbline" aria-hidden="true"></svg>
 <div id="obstage"><main><div id="sections"></div></main></div>
 <!-- the ticket list, as index.html has it -->
 <div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
@@ -1312,9 +1329,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // picture (view.want in card-logic.js), and the box takes its shape. a window
   // with too little room beside the card for the board's box does not show it
   // (MagicBox.place's shown) and shows it again once the room is back, and the
-  // photo still on its way keeps it hidden, as on the board
+  // photo still on its way keeps it hidden, as on the board. its two lines to
+  // the card are drawn each time it is placed and shown, and taken off
+  // whenever it is not, as magicPlace does
   const FRAME_CLEAR = 16;   // index.html's
-  const BOX = { el: document.getElementById("magicbox") };
+  const BOX = { el: document.getElementById("magicbox"), line: document.getElementById("mbline") };
   BOX.bar = BOX.el.querySelector(".mbbar");
   BOX.body = BOX.el.querySelector(".mbbody");
   BOX.body.innerHTML = PHONE_IMAGE;
@@ -1322,6 +1341,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
   function placeBox(){
     const on = cards[at].spec.id === PHOTO_ON;
     BOX.el.classList.toggle("on", on);
+    BOX.line.classList.remove("on");
     if (!on) return;
     const r = document.querySelector("main").getBoundingClientRect();
     const rect = { left: r.left, top: r.top, width: r.width, height: r.height };
@@ -1337,9 +1357,44 @@ for (const pane of document.querySelectorAll(".tikpane")){
                                              head: BOX.bar.offsetHeight });
     Object.assign(BOX.el.style, { left: seat.left + "px", top: seat.top + "px", width: seat.width + "px",
                                   height: seat.height + "px", visibility: "" });
+    // shown: its lines to the card
+    magicLine(rect, seat);
   }
   BOX.photo.addEventListener("load", placeBox);
   addEventListener("resize", placeBox);
+  // copied from index.html, where these live inline: the lines from the card
+  // to its box, the ones every box draws, as the owner chose them in the
+  // connector mock (m1237, mock-box-connector-20261013.html: Two lines,
+  // Dashed, n = 52). two level dashed lines across the gap, with no tabs, each
+  // from the card's right edge to the box's left edge and no further:
+  //   the first sits a share of the box's height down from its top and the
+  //     second the same share up from its foot: the mock's n of 52 on its box
+  //     488 high, so the two keep the same look on a box of any size and never
+  //     meet
+  //   each is dashes 6 long with gaps of 4, 4/3 wide, with flat ends, in the
+  //     card's edge colour, counted from the box's edge, so a whole dash ends
+  //     exactly at it
+  // a gap narrower than 8 px gives null, and no line is drawn
+  const TWO = { gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 };
+  function magicTwo(card, box){
+    const cr = card.left + card.width;
+    if (box.left - cr < TWO.gap) return null;
+    const n = box.height * TWO.share;
+    const ys = [box.top + n, box.top + box.height - n];
+    return { ys, from: cr, to: box.left };
+  }
+  function magicLine(card, box){
+    const two = magicTwo(card, box);
+    if (!two) return;
+    // the card's own edge colour, read off the card, so the lines are always it
+    const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
+    // each path starts at the box's edge, where its dashes are counted from. both
+    // are one group, which wears the shadow (#mbline.on > g)
+    BOX.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + two.to.toFixed(2) + ' ' + y.toFixed(2) + 'L' +
+      two.from.toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
+      '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+    BOX.line.classList.add("on");
+  }
 
   // ---- one card, built the way makeBox builds one (in index.html) ------
   function makeCard(spec){
