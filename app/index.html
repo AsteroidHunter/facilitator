@@ -12915,6 +12915,9 @@ async function poll(timed = false){
       // that stopped this one does the rest after it, too
       lastState = state;
       if (!await applySliced(state) && lastState !== state) return;
+      // and what is left of the poll (the magic box, the reader's layout, the
+      // caret) in idle time of its own, apart from the draw's last slice
+      await drawIdle();
     } else {
       if (!lastState) build(state);
       apply(state);
