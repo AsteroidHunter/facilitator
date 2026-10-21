@@ -2534,7 +2534,9 @@ test("on the Mac the button expands the box and Escape puts it back, the focus b
   // the typing box's caret and selection as they were, when the box remembered them
   MB.came = { ta: typing };
   ctx.magicBig(typing); doc.activeElement = button; ctx.magicSmall();
-  assert.equal(calls[calls.length - 1], "caret back");
+  // and before the box sets off (here the quick fade of reduced motion), so the keys are where they
+  // will be as it lands, and it eases toward that strength, faint or not, from its first frame
+  assert.deepEqual(calls.slice(-4), ["place", "focus typing box", "caret back", "fade"]);
   // the owner's focus put somewhere else on the board meanwhile stays there
   const other = field("title");
   ctx.magicBig(typing); doc.activeElement = other; ctx.magicSmall();
@@ -2636,24 +2638,30 @@ test("on the Mac the box zooms out of its place beside the card and back into it
   const rect = s => ({ left: s.left, top: s.top, width: s.width, height: s.height });
   Object.assign(ctx, { cardPictureStill: () => false, getComputedStyle: () => drawn || MB.el.style,
     magicPlace: () => { if (MB.view.big) ctx.magicPlaceBig(); else Object.assign(MB.el.style, small); } });
-  Object.assign(MB.el.style, small);
+  // a faint box beside the card: the keys are in the card
+  Object.assign(MB.el.style, small, { opacity: "0.6" });
   ctx.magicBig(null);
   const big = rect(MB.el.style);
-  assert.deepEqual(anims[0].keys, [small, big], "from its place beside the card to the expanded one");
+  // and at the strength it was drawn at, which the move eases up to the expanded box's own
+  assert.deepEqual(anims[0].keys, [{ ...small, opacity: "0.6" }, big], "from its place beside the card to the expanded one");
   // the time and curve a card's picture zooms out of its card on (openCardPicture)
   assert.deepEqual(anims[0].opts, { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
   assert.ok(MB.move === anims[0] && MB.el.classList.contains("moving"));
   // landed, it is placed as it always is
   anims[0].onfinish();
   assert.ok(!MB.move && !MB.el.classList.contains("moving"));
-  // and back into its place, over the shade until it lands, its lines to the card drawn once it has
+  // and back into its place, over the shade until it lands, its lines to the card drawn once it has.
+  // it sets off at the expanded box's full strength, and its last frame holds none: it ends on the
+  // strength its own rules give it there, faint or not, so nothing is left to fade once it lands
+  MB.el.style.opacity = "1";
   ctx.magicSmall();
-  assert.deepEqual(anims[1].keys, [big, small]);
+  assert.deepEqual(anims[1].keys, [{ ...big, opacity: "1" }, small]);
+  assert.ok(!("opacity" in anims[1].keys[1]) && !("opacity" in anims[0].keys[1]), "the last frame leaves the strength to the box's own rules");
   assert.deepEqual(anims[1].opts, { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
   assert.ok(MB.el.classList.contains("moving") && !lines.has("on"));
-  // turned round on its way, it sets off again from where it had got to, in the time it had
-  // spent, as the picture does, and never in less than .4 of the whole
-  drawn = { left: "500px", top: "100px", width: "800px", height: "700px" };
+  // turned round on its way, it sets off again from where it had got to, at the strength it had
+  // got to, in the time it had spent, as the picture does, and never in less than .4 of the whole
+  drawn = { left: "500px", top: "100px", width: "800px", height: "700px", opacity: "0.8" };
   anims[1].currentTime = 150;
   ctx.magicBig(null);
   assert.ok(anims[1].cancelled);
@@ -2682,8 +2690,40 @@ test("on the Mac the box zooms out of its place beside the card and back into it
   assert.doesNotMatch(sheet.slice(sheet.indexOf("#mbshade{display:none}"), sheet.indexOf("body.focus.mbup #stage")), /transition:background-color/);
   const z = sel => +sheet.match(new RegExp(sel + "\\{[^}]*z-index:(\\d+)"))[1];
   assert.ok(z("body\\.focus #magicbox\\.moving\\.on") > z("body\\.focus #mbshade"), "on its way back the box stays over the shade");
+  // on its way no rule gives it a strength, so the move's is the one drawn, and the box's own .2s
+  // fade is off, so it never fades on its own as it lands; expanded it is whole, beside the card
+  // whole if held and faint if not
+  assert.equal(sheet.match(/\n  body\.focus #magicbox\.moving\.on\{([^}]*)\}/)[1], "z-index:61; transition:box-shadow .2s");
+  assert.match(sheet, /\n  body\.focus #magicbox\.big\.on\{z-index:61; opacity:1; box-shadow:var\(--shade-raised\)\}/);
+  assert.match(sheet, /\n  :is\(#magicbox, #pipebox\)\.held\{box-shadow:var\(--shade-raised\); opacity:1\}/);
+  assert.match(sheet, /\n  :is\(#magicbox, #pipebox\)\{[^}]*opacity:var\(--shade-unselected\); transition:box-shadow \.2s, opacity \.2s\}/);
   // a small picture shrinks with the box from where it stood
   assert.match(read("card-tokens.css"), /\.magicbox:is\(\.big, \.moving\) \.mbimg\{object-fit:scale-down\}/);
+});
+
+test("on the Mac the keys moving while the box is on its way take it to its new strength from where it is, over the box's own .2s", () => {
+  const html = read("index.html");
+  const src = html.slice(html.indexOf("function magicHold("), html.indexOf("// where the owner is on the card as the box takes the keys"));
+  const classes = new Set(["on"]), anims = [];
+  const MB = { el: { classList: { contains: c => classes.has(c), toggle: (c, yes) => (yes ? classes.add(c) : classes.delete(c)) },
+    animate: (keys, opts) => anims.push({ keys: flat(keys), opts: flat(opts) }) }, move: null, came: null };
+  // the strength the move draws: faint while the keys are in the card, whole once the box holds them
+  const ctx = vm.createContext({ MB, getComputedStyle: () => ({ opacity: classes.has("held") ? "0.95" : "0.72" }) });
+  vm.runInContext(src, ctx);
+  // standing beside the card the class is all there is, which the box's own .2s fade eases
+  ctx.magicHold(true); ctx.magicHold(false);
+  assert.equal(anims.length, 0);
+  // on its way, from the strength it is drawn at as the keys move, to the one the move now gives it
+  MB.move = {};
+  ctx.magicHold(true);
+  assert.equal(classes.has("held"), true);
+  assert.deepEqual(anims, [{ keys: [{ opacity: "0.72" }, {}], opts: { duration: 200, easing: "ease" } }]);
+  // the keys staying where they are change nothing
+  ctx.magicHold(true);
+  assert.equal(anims.length, 1);
+  ctx.magicHold(false);
+  assert.deepEqual(anims[1].keys, [{ opacity: "0.95" }, {}]);
+  assert.equal(classes.has("held"), false);
 });
 
 test("on the phone the box zooms out of its place in the drawer and back into it as a picture does, in the top layer both ways", () => {
