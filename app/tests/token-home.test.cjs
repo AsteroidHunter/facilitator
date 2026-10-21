@@ -1120,7 +1120,8 @@ function recording() {
                                               actualBoundingBoxLeft: 0, actualBoundingBoxRight: String(s).length * 7 });
       if (k === "createLinearGradient") return () => ({ addColorStop() {} });
       if (k in t) return t[k];
-      return (...args) => { calls.push([k, ...args]); };
+      // text is written down with the side it is set from
+      return (...args) => { calls.push(k === "fillText" || k === "strokeText" ? [k, ...args, t.textAlign || "left"] : [k, ...args]); };
     },
     set: (t, k, v) => { t[k] = v; return true; },
   });
@@ -1243,6 +1244,41 @@ test("the picture's line marks the install day, and leaves the mark out when tha
   assert.equal(W.seriesOf(days, W.pictureStart(days), ago(6)).install, -1);
   assert.equal(W.seriesOf(days, W.pictureStart(days), ago(7)).install, W.seriesOf(days).n - 1 - 7);
   for (const pick of [0, 1, 2]) assert.equal(paintOf(W, "heatmap", pick, days, inside).calls.some(c => c[1] === "Facilitator installed"), false, "never on the heatmap");
+});
+
+test("a board first started not long ago keeps its install label inside the picture and clear of the high point's note", () => {
+  const { W } = widgets();
+  // use growing all year, so the high point is the last days, just after the install day
+  const days = daysEnding("2026-09-27", 371, k => Math.round(1e6 * 10 ** (k / 120)));
+  const ago = n => days.at(-1 - n).date;
+  // the boxes of the words painted, at the recording canvas's 7px a letter
+  const boxes = r => r.calls.filter(c => c[0] === "fillText").map(([, s, x, y, align]) => {
+    const w = String(s).length * 7, left = align === "right" ? x - w : align === "center" ? x - w / 2 : x;
+    return { s, x0: left, x1: left + w, y0: y - 12, y1: y + 3 };
+  });
+  const meet = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  for (const n of [7, 10, 14]) W.DICE.line.forEach((look, pick) => {
+    const named = `${look.join(" ")}, installed ${n} days ago`;
+    const words = boxes(paintOf(W, "line", pick, days, ago(n)));
+    const label = words.filter(b => b.s === "Facilitator installed");
+    assert.equal(label.length, 1, `${named}: marked once`);
+    // the label and the date under it (Editorial's "September 17", Lab's "Sep 17, 2026")
+    const p = ago(n).split("-").map(Number), month = ["January", "February", "March", "April", "May", "June", "July",
+      "August", "September", "October", "November", "December"][p[1] - 1];
+    const dates = words.filter(b => b.s === `${month} ${p[2]}` || b.s === `${month.slice(0, 3)} ${p[2]}, ${p[0]}`);
+    for (const b of [...label, ...dates]) assert.ok(b.x0 >= 0 && b.x1 <= 1200, `${named}: "${b.s}" stays inside the picture`);
+    // Lab's label stands left of its line where the right has no room
+    if (look[0] === "lab") assert.ok(label[0].x1 <= 1164, `${named}: Lab's label ends inside the plot`);
+    // Poster's note keeps clear of the tag
+    if (look[0] === "poster") {
+      const note = words.filter(b => /^(Highest median|Busiest week)$/.test(b.s) || / around | median, /.test(b.s));
+      assert.equal(note.length, 2, `${named}: the note is there`);
+      for (const b of note) assert.ok(!meet(b, label[0]), `${named}: "${b.s}" is clear of the tag`);
+    }
+  });
+  // an install day well back in the year keeps Lab's label right of its line, as the mock has it
+  const lab = paintOf(W, "line", 2, days, ago(100)).calls.find(c => c[0] === "fillText" && c[1] === "Facilitator installed");
+  assert.equal(lab.at(-1), "left");
 });
 
 // a reading whose days have use where `on` says, `level` tokens each

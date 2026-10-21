@@ -1232,7 +1232,12 @@
         const ly = top + 12, need = ly + lh + 10 - top, highs = this.highs(S, c, { xAt });
         const reach = lx => Math.max(0, ...highs.filter(([x]) => x >= lx - 10 && x <= lx + lw + 10).map(([, v]) => v));
         const instX = S.install >= 0 ? xAt(S.install) : -1e9;
-        const clearOfMark = lx => lx > instX + 150 || lx + lw < instX - 4;
+        // the install label stands right of its line, or, where that would
+        // pass the plot's right edge (a board first started not long ago),
+        // left of it
+        const markW = S.install >= 0 ? Math.max(widthOf(INSTALLED, F(500, 12.5)), widthOf(shortDate(S.last) + ", 2026", F(400, 12, MONO))) : 0;
+        const markRight = instX + 11 + markW <= R;
+        const clearOfMark = lx => (markRight ? lx > instX + 150 || lx + lw < instX - 4 : lx > instX + 4 || lx + lw < instX - 11 - markW);
         const fits = (lx, axisTop) => reach(lx) / axisTop < 1 - need / (base - top) && clearOfMark(lx);
         // the axis is fitted to the highest thing drawn, the days' dots included
         const peak = Math.max(0, ...highs.map(([, v]) => v));
@@ -1242,11 +1247,10 @@
           if (fits(right, axis.top)) lx = right;
           else axis = niceAxis(Math.max(peak, reach(lx) / (1 - need / (base - top))));
         }
-        // the install label stands right of its line at the top; the axis makes room for it too
-        if (S.install >= 0) {
-          const w = Math.max(widthOf(INSTALLED, F(500, 12.5)), widthOf(shortDate(S.last) + ", 2026", F(400, 12, MONO)));
-          axis = roomFor(axis, highs, x => x, instX + 3, instX + 11 + w, top + 36, top, base);
-        }
+        // the install label stands at the top beside its line; the axis makes room for it too
+        if (S.install >= 0)
+          axis = markRight ? roomFor(axis, highs, x => x, instX + 3, instX + 11 + markW, top + 36, top, base)
+                           : roomFor(axis, highs, x => x, instX - 11 - markW, instX - 3, top + 36, top, base);
         const g = { xAt, yAt: v => base - v / axis.top * (base - top) };
         const axisInk = "#4A4239", grid = "#E9E3D9";
         // faint lines at each named count, then the two axes and their ticks, all under the data
@@ -1268,8 +1272,9 @@
           const x = Math.round(g.xAt(S.install)) + 0.5;
           ctx.save(); ctx.strokeStyle = rgba(INK, 0.5); ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
           ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, floor); ctx.stroke(); ctx.restore();
-          haloed(INSTALLED, x + 7, top + 12, INK, F(500, 12.5), "left");
-          haloed(shortDate(S.shown[S.install].date) + ", " + parts(S.last).y, x + 7, top + 28, SUB, F(400, 12, MONO), "left");
+          const tx = markRight ? x + 7 : x - 7, align = markRight ? "left" : "right";
+          haloed(INSTALLED, tx, top + 12, INK, F(500, 12.5), align);
+          haloed(shortDate(S.shown[S.install].date) + ", " + parts(S.last).y, tx, top + 28, SUB, F(400, 12, MONO), align);
         }
         this.draw(S, c, g);
         // names: counts up the left, months along the floor, the axis up the side
@@ -1385,20 +1390,26 @@
         }
         // the high point's note: at the top of the chart to the left of the point,
         // else to its right, else under the install tag, whichever is first clear
-        // of the tag and of the data. Where none is, the axis is raised until the
-        // note at the top is clear, so it reads whatever shape the year has
+        // of the tag and of the data. A point just after the install day (a
+        // board first started not long ago) has the tag's line between it and
+        // those places, so last comes a place under the tag on the far side of
+        // its line, the leader running across to the point (side 2). Where none
+        // is clear, the axis is raised until the note is, so it reads whatever
+        // shape the year has
         const hi = highOf(S, c), nf = [F(600, 14), F(400, 14)];
         const nw = Math.max(widthOf(hi.words[0], nf[0]), widthOf(hi.words[1], nf[1]));
         const under = tagBox ? tagBox.y1 + 26 : top + 50;
         const plan = axisTop => {
           const g = { xAt, yAt: v => base - v / axisTop * (base - top), top, base }, hx = xAt(hi.i), tops = this.tops(S, c, g);
-          const box = ([side, ny]) => ({ x0: side < 0 ? hx - 14 - nw : hx + 14, x1: side < 0 ? hx - 14 : hx + 14 + nw, y0: ny - 15, y1: ny + 27 });
+          const box = ([side, ny]) => (side === 2
+            ? { x0: tagBox.x < hx ? tagBox.x - 10 - nw : tagBox.x + 10, x1: tagBox.x < hx ? tagBox.x - 10 : tagBox.x + 10 + nw, y0: ny - 15, y1: ny + 27 }
+            : { x0: side < 0 ? hx - 14 - nw : hx + 14, x1: side < 0 ? hx - 14 : hx + 14 + nw, y0: ny - 15, y1: ny + 27 });
           const inside = b => b.x0 >= x0 && b.x1 <= x1;
           // clear of the tag, and of its line down to the floor
           const offTag = b => !(tagBox && ((b.x0 < tagBox.x1 + 8 && b.x1 > tagBox.x0 - 8 && b.y0 < tagBox.y1 + 4) ||
                                            (tagBox.x > b.x0 - 6 && tagBox.x < b.x1 + 6)));
           const clear = b => inside(b) && offTag(b) && tops.every(([x, y]) => x < b.x0 - 4 || x > b.x1 + 4 || y > b.y1 + 10);
-          const spots = [[-1, top + 8], [1, top + 8], [-1, under], [1, under]];
+          const spots = [[-1, top + 8], [1, top + 8], [-1, under], [1, under], ...(tagBox ? [[2, under]] : [])];
           return { g, hx, box, spot: spots.find(sp => clear(box(sp))),
                    first: spots.find(sp => inside(box(sp)) && offTag(box(sp))) || spots.find(sp => inside(box(sp))) || spots[0] };
         };
@@ -1451,9 +1462,15 @@
         if (!noted) return;
         const [side, ny] = p.spot, hx = p.hx, hy = g.yAt(hi.v);
         ctx.fillStyle = INK;
-        if (hy - 7 > ny + 2) { ctx.fillRect(side < 0 ? hx - 9 : hx, ny - 0.5, 9, 1); ctx.fillRect(hx - 0.5, ny, 1, hy - 7 - ny); }
+        // a note across the tag's line reaches over to the point, then up or down to it
+        const across = side === 2, b = p.box(p.spot), left = b.x1 <= hx;
+        if (across) {
+          const near = left ? b.x1 + 4 : b.x0 - 4;
+          ctx.fillRect(Math.min(near, hx), ny - 0.5, Math.abs(hx - near), 1);
+          if (Math.abs(hy - ny) > 9) ctx.fillRect(hx - 0.5, Math.min(ny, hy + 7), 1, Math.abs(hy - ny) - 7);
+        } else if (hy - 7 > ny + 2) { ctx.fillRect(side < 0 ? hx - 9 : hx, ny - 0.5, 9, 1); ctx.fillRect(hx - 0.5, ny, 1, hy - 7 - ny); }
         ctx.beginPath(); ctx.arc(hx, hy, 5, 0, 7); ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = INK; ctx.stroke();
-        const nx = side < 0 ? hx - 14 : hx + 14, align = side < 0 ? "right" : "left";
+        const nx = across ? (left ? b.x1 : b.x0) : side < 0 ? hx - 14 : hx + 14, align = (across ? left : side < 0) ? "right" : "left";
         haloed(hi.words[0], nx, ny + 4, INK, nf[0], align);
         haloed(hi.words[1], nx, ny + 22, SUB, nf[1], align);
       },
