@@ -61,7 +61,7 @@ for (const [name, view] of Object.entries(VIEWS)) {
     assert.ok(improvements.html.indexOf('id="fbbox"') >= 0 && improvements.html.indexOf('id="fbbox"') < improvements.html.indexOf('id="setusage"'),
       "the feedback box is not above the switch");
     // the same words on both pages
-    assert.match(improvements.html, /We collect basic usage counts to gauge the product's retention rate\. Personal data such as the contents of a card or project names is <em>never<\/em> collected\./);
+    assert.match(improvements.html, /We collect basic usage counts and daily token counts to gauge the product's retention rate and its effect on token use\. Personal data such as the contents of a card or project names is <em>never<\/em> collected\./);
     assert.doesNotMatch(improvements.html, /README/, "the old caption is still there");
   });
 }
