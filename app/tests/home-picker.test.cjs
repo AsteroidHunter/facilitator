@@ -499,7 +499,9 @@ test("a long list scrolls inside home's list between soft ends, the folder row s
       assert.ok(m.rowNames.length >= 19, why);
       assert.ok(m.well.scroll > m.well.client, `${why}: the list scrolls inside itself`);
       placed(m, why);
-      assert.ok(m.list.height <= 0.7 * m.part.height + 1, `${why}: no taller than 70% of its part`);
+      const room = await page.evaluate(() => ["homeheadsep", "homerows", "homelistsep"].map(id => {
+        const r = document.getElementById(id).getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; }));
+      assert.ok(room[0].bottom <= room[1].top + 0.5 && room[1].bottom <= room[2].top + 0.5, `${why}: the rows scroll between the two lines`);
       assert.equal(await page.evaluate(() => document.getElementById("homerows").className), "more-down", `${why}: at the top only the foot fades`);
       // the last row can be reached by scrolling the list, not the page, and the folder row does not move
       await page.evaluate(() => { const b = document.getElementById("homerows"); b.scrollTop = b.scrollHeight; });

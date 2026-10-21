@@ -744,6 +744,39 @@ test("home's project list stands on the page with no box, and the new tab keeps 
   assert.doesNotMatch(/\n  #nppanel\{([^}]*)\}/.exec(sheet)[1], /background|box-shadow|border-radius/);
 });
 
+test("home's list has a heading and a line over its projects, and its room is set by the logo and the limits, not by the number of projects", () => {
+  // "Projects", its line, the rows, the line and the folder row, in that order
+  const markup = html.slice(html.indexOf('<nav id="homelist"'), html.indexOf("</nav>", html.indexOf('<nav id="homelist"')));
+  const order = ['<div id="homehead" aria-hidden="true">Projects</div>', '<div id="homeheadsep"></div>', '<div id="homerows"></div>',
+    '<div id="homelistsep"></div>', '<button id="homenew"'].map(s => markup.indexOf(s));
+  assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), "heading, line, rows, line, folder row: " + order);
+  // the heading in the charts' headings' face, size and ink, at the group's scale
+  const widgets = readFileSync(path.join(root, "home-widgets.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const title of ["tk-name", "lm-title"])
+    assert.match(widgets, new RegExp("\\n\\." + title + "\\{[^}]*font:600 calc\\(14 \\* var\\(--u, 1px\\)\\)/18px var\\(--sans\\); color:var\\(--ink\\)"), title);
+  assert.match(rule(sheet, "#homehead"), /font:600 calc\(14px \* var\(--home-t, 1\)\)\/calc\(18px \* var\(--home-t, 1\)\) var\(--sans\); color:var\(--ink\)/);
+  // both lines the charts' line, 1px of the line colour at the group's scale
+  assert.match(sheet, /#homelimits:not\(\[hidden\]\)::before\{[^}]*height:1px; background:var\(--line\)/);
+  const lines = rule(sheet, "#homeheadsep, #homelistsep");
+  assert.equal(decl(lines, "height"), "calc(1px * var(--home-t, 1))");
+  assert.equal(decl(lines, "background"), "var(--line)");
+  // the box fills its part between the top and foot homeFit sets, no longer
+  // capped or centred, and the rows take the room between the lines from its top
+  const box = rule(sheet, "#homelistbox");
+  assert.equal(decl(box, "flex"), "1 1 0");
+  assert.match(decl(box, "margin"), /^var\(--home-list-top, 0px\) .* var\(--home-list-foot, 0px\) 0$/);
+  assert.equal(decl(box, "max-height"), undefined, "no cap on the list's height");
+  assert.equal(decl(rule(sheet, "body.focus.home #homelist"), "justify-content"), undefined, "the list is not centred");
+  assert.equal(decl(rule(sheet, "#homerows"), "flex"), "1 1 0");
+  // homeFit sets the top from the logo's word and the foot from the last "Last updated" line, both as drawn
+  const fit = between("function homeFit(){", "// fitted on the frame");
+  assert.match(fit, /homeSet\(homeListPart, "--home-t", t, ""\)/);
+  assert.match(fit, /homeInk\(document\.getElementById\("homebrandname"\), t\)/);
+  assert.match(fit, /homePair\.querySelectorAll\("\.tk-updated, \.lm-updated"\)\]\.map\(el => homeInk\(el, t\)\)\.filter\(Boolean\)\.pop\(\)/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-list-top", /);
+  assert.match(fit, /homeSet\(homeListPart, "--home-list-foot", /);
+});
+
 // ---- rounds 3 and 4 (20261010): spacing, numbers and weights ------------------
 test("glass stands about 10px from glass, and every project name the same distance from the next", () => {
   const sug = rule(sheet, "body.focus #tabbar .psug"), bar = rule(sheet, "body.focus #tabbar");
