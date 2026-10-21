@@ -2481,7 +2481,7 @@ function boardBig() {
     view: { big: false, waiting: () => false, expand(on) { this.big = on; calls.push("expand " + on); }, solo() {} } };
   const ctx = vm.createContext({ MB, document: doc, stageScale: 0.8, innerWidth: 1200, innerHeight: 800, MagicBox: api(), window: {},
     magicPlace: () => { calls.push("place"); if (MB.view.big) ctx.magicPlaceBig(); }, magicRiseStop() {}, magicRiseSet() {},
-    cardPictureStill: () => true, setTimeout: fn => timers.push(fn), clearTimeout() {},
+    cardPictureStill: () => true, setTimeout: fn => timers.push(fn), clearTimeout() {}, queueFatCaret() {},
     keysBack: came => { came.ta.focus(); calls.push("caret back"); return true; },
     boardKeysLive: () => true, projOpen: () => false, searchOpen: false, p3Zoom: null, cardPictureShown: null, imeKey: () => false,
     ...pictureTime(), addEventListener: (type, fn) => { listeners[type] = fn; } });
@@ -2605,6 +2605,37 @@ test("on the Mac a box that held the keys as it was expanded still holds them as
   assert.equal(classes.has("held"), false, "not held");
   assert.match(html, /for \(const b of \[MB\.el\.querySelector\("\.mbclose"\), MB\.grow, MB\.shade\]\) b\.addEventListener\("mousedown", e => e\.preventDefault\(\)\);/);
   assert.match(html, /MB\.bigFrom = from && from !== document\.body \? from : null;\s*MB\.bigHeld = MB\.el\.classList\.contains\("held"\);/);
+});
+
+test("on the Mac the block caret of a field under the expanded box is not drawn over it, and is drawn again once the box is down", () => {
+  // the caret is laid again as the box goes up, and once its shade has gone
+  const { ctx, bodyClasses, timers } = boardBig();
+  const laid = [];
+  ctx.queueFatCaret = () => laid.push([...bodyClasses].sort().join(" "));
+  ctx.magicBig(null);
+  assert.deepEqual(laid, ["mbbig mbup"], "as the box goes up");
+  ctx.magicSmall();
+  assert.equal(laid.length, 1, "not as it sets off back, with its shade still up");
+  timers.splice(0).forEach(f => f());
+  assert.deepEqual(laid, ["mbbig mbup", ""], "and once the shade has gone");
+  // the caret's own rule, run on stand-ins: while the box is up, a field on the
+  // stage outside the box is under it, and one over the stage or in the box is not
+  const html = read("index.html");
+  const rule = html.match(/\n  const underBox = el => [\s\S]*?;\n/);
+  assert.ok(rule, "the rule is in the caret's block");
+  const classes = new Set(), stage = {}, inBox = new Set();
+  const field = onStage => ({ closest: sel => (sel === "#stage" && onStage ? stage : null) });
+  const scope = vm.createContext({ document: { body: { classList: { contains: c => classes.has(c) } } },
+    MB: { el: { contains: x => inBox.has(x) } } });
+  vm.runInContext(rule[0].replace("const underBox", "var underBox"), scope);
+  const title = field(true), typing = field(true), search = field(false), page = field(true);
+  inBox.add(page);
+  const under = () => [title, typing, search, page].map(f => scope.underBox(f));
+  assert.deepEqual(under(), [false, false, false, false], "the box down");
+  classes.add("mbup");
+  assert.deepEqual(under(), [true, true, false, false], "the box up: the title and the typing box under it");
+  // and the caret is put out for such a field before anything else is measured
+  assert.match(html, /if \(!cur \|\| !cur\.isConnected\)\{ cur = null; hide\(\); return; \}\n    if \(underBox\(cur\)\)\{ hide\(\); return; \}/);
 });
 
 test("on the phone the button lifts the box into the top layer over a shade, inside the safe areas, and the drawer puts it back first", () => {

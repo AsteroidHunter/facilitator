@@ -8592,6 +8592,7 @@ function magicBig(from){
   clearTimeout(MB.bigDown);
   MB.view.expand(true);
   document.body.classList.add("mbbig", "mbup");
+  queueFatCaret();   // the caret of a field under it goes out (the fat caret)
   magicPlace();
   magicMove(was);
 }
@@ -8606,7 +8607,8 @@ function magicSmall(){
   MB.view.expand(false);
   document.body.classList.remove("mbbig");
   clearTimeout(MB.bigDown);
-  MB.bigDown = setTimeout(() => document.body.classList.remove("mbup"), BIG_MS);
+  // the caret of a field under it comes back where it is once the shade has gone
+  MB.bigDown = setTimeout(() => { document.body.classList.remove("mbup"); queueFatCaret(); }, BIG_MS);
   magicPlace();
   magicFocusBack();
   magicMove(was);
@@ -14132,6 +14134,14 @@ addEventListener("keydown", e => {
   document.body.append(bar, lift);
   const cells = [bar, lift];
   const hide = () => { for (const el of cells) el.classList.remove("on"); };
+  // the magic box expanded over the board (magicBig), on its way there and
+  // back, and until its shade has gone (body.mbup), stands over every field on
+  // the stage but its own, and the block, laid on the page over all of them,
+  // would stand over the box. so a caret in the title or the typing box under
+  // it is not drawn then, and is drawn where it is again once the box is down;
+  // the keys and the field's caret and selection are left as they are
+  const underBox = el => document.body.classList.contains("mbup") &&
+    !!el.closest("#stage") && !(MB.el && MB.el.contains(el));
   // the mirror clones the focused field's text layout so a marker span can
   // stand where the caret is; it stays invisible and out of the layout
   const mirror = document.createElement("div");
@@ -14754,6 +14764,7 @@ addEventListener("keydown", e => {
   function place(){
     raf = 0;
     if (!cur || !cur.isConnected){ cur = null; hide(); return; }
+    if (underBox(cur)){ hide(); return; }
     // the search field's block rides its panel's opening: it is laid again on
     // every frame the panel's transform or opacity is running, so it stands on
     // the field's text spot as the panel moves, and it takes the panel's own
