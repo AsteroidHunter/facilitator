@@ -1655,10 +1655,13 @@
   /* the box expanded by its green button (magicBig): nine tenths of the
      window's width and height, in the window's middle (MagicBox.grow), over
      the whole board dimmed as the settings page dims it (.sp-veil in
-     card-tokens.css): the board's ink at 24%, its colour fading in and out
-     in step with the box's zoom, on a picture's time and curve (BIG_MS,
-     BIG_EASE: .3s), over the whole window and the bar, and taking the click
-     that puts the box back. the shade and the box stay in the stage, so the
+     card-tokens.css): the board's ink at 24%, fading in and out in step with
+     the box's zoom, on a picture's time and curve (BIG_MS, BIG_EASE: .3s),
+     over the whole window and the bar, and taking the click that puts the box
+     back. it fades by its strength (opacity), as a picture's veil does: its
+     colour fading instead now and then showed the colour it set off from for
+     one frame as the fade ended, the whole board dimmed or bare for that
+     frame as the box landed. the shade and the box stay in the stage, so the
      box is drawn at the board's own scale, and the stage stands over the bar
      and the board's other layers while they are up (body.mbup, which outlasts
      the fade out), under the project list, the search, the settings and an
@@ -1671,14 +1674,13 @@
      (BIG_FADE_MS) past the rule that stops every other transition */
   #mbshade{display:none}
   body.focus #mbshade{display:block; position:fixed; z-index:60; visibility:hidden; pointer-events:none;
-    background-color:color-mix(in srgb, var(--ink) 0%, transparent);
-    transition:background-color .3s cubic-bezier(0.25, 1, 0.5, 1), visibility 0s linear .3s}
-  body.focus.mbbig #mbshade{visibility:visible; pointer-events:auto;
-    background-color:color-mix(in srgb, var(--ink) 24%, transparent);
-    transition:background-color .3s cubic-bezier(0.25, 1, 0.5, 1), visibility 0s}
+    background-color:color-mix(in srgb, var(--ink) 24%, transparent); opacity:0;
+    transition:opacity .3s cubic-bezier(0.25, 1, 0.5, 1), visibility 0s linear .3s}
+  body.focus.mbbig #mbshade{visibility:visible; pointer-events:auto; opacity:1;
+    transition:opacity .3s cubic-bezier(0.25, 1, 0.5, 1), visibility 0s}
   @media (prefers-reduced-motion: reduce){
-    body.focus #mbshade{transition:background-color .16s ease, visibility 0s linear .16s !important}
-    body.focus.mbbig #mbshade{transition:background-color .16s ease, visibility 0s !important}
+    body.focus #mbshade{transition:opacity .16s ease, visibility 0s linear .16s !important}
+    body.focus.mbbig #mbshade{transition:opacity .16s ease, visibility 0s !important}
   }
   body.focus.mbup #stage{z-index:38}
   body.focus #magicbox.big.on{z-index:61; opacity:1; box-shadow:var(--shade-raised)}

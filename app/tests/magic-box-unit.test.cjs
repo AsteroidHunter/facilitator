@@ -2485,7 +2485,8 @@ test("on the Mac the expanded box and its shade are written in the stage's pixel
   // the sheet: the shade is the settings page's dimming, over the whole window and the bar, under the box,
   // and the stage stands over the bar while it is up, under the project list, the search and the settings
   const html = read("index.html"), sheet = code(html.slice(0, html.indexOf("</style>")));
-  assert.match(sheet, /body\.focus\.mbbig #mbshade\{visibility:visible; pointer-events:auto;\s*background-color:color-mix\(in srgb, var\(--ink\) 24%, transparent\);\s*transition:background-color \.3s cubic-bezier\(0\.25, 1, 0\.5, 1\), visibility 0s\}/);
+  assert.match(sheet, /body\.focus #mbshade\{[^}]*background-color:color-mix\(in srgb, var\(--ink\) 24%, transparent\); opacity:0;/);
+  assert.match(sheet, /body\.focus\.mbbig #mbshade\{visibility:visible; pointer-events:auto; opacity:1;\s*transition:opacity \.3s cubic-bezier\(0\.25, 1, 0\.5, 1\), visibility 0s\}/);
   const z = sel => +sheet.match(new RegExp(sel + "\\{[^}]*z-index:(\\d+)"))[1];
   const stage = z("body\\.focus\\.mbup #stage");
   assert.ok(stage > z("\\n  \\.bar") && stage < z("body\\.focus #projshade") && stage < z("body\\.focus #searchshade"), "between the bar and the menus");
@@ -2654,8 +2655,10 @@ test("on the Mac the box zooms out of its place beside the card and back into it
   assert.match(html, /magicRiseSet\(1\);\s*if \(!keep\) magicMoveStop\(\);/);
   // the shade fades on the same time and curve, quickly with reduced motion, and the box on its way stands over it
   assert.match(html, /const BIG_MS = CARD_PICTURE_MS, BIG_EASE = CARD_PICTURE_EASE, BIG_FADE_MS = 160;/);
-  assert.match(sheet, /body\.focus #mbshade\{[^}]*transition:background-color \.3s cubic-bezier\(0\.25, 1, 0\.5, 1\), visibility 0s linear \.3s\}/);
-  assert.match(sheet, /@media \(prefers-reduced-motion: reduce\)\{\s*body\.focus #mbshade\{transition:background-color \.16s ease, visibility 0s linear \.16s !important\}/);
+  // by its strength, never its colour, which now and then showed the colour it set off from for one frame as it ended
+  assert.match(sheet, /body\.focus #mbshade\{[^}]*transition:opacity \.3s cubic-bezier\(0\.25, 1, 0\.5, 1\), visibility 0s linear \.3s\}/);
+  assert.match(sheet, /@media \(prefers-reduced-motion: reduce\)\{\s*body\.focus #mbshade\{transition:opacity \.16s ease, visibility 0s linear \.16s !important\}/);
+  assert.doesNotMatch(sheet.slice(sheet.indexOf("#mbshade{display:none}"), sheet.indexOf("body.focus.mbup #stage")), /transition:background-color/);
   const z = sel => +sheet.match(new RegExp(sel + "\\{[^}]*z-index:(\\d+)"))[1];
   assert.ok(z("body\\.focus #magicbox\\.moving\\.on") > z("body\\.focus #mbshade"), "on its way back the box stays over the shade");
   // a small picture shrinks with the box from where it stood
