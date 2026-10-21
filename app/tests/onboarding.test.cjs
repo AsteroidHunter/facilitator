@@ -386,6 +386,55 @@ test("the done chord is kept from the browser on every card, in every field, hel
   assert.ok(ONBOARDING.includes('if (key.value !== "done" || !card.spec.closing || finished) break;\n        e.preventDefault();\n        finish();'));
 });
 
+// the guard and the page's own key handler after it, cut out of the page and run
+// in a vm with card-logic.js over the seven cards, on the page and in a field, and
+// once the run is done. what the handler would do is recorded
+test("Command + Shift + Backspace, Chrome's Delete browsing data on the Mac, is cancelled on every card and marks nothing done", () => {
+  const context = vm.createContext({ Date, setInterval, clearInterval, setTimeout, clearTimeout });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "card-logic.js"), "utf8"), context, { filename: "card-logic.js" });
+  const handlers = [], calls = [];
+  const note = name => (...args) => { calls.push(name); };
+  // the guard is the window's, taken on the way down; the handler is the document's, after it
+  context.addEventListener = (type, fn, capture) => { assert.equal(capture, true); handlers.push(fn); };
+  Object.assign(context, { document: { addEventListener: (type, fn) => handlers.push(fn), activeElement: null },
+    go: note("go"), advance: note("advance"), finish: note("finish"), stepHistory: note("stepHistory"),
+    caretToTitleEnd: note("caretToTitleEnd") });
+  const el = { ta: { focus: note("focus") }, titleEl: {} };
+  context.cards = ["welcome", "onboard", "cards", "tickets", "hotkeys", "phone", "fin"].map(id =>
+    ({ spec: { id, questions: id === "onboard", closing: id === "fin" }, el }));
+  vm.runInContext("var at = 0, finished = false;\n" +
+    grab("  // the done chord, Control + Shift + Backspace or Delete", "  // the feedback box, as the board's page has it"), context);
+  assert.equal(handlers.length, 2);
+  const page = { closest: () => null, blur() {} };
+  const field = { closest: sel => (/textarea/.test(sel) ? field : null), blur() {} };
+  const press = (target, key, code, more) => {
+    calls.length = 0;
+    const e = { key, code, target, ctrlKey: false, shiftKey: true, metaKey: false, altKey: false, repeat: false,
+                isComposing: false, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...more };
+    for (const fn of handlers) fn(e);
+    return { prevented: e.defaultPrevented, calls: [...calls] };
+  };
+  for (const finished of [false, true]) for (let at = 0; at < context.cards.length; at++) {
+    Object.assign(context, { at, finished });
+    const where = context.cards[at].spec.id + (finished ? ", run done" : "");
+    for (const target of [page, field]) {
+      // Chrome's chord: cancelled, held or not, and nothing of the page's runs
+      for (const repeat of [false, true])
+        assert.deepEqual(press(target, "Backspace", "Backspace", { metaKey: true, repeat }), { prevented: true, calls: [] },
+          "command + shift + backspace on " + where + (repeat ? ", held" : ""));
+      // the done chord as before: cancelled everywhere, and marks the last card done until the run is done
+      for (const [key, code] of [["Backspace", "Backspace"], ["Delete", "Delete"]])
+        assert.deepEqual(press(target, key, code, { ctrlKey: true }),
+          { prevented: true, calls: at === 6 && !finished ? ["finish"] : [] }, "control + shift + " + key + " on " + where);
+      // the chords the board leaves to the field and to Chrome stay theirs: Command with Backspace or
+      // Delete, and Command + Shift with the forward Delete, which is no shortcut of Chrome's
+      for (const more of [{ shiftKey: false }, { shiftKey: false, key: "Delete", code: "Delete" }, { key: "Delete", code: "Delete" }])
+        assert.deepEqual(press(target, "Backspace", "Backspace", { metaKey: true, ...more }), { prevented: false, calls: [] },
+          JSON.stringify(more) + " on " + where);
+    }
+  }
+});
+
 test("the board keeps the onboarding up once the frame has saved the profile, until the frame says it is done", () => {
   const g = gate({ flag: true });
   const [frame] = g.frames;
