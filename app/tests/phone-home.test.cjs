@@ -606,6 +606,8 @@ test("on the phone the house in the project list opens home, the pill and the ti
                name: document.getElementById("projname").textContent,
                open: document.body.classList.contains("projopen"),
                days: document.querySelectorAll(".tk-day").length,
+               firstDay: document.querySelector(".tk-layer.on").tkModel.model.cells[0].date,
+               lastDay: document.querySelector(".tk-layer.on").tkModel.model.cells.at(-1).date,
                sum: document.querySelector(".tk-sum").textContent,
                heading: document.querySelector(".tk-title").textContent,
                subtitle: !!document.querySelector(".tk-what"),
@@ -625,7 +627,8 @@ test("on the phone the house in the project list opens home, the pill and the ti
                head: r(document.querySelector(".tk-head")).bottom,
                foot: { top: r(document.querySelector(".tk-foot")).top, bottom: r(document.querySelector(".tk-foot")).bottom },
                panelBottom: panel.bottom,
-               expected: TokenWidgets.geometry(r(document.querySelector(".tk-view")).height),
+               expected: TokenWidgets.geometry(r(document.querySelector(".tk-view")).height,
+                                               document.querySelector(".tk-layer.on").tkModel.model.weeks),
                atLatest: scroll.scrollLeft >= scroll.scrollWidth - scroll.clientWidth - 1 && scroll.scrollWidth > scroll.clientWidth,
                card: getComputedStyle(document.getElementById("cards")).visibility,
                cardParts: [...document.querySelectorAll("#cards *")].filter(n => getComputedStyle(n).visibility !== "hidden").length,
@@ -640,8 +643,11 @@ test("on the phone the house in the project list opens home, the pill and the ti
     assert.equal(home.seated, 0, "a project is checked on home");
     assert.equal(home.name, "Home", "the capsule does not read Home");
     assert.equal(home.open, false, "the list stayed open over home");
-    assert.equal(home.days, 365);
-    assert.match(home.sum, /^1\.14K tokens in the last year$/);
+    // one square a day from January 1 to today
+    assert.equal(home.firstDay.slice(5), "01-01", "the heatmap starts on January 1");
+    assert.equal(home.days, Math.round((Date.parse(home.lastDay) - Date.parse(home.firstDay)) / 864e5) + 1);
+    // 1115 today and 22 the day before, both this year but on January 1
+    assert.match(home.sum, /^1\.1[24]K tokens this year$/);
     assert.equal(home.heading, "Token consumption per day");
     assert.equal(home.subtitle, false, "no line under the heading");
     // the panel spans the pane, which is the screen within the app's margins
@@ -660,8 +666,8 @@ test("on the phone the house in the project list opens home, the pill and the ti
     assert.ok(Math.abs(home.view.bottom - home.view.top - 200 * REST) < 0.1,
       `the chart's view is ${home.view.bottom - home.view.top} high, not ${200 * REST}`);
     assert.equal(home.chartWidth, home.expected.width);
-    assert.ok(home.chartWidth > home.lane.right - home.lane.left, "the year is wider than the screen, so it scrolls");
-    assert.ok(home.atLatest, "the heatmap opens on its latest weeks");
+    // from a few weeks into the year it is wider than the screen, so it scrolls
+    if (home.chartWidth > home.lane.right - home.lane.left) assert.ok(home.atLatest, "the heatmap opens on its latest weeks");
     // the box hugs the chart: the chart fills its view top to bottom, the
     // squares and month names fill the chart but for a few pixels, and the
     // panel ends a padding under the foot

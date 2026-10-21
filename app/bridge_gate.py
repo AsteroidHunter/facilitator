@@ -73,11 +73,10 @@ PAGE_OPENS = frozenset({"/m", "/"})
 # Mac do, and the Bin, which only the Mac board has. A signed-in phone reads what a box holds and its picture, and closes
 # it, as the board does: those three routes pass. The profile is not here: a
 # signed-in phone reads it, and its route refuses a write that did not come from
-# the Mac. The chart picture's Open in Finder opens Finder on the Mac
+# the Mac
 LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
                         "/onboarding", "/onboarding/sample",
-                        "/magic", "/magic/reopen", "/bin", "/bin/restore",
-                        "/tokens/picture/reveal"})
+                        "/magic", "/magic/reopen", "/bin", "/bin/restore"})
 
 
 def _client_class(headers):
