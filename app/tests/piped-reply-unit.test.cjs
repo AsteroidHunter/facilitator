@@ -615,16 +615,22 @@ test("the brace is a { to a response on the card's right and a } to one on its l
 });
 
 // ---- which side --------------------------------------------------------------------
-// card: the first line of the card's own copy of the response (its top), the top
-// of the card's answer and the top of the typing box, on the screen; with none,
-// the response has no words to stand level with. S and sy: the stage's scale and
-// its top on the screen. the pipe's words have their first line LEAD under its top,
-// and the tops of that line's tall letters INK under the line's top
+// card: the first line of the card's own copy of the response (its top) and the
+// top of the typing box, on the screen; with none, the response has no words to
+// stand level with. view: the card's answer, whose scroll moves that line up by
+// as much on the stage. S and sy: the stage's scale and its top on the screen.
+// the pipe's words have their first line LEAD under its top, and the tops of
+// that line's tall letters INK under the line's top
 const LEAD = 17.86, INK = 4.68;
 function placer({ box = false, roomRight = true, roomLeft = true, want = 400, card = null, S = 1, sy = 0 } = {}) {
   const classes = new Set(["on"]), style = {}, body = { scrollTop: 0 };
   const tickets = { style: { opacity: "" } }, clock = { style: { opacity: "" } };
-  const reply = { style: { opacity: "" }, get first(){ return card && { top: card.first, bottom: card.first + 23.5 * S }; } };
+  const view = { scrollTop: 0 };
+  const reply = { style: { opacity: "" }, get first(){
+    if (!card) return null;
+    const top = card.first - view.scrollTop * S;
+    return { top, bottom: top + 23.5 * S };
+  } };
   const PIPE = { side: null, rise: { t: 1, raf: 0, then: null }, id: "c1", top: null, body,
     el: { classList: { contains: c => classes.has(c) }, style,
       getBoundingClientRect: () => ({ top: sy + (parseFloat(style.top) || 0) * S }) },
@@ -649,13 +655,12 @@ function placer({ box = false, roomRight = true, roomLeft = true, want = 400, ca
     boardMagicShown: () => box, pipeLine: (...args) => drawn.push(args), boxRise: () => {},
     // each line read off the page where the stand-ins above lay it
     pipeLines: node => node.first || null, pipeInk: () => INK, PIPE_STROKE: STROKE,
-    els: { c1: { reply, replyview: { getBoundingClientRect: () => ({ top: card.view }) },
-      pendwrap: { getBoundingClientRect: () => ({ top: card.pend }) } } },
+    els: { c1: { reply, replyview: view, pendwrap: { getBoundingClientRect: () => ({ top: card.pend }) } } },
   });
   vm.runInContext(cut("const PIPE_MS = ", "\n") + "\n" + cut("function riseEase(", "\n") + "\n" + fn("pipePlace") + fn("pipeLevel") + fn("pipeDim"), context);
   // what stands dimmed: the ticket list and the clock, and the card's own response
   const dims = () => ({ tickets: tickets.style.opacity, clock: clock.style.opacity, reply: reply.style.opacity });
-  return { context, PIPE, style, dims, drawn, card, fit, set: v => Object.assign(context, v) };
+  return { context, PIPE, style, dims, drawn, card, view, fit, set: v => Object.assign(context, v) };
 }
 
 test("it stands on the right, on the left when the box is there or the right has no room, and keeps its side", () => {
@@ -703,7 +708,7 @@ test("it stands on the right, on the left when the box is there or the right has
 
 test("its first line stands level with the card's own first line, and it reaches down to the box's foot at most, either side", () => {
   for (const box of [false, true]) {
-    const at = placer({ box, want: 143, card: { first: 330, view: 243, pend: 600 } });
+    const at = placer({ box, want: 143, card: { first: 330, pend: 600 } });
     const side = box ? "left" : "right";
     const whole = box ? MagicBox.place(CARD, { ...at.fit, left: at.fit.left }, null, "left") : MagicBox.place(CARD, at.fit);
     const foot = whole.top + whole.height;
@@ -728,13 +733,23 @@ test("its first line stands level with the card's own first line, and it reaches
     [, drawnAt, , , lead] = at.drawn.at(-1);
     assert.ok(close(p.top + LEAD, 330) && close(drawnAt.top + lead, arm), side + ": its scroll moves neither");
     at.PIPE.body.scrollTop = 0;
-    // the card's line moved, by a scroll, a longer title or the card's size: it follows
+    // the card's answer scrolled, a little and then far past its first line, and back:
+    // it stands where it stood, and so does the brace
+    for (const scroll of [40, 150, 1200, 0]) {
+      at.view.scrollTop = scroll;
+      p = place();
+      [, drawnAt, , , lead] = at.drawn.at(-1);
+      assert.ok(close(p.top + LEAD, 330) && close(p.top + p.height, foot) && close(drawnAt.top + lead, arm),
+        side + ": the card's answer scrolled " + scroll + " moves neither");
+    }
+    // the card's line moved by a longer title or the card's size: it follows, and the
+    // answer then scrolled leaves it there
     at.card.first = 300;
     p = place();
     assert.ok(close(p.top + LEAD, 300) && close(p.top + p.height, foot), side + ": it follows the card's line");
-    // that line scrolled up past the answer's top: it stays at the answer's top
-    at.card.first = 100;
-    assert.ok(close(place().top + LEAD, 243), side + ": held at the top of the card's answer");
+    at.view.scrollTop = 90;
+    assert.ok(close(place().top + LEAD, 300), side + ": and stays there as the answer scrolls");
+    at.view.scrollTop = 0;
     // down under the typing box: it stays a line over the typing box
     at.card.first = 700;
     assert.ok(close(place().top + LEAD, 600 - 23.5), side + ": held a line over the typing box");
@@ -742,16 +757,21 @@ test("its first line stands level with the card's own first line, and it reaches
     at.card.first = 330;
     place();
     at.PIPE.rise.then = () => {};
-    at.card.first = 120;
+    at.view.scrollTop = 200;
     assert.ok(close(place().top + LEAD, 330), side + ": it sinks where it stood");
+    at.card.first = 300;
+    assert.ok(close(place().top + LEAD, 330), side + ": whatever moves the card's line");
     at.PIPE.rise.then = null;
-    assert.ok(close(place().top + LEAD, 243));
+    assert.ok(close(place().top + LEAD, 300));
   }
   // on a board drawn smaller than its stage, in the stage's pixels it stands in
   const S = 0.87, sy = 20;
-  const small = placer({ want: 143, S, sy, card: { first: sy + 330 * S, view: sy + 243 * S, pend: sy + 600 * S } });
+  const small = placer({ want: 143, S, sy, card: { first: sy + 330 * S, pend: sy + 600 * S } });
   small.context.pipePlace();
   assert.ok(close(parseFloat(small.style.top) + LEAD, 330, 1e-9), "level on a smaller board");
+  small.view.scrollTop = 150;
+  small.context.pipePlace();
+  assert.ok(close(parseFloat(small.style.top) + LEAD, 330, 1e-9), "and still there with its answer scrolled");
   // a response with no words to stand level with stands as the box does
   const none = placer({ want: 143 });
   none.context.pipePlace();
@@ -759,8 +779,9 @@ test("its first line stands level with the card's own first line, and it reaches
   assert.equal(none.drawn.at(-1)[4], null, "and its brace starts in by the corner");
   // gone, it keeps no place for the next
   assert.match(fn("pipeOff"), /PIPE\.top = null;/);
-  // the card's answer scrolled moves it, as a change to the card does
-  assert.match(HTML, /addEventListener\("scroll", e => \{\n    const el = PIPE\.id === null \? null : els\[PIPE\.id\];\n    if \(el && e\.target === el\.replyview && pipeShown\(\)\) pipePlace\(\);\n  \}, \{ capture: true, passive: true \}\);/);
+  // the card's answer scrolled is not followed: nothing places it again on that scroll
+  assert.match(fn("pipeLevel"), /head = first\.top \+ el\.replyview\.scrollTop \* S;/);
+  assert.doesNotMatch(HTML, /e\.target === el\.replyview && pipeShown\(\)\) pipePlace\(\)/);
 });
 
 test("the brace's top is the tops of the first line's tall letters, in the type of the response's first words", () => {

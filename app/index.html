@@ -9162,20 +9162,20 @@ function pipePlace(){
 
 // where its words' first line stands, in the stage's pixels: the top of the
 // first line of the card's own copy of the response (the one it dims), as the
-// card lays it out now, so it follows the card's scroll, what stands over the
-// response and the card's size. that line scrolled up past the top of the
-// card's answer, or down under the typing box, it stays at the nearer of the
-// two: the answer's top, or a line over the typing box. lead: how far under
-// its own top its first line stands, its words at their head; ink: how far
-// under that line's top its tall letters' tops stand (pipeInk), where the
-// brace starts. null for a response with no words in either
+// card lays it out with its answer at its head, as it stood when the response
+// piped out (pipeStep), so it follows what stands over the response and the
+// card's size, and stays where it is while the card's answer scrolls. that
+// line down under the typing box, it stays a line over the typing box. lead:
+// how far under its own top its first line stands, its words at their head;
+// ink: how far under that line's top its tall letters' tops stand (pipeInk),
+// where the brace starts. null for a response with no words in either
 function pipeLevel(room){
   const el = PIPE.id === null ? null : els[PIPE.id], words = PIPE.part.reply;
   const first = el && pipeLines(el.reply, 1, true), own = words && pipeLines(words, 1, true);
   if (!first || !own) return null;
-  const S = room.S, view = el.replyview.getBoundingClientRect().top;
+  const S = room.S, head = first.top + el.replyview.scrollTop * S;
   const under = el.pendwrap.getBoundingClientRect().top - (first.bottom - first.top);
-  const top = Math.max(view, Math.min(under, first.top));
+  const top = Math.min(under, head);
   return { top: (top - room.sr.y) / S, lead: (own.top - PIPE.el.getBoundingClientRect().top) / S + PIPE.body.scrollTop,
     ink: pipeInk(words) };
 }
@@ -9341,13 +9341,6 @@ if (PIPE.el){
     else pipeSync();
   };
   const watch = new MutationObserver(follow);
-  // and the card's answer scrolled, which moves the first line it stands level
-  // with (pipeLevel): past the answer's fade a scroll writes nothing the watch
-  // would hear
-  addEventListener("scroll", e => {
-    const el = PIPE.id === null ? null : els[PIPE.id];
-    if (el && e.target === el.replyview && pipeShown()) pipePlace();
-  }, { capture: true, passive: true });
   const card = document.querySelector("main"), stage = document.getElementById("stage");
   if (card) watch.observe(card, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "style"] });
   if (stage) watch.observe(stage, { attributes: true, attributeFilter: ["style"] });
