@@ -1,6 +1,8 @@
 """Tokens the local coding agents have spent, per day, read from the logs the
 agents already keep on this machine. Nothing here sends anything anywhere, and
-only counts leave this module: never a line, a message or a path.
+only counts leave this module: never a line, a message or a path. The daily
+usage counts (usage_counts.py) take a day's counts from here and send them,
+and only while the board's "Share daily usage counts" switch is on.
 
 Two tools write the logs read here, one JSON object per line:
 
@@ -41,16 +43,35 @@ A day is the local calendar day a response was logged on, in this machine's
 zone. A day without logs is zero, never a gap, and a folder that does not
 exist is only nothing to count.
 
+Board share. Each log file also gets one yes or no: whether its session ran
+the board's wait helper, which makes it a session working a board lane. A
+Claude Code file says yes when one of its assistant lines runs a command (a
+tool_use's command) holding scripts/onboard.py wait, or the older curl call
+to /wait?owner=, and a subagent's file under <session>/subagents/ counts with
+its session's own file. A Codex file says yes when one of its function calls
+runs such a command. Only the yes or no is kept, never the command. Workers a
+lane starts as separate command-line runs, not as subagents, never run the
+helper and count as no. Each day's tokens are split by it three ways: board
+(yes), off_board (no) and board_unknown, the files counted before the board
+kept the answer.
+
 The counts are kept in a cache file (tokens-cache.json beside state.json) so a
 request never reads gigabytes twice. Per log file it holds the size and stamp
 last seen, how far the file has been read, a fingerprint of its first bytes,
-what it added to each day and short hashes of the ids it counted, a Claude
-message's with the day and four counts counted for it, kept by the one file
-that carries the most of it. A request stats every file and reads only what
-was appended since; a file that shrank or whose first bytes changed is read
-again from the start. A file that has gone keeps its counts, since Claude Code
-clears old transcripts away on its own and the year would otherwise lose its
-early months. The cache holds no log text.
+what it added to each day, the yes or no above, and short hashes of the ids it
+counted, a Claude message's with the day and four counts counted for it, kept
+by the one file that carries the most of it. A request stats every file and
+reads only what was appended since; a file that shrank or whose first bytes
+changed is read again from the start. A file that has gone keeps its counts,
+since Claude Code clears old transcripts away on its own and the year would
+otherwise lose its early months. The cache holds no log text.
+
+A cache from before the yes or no was kept (version 2) is taken over as it
+is, every count in it kept and every file's answer unknown, since starting
+over would lose the counts of logs that have since gone. Such a file says yes
+as soon as a line read later runs the helper, and gets a full answer when it
+is read again from the start; until then its tokens stay board_unknown, never
+guessed. A cache of any other version is started over.
 
 Beside the counts the ledger keeps one more thing: the newest plan limits
 Codex wrote down. Each token_count event can carry the percent of the 5-hour
@@ -64,13 +85,16 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
 
 KINDS = ("input", "cache_write", "cache_read", "output")
 TOOLS = ("claude", "codex")
-CACHE_VERSION = 2
+SHARES = ("board", "off_board", "board_unknown")
+CACHE_VERSION = 3
+TAKEN_OVER = (2,)    # older caches kept as they are, their files' board answers unknown
 HEAD_BYTES = 512     # the first bytes of a file, fingerprinted to tell a rewrite from an append
 TAIL_FILES = 6       # newest Codex files whose ends are searched for limits when none are known
 TAIL_BYTES = 1 << 20 # how much of a file's end is searched
@@ -80,6 +104,11 @@ WANTED = {
     "claude": (b'"usage"',),
     "codex": (b"token_usage_record", b"token_count"),
 }
+# the same for a line that may run the board's wait helper, and the command it
+# has to hold: the skill's helper (scripts/onboard.py wait, its path quoted or
+# not) or the older curl call to the board's /wait route
+HELPER_BYTES = (b"onboard.py", b"/wait?owner=")
+HELPER = re.compile(r"""onboard\.py["']?\s+wait(?![\w-])|\bcurl\b.*?/wait\?owner=""", re.S)
 
 
 # ---- where the logs are -----------------------------------------------------
@@ -209,6 +238,60 @@ def _codex_counts(usage) -> tuple:
     return (max(whole - cached, 0), 0, cached, _n(usage.get("output_tokens")))
 
 
+def _commands(call) -> list:
+    """The command text a tool call runs: its command or cmd, a list of words
+    joined. Codex hands its arguments over as JSON text, read here first."""
+    if isinstance(call, str):
+        try:
+            call = json.loads(call)
+        except ValueError:
+            return []
+    if not isinstance(call, dict):
+        return []
+    out = []
+    for key in ("command", "cmd"):
+        got = call.get(key)
+        if isinstance(got, list):
+            got = " ".join(word for word in got if isinstance(word, str))
+        if isinstance(got, str):
+            out.append(got)
+    return out
+
+
+def _runs_helper(tool: str, obj: dict) -> bool:
+    """Whether the line is the agent running the board's wait helper: a
+    tool_use on a Claude Code assistant line, or a Codex function call, whose
+    command matches HELPER. Words the agent only wrote or read never count,
+    and nothing of the command is kept."""
+    if tool == "claude":
+        message = obj.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if obj.get("type") != "assistant" or not isinstance(content, list):
+            return False
+        calls = [part.get("input") for part in content
+                 if isinstance(part, dict) and part.get("type") == "tool_use"]
+    else:
+        payload = obj.get("payload")
+        if obj.get("type") != "response_item" or not isinstance(payload, dict):
+            return False
+        if payload.get("type") == "function_call":
+            calls = [payload.get("arguments")]
+        elif payload.get("type") == "local_shell_call":
+            calls = [payload.get("action")]
+        else:
+            return False
+    return any(HELPER.search(text) for call in calls for text in _commands(call))
+
+
+def _session_file(path: str) -> str | None:
+    """The session's own log for a Claude Code subagent's log, which sits in
+    <session>/subagents/ beside <session>.jsonl; None for any other file."""
+    folder = os.path.dirname(path)
+    if os.path.basename(folder) != "subagents":
+        return None
+    return os.path.dirname(folder) + ".jsonl"
+
+
 # ---- the ledger -------------------------------------------------------------
 
 class TokenLedger:
@@ -240,13 +323,21 @@ class TokenLedger:
             data = json.loads(self.cache_path.read_text())
         except (OSError, ValueError):
             return {}
-        if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
+        if not isinstance(data, dict) or data.get("version") not in (CACHE_VERSION, *TAKEN_OVER):
             return {}
         limits = data.get("limits")
         if isinstance(limits, dict) and _num(limits.get("at")) is not None:
             self.limits = limits
         files = data.get("files")
-        return files if isinstance(files, dict) else {}
+        if not isinstance(files, dict):
+            return {}
+        if data["version"] != CACHE_VERSION:
+            # taken over in place: every count stays, and what was read before
+            # the answer was kept cannot say whether it ran the helper
+            for rec in files.values():
+                if isinstance(rec, dict):
+                    rec["board"] = None
+        return files
 
     def _save(self) -> None:
         if not self.cache_path:
@@ -335,7 +426,7 @@ class TokenLedger:
 
     def _fresh(self, tool: str, zone: str) -> dict:
         rec = {"tool": tool, "size": 0, "mtime": 0, "offset": 0, "head": "", "head_len": 0,
-               "zone": zone, "days": {}, "ids": {} if tool == "claude" else []}
+               "zone": zone, "board": False, "days": {}, "ids": {} if tool == "claude" else []}
         if tool == "codex":
             rec.update(records=0, meter_days={}, last=None)
         return rec
@@ -396,8 +487,9 @@ class TokenLedger:
         return rec
 
     def _lines(self, f, tool: str, rec: dict) -> None:
-        """Count every whole line from the file's current place. A last line
-        with no newline yet is still being written and is left for next time."""
+        """Count every whole line from the file's current place, and note a
+        yes once a line runs the board's wait helper. A last line with no
+        newline yet is still being written and is left for next time."""
         days_of = _Days()
         wanted = WANTED[tool]
         offset = rec["offset"]
@@ -406,7 +498,8 @@ class TokenLedger:
                 if not line.endswith(b"\n"):
                     break
                 offset += len(line)
-                if not any(w in line for w in wanted):
+                helper = rec.get("board") is not True and any(w in line for w in HELPER_BYTES)
+                if not helper and not any(w in line for w in wanted):
                     continue
                 try:
                     obj = json.loads(line)
@@ -414,6 +507,8 @@ class TokenLedger:
                     continue
                 if not isinstance(obj, dict):
                     continue
+                if helper and _runs_helper(tool, obj):
+                    rec["board"] = True
                 if tool == "claude":
                     self._claude(obj, rec, days_of)
                 else:
@@ -507,22 +602,48 @@ class TokenLedger:
             self._add(rec, "meter_days", "codex", running,
                       days_of(obj.get("timestamp")), _codex_counts(last))
 
+    def _share(self, path: str, rec: dict) -> str:
+        """Which of SHARES a file's tokens go in: board when it, or for a
+        Claude subagent its session's own file, ran the helper; board_unknown
+        when that cannot be told; off_board otherwise."""
+        answers = [rec.get("board")]
+        main = _session_file(path) if rec.get("tool") == "claude" else None
+        if main is not None and isinstance(self.files.get(main), dict):
+            answers.append(self.files[main].get("board"))
+        if any(answer is True for answer in answers):
+            return "board"
+        if any(answer is not False for answer in answers):
+            return "board_unknown"
+        return "off_board"
+
     def _tally(self) -> dict:
-        """{tool: {day: [four kinds]}} over every file under the current folders,
-        the ones that have since gone included."""
-        out = {tool: {} for tool in TOOLS}
+        """{name: {day: [four kinds]}} for each tool and each of SHARES over
+        every file under the current folders, the ones that have since gone
+        included. The shares split the same tokens the tools do."""
+        out = {name: {} for name in (*TOOLS, *SHARES)}
         for path, rec in self.files.items():
             tool = rec.get("tool")
-            if tool not in out or not self._under(path, tool):
+            if tool not in TOOLS or not self._under(path, tool):
                 continue
             days = rec.get("days", {})
             if tool == "codex" and not rec.get("records"):
                 days = rec.get("meter_days", {})
+            share = self._share(path, rec)
             for day, counts in days.items():
-                row = out[tool].setdefault(day, [0, 0, 0, 0])
-                for i, value in enumerate(counts[:4]):
-                    row[i] += _n(value)
+                for name in (tool, share):
+                    row = out[name].setdefault(day, [0, 0, 0, 0])
+                    for i, value in enumerate(counts[:4]):
+                        row[i] += _n(value)
         return out
+
+    def tally(self) -> dict:
+        """Every day with a count, by tool and by board share: {"claude": {day:
+        [four kinds]}, "codex": ..., "board": ..., "off_board": ...,
+        "board_unknown": ...}, days as YYYY-MM-DD and kinds in KINDS order.
+        Only counts; what the daily usage counts read."""
+        with self.lock:
+            self.refresh()
+            return self._tally()
 
     def latest_limits(self) -> dict | None:
         """The plan limits on the newest Codex token_count event seen, as
