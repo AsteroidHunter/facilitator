@@ -277,6 +277,13 @@ function shadeOf(clip) {
   const panel = clip.parentNode;
   return panel && panel.classList.contains("more") && !panel.classList.contains("open") ? "1" : "0";
 }
+// the selectors a query names, one compound each: a list split at its commas,
+// and a compound ending in :is(...) once for each selector inside it
+function selectorParts(selector) {
+  const is = selector.match(/^([^,(]*):is\(([^)]*)\)$/);
+  if (is) return is[2].split(",").map(inner => is[1] + inner.trim());
+  return selector.split(",").map(part => part.trim());
+}
 function sandbox() {
   FakeResizeObserver.made = [];
   const counts = { timers: 0, rooms: 0, again: 0 };
@@ -295,7 +302,7 @@ function sandbox() {
         getClientRects() { return this.node ? this.node.rects : []; },
       }),
       querySelector: selector =>
-        selector.split(",").some(part => (context.moving || []).includes(part.trim())) ? {} : null,
+        selectorParts(selector).some(part => (context.moving || []).includes(part)) ? {} : null,
     },
     CardMarkdown: markdown,
     line: 21,   // the panel's line, the desktop's own unless a test says otherwise
@@ -1976,7 +1983,7 @@ test("the board's timed refresh waits out a panel's run or a page turn", () => {
   context.moving = [".turnsheet"];
   assert.equal(context.cardsMoving(), true, "a page turn did not hold the refresh");
   // the desktop skips a timed tick; the phone puts its timed reading off a moment
-  assert.match(DESKTOP, /setInterval\(\(\) => \{ if \(!cardsMoving\(\)\) poll\(\); \}, 1200\);/);
+  assert.match(DESKTOP, /setInterval\(\(\) => \{ if \(!cardsMoving\(\)\) poll\(true\); \}, 1200\);/);
   assert.ok(!/setInterval\(poll, 1200\)/.test(DESKTOP), "the desktop still refreshes through a run");
   assert.match(PHONE, /if \(cardsMoving\(\)\)\{ schedulePoll\(RUN_WAIT_MS\); return; \}/);
 });
