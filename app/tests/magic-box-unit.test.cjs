@@ -2453,7 +2453,6 @@ test("both pages hand the view their expand, say when the box is moving, and sho
   MB.view.solo = img => solos.push(img);
   const anims = [];
   MB.el.animate = (keys, opts) => { const a = { keys, opts, cancel() {} }; anims.push(a); return a; };
-  MB.line = { classList: { add() {}, remove() {} } };
   Object.assign(ctx, { cardPictureStill: () => false, getComputedStyle: () => MB.el.style,
     magicPlace: () => { if (MB.view.big) ctx.magicPlaceBig(); else Object.assign(MB.el.style, { left: "700px", top: "120px", width: "400px", height: "600px" }); } });
   Object.assign(MB.el.style, { left: "700px", top: "120px", width: "400px", height: "600px" });
@@ -2479,13 +2478,14 @@ test("both pages hand the view their expand, say when the box is moving, and sho
 function boardBig() {
   const html = read("index.html");
   const src = html.slice(html.indexOf("function magicPlaceBig(){"), html.indexOf("// the card's rectangle on the stage, the fit's edges"));
-  const calls = [], boxClasses = new Set(["on"]), bodyClasses = new Set(), inBox = new Set(), timers = [], listeners = {};
+  const calls = [], boxClasses = new Set(["on"]), bodyClasses = new Set(), lines = new Set(), inBox = new Set(), timers = [], listeners = {};
   const set = s => ({ add: (...c) => c.forEach(x => s.add(x)), remove: (...c) => c.forEach(x => s.delete(x)), contains: c => s.has(c) });
   const doc = { activeElement: null, body: { classList: set(bodyClasses) },
     getElementById: () => ({ getBoundingClientRect: () => ({ x: 20, y: 41 }) }) };
   doc.activeElement = doc.body;
   const field = name => ({ name, isConnected: true, focus() { doc.activeElement = this; calls.push("focus " + name); } });
   const MB = { el: { classList: set(boxClasses), style: {}, contains: x => inBox.has(x), animate() { calls.push("fade"); } },
+    line: { classList: set(lines), animate: () => ({ cancel() {} }) },
     body: { querySelector: () => null }, shade: { style: {} }, came: null,
     view: { big: false, waiting: () => false, expand(on) { this.big = on; calls.push("expand " + on); }, solo() {} } };
   const ctx = vm.createContext({ MB, document: doc, stageScale: 0.8, innerWidth: 1200, innerHeight: 800, MagicBox: api(), window: {},
@@ -2498,7 +2498,7 @@ function boardBig() {
   const escape = (more = {}) => { const e = { key: "Escape", repeat: false, defaultPrevented: false, taken: false,
     preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() { e.taken = true; }, ...more };
     listeners.keydown(e); return e; };
-  return { ctx, MB, doc, calls, bodyClasses, inBox, timers, field, escape };
+  return { ctx, MB, doc, calls, bodyClasses, lines, inBox, timers, field, escape };
 }
 
 test("on the Mac the expanded box and its shade are written in the stage's pixels: the box nine tenths of the window, the shade all of it", () => {
@@ -2565,7 +2565,7 @@ test("on the Mac the button expands the box and Escape puts it back, the focus b
   assert.match(html, /MB\.grow\.addEventListener\("click", e => \{[\s\S]*?if \(MB\.view\.big\) magicSmall\(\);\s*else magicBig\(from\);/);
   assert.match(html, /MB\.shade\.addEventListener\("click", \(\) => magicSmall\(\)\);/);
   assert.match(html, /escape: \(\) => magicEscape\(\),/);
-  assert.match(html, /if \(MB\.view\.big\)\{ magicPlaceBig\(\); return; \}/);
+  assert.match(html, /if \(MB\.view\.big\)\{ if \(!MB\.lineFade\) MB\.line\.classList\.remove\("on"\); magicPlaceBig\(\); return; \}/);
 });
 
 test("on the Mac a box that held the keys as it was expanded still holds them as it goes back, and one that did not lets them go", () => {
@@ -2716,8 +2716,7 @@ test("on the phone the button lifts the box into the top layer over a shade, ins
 test("on the Mac the box zooms out of its place beside the card and back into it as a picture does, its own rectangle eased in step with the shade", () => {
   const { ctx, MB } = boardBig();
   const html = read("index.html"), sheet = code(html.slice(0, html.indexOf("</style>")));
-  const anims = [], lines = new Set(["on"]);
-  MB.line = { classList: { add: c => lines.add(c), remove: c => lines.delete(c) } };
+  const anims = [];
   MB.el.animate = (keys, opts) => { const a = { keys: flat(keys), opts: flat(opts), cancelled: false, playState: "running", currentTime: 0,
     cancel() { a.cancelled = true; a.playState = "idle"; } }; anims.push(a); return a; };
   // where the box is drawn: its own place, or wherever a move has got to
@@ -2738,7 +2737,7 @@ test("on the Mac the box zooms out of its place beside the card and back into it
   // landed, it is placed as it always is
   anims[0].onfinish();
   assert.ok(!MB.move && !MB.el.classList.contains("moving"));
-  // and back into its place, over the shade until it lands, its lines to the card drawn once it has.
+  // and back into its place, over the shade until it lands (its lines to the card: the next test).
   // it sets off at the expanded box's full strength, and its last frame holds none: it ends on the
   // strength its own rules give it there, faint or not, so nothing is left to fade once it lands
   MB.el.style.opacity = "1";
@@ -2746,7 +2745,7 @@ test("on the Mac the box zooms out of its place beside the card and back into it
   assert.deepEqual(anims[1].keys, [{ ...big, opacity: "1" }, small]);
   assert.ok(!("opacity" in anims[1].keys[1]) && !("opacity" in anims[0].keys[1]), "the last frame leaves the strength to the box's own rules");
   assert.deepEqual(anims[1].opts, { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
-  assert.ok(MB.el.classList.contains("moving") && !lines.has("on"));
+  assert.ok(MB.el.classList.contains("moving"));
   // turned round on its way, it sets off again from where it had got to, at the strength it had
   // got to, in the time it had spent, as the picture does, and never in less than .4 of the whole
   drawn = { left: "500px", top: "100px", width: "800px", height: "700px", opacity: "0.8" };
@@ -2787,6 +2786,79 @@ test("on the Mac the box zooms out of its place beside the card and back into it
   assert.match(sheet, /\n  :is\(#magicbox, #pipebox\)\{[^}]*opacity:var\(--shade-unselected\); transition:box-shadow \.2s, opacity \.2s\}/);
   // a small picture shrinks with the box from where it stood
   assert.match(read("card-tokens.css"), /\.magicbox:is\(\.big, \.moving\) \.mbimg\{object-fit:scale-down\}/);
+});
+
+test("on the Mac the lines to the card fade out as the box expands and back in as it is reduced, on its move's own time and curve", () => {
+  const { ctx, MB, lines } = boardBig();
+  const html = read("index.html");
+  const moves = [], fades = [];
+  MB.el.animate = (keys, opts) => { const a = { keys: flat(keys), opts: flat(opts), playState: "running", currentTime: 0,
+    cancel() { a.playState = "idle"; } }; moves.push(a); return a; };
+  MB.line.animate = (keys, opts) => { const a = { keys: flat(keys), opts: flat(opts), cancelled: false,
+    cancel() { a.cancelled = true; } }; fades.push(a); return a; };
+  // how strongly the lines are drawn: as far as a fade has got, or the rise's own
+  let strength = "1";
+  const small = { left: "700px", top: "120px", width: "400px", height: "600px" };
+  // the page's placing: beside the card it draws the lines afresh at their place, and expanded it takes
+  // them off unless they are fading out
+  Object.assign(ctx, { cardPictureStill: () => false, getComputedStyle: el => el === MB.line ? { opacity: strength } : MB.el.style,
+    magicPlace: () => { if (MB.view.big){ if (!MB.lineFade) lines.delete("on"); ctx.magicPlaceBig(); }
+      else { Object.assign(MB.el.style, small); lines.add("on"); } } });
+  assert.match(html, /if \(MB\.view\.big\)\{ if \(!MB\.lineFade\) MB\.line\.classList\.remove\("on"\); magicPlaceBig\(\); return; \}\n  MB\.line\.classList\.remove\("on"\);/);
+  const move = { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" };
+  Object.assign(MB.el.style, small, { opacity: "0.6" });
+  lines.add("on");
+  // expanded: the lines it had stay where they were drawn and fade out from their full strength on the
+  // box's own time and curve, held at nothing until they are taken off
+  ctx.magicBig(null);
+  assert.ok(lines.has("on"));
+  assert.deepEqual(fades[0].keys, [{ opacity: 1 }, { opacity: 0 }]);
+  assert.deepEqual(fades[0].opts, { ...move, fill: "forwards" });
+  assert.deepEqual(moves[0].opts, move);
+  fades[0].onfinish();
+  moves[0].onfinish();
+  assert.ok(!lines.has("on") && fades[0].cancelled && !MB.lineFade, "expanded, the lines are off");
+  // reduced: they are drawn at once at the box's place beside the card and fade in from nothing on the
+  // box's own time and curve, to the strength the rise gives them, so they are whole the frame it lands
+  ctx.magicSmall();
+  assert.ok(lines.has("on") && MB.el.classList.contains("moving"));
+  assert.deepEqual(fades[1].keys, [{ opacity: 0 }, {}]);
+  assert.deepEqual(fades[1].opts, move);
+  assert.deepEqual(moves[1].opts, move);
+  // turned round, they go back from the strength they had got to, in the time the box had spent
+  strength = "0.7";
+  moves[1].currentTime = 150;
+  ctx.magicBig(null);
+  assert.ok(fades[1].cancelled && lines.has("on"));
+  assert.deepEqual(fades[2].keys, [{ opacity: 0.7 }, { opacity: 0 }]);
+  assert.equal(fades[2].opts.duration, 150);
+  assert.equal(moves[2].opts.duration, 150);
+  strength = "0.2";
+  moves[2].currentTime = 30;
+  ctx.magicSmall();
+  assert.ok(fades[2].cancelled && lines.has("on"));
+  assert.deepEqual(fades[3].keys, [{ opacity: 0.2 }, {}]);
+  assert.equal(fades[3].opts.duration, moves[3].opts.duration);
+  moves[3].onfinish();
+  fades[3].onfinish();
+  assert.ok(lines.has("on") && !fades[3].cancelled && !MB.lineFade, "landed, they are whole with no fade left on them");
+  // with reduced motion the box does not travel and the lines fade as it does, quickly; the box placed
+  // again while they fade out leaves them be
+  ctx.cardPictureStill = () => true;
+  strength = "1";
+  ctx.magicBig(null);
+  assert.deepEqual(fades[4].keys, [{ opacity: 1 }, { opacity: 0 }]);
+  assert.deepEqual(fades[4].opts, { duration: 160, easing: "ease", fill: "forwards" });
+  ctx.magicPlace();
+  assert.ok(lines.has("on"));
+  fades[4].onfinish();
+  assert.ok(!lines.has("on"));
+  ctx.magicSmall();
+  assert.ok(lines.has("on"));
+  assert.deepEqual(fades[5].keys, [{ opacity: 0 }, {}]);
+  assert.deepEqual(fades[5].opts, { duration: 160, easing: "ease" });
+  // the box going stops any fade and takes the lines off
+  assert.match(html, /if \(!keep\) magicMoveStop\(\);\s*magicLineStop\(\);\s*MB\.line\.classList\.remove\("on"\);/);
 });
 
 test("on the Mac the keys moving while the box is on its way take it to its new strength from where it is, over the box's own .2s", () => {
