@@ -737,7 +737,9 @@
 /* the answer to the sent panel's messages lands on the card on show and the card
    turns to a new page in one motion (card-logic.js says how and when). the page
    the reader was on is a still picture on this sheet, laid over the card's
-   column down to the foot of the sent panel's seat, in the card's own white so
+   column down to the foot of the sent panel's seat, or to the head of the
+   first bubble the answer leaves standing there, which is never pictured and
+   so never moves, in the card's own white so
    the new page drawn under it cannot show through, and the new page is a second
    picture under the first, waiting a glide's length further down. both move on
    one transform over --turn-glide, 560ms on the card's gentle curve, on a layer
@@ -754,6 +756,12 @@
   background:var(--card); pointer-events:none}
 .turnsheet::before{content:""; position:absolute; left:0; right:0; top:0; z-index:1;
   height:var(--titleair, 0px); background:linear-gradient(to bottom, var(--card), transparent)}
+/* over bubbles left standing in the seat, the answer coming in stops on the
+   line an answer at rest stops on, its clear air above the first bubble's
+   head, as far as the seat keeps that room empty (--turnair, written by the
+   script only then), on the sheet's own fill */
+.turnsheet::after{content:""; position:absolute; left:0; right:0; bottom:0; z-index:1;
+  height:var(--turnair, 0px); background:inherit}
 .turnpage{position:absolute; left:0; right:0; top:0; bottom:0; will-change:transform}
 .turnpage.gliding{transition:transform var(--turn-glide) var(--gentle)}
 /* the seat's picture gives way to the new page's panel behind it over the

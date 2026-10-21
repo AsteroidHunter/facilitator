@@ -5827,6 +5827,14 @@ function stillCopy(el, { noIds = false } = {}){
 // seat; the small card, which keeps its panel, its answer and its sent panel as
 // three pieces of one column, pictures the three.
 //
+// an answer to only the first messages leaves the bubbles sent after them at
+// the card's foot, still waiting for the agent (turnStays). the seat stands on
+// the row the reader types in, so they stand where they stood once the bubbles
+// over them have gone. they are not pictured and the sheet stops at the head of
+// the first of them, so on every frame of the glide they are the seat's own,
+// as they stood, and nothing that glides is drawn over them: only the bubbles
+// the answer was given rise, and the new answer comes up under them.
+//
 // the reader is never moved while busy with the card. a new answer is held
 // back, the page left exactly as it was, while the reader is reading (the answer
 // was scrolled in the last three seconds, words in it are picked out, or an older
@@ -5962,7 +5970,7 @@ function turnBegin(el, b){
   if (turnHolding(el, b.id)){ turnHold(el, b.id); return TURN_HELD; }
   if (el.turnHeld){ clearTimeout(el.turnHeld); el.turnHeld = null; }
   const turn = { mode: "print" };
-  if (el.sent && el.sentwrap && el.sentwrap.getBoundingClientRect().height) turnSheet(el, turn);
+  if (el.sent && el.sentwrap && el.sentwrap.getBoundingClientRect().height) turnSheet(el, turn, b);
   // the new page opens at its head
   scrollCardTop(el);
   return turn;
@@ -5995,17 +6003,47 @@ function turnPicture(el, node, turn, shift){
   return copy;
 }
 
+// the bubbles a new answer leaves standing at the card's foot: those holding
+// only messages the board says it was not given (b.answered), matched by their
+// words, each word once, from the oldest bubble down. an agent takes what was
+// sent first, so they stand under the bubbles it answers. a batch the board
+// could not state, a bubble holding both kinds, or one left over a bubble that
+// rises, leaves none, and the whole seat rises as it always did
+function turnStays(el, b){
+  const batch = b && Array.isArray(b.answered) ? b.answered : null;
+  if (!batch) return [];
+  const given = new Map();
+  for (const m of batch){ const text = answeredText(m); given.set(text, (given.get(text) || 0) + 1); }
+  const stays = [];
+  for (const panel of sentPanels(el)){
+    const msgs = panel.sentMsgs || [];
+    let taken = 0;
+    for (const m of msgs){
+      const text = answeredText(m), left = given.get(text) || 0;
+      if (left){ given.set(text, left - 1); taken++; }
+    }
+    if (taken && taken < msgs.length) return [];
+    if (!taken) stays.push(panel);
+    else if (stays.length) return [];
+  }
+  return stays;
+}
+
 // the still picture of the page the reader was on, over the card's column: from
 // the head of the card's body on a large card, where a fade in the white over
 // the answer takes what leaves, and from the first piece down on a small one,
-// to the foot of the sent panel's seat either way
-function turnSheet(el, turn){
+// to the foot of the sent panel's seat either way, or to the head of the first
+// bubble the answer leaves standing there
+function turnSheet(el, turn, b){
   const parts = turnParts(el);
+  const stays = turnStays(el, b);
   // a sent bubble caught open, or part way through a run, is cut to its preview
   // where it stands, since what glides up is what stands at the head of the
-  // new page, and a merge still going lands
+  // new page, and a merge still going lands. a bubble left standing is left
+  // as it is
   sentMergeStop(el);
   for (const sent of sentPanels(el)){
+    if (stays.includes(sent)) continue;
     if (!sent.classList.contains("open") && !sent.classList.contains("motion")) continue;
     sent.answRun = (sent.answRun || 0) + 1;
     settleAnswered(sent);
@@ -6016,13 +6054,30 @@ function turnSheet(el, turn){
   const at = parts.region.getBoundingClientRect(), sr = el.sentwrap.getBoundingClientRect();
   const shown = parts.before.filter(node => node && node.getBoundingClientRect().height);
   const top = el.replyview ? at.top : Math.min(...shown.map(node => node.getBoundingClientRect().top));
+  const foot = stays.length ? stays[0].getBoundingClientRect().top : sr.bottom;
   Object.assign(turn, { mode: "glide", top, left: at.left, from: sr.top });
   const sheet = h("div", "turnsheet");
   sheet.setAttribute("aria-hidden", "true");
   sheet.style.top = (top - at.top) + "px";
-  sheet.style.height = (sr.bottom - top) + "px";
+  sheet.style.height = (foot - top) + "px";
   const page = h("div", "turnpage");
   const pictures = shown.map(node => [node, turnPicture(el, node, turn, 0)]);
+  // the seat's picture holds only the bubbles that rise, and its white ends at
+  // the sheet's foot, so none of it is carried up over the answer coming in
+  // under them. that answer stops where an answer at rest stops over the seat,
+  // its own clear air above the head of the first bubble left standing, which
+  // is the line its own fade lands on as it lands, or as much of that air as
+  // the seat keeps empty there, so the first frame is the page as it stood
+  // (the sheet's --turnair)
+  if (stays.length){
+    const seat = pictures.find(([node]) => node === el.sentwrap)[1], copies = [...seat.children];
+    [...el.sentwrap.children].forEach((node, i) => { if (stays.includes(node)) copies[i].remove(); });
+    seat.style.height = (foot - sr.top) + "px";
+    seat.style.overflow = "hidden";
+    const clear = parseFloat(getComputedStyle(el.replyview || el.reply).marginBottom) || 0;
+    const air = Math.min(clear, parseFloat(getComputedStyle(stays[0]).marginTop) || 0);
+    if (air > 0) sheet.style.setProperty("--turnair", air + "px");
+  }
   page.append(...pictures.map(([, copy]) => copy));
   sheet.appendChild(page);
   parts.region.appendChild(sheet);
