@@ -2138,11 +2138,13 @@ function zoomBox({ kind = "image", scale = 1, hooks = {} } = {}) {
     return e;
   };
   const fingers = (type, points) => send(type, { touches: points.map(([x, y]) => ({ clientX: x, clientY: y })) });
-  // where the picture is drawn, in the body's pixels: its transform laid over its fit
+  // where the picture is drawn, in the body's pixels: its transform, its shift
+  // a share of its own box (1000 by 600), laid over its fit
   const drawn = () => {
     const t = img().style.transform || "";
+    if (t) assert.match(t, /^translate\(-?[\d.e-]+%, -?[\d.e-]+%\) scale\([\d.e-]+\)$/);
     const [x, y, k] = t ? t.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number) : [0, 0, 1];
-    return { x: x + k * 0, y: y + k * 50, w: k * 1000, h: k * 500, k };
+    return { x: x / 100 * 1000 + k * 0, y: y / 100 * 600 + k * 50, w: k * 1000, h: k * 500, k };
   };
   return { view, el, body, words, shot, img, send, fingers, drawn, flags, tick: ms => { now += ms; },
     resized: () => observers.forEach(fn => fn()) };
@@ -2323,6 +2325,25 @@ test("the box going back carries the picture back to its fit as it shrinks, a ne
   const back = img().anims.at(-1);
   assert.deepEqual(flat(back.keys), [{ transform: zoomed }, { transform: "none" }], "from where it stood");
   assert.deepEqual(flat(back.opts), { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" }, "on the box's own time and curve");
+  // the shift is a share of the picture's own box, so as the box shrinks under it the zoomed picture
+  // shrinks with it: dragged to its bottom right corner at four times, the same transform on a box half
+  // the size still holds that corner at the box's (in pixels it slid off to the top left, leaving the box white)
+  view.expand(true);
+  for (let i = 0; i < 4; i++) send("wheel", { ctrlKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  send("pointerdown", { clientX: 600, clientY: 300, buttons: 1 });
+  send("pointermove", { clientX: -9000, clientY: -9000, buttons: 1 });
+  send("pointerup", {});
+  const corner = img().style.transform, [sx, sy, sk] = corner.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number);
+  assert.ok(close(sk, 4, 1e-9));
+  // exactly at the box's own shape, and within a pixel at a shape a little different
+  for (const [W, H, by] of [[1000, 600, 1e-6], [500, 300, 1e-6], [250, 150, 1e-6], [386, 232, 1]]) {
+    const fit = Math.min(W / 2000, H / 1000), fw = 2000 * fit, fh = 1000 * fit, fx = (W - fw) / 2, fy = (H - fh) / 2;
+    assert.ok(close(sx / 100 * W + sk * fx + sk * fw, W, by) && close(sy / 100 * H + sk * fy + sk * fh, H, by),
+      "the picture's bottom right corner at the box's, the box " + W + " by " + H);
+    assert.ok(sx / 100 * W + sk * fx <= 0 && sy / 100 * H + sk * fy <= 0, "and the picture still covers the box");
+  }
+  view.expand(false);
+  assert.deepEqual(flat(img().anims.at(-1).keys), [{ transform: corner }, { transform: "none" }]);
   // expanded again it opens at its fit; with reduced motion the way back is at once
   view.expand(true);
   assert.equal(img().style.transform, "");

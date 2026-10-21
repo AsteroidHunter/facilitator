@@ -8386,10 +8386,13 @@ function magicView(el, hooks = {}){
   // two-finger scroll moves it, never so far that an edge comes in past the
   // box's, so some of it always shows; a double click or a double tap goes
   // from fitted to twice at that point and back. a lone click or tap does
-  // nothing, and never puts the box back. it is moved by a transform from its
-  // top left corner (card-tokens.css), in the box's own pixels, the board's
-  // stage scale counted out. a box on its way (hooks.moving) takes none of it,
-  // so the click that expanded it is never the first of two
+  // nothing, and never puts the box back. it is worked out in the box's own
+  // pixels, the board's stage scale counted out, and moved by a transform from
+  // its top left corner (card-tokens.css) whose shift is a share of its own
+  // size (zoomTransform), so as the box shrinks back to its place the zoomed
+  // picture shrinks with it on its way to its fit, and never slides away. a
+  // box on its way (hooks.moving) takes none of it, so the click that expanded
+  // it is never the first of two
   const z = { img: null, to: null, at: null, grow: null, touch: null, drag: null, tapped: null, pinch: null };
   const zoomPic = () => view.big && !(hooks.moving && hooks.moving()) ? view.body.querySelector(":scope > .mbimg") : null;
   const zoomed = () => !!z.at && z.at.w > z.to.w + 0.5;
@@ -8423,15 +8426,31 @@ function magicView(el, hooks = {}){
     const axis = (p, size, room) => size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, p));
     return { x: axis(r.x, r.w, z.to.W), y: axis(r.y, r.h, z.to.H), w: r.w, h: r.h };
   };
+  // the transform that lays the picture at r over its fit, or none at its
+  // fit. its shift is in shares of the picture's own box: in pixels, a box
+  // shrinking under a zoom on its way back left the picture shifted as far as
+  // it was at full size while it grew smaller, so it slid off toward the top
+  // left and left the box white
+  const zoomTransform = r => {
+    const k = r.w / z.to.w;
+    return k > 1 + 1e-6 ? "translate(" + (r.x - k * z.to.x) / z.to.W * 100 + "%, " + (r.y - k * z.to.y) / z.to.H * 100 + "%) scale(" + k + ")" : "";
+  };
+  // the transform it is drawn with now, a motion on its way caught where it
+  // has got to, in the same terms (the page gives it back as a matrix)
+  const zoomNow = img => {
+    const t = getComputedStyle(img).transform, m = /^matrix\(([^)]+)\)$/.exec(t);
+    if (!m) return t;
+    const [a, , , , e, f] = m[1].split(",").map(Number);
+    return "translate(" + e / img.offsetWidth * 100 + "%, " + f / img.offsetHeight * 100 + "%) scale(" + a + ")";
+  };
   // the picture at r, there at once or, with glide, carried there from where
   // it stands on the picture's time and curve
   const zoomMove = (img, r, glide) => {
-    const from = glide ? getComputedStyle(img).transform : null;
+    const from = glide ? zoomNow(img) : null;
     if (z.grow){ z.grow.cancel(); z.grow = null; }
     z.at = zoomHeld(r);
-    const k = z.at.w / z.to.w, on = k > 1 + 1e-6;
-    img.style.transform = on ? "translate(" + (z.at.x - k * z.to.x) + "px, " + (z.at.y - k * z.to.y) + "px) scale(" + k + ")" : "";
-    img.classList.toggle("zoomed", on);
+    img.style.transform = zoomTransform(z.at);
+    img.classList.toggle("zoomed", !!img.style.transform);
     if (glide && !cardPictureStill(window))
       z.grow = img.animate([{ transform: from }, { transform: img.style.transform || "none" }], { duration: CARD_PICTURE_MS, easing: CARD_PICTURE_EASE });
   };
@@ -8458,7 +8477,7 @@ function magicView(el, hooks = {}){
   function zoomOff(glide){
     const img = z.img;
     if (!img) return;
-    const from = z.grow ? getComputedStyle(img).transform : img.style.transform;
+    const from = z.grow ? zoomNow(img) : img.style.transform;
     if (z.grow){ z.grow.cancel(); z.grow = null; }
     Object.assign(z, { img: null, to: null, at: null, touch: null, drag: null, tapped: null, pinch: null });
     img.style.transform = "";
