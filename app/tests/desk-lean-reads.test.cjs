@@ -11,8 +11,8 @@
 // between the two readings; they are checked to be close. Three fixture
 // patches: DESK_KEPT is cut to four, and card m1 and the reading itself carry
 // the words of a probe file while it exists, which is a card and a field
-// reading two ways at one revision with no save between, as a heartbeat going
-// quiet does it. No browser, and port 8877 is never touched.
+// reading two ways at one revision with no save between, as the clock alone
+// can do it. No browser, and port 8877 is never touched.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const v8 = require("node:v8");
