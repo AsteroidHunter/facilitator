@@ -1024,6 +1024,16 @@ const RESPONSE_EASE_MS = 100;
 const RESPONSE_EASE_END = 10;
 // the longest frame gap counted, so a stalled page never catches up in a jump
 const RESPONSE_FRAME_MAX_MS = 50;
+// while the motion runs the browser's compositor carries it on between the
+// page's own frames (responseGlide): each frame hands it the curve for this
+// long ahead, so a frame the page is kept from drawing by other work (the
+// board's refresh) costs the words no motion. it is also the longest frame gap
+// counted while a glide runs, since the words have already moved through it
+const RESPONSE_GLIDE_MS = 250;
+// the glide's keyframes, one for each refresh of a 120 Hz screen
+const RESPONSE_GLIDE_STEPS = 30;
+// a scroller with more parts than this (a long list) is moved by its frames alone
+const RESPONSE_GLIDE_PARTS = 4;
 // a press that finds nothing to scroll that way, or a hold that reaches the
 // end, nudges the response's content this far along the pressed direction and
 // back, so the key is seen to have landed
@@ -1043,8 +1053,58 @@ let responseBouncing = [];
 
 function stopResponseScroll(){
   if (responseScrolling && responseScrolling.frame) cancelAnimationFrame(responseScrolling.frame);
+  responseGlideLand(responseScrolling);
   if (responseScrollTiming && responseScrolling) noteResponseScroll("end", responseScrolling);
   responseScrolling = null;
+}
+
+// the compositor's share of the motion: the response's content (its parts, as
+// the bounce moves them) moved along the curve from where this frame leaves
+// the words, for RESPONSE_GLIDE_MS and never past either end, starting at
+// nothing at the frame's own time. the browser runs it off the page's thread,
+// so a page held up by something else leaves the words moving, and the next
+// frame sets the scroll to where they have got to and starts again from
+// nothing. while the page is free every frame is drawn at nothing, exactly as
+// before. an agent's page in its frame, which is not an element of this page,
+// is moved by its own page and does not glide
+function responseGlide(run, view, at, room){
+  if (!view || view.nodeType !== 1) return;
+  const parts = [...(view.children || [])].filter(part => typeof part.animate === "function");
+  if (!parts.length || parts.length > RESPONSE_GLIDE_PARTS) return;
+  const far = run.dir > 0 ? room - run.pos : run.pos;
+  const { held, eased, from } = run;
+  const path = t => Math.min(far, eased == null
+    ? responseHeldPath(held + t) - responseHeldPath(held)
+    : responseEasePath(from, eased + t) - responseEasePath(from, eased));
+  const frames = [];
+  for (let i = 0; i <= RESPONSE_GLIDE_STEPS; i++){
+    const moved = path(i * RESPONSE_GLIDE_MS / RESPONSE_GLIDE_STEPS);
+    frames.push({ translate: "0 " + (moved ? -run.dir * moved : 0) + "px", offset: i / RESPONSE_GLIDE_STEPS });
+  }
+  run.glide = { at, path, runs: parts.map(part => {
+    const glide = part.animate(frames, { duration: RESPONSE_GLIDE_MS, fill: "forwards" });
+    glide.startTime = at;
+    return glide;
+  }) };
+}
+function responseGlideStop(run){
+  if (!run || !run.glide) return;
+  for (const glide of run.glide.runs) glide.cancel();
+  run.glide = null;
+}
+// how far the glide has carried the words by now, or null when none runs
+function responseGlideAt(run, now){
+  if (!run || !run.glide) return null;
+  return run.glide.path(Math.max(0, Math.min(RESPONSE_GLIDE_MS, now - run.glide.at)));
+}
+// a motion that ends between frames ends where the glide has carried the
+// words: the scroll is set there and the content put back in the same go
+function responseGlideLand(run){
+  const moved = responseGlideAt(run, performance.now());
+  if (moved == null) return;
+  responseGlideStop(run);
+  const view = run.el && run.el.replyview;
+  if (view && moved) view.scrollTop = run.pos + run.dir * moved;
 }
 
 function dropResponseScroll(){
@@ -1087,8 +1147,24 @@ function easeResponseScroll(){
     stopResponseScroll();
     return;
   }
+  // the glide has carried the held motion on since the last frame: the ease
+  // starts from where the words stand now, at the speed they have now, and the
+  // compositor is handed the ease from there
+  const now = performance.now();
+  const moved = responseGlideAt(run, now);
+  if (moved != null){
+    run.held += Math.max(0, Math.min(RESPONSE_GLIDE_MS, now - run.last));
+    run.pos += run.dir * moved;
+    run.last = now;
+  }
   run.from = responseHeldSpeed(run.held);
   run.eased = 0;
+  if (moved != null){
+    const view = run.el.replyview;
+    responseGlideStop(run);
+    if (run.pos !== view.scrollTop) view.scrollTop = run.pos;
+    responseGlide(run, view, now, Math.max(0, view.scrollHeight - view.clientHeight));
+  }
 }
 
 // control and s and nothing else, so control+shift+s is not the chord
@@ -1167,7 +1243,10 @@ function responseScrollFrame(at){
     return;
   }
   const view = run.el.replyview;
-  const dt = Math.min(RESPONSE_FRAME_MAX_MS, Math.max(0, at - run.last));
+  // while a glide runs, a long wait for this frame is time the words have
+  // already moved through on the compositor, so it counts in full
+  const dt = Math.min(run.glide ? RESPONSE_GLIDE_MS : RESPONSE_FRAME_MAX_MS, Math.max(0, at - run.last));
+  responseGlideStop(run);
   run.last = at;
   // the position is kept unrounded so slow motion is not lost to whole pixels,
   // and taken afresh when something else has moved the response
@@ -1198,6 +1277,7 @@ function responseScrollFrame(at){
     stopResponseScroll();
     return;
   }
+  responseGlide(run, view, at, room);
   run.frame = requestAnimationFrame(responseScrollFrame);
 }
 
@@ -1236,6 +1316,9 @@ function responseScrollKey(event, find){
     ...press, find, dir, last: at, pos: view.scrollTop, held: 0, eased: null, from: 0,
     frame: requestAnimationFrame(responseScrollFrame),
   };
+  // the words start moving on the compositor from the press itself, so a page
+  // busy when the first frame is due does not hold back the start
+  responseGlide(responseScrolling, view, at, Math.max(0, view.scrollHeight - view.clientHeight));
   if (responseScrollTiming) noteResponseScroll("start", responseScrolling);
   return true;
 }
