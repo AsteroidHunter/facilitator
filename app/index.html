@@ -3914,34 +3914,7 @@
   body.focus .box.sel.omni-card .omni-card-art{order:10; font-size:30px;
     margin-left:calc(var(--pad-x)*2/3)}
   body.focus .box.sel.omni-card .title{flex:1 1 0; padding-left:0}
-  /* the Omni light. the ordinary working shimmer reads because it is white
-     laid over a tinted row: lighter than everything it crosses, one soft rise
-     and fall as wide as the row with no flat top, and always moving. an Omni
-     card is already white, and white cannot be lit any whiter, so the light is
-     two layers, each a bell of evenly stepped stops with no plateau:
-     the warmth, a wide bell of warm white multiplied in, warms the white it
-     crosses the way sun warms paper and leaves the ink as dark as it was;
-     the glare, a narrow bell of near white screened in over it, brightens
-     all that is not already white, the words, the art, the rules, and turns
-     the middle of the warmth back to white, so it reads as a hot core in a
-     warm glow. on a working Omni row both ride the ordinary shimmer's own
-     keyframes, width and pace */
-  .trow.omni-ticket.working::before{
-    content:""; position:absolute; inset:0; pointer-events:none; mix-blend-mode:multiply;
-    background:linear-gradient(90deg, rgba(255,242,232,0) 0%, rgba(255,242,232,.07) 10%,
-      rgba(255,242,232,.21) 20%, rgba(255,242,232,.46) 30%, rgba(255,242,232,.73) 40%,
-      rgba(255,242,232,.85) 50%, rgba(255,242,232,.73) 60%, rgba(255,242,232,.46) 70%,
-      rgba(255,242,232,.21) 80%, rgba(255,242,232,.07) 90%, rgba(255,242,232,0) 100%);
-    animation:ticket-working-shimmer 1.6s linear infinite; will-change:transform}
-  .trow.omni-ticket.working::after{
-    mix-blend-mode:screen;
-    background:linear-gradient(90deg, rgba(255,255,253,0) 39.5%, rgba(255,255,253,.04) 41%,
-      rgba(255,255,253,.1) 42.5%, rgba(255,255,253,.23) 44%, rgba(255,255,253,.44) 45.5%,
-      rgba(255,255,253,.69) 47%, rgba(255,255,253,.91) 48.5%, rgba(255,255,253,1) 50%,
-      rgba(255,255,253,.91) 51.5%, rgba(255,255,253,.69) 53%, rgba(255,255,253,.44) 54.5%,
-      rgba(255,255,253,.23) 56%, rgba(255,255,253,.1) 57.5%, rgba(255,255,253,.04) 59%,
-      rgba(255,255,253,0) 60.5%)}
-  /* the same light crossing a whole card, or its row in the ticket list, as it
+  /* the light crossing a whole card, or its row in the ticket list, as it
      becomes Omni, bottom left to top right, and back the other way as it stops
      being one. the script moves it by --omni-p, the light's centre on the
      sweep's 0..1 measure: 0 at the bottom left corner, 1 at the top right.

@@ -71,11 +71,10 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
     assert.match(html, name === "m.html"
       ? /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:calc\(56 \* var\(--u\)\); --omni-core:calc\(18 \* var\(--u\)\)\}/
       : /\.trow > \.omni-sweep\{--omni-dir:45deg; --omni-sun:56px; --omni-core:18px\}/);
-    // less yellow: every colour in the light, the working shine and the glint's
-    // edge is white with at most a trace of warmth, red over blue by no more than 25
+    // less yellow: every colour in the light and the glint's edge is white with
+    // at most a trace of warmth, red over blue by no more than 25
     const block = html.slice(sweepRule.index, html.indexOf("@keyframes omni-glint"));
-    const rows = /\.trow\.omni-ticket\.working::before\{[\s\S]*?\.trow\.omni-ticket\.working::after\{[^}]*\}/.exec(html);
-    for (const [, r, g, b] of [...(block + (rows ? rows[0] : "")).matchAll(/rgba\((\d+),(\d+),(\d+),/g)]){
+    for (const [, r, g, b] of [...block.matchAll(/rgba\((\d+),(\d+),(\d+),/g)]){
       assert.ok(Number(r) - Number(b) <= 25 && Math.abs(Number(r) - Number(g)) <= 15, `rgb(${r},${g},${b}) is too warm`);
     }
     // no yellow or gold left: the warmth is warm white, the glare near white
@@ -107,20 +106,12 @@ for (const [name, size, open] of [["index.html", "17.5px", ["body.focus .box.sel
   });
 }
 
-test("a working Omni row wears the same sunlight while ordinary rows keep the white shimmer", () => {
+test("a working Omni row runs the ordinary white shimmer and no light of its own", () => {
   const html = source("index.html");
-  assert.match(html, /\.trow\.working::after\{[^}]*rgba\(255,255,255,\.55\) 50%/);
-  const warmth = /\.trow\.omni-ticket\.working::before\{([^}]*)\}/.exec(html)[1];
-  const glare = /\.trow\.omni-ticket\.working::after\{([^}]*)\}/.exec(html)[1];
-  // matched to the card's light: the near neutral warmth at .85, glare full white at the centre
-  assert.match(warmth, /mix-blend-mode:multiply;[\s\S]*rgba\(255,242,232,\.85\) 50%[\s\S]*animation:ticket-working-shimmer 1\.6s linear infinite/);
-  assert.match(glare, /mix-blend-mode:screen;[\s\S]*rgba\(255,255,253,1\) 50%/);
-  // bells, not bands: each layer peaks at exactly one stop
-  for (const [layer, peak] of [[warmth, ".85"], [glare, "1"]]){
-    const alphas = [...layer.matchAll(/rgba\(\d+,\d+,\d+,([.\d]+)\) [\d.]+%/g)].map(m => m[1]);
-    assert.equal(alphas.filter(a => a === peak).length, 1);
-    assert.ok(alphas.every(a => Number(a) <= Number(peak)));
-  }
+  assert.match(html, /\.trow\.working::after\{[^}]*rgba\(255,255,255,\.55\) 50%[^}]*animation:ticket-working-shimmer 1\.6s linear infinite/);
+  // no rule reaches an Omni row's own ::before or ::after, so the ordinary one applies unchanged
+  assert.doesNotMatch(html, /\.omni-ticket[^{}]*::(before|after)/, "an Omni row draws a working light of its own");
+  assert.doesNotMatch(html, /\.omni-ticket\.working/);
 });
 
 test("the three optimized supplied artworks are distinct WebP assets", () => {
