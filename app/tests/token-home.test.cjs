@@ -1223,15 +1223,25 @@ test("the picture's line marks the install day, and leaves the mark out when tha
   assert.equal(marks(days[3].date), false, "before the days shown (the days fetched ahead of them are not shown)");
   assert.equal(marks("2027-01-01"), false, "after the last day");
   assert.equal(marks(null), false, "a board that has not said");
-  // a board first started less than a week before the last day is not marked
-  // yet: the mark would stand at the right edge with nothing after it
+  // a board first started less than 7 days before today (the last day) is not
+  // marked yet: the mark would stand at the right edge with nothing after it.
+  // In every line look, 6 days after the install day there is no line, no
+  // label and no room kept for them, the picture painted as with no install
+  // day at all; 7 days after, the mark is there
   assert.equal(W.MARK_AFTER, 7);
-  assert.equal(marks(days.at(-1).date), false, "started today");
-  assert.equal(marks(days.at(-7).date), false, "six days ago");
-  assert.equal(marks(days.at(-8).date), true, "a week ago, a week of the line after it");
-  assert.equal(W.seriesOf(days, W.pictureStart(days), days.at(-5).date).install, -1);
-  for (const pick of [2, 4]) assert.equal(paintOf(W, "line", pick, days, days.at(-3).date).calls.some(c => c[1] === "Facilitator installed"), false,
-                                         `${W.DICE.line[pick].join(" ")} leaves it out too`);
+  const ago = n => days.at(-1 - n).date;
+  assert.equal(marks(ago(0)), false, "started today");
+  assert.equal(marks(ago(3)), false, "three days ago");
+  W.DICE.line.forEach((look, pick) => {
+    const named = look.join(" ");
+    const six = paintOf(W, "line", pick, days, ago(6)), none = paintOf(W, "line", pick, days, null);
+    assert.equal(six.calls.some(c => c[1] === "Facilitator installed"), false, `${named}: 6 days after install, no mark`);
+    assert.deepEqual(JSON.stringify(six.calls), JSON.stringify(none.calls), `${named}: 6 days after install, nothing kept for it`);
+    const seven = paintOf(W, "line", pick, days, ago(7));
+    assert.equal(seven.calls.some(c => c[1] === "Facilitator installed"), true, `${named}: 7 days after install, marked`);
+  });
+  assert.equal(W.seriesOf(days, W.pictureStart(days), ago(6)).install, -1);
+  assert.equal(W.seriesOf(days, W.pictureStart(days), ago(7)).install, W.seriesOf(days).n - 1 - 7);
   for (const pick of [0, 1, 2]) assert.equal(paintOf(W, "heatmap", pick, days, inside).calls.some(c => c[1] === "Facilitator installed"), false, "never on the heatmap");
 });
 
@@ -1359,13 +1369,13 @@ test("a picture's file is facilitator_, the day as eight figures and the first n
 
 // a panel with a reading, a page that records what it downloads and shares,
 // timers fired by hand, and a profile that names Robin
-async function savingPanel({ share = false, canShare = true, closed = false, name = "Robin Example", view = "line" } = {}) {
+async function savingPanel({ share = false, canShare = true, closed = false, name = "Robin Example", view = "line", installedAgo = 99 } = {}) {
   class FakeFile { constructor(parts, n, opts) { this.name = n; this.type = opts.type; } }
   const days = daysEnding("2026-09-27", 371);
   const { W } = widgets({ File: FakeFile, setTimeout: () => 0, URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} } });
   const doc = makeDocument();
   doc.removeEventListener = () => {};
-  const seen = { shared: [], clicked: [], canvases: [], states: [], asked: 0 };
+  const seen = { shared: [], clicked: [], canvases: [], states: [], asked: 0, painted: [] };
   doc.defaultView = {
     navigator: canShare ? { canShare: d => d.files.length === 1, share: async d => {
       if (closed) throw Object.assign(new Error("closed"), { name: "AbortError" });
@@ -1379,7 +1389,7 @@ async function savingPanel({ share = false, canShare = true, closed = false, nam
   doc.createElement = tag => {
     const node = make(tag);
     if (tag === "canvas") {
-      node.getContext = () => recording().ctx;
+      node.getContext = () => { const r = recording(); seen.painted.push(r); return r.ctx; };
       node.toBlob = fn => { seen.canvases.push([node.width, node.height]); fn({ size: 1 }); };
     }
     if (tag === "a") node.remove = () => {};
@@ -1389,7 +1399,7 @@ async function savingPanel({ share = false, canShare = true, closed = false, nam
   const flush = async () => { for (let i = 0; i < 10; i++) await settle(); const next = queue.splice(0); next.forEach(([fn]) => fn()); for (let i = 0; i < 10; i++) await settle(); return next.map(([, ms]) => ms); };
   const cacheStore = makeStore();
   const root = new El("div", doc);
-  const p = W.panel(root, { load: async () => ({ days, installed: days.at(-100).date }), store: makeStore({ "home.chart": view }),
+  const p = W.panel(root, { load: async () => ({ days, installed: days.at(-1 - installedAgo).date }), store: makeStore({ "home.chart": view }),
     cacheStore, share, now: () => new Date(2026, 9, 16, 12).getTime(),
     profile: async () => { seen.asked++; if (name instanceof Error) throw name; return name; },
     later: (fn, ms) => { queue.push([fn, ms]); return queue.length; }, cancel: () => {} });
@@ -1481,6 +1491,18 @@ test("a phone that can share keeps the picture for the share sheet, and saves an
   assert.equal(closed.count(), null, "and counts nothing");
   assert.equal(closed.shot.keep.dataset.state, "idle");
   assert.equal(closed.shot.note.textContent, "", "and says nothing");
+});
+
+test("the download marks the install day only once 7 days have passed since it, in the picture and in every look the dice turns up", async () => {
+  const marked = r => r.calls.some(c => (c[0] === "fillText" || c[0] === "strokeText") && c[1] === "Facilitator installed");
+  const six = await savingPanel({ installedAgo: 6 }), seven = await savingPanel({ installedAgo: 7 });
+  assert.equal(marked(six.seen.painted[0]), false, "6 days after install: the downloaded picture has no mark");
+  assert.equal(marked(seven.seen.painted[0]), true, "7 days after install: it is marked");
+  for (const [run, want] of [[six, false], [seven, true]]) {
+    for (let i = 0; i < 5; i++) { run.shot.dice.click(); await run.flush(); }
+    assert.equal(run.seen.painted.length, 6, "the download and the five other line looks");
+    run.seen.painted.forEach((r, i) => assert.equal(marked(r), want, `picture ${i}`));
+  }
 });
 
 // ---- the picture's overlay -----------------------------------------------------------
