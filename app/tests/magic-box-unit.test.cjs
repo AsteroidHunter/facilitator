@@ -1614,8 +1614,10 @@ test("the drawer's lift is worked out before any run and every run carries it, s
   assert.match(swap, /const lifted = listLift;\s*showFace\(\);/);
   assert.match(swap, /play\(tickets, frames\(ms, t => \(\{ transform: `translate3d\(0px, \$\{px3\(-\(drop\(t\) \+ listLift\)\)\}, 0px\)` \}\)\), ms, "backwards"\)/);
   assert.match(swap, /goingParts\.map\(el => play\(el, frames\(cut, t => face\(shut\.at\(t\), away, listLift - lifted\)\), cut, "both"\)\)/);
-  // the box script says how far and no longer writes the lift after the drop
-  assert.match(page, /listLiftAt = \(\) => place\(\)\.lift;/);
+  // the box script says how far, from the one reading of the drawer a fit
+  // makes, and no longer writes the lift after the drop
+  assert.match(page, /listLiftAt = \(\) => reading\(\)\.lift;/);
+  assert.match(page, /const reading = \(\) => fitting \? held \|\| \(held = place\(\)\) : place\(\);/);
   assert.ok(!/setProperty\("--tik-lift", at\.lift/.test(page), "the lift is written after the drop again");
 });
 

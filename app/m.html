@@ -8144,9 +8144,13 @@ function phoneMagicCard(){
 // which face the drawer comes out with: the card list from the left, or the
 // magic box from the right. chosen as it starts out, never while it is out or
 // still going back, so it keeps the face it went out with. the box is fitted
-// as its face is put on, since words hidden have no height to read
+// as its face is put on, since words hidden have no height to read. a face
+// already on is left as it is: the box wearing it is fitted whenever what it
+// holds or its room changes, and as it comes on show (fitList), so a pull
+// from its edge starts with nothing measured
 function drawerFace(box){
   if (tickets.classList.contains("live") || tickets.classList.contains("open")) return;
+  if (tickets.classList.contains("boxface") === box) return;
   tickets.classList.toggle("boxface", box);
   tickets.dataset.side = box ? "right" : "left";
   if (box) phoneMagicFit();
@@ -8776,12 +8780,16 @@ function drawerSwapFirstFrame(playing){
   // out the list is not laid out, so it is put back in place for the reading,
   // the box out of the way, and put away again: styles only, with no frame
   // drawn between and nothing the page watches (its class, its sections'
-  // sizes) changed
+  // sizes) changed. the box is taken out of the flow (expanded, it already
+  // is), never off the page: one taken off is built and drawn again from
+  // nothing, its picture and shadow with it, and the page's own frame in it
   const listFoot = () => {
     const out = tickets.classList.contains("boxface"), tiklist = document.getElementById("tiklist");
-    const put = out ? [document.getElementById("tikhead"), tiklist, PB.el] : [];
+    const put = out ? [document.getElementById("tikhead"), tiklist] : [];
     const had = put.map(el => el.style.display), reach = tiklist.style.marginBottom;
-    if (out){ put[0].style.display = put[1].style.display = "flex"; put[2].style.display = "none"; }
+    const aside = out && !(PB.view.big || PB.move), flow = PB.el.style.position;
+    if (out){ put[0].style.display = put[1].style.display = "flex"; }
+    if (aside) PB.el.style.position = "absolute";
     if (reach) tiklist.style.marginBottom = "";
     const spare = listSpare(), pane = drawerPane(), shown = pane ? [...pane.children].filter(el => el.offsetParent) : [];
     // from the drawer's top as drawn, less the list's own shift while the faces
@@ -8801,6 +8809,7 @@ function drawerSwapFirstFrame(playing){
     const foot = shown.length ? Math.min(full, end) : 0;
     if (reach) tiklist.style.marginBottom = reach;
     put.forEach((el, i) => { el.style.display = had[i]; });
+    if (aside) PB.el.style.position = flow;
     return { foot, spare, end, full };
   };
   // where the drawer stands with the face it has: its lift; the spare room
@@ -8837,23 +8846,41 @@ function drawerSwapFirstFrame(playing){
     // the card's top at foot + the gap below: its drop, and the room it leaves of the most it may have
     return { lift: boxLift, slack: Math.max(0, listRoom - (top - boxLift + foot + below - pageTop)), most };
   };
+  const fitBase = fitList;
+  // one fit reads where the drawer stands once: its lift, its slack, the
+  // list's reach and the box's cap all come from that one reading (held),
+  // since what a fit writes between them, the lift and the drop, are
+  // transforms and move nothing it reads. a reading lays the list out, so
+  // none is made while the drawer is shut or on the move, when nothing is
+  // fitted (fitList): it is read as it comes on show and once it is at rest
+  let held = null, fitting = false;
+  const reading = () => fitting ? held || (held = place()) : place();
+  const fitRead = now => {
+    fitting = true; held = null;
+    try { fitBase(now); return reading(); }
+    finally { fitting = false; held = null; }
+  };
   phoneMagicCap = () => place().most;
   phoneMagicRaise = boxRaise;
   listSlack = () => {
-    const box = tickets.classList.contains("boxface"), at = place().slack;
+    const box = tickets.classList.contains("boxface"), at = reading().slack;
     return at !== null ? at : box ? Math.max(0, tickets.clientHeight - phoneMagicFoot() + listAir()) : listSpare();
   };
-  const fitBase = fitList;
   // the box is fitted again when the list under it moves its top (a new reading
-  // with the box out), so its height keeps to the gaps; fitted, it is the same
+  // with the box out), so its height keeps to the gaps; fitted, it is the same.
+  // as it comes on show the drawer is then fitted again at once, so the card
+  // goes down as far as the box it opens onto needs
   // the lift is the page's to write (liftList), with the drop and before any
   // run is planned, so the runs carry it; this says how far it is
-  listLiftAt = () => place().lift;
+  listLiftAt = () => reading().lift;
   fitList = function(now){
-    fitBase(now);
-    const at = place();
+    if (!now && (!tickets.classList.contains("drawer-settled") || listPlay.some(a => a.playState === "running"))) return;
+    const at = fitRead(now);
     if (at.reach !== undefined && Math.abs(at.reach - listReach) > .01) reachList(at.reach);
-    if (tickets.classList.contains("boxface") && !(Math.abs(at.most - PB.cap) <= .5)) phoneMagicFit();
+    if (tickets.classList.contains("boxface") && !(Math.abs(at.most - PB.cap) <= .5)){
+      phoneMagicFit();
+      if (now) fitRead(true);
+    }
   };
 }
 </script>
