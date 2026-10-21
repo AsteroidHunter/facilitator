@@ -96,7 +96,7 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   const posthog = await fakePostHog();
   const board = await startBoard({
     seed: { title: "facilitator", items: [] },
-    extra: ["onboarding.html"],
+    extra: ["onboarding.html", "magic-box.js"],
     env: { HOME: home, FACILITATOR_POSTHOG_ENDPOINT: posthog.url },
     prepare: ({ app }) => { noProfile(app); senderAt(app, posthog.url); },
   });
@@ -124,6 +124,10 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   assert.equal(picture.headers.get("content-type"), "image/webp");
   assert.deepEqual(Buffer.from(await picture.arrayBuffer()), fs.readFileSync(path.join(ROOT, "assets", "phone_app_on_stand.webp")));
   assert.equal((await fetch(`http://127.0.0.1:${board.port + 1}/assets/phone_app_on_stand.webp`)).status, 404);
+  // and the board serves the magic box's placing, which the page loads for the box the picture stands in
+  const placing = await board.call("GET", "/magic-box.js");
+  assert.equal(placing.status, 200);
+  assert.ok(placing.text.includes("root.MagicBox = {"));
 
   // the run's first move: the sample project, then its tab as "Open a new folder" makes one
   const made = json(await board.call("POST", "/onboarding/sample", ""));
@@ -556,7 +560,7 @@ test("the onboarding is Welcome, one onboarding card of three needed questions, 
   assert.doesNotMatch(ONBOARDING, /—/, "an em dash");
   assert.doesNotMatch(ONBOARDING, /avatar|picture step|\.\.\/facilitator\//i);
   assert.doesNotMatch(ONBOARDING, /var\(--accent|purple|#7c3aed|#8b5cf6/i);
-  for (const file of ["/card-markdown.js", "/card-logic.js", "/card-tokens.css"])
+  for (const file of ["/card-markdown.js", "/card-logic.js", "/magic-box.js", "/card-tokens.css"])
     assert.ok(ONBOARDING.includes(file), file + " is not the board's own");
   assert.ok(ONBOARDING.includes('fetch("/onboarding/sample", { method: "POST" })'));
   assert.ok(ONBOARDING.includes('fetch("/profile", { method: "POST", body: JSON.stringify(body) })'));
@@ -640,20 +644,19 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.ok(ONBOARDING.includes('list.add("obticketsprep");\n      requestAnimationFrame(() => requestAnimationFrame(() => {'));
 });
 
-test("101: Phone App holds his words and the photo of the phone app, and You are all set up, the last card, ends the run in the words it was given", () => {
+test("101: Phone App holds his words with the photo of the phone app in the board's magic box beside it, and You are all set up, the last card, ends the run in the words it was given", () => {
   const context = vm.createContext({});
   vm.runInContext(grab("  const key = name =>", "  // the timings.") +
     "\nObject.assign(this, { CARDS, FINISH, PHONE_APP, NEXT, NEXT_PHONE, MARK });", context);
   const { CARDS, FINISH, PHONE_APP, NEXT, NEXT_PHONE, MARK } = context;
   const ids = CARDS.map(c => c.id);
   assert.deepEqual(out(ids.slice(-3)), ["hotkeys", "phone", "fin"], "101: Phone App and the last card do not follow 101: Hotkeys");
-  // 101: Phone App: the picture's slot, then his paragraphs and his code block word for word, and its key to go on
-  // with the full stop it was given
+  // 101: Phone App: his paragraphs and his code block word for word, with no picture among them, and its key to go
+  // on with the full stop it was given
   const phone = CARDS.find(c => c.id === "phone");
   assert.equal(phone.title, "101: Phone App");
   assert.equal(phone.say, PHONE_APP);
   assert.equal(PHONE_APP,
-    MARK.picture + "\n\n" +
     "The Facilitator comes with a phone companion app!\n\n" +
     "The phone app is also hotkey-enabled and works as well as the mac version with a small keyboard, " +
     "allowing you to get work done even when you don't have your laptop!\n\n" +
@@ -668,10 +671,40 @@ test("101: Phone App holds his words and the photo of the phone app, and You are
   // the code block's copy button is wired as the phone page wires it, and a press keeps the focus where it was
   assert.ok(ONBOARDING.includes("if (button) CardMarkdown.copyCodeBlock(button);"));
   assert.ok(ONBOARDING.includes('sections.addEventListener("mousedown", e => { if (e.target.closest?.(".copybtn")) e.preventDefault(); });'));
-  // the picture: the photo of the phone app on its stand, with words for a screen reader
-  assert.ok(ONBOARDING.includes(`const PHONE_IMAGE = '<img class="obpic" src="/assets/phone_app_on_stand.webp" ' +\n` +
+  assert.equal(MARK.picture, undefined, "the picture is a mark in the card's words");
+  assert.doesNotMatch(ONBOARDING, /obpic/, "the photo has its slot in the card");
+  // the picture: the photo of the phone app on its stand, with words for a screen reader, filling the magic box
+  // as the board's picture in a box does
+  assert.ok(ONBOARDING.includes(`const PHONE_IMAGE = '<img class="mbimg" src="/assets/phone_app_on_stand.webp" ' +\n` +
     `    'alt="The Facilitator phone app open on a phone on a stand, a keyboard in front of it">';`));
-  assert.ok(ONBOARDING.includes("[MARK.picture]: PHONE_IMAGE,"));
+  assert.ok(ONBOARDING.includes("BOX.body.innerHTML = PHONE_IMAGE;"));
+  // the box is the board's: the shared sheet's .magicbox with a bar and a picture's body, placed by magic-box.js
+  // beside the card's own rectangle, out to the board's app frame and as clear of it as the board keeps
+  assert.ok(ONBOARDING.includes('<script src="/magic-box.js"></script>'));
+  assert.ok(ONBOARDING.includes('<section id="magicbox" class="magicbox">\n  <div class="mbbar"></div>\n' +
+    '  <div class="mbbody" data-kind="image"></div>\n</section>'));
+  assert.ok(MAC.includes("const FRAME_CLEAR = 16;") && ONBOARDING.includes("const FRAME_CLEAR = 16;   // index.html's"));
+  assert.ok(ONBOARDING.includes("const fit = { scale: 1, tx: 0, right: innerWidth - inset - edge, clear: FRAME_CLEAR };"));
+  assert.ok(ONBOARDING.includes("if (!photo.complete || !photo.naturalWidth || !MagicBox.place(rect, fit).shown){"));
+  assert.ok(ONBOARDING.includes("MagicBox.place(rect, fit, { width: photo.naturalWidth + edges, height: photo.naturalHeight + edges,"));
+  // the photo asks for what the board's view asks for a picture: its own size and the box's edges, the bar its head
+  assert.ok(fs.readFileSync(path.join(ROOT, "card-logic.js"), "utf8")
+    .includes("return w && h ? { width: w / scale + edges, height: h / scale + edges, head } : null;"));
+  // it stands beside 101: Phone App and no other card, placed at every move and every resize
+  assert.ok(ONBOARDING.includes('const PHOTO_ON = "phone";'));
+  assert.ok(ONBOARDING.includes("const on = cards[at].spec.id === PHOTO_ON;\n    BOX.el.classList.toggle(\"on\", on);"));
+  assert.ok(ONBOARDING.includes("    paintTickets();\n    // the photo's box beside its card, and nowhere else\n    placeBox();"));
+  assert.ok(ONBOARDING.includes('addEventListener("resize", placeBox);'));
+  // its face and shadow are the board's own rules, the faint look of a box beside the card being worked in
+  const rule = (sheet, start) => { const at = sheet.indexOf(start); assert.ok(at >= 0, start); return sheet.slice(at, sheet.indexOf("}", at) + 1); };
+  for (const start of ["  #magicbox .mbbar{", "  #magicbox .mbbar::after{"])
+    assert.equal(rule(ONBOARDING, start), rule(MAC, start));
+  assert.ok(ONBOARDING.includes("#magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);\n" +
+    "    box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}"));
+  assert.ok(MAC.includes(":is(#magicbox, #pipebox){background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);\n" +
+    "    box-shadow:var(--shade-lighter); opacity:var(--shade-unselected);"));
+  const token = (sheet, name) => new RegExp(`${name}:([^;}]+)`).exec(sheet)[1].trim();
+  for (const name of ["--shade-lighter", "--shade-unselected"]) assert.equal(token(ONBOARDING, name), token(MAC, name), name);
   // a plain lossy WebP, RIFF and one VP8 chunk with nothing after it, so it holds no Exif, XMP or ICC chunk
   const picture = fs.readFileSync(path.join(ROOT, "assets", "phone_app_on_stand.webp"));
   assert.equal(picture.toString("latin1", 0, 4) + picture.toString("latin1", 8, 16), "RIFFWEBPVP8 ");
@@ -679,10 +712,9 @@ test("101: Phone App holds his words and the photo of the phone app, and You are
   assert.equal(20 + size + (size & 1), picture.length, "the file holds a chunk besides the picture");
   const shape = [picture.readUInt16LE(26) & 0x3fff, picture.readUInt16LE(28) & 0x3fff];
   assert.deepEqual(shape, [854, 949]);
-  // its slot is the card's width in the file's own shape, so none of it is cut
-  assert.ok(ONBOARDING.includes(`.reply .obpic{display:block; width:100%; aspect-ratio:${shape[0]} / ${shape[1]};`));
-  assert.doesNotMatch(ONBOARDING, /object-fit/, "the picture is fitted to a slot of another shape");
-  assert.ok(ONBOARDING.includes("html.replace(/[\\uE001-\\uE006]/g, c => MARKS[c])"));
+  // the box takes the file's own shape, so none of it is cut
+  assert.doesNotMatch(ONBOARDING, /object-fit/, "the picture is fitted to a box of another shape");
+  assert.ok(ONBOARDING.includes("html.replace(/[\\uE001-\\uE005]/g, c => MARKS[c])"));
   assert.equal(NEXT, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0→** to continue!");
   // the last card, in his paragraphs, three stars centred as a divider, and the done key written the way the cards write a key
   const fin = CARDS.find(c => c.id === "fin");
