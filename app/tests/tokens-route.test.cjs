@@ -12,7 +12,8 @@
 //   cache      an unchanged file is never opened again, an appended one is read
 //              from where it stopped, a shrunk one from the start, a deleted one
 //              keeps its counts, a restarted board carries on from the cache
-//              file, and that file holds no log text
+//              file, and that file holds no log text; a cache from before the
+//              board kept its yes or no per file keeps every count
 //   midnight   days are the local calendar day, a half hour zone included
 //   folders    run.config.json and the tools' own variables move the folders;
 //              no folders at all is zeros
@@ -414,6 +415,39 @@ test("the cache reads only what changed, keeps what has gone and outlives a rest
   stamp(s1, ROUND);
   await b.start();
   assert.equal(await b.total(), 5002);
+});
+
+test("a cache from before the board kept a yes or no per file keeps every count, a deleted log's too", async () => {
+  const b = await board();
+  const at = day(1) + "T10:00:00Z";
+  const p = path.join(b.home, ".claude", "projects", "p");
+  const kept = path.join(p, "kept.jsonl"), gone = path.join(p, "gone.jsonl");
+  put(kept, [claude("m1", at, [1, 2, 3, 4])]);
+  put(gone, [claude("m2", at, [0, 0, 0, 100])]);
+  await b.start();
+  assert.equal(await b.total(), 110);
+  await b.stop();
+  // the cache as the board before this one left it: version 2, no yes or no
+  const old = JSON.parse(fs.readFileSync(b.cache, "utf8"));
+  assert.equal(old.version, 3);
+  for (const rec of Object.values(old.files)) {
+    assert.equal(rec.board, false);
+    delete rec.board;
+  }
+  fs.writeFileSync(b.cache, JSON.stringify({ ...old, version: 2 }));
+  fs.unlinkSync(gone);   // cleared away by Claude Code while the board was down
+  await b.start();
+  const answer = await b.days(3);
+  assert.equal(answer.total, 110, "a count was lost when the old cache was taken over");
+  assert.deepEqual(byDay(answer)[day(1)], { date: day(1), total: 110, input: 1, cache_write: 2, cache_read: 3,
+                                            output: 104, claude: 110, codex: 0 });
+  // the next save writes the new version with every row kept and no answer guessed
+  append(kept, claude("m3", at, [0, 0, 0, 5]) + "\n");
+  assert.equal(await b.total(), 115);
+  const now = JSON.parse(fs.readFileSync(b.cache, "utf8"));
+  assert.equal(now.version, 3);
+  assert.deepEqual(Object.keys(now.files).sort(), [gone, kept].sort());
+  assert.deepEqual(Object.values(now.files).map(rec => rec.board), [null, null]);
 });
 
 // ---- midnight -------------------------------------------------------------------------

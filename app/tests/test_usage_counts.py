@@ -22,6 +22,14 @@
   offline   a send that cannot get through is quiet, leaves the day unmarked,
             and goes on a later look; a backlog is capped; a refusal is final
   logs      no email address, install id or token in any log line
+  tokens    a day's tokens from invented Claude Code and Codex logs, by tool
+            and kind and by board share (a lane session that ran the wait
+            helper and its subagent, sessions that did not, and a log
+            counted before the board kept that answer); days since install;
+            a day of tokens alone is sent; no command text kept or sent
+  baseline  the weeks before the first day, exactly, once per install and
+            never again; it waits for the switch and for a first day, a
+            failed send goes later and a refusal is final
   server    the reply row's agent_kind, the usagecounts setting, the thread
             the board starts at boot, and POST /usage/email
 
@@ -29,7 +37,8 @@ Nothing here reaches PostHog or any other machine: every send goes to a fake
 opener handed to the sender, and the real urlopen and every HTTPS connection
 are replaced with ones that fail the test if they are ever called. The server
 is loaded as a module with its log folder in a temporary directory; its own
-state is seeded by hand and never written.
+state is seeded by hand and never written. Every agent log is invented, in a
+temporary folder, and no real one is ever read.
 
     python3 -m unittest tests/test_usage_counts.py
 """
@@ -53,6 +62,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+import tokens  # noqa: E402
 import usage_counts as uc  # noqa: E402
 
 DAY = dt.date(2026, 10, 4)           # the day the fixture board was used
@@ -152,6 +162,65 @@ class FakeNet:
 
 def no_network(*args, **kwargs):
     raise AssertionError("the test tried to reach the network")
+
+
+# ---- invented agent logs ----------------------------------------------------
+WAIT = 'python3 "$HOME/.agents/skills/facilitator/scripts/onboard.py" wait --owner SECRET-falcon --agent claude'
+FIRST = DAY - dt.timedelta(days=10)   # the board's first day, for the tests that hand one in
+COMMAND_WORDS = ("onboard", "--owner", "grep", "toolu_", "call_1", "SECRET", "Falcon")
+
+
+def stamp(day: dt.date, hour: int = 12) -> str:
+    """A log line's time: this hour of this local day, in UTC as the agents write it."""
+    return dt.datetime(day.year, day.month, day.day, hour).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def claude_line(mid, day, counts, command=None):
+    """A Claude Code assistant line, with a Bash call when there is a command."""
+    content = [{"type": "text", "text": "SECRET reply about Falcon"}]
+    if command is not None:
+        content.append({"type": "tool_use", "id": "toolu_" + mid, "name": "Bash", "input": {"command": command}})
+    inp, cw, cr, out = counts
+    return {"type": "assistant", "timestamp": stamp(day), "cwd": "/Users/alex/falcon",
+            "message": {"id": mid, "role": "assistant", "content": content,
+                        "usage": {"input_tokens": inp, "cache_creation_input_tokens": cw,
+                                  "cache_read_input_tokens": cr, "output_tokens": out}}}
+
+
+def codex_record(rid, day, inp, cached, out):
+    return {"timestamp": stamp(day), "type": "token_usage_record",
+            "payload": {"response_id": rid, "usage": {"input_tokens": inp, "cached_input_tokens": cached,
+                                                      "output_tokens": out}}}
+
+
+def codex_call(day, command):
+    return {"timestamp": stamp(day), "type": "response_item",
+            "payload": {"type": "function_call", "name": "shell", "call_id": "call_1",
+                        "arguments": json.dumps({"command": ["bash", "-lc", command], "workdir": "/Users/alex/falcon"})}}
+
+
+# DAY's tokens in TokenBoard's logs: the lane session [10, 200, 3000, 40] and
+# its subagent [5, 100, 1000, 20], the other Claude session [7, 50, 500, 9],
+# the log counted before [1, 2, 30, 4]; the Codex lane thread 1000 in, 800 of
+# it cached, 30 out, and the other one 400 in, 100 cached, 10 out
+EXPECTED_TOKENS = {
+    "tokens_claude": 4978,
+    "tokens_claude_input": 23,
+    "tokens_claude_cache_write": 352,
+    "tokens_claude_cache_read": 4530,
+    "tokens_claude_output": 73,
+    "tokens_codex": 1440,
+    "tokens_codex_input": 500,
+    "tokens_codex_cache_write": 0,
+    "tokens_codex_cache_read": 900,
+    "tokens_codex_output": 40,
+    "tokens_board": 5405,
+    "tokens_board_new": 605,
+    "tokens_off_board": 976,
+    "tokens_off_board_new": 376,
+    "tokens_board_unknown": 37,
+    "tokens_board_unknown_new": 7,
+}
 
 
 class Board(unittest.TestCase):
@@ -1007,6 +1076,293 @@ class Offline(Board):
         self.assertIn(("usage", {"outcome": "error", "reason": "RuntimeError"}), self.lines)
 
 
+class TokenBoard(Board):
+    """The fixture board, and the agents' logs of its day under a home folder
+    of its own: a Claude Code lane session that ran the wait helper with one
+    subagent, a Claude session that did not, a Codex thread of each kind, and
+    a Claude log counted by a board from before the answer was kept and since
+    cleared away. The sender gets the token counter's tally over them and the
+    board's first day, FIRST."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = self.dir / "home"
+        self.projects = self.home / ".claude" / "projects" / "p"
+        self.sessions = self.home / ".codex" / "sessions" / "2026" / "10" / "04"
+        self.cache = self.dir / "tokens-cache.json"
+        self.baseline = self.dir / "usage-baseline.json"
+        self.first_day, self.reads = FIRST.isoformat(), 0
+        gone = self.log(self.projects / "gone.jsonl", [claude_line("m0", DAY, [1, 2, 30, 4])])
+        self.ledger().tally()
+        old = json.loads(self.cache.read_text())
+        for rec in old["files"].values():
+            del rec["board"]
+        self.cache.write_text(json.dumps({**old, "version": 2}))
+        gone.unlink()
+        self.log(self.projects / "lane.jsonl", [claude_line("m1", DAY, [10, 200, 3000, 40], WAIT)])
+        self.log(self.projects / "lane" / "subagents" / "agent-a1.jsonl", [claude_line("m2", DAY, [5, 100, 1000, 20])])
+        self.log(self.projects / "solo.jsonl", [claude_line("m3", DAY, [7, 50, 500, 9], "grep -rn SECRET /Users/alex")])
+        self.log(self.sessions / "rollout-lane.jsonl", [codex_call(DAY, WAIT.replace("claude", "codex")),
+                                                        codex_record("r1", DAY, 1000, 800, 30)])
+        self.log(self.sessions / "rollout-solo.jsonl", [codex_record("r2", DAY, 400, 100, 10)])
+        self.counter = self.ledger()
+
+    @staticmethod
+    def log(path, rows):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a") as f:
+            for row in rows:
+                f.write(json.dumps(row) + "\n")
+        return path
+
+    def ledger(self):
+        return tokens.TokenLedger(tokens.roots(home=self.home, env={}), self.cache)
+
+    def tally(self):
+        self.reads += 1
+        return self.counter.tally()
+
+    def sender(self, **over):
+        over.setdefault("tokens", self.tally)
+        over.setdefault("installed", lambda: self.first_day)
+        over.setdefault("baseline_file", self.baseline)
+        return super().sender(**over)
+
+    def sent(self, event):
+        return [r["body"] for r in self.net.requests if r["body"]["event"] == event]
+
+    def after_day(self):
+        """The marker before DAY and the day after it: DAY is due."""
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        self.today = AFTER
+
+    def no_day_due(self):
+        self.marker.write_text(json.dumps({"through": (self.today - dt.timedelta(days=1)).isoformat()}))
+
+
+class Tokens(TokenBoard):
+    def test_the_days_message_carries_its_tokens_by_tool_kind_and_board_share(self):
+        self.after_day()
+        self.assertTrue(self.sender().look())
+        [day] = self.sent("daily_usage")
+        self.assertEqual(day["timestamp"], "2026-10-04T12:00:00Z")
+        self.assertEqual(day["properties"], {
+            "$process_person_profile": False,
+            "$geoip_disable": True,
+            **EXPECTED,
+            **EXPECTED_TOKENS,
+            "days_since_install": 10,
+            "facilitator_version": "v0.2.259",
+            **uc.os_fields(),
+        })
+        for name, value in day["properties"].items():
+            if name.startswith(("tokens_", "days_")):
+                self.assertIs(type(value), int, name)
+        props = day["properties"]
+        self.assertEqual(props["tokens_board"] + props["tokens_off_board"] + props["tokens_board_unknown"],
+                         props["tokens_claude"] + props["tokens_codex"], "the shares do not split the same tokens")
+
+    def test_a_day_of_tokens_alone_is_sent_with_zeros_for_the_board_and_a_day_of_neither_is_not(self):
+        self.assertEqual(set(uc.NOT_USED), set(EXPECTED))
+        self.log(self.projects / "solo.jsonl", [claude_line("m4", AFTER, [3, 0, 60, 7])])
+        self.marker.write_text(json.dumps({"through": DAY.isoformat()}))
+        self.today = AFTER + dt.timedelta(days=2)
+        self.assertTrue(self.sender().look())
+        self.assertEqual(self.net.days, [AFTER.isoformat()], "a day nobody and no agent used was sent")
+        props = self.sent("daily_usage")[0]["properties"]
+        self.assertEqual({k: props[k] for k in EXPECTED}, uc.NOT_USED)
+        self.assertEqual((props["tokens_claude"], props["tokens_claude_cache_read"], props["tokens_off_board"],
+                          props["tokens_off_board_new"], props["tokens_codex"], props["days_since_install"]),
+                         (70, 60, 70, 10, 0, 11))
+        self.assertEqual(self.through(), (AFTER + dt.timedelta(days=1)).isoformat())
+
+    def test_a_long_time_away_sends_at_most_the_last_week_of_token_days(self):
+        start = AFTER
+        self.log(self.projects / "solo.jsonl",
+                 [claude_line(f"d{n}", start + dt.timedelta(days=n), [1, 0, 0, 1]) for n in range(12)])
+        self.marker.write_text(json.dumps({"through": DAY.isoformat()}))
+        self.today = start + dt.timedelta(days=12)
+        self.sender().look()
+        self.assertEqual(self.net.days, [(start + dt.timedelta(days=n)).isoformat() for n in range(5, 12)])
+        self.sender().look()
+        self.assertEqual(len(self.sent("daily_usage")), 7)
+
+    def test_with_the_switch_off_nothing_is_sent_and_no_log_is_read(self):
+        self.after_day()
+        self.on = False
+        board = self.sender()
+        self.assertTrue(board.look())
+        self.assertTrue(board.look())
+        self.assertEqual(self.net.requests, [])
+        self.assertEqual(self.reads, 0, "the token counter was read with the switch off")
+        self.assertFalse(self.baseline.exists())
+        self.assertEqual(self.through(), DAY.isoformat())
+
+    def test_no_command_text_or_log_words_are_kept_or_sent(self):
+        self.after_day()
+        self.sender().look()
+        self.assertEqual(self.net.events, ["daily_usage", "token_baseline"])
+        said = json.dumps([r["body"] for r in self.net.requests]) + json.dumps(self.lines)
+        for word in (*SECRETS, *COMMAND_WORDS, "wait", "/Users/", "m1", "r1"):
+            self.assertNotIn(word, said)
+        kept = self.cache.read_text()   # its keys are the logs' own paths, by design
+        for word in COMMAND_WORDS:
+            self.assertNotIn(word, kept)
+        self.assertEqual(json.loads(kept)["version"], 3)
+        self.assertEqual({rec["board"] for rec in json.loads(kept)["files"].values()}, {True, False, None})
+
+    def test_without_the_counter_no_token_numbers_and_no_baseline_go(self):
+        self.after_day()
+        Board.sender(self).look()   # a board without tokens.py: no counter, no first day
+        self.assertEqual(self.net.events, ["daily_usage"])
+        props = self.sent("daily_usage")[0]["properties"]
+        self.assertEqual([k for k in props if k.startswith("tokens_") or k == "days_since_install"], [])
+        self.assertFalse(self.baseline.exists())
+
+    def test_a_counter_that_cannot_be_read_costs_the_token_numbers_never_the_day(self):
+        def broken():
+            raise RuntimeError("SECRET /Users/alex/falcon")
+        self.after_day()
+        self.assertTrue(self.sender(tokens=broken).look())
+        self.assertEqual(self.net.events, ["daily_usage"])
+        props = self.sent("daily_usage")[0]["properties"]
+        self.assertEqual({k: v for k, v in props.items() if k in EXPECTED or k.startswith(("tokens_", "days_"))},
+                         {**EXPECTED, "days_since_install": 10})
+        self.assertIn(("usage", {"what": "tokens", "outcome": "unread", "reason": "RuntimeError"}), self.lines)
+        self.assertNotIn("SECRET", json.dumps(self.lines))
+        self.assertFalse(self.baseline.exists(), "a baseline was marked without the counter")
+        self.sender().look()
+        self.assertEqual(self.net.events, ["daily_usage", "token_baseline"])
+
+    def test_without_a_first_day_the_days_leave_it_out_and_the_baseline_waits(self):
+        self.first_day = None
+        self.after_day()
+        board = self.sender()
+        self.assertTrue(board.look())
+        self.assertEqual(self.net.events, ["daily_usage"])
+        props = self.sent("daily_usage")[0]["properties"]
+        self.assertNotIn("days_since_install", props)
+        self.assertEqual({k: props[k] for k in EXPECTED_TOKENS}, EXPECTED_TOKENS)
+        self.assertFalse(self.baseline.exists())
+        self.first_day = FIRST.isoformat()
+        self.assertTrue(board.look())
+        self.assertEqual(self.net.events, ["daily_usage", "token_baseline"])
+
+
+class Baseline(TokenBoard):
+    def before_first_day(self):
+        """Claude Code on each of the 17 days before the first day, Codex on two
+        of them, and both on the first day itself, which no week holds."""
+        self.log(self.projects / "old.jsonl",
+                 [claude_line(f"b{n}", FIRST - dt.timedelta(days=n), [1, 10, 100, 2]) for n in range(0, 18)])
+        self.log(self.sessions / "rollout-old.jsonl",
+                 [codex_record(f"c{n}", FIRST - dt.timedelta(days=n), 100, 50, 5) for n in (0, 3, 5)])
+
+    def test_the_baseline_is_exactly_this_and_goes_once_per_install(self):
+        self.before_first_day()
+        self.no_day_due()
+        board = self.sender()
+        self.assertTrue(board.look())
+        [sent] = self.net.requests
+        self.assertEqual(sent["body"], {
+            "api_key": "phc_pmdWA3oMUgUWGLyLkXvDFSzYQgvTotFQyA93BWXTdJ9K",
+            "event": "token_baseline",
+            "distinct_id": self.made[0],
+            "timestamp": "2026-09-24T12:00:00Z",
+            "properties": {
+                "$process_person_profile": False,
+                "$geoip_disable": True,
+                "weeks_before_install": 2,
+                "days_of_logs_claude": 17,
+                "days_of_logs_codex": 5,
+                "tokens_new_week_1": 7 * 13 + 2 * 55,   # all but the cache re-reads
+                "active_days_week_1": 7,
+                "tokens_new_week_2": 7 * 13,
+                "active_days_week_2": 7,
+                "facilitator_version": "v0.2.259",
+                **uc.os_fields(),
+            },
+        })
+        self.assertEqual(json.loads(self.baseline.read_text()), {"sent": True})
+        self.assertEqual(self.baseline.stat().st_mode & 0o777, 0o600)
+        self.assertIn(("usage", {"what": "baseline", "outcome": "sent"}), self.lines)
+        board.look()
+        self.sender().look()                     # the board restarted
+        self.after_day()
+        self.sender().look()                     # and a day went
+        self.assertEqual(self.net.events, ["token_baseline", "daily_usage"], "the baseline went twice")
+        self.assertEqual(self.sent_ids(), [self.made[0]] * 2)
+
+    def test_the_baseline_holds_eight_weeks_at_most(self):
+        self.log(self.projects / "old.jsonl",
+                 [claude_line(f"b{n}", FIRST - dt.timedelta(days=n), [0, 0, 100, 1]) for n in range(1, 100)])
+        self.no_day_due()
+        self.sender().look()
+        props = self.sent("token_baseline")[0]["properties"]
+        self.assertEqual((props["weeks_before_install"], props["days_of_logs_claude"], props["days_of_logs_codex"]),
+                         (8, 56, 0))
+        for week in range(1, 9):
+            self.assertEqual((props[f"tokens_new_week_{week}"], props[f"active_days_week_{week}"]), (7, 7))
+        self.assertNotIn("tokens_new_week_9", props)
+
+    def test_with_no_logs_before_the_first_day_the_baseline_holds_no_weeks(self):
+        self.no_day_due()
+        self.sender().look()
+        props = self.sent("token_baseline")[0]["properties"]
+        self.assertEqual({k: v for k, v in props.items() if not k.startswith(("$", "facilitator", "os"))},
+                         {"weeks_before_install": 0, "days_of_logs_claude": 0, "days_of_logs_codex": 0})
+
+    def test_the_baseline_waits_for_the_switch_and_a_failed_send_goes_later(self):
+        self.before_first_day()
+        self.no_day_due()
+        board = self.sender()
+        self.on = False
+        self.assertTrue(board.look())
+        self.assertEqual((self.net.requests, self.reads), ([], 0))
+        self.assertFalse(self.baseline.exists())
+        self.on = True
+        self.net.fail = TimeoutError("timed out")
+        self.assertFalse(board.look(), "a failed baseline did not ask to be tried again")
+        self.assertFalse(self.baseline.exists(), "a baseline that never went out was marked as sent")
+        self.assertIn(("usage", {"what": "baseline", "outcome": "failed", "reason": "TimeoutError"}), self.lines)
+        self.net.fail = None
+        self.assertTrue(board.look())
+        self.assertTrue(board.look())
+        self.assertEqual(self.net.events, ["token_baseline"] * 2)
+        self.assertEqual(self.net.requests[0]["body"], self.net.requests[1]["body"])
+
+    def test_a_refused_baseline_is_never_sent_again(self):
+        self.no_day_due()
+        self.net.status = 400
+        board = self.sender()
+        self.assertTrue(board.look())
+        self.assertTrue(board.look())
+        self.assertEqual(self.net.events, ["token_baseline"])
+        self.assertTrue(self.baseline.exists())
+        self.assertIn(("usage", {"what": "baseline", "outcome": "refused", "reason": "400"}), self.lines)
+
+    def test_a_baseline_that_cannot_be_marked_is_not_sent(self):
+        self.no_day_due()
+        board = self.sender()
+        with mock.patch("os.replace", self.refuse_writing(self.baseline)):
+            self.assertFalse(board.look())
+        self.assertEqual(self.net.requests, [])
+        self.assertIn(("usage", {"what": "baseline", "outcome": "unmarked", "reason": "Permission denied"}),
+                      self.lines)
+        self.assertFalse(self.baseline.with_name("usage-baseline.json.tmp").exists())
+
+    def test_after_a_yes_the_baseline_is_identified_like_the_days(self):
+        self.no_day_due()
+        board = self.sender()
+        board.link_email(EMAIL, True)
+        board.look()
+        self.assertEqual(self.net.events, ["$identify", "token_baseline"])
+        body = self.sent("token_baseline")[0]
+        self.assertNotIn("$process_person_profile", body["properties"])
+        self.assertNotIn(EMAIL, json.dumps(body))
+        self.assertEqual(self.sent_ids(), [self.made[0]] * 2)
+
+
 def _load_server(log_dir: str):
     os.environ["FACILITATOR_LOG_DIR"] = log_dir
     spec = importlib.util.spec_from_file_location("facilitator_server_usage_test", ROOT / "server.py")
@@ -1114,6 +1470,15 @@ class Server(unittest.TestCase):
         for name in ("usage-install.json", "usage-install.json.tmp", "usage-phone.json", "usage-phone.json.tmp"):
             self.assertIn(name, s.PRIVATE_FILES)
             self.assertIn("/" + name, (ROOT.parent / ".gitignore").read_text().split("\n"))
+        # the baseline's mark is new, so it has only ever lived in data/
+        self.assertEqual(sender.baseline, s.DATA / "usage-baseline.json")
+        for name in ("usage-baseline.json", "usage-baseline.json.tmp"):
+            self.assertIn(name, s.PRIVATE_FILES)
+        # the token numbers are the board's own counter's, and the first day the chart's
+        self.assertIs(sender.installed, s._installed_day)
+        with mock.patch.object(s, "_ledger") as ledger:
+            ledger.return_value.tally.return_value = {"claude": {"2026-10-04": [1, 2, 3, 4]}}
+            self.assertEqual(sender.tokens(), {"claude": {"2026-10-04": [1, 2, 3, 4]}})
 
     def phone_reports(self, reports, client="phone"):
         """One batch to POST /clientlog the way m.html sends it (card-report.js
@@ -1125,10 +1490,14 @@ class Server(unittest.TestCase):
         """The board's own sender, made the way the board makes it at boot, with
         its files in a temporary folder and the log at this level."""
         s, folder = self.server, Path(tempfile.mkdtemp(prefix=f"usage-counts-phone-{level}-"))
+        # the token counter over empty folders of its own, never the home folder's logs
+        counter = tokens.TokenLedger({"claude": [folder / "claude"], "codex": [folder / "codex"]})
         for name, path in (("TRANSCRIPT_PATH", folder / "transcript.jsonl"),
                            ("USAGE_MARKER", folder / "usage-counts.json"),
                            ("USAGE_INSTALL", folder / "usage-install.json"),
-                           ("USAGE_PHONE", folder / "usage-phone.json"), ("LOG_LEVEL", level)):
+                           ("USAGE_PHONE", folder / "usage-phone.json"),
+                           ("USAGE_BASELINE", folder / "usage-baseline.json"),
+                           ("_ledger", lambda: counter), ("LOG_LEVEL", level)):
             patch = mock.patch.object(s, name, path, create=True)
             patch.start()
             self.addCleanup(patch.stop)

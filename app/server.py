@@ -977,13 +977,16 @@ the shipped seed.example.json holds a title and no boxes, so a new install
 opens with no project. Real discussion content never ships in this code.
 
 Once a day, unless the usagecounts setting is "0", a thread of the server's own
-sends one message of counts about the day before to PostHog (usage_counts.py
-lists every field). The thread is no route and
+sends one message of counts about the day before to PostHog, the day's token
+numbers from tokens.py among them, and once per install one token_baseline
+message about the weeks before the board's first day (usage_counts.py lists
+every field). The thread is no route and
 answers nothing; usage-counts.json beside state.json holds the last day it dealt
 with, and usage-install.json beside it holds the install's random id, which
 every message carries, and the email and the profile's answers when the person
 said yes to feedback mail (POST /profile); usage-phone.json beside it holds the
-five-minute stretches the phone app was opened in. With the switch off nothing
+five-minute stretches the phone app was opened in, and usage-baseline.json
+says the baseline has gone. With the switch off nothing
 is sent at all, except a message the person writes in the feedback box and
 sends (POST /feedback), which is their own choice and the only one with words
 in it.
@@ -5406,7 +5409,8 @@ def _get_log(q: Query, _):
 
 
 # the token counter is its own file beside this one, loaded the first time the
-# home page asks, so a board nobody opens the home page on never reads a log.
+# home page asks or the daily usage counts need a day's tokens, so a board
+# nobody opens the home page on, with sharing off, never reads a log.
 # its counts are kept in tokens-cache.json beside state.json (gitignored), so a
 # restart reads only what the logs gained while the board was down
 TOKENS_CACHE = DATA / "tokens-cache.json"
@@ -7028,7 +7032,7 @@ PRIVATE_FILES = ("state.json", "state.json.bak-*", "state.tmp", "transcript.json
                  "tokens-cache.json", "tokens-cache.json.tmp", "claude-limits.json",
                  "claude-limits.json.tmp", "usage-counts.json", "usage-counts.json.tmp",
                  "usage-install.json", "usage-install.json.tmp", "usage-phone.json", "usage-phone.json.tmp",
-                 "profile.json", "profile.json.tmp",
+                 "usage-baseline.json", "usage-baseline.json.tmp", "profile.json", "profile.json.tmp",
                  "search-index.sqlite", "search-index.sqlite-wal", "search-index.sqlite-shm",
                  "server.lock")
 PRIVATE_LOGS = ("server-*.log", "client-*.jsonl", "bridge-*.log")
@@ -8675,13 +8679,19 @@ def _post_spotify_session(q: Query, text: str):
 # mail, the email and the profile's answers that go with it (POST /profile, and
 # the email alone through POST /usage/email below); usage-phone.json holds
 # only the five-minute stretches the phone app was opened in, noted when POST
-# /clientlog takes its notifycheck report, at every log level. All are
-# owner-only and ignored by git.
+# /clientlog takes its notifycheck report, at every log level;
+# usage-baseline.json says the one token_baseline message has gone. All are
+# owner-only and ignored by git. The token numbers come from the token counter
+# (_ledger, tokens.py), read on the thread only when a day is due or the
+# baseline has not gone, and only while sharing is on; the board's first day
+# is _installed_day's.
 # usage_counts.py is imported only here, so a copy of the board without it, as
-# the tests' fixtures make, sends nothing at all.
+# the tests' fixtures make, sends nothing at all, and one without tokens.py
+# sends no token numbers.
 USAGE_MARKER = DATA / "usage-counts.json"
 USAGE_INSTALL = DATA / "usage-install.json"
 USAGE_PHONE = DATA / "usage-phone.json"
+USAGE_BASELINE = DATA / "usage-baseline.json"
 USAGE_SETTING = "usagecounts"
 USAGE_EMAIL_BODY_MAX = 2048
 _usage_sender = None   # the one Sender, made at boot; the thread and the route share it
@@ -8698,9 +8708,15 @@ def _start_usage_counts() -> None:
         import usage_counts
     except ImportError:
         return
+
+    def token_tally():
+        return _ledger().tally()
+
     sender = usage_counts.Sender(transcript=TRANSCRIPT_PATH, marker=USAGE_MARKER,
                                  index_html=HERE / "index.html", sharing=_usage_sharing, log=_info,
-                                 install_file=USAGE_INSTALL, phone_file=USAGE_PHONE)
+                                 install_file=USAGE_INSTALL, phone_file=USAGE_PHONE,
+                                 tokens=token_tally if (HERE / "tokens.py").is_file() else None,
+                                 installed=_installed_day, baseline_file=USAGE_BASELINE)
     _usage_sender = sender
     threading.Thread(target=sender.run, args=(_STOPPING,), name="usage-counts", daemon=True).start()
 
