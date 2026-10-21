@@ -144,12 +144,14 @@
 .tk-axis{font:400 12px var(--sans); fill:var(--sub)}
 .tk-day{stroke:rgba(60,45,20,.05); stroke-width:.6px}
 .tk-day.hot{stroke:var(--ink); stroke-width:1.2px}
-/* the line: light gridlines at each count, the floor and the month ticks in
-   the board's edge grey, the day's line solid and its average in dots */
-.tk-grid{stroke:#EFEBE5; stroke-width:1px}
-.tk-base, .tk-tick{stroke:var(--line); stroke-width:1px}
-.tk-path{stroke-width:1.75px; stroke-linejoin:round; stroke-linecap:round}
-.tk-avg{stroke-width:2.8px; stroke-linecap:round; stroke-linejoin:round}
+/* the line, in the picture's Editorial look: light gridlines at each count,
+   the floor and the month ticks a shade stronger, the days' columns light
+   and the 7-day line deep over them, ringed in the ground's colour so it
+   stands off the columns it crosses (its widths come with the drawing) */
+.tk-grid{stroke:#E4DED5; stroke-width:1px}
+.tk-base, .tk-tick{stroke:#B9B1A5; stroke-width:1px}
+.tk-avg, .tk-ring{stroke-linecap:round; stroke-linejoin:round}
+.tk-ring{stroke:var(--tk-ground)}
 .tk-guide{stroke:var(--line); stroke-width:1px}
 /* neither the words on the left nor the legend on the right ever break: where
    both will not fit across, the legend drops to a row of its own, at the right */
@@ -232,32 +234,28 @@
    the picture just made, over the whole page: the settings page's veil
    (.qn-veil.sp-veil in card-tokens.css, the board's ink at 24%, fading in and
    out by its colour) with a box of the board's glass (.qn-glass, the project
-   list's) in its middle. the box is --shot-w wide and at least two thirds of
-   that tall, 3 by 2, for the line's 2:1 picture; for the heatmap's 3:1 it is
-   shorter by exactly the height the wider picture saves, so the picture is as
-   wide in both and only the height changes. the picture fills the width less
-   --shot-m at each side, which is also the air above the file name and under
-   the buttons; the height left over is shared between the gap over the
-   picture and the gap under it. a window too small for the full width gets a
-   smaller box of the same shape, never nearer than 48px to an edge */
+   list's) in its middle. the box is --shot-w wide and only as tall as what it
+   holds: the head row, the picture and the row of buttons, --shot-m apart
+   and --shot-m from the glass's edge, with no other room above or below. the
+   picture fills the width less --shot-m each side, 2:1 for the line and 3:1
+   for the heatmap, so only the height changes between them. a window too
+   short for the full width gets a narrower box, never nearer than 48px to an
+   edge */
 .tk-shot-veil, .tk-shot-veil.open{display:grid; place-items:center; padding:0}
-.tk-shot{--shot-w:min(960px, calc(100vw - 96px), calc((100vh - 96px) * 3 / 2)); --shot-m:28px;
-  position:relative; box-sizing:border-box; display:flex; flex-direction:column; justify-content:space-between; gap:16px;
-  width:var(--shot-w); min-height:calc(var(--shot-w) * 2 / 3); padding:var(--shot-m); border-radius:14px; outline:none;
+.tk-shot{--shot-w:min(960px, calc(100vw - 96px), calc((100vh - 196px) * 2)); --shot-m:14px;
+  position:relative; box-sizing:border-box; display:flex; flex-direction:column; gap:var(--shot-m);
+  width:var(--shot-w); padding:var(--shot-m); border-radius:14px; outline:none;
   color:var(--ink); font:400 13px/18px var(--sans);
   opacity:0; transform:translateY(4px) scale(.98);
   transition:opacity .2s ease-out, transform .26s var(--gentle)}
-.tk-shot[data-kind="heatmap"]{min-height:calc(var(--shot-w) * 2 / 3 - (var(--shot-w) - 2 * var(--shot-m)) / 6)}
 .tk-shot-veil.open .tk-shot{opacity:1; transform:none}
-/* the file name, set like the panel's heading, with the download button's
-   green check before it once the file is saved, and at the right the magic
-   box's cross: a round seat of soft red with the card bar's mark, shaded with
-   the one press shade, its tap reaching past it */
-.tk-shot-head{flex:none; display:flex; align-items:center; gap:12px; height:20px}
-.tk-shot-title{flex:1; min-width:0; display:flex; align-items:center; gap:7px}
-.tk-shot-saved{flex:none; display:flex; color:var(--green)}
-.tk-shot-saved svg{display:block; width:15px; height:15px}
-.tk-shot-name{min-width:0; font:600 14px/18px var(--sans); color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+/* the head row: "Chart downloaded!", set like the panel's heading, and at the
+   right the panel's own heatmap or line pill, then the magic box's cross: a
+   round seat of soft red with the card bar's mark, shaded with the one press
+   shade, its tap reaching past it */
+.tk-shot-head{flex:none; display:flex; align-items:center; gap:10px; min-height:26px}
+.tk-shot-title{flex:1; min-width:0; font:600 14px/18px var(--sans); color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tk-shot-kinds{flex:none}
 .tk-shot-x{--shot-pink:#FF7A72; position:relative; flex:none; display:grid; place-items:center;
   width:17px; height:17px; padding:0; border:none; border-radius:50%;
   background:var(--shot-pink); color:#1e1e1e; cursor:pointer}
@@ -266,42 +264,71 @@
 .tk-shot-x svg{display:block; width:10px; height:10px}
 .tk-shot-x::after{content:""; position:absolute; inset:-8px}
 /* the picture: its own shape before it has loaded, so the box never jumps,
-   on the board's paper with the 7px corners of things let into the card and
-   a hairline and a soft shadow, so the paper reads against the glass */
-.tk-shot-pic{flex:none; display:block; box-sizing:border-box; width:100%; height:auto; aspect-ratio:2 / 1;
-  border-radius:7px; background:var(--paper);
-  box-shadow:0 0 0 1px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.07), 0 8px 20px rgba(0,0,0,.06)}
+   on the board's paper, let into the glass the way home's folder well is let
+   into the paper (#nppanel in index.html): the 7px corners of things let into
+   the card, an inner shade and hairline over its edge, and no shadow under it */
+.tk-shot-frame{flex:none; position:relative; border-radius:7px; overflow:hidden; background:var(--paper)}
+.tk-shot-frame::after{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
+.tk-shot-pic{display:block; box-sizing:border-box; width:100%; height:auto; aspect-ratio:2 / 1}
 .tk-shot[data-kind="heatmap"] .tk-shot-pic{aspect-ratio:3 / 1}
-/* the foot: what went wrong, if anything, on the left in the muted ink, and
-   the buttons at the right. a button wears the download button's face, the
-   pill's paper and edge and corners and its pressed shade; Share, the one
-   the picture is made for, is the ink with the card's white words */
-.tk-shot-foot{flex:none; display:flex; align-items:center; gap:8px; min-height:32px}
-.tk-shot-note{flex:1; min-width:0; font:400 12px/16px var(--sans); color:var(--sub)}
-.tk-shot-btn{flex:none; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; gap:7px;
-  height:32px; padding:0 14px; border-radius:7px;
-  background:color-mix(in srgb, var(--paper) 92%, #fff 8%); border:var(--edge) solid var(--line);
-  color:var(--ink); font:500 13px/16px var(--sans); white-space:nowrap; cursor:pointer;
-  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
-  transition:background-color .18s, box-shadow .16s ease-out}
-.tk-shot-btn svg{display:block; flex:none; width:14px; height:14px}
-.tk-shot-btn:hover{background:var(--card)}
-.tk-shot-btn:active{
-  box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
-  transition:background-color .18s, box-shadow .08s ease-in}
-.tk-shot-btn.main{background:var(--ink); border-color:var(--ink); color:var(--card)}
-.tk-shot-btn.main:hover{background:color-mix(in srgb, var(--ink) 86%, var(--card))}
-.tk-shot-btn.main:active{box-shadow:inset 0 1.8px 4.2px rgba(0,0,0,.4), inset 0 .6px 1.2px rgba(0,0,0,.3)}
-.tk-shot-btn:focus-visible{outline:1.5px solid #E0592B; outline-offset:1px}
-.tk-shot-btn[data-busy="1"]{cursor:progress}
-/* a phone, or a window as narrow: the box nearly the screen's width, and the
-   buttons share the foot's width at a finger's height, what went wrong on a
-   line of its own under them */
-@media (max-width:600px){
-  .tk-shot{--shot-w:calc(100vw - 24px); --shot-m:16px; gap:14px}
-  .tk-shot-foot{flex-wrap:wrap}
-  .tk-shot-note{order:1; flex-basis:100%}
-  .tk-shot-note:empty{display:none}
-  .tk-shot-btn{flex:1 1 0; height:44px; font-size:15px}
+/* the row under it: Share, the one the picture is made for, in the middle of
+   the row, the dice and the download button to its left, and what went
+   wrong, if anything, to its right in the muted ink. all three are the
+   board's glass, with its ring, its shadow and its press (glassPress in
+   index.html): the circles the bar's (#homeico), in the muted ink and the
+   full ink under a pointer, and Share home's open a new folder pill
+   (#npstart), with Lucide's link before its name */
+.tk-shot-foot{flex:none; display:grid; grid-template-columns:minmax(0, 1fr) auto minmax(0, 1fr); align-items:center; gap:10px}
+.tk-shot-side{display:flex; justify-content:flex-end; gap:10px}
+.tk-shot-note{min-width:0; font:400 12px/16px var(--sans); color:var(--sub)}
+.tk-shot .qn-glass:is(.tk-shot-round, .tk-shot-share){position:relative; box-sizing:border-box; height:32px; margin:0;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; -webkit-user-select:none; user-select:none;
+  box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06);
+  transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+.tk-shot .qn-glass.tk-shot-round{width:32px; padding:0; border-radius:50%; color:var(--sub)}
+.tk-shot .qn-glass.tk-shot-round:hover{color:var(--ink)}
+.tk-shot .qn-glass.tk-shot-share{gap:7px; padding:0 15px 0 13px; border-radius:16px; font:400 14px/17px var(--sans); color:var(--ink); white-space:nowrap}
+.tk-shot-share svg{display:block; flex:none; width:15px; height:15px}
+.tk-shot .qn-glass:is(.tk-shot-round, .tk-shot-share).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
+.tk-shot .qn-glass.tk-shot-share.pressed{transform:scale(var(--press-x, 1.06), 1.06)}
+.tk-shot :is(.tk-shot-round, .tk-shot-share):focus-visible{outline:1.5px solid #E0592B; outline-offset:2px}
+.tk-shot-share[data-busy="1"]{cursor:progress}
+/* the download button's three marks, the panel's own (.tk-ico), a size up */
+.tk-shot-keep .tk-ico svg{width:16px; height:16px}
+.tk-shot-keep[data-state="idle"] .tk-ico.down, .tk-shot-keep[data-state="busy"] .tk-ico.spin,
+.tk-shot-keep[data-state="done"] .tk-ico.done{opacity:1}
+/* the die: a face of pips that tumbles in its circle as it rolls, twice
+   round, shrinking a little as it goes and settling as it lands */
+.tk-die{display:flex}
+.tk-die svg{display:block}
+.tk-shot-dice.rolling .tk-die{animation:tk-die-roll .65s cubic-bezier(.3,.7,.35,1)}
+@keyframes tk-die-roll{
+  0%{transform:rotate(0deg) scale(1)}
+  35%{transform:rotate(250deg) scale(.8)}
+  70%{transform:rotate(560deg) scale(.9)}
+  100%{transform:rotate(720deg) scale(1)}
 }
-@media (prefers-reduced-motion: reduce){ .tk-shot{transition:none; transform:none} }
+/* a phone, or a window as narrow: the box nearly the screen's width, the
+   buttons at a finger's height, the three of them centred as a row (Share
+   alone in the middle left the narrow row leaning left), and what went
+   wrong on a line of its own under them */
+@media (max-width:600px){
+  .tk-shot{--shot-w:calc(100vw - 24px); --shot-m:12px}
+  .tk-shot-head{gap:8px}
+  .tk-shot-foot{display:flex; flex-wrap:wrap; justify-content:center}
+  .tk-shot .qn-glass:is(.tk-shot-round, .tk-shot-share){height:44px}
+  .tk-shot .qn-glass.tk-shot-round{width:44px}
+  .tk-shot .qn-glass.tk-shot-share{border-radius:22px; padding:0 20px 0 18px; font-size:15px}
+  .tk-shot-note{flex-basis:100%; text-align:center}
+  .tk-shot-note:empty{display:none}
+}
+@media (prefers-reduced-motion: reduce){ .tk-shot{transition:none; transform:none} .tk-shot-dice.rolling .tk-die{animation:none} }

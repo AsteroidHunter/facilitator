@@ -1,11 +1,13 @@
 // the home page and its token widgets, with no browser. home-widgets.js is run
-// in a sandbox and held to what it draws: one square per day of the year in 53
+// in a sandbox and held to what it draws: one square per day from January 1 in
 // week columns of 7, a red-orange scale light to deep over a faint warm grey,
-// a solid line of daily totals under a dotted line of trailing 7-day averages
-// on a count axis that ends at the next round tick past the busiest day, both
-// drawn to the view's height in a lane that scrolls sideways by swipe, wheel
-// or drag and opens on the latest weeks, and one pill whose seat slides
-// between the two. then index.html's own home block is lifted out of the page
+// a light column for each day's total under a curved line of trailing 7-day
+// averages on a count axis that ends at the next round tick past the busiest
+// day, both drawn to the view's height in a lane that scrolls sideways by
+// swipe, wheel or drag and opens on the latest weeks, and one pill whose seat
+// slides between the two; the pictures the download saves and the dice rolls
+// through, their file names, and the overlay that shows them. then
+// index.html's own home block is lifted out of the page
 // and driven through a small DOM: the house opens home, the widgets are
 // ready before Home opens, the panel asks the route for its days, and every project
 // tab leaves it. every count below is invented; nothing renders a pixel
@@ -151,19 +153,24 @@ function hsl(hex) {
 }
 
 // ---- the heatmap -------------------------------------------------------------------------
-test("the heatmap draws one square per day of the year in 53 week columns of 7", () => {
+test("the heatmap draws one square per day from January 1, in week columns of 7", () => {
   const { W } = widgets();
   // every weekday the year can end on
   for (let back = 0; back < 7; back++) {
     const last = new Date(Date.parse("2026-09-27T00:00:00Z") - back * 864e5).toISOString().slice(0, 10);
     const days = daysEnding(last, W.FETCH_DAYS);
     const model = W.heatmapModel(days);
-    assert.equal(model.cells.length, 365);
-    assert.equal(new Set(model.cells.map(c => c.col)).size, 53, "53 week columns");
-    assert.equal(Math.min(...model.cells.map(c => c.col)), 0);
-    assert.equal(Math.max(...model.cells.map(c => c.col)), 52);
+    const sinceJan = days.filter(d => d.date >= "2026-01-01").length;
+    assert.equal(model.cells.length, sinceJan, "January 1 to today, not a rolling year");
+    assert.equal(model.cells[0].date, "2026-01-01", "the first square is January 1");
     assert.equal(model.cells.at(-1).date, last, "the last square is today");
-    assert.equal(model.cells[0].date, days.at(-365).date, "the first is 364 days before it");
+    // January 1, 2026 is a Thursday: its week is the first column
+    const weeks = Math.floor((4 + sinceJan - 1) / 7) + 1;
+    assert.equal(model.weeks, weeks);
+    assert.equal(W.yearWeeks(days), weeks);
+    assert.equal(new Set(model.cells.map(c => c.col)).size, weeks);
+    assert.equal(Math.min(...model.cells.map(c => c.col)), 0);
+    assert.equal(Math.max(...model.cells.map(c => c.col)), weeks - 1);
     model.cells.forEach((c, i) => {
       assert.equal(c.row, weekday(c.date), `${c.date} sits in its weekday's row, Sunday on top`);
       if (i) {
@@ -171,19 +178,22 @@ test("the heatmap draws one square per day of the year in 53 week columns of 7",
         assert.equal(c.col, p.row === 6 ? p.col + 1 : p.col, "a new column starts on Sunday");
       }
     });
-    assert.equal(model.total, days.slice(-365).reduce((s, d) => s + d.total, 0),
-                 "the year's total leaves out the six days fetched for the line");
-    // month names over their columns, left to right, never crowded or off the grid
-    assert.ok(model.months.length >= 11);
+    assert.equal(model.total, days.filter(d => d.date >= "2026-01-01").reduce((s, d) => s + d.total, 0),
+                 "this year's total, leaving out the days fetched before it");
+    // month names over their columns, January first, never crowded or off the grid
+    assert.deepEqual([model.months[0].label, model.months[0].col], ["Jan", 0]);
+    assert.ok(model.months.length >= 8);
     for (let i = 1; i < model.months.length; i++)
       assert.ok(model.months[i].col - model.months[i - 1].col >= 3, "month names stand apart");
-    assert.ok(model.months.every(m => m.col >= 0 && m.col <= 51));
+    assert.ok(model.months.every(m => m.col >= 0 && m.col <= weeks - 2));
     const svg = W.heatmapSvg(model);
-    assert.equal((svg.match(/<rect class="tk-day"/g) || []).length, 365);
+    assert.equal((svg.match(/<rect class="tk-day"/g) || []).length, sinceJan);
+    assert.match(svg, /aria-label="[^"]+ tokens this year, one square per day"/);
     // drawn at the default view height when no view gives it one: 200 tall,
     // a 25px week column, 21px squares with 4px between, never stretched
-    assert.match(svg, /<svg class="tk-heat" width="1355" height="200" viewBox="0 0 1355 200"/);
-    assert.equal((svg.match(/width="21" height="21" rx="3"/g) || []).length, 365);
+    const width = 34 + weeks * 25 - 4;
+    assert.match(svg, new RegExp(`<svg class="tk-heat" width="${width}" height="200" viewBox="0 0 ${width} 200"`));
+    assert.equal((svg.match(/width="21" height="21" rx="3"/g) || []).length, sinceJan);
     // the day names are drawn apart, in the place they held, to stay put while the row scrolls
     const pin = W.heatPin(model);
     assert.match(pin, /^<svg width="34" height="200" viewBox="0 0 34 200"/);
@@ -208,7 +218,8 @@ test("the heatmap's squares grow with the view's height, never under 12, and fil
     assert.equal(g.step, step, `step at ${h}`);
     assert.equal(g.cell, cell, `square at ${h}`);
     assert.equal(g.height, h, "as tall as the view");
-    assert.equal(g.width, 34 + 53 * step - g.gap);
+    assert.equal(g.width, 34 + 53 * step - g.gap, "a whole year's weeks unless told fewer");
+    assert.equal(W.geometry(h, 40).width, 34 + 40 * step - g.gap);
     const bottom = g.top + g.rows;
     // under a column's width and its gap over, less than 7 + 2 + 4
     assert.ok(g.top - 20 >= 0 && h - bottom >= 0 && (g.top - 20) + (h - bottom) <= 12, `${h} leaves little over`);
@@ -286,82 +297,132 @@ test("the colour scale runs light to deep red-orange, and a day with nothing is 
 });
 
 // ---- the line -----------------------------------------------------------------------------
-test("the line draws each day's total solid and the trailing seven-day average dotted over it", () => {
+test("the line draws a light column for each day under a curved 7-day line, in the picture's Editorial look", () => {
   const { W } = widgets();
   assert.deepEqual(Array.from(W.rolling([7, 0, 0, 0, 0, 0, 0, 14, 0])), [7, 3.5, 7 / 3, 1.75, 1.4, 7 / 6, 1, 2, 2]);
   assert.equal(W.FETCH_DAYS, 371, "the panel asks for the six days before the year too");
-  const days = daysEnding("2026-09-27", 371, k => (k === 200 ? 7e6 : 0));
+  // a year growing from ten thousand a day to a few million, one day of seven
+  // million, and ten days with none in March
+  const days = daysEnding("2026-09-27", 371, k => (k === 300 ? 7e6 : k >= 160 && k < 170 ? 0 : Math.round(1e4 * 10 ** ((k - 101) / 100))));
   const model = W.lineModel(days);
   assert.equal(model.points.length, 270, "January 1 to September 27, not 365 days");
   assert.equal(model.points[0].date, "2026-01-01");
   assert.equal(model.points.at(-1).date, "2026-09-27");
-  // one day of seven million: the daily line stands at it that day alone, and
-  // the average holds a million a day for that day and the six after it
-  assert.equal(model.points.filter(p => p.total === 7e6).length, 1);
-  const avg = model.points.map(p => p.avg);
-  assert.equal(avg.filter(v => v === 1e6).length, 7);
-  assert.equal(avg.filter(v => v === 0).length, 263);
   for (let i = 1; i < model.points.length; i++) assert.ok(model.points[i].x > model.points[i - 1].x);
   const { box } = model;
   for (const p of model.points) {
     assert.ok(p.y >= box.top - 0.05 && p.y <= box.top + box.h + 0.05, "the day inside the plot");
     assert.ok(p.ya >= box.top - 0.05 && p.ya <= box.top + box.h + 0.05, "the average inside the plot");
-    assert.ok(Math.abs(p.y - model.yAt(p.total)) < 0.1 && Math.abs(p.ya - model.yAt(p.avg)) < 0.1);
   }
-  // the axis ends at the next half step past the busiest day, not the busiest week,
-  // with lines at whole steps only
+  // ten days with none are a gap: no average in it, the line in two runs
+  assert.equal(W.GAP_DAYS, 7);
+  assert.equal(model.points.filter(p => p.gap).length, 10);
+  assert.equal(model.runs.length, 2);
+  assert.ok(model.points.filter(p => p.gap).every(p => p.avg === 0 && p.span === 0));
+  // the day after the gap averages only itself, the days in the gap left out
+  const after = model.points.find((p, i) => i && model.points[i - 1].gap && !p.gap);
+  assert.deepEqual([after.avg, after.span, after.from], [after.total, 1, after.date]);
+  // the axis ends at the next half step past the busiest day, with lines at whole steps only
   assert.equal(model.top, 8e6);
   assert.deepEqual(Array.from(model.ticks), [0, 2e6, 4e6, 6e6, 8e6]);
-  const spike = model.points.find(p => p.total === 7e6);
-  assert.ok(spike.y > box.top + 1, "the busiest day stands under the top line");
-  // drawn to the view's height and as wide as the heatmap at that height
+  // drawn to the view's height and as wide as the heatmap of the same days
   const svg = W.lineSvg(model);
-  const g = W.geometry(W.VIEW_H);
+  const g = W.geometry(W.VIEW_H, W.yearWeeks(days));
+  assert.equal(model.width, W.heatmapModel(days).geo.width);
   assert.match(svg, new RegExp(`<svg class="tk-line" width="${g.width}" height="200" viewBox="0 0 ${g.width} 200"`));
   assert.deepEqual({ ...model.box }, { left: 48, right: 14, top: 12, bottom: 26, w: g.width - 62, h: 162 });
-  const tall = W.lineModel(days, 226);
-  assert.equal(tall.height, 226);
-  assert.equal(tall.width, W.geometry(226).width);
+  assert.equal(W.lineModel(days, 226).height, 226);
   // the months along the bottom at each one's first day, a tick under each,
   // January with its year, every name inside the chart
   assert.equal(model.months.length, 9, "January to September, the months of the year so far");
   assert.ok(model.months.every(m => m.x >= 48 && m.x + 26 <= g.width));
   assert.ok(model.months.some(m => m.label === "Jan 2026"));
   assert.equal((svg.match(/<line class="tk-tick"/g) || []).length, model.months.length);
-  // the two lines, in the chart's own red-oranges: the day in faint dots, its average solid and a shade deeper
-  const path = /class="tk-path" d="([^"]+)"/.exec(svg)[1];
-  assert.equal((path.match(/[ML]/g) || []).length, 270);
-  const solid = /<path class="tk-avg" d="([^"]+)" fill="none" stroke="([^"]+)"([^>]*)>/.exec(svg);
-  assert.ok(solid, "the average is drawn solid");
-  assert.equal((solid[1].match(/[ML]/g) || []).length, 270);
-  assert.equal(solid[2], W.AVG_LINE);
-  assert.doesNotMatch(solid[3], /dasharray|opacity/, "the average is solid and fully opaque");
-  assert.ok(svg.includes(`class="tk-path" d="${path}" fill="none" stroke="${W.LINE}" ` +
-                         `stroke-opacity="${W.DAILY_ALPHA}" stroke-dasharray="${W.DAILY_DASH}"`));
-  assert.equal(W.DAILY_ALPHA, 1, "the daily line is at 100% opacity");
-  assert.ok(W.PALETTE.includes(W.AVG_LINE));
-  for (const c of [W.LINE, W.AVG_LINE]) assert.ok(hsl(c).h >= 8 && hsl(c).h <= 30, `${c} is the same warm family`);
-  assert.doesNotMatch(svg, /linearGradient|tk-area/, "no fill under the line");
-  // a mark on each line where the pointer is, never smaller than 8px across
+  // the columns: one for each day with use, outside the gap, in the light
+  // shade at the Editorial strength, a little narrower than a day's step
+  const cols = /<path class="tk-cols" d="([^"]+)" fill="([^"]+)" fill-opacity="([^"]+)"\/>/.exec(svg);
+  assert.ok(cols, "the days are columns");
+  assert.equal((cols[1].match(/Z/g) || []).length, 260);
+  assert.equal(cols[2], W.PALETTE[4], "the mock's Editorial columns, #F7A67C");
+  assert.equal(Number(cols[3]), 0.62);
+  assert.equal(model.calm, 0, "a year that grows is not crowded");
+  // the 7-day line: curved, deep, over a ring of the ground's colour, one
+  // piece for each run between gaps; nothing dotted is left
+  const avg = /<path class="tk-avg" d="([^"]+)" fill="none" stroke="([^"]+)" stroke-width="([^"]+)"\/>/.exec(svg);
+  assert.ok(avg, "the average is drawn");
+  assert.equal(avg[2], W.AVG_LINE);
+  assert.equal(W.AVG_LINE, "#C9401B");
+  assert.equal((avg[1].match(/M/g) || []).length, 2, "two runs");
+  assert.ok((avg[1].match(/C/g) || []).length > 200, "a curve through the days");
+  assert.ok(svg.includes(`<path class="tk-ring" d="${avg[1]}" fill="none" stroke-width="${Number(avg[3]) + 3}"/>`));
+  assert.ok(svg.indexOf("tk-cols") < svg.indexOf("tk-ring") && svg.indexOf("tk-ring") < svg.indexOf("tk-avg"), "the line over the columns");
+  assert.doesNotMatch(svg, /tk-path|dasharray|stroke-opacity/, "the dotted daily line is gone");
+  assert.equal(W.DAILY_DASH, undefined);
+  assert.equal(W.DAILY_ALPHA, undefined);
+  // a mark on the column and on the line where the pointer is, never smaller than 8px across
   const radius = cls => Number(new RegExp(`<circle class="${cls}" r="([\\d.]+)"`).exec(svg)[1]);
   assert.ok(2 * radius("tk-dot") >= 8 && 2 * radius("tk-dot avg") >= 8);
   assert.match(svg, /<circle class="tk-dot avg"[^>]*fill="#FFFFFF" stroke="#C9401B"/);
-  // the count names are drawn apart into the place they held, to stay put while the line scrolls
+  // the count names sit on their gridlines at the left, drawn apart with the
+  // gridlines' start into the place they held, to stay put while the line
+  // scrolls; the floor is not named
   const pin = W.linePin(model);
   assert.match(pin, /^<svg width="48" height="200" viewBox="0 0 48 200"/);
-  for (const label of ["0", "2M", "4M", "6M", "8M"]) {
-    assert.ok(pin.includes(`text-anchor="end">${label}</text>`));
+  for (const t of [2e6, 4e6, 6e6, 8e6]) {
+    const y = Math.round(model.yAt(t) * 10) / 10, label = W.compact(t);
+    assert.ok(pin.includes(`<line class="tk-grid" x1="0" x2="48" y1="${y}" y2="${y}"/>`), `${label}'s gridline`);
+    assert.ok(pin.includes(`<text class="tk-axis" x="0" y="${Math.round((y - 5) * 10) / 10}">${label}</text>`), `${label} on its line`);
     assert.ok(!svg.includes(`>${label}</text>`), `${label} would scroll away with the line`);
   }
-  assert.equal((pin.match(/<text /g) || []).length, 5, "names at whole steps only");
+  assert.equal((pin.match(/<text /g) || []).length, 4, "named at whole steps only, the floor not at all");
   assert.equal((svg.match(/<line class="tk-(grid|base)"/g) || []).length, 5, "lines at whole steps only");
-  const half = W.lineModel(daysEnding("2026-09-27", 371, k => (k === 200 ? 3.06e9 : 0)));
+  const half = W.lineModel(daysEnding("2026-09-27", 371, k => (k === 200 ? 3.06e9 : 1e6)));
   assert.equal(half.top, 3.5e9);
-  assert.equal((W.linePin(half).match(/<text /g) || []).length, 4, "none at the top, which is no whole step");
-  assert.equal((W.lineSvg(half).match(/<line class="tk-(grid|base)"/g) || []).length, 4);
-  // a year of nothing still draws, flat on the floor
+  assert.equal((W.linePin(half).match(/<text /g) || []).length, 3, "none at the top, which is no whole step");
+  // a year of nothing still draws, flat on the floor, with no columns and no line
   const flat = W.lineModel(daysEnding("2026-09-27", 371, () => 0));
-  assert.ok(flat.points.every(p => p.y === box.top + box.h && p.ya === box.top + box.h));
+  assert.ok(flat.points.every(p => p.y === box.top + box.h));
+  assert.doesNotMatch(W.lineSvg(flat), /tk-cols|tk-avg/);
+});
+
+test("a busy, steady year draws its daily marks smaller and paler under a bolder line, and a year that grows keeps them", () => {
+  const { W } = widgets();
+  assert.deepEqual([...W.FULL_DAYS], [0.6, 0.8]);
+  assert.deepEqual([...W.FULL_EVEN], [0.1, 0.3]);
+  // used every day at much the same rate: the calmest
+  const steady = Array.from({ length: 200 }, (_, i) => 1e8 * (1 + 0.3 * Math.sin(i)));
+  assert.equal(W.calmOf(steady), 1);
+  // a first year: quiet for months, then growing a hundredfold
+  const growing = Array.from({ length: 200 }, (_, i) => 1e5 * 10 ** (i / 50));
+  assert.ok(W.fullness(growing).even < 0.1);
+  assert.equal(W.calmOf(growing), 0);
+  // used on few days: as it is
+  const light = Array.from({ length: 200 }, (_, i) => (i % 7 < 3 ? 1e7 : 0));
+  assert.ok(W.fullness(light).used < 0.6);
+  assert.equal(W.calmOf(light), 0);
+  // in between, in between
+  const most = Array.from({ length: 200 }, (_, i) => (i % 10 < 7 ? 1e8 : 0));
+  assert.ok(W.calmOf(most) > 0.4 && W.calmOf(most) < 0.6);
+  assert.equal(W.calmOf([]), 0);
+  assert.equal(W.calmOf([5, 5]), 0, "too few days to say");
+  // the screen and the picture's marks at no calm are the mock's own, and
+  // at the most calm smaller and paler, the line bolder
+  assert.deepEqual({ ...W.screenMarks(0) }, { alpha: 0.62, width: 0.62, line: 2.6 });
+  const calm = W.screenMarks(1);
+  assert.ok(calm.alpha < 0.62 && calm.width < 0.62 && calm.line > 2.6);
+  assert.deepEqual({ ...W.pictureMarks(0) }, { col: 0.62, colWidth: 0.62, colLine: 3, dot: 2.6, dotAlpha: 0.55, dotLine: 2.2 });
+  const pic = W.pictureMarks(1);
+  assert.ok(pic.col < 0.62 && pic.colWidth < 0.62 && pic.colLine > 3 && pic.dot < 2.6 && pic.dotAlpha < 0.55 && pic.dotLine > 2.2);
+  // on the screen: the columns and the key paler, the line bolder
+  const days = daysEnding("2026-09-27", 371, k => 1e8 * (1 + 0.3 * Math.sin(k)));
+  const model = W.lineModel(days);
+  assert.equal(model.calm, 1);
+  const svg = W.lineSvg(model);
+  assert.match(svg, new RegExp(`class="tk-cols"[^>]*fill-opacity="${calm.alpha}"`));
+  assert.match(svg, new RegExp(`class="tk-avg"[^>]*stroke-width="${Math.round(calm.line * 10) / 10}"`));
+  const el = new El("div", makeDocument());
+  W.drawLine(el, days);
+  assert.match(/<span class="tk-legend">(.*?)<\/span>/.exec(el.innerHTML)[1], new RegExp(`fill-opacity="${calm.alpha}"`));
 });
 
 test("the count axis tops at the next half step past the busiest day, with lines at whole steps only", () => {
@@ -408,7 +469,7 @@ test("the view opens a chart on its latest weeks, keeps a place scrolled back to
   const days = daysEnding("2026-09-27", 371);
   const el = new El("div", doc);
   W.drawHeatmap(el, days);
-  const width = W.geometry(W.VIEW_H).width, room = width - 540;
+  const width = W.geometry(W.VIEW_H, W.yearWeeks(days)).width, room = width - 540;
   assert.match(el.innerHTML, new RegExp(`^<div class="tk-view"><div class="tk-lane"><div class="tk-scroll"><div class="tk-chart"><svg class="tk-heat" width="${width}"`));
   assert.match(el.innerHTML, /<div class="tk-pin" style="width:34px"><svg width="34"/);
   let view = el.querySelector(".tk-scroll"), lane = el.querySelector(".tk-lane");
@@ -522,7 +583,7 @@ test("each chart keeps its own place when the pill switches, and a refresh keeps
   const stage = walk(root).find(n => n.className === "tk-stage");
   const [heat, line] = walk(root).filter(n => n.dataset.view);
   const view = () => activeLayer(stage).querySelector(".tk-scroll");
-  const room = W.geometry(W.VIEW_H).width - 540;
+  const room = W.geometry(W.VIEW_H, W.yearWeeks(data.days)).width - 540;
   await p.refresh();
   assert.equal(view().scrollLeft, room, "the heatmap opens on its latest weeks");
   scrollTo(view(), 100);
@@ -569,11 +630,14 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   assert.match(read("card-tokens.css"), /\*\{scrollbar-width:none\}\n\*::-webkit-scrollbar\{display:none\}/);
   assert.doesNotMatch(css, /scrollbar|\bscroll-behavior/);
   // the pill's seat, the two chart layers and the download button's icons;
-  // past the panel, the picture's overlay fades its box in and out
+  // past the panel, the picture's overlay fades its box in and out, and its
+  // glass buttons take the bar's press
   const [inPanel, inShot] = [css.slice(0, css.indexOf(".tk-shot-veil")), css.slice(css.indexOf(".tk-shot-veil"))];
   assert.equal([...inPanel.matchAll(/transition:[^;}]*(opacity|left|transform)/g)].length, 3);
   assert.deepEqual([...inShot.matchAll(/transition:[^;}]*/g)].map(m => m[0]).filter(t => /opacity|transform/.test(t)),
-    ["transition:opacity .2s ease-out, transform .26s var(--gentle)"]);
+    ["transition:opacity .2s ease-out, transform .26s var(--gentle)",
+     "transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)",
+     "transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)"]);
   assert.match(rule(".tk-layer"), /transition:opacity \.22s var\(--gentle\)/);
   assert.match(rule(".tk-thumb"), /transition:transform \.28s var\(--gentle\)/);
   assert.doesNotMatch(WIDGETS, /smooth|scrollTo\(|scrollBy\(|requestAnimationFrame/);
@@ -645,11 +709,14 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   assert.match(rule(".tk-sum"), /white-space:nowrap/);
   assert.match(rule(".tk-legend"), /margin-left:auto; white-space:nowrap/);
   assert.equal(W.VIEW_H, 200, "the widgets draw at the sheet's own view height until a view is measured");
-  // both charts' names at the panel's 12px; the day's line solid, its average dotted
+  // both charts' names at the panel's 12px; the line's gridlines and floor
+  // the Editorial look's, and its 7-day line ringed in the ground's colour
   assert.match(rule(".tk-axis"), /font:400 12px var\(--sans\)/);
-  assert.match(rule(".tk-path"), /stroke-width:1\.75px/);
-  assert.match(rule(".tk-avg"), /stroke-linecap:round/);
-  assert.match(rule(".tk-grid"), /stroke:#EFEBE5/);
+  assert.doesNotMatch(css, /\.tk-path\{/, "no dotted daily line");
+  assert.match(css, /\.tk-avg, \.tk-ring\{stroke-linecap:round; stroke-linejoin:round\}/);
+  assert.match(rule(".tk-ring"), /stroke:var\(--tk-ground\)/);
+  assert.match(rule(".tk-grid"), /stroke:#E4DED5/);
+  assert.match(css, /\.tk-base, \.tk-tick\{stroke:#B9B1A5; stroke-width:1px\}/);
   // the panel reserves its size and loading content fills the same stage
   assert.match(rule(".tk-wait"), /flex:1 1 auto;/);
   assert.match(rule(".tk-layer"), /position:absolute; inset:0/);
@@ -657,9 +724,12 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
 
 test("counts read short and the tips name the day", () => {
   const { W } = widgets();
+  // billions are the largest unit: a fourth figure with a comma, never trillions
   const cases = [[0, "0"], [999, "999"], [1234, "1.23K"], [999_600, "1M"], [48_210_000, "48.2M"],
-                 [5_214_000_000, "5.21B"], [120e9, "120B"], [3e12, "3T"]];
+                 [5_214_000_000, "5.21B"], [120e9, "120B"], [999.4e9, "999B"], [999.6e9, "1,000B"],
+                 [1.07e12, "1,070B"], [1.2345e12, "1,235B"], [3e12, "3,000B"], [12.3456e12, "12,346B"]];
   for (const [n, want] of cases) assert.equal(W.compact(n), want, String(n));
+  for (let n = 1; n < 1e16; n *= 1.37) assert.doesNotMatch(W.compact(n), /T|NaN|undefined/, String(n));
   assert.equal(W.longDay("2026-09-27"), "Sun, Sep 27, 2026");
   // a square is one day, and its tip says so
   assert.equal(W.heatTip({ date: "2026-09-23", total: 48_210_000 }),
@@ -685,18 +755,24 @@ test("the line's tip names the day, its total and its 7-day average, and nothing
   const rows = [...tip.matchAll(/<span class="tk-row"><svg class="tk-key"[^>]*>.*?<\/svg>([^<]+)<em>([^<]+)<\/em><\/span>/g)]
     .map(m => [m[1], m[2]]);
   assert.deepEqual(rows, [["Daily", "1.35B"], ["7-day average", "616M"]]);
-  // each row's stroke is its line's: the day in faint dots, the average solid
-  assert.match(tip, new RegExp(`stroke="${W.LINE}" stroke-opacity="${W.DAILY_ALPHA}"[^>]*stroke-dasharray="${W.DAILY_DASH}"/></svg>Daily`));
+  // each row's mark is its own: the day a light column, the average the deep line
+  assert.match(tip, new RegExp(`<path d="[^"]+" fill="${W.PALETTE[4]}" fill-opacity="0.62"/></svg>Daily`));
   assert.match(tip, new RegExp(`stroke="${W.AVG_LINE}" stroke-width="[^"]+" stroke-linecap="round"/></svg>7-day average`));
   assert.ok(Math.abs(p.y - model.yAt(p.total)) < 0.1 && Math.abs(p.ya - model.yAt(p.avg)) < 0.1,
             "the two dots stand at the tip's two numbers");
-  // every day of the year: both numbers in the tip, both marks inside the axis
+  // every day of the year: its total in the tip, and its average where a
+  // line is drawn, over the days outside a gap; both marks inside the axis
+  const gap = model.points.filter(q => q.gap);
+  assert.equal(gap.length, 257, "the quiet months before the busy week are a gap");
   for (const q of model.points) {
     const t = W.lineTip(q);
-    assert.ok(t.includes(`Daily<em>${W.compact(q.total)}</em>`) && t.includes(`7-day average<em>${W.compact(q.avg)}</em>`));
+    assert.ok(t.includes(`Daily<em>${W.compact(q.total)}</em>`));
+    if (q.gap) assert.doesNotMatch(t, /average/, `${q.date} is in a gap, with no line and no average`);
+    else assert.ok(t.includes(`${q.span}-day average<em>${W.compact(q.avg)}</em>`), q.date);
     assert.ok(q.total <= model.top && q.avg <= model.top, `${q.date} stands above the axis`);
-    assert.equal(q.span, 7, "every day of the year averages a whole week");
   }
+  // the busy week's first day follows the gap, so it averages itself alone
+  assert.deepEqual(["2026-09-15", "2026-09-16", "2026-09-21"].map(d => model.points.find(q => q.date === d).span), [1, 2, 7]);
   // where a reading begins, the average says how few days it holds
   const short = W.lineModel(daysEnding("2026-09-27", 3, () => 3e6));
   assert.match(W.lineTip(short.points[0]), /^<b>Fri, Sep 25, 2026<\/b>.*Daily<em>3M<\/em>.*1-day average<em>3M<\/em>/);
@@ -720,13 +796,15 @@ test("the line's tip names the day, its total and its 7-day average, and nothing
   }
 });
 
-test("the line runs from January 1 to today and the heatmap keeps its year; the foot words follow", () => {
+test("the line and the heatmap both run from January 1 to today; the foot words follow", () => {
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371, () => 1000);
   assert.equal(days[W.yearStart(days)].date, "2026-01-01");
   assert.equal(W.yearStart(days), 371 - 270);
   assert.equal(W.lineModel(days).points.length, 270);
-  assert.equal(W.heatmapModel(days).cells.length, 365, "the heatmap keeps the last 365 days");
+  assert.equal(W.heatmapModel(days).cells.length, 270, "the heatmap from January 1 too, not a rolling year");
+  assert.equal(W.heatmapModel(days).cells[0].date, "2026-01-01");
+  assert.equal(W.lineModel(days).width, W.heatmapModel(days).geo.width, "the two as wide, a week of the line a column");
   // the first day of the line has its whole week of average, from the six days before
   assert.equal(W.lineModel(days).points[0].span, 7);
   assert.equal(W.lineModel(days).points[0].from, "2025-12-26");
@@ -734,9 +812,12 @@ test("the line runs from January 1 to today and the heatmap keeps its year; the 
   assert.equal(W.lineModel(daysEnding("2026-01-01", 371, () => 1000)).points.length, 1);
   assert.equal(W.lineModel(daysEnding("2026-09-27", 20, () => 1000)).points.length, 20);
   assert.equal(W.yearStart([]), 0);
-  // the line's total is the days it shows, the heatmap's is the last 365
-  assert.equal(W.totalLine(56.2e9), "<b>56.2B</b> tokens in the last year");
-  assert.equal(W.totalLine(56.2e9, "this year"), "<b>56.2B</b> tokens this year");
+  // both totals are the days they show, this year's
+  assert.equal(W.totalLine(56.2e9), "<b>56.2B</b> tokens this year");
+  const footOf = draw => { const el = new El("div", makeDocument()); draw(el, days); return /<span class="tk-sum">(.*?)<\/span>/.exec(el.innerHTML)[1]; };
+  assert.equal(footOf(W.drawHeatmap), "<b>270K</b> tokens this year");
+  assert.equal(footOf(W.drawLine), "<b>270K</b> tokens this year");
+  assert.doesNotMatch(WIDGETS, /in the last year/);
   // the route is asked for the year so far and a week before it when that is more than the heatmap's year
   const late = Date.UTC(2026, 11, 31, 12), early = new Date(2026, 2, 3, 12).getTime();
   assert.equal(W.fetchDays(early), W.FETCH_DAYS, "early in the year the heatmap's days are enough");
@@ -802,8 +883,8 @@ test("one pill switches the panel between the two charts and the choice is remem
   assert.deepEqual(pressed(), ["true", "false"]);
   assert.ok(opts[0].classList.contains("on") && !opts[1].classList.contains("on"));
   assert.match(activeLayer(stage).innerHTML, /class="tk-heat"/);
-  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 365);
-  assert.match(activeLayer(stage).innerHTML, /tokens in the last year/);
+  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 270, "January 1 to September 27");
+  assert.match(activeLayer(stage).innerHTML, /tokens this year/);
 
   opts[1].click();
   assert.deepEqual(pressed(), ["false", "true"]);
@@ -951,7 +1032,7 @@ test("the house opens its prepared widgets and a project tab leaves it", async (
   const panel = h.byId.homeplot.children[0];
   assert.equal(panel.className, "tk-panel");
   const stage = walk(panel).find(n => n.className === "tk-stage");
-  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 365);
+  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 270);
   assert.equal([...h.timers.values()].filter(t => t.ms === 5 * 60 * 1000).length, 1, "asks again every five minutes");
 
   // the house is a place: pressing it again changes nothing
@@ -1030,54 +1111,179 @@ test("the foot is one line that never wraps, and the phone leaves the tools the 
   assert.match(read("m.html"), /grid-template-columns:minmax\(0, 1fr\) auto/, "the heading column can give way");
 });
 
+// a canvas context that writes down what is painted on it
+function recording() {
+  const calls = [];
+  const ctx = new Proxy({}, {
+    get: (t, k) => {
+      if (k === "measureText") return s => ({ width: String(s).length * 7, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2,
+                                              actualBoundingBoxLeft: 0, actualBoundingBoxRight: String(s).length * 7 });
+      if (k === "createLinearGradient") return () => ({ addColorStop() {} });
+      if (k in t) return t[k];
+      // text is written down with the side it is set from
+      return (...args) => { calls.push(k === "fillText" || k === "strokeText" ? [k, ...args, t.textAlign || "left"] : [k, ...args]); };
+    },
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  const texts = () => calls.filter(c => c[0] === "fillText").map(c => c[1]);
+  return { ctx, calls, texts };
+}
+const paintOf = (W, kind, pick, days, installed = null, calm) => {
+  const r = recording();
+  W.paintLook(r.ctx, kind, pick, days, installed, W.LOOK, null, calm);
+  return r;
+};
+
 test("the picture is 3:1 for the heatmap and 2:1 for the line, drawn three times over", () => {
   const { W } = widgets();
-  const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5000 : 0)).map(d => ({ ...d, claude: d.total, codex: 0 }));
+  const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5000 : 0));
   assert.deepEqual({ ...W.SHAPE_OF }, { heatmap: "3:1", line: "2:1" });
   assert.equal(W.PIC_SCALE, 3);
-  const [w, h] = W.SHAPES["3:1"], [lw, lh] = W.SHAPES["2:1"];
-  assert.equal(w, h * 3, "three wide for one tall");
-  assert.equal(lw, lh * 2, "two wide for one tall");
-  const heat = W.pictureModel("heatmap", days, null);
-  assert.deepEqual([heat.width, heat.height], [w, h]);
-  assert.equal(heat.heat.cells.length, 365, "every day of the year, not the part a lane shows");
-  assert.equal(heat.total, days.slice(-365).reduce((n, d) => n + d.total, 0));
-  assert.equal(heat.when, "in the last year");
-  assert.equal(heat.install, null, "the heatmap has no install mark");
-  // the week columns reach from the day names to the right margin
-  const g = heat.heat.geo, last = heat.heat.cells.at(-1);
-  assert.ok(last.x + g.cell <= w - 32 + 0.01 && last.x + g.cell >= w - 32 - g.step - 0.01);
-  assert.ok(g.top + g.rows < h - 36, "the seven rows stand clear of the foot");
-  assert.ok(g.cell > 15, "squares as large as the width of the year allows");
-  const line = W.pictureModel("line", days, null);
-  assert.deepEqual([line.width, line.height], [lw, lh]);
-  assert.equal(line.line.points.length, 270, "January 1 to today");
-  assert.equal(line.when, "this year");
-  assert.equal(line.total, days.slice(-270).reduce((n, d) => n + d.total, 0), "the total of the days shown");
-  assert.equal(line.agents, undefined, "no tool names");
-  assert.ok(line.line.box.h > 380, "the plot uses the height");
-  assert.equal(W.pictureName("line", Date.UTC(2026, 9, 16, 12)), "facilitator-tokens-line-2026-10-16.png");
+  assert.deepEqual([...W.SHAPES["3:1"]], [1200, 400]);
+  assert.deepEqual([...W.SHAPES["2:1"]], [1200, 600]);
+  const doc = { createElement: () => ({ getContext: () => recording().ctx }) };
+  for (const [kind, w, h] of [["line", 3600, 1800], ["heatmap", 3600, 1200]]) W.DICE[kind].forEach((_, pick) => {
+    const canvas = W.pictureCanvas(doc, kind, pick, days, null, W.LOOK, null);
+    assert.deepEqual([canvas.width, canvas.height], [w, h], `${kind} ${pick}`);
+  });
+  // every look carries the title, the name and the link, and this year's total
+  const total = W.compact(days.slice(W.yearStart(days)).reduce((n, d) => n + d.total, 0));
+  for (const kind of ["line", "heatmap"]) W.DICE[kind].forEach((_, pick) => {
+    const t = paintOf(W, kind, pick, days).texts();
+    for (const words of ["Token consumption per day", "Facilitator", "github.com/AsteroidHunter/facilitator", total])
+      assert.ok(t.includes(words), `${kind} ${W.DICE[kind][pick].join(" ")} says ${words}`);
+    assert.ok(t.includes(" tokens this year"), `${kind} ${pick} says this year`);
+    assert.ok(!t.some(s => /in the last year|tokens a year/.test(s)));
+  });
 });
 
-test("the picture's line view marks the install day, and leaves the mark out when that day is not in the year", () => {
+test("the dice rolls through six line looks and all three heatmaps, never the three the owner left out", () => {
+  const { W } = widgets();
+  assert.deepEqual(JSON.parse(JSON.stringify(W.DICE)), {
+    line: [["editorial", "daily"], ["editorial", "band"], ["lab", "daily"], ["lab", "dots"], ["poster", "band"], ["poster", "dots"]],
+    heatmap: [["editorial"], ["lab"], ["poster"]],
+  });
+  const pairs = W.DICE.line.map(p => p.join(" "));
+  for (const left of ["poster daily", "lab band", "editorial dots"]) assert.ok(!pairs.includes(left), `${left} is left out`);
+  assert.deepEqual([...W.DICE.line[0]], ["editorial", "daily"], "the download saves the Editorial line");
+  assert.deepEqual([...W.DICE.heatmap[0]], ["editorial"]);
+  // each roll turns up another look, every other one before any comes round again
+  let seed = 7;
+  const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (const kind of ["line", "heatmap"]) {
+    const bags = {};
+    let at = 0;
+    const seen = [];
+    for (let i = 0; i < 4 * W.DICE[kind].length; i++) {
+      const next = W.nextLook(bags, kind, at, random);
+      assert.notEqual(next, at, "a roll always changes the look");
+      assert.ok(next >= 0 && next < W.DICE[kind].length);
+      seen.push(next);
+      at = next;
+    }
+    const n = W.DICE[kind].length;
+    assert.deepEqual([...new Set(seen.slice(0, n - 1))].sort(), Array.from({ length: n - 1 }, (_, k) => k + 1),
+                     `${kind}: the first rolls show every other look once`);
+    assert.equal(new Set(seen).size, n, `${kind}: every look comes up`);
+  }
+});
+
+test("Poster puts the year's total over the title, so it never reads as a day's, and its heatmap draws squares", () => {
+  const { W } = widgets();
+  const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5e6 : 0));
+  const total = W.compact(days.slice(W.yearStart(days)).reduce((n, d) => n + d.total, 0));
+  for (const [kind, pick] of [["line", 4], ["line", 5], ["heatmap", 2]]) {
+    assert.equal(W.DICE[kind][pick][0], "poster");
+    const r = paintOf(W, kind, pick, days);
+    const at = words => r.calls.find(c => c[0] === "fillText" && c[1] === words);
+    assert.ok(at(total)[3] < at("Token consumption per day")[3], `${kind}: the total stands over the title`);
+    assert.ok(at(" tokens this year")[3] === at(total)[3], "with tokens this year beside it");
+  }
+  // the heatmap's days are squares, as in the other two looks, and so is its key
+  const heat = paintOf(W, "heatmap", 2, days);
+  const cells = days.slice(W.yearStart(days)).length;
+  assert.equal(heat.calls.filter(c => c[0] === "arc").length, 0, "no circles");
+  assert.equal(heat.calls.filter(c => c[0] === "roundRect").length, cells + W.PALETTE.length);
+  // big totals stay in billions
+  const huge = daysEnding("2026-09-27", 371, i => (i > 120 ? 4e9 : 0));
+  assert.ok(paintOf(W, "line", 4, huge).texts().includes("1,000B"));
+});
+
+test("the picture's line marks the install day, and leaves the mark out when that day is not among the days shown or not a week old", () => {
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371);
-  const inside = days.at(-200).date;
-  const m = W.pictureModel("line", days, inside);
-  const point = m.line.points.find(p => p.date === inside);
-  assert.equal(m.install.x, point.x, "on that day's own place on the axis");
-  assert.equal(m.install.label, "Facilitator installed");
-  assert.ok(m.install.label.split(" ").length <= 5, "five words at most");
-  assert.equal(m.install.y1, m.line.box.top);
-  assert.equal(m.install.y2, m.line.box.top + m.line.box.h, "one upright line across the plot");
-  assert.equal(W.pictureModel("line", days, days[3].date).install, null, "before the year shown (the days fetched ahead of it are not shown)");
-  assert.equal(W.pictureModel("line", days, "2027-01-01").install, null, "after the last day");
-  assert.equal(W.pictureModel("line", days, null).install, null, "a board that has not said");
-  assert.equal(W.pictureModel("heatmap", days, inside).install, null, "never on the heatmap");
+  const inside = days.at(-100).date;
+  const S = W.seriesOf(days, W.pictureStart(days), inside);
+  assert.equal(S.shown[S.install].date, inside, "on that day's own place");
+  for (const pick of [0, 1, 2, 3]) {
+    const t = [...paintOf(W, "line", pick, days, inside).calls].filter(c => c[0] === "fillText" || c[0] === "strokeText").map(c => c[1]);
+    assert.ok(t.includes("Facilitator installed"), `${W.DICE.line[pick].join(" ")} marks it`);
+  }
+  for (const pick of [4, 5]) assert.ok(paintOf(W, "line", pick, days, inside).texts().includes("Facilitator installed"), "Poster's tag");
+  const marks = installed => paintOf(W, "line", 0, days, installed).calls.some(c => c[1] === "Facilitator installed");
+  assert.equal(marks(days[3].date), false, "before the days shown (the days fetched ahead of them are not shown)");
+  assert.equal(marks("2027-01-01"), false, "after the last day");
+  assert.equal(marks(null), false, "a board that has not said");
+  // a board first started less than 7 days before today (the last day) is not
+  // marked yet: the mark would stand at the right edge with nothing after it.
+  // In every line look, 6 days after the install day there is no line, no
+  // label and no room kept for them, the picture painted as with no install
+  // day at all; 7 days after, the mark is there
+  assert.equal(W.MARK_AFTER, 7);
+  const ago = n => days.at(-1 - n).date;
+  assert.equal(marks(ago(0)), false, "started today");
+  assert.equal(marks(ago(3)), false, "three days ago");
+  W.DICE.line.forEach((look, pick) => {
+    const named = look.join(" ");
+    const six = paintOf(W, "line", pick, days, ago(6)), none = paintOf(W, "line", pick, days, null);
+    assert.equal(six.calls.some(c => c[1] === "Facilitator installed"), false, `${named}: 6 days after install, no mark`);
+    assert.deepEqual(JSON.stringify(six.calls), JSON.stringify(none.calls), `${named}: 6 days after install, nothing kept for it`);
+    const seven = paintOf(W, "line", pick, days, ago(7));
+    assert.equal(seven.calls.some(c => c[1] === "Facilitator installed"), true, `${named}: 7 days after install, marked`);
+  });
+  assert.equal(W.seriesOf(days, W.pictureStart(days), ago(6)).install, -1);
+  assert.equal(W.seriesOf(days, W.pictureStart(days), ago(7)).install, W.seriesOf(days).n - 1 - 7);
+  for (const pick of [0, 1, 2]) assert.equal(paintOf(W, "heatmap", pick, days, inside).calls.some(c => c[1] === "Facilitator installed"), false, "never on the heatmap");
+});
+
+test("a board first started not long ago keeps its install label inside the picture and clear of the high point's note", () => {
+  const { W } = widgets();
+  // use growing all year, so the high point is the last days, just after the install day
+  const days = daysEnding("2026-09-27", 371, k => Math.round(1e6 * 10 ** (k / 120)));
+  const ago = n => days.at(-1 - n).date;
+  // the boxes of the words painted, at the recording canvas's 7px a letter
+  const boxes = r => r.calls.filter(c => c[0] === "fillText").map(([, s, x, y, align]) => {
+    const w = String(s).length * 7, left = align === "right" ? x - w : align === "center" ? x - w / 2 : x;
+    return { s, x0: left, x1: left + w, y0: y - 12, y1: y + 3 };
+  });
+  const meet = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  for (const n of [7, 10, 14]) W.DICE.line.forEach((look, pick) => {
+    const named = `${look.join(" ")}, installed ${n} days ago`;
+    const words = boxes(paintOf(W, "line", pick, days, ago(n)));
+    const label = words.filter(b => b.s === "Facilitator installed");
+    assert.equal(label.length, 1, `${named}: marked once`);
+    // the label and the date under it (Editorial's "September 17", Lab's "Sep 17, 2026")
+    const p = ago(n).split("-").map(Number), month = ["January", "February", "March", "April", "May", "June", "July",
+      "August", "September", "October", "November", "December"][p[1] - 1];
+    const dates = words.filter(b => b.s === `${month} ${p[2]}` || b.s === `${month.slice(0, 3)} ${p[2]}, ${p[0]}`);
+    for (const b of [...label, ...dates]) assert.ok(b.x0 >= 0 && b.x1 <= 1200, `${named}: "${b.s}" stays inside the picture`);
+    // Lab's label stands left of its line where the right has no room
+    if (look[0] === "lab") assert.ok(label[0].x1 <= 1164, `${named}: Lab's label ends inside the plot`);
+    // Poster's note keeps clear of the tag
+    if (look[0] === "poster") {
+      const note = words.filter(b => /^(Highest median|Busiest week)$/.test(b.s) || / around | median, /.test(b.s));
+      assert.equal(note.length, 2, `${named}: the note is there`);
+      for (const b of note) assert.ok(!meet(b, label[0]), `${named}: "${b.s}" is clear of the tag`);
+    }
+  });
+  // an install day well back in the year keeps Lab's label right of its line, as the mock has it
+  const lab = paintOf(W, "line", 2, days, ago(100)).calls.find(c => c[0] === "fillText" && c[1] === "Facilitator installed");
+  assert.equal(lab.at(-1), "left");
 });
 
 // a reading whose days have use where `on` says, `level` tokens each
 const usedOn = (last, n, on, level = 5e6) => daysEnding(last, n).map(d => ({ ...d, total: on(d.date) ? level : 0 }));
+const pictureDays = (W, days, installed = null) => W.seriesOf(days, W.pictureStart(days), installed);
 
 test("the line's picture starts where use began, on each year the rule was chosen on and on the real days", () => {
   const { W } = widgets();
@@ -1099,62 +1305,65 @@ test("the line's picture starts where use began, on each year the rule was chose
     assert.equal(days[W.useStart(days)].date, y.start, y.name);
   }
   // the real days as the panel reads them: the picture starts on April 1, the
-  // screen keeps January 1, and the foot is still the year's
+  // screen keeps January 1, and the total is still the year's
   const real = reading(years.find(y => y.name.startsWith("real daily totals")));
   assert.equal(real.at(-1).date, "2026-10-19");
   assert.equal(real[W.pictureStart(real)].date, "2026-04-01");
-  const m = W.pictureModel("line", real, "2026-08-03");
-  assert.equal(m.line.points[0].date, "2026-04-01");
-  assert.equal(m.line.points.at(-1).date, "2026-10-19");
-  assert.deepEqual([m.line.points[0].from, m.line.points[0].span], ["2026-03-26", 7], "the first average still takes the six days before");
-  assert.ok(m.install, "the install day comes after the start, so it is drawn");
-  assert.equal(m.install.x, m.line.points.find(p => p.date === "2026-08-03").x);
-  assert.equal(m.total, real.slice(W.yearStart(real)).reduce((n, d) => n + d.total, 0), "the total from January 1");
-  assert.equal(m.when, "this year");
-  assert.equal(W.lineModel(real).points[0].date, "2026-01-01", "the line on screen is unchanged");
+  const S = pictureDays(W, real, "2026-08-03");
+  assert.equal(S.first, "2026-04-01");
+  assert.equal(S.last, "2026-10-19");
+  assert.deepEqual([S.since[0], S.span[0]], ["2026-03-26", 7], "the first average still takes the six days before");
+  assert.equal(S.shown[S.install].date, "2026-08-03", "the install day comes after the start, so it is drawn");
+  assert.equal(S.total, real.slice(W.yearStart(real)).reduce((n, d) => n + d.total, 0), "the total from January 1");
+  assert.equal(W.lineModel(real).points[0].date, "2026-01-01", "the line on screen starts on January 1");
+  assert.equal(W.heatmapModel(real).cells[0].date, "2026-01-01", "and so does the heatmap");
 });
 
 test("the line's picture skips an early trial but not a holiday, and always shows four weeks", () => {
   const { W } = widgets();
-  const pic = (days, installed = null) => W.pictureModel("line", days, installed);
   // a week's trial in January, then nothing until May 11, then steady use; the
   // board was first started in the trial's wake, before the new start
   const trial = usedOn("2026-10-19", 371, d => (d >= "2026-01-12" && d <= "2026-01-18" ? 1 : d >= "2026-05-11"));
-  const t = pic(trial, "2026-02-02");
-  assert.equal(t.line.points[0].date, "2026-05-11");
-  assert.equal(t.install, null, "the install day is before the start, so the mark is left out");
-  assert.deepEqual([t.line.points[0].from, t.line.points[0].span], ["2026-05-05", 7]);
-  assert.equal(t.line.points[0].avg, 5e6 / 7, "the six days before it count, as they did");
+  const t = pictureDays(W, trial, "2026-02-02");
+  assert.equal(t.first, "2026-05-11");
+  assert.equal(t.install, -1, "the install day is before the start, so the mark is left out");
+  assert.deepEqual([t.since[0], t.span[0]], ["2026-05-05", 7]);
+  assert.equal(t.avg[0], 5e6 / 7, "the six days before it count, as they did");
   assert.equal(t.total, trial.slice(W.yearStart(trial)).reduce((n, d) => n + d.total, 0), "the trial is still in this year's total");
   assert.equal(W.lineModel(trial).points[0].date, "2026-01-01", "the screen keeps January 1");
-  assert.equal(pic(trial, "2026-06-01").install.label, "Facilitator installed", "a later install day is still marked");
-  // five weeks off in the summer after six months of use: no crop
-  const holiday = usedOn("2026-10-19", 371, d => d < "2026-07-01" || d > "2026-08-04");
-  assert.equal(pic(holiday).line.points[0].date, "2026-01-01");
-  assert.equal(pic(holiday).line.points[0].from, "2025-12-26");
+  assert.ok(pictureDays(W, trial, "2026-06-01").install > 0, "a later install day is still marked");
+  // five weeks off in the summer after six months of use: no crop, and the
+  // weeks off are a gap in the line
+  const holiday = pictureDays(W, usedOn("2026-10-19", 371, d => d < "2026-07-01" || d > "2026-08-04"));
+  assert.equal(holiday.first, "2026-01-01");
+  assert.equal(holiday.since[0], "2025-12-26");
+  assert.equal(holiday.runs.length, 2);
   // steady use from March 3, the day it began
-  assert.equal(pic(usedOn("2026-10-19", 371, d => d >= "2026-03-03")).line.points[0].date, "2026-03-03");
+  assert.equal(pictureDays(W, usedOn("2026-10-19", 371, d => d >= "2026-03-03")).first, "2026-03-03");
   // use that stopped, with nothing since: a silence up to today never counts
-  assert.equal(pic(usedOn("2026-10-19", 371, d => d >= "2026-02-01" && d < "2026-05-01")).line.points[0].date, "2026-02-01");
+  assert.equal(pictureDays(W, usedOn("2026-10-19", 371, d => d >= "2026-02-01" && d < "2026-05-01")).first, "2026-02-01");
   // early in a year at least 28 days are shown, from January 1 when there are fewer
-  const feb = pic(usedOn("2026-02-10", 371, d => d >= "2026-02-01"));
-  assert.equal(feb.line.points.length, 28);
-  assert.equal(feb.line.points[0].date, "2026-01-14");
-  assert.equal(pic(usedOn("2026-01-20", 371, d => d >= "2026-01-15")).line.points[0].date, "2026-01-01");
-  // no use this year at all, and no days at all
-  assert.equal(pic(usedOn("2026-10-19", 371, () => false)).line.points[0].date, "2026-01-01");
+  const feb = pictureDays(W, usedOn("2026-02-10", 371, d => d >= "2026-02-01"));
+  assert.equal(feb.n, 28);
+  assert.equal(feb.first, "2026-01-14");
+  assert.equal(pictureDays(W, usedOn("2026-01-20", 371, d => d >= "2026-01-15")).first, "2026-01-01");
+  // no use this year at all, and no days at all; every look still paints
+  const none = usedOn("2026-10-19", 371, () => false);
+  assert.equal(pictureDays(W, none).first, "2026-01-01");
+  for (const kind of ["line", "heatmap"]) W.DICE[kind].forEach((_, pick) => paintOf(W, kind, pick, none));
+  W.DICE.line.forEach((_, pick) => paintOf(W, "line", pick, usedOn("2026-01-01", 371, () => true)));
   assert.equal(W.useStart([]), 0);
 });
 
 test("the picture is painted in the board's inks and the squid's own file, never purple and never the accent", () => {
   const code = WIDGETS.slice(WIDGETS.indexOf("// ---- the picture"), WIDGETS.indexOf("// ---- the panel"));
   assert.match(code, /LOGO_SRC = "\/m-splash-squid\.png"/, "the board's own logo file");
-  assert.match(code, /font\(700, 28, look\.inter\)/, "the name in the board's wordmark face");
+  assert.match(code, /ctx\.font = F\(700, size, INTER\)/, "the name in the board's wordmark face");
   assert.match(code, /REPO_LINK = "github\.com\/AsteroidHunter\/facilitator"/, "no https, no www");
-  assert.match(code, /linkFont = size => `300 \$\{size\}px \$\{look\.inter\}`/, "the link is in Inter, light");
+  assert.match(code, /linkFont = s => `300 \$\{s\}px \$\{INTER\}`/, "the link is in Inter, light");
   assert.match(WIDGETS, /const INTER_LATIN = "[A-Za-z0-9+\/=]{40000,}"/, "Inter travels in the file");
   assert.match(WIDGETS, /new FontFace\(INTER_EXPORT, `url\(data:font\/woff2;base64,\$\{INTER_LATIN\}\)`/);
-  assert.match(code, /globalAlpha = 0\.4;[^]*lineWidth = 0\.75/, "the install line is thin and faint");
+  assert.match(code, /rgba\(INK, 0\.3\); ctx\.fillRect\(x - 0\.5, top - 6, 1/, "Editorial's install line is thin and faint");
   assert.doesNotMatch(code, /--accent/);
   for (const hex of code.match(/#[0-9a-fA-F]{6}\b/g) || []) {
     const { h, s } = hsl(hex);
@@ -1162,89 +1371,174 @@ test("the picture is painted in the board's inks and the squid's own file, never
   }
 });
 
-test("pressing the button saves the chart on show, once at a time, and opens the overlay: a download on the board, kept for the share sheet on the phone", async () => {
-  class FakeFile { constructor(parts, name, opts) { this.name = name; this.type = opts.type; } }
+test("a picture's file is facilitator_, the day as eight figures and the first name, numbered after the day's first", () => {
+  const { W } = widgets();
+  const day = new Date(2026, 9, 20, 12).getTime();   // noon on October 20 wherever the tests run
+  assert.equal(W.pictureName(day, "Robin Example"), "facilitator_20261020_Robin.png", "the first word, as typed");
+  assert.equal(W.pictureName(day, "Robin Example", 1), "facilitator_20261020_Robin.png");
+  assert.equal(W.pictureName(day, "Robin Example", 2), "facilitator_20261020_Robin_2.png");
+  assert.equal(W.pictureName(day, "  Robin  ", 3), "facilitator_20261020_Robin_3.png");
+  assert.equal(W.pictureName(day, "José", 1), "facilitator_20261020_José.png");
+  assert.equal(W.pictureName(day, "../etc:x", 1), "facilitator_20261020_etcx.png", "nothing a path or a file system would read");
+  assert.equal(W.pictureName(day, null), "facilitator_20261020.png", "no name, none in the file's name");
+  assert.equal(W.pictureName(day, "", 2), "facilitator_20261020_2.png");
+  assert.equal(W.pictureName(day, "?!", 1), "facilitator_20261020.png");
+  assert.equal(W.pictureName(new Date(2027, 0, 5, 12).getTime(), "Robin"), "facilitator_20270105_Robin.png");
+  // the day's count is kept in this browser: next reads it, take counts a file in
+  const store = makeStore();
+  const count = W.pictureCount(store);
+  assert.equal(count.next(day), 1);
+  assert.equal(count.next(day), 1, "reading counts nothing");
+  assert.deepEqual([count.take(day), count.take(day), count.take(day)], [1, 2, 3], "three files in a row on one day");
+  assert.equal(count.next(day), 4);
+  assert.deepEqual(JSON.parse(store.getItem(W.PICTURES_KEY)), { day: "20261020", count: 3 });
+  assert.equal(W.pictureCount(store).next(day), 4, "a page opened again goes on counting");
+  assert.equal(count.next(day + 864e5), 1, "a new day starts again at the first");
+  assert.equal(count.take(day + 864e5), 1);
+  // with storage blocked, the page keeps its count in memory
+  const blocked = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+  const held = W.pictureCount(blocked);
+  assert.deepEqual([held.take(day), held.take(day)], [1, 2]);
+  store.setItem(W.PICTURES_KEY, "not json");
+  assert.equal(W.pictureCount(store).next(day + 2 * 864e5), 1);
+});
+
+// a panel with a reading, a page that records what it downloads and shares,
+// timers fired by hand, and a profile that names Robin
+async function savingPanel({ share = false, canShare = true, closed = false, name = "Robin Example", view = "line", installedAgo = 99 } = {}) {
+  class FakeFile { constructor(parts, n, opts) { this.name = n; this.type = opts.type; } }
   const days = daysEnding("2026-09-27", 371);
-  const run = async (share, canShare, closed = false) => {
-    const { W } = widgets({ File: FakeFile, setTimeout: () => 0, URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} } });
-    const doc = makeDocument();
-    doc.removeEventListener = () => {};
-    const seen = { shared: [], clicked: [], canvases: [], states: [] };
-    doc.defaultView = {
-      navigator: canShare ? { canShare: d => d.files.length === 1, share: async d => {
-        if (closed) throw Object.assign(new Error("closed"), { name: "AbortError" });
-        seen.shared.push([d.files[0].name, d.files[0].type, d.title]);
-      } } : {},
-      clickDownload: a => seen.clicked.push([a.download, a.href]),
-      getComputedStyle: () => ({ getPropertyValue: () => "" }),
-    };
-    doc.documentElement = new El("html", doc);
-    const make = doc.createElement;
-    doc.createElement = name => {
-      const node = make(name);
-      if (name === "canvas") {
-        node.getContext = () => new Proxy({}, { get: (t, k) => (k === "measureText" ? () => ({ width: 10, actualBoundingBoxAscent: 8,
-          actualBoundingBoxDescent: 2, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 10 }) : () => {}), set: () => true });
-        node.toBlob = fn => { seen.canvases.push([node.width, node.height]); fn({ size: 1 }); };
-      }
-      if (name === "a") node.remove = () => {};
-      return node;
-    };
-    // timers the test fires by hand, so each state of the button can be read
-    const queue = [];
-    const flush = async () => { for (let i = 0; i < 10; i++) await settle(); const next = queue.splice(0); next.forEach(([fn]) => fn()); for (let i = 0; i < 10; i++) await settle(); return next.map(([, ms]) => ms); };
-    const root = new El("div", doc);
-    const p = W.panel(root, { load: async () => ({ days, installed: days.at(-100).date }), store: makeStore({ "home.chart": "line" }), share,
-      now: () => Date.UTC(2026, 9, 16, 12), later: (fn, ms) => { queue.push([fn, ms]); return queue.length; }, cancel: () => {} });
-    await p.refresh();
-    const save = walk(root).find(n => n.className === "tk-save");
-    seen.start = save.dataset.state;
-    const first = p.download(), second = p.download();
-    seen.states.push(save.dataset.state);
-    seen.busyAria = save.getAttribute("aria-busy");
-    await Promise.all([first.then(() => {}), flush().then(waits => { seen.spinWait = waits; }), second]);
-    seen.states.push(save.dataset.state);
-    // the overlay is up once the spinner has had its time, over the whole page
-    const shot = p.overlay();
-    seen.overlays = doc.body.children.filter(n => n.className.includes("tk-shot-veil")).length;
-    seen.saved = !!shot && walk(shot.box).some(n => n.className === "tk-shot-saved");
-    seen.buttons = shot ? walk(shot.box).filter(n => n.className.startsWith("tk-shot-btn")).map(n => n.dataset.act) : [];
-    seen.name = shot && walk(shot.box).find(n => n.className === "tk-shot-name").textContent;
-    seen.doneWait = await flush();
-    seen.states.push(save.dataset.state);
-    // the overlay's Share opens the sheet, inside its own press
-    if (shot) { shot.share.click(); await flush(); }
-    return seen;
+  const { W } = widgets({ File: FakeFile, setTimeout: () => 0, URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} } });
+  const doc = makeDocument();
+  doc.removeEventListener = () => {};
+  const seen = { shared: [], clicked: [], canvases: [], states: [], asked: 0, painted: [] };
+  doc.defaultView = {
+    navigator: canShare ? { canShare: d => d.files.length === 1, share: async d => {
+      if (closed) throw Object.assign(new Error("closed"), { name: "AbortError" });
+      seen.shared.push([d.files[0].name, d.files[0].type, d.title]);
+    } } : {},
+    clickDownload: a => seen.clicked.push([a.download, a.href]),
+    getComputedStyle: () => ({ getPropertyValue: () => "" }),
   };
-  const board = await run(false, true);
-  assert.equal(board.start, "idle");
-  assert.deepEqual(board.states, ["busy", "done", "idle"], "the spinner, then the check, then the download icon again");
-  assert.equal(board.busyAria, "true");
-  assert.deepEqual(board.spinWait, [500], "the spinner stays at least half a second");
-  assert.deepEqual(board.doneWait, [1500], "the check stays a moment");
-  assert.deepEqual(board.canvases, [[3600, 1800]], "3x of 1200 x 600 for the line, once for the two presses");
-  assert.deepEqual(board.clicked, [["facilitator-tokens-line-2026-10-16.png", "blob:x"]], "the download as it always was");
-  assert.equal(board.overlays, 1, "one overlay for the two presses");
-  assert.equal(board.name, "facilitator-tokens-line-2026-10-16.png");
-  assert.equal(board.saved, true, "the check says the file is saved");
-  assert.deepEqual(board.buttons, ["finder", "share"], "Open in Finder, then Share");
-  assert.deepEqual(board.shared, [["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"]],
-    "the Mac's Share hands the file to the share sheet where the browser can");
-  const phone = await run(true, true);
-  assert.deepEqual(phone.clicked, [], "a phone that can share the file saves nothing on the press");
-  assert.deepEqual(phone.states, ["busy", "idle", "idle"], "nothing is saved yet, so no check");
-  assert.equal(phone.overlays, 1);
-  assert.equal(phone.saved, false);
-  assert.deepEqual(phone.buttons, ["share"], "no Finder on a phone");
-  assert.deepEqual(phone.shared, [["facilitator-tokens-line-2026-10-16.png", "image/png", "Token consumption per day"]],
-    "the phone's share sheet opens from the overlay's Share, with the same file and title");
-  const fallback = await run(true, false);
-  assert.equal(fallback.shared.length, 0);
-  assert.equal(fallback.clicked.length, 1, "a phone that cannot share a file falls back to a download");
-  assert.deepEqual(fallback.buttons, ["share"], "and still has no Finder");
-  assert.equal(fallback.saved, true);
-  const closed = await run(true, true, true);
-  assert.deepEqual(closed.shared, [], "a share sheet closed without sending sends nothing");
+  doc.documentElement = new El("html", doc);
+  const make = doc.createElement;
+  doc.createElement = tag => {
+    const node = make(tag);
+    if (tag === "canvas") {
+      node.getContext = () => { const r = recording(); seen.painted.push(r); return r.ctx; };
+      node.toBlob = fn => { seen.canvases.push([node.width, node.height]); fn({ size: 1 }); };
+    }
+    if (tag === "a") node.remove = () => {};
+    return node;
+  };
+  const queue = [];
+  const flush = async () => { for (let i = 0; i < 10; i++) await settle(); const next = queue.splice(0); next.forEach(([fn]) => fn()); for (let i = 0; i < 10; i++) await settle(); return next.map(([, ms]) => ms); };
+  const cacheStore = makeStore();
+  const root = new El("div", doc);
+  const p = W.panel(root, { load: async () => ({ days, installed: days.at(-1 - installedAgo).date }), store: makeStore({ "home.chart": view }),
+    cacheStore, share, now: () => new Date(2026, 9, 16, 12).getTime(),
+    profile: async () => { seen.asked++; if (name instanceof Error) throw name; return name; },
+    later: (fn, ms) => { queue.push([fn, ms]); return queue.length; }, cancel: () => {} });
+  await p.refresh();
+  const save = walk(root).find(n => n.className === "tk-save");
+  seen.start = save.dataset.state;
+  const first = p.download(), second = p.download();
+  seen.states.push(save.dataset.state);
+  seen.busyAria = save.getAttribute("aria-busy");
+  await Promise.all([first.then(() => {}), flush().then(waits => { seen.spinWait = waits; }), second]);
+  seen.states.push(save.dataset.state);
+  // the overlay is up once the spinner has had its time, over the whole page
+  const shot = p.overlay();
+  seen.overlays = doc.body.children.filter(n => n.className.includes("tk-shot-veil")).length;
+  seen.title = shot && shot.title.textContent;
+  seen.look = shot && shot.box.dataset.look;
+  seen.doneWait = await flush();
+  seen.states.push(save.dataset.state);
+  const count = () => JSON.parse(cacheStore.getItem("home.pictures") || "null");
+  return { W, seen, shot, flush, count };
+}
+
+test("pressing the button saves the chart on show in the Editorial look, named for the day and the first name, and opens the overlay", async () => {
+  const board = await savingPanel();
+  const { seen } = board;
+  assert.equal(seen.start, "idle");
+  assert.deepEqual(seen.states, ["busy", "done", "idle"], "the spinner, then the check, then the download icon again");
+  assert.equal(seen.busyAria, "true");
+  assert.deepEqual(seen.spinWait, [500], "the spinner stays at least half a second");
+  assert.deepEqual(seen.doneWait, [1500], "the check stays a moment");
+  assert.equal(seen.asked, 1, "the first name is read once, for the one press that counts");
+  assert.deepEqual(seen.canvases, [[3600, 1800]], "3x of 1200 x 600 for the line, once for the two presses");
+  assert.deepEqual(seen.clicked, [["facilitator_20261016_Robin.png", "blob:x"]], "a download, named for the day and Robin");
+  assert.deepEqual(board.count(), { day: "20261016", count: 1 });
+  assert.equal(seen.overlays, 1, "one overlay for the two presses");
+  assert.equal(seen.title, "Chart downloaded!");
+  assert.equal(seen.look, "editorial-daily", "the Editorial line, daily and 7-day average");
+  // the overlay's download button saves the chart on show as the day's second file
+  board.shot.keep.click();
+  await board.flush();
+  assert.deepEqual(seen.clicked.at(-1), ["facilitator_20261016_Robin_2.png", "blob:x"]);
+  assert.equal(board.shot.keep.dataset.state, "done");
+  board.shot.keep.click();
+  await board.flush();
+  await board.flush();
+  assert.deepEqual(seen.clicked.map(c => c[0]), ["facilitator_20261016_Robin.png", "facilitator_20261016_Robin_2.png",
+                                                 "facilitator_20261016_Robin_3.png"], "three in a row on one day");
+  assert.deepEqual(board.count(), { day: "20261016", count: 3 });
+  // Share on the Mac hands the chart on show to the share sheet where the browser can
+  board.shot.share.click();
+  await board.flush();
+  assert.deepEqual(seen.shared, [["facilitator_20261016_Robin_3.png", "image/png", "Token consumption per day"]]);
+
+  const heat = await savingPanel({ view: "heatmap" });
+  assert.deepEqual(heat.seen.canvases, [[3600, 1200]], "3x of 1200 x 400 for the heatmap");
+  assert.equal(heat.seen.look, "editorial");
+  // no name kept, or no answer: the file is named for the day alone
+  for (const name of [null, new Error("offline")]) {
+    const bare = await savingPanel({ name });
+    assert.deepEqual(bare.seen.clicked, [["facilitator_20261016.png", "blob:x"]]);
+  }
+});
+
+test("a phone that can share keeps the picture for the share sheet, and saves and shares through it", async () => {
+  const phone = await savingPanel({ share: true });
+  assert.deepEqual(phone.seen.clicked, [], "a phone that can share the file saves nothing on the press");
+  assert.deepEqual(phone.seen.states, ["busy", "idle", "idle"], "nothing is saved yet, so no check");
+  assert.equal(phone.seen.title, "Chart ready!");
+  assert.equal(phone.count(), null, "nothing counted yet");
+  phone.shot.share.click();
+  await phone.flush();
+  assert.deepEqual(phone.seen.shared, [["facilitator_20261016_Robin.png", "image/png", "Token consumption per day"]],
+                   "the share sheet opens from the overlay's Share, with the day's next name");
+  assert.equal(phone.count(), null, "a share is not a saved file");
+  // the download button saves the phone's way, through the share sheet, and counts the file
+  phone.shot.keep.click();
+  await phone.flush();
+  assert.equal(phone.seen.shared.length, 2);
+  assert.deepEqual(phone.count(), { day: "20261016", count: 1 });
+  assert.equal(phone.shot.keep.dataset.state, "done");
+  const fallback = await savingPanel({ share: true, canShare: false });
+  assert.equal(fallback.seen.shared.length, 0);
+  assert.deepEqual(fallback.seen.clicked, [["facilitator_20261016_Robin.png", "blob:x"]], "a phone that cannot share a file downloads it");
+  assert.equal(fallback.seen.title, "Chart downloaded!");
+  const closed = await savingPanel({ share: true, closed: true });
+  closed.shot.keep.click();
+  await closed.flush();
+  assert.deepEqual(closed.seen.shared, [], "a share sheet closed without sending sends nothing");
+  assert.equal(closed.count(), null, "and counts nothing");
+  assert.equal(closed.shot.keep.dataset.state, "idle");
+  assert.equal(closed.shot.note.textContent, "", "and says nothing");
+});
+
+test("the download marks the install day only once 7 days have passed since it, in the picture and in every look the dice turns up", async () => {
+  const marked = r => r.calls.some(c => (c[0] === "fillText" || c[0] === "strokeText") && c[1] === "Facilitator installed");
+  const six = await savingPanel({ installedAgo: 6 }), seven = await savingPanel({ installedAgo: 7 });
+  assert.equal(marked(six.seen.painted[0]), false, "6 days after install: the downloaded picture has no mark");
+  assert.equal(marked(seven.seen.painted[0]), true, "7 days after install: it is marked");
+  for (const [run, want] of [[six, false], [seven, true]]) {
+    for (let i = 0; i < 5; i++) { run.shot.dice.click(); await run.flush(); }
+    assert.equal(run.seen.painted.length, 6, "the download and the five other line looks");
+    run.seen.painted.forEach((r, i) => assert.equal(marked(r), want, `picture ${i}`));
+  }
 });
 
 // ---- the picture's overlay -----------------------------------------------------------
@@ -1264,53 +1558,80 @@ function send(node, type, fields = {}) {
   return e;
 }
 function openShot(extra = {}) {
-  const timers = [], revoked = [];
-  const { W } = widgets({ URL: { createObjectURL: () => "blob:shot", revokeObjectURL: url => revoked.push(url) } });
+  const timers = [], revoked = [], made = [], kept = [], shared = [];
+  const { W } = widgets({ URL: { createObjectURL: b => "blob:" + b.id, revokeObjectURL: url => revoked.push(url) } });
   const doc = shotPage();
-  const shot = W.overlay(doc, { blob: { size: 1 }, name: "facilitator-tokens-line-2026-10-20.png", kind: "line",
-    saved: true, finder: true, reveal: async () => ({ ok: true }), share: async () => "shared",
-    later: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {}, ...extra });
+  let luck = 0;
+  const shot = W.overlay(doc, { blob: { size: 1, id: "first" }, name: "facilitator_20261020_Robin.png", kind: "line", saved: true,
+    make: async (k, p) => { made.push(`${k}-${p}`); return { size: 2, id: `${k}-${p}` }; },
+    keep: async blob => { kept.push(blob.id); return { outcome: "downloaded", name: "facilitator_20261020_Robin_2.png" }; },
+    share: async (blob, name) => { shared.push([blob.id, name]); return "shared"; },
+    later: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {},
+    random: () => ((luck = (luck * 7 + 3) % 10) / 10), ...extra });
   const run = () => timers.splice(0).map(([fn, ms]) => { fn(); return ms; });
-  return { W, doc, shot, timers, revoked, run, veil: doc.body.children[0], box: shot.box };
+  return { W, doc, shot, timers, revoked, made, kept, shared, run, veil: doc.body.children[0], box: shot.box };
 }
 
-test("the overlay is the board's glass over the settings page's veil, the picture under its name and over the buttons", () => {
-  const { doc, shot, veil, box } = openShot();
+test("the overlay is the board's glass over the settings page's veil: Chart downloaded!, the pill and the cross, the picture let in flat, then the dice, the download button and Share", () => {
+  const { W, doc, shot, veil, box } = openShot();
   assert.equal(veil, shot.root);
   assert.equal(veil.className, "qn-veil sp-veil tk-shot-veil open", "the settings page's veil, open");
   assert.equal(veil.getAttribute("aria-hidden"), "false");
   assert.equal(box.className, "qn-glass tk-shot", "the board's glass");
   assert.equal(box.dataset.kind, "line");
+  assert.equal(box.dataset.look, "editorial-daily", "it opens on the Editorial chart");
   assert.equal(box.getAttribute("role"), "dialog");
   assert.equal(box.getAttribute("aria-modal"), "true");
   assert.equal(box.tabIndex, -1, "a press on bare glass keeps the focus in the box");
-  assert.deepEqual(box.children.map(n => n.className), ["tk-shot-head", "tk-shot-pic", "tk-shot-foot"]);
-  const [head, pic, foot] = box.children;
-  assert.deepEqual(walk(head).map(n => n.className), ["tk-shot-title", "tk-shot-saved", "tk-shot-name", "tk-shot-x"]);
-  assert.equal(walk(head).find(n => n.className === "tk-shot-name").textContent, "facilitator-tokens-line-2026-10-20.png");
-  const cross = head.children[1];
+  assert.deepEqual(box.children.map(n => n.className), ["tk-shot-head", "tk-shot-frame", "tk-shot-foot"]);
+  const [head, frame, foot] = box.children;
+  // the top left says so, with no check and no file name; the pill stands left of the cross
+  assert.deepEqual(head.children.map(n => n.className), ["tk-shot-title", "tk-pill tk-shot-kinds", "tk-shot-x"]);
+  assert.equal(head.children[0].textContent, "Chart downloaded!");
+  assert.equal(head.children[0].children.length, 0, "no check mark");
+  assert.doesNotMatch(head.textContent, /facilitator_/);
+  const pill = head.children[1];
+  assert.deepEqual(pill.children.map(n => [n.className, n.textContent, n.dataset.view]),
+    [["tk-thumb", "", undefined], ["tk-opt", "Heatmap", "heatmap"], ["tk-opt on", "Line", "line"]]);
+  assert.equal(pill.dataset.on, "line");
+  assert.deepEqual([shot.kinds.heatmap.getAttribute("aria-pressed"), shot.kinds.line.getAttribute("aria-pressed")], ["false", "true"]);
+  const cross = head.children[2];
   assert.equal(cross.tagName, "BUTTON");
   assert.equal(cross.getAttribute("aria-label"), "Close");
   assert.match(cross.innerHTML, /M1\.936 1\.936L8\.064 8\.064M8\.064 1\.936L1\.936 8\.064/, "the card bar's cross");
+  // the picture, let into the glass
+  const pic = frame.children[0];
   assert.equal(pic.tagName, "IMG");
-  assert.equal(pic.src, "blob:shot");
-  assert.equal(pic.alt, "Token consumption per day, line chart");
-  assert.deepEqual(foot.children.map(n => [n.className, n.dataset.act]),
-    [["tk-shot-note", undefined], ["tk-shot-btn", "finder"], ["tk-shot-btn main", "share"]]);
-  assert.match(foot.children[1].innerHTML, /<span>Open in Finder<\/span>/);
-  assert.match(foot.children[2].innerHTML, /<span>Share<\/span>/);
+  assert.equal(pic.className, "tk-shot-pic");
+  assert.equal(pic.src, "blob:first");
+  assert.equal(pic.alt, "Token consumption per day, line chart, Editorial, daily and 7-day average");
+  // the dice and the download button in the board's round glass, then Share, a glass pill with the link mark
+  assert.deepEqual(foot.children.map(n => n.className), ["tk-shot-side", "qn-glass tk-shot-share", "tk-shot-note"]);
+  assert.deepEqual(foot.children[0].children.map(n => n.className),
+    ["qn-glass tk-shot-round tk-shot-dice", "qn-glass tk-shot-round tk-shot-keep"]);
+  assert.equal(shot.dice.getAttribute("aria-label"), "Roll the dice for another look");
+  assert.equal(shot.dice.children[0].dataset.face, "1", "the die shows the look's own number");
+  assert.match(shot.dice.children[0].innerHTML, /<rect width="18" height="18" x="3" y="3" rx="3"\/><circle cx="12" cy="12"/);
+  assert.equal(shot.keep.getAttribute("aria-label"), "Download this chart");
+  assert.match(shot.keep.innerHTML, /<polyline points="7 10 12 15 17 10"\/>/);
+  assert.equal(shot.keep.dataset.state, "idle");
+  assert.match(shot.share.innerHTML, /<path d="M10 13a5 5 0 0 0 7\.54\.54l3-3a5 5 0 0 0-7\.07-7\.07l-1\.72 1\.71"\/>.*<span>Share<\/span>/);
+  assert.equal(foot.children[2].getAttribute("role"), "status");
+  assert.doesNotMatch(walk(box).map(n => n.innerHTML + n.textContent).join(" "), /Finder/, "no Open in Finder");
   assert.equal(doc.listeners.focusin.length, 1, "focus is held in the box while it is up");
-  // the phone's overlay, before anything is saved: no check and no Finder
-  const phone = openShot({ saved: false, finder: false, kind: "heatmap" });
+  // a phone's, before anything is saved
+  const phone = openShot({ saved: false, kind: "heatmap" });
   assert.equal(phone.box.dataset.kind, "heatmap");
-  assert.equal(walk(phone.box).some(n => n.className === "tk-shot-saved"), false);
-  assert.deepEqual(walk(phone.box).filter(n => n.tagName === "BUTTON").map(n => n.dataset.act || "close"), ["close", "share"]);
-  assert.equal(phone.box.children[1].alt, "Token consumption per day, heatmap");
+  assert.equal(phone.box.dataset.look, "editorial");
+  assert.equal(phone.shot.title.textContent, "Chart ready!");
+  assert.equal(phone.box.children[1].children[0].alt, "Token consumption per day, heatmap, Editorial");
+  assert.equal(phone.box.children[0].children[1].dataset.on, "heatmap");
+  assert.equal(W.SHOT_TITLES.saved, "Chart downloaded!");
 });
 
 test("the cross, Escape and a press that starts and ends outside the box close the overlay, and it leaves the page", () => {
   const byCross = openShot();
-  byCross.box.children[0].children[1].click();
+  byCross.box.children[0].children[2].click();
   assert.equal(byCross.shot.isOpen(), false);
   assert.equal(byCross.veil.className, "qn-veil sp-veil tk-shot-veil", "the veil fades out");
   assert.equal(byCross.veil.getAttribute("aria-hidden"), "true");
@@ -1318,7 +1639,7 @@ test("the cross, Escape and a press that starts and ends outside the box close t
   assert.equal(byCross.doc.body.children.length, 1, "still there while it fades");
   assert.deepEqual(byCross.run(), [320], "taken out once the .26s fade has run");
   assert.equal(byCross.doc.body.children.length, 0);
-  assert.deepEqual(byCross.revoked, ["blob:shot"], "and its picture's address with it");
+  assert.deepEqual(byCross.revoked, ["blob:first"], "and its picture's address with it");
 
   const byKey = openShot();
   const other = send(byKey.veil, "keydown", { key: "a" });
@@ -1344,30 +1665,97 @@ test("the cross, Escape and a press that starts and ends outside the box close t
   assert.deepEqual(byPress.run(), [320], "closing twice takes it out once");
 });
 
-test("Open in Finder asks with the picture and its name, and says what went wrong", async () => {
-  const asked = [];
-  const ok = openShot({ reveal: async (blob, name) => { asked.push([blob.size, name]); return { ok: true }; } });
-  const finder = ok.shot.finder;
-  finder.click();
-  finder.click();
+test("the dice tumbles and swaps in each of the chart's other looks in turn, and the pill swaps the chart", async () => {
+  const o = openShot();
+  const { W, shot, box } = o;
+  const pic = () => box.children[1].children[0];
+  const roll = async () => {
+    shot.dice.click();
+    assert.ok(shot.dice.classList.contains("rolling"), "it tumbles");
+    assert.equal(shot.dice.getAttribute("aria-busy"), "true");
+    shot.dice.click();   // a second press while it rolls does nothing
+    await settle();
+    const waits = o.run();
+    assert.ok(waits.includes(W.ROLL_MS) && waits.length === 3, "the face turns twice on the way, then it lands");
+    await settle();
+    assert.ok(!shot.dice.classList.contains("rolling"));
+    return shot.at();
+  };
+  assert.equal(W.ROLL_MS, 650);
+  const lines = [0];
+  for (let i = 0; i < 5; i++) {
+    const at = await roll();
+    assert.equal(at.kind, "line", "the dice keeps to the chart the pill names");
+    assert.notEqual(at.pick, lines.at(-1), "every roll changes the look");
+    assert.equal(box.dataset.look, W.DICE.line[at.pick].join("-"));
+    assert.equal(pic().src, `blob:line-${at.pick}`);
+    assert.equal(shot.dice.children[0].dataset.face, String(at.pick + 1), "and lands on the look's own number");
+    lines.push(at.pick);
+  }
+  assert.deepEqual([...lines].sort(), [0, 1, 2, 3, 4, 5], "five rolls show all six line looks");
+  assert.equal(o.made.length, 5, "each look is made once");
+  // the pill: the heatmap in its Editorial look, and the dice then rolls through its three
+  shot.kinds.heatmap.click();
   await settle();
-  assert.deepEqual(asked, [[1, "facilitator-tokens-line-2026-10-20.png"]], "once while it is at work");
-  assert.equal(ok.shot.note.textContent, "");
-  assert.equal(finder.getAttribute("aria-busy"), "false");
-  const lost = openShot({ reveal: async () => { throw new Error("The picture is not in Downloads."); } });
-  lost.shot.finder.click();
+  assert.deepEqual({ ...shot.at() },{ kind: "heatmap", pick: 0 });
+  assert.equal(box.dataset.kind, "heatmap");
+  assert.equal(box.children[0].children[1].dataset.on, "heatmap");
+  assert.equal(shot.kinds.heatmap.getAttribute("aria-pressed"), "true");
+  const heats = [0];
+  for (let i = 0; i < 2; i++) heats.push((await roll()).pick);
+  assert.deepEqual([...heats].sort(), [0, 1, 2], "two rolls show all three heatmaps");
+  assert.ok(o.made.every(m => /^(line-[1-5]|heatmap-[0-2])$/.test(m)));
+  // back to the line: its Editorial look, the picture already made
+  shot.kinds.line.click();
   await settle();
-  assert.equal(lost.shot.note.textContent, "The picture is not in Downloads.", "the board's own words");
-  assert.equal(lost.shot.note.getAttribute("role"), "status");
-  const dumb = openShot({ reveal: async () => { throw {}; } });
-  dumb.shot.finder.click();
+  assert.deepEqual({ ...shot.at() },{ kind: "line", pick: 0 });
+  assert.equal(pic().src, "blob:first");
+  assert.equal(o.made.filter(m => m === "line-0").length, 0);
+  // a look that cannot be drawn says so and leaves the chart as it was
+  const broken = openShot({ make: async () => { throw new Error("no"); } });
+  broken.shot.dice.click();
+  await settle(); broken.run(); await settle();
+  assert.equal(broken.shot.note.textContent, "Could not draw that chart.");
+  assert.deepEqual({ ...broken.shot.at() }, { kind: "line", pick: 0 });
+  // put away mid-roll, its timers go with it
+  const away = openShot();
+  away.shot.dice.click();
+  away.shot.close();
+  assert.equal(away.timers.length, 4, "the turns, the landing and the fade");
+  assert.deepEqual(away.revoked, []);
+});
+
+test("the download button saves the chart on show as a new file, with the spinner and the check, and says what went wrong", async () => {
+  const o = openShot();
+  o.shot.dice.click();
+  await settle(); o.run(); await settle();
+  const look = o.shot.at().pick;
+  o.shot.keep.click();
+  assert.equal(o.shot.keep.dataset.state, "busy");
+  assert.equal(o.shot.keep.getAttribute("aria-busy"), "true");
+  o.shot.keep.click();
   await settle();
-  assert.equal(dumb.shot.note.textContent, "Could not open Finder.");
-  // the route the page asks: the name and the digest, never a path
-  const code = WIDGETS.slice(WIDGETS.indexOf("async function revealPicture"), WIDGETS.indexOf("function overlay("));
-  assert.match(code, /crypto\.subtle\.digest\("SHA-256"/);
-  assert.match(code, /fetch\("\/tokens\/picture\/reveal", \{ method: "POST"/);
-  assert.match(code, /body: JSON\.stringify\(\{ name, sha256 \}\)/);
+  assert.deepEqual(o.kept, [`line-${look}`], "the look on show, once while it is at work");
+  assert.deepEqual(o.run(), [500], "the spinner at least half a second");
+  await settle();
+  assert.equal(o.shot.keep.dataset.state, "done");
+  assert.deepEqual(o.run(), [1500], "the check for a moment");
+  assert.equal(o.shot.keep.dataset.state, "idle");
+  // Share now sends that file by its name, and the first picture by its own
+  o.shot.share.click();
+  await settle();
+  assert.deepEqual(o.shared, [[`line-${look}`, "facilitator_20261020_Robin_2.png"]]);
+  // a look not saved is shared with no name of its own; the panel names it
+  o.shot.dice.click();
+  await settle(); o.run(); await settle();
+  o.shot.share.click();
+  await settle();
+  assert.equal(o.shared.at(-1)[1], null);
+  const failed = openShot({ keep: async () => { throw new Error("no"); } });
+  failed.shot.keep.click();
+  await settle(); failed.run(); await settle();
+  assert.equal(failed.shot.note.textContent, "Could not save the picture.");
+  assert.equal(failed.shot.keep.dataset.state, "idle");
 });
 
 test("Share hands the file to the share sheet where the browser can, and otherwise copies the picture and says so", async () => {
@@ -1376,11 +1764,11 @@ test("Share hands the file to the share sheet where the browser can, and otherwi
   const blob = { size: 1 };
   const outcome = async nav => {
     const { W } = widgets({ File: FakeFile, ClipboardItem: FakeItem });
-    return W.sharePicture({ navigator: nav }, blob, "facilitator-tokens-heatmap-2026-10-20.png");
+    return W.sharePicture({ navigator: nav }, blob, "facilitator_20261020_Robin.png");
   };
   const sent = [], wrote = [];
   assert.equal(await outcome({ canShare: d => d.files[0].type === "image/png", share: async d => sent.push(d) }), "shared");
-  assert.equal(sent[0].files[0].name, "facilitator-tokens-heatmap-2026-10-20.png");
+  assert.equal(sent[0].files[0].name, "facilitator_20261020_Robin.png");
   assert.equal(sent[0].files[0].parts[0], blob);
   assert.equal(sent[0].title, "Token consumption per day");
   assert.equal(await outcome({ canShare: () => true, share: async () => { throw Object.assign(new Error("x"), { name: "AbortError" }); } }),
@@ -1413,25 +1801,49 @@ test("Share hands the file to the share sheet where the browser can, and otherwi
   assert.match(closed.shot.share.innerHTML, /<span>Share<\/span>/);
 });
 
-test("the overlay's box is 3 by 2 around the line's picture and shorter by the saved height for the heatmap's", () => {
+test("the overlay's box is only as tall as what it holds, the picture let in flat, Share in the middle of its row", () => {
   const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
-  const rule = sel => (css.match(new RegExp(sel.replace(/[.[\]"=]/g, "\\$&") + "\\{([^}]*)\\}")) || [])[1] || "";
+  const rule = sel => (css.match(new RegExp("(?:^|\\})\\s*" + sel.replace(/[.[\]"=():,*]/g, "\\$&") + "\\{([^}]*)\\}")) || [])[1] || "";
   const box = rule(".tk-shot");
-  assert.match(box, /--shot-w:min\(960px, calc\(100vw - 96px\), calc\(\(100vh - 96px\) \* 3 \/ 2\)\); --shot-m:28px/);
-  assert.match(box, /width:var\(--shot-w\); min-height:calc\(var\(--shot-w\) \* 2 \/ 3\); padding:var\(--shot-m\)/);
-  assert.match(rule('.tk-shot[data-kind="heatmap"]'),
-    /min-height:calc\(var\(--shot-w\) \* 2 \/ 3 - \(var\(--shot-w\) - 2 \* var\(--shot-m\)\) \/ 6\)/,
-    "the 2:1 picture's height less the 3:1 one's, at the same width");
+  assert.match(box, /--shot-w:min\(960px, calc\(100vw - 96px\), calc\(\(100vh - 196px\) \* 2\)\); --shot-m:14px/);
+  assert.match(box, /display:flex; flex-direction:column; gap:var\(--shot-m\);/);
+  assert.match(box, /width:var\(--shot-w\); padding:var\(--shot-m\)/);
+  assert.doesNotMatch(css.slice(css.indexOf(".tk-shot-veil")), /min-height:calc|justify-content:space-between/, "no room left over to share out");
   assert.match(rule(".tk-shot-pic"), /width:100%; height:auto; aspect-ratio:2 \/ 1/);
   assert.match(rule('.tk-shot[data-kind="heatmap"] .tk-shot-pic'), /aspect-ratio:3 \/ 1/);
-  // the sizes the board's window gives it: the content is under two thirds of
-  // the width tall, so the box is 3 by 2 to the pixel
-  const w = 960, m = 28, head = 20, gap = 16, foot = 32;
-  const content = pic => 2 * m + head + foot + 2 * gap + pic;
-  assert.ok(content((w - 2 * m) / 2) < w * 2 / 3);
-  assert.ok(content((w - 2 * m) / 3) < w * 2 / 3 - (w - 2 * m) / 6);
+  // let in, not lifted: an inner shade and hairline over its edge, the board's
+  // folder well's, and no shadow under it
+  assert.doesNotMatch(rule(".tk-shot-pic"), /box-shadow/);
+  assert.doesNotMatch(rule(".tk-shot-frame"), /box-shadow/);
+  assert.match(rule(".tk-shot-frame::after"), /box-shadow:inset 0 1px 6px rgba\(60,45,20,\.14\), inset 0 0 0 1px rgba\(60,45,20,\.08\)/);
+  assert.match(HTML, /box-shadow:inset 0 1px 6px rgba\(60,45,20,\.14\), inset 0 0 0 1px rgba\(60,45,20,\.08\)/, "the folder well's own");
+  // the row: Share in the middle column, the two circles right against it on its left
+  assert.match(rule(".tk-shot-foot"), /display:grid; grid-template-columns:minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  assert.match(rule(".tk-shot-side"), /justify-content:flex-end/);
+  // the glass: circles as the bar's, Share as home's open a new folder pill
+  assert.match(css, /\.tk-shot \.qn-glass\.tk-shot-round\{width:32px; padding:0; border-radius:50%; color:var\(--sub\)\}/);
+  assert.match(css, /\.tk-shot \.qn-glass\.tk-shot-share\{gap:7px; padding:0 15px 0 13px; border-radius:16px; font:400 14px\/17px var\(--sans\)/);
+  assert.match(HTML, /body\.focus #npstart\.qn-glass\{[^}]*height:32px;[^}]*border-radius:16px;[^}]*font:400 14px\/17px var\(--sans\)/s);
+  assert.match(css, /\.tk-shot-dice\.rolling \.tk-die\{animation:tk-die-roll \.65s/);
+  // on a phone the three are centred as one row, at a finger's height
+  const phone = /@media \(max-width:600px\)\{([^@]*?)\n\}/.exec(css)[1];
+  assert.match(phone, /\.tk-shot-foot\{display:flex; flex-wrap:wrap; justify-content:center\}/);
+  assert.match(phone, /height:44px/);
+  // the sizes the board's window gives it: the line's box is its picture's
+  // height and 108px, the heatmap's shorter by the height the wider picture saves
+  const w = 960, m = 14, head = 26, foot = 32;
+  const height = pic => 2 * m + head + foot + 2 * m + pic;
+  assert.equal(height((w - 2 * m) / 2), 580);
+  assert.ok(Math.abs(height((w - 2 * m) / 3) - 424.7) < 0.1);
   // nothing new in colour: the board's inks, its glass and the panel's own marks
   const sheet = css.slice(css.indexOf(".tk-shot-veil"));
   for (const hex of sheet.match(/#[0-9a-fA-F]{3,6}\b/g) || []) assert.ok(["#FF7A72", "#1e1e1e", "#fff", "#000", "#E0592B"].includes(hex), hex);
   assert.doesNotMatch(sheet, /432BFF|--accent/i);
+});
+
+test("Open in Finder and its route are gone, and the phone's door has nothing of it", () => {
+  assert.doesNotMatch(WIDGETS, /Finder|picture\/reveal|revealPicture/);
+  assert.doesNotMatch(SERVER, /picture\/reveal|_post_picture_reveal|_picture_saved|PICTURE_REVEAL_BODY/);
+  assert.doesNotMatch(read("bridge_gate.py"), /picture\/reveal/);
+  assert.ok(!fs.existsSync(path.join(ROOT, "tests", "picture-reveal.test.cjs")));
 });

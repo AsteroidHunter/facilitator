@@ -768,18 +768,6 @@ Endpoints:
                                which says what counts; run.config.json's
                                token_logs names other folders. Only counts
                                come back, and missing logs are zeros
-  POST /tokens/picture/reveal -> body {"name", "sha256"}: Open in Finder for
-                               the chart picture the home page just saved as
-                               a download. Finder comes up with the newest
-                               file in Downloads selected whose name is name,
-                               one the board gives its pictures
-                               (facilitator-tokens-heatmap|line-YYYY-MM-DD.png),
-                               or name with the " (N)" a browser adds, and whose
-                               bytes hash to sha256; answers {ok, name}. No
-                               path is taken from the page, so nothing else can
-                               be shown. Only the Mac's own page (403
-                               otherwise, and the bridge never passes it);
-                               macOS only (501); no such file 404
   GET  /limits              -> how much of its plan each coding agent has used,
                                what the home page's limits box draws: {"claude":
                                {...}, "codex": {...}} holding only the tools with
@@ -5442,81 +5430,6 @@ def _get_tokens_daily(q: Query, _):
     return 200, {**_ledger().daily(int(days)), "installed": _installed_day()}
 
 
-# The home page saves its chart's picture as a download the browser writes
-# (home-widgets.js), so the board is never told where the file went. Open in
-# Finder finds it: in Downloads, under the name the page gave it or that name
-# with the " (1)" a browser adds when the name is taken, and only a file whose
-# bytes are the picture the page just made, which the page names by their
-# SHA-256. No path comes from the page, so nothing but that picture is shown
-PICTURE_NAME = re.compile(r"facilitator-tokens-(?:heatmap|line)-[0-9]{4}-[0-9]{2}-[0-9]{2}\.png")
-PICTURE_DIGEST = re.compile(r"[0-9a-f]{64}")
-PICTURE_MAX = 16 * 1024 * 1024     # bytes; the page's pictures are well under 1 MiB
-PICTURE_LOOKS = 20                 # the newest files of that name that are read
-PICTURE_REVEAL_BODY = 1024
-
-
-def _picture_saved(name: str, digest: str) -> Path | None:
-    """The newest file in Downloads named name, or name with a browser's
-    " (N)" before its .png, whose bytes hash to digest; None when there is
-    none. Links are passed over and never followed."""
-    folder = _user_dirs(_home())["downloads"]
-    copies = re.compile(re.escape(name[:-len(".png")]) + r"(?: \([0-9]{1,4}\))?\.png")
-    found = []
-    with os.scandir(folder) as entries:
-        for entry in entries:
-            if copies.fullmatch(entry.name) and entry.is_file(follow_symlinks=False):
-                st = entry.stat(follow_symlinks=False)
-                if st.st_size <= PICTURE_MAX:
-                    found.append((st.st_mtime, entry.path))
-    for _, path in sorted(found, reverse=True)[:PICTURE_LOOKS]:
-        try:
-            fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        except OSError:
-            continue
-        sha = hashlib.sha256()
-        with os.fdopen(fd, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                sha.update(chunk)
-        if secrets.compare_digest(sha.hexdigest(), digest):
-            return Path(path)
-    return None
-
-
-def _post_picture_reveal(q: Query, text: str):
-    """Open in Finder for the home page's chart picture: Finder comes up with
-    the saved file selected in its folder (_picture_saved finds it). Only the
-    Mac's own page may ask."""
-    if not q.local or not q.same_origin:
-        return 403, {"error": "Open in Finder needs the local Mac page."}
-    try:
-        ask = json.loads(text)
-    except ValueError:
-        ask = None
-    name, digest = (ask.get("name"), ask.get("sha256")) if isinstance(ask, dict) else (None, None)
-    if not (isinstance(name, str) and PICTURE_NAME.fullmatch(name)
-            and isinstance(digest, str) and PICTURE_DIGEST.fullmatch(digest)):
-        return 400, {"error": "That is not a chart picture the board makes."}
-    if sys.platform != "darwin":
-        return 501, {"error": "Open in Finder needs macOS."}
-    try:
-        found = _picture_saved(name, digest)
-    except PermissionError:
-        return 403, {"error": "macOS does not let the board look in Downloads. Allow it in System Settings, "
-                              "Privacy & Security, Files and Folders."}
-    except OSError:
-        found = None
-    if found is None:
-        return 404, {"error": "The picture is not in Downloads."}
-    try:
-        # the path is absolute, so open can never read it as an option
-        result = subprocess.run(["/usr/bin/open", "-R", str(found)], capture_output=True, timeout=10)
-        if result.returncode:
-            return 502, {"error": "Could not open Finder."}
-    except (OSError, subprocess.TimeoutExpired):
-        return 502, {"error": "Could not open Finder."}
-    return 200, {"ok": True, "name": found.name}
-
-
 def _installed_day():
     """The local calendar day of the earliest row in transcript.jsonl, which
     is the day this board first ran and wrote anything down: the file is only
@@ -9926,7 +9839,6 @@ ROUTES = [
     Route("/props", _endpoint(_get_props), methods=["GET"]),
     Route("/log", _endpoint(_get_log), methods=["GET"]),
     Route("/tokens/daily", _endpoint(_get_tokens_daily), methods=["GET"]),
-    Route("/tokens/picture/reveal", _endpoint(_post_picture_reveal, "text", PICTURE_REVEAL_BODY), methods=["POST"]),
     Route("/limits", _endpoint(_get_limits), methods=["GET"]),
     Route("/machines", _endpoint(_get_machines), methods=["GET"]),
     Route("/dirs", _endpoint(_get_dirs), methods=["GET"]),
