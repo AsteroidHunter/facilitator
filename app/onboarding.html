@@ -1939,6 +1939,19 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // redraw it; the signature leaves every other pass untouched
   setInterval(paintTickets, 10000);
 
+  // the done chord, Control + Shift + Backspace or Delete, is the page's on
+  // every card, in every field, held or not and once the run is done: a key
+  // the page leaves alone goes on to Chrome's own shortcuts. Command + Shift +
+  // Backspace, Chrome's Delete browsing data on the Mac, is kept the same way,
+  // as the board keeps it (chromeShortcutBlocked in index.html), and only
+  // kept: it marks nothing done. taken on the way down, before the feedback
+  // sheet stops its keys; the last card still reads the done chord below,
+  // since a cancelled chord still counts
+  addEventListener("keydown", e => {
+    if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && sectionChordOf(e) === "done") e.preventDefault();
+    if (e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey && cardCommandKey(e) === "backspace") e.preventDefault();
+  }, true);
+
   // the keys, read by the board's own table (cardShortcut in card-logic.js)
   // and answered as the board answers them (boardShortcutActions in
   // index.html): Control + Shift + an arrow from anywhere, a plain arrow,
