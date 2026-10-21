@@ -35,10 +35,12 @@
 //            the one from January 1, and the install mark is left out when
 //            that day comes before the start, or less than a week before the
 //            last day, where it would stand at the right edge with nothing
-//            after it to show (MARK_AFTER). The download button saves the
-//            chart on show in the Editorial look, named by pictureName. The
-//            Mac saves it as a download, as does a phone whose browser
-//            cannot share a file; then the overlay shows it
+//            after it to show (MARK_AFTER). Every picture is on pure white.
+//            The download button saves the chart on show in its first look,
+//            the Poster median and band for the line and the Editorial
+//            heatmap, named by pictureName. The Mac saves it as a download,
+//            as does a phone whose browser cannot share a file; then the
+//            overlay shows it
 //   overlay  the picture just made, in a box of the board's glass over the
 //            dimmed page, under "Chart downloaded!", a heatmap or line pill
 //            and the cross, and over a row of three: a glass dice that rolls
@@ -839,14 +841,19 @@
   const PIC_TITLE = "Token consumption per day";
   const INSTALLED = "Facilitator installed";
   const LOGO_SRC = "/m-splash-squid.png";
-  const LOOK = { ink: "#211D17", sub: "#75695A", line: "#CACACA", paper: "#F5F4F1",
+  // the pictures stand on pure white (20261020), whatever paper the page
+  // around them has, and so does everything in them painted with the paper:
+  // the rings under lines, the haloes round notes, label boxes and dots
+  const LOOK = { ink: "#211D17", sub: "#75695A", line: "#CACACA", paper: "#FFFFFF",
                  sans: '"IBM Plex Sans", -apple-system, sans-serif', inter: '"Inter", -apple-system, sans-serif',
                  mono: '"IBM Plex Mono", ui-monospace, monospace' };
   // what the dice rolls through, by chart, each a look and what the line
-  // shows. The first of each is the one the download button saves
+  // shows. The first of each is the one the download button saves and the
+  // pop-up opens on: the Poster two-week median with its band for the line
+  // (20261020), the Editorial heatmap
   const DICE = {
-    line: [["editorial", "daily"], ["editorial", "band"], ["lab", "daily"], ["lab", "dots"],
-           ["poster", "band"], ["poster", "dots"]],
+    line: [["poster", "band"], ["editorial", "daily"], ["editorial", "band"], ["lab", "daily"],
+           ["lab", "dots"], ["poster", "dots"]],
     heatmap: [["editorial"], ["lab"], ["poster"]],
   };
   const LOOK_NAMES = { editorial: "Editorial", lab: "Lab", poster: "Poster" };
@@ -1556,7 +1563,7 @@
     const css = view && view.getComputedStyle ? view.getComputedStyle(node) : null;
     const get = (name, fallback) => (css && css.getPropertyValue(name).trim()) || fallback;
     return { ink: get("--ink", LOOK.ink), sub: get("--sub", LOOK.sub), line: get("--line", LOOK.line),
-             paper: get("--paper", LOOK.paper), sans: get("--sans", LOOK.sans), mono: get("--mono", LOOK.mono),
+             paper: LOOK.paper, sans: get("--sans", LOOK.sans), mono: get("--mono", LOOK.mono),
              inter: `"${INTER_EXPORT}", ` + get("--inter", LOOK.inter) };
   }
   // the canvas a picture is painted on, at three times its laid out size
@@ -1929,7 +1936,7 @@
       else if (box.contains(doc.activeElement)) doc.activeElement.blur();
       later(() => { veil.remove(); for (const url of urls) URL.revokeObjectURL(url); }, SHOT_FADE);
     }
-    // the pill shows the other chart in its Editorial look; whichever was
+    // the pill shows the other chart in its first look (DICE); whichever was
     // asked for last is the one shown
     for (const [key] of VIEWS) kinds[key].addEventListener("click", () => {
       if (!shown) return;
@@ -1940,7 +1947,7 @@
       seat(key);
       const ours = () => shown && mine === asked;
       // pressed again while the chart's own picture is still fading out, the
-      // switch turns round to that look rather than its Editorial one
+      // switch turns round to that look rather than its first one
       const leaving = [...frame.children].find(n => n !== pic && n.classList.contains("going") && (n.dataset.slot || "").startsWith(key + ":"));
       const p = leaving ? Number(leaving.dataset.slot.slice(key.length + 1)) : 0;
       pictureOf(key, p).then(e => (e && ours() ? drawn(key, p, e) : null))
@@ -2442,7 +2449,7 @@
     compact, longDay, scale, rolling, niceAxis, geometry, yearWeeks, totalLine, yearStart, fetchDays,
     useStart, pictureStart, MIN_SILENCE, MIN_SHOWN, GAP_DAYS, MARK_AFTER, seriesOf, spreadOf,
     fullness, calmOf, FULL_DAYS, FULL_EVEN, screenMarks, pictureMarks,
-    SHAPES, SHAPE_OF, PIC_SCALE, DICE, LOOK_NAMES, SHOW_NAMES, LOOK, paintLook, pictureCanvas,
+    SHAPES, SHAPE_OF, PIC_SCALE, DICE, LOOK_NAMES, SHOW_NAMES, LOOK, lookOf, paintLook, pictureCanvas,
     pictureName, pictureCount, PICTURES_KEY, picture, overlay, nextLook, sharePicture, ROLL_MS, SHOT_TITLES,
     SHOT_GLIDE_MS, SHOT_GLIDE_EASE, SHOT_STILL_MS, SHOT_COVER_MS, SHOT_COVER_EASE,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,

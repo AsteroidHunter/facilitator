@@ -264,25 +264,27 @@
 .tk-shot-x svg{display:block; width:10px; height:10px}
 .tk-shot-x::after{content:""; position:absolute; inset:-8px}
 /* the picture: its own shape before it has loaded, so the box never jumps,
-   on the board's paper, let into the glass the way home's folder well is let
-   into the paper (#nppanel in index.html): the 7px corners of things let into
-   the card, an inner shade and hairline over its edge, and no shadow under it.
+   on white like every picture (home-widgets.js), so no band of the page's
+   paper shows beside one while the frame glides, let into the glass the way
+   home's folder well is let into the paper (#nppanel in index.html): the 7px
+   corners of things let into the card, an inner shade and hairline over its
+   edge, and no shadow under it.
    each picture keeps its own shape and stands over the frame's middle, so as
    the frame's height glides from one chart's to the other's (home-widgets.js)
    the pictures stay where they are and its edges pass over them; the one on
    its way out (.going) lies over the one coming in while it fades */
 .tk-shot-frame{flex:none; position:relative; display:flex; flex-direction:column; justify-content:center;
-  border-radius:7px; overflow:hidden; background:var(--paper)}
+  border-radius:7px; overflow:hidden; background:#fff}
 .tk-shot-frame::after{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
   box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
 .tk-shot-pic{flex:none; display:block; box-sizing:border-box; width:100%; height:auto; aspect-ratio:2 / 1}
 .tk-shot-pic[data-kind="heatmap"]{aspect-ratio:3 / 1}
 .tk-shot-pic.going{position:absolute; left:0; top:50%; transform:translateY(-50%); pointer-events:none}
-/* the dice's cover while the next look is drawn: the paper over the picture,
-   softly blurred, with the download button's spinner, a size up, in its
+/* the dice's cover while the next look is drawn: the picture's own white over
+   it, softly blurred, with the download button's spinner, a size up, in its
    middle. it fades in and out from home-widgets.js */
 .tk-shot-cover{position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; opacity:0;
-  background:color-mix(in srgb, var(--paper) 55%, transparent);
+  background:color-mix(in srgb, #fff 55%, transparent);
   -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px)}
 .tk-shot-cover.on{opacity:1}
 .tk-shot-cover svg{display:block; width:20px; height:20px; color:var(--sub); animation:tk-save-turn .9s linear infinite}

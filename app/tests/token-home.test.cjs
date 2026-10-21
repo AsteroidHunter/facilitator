@@ -1140,6 +1140,12 @@ const paintOf = (W, kind, pick, days, installed = null, calm) => {
   W.paintLook(r.ctx, kind, pick, days, installed, W.LOOK, null, calm);
   return r;
 };
+// a look's place among the dice's, by its name: pickOf(W, "line", "poster band")
+const pickOf = (W, kind, named) => {
+  const at = W.DICE[kind].findIndex(p => p.join(" ") === named);
+  assert.ok(at >= 0, `${kind} has ${named}`);
+  return at;
+};
 
 test("the picture is 3:1 for the heatmap and 2:1 for the line, drawn three times over", () => {
   const { W } = widgets();
@@ -1167,13 +1173,16 @@ test("the picture is 3:1 for the heatmap and 2:1 for the line, drawn three times
 test("the dice rolls through six line looks and all three heatmaps, never the three the owner left out", () => {
   const { W } = widgets();
   assert.deepEqual(JSON.parse(JSON.stringify(W.DICE)), {
-    line: [["editorial", "daily"], ["editorial", "band"], ["lab", "daily"], ["lab", "dots"], ["poster", "band"], ["poster", "dots"]],
+    line: [["poster", "band"], ["editorial", "daily"], ["editorial", "band"], ["lab", "daily"], ["lab", "dots"], ["poster", "dots"]],
     heatmap: [["editorial"], ["lab"], ["poster"]],
   });
   const pairs = W.DICE.line.map(p => p.join(" "));
   for (const left of ["poster daily", "lab band", "editorial dots"]) assert.ok(!pairs.includes(left), `${left} is left out`);
-  assert.deepEqual([...W.DICE.line[0]], ["editorial", "daily"], "the download saves the Editorial line");
-  assert.deepEqual([...W.DICE.heatmap[0]], ["editorial"]);
+  // the first of each is what the download saves and the pop-up opens on: the
+  // Poster two-week median with its band (the owner's choice, 20261020), and
+  // the Editorial heatmap as before
+  assert.deepEqual([...W.DICE.line[0]], ["poster", "band"], "the download saves the Poster median and band");
+  assert.deepEqual([...W.DICE.heatmap[0]], ["editorial"], "the heatmap's stays Editorial");
   // each roll turns up another look, every other one before any comes round again
   let seed = 7;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -1199,21 +1208,21 @@ test("Poster puts the year's total over the title, so it never reads as a day's,
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5e6 : 0));
   const total = W.compact(days.slice(W.yearStart(days)).reduce((n, d) => n + d.total, 0));
-  for (const [kind, pick] of [["line", 4], ["line", 5], ["heatmap", 2]]) {
-    assert.equal(W.DICE[kind][pick][0], "poster");
+  for (const [kind, named] of [["line", "poster band"], ["line", "poster dots"], ["heatmap", "poster"]]) {
+    const pick = pickOf(W, kind, named);
     const r = paintOf(W, kind, pick, days);
     const at = words => r.calls.find(c => c[0] === "fillText" && c[1] === words);
     assert.ok(at(total)[3] < at("Token consumption per day")[3], `${kind}: the total stands over the title`);
     assert.ok(at(" tokens this year")[3] === at(total)[3], "with tokens this year beside it");
   }
   // the heatmap's days are squares, as in the other two looks, and so is its key
-  const heat = paintOf(W, "heatmap", 2, days);
+  const heat = paintOf(W, "heatmap", pickOf(W, "heatmap", "poster"), days);
   const cells = days.slice(W.yearStart(days)).length;
   assert.equal(heat.calls.filter(c => c[0] === "arc").length, 0, "no circles");
   assert.equal(heat.calls.filter(c => c[0] === "roundRect").length, cells + W.PALETTE.length);
   // big totals stay in billions
   const huge = daysEnding("2026-09-27", 371, i => (i > 120 ? 4e9 : 0));
-  assert.ok(paintOf(W, "line", 4, huge).texts().includes("1,000B"));
+  assert.ok(paintOf(W, "line", pickOf(W, "line", "poster band"), huge).texts().includes("1,000B"));
 });
 
 test("the picture's line marks the install day, and leaves the mark out when that day is not among the days shown or not a week old", () => {
@@ -1222,11 +1231,12 @@ test("the picture's line marks the install day, and leaves the mark out when tha
   const inside = days.at(-100).date;
   const S = W.seriesOf(days, W.pictureStart(days), inside);
   assert.equal(S.shown[S.install].date, inside, "on that day's own place");
-  for (const pick of [0, 1, 2, 3]) {
-    const t = [...paintOf(W, "line", pick, days, inside).calls].filter(c => c[0] === "fillText" || c[0] === "strokeText").map(c => c[1]);
-    assert.ok(t.includes("Facilitator installed"), `${W.DICE.line[pick].join(" ")} marks it`);
+  for (const named of ["editorial daily", "editorial band", "lab daily", "lab dots"]) {
+    const t = [...paintOf(W, "line", pickOf(W, "line", named), days, inside).calls].filter(c => c[0] === "fillText" || c[0] === "strokeText").map(c => c[1]);
+    assert.ok(t.includes("Facilitator installed"), `${named} marks it`);
   }
-  for (const pick of [4, 5]) assert.ok(paintOf(W, "line", pick, days, inside).texts().includes("Facilitator installed"), "Poster's tag");
+  for (const named of ["poster band", "poster dots"])
+    assert.ok(paintOf(W, "line", pickOf(W, "line", named), days, inside).texts().includes("Facilitator installed"), `${named}: Poster's tag`);
   const marks = installed => paintOf(W, "line", 0, days, installed).calls.some(c => c[1] === "Facilitator installed");
   assert.equal(marks(days[3].date), false, "before the days shown (the days fetched ahead of them are not shown)");
   assert.equal(marks("2027-01-01"), false, "after the last day");
@@ -1284,7 +1294,7 @@ test("a board first started not long ago keeps its install label inside the pict
     }
   });
   // an install day well back in the year keeps Lab's label right of its line, as the mock has it
-  const lab = paintOf(W, "line", 2, days, ago(100)).calls.find(c => c[0] === "fillText" && c[1] === "Facilitator installed");
+  const lab = paintOf(W, "line", pickOf(W, "line", "lab daily"), days, ago(100)).calls.find(c => c[0] === "fillText" && c[1] === "Facilitator installed");
   assert.equal(lab.at(-1), "left");
 });
 
@@ -1360,6 +1370,68 @@ test("the line's picture skips an early trial but not a holiday, and always show
   for (const kind of ["line", "heatmap"]) W.DICE[kind].forEach((_, pick) => paintOf(W, kind, pick, none));
   W.DICE.line.forEach((_, pick) => paintOf(W, "line", pick, usedOn("2026-01-01", 371, () => true)));
   assert.equal(W.useStart([]), 0);
+});
+
+// a canvas context that writes down each fill and stroke with the colour it
+// is made in, keeping the colours across save and restore as a canvas does
+function inked() {
+  const marks = [], kept = [];
+  const state = { fillStyle: "#000000", strokeStyle: "#000000" };
+  const ctx = new Proxy(state, {
+    get: (t, k) => {
+      if (k === "measureText") return s => ({ width: String(s).length * 7, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2,
+                                              actualBoundingBoxLeft: 0, actualBoundingBoxRight: String(s).length * 7 });
+      if (k === "createLinearGradient") return () => ({ addColorStop() {} });
+      if (k === "save") return () => kept.push({ ...t });
+      if (k === "restore") return () => Object.assign(t, kept.pop());
+      if (k in t) return t[k];
+      return (...args) => {
+        if (/^fill/.test(k)) marks.push({ op: k, colour: t.fillStyle, args });
+        else if (/^stroke/.test(k)) marks.push({ op: k, colour: t.strokeStyle, args });
+      };
+    },
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  return { ctx, marks };
+}
+
+test("every picture stands on pure white, and everything in it painted with the paper is white too, whatever the page's paper", () => {
+  const { W } = widgets();
+  assert.equal(W.LOOK.paper, "#FFFFFF");
+  // the board's page paper is a warm off-white; the pictures do not take it
+  const page = { "--paper": "#F5F4F1", "--ink": "#211D17", "--sub": "#75695A" };
+  const node = { ownerDocument: { defaultView: { getComputedStyle: () => ({ getPropertyValue: n => page[n] || "" }) } } };
+  const face = W.lookOf(node);
+  assert.equal(face.paper, "#FFFFFF");
+  assert.deepEqual([face.ink, face.sub], ["#211D17", "#75695A"], "the inks are still the page's");
+  assert.match(read("card-tokens.css"), /--paper:#F5F4F1;/, "the board's own paper is unchanged");
+  const code = WIDGETS.slice(WIDGETS.indexOf("// ---- the picture"), WIDGETS.indexOf("// ---- the panel"));
+  assert.doesNotMatch(code, /F5F4F1/i, "no off-white is left in the painter");
+  assert.doesNotMatch(code, /get\("--paper"/, "nor is the page's paper read for it");
+  // use from May 21 with a quiet first fortnight, an install day 60 days back
+  // and a high point at the end, so every look draws its rings, haloes, tags,
+  // notes and dots
+  const days = daysEnding("2026-09-27", 371, k => (k < 150 ? 0 : k < 163 ? 2e5 : Math.round(1e6 * 10 ** ((k - 163) / 80))));
+  const installed = days.at(-60).date;
+  for (const kind of ["line", "heatmap"]) W.DICE[kind].forEach((look, pick) => {
+    const named = `${kind} ${look.join(" ")}`;
+    const r = inked();
+    W.paintLook(r.ctx, kind, pick, days, installed, face, null);
+    const [first] = r.marks;
+    assert.deepEqual([first.op, first.colour, ...first.args], ["fillRect", "#FFFFFF", 0, 0, 1200, kind === "line" ? 600 : 400],
+                     `${named}: the whole picture is white before anything else`);
+    const flat = r.marks.filter(m => typeof m.colour === "string");
+    assert.ok(!flat.some(m => /^#F5F4F1$/i.test(m.colour)), `${named}: nothing is in the old paper`);
+    // the marks painted with the paper are white: on a line look the rings
+    // under its lines, the haloes round its notes and its dots and tags
+    if (kind === "line") assert.ok(flat.slice(1).some(m => m.colour === "#FFFFFF"), `${named}: its paper marks are white`);
+  });
+  // the line's first look, the one saved, by what it paints white: the ring
+  // under its median, the halo round its note, its install tag and the point's dot
+  const r = inked();
+  W.paintLook(r.ctx, "line", 0, days, installed, face, null);
+  const white = new Set(r.marks.slice(1).filter(m => m.colour === "#FFFFFF").map(m => m.op));
+  assert.deepEqual([...white].sort(), ["fill", "stroke", "strokeText"], "the dot and the tag, the ring, and the halo");
 });
 
 test("the picture is painted in the board's inks and the squid's own file, never purple and never the accent", () => {
@@ -1465,7 +1537,7 @@ async function savingPanel({ share = false, canShare = true, closed = false, nam
   return { W, seen, shot, flush, count };
 }
 
-test("pressing the button saves the chart on show in the Editorial look, named for the day and the first name, and opens the overlay", async () => {
+test("pressing the button saves the chart on show in its first look, the Poster median and band for the line, named for the day and the first name, and opens the overlay on it", async () => {
   const board = await savingPanel();
   const { seen } = board;
   assert.equal(seen.start, "idle");
@@ -1479,7 +1551,15 @@ test("pressing the button saves the chart on show in the Editorial look, named f
   assert.deepEqual(board.count(), { day: "20261016", count: 1 });
   assert.equal(seen.overlays, 1, "one overlay for the two presses");
   assert.equal(seen.title, "Chart downloaded!");
-  assert.equal(seen.look, "editorial-daily", "the Editorial line, daily and 7-day average");
+  assert.equal(seen.look, "poster-band", "the Poster line, the two-week median and its band");
+  // the file itself is that look: its key names the median and the band, and
+  // nothing of the Editorial daily line is in it
+  const saved = seen.painted[0].texts().map(t => String(t).trim());
+  for (const words of ["2-week median", "1 sigma range", "Token consumption per day", " tokens this year".trim()])
+    assert.ok(saved.includes(words), `the saved picture says ${words}`);
+  assert.ok(!saved.includes("7-day average") && !saved.includes("Daily"), "not the Editorial daily line");
+  assert.equal(board.shot.image().alt, "Token consumption per day, line chart, Poster, median and band");
+  assert.equal(board.shot.dice.children[0].dataset.face, "1", "the die shows the first look's number");
   // the overlay's download button saves the chart on show as the day's second file
   board.shot.keep.click();
   await board.flush();
@@ -1585,7 +1665,7 @@ test("the overlay is the board's glass over the settings page's veil: Chart down
   assert.equal(veil.getAttribute("aria-hidden"), "false");
   assert.equal(box.className, "qn-glass tk-shot", "the board's glass");
   assert.equal(box.dataset.kind, "line");
-  assert.equal(box.dataset.look, "editorial-daily", "it opens on the Editorial chart");
+  assert.equal(box.dataset.look, "poster-band", "it opens on the line's first look, the Poster median and band");
   assert.equal(box.getAttribute("role"), "dialog");
   assert.equal(box.getAttribute("aria-modal"), "true");
   assert.equal(box.tabIndex, -1, "a press on bare glass keeps the focus in the box");
@@ -1615,7 +1695,7 @@ test("the overlay is the board's glass over the settings page's veil: Chart down
   assert.equal(frame.children[1], shot.cover);
   assert.equal(shot.cover.className, "tk-shot-cover");
   assert.equal(shot.cover.getAttribute("aria-hidden"), "true");
-  assert.equal(pic.alt, "Token consumption per day, line chart, Editorial, daily and 7-day average");
+  assert.equal(pic.alt, "Token consumption per day, line chart, Poster, median and band");
   // the dice and the download button in the board's round glass, then Share, a glass pill with the link mark
   assert.deepEqual(foot.children.map(n => n.className), ["tk-shot-side", "qn-glass tk-shot-share", "tk-shot-note"]);
   assert.deepEqual(foot.children[0].children.map(n => n.className),
@@ -1704,8 +1784,9 @@ test("the dice tumbles and swaps in each of the chart's other looks in turn, and
     lines.push(at.pick);
   }
   assert.deepEqual([...lines].sort(), [0, 1, 2, 3, 4, 5], "five rolls show all six line looks");
+  assert.ok(!lines.slice(1).includes(0), "from the Poster median and band, the five rolls are the other five looks");
   assert.equal(o.made.length, 5, "each look is made once");
-  // the pill: the heatmap in its Editorial look, and the dice then rolls through its three
+  // the pill: the heatmap in its first look, Editorial, and the dice then rolls through its three
   shot.kinds.heatmap.click();
   await settle();
   assert.deepEqual({ ...shot.at() },{ kind: "heatmap", pick: 0 });
@@ -1716,7 +1797,7 @@ test("the dice tumbles and swaps in each of the chart's other looks in turn, and
   for (let i = 0; i < 2; i++) heats.push((await roll()).pick);
   assert.deepEqual([...heats].sort(), [0, 1, 2], "two rolls show all three heatmaps");
   assert.ok(o.made.every(m => /^(line-[1-5]|heatmap-[0-2])$/.test(m)));
-  // back to the line: its Editorial look, the picture already made
+  // back to the line: its first look, the picture already made
   shot.kinds.line.click();
   await settle();
   assert.deepEqual({ ...shot.at() },{ kind: "line", pick: 0 });
@@ -1854,7 +1935,7 @@ test("pressed again mid-glide the switch turns round from where it is, in the ti
   assert.deepEqual(o.made, ["heatmap-0"], "nothing is made twice");
 });
 
-test("a dice look turned round to comes back as that look, and once its fade is over the pill gives the chart's Editorial look as before", async () => {
+test("a dice look turned round to comes back as that look, and once its fade is over the pill gives the chart's first look as before", async () => {
   const m = motionPage(), o = openShot({}, m.doc), { shot } = o;
   shot.dice.click();
   await settle(); o.run(); await settle();
@@ -1874,7 +1955,7 @@ test("a dice look turned round to comes back as that look, and once its fade is 
   m.finish();
   shot.kinds.line.click();
   await settle();
-  assert.deepEqual({ ...shot.at() }, { kind: "line", pick: 0 }, "a settled switch shows the Editorial line");
+  assert.deepEqual({ ...shot.at() }, { kind: "line", pick: 0 }, "a settled switch shows the line's first look, the Poster median and band");
 });
 
 test("the dice covers the picture with the paper and a spinner until the next look is drawn, then fades the look in as the cover goes", async () => {
@@ -1959,11 +2040,11 @@ test("the frame holds each picture at its own shape over its middle, and the cov
   const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
   const rule = sel => (css.match(new RegExp("(?:^|\\})\\s*" + sel.replace(/[.[\]"=():,*]/g, "\\$&") + "\\{([^}]*)\\}")) || [])[1] || "";
   assert.match(rule(".tk-shot-frame"), /position:relative; display:flex; flex-direction:column; justify-content:center;/);
-  assert.match(rule(".tk-shot-frame"), /border-radius:7px; overflow:hidden/);
+  assert.match(rule(".tk-shot-frame"), /border-radius:7px; overflow:hidden; background:#fff$/, "white under a white picture, so no band shows as it glides");
   assert.match(rule(".tk-shot-pic"), /^flex:none;/, "a picture keeps its height in a frame that is gliding");
   assert.match(rule(".tk-shot-pic.going"), /position:absolute; left:0; top:50%; transform:translateY\(-50%\)/);
   assert.match(rule(".tk-shot-cover"), /position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; opacity:0;/);
-  assert.match(rule(".tk-shot-cover"), /background:color-mix\(in srgb, var\(--paper\) 55%, transparent\)/);
+  assert.match(rule(".tk-shot-cover"), /background:color-mix\(in srgb, #fff 55%, transparent\)/, "the pictures' own white");
   assert.match(rule(".tk-shot-cover"), /backdrop-filter:blur\(3px\)/);
   assert.match(rule(".tk-shot-cover.on"), /opacity:1/);
   assert.match(rule(".tk-shot-cover svg"), /width:20px; height:20px; color:var\(--sub\); animation:tk-save-turn \.9s linear infinite/);
