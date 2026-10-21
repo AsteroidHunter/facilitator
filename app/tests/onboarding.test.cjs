@@ -411,23 +411,23 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.match(ONBOARDING, /\.obbrand\{display:flex; width:max-content;/);
   assert.match(ONBOARDING, /\.obbrand\{[^}]*font:inherit; letter-spacing:-\.02em;/, "the word is not in the title's font");
   assert.doesNotMatch(ONBOARDING, /fitWelcome/, "the lockup is stretched to the header's width");
-  // every card's key to go on says continue
-  assert.equal(context.NEXT, "Press **Control\u00a0+\u00a0Shift\u00a0+\u00a0→** to continue!");
-  // the atomizing card, first of the 101 cards, in the words given: an orchestrator, and the names in lower case
+  // every card's key to go on says continue, a key's names in lower case where the sentence does not start with it
+  assert.equal(context.NEXT, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0→** to continue!");
+  // the atomizing card, first of the 101 cards, in the words given: an orchestrator, and the names in lower case.
+  // it goes on with the usual key
   assert.equal(say("cards"),
     "The only \"rule\" to make the best of the Facilitator is *atomize your asks.*\n\n" +
     "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, put them on *n* different cards!\n\n" +
-    "The claude or codex agent connected to a project acts as an *orchestrator* and assigns the tasks in different " +
-    "cards to different subagents, thereby speeding up implementation while retaining a lot more context about a " +
-    "project than a single agent ever could.");
-  // and its own key to go on, with the chord in the words it was given
-  assert.equal(CARDS[2].next, "Press **control + shift + →** to continue!");
+    "The claude or codex agent connected to a project acts as an *orchestrator*. It assigns different tasks to different " +
+    "subagents, which speeds up implementation. The orchestrator also retains a lot more context about a build session " +
+    "than a single agent ever could.");
   assert.equal(CARDS[2].id, "cards");
+  assert.ok(!CARDS[2].next, "the atomizing card has a key line of its own");
   // 101: Tickets, in the words and lists given, with the section chips' marks
   assert.equal(say("tickets"),
     "Cards are shown as a list of tickets on the left side.\n\n" +
-    "Standard tickets have three states:\n- Yellow: Awaiting your input\n- Grey: Queued\n- Green: Actively working\n\n" +
-    "Tickets can be put in four buckets:\n" +
+    "Standard tickets have three states:\n\n- Yellow: Awaiting your input\n- Grey: Queued\n- Green: Actively working\n\n" +
+    "And tickets can be put in four buckets:\n\n" +
     `- ${MARK.sun} Doing: Tasks you are actively working on\n- ${MARK.dock} Docked: Tasks that you will pick up very soon\n` +
     `- ${MARK.moon} Deferred: Tasks for some later coding sprint\n- ${MARK.cross} Done: Tasks that are complete\n\n` +
     "Bonus: after you iterate on a project for a while, tickets/cards act as a knowledge base for your projects.");
@@ -437,19 +437,26 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.ok(ONBOARDING.includes("[MARK.moon]: '<span role=\"img\" class=\"obmark\" aria-label=\"moon\">' + MOON_ICON"));
   assert.match(ONBOARDING, /\.reply \.obcross::before, \.reply \.obcross::after\{[^}]*width:var\(--bar-mark\); height:var\(--cross-t\); background:#1e1e1e/);
   assert.ok(ONBOARDING.includes("el.reply.innerHTML = withMarks(fmt(raw));"));
-  // 101: Hotkeys: its opening line with a drawn heart, then the five core keys, one line each, lit in that order
+  // 101: Hotkeys: the words given, the hover tip and the basic keys as a list, a key's names in lower case but for
+  // the first word of one that starts a list item. nothing on it lights on its own
   const hotkeys = CARDS.find(c => c.id === "hotkeys");
   const nb = s => s.replace(/ /g, "\u00a0");
-  assert.equal(hotkeys.say, `The Facilitator ${MARK.heart} hotkeys!\n\n` +
-    "**←** and **→** go to the previous or next card.\n\n" +
-    "**Enter** starts typing: **Enter** sends, and **" + nb("Shift + Enter") + "** makes a new line.\n\n" +
-    "**" + nb("Command + T") + "** creates a new card.\n\n" +
-    "Hold **" + nb("Control + S") + "** to scroll the answer down, or double tap and hold it to scroll up.\n\n" +
-    "**" + nb("Control + Shift + [") + "**, **]**, **\\\\** and **Delete** move the card to Doing, Docked, Deferred or Done.");
-  assert.deepEqual(out(hotkeys.lights), [["left", "right"], ["return"], ["cmd", "t"], ["ctrl", "s"],
-                                    ["ctrl", "shift", "[", "]", "\\", "delete"]]);
-  assert.match(ONBOARDING, /const HEART_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" ' \+\s*'stroke-width="2\.4" stroke-linecap="round" stroke-linejoin="round"/);
+  assert.equal(hotkeys.say, "The Facilitator <3 hotkeys!\n\n" +
+    "Pro-tip: hover your cursor over the bolded hotkeys\n\n" +
+    "Here are some basic hotkeys:\n" +
+    "- **←** and **→** switches cards\n" +
+    "- **" + nb("Control + shift + ←/→") + "** switches cards when your cursor is in the compose box\n" +
+    "- **" + nb("Shift + enter") + "** add a new line\n" +
+    "- **" + nb("Command + T") + "** creates a new card\n" +
+    "- Holding **" + nb("control + S") + "** scrolls the agent's answer down, or **" + nb("double tap S") +
+    "** and hold it to scroll up\n" +
+    "- **" + nb("Control + shift + [") + "**, **]**, **\\\\** and **delete** move the card to Doing, Docked, Deferred or Done, respectively");
+  assert.equal(hotkeys.lights, undefined, "101: Hotkeys lights its keys on its own");
+  assert.doesNotMatch(ONBOARDING, /spec\.lights|LIGHTS_FROM_MS|HEART_ICON|MARK\.heart/);
   assert.doesNotMatch(say("hotkeys"), /❤|♥|\u{1F496}|\u{1F49C}/u, "the heart is an emoji");
+  // the keyboard at .7 of the hotkey map's, so it clears the ticket list, with the card's foot on the line
+  // between its number row and its top letter row, so every letter shows
+  assert.match(ONBOARDING, /--kb-scale:\.7; --kb-h:calc\(336px \* var\(--kb-scale\)\);\s*--kb-under:calc\(var\(--kb-h\) \* 96 \/ 336\);/);
   // the page stands on white
   assert.match(ONBOARDING, /body\{background:#fff\}/);
   // a key's name lights its keys while the pointer is over it, and the keys fade when it leaves
@@ -464,41 +471,48 @@ test("the cards say what they were given to say, with the board's own marks, on 
 test("101: Phone App holds his words and a stub picture slot, and You are all set up, the last card, ends the run in the words it was given", () => {
   const context = vm.createContext({});
   vm.runInContext(grab("  const key = name =>", "  // the timings.") +
-    "\nObject.assign(this, { CARDS, FINISH, PHONE_APP, NEXT, MARK });", context);
-  const { CARDS, FINISH, PHONE_APP, NEXT, MARK } = context;
+    "\nObject.assign(this, { CARDS, FINISH, PHONE_APP, NEXT, NEXT_PHONE, MARK });", context);
+  const { CARDS, FINISH, PHONE_APP, NEXT, NEXT_PHONE, MARK } = context;
   const ids = CARDS.map(c => c.id);
   assert.deepEqual(out(ids.slice(-3)), ["hotkeys", "phone", "fin"], "101: Phone App and the last card do not follow 101: Hotkeys");
-  // 101: Phone App: the picture's slot, then his paragraphs word for word, and it goes on like the other 101 cards
+  // 101: Phone App: the picture's slot, then his paragraphs and his code block word for word, and its key to go on
+  // with the full stop it was given
   const phone = CARDS.find(c => c.id === "phone");
   assert.equal(phone.title, "101: Phone App");
   assert.equal(phone.say, PHONE_APP);
   assert.equal(PHONE_APP,
     MARK.picture + "\n\n" +
-    "The Facilitator comes with a highly functional phone companion app!\n\n" +
-    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**. " +
-    "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes.\n\n" +
-    "1. Run `facilitator bridge setup` on the terminal\n2. Set a password\n3. Scan the QR code\n" +
-    "4. Add the app to your home screen\n\n" +
-    "And you are good to go!\n\n" +
+    "The Facilitator comes with a phone companion app!\n\n" +
     "The phone app is also hotkey-enabled and works as well as the mac version with a small keyboard, " +
-    "allowing you to get work done even when you don't have your laptop!");
+    "allowing you to get work done even when you don't have your laptop!\n\n" +
+    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**. " +
+    "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes. " +
+    "Just run the following on the terminal:\n\n" +
+    "```\nfacilitator bridge setup\n```");
   assert.doesNotMatch(PHONE_APP, /Bonus|coming soon/i);
-  assert.ok(!phone.closing && !phone.next, "101: Phone App does not go on with the usual key");
+  assert.ok(!phone.closing, "101: Phone App ends the run");
+  assert.equal(phone.next, NEXT_PHONE);
+  assert.equal(NEXT_PHONE, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0→** to continue.");
+  // the code block's copy button is wired as the phone page wires it, and a press keeps the focus where it was
+  assert.ok(ONBOARDING.includes("if (button) CardMarkdown.copyCodeBlock(button);"));
+  assert.ok(ONBOARDING.includes('sections.addEventListener("mousedown", e => { if (e.target.closest?.(".copybtn")) e.preventDefault(); });'));
   // the picture's slot: one marked line to swap, a plain box until then
   assert.ok(ONBOARDING.includes("THE SLOT FOR THE PHONE APP PICTURE"), "the slot is not marked");
   assert.ok(ONBOARDING.includes(`const PHONE_IMAGE = '<span class="obpic" aria-hidden="true"></span>';`));
   assert.ok(ONBOARDING.includes("[MARK.picture]: PHONE_IMAGE,"));
   assert.match(ONBOARDING, /\.reply \.obpic\{display:block; width:100%; aspect-ratio:16 \/ 9;/);
   assert.ok(ONBOARDING.includes("html.replace(/[\\uE001-\\uE006]/g, c => MARKS[c])"));
-  assert.equal(NEXT, "Press **Control\u00a0+\u00a0Shift\u00a0+\u00a0→** to continue!");
-  // the last card, in his paragraphs, with the done key written the way the cards write a key
+  assert.equal(NEXT, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0→** to continue!");
+  // the last card, in his paragraphs, three stars centred as a divider, and the done key written the way the cards write a key
   const fin = CARDS.find(c => c.id === "fin");
   assert.equal(fin.title, "You are all set up");
   assert.equal(fin.say,
     "Thank you for trying out the facilitator!\n\n" +
     "If you encounter bugs or have feedback, please use the bug button on the top-right corner.\n\n" +
-    "Your ideas could be instrumental in shaping this product!");
-  assert.equal(FINISH, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0Backspace** to mark this card done and open your board.");
+    "Your ideas could be instrumental in shaping this product!\n\n" + MARK.stars);
+  assert.ok(ONBOARDING.includes("[MARK.stars]: '<span class=\"obstars\" role=\"separator\">* * *</span>',"));
+  assert.match(ONBOARDING, /\.reply \.obstars\{display:block; text-align:center;/);
+  assert.equal(FINISH, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0backspace** to mark this card done and open your board.");
   assert.doesNotMatch(fin.say, /\{meta|arrow/i, "the meta note is on the card");
   // only the last card ends the run: the done key, the cross and the jump to the card waiting longest all go to it
   assert.deepEqual(out(CARDS.filter(c => c.closing).map(c => c.id)), ["fin"]);
@@ -574,16 +588,16 @@ test("the way to change an answer is said once, on the last page, under the answ
     grab("  function pageRaw(card, i){", "  // every card's words were written"),
     "this.pageRaw = pageRaw; this.BACK_LINE = BACK_LINE;",
   ].join("\n"), context);
-  const back = "To change any of the previous answers, press **Control + Shift + ↑**";
+  const back = "To change any of the previous answers, press **control + shift + ↑**";
   assert.equal(context.BACK_LINE, back);
   const card = { asking: null, askingAt: null,
                  pages: ["name", "email", "work", null].map((field, i) => ({ field, head: i ? "Got it." : null })) };
   const pages = card.pages.map((p, i) => context.pageRaw(card, i));
-  for (const raw of pages.slice(0, -1)) assert.doesNotMatch(raw, /change|Control.Shift.↑/, "a question page says how to change an answer");
+  for (const raw of pages.slice(0, -1)) assert.doesNotMatch(raw, /change|control.shift.↑/i, "a question page says how to change an answer");
   const last = pages.at(-1);
   assert.equal(last.split(back).length, 2, "the last page does not say it exactly once");
   assert.ok(last.indexOf("Here is what you told us:") < last.indexOf(back), "the line is not under the answers");
-  assert.ok(last.endsWith(back + "\n\nPress **Control + Shift + →** to continue!"));
+  assert.ok(last.endsWith(back + "\n\nPress **control + shift + →** to continue!"));
 });
 
 // the page's own moves between cards, run in a vm with the page around them stubbed
@@ -681,6 +695,10 @@ test("a key's name on a card reads as the keys the keyboard lights", () => {
   assert.deepEqual(keysOf(run("←", " and ", "→")), ["right"]);
   assert.deepEqual(keysOf(b(nb("Control + S"))), ["ctrl", "s"]);
   assert.deepEqual(keysOf(b(nb("Shift + Enter"))), ["shift", "return"]);
+  // two keys written as one both light, and a double tap lights the chord written before it with that key
+  assert.deepEqual(keysOf(b(nb("Control + shift + ←/→"))), ["ctrl", "shift", "left", "right"]);
+  assert.deepEqual(keysOf(after(nb("control + S"), " scrolls the agent's answer down, or ", nb("double tap S"))), ["ctrl", "s"]);
+  assert.deepEqual(keysOf(b("double tap S")), ["s"]);
   assert.deepEqual(keysOf(b("not a key")), []);
 });
 

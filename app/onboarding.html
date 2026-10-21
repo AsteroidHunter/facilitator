@@ -14,8 +14,8 @@
      a page of the onboarding card's history and knows the field it asks for,
      so a step back with Control + Shift + up and a send there changes that
      answer. A faint keyboard behind the card's foot comes in with the first
-     answer and lights the keys the card teaches, and the keys a key name on a
-     card stands for while the pointer is over it. The Mac board
+     answer and lights the keys the onboarding card's last page names, and the
+     keys a key name on a card stands for while the pointer is over it. The Mac board
      lays this page over itself in a frame of its own while the board has no
      complete profile (GET /profile in server.py), so nobody uses the board
      before going through it. The card's look and motion are the board's own,
@@ -580,20 +580,21 @@
   /* the keyboard behind the onboarding card's foot: the hotkey map's keyboard
      (facilitator-mocks/mock-hotkey-map-20261008.html), drawn at its own size and
      shown at --kb-scale of it, keys, gaps, legends and corners together, every
-     key faint, centred under the card. the onboarding cards keep the board's
+     key faint, centred under the card. at .7 its left edge stays clear of the
+     ticket list beside the card. the onboarding cards keep the board's
      card width and the top the board's full height card has, centred in the
      window (--card-h and --card-top, body.focus main above, which the ticket
      list is read from too), and are cut from the bottom so the card's foot
-     crosses the middle of the keyboard's top letter row (Q to P): the keyboard's
-     function row, number row and half that row, .375 of its height, stand
-     under the card (--kb-under), and the rows below it stay in view. the cut
+     stands on the line between the keyboard's number row and its top letter
+     row (Q to P): the keyboard's function row and number row, 96 of its 336,
+     stand under the card (--kb-under), and every letter stays in view. the cut
      is what puts the keyboard's foot --kb-foot above the window's bottom, held
      between 10 and 20 percent of the card's full height: on a window tall
      enough to need less than 10 percent the keyboard stands higher than that,
      and on one short enough to need more than 20 percent it stands lower */
   body.focus{
-    --kb-scale:.75; --kb-h:calc(336px * var(--kb-scale));
-    --kb-under:calc(var(--kb-h) * .375); --kb-foot:12px;
+    --kb-scale:.7; --kb-h:calc(336px * var(--kb-scale));
+    --kb-under:calc(var(--kb-h) * 96 / 336); --kb-foot:12px;
     --card-h:min(calc(var(--ch)*var(--frame-h)), calc(100vh - 32px));
     --card-top:calc((100vh - var(--card-h)) / 2);
     --ob-cut:clamp(calc(var(--ch)*var(--frame-h)*.1),
@@ -623,11 +624,10 @@
   #obkeys svg{display:block}
 
   /* the board's own marks in a card's words (MARKS below): the sun, the cloud
-     and the moon at the size the card's top bar draws them, the cross drawn the
-     way the top bar draws its own, two bars --bar-mark long and --cross-t thick,
-     and the heart, a line mark drawn in the sun's way. each stands on the
-     line's baseline in a box the mark's size, which puts its middle at the
-     middle of the capitals */
+     and the moon at the size the card's top bar draws them, and the cross drawn
+     the way the top bar draws its own, two bars --bar-mark long and --cross-t
+     thick. each stands on the line's baseline in a box the mark's size, which
+     puts its middle at the middle of the capitals */
   .reply .obmark{position:relative; display:inline-block; vertical-align:baseline; color:#000;
     width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--bar-mark) * var(--chip-scale))}
   .reply .obmark svg{display:block; width:100%; height:100%}
@@ -639,6 +639,8 @@
      as the card's pictures (.shot) have their corners */
   .reply .obpic{display:block; width:100%; aspect-ratio:16 / 9; border-radius:6px; background:rgba(0,0,0,.06)}
   .reply img.obpic{object-fit:cover}
+  /* the three stars on the last card, a divider centred in the card's words */
+  .reply .obstars{display:block; text-align:center; word-spacing:.6em}
 
   /* the other places the Tab hint can stand (?hint=), each shown only while
      the card's question is unanswered (obwait). the ghost after the title's
@@ -955,23 +957,24 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // the card the ticket list first fades in on, and stays from
   const LIST_FROM = "tickets";
 
-  // the words. a key's name is bold wherever a card names one, and nothing
-  // else on these cards is; its words are held together, so a key is never
-  // broken over two lines
+  // the words. a key's name is bold wherever a card names one; its words are
+  // held together, so a key is never broken over two lines. a key's names are
+  // in lower case, but for the first word of one that starts a sentence or a
+  // list item, and a letter key is a capital
   const key = name => "**" + name.replace(/ /g, "\u00a0") + "**";
   const HI = "Hi there 👋";
   const BLURB = "Facilitator helps you ship more by making it easier to interact with and orchestrate subagents.";
   const WELCOME = BLURB + "\n\nPress " + key("→") + " to continue.";
-  const TAB_HINT = "Press " + key("Tab") + " to answer.";
-  const TAB_HINT_PLAIN = "Press Tab to answer";
+  const TAB_HINT = "Press " + key("tab") + " to answer.";
+  const TAB_HINT_PLAIN = "Press tab to answer";
   // the way back to an earlier question, once, on the last page, under the
   // answers it would change
-  const BACK_LINE = "To change any of the previous answers, press " + key("Control + Shift + ↑");
-  const NEXT = "Press " + key("Control + Shift + →") + " to continue!";
-  // the first 101 card's key to go on, with the chord in the words it was given
-  const NEXT_ATOMIZING = "Press " + key("control + shift + →") + " to continue!";
-  // the FIN card's key to end the run, with the chord in the words it was given
-  const FINISH = "Press " + key("control + shift + Backspace") + " to mark this card done and open your board.";
+  const BACK_LINE = "To change any of the previous answers, press " + key("control + shift + ↑");
+  const NEXT = "Press " + key("control + shift + →") + " to continue!";
+  // the phone card's key to go on, with the full stop it was given
+  const NEXT_PHONE = "Press " + key("control + shift + →") + " to continue.";
+  // the FIN card's key to end the run
+  const FINISH = "Press " + key("control + shift + backspace") + " to mark this card done and open your board.";
   // a question may give choices, listed in its note: a number or a choice's own
   // words pick one, and what anyone types that is not one of them is kept as
   // typed. none does now: each answer is the person's own words
@@ -994,77 +997,74 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // the board's marks a card's words can hold, each written as a character of
   // its own that render below swaps for the mark: the four section chips of the
   // card's top bar, Doing's sun, Docked's cloud, Deferred's moon and Done's
-  // cross, and the heart, and the picture of the phone app
-  const MARK = { sun: "\uE001", dock: "\uE002", moon: "\uE003", cross: "\uE004", heart: "\uE005", picture: "\uE006" };
+  // cross, the picture of the phone app and the last card's three stars
+  const MARK = { sun: "\uE001", dock: "\uE002", moon: "\uE003", cross: "\uE004", picture: "\uE005", stars: "\uE006" };
   // the words of the 101: Phone App card, as they were given. its first line is
   // the mark of the picture (PHONE_IMAGE below)
   const PHONE_APP = MARK.picture + "\n\n" +
-    "The Facilitator comes with a highly functional phone companion app!\n\n" +
-    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**. " +
-    "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes.\n\n" +
-    "1. Run `facilitator bridge setup` on the terminal\n" +
-    "2. Set a password\n" +
-    "3. Scan the QR code\n" +
-    "4. Add the app to your home screen\n\n" +
-    "And you are good to go!\n\n" +
+    "The Facilitator comes with a phone companion app!\n\n" +
     "The phone app is also hotkey-enabled and works as well as the mac version with a small keyboard, " +
-    "allowing you to get work done even when you don't have your laptop!";
+    "allowing you to get work done even when you don't have your laptop!\n\n" +
+    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**. " +
+    "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes. " +
+    "Just run the following on the terminal:\n\n" +
+    "```\nfacilitator bridge setup\n```";
   // the cards: the Welcome, the one onboarding card, the four 101 cards and the
-  // last card, You are all set up, whose done ends the run. lights are the chords the keyboard
-  // lights on a card, one after another, as the left Control, the left Shift,
-  // the left Command and the keys named
+  // last card, You are all set up, whose done ends the run
   const CARDS = [
     { id: "welcome", title: "Welcome!" },
     { id: "onboard", title: "Let's onboard you onto the Facilitator!", questions: QUESTIONS },
-    { id: "cards", title: "101: Atomizing asks", next: NEXT_ATOMIZING,
+    { id: "cards", title: "101: Atomizing asks",
       say: "The only \"rule\" to make the best of the Facilitator is *atomize your asks.*\n\n" +
            "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, " +
            "put them on *n* different cards!\n\n" +
-           "The claude or codex agent connected to a project acts as an *orchestrator* and assigns the tasks " +
-           "in different cards to different subagents, thereby speeding up implementation while retaining " +
-           "a lot more context about a project than a single agent ever could." },
+           "The claude or codex agent connected to a project acts as an *orchestrator*. It assigns different " +
+           "tasks to different subagents, which speeds up implementation. The orchestrator also retains a lot " +
+           "more context about a build session than a single agent ever could." },
     { id: "tickets", title: "101: Tickets",
       say: "Cards are shown as a list of tickets on the left side.\n\n" +
-           "Standard tickets have three states:\n" +
+           "Standard tickets have three states:\n\n" +
            "- Yellow: Awaiting your input\n" +
            "- Grey: Queued\n" +
            "- Green: Actively working\n\n" +
-           "Tickets can be put in four buckets:\n" +
+           "And tickets can be put in four buckets:\n\n" +
            "- " + MARK.sun + " Doing: Tasks you are actively working on\n" +
            "- " + MARK.dock + " Docked: Tasks that you will pick up very soon\n" +
            "- " + MARK.moon + " Deferred: Tasks for some later coding sprint\n" +
            "- " + MARK.cross + " Done: Tasks that are complete\n\n" +
            "Bonus: after you iterate on a project for a while, tickets/cards act as a knowledge base for your projects." },
     { id: "hotkeys", title: "101: Hotkeys",
-      say: "The Facilitator " + MARK.heart + " hotkeys!\n\n" +
-           key("←") + " and " + key("→") + " go to the previous or next card.\n\n" +
-           key("Enter") + " starts typing: " + key("Enter") + " sends, and " + key("Shift + Enter") + " makes a new line.\n\n" +
-           key("Command + T") + " creates a new card.\n\n" +
-           "Hold " + key("Control + S") + " to scroll the answer down, or double tap and hold it to scroll up.\n\n" +
+      say: "The Facilitator <3 hotkeys!\n\n" +
+           "Pro-tip: hover your cursor over the bolded hotkeys\n\n" +
+           "Here are some basic hotkeys:\n" +
+           "- " + key("←") + " and " + key("→") + " switches cards\n" +
+           "- " + key("Control + shift + ←/→") + " switches cards when your cursor is in the compose box\n" +
+           "- " + key("Shift + enter") + " add a new line\n" +
+           "- " + key("Command + T") + " creates a new card\n" +
+           "- Holding " + key("control + S") + " scrolls the agent's answer down, or " + key("double tap S") +
+           " and hold it to scroll up\n" +
            // the backslash is doubled so the markdown keeps it
-           key("Control + Shift + [") + ", " + key("]") + ", " + key("\\\\") + " and " + key("Delete") +
-           " move the card to Doing, Docked, Deferred or Done.",
-      lights: [["left", "right"], ["return"], ["cmd", "t"], ["ctrl", "s"],
-               ["ctrl", "shift", "[", "]", "\\", "delete"]] },
-    { id: "phone", title: "101: Phone App", say: PHONE_APP },
+           "- " + key("Control + shift + [") + ", " + key("]") + ", " + key("\\\\") + " and " + key("delete") +
+           " move the card to Doing, Docked, Deferred or Done, respectively" },
+    { id: "phone", title: "101: Phone App", next: NEXT_PHONE, say: PHONE_APP },
     { id: "fin", title: "You are all set up", closing: true,
       say: "Thank you for trying out the facilitator!\n\n" +
            "If you encounter bugs or have feedback, please use the bug button on the top-right corner.\n\n" +
-           "Your ideas could be instrumental in shaping this product!" },
+           "Your ideas could be instrumental in shaping this product!\n\n" +
+           MARK.stars },
   ];
 
   // the timings. the keyboard fades in over the first answer's whole way in,
   // the send's flight and then the page turn to the next question
   // (SENT_FLIGHT_MS and TURN_GLIDE_MS in card-logic.js), so the two end together.
   // the last page's keys light once its turn has landed and a breath more. a
-  // light fades in, holds and fades out; the 101: Hotkeys card's chords are shorter
+  // light fades in, holds and fades out; a key the pointer lights comes in sooner
   const KEYS_IN_MS = SENT_FLIGHT_MS + TURN_GLIDE_MS;
   const KEYS_LATE_MS = 400;   // the keyboard on a 101 card reached before any answer
   const LANDED_WAIT_MS = TURN_GLIDE_MS + 200;
   const LIGHT = { inMs: 600, holdMs: 1500, outMs: 700 };
   const LIGHT_SHORT = { inMs: 400, holdMs: 1000, outMs: 400 };
-  const LIGHTS_FROM_MS = 500;   // the first chord on 101: Hotkeys, after the card shows
-  const LIGHTS_GAP_MS = 200;    // and between its chords
+  const LIGHTS_GAP_MS = 200;    // between the last page's two chords
 
   // the answers, held in this page until the summary card is passed, when they
   // are saved as the board's profile (and again when the last card is marked
@@ -1079,12 +1079,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const CLIP_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>';
   const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const MOON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
-  // the heart, a line mark drawn the way card-logic.js draws the sun and the
-  // cloud: the 24 unit box, one stroke of 2.4 with round caps and joins, no fill
-  const HEART_ICON = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" ' +
-    'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23' +
-    'l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>';
   // THE SLOT FOR THE PHONE APP PICTURE (the 101: Phone App card's first line).
   // for now a plain grey box at the size a picture takes there, the card's width
   // at 16 to 9. to swap in the picture, make this one line the picture's <img
@@ -1097,8 +1091,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
     [MARK.dock]: '<span role="img" class="obmark" aria-label="sun with cloud">' + DOCK_ICON + "</span>",
     [MARK.moon]: '<span role="img" class="obmark" aria-label="moon">' + MOON_ICON + "</span>",
     [MARK.cross]: '<span role="img" class="obmark obcross" aria-label="cross"></span>',
-    [MARK.heart]: '<span role="img" class="obmark" aria-label="love">' + HEART_ICON + "</span>",
     [MARK.picture]: PHONE_IMAGE,
+    [MARK.stars]: '<span class="obstars" role="separator">* * *</span>',
   };
   const withMarks = html => html.replace(/[\uE001-\uE006]/g, c => MARKS[c]);
 
@@ -1216,15 +1210,28 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // when the pointer goes. a lone key written after "and" or a comma just after
   // a chord, as in "Control + Shift + ← and →" or in
   // "Control + Shift + [, ], \ and Delete", is that chord with its last key
-  // changed, so it lights with the chord's other keys
+  // changed, so it lights with the chord's other keys. two keys written as
+  // one, as in "Control + shift + ←/→", both light. "double tap S" is the chord
+  // written before it with that key tapped twice, as in "Holding control + S
+  // scrolls ... down, or double tap S and hold it", so it lights that chord
   const KEY_NAMES = { control: "ctrl", shift: "shift", command: "cmd", option: "opt",
                       "←": "left", "→": "right", "↑": "up", "↓": "down",
                       enter: "return", backspace: "delete", delete: "delete", tab: "tab", escape: "esc" };
-  const keysOf = text => text.replace(/\u00a0/g, " ").split("+").map(part => part.trim().toLowerCase())
+  const keysOf = text => text.replace(/\u00a0/g, " ").split(/[+/]/).map(part => part.trim().toLowerCase())
                              .map(part => KEY_NAMES[part] || (/^[a-z0-9[\]\\]$/.test(part) ? part : null));
+  const TAPPED = /^double tap /i;
   function chipKeys(chip){
-    const keys = keysOf(chip.textContent);
+    const text = chip.textContent.replace(/\u00a0/g, " ");
+    const keys = keysOf(text.replace(TAPPED, ""));
     if (!keys.every(Boolean)) return [];
+    if (TAPPED.test(text)){
+      for (let at = chip.previousSibling; at; at = at.previousSibling){
+        if (at.nodeName !== "B") continue;
+        const chord = keysOf(at.textContent);
+        if (chord.every(Boolean) && chord[chord.length - 1] === keys[keys.length - 1]) return chord;
+      }
+      return keys;
+    }
     let at = chip;
     while (keys.length === 1){
       const between = at.previousSibling, chord = between && between.previousSibling;
@@ -1810,10 +1817,6 @@ for (const pane of document.querySelectorAll(".tikpane")){
     seatGhost(card);
     // a 101 card reached before any answer still stands over the keyboard
     if (i > cards.indexOf(onboard)) showKeys(KEYS_LATE_MS);
-    if (card.spec.lights){
-      let t = LIGHTS_FROM_MS;
-      for (const chord of card.spec.lights) t = pulse(chord, LIGHT_SHORT, t) + LIGHTS_GAP_MS;
-    }
     // where the caret lands: nowhere on the cards that ask nothing, so the
     // plain arrows are free; at the end of the title while the first question
     // is unanswered; in the reply box after, where the reader left it
@@ -2002,6 +2005,14 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const feedbackSheet = feedbackOverlay(document.body, document.getElementById("fbbox").closest(".fbrow"), {});
   document.getElementById("obbug").addEventListener("click", () => feedbackSheet.open());
   document.getElementById("obbug").addEventListener("mousedown", e => e.preventDefault());
+
+  // the copy button on a card's code block (the command on 101: Phone App),
+  // wired as the phone page wires it (m.html); a press keeps the focus where it was
+  sections.addEventListener("click", e => {
+    const button = e.target.closest?.(".copybtn");
+    if (button) CardMarkdown.copyCodeBlock(button);
+  });
+  sections.addEventListener("mousedown", e => { if (e.target.closest?.(".copybtn")) e.preventDefault(); });
 
   // ---- the block caret, cut down from index.html's fat caret ------
   // the board draws a terminal block over the caret in every field it types in.
