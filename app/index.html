@@ -11797,10 +11797,20 @@ function paintTicketPane(pane, pool, view, state, laneSig){
   // to the selected row; only a selection new to this render is revealed
   const selectedBefore = pane.querySelector(".trow.on")?.dataset.id;
   const keepScroll = pane.scrollTop;
+  // the same tickets in the same order while rows are still gliding, which is
+  // how the board's reading of a move lands: a gliding row is kept and only its
+  // face is written anew. a row taken out and put back mid-glide starts over
+  // from where the page last drew it, which trails the screen by as long as the
+  // redraw has run, and the ticket dropped back down before it rose again
+  const kept = [...pane.children];
+  const inPlace = kept.some(r => r.style?.transition) && kept.length === pool.length &&
+                  pool.every((b, i) => kept[i].dataset?.id === b.id);
   const oldPos = {};
-  for (const prev of pane.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
-  pane.textContent = "";
-  for (const b of pool){
+  if (!inPlace){
+    for (const prev of kept) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
+    pane.textContent = "";
+  }
+  for (const [i, b] of pool.entries()){
     const s = queueState(b);   // working covers claimed and a worker's job behind it
     // quirks kept: a claimed done row still pulses, and an untouched row
     // falls in with yours or queued by where the ball sits
@@ -11830,24 +11840,32 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     r.appendChild(inner);
     r.dataset.id = b.id;
     // a click on the folded corner unfolds the ticket and leaves the selection
-    // where it is; anywhere else on the row opens the card
-    r.addEventListener("click", e => { if (isTest && onFold(r, e)) unfoldTicket(b.id); else select(b.id); });
-    pane.appendChild(r);
+    // where it is; anywhere else on the row opens the card. the fold is read
+    // off the row, since a row kept below may have taken a new face
+    r.addEventListener("click", e => { if (r.classList.contains("testc") && onFold(r, e)) unfoldTicket(b.id); else select(b.id); });
+    if (!inPlace){ pane.appendChild(r); continue; }
+    const old = kept[i];
+    if (!old.style.transition){ pane.replaceChild(r, old); continue; }
+    old.className = r.className;
+    old.textContent = "";
+    for (const part of [...r.children]) old.appendChild(part);
   }
   if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "docked" ? "no docked chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
   pane.scrollTop = keepScroll;   // a rebuild must not throw away where the reader had scrolled
   // surviving rows glide to their new spots, the 220ms rise of the sister
-  // board, instead of teleporting on every re-sort
+  // board, instead of teleporting on every re-sort. the glide moves the row's
+  // translate and leaves its transform to the selected row's lift: moving the
+  // transform took the lift away and dropped the row a pixel as it set off
   for (const row of pane.children){
     const was = row.dataset && oldPos[row.dataset.id];
     if (was == null) continue;
     const dy = was - row.getBoundingClientRect().top;
     if (Math.abs(dy) < 2) continue;
     row.style.transition = "none";
-    row.style.transform = "translateY(" + dy + "px)";
+    row.style.translate = "0 " + dy + "px";
     void row.offsetHeight;
-    row.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
-    row.style.transform = "";
+    row.style.transition = "translate 220ms cubic-bezier(0.25, 1, 0.5, 1)";
+    row.style.translate = "";
     row.addEventListener("transitionend", () => { row.style.transition = ""; }, { once: true });
   }
   // reveal a newly selected row only in the section on show, never in an

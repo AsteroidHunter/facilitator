@@ -42,6 +42,11 @@ class FakeElement {
   get textContent() { return this._text; }
   set textContent(v) { this._text = String(v ?? ""); this.children = []; }
   appendChild(child) { child.parentElement = this; this.children.push(child); return child; }
+  replaceChild(next, prev) {
+    this.children[this.children.indexOf(prev)] = next;
+    next.parentElement = this; prev.parentElement = null;
+    return prev;
+  }
   setAttribute() {}
   addEventListener() {}
   get offsetHeight() { return 64; }
@@ -247,6 +252,36 @@ test("a rebuild keeps the section's scroll and glides the rows that moved", () =
   assert.equal(s.paint(paint, moved), true);
   assert.equal(s.pane.scrollTop, 300, "the reader's place in the section is kept");
   assert.equal(s.pane.reveals, 0, "an ordinary rebuild reveals nothing");
-  const glides = s.pane.children.filter(r => /^transform 220ms/.test(r.style.transition || "")).map(r => r.dataset.id);
+  const glides = s.pane.children.filter(r => /^translate 220ms/.test(r.style.transition || "")).map(r => r.dataset.id);
   assert.deepEqual(glides, ["m6", "m1", "m2", "m3", "m4", "m5"], "the rows that changed place glide; the rest stay put");
+  assert.ok(s.pane.children.every(r => !r.style.transform), "the glide leaves the transform to the selected row's lift");
+});
+
+// a card leaves the list and the rows under it glide up; the board's reading of
+// that move lands while they are still gliding. a row taken out and put back
+// then started its glide over from where the page last drew it, which trails the
+// screen, and the ticket dropped back down before it rose again
+test("a reading that lands mid-glide keeps the gliding rows and their glide", () => {
+  const todo = () => Array.from({ length: 6 }, (_, i) => ({ ...done(i + 1, (i + 2) * DAY), done: false, state: "yours" }));
+  const s = section();
+  s.paint(painter({ selected: "m2" }), todo(), "todo");
+  // the second card is moved away while it is open: the list loses it at once
+  s.paint(painter({ selected: "m2" }), todo().filter(b => b.id !== "m2"), "todo");
+  const still = s.pane.children[0], gliding = s.pane.children.slice(1);
+  assert.deepEqual(gliding.map(r => r.dataset.id), ["m3", "m4", "m5", "m6"]);
+  assert.ok(gliding.every(r => /^translate 220ms/.test(r.style.transition)), "the rows under it glide up");
+  assert.equal(still.style.transition, undefined, "the row above it stays put");
+  // the reading: the next card is open now and one title has changed
+  const reading = todo().filter(b => b.id !== "m2");
+  reading[2].title = "Renamed while gliding";
+  assert.equal(s.paint(painter({ selected: "m3" }), reading, "todo"), true, "the reading is drawn");
+  assert.ok(s.pane.children.slice(1).every((r, i) => r === gliding[i]), "the gliding rows are the very same nodes");
+  assert.ok(gliding.every(r => /^translate 220ms/.test(r.style.transition)), "their glide is left running");
+  assert.ok(gliding[0].classList.contains("on"), "the open card's row is marked");
+  assert.equal(gliding[1].children[0].children.find(c => c.className === "ttl").textContent, "Renamed while gliding");
+  assert.notEqual(s.pane.children[0], still, "a row at rest is drawn anew, as before");
+  // once the glide has landed, a reading rebuilds the rows as it always has
+  for (const r of s.pane.children) r.style.transition = "";
+  assert.equal(s.paint(painter({ selected: "m4" }), reading, "todo"), true);
+  assert.ok(s.pane.children.slice(1).every((r, i) => r !== gliding[i]), "rows at rest are rebuilt");
 });
