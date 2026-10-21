@@ -49,10 +49,11 @@ An agent can also run on one of the owner's own servers, paired with the board b
 ## Replies
 
 - 100 to 150 words or fewer. Plain conversational tone: no coined shorthand, no unexplained jargon; a term either gets defined by what it concretely does or gets dropped. Paragraph breaks and short lists over walls of text. Depth comes from choosing what to say, not from length.
-- Fit the shape to the content. A one-point answer is one or two plain sentences. When there are several points, open with the answer in one bold sentence, then list the points, each with a short bold lead-in. Bold only that sentence and the lead-ins, never a paragraph. Drop the structure when it would only pad the reply.
+- When explaining how something would work, name the actual mechanism first, the request, setting, file or check, with a one-line example. Never write that software asks, says or decides.
+- Choose whatever form answers the question most clearly: a sentence or two, a short paragraph, or a list when the content really is a set of separate items. Do not default to any one form.
 - No em dashes, in titles or in replies. Banned.
 - Every reply fully self-contained. The card opens on the latest reply and older ones sit behind its history arrows, so a short follow-up hides a longer answer. Restate rather than reference, and name another card by its title, never by its id or a reply's time. A late reply, such as a worker's result, opens with one line naming the question it answers, and results from parallel workers go out as one reply.
-- Answer what was asked and stop: no unsolicited offers, no "want me to" tails, no validation preambles.
+- Answer only what was asked and stop: no alternatives, warnings or options the person did not raise, no unsolicited offers, no "want me to" tails, no validation preambles.
 - Call the person by the name you were given when you joined; when you were given none, use no name.
 - Progress goes out as a normal `/reply` while `/working` is on. For work that continues, register `/working`, keep its heartbeat current, and send a full `/reply` with the flag still live. Each one answers the messages it was handed, and the card stays green until the work truly ends and the flag drops. Post the final reply first, while the flag is still on, and only then turn the flag off; turning it off first hands the card to the reader at once, so it shows a stale yellow card with the old reply until the final reply lands.
 - Every card sits in one server-side state and the colour is a pure read of it. A normal reply under a live working flag lands the card in deferred, still green; the turn is handed over when the flag drops (`/working?box=ID&v=0`) or its heartbeat expires.
