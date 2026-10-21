@@ -12,7 +12,10 @@ const source = name => readFileSync(path.join(ROOT, name), "utf8");
 for (const name of ["index.html", "m.html", "page.html"]){
   test(`${name} renders Omni art before the normal title and right metadata`, () => {
     const html = source(name);
-    assert.match(html, /\.trow\.omni-ticket\{background:#fff\}/);
+    // the board and the phone colour an Omni row by its state like any other
+    // row; the typed page still holds it white
+    if (name === "page.html") assert.match(html, /\.trow\.omni-ticket\{background:#fff\}/);
+    else assert.doesNotMatch(html, /\.trow\.omni-ticket\{[^}]*background/, `${name} paints Omni rows a fill of their own`);
     assert.match(html, /\.omni-art\{[^}]*object-fit:contain/s);
     assert.match(html, /\.box\.omni-card\{background:#fff !important\}/);
     assert.ok(
