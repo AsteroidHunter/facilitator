@@ -2,8 +2,8 @@
 counts about the day before to the Facilitator project in PostHog, unless the
 board's "Share daily usage counts" setting (Settings, Improvements) is off.
 
-What is counted comes out of these two files beside state.json, and nothing
-else:
+What is counted comes out of these two files beside state.json and the
+board's token counter, and nothing else:
 
   transcript.jsonl   the board's own record of what happened, one row per
                      event with its time. Rows are counted by kind and never
@@ -16,12 +16,44 @@ else:
                      use: the start of each five-minute stretch that held
                      one, kept by the server when it takes the phone's
                      notifycheck report (PhoneUse), at every log level.
+  tokens.py          the tokens Claude Code and Codex spent each day, read
+                     from their own logs on this Mac by the counter the home
+                     page's token chart uses (TokenLedger.tally), which the
+                     server hands in. Only counts come from it: each tool's
+                     total and its four kinds (tokens_claude,
+                     tokens_claude_input, tokens_claude_cache_write,
+                     tokens_claude_cache_read, tokens_claude_output, and the
+                     same for codex), and the day's tokens by board share,
+                     all of them and without cache re-reads (tokens_board and
+                     tokens_board_new for sessions that ran the board's wait
+                     helper, tokens_off_board and tokens_off_board_new for the
+                     rest, tokens_board_unknown and tokens_board_unknown_new
+                     for logs counted before the counter kept that answer).
 
-A day is sent only when it was used: one of the owner's own actions is in the
-transcript that day, or the phone app was opened. Minutes used are rough: every
-five-minute stretch of the day holding one of those actions or phone openings
-counts as five minutes, so reading on the Mac without doing anything is not
-seen.
+Each day's message also carries days_since_install: the days from the
+board's first day, the day of the transcript's first stamped row (handed in by
+the server too), to the day counted. It is left out while there is no such
+row.
+
+A day is sent when it was used or when an agent spent tokens in it: one of the
+owner's own actions is in the transcript that day, the phone app was opened,
+or Claude Code or Codex logged tokens that day, with the board open or not. A
+day of tokens alone carries zeros for the board's own counts. Minutes used are
+rough: every five-minute stretch of the day holding one of those actions or
+phone openings counts as five minutes, so reading on the Mac without doing
+anything is not seen.
+
+Once per install one more message goes, token_baseline, stamped noon UTC on
+the board's first day: how many days back before that day each tool's logs
+reach (days_of_logs_claude, days_of_logs_codex, BASELINE_WEEKS weeks at most),
+how many whole weeks that covers (weeks_before_install), and for each of those
+weeks, week 1 being the seven days just before the first day, its tokens
+without cache re-reads (tokens_new_week_1 and on) and its days with any tokens
+(active_days_week_1 and on). It is the one message about days from before the
+counts existed. It goes only while the switch is on, waiting while it is off,
+and only once the first day is known. usage-baseline.json beside state.json
+says it has gone: it is written before the message goes and taken away only
+when the send fails, so the baseline never goes twice.
 
 Every message carries the same distinct_id: a random install id (a uuid4)
 made the first time one is needed and kept in usage-install.json beside
@@ -58,10 +90,14 @@ day already dealt with, and nothing else; a day is marked there before its
 message goes and unmarked only when the send fails, so a board stopped halfway
 through a send can lose that day but never send it twice. A day that ends while
 sharing is off is marked without being sent, so turning it back on never sends
-it later. A board that has been offline sends at most BACKLOG_DAYS of the days
-it missed, oldest first, and stops at the first failure to try again later. A
-day is not sent at all when the install id cannot be saved, since a new one
-every time would make every message a stranger.
+it later. A board that has been offline or not running sends at most
+BACKLOG_DAYS of the days it missed, oldest first, and stops at the first
+failure to try again later; the agents' logs keep a day's tokens while the
+board is down, so a day of tokens alone in that time goes too, and anything
+older is dropped. A day is not sent at all when the install id cannot be
+saved, since a new one every time would make every message a stranger. When
+the token counter cannot be read the days go without their token numbers, and
+a log line says so.
 
 The one thing sent with words is the feedback box in Settings, Improvements
 (POST /feedback in server.py): when the person presses send and lets the three
@@ -106,6 +142,13 @@ ENDPOINT_ENV = "FACILITATOR_POSTHOG_ENDPOINT"          # tests: a stub on this M
 # the project token: public by design, it can send events and read nothing
 TOKEN = "phc_pmdWA3oMUgUWGLyLkXvDFSzYQgvTotFQyA93BWXTdJ9K"
 EVENT = "daily_usage"
+BASELINE_EVENT = "token_baseline"
+BASELINE_WEEKS = 8        # the most weeks before the board's first day the baseline holds
+# the token counter's names (tokens.py): its tools, its board shares, and the
+# four kinds each day's counts come in, in this order
+TOKEN_TOOLS = ("claude", "codex")
+TOKEN_SHARES = ("board", "off_board", "board_unknown")
+TOKEN_KINDS = ("input", "cache_write", "cache_read", "output")
 FEEDBACK_EVENT = "feedback sent"
 FEEDBACK_MAX = 5000       # the most characters one feedback message may hold
 SETTING = "usagecounts"   # the board setting: "0" is off; missing or anything else is on
@@ -268,6 +311,12 @@ class PhoneUse:
                 raise
 
 
+# a day's counts when the board was not used that day
+NOT_USED = {"minutes_used": 0, "cards_created": 0, "cards_closed": 0, "projects_created": 0,
+            "messages_sent": 0, "replies_claude": 0, "replies_codex": 0, "replies_other": 0,
+            "phone_used": False}
+
+
 def day_counts(days: list[dt.date], transcript: Path, phone_file: Path) -> dict:
     """{day: counts} for each of these days that was used; a day nobody used
     is left out. One pass over the transcript serves every day asked for."""
@@ -319,6 +368,68 @@ def day_counts(days: list[dt.date], transcript: Path, phone_file: Path) -> dict:
     return out
 
 
+def _spent(tally, name: str, day: dt.date) -> list[int]:
+    """One day's four kinds for one tool or share of the token counter's
+    tally, as whole numbers; zeros for a day it has nothing for."""
+    days = tally.get(name) if isinstance(tally, dict) else None
+    row = days.get(day.isoformat()) if isinstance(days, dict) else None
+    row = row[:4] if isinstance(row, list) else []
+    return [int(n) if isinstance(n, (int, float)) and not isinstance(n, bool) and n > 0 else 0
+            for n in row + [0] * (4 - len(row))]
+
+
+def token_counts(days: list[dt.date], tally) -> dict:
+    """{day: token numbers} for each of these days, out of the token counter's
+    tally (tokens.TokenLedger.tally): each tool's total and four kinds, then
+    the day's tokens by board share, all of them and the new ones (all but
+    cache re-reads). A day the logs hold nothing for is zeros."""
+    out = {}
+    for day in days:
+        fields = {}
+        for tool in TOKEN_TOOLS:
+            row = _spent(tally, tool, day)
+            fields[f"tokens_{tool}"] = sum(row)
+            fields.update({f"tokens_{tool}_{kind}": n for kind, n in zip(TOKEN_KINDS, row)})
+        for share in TOKEN_SHARES:
+            row = _spent(tally, share, day)
+            fields[f"tokens_{share}"] = sum(row)
+            fields[f"tokens_{share}_new"] = sum(row) - row[TOKEN_KINDS.index("cache_read")]
+        out[day] = fields
+    return out
+
+
+def baseline_counts(first_day: dt.date, tally) -> dict:
+    """The token_baseline numbers for a board first used on first_day: how many
+    days back before it each tool's logs reach (BASELINE_WEEKS weeks at most),
+    the whole weeks that covers, and for each of them, week 1 being the seven
+    days just before first_day, its new tokens (all but cache re-reads) and
+    its days with any tokens. A week the logs do not reach is left out, never
+    sent as a week of zeros."""
+    reach = {}
+    for tool in TOKEN_TOOLS:
+        days = tally.get(tool) if isinstance(tally, dict) else None
+        earliest = None
+        for key in days if isinstance(days, dict) else ():
+            try:
+                day = dt.date.fromisoformat(key)
+            except (TypeError, ValueError):
+                continue
+            if day < first_day and any(_spent(tally, tool, day)) and (earliest is None or day < earliest):
+                earliest = day
+        reach[tool] = min((first_day - earliest).days, BASELINE_WEEKS * 7) if earliest else 0
+    weeks = max(reach.values()) // 7
+    out = {"weeks_before_install": weeks, **{f"days_of_logs_{tool}": reach[tool] for tool in TOKEN_TOOLS}}
+    for week in range(1, weeks + 1):
+        new = active = 0
+        for back in range(7 * week, 7 * week - 7, -1):
+            rows = [_spent(tally, tool, first_day - dt.timedelta(days=back)) for tool in TOKEN_TOOLS]
+            new += sum(sum(row) - row[TOKEN_KINDS.index("cache_read")] for row in rows)
+            active += 1 if any(any(row) for row in rows) else 0
+        out[f"tokens_new_week_{week}"] = new
+        out[f"active_days_week_{week}"] = active
+    return out
+
+
 def app_version(index_html: Path) -> str:
     """The version the board shows (#npversion in index.html), or unknown."""
     try:
@@ -337,8 +448,9 @@ def os_fields() -> dict:
 
 
 def payload(day: dt.date, counts: dict, version: str, system: dict, install_id: str,
-            identified: bool = False) -> dict:
-    """The whole message for one day. distinct_id is the install id, the same
+            identified: bool = False, event: str = EVENT) -> dict:
+    """The whole message for one day, or with BASELINE_EVENT the baseline,
+    whose day is the board's first. distinct_id is the install id, the same
     on every message. Without an email it says $process_person_profile false,
     so PostHog makes no profile; once the person has said yes to an email
     (identified) it leaves that out, which PostHog reads as an identified
@@ -346,7 +458,7 @@ def payload(day: dt.date, counts: dict, version: str, system: dict, install_id: 
     and nothing about the time zone."""
     return {
         "api_key": TOKEN,
-        "event": EVENT,
+        "event": event,
         "distinct_id": install_id,
         "timestamp": f"{day.isoformat()}T12:00:00Z",
         "properties": {
@@ -550,7 +662,10 @@ class Install:
 
 class Sender:
     """Looks once in a while for days that have ended and not been dealt with,
-    and sends each used one, once. sharing() is read before every send.
+    and sends each used one, once, then the baseline, once per install.
+    sharing() is read before every send. tokens() is the token counter's
+    tally and installed() the board's first day (YYYY-MM-DD, or None while
+    there is none); without tokens no token numbers and no baseline go.
     log(kind, **fields) is the board's own INFO line; every outside call
     (the clock, the network, a fresh id) can be handed in for the tests."""
 
@@ -558,11 +673,15 @@ class Sender:
                  sharing: Callable[[], bool], log: Callable = lambda *a, **k: None,
                  opener=None, today: Callable[[], dt.date] = dt.date.today,
                  new_id: Callable[[], uuid.UUID] = uuid.uuid4, install_file: Path | None = None,
-                 phone_file: Path | None = None) -> None:
+                 phone_file: Path | None = None, tokens: Callable[[], dict] | None = None,
+                 installed: Callable[[], str | None] | None = None,
+                 baseline_file: Path | None = None) -> None:
         self.transcript, self.marker, self.index_html = transcript, marker, index_html
         self.sharing, self.log, self.opener, self.today, self.new_id = sharing, log, opener, today, new_id
+        self.tokens, self.installed = tokens, installed
         self.install = Install(install_file or marker.with_name("usage-install.json"), new_id)
         self.phone = PhoneUse(phone_file or marker.with_name("usage-phone.json"))
+        self.baseline = baseline_file or marker.with_name("usage-baseline.json")
         self.identifying = threading.Lock()   # one identify at a time: a request's and a look's
         self.through: dt.date | None = None   # every day up to this one is dealt with
 
@@ -588,6 +707,26 @@ class Sender:
             return False
         self.through = day
         return True
+
+    def _tally(self) -> dict | None:
+        """The token counter's tally, or None without one or when it could not
+        be read, which a log line says."""
+        if self.tokens is None:
+            return None
+        try:
+            tally = self.tokens()
+        except Exception as e:   # a counter that fails costs the token numbers, never the day
+            self.log("usage", what="tokens", outcome="unread", reason=type(e).__name__)
+            return None
+        return tally if isinstance(tally, dict) else None
+
+    def _first_day(self) -> dt.date | None:
+        """The board's first day, or None while it has none."""
+        try:
+            got = self.installed() if self.installed is not None else None
+            return dt.date.fromisoformat(got) if isinstance(got, str) else None
+        except Exception:
+            return None
 
     def identify(self) -> str:
         """Tells PostHog what it has not been told of the saved person: the
@@ -711,17 +850,21 @@ class Sender:
 
     def look(self) -> bool:
         """One look: a saved email PostHog has not been told goes first, then
-        the days. False when a send failed and is to be tried again later."""
+        the days, then the baseline. False when a send failed and is to be
+        tried again later."""
         told = self.identify()
-        return self._days() and told != "failed"
+        days = self._days()
+        baseline = self._baseline()
+        return days and baseline and told != "failed"
 
     def _days(self) -> bool:
         yesterday = self.today() - dt.timedelta(days=1)
         if self.through is None:
             self.through = self._read_marker()
         if self.through is None:
-            # a board that has never sent starts counting today: nothing from
-            # before the counts existed is ever sent, and nothing is sent now
+            # a board that has never sent starts counting today: no day from
+            # before the counts existed is ever sent (those weeks go once, in
+            # the baseline), and nothing is sent now
             self._write_marker(yesterday)
             return True
         if self.through >= yesterday:
@@ -732,10 +875,14 @@ class Sender:
         first = max(self.through + dt.timedelta(days=1), yesterday - dt.timedelta(days=BACKLOG_DAYS - 1))
         days = [first + dt.timedelta(days=n) for n in range((yesterday - first).days + 1)]
         counts = day_counts(days, self.transcript, self.phone.path)
+        tally = self._tally()
+        spent = token_counts(days, tally) if tally is not None else {}
+        first_day = self._first_day()
         version, system = app_version(self.index_html), os_fields()
         for day in days:
-            if day not in counts:
-                continue   # not used: nothing to send, and marked with the days after it
+            day_tokens = spent.get(day, {})
+            if day not in counts and not (day_tokens.get("tokens_claude") or day_tokens.get("tokens_codex")):
+                continue   # neither the board nor an agent used: nothing to send, marked with the days after it
             if not self.sharing():
                 break
             try:
@@ -747,7 +894,10 @@ class Sender:
             # marked first, so a board stopped mid-send never sends this day again
             if not self._write_marker(day):
                 return False
-            body = payload(day, counts[day], version, system, rec["install_id"], rec["email"] is not None)
+            fields = {**counts.get(day, NOT_USED), **day_tokens}
+            if first_day is not None:
+                fields["days_since_install"] = (day - first_day).days
+            body = payload(day, fields, version, system, rec["install_id"], rec["email"] is not None)
             outcome, why = post(body, self.opener)
             if outcome == "failed":
                 self._write_marker(before)
@@ -755,6 +905,55 @@ class Sender:
                 return False
             self.log("usage", outcome=outcome, day=day.isoformat(), **({"reason": why} if why else {}))
         self._write_marker(yesterday)
+        return True
+
+    def _mark_baseline(self) -> bool:
+        tmp = self.baseline.with_name(self.baseline.name + ".tmp")
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps({"sent": True}) + "\n")
+            os.replace(tmp, self.baseline)
+        except OSError as e:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            self.log("usage", what="baseline", outcome="unmarked", reason=e.strerror or type(e).__name__)
+            return False
+        return True
+
+    def _baseline(self) -> bool:
+        """The token_baseline message, once per install: only with the token
+        counter, while the switch is on and once the board's first day is
+        known; until then it waits, unmarked. usage-baseline.json is written
+        before it goes and taken away only when the send fails, so it never
+        goes twice; once it is there nothing is read or sent again. False when
+        it is to be tried again later."""
+        if self.tokens is None or self.baseline.exists() or not self.sharing():
+            return True
+        first_day = self._first_day()
+        tally = self._tally() if first_day is not None else None
+        if tally is None or not self.sharing():
+            return True
+        try:
+            rec = self.install.get()
+        except OSError as e:
+            self.log("usage", what="baseline", outcome="unsaved", reason=e.strerror or type(e).__name__)
+            return False
+        if not self._mark_baseline():
+            return False
+        body = payload(first_day, baseline_counts(first_day, tally), app_version(self.index_html), os_fields(),
+                       rec["install_id"], rec["email"] is not None, event=BASELINE_EVENT)
+        outcome, why = post(body, self.opener)
+        if outcome == "failed":
+            try:
+                self.baseline.unlink()
+            except OSError:
+                pass
+            self.log("usage", what="baseline", outcome="failed", reason=why)
+            return False
+        self.log("usage", what="baseline", outcome=outcome, **({"reason": why} if why else {}))
         return True
 
     def run(self, stopping: threading.Event) -> None:
