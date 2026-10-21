@@ -1787,6 +1787,94 @@ test("a glide that never ends is landed by its timer, and a new page with no pan
   assert.equal(lone.reply.classList.contains("printing"), true);
 });
 
+// a card whose agent took the first message (Read) while two sent after it wait
+// unread (Delivered), laid out with the seat at the foot: the read bubble over
+// the waiting one, and the seat's empty room between them
+const TAKEN = "Invented message the agent took.";
+const WAITING = ["Invented message sent after it.", "Invented one more sent after it."];
+function waitingCard(context, batch) {
+  const el = fullCard("c1");
+  context.syncSent(el, batch);
+  el.body.rect = { top: 100, bottom: 900 };
+  el.replyview.rect = { top: 120, bottom: 900 };
+  el.sentwrap.rect = { top: 640, bottom: 800 };
+  const panels = context.sentPanels(el);
+  panels[0].rect = { top: 640, bottom: 700 };
+  if (panels[1]) panels[1].rect = { top: 727, bottom: 787 };
+  el.reply.dataset.raw = "The invented old answer.";
+  el.reply.innerHTML = markdown.render(el.reply.dataset.raw);
+  // the answer's clear air over the seat, and the room the seat keeps empty
+  // over a bubble that follows another
+  const natural = context.getComputedStyle;
+  context.getComputedStyle = (node, pseudo) => ({ ...natural(node, pseudo),
+    marginBottom: node === el.replyview ? "13.5px" : "0px", marginTop: node === panels[1] ? "9px" : "0px" });
+  return el;
+}
+
+test("a reply to the first message alone carries only its bubble up, and the bubbles still waiting stand where they stood with nothing gliding drawn over them", () => {
+  const { context } = sandbox();
+  context.boxBand = () => 64;
+  const el = waitingCard(context, [{ text: TAKEN, stage: "delivered" }, ...WAITING.map(text => ({ text, stage: "sent" }))]);
+  const [taken, waiting] = context.sentPanels(el);
+  assert.deepEqual([...context.sentPanels(el)].map(panel => panel.dataset.mark), ["Read", "Delivered"],
+    "the message taken and the two waiting do not stand as a Read bubble over a Delivered one");
+  const answer = { ...NEXT, answered: [{ text: TAKEN }] };
+  const turn = context.turnBegin(el, answer);
+  assert.equal(turn.mode, "glide");
+  // the sheet stops at the head of the bubble left standing, and the answer
+  // coming in stops on the clear air an answer keeps over the seat at rest, as
+  // far as the seat keeps that room empty
+  const sheet = el.body.querySelector(".turnsheet");
+  assert.equal(sheet.style.height, "627px", "the sheet reaches over the bubble still waiting");
+  assert.equal(sheet.style.getPropertyValue("--turnair"), "9px", "the answer coming in is not stopped above the waiting bubble");
+  // the seat's picture holds the bubble that rises alone, cut at the sheet's foot
+  const page = sheet.querySelector(".turnpage");
+  const seat = page.children.find(node => node.classList.contains("sentwrap"));
+  const rising = seat.querySelectorAll(".answered.sent");
+  assert.equal(rising.length, 1, "a bubble still waiting is pictured to rise");
+  assert.deepEqual(rising[0].querySelectorAll(".answmsg").map(row => row.dataset.text), [TAKEN]);
+  assert.equal(seat.style.height, "87px", "the seat's picture carries room under the bubble that rises");
+  assert.equal(seat.style.overflow, "hidden");
+  // the page draws the new page under the sheet: the message taken is the panel
+  // at its head, and the bubble still waiting is the same bubble, left in the seat
+  el.reply.dataset.raw = "The invented new answer.";
+  el.reply.innerHTML = markdown.render(el.reply.dataset.raw);
+  context.syncSent(el, WAITING.map(text => ({ text, stage: "sent" })));
+  assert.deepEqual([...context.sentPanels(el)], [waiting], "the bubble still waiting was drawn again");
+  assert.equal(taken.parentNode, null);
+  el.answwrap.rect = { top: 120, bottom: 200 };
+  context.syncAnswered(el, context.liveAnswered(answer));
+  context.turnGo(el, turn);
+  assert.equal(page.style.transform, "translate3d(0, -520px, 0)",
+    "the glide does not carry the read bubble onto the new page's own panel");
+  // only the bubble that rises lets its word go on the way up
+  assert.equal(rising[0].classList.contains("markgone"), true, "the rising bubble kept its Read");
+  assert.equal(waiting.classList.contains("markgone"), false, "the waiting bubble's word was faded");
+  assert.equal(waiting.dataset.mark, "Delivered");
+  assert.equal(waiting.parentNode, el.sentwrap);
+});
+
+test("a batch the board could not state, or a bubble holding both a message answered and one waiting, carries the whole seat up as before", () => {
+  // the board could not say what the reply was given
+  const unknown = sandbox();
+  unknown.context.boxBand = () => 64;
+  const el = waitingCard(unknown.context, [{ text: TAKEN, stage: "delivered" }, ...WAITING.map(text => ({ text, stage: "sent" }))]);
+  unknown.context.turnBegin(el, { ...NEXT, answered: null });
+  const sheet = el.body.querySelector(".turnsheet");
+  assert.equal(sheet.style.height, "700px", "an unknown batch left bubbles standing");
+  assert.equal(sheet.style.getPropertyValue("--turnair"), "");
+  const seat = sheet.querySelector(".turnpage").children.find(node => node.classList.contains("sentwrap"));
+  assert.equal(seat.querySelectorAll(".answered.sent").length, 2, "the whole seat is not pictured");
+  assert.equal(seat.style.height, "160px");
+  // one bubble holding the message answered and the two still waiting
+  const mixed = sandbox();
+  mixed.context.boxBand = () => 64;
+  const one = waitingCard(mixed.context, [TAKEN, ...WAITING].map(text => ({ text, stage: "sent" })));
+  assert.equal(mixed.context.sentPanels(one).length, 1);
+  mixed.context.turnBegin(one, { ...NEXT, answered: [{ text: TAKEN }] });
+  assert.equal(one.body.querySelector(".turnsheet").style.height, "700px", "a bubble holding both kinds was left standing");
+});
+
 test("the reader is never moved while reading or typing: the new answer waits, and turns once the card is left still", () => {
   const busy = [
     ["scrolled the answer a moment ago", (el, context, run) => { el.readAt = Date.now(); }, el => { el.readAt = 0; }],
