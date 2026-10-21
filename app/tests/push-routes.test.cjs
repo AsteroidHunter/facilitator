@@ -1,5 +1,6 @@
 // The push side of the phone page, against a fixture server whose working
-// flag expires in one second and a fake Tailscale CLI: the live bridge gate,
+// flag expires after one second with no request from its lane and a fake
+// Tailscale CLI: the live bridge gate,
 // public key, subscription store, VAPID token openssl signs (verified with
 // openssl), and the exact events that send a push. Notes never push.
 const assert = require("node:assert/strict");
@@ -301,8 +302,8 @@ before(async () => {
   const source = await readFile(path.join(ROOT, "server.py"), "utf8");
   let patched = source.replace("PORT = 8877", "PORT = int(os.environ['FACILITATOR_TEST_PORT'])");
   assert.notEqual(patched, source, "test server port was not patched");
-  patched = patched.replace("BG_STALE = 75.0", "BG_STALE = 1.0");
-  assert.match(patched, /BG_STALE = 1\.0/, "the working flag's clock was not patched");
+  patched = patched.replace("LANE_QUIET = 600.0", "LANE_QUIET = 1.0");
+  assert.match(patched, /LANE_QUIET = 1\.0/, "the working flag's clock was not patched");
   patched = patched.replace("PUSH_BRIDGE_TIMEOUT = 3.0", "PUSH_BRIDGE_TIMEOUT = 1.0");
   assert.match(patched, /PUSH_BRIDGE_TIMEOUT = 1\.0/, "the bridge timeout was not patched");
   // these cases are about pushes, not the typing hold (typing-hold.test.cjs),
@@ -564,10 +565,11 @@ test("a reply under a live working flag waits, and the flag dropping hands the t
 test("a working flag expiring while a reply waits hands the turn over with one push", async () => {
   const id = await create("Deferred until expiry");
   assert.equal((await post(`/working?box=${id}&v=1`)).status, 200);
-  assert.equal((await post(`/reply?box=${id}`, "answered, flag still beating")).status, 200);
+  assert.equal((await post(`/reply?box=${id}`, "answered, flag still live")).status, 200);
   await noPushWithin(300);
   const before = pushes.length;
-  await new Promise(resolve => setTimeout(resolve, 1100));   // past the patched one second clock
+  // past the patched one second the lane may go unheard; reading the board is not the lane's agent
+  await new Promise(resolve => setTimeout(resolve, 1100));
   const card = (await api("/state")).body.boxes.find(b => b.id === id);   // /state sweeps the clock
   assert.equal(card.state, "yours");
   await pushesAfter(before + 1);

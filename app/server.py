@@ -107,13 +107,18 @@ Endpoints:
                                message is marked done; only a truly empty meta
                                card is removed
   POST /working?box=ID&v=1|0 -> a job runs behind this box: it shows green
-                               without holding the lane's claim. Registration
-                               starts a heartbeat clock; without /ping every
-                               75s the green expires on its own. v=0 and that
-                               expiry are also where a turn deferred by a
-                               reply under the flag is handed over
-  POST /ping?box=ID         -> heartbeat for a registered job; refreshes its
-                               green while the job actually runs
+                               without holding the lane's claim, for as long
+                               as the card's lane's agent is in touch with the
+                               board (LANE_QUIET, see _lane_in_touch). After
+                               that long with no request from it the green
+                               expires on its own and the flag goes with it.
+                               v=0 and that expiry are also where a turn
+                               deferred by a reply under the flag is handed
+                               over
+  POST /ping?box=ID         -> kept for agents from before the lane rule: it
+                               changes nothing on the card and, like any
+                               request an agent makes on its lane's cards,
+                               keeps the lane in touch
   POST /testing?box=ID&v=1|0 -> raise or lower the ready-to-test marker: a
                                durable per-card flag the agent sets once a
                                delivered change is actually available for the
@@ -931,8 +936,8 @@ Endpoints:
                                value that means the full body. A big card
                                message has no cap.
                                A normal reply hands the ball to you only when
-                               no working flag beats on the box. While one
-                               does, nothing awaits you yet: the card goes to
+                               no working flag is live on the box. While one
+                               is, nothing awaits you yet: the card goes to
                                the deferred state and the turn is handed over
                                when that flag drops or expires, so a mid-work
                                reply cannot turn a green card yellow.
@@ -955,7 +960,9 @@ Endpoints:
 Owner routing (2026-08-05): every box carries an owner tag, facilitator (tool
 discussion, this repo's agent) or a project lane (the project under discussion,
 its own agent). Each owner has its own busy/claim slot and listener-presence
-tracking, so the lanes drain the same board without blocking each other.
+tracking, so the lanes drain the same board without blocking each other. The
+board also notes when each lane's agent last asked it anything, which is what
+keeps that lane's working cards green.
 
 State persists to state.json next to this file; every send/reply also appends
 to transcript.jsonl so the discussion survives anything. search-index.sqlite
@@ -2054,7 +2061,7 @@ OP_EVICT_FLOOR = 2 * 86400      # a receipt younger than this is kept whatever t
 OP_KEEP = 4000                  # the soft cap the count is trimmed toward, oldest-and-old first
 OP_ASK_MAX = 32                 # receipts one reading of the board may ask after
 OP_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
-BG_STALE = 75.0   # seconds without a /ping before a registered job stops counting as green
+LANE_QUIET = 600.0   # seconds a lane's agent may go unheard before its working cards stop counting as green
 # view pages a project may hold at once. A page is four short fields, so the cap
 # is not about disk: it is what keeps the switcher at the foot of the workspace a
 # row of dots a hand can hit rather than a strip nobody can aim at
@@ -2155,6 +2162,92 @@ _last_wait = {ow: 0.0 for ow in OWNERS}
 _agent_names: dict = {ow: None for ow in OWNERS}
 
 
+# ---- the lane's agent in touch ---------------------------------------------------
+# A working card stays green for as long as its lane's agent is still talking to
+# the board: any request it makes for its lane counts (LANE_ROUTES), from this
+# Mac or through a server's door, and a /wait counts for the whole time it is
+# open. After LANE_QUIET with none, the agent is taken to have stopped, and its
+# working cards leave green as a dropped flag does (_sweep). What the board's
+# own pages ask never counts: the person reading or acting on a card says
+# nothing about whether the agent is still running.
+#
+# when each lane's agent was last heard, on _lane_now's clock: runtime only,
+# like the rest of presence. A lane not heard since the board started counts
+# from the start, since nothing could be heard while the board was down, so
+# after a restart a working card keeps its green while its agent comes back
+_lane_heard: dict = {}
+_lane_start = time.monotonic()
+
+# the routes an agent works its lane through, each with the field that names
+# the lane: owner= itself, or the card (box=, and from= on a link) whose lane
+# it is. /wait is the listener's own count, kept in _wait_enter and _wait_leave
+LANE_ROUTES = {
+    "/ack": "owner", "/fresh": "owner", "/unread": "owner", "/create": "owner",
+    "/reply": "box", "/working": "box", "/ping": "box", "/title": "box", "/testing": "box",
+    "/park": "box", "/props": "box", "/context": "box", "/link": "from",
+    "/magic": "box", "/magic/close": "box", "/magic/reopen": "box",
+}
+
+
+def _lane_now() -> float:
+    """The clock a lane's silence is measured on. Monotonic, which on the Mac
+    stands still while it sleeps, so a Mac asleep is never an agent gone
+    quiet; one function, so the tests can move it."""
+    return time.monotonic()
+
+
+def _lane_in_touch(ow: str) -> bool:
+    """The lane's agent has a /wait open now, or has asked the board something
+    within LANE_QUIET. Callers hold _lock."""
+    if _waiters.get(ow, 0) > 0:
+        return True
+    return _lane_now() - _lane_heard.get(ow, _lane_start) < LANE_QUIET
+
+
+def _agent_request(scope: dict) -> bool:
+    """Whether an agent sent this request, rather than one of the board's own
+    pages. A request through the agent door is a server's agent, and one on
+    the phone's port or forwarded by Tailscale Serve is the phone. On the
+    board's own port the Mac board, its phone view and the onboarding run in a
+    browser, which names the page in Origin on every write and in
+    Sec-Fetch-Site on every request, and no script can leave either out;
+    curl, onboard.py, magic.py and the facilitator command send neither."""
+    if scope.get("facilitator.remote"):
+        return True
+    if _via_gate(scope):
+        return False
+    names = {k.lower() for k, _ in scope.get("headers") or ()}
+    return b"origin" not in names and b"sec-fetch-site" not in names
+
+
+def _lane_of_request(q: Query) -> str | None:
+    """The lane an agent's request on LANE_ROUTES is for, or None off those
+    routes, for an unknown owner or for a card not on the board. Callers hold
+    _lock."""
+    field = LANE_ROUTES.get(q.path)
+    if field == "owner":
+        ow = q.one("owner", "facilitator")
+        return ow if ow in OWNERS else None
+    if field:
+        b = _box(q.one(field))
+        return b.get("owner", "facilitator") if b else None
+    return None
+
+
+def _heard(ow: str) -> None:
+    """The lane's agent asked the board something just now. A lane that had
+    gone quiet first has its working cards swept out of green, so their green
+    ends LANE_QUIET after the last request whether or not anything read the
+    board in between; a save that fails there is left for the next reading,
+    as at /state. Callers hold _lock."""
+    if not _lane_in_touch(ow):
+        try:
+            _sweep()
+        except SaveFailed:
+            pass
+    _lane_heard[ow] = _lane_now()
+
+
 def _agent_kind(owner: str) -> str:
     """claude, codex or other: which agent the lane's listener said it was on
     its last /wait, or other when none has said since the start. A reply's
@@ -2245,7 +2338,7 @@ def _sync_owner_registries() -> None:
         if ow and ow not in kept:
             kept.append(ow)
     OWNERS = tuple(kept)
-    for registry in (_waiters, _last_wait, _agent_names):
+    for registry in (_waiters, _last_wait, _agent_names, _lane_heard):
         for ow in [ow for ow in registry if ow not in OWNERS]:
             del registry[ow]
     for ow in OWNERS:
@@ -2965,21 +3058,29 @@ def _migrate() -> None:
         # creased flag nothing reads, so it is dropped here.
         b.pop("creased", None)
     # the card state machine (2026-08-26): boxes written before it carry the
-    # old scattered flags. bg and bg_ts collapse into hb; a fresh heartbeat
-    # keeps its green (deferred if a turn was recorded under the flag), a dead
-    # flag hands a recorded turn over now, and everything else lands where it
-    # rests. ball_due dies here; ball stays as the machine's turn register
+    # old scattered flags. bg and bg_ts collapse into the working flag; a
+    # fresh heartbeat keeps its green (deferred if a turn was recorded under
+    # the flag), a dead flag hands a recorded turn over now, and everything
+    # else lands where it rests. ball_due dies here; ball stays as the
+    # machine's turn register.
+    # The lane rule (2026-10-20) retired the card's own heartbeat: hb, the
+    # time of its last /ping, becomes the flag. One pinged within the 75
+    # seconds that heartbeat allowed is still on, and its lane keeps it green
+    # from here (_lane_in_touch); one gone quiet was out of green already, or
+    # would have been at the first reading, so it comes back off
     for b in _state["boxes"]:
         b.setdefault("ball", "you")
+        if "hb" in b or "state" not in b:
+            hb = b.pop("hb", b.get("bg_ts", 0) if b.get("bg") else 0)
+            b["flag"] = bool(hb) and time.time() - hb < 75.0
         if "state" not in b:
-            b["hb"] = b.get("bg_ts", 0) if b.get("bg") else 0
-            if _hb_live(b):
+            if b["flag"]:
                 b["state"] = "deferred" if b.get("ball_due") else "working"
             else:
                 if b.get("ball_due"):
                     b["ball"] = "you"
                 b["state"] = _rest(b)
-        b.setdefault("hb", 0)
+        b.setdefault("flag", False)
         for k in ("ball_due", "bg", "bg_ts"):
             b.pop(k, None)
     # Reply variants (2026-09-01) are a one-time data representation migration.
@@ -3714,43 +3815,45 @@ def _pages(owner: str) -> list:
 # state (color)   new       untouched card (grey; yellow when born the reader's, ball
 #                           "you": a seeded or standing card)
 #                 queued    a message from the reader waits on the agent (grey)
-#                 working   the flag's heartbeat is beating (green)
-#                 note      an interim progress note while its heartbeat is
-#                           beating (green; no turn waits on the reader). Only
-#                           a card saved before /note was removed can be in it
+#                 working   the flag is live (green)
+#                 note      an interim progress note while its flag is live
+#                           (green; no turn waits on the reader). Only a card
+#                           saved before /note was removed can be in it
 #                 deferred  working, plus a reply that becomes the reader's turn the
 #                           moment the work ends (green)
 #                 yours     an unanswered reply awaits the reader (yellow)
 #                 rest      nothing pending either way (grey)
 # event           /send                    -> clears parked, then queued; a
-#                                          beating flag keeps its
+#                                          live flag keeps its
 #                                          green, and a deferred turn dies:
 #                                          the reader has answered
-#                 /reply                   -> yours; flag still beating ->
+#                 /reply                   -> yours; flag still live ->
 #                                          deferred; leftover msgs -> queued
-#                 /working v=1, /ping      -> working (note/deferred stay)
-#                 flag drop or 75s expiry  -> deferred hands its turn over and
-#                                          lands yours; working/note land at _rest
-#                 /dismiss                 -> _rest, a beating flag excepted
+#                 /working v=1             -> working (note/deferred stay)
+#                 flag drop, or the lane   -> deferred hands its turn over and
+#                 quiet for LANE_QUIET        lands yours; working/note land at _rest
+#                 /dismiss                 -> _rest, a live flag excepted
 # _rest, the landing rule: pending -> queued, never touched -> new, ball
 # "you" -> yours, else rest. Expiry is swept lazily at /state and /wait,
-# beside the unacked-claim clock, and by /working itself.
+# beside the unacked-claim clock, by /working itself and when a quiet lane
+# is heard again (_heard).
 
-# note stays green, so a card saved in it still leaves it when its heartbeat
-# runs out, exactly as it did while /note was taken
+# note stays green, so a card saved in it still leaves it when its flag goes,
+# exactly as it did while /note was taken
 GREEN = ("working", "note", "deferred")
 
 
-def _hb_live(b: dict) -> bool:
-    """The flag's heartbeat is fresh: hb (0 = no flag registered) was beaten
-    within BG_STALE. A registered flag gone quiet greys out but stays
-    registered, so a late /ping turns the card green again; only /working
-    v=0 unregisters."""
-    return (time.time() - b.get("hb", 0)) < BG_STALE
+def _flag_live(b: dict) -> bool:
+    """The card's working flag is on and its lane's agent is in touch
+    (_lane_in_touch): what keeps a card green. A lane quiet for LANE_QUIET
+    takes the flag down with the green (_sweep), so an agent that joins the
+    lane later cannot turn green a card it never worked on; only /working
+    raises it. Callers hold _lock."""
+    return bool(b.get("flag")) and _lane_in_touch(b.get("owner", "facilitator"))
 
 
 def _green(b: dict) -> None:
-    """A beating flag turns the card green; semantic green states such as note
+    """A raised flag turns the card green; semantic green states such as note
     and deferred stay exactly what they were."""
     if b["state"] not in GREEN:
         b["state"] = "working"
@@ -3788,7 +3891,7 @@ def _await_reader_test(b: dict) -> bool:
     work available."""
     if b.get("done"):
         return False
-    if _hb_live(b):
+    if _flag_live(b):
         return False
     if _state["busy"].get(b.get("owner", "facilitator")) == b["id"]:
         return False
@@ -4055,17 +4158,22 @@ def _release_unacked() -> None:
 
 
 def _sweep(persist: bool = True) -> bool:
-    """The lazy clock behind green: a card whose flag heartbeat has gone stale
-    leaves the green states, deferred handing its turn over on the way out (a
-    claim still held keeps showing green through _shown's mask regardless).
-    Runs at /state and /wait, exactly where the ack clock is swept, and inside
-    /working itself, so a drop or an expiry lands within about a second.
-    Callers hold _lock. Ordinarily it saves and notifies when it moves anything;
-    a route that is already building a larger mutation passes persist=False and
-    includes the sweep in its one final save."""
+    """The lazy clock behind green: a flag whose lane's agent has gone quiet
+    (_lane_in_touch) comes down, and a card whose flag is not live leaves the
+    green states, deferred handing its turn over on the way out (a claim still
+    held keeps showing green through _shown's mask regardless). Runs at /state
+    and /wait, exactly where the ack clock is swept, inside /working itself,
+    so a drop or an expiry lands within about a second, and when a quiet lane
+    is heard again (_heard). Callers hold _lock. Ordinarily it saves and
+    notifies when it moves anything; a route that is already building a
+    larger mutation passes persist=False and includes the sweep in its one
+    final save."""
     moved = False
     for b in _state["boxes"]:
-        if b["state"] in GREEN and not _hb_live(b):
+        if b.get("flag") and not _lane_in_touch(b.get("owner", "facilitator")):
+            b["flag"] = False
+            moved = True
+        if b["state"] in GREEN and not _flag_live(b):
             _handover(b)
             b["state"] = _rest(b)
             moved = True
@@ -4509,7 +4617,7 @@ def _op_status(op: str) -> dict:
 # fingerprint has moved since. The fingerprint is of the bytes sent and not of
 # the saved card, so no change the phone would see can be missed whatever made
 # it. A card read twice at one revision that did not read the same both times
-# (a heartbeat going quiet moves no revision) is sent to every phone holding
+# (the clock alone moves no revision) is sent to every phone holding
 # that revision. A restart forgets the readings, and a phone holding one from
 # before it gets the whole board.
 
@@ -4555,7 +4663,7 @@ def _phone_box(b: dict) -> dict:
         "replyTs": b.get("reply_ts", 0),
         "answered": _answered_out(b.get("answered")),
         "writing": _state["busy"].get(ow) == b["id"],
-        "bg": _hb_live(b), "state": _shown(b),
+        "bg": _flag_live(b), "state": _shown(b),
         # the card's magic box, only on a card that has one, as the board's
         # reading carries it: the phone shows it in the card list's drawer
         **({"magic": b["magic"]} if b.get("magic") else {}),
@@ -4805,9 +4913,9 @@ def _ui_state() -> dict:
                 "turnTs": b.get("turn_ts", 0),
                 "engine": b.get("engine", "claude"),
                 "writing": st["busy"].get(b.get("owner", "facilitator")) == b["id"],
-                # green only while the job's heartbeat is fresh: a job
-                # that stopped pinging cannot keep a card green
-                "bg": _hb_live(b),
+                # green only while the flag is up and the lane's agent is
+                # in touch: an agent that stopped cannot keep a card green
+                "bg": _flag_live(b),
                 # the single source of truth for color and sort: the
                 # machine's state through the shelf mask, beside the raw
                 # flags above so the page never has to reconcile them
@@ -4886,7 +4994,7 @@ def _ui_state() -> dict:
             "offrecord": _waiters.get(ow, 0) == 0 and st["busy"].get(ow) is None
                          and 60 < (time.time() - _last_wait.get(ow, 0.0)) < 900
                          and not any(
-                             _hb_live(b)
+                             _flag_live(b)
                              for b in st["boxes"] if b.get("owner", "facilitator") == ow),
         } for ow in OWNERS},
     }
@@ -4902,8 +5010,8 @@ def _ui_state() -> dict:
 # fingerprint of the bytes each was sent as and the phone's rebuild of the order
 # (_phone_delta); the reading's other fields by the same rule, each one whole.
 # What is kept is the desk's own, its cards being another shape than the
-# phone's. A field or card that read two ways at one revision (a heartbeat going
-# quiet, a listener coming, the clock) is sent to every page holding that
+# phone's. A field or card that read two ways at one revision (a listener
+# coming, the clock) is sent to every page holding that
 # revision, so whatever made a change, the page cannot miss it.
 #
 # Unlike the phone's, the answer never stops at "nothing new": the cards and
@@ -4992,15 +5100,17 @@ class Query(dict):
     """The query string parsed the way it always was, plus the raw string for
     the one route that has to tell a blank value from an absent one, the
     request path for the routes that read a name out of it, the encodings
-    the caller takes, for the one route whose answer is compressed, and
+    the caller takes, for the one route whose answer is compressed,
     whether the request is a local page's and names its own origin, for the
-    routes only a page on this Mac may use (_local_request)."""
+    routes only a page on this Mac may use (_local_request), and whether an
+    agent sent it rather than a page (_agent_request)."""
     raw: str = ""
     path: str = ""
     accept_encoding: str = ""
     local: bool = False
     same_origin: bool = False
     gated: bool = False
+    agent: bool = False
 
     def one(self, name: str, default: str = "") -> str:
         values = self.get(name)
@@ -5058,12 +5168,12 @@ def _get_compose_format(q: Query, _):
 
 def _sweep_clocks() -> None:
     """The two lazy clocks a reading runs before it answers: the unconfirmed
-    hand-off clock and the working-flag heartbeat. Callers hold _lock. Either
-    can move a card and save; if that save fails, the state has already been
-    put back to the file and the failure written down, and the reading answers
-    that restored board rather than failing too. A reader must not be blacked
-    out by a disk the commands are already refusing; the clock runs again on
-    the next reading and lands when the disk is back."""
+    hand-off clock and the working flags' lanes going quiet. Callers hold
+    _lock. Either can move a card and save; if that save fails, the state has
+    already been put back to the file and the failure written down, and the
+    reading answers that restored board rather than failing too. A reader
+    must not be blacked out by a disk the commands are already refusing; the
+    clock runs again on the next reading and lands when the disk is back."""
     try:
         _release_unacked()
         _sweep()
@@ -6211,7 +6321,9 @@ def _wait_enter(owner: str, agent: str | None) -> None:
     save has gone through: a save that fails raises before the bump and rolls
     _state back, so a lane can never be left showing a listener that a failed
     first wait never really had. Callers reach _wait_leave only when this
-    returned, so the bump and the later decrement stay balanced."""
+    returned, so the bump and the later decrement stay balanced. The wait is
+    the lane's agent heard (_heard), and it stays in touch for as long as
+    the count is up."""
     with _lock:
         if agent:
             _agent_names[owner] = agent[:24]
@@ -6219,6 +6331,7 @@ def _wait_enter(owner: str, agent: str | None) -> None:
         if not ev.get(owner):
             ev[owner] = True
             _save()   # raises SaveFailed on failure, before the count is touched
+        _heard(owner)
         _waiters[owner] += 1
 
 
@@ -6226,6 +6339,8 @@ def _wait_leave(owner: str) -> None:
     with _lock:
         _waiters[owner] -= 1
         _last_wait[owner] = time.time()
+        # a wait is in touch until its very end, so the lane's quiet starts here
+        _lane_heard[owner] = _lane_now()
 
 
 def _wait_poll(owner: str):
@@ -6237,7 +6352,7 @@ def _wait_poll(owner: str):
         # the short clock first: a hand-off nobody confirmed comes back
         # after 90 seconds, long before the steal-back below notices
         _release_unacked()
-        # and a working flag that stopped pinging drops its card out of
+        # and a working flag whose lane went quiet drops its card out of
         # green, handing over a turn deferred under it
         _sweep()
         # a claim older than 15 min with no reply is a dead listener: steal it back
@@ -7123,10 +7238,10 @@ def _post_send(q: Query, text: str):
         # returns without reaching here and cannot clear a later fresh marker.
         box["testing"] = False
         box["ball"] = "me"  # the message is sent: the ball is in the agent's court
-        # the message queues the card; a beating flag keeps its green,
+        # the message queues the card; a live flag keeps its green,
         # and a deferred turn dies here, since the reader has read and
         # answered: it must not resurface when the flag goes down
-        box["state"] = "working" if _hb_live(box) else "queued"
+        box["state"] = "working" if _flag_live(box) else "queued"
         box["ts"] = time.time()
         _state["next_mid"] += 1
         # untitled user-created meta box: its first message names it
@@ -7224,7 +7339,7 @@ def _post_reply(q: Query, text: str):
         box["full_replies"] = box.get("full_replies", 0) + 1
         box["reply_kind"] = "agent"
         # The machine's sole answer move, taken once the claim is let
-        # go below. While a working flag beats, the final turn waits in
+        # go below. While a working flag is live, the final turn waits in
         # deferred and is handed over when that work ends.
         now = time.time()
         box["agent_ts"] = now  # when the agent last replied
@@ -7257,7 +7372,7 @@ def _post_reply(q: Query, text: str):
         answerer = box.pop("claim_agent", None) or _agent_class(ow)
         if answerer:
             box["agent"] = answerer
-        if _hb_live(box):
+        if _flag_live(box):
             box["state"] = "deferred"
         else:
             _turn_to_you(box)
@@ -7312,39 +7427,38 @@ def _post_done(q: Query, text: str):
 
 def _post_working(q: Query, text: str):
     # a job runs behind this card: green without a claim, so the
-    # lane stays free. Registration starts a heartbeat clock; the
-    # job (or agent) must /ping while it runs, or green expires.
+    # lane stays free, for as long as the lane's agent stays in
+    # touch with the board (_lane_in_touch)
     bid = q.one("box")
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
-        box["hb"] = time.time() if q.one("v", "1") == "1" else 0
-        if box["hb"]:
+        box["flag"] = q.one("v", "1") == "1"
+        if box["flag"]:
             _green(box)
         # v=0 is one of the two ways out of green, so the sweep runs
         # right here and a deferred turn is handed over at once. v=1
-        # re-registers and the flag beats again, so a deferred card
-        # just keeps waiting, which is what re-registering should mean. This
+        # raises the flag again, so a deferred card just keeps
+        # waiting, which is what raising it again should mean. This
         # route saves once below, including anything this sweep moves.
         _sweep(persist=False)
-        _log("working" if box["hb"] else "workdone", bid, "")
+        _log("working" if box["flag"] else "workdone", bid, "")
         _save()
         _notify()
         return 200, {"ok": True}
 
 
 def _post_ping(q: Query, text: str):
-    # heartbeat for a registered job; keeps the card's green alive
+    # the old per-card heartbeat, kept so an agent from before the
+    # lane rule keeps working: the request is its lane's agent in
+    # touch like any other (LANE_ROUTES), and the card is left as it is
     bid = q.one("box")
     with _lock:
         box = _box(bid)
         if box is None:
             return 400, {"error": "bad box"}
-        if box.get("hb"):
-            box["hb"] = time.time()
-            _green(box)  # a registered job beating again takes back its green
-        return 200, {"ok": True, "bg": bool(box.get("hb"))}
+        return 200, {"ok": True, "bg": bool(box.get("flag"))}
 
 
 def _post_testing(q: Query, text: str):
@@ -7807,7 +7921,7 @@ def _create_box_record(owner: str, title: str) -> dict:
         "reply_full": "", "reply_short": "",
         "pending": [], "done": False, "docked": False, "parked": False, "replies": 0,
         "full_replies": 0, "reply_kind": "",
-        "state": "new", "hb": 0,
+        "state": "new", "flag": False,
         "ball": "me", "ts": now, "owner": owner,
         "ws": ws0, "task": None, "agent_ts": 0, "seen": 0, "testing": False,
         # its own made and changed times (see card properties); a create row
@@ -8280,10 +8394,10 @@ def _post_dismiss(q: Query, text: str):  # drop a box's queued messages, unanswe
         if _state["busy"].get(ow) == bid:
             _state["busy"][ow] = None
             _state["claimed"][ow] = []
-        # a beating flag keeps its green through a dismissal; anything
+        # a live flag keeps its green through a dismissal; anything
         # else lands where the card rests, an unanswered reply beneath
         # the dropped queue showing again
-        if not _hb_live(box):
+        if not _flag_live(box):
             _handover(box)
             box["state"] = _rest(box)
         _log("dismiss", bid, f"{n} queued dropped")
@@ -9151,6 +9265,7 @@ def _query(scope: dict) -> Query:
                               if k == b"accept-encoding"), "")
     q.local, q.same_origin = _local_request(scope)
     q.gated = _via_gate(scope)
+    q.agent = _agent_request(scope)
     return q
 
 
@@ -9258,15 +9373,30 @@ def _run_state_request(fn, *args):
             raise
 
 
+def _hearing(fn):
+    """fn, run once the agent asking it has been heard on the lane its request
+    is for (_heard). First, so a route that sweeps the flags, as /working does,
+    already counts the request it is answering."""
+    def heard(q: Query, payload):
+        with _lock:
+            ow = _lane_of_request(q)
+            if ow is not None:
+                _heard(ow)
+        return fn(q, payload)
+    return heard
+
+
 def _endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
               too_large: str = "body too large", stateful: bool = False):
     """One route: read the request on the loop, do its work in a thread,
     answer from the loop. body is none for a GET, text for the plain text
     bodies most POSTs carry (utf-8, replacement characters for anything else,
-    stripped, as always) and raw for the routes whose bytes are the content."""
+    stripped, as always) and raw for the routes whose bytes are the content.
+    An agent's request on one of LANE_ROUTES is its lane's agent heard."""
     async def endpoint(request: Request) -> Response:
         q = _query(request.scope)
         route, box = q.path, q.one("box")
+        work = _hearing(fn) if q.agent and q.path in LANE_ROUTES else fn
         payload = None
         if body != "none":
             try:
@@ -9284,9 +9414,9 @@ def _endpoint(fn, body: str = "none", cap: int = MAX_TEXT_BODY,
             payload = raw if body == "raw" else raw.decode("utf-8", "replace").strip()
         try:
             if stateful:
-                outcome = await run_in_threadpool(_run_state_request, fn, q, payload)
+                outcome = await run_in_threadpool(_run_state_request, work, q, payload)
             else:
-                outcome = await run_in_threadpool(fn, q, payload)
+                outcome = await run_in_threadpool(work, q, payload)
         except SaveFailed:
             # The failed save already restored the board to its installed
             # snapshot. This answer is the difference between a page that can

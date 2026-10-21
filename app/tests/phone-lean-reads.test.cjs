@@ -12,7 +12,7 @@
 // "Moved to the end" moves its card to the end of the board (no route moves a
 // card today; this is the fallback's only way in), and card m1 carries the
 // words of a probe file while it exists, which is a card reading two ways at
-// one revision with no save between, the way a heartbeat going quiet does it.
+// one revision with no save between, the way the clock alone can do it.
 // No browser, and port 8877 is never touched.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
@@ -432,8 +432,8 @@ test("a message's delivery state alone reaches the phone in a lean reading", asy
 });
 
 // one phone reads m1 one way, a second phone reads it the other way at the
-// same revision, and then it goes back, still with no save: a heartbeat going
-// quiet and then beating again. The second phone holds words the board no
+// same revision, and then it goes back, still with no save: the clock moving
+// it one way and then back. The second phone holds words the board no
 // longer has, and only the mark made when m1 read two ways gets it the card
 test("a card that reads two ways at one revision is sent to every phone holding it", async () => {
   const merge = pageMerge();
