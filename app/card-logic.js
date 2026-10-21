@@ -187,31 +187,36 @@ function installCardPageGuard(win = window){
   function activate(e){
     const link = linkFor(e);
     if (!link){
-      // the picture an image box shows has no menu: a plain click opens it once
-      // the box is selected, and any other press is left as it was
+      // the picture an image box shows has no menu: a plain click expands the
+      // box once it is selected, and any other press is left as it was. so is
+      // every press on the picture of a box already expanded, where it zooms
+      // (magicView)
       const shown = plainClick(e) ? boxImage(e.target) : null;
-      if (!shown || !boxSelected(shown)) return;
+      if (!shown || !boxSelected(shown) || shown.closest(".magicbox.big")) return;
       e.preventDefault(); e.stopImmediatePropagation();
-      openCardPicture(shown, null);
+      if (!magicBoxPicture(shown, pressedFrom)) openCardPicture(shown, null);
       return;
     }
     if (downloads.has(link)) return;
     e.preventDefault(); e.stopImmediatePropagation();
     if (held === link && e.type === "click"){ held = null; return; }
     if (plainClick(e) && cardPicture(link)){
-      // the click that selects a markdown box is only that: no viewer, no menu
+      // the click that selects a markdown box is only that: no box expanded, no menu
       if (!boxSelected(link)) return;
-      // a picture in a magic box leaves the focus where the click in the box put it
-      if (openCardPicture(link, link.closest(".magicbox") ? null : pressedFrom)) return;
+      // a picture in a magic box expands the box to show it alone; one that
+      // cannot leaves the focus where the click in the box put it
+      const box = link.closest(".magicbox");
+      if (box && magicBoxPicture(link, pressedFrom)) return;
+      if (openCardPicture(link, box ? null : pressedFrom)) return;
     }
     show(link, e);
   }
   // the Mac board's box is selected (held) by a press in it, which the board
   // takes after this guard has heard it, so the press records what the box was
   // as it came down: the first click on a picture is the box being selected, the
-  // next one opens it. the phone's box has no selected state, so its pictures
-  // open on the first tap, as the card's do. a click with no press before it
-  // (the keys, a script) reads the box as it stands
+  // next one expands it. the phone's box has no selected state, so a tap on its
+  // pictures expands it at once, as a card's opens on the first tap. a click
+  // with no press before it (the keys, a script) reads the box as it stands
   function boxSelected(picture){
     const box = picture.closest(".magicbox"), press = pressedBox;
     pressedBox = null;
@@ -295,11 +300,13 @@ function installCardPageGuard(win = window){
 // click goes from fitted to twice at that point and back. at its fitted size a
 // tap or a click puts it back, once the moment for a second tap has passed;
 // zoomed, it takes Escape. the picture a card's magic box shows (an image box)
-// and the pictures in a markdown box open the same way, on both pages, and the
-// box keeps its hold on the keys through it. on the Mac board that is once the
-// box is selected: the click that selects it does not open the picture. a page
-// an agent made in the box has its own pictures, which are its own; the other
-// boxes beside the card keep the menu for theirs
+// and the pictures in a markdown box are not opened here: the click expands
+// the box itself, where the picture zooms and moves the same way
+// (magicBoxPicture, magicView), on both pages. on the Mac board that is once
+// the box is selected: the click that selects it does not expand it. where the
+// box cannot expand (a phone browser without the top layer) its picture opens
+// here as before. a page an agent made in the box has its own pictures, which
+// are its own; the other boxes beside the card keep the menu for theirs
 const CARD_PICTURES = ".reply.cardmd img.shot, .answmsg.cardmd img.shot, .magicbox .mbtext.cardmd img.shot";
 const BOX_PICTURE = ".magicbox .mbimg";
 const CARD_PICTURE_MS = 300;
@@ -335,6 +342,14 @@ function cardPicture(target){
 // the picture an image box shows, or null
 function boxImage(target){
   return target?.closest?.(BOX_PICTURE) || null;
+}
+// a picture in a card's magic box, clicked or tapped open: the box expands to
+// show it, where it zooms (its view's picture, magicView). back: what had
+// focus before the press, which has it again as the box goes back. false for
+// a picture that has not drawn, or a box that cannot expand
+function magicBoxPicture(img, back){
+  const view = img.closest(".magicbox")?._view;
+  return !!view && !!img.complete && !!img.naturalWidth && view.picture(img, back);
 }
 // where a picture w by h stands in the box: as large as it fits at its own
 // shape, never past CARD_PICTURE_MOST times its size, and centred
@@ -547,9 +562,9 @@ function cardPictureLayer(doc){
 
 // the phone's magic box stands expanded in the browser's top layer, over
 // everything else on the page (m.html, phoneMagicBig). a layer opened from
-// inside it, the picture opened full screen or a link's menu, goes up there
-// too, over it, and comes down again as it shuts. from anywhere else, and on
-// the Mac, whose box is never there, nothing changes
+// inside it, a link's menu, goes up there too, over it, and comes down again
+// as it shuts. from anywhere else, and on the Mac, whose box is never there,
+// nothing changes
 function cardTopLayer(layer, from){
   const box = from?.closest?.(".magicbox.big");
   if (!box || typeof layer.showPopover !== "function") return;
@@ -8329,6 +8344,8 @@ function magicSiteName(box){
 }
 function magicView(el, hooks = {}){
   const view = { el, body: el.querySelector(".mbbody"), bar: el.querySelector(".mbbar"), url: "", natural: null, page: null };
+  // the page guard finds the view by its box, for a click on a picture in it (magicBoxPicture)
+  el._view = view;
   const placed = () => { if (hooks.placed) hooks.placed(); };
   const cross = el.querySelector(".mbclose");
   if (cross) cross.innerHTML = MAGIC_CROSS;
@@ -8356,11 +8373,211 @@ function magicView(el, hooks = {}){
     if (down !== view.down){ view.down = down; b.style.setProperty("--downband", down + "px"); }
   };
   view.body.addEventListener("scroll", bands, { passive: true });
-  const sized = typeof ResizeObserver === "function" ? new ResizeObserver(bands) : null;
+  // the box changing size lets go of a zoom (zoomResized, below)
+  const sized = typeof ResizeObserver === "function" ? new ResizeObserver(() => { bands(); zoomResized(); }) : null;
   if (sized) sized.observe(view.body);
+  // expanded, the picture the box shows (.mbimg: an image box's own, or one
+  // from its words shown alone, view.solo) zooms and moves where it stands, as
+  // a card's picture does opened full screen (cardPictureLayer), on the same
+  // numbers: a trackpad pinch (a wheel with ctrlKey, as Chrome sends it, or
+  // Safari's gesture) or command and the wheel zoom about the pointer, from its
+  // fitted size to four times that; two fingers pinch about their middle,
+  // which carries it with them; zoomed, a dragged mouse, one finger or a
+  // two-finger scroll moves it, never so far that an edge comes in past the
+  // box's, so some of it always shows; a double click or a double tap goes
+  // from fitted to twice at that point and back. a lone click or tap does
+  // nothing, and never puts the box back. it is moved by a transform from its
+  // top left corner (card-tokens.css), in the box's own pixels, the board's
+  // stage scale counted out. a box on its way (hooks.moving) takes none of it,
+  // so the click that expanded it is never the first of two
+  const z = { img: null, to: null, at: null, grow: null, touch: null, drag: null, tapped: null, pinch: null };
+  const zoomPic = () => view.big && !(hooks.moving && hooks.moving()) ? view.body.querySelector(":scope > .mbimg") : null;
+  const zoomed = () => !!z.at && z.at.w > z.to.w + 0.5;
+  // where the sheet fits it in the box (object-fit:scale-down): as large as
+  // fits, never past its own size, and centred
+  const zoomFit = img => {
+    const W = img.offsetWidth, H = img.offsetHeight, w = img.naturalWidth || W, h = img.naturalHeight || H;
+    const s = Math.min(W / w, H / h, 1);
+    return { x: (W - w * s) / 2, y: (H - h * s) / 2, w: w * s, h: h * s, W, H };
+  };
+  const zoomStart = img => {
+    if (z.img === img && z.to) return;
+    zoomOff(false);
+    Object.assign(z, { img, to: zoomFit(img) });
+    z.at = z.to;
+  };
+  // a point on the screen in the picture's own pixels, and the screen's
+  // pixels to its (s)
+  const zoomPoint = (img, x, y) => {
+    const r = view.body.getBoundingClientRect(), s = r.width / view.body.offsetWidth || 1;
+    return { x: (x - r.left) / s - view.body.clientLeft - img.offsetLeft, y: (y - r.top) / s - view.body.clientTop - img.offsetTop, s };
+  };
+  // the motion of the moment run out at once, so a gesture starts from where it stands
+  const zoomSettle = () => {
+    if (!z.grow) return;
+    z.grow.finish(); z.grow.cancel(); z.grow = null;
+  };
+  // across and down, a picture smaller than the box stands centred in it, and
+  // a larger one never brings an edge in past the box's
+  const zoomHeld = r => {
+    const axis = (p, size, room) => size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, p));
+    return { x: axis(r.x, r.w, z.to.W), y: axis(r.y, r.h, z.to.H), w: r.w, h: r.h };
+  };
+  // the picture at r, there at once or, with glide, carried there from where
+  // it stands on the picture's time and curve
+  const zoomMove = (img, r, glide) => {
+    const from = glide ? getComputedStyle(img).transform : null;
+    if (z.grow){ z.grow.cancel(); z.grow = null; }
+    z.at = zoomHeld(r);
+    const k = z.at.w / z.to.w, on = k > 1 + 1e-6;
+    img.style.transform = on ? "translate(" + (z.at.x - k * z.to.x) + "px, " + (z.at.y - k * z.to.y) + "px) scale(" + k + ")" : "";
+    img.classList.toggle("zoomed", on);
+    if (glide && !cardPictureStill(window))
+      z.grow = img.animate([{ transform: from }, { transform: img.style.transform || "none" }], { duration: CARD_PICTURE_MS, easing: CARD_PICTURE_EASE });
+  };
+  // zoomed to k times its fitted size, its point under p kept there
+  const zoomBy = (img, k, p, glide) => {
+    const w = z.to.w * Math.min(CARD_PICTURE_ZOOM_MOST, Math.max(1, k)), f = w / z.at.w;
+    zoomMove(img, { x: p.x - (p.x - z.at.x) * f, y: p.y - (p.y - z.at.y) * f, w, h: z.to.h * w / z.to.w }, glide);
+  };
+  // a click or a tap: the second of two close together takes it from fitted to
+  // twice its size at that point, or back from any zoom
+  const zoomTap = (img, x, y) => {
+    const prior = z.tapped;
+    z.tapped = null;
+    if (prior && Date.now() - prior.t < CARD_PICTURE_DOUBLE_MS && Math.hypot(x - prior.x, y - prior.y) < CARD_PICTURE_DOUBLE_SLOP){
+      zoomStart(img); zoomSettle();
+      if (zoomed()) zoomMove(img, z.to, true);
+      else zoomBy(img, CARD_PICTURE_ZOOM_TAP, zoomPoint(img, x, y), true);
+      return;
+    }
+    z.tapped = { t: Date.now(), x, y };
+  };
+  // back to its fit and let go: at once, or with glide carried there from
+  // where it stands, as the box shrinks on the same time and curve
+  function zoomOff(glide){
+    const img = z.img;
+    if (!img) return;
+    const from = z.grow ? getComputedStyle(img).transform : img.style.transform;
+    if (z.grow){ z.grow.cancel(); z.grow = null; }
+    Object.assign(z, { img: null, to: null, at: null, touch: null, drag: null, tapped: null, pinch: null });
+    img.style.transform = "";
+    img.classList.remove("zoomed", "dragging");
+    if (glide && from && from !== "none" && !cardPictureStill(window))
+      z.grow = img.animate([{ transform: from }, { transform: "none" }], { duration: CARD_PICTURE_MS, easing: CARD_PICTURE_EASE });
+  }
+  // the box laid out at another size, the window's or its own on the way
+  // back, lets go of a zoom, as the full-screen picture does
+  function zoomResized(){
+    if (z.img && (z.img.offsetWidth !== z.to.W || z.img.offsetHeight !== z.to.H)) zoomOff(false);
+  }
+  const zoomOn = (type, fn) => view.body.addEventListener(type, e => {
+    const img = zoomPic();
+    if (img && e.target === img) fn(e, img);
+  }, { passive: false });
+  zoomOn("wheel", (e, img) => {
+    zoomStart(img); zoomSettle();
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1;
+    if (e.ctrlKey || e.metaKey){
+      e.preventDefault();
+      const d = Math.max(-CARD_PICTURE_WHEEL_MOST, Math.min(CARD_PICTURE_WHEEL_MOST, e.deltaY * unit));
+      zoomBy(img, z.at.w / z.to.w * Math.exp(-d * CARD_PICTURE_WHEEL_ZOOM), zoomPoint(img, e.clientX, e.clientY));
+    } else if (zoomed()){
+      e.preventDefault();
+      const s = zoomPoint(img, 0, 0).s;
+      zoomMove(img, { ...z.at, x: z.at.x - e.deltaX * unit / s, y: z.at.y - e.deltaY * unit / s });
+    }
+  });
+  // Safari's pinch on a trackpad; the phone's fingers are read as touches
+  zoomOn("gesturestart", (e, img) => {
+    if (z.touch) return;
+    e.preventDefault();
+    zoomStart(img); zoomSettle();
+    z.pinch = z.at.w / z.to.w;
+  });
+  zoomOn("gesturechange", (e, img) => {
+    if (z.pinch == null) return;
+    e.preventDefault();
+    zoomBy(img, z.pinch * e.scale, zoomPoint(img, e.clientX, e.clientY));
+  });
+  zoomOn("gestureend", () => { z.pinch = null; });
+  // the mouse: held down and dragged it moves a zoomed picture, picking no
+  // words and dragging nothing out, and the click that ends a drag is not a
+  // click on it
+  zoomOn("pointerdown", (e, img) => {
+    if (e.pointerType !== "mouse" || e.button) return;
+    zoomStart(img); zoomSettle();
+    z.drag = { start: { x: e.clientX, y: e.clientY }, last: { x: e.clientX, y: e.clientY }, moved: false };
+    if (!zoomed()) return;
+    try { img.setPointerCapture(e.pointerId); } catch (_) {}
+    img.classList.add("dragging");
+  });
+  zoomOn("mousedown", e => { if (z.drag && zoomed()) e.preventDefault(); });
+  zoomOn("dragstart", e => e.preventDefault());
+  zoomOn("pointermove", (e, img) => {
+    const d = z.drag;
+    if (!d || e.pointerType !== "mouse") return;
+    if (!(e.buttons & 1)){ z.drag = null; img.classList.remove("dragging"); return; }
+    if (Math.hypot(e.clientX - d.start.x, e.clientY - d.start.y) > CARD_PICTURE_SLOP) d.moved = true;
+    if (d.moved && zoomed()){
+      const s = zoomPoint(img, 0, 0).s;
+      zoomMove(img, { ...z.at, x: z.at.x + (e.clientX - d.last.x) / s, y: z.at.y + (e.clientY - d.last.y) / s });
+    }
+    d.last = { x: e.clientX, y: e.clientY };
+  });
+  for (const type of ["pointerup", "pointercancel"]) zoomOn(type, (e, img) => img.classList.remove("dragging"));
+  zoomOn("click", (e, img) => {
+    const dragged = z.drag?.moved;
+    z.drag = null;
+    if (!dragged) zoomTap(img, e.clientX, e.clientY);
+  });
+  // the fingers: two pinch about their middle, which carries the picture with
+  // them; one moves a zoomed picture, and one put down and lifted without
+  // moving, with no second joining it, is a tap. every touch on it is its own:
+  // none scrolls or zooms the page, reaches the drawer behind or becomes a click
+  const points = e => [...e.touches].map(t => ({ x: t.clientX, y: t.clientY }));
+  const middle = p => ({ x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 });
+  const zoomTouch = (type, fn) => zoomOn(type, (e, img) => { e.preventDefault(); e.stopPropagation(); zoomStart(img); fn(e, img); });
+  zoomTouch("touchstart", (e, img) => {
+    zoomSettle();
+    const p = points(e);
+    if (p.length >= 2){
+      const m = middle(p);
+      z.touch = { pinch: true, spread: Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) || 1, mid: zoomPoint(img, m.x, m.y), from: z.at };
+    } else if (p.length === 1) z.touch = { pinch: false, start: p[0], last: p[0], tap: !z.touch };
+  });
+  zoomTouch("touchmove", (e, img) => {
+    const p = points(e), g = z.touch;
+    if (!g) return;
+    if (g.pinch && p.length >= 2){
+      const m = middle(p), mid = zoomPoint(img, m.x, m.y);
+      const k = g.from.w / z.to.w * Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) / g.spread;
+      const w = z.to.w * Math.min(CARD_PICTURE_ZOOM_MOST, Math.max(1, k)), f = w / g.from.w;
+      zoomMove(img, { x: mid.x - (g.mid.x - g.from.x) * f, y: mid.y - (g.mid.y - g.from.y) * f, w, h: z.to.h * w / z.to.w });
+    } else if (!g.pinch && p.length === 1){
+      if (Math.hypot(p[0].x - g.start.x, p[0].y - g.start.y) > CARD_PICTURE_SLOP) g.tap = false;
+      if (!g.tap && zoomed()){
+        const s = zoomPoint(img, 0, 0).s;
+        zoomMove(img, { ...z.at, x: z.at.x + (p[0].x - g.last.x) / s, y: z.at.y + (p[0].y - g.last.y) / s });
+      }
+      g.last = p[0];
+    }
+  });
+  // the finger left of two goes on moving the picture from where it is
+  const zoomLift = (e, img) => {
+    const p = points(e), g = z.touch;
+    if (p.length === 1){ z.touch = { pinch: false, start: p[0], last: p[0], tap: false }; return; }
+    if (p.length) return;
+    z.touch = null;
+    if (g && !g.pinch && g.tap && e.type === "touchend") zoomTap(img, g.last.x, g.last.y);
+  };
+  zoomTouch("touchend", zoomLift);
+  zoomTouch("touchcancel", zoomLift);
   // everything in it gone, so a frame that was showing stops running
   view.clear = () => {
+    zoomOff(false);
     view.url = ""; view.page = null; view.natural = null; view.fade = null; view.lead = null; view.known = false;
+    if (view.alone){ view.alone = null; view.body.classList.remove("alone"); }
     delete view.body.dataset.kind;
     view.body.textContent = "";
     bands();
@@ -8552,8 +8769,15 @@ function magicView(el, hooks = {}){
   // sharpness, with the bar as its head (at the foot on the phone); words for their own height at the
   // room's width; a site that will not be framed for a square. the edge, the
   // bar and the white kept at the far edge are added, so what is beside the
-  // bar is the size it asks for
+  // bar is the size it asks for. words a picture of theirs stands alone over
+  // (view.solo) are measured as they stand without it, so the box keeps their
+  // size and comes back to it
   view.want = (room, scale = 1) => {
+    const alone = !!view.alone;
+    if (alone) view.body.classList.remove("alone");
+    try { return want(room, scale); } finally { if (alone) view.body.classList.add("alone"); }
+  };
+  const want = (room, scale) => {
     const air = getComputedStyle(view.body);
     const kind = view.body.dataset.kind, edges = el.offsetWidth - el.clientWidth,
       head = view.bar.offsetHeight + (parseFloat(air.marginTop) || 0) + (parseFloat(air.marginBottom) || 0);
@@ -8591,12 +8815,15 @@ function magicView(el, hooks = {}){
   // words turn with it. an agent's page the board sizes the box to
   // (hooks.sized) is laid out wider while the box is expanded and says its
   // height at that width: the height it had said at the box's own width is
-  // kept, and is the box's again as it comes back, until the page says another
+  // kept, and is the box's again as it comes back, until the page says another.
+  // a picture zoomed in it goes back to its fit, carried there as the box
+  // shrinks, and expanded again it opens fitted
   view.big = false;
   view.expand = on => {
     on = !!on;
     if (on === view.big) return;
     view.big = on;
+    zoomOff(!on);
     el.classList.toggle("big", on);
     if (grow){
       grow.innerHTML = on ? MAGIC_SHRINK : MAGIC_GROW;
@@ -8606,6 +8833,41 @@ function magicView(el, hooks = {}){
     if (!hooks.sized || !run) return;
     if (on) run.small = run.height;
     else if (run.small) run.height = run.small;
+  };
+  // a picture in the words shown alone (img), edge to edge in the body as an
+  // image box shows its own (.mbimg), where it zooms the same way; the words
+  // stay under it, hidden, at the scroll they had (.alone in card-tokens.css),
+  // and have it again once it goes (null)
+  view.alone = null;
+  view.solo = img => {
+    const b = view.body, words = b.querySelector(".mbtext");
+    zoomOff(false);
+    if (img && words){
+      if (view.alone) view.alone.remove();
+      else { view.wordsTop = b.scrollTop; b.classList.add("alone"); }
+      const pic = view.alone = h("img", "mbimg");
+      pic.alt = img.alt || ""; pic.draggable = false;
+      pic.src = img.currentSrc || img.src;
+      b.appendChild(pic);
+    } else if (view.alone){
+      view.alone.remove(); view.alone = null;
+      b.classList.remove("alone");
+      b.scrollTop = view.wordsTop || 0;
+    }
+    bands();
+  };
+  // a picture in the box clicked or tapped open (magicBoxPicture, the page
+  // guard): the box expands to show it, a picture in the words alone, where it
+  // zooms (hooks.expand, which says whether the box could expand); a box
+  // already expanded shows it as it stands. false where the box cannot
+  // expand, which is then left as it was
+  view.picture = (img, back) => {
+    if (!hooks.expand) return false;
+    const words = !!img.closest(".mbtext"), was = view.alone;
+    if (words) view.solo(img);
+    if (view.big || hooks.expand(back)) return true;
+    if (words && !was) view.solo(null);
+    return false;
   };
   return view;
 }

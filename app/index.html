@@ -8154,12 +8154,17 @@ if (MB.el){
   // what it holds is drawn by the view both pages share (card-logic.js), and
   // an agent's page says its own height, which the box takes, and which is
   // kept for the next time the box shows at that width. command+T in a page
-  // makes a card where the key on the board would (boardShortcutActions.create)
+  // makes a card where the key on the board would (boardShortcutActions.create).
+  // a click on a picture in the box, once it is selected, expands it as the
+  // green button does (expand), and the picture zooms in it once it has
+  // landed (moving)
   MB.view = magicView(MB.el, { placed: () => magicPlace(), openSite: magicOpenSite, sized: true,
     back: () => magicBack(),
     create: () => { if (FOCUS && boardKeysLive()) newCardHere(); },
     key: ev => magicPageKey(ev),
     escape: () => magicEscape(),
+    expand: from => { magicBig(from); return MB.view.big; },
+    moving: () => !!MB.move,
     pageHeight: width => magicHeight(MB.id + ":" + MB.rev, width),
     heard: (height, width) => { if (MB.id) MB.heights.set(MB.id + ":" + MB.rev, { w: width, h: height }); } });
   MB.body = MB.view.body;
@@ -8521,8 +8526,10 @@ function magicPlaceBig(){
 // too. turned round on its way, it goes back from where it has got to in the
 // time it had spent, as the picture does. on its way nothing else places it
 // (magicPlace) and it stands over the shade at full strength (.moving), and
-// once it lands it is placed as it always is. with reduced motion it does not
-// travel: it fades in where it now stands, quickly (BIG_FADE_MS)
+// once it lands it is placed as it always is, a picture from its words shown
+// alone (view.solo) giving way to the words as it lands beside the card. with
+// reduced motion it does not travel: it fades in where it now stands, quickly
+// (BIG_FADE_MS)
 const BIG_MS = CARD_PICTURE_MS, BIG_EASE = CARD_PICTURE_EASE, BIG_FADE_MS = 160;
 function magicMove(from){
   const s = MB.el.style;
@@ -8537,6 +8544,7 @@ function magicMove(from){
     if (MB.move !== move) return;
     MB.move = null;
     MB.el.classList.remove("moving");
+    if (!MB.view.big) MB.view.solo(null);
     magicPlace();
   };
 }
@@ -8574,9 +8582,10 @@ function magicBig(from){
 }
 // and back beside its card, shrinking into its place as the shade fades
 // (magicMove), by the button again, Escape, a click on the shade, or the box
-// going: the focus goes back to what held it as the box was expanded, the
-// typing box with its caret and selection as they were, unless the owner has
-// put it somewhere else on the board meanwhile
+// going; one that does not travel shows its words again at once. the focus
+// goes back to what held it as the box was expanded, the typing box with its
+// caret and selection as they were, unless the owner has put it somewhere
+// else on the board meanwhile
 function magicSmall(){
   if (!MB.el || !MB.view.big) return;
   const was = magicMoveStop();
@@ -8586,6 +8595,7 @@ function magicSmall(){
   MB.bigDown = setTimeout(() => document.body.classList.remove("mbup"), BIG_MS);
   magicPlace();
   magicMove(was);
+  if (!MB.move) MB.view.solo(null);
   const back = MB.bigFrom, now = document.activeElement;
   MB.bigFrom = null;
   if (!back || !back.isConnected || now === back || (now && now !== document.body && !MB.el.contains(now))) return;
@@ -8728,8 +8738,8 @@ function magicBack(){
   if (live && MB.el.contains(live)) live.blur();
 }
 addEventListener("pointerdown", e => {
-  // a press on the open picture (#picfull) is the picture's: a box picture
-  // opened from the box leaves the box held
+  // a press on the open picture (#picfull) is the picture's, and leaves the
+  // box held or not as it was
   if (e.target.closest?.("#picfull")) return;
   const into = !!MB.el?.contains(e.target);
   // and one on the box's cross or green button leaves the box held or not as

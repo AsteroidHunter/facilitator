@@ -1362,6 +1362,20 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    so too on its way back (.moving), so a small picture shrinks with the box
    from where it stood and never jumps out to fill it first */
 .magicbox:is(.big, .moving) .mbimg{object-fit:scale-down}
+/* expanded, its picture zooms and moves where it stands (magicView): moved by
+   a transform from its top left corner, cut to the body, and picking no
+   words, dragging nothing out and bringing no callout of its own. fitted it
+   wears the plain pointer, since a click no longer opens anything; zoomed, the
+   hand that moves it, closed while it is dragged. a picture from the words
+   shown alone (.alone) stands edge to edge as an image box's own does, the
+   words hidden under it at their scroll, and no fade at its ends */
+.magicbox .mbimg{transform-origin:0 0}
+.magicbox:is(.big, .moving) .mbbody:is([data-kind="image"], .alone){overflow:hidden}
+.magicbox.big .mbimg{cursor:default; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-user-drag:none}
+.magicbox.big .mbimg.zoomed{cursor:grab}
+.magicbox.big .mbimg.dragging{cursor:grabbing}
+.magicbox .mbbody.alone{margin:0; -webkit-mask-image:none; mask-image:none}
+.magicbox .mbbody.alone > .mbtext{display:none}
 /* the clear cover over a page or a site while the pointer is not over the box
    (the board's magicPointer): the pointer lands on it, so the board knows it
    came, and it comes off at once, before any click */
@@ -1390,7 +1404,10 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    desktop's picture panel zoom does it. it stands over everything either page
    draws and under the link menu */
 :is(.reply, .answmsg).cardmd img.shot:not([id^="magic"] *){cursor:zoom-in}
-.magicbox :is(.mbimg, .mbtext.cardmd img.shot){cursor:zoom-in}
+/* a magic box's pictures wear it too, where a click expands the box to show
+   them (magicView): its own picture only beside its card, since expanded it
+   zooms in place (.magicbox.big .mbimg) */
+.magicbox:not(.big) .mbimg, .magicbox .mbtext.cardmd img.shot{cursor:zoom-in}
 .picfull-from{visibility:hidden}
 #picfull{display:none; position:fixed; inset:0; z-index:9000;
   cursor:zoom-out; -webkit-tap-highlight-color:transparent}

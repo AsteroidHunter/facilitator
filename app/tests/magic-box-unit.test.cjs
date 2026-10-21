@@ -1050,7 +1050,7 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   // the bar and the body each keep inside the round corners on their own side
   assert.match(sty, /\n  #mbface \.mbtext\{padding:var\(--mb-inset\) var\(--mb-inset\) var\(--mb-lead\)\}/);
   assert.match(sty, /\n  #mbface \.mbbody\{margin:var\(--mb-air\) 0 0; border-radius:calc\(var\(--mb-round\) - var\(--edge\)\) calc\(var\(--mb-round\) - var\(--edge\)\) 0 0\}/);
-  assert.match(sty, /\n  #mbface \.mbbody\[data-kind="image"\]\{margin:0\}/, "a picture still fills its box to the edge");
+  assert.match(sty, /\n  #mbface \.mbbody:is\(\[data-kind="image"\], \.alone\)\{margin:0\}/, "a picture still fills its box to the edge, and one from the words shown alone");
   assert.match(sty, /\n  #mbface \.mbbar\{border-radius:0 0 calc\(var\(--mb-round\) - var\(--edge\)\) calc\(var\(--mb-round\) - var\(--edge\)\)\}/);
   // a lowered card's box sits level on the phone too, and outweighs the shadow it takes off
   assert.match(sty, /\n  body\.lowered #mbface\{box-shadow:none\}/);
@@ -1268,7 +1268,7 @@ function phoneBoxScript(page, { drawn = true } = {}) {
     settleTicketDrawer: () => calls.push("settled"), renderTickets() {},
     lastState: { boxes: [{ id: "a", owner: "p", done: false, magic: { open: true, rev: 1 } }, { id: "b", owner: "p", done: false }] },
     magicView: () => ({ body, want: () => ({ height: 89 }), waiting: () => false,
-      draw: (box, seen) => draws.push([box, seen]), clear() {} }),
+      draw: (box, seen) => draws.push([box, seen]), clear() {}, solo() {} }),
     MagicBox: { fit: (room, want) => ({ width: room.width, height: Math.min(room.height, want.height) }) },
     menuOut: () => classes.has("open") ? tickets : drawer.settings ? settings : null,
     drawerOpen: () => classes.has("open"),
@@ -2067,6 +2067,383 @@ test("Escape typed in an agent's page is said to the board, unless the page answ
   assert.match(read("card-logic.js"), /else if \(e\.data === run\.word \+ " escape"\)\{ if \(hooks\.escape\) hooks\.escape\(\); \}/);
 });
 
+// the shared view with a picture in it, on a small model of the box: its body
+// 1000 by 600 in its own pixels, drawn at the screen's (100, 50) at the
+// stage's scale; an image box's picture is 2000 by 1000, fitted in it (as
+// large as fits, never past its own size) at 1000 by 500, 50 down. a markdown
+// box holds words with that picture in them. events go straight to the body's
+// listeners, aimed at what they name. the clock is the test's
+function zoomBox({ kind = "image", scale = 1, hooks = {} } = {}) {
+  const logic = read("card-logic.js"), at = s => logic.indexOf(s);
+  const src = logic.slice(at("const CARD_PICTURES"), at("let cardPictureShown"))
+    + logic.slice(at("const MAGIC_CROSS = "), at("// a site's name as the site gives it"))
+    + logic.slice(at("function magicView("), logic.indexOf("\n}\n", at("function magicView(")) + 3);
+  const listeners = {};
+  const make = (tag, cls = "", parent = null) => {
+    const classes = new Set(cls.split(" ").filter(Boolean));
+    const n = { tag, parent, children: [], style: {}, dataset: {}, anims: [], scrollTop: 0, scrollHeight: 0, clientHeight: 0,
+      classList: { add: (...c) => c.forEach(x => classes.add(x)), remove: (...c) => c.forEach(x => classes.delete(x)),
+        contains: c => classes.has(c), toggle: (c, on) => ((on ?? !classes.has(c)) ? classes.add(c) : classes.delete(c)) },
+      appendChild(c) { c.parent = n; n.children.push(c); return c; },
+      remove() { if (n.parent) n.parent.children = n.parent.children.filter(x => x !== n); n.parent = null; },
+      querySelector(sel) {
+        if (sel.startsWith(":scope > .")) return n.children.find(k => k.classList.contains(sel.slice(10))) || null;
+        const walk = k => { for (const x of k.children) { if (x.classList.contains(sel.slice(1))) return x; const f = walk(x); if (f) return f; } return null; };
+        return walk(n);
+      },
+      closest(sel) { for (let k = n; k; k = k.parent) if (k.classList.contains(sel.slice(1))) return k; return null; },
+      animate(keys, opts) { const a = { keys, opts, cancelled: false, finish() {}, cancel() { a.cancelled = true; } }; n.anims.push(a); return a; },
+      setPointerCapture() { n.captured = true; } };
+    Object.defineProperty(n, "className", { get: () => [...classes].join(" "), set: v => { classes.clear(); v.split(" ").filter(Boolean).forEach(x => classes.add(x)); } });
+    Object.defineProperty(n, "textContent", { get: () => "", set: () => { n.children = []; } });
+    if (parent) parent.children.push(n);
+    return n;
+  };
+  const el = make("section", "magicbox"), bar = make("div", "mbbar", el), body = make("div", "mbbody", el);
+  Object.assign(el, { lastElementChild: body, offsetWidth: 1002, clientWidth: 1000 });
+  bar.offsetHeight = 30;
+  Object.assign(body, { offsetWidth: 1000, clientLeft: 0, clientTop: 0, style: { setProperty() {} },
+    getBoundingClientRect: () => ({ left: 100, top: 50, width: 1000 * scale, height: 600 * scale }),
+    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); } });
+  body.dataset.kind = kind;
+  const picture = img => Object.assign(img, { offsetWidth: 1000, offsetHeight: 600, offsetLeft: 0, offsetTop: 0,
+    naturalWidth: 2000, naturalHeight: 1000, complete: true, src: "/magic/chart.png" });
+  let words = null, shot = null;
+  if (kind === "image") picture(make("img", "mbimg", body));
+  else {
+    words = make("div", "mbtext cardmd", body);
+    shot = Object.assign(make("img", "shot", words), { src: "/uploads/chart.png", alt: "chart", naturalWidth: 2000, complete: true });
+    // the words are 700 tall laid out, and nothing while a picture stands alone over them
+    Object.defineProperty(words, "offsetHeight", { get: () => body.classList.contains("alone") ? 0 : 700 });
+  }
+  let now = 0;
+  const flags = { still: false, moving: false }, observers = [];
+  const ctx = vm.createContext({ MagicBox: {}, window: {}, innerHeight: 800,
+    ResizeObserver: class { constructor(fn) { observers.push(fn); } observe() {} },
+    Date: class extends Date { static now() { return now; } },
+    cardPictureStill: () => flags.still,
+    getComputedStyle: n => ({ getPropertyValue: () => "0", paddingTop: "0px", paddingBottom: "0px",
+      marginTop: body.classList.contains("alone") ? "0px" : "8px", marginBottom: "0px", transform: n.style.transform || "none" }),
+    document: { createElement: tag => make(tag) },
+    h: (tag, cls) => make(tag, cls), addEventListener() {} });
+  vm.runInContext(src, ctx);
+  const view = ctx.magicView(el, { moving: () => flags.moving, ...hooks });
+  const img = () => body.querySelector(":scope > .mbimg");
+  // an event on the picture, or on what it names, with the screen's point (x, y)
+  const send = (type, more = {}) => {
+    const e = { type, target: img(), clientX: 0, clientY: 0, button: 0, buttons: 0, pointerType: "mouse", ctrlKey: false, metaKey: false,
+      deltaX: 0, deltaY: 0, deltaMode: 0, touches: [], defaultPrevented: false, stopped: false,
+      preventDefault() { e.defaultPrevented = true; }, stopPropagation() { e.stopped = true; }, ...more };
+    for (const fn of listeners[type] || []) fn(e);
+    return e;
+  };
+  const fingers = (type, points) => send(type, { touches: points.map(([x, y]) => ({ clientX: x, clientY: y })) });
+  // where the picture is drawn, in the body's pixels: its transform laid over its fit
+  const drawn = () => {
+    const t = img().style.transform || "";
+    const [x, y, k] = t ? t.match(/-?\d+(\.\d+)?(e-?\d+)?/g).map(Number) : [0, 0, 1];
+    return { x: x + k * 0, y: y + k * 50, w: k * 1000, h: k * 500, k };
+  };
+  return { view, el, body, words, shot, img, send, fingers, drawn, flags, tick: ms => { now += ms; },
+    resized: () => observers.forEach(fn => fn()) };
+}
+
+test("expanded, the picture in the box zooms about the pointer, a pinch or command and the wheel, from its fit to four times that", () => {
+  const { view, send, drawn, flags, img } = zoomBox();
+  // at the box's own size the wheel is the page's, and so it is while the box is on its way
+  let e = send("wheel", { ctrlKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  assert.equal(e.defaultPrevented, false);
+  assert.equal(img().style.transform, undefined);
+  view.expand(true);
+  flags.moving = true;
+  e = send("wheel", { ctrlKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  assert.equal(e.defaultPrevented, false, "not while the box is on its way");
+  flags.moving = false;
+  // the point under the pointer (500, 250 in the body: half across the picture, two fifths down) stays under it
+  e = send("wheel", { ctrlKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  assert.equal(e.defaultPrevented, true, "the page itself never zooms");
+  let d = drawn();
+  assert.ok(close(d.k, Math.exp(0.6), 1e-9), "e^(-deltaY / 100), as the full-screen picture zooms");
+  assert.ok(close((500 - d.x) / d.w, 0.5, 1e-9) && close((250 - d.y) / d.h, 0.4, 1e-9), JSON.stringify(d));
+  assert.ok(img().classList.contains("zoomed"));
+  // command and the wheel zoom the same way
+  send("wheel", { metaKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  assert.ok(close(drawn().k, Math.exp(1.2), 1e-9));
+  // back down no further than its fit
+  for (let i = 0; i < 10; i++) send("wheel", { ctrlKey: true, deltaY: 4000, clientX: 600, clientY: 300 });
+  assert.equal(img().style.transform, "", "fitted again: no transform at all");
+  assert.ok(!img().classList.contains("zoomed"));
+  // one wheel counts for no more than 60, and four times its fit is the most
+  send("wheel", { ctrlKey: true, deltaY: -4000, clientX: 600, clientY: 300 });
+  assert.ok(close(drawn().k, Math.exp(0.6), 1e-9));
+  for (let i = 0; i < 5; i++) send("wheel", { ctrlKey: true, deltaY: -4000, clientX: 600, clientY: 300 });
+  assert.ok(close(drawn().k, 4, 1e-9));
+  // the stage's scale is counted out: on a stage at .8 the same point stays under the pointer
+  const small = zoomBox({ scale: 0.8 });
+  small.view.expand(true);
+  small.send("wheel", { ctrlKey: true, deltaY: -60, clientX: 100 + 500 * .8, clientY: 50 + 250 * .8 });
+  d = small.drawn();
+  assert.ok(close((500 - d.x) / d.w, 0.5, 1e-9) && close((250 - d.y) / d.h, 0.4, 1e-9), JSON.stringify(d));
+});
+
+test("zoomed, the picture moves with a drag, one finger or a two-finger scroll, never so far that an edge comes in past the box's", () => {
+  const { view, send, fingers, drawn, img } = zoomBox({ scale: 0.8 });
+  view.expand(true);
+  // fitted there is nothing to move: a two-finger scroll is left alone and a drag moves nothing
+  assert.equal(send("wheel", { deltaY: 40 }).defaultPrevented, false);
+  send("pointerdown", { clientX: 500, clientY: 300, buttons: 1 });
+  send("pointermove", { clientX: 400, clientY: 200, buttons: 1 });
+  send("pointerup", { clientX: 400, clientY: 200 });
+  send("click", { clientX: 400, clientY: 200 });
+  assert.equal(img().style.transform, undefined);
+  send("wheel", { ctrlKey: true, deltaY: -60, clientX: 500, clientY: 300 });
+  send("wheel", { ctrlKey: true, deltaY: -60, clientX: 500, clientY: 300 });
+  let was = drawn();
+  // a two-finger scroll, in screen pixels, moved in the box's own (the stage at .8)
+  const e = send("wheel", { deltaX: 40, deltaY: -16, clientX: 500, clientY: 300 });
+  assert.equal(e.defaultPrevented, true);
+  let d = drawn();
+  assert.ok(close(d.x, was.x - 50, 1e-6) && close(d.y, was.y + 20, 1e-6), JSON.stringify([was, d]));
+  // a dragged mouse, held from the press on: the picture is held, picks no words and drags nothing out
+  was = d;
+  send("pointerdown", { clientX: 500, clientY: 300, buttons: 1, pointerId: 3 });
+  assert.ok(img().captured && img().classList.contains("dragging"));
+  assert.equal(send("mousedown", { clientX: 500, clientY: 300 }).defaultPrevented, true);
+  assert.equal(send("dragstart").defaultPrevented, true);
+  send("pointermove", { clientX: 520, clientY: 310, buttons: 1 });
+  send("pointermove", { clientX: 540, clientY: 320, buttons: 1 });
+  d = drawn();
+  assert.ok(close(d.x, was.x + 50, 1e-6) && close(d.y, was.y + 25, 1e-6), JSON.stringify([was, d]));
+  send("pointerup", { clientX: 540, clientY: 320 });
+  assert.ok(!img().classList.contains("dragging"));
+  // the click that ends a drag is no tap: a second click soon after is a first one
+  send("click", { clientX: 540, clientY: 320 });
+  send("click", { clientX: 540, clientY: 320 });
+  assert.ok(drawn().k > 1, "still zoomed");
+  // dragged far each way it stops with its edge at the box's, so some of it always shows
+  send("pointerdown", { clientX: 500, clientY: 300, buttons: 1 });
+  send("pointermove", { clientX: 5000, clientY: 4000, buttons: 1 });
+  d = drawn();
+  assert.ok(close(d.x, 0, 1e-6) && close(d.y, 0, 1e-6), "its top left corner at the box's: " + JSON.stringify(d));
+  send("pointermove", { clientX: -9000, clientY: -9000, buttons: 1 });
+  d = drawn();
+  assert.ok(close(d.x + d.w, 1000, 1e-6) && close(d.y + d.h, 600, 1e-6), "its bottom right corner at the box's: " + JSON.stringify(d));
+  send("pointerup", {});
+  // one finger moves it too
+  was = d;
+  fingers("touchstart", [[500, 300]]);
+  fingers("touchmove", [[520, 300]]);
+  fingers("touchmove", [[540, 324]]);
+  d = drawn();
+  assert.ok(close(d.x, was.x + 50, 1e-6) && close(d.y, was.y + 30, 1e-6), JSON.stringify([was, d]));
+  fingers("touchend", []);
+});
+
+test("a double click or a double tap takes the picture from its fit to twice at that point and back; a lone one does nothing", () => {
+  const { view, send, fingers, drawn, img, tick, flags } = zoomBox();
+  view.expand(true);
+  // a lone click, or two too far apart in time or place, does nothing, and never puts the box back
+  send("click", { clientX: 600, clientY: 300 });
+  tick(400);
+  send("click", { clientX: 600, clientY: 300 });
+  tick(100);
+  send("click", { clientX: 700, clientY: 300 });
+  assert.equal(img().style.transform, undefined);
+  assert.equal(view.big, true);
+  tick(1000);
+  send("click", { clientX: 600, clientY: 300 });
+  tick(150);
+  send("click", { clientX: 610, clientY: 305 });
+  let d = drawn();
+  assert.ok(close(d.k, 2, 1e-9), "twice its fit");
+  assert.ok(close((510 - d.x) / d.w, 0.51, 1e-9), "about the second click");
+  // carried there on the picture's own time and curve
+  const grow = img().anims.at(-1);
+  assert.deepEqual(flat(grow.opts), { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
+  assert.equal(flat(grow.keys)[1].transform, img().style.transform);
+  tick(1000);
+  send("click", { clientX: 600, clientY: 300 });
+  tick(150);
+  send("click", { clientX: 600, clientY: 300 });
+  assert.equal(img().style.transform, "", "back to its fit");
+  // the fingers: a double tap the same way
+  tick(1000);
+  for (const t of [0, 150]) { tick(t); fingers("touchstart", [[600, 300]]); fingers("touchend", []); }
+  assert.ok(close(drawn().k, 2, 1e-9));
+  // with reduced motion it goes there at once
+  flags.still = true;
+  const n = img().anims.length;
+  tick(1000);
+  for (const t of [0, 150]) { tick(t); fingers("touchstart", [[600, 300]]); fingers("touchend", []); }
+  assert.equal(img().style.transform, "");
+  assert.equal(img().anims.length, n);
+});
+
+test("two fingers pinch the expanded picture about their middle, and every touch on it is its own", () => {
+  const { view, fingers, drawn, img } = zoomBox();
+  // at the box's own size the touches are the page's: a tap expands the box (the page guard)
+  let e = fingers("touchstart", [[600, 300]]);
+  assert.ok(!e.defaultPrevented && !e.stopped);
+  fingers("touchend", []);
+  view.expand(true);
+  e = fingers("touchstart", [[550, 300], [650, 300]]);
+  assert.ok(e.defaultPrevented && e.stopped, "no scroll, no page zoom, no pull of the drawer, no click");
+  e = fingers("touchmove", [[500, 300], [700, 300]]);
+  assert.ok(e.defaultPrevented && e.stopped);
+  let d = drawn();
+  assert.ok(close(d.k, 2, 1e-9), "spread twice as far: twice its fit");
+  assert.ok(close((500 - d.x) / d.w, 0.5, 1e-9) && close((250 - d.y) / d.h, 0.4, 1e-9), "about their middle");
+  // the middle carries it: both fingers moved down 30
+  fingers("touchmove", [[500, 330], [700, 330]]);
+  const was = d;
+  d = drawn();
+  assert.ok(close(d.y, was.y + 30, 1e-6) && close(d.x, was.x, 1e-6));
+  // the finger left of two goes on moving it
+  fingers("touchend", [[700, 330]]);
+  fingers("touchmove", [[690, 330]]);
+  assert.ok(close(drawn().x, was.x - 10, 1e-6));
+  e = fingers("touchend", []);
+  assert.ok(e.defaultPrevented && e.stopped);
+  // spread past four times it stops there
+  fingers("touchstart", [[590, 300], [610, 300]]);
+  fingers("touchmove", [[100, 300], [1100, 300]]);
+  assert.ok(close(drawn().k, 4, 1e-9));
+  fingers("touchend", []);
+  assert.ok(img().classList.contains("zoomed"));
+});
+
+test("the box going back carries the picture back to its fit as it shrinks, a new size lets go of a zoom, and it opens fitted", () => {
+  const { view, send, img, flags, resized } = zoomBox();
+  view.expand(true);
+  send("wheel", { ctrlKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  const zoomed = img().style.transform;
+  view.expand(false);
+  assert.equal(img().style.transform, "");
+  assert.ok(!img().classList.contains("zoomed"));
+  const back = img().anims.at(-1);
+  assert.deepEqual(flat(back.keys), [{ transform: zoomed }, { transform: "none" }], "from where it stood");
+  assert.deepEqual(flat(back.opts), { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" }, "on the box's own time and curve");
+  // expanded again it opens at its fit; with reduced motion the way back is at once
+  view.expand(true);
+  assert.equal(img().style.transform, "");
+  send("wheel", { ctrlKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  flags.still = true;
+  const n = img().anims.length;
+  view.expand(false);
+  assert.equal(img().style.transform, "");
+  assert.equal(img().anims.length, n);
+  // the box laid out at another size lets go of the zoom
+  flags.still = false;
+  view.expand(true);
+  send("wheel", { ctrlKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  resized();
+  assert.ok(img().style.transform, "the same size keeps it");
+  img().offsetWidth = 900;
+  resized();
+  assert.equal(img().style.transform, "", "another size lets go of it, at once");
+  // and a new revision drawn in the box takes it away with the rest
+  view.clear();
+  assert.equal(img(), null);
+});
+
+test("a picture in a markdown box is shown alone in the expanded box, and the words come back at their scroll", () => {
+  const { view, body, words, shot, img, send, drawn } = zoomBox({ kind: "markdown" });
+  body.scrollTop = 240;
+  view.solo(shot);
+  assert.ok(body.classList.contains("alone"), "the words hidden under it (.alone)");
+  assert.equal(words.parent, body, "and kept where they are");
+  const alone = img();
+  assert.ok(alone && alone !== shot && alone.classList.contains("mbimg"), "a picture of its own, as an image box shows");
+  assert.equal(alone.src, shot.src);
+  assert.equal(alone.draggable, false);
+  assert.equal(view.alone, alone);
+  // it zooms as an image box's picture does
+  view.expand(true);
+  Object.assign(alone, { offsetWidth: 1000, offsetHeight: 600, offsetLeft: 0, offsetTop: 0, naturalWidth: 2000, naturalHeight: 1000 });
+  send("wheel", { ctrlKey: true, deltaY: -60, clientX: 600, clientY: 300 });
+  assert.ok(drawn().k > 1);
+  // the box is still sized to the words under it, whatever stands over them
+  const want = view.want({ width: 400, height: 800 });
+  assert.equal(want.height, 700 + 2 + 30 + 8, "the words' height, the edges, the bar and the words' own white");
+  assert.ok(body.classList.contains("alone"), "and the picture still stands alone after");
+  // gone, the words come back at the scroll they had
+  body.scrollTop = 0;
+  view.solo(null);
+  assert.ok(!body.classList.contains("alone"));
+  assert.equal(img(), null);
+  assert.equal(view.alone, null);
+  assert.equal(body.scrollTop, 240);
+  // an image box has no words to stand over
+  const image = zoomBox();
+  image.view.solo(image.img());
+  assert.equal(image.view.alone, null);
+  assert.ok(!image.body.classList.contains("alone"));
+  // the sheet: alone it stands edge to edge with no fade, the words hidden, and expanded the body
+  // cuts the picture, which wears no zoom cursor and moves from its top left corner
+  const css = read("card-tokens.css");
+  assert.match(css, /\.magicbox \.mbbody\.alone\{margin:0; -webkit-mask-image:none; mask-image:none\}/);
+  assert.match(css, /\.magicbox \.mbbody\.alone > \.mbtext\{display:none\}/);
+  assert.match(css, /\.magicbox:is\(\.big, \.moving\) \.mbbody:is\(\[data-kind="image"\], \.alone\)\{overflow:hidden\}/);
+  assert.match(css, /\.magicbox \.mbimg\{transform-origin:0 0\}/);
+  assert.match(css, /\.magicbox\.big \.mbimg\{cursor:default; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-user-drag:none\}/);
+  assert.match(css, /\.magicbox\.big \.mbimg\.zoomed\{cursor:grab\}/);
+});
+
+test("a picture clicked open in the box expands it through the page, a picture in the words shown alone; expanded it only shows it", () => {
+  const asked = [];
+  let can = true;
+  const box = zoomBox({ kind: "markdown", hooks: { expand: back => { asked.push(back); if (can) box.view.expand(true); return can; } } });
+  const { view, shot, body } = box;
+  assert.equal(box.el._view, view, "the page guard finds the view on its box");
+  assert.equal(view.picture(shot, "typing box"), true);
+  assert.deepEqual(asked, ["typing box"], "the box expands, the focus to go back to what had it");
+  assert.ok(body.classList.contains("alone") && view.alone);
+  // expanded, another click shows it and asks for nothing
+  assert.equal(view.picture(shot, null), true);
+  assert.equal(asked.length, 1);
+  // a box that cannot expand is left as it was
+  const other = zoomBox({ kind: "markdown", hooks: { expand: () => false } });
+  assert.equal(other.view.picture(other.shot, null), false);
+  assert.ok(!other.body.classList.contains("alone") && !other.view.alone);
+  // an image box's own picture expands it with nothing shown alone
+  const image = zoomBox({ hooks: { expand: () => true } });
+  assert.equal(image.view.picture(image.img(), null), true);
+  assert.equal(image.view.alone, null);
+  // with no way to expand, nothing
+  assert.equal(zoomBox().view.picture(zoomBox().img(), null), false);
+});
+
+test("both pages hand the view their expand, say when the box is moving, and show the words again as it lands", () => {
+  const html = read("index.html"), page = read("m.html");
+  assert.match(html, /expand: from => \{ magicBig\(from\); return MB\.view\.big; \},\s*moving: \(\) => !!MB\.move,/);
+  assert.match(page, /expand: from => \{ phoneMagicBig\(from\); return PB\.view\.big; \},\s*moving: \(\) => !!PB\.move \}\);/);
+  // the Mac: the words come back as the box lands beside the card, or at once when it does not travel
+  const { ctx, MB } = boardBig();
+  const solos = [];
+  MB.view.solo = img => solos.push(img);
+  const anims = [];
+  MB.el.animate = (keys, opts) => { const a = { keys, opts, cancel() {} }; anims.push(a); return a; };
+  MB.line = { classList: { add() {}, remove() {} } };
+  Object.assign(ctx, { cardPictureStill: () => false, getComputedStyle: () => MB.el.style,
+    magicPlace: () => { if (MB.view.big) ctx.magicPlaceBig(); else Object.assign(MB.el.style, { left: "700px", top: "120px", width: "400px", height: "600px" }); } });
+  Object.assign(MB.el.style, { left: "700px", top: "120px", width: "400px", height: "600px" });
+  ctx.magicBig(null);
+  anims.at(-1).onfinish();
+  assert.deepEqual(solos, [], "expanded, a picture shown alone stays");
+  ctx.magicSmall();
+  assert.deepEqual(solos, [], "not at the press: the picture goes back with the box");
+  anims.at(-1).onfinish();
+  assert.deepEqual(solos, [null], "landed, the words");
+  ctx.cardPictureStill = () => true;
+  ctx.magicBig(null);
+  ctx.magicSmall();
+  assert.deepEqual(solos, [null, null], "with reduced motion at once");
+  // the phone: the same as it lands in the drawer, and at once when the drawer or the box takes it back
+  assert.match(page, /function phoneMagicLand\(\)\{[\s\S]*?\n  PB\.view\.solo\(null\);\n\}/);
+  assert.match(page, /if \(glide\) phoneMagicMove\(was\);\s*if \(!PB\.move\) PB\.view\.solo\(null\);/);
+  assert.match(html, /if \(!MB\.view\.big\) MB\.view\.solo\(null\);\s*magicPlace\(\);/);
+});
+
 // the board's expanded box, cut out of index.html and run on stand-ins: a
 // stage at 0.8 shifted 20 across and 41 down, in a 1200 by 800 window
 function boardBig() {
@@ -2080,7 +2457,7 @@ function boardBig() {
   const field = name => ({ name, isConnected: true, focus() { doc.activeElement = this; calls.push("focus " + name); } });
   const MB = { el: { classList: set(boxClasses), style: {}, contains: x => inBox.has(x), animate() { calls.push("fade"); } },
     body: { querySelector: () => null }, shade: { style: {} }, came: null,
-    view: { big: false, waiting: () => false, expand(on) { this.big = on; calls.push("expand " + on); } } };
+    view: { big: false, waiting: () => false, expand(on) { this.big = on; calls.push("expand " + on); }, solo() {} } };
   const ctx = vm.createContext({ MB, document: doc, stageScale: 0.8, innerWidth: 1200, innerHeight: 800, MagicBox: api(), window: {},
     magicPlace: () => { calls.push("place"); if (MB.view.big) ctx.magicPlaceBig(); }, magicRiseStop() {}, magicRiseSet() {},
     cardPictureStill: () => true, setTimeout: fn => timers.push(fn), clearTimeout() {},
@@ -2357,7 +2734,7 @@ test("on the phone the box zooms out of its place in the drawer and back into it
   assert.deepEqual(opts(6), { duration: 160, easing: "ease" });
   // the button, Escape and the shade glide it back; the drawer, its keys and the box going put it back at once
   const page = read("m.html");
-  assert.match(page, /escape: \(\) => \{ if \(!cardPictureShown\) phoneMagicSmall\(true\); \} \}\);/);
+  assert.match(page, /escape: \(\) => \{ if \(!cardPictureShown\) phoneMagicSmall\(true\); \},/);
   assert.match(page, /if \(PB\.view\.big\) phoneMagicSmall\(true\);\s*else phoneMagicBig\(from\);/);
   assert.match(page, /shade\.addEventListener\("click", \(\) => phoneMagicSmall\(true\)\);/);
   assert.match(page, /if \(!e\.repeat\) phoneMagicSmall\(true\);/);

@@ -1275,7 +1275,7 @@
   #mbshade{position:fixed; inset:0; width:auto; height:auto; margin:0; padding:0; border:0;
     background:color-mix(in srgb, var(--ink) 24%, transparent); -webkit-tap-highlight-color:transparent}
   #mbface .mbbody{margin:var(--mb-air) 0 0; border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
-  #mbface .mbbody[data-kind="image"]{margin:0}
+  #mbface .mbbody:is([data-kind="image"], .alone){margin:0}
   #mbface .mbbody:is([data-kind="html"], [data-kind="url"]):has(> .mbframe){margin:0}
   #mbface .mbtext{padding:var(--mb-inset) var(--mb-inset) var(--mb-lead)}
   /* an agent's page is laid out as tall as it says it is (--mb-page, magicView's
@@ -8105,9 +8105,13 @@ if (parent === window) {
 const MAGIC_EDGE = 28;   // the pull's own strip, EDGE in the drawer's gesture
 const PB = { el: document.getElementById("mbface"), id: null, rev: 0, asked: 0,
   bodies: new Map(), drawn: false, held: false, after: null };
+// a tap on a picture in the box expands it as the green button does (expand),
+// and the picture zooms in it once it has landed (moving)
 PB.view = magicView(PB.el, { placed: () => phoneMagicFit(), tall: true,
   openSite: url => window.open(url, "_blank", "noopener,noreferrer"),
-  escape: () => { if (!cardPictureShown) phoneMagicSmall(true); } });
+  escape: () => { if (!cardPictureShown) phoneMagicSmall(true); },
+  expand: from => { phoneMagicBig(from); return PB.view.big; },
+  moving: () => !!PB.move });
 // the cross takes a tap and never the keys. with the box out, Tab stays in the
 // drawer (keepTabInMenu) and the cross was its one stop, so a Tab to get back
 // to the reply box put the keys on it and the next space or return shut the
@@ -8380,12 +8384,14 @@ function phoneMagicMove(from){
     phoneMagicFit();
   };
 }
-// out of the top layer and back in its place in the drawer
+// out of the top layer and back in its place in the drawer, a picture from
+// its words shown alone (view.solo) giving way to the words
 function phoneMagicLand(){
   PB.el.classList.remove("moving");
   try { PB.el.hidePopover(); } catch (e) {}
   PB.el.removeAttribute("popover");
   Object.assign(PB.el.style, { left: "", top: "" });
+  PB.view.solo(null);
 }
 // where the box is drawn now on the screen, however far a move has got,
 // which stops there (at): one on its way back lands in the drawer at once. and
@@ -8436,6 +8442,7 @@ function phoneMagicSmall(glide){
   Object.assign(PB.el.style, { left: "", top: "", width: "", height: "" });
   phoneMagicFit();
   if (glide) phoneMagicMove(was);
+  if (!PB.move) PB.view.solo(null);
   // the shade fading out takes no tap: the page under it is the owner's again
   const shade = PB.shade, hide = () => { try { shade.hidePopover(); } catch (e) {} }, time = phoneMagicTime(was ? was.part : 1);
   shade.style.pointerEvents = "none";
