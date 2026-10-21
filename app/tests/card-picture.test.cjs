@@ -706,10 +706,13 @@ test('the sheet: the board ink veil, over the board and under the menu, the touc
 
 // the card's magic box: #magicbox on the Mac board, #mbface on the phone, both
 // .magicbox with a .mbbody. an image box holds one img.mbimg; a markdown box
-// holds .mbtext.cardmd with img.shot in it; an html box holds a frame
+// holds .mbtext.cardmd with img.shot in it; an html box holds a frame. the
+// box's view (magicView), which the page guard finds on the box, is a
+// stand-in here that says what it was asked: a picture clicked open expands
+// the box, which it does unless `can` says it cannot
 // the Mac board's box stands selected (held) unless a test says otherwise; the
 // phone's has no such state
-function magicBox(f, { id = 'magicbox', kind = 'image', held = true } = {}) {
+function magicBox(f, { id = 'magicbox', kind = 'image', held = true, view = true } = {}) {
   const box = f.element('section', f.doc.body, held && id === 'magicbox' ? 'magicbox held' : 'magicbox'); box.id = id;
   const body = f.element('div', box, 'mbbody'); body.setAttribute('data-kind', kind);
   const img = kind === 'image' ? f.element('img', body, 'mbimg') : f.picture(f.element('div', body, 'mbtext cardmd'), { w: 800, h: 600 });
@@ -718,35 +721,60 @@ function magicBox(f, { id = 'magicbox', kind = 'image', held = true } = {}) {
     img.naturalWidth = 800; img.naturalHeight = 600; img.complete = true;
     img.rect = { left: 1100, top: 300, width: 320, height: 240 };
   } else img.rect = { left: 1100, top: 300, width: 320, height: 240 };
-  return { box, body, img };
+  const asked = [];
+  if (view) box._view = { big: false, can: true, asked,
+    picture(picture, back) {
+      asked.push({ picture, back });
+      if (!this.big && !this.can) return false;
+      this.big = true; box.classList.add('big');
+      return true;
+    } };
+  return { box, body, img, view: box._view, asked };
 }
 
 for (const [where, id, kind] of [['an image box on the Mac board', 'magicbox', 'image'], ['a markdown box on the Mac board', 'magicbox', 'markdown'],
   ['an image box on the phone', 'mbface', 'image'], ['a markdown box on the phone', 'mbface', 'markdown']]) {
-  test(`a plain click on a picture in ${where} opens the card's viewer, and Escape puts it back`, () => {
+  test(`a plain click on a picture in ${where} expands the box to show it, and opens no viewer`, () => {
     const phone = id === 'mbface';
     const f = fixture(phone ? { width: 375, height: 812, phone } : {});
-    const { img } = magicBox(f, { id, kind });
-    f.press(img);
-    const z = f.state();
-    assert.ok(z, 'it opens');
-    assert.equal(z.img, img);
-    // the same viewer: one layer, the veil and the copy at the picture's fit
-    assert.equal(f.doc.body.children.filter(n => n.id === 'picfull').length, 1);
-    assert.equal(veil(f).animations[0].keyframes.at(-1).opacity, 0.62);
-    const box = room(f.screen.width, f.screen.height, phone), s = Math.min(box.width / 800, box.height / 600, 2);
-    placed(f, [box.left + (box.width - 800 * s) / 2, box.top + (box.height - 600 * s) / 2, 800 * s, 600 * s]);
-    assert.ok(img.classList.contains('picfull-from'), 'the box picture is hidden where it stands');
+    const { img, asked, view } = magicBox(f, { id, kind });
+    f.textarea.focus();
+    const e = f.press(img);
+    assert.equal(e.defaultPrevented, true);
+    assert.equal(asked.length, 1, 'the box is asked to expand');
+    assert.equal(asked[0].picture, img, 'with the picture clicked');
+    assert.equal(asked[0].back, f.textarea, 'and what had the focus before the press, which has it again as the box goes back');
+    assert.equal(view.big, true);
+    assert.equal(f.state(), null, 'no viewer');
+    assert.ok(!f.layer(), 'no layer built');
+    assert.equal(img.classList.contains('picfull-from'), false, 'the picture stays where it is');
     assert.equal(f.menu(), undefined, 'no menu');
-    // the viewer's keys: Escape closes and nothing reaches the board
+    assert.deepEqual(f.docClicks, [], 'nothing else hears the click');
+    // no viewer holds the keys: Escape goes on to the page, which puts the box back
     f.key('Escape');
-    settle(f);
-    assert.equal(f.state(), null);
-    assert.equal(f.layer().classList.contains('on'), false);
-    assert.equal(img.classList.contains('picfull-from'), false);
-    assert.deepEqual(f.boardKeys, []);
+    assert.ok(f.boardKeys.includes('Escape'));
   });
 }
+
+test('a click on the picture of a box already expanded is the box\'s, which zooms it; a picture in its words is shown', () => {
+  for (const id of ['magicbox', 'mbface']) {
+    const f = fixture(id === 'mbface' ? { width: 375, height: 812, phone: true } : {});
+    const { box, img, asked, view } = magicBox(f, { id });
+    view.big = true; box.classList.add('big');
+    const e = f.press(img);
+    assert.equal(e.defaultPrevented, false, id + ': the click is left as it was');
+    assert.deepEqual(f.docClicks, [img], id + ': and goes on to the box');
+    assert.equal(asked.length, 0, id + ': nothing is asked of the view, so it never reduces');
+    assert.equal(f.state(), null, id);
+    // in a markdown box the click on a picture in its words shows that picture
+    const g = fixture(id === 'mbface' ? { width: 375, height: 812, phone: true } : {});
+    const md = magicBox(g, { id, kind: 'markdown' });
+    md.view.big = true; md.box.classList.add('big');
+    assert.equal(g.press(md.img).defaultPrevented, true);
+    assert.equal(md.asked.length, 1, id + ': the words\' picture is shown alone');
+    assert.equal(g.state(), null);
+  }
+});
 
 // the Mac board takes a press in its box as the box being selected (magicHold),
 // after the guard has heard it, and a press on the open picture is not that
@@ -758,105 +786,91 @@ function board(f, box) {
 }
 
 for (const kind of ['image', 'markdown']) {
-  test(`a click on a picture in a ${kind} box that is not selected selects the box and opens nothing, the next click opens it, and closing leaves it selected`, () => {
+  test(`a click on a picture in a ${kind} box that is not selected selects the box and expands nothing, and the next click expands it`, () => {
     const f = fixture();
-    const { box, img } = magicBox(f, { kind, held: false });
+    const { box, img, asked } = magicBox(f, { kind, held: false });
     board(f, box);
     assert.equal(box.classList.contains('held'), false);
     const first = f.press(img);
     assert.equal(box.classList.contains('held'), true, 'the click selected the box');
+    assert.equal(asked.length, 0, 'the box is not expanded');
     assert.equal(f.state(), null, 'no viewer');
     assert.ok(!f.layer(), 'no layer built');
-    assert.equal(img.classList.contains('picfull-from'), false);
     if (kind === 'image') assert.equal(first.defaultPrevented, false, 'the click is left as it was');
     assert.equal(f.menu(), undefined, 'no menu either');
     // a press elsewhere lets go of the box, and the picture is a first click again
     f.press(f.doc.body);
     assert.equal(box.classList.contains('held'), false);
     f.press(img);
-    assert.equal(f.state(), null, 'not selected again, so no viewer');
+    assert.equal(asked.length, 0, 'not selected again, so not expanded');
     f.menu()?.remove();
-    // selected, the next click opens the viewer
+    // selected, the next click expands it, and the box stays selected
     f.press(img);
-    assert.ok(f.state(), 'it opens');
-    assert.equal(f.state().img, img);
+    assert.equal(asked.length, 1, 'expanded');
+    assert.equal(asked[0].picture, img);
     assert.equal(box.classList.contains('held'), true);
-    f.key('Escape'); settle(f);
     assert.equal(f.state(), null);
-    assert.equal(box.classList.contains('held'), true, 'the box is still selected after closing');
-    // a press on the open picture is not a press outside the box
-    f.press(img);
-    assert.ok(f.state());
-    big(f).animations[0].finish();
-    f.press(big(f));
-    assert.equal(box.classList.contains('held'), true);
   });
 }
 
-test('the phone box has no selected state, so its pictures open on the first tap as the card ones do', () => {
+test('the phone box has no selected state, so a tap on its pictures expands it at once', () => {
   for (const kind of ['image', 'markdown']) {
     const f = fixture({ width: 375, height: 812, phone: true });
-    const { box, img } = magicBox(f, { id: 'mbface', kind, held: false });
+    const { box, img, asked } = magicBox(f, { id: 'mbface', kind, held: false });
     f.press(img);
     assert.equal(box.classList.contains('held'), false, 'nothing on the phone selects the box');
-    assert.ok(f.state(), kind + ': it opens on the first tap');
+    assert.equal(asked.length, 1, kind + ': expanded on the first tap');
+    assert.equal(f.state(), null, kind);
   }
 });
 
 test('a click with no press before it reads the box as it stands', () => {
   const f = fixture();
-  const { box, img } = magicBox(f, { held: false });
+  const { box, img, asked } = magicBox(f, { held: false });
   f.send(img, { type: 'click', button: 0 });
-  assert.equal(f.state(), null, 'not selected: nothing opens');
+  assert.equal(asked.length, 0, 'not selected: nothing expands');
   box.classList.add('held');
   f.send(img, { type: 'click', button: 0 });
-  assert.ok(f.state(), 'selected: it opens');
+  assert.equal(asked.length, 1, 'selected: it expands');
 });
 
-test('a click on the layer closes a box picture as it closes a card picture, and zooming is the same code', () => {
+test('where the box cannot expand, its picture opens full screen as before, and closes and zooms as a card picture does', () => {
   for (const kind of ['image', 'markdown']) {
-    const f = fixture();
-    const { img } = magicBox(f, { kind });
-    f.press(img);
-    big(f).animations[0].finish(); veil(f).animations[0].finish();
-    // a wheel with control held zooms about the pointer, up to four times the fit
-    const fitted = at(f)[2];
-    f.wheel(700, 490, 0, -60, true);
-    assert.ok(at(f)[2] > fitted + 1e-6, kind + ': zoomed in');
-    for (let i = 0; i < 5; i++) f.wheel(700, 490, 0, -4000, true);
-    close(at(f)[2], fitted * 4, kind + ': at most four times its fitted size');
-    f.key('Escape'); settle(f);
-    assert.equal(f.state(), null, kind);
-    // a tap at the fitted size closes it, once the moment for a second has passed
-    f.press(img);
-    big(f).animations[0].finish();
-    dispatch(f.layer(), { type: 'click', clientX: 700, clientY: 490, button: 0 });
-    f.advance(300); settle(f);
-    assert.equal(f.state(), null, kind + ': a click closes it');
+    for (const how of ['cannot', 'no view']) {
+      const f = fixture();
+      const { img, view, asked } = magicBox(f, { kind, view: how !== 'no view' });
+      if (view) view.can = false;
+      f.textarea.focus();
+      f.press(img);
+      const msg = kind + ', ' + how;
+      if (view) assert.equal(asked.length, 1, msg + ': the box was asked first');
+      assert.ok(f.state(), msg + ': it opens');
+      assert.equal(f.state().img, img, msg);
+      big(f).animations[0].finish(); veil(f).animations[0].finish();
+      // a wheel with control held zooms about the pointer, up to four times the fit
+      const fitted = at(f)[2];
+      f.wheel(700, 490, 0, -60, true);
+      assert.ok(at(f)[2] > fitted + 1e-6, msg + ': zoomed in');
+      f.key('Escape'); settle(f);
+      assert.equal(f.state(), null, msg);
+      assert.equal(f.doc.activeElement, f.doc.body, msg + ': the typing box is not pulled back by the box picture');
+    }
   }
-});
-
-test('a box picture leaves the focus where the click in the box put it, a card picture gives it back', () => {
-  const f = fixture();
-  const { img } = magicBox(f);
-  f.textarea.focus();
-  f.press(img);
-  f.key('Escape'); settle(f);
-  assert.equal(f.doc.activeElement, f.doc.body, 'the typing box is not pulled back by the box picture');
+  // a card picture still gives the focus back
   const g = fixture();
   g.textarea.focus();
   g.press(g.picture(g.reply));
   g.key('Escape'); settle(g);
-  assert.equal(g.doc.activeElement, g.textarea, 'a card picture still gives the focus back');
+  assert.equal(g.doc.activeElement, g.textarea);
 });
 
 test('an image box keeps every press but a plain click, and a markdown box keeps the menu for the others', () => {
   const f = fixture();
-  const { img } = magicBox(f);
+  const { img, asked } = magicBox(f);
   for (const over of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
     const e = f.send(img, { type: 'click', button: 0, ...over });
     assert.equal(e.defaultPrevented, false, JSON.stringify(over));
-    assert.equal(f.state(), null); assert.equal(f.menu(), undefined);
+    assert.equal(f.state(), null); assert.equal(f.menu(), undefined); assert.equal(asked.length, 0);
   }
   for (const type of ['contextmenu', 'auxclick', 'dragstart']) {
     const e = f.send(img, { type, button: type === 'auxclick' ? 1 : 2 });
@@ -866,18 +880,24 @@ test('an image box keeps every press but a plain click, and a markdown box keeps
   // a finger held on it brings no menu either
   f.send(img, { type: 'touchstart', touches: [{ clientX: 1200, clientY: 400 }] }); f.advance(800);
   assert.equal(f.menu(), undefined);
-  // a picture that has not drawn has nothing to open and leaves the click alone
+  // a picture that has not drawn has nothing to show and expands nothing
   img.complete = false; img.naturalWidth = 0;
   f.press(img);
-  assert.equal(f.state(), null); assert.equal(f.menu(), undefined);
+  assert.equal(asked.length, 0); assert.equal(f.state(), null); assert.equal(f.menu(), undefined);
   // a markdown box's picture has the card pictures' other ways in
   const g = fixture();
-  const md = magicBox(g, { kind: 'markdown' }).img;
-  g.press(md, { metaKey: true });
-  assert.ok(g.menu()); assert.equal(g.state(), null);
+  const md = magicBox(g, { kind: 'markdown' });
+  g.press(md.img, { metaKey: true });
+  assert.ok(g.menu()); assert.equal(g.state(), null); assert.equal(md.asked.length, 0);
   g.menu().remove();
-  g.send(md, { type: 'touchstart', touches: [{ clientX: 1200, clientY: 400 }] }); g.advance(500);
+  g.send(md.img, { type: 'touchstart', touches: [{ clientX: 1200, clientY: 400 }] }); g.advance(500);
   assert.ok(g.menu(), 'a finger held still brings the menu');
+  // and one that has not drawn brings the menu, as a card's does
+  const h = fixture();
+  const unseen = magicBox(h, { kind: 'markdown' });
+  unseen.img.complete = false; unseen.img.naturalWidth = 0;
+  h.press(unseen.img);
+  assert.equal(unseen.asked.length, 0); assert.ok(h.menu());
 });
 
 test('the stubs beside the card, a page in the box and other pictures are as they were', () => {
@@ -892,25 +912,33 @@ test('the stubs beside the card, a page in the box and other pictures are as the
   }
   // a picture in an html box is the page's own, in a frame the board cannot reach: an
   // image that is not the box's own picture, in the box, opens nothing
-  const { body } = magicBox(f, { kind: 'html' });
+  const { body, asked } = magicBox(f, { kind: 'html' });
   const other = f.element('img', body, 'mbframe');
   other.complete = true; other.naturalWidth = 800; other.naturalHeight = 600;
   const e = f.send(other, { type: 'click', button: 0 });
   assert.equal(e.defaultPrevented, false);
   assert.equal(f.state(), null);
+  assert.equal(asked.length, 0);
   // the box's cross and its controls are not pictures
   const cross = f.element('button', f.box || f.doc.body, 'mbclose');
   assert.equal(f.send(cross, { type: 'click', button: 0 }).defaultPrevented, false);
 });
 
-test('the sheet and the pages: a zoom cursor on box pictures, and a press on the open picture leaves the box held', () => {
+test('the sheet and the pages: a zoom cursor on box pictures, no viewer of the box\'s own, and a press on an open picture leaves the box held', () => {
   const css = read('card-tokens.css');
-  assert.match(css, /\.magicbox :is\(\.mbimg, \.mbtext\.cardmd img\.shot\)\{cursor:zoom-in\}/);
-  // one viewer: the box code opens the card's, and builds none of its own
+  assert.match(css, /\.magicbox:not\(\.big\) \.mbimg, \.magicbox \.mbtext\.cardmd img\.shot\{cursor:zoom-in\}/);
+  // expanded, the picture zooms in the box: no zoom cursor, since a click no longer opens anything
+  assert.match(css, /\.magicbox\.big \.mbimg\{cursor:default;/);
+  // one viewer, the card's: the box code opens none, and builds none of its own
   assert.doesNotMatch(read('magic-box.js'), /picfull|openCardPicture/);
+  const view = source.slice(source.indexOf('function magicView('), source.indexOf('\n}\n', source.indexOf('function magicView(')));
+  assert.doesNotMatch(view, /openCardPicture|picfull/);
   assert.equal((source.match(/function openCardPicture/g) || []).length, 1);
   assert.equal((source.match(/id = "picfull"/g) || []).length, 1);
+  // the guard finds the box's view on the box, and the view says where it is
+  assert.match(source, /const view = img\.closest\("\.magicbox"\)\?\._view;/);
+  assert.match(view, /el\._view = view;/);
   // the Mac board's box took the hold on a press and lets go on a press anywhere
-  // else; a press on the open picture is not anywhere else
+  // else; a press on an open card picture is not anywhere else
   assert.match(read('index.html'), /addEventListener\("pointerdown", e => \{\s+\/\/[^\n]*\n\s+\/\/[^\n]*\n\s+if \(e\.target\.closest\?\.\("#picfull"\)\) return;\s+const into = !!MB\.el\?\.contains\(e\.target\);/);
 });

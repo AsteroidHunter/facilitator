@@ -187,31 +187,36 @@ function installCardPageGuard(win = window){
   function activate(e){
     const link = linkFor(e);
     if (!link){
-      // the picture an image box shows has no menu: a plain click opens it once
-      // the box is selected, and any other press is left as it was
+      // the picture an image box shows has no menu: a plain click expands the
+      // box once it is selected, and any other press is left as it was. so is
+      // every press on the picture of a box already expanded, where it zooms
+      // (magicView)
       const shown = plainClick(e) ? boxImage(e.target) : null;
-      if (!shown || !boxSelected(shown)) return;
+      if (!shown || !boxSelected(shown) || shown.closest(".magicbox.big")) return;
       e.preventDefault(); e.stopImmediatePropagation();
-      openCardPicture(shown, null);
+      if (!magicBoxPicture(shown, pressedFrom)) openCardPicture(shown, null);
       return;
     }
     if (downloads.has(link)) return;
     e.preventDefault(); e.stopImmediatePropagation();
     if (held === link && e.type === "click"){ held = null; return; }
     if (plainClick(e) && cardPicture(link)){
-      // the click that selects a markdown box is only that: no viewer, no menu
+      // the click that selects a markdown box is only that: no box expanded, no menu
       if (!boxSelected(link)) return;
-      // a picture in a magic box leaves the focus where the click in the box put it
-      if (openCardPicture(link, link.closest(".magicbox") ? null : pressedFrom)) return;
+      // a picture in a magic box expands the box to show it alone; one that
+      // cannot leaves the focus where the click in the box put it
+      const box = link.closest(".magicbox");
+      if (box && magicBoxPicture(link, pressedFrom)) return;
+      if (openCardPicture(link, box ? null : pressedFrom)) return;
     }
     show(link, e);
   }
   // the Mac board's box is selected (held) by a press in it, which the board
   // takes after this guard has heard it, so the press records what the box was
   // as it came down: the first click on a picture is the box being selected, the
-  // next one opens it. the phone's box has no selected state, so its pictures
-  // open on the first tap, as the card's do. a click with no press before it
-  // (the keys, a script) reads the box as it stands
+  // next one expands it. the phone's box has no selected state, so a tap on its
+  // pictures expands it at once, as a card's opens on the first tap. a click
+  // with no press before it (the keys, a script) reads the box as it stands
   function boxSelected(picture){
     const box = picture.closest(".magicbox"), press = pressedBox;
     pressedBox = null;
@@ -295,11 +300,13 @@ function installCardPageGuard(win = window){
 // click goes from fitted to twice at that point and back. at its fitted size a
 // tap or a click puts it back, once the moment for a second tap has passed;
 // zoomed, it takes Escape. the picture a card's magic box shows (an image box)
-// and the pictures in a markdown box open the same way, on both pages, and the
-// box keeps its hold on the keys through it. on the Mac board that is once the
-// box is selected: the click that selects it does not open the picture. a page
-// an agent made in the box has its own pictures, which are its own; the other
-// boxes beside the card keep the menu for theirs
+// and the pictures in a markdown box are not opened here: the click expands
+// the box itself, where the picture zooms and moves the same way
+// (magicBoxPicture, magicView), on both pages. on the Mac board that is once
+// the box is selected: the click that selects it does not expand it. where the
+// box cannot expand (a phone browser without the top layer) its picture opens
+// here as before. a page an agent made in the box has its own pictures, which
+// are its own; the other boxes beside the card keep the menu for theirs
 const CARD_PICTURES = ".reply.cardmd img.shot, .answmsg.cardmd img.shot, .magicbox .mbtext.cardmd img.shot";
 const BOX_PICTURE = ".magicbox .mbimg";
 const CARD_PICTURE_MS = 300;
@@ -335,6 +342,14 @@ function cardPicture(target){
 // the picture an image box shows, or null
 function boxImage(target){
   return target?.closest?.(BOX_PICTURE) || null;
+}
+// a picture in a card's magic box, clicked or tapped open: the box expands to
+// show it, where it zooms (its view's picture, magicView). back: what had
+// focus before the press, which has it again as the box goes back. false for
+// a picture that has not drawn, or a box that cannot expand
+function magicBoxPicture(img, back){
+  const view = img.closest(".magicbox")?._view;
+  return !!view && !!img.complete && !!img.naturalWidth && view.picture(img, back);
 }
 // where a picture w by h stands in the box: as large as it fits at its own
 // shape, never past CARD_PICTURE_MOST times its size, and centred
@@ -388,6 +403,14 @@ function cardPictureOver(from, to){
     (from.w / to.w) + ", " + (from.h / to.h) + ")";
 }
 const cardPictureStill = win => !!win.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+// the share of CARD_PICTURE_MS a motion takes that sets off back from where
+// `going`, a motion still on its way, has got to: the time it had spent
+// getting there, and never under .4 of the whole. one with nothing on its way
+// takes the whole time. the magic box turns round the same way (index.html,
+// m.html)
+function cardPictureTurn(going){
+  return going && going.playState === "running" ? Math.min(1, Math.max(0.4, (going.currentTime || 0) / CARD_PICTURE_MS)) : 1;
+}
 const cardPictureZoomed = z => z.at.w > z.to.w + 0.5;
 // the copy at r, kept in the room: across and down, a picture smaller than the
 // room stands centred in it, and a larger one never brings an edge in past the
@@ -539,9 +562,9 @@ function cardPictureLayer(doc){
 
 // the phone's magic box stands expanded in the browser's top layer, over
 // everything else on the page (m.html, phoneMagicBig). a layer opened from
-// inside it, the picture opened full screen or a link's menu, goes up there
-// too, over it, and comes down again as it shuts. from anywhere else, and on
-// the Mac, whose box is never there, nothing changes
+// inside it, a link's menu, goes up there too, over it, and comes down again
+// as it shuts. from anywhere else, and on the Mac, whose box is never there,
+// nothing changes
 function cardTopLayer(layer, from){
   const box = from?.closest?.(".magicbox.big");
   if (!box || typeof layer.showPopover !== "function") return;
@@ -619,8 +642,7 @@ function closeCardPicture(){
   const cs = win.getComputedStyle(z.big);
   const start = { transform: cs.transform, clipPath: cs.clipPath && cs.clipPath !== "none" ? cs.clipPath : CARD_PICTURE_WHOLE, opacity: cs.opacity };
   const dim = win.getComputedStyle(z.veil).opacity;
-  const part = z.grow && z.grow === z.opening && z.grow.playState === "running"
-    ? Math.max(0.4, (z.grow.currentTime || 0) / CARD_PICTURE_MS) : 1;
+  const part = cardPictureTurn(z.grow === z.opening ? z.grow : null);
   const still = cardPictureStill(win);
   const timing = { duration: still ? 0 : CARD_PICTURE_MS * part, easing: CARD_PICTURE_EASE, fill: "both" };
   z.grow?.cancel(); z.dim.cancel();
@@ -8322,6 +8344,8 @@ function magicSiteName(box){
 }
 function magicView(el, hooks = {}){
   const view = { el, body: el.querySelector(".mbbody"), bar: el.querySelector(".mbbar"), url: "", natural: null, page: null };
+  // the page guard finds the view by its box, for a click on a picture in it (magicBoxPicture)
+  el._view = view;
   const placed = () => { if (hooks.placed) hooks.placed(); };
   const cross = el.querySelector(".mbclose");
   if (cross) cross.innerHTML = MAGIC_CROSS;
@@ -8349,11 +8373,211 @@ function magicView(el, hooks = {}){
     if (down !== view.down){ view.down = down; b.style.setProperty("--downband", down + "px"); }
   };
   view.body.addEventListener("scroll", bands, { passive: true });
-  const sized = typeof ResizeObserver === "function" ? new ResizeObserver(bands) : null;
+  // the box changing size lets go of a zoom (zoomResized, below)
+  const sized = typeof ResizeObserver === "function" ? new ResizeObserver(() => { bands(); zoomResized(); }) : null;
   if (sized) sized.observe(view.body);
+  // expanded, the picture the box shows (.mbimg: an image box's own, or one
+  // from its words shown alone, view.solo) zooms and moves where it stands, as
+  // a card's picture does opened full screen (cardPictureLayer), on the same
+  // numbers: a trackpad pinch (a wheel with ctrlKey, as Chrome sends it, or
+  // Safari's gesture) or command and the wheel zoom about the pointer, from its
+  // fitted size to four times that; two fingers pinch about their middle,
+  // which carries it with them; zoomed, a dragged mouse, one finger or a
+  // two-finger scroll moves it, never so far that an edge comes in past the
+  // box's, so some of it always shows; a double click or a double tap goes
+  // from fitted to twice at that point and back. a lone click or tap does
+  // nothing, and never puts the box back. it is moved by a transform from its
+  // top left corner (card-tokens.css), in the box's own pixels, the board's
+  // stage scale counted out. a box on its way (hooks.moving) takes none of it,
+  // so the click that expanded it is never the first of two
+  const z = { img: null, to: null, at: null, grow: null, touch: null, drag: null, tapped: null, pinch: null };
+  const zoomPic = () => view.big && !(hooks.moving && hooks.moving()) ? view.body.querySelector(":scope > .mbimg") : null;
+  const zoomed = () => !!z.at && z.at.w > z.to.w + 0.5;
+  // where the sheet fits it in the box (object-fit:scale-down): as large as
+  // fits, never past its own size, and centred
+  const zoomFit = img => {
+    const W = img.offsetWidth, H = img.offsetHeight, w = img.naturalWidth || W, h = img.naturalHeight || H;
+    const s = Math.min(W / w, H / h, 1);
+    return { x: (W - w * s) / 2, y: (H - h * s) / 2, w: w * s, h: h * s, W, H };
+  };
+  const zoomStart = img => {
+    if (z.img === img && z.to) return;
+    zoomOff(false);
+    Object.assign(z, { img, to: zoomFit(img) });
+    z.at = z.to;
+  };
+  // a point on the screen in the picture's own pixels, and the screen's
+  // pixels to its (s)
+  const zoomPoint = (img, x, y) => {
+    const r = view.body.getBoundingClientRect(), s = r.width / view.body.offsetWidth || 1;
+    return { x: (x - r.left) / s - view.body.clientLeft - img.offsetLeft, y: (y - r.top) / s - view.body.clientTop - img.offsetTop, s };
+  };
+  // the motion of the moment run out at once, so a gesture starts from where it stands
+  const zoomSettle = () => {
+    if (!z.grow) return;
+    z.grow.finish(); z.grow.cancel(); z.grow = null;
+  };
+  // across and down, a picture smaller than the box stands centred in it, and
+  // a larger one never brings an edge in past the box's
+  const zoomHeld = r => {
+    const axis = (p, size, room) => size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, p));
+    return { x: axis(r.x, r.w, z.to.W), y: axis(r.y, r.h, z.to.H), w: r.w, h: r.h };
+  };
+  // the picture at r, there at once or, with glide, carried there from where
+  // it stands on the picture's time and curve
+  const zoomMove = (img, r, glide) => {
+    const from = glide ? getComputedStyle(img).transform : null;
+    if (z.grow){ z.grow.cancel(); z.grow = null; }
+    z.at = zoomHeld(r);
+    const k = z.at.w / z.to.w, on = k > 1 + 1e-6;
+    img.style.transform = on ? "translate(" + (z.at.x - k * z.to.x) + "px, " + (z.at.y - k * z.to.y) + "px) scale(" + k + ")" : "";
+    img.classList.toggle("zoomed", on);
+    if (glide && !cardPictureStill(window))
+      z.grow = img.animate([{ transform: from }, { transform: img.style.transform || "none" }], { duration: CARD_PICTURE_MS, easing: CARD_PICTURE_EASE });
+  };
+  // zoomed to k times its fitted size, its point under p kept there
+  const zoomBy = (img, k, p, glide) => {
+    const w = z.to.w * Math.min(CARD_PICTURE_ZOOM_MOST, Math.max(1, k)), f = w / z.at.w;
+    zoomMove(img, { x: p.x - (p.x - z.at.x) * f, y: p.y - (p.y - z.at.y) * f, w, h: z.to.h * w / z.to.w }, glide);
+  };
+  // a click or a tap: the second of two close together takes it from fitted to
+  // twice its size at that point, or back from any zoom
+  const zoomTap = (img, x, y) => {
+    const prior = z.tapped;
+    z.tapped = null;
+    if (prior && Date.now() - prior.t < CARD_PICTURE_DOUBLE_MS && Math.hypot(x - prior.x, y - prior.y) < CARD_PICTURE_DOUBLE_SLOP){
+      zoomStart(img); zoomSettle();
+      if (zoomed()) zoomMove(img, z.to, true);
+      else zoomBy(img, CARD_PICTURE_ZOOM_TAP, zoomPoint(img, x, y), true);
+      return;
+    }
+    z.tapped = { t: Date.now(), x, y };
+  };
+  // back to its fit and let go: at once, or with glide carried there from
+  // where it stands, as the box shrinks on the same time and curve
+  function zoomOff(glide){
+    const img = z.img;
+    if (!img) return;
+    const from = z.grow ? getComputedStyle(img).transform : img.style.transform;
+    if (z.grow){ z.grow.cancel(); z.grow = null; }
+    Object.assign(z, { img: null, to: null, at: null, touch: null, drag: null, tapped: null, pinch: null });
+    img.style.transform = "";
+    img.classList.remove("zoomed", "dragging");
+    if (glide && from && from !== "none" && !cardPictureStill(window))
+      z.grow = img.animate([{ transform: from }, { transform: "none" }], { duration: CARD_PICTURE_MS, easing: CARD_PICTURE_EASE });
+  }
+  // the box laid out at another size, the window's or its own on the way
+  // back, lets go of a zoom, as the full-screen picture does
+  function zoomResized(){
+    if (z.img && (z.img.offsetWidth !== z.to.W || z.img.offsetHeight !== z.to.H)) zoomOff(false);
+  }
+  const zoomOn = (type, fn) => view.body.addEventListener(type, e => {
+    const img = zoomPic();
+    if (img && e.target === img) fn(e, img);
+  }, { passive: false });
+  zoomOn("wheel", (e, img) => {
+    zoomStart(img); zoomSettle();
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1;
+    if (e.ctrlKey || e.metaKey){
+      e.preventDefault();
+      const d = Math.max(-CARD_PICTURE_WHEEL_MOST, Math.min(CARD_PICTURE_WHEEL_MOST, e.deltaY * unit));
+      zoomBy(img, z.at.w / z.to.w * Math.exp(-d * CARD_PICTURE_WHEEL_ZOOM), zoomPoint(img, e.clientX, e.clientY));
+    } else if (zoomed()){
+      e.preventDefault();
+      const s = zoomPoint(img, 0, 0).s;
+      zoomMove(img, { ...z.at, x: z.at.x - e.deltaX * unit / s, y: z.at.y - e.deltaY * unit / s });
+    }
+  });
+  // Safari's pinch on a trackpad; the phone's fingers are read as touches
+  zoomOn("gesturestart", (e, img) => {
+    if (z.touch) return;
+    e.preventDefault();
+    zoomStart(img); zoomSettle();
+    z.pinch = z.at.w / z.to.w;
+  });
+  zoomOn("gesturechange", (e, img) => {
+    if (z.pinch == null) return;
+    e.preventDefault();
+    zoomBy(img, z.pinch * e.scale, zoomPoint(img, e.clientX, e.clientY));
+  });
+  zoomOn("gestureend", () => { z.pinch = null; });
+  // the mouse: held down and dragged it moves a zoomed picture, picking no
+  // words and dragging nothing out, and the click that ends a drag is not a
+  // click on it
+  zoomOn("pointerdown", (e, img) => {
+    if (e.pointerType !== "mouse" || e.button) return;
+    zoomStart(img); zoomSettle();
+    z.drag = { start: { x: e.clientX, y: e.clientY }, last: { x: e.clientX, y: e.clientY }, moved: false };
+    if (!zoomed()) return;
+    try { img.setPointerCapture(e.pointerId); } catch (_) {}
+    img.classList.add("dragging");
+  });
+  zoomOn("mousedown", e => { if (z.drag && zoomed()) e.preventDefault(); });
+  zoomOn("dragstart", e => e.preventDefault());
+  zoomOn("pointermove", (e, img) => {
+    const d = z.drag;
+    if (!d || e.pointerType !== "mouse") return;
+    if (!(e.buttons & 1)){ z.drag = null; img.classList.remove("dragging"); return; }
+    if (Math.hypot(e.clientX - d.start.x, e.clientY - d.start.y) > CARD_PICTURE_SLOP) d.moved = true;
+    if (d.moved && zoomed()){
+      const s = zoomPoint(img, 0, 0).s;
+      zoomMove(img, { ...z.at, x: z.at.x + (e.clientX - d.last.x) / s, y: z.at.y + (e.clientY - d.last.y) / s });
+    }
+    d.last = { x: e.clientX, y: e.clientY };
+  });
+  for (const type of ["pointerup", "pointercancel"]) zoomOn(type, (e, img) => img.classList.remove("dragging"));
+  zoomOn("click", (e, img) => {
+    const dragged = z.drag?.moved;
+    z.drag = null;
+    if (!dragged) zoomTap(img, e.clientX, e.clientY);
+  });
+  // the fingers: two pinch about their middle, which carries the picture with
+  // them; one moves a zoomed picture, and one put down and lifted without
+  // moving, with no second joining it, is a tap. every touch on it is its own:
+  // none scrolls or zooms the page, reaches the drawer behind or becomes a click
+  const points = e => [...e.touches].map(t => ({ x: t.clientX, y: t.clientY }));
+  const middle = p => ({ x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 });
+  const zoomTouch = (type, fn) => zoomOn(type, (e, img) => { e.preventDefault(); e.stopPropagation(); zoomStart(img); fn(e, img); });
+  zoomTouch("touchstart", (e, img) => {
+    zoomSettle();
+    const p = points(e);
+    if (p.length >= 2){
+      const m = middle(p);
+      z.touch = { pinch: true, spread: Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) || 1, mid: zoomPoint(img, m.x, m.y), from: z.at };
+    } else if (p.length === 1) z.touch = { pinch: false, start: p[0], last: p[0], tap: !z.touch };
+  });
+  zoomTouch("touchmove", (e, img) => {
+    const p = points(e), g = z.touch;
+    if (!g) return;
+    if (g.pinch && p.length >= 2){
+      const m = middle(p), mid = zoomPoint(img, m.x, m.y);
+      const k = g.from.w / z.to.w * Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) / g.spread;
+      const w = z.to.w * Math.min(CARD_PICTURE_ZOOM_MOST, Math.max(1, k)), f = w / g.from.w;
+      zoomMove(img, { x: mid.x - (g.mid.x - g.from.x) * f, y: mid.y - (g.mid.y - g.from.y) * f, w, h: z.to.h * w / z.to.w });
+    } else if (!g.pinch && p.length === 1){
+      if (Math.hypot(p[0].x - g.start.x, p[0].y - g.start.y) > CARD_PICTURE_SLOP) g.tap = false;
+      if (!g.tap && zoomed()){
+        const s = zoomPoint(img, 0, 0).s;
+        zoomMove(img, { ...z.at, x: z.at.x + (p[0].x - g.last.x) / s, y: z.at.y + (p[0].y - g.last.y) / s });
+      }
+      g.last = p[0];
+    }
+  });
+  // the finger left of two goes on moving the picture from where it is
+  const zoomLift = (e, img) => {
+    const p = points(e), g = z.touch;
+    if (p.length === 1){ z.touch = { pinch: false, start: p[0], last: p[0], tap: false }; return; }
+    if (p.length) return;
+    z.touch = null;
+    if (g && !g.pinch && g.tap && e.type === "touchend") zoomTap(img, g.last.x, g.last.y);
+  };
+  zoomTouch("touchend", zoomLift);
+  zoomTouch("touchcancel", zoomLift);
   // everything in it gone, so a frame that was showing stops running
   view.clear = () => {
+    zoomOff(false);
     view.url = ""; view.page = null; view.natural = null; view.fade = null; view.lead = null; view.known = false;
+    if (view.alone){ view.alone = null; view.body.classList.remove("alone"); }
     delete view.body.dataset.kind;
     view.body.textContent = "";
     bands();
@@ -8545,8 +8769,15 @@ function magicView(el, hooks = {}){
   // sharpness, with the bar as its head (at the foot on the phone); words for their own height at the
   // room's width; a site that will not be framed for a square. the edge, the
   // bar and the white kept at the far edge are added, so what is beside the
-  // bar is the size it asks for
+  // bar is the size it asks for. words a picture of theirs stands alone over
+  // (view.solo) are measured as they stand without it, so the box keeps their
+  // size and comes back to it
   view.want = (room, scale = 1) => {
+    const alone = !!view.alone;
+    if (alone) view.body.classList.remove("alone");
+    try { return want(room, scale); } finally { if (alone) view.body.classList.add("alone"); }
+  };
+  const want = (room, scale) => {
     const air = getComputedStyle(view.body);
     const kind = view.body.dataset.kind, edges = el.offsetWidth - el.clientWidth,
       head = view.bar.offsetHeight + (parseFloat(air.marginTop) || 0) + (parseFloat(air.marginBottom) || 0);
@@ -8584,12 +8815,15 @@ function magicView(el, hooks = {}){
   // words turn with it. an agent's page the board sizes the box to
   // (hooks.sized) is laid out wider while the box is expanded and says its
   // height at that width: the height it had said at the box's own width is
-  // kept, and is the box's again as it comes back, until the page says another
+  // kept, and is the box's again as it comes back, until the page says another.
+  // a picture zoomed in it goes back to its fit, carried there as the box
+  // shrinks, and expanded again it opens fitted
   view.big = false;
   view.expand = on => {
     on = !!on;
     if (on === view.big) return;
     view.big = on;
+    zoomOff(!on);
     el.classList.toggle("big", on);
     if (grow){
       grow.innerHTML = on ? MAGIC_SHRINK : MAGIC_GROW;
@@ -8600,452 +8834,42 @@ function magicView(el, hooks = {}){
     if (on) run.small = run.height;
     else if (run.small) run.height = run.small;
   };
+  // a picture in the words shown alone (img), edge to edge in the body as an
+  // image box shows its own (.mbimg), where it zooms the same way; the words
+  // stay under it, hidden, at the scroll they had (.alone in card-tokens.css),
+  // and have it again once it goes (null)
+  view.alone = null;
+  view.solo = img => {
+    const b = view.body, words = b.querySelector(".mbtext");
+    zoomOff(false);
+    if (img && words){
+      if (view.alone) view.alone.remove();
+      else { view.wordsTop = b.scrollTop; b.classList.add("alone"); }
+      const pic = view.alone = h("img", "mbimg");
+      pic.alt = img.alt || ""; pic.draggable = false;
+      pic.src = img.currentSrc || img.src;
+      b.appendChild(pic);
+    } else if (view.alone){
+      view.alone.remove(); view.alone = null;
+      b.classList.remove("alone");
+      b.scrollTop = view.wordsTop || 0;
+    }
+    bands();
+  };
+  // a picture in the box clicked or tapped open (magicBoxPicture, the page
+  // guard): the box expands to show it, a picture in the words alone, where it
+  // zooms (hooks.expand, which says whether the box could expand); a box
+  // already expanded shows it as it stands. false where the box cannot
+  // expand, which is then left as it was
+  view.picture = (img, back) => {
+    if (!hooks.expand) return false;
+    const words = !!img.closest(".mbtext"), was = view.alone;
+    if (words) view.solo(img);
+    if (view.big || hooks.expand(back)) return true;
+    if (words && !was) view.solo(null);
+    return false;
+  };
   return view;
-}
-
-// ---- the magic box's genie --------------------------------------------------
-// the box poured between its place and its expanded one as a Mac window pours
-// into the Dock and back out (MagicBox.genie, magic-box.js), on both pages. the
-// box is pictured at each end (magicLook), where it stood and where it lands,
-// and the two pictures are drawn on a canvas of the page's, over the shade, in
-// strips two pixels thick whose ends follow the genie's curves: upright ones
-// toward the Mac's place beside the box, level ones into the phone's drawer
-// under it. each strip
-// wears the picture of the end it is nearer, passing from one to the other on
-// its way, so the first frame is the box where it stood and the last is the
-// box where it lands. the box itself waits hidden in its new place meanwhile,
-// laid out at its size, and the page shows it again as the canvas goes
-
-// the box's look as it stands, drawn on a canvas of its own at the screen's
-// sharpness: its face, edge line, corners and shadow, and inside them what
-// each of its elements shows, read off the page as it is laid out: their
-// backgrounds and lines, the marks on its bar, pictures, and words drawn word
-// by word where the page put them, with the fuzz at the ends of their scroll.
-// an agent's page or a site, in a frame the board cannot look into, shows the
-// frame's own white. settled: read as it will stand once any change of look
-// under way has run, for the place it lands in. gives where it stands on the
-// screen (rect), its own size in its own pixels (w, h), the room round it for
-// its shadow (edge), the canvas's pixels to one of its own (k), where its
-// corner is drawn on the canvas (x0, y0) and its strength (alpha); null for a
-// box with no size, or a browser that cannot draw it, where the box simply
-// shows where it lands
-const LOOK_EDGE = 32, LOOK_MOST = 4096;
-function magicLook(el, settled){
-  const was = el.style.transition;
-  if (settled) el.style.transition = "none";
-  try { return magicLookDrawn(el); } catch (e) { return null; } finally { if (settled) el.style.transition = was; }
-}
-function magicLookDrawn(el){
-  const r = el.getBoundingClientRect();
-  if (!r.width || !r.height) return null;
-  // its own size to the fraction of a pixel (each page sizes everything by its outer edge)
-  const cs = getComputedStyle(el), px = v => parseFloat(v) || 0;
-  const w = px(cs.width) || el.offsetWidth, h = px(cs.height) || el.offsetHeight;
-  const S = r.width / w, m = LOOK_EDGE, ratio = window.devicePixelRatio || 1;
-  const k = Math.min(ratio * S, LOOK_MOST / (w + 2 * m), LOOK_MOST / (h + 2 * m));
-  // drawn at the same part of a pixel as the box stands on the screen, so at
-  // either end of the genie each of its pixels lands on one of the screen's
-  const sharp = k === ratio * S, x0 = m * k + (sharp ? (r.left * ratio % 1 + 1) % 1 : 0), y0 = m * k + (sharp ? (r.top * ratio % 1 + 1) % 1 : 0);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.ceil((w + 2 * m) * k + 1);
-  canvas.height = Math.ceil((h + 2 * m) * k + 1);
-  const g = canvas.getContext("2d");
-  g.setTransform(k, 0, 0, k, x0, y0);
-  const clear = c => !c || c === "transparent" || /,\s*0\)$|\/\s*0\)$/.test(c);
-  // rectangles in the box's own pixels, from its corner
-  const at = b => ({ x: (b.left - r.left) / S, y: (b.top - r.top) / S, w: b.width / S, h: b.height / S });
-  const meets = (a, c) => a.x < c.x + c.w && a.x + a.w > c.x && a.y < c.y + c.h && a.y + a.h > c.y;
-  const cut = (a, c) => {
-    const x = Math.max(a.x, c.x), y = Math.max(a.y, c.y);
-    return { x, y, w: Math.max(0, Math.min(a.x + a.w, c.x + c.w) - x), h: Math.max(0, Math.min(a.y + a.h, c.y + c.h) - y) };
-  };
-  const corners = (s, b) => ["TopLeft", "TopRight", "BottomRight", "BottomLeft"].map(c => {
-    const v = s["border" + c + "Radius"].split(" ")[0];
-    return Math.min(v.endsWith("%") ? px(v) / 100 * Math.min(b.w, b.h) : px(v), b.w / 2, b.h / 2);
-  });
-  const shape = (b, round) => { g.beginPath(); g.roundRect(b.x, b.y, b.w, b.h, round.map(v => Math.max(0, v))); };
-  const face = cs.backgroundColor;
-  // a colour at a strength, for the fuzz drawn over the face
-  const tint = (c, a) => {
-    g.fillStyle = c;
-    const hex = /^#(..)(..)(..)$/.exec(g.fillStyle);
-    return hex && "rgba(" + hex.slice(1).map(x => parseInt(x, 16)).join(",") + "," + a + ")";
-  };
-  // the shadows under it, the lowest first
-  const shadows = (cs.boxShadow && cs.boxShadow !== "none" ? cs.boxShadow.split(/,(?![^(]*\))/) : []).map(one => {
-    const colour = (one.match(/[a-z-]+\([^)]*\)|#[0-9a-f]+/i) || [""])[0];
-    const [x, y, blur] = one.replace(colour, "").trim().split(/\s+/).map(px);
-    return { colour, x, y, blur, inset: /inset/.test(one) };
-  }).filter(s => s.colour && !s.inset).reverse();
-  const whole = { x: 0, y: 0, w, h }, round = corners(cs, whole);
-  for (const s of shadows){
-    g.save();
-    Object.assign(g, { shadowColor: s.colour, shadowBlur: s.blur * k, shadowOffsetX: s.x * k, shadowOffsetY: s.y * k, fillStyle: face });
-    shape(whole, round);
-    g.fill();
-    g.restore();
-  }
-  // its lines: one all round, or each side on its own
-  const lines = (s, b, round) => {
-    const side = ["Top", "Right", "Bottom", "Left"];
-    const wide = side.map(n => s["border" + n + "Style"] === "none" ? 0 : px(s["border" + n + "Width"]));
-    const ink = side.map(n => s["border" + n + "Color"]);
-    if (!wide.some(Boolean)) return;
-    if (wide.every(v => v === wide[0]) && ink.every(c => c === ink[0])){
-      if (clear(ink[0])) return;
-      const t = wide[0];
-      g.strokeStyle = ink[0]; g.lineWidth = t;
-      shape({ x: b.x + t / 2, y: b.y + t / 2, w: b.w - t, h: b.h - t }, round.map(v => v - t / 2));
-      g.stroke();
-      return;
-    }
-    [[b.x, b.y, b.w, wide[0]], [b.x + b.w - wide[1], b.y, wide[1], b.h], [b.x, b.y + b.h - wide[2], b.w, wide[2]], [b.x, b.y, wide[3], b.h]]
-      .forEach(([x, y, ww, hh], i) => { if (wide[i] && !clear(ink[i])){ g.fillStyle = ink[i]; g.fillRect(x, y, ww, hh); } });
-  };
-  // the type set as an element's (s), and how far its baseline stands under
-  // the top of a run of it: read off the page the first time, from where a
-  // mark of no size set on the baseline beside a run of it (node) stands, the
-  // mark taken away at once
-  const range = document.createRange(), rises = new Map();
-  const font = (s, node) => {
-    g.font = s.fontStyle + " " + s.fontWeight + " " + s.fontSize + " " + s.fontFamily;
-    if ("letterSpacing" in g) g.letterSpacing = s.letterSpacing === "normal" ? "0px" : s.letterSpacing;
-    const key = g.font + s.lineHeight;
-    if (!rises.has(key) && node){
-      const i = node.data.search(/\S/), mark = document.createElement("span");
-      mark.style.cssText = "display:inline-block; width:0; height:0; vertical-align:baseline";
-      range.setStart(node, i);
-      range.setEnd(node, i + 1);
-      node.parentNode.insertBefore(mark, node);
-      const run = range.getClientRects()[0], base = mark.getBoundingClientRect().bottom;
-      mark.remove();
-      // a mark the page laid out anywhere but on the line (a row of boxes) says nothing
-      if (run && base > run.top && base <= run.bottom) rises.set(key, (base - run.top) / S);
-    }
-    return rises.get(key) ?? (g.measureText("x").fontBoundingBoxAscent || px(s.fontSize) * .8);
-  };
-  // words, each where the page laid it out, its top the top of its run of type
-  const words = (node, s, clip) => {
-    const text = node.data;
-    if (!/\S/.test(text) || clear(s.color)) return;
-    const rise = font(s, node);
-    const turn = s.textTransform === "uppercase" ? t => t.toUpperCase() : s.textTransform === "lowercase" ? t => t.toLowerCase() : t => t;
-    g.fillStyle = s.color;
-    const put = (t, b) => { if (meets(b, clip)) g.fillText(turn(t), b.x, b.y + rise); };
-    for (const word of text.matchAll(/\S+/g)){
-      range.setStart(node, word.index);
-      range.setEnd(node, word.index + word[0].length);
-      const runs = range.getClientRects();
-      if (runs.length === 1){ put(word[0], at(runs[0])); continue; }
-      // a word broken over two lines, a letter at a time
-      for (let i = 0; i < word[0].length;){
-        const n = word[0].codePointAt(i) > 0xffff ? 2 : 1;
-        range.setStart(node, word.index + i);
-        range.setEnd(node, word.index + i + n);
-        const one = range.getClientRects()[0];
-        if (one) put(word[0].slice(i, i + n), at(one));
-        i += n;
-      }
-    }
-  };
-  // a list's mark, by the first line of its item: a number as words, and a
-  // dot, ring or square drawn as the browser draws its own, a third of the
-  // way down from the type's top, its far side 7 pixels short of the words
-  const mark = (e, s, b) => {
-    const type = s.listStyleType, list = e.parentElement;
-    const walk = document.createTreeWalker(e, NodeFilter.SHOW_TEXT, { acceptNode: n => /\S/.test(n.data) ? 1 : 3 });
-    const first = walk.nextNode();
-    if (s.listStylePosition !== "outside" || !first) return;
-    range.selectNodeContents(first);
-    const run = range.getClientRects()[0];
-    if (!run) return;
-    const top = at(run).y, start = b.x + px(s.borderLeftWidth) + px(s.paddingLeft), rise = font(s, first.parentNode === e ? first : null);
-    g.fillStyle = g.strokeStyle = s.color;
-    if (type === "decimal" && list){
-      const n = (list.start || 1) + [...list.children].filter(c => c.localName === "li").indexOf(e);
-      g.textAlign = "right";
-      g.fillText(n + ". ", start, top + font(getComputedStyle(first.parentElement), first));
-      g.textAlign = "left";
-      return;
-    }
-    const d = (rise * 2 / 3 + 1) / 2, x = start - 7 - d, y = top + rise / 2;
-    if (type === "disc"){ g.beginPath(); g.arc(x + d / 2, y + d / 2, d / 2, 0, 2 * Math.PI); g.fill(); }
-    else if (type === "circle"){ g.lineWidth = 1; g.beginPath(); g.arc(x + d / 2, y + d / 2, d / 2 - .5, 0, 2 * Math.PI); g.stroke(); }
-    else if (type === "square") g.fillRect(x, y, d, d);
-  };
-  const picture = (e, s, b) => {
-    const src = e.currentSrc || e.src;
-    if (!e.complete || !e.naturalWidth || !(/^(blob|data):/.test(src) || new URL(src, location.href).origin === location.origin)) return;
-    const nw = e.naturalWidth, nh = e.naturalHeight, fit = s.objectFit;
-    let sc = fit === "cover" ? Math.max(b.w / nw, b.h / nh) : fit === "none" ? 1 : Math.min(b.w / nw, b.h / nh);
-    if (fit === "scale-down") sc = Math.min(1, sc);
-    const dw = fit === "fill" ? b.w : nw * sc, dh = fit === "fill" ? b.h : nh * sc;
-    const [ox, oy] = s.objectPosition.split(" ").map((v, i) => v.endsWith("%") ? px(v) / 100 * (i ? b.h - dh : b.w - dw) : px(v));
-    g.save();
-    shape(b, corners(s, b));
-    g.clip();
-    g.drawImage(e, b.x + ox, b.y + oy, dw, dh);
-    g.restore();
-  };
-  // the marks on the bar and in a site's tile: each path of the drawing, filled
-  // and drawn round as the page draws it
-  const drawing = (e, b) => {
-    const box = e.viewBox && e.viewBox.baseVal, vw = box && box.width || b.w, vh = box && box.height || b.h;
-    g.save();
-    g.translate(b.x, b.y);
-    g.scale(b.w / vw, b.h / vh);
-    if (box) g.translate(-box.x, -box.y);
-    for (const p of e.querySelectorAll("path")){
-      const d = p.getAttribute("d"), ps = getComputedStyle(p);
-      if (!d) continue;
-      const path = new Path2D(d);
-      if (ps.fill !== "none"){ g.fillStyle = ps.fill; g.fill(path, ps.fillRule === "evenodd" ? "evenodd" : "nonzero"); }
-      if (ps.stroke !== "none" && px(ps.strokeWidth) > 0){
-        Object.assign(g, { strokeStyle: ps.stroke, lineWidth: px(ps.strokeWidth), lineCap: ps.strokeLinecap, lineJoin: ps.strokeLinejoin });
-        g.stroke(path);
-      }
-    }
-    g.restore();
-  };
-  // the fuzz the words wear at either end of their scroll: the box's face laid
-  // over them on the ramp the sheet's mask takes them away on (card-tokens.css)
-  const fuzz = (e, s, pad) => {
-    const up = px(e.style.getPropertyValue("--upband")), down = px(e.style.getPropertyValue("--downband"));
-    if (!up && !down || !/gradient/.test(s.maskImage || s.webkitMaskImage || "")) return;
-    const band = (from, to) => {
-      const ramp = g.createLinearGradient(0, from, 0, to);
-      for (const [at, a] of [[0, 1], [.38, .65], [.72, .2], [1, 0]]){ const c = tint(face, a); if (!c) return; ramp.addColorStop(at, c); }
-      g.fillStyle = ramp;
-      g.fillRect(pad.x, Math.min(from, to), pad.w, Math.abs(to - from));
-    };
-    if (up) band(pad.y, pad.y + up);
-    if (down) band(pad.y + pad.h, pad.y + pad.h - down);
-  };
-  // the box's own strength is not drawn in: the genie gives it (alpha)
-  const paint = (e, clip, s = getComputedStyle(e)) => {
-    if (s.display === "none") return;
-    const op = e === el ? 1 : +s.opacity, b = at(e.getBoundingClientRect());
-    if (!(op > 0) || !meets(b, clip) && s.display !== "contents") return;
-    g.save();
-    if (op < 1) g.globalAlpha *= op;
-    const tag = e.localName;
-    if (s.visibility !== "hidden" && s.display !== "contents"){
-      const parts = s.display === "inline" ? [...e.getClientRects()].map(at) : [b];
-      for (const part of parts){
-        const round = corners(s, part);
-        if (!clear(s.backgroundColor)){ g.fillStyle = s.backgroundColor; shape(part, round); g.fill(); }
-        lines(s, part, round);
-      }
-      // a link's line under its words, along each line it runs on
-      if (s.display === "inline" && /underline/.test(s.textDecorationLine)){
-        const rise = font(s, e.firstChild && e.firstChild.nodeType === 3 && /\S/.test(e.firstChild.data) ? e.firstChild : null);
-        g.fillStyle = clear(s.textDecorationColor) ? s.color : s.textDecorationColor;
-        for (const part of parts) g.fillRect(part.x, part.y + rise + 1.5, part.w, Math.max(1, px(s.textDecorationThickness) || 1));
-      }
-      if (s.display === "list-item") mark(e, s, b);
-      if (tag === "img") picture(e, s, b);
-      if (tag === "svg") drawing(e, b);
-    }
-    if (tag !== "img" && tag !== "svg" && tag !== "iframe" && tag !== "video" && tag !== "canvas"){
-      let inner = clip;
-      if (s.overflowX !== "visible" || s.overflowY !== "visible"){
-        const l = px(s.borderLeftWidth), t = px(s.borderTopWidth);
-        const pad = { x: b.x + l, y: b.y + t, w: b.w - l - px(s.borderRightWidth), h: b.h - t - px(s.borderBottomWidth) };
-        inner = cut(pad, clip);
-        shape(pad, corners(s, b).map(v => v - Math.max(l, t)));
-        g.clip();
-      }
-      for (const n of e.childNodes){
-        if (n.nodeType === 1) paint(n, inner);
-        else if (n.nodeType === 3 && s.visibility !== "hidden") words(n, s, inner);
-      }
-      if (inner !== clip) fuzz(e, s, inner);
-    }
-    g.restore();
-  };
-  paint(el, whole, cs);
-  const alpha = +cs.opacity;
-  return { canvas, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, w, h, edge: m, k, x0, y0, alpha };
-}
-
-// the strips drawn by the screen's own graphics (WebGL 2), on a page's canvas,
-// set up once for it and kept: the two pictures, and a row of points along
-// each side of the box, one for each strip's end. between two of them a strip
-// is filled straight from one end to the other at every point along it (every
-// height for level strips, every point across for upright ones), what lies
-// between its two ends spread evenly between them, so the strips' sides follow
-// the curves and nothing inside one bends unevenly. null where there are no
-// such graphics, and the page lets the box simply fade in where it lands
-const GENIE_DRAW = "#version 300 es\n" +
-  "in vec2 at; in vec4 strip; in float strong; uniform vec2 room; out vec2 ends; out float along, wear, strength;" +
-  "void main(){ ends = strip.xy; along = strip.z; wear = strip.w; strength = strong;" +
-  " gl_Position = vec4(at.x / room.x * 2.0 - 1.0, 1.0 - at.y / room.y * 2.0, 0.0, 1.0); }";
-const GENIE_FILL = "#version 300 es\nprecision highp float;" +
-  "in vec2 ends; in float along, wear, strength; uniform sampler2D big, small; uniform vec4 bigAt, smallAt;" +
-  " uniform vec2 room; uniform bool upright; out vec4 colour;" +
-  "vec4 look(sampler2D t, vec4 a, vec2 p){ return texture(t, vec2(a.x + p.x * a.y, a.z + p.y * a.w)); }" +
-  "void main(){ float u = ((upright ? room.y - gl_FragCoord.y : gl_FragCoord.x) - ends.x) / (ends.y - ends.x);" +
-  " vec2 p = upright ? vec2(along, u) : vec2(u, along);" +
-  " colour = mix(look(big, bigAt, p), look(small, smallAt, p), wear) * strength; }";
-function magicGenieGL(canvas){
-  if (!canvas) return null;
-  if (canvas.genie !== undefined) return canvas.genie;
-  canvas.genie = null;
-  if (!canvas.genieHeard){
-    // the graphics taken away (the screen asleep, too many at once): the
-    // box lands at once, and the strips are set up again when they come back
-    canvas.genieHeard = true;
-    canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); canvas.genie = null; });
-    canvas.addEventListener("webglcontextrestored", () => { delete canvas.genie; });
-  }
-  let gl = null;
-  try { gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: true, depth: false, stencil: false }); } catch (e) {}
-  if (!gl) return null;
-  const part = (type, text) => { const p = gl.createShader(type); gl.shaderSource(p, text); gl.compileShader(p); return p; };
-  const prog = gl.createProgram();
-  gl.attachShader(prog, part(gl.VERTEX_SHADER, GENIE_DRAW));
-  gl.attachShader(prog, part(gl.FRAGMENT_SHADER, GENIE_FILL));
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-  gl.useProgram(prog);
-  const points = gl.createBuffer();
-  gl.bindVertexArray(gl.createVertexArray());
-  gl.bindBuffer(gl.ARRAY_BUFFER, points);
-  const point = gl.getAttribLocation(prog, "at"), strip = gl.getAttribLocation(prog, "strip"), strong = gl.getAttribLocation(prog, "strong");
-  gl.enableVertexAttribArray(point);
-  gl.vertexAttribPointer(point, 2, gl.FLOAT, false, 28, 0);
-  gl.enableVertexAttribArray(strip);
-  gl.vertexAttribPointer(strip, 4, gl.FLOAT, false, 28, 8);
-  gl.enableVertexAttribArray(strong);
-  gl.vertexAttribPointer(strong, 1, gl.FLOAT, false, 28, 24);
-  const u = n => gl.getUniformLocation(prog, n);
-  gl.uniform1i(u("big"), 0);
-  gl.uniform1i(u("small"), 1);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-  return canvas.genie = { gl, points, room: u("room"), bigAt: u("bigAt"), smallAt: u("smallAt"), upright: u("upright"),
-    sharp: gl.getExtension("EXT_texture_filter_anisotropic"), pictures: [] };
-}
-// a look put up as one of the two pictures (0 big, 1 small)
-function magicGenieUp(G, look, n){
-  const gl = G.gl, tex = gl.createTexture();
-  gl.activeTexture(gl.TEXTURE0 + n);
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  G.pictures[n] = tex;
-  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, look.canvas); } catch (e) { return false; }
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  // squeezed far more across than down: sharp both ways, never shimmering
-  if (G.sharp) gl.texParameterf(gl.TEXTURE_2D, G.sharp.TEXTURE_MAX_ANISOTROPY_EXT,
-    Math.min(8, gl.getParameter(G.sharp.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
-  return true;
-}
-// and the two let go, the canvas left clear
-function magicGenieDown(G){
-  for (const tex of G.pictures) if (tex) G.gl.deleteTexture(tex);
-  G.pictures = [];
-  G.gl.clearColor(0, 0, 0, 0);
-  G.gl.clear(G.gl.COLOR_BUFFER_BIT);
-}
-// the genie played on canvas between the two looks, from one point of the way
-// (from) to another (to), each as MagicBox.genie's s, 0 at the big look's
-// place and 1 at the small's, over ms: its first frame now, the rest on the
-// screen's own frames, and done() as it lands, on the frame the page shows
-// the box again in. canvas is the page's, laid over the window wherever it
-// is: it is drawn at the screen's sharpness, in the window's pixels read off
-// it now. upright: the box's place is beside it (the Mac's), and it pours
-// sideways in upright strips; else under it (the phone's drawer), in level
-// ones. gives the way it is on, whose stop() halts it where it has got to and
-// says so, {s, big, small}, for the next to set off from; null where it
-// cannot be drawn
-function magicGenie(canvas, big, small, from, to, ms, done, upright){
-  const G = magicGenieGL(canvas);
-  if (!G || G.gl.isContextLost() || !big || !small) return null;
-  const gl = G.gl;
-  if (!magicGenieUp(G, big, 0) || !magicGenieUp(G, small, 1)){ magicGenieDown(G); return null; }
-  const room = canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1;
-  const W = Math.max(1, Math.round(room.width * ratio)), H = Math.max(1, Math.round(room.height * ratio));
-  if (canvas.width !== W) canvas.width = W;
-  if (canvas.height !== H) canvas.height = H;
-  gl.viewport(0, 0, W, H);
-  gl.uniform2f(G.room, W, H);
-  // where the box is in each picture, across and down: the room before it, and its share
-  const share = look => [look.x0 / look.canvas.width, look.w * look.k / look.canvas.width,
-    look.y0 / look.canvas.height, look.h * look.k / look.canvas.height];
-  gl.uniform4fv(G.bigAt, share(big));
-  gl.uniform4fv(G.smallAt, share(small));
-  gl.uniform1i(G.upright, upright ? 1 : 0);
-  // a strip each two pixels, and a strip more before and after the box (over
-  // and under it, or left and right of it for upright strips), and room at
-  // each end of a strip, for the shadow round it
-  const sx = W / room.width, sy = H / room.height;
-  const length = r => upright ? r.width : r.height;
-  const n = Math.max(8, Math.ceil(Math.max(length(big.rect), length(small.rect)) / 2));
-  const wide = Math.max(big.edge / big.w, small.edge / small.w), tall = Math.max(big.edge / big.h, small.edge / small.h);
-  const across = upright ? tall : wide, beyond = upright ? wide : tall;
-  const points = new Float32Array((n + 3) * 14);
-  // a strip wears one look or the other, passing from the big to the small
-  // about two thirds of its way, where the two are squeezed and stretched
-  // alike, and the strength of the small end (the Mac's faint box beside its
-  // card) only in the last of its way there, so the card never shows through
-  // the strips as they pass over it
-  const ramp = (q, a, b) => { const x = Math.min(1, Math.max(0, (q - a) / (b - a))); return x * x * (3 - 2 * x); };
-  // upright strips are spread across the box by its two side edges, not each
-  // by its own clock: one passes from the big look to the small where the two
-  // are squeezed and stretched alike (toward, from 0 at the big look's size to
-  // 1 at the small's, by how many times each is squeezed or stretched either
-  // way), and the whole box takes the faint strength as its far edge lands
-  const times = (a, b) => Math.abs(Math.log(a / b));
-  const toward = (w, h) => {
-    const off = times(w, big.rect.width) + times(h, big.rect.height), all = off + times(w, small.rect.width) + times(h, small.rect.height);
-    return all ? off / all : 0;
-  };
-  // each strip's place along the box and its two ends across it, on the canvas
-  const along = upright ? r => (r.x - room.left) * sx : r => (r.y - room.top) * sy;
-  const draw = s => {
-    const strips = MagicBox.genie(big.rect, small.rect, s, n, upright), first = along(strips[0]), span = along(strips[n]) - first;
-    const spread = upright && strips[n].x - strips[0].x, far = Math.min(strips[0].q, strips[n].q);
-    let i = 0;
-    const put = (r, v) => {
-      const a = first + v * span;
-      const l = upright ? (r.top - room.top) * sy : (r.left - room.left) * sx, e = upright ? (r.bottom - room.top) * sy : (r.right - room.left) * sx;
-      const worn = upright ? ramp(toward(spread, r.bottom - r.top), .3, .7) : ramp(r.q, .45, .85);
-      const out = across * (e - l), strong = big.alpha + (small.alpha - big.alpha) * ramp(upright ? far : r.q, .85, 1);
-      points.set(upright ? [a, l - out, l, e, v, worn, strong, a, e + out, l, e, v, worn, strong]
-        : [l - out, a, l, e, v, worn, strong, e + out, a, l, e, v, worn, strong], i);
-      i += 14;
-    };
-    put(strips[0], -beyond);
-    for (const r of strips) put(r, r.v);
-    put(strips[n], 1 + beyond);
-    gl.bindBuffer(gl.ARRAY_BUFFER, G.points);
-    gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, (n + 3) * 2);
-  };
-  const run = { s: from, frame: 0 }, start = performance.now();
-  const tick = now => {
-    run.frame = 0;
-    const p = ms > 0 ? Math.min(1, Math.max(0, (now - start) / ms)) : 1;
-    run.s = from + (to - from) * p;
-    if (p >= 1 || gl.isContextLost()){ if (!gl.isContextLost()) magicGenieDown(G); done(); return; }
-    draw(run.s);
-    run.frame = requestAnimationFrame(tick);
-  };
-  run.stop = () => {
-    cancelAnimationFrame(run.frame);
-    run.frame = 0;
-    if (!gl.isContextLost()) magicGenieDown(G);
-    return { s: run.s, big, small };
-  };
-  draw(from);
-  run.frame = requestAnimationFrame(tick);
-  return run;
 }
 
 // ---- projects on the owner's servers -------------------------------------------------
