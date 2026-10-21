@@ -944,11 +944,12 @@
   .reply .shotgrid .shot, .pendlist .shotgrid .shot{margin:0 auto}
   /* inline code keeps the surrounding card text size and line height while
      changing only its face to mono. pre-wrap preserves command spacing while
-     still allowing a long span to wrap */
+     still allowing a long span to wrap. no side padding: on the faint fill it
+     read as a stray space before a comma or full stop */
   .reply .inlinecode, .pendlist .inlinecode{
     font-family:var(--mono); font-size:inherit; line-height:inherit;
     color:var(--ink); background:var(--paper);
-    border-radius:var(--sq); padding:1px 4px; white-space:pre-wrap;
+    border-radius:var(--sq); padding:1px 0; white-space:pre-wrap;
   }
   /* the wrapper, not the scrolling pre, anchors the copy button: an absolute
      child of a scroller rides the scrolled content, so the button lives one
@@ -999,7 +1000,7 @@
   .cardmd .shotgrid .shot{margin:0 auto}
   .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
     color:var(--ink); background:var(--paper); border-radius:var(--sq);
-    padding:1px 4px; white-space:pre-wrap}
+    padding:1px 0; white-space:pre-wrap}
   /* the same code block rules as card-tokens.css, which the phone and the board
      load; this page does not, so they are repeated here at one pixel a unit */
   .cardmd .codeblockwrap{position:relative; isolation:isolate; margin:0 0 9px}

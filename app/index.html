@@ -3694,11 +3694,12 @@
   .reply .shotgrid .shot{margin:0 auto}
   /* inline code keeps the surrounding card text size and line height while
      changing only its face to mono. pre-wrap preserves command spacing while
-     still allowing a long span to wrap */
+     still allowing a long span to wrap. no side padding: on the faint fill it
+     read as a stray space before a comma or full stop */
   .reply .inlinecode{
     font-family:var(--mono); font-size:inherit; line-height:inherit;
     color:var(--ink); background:var(--paper);
-    border-radius:var(--sq); padding:1px 4px; white-space:pre-wrap;
+    border-radius:var(--sq); padding:1px 0; white-space:pre-wrap;
   }
   /* the code block, its label and its copy button are the shared sheet's
      (card-tokens.css), drawn alike here and on the phone */

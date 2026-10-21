@@ -346,7 +346,7 @@
 .cardmd .shotgrid .shot{margin:0 auto}
 .cardmd .inlinecode{font-family:var(--mono); font-size:inherit; line-height:inherit;
   color:var(--ink); background:var(--paper); border-radius:var(--sq);
-  padding:1px calc(4 * var(--u)); white-space:pre-wrap}
+  padding:1px 0; white-space:pre-wrap}
 .cardmd .codeblockwrap{position:relative; isolation:isolate; margin:0 0 calc(9 * var(--u))}
 .cardmd .codeblock{margin:0; padding:calc(10 * var(--u)) calc(12 * var(--u)); border-radius:calc(8 * var(--u));
   background:#EFF1F4; border:0; font:calc(12.5 * var(--u))/1.5 var(--mono); color:var(--ink);
