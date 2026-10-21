@@ -23,11 +23,13 @@ folder and every file it writes moved into a temporary directory.
 """
 
 import asyncio
+import atexit
 import http.client
 import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,7 +44,9 @@ sys.path.insert(0, str(ROOT))
 
 
 def _load_server():
-    os.environ["FACILITATOR_LOG_DIR"] = tempfile.mkdtemp(prefix="update-test-logs-")
+    logs = tempfile.mkdtemp(prefix="update-test-logs-")
+    atexit.register(shutil.rmtree, logs, True)
+    os.environ["FACILITATOR_LOG_DIR"] = logs
     os.environ.pop("FACILITATOR_UPDATE_SOURCE", None)
     os.environ.pop("FACILITATOR_UPDATE_EVERY", None)
     spec = importlib.util.spec_from_file_location("facilitator_server_update_test", ROOT / "server.py")
@@ -134,6 +138,7 @@ class Case(unittest.TestCase):
     def tearDown(self):
         for p in [self.setting, self.board, *self.patches, *self.guards]:
             p.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
 
     def kept(self):
         return json.loads(S.UPDATE_RECORD.read_text())
