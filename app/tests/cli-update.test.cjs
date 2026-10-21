@@ -543,3 +543,138 @@ print(json.dumps(results))
   assert.match(String(r.rebuilt_failed_step.exit),
     /The board was not restarted\. Once the update goes through, run: facilitator restart/);
 });
+
+// the command's own functions, loaded from a world's checkout, with the body
+// run after them; its last line printed as JSON is the answer
+async function drive(world, body, extraEnv = {}) {
+  const code = `
+import contextlib, importlib.machinery, importlib.util, io, json, os, sys, types
+loader = importlib.machinery.SourceFileLoader("facilitator_cli", ${JSON.stringify(world.appCli)})
+spec = importlib.util.spec_from_loader(loader.name, loader)
+cli = importlib.util.module_from_spec(spec)
+loader.exec_module(cli)
+${body}
+`;
+  const result = await run("python3", ["-c", code], { cwd: world.user, env: { ...world.env, ...extraEnv } });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  return JSON.parse(result.stdout.trim().split("\n").at(-1));
+}
+
+test("the board's own code is its Python in app/ and its requirements, and nothing else", async () => {
+  const world = await makeWorld();
+  const paths = {
+    "app/server.py": true, "app/usage_counts.py": true, "app/updates/0007-tool.py": true,
+    "app/requirements.txt": true, "app/requirements-search.txt": true,
+    "app/index.html": false, "app/m.html": false, "app/card-logic.js": false, "app/card-tokens.css": false,
+    "app/facilitator": false, "app/updates/README.md": false, "app/updates/0008-tool.sh": false,
+    "app/tests/test_update_check.py": false, "app/tools/readme-header/generate.py": false,
+    ".agents/skills/facilitator/scripts/link.py": false, "facilitator": false, "install.sh": false,
+    "docs/install.md": false, "README.md": false,
+  };
+  const r = await drive(world, `
+paths = ${JSON.stringify(Object.keys(paths))}
+print(json.dumps({
+    "files": {p: cli.server_file(p) for p in paths},
+    "pages": cli.restart_needed(["app/index.html", "app/card-logic.js"], []),
+    "server": cli.restart_needed(["app/index.html", "app/server.py"], []),
+    "steps": cli.restart_needed(["app/index.html"], ["0007-tool.sh"]),
+    "unknown": cli.restart_needed(None, []),
+    "nothing": cli.restart_needed([], []),
+}))`);
+  assert.deepEqual(r.files, paths);
+  assert.equal(r.pages, false, "a page-only pull restarts the board");
+  assert.equal(r.server, true);
+  assert.equal(r.steps, true, "steps that ran change what the board runs with");
+  assert.equal(r.unknown, true, "changes that cannot be read must count as changed");
+  assert.equal(r.nothing, false);
+});
+
+test("a pull that changed only pages leaves the board running, and one that changed its code restarts it", async () => {
+  const world = await makeWorld();
+  await world.push({ "app/index.html": '<html><body><span id="npversion">v0.2.2</span></body></html>\n',
+                     "app/card-logic.js": "// new page code\n" });
+  const pages = await world.update();
+  assert.equal(pages.code, 0, pages.stdout + pages.stderr);
+  assert.match(pages.stdout, /⊘ The board's own code did not change, so it was not restarted\./);
+  assert.doesNotMatch(pages.stdout, /is not running on port|Restarting it/);
+  assert.match(pages.stdout, /Old version: v0\.2\.1\nNew version: v0\.2\.2\n/);
+  assert.ok(pages.stdout.includes(RELOAD_LINE), "the reminder to reload goes");
+  assert.doesNotMatch(pages.stdout, /@stage/, "a terminal update printed the board's stage lines");
+
+  for (const changed of [{ "app/server.py": "# the server, changed\n" }, { "app/requirements.txt": "# one more\n" }]) {
+    await world.push(changed);
+    const code = await world.update();
+    assert.equal(code.code, 0, code.stdout + code.stderr);
+    assert.match(code.stdout, /The board is not running on port \d+, so it was not started\./,
+      `${Object.keys(changed)[0]} did not count as the board's code`);
+    assert.doesNotMatch(code.stdout, /own code did not change/);
+  }
+});
+
+test("an update the board started writes its stages in order, and the same with a running board restarts it", async () => {
+  const world = await makeWorld();
+  await world.push({ "app/index.html": '<html><body><span id="npversion">v0.2.2</span></body></html>\n' });
+  const result = await world.update({ FACILITATOR_UPDATE_FROM_BOARD: "1" });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  const stages = result.stdout.split("\n").filter(line => line.startsWith("@stage "));
+  assert.deepEqual(stages, ["@stage downloading", "@stage setting-up"], "a page-only update said it restarts");
+
+  const refused = await world.update({ FACILITATOR_UPDATE_FROM_BOARD: "1" }, "--force");
+  assert.notEqual(refused.code, 0, "update took an option");
+
+  // the steps half with the board running and a pull that changed its code
+  const before = await world.head();
+  const after = await world.push({ "app/server.py": "# the server, changed\n" });
+  await world.mustGit(world.user, "pull", "--ff-only");
+  const r = await drive(world, `
+calls = []
+cli.ensure_uv = lambda quiet=False: "/fake/uv"
+cli.ensure_env = lambda uv, quiet=False: False
+cli.board_running = lambda port: True
+def fake_restart(args):
+    calls.append("restart")
+    print("Board restarted.")
+cli.cmd_restart = fake_restart
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    cli.cmd_update_steps(["_update-steps", "--from-version", "v0.2.1", "--pulled", "--from-commit", ${JSON.stringify(before)}])
+print(json.dumps({"calls": calls, "out": out.getvalue()}))`, { FACILITATOR_UPDATE_FROM_BOARD: "1" });
+  assert.notEqual(before, after);
+  assert.deepEqual(r.calls, ["restart"]);
+  assert.deepEqual(r.out.split("\n").filter(line => line.startsWith("@stage ")), ["@stage restarting"]);
+  assert.ok(r.out.indexOf("@stage restarting") < r.out.indexOf("Board restarted."), "the stage came after the restart");
+});
+
+test("a restart for an update the board started opens no window and asks Chrome nothing, and the board it starts is not marked", async () => {
+  const world = await makeWorld();
+  const harness = fromBoard => `
+calls = []
+cli.FROM_BOARD = ${fromBoard ? "True" : "False"}
+cli.load_config = lambda: {"port": 9, "lanes": []}
+cli.server_process = lambda port: ((4242, "server"), None)
+cli.board_elsewhere = lambda port: None
+cli.stop_server = lambda owner, port: None
+cli.port_free = lambda port: True
+cli.start_and_confirm = lambda port: (None, None)
+cli.board_page_open = lambda cfg: calls.append("asked chrome") or False
+cli.open_app = lambda cfg, dry: calls.append("opened a window")
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    cli.cmd_restart(["restart"])
+seen = {}
+class Child:
+    def __init__(self, argv, **kw):
+        seen["env"] = kw.get("env")
+os.environ[cli.FROM_BOARD_VARIABLE] = "1"
+cli.subprocess = types.SimpleNamespace(Popen=Child, DEVNULL=-3)
+cli.start_server()
+print(json.dumps({"calls": calls, "out": out.getvalue(), "marked": cli.FROM_BOARD_VARIABLE in seen["env"],
+                  "env": bool(seen["env"])}))`;
+  const terminal = await drive(world, harness(false));
+  assert.deepEqual(terminal.calls, ["asked chrome", "opened a window"], "a restart from the terminal changed");
+  const board = await drive(world, harness(true));
+  assert.deepEqual(board.calls, [], "an update the board started opened a window");
+  assert.equal(board.out, "Board restarted.\n");
+  assert.equal(board.marked, false, "the board started by the update carries its mark");
+  assert.equal(board.env, true);
+});

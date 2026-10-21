@@ -143,7 +143,11 @@
       missing, broken or not on Python 3.14 is first built again on the
       Python 3.14 uv manages; a board running on the old one is stopped before
       that and started again after. Restarts the board only when it is running
-      and something was pulled, or when the move or the rebuild stopped it.
+      and the pull changed the board's own code (its Python files or
+      requirements) or update steps ran, or when the move or the rebuild
+      stopped it; when only pages changed, the board keeps running and a
+      reload shows them. The Mac board starts this same command when the
+      person says yes to its update pop-up.
       Ends with the old and new version.
 
 The program lives in app/ inside the checkout, and everything the board writes
@@ -193,6 +197,12 @@ TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 # place the way the server works out its own; the variable moves the folder
 LOG_DIR = Path(os.environ.get("FACILITATOR_LOG_DIR") or (DATA / "logs"))
 LOG_KEEP = 30   # dated bridge files kept, oldest deleted
+# set by the board on an update it starts when the person says yes to its
+# pop-up (server.py, the update): the update then writes the stage it has
+# reached on lines of their own for the page's progress bar, and its restart
+# opens no window
+FROM_BOARD_VARIABLE = "FACILITATOR_UPDATE_FROM_BOARD"
+FROM_BOARD = os.environ.get(FROM_BOARD_VARIABLE) == "1"
 TAILSCALE_STATUS_TIMEOUT = 30
 TAILSCALE_CHANGE_TIMEOUT = 120
 BRIDGE_HELP = """usage: facilitator bridge [on|off] [--dry-run]
@@ -436,10 +446,12 @@ def start_server():
     the .venv's interpreter when there is one, a session of its own so the
     server outlives the terminal that started it, and output going nowhere
     because the server writes its own dated file and that file is the only
-    place its output belongs."""
+    place its output belongs. The mark of an update the board started stays
+    with that update and is not handed to the board it starts."""
+    env = {k: v for k, v in os.environ.items() if k != FROM_BOARD_VARIABLE}
     return subprocess.Popen([server_python(), str(HERE / "server.py")],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            start_new_session=True)
+                            start_new_session=True, env=env)
 
 
 def ensure_server(port, dry):
@@ -1811,6 +1823,11 @@ def cmd_restart(args):
         stop_here(refusal)
     print("Board restarted." if owner is not None else "Board started.")
 
+    # an update the board started opens no window and asks Chrome nothing: the
+    # page that said yes reloads itself, and a window opened here would come up
+    # on the Mac's screen whoever said yes and wherever
+    if FROM_BOARD:
+        return
     showing = board_page_open(cfg)
     if showing:
         print("Reload the board (command + R).")
@@ -3422,13 +3439,53 @@ app/updates/ that has not run here yet. A .venv that is missing, broken or not
 on Python 3.14 is built again on it first; that needs uv 0.9.0 or newer, and an
 older uv stops the update with one line. A board running on the old .venv is
 stopped before the rebuild and started again after. Otherwise restarts the
-board only when it is running and something was pulled."""
+board only when it is running and the pull changed the board's own code (a
+Python file in app/ or a requirements file) or update steps ran; when only
+pages changed, the board keeps running and a reload shows them."""
 
 
 def run_git(*args, env=None):
     """One git command in this checkout with its output captured."""
     return subprocess.run(["git", "-C", str(CLONE), *args], capture_output=True,
                           text=True, errors="replace", env=env)
+
+
+def stage(name):
+    """The stage line the board's progress bar reads (downloading, setting-up,
+    restarting), on an update the board started; nothing from a terminal."""
+    if FROM_BOARD:
+        print(f"@stage {name}", flush=True)
+
+
+# the files a running board has loaded and a reload cannot bring in: its Python
+# in app/ and the packages the requirements files install. Pages, scripts and
+# styles are read from disk on every request, and the tests, the tools and this
+# command are no part of the server
+def server_file(path):
+    """Whether a file the pull changed, named from the checkout's top, is one
+    of the board's own code."""
+    if not path.startswith("app/") or path.startswith(("app/tests/", "app/tools/")):
+        return False
+    name = path.rsplit("/", 1)[-1]
+    return name.endswith(".py") or (name.startswith("requirements") and name.endswith(".txt"))
+
+
+def restart_needed(changed, ran):
+    """A restart is due when the pull changed a file of the board's own code,
+    when update steps ran (they change what the board runs with), and when
+    what the pull changed cannot be read (changed is None)."""
+    return changed is None or bool(ran) or any(server_file(path) for path in changed)
+
+
+def changed_files(before):
+    """The files changed between that commit and HEAD, named from the
+    checkout's top, or None when they cannot be read."""
+    if not before:
+        return None
+    diff = run_git("diff", "--name-only", "-z", before, "HEAD")
+    if diff.returncode != 0:
+        return None
+    return [name for name in diff.stdout.split("\0") if name]
 
 
 def board_version():
@@ -3510,6 +3567,7 @@ def cmd_update(args):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
     banner("updater")
+    stage("downloading")
     if not shutil.which("git"):
         sys.exit(problem("git was not found.", "Install git, then run facilitator update again."))
 
@@ -3520,13 +3578,16 @@ def cmd_update(args):
     remote, upstream = check_checkout()
 
     before, after = pull_forward(remote, upstream)
+    stage("setting-up")
 
     # through the launcher at the checkout's top, the one fixed entry: older
-    # code hands over the same way, and the pulled code says where it lives
+    # code hands over the same way, and the pulled code says where it lives.
+    # The commit before the pull goes along, so the pulled code can tell what
+    # changed and restart the board only when its own code did
     command = [sys.executable, str(CLONE / "facilitator"), "_update-steps",
                "--from-version", old_version]
     if before != after:
-        command.append("--pulled")
+        command += ["--pulled", "--from-commit", before]
     sys.stdout.flush()
     sys.exit(subprocess.run(command, cwd=str(CLONE),
                             env={**os.environ, "FACILITATOR_INTERNAL_UPDATE": "1"}).returncode)
@@ -3564,14 +3625,15 @@ def run_update_step(path):
 
 
 def run_update_steps():
-    """Run the unrecorded numbered steps in name order; the first failure stops and is not recorded."""
+    """Run the unrecorded numbered steps in name order; the first failure stops and is not recorded.
+    Returns the names of the steps that ran."""
     ran = read_update_record()
     names = sorted(path.name for path in UPDATES_DIR.iterdir()
                    if UPDATE_STEP_NAME.match(path.name)) if UPDATES_DIR.is_dir() else []
     pending = [name for name in names if name not in ran]
     if not pending:
         ok("No new update steps.")
-        return
+        return []
     for name in pending:
         print(f"Running {name}.")
         if run_update_step(UPDATES_DIR / name) != 0:
@@ -3580,6 +3642,7 @@ def run_update_steps():
                              "Fix the cause, then run facilitator update again."))
         record_update_step(ran, name)
         ok(f"{name} done.")
+    return pending
 
 
 # --- the move: an older checkout's board files into data/, once -------------
@@ -3916,14 +3979,18 @@ def finish_move(moved):
             print("Stopped the board again, as it was before the update.")
 
 
-def restart_board(pulled, stopped=False, why="rebuild .venv"):
-    """Safe restart, only when something was pulled and the board is running,
-    or a start when the move or the .venv rebuild stopped it; False if it was
+def restart_board(pulled, stopped=False, why="rebuild .venv", needed=True):
+    """Safe restart, only when something was pulled that needs one (needed:
+    the board's own code changed, or steps ran) and the board is running, or a
+    start when the move or the .venv rebuild stopped it; False if it was
     refused."""
     if stopped:
         print(f"The board was stopped to {why}. Starting it again.\n")
     elif not pulled:
         skipped("Nothing was pulled, so the board was left as it is.")
+        return True
+    elif not needed:
+        skipped("The board's own code did not change, so it was not restarted.")
         return True
     else:
         port = board_port()
@@ -3932,6 +3999,7 @@ def restart_board(pulled, stopped=False, why="rebuild .venv"):
             print("Start it with: facilitator run")
             return True
         print("The board is running. Restarting it onto the new code.\n")
+    stage("restarting")
     try:
         cmd_restart(["restart"])
     except SystemExit as stop:
@@ -3947,6 +4015,9 @@ def cmd_update_steps(args):
     words = args[1:]
     pulled = "--pulled" in words
     old_version = words[words.index("--from-version") + 1] if "--from-version" in words[:-1] else None
+    # the commit before the pull, from an update that names it; without it
+    # (an older update handing over) everything counts as changed
+    from_commit = words[words.index("--from-commit") + 1] if "--from-commit" in words[:-1] else None
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
 
@@ -3960,7 +4031,7 @@ def cmd_update_steps(args):
         section(f"{number}. Update steps")
         print("Numbered steps in the updates folder run once each, in order.\n"
               "A step that fails stops the update and runs again next time.\n")
-        run_update_steps()
+        ran = run_update_steps()
     except SystemExit as stop:
         import data_folder
         unmoved = data_folder.state(CLONE) in ("unmoved", "moving")
@@ -3980,7 +4051,8 @@ def cmd_update_steps(args):
     if moved["stopped"]:
         restarted = restart_board(pulled, True, "move its files into data/")
     else:
-        restarted = restart_board(pulled, stopped)
+        needed = restart_needed(changed_files(from_commit) if pulled else [], ran)
+        restarted = restart_board(pulled, stopped, needed=needed)
     finish_move(moved)
 
     new_version = board_version()
