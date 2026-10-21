@@ -119,7 +119,7 @@ class Case(unittest.TestCase):
                                 UPDATE_OUTPUT=self.dir / "update-output.txt",
                                 UPDATE_SOURCE=BASE, UPDATE_EVERY=S.UPDATE_DAY,
                                 _update_kept=None, _update_due=0.0, _update_fit="unknown",
-                                _update_proc=None),
+                                _update_proc=None, _update_from=None),
             mock.patch.object(S, "_info", lambda kind, box="", **f: self.lines.append((kind, f))),
         ]
         for p in self.patches:
@@ -349,6 +349,16 @@ class Progress(Case):
         out = self.ran("@stage downloading\n@stage setting-up\n@stage restarting\n", None)
         self.assertEqual(out["stage"], "restarting")
         self.assertEqual(self.ran("@stage downloading\n@stage nonsense\n", None)["stage"], "downloading")
+
+    def test_the_phone_hears_the_new_version_only_once_the_update_is_through(self):
+        S._update_from = "v0.2.513"
+        self.version = "v0.2.514"   # the pull has put the new pages on disk
+        S._update_proc = mock.Mock(poll=lambda: None)
+        self.assertEqual(S._reading_version(), "v0.2.513", "a phone would reload onto the board about to stop")
+        S._update_proc = mock.Mock(poll=lambda: 0)
+        self.assertEqual(S._reading_version(), "v0.2.514")
+        S._update_proc = None
+        self.assertEqual(S._reading_version(), "v0.2.514", "a board started on the new code names it")
 
     def test_an_update_that_ended_well_is_done_and_one_that_did_not_says_its_own_line(self):
         self.assertEqual(self.ran("@stage setting-up\nFacilitator updated.\n", 0)["state"], "done")

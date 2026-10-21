@@ -4732,9 +4732,10 @@ def _phone_state(since: int | None, ops: list[str], epoch: str = "") -> bytes:
     named by a phone that can take the changed cards alone."""
     rev = _state.get("rev", 0)
     # the version the board shows, on every reading, changed or not: a phone
-    # open across an update reloads itself onto the new one (m.html)
+    # open across an update reloads itself onto the new one (m.html) once the
+    # update is through (_reading_version)
     out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(), "incidentSchema": INCIDENT_SCHEMA,
-           "version": _board_version(), "live": _live_section()}
+           "version": _reading_version(), "live": _live_section()}
     cards: list[str] = []
     if out["changed"]:
         qpos, seen = {}, {ow: 0 for ow in OWNERS}
@@ -9233,6 +9234,7 @@ _update_kept: dict | None = None   # update-check.json as last written
 _update_due = 0.0                  # when the next look is due
 _update_fit: str | None = "unknown"   # None while the checkout can update, else why not
 _update_proc = None                # the update this server started
+_update_from: str | None = None    # the version the board showed when it started
 
 
 def _update_source() -> tuple[str, float]:
@@ -9461,6 +9463,18 @@ def _update_running() -> bool:
     return _update_proc is not None and _update_proc.poll() is None
 
 
+def _reading_version() -> str | None:
+    """The version the phone's readings name. While an update this server
+    started runs, the one it started from: the pull puts the new pages on disk
+    well before the update ends, and a phone that reloaded then would load them
+    from the board that is about to stop. So the phone reloads once the update
+    has ended under this board (a page-only update) or once the board started
+    again on the new code answers."""
+    if _update_running():
+        return _update_from
+    return _board_version()
+
+
 def _update_reading() -> dict | None:
     """What /state says of the update: {running: true} while one runs, {offer,
     version} while a newer version waits for the person's yes, None otherwise:
@@ -9549,7 +9563,7 @@ def _get_update(q: Query, _):
 
 
 def _post_update(q: Query, _):
-    global _update_proc
+    global _update_proc, _update_from
     if not q.local:
         return 404, {"error": "not found"}
     if not q.same_origin:
@@ -9557,6 +9571,7 @@ def _post_update(q: Query, _):
     with _update_lock:
         if _update_running():
             return 409, {"error": "an update is already running", "epoch": PHONE_EPOCH}
+        _update_from = _board_version()
         try:
             with open(UPDATE_OUTPUT, "wb", opener=_private_opener) as out:
                 proc = subprocess.Popen(
