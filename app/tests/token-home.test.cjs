@@ -66,6 +66,13 @@ class El {
   get innerHTML() { return this._html; }
   set innerHTML(v) { this._html = String(v); this._text = ""; this.children = []; this._parts = null; }
   appendChild(c) { c.parentElement = this; this.children.push(c); return c; }
+  get firstChild() { return this.children[0] || null; }
+  insertBefore(c, ref) {
+    c.parentElement = this;
+    const at = this.children.indexOf(ref);
+    if (at < 0) this.children.push(c); else this.children.splice(at, 0, c);
+    return c;
+  }
   append(...cs) { for (const c of cs) this.appendChild(c); }
   remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(x => x !== this); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
@@ -1133,6 +1140,12 @@ const paintOf = (W, kind, pick, days, installed = null, calm) => {
   W.paintLook(r.ctx, kind, pick, days, installed, W.LOOK, null, calm);
   return r;
 };
+// a look's place among the dice's, by its name: pickOf(W, "line", "poster band")
+const pickOf = (W, kind, named) => {
+  const at = W.DICE[kind].findIndex(p => p.join(" ") === named);
+  assert.ok(at >= 0, `${kind} has ${named}`);
+  return at;
+};
 
 test("the picture is 3:1 for the heatmap and 2:1 for the line, drawn three times over", () => {
   const { W } = widgets();
@@ -1160,13 +1173,16 @@ test("the picture is 3:1 for the heatmap and 2:1 for the line, drawn three times
 test("the dice rolls through six line looks and all three heatmaps, never the three the owner left out", () => {
   const { W } = widgets();
   assert.deepEqual(JSON.parse(JSON.stringify(W.DICE)), {
-    line: [["editorial", "daily"], ["editorial", "band"], ["lab", "daily"], ["lab", "dots"], ["poster", "band"], ["poster", "dots"]],
+    line: [["poster", "band"], ["editorial", "daily"], ["editorial", "band"], ["lab", "daily"], ["lab", "dots"], ["poster", "dots"]],
     heatmap: [["editorial"], ["lab"], ["poster"]],
   });
   const pairs = W.DICE.line.map(p => p.join(" "));
   for (const left of ["poster daily", "lab band", "editorial dots"]) assert.ok(!pairs.includes(left), `${left} is left out`);
-  assert.deepEqual([...W.DICE.line[0]], ["editorial", "daily"], "the download saves the Editorial line");
-  assert.deepEqual([...W.DICE.heatmap[0]], ["editorial"]);
+  // the first of each is what the download saves and the pop-up opens on: the
+  // Poster two-week median with its band (the owner's choice, 20261020), and
+  // the Editorial heatmap as before
+  assert.deepEqual([...W.DICE.line[0]], ["poster", "band"], "the download saves the Poster median and band");
+  assert.deepEqual([...W.DICE.heatmap[0]], ["editorial"], "the heatmap's stays Editorial");
   // each roll turns up another look, every other one before any comes round again
   let seed = 7;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -1192,21 +1208,21 @@ test("Poster puts the year's total over the title, so it never reads as a day's,
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5e6 : 0));
   const total = W.compact(days.slice(W.yearStart(days)).reduce((n, d) => n + d.total, 0));
-  for (const [kind, pick] of [["line", 4], ["line", 5], ["heatmap", 2]]) {
-    assert.equal(W.DICE[kind][pick][0], "poster");
+  for (const [kind, named] of [["line", "poster band"], ["line", "poster dots"], ["heatmap", "poster"]]) {
+    const pick = pickOf(W, kind, named);
     const r = paintOf(W, kind, pick, days);
     const at = words => r.calls.find(c => c[0] === "fillText" && c[1] === words);
     assert.ok(at(total)[3] < at("Token consumption per day")[3], `${kind}: the total stands over the title`);
     assert.ok(at(" tokens this year")[3] === at(total)[3], "with tokens this year beside it");
   }
   // the heatmap's days are squares, as in the other two looks, and so is its key
-  const heat = paintOf(W, "heatmap", 2, days);
+  const heat = paintOf(W, "heatmap", pickOf(W, "heatmap", "poster"), days);
   const cells = days.slice(W.yearStart(days)).length;
   assert.equal(heat.calls.filter(c => c[0] === "arc").length, 0, "no circles");
   assert.equal(heat.calls.filter(c => c[0] === "roundRect").length, cells + W.PALETTE.length);
   // big totals stay in billions
   const huge = daysEnding("2026-09-27", 371, i => (i > 120 ? 4e9 : 0));
-  assert.ok(paintOf(W, "line", 4, huge).texts().includes("1,000B"));
+  assert.ok(paintOf(W, "line", pickOf(W, "line", "poster band"), huge).texts().includes("1,000B"));
 });
 
 test("the picture's line marks the install day, and leaves the mark out when that day is not among the days shown or not a week old", () => {
@@ -1215,11 +1231,12 @@ test("the picture's line marks the install day, and leaves the mark out when tha
   const inside = days.at(-100).date;
   const S = W.seriesOf(days, W.pictureStart(days), inside);
   assert.equal(S.shown[S.install].date, inside, "on that day's own place");
-  for (const pick of [0, 1, 2, 3]) {
-    const t = [...paintOf(W, "line", pick, days, inside).calls].filter(c => c[0] === "fillText" || c[0] === "strokeText").map(c => c[1]);
-    assert.ok(t.includes("Facilitator installed"), `${W.DICE.line[pick].join(" ")} marks it`);
+  for (const named of ["editorial daily", "editorial band", "lab daily", "lab dots"]) {
+    const t = [...paintOf(W, "line", pickOf(W, "line", named), days, inside).calls].filter(c => c[0] === "fillText" || c[0] === "strokeText").map(c => c[1]);
+    assert.ok(t.includes("Facilitator installed"), `${named} marks it`);
   }
-  for (const pick of [4, 5]) assert.ok(paintOf(W, "line", pick, days, inside).texts().includes("Facilitator installed"), "Poster's tag");
+  for (const named of ["poster band", "poster dots"])
+    assert.ok(paintOf(W, "line", pickOf(W, "line", named), days, inside).texts().includes("Facilitator installed"), `${named}: Poster's tag`);
   const marks = installed => paintOf(W, "line", 0, days, installed).calls.some(c => c[1] === "Facilitator installed");
   assert.equal(marks(days[3].date), false, "before the days shown (the days fetched ahead of them are not shown)");
   assert.equal(marks("2027-01-01"), false, "after the last day");
@@ -1277,7 +1294,7 @@ test("a board first started not long ago keeps its install label inside the pict
     }
   });
   // an install day well back in the year keeps Lab's label right of its line, as the mock has it
-  const lab = paintOf(W, "line", 2, days, ago(100)).calls.find(c => c[0] === "fillText" && c[1] === "Facilitator installed");
+  const lab = paintOf(W, "line", pickOf(W, "line", "lab daily"), days, ago(100)).calls.find(c => c[0] === "fillText" && c[1] === "Facilitator installed");
   assert.equal(lab.at(-1), "left");
 });
 
@@ -1353,6 +1370,68 @@ test("the line's picture skips an early trial but not a holiday, and always show
   for (const kind of ["line", "heatmap"]) W.DICE[kind].forEach((_, pick) => paintOf(W, kind, pick, none));
   W.DICE.line.forEach((_, pick) => paintOf(W, "line", pick, usedOn("2026-01-01", 371, () => true)));
   assert.equal(W.useStart([]), 0);
+});
+
+// a canvas context that writes down each fill and stroke with the colour it
+// is made in, keeping the colours across save and restore as a canvas does
+function inked() {
+  const marks = [], kept = [];
+  const state = { fillStyle: "#000000", strokeStyle: "#000000" };
+  const ctx = new Proxy(state, {
+    get: (t, k) => {
+      if (k === "measureText") return s => ({ width: String(s).length * 7, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2,
+                                              actualBoundingBoxLeft: 0, actualBoundingBoxRight: String(s).length * 7 });
+      if (k === "createLinearGradient") return () => ({ addColorStop() {} });
+      if (k === "save") return () => kept.push({ ...t });
+      if (k === "restore") return () => Object.assign(t, kept.pop());
+      if (k in t) return t[k];
+      return (...args) => {
+        if (/^fill/.test(k)) marks.push({ op: k, colour: t.fillStyle, args });
+        else if (/^stroke/.test(k)) marks.push({ op: k, colour: t.strokeStyle, args });
+      };
+    },
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  return { ctx, marks };
+}
+
+test("every picture stands on pure white, and everything in it painted with the paper is white too, whatever the page's paper", () => {
+  const { W } = widgets();
+  assert.equal(W.LOOK.paper, "#FFFFFF");
+  // the board's page paper is a warm off-white; the pictures do not take it
+  const page = { "--paper": "#F5F4F1", "--ink": "#211D17", "--sub": "#75695A" };
+  const node = { ownerDocument: { defaultView: { getComputedStyle: () => ({ getPropertyValue: n => page[n] || "" }) } } };
+  const face = W.lookOf(node);
+  assert.equal(face.paper, "#FFFFFF");
+  assert.deepEqual([face.ink, face.sub], ["#211D17", "#75695A"], "the inks are still the page's");
+  assert.match(read("card-tokens.css"), /--paper:#F5F4F1;/, "the board's own paper is unchanged");
+  const code = WIDGETS.slice(WIDGETS.indexOf("// ---- the picture"), WIDGETS.indexOf("// ---- the panel"));
+  assert.doesNotMatch(code, /F5F4F1/i, "no off-white is left in the painter");
+  assert.doesNotMatch(code, /get\("--paper"/, "nor is the page's paper read for it");
+  // use from May 21 with a quiet first fortnight, an install day 60 days back
+  // and a high point at the end, so every look draws its rings, haloes, tags,
+  // notes and dots
+  const days = daysEnding("2026-09-27", 371, k => (k < 150 ? 0 : k < 163 ? 2e5 : Math.round(1e6 * 10 ** ((k - 163) / 80))));
+  const installed = days.at(-60).date;
+  for (const kind of ["line", "heatmap"]) W.DICE[kind].forEach((look, pick) => {
+    const named = `${kind} ${look.join(" ")}`;
+    const r = inked();
+    W.paintLook(r.ctx, kind, pick, days, installed, face, null);
+    const [first] = r.marks;
+    assert.deepEqual([first.op, first.colour, ...first.args], ["fillRect", "#FFFFFF", 0, 0, 1200, kind === "line" ? 600 : 400],
+                     `${named}: the whole picture is white before anything else`);
+    const flat = r.marks.filter(m => typeof m.colour === "string");
+    assert.ok(!flat.some(m => /^#F5F4F1$/i.test(m.colour)), `${named}: nothing is in the old paper`);
+    // the marks painted with the paper are white: on a line look the rings
+    // under its lines, the haloes round its notes and its dots and tags
+    if (kind === "line") assert.ok(flat.slice(1).some(m => m.colour === "#FFFFFF"), `${named}: its paper marks are white`);
+  });
+  // the line's first look, the one saved, by what it paints white: the ring
+  // under its median, the halo round its note, its install tag and the point's dot
+  const r = inked();
+  W.paintLook(r.ctx, "line", 0, days, installed, face, null);
+  const white = new Set(r.marks.slice(1).filter(m => m.colour === "#FFFFFF").map(m => m.op));
+  assert.deepEqual([...white].sort(), ["fill", "stroke", "strokeText"], "the dot and the tag, the ring, and the halo");
 });
 
 test("the picture is painted in the board's inks and the squid's own file, never purple and never the accent", () => {
@@ -1458,7 +1537,7 @@ async function savingPanel({ share = false, canShare = true, closed = false, nam
   return { W, seen, shot, flush, count };
 }
 
-test("pressing the button saves the chart on show in the Editorial look, named for the day and the first name, and opens the overlay", async () => {
+test("pressing the button saves the chart on show in its first look, the Poster median and band for the line, named for the day and the first name, and opens the overlay on it", async () => {
   const board = await savingPanel();
   const { seen } = board;
   assert.equal(seen.start, "idle");
@@ -1472,7 +1551,15 @@ test("pressing the button saves the chart on show in the Editorial look, named f
   assert.deepEqual(board.count(), { day: "20261016", count: 1 });
   assert.equal(seen.overlays, 1, "one overlay for the two presses");
   assert.equal(seen.title, "Chart downloaded!");
-  assert.equal(seen.look, "editorial-daily", "the Editorial line, daily and 7-day average");
+  assert.equal(seen.look, "poster-band", "the Poster line, the two-week median and its band");
+  // the file itself is that look: its key names the median and the band, and
+  // nothing of the Editorial daily line is in it
+  const saved = seen.painted[0].texts().map(t => String(t).trim());
+  for (const words of ["2-week median", "1 sigma range", "Token consumption per day", " tokens this year".trim()])
+    assert.ok(saved.includes(words), `the saved picture says ${words}`);
+  assert.ok(!saved.includes("7-day average") && !saved.includes("Daily"), "not the Editorial daily line");
+  assert.equal(board.shot.image().alt, "Token consumption per day, line chart, Poster, median and band");
+  assert.equal(board.shot.dice.children[0].dataset.face, "1", "the die shows the first look's number");
   // the overlay's download button saves the chart on show as the day's second file
   board.shot.keep.click();
   await board.flush();
@@ -1557,10 +1644,9 @@ function send(node, type, fields = {}) {
   for (const fn of node.listeners[type] || []) fn(e);
   return e;
 }
-function openShot(extra = {}) {
+function openShot(extra = {}, doc = shotPage()) {
   const timers = [], revoked = [], made = [], kept = [], shared = [];
   const { W } = widgets({ URL: { createObjectURL: b => "blob:" + b.id, revokeObjectURL: url => revoked.push(url) } });
-  const doc = shotPage();
   let luck = 0;
   const shot = W.overlay(doc, { blob: { size: 1, id: "first" }, name: "facilitator_20261020_Robin.png", kind: "line", saved: true,
     make: async (k, p) => { made.push(`${k}-${p}`); return { size: 2, id: `${k}-${p}` }; },
@@ -1579,7 +1665,7 @@ test("the overlay is the board's glass over the settings page's veil: Chart down
   assert.equal(veil.getAttribute("aria-hidden"), "false");
   assert.equal(box.className, "qn-glass tk-shot", "the board's glass");
   assert.equal(box.dataset.kind, "line");
-  assert.equal(box.dataset.look, "editorial-daily", "it opens on the Editorial chart");
+  assert.equal(box.dataset.look, "poster-band", "it opens on the line's first look, the Poster median and band");
   assert.equal(box.getAttribute("role"), "dialog");
   assert.equal(box.getAttribute("aria-modal"), "true");
   assert.equal(box.tabIndex, -1, "a press on bare glass keeps the focus in the box");
@@ -1599,12 +1685,17 @@ test("the overlay is the board's glass over the settings page's veil: Chart down
   assert.equal(cross.tagName, "BUTTON");
   assert.equal(cross.getAttribute("aria-label"), "Close");
   assert.match(cross.innerHTML, /M1\.936 1\.936L8\.064 8\.064M8\.064 1\.936L1\.936 8\.064/, "the card bar's cross");
-  // the picture, let into the glass
+  // the picture, let into the glass, with the dice's cover over it, away
   const pic = frame.children[0];
+  assert.equal(pic, shot.image());
   assert.equal(pic.tagName, "IMG");
   assert.equal(pic.className, "tk-shot-pic");
+  assert.equal(pic.dataset.kind, "line", "it carries its own shape");
   assert.equal(pic.src, "blob:first");
-  assert.equal(pic.alt, "Token consumption per day, line chart, Editorial, daily and 7-day average");
+  assert.equal(frame.children[1], shot.cover);
+  assert.equal(shot.cover.className, "tk-shot-cover");
+  assert.equal(shot.cover.getAttribute("aria-hidden"), "true");
+  assert.equal(pic.alt, "Token consumption per day, line chart, Poster, median and band");
   // the dice and the download button in the board's round glass, then Share, a glass pill with the link mark
   assert.deepEqual(foot.children.map(n => n.className), ["tk-shot-side", "qn-glass tk-shot-share", "tk-shot-note"]);
   assert.deepEqual(foot.children[0].children.map(n => n.className),
@@ -1668,7 +1759,7 @@ test("the cross, Escape and a press that starts and ends outside the box close t
 test("the dice tumbles and swaps in each of the chart's other looks in turn, and the pill swaps the chart", async () => {
   const o = openShot();
   const { W, shot, box } = o;
-  const pic = () => box.children[1].children[0];
+  const pic = () => shot.image();
   const roll = async () => {
     shot.dice.click();
     assert.ok(shot.dice.classList.contains("rolling"), "it tumbles");
@@ -1693,8 +1784,9 @@ test("the dice tumbles and swaps in each of the chart's other looks in turn, and
     lines.push(at.pick);
   }
   assert.deepEqual([...lines].sort(), [0, 1, 2, 3, 4, 5], "five rolls show all six line looks");
+  assert.ok(!lines.slice(1).includes(0), "from the Poster median and band, the five rolls are the other five looks");
   assert.equal(o.made.length, 5, "each look is made once");
-  // the pill: the heatmap in its Editorial look, and the dice then rolls through its three
+  // the pill: the heatmap in its first look, Editorial, and the dice then rolls through its three
   shot.kinds.heatmap.click();
   await settle();
   assert.deepEqual({ ...shot.at() },{ kind: "heatmap", pick: 0 });
@@ -1705,7 +1797,7 @@ test("the dice tumbles and swaps in each of the chart's other looks in turn, and
   for (let i = 0; i < 2; i++) heats.push((await roll()).pick);
   assert.deepEqual([...heats].sort(), [0, 1, 2], "two rolls show all three heatmaps");
   assert.ok(o.made.every(m => /^(line-[1-5]|heatmap-[0-2])$/.test(m)));
-  // back to the line: its Editorial look, the picture already made
+  // back to the line: its first look, the picture already made
   shot.kinds.line.click();
   await settle();
   assert.deepEqual({ ...shot.at() },{ kind: "line", pick: 0 });
@@ -1723,6 +1815,244 @@ test("the dice tumbles and swaps in each of the chart's other looks in turn, and
   away.shot.close();
   assert.equal(away.timers.length, 4, "the turns, the landing and the fade");
   assert.deepEqual(away.revoked, []);
+});
+
+// a page for the overlay whose browser has the motion: every node animates,
+// each run held where the test puts it (its currentTime) and read back
+// through getComputedStyle as a browser reads a running animation, in a
+// straight line; the frame is as tall as the picture in its flow, the line's
+// 466 and the heatmap's a third of 932, unless a run holds it. still asks for
+// reduced motion, and decode, when given, is each new picture's decode()
+function motionPage({ still = false, decode } = {}) {
+  const doc = shotPage(), runs = [];
+  const make = doc.createElement;
+  doc.createElement = tag => {
+    const node = make(tag);
+    node.animate = (frames, opts) => {
+      const run = { node, frames, opts, currentTime: 0, playState: "running", onfinish: null,
+        cancel() { run.playState = "idle"; },
+        finish() { run.currentTime = opts.duration; run.playState = "finished"; if (run.onfinish) run.onfinish(); } };
+      runs.push(run);
+      return run;
+    };
+    if (tag === "img" && decode) node.decode = () => decode(node);
+    return node;
+  };
+  const value = (node, prop) => {
+    const run = runs.filter(r => r.node === node && r.playState !== "idle" && prop in r.frames[0]).at(-1);
+    if (run && (run.playState === "running" || run.opts.fill === "forwards")) {
+      const k = run.playState === "finished" ? 1 : Math.min(1, run.currentTime / run.opts.duration);
+      const [a, b] = run.frames.map(f => parseFloat(f[prop]));
+      return a + (b - a) * k;
+    }
+    if (prop === "opacity") return node.classList.contains("tk-shot-cover") && !node.classList.contains("on") ? 0 : 1;
+    if (node.tagName === "IMG") return node.dataset.kind === "heatmap" ? 932 / 3 : 466;
+    const flow = node.children.find(n => n.tagName === "IMG" && !n.classList.contains("going"));
+    return flow ? value(flow, "height") : 0;
+  };
+  doc.defaultView.getComputedStyle = node => ({ height: value(node, "height") + "px", opacity: String(value(node, "opacity")) });
+  doc.defaultView.matchMedia = q => ({ matches: still && q === "(prefers-reduced-motion: reduce)" });
+  const on = node => runs.filter(r => r.node === node && r.playState !== "idle");
+  const at = ms => { for (const r of runs) if (r.playState === "running") r.currentTime = Math.min(ms, r.opts.duration); };
+  const finish = () => { for (const r of runs.slice()) if (r.playState === "running") r.finish(); };
+  return { doc, runs, on, at, finish, value };
+}
+const plain = v => JSON.parse(JSON.stringify(v));
+const HEAT_H = 932 / 3;
+
+test("the pill glides the box to the other chart's height on a card picture's time and curve, the old picture fading off the new", async () => {
+  const m = motionPage(), o = openShot({}, m.doc), { W, shot } = o;
+  // the board's own timing: a card picture's zoom (card-logic.js)
+  const logic = read("card-logic.js");
+  assert.match(logic, new RegExp(`const CARD_PICTURE_MS = ${W.SHOT_GLIDE_MS};`));
+  assert.ok(logic.includes(`const CARD_PICTURE_EASE = "${W.SHOT_GLIDE_EASE}";`));
+  assert.deepEqual([W.SHOT_GLIDE_MS, W.SHOT_GLIDE_EASE], [300, "cubic-bezier(0.25, 1, 0.5, 1)"]);
+  assert.equal(m.runs.length, 0, "nothing moves as it opens but the box's own fade");
+  const line = shot.image();
+  shot.kinds.heatmap.click();
+  await settle();
+  const heat = shot.image();
+  assert.notEqual(heat, line);
+  assert.deepEqual([heat.src, heat.dataset.kind, heat.dataset.slot], ["blob:heatmap-0", "heatmap", "heatmap:0"]);
+  assert.equal(heat.alt, "Token consumption per day, heatmap, Editorial");
+  // the new picture first, in the frame's flow, the old one over it on its way out
+  assert.deepEqual(shot.frame.children.map(n => n.src || n.className), ["blob:heatmap-0", "blob:first", "tk-shot-cover"]);
+  assert.ok(line.classList.contains("going") && !heat.classList.contains("going"));
+  assert.deepEqual([line.alt, line.getAttribute("aria-hidden")], ["", "true"], "the one going is not read out");
+  const [grow] = m.on(shot.frame), [fade] = m.on(line);
+  assert.deepEqual(plain(grow.frames), [{ height: "466px" }, { height: HEAT_H + "px" }], "from the line's height to the heatmap's");
+  assert.deepEqual(plain(grow.opts), { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
+  assert.deepEqual(plain(fade.frames), [{ opacity: 1 }, { opacity: 0 }]);
+  assert.deepEqual(plain(fade.opts), { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)", fill: "forwards" }, "on the glide's own clock");
+  assert.deepEqual(m.on(heat), [], "the new one is at full strength under the old from the start, so the two never dip");
+  // halfway the frame is between the two heights, and the old picture half gone
+  m.at(150);
+  assert.equal(m.value(shot.frame, "height"), 466 + (HEAT_H - 466) / 2);
+  assert.equal(m.value(line, "opacity"), 0.5);
+  m.finish();
+  assert.deepEqual(shot.frame.children.map(n => n.src || n.className), ["blob:heatmap-0", "tk-shot-cover"], "the old picture leaves once faded");
+  assert.equal(m.value(shot.frame, "height"), HEAT_H, "and the frame is the heatmap's own height");
+  // and back up, the heatmap fading off the line
+  shot.kinds.line.click();
+  await settle();
+  const up = m.on(shot.frame).at(-1);
+  assert.deepEqual(plain(up.frames), [{ height: HEAT_H + "px" }, { height: "466px" }]);
+  assert.deepEqual(plain(m.on(heat).at(-1).frames), [{ opacity: 1 }, { opacity: 0 }]);
+  assert.equal(shot.image().src, "blob:first", "the line's picture, already made");
+});
+
+test("pressed again mid-glide the switch turns round from where it is, in the time it had spent, and the picture going comes back", async () => {
+  const m = motionPage(), o = openShot({}, m.doc), { shot } = o;
+  const line = shot.image();
+  shot.kinds.heatmap.click();
+  await settle();
+  const heat = shot.image(), [grow] = m.on(shot.frame), [fade] = m.on(line);
+  m.at(120);
+  const now = m.value(shot.frame, "height");
+  assert.equal(now, 466 + (HEAT_H - 466) * 0.4);
+  shot.kinds.line.click();
+  await settle();
+  assert.equal(shot.image(), line, "the line's own picture comes back, not a new one");
+  assert.deepEqual(shot.frame.children.map(n => n.src || n.className), ["blob:heatmap-0", "blob:first", "tk-shot-cover"]);
+  assert.ok(heat.classList.contains("going") && !line.classList.contains("going"));
+  assert.equal(line.getAttribute("aria-hidden"), null);
+  assert.deepEqual([grow.playState, fade.playState], ["idle", "idle"], "the glide and the fade are let go");
+  const back = m.on(shot.frame).at(-1);
+  assert.deepEqual(plain(back.frames), [{ height: now + "px" }, { height: "466px" }], "from where the frame had got to");
+  assert.equal(back.opts.duration, 120, "in the 120ms it had spent");
+  const going = m.on(heat).at(-1);
+  assert.equal(going.frames[0].opacity.toFixed(6), (0.4).toFixed(6), "the heatmap over the line shows what the line did not: 1 less 0.6");
+  assert.equal(going.opts.duration, 120);
+  // a turn soon after the press takes no less than .4 of the whole
+  shot.kinds.heatmap.click();
+  await settle();
+  m.at(10);
+  shot.kinds.line.click();
+  await settle();
+  assert.equal(m.on(shot.frame).at(-1).opts.duration, 120);
+  m.finish();
+  assert.deepEqual(shot.frame.children.map(n => n.src || n.className), ["blob:first", "tk-shot-cover"]);
+  assert.deepEqual(o.made, ["heatmap-0"], "nothing is made twice");
+});
+
+test("a dice look turned round to comes back as that look, and once its fade is over the pill gives the chart's first look as before", async () => {
+  const m = motionPage(), o = openShot({}, m.doc), { shot } = o;
+  shot.dice.click();
+  await settle(); o.run(); await settle();
+  m.finish();
+  const rolled = shot.at().pick;
+  assert.notEqual(rolled, 0);
+  shot.kinds.heatmap.click();
+  await settle();
+  m.at(100);
+  shot.kinds.line.click();
+  await settle();
+  assert.deepEqual({ ...shot.at() }, { kind: "line", pick: rolled }, "the look still fading out comes back");
+  assert.equal(shot.dice.children[0].dataset.face, String(rolled + 1));
+  m.finish();
+  shot.kinds.heatmap.click();
+  await settle();
+  m.finish();
+  shot.kinds.line.click();
+  await settle();
+  assert.deepEqual({ ...shot.at() }, { kind: "line", pick: 0 }, "a settled switch shows the line's first look, the Poster median and band");
+});
+
+test("the dice covers the picture with the paper and a spinner until the next look is drawn, then fades the look in as the cover goes", async () => {
+  const m = motionPage(), o = openShot({}, m.doc), { W, shot } = o;
+  const first = shot.image();
+  assert.match(shot.cover.innerHTML, /<path d="M21 12a9 9 0 1 1-6\.219-8\.56"\/>/, "the download button's spinner");
+  assert.equal(shot.cover.classList.contains("on"), false);
+  shot.dice.click();
+  assert.ok(shot.cover.classList.contains("on"), "the cover comes up at the press");
+  const [up] = m.on(shot.cover);
+  assert.deepEqual(plain(up.frames), [{ opacity: 0 }, { opacity: 1 }]);
+  assert.deepEqual(plain(up.opts), { duration: W.SHOT_COVER_MS, easing: W.SHOT_COVER_EASE });
+  assert.deepEqual([W.SHOT_COVER_MS, W.SHOT_COVER_EASE], [180, "cubic-bezier(.42,.06,.38,1)"]);
+  assert.match(read("card-tokens.css"), /--gentle:cubic-bezier\(\.42,\.06,\.38,1\);/, "the board's gentle curve");
+  assert.ok(shot.dice.classList.contains("rolling"), "the die still tumbles in its circle");
+  // the next look is made and ready, but stays under the cover until the die lands
+  await settle();
+  m.finish();
+  const runs = m.runs.length, timers = o.timers.length;
+  shot.dice.click();
+  assert.deepEqual([m.runs.length, o.timers.length, o.made.length], [runs, timers, 1], "a press while it rolls does nothing");
+  assert.equal(shot.image(), first);
+  assert.equal(m.value(shot.cover, "opacity"), 1, "the cover holds");
+  assert.deepEqual(o.run().at(-1), W.ROLL_MS);
+  await settle();
+  const next = shot.image();
+  assert.notEqual(next, first);
+  assert.equal(next.src, `blob:line-${shot.at().pick}`);
+  assert.equal(shot.cover.classList.contains("on"), false);
+  const away = m.on(shot.cover).at(-1), fade = m.on(first).at(-1);
+  assert.deepEqual(plain(away.frames), [{ opacity: 1 }, { opacity: 0 }], "the cover goes from where it is");
+  assert.deepEqual(plain(fade.frames), [{ opacity: 1 }, { opacity: 0 }], "the look on show fades off the next");
+  for (const r of [away, fade]) assert.deepEqual([r.opts.duration, r.opts.easing], [300, "cubic-bezier(0.25, 1, 0.5, 1)"]);
+  assert.deepEqual(m.on(shot.frame), [], "the line's looks are one height, so the box keeps its size");
+  assert.equal(shot.dice.classList.contains("rolling"), false);
+  m.finish();
+  assert.deepEqual(shot.frame.children.map(n => n.src || n.className), [next.src, "tk-shot-cover"]);
+  // a look that cannot be drawn takes the cover away and says so
+  const b = motionPage(), broken = openShot({ make: async () => { throw new Error("no"); } }, b.doc);
+  broken.shot.dice.click();
+  await settle(); broken.run(); await settle();
+  assert.equal(broken.shot.cover.classList.contains("on"), false);
+  assert.equal(broken.shot.note.textContent, "Could not draw that chart.");
+  assert.equal(broken.shot.image().src, "blob:first");
+});
+
+test("with reduced motion the box takes its new size at once and the pictures and the cover only fade, quickly", async () => {
+  const m = motionPage({ still: true }), o = openShot({}, m.doc), { W, shot } = o;
+  const line = shot.image();
+  shot.kinds.heatmap.click();
+  await settle();
+  assert.deepEqual(m.on(shot.frame), [], "no glide");
+  assert.equal(m.value(shot.frame, "height"), HEAT_H, "the heatmap's height straight away");
+  const [fade] = m.on(line);
+  assert.deepEqual(plain(fade.opts), { duration: W.SHOT_STILL_MS, easing: "ease", fill: "forwards" });
+  assert.equal(W.SHOT_STILL_MS, 160, "the magic box's quick fade");
+  assert.match(read("index.html"), /BIG_FADE_MS = 160;/);
+  m.finish();
+  shot.dice.click();
+  assert.deepEqual(plain(m.on(shot.cover).at(-1).opts), { duration: 180, easing: "cubic-bezier(.42,.06,.38,1)" });
+  await settle(); m.finish(); o.run(); await settle();
+  assert.deepEqual(plain(m.on(shot.cover).at(-1).opts), { duration: 160, easing: "ease" });
+  assert.deepEqual(m.on(shot.frame), []);
+});
+
+test("a picture is decoded before it goes in, so it never comes in blank", async () => {
+  const held = [];
+  const m = motionPage({ decode: node => new Promise(done => held.push({ node, done })) }), o = openShot({}, m.doc), { shot } = o;
+  shot.kinds.heatmap.click();
+  await settle();
+  assert.equal(held.length, 1);
+  assert.equal(held[0].node.src, "blob:heatmap-0");
+  assert.equal(shot.image().src, "blob:first", "nothing changes while it decodes");
+  assert.deepEqual(m.runs, []);
+  held[0].done();
+  await settle();
+  assert.equal(shot.image(), held[0].node);
+  assert.equal(m.on(shot.frame).length, 1, "then the glide");
+});
+
+test("the frame holds each picture at its own shape over its middle, and the cover is the paper with a turning spinner", () => {
+  const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = sel => (css.match(new RegExp("(?:^|\\})\\s*" + sel.replace(/[.[\]"=():,*]/g, "\\$&") + "\\{([^}]*)\\}")) || [])[1] || "";
+  assert.match(rule(".tk-shot-frame"), /position:relative; display:flex; flex-direction:column; justify-content:center;/);
+  assert.match(rule(".tk-shot-frame"), /border-radius:7px; overflow:hidden; background:#fff$/, "white under a white picture, so no band shows as it glides");
+  assert.match(rule(".tk-shot-pic"), /^flex:none;/, "a picture keeps its height in a frame that is gliding");
+  assert.match(rule(".tk-shot-pic.going"), /position:absolute; left:0; top:50%; transform:translateY\(-50%\)/);
+  assert.match(rule(".tk-shot-cover"), /position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; opacity:0;/);
+  assert.match(rule(".tk-shot-cover"), /background:color-mix\(in srgb, #fff 55%, transparent\)/, "the pictures' own white");
+  assert.match(rule(".tk-shot-cover"), /backdrop-filter:blur\(3px\)/);
+  assert.match(rule(".tk-shot-cover.on"), /opacity:1/);
+  assert.match(rule(".tk-shot-cover svg"), /width:20px; height:20px; color:var\(--sub\); animation:tk-save-turn \.9s linear infinite/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\{[^@]*\.tk-shot-cover svg\{animation-duration:2\.4s\}/);
+  // the motion is the overlay's own, run from home-widgets.js, which every
+  // page's reduced motion rule leaves alone; the sheet adds no transition
+  const sheet = css.slice(css.indexOf(".tk-shot-veil"));
+  assert.doesNotMatch(sheet, /transition:[^;}]*height/);
 });
 
 test("the download button saves the chart on show as a new file, with the spinner and the check, and says what went wrong", async () => {
@@ -1810,7 +2140,7 @@ test("the overlay's box is only as tall as what it holds, the picture let in fla
   assert.match(box, /width:var\(--shot-w\); padding:var\(--shot-m\)/);
   assert.doesNotMatch(css.slice(css.indexOf(".tk-shot-veil")), /min-height:calc|justify-content:space-between/, "no room left over to share out");
   assert.match(rule(".tk-shot-pic"), /width:100%; height:auto; aspect-ratio:2 \/ 1/);
-  assert.match(rule('.tk-shot[data-kind="heatmap"] .tk-shot-pic'), /aspect-ratio:3 \/ 1/);
+  assert.match(rule('.tk-shot-pic[data-kind="heatmap"]'), /aspect-ratio:3 \/ 1/);
   // let in, not lifted: an inner shade and hairline over its edge, the board's
   // folder well's, and no shadow under it
   assert.doesNotMatch(rule(".tk-shot-pic"), /box-shadow/);

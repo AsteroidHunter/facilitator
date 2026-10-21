@@ -35,10 +35,12 @@
 //            the one from January 1, and the install mark is left out when
 //            that day comes before the start, or less than a week before the
 //            last day, where it would stand at the right edge with nothing
-//            after it to show (MARK_AFTER). The download button saves the
-//            chart on show in the Editorial look, named by pictureName. The
-//            Mac saves it as a download, as does a phone whose browser
-//            cannot share a file; then the overlay shows it
+//            after it to show (MARK_AFTER). Every picture is on pure white.
+//            The download button saves the chart on show in its first look,
+//            the Poster median and band for the line and the Editorial
+//            heatmap, named by pictureName. The Mac saves it as a download,
+//            as does a phone whose browser cannot share a file; then the
+//            overlay shows it
 //   overlay  the picture just made, in a box of the board's glass over the
 //            dimmed page, under "Chart downloaded!", a heatmap or line pill
 //            and the cross, and over a row of three: a glass dice that rolls
@@ -839,14 +841,19 @@
   const PIC_TITLE = "Token consumption per day";
   const INSTALLED = "Facilitator installed";
   const LOGO_SRC = "/m-splash-squid.png";
-  const LOOK = { ink: "#211D17", sub: "#75695A", line: "#CACACA", paper: "#F5F4F1",
+  // the pictures stand on pure white (20261020), whatever paper the page
+  // around them has, and so does everything in them painted with the paper:
+  // the rings under lines, the haloes round notes, label boxes and dots
+  const LOOK = { ink: "#211D17", sub: "#75695A", line: "#CACACA", paper: "#FFFFFF",
                  sans: '"IBM Plex Sans", -apple-system, sans-serif', inter: '"Inter", -apple-system, sans-serif',
                  mono: '"IBM Plex Mono", ui-monospace, monospace' };
   // what the dice rolls through, by chart, each a look and what the line
-  // shows. The first of each is the one the download button saves
+  // shows. The first of each is the one the download button saves and the
+  // pop-up opens on: the Poster two-week median with its band for the line
+  // (20261020), the Editorial heatmap
   const DICE = {
-    line: [["editorial", "daily"], ["editorial", "band"], ["lab", "daily"], ["lab", "dots"],
-           ["poster", "band"], ["poster", "dots"]],
+    line: [["poster", "band"], ["editorial", "daily"], ["editorial", "band"], ["lab", "daily"],
+           ["lab", "dots"], ["poster", "dots"]],
     heatmap: [["editorial"], ["lab"], ["poster"]],
   };
   const LOOK_NAMES = { editorial: "Editorial", lab: "Lab", poster: "Poster" };
@@ -1556,7 +1563,7 @@
     const css = view && view.getComputedStyle ? view.getComputedStyle(node) : null;
     const get = (name, fallback) => (css && css.getPropertyValue(name).trim()) || fallback;
     return { ink: get("--ink", LOOK.ink), sub: get("--sub", LOOK.sub), line: get("--line", LOOK.line),
-             paper: get("--paper", LOOK.paper), sans: get("--sans", LOOK.sans), mono: get("--mono", LOOK.mono),
+             paper: LOOK.paper, sans: get("--sans", LOOK.sans), mono: get("--mono", LOOK.mono),
              inter: `"${INTER_EXPORT}", ` + get("--inter", LOOK.inter) };
   }
   // the canvas a picture is painted on, at three times its laid out size
@@ -1650,7 +1657,10 @@
   // dice, which tumbles in its circle and swaps in another look of the chart
   // on show (DICE), the download button, which saves the chart on show as a
   // new file, and Share, a pill with the link mark in the middle of the row,
-  // and a line for what went wrong. A press that starts and ends on the veil,
+  // and a line for what went wrong. The pill's other chart glides the box to
+  // its height as the picture fades across, and the dice lays a soft cover
+  // and a spinner over the picture until the next look is drawn, which then
+  // fades in as the cover goes. A press that starts and ends on the veil,
   // Escape and the cross put it away, no key goes on to the page it covers,
   // and focus cannot wander behind it. It is taken out of the page once its
   // fade has run, and its pictures' addresses with it
@@ -1679,6 +1689,14 @@
   // the die tumbles this long, its face turning this many times on the way;
   // a glass button stays pressed at least GLASS_HOLD, as the bar's do
   const ROLL_MS = 650, ROLL_TURNS = 3, GLASS_HOLD = 120;
+  // the box changes size between the heatmap and the line on the time and
+  // curve a card's picture zooms on (CARD_PICTURE_MS, CARD_PICTURE_EASE in
+  // card-logic.js), and the pictures fade across on the same clock; with
+  // reduced motion the size changes at once and the pictures only fade, as
+  // quickly as the magic box does (BIG_FADE_MS in index.html). the dice's
+  // cover fades in over the picture on the board's gentle curve
+  const SHOT_GLIDE_MS = 300, SHOT_GLIDE_EASE = "cubic-bezier(0.25, 1, 0.5, 1)", SHOT_STILL_MS = 160;
+  const SHOT_COVER_MS = 180, SHOT_COVER_EASE = "cubic-bezier(.42,.06,.38,1)";
   // the look the dice turns up next: each of the chart's other looks once,
   // in a shuffled order, before any comes round again
   function nextLook(bags, kind, now, random = Math.random) {
@@ -1744,8 +1762,14 @@
     head.appendChild(pill);
     head.appendChild(cross);
     const frame = el("div", "tk-shot-frame");
-    const pic = el("img", "tk-shot-pic");
+    let pic = el("img", "tk-shot-pic");
     frame.appendChild(pic);
+    // the dice's cover over the picture while the next look is drawn: the
+    // paper, half clear, with the download button's spinner in its middle
+    const cover = el("div", "tk-shot-cover");
+    cover.setAttribute("aria-hidden", "true");
+    cover.innerHTML = ICON('<path d="M21 12a9 9 0 1 1-6.219-8.56"/>');
+    frame.appendChild(cover);
     const foot = el("div", "tk-shot-foot");
     const side = el("div", "tk-shot-side");
     const dice = el("button", "qn-glass tk-shot-round tk-shot-dice");
@@ -1800,13 +1824,89 @@
         kinds[key].setAttribute("aria-pressed", String(key === k));
       }
     }
-    function show(k, p) {
+    // the motion, where the browser has it: the frame's height (grow, eased
+    // to growTo) and each picture's and the cover's fade (tkFade)
+    const win = doc.defaultView;
+    const moves = !!win && typeof win.getComputedStyle === "function" && typeof frame.animate === "function";
+    const still = () => !!(win && typeof win.matchMedia === "function" && win.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    const tall = node => parseFloat(win.getComputedStyle(node).height) || 0;
+    const strength = node => { const o = parseFloat(win.getComputedStyle(node).opacity); return Number.isFinite(o) ? o : 1; };
+    let grow = null, growTo = 0, growMs = 0;
+    // the frame eased from the height it was drawn at (from) to the picture
+    // now in it, the box around it following, so the head and the row move
+    // with its edges and keep their own size and corners. turned round on its
+    // way it goes back in the time it had spent, never under .4 of the whole,
+    // as a card's picture does (cardPictureTurn in card-logic.js); one already
+    // on its way to that height goes on. answers the share of the whole time
+    function resize(from) {
+      const to = tall(pic), going = grow && grow.playState === "running";
+      if (going && Math.abs(to - growTo) < 0.5) return Math.max(0.4, (growMs - (grow.currentTime || 0)) / SHOT_GLIDE_MS);
+      const part = going ? Math.min(1, Math.max(0.4, (grow.currentTime || 0) / SHOT_GLIDE_MS)) : 1;
+      if (grow) grow.cancel();
+      grow = null;
+      if (still() || Math.abs(to - from) < 0.5) return part;
+      const mine = grow = frame.animate([{ height: from + "px" }, { height: to + "px" }],
+        { duration: SHOT_GLIDE_MS * part, easing: SHOT_GLIDE_EASE });
+      growTo = to; growMs = SHOT_GLIDE_MS * part;
+      mine.onfinish = () => { if (grow === mine) grow = null; };
+      return part;
+    }
+    // the picture coming in stands in the frame's flow at full strength, and
+    // the one on show goes over it, at its own shape over the frame's middle,
+    // and fades out, so the two cross-fade with no dip between them and
+    // neither moves. one still on its way out comes back from where its fade
+    // had got to. answers how long the change takes
+    function place(next) {
+      if (next === pic) return 0;
+      const from = moves ? tall(frame) : 0, old = pic;
+      let left = 1;
+      if (next.parentElement === frame) {
+        left = 1 - (moves ? strength(next) : 0);
+        if (next.tkFade) { next.tkFade.cancel(); next.tkFade = null; }
+        next.classList.remove("going");
+        next.removeAttribute("aria-hidden");
+      } else frame.insertBefore(next, frame.firstChild);
+      pic = next;
+      old.classList.add("going");
+      old.alt = "";
+      old.setAttribute("aria-hidden", "true");
+      let ms = 0;
+      if (moves) { const part = resize(from); ms = still() ? SHOT_STILL_MS : SHOT_GLIDE_MS * part; }
+      if (old.tkFade) { old.tkFade.cancel(); old.tkFade = null; }
+      if (!ms) { old.remove(); return 0; }
+      const run = old.tkFade = old.animate([{ opacity: left }, { opacity: 0 }],
+        { duration: ms, easing: still() ? "ease" : SHOT_GLIDE_EASE, fill: "forwards" });
+      run.onfinish = () => { if (old.tkFade === run) old.remove(); };
+      return ms;
+    }
+    // the cover up or away, from where its fade has got to
+    function veiled(on, ms, ease) {
+      if (cover.classList.contains("on") === on) return;
+      const from = moves ? strength(cover) : 0;
+      cover.classList.toggle("on", on);
+      if (cover.tkFade) { cover.tkFade.cancel(); cover.tkFade = null; }
+      if (!moves || !ms || from === (on ? 1 : 0)) return;
+      cover.tkFade = cover.animate([{ opacity: from }, { opacity: on ? 1 : 0 }], { duration: ms, easing: ease });
+    }
+    // a look's picture to put in the frame: the one still fading out of it,
+    // or a new one, decoded first so it never comes in blank
+    function drawn(k, p, e) {
+      const there = [...frame.children].find(n => n !== pic && n.dataset.slot === slot(k, p));
+      if (there) return Promise.resolve(there);
+      const node = el("img", "tk-shot-pic");
+      node.dataset.slot = slot(k, p);
+      node.src = e.url;
+      return typeof node.decode === "function" ? node.decode().then(() => node, () => node) : Promise.resolve(node);
+    }
+    function show(k, p, node) {
       at = { kind: k, pick: p };
       const [look, shows] = DICE[k][p];
       box.dataset.kind = k;
       box.dataset.look = look + (shows ? "-" + shows : "");
-      pic.src = current().url;
-      pic.alt = `${PIC_TITLE}, ${KIND_NAMES[k] || k}, ${LOOK_NAMES[look]}${shows ? ", " + SHOW_NAMES[shows] : ""}`;
+      node.dataset.kind = k;
+      node.alt = `${PIC_TITLE}, ${KIND_NAMES[k] || k}, ${LOOK_NAMES[look]}${shows ? ", " + SHOW_NAMES[shows] : ""}`;
+      const ms = place(node);
+      veiled(false, ms, still() ? "ease" : SHOT_GLIDE_EASE);
       seat(k);
       face(p + 1);
       stop(keptTimer); keptTimer = null;
@@ -1821,7 +1921,9 @@
         return made.get(slot(k, p));
       });
     }
-    show(kind, 0);
+    pic.dataset.slot = slot(kind, 0);
+    pic.src = current().url;
+    show(kind, 0, pic);
     function close() {
       if (!shown) return;
       shown = false;
@@ -1834,7 +1936,7 @@
       else if (box.contains(doc.activeElement)) doc.activeElement.blur();
       later(() => { veil.remove(); for (const url of urls) URL.revokeObjectURL(url); }, SHOT_FADE);
     }
-    // the pill shows the other chart in its Editorial look; whichever was
+    // the pill shows the other chart in its first look (DICE); whichever was
     // asked for last is the one shown
     for (const [key] of VIEWS) kinds[key].addEventListener("click", () => {
       if (!shown) return;
@@ -1843,29 +1945,41 @@
       const mine = ++asked;
       say("");
       seat(key);
-      pictureOf(key, 0).then(e => { if (e && shown && mine === asked) show(key, 0); })
-        .catch(() => { if (shown && mine === asked) { say(SHOT_WORDS.draw); seat(at.kind); } });
+      const ours = () => shown && mine === asked;
+      // pressed again while the chart's own picture is still fading out, the
+      // switch turns round to that look rather than its first one
+      const leaving = [...frame.children].find(n => n !== pic && n.classList.contains("going") && (n.dataset.slot || "").startsWith(key + ":"));
+      const p = leaving ? Number(leaving.dataset.slot.slice(key.length + 1)) : 0;
+      pictureOf(key, p).then(e => (e && ours() ? drawn(key, p, e) : null))
+        .then(node => { if (node && ours()) show(key, p, node); })
+        .catch(() => { if (ours()) { say(SHOT_WORDS.draw); seat(at.kind); } });
     });
     // the dice tumbles, its face turning, while the next look is made, and
-    // lands on that look's own number as it is swapped in
+    // lands on that look's own number as it is swapped in. the picture is
+    // under the cover all the while, at least as long as the tumble, and the
+    // next look fades in as the cover goes. a press while it rolls does nothing
     const bags = {};
     dice.addEventListener("click", () => {
       if (!shown || rolling) return;
       rolling = true;
       say("");
       const k = at.kind, p = nextLook(bags, k, at.pick, random), mine = ++asked;
+      const ours = () => shown && mine === asked;
       dice.classList.add("rolling");
       dice.setAttribute("aria-busy", "true");
+      veiled(true, SHOT_COVER_MS, SHOT_COVER_EASE);
       for (let turn = 1; turn < ROLL_TURNS; turn++)
         wait(() => face(1 + ((Number(die.dataset.face) + turn + Math.floor(random() * 4)) % 6)), ROLL_MS * turn / ROLL_TURNS);
-      Promise.all([pictureOf(k, p), new Promise(done => wait(done, ROLL_MS))])
-        .then(([e]) => { if (e && shown && mine === asked) show(k, p); })
-        .catch(() => { if (shown && mine === asked) say(SHOT_WORDS.draw); })
+      Promise.all([pictureOf(k, p).then(e => (e && ours() ? drawn(k, p, e) : null)), new Promise(done => wait(done, ROLL_MS))])
+        .then(([node]) => { if (node && ours()) show(k, p, node); })
+        .catch(() => { if (ours()) say(SHOT_WORDS.draw); })
         .then(() => {
           rolling = false;
           dice.classList.remove("rolling");
           dice.setAttribute("aria-busy", "false");
-          if (shown) face(at.pick + 1);
+          if (!shown) return;
+          face(at.pick + 1);
+          veiled(false, still() ? SHOT_STILL_MS : SHOT_GLIDE_MS, still() ? "ease" : SHOT_GLIDE_EASE);
         });
     });
     // the download button: the spinner while the file is made and handed
@@ -1955,7 +2069,7 @@
     veil.setAttribute("aria-hidden", "false");
     if (typeof box.focus === "function") box.focus({ preventScroll: true });
     return { root: veil, box, close, isOpen: () => shown, title, kinds, dice, keep: keeper, share: send, note,
-             at: () => ({ ...at }), picture: () => current() };
+             frame, cover, image: () => pic, at: () => ({ ...at }), picture: () => current() };
   }
 
   // ---- the panel -----------------------------------------------------------
@@ -2335,8 +2449,9 @@
     compact, longDay, scale, rolling, niceAxis, geometry, yearWeeks, totalLine, yearStart, fetchDays,
     useStart, pictureStart, MIN_SILENCE, MIN_SHOWN, GAP_DAYS, MARK_AFTER, seriesOf, spreadOf,
     fullness, calmOf, FULL_DAYS, FULL_EVEN, screenMarks, pictureMarks,
-    SHAPES, SHAPE_OF, PIC_SCALE, DICE, LOOK_NAMES, SHOW_NAMES, LOOK, paintLook, pictureCanvas,
+    SHAPES, SHAPE_OF, PIC_SCALE, DICE, LOOK_NAMES, SHOW_NAMES, LOOK, lookOf, paintLook, pictureCanvas,
     pictureName, pictureCount, PICTURES_KEY, picture, overlay, nextLook, sharePicture, ROLL_MS, SHOT_TITLES,
+    SHOT_GLIDE_MS, SHOT_GLIDE_EASE, SHOT_STILL_MS, SHOT_COVER_MS, SHOT_COVER_EASE,
     heatmapModel, heatmapSvg, heatPin, heatTip, drawHeatmap,
     lineModel, lineSvg, linePin, lineTip, drawLine,
     viewHtml, seat, panel, limitRows, ago, limits, LIMIT_FILL, LIMIT_TRACK, LIMITS_KEY, TOKENS_KEY,
