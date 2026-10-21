@@ -12694,13 +12694,17 @@ function deskYield(){
   });
 }
 // a lean answer that brings no card and no field but the two that move while
-// the board stands still: its clock (now) and how long each lane's agent has
-// been quiet (listenerGap)
+// the board stands still, its clock (now) and how long each lane's agent has
+// been quiet (listenerGap), or a field it sends again just as the page holds
+// it: a field that changed after the revision the page names without moving
+// it (an agent coming or going) is sent again on every reading until the next
+// change moves the revision
 const DESK_CLOCK = ["now", "listenerGap"];
-function deskClockOnly(data){
+function deskClockOnly(data, base){
   return data.delta != null && Array.isArray(data.boxes) && !data.boxes.length &&
     !(Array.isArray(data.gone) && data.gone.length) && !Array.isArray(data.ids) && !Array.isArray(data.keys) &&
-    !!data.set && Object.keys(data.set).every(k => DESK_CLOCK.includes(k));
+    !!data.set && Object.keys(data.set).every(k => DESK_CLOCK.includes(k) ||
+      (!!base && JSON.stringify(data.set[k]) === JSON.stringify(base.reading[k])));
 }
 // what readState hands on, when asked to, for such an answer instead of a copy
 // of the whole reading: the reading held has taken the clock in, and the page
@@ -12717,7 +12721,7 @@ async function readState(same = false){
   if (data === null || typeof data !== "object" || (data.delta == null && !Array.isArray(data.boxes))) return data;
   let held = null;
   try { held = deskMerge(base, data); } catch (e) { held = null; }
-  if (held && same && deskClockOnly(data)){
+  if (held && same && deskClockOnly(data, base)){
     deskHeld = held;
     return DESK_SAME;
   }

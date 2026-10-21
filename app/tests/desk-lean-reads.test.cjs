@@ -381,6 +381,23 @@ test("a timed reading of a board standing still is DESK_SAME, and any change is 
   await sameAsWhole(field, "a timed reading after a changed setting");
 });
 
+test("a field the board sends again as the page holds it is no change, and one it sends changed is", async () => {
+  const p = page();
+  await p.read();
+  const held = p.probe.held;
+  // an agent's liveness that moved without the revision is sent on every
+  // reading after; sent again as it stands, the board is standing still
+  const answer = agents => ({ delta: held.rev, epoch: held.epoch, rev: held.rev, count: held.order.length, boxes: [],
+    set: { now: held.reading.now + 1, listenerGap: held.reading.listenerGap, agents } });
+  p.serve(() => answer(JSON.parse(JSON.stringify(held.reading.agents))));
+  assert.equal((await p.probe.readState(true)).same, true, "a field sent again unchanged was taken for a change");
+  p.serve(() => answer({ ...JSON.parse(JSON.stringify(held.reading.agents)), facilitator: { name: "invented", alive: true, offrecord: false } }));
+  const changed = await p.probe.readState(true);
+  assert.notEqual(changed.same, true, "a changed field was taken for the clock");
+  assert.equal(changed.agents.facilitator.name, "invented");
+  assert.deepEqual(p.problems, []);
+});
+
 test("a lean answer that does not fit is never used: the whole board is read at once", async () => {
   const p = page();
   const first = await p.read();
