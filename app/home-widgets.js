@@ -692,7 +692,15 @@
     const room = box.scrollWidth - box.clientWidth;
     box.scrollLeft = spot.end ? Math.max(room, 0) : Math.min(spot.left, Math.max(room, 0));
     mark();
+    // putting the view there fires a scroll of its own a frame later, and by
+    // then a window being resized may have made the lane narrower; read as the
+    // reader's, that echo took the view off its latest end, and the last
+    // month's name stood cut under the fade. only a move away from where the
+    // view was put is the reader's
+    let put = box.scrollLeft;
     box.addEventListener("scroll", () => {
+      if (put !== null && box.scrollLeft === put) { put = null; mark(); return; }
+      put = null;
       const room = box.scrollWidth - box.clientWidth;
       spot.left = box.scrollLeft;
       spot.end = box.scrollLeft >= room - 1;

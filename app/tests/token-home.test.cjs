@@ -612,6 +612,30 @@ test("each chart keeps its own place when the pill switches, and a refresh keeps
   assert.equal(activeLayer(again).querySelector(".tk-scroll").scrollLeft, room);
 });
 
+test("a chart at its latest end stays there when its own scroll lands after a resize has narrowed its lane", () => {
+  const { W } = widgets();
+  const doc = makeDocument();
+  const el = new El("div", doc);
+  const days = daysEnding("2026-09-27", 371);
+  const spot = { end: true, left: 0 };
+  W.drawHeatmap(el, days, spot);
+  let view = el.querySelector(".tk-scroll");
+  assert.equal(view.scrollLeft, view.scrollWidth - view.clientWidth, "drawn at its latest end");
+  // the window is dragged narrower before the scroll the drawing set off arrives
+  view.clientWidth = 500;
+  view.fire("scroll");
+  assert.equal(spot.end, true, "its own scroll is not the reader's");
+  // the drawing the narrower lane brings stands at the latest end, the last month whole
+  el.viewWidth = 500;
+  W.drawHeatmap(el, days, spot);
+  view = el.querySelector(".tk-scroll");
+  assert.equal(view.scrollLeft, view.scrollWidth - view.clientWidth);
+  // and a move the reader makes is still the reader's
+  scrollTo(view, 10);
+  assert.equal(spot.end, false);
+  assert.equal(spot.left, 10);
+});
+
 test("the box stands in the home page's wide part, the charts fill it and scroll natively with no bar", () => {
   const { W } = widgets();
   const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
