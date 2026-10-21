@@ -540,9 +540,13 @@ for (const [where, surface] of Object.entries(SURFACES)) {
       ".trow.yours": ["background", "#FFFBEB"],
       ".trow.queuedc": ["background", "#F7F7F7"],
       ".trow.donec": ["opacity", ".55"],
-      ".trow.omni-ticket": ["background", "#fff"],
     };
     if (where !== "the phone") fills[".trow.match"] = ["background", "var(--accent-soft)"];
+    // the typed page still holds an Omni row white; the board and the phone
+    // leave its fill to the state rules above, as for any other row
+    if (where === "the typed page") fills[".trow.omni-ticket"] = ["background", "#fff"];
+    else for (const prop of ["background", "background-color"])
+      assert.equal(style(css, ".trow.omni-ticket")[prop], undefined, `an Omni row sets ${prop} of its own`);
     for (const [sel, [prop, want]] of Object.entries(fills)) {
       const got = style(css, sel);
       assert.equal(got[prop], want, `${sel} no longer reads ${prop} ${want}`);
