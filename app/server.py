@@ -30,7 +30,11 @@ Endpoints:
                                (see /settings), and onboarding: true while the
                                profile is not complete (see GET /profile), so
                                a page open across a restart puts the
-                               onboarding up without a reload
+                               onboarding up without a reload, and update
+                               while there is one to tell of: {offer: main's
+                               version, version: this board's} while a newer
+                               version waits for the person's yes, {running:
+                               true} while an update runs (GET /update)
   GET  /state?since=R[&delta=E] -> the same reading for a page that holds one
                                (the Mac board's poll). since blank, or a reading
                                this run cannot build on, is the whole reading
@@ -447,7 +451,9 @@ Endpoints:
                                hides and shows, the background colour, the
                                outline's width, formatting while typing,
                                whether the daily usage counts are shared
-                               (usagecounts, "0" when off), whether the cards
+                               (usagecounts, "0" when off), whether the board
+                               looks for updates (updatecheck, "0" when off),
+                               whether the cards
                                waiting on the reader are listed newest first
                                (waitnewest, "1" when so), the home chart,
                                the typed page's tasks and the one-time layout
@@ -510,6 +516,21 @@ Endpoints:
                                answered back. Nothing calls it yet: the
                                onboarding and the Profile section in Settings
                                reach the same link through POST /profile
+  GET  /update              -> {epoch, version, state}: this run's epoch, the
+                               version the board shows now, and the update
+                               this server started: idle (none), running with
+                               stage (downloading, setting-up or restarting,
+                               the last its output named), done, or failed
+                               with message, the update's own one-line
+                               reason. Answered only to a page on this Mac,
+                               like /spotify/session
+  POST /update              -> start `facilitator update` as a process of its
+                               own (see the update below). Answers {ok, epoch};
+                               a 409 with epoch while one runs. Local only and
+                               a 403 unless Origin is the page's own address
+  POST /update/later        -> "Remind me later": the offer is left out of
+                               /state until the next day's look. Answers {ok,
+                               until}. Local only, as POST /update
   POST /feedback            -> body = {"message": "<words>"}: the feedback box in
                                Settings, Improvements, on the Mac board and the
                                phone. Sends one "feedback sent" message to
@@ -991,6 +1012,14 @@ says the baseline has gone. With the switch off nothing
 is sent at all, except a message the person writes in the feedback box and
 sends (POST /feedback), which is their own choice and the only one with words
 in it.
+
+At start and once a day, unless the updatecheck setting is "0", another thread
+reads the version label in index.html on GitHub's main, with no token and
+nothing sent but the request, on a checkout that `facilitator update` would
+bring up to main and on no other; update-check.json beside state.json keeps
+what it found. A newer version comes to the Mac board in /state, which asks
+the person, and a yes runs the update as a process of its own (the update,
+below).
 
 A Mac board whose profile.json is missing or has no name has not been through
 the onboarding: /board-settings.js says so in front of the store
@@ -4702,8 +4731,10 @@ def _phone_state(since: int | None, ops: list[str], epoch: str = "") -> bytes:
     swept the clocks. epoch is the run the phone's held reading came from,
     named by a phone that can take the changed cards alone."""
     rev = _state.get("rev", 0)
+    # the version the board shows, on every reading, changed or not: a phone
+    # open across an update reloads itself onto the new one (m.html)
     out = {"rev": rev, "changed": since is None or since != rev, "now": time.time(), "incidentSchema": INCIDENT_SCHEMA,
-           "live": _live_section()}
+           "version": _board_version(), "live": _live_section()}
     cards: list[str] = []
     if out["changed"]:
         qpos, seen = {}, {ow: 0 for ow in OWNERS}
@@ -5199,6 +5230,12 @@ def _get_state(q: Query, _):
         # one showing it takes it away once the profile is saved anywhere
         if _profile_needed():
             reading["onboarding"] = True
+        # an update waiting for the person's yes, or one running, on every
+        # reading while there is one, so every open board window puts the
+        # pop-up or the progress view up within a second (the update, below)
+        update = _update_reading()
+        if update:
+            reading["update"] = update
         # a page that names since reads lean (_desk_reading), and a blank since
         # is its first reading, so the blank is looked for in the raw query
         named = parse_qs(q.raw, keep_blank_values=True)
@@ -8542,7 +8579,7 @@ SETTINGS_KEYS_MAX = 4000        # keys in the whole store
 SETTINGS_KEY = re.compile(
     r"(?:(?:layoutbak\.)?(?:pos|size)|hide|show)\.[^\x00-\x1f\x7f]{1,200}\.[A-Za-z0-9_-]{1,64}"
     r"|doc\.tasks\.[^\x00-\x1f\x7f]{1,200}"
-    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|waitnewest|home\.chart|folderview"
+    r"|bgcolor|tocw|composeformat|chimemuted|usagecounts|updatecheck|waitnewest|home\.chart|folderview"
     r"|magicrename\.1|layoutsync\.1|hideseed\.1|layoutvisibility\.[12]|navrestore\.1")
 SPOTIFY_FIELDS = frozenset({"access", "refresh", "expires", "scopes"})
 SPOTIFY_VALUE_MAX = 4096
@@ -9142,6 +9179,408 @@ def _post_onboarding_sample(q: Query, _):
     # resolved, the way POST /project keeps a lane's folder, so the page finds
     # the sample's tab by its folder on a later run instead of making another
     return 200, {"ok": True, "path": str(root.resolve()), "made": made}
+
+
+# ---- the update -------------------------------------------------------------------
+# The board looks for a newer version of itself when it starts and then once a
+# day, and when there is one the Mac board asks the person whether to update
+# (updateView in card-logic.js). A look reads the version label (#npversion) in
+# index.html on GitHub's main, with no token, and stops reading at the label.
+# It is made only on a checkout that `facilitator update` would bring up to
+# GitHub's main: on a branch that follows main, with no uncommitted changes and
+# no commits of its own on top. Any other checkout, a developer's on another
+# branch above all, never asks GitHub and never shows the pop-up. The
+# updatecheck setting, "0" when off, turns the looks and the pop-up off. A look
+# that fails waits an hour before the next, twice as long after each failure
+# in a row, and never longer than a day.
+#
+# update-check.json beside state.json keeps what the looks found and the
+# person's "Remind me later": {checked, latest, failures, retry, later}, later
+# being the time the offer may come back, the next day's look.
+#
+# Yes starts `facilitator update` as a process of its own, on the python3 macOS
+# ships, since the update may build .venv again under the board, in a session
+# of its own, so a restart it makes does not take it down, with its output
+# going to update-output.txt beside state.json and never to a pipe back here.
+# Started this way, the update writes the stage it has reached on lines of
+# their own (@stage downloading, setting-up, restarting), restarts the board
+# only when the board's own code changed, and opens no window. GET /update
+# reads those lines, and how the update ended when it ends under this server: a
+# page-only update ends with this server still running, and the page reloads;
+# one that restarts the board ends this server, and the page reloads once a
+# server of another run (another epoch) answers.
+#
+# For tests, FACILITATOR_UPDATE_SOURCE names a stand-in for GitHub's main on
+# this Mac (an http address on 127.0.0.1 or localhost; anything else is
+# ignored), and FACILITATOR_UPDATE_EVERY, honoured only beside such a
+# stand-in, the seconds between looks in place of a day.
+UPDATE_MAIN = "https://raw.githubusercontent.com/AsteroidHunter/facilitator/main"
+# where main keeps index.html: in app/ since the program moved there, and at
+# the top before that, which is where main has it until the move is pushed
+UPDATE_PATHS = ("app/index.html", "index.html")
+UPDATE_SETTING = "updatecheck"
+UPDATE_RECORD = DATA / "update-check.json"
+UPDATE_OUTPUT = DATA / "update-output.txt"
+UPDATE_DAY = 24 * 60 * 60
+UPDATE_RETRY = 60 * 60           # the wait after a look that failed, doubled each time
+UPDATE_TICK = 60                 # seconds between the thread's glances at the clock
+UPDATE_TIMEOUT = 20
+UPDATE_READ_MAX = 4 * 1024 * 1024   # bytes read looking for the label before giving up
+UPDATE_STAGES = ("downloading", "setting-up", "restarting")
+VERSION_LABEL = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
+_update_lock = threading.Lock()
+_update_kept: dict | None = None   # update-check.json as last written
+_update_due = 0.0                  # when the next look is due
+_update_fit: str | None = "unknown"   # None while the checkout can update, else why not
+_update_proc = None                # the update this server started
+
+
+def _update_source() -> tuple[str, float]:
+    """Where main is read and the seconds between looks: GitHub and a day,
+    unless the test variables name a stand-in on this Mac."""
+    stub = os.environ.get("FACILITATOR_UPDATE_SOURCE", "").strip().rstrip("/")
+    try:
+        where = urlparse(stub)
+        ours = where.scheme == "http" and where.hostname in ("127.0.0.1", "localhost") and where.port is not None
+    except ValueError:
+        ours = False
+    if not ours:
+        return UPDATE_MAIN, UPDATE_DAY
+    try:
+        every = float(os.environ.get("FACILITATOR_UPDATE_EVERY", ""))
+    except ValueError:
+        every = 0.0
+    return stub, every if every > 0 else UPDATE_DAY
+
+
+UPDATE_SOURCE, UPDATE_EVERY = _update_source()
+
+
+def _version_key(label) -> tuple[int, int, int] | None:
+    """v0.2.513 as (0, 2, 513), to be compared number by number; None for
+    anything that is not such a label."""
+    found = VERSION_LABEL.fullmatch(label.strip()) if isinstance(label, str) else None
+    return tuple(int(n) for n in found.groups()) if found else None
+
+
+def _newer(latest, current) -> bool:
+    """Whether latest is a higher version than current. Never when either
+    cannot be read: an offer is only made when it is certain."""
+    a, b = _version_key(latest), _version_key(current)
+    return a is not None and b is not None and a > b
+
+
+_version_seen: tuple = (None, None)   # (index.html's stamp, the label read from it)
+
+
+def _board_version() -> str | None:
+    """The version the board shows, read from index.html as it is on disk now,
+    so a page-only update is seen without a restart; read again only when the
+    file has changed."""
+    global _version_seen
+    page = HERE / "index.html"
+    try:
+        seen = page.stat()
+        stamp = (seen.st_mtime_ns, seen.st_size, seen.st_ino)
+        if _version_seen[0] != stamp:
+            found = BOARD_VERSION.search(page.read_bytes())
+            _version_seen = (stamp, found.group(1).decode() if found else None)
+    except OSError:
+        return None
+    return _version_seen[1]
+
+
+def _update_wanted() -> bool:
+    with _settings_lock:
+        return _settings_file()["values"].get(UPDATE_SETTING) != "0"
+
+
+def _update_git(*args: str) -> str | None:
+    """One git command in this checkout, read only; its output, or None when
+    it failed."""
+    try:
+        done = subprocess.run(["git", "-C", str(CLONE), "--no-optional-locks", *args],
+                              capture_output=True, text=True, errors="replace", timeout=10,
+                              stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def _update_checkout() -> str | None:
+    """None when `facilitator update` would bring this checkout up to GitHub's
+    main, else the word for why not: not a checkout of its own, on no branch, on
+    a branch that does not follow main, with uncommitted changes, or with
+    commits of its own on top of main, which the update's fast-forward pull
+    would refuse."""
+    top = _update_git("rev-parse", "--show-toplevel")
+    if not top or os.path.realpath(top) != os.path.realpath(CLONE):
+        return "notcheckout"
+    branch = _update_git("symbolic-ref", "--short", "-q", "HEAD")
+    if not branch:
+        return "nobranch"
+    if (_update_git("config", "--get", f"branch.{branch}.merge") != "refs/heads/main"
+            or not _update_git("config", "--get", f"branch.{branch}.remote")):
+        return "notmain"
+    status = _update_git("status", "--porcelain", "--untracked-files=no")
+    if status is None:
+        return "unreadable"
+    if status:
+        return "changed"
+    if _update_git("rev-list", "--count", "@{upstream}..HEAD") != "0":
+        return "ahead"
+    return None
+
+
+def _update_read() -> dict:
+    """update-check.json as kept, read the first time; one that cannot be read
+    starts again from nothing. Callers hold _update_lock."""
+    global _update_kept
+    if _update_kept is None:
+        try:
+            kept = json.loads(UPDATE_RECORD.read_text())
+            _update_kept = kept if isinstance(kept, dict) else {}
+        except (OSError, ValueError):
+            _update_kept = {}
+    return _update_kept
+
+
+def _update_write(**changes) -> None:
+    """Those fields into update-check.json, the rest kept: a temp file beside
+    it, then one rename, owner-only. A file that cannot be written is said once
+    and the board carries on with what it holds. Callers hold _update_lock."""
+    global _update_kept
+    kept = {**_update_read(), **changes}
+    _update_kept = kept
+    tmp = UPDATE_RECORD.with_name(UPDATE_RECORD.name + ".tmp")
+    try:
+        with open(tmp, "w", opener=_private_opener) as out:
+            out.write(json.dumps(kept, indent=1))
+        os.replace(tmp, UPDATE_RECORD)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        _error("savefail", step="updatecheck", reason=e.strerror or type(e).__name__)
+
+
+def _update_fetch(base: str, opener=None) -> str:
+    """The version label in index.html on main, read until the label and no
+    further: the new layout's place first and, when main has nothing there,
+    the old one. Raises OSError (urllib's own errors among them) when main
+    cannot be read, and ValueError when no file there holds a label."""
+    for rel in UPDATE_PATHS:
+        ask = urllib.request.Request(f"{base}/{rel}", headers={"User-Agent": "Facilitator"})
+        try:
+            answer = (opener or urllib.request.urlopen)(ask, timeout=UPDATE_TIMEOUT)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                e.close()
+                continue
+            raise
+        with answer:
+            tail, read = b"", 0
+            while read < UPDATE_READ_MAX:
+                piece = answer.read(65536)
+                if not piece:
+                    break
+                read += len(piece)
+                # the label may be cut in two between pieces, so the end of the
+                # last piece goes in front of the next
+                window = tail + piece
+                found = BOARD_VERSION.search(window)
+                if found:
+                    return found.group(1).decode()
+                tail = window[-64:]
+        raise ValueError("main's index.html holds no version label")
+    raise ValueError("main has no index.html")
+
+
+def _update_look() -> None:
+    """One look. On a checkout that cannot update, nothing is asked and the
+    next look is a day on; otherwise main's version is kept, or the failure is
+    counted and the next look waits an hour, doubled with each failure in a
+    row, and never longer than a day."""
+    global _update_due, _update_fit
+    now = time.time()
+    _update_fit = _update_checkout()
+    if _update_fit:
+        _debug("updatecheck", outcome="skipped", reason=_update_fit)
+        _update_due = now + UPDATE_EVERY
+        return
+    try:
+        latest = _update_fetch(UPDATE_SOURCE)
+    except (OSError, ValueError, http.client.HTTPException) as e:
+        why = f"http {e.code}" if isinstance(e, urllib.error.HTTPError) else type(e).__name__
+        with _update_lock:
+            failures = int(_update_read().get("failures") or 0) + 1
+            retry = now + min(UPDATE_RETRY * 2 ** (failures - 1), UPDATE_EVERY)
+            _update_write(failures=failures, retry=retry)
+        _update_due = retry
+        _info("updatecheck", outcome="failed", reason=why, failures=failures)
+        return
+    with _update_lock:
+        _update_write(checked=now, latest=latest, failures=0, retry=None)
+    _update_due = now + UPDATE_EVERY
+    _info("updatecheck", outcome="ok", latest=latest, version=_board_version())
+
+
+def _update_clock() -> None:
+    """The looks, on a thread of their own: one as the board starts, unless a
+    failure's wait is still running from before, then one a day, each only
+    while the setting is on. While an offer stands the checkout is read again
+    every tick, so a change made since the look takes the pop-up down. Never
+    raises, and the thread is a daemon, so it never holds the board open."""
+    global _update_due, _update_fit
+    tick = min(UPDATE_TICK, UPDATE_EVERY / 4)
+    with _update_lock:
+        kept = _update_read()
+        retry = kept.get("retry")
+        waiting = bool(kept.get("failures")) and isinstance(retry, (int, float)) and retry > time.time()
+    _update_due = retry if waiting else time.time()
+    while not _STOPPING.is_set():
+        try:
+            wanted = _update_wanted()
+            if wanted and time.time() >= _update_due:
+                _update_look()
+            elif wanted and _update_waiting():
+                _update_fit = _update_checkout()
+        except Exception as e:
+            _error("updatecheck", outcome="crash", error=type(e).__name__)
+            _update_due = time.time() + UPDATE_EVERY
+        if _STOPPING.wait(max(0.5, min(tick, _update_due - time.time()))):
+            return
+
+
+def _update_waiting() -> bool:
+    """Whether main's version, as last seen, is higher than the board's."""
+    with _update_lock:
+        latest = _update_read().get("latest")
+    return _newer(latest, _board_version())
+
+
+def _update_running() -> bool:
+    return _update_proc is not None and _update_proc.poll() is None
+
+
+def _update_reading() -> dict | None:
+    """What /state says of the update: {running: true} while one runs, {offer,
+    version} while a newer version waits for the person's yes, None otherwise:
+    always while the setting is off, the checkout cannot update, or the person
+    put the offer off until the next day's look."""
+    if _update_running():
+        return {"running": True}
+    if _update_fit is not None or not _update_wanted():
+        return None
+    with _update_lock:
+        kept = dict(_update_read())
+    version = _board_version()
+    if not _newer(kept.get("latest"), version):
+        return None
+    later = kept.get("later")
+    if isinstance(later, (int, float)) and time.time() < later:
+        return None
+    return {"offer": kept["latest"], "version": version}
+
+
+def _update_put_off() -> float:
+    """Keep the offer down until the next day's look: the next look when that
+    is at least half a day away, the one after it when it is sooner. Returns
+    that time. Callers hold _update_lock."""
+    now = time.time()
+    due = _update_due if _update_due > now else now + UPDATE_EVERY
+    until = due if due - now >= UPDATE_EVERY / 2 else due + UPDATE_EVERY
+    _update_write(later=until)
+    return until
+
+
+def _update_python() -> str:
+    """The python3 macOS ships, which the command is written for. Never .venv's
+    own: the update may build .venv again while it runs."""
+    if os.access("/usr/bin/python3", os.X_OK):
+        return "/usr/bin/python3"
+    return shutil.which("python3") or "python3"
+
+
+def _update_ended(proc) -> None:
+    """Wait for an update this server started and note how it ended. One that
+    did not go through puts the offer off until the next day's look, as
+    Remind me later does, and has the checkout read again, so a refusal is not
+    asked about again at once."""
+    global _update_fit
+    code = proc.wait()
+    _info("update", outcome="ended", code=code)
+    if code != 0:
+        _update_fit = _update_checkout()
+        with _update_lock:
+            _update_put_off()
+
+
+def _update_progress() -> dict:
+    """GET /update's answer: this run's epoch, the version shown now, and the
+    update this server started, read from its output: the last stage it
+    named, and the first line of a refusal (the ⚠ line every one of the
+    command's refusals starts with) once it has ended otherwise than well."""
+    out = {"epoch": PHONE_EPOCH, "version": _board_version()}
+    proc = _update_proc
+    if proc is None:
+        return {**out, "state": "idle"}
+    code = proc.poll()
+    stage, message = UPDATE_STAGES[0], None
+    try:
+        with open(UPDATE_OUTPUT, "rb") as f:
+            text = f.read(UPDATE_READ_MAX).decode("utf-8", "replace")
+    except OSError:
+        text = ""
+    for line in text.splitlines():
+        if line.startswith("@stage ") and line[7:].strip() in UPDATE_STAGES:
+            stage = line[7:].strip()
+        elif message is None and line.startswith("⚠ "):
+            message = line[2:].strip()
+    if code is None:
+        return {**out, "state": "running", "stage": stage}
+    if code == 0:
+        return {**out, "state": "done", "stage": stage}
+    return {**out, "state": "failed", "stage": stage, "message": message or "The update did not finish."}
+
+
+def _get_update(q: Query, _):
+    if not q.local:
+        return 404, {"error": "not found"}
+    return 200, _update_progress()
+
+
+def _post_update(q: Query, _):
+    global _update_proc
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    with _update_lock:
+        if _update_running():
+            return 409, {"error": "an update is already running", "epoch": PHONE_EPOCH}
+        try:
+            with open(UPDATE_OUTPUT, "wb", opener=_private_opener) as out:
+                proc = subprocess.Popen(
+                    [_update_python(), str(CLONE / "facilitator"), "update"], cwd=str(CLONE),
+                    stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
+                    env={**os.environ, "FACILITATOR_UPDATE_FROM_BOARD": "1", "PYTHONUNBUFFERED": "1"})
+        except OSError as e:
+            _error("update", outcome="notstarted", reason=e.strerror or type(e).__name__)
+            return 500, {"error": "the update could not be started"}
+        _update_proc = proc
+    threading.Thread(target=_update_ended, args=(proc,), name="update-wait", daemon=True).start()
+    _info("update", outcome="started", version=_board_version())
+    return 200, {"ok": True, "epoch": PHONE_EPOCH}
+
+
+def _post_update_later(q: Query, _):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    with _update_lock:
+        until = _update_put_off()
+    _info("update", outcome="later")
+    return 200, {"ok": True, "until": until}
 
 
 # hidden in v0: False refuses the quick note routes, drops quicknotes from /state, leaves stored notes alone
@@ -10089,6 +10528,10 @@ ROUTES = [
     Route("/spotify/session", _endpoint(_post_spotify_session, "text"), methods=["POST"]),
     Route("/usage/email", _endpoint(_post_usage_email, "text", USAGE_EMAIL_BODY_MAX), methods=["POST"]),
     Route("/feedback", _endpoint(_post_feedback, "text", FEEDBACK_BODY_MAX), methods=["POST"]),
+    # the update: what it has reached, the yes that starts it, Remind me later
+    Route("/update", _endpoint(_get_update), methods=["GET"]),
+    Route("/update", _endpoint(_post_update, "text"), methods=["POST"]),
+    Route("/update/later", _endpoint(_post_update_later, "text"), methods=["POST"]),
     # the profile, in profile.json, and the onboarding that fills it
     Route("/profile", _endpoint(_get_profile), methods=["GET"]),
     Route("/profile", _endpoint(_post_profile, "text", PROFILE_BODY_MAX), methods=["POST"]),
@@ -10813,6 +11256,7 @@ def main() -> None:
         _info("start", port=PORT, boxes=len(_state["boxes"]), log_level=LOG_LEVEL,
               push_ok=pushed.get("ts"), push_host=pushed.get("host"))
         _start_usage_counts()
+        threading.Thread(target=_update_clock, name="update-check", daemon=True).start()
         _start_card_search()
         threading.Thread(target=_bin_clock, name="bin-clock", daemon=True).start()
         if _serve_hold is not None:

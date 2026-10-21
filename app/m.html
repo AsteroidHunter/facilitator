@@ -6140,6 +6140,30 @@ function mergeReading(held, data){
       !order.every(id => cards.has(id))) return null;
   return { rev: data.rev, epoch, cards, order, boxes: order.map(id => ({ ...cards.get(id) })) };
 }
+// A NEW VERSION OF THE BOARD. Every reading names the version the board shows
+// (#npversion in index.html), and a phone open across an update (server.py, the
+// update) reloads itself onto the new one once the board answers again: at
+// once, or, while a box here holds the caret, as soon as none does, so nothing
+// being typed is cut off. the first version heard is the one this page loaded
+// with. the heading's kept copy of the version (brandStart) goes too, so the
+// new page shows the new one
+let boardVersion = null, versionReload = false;
+function typingHere(){
+  const at = document.activeElement;
+  return !!at && (at.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(at.tagName));
+}
+function versionReloadNow(){
+  if (!typingHere()) location.reload();
+}
+function versionSeen(version){
+  if (typeof version !== "string" || !version) return;
+  if (boardVersion === null){ boardVersion = version; return; }
+  if (version === boardVersion || versionReload) return;
+  versionReload = true;
+  try { localStorage.removeItem(BRAND_KEY); } catch (_) {}
+  document.addEventListener("focusout", () => setTimeout(versionReloadNow, 0));
+  versionReloadNow();
+}
 // the fetch and the render each get their own try, as on the board: a failed
 // reading is for a server that did not answer, and a card that will not draw is
 // reported instead of being dressed up as one
@@ -6191,6 +6215,7 @@ async function readBoard(){
       pollFails = 0; pollGap = POLL_MS;
       linkUp(asked);
       startupAnswered();   // a reading got through: the startup globe turns again
+      versionSeen(data.version);
       if (createRevFloor != null && Number.isSafeInteger(data.rev) && data.rev < createRevFloor){
         pollAgain = true;
         if (!opsStarted){ opsStarted = true; wakeOps(); }
