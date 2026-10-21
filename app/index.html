@@ -1587,7 +1587,7 @@
      on the board it has a box (the phone's drawer wears none): the card's own
      white face, edge line and shadow, with corners twice the card's 7px (--mb-round, the
      sheet's 14px), with a white bar at its top
-     and no line under it, and its words kept the card answer's inset off its
+     and the card bar's line under it, and its words kept the card answer's inset off its
      sides. the shadow says which of the box and the card is being
      worked in: the one held wears the card's own shadow (--shade-raised, above)
      and the other the faint one (--shade-lighter) at 60% (--shade-unselected),
@@ -1643,7 +1643,13 @@
   body.focus #mbline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
   body.lowered #mbline.on > g{filter:none}
   body.focus:is(.home, .editmode) #mbline.on{display:none}
-  #magicbox .mbbar{background:var(--card)}
+  /* the line under its bar is the card bar's own (.topbar, above): an inset
+     shadow of the edge's drawn width in --line along the bar's foot, inside
+     the bar, so it takes nothing from the bar's height and moves nothing in
+     the box, and never lies over what the box holds, a page or a zoomed
+     picture. the sheet's line, which hangs under the bar, stays off. the box
+     fades as a whole, faint or rising, so the line fades with it */
+  #magicbox .mbbar{background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
   #magicbox .mbbar::after{display:none}
   /* no scrollbar anywhere in the box, its words or a page's frame, which has its
      own rule (MagicBox.pageDoc); the content still scrolls, the words never
@@ -1666,7 +1672,9 @@
      and the board's other layers while they are up (body.mbup, which outlasts
      the fade out), under the project list, the search, the settings and an
      open picture, which still open over it.
-     expanded, it wears its held look and draws no lines to its card. on its
+     expanded, it wears its held look and draws no lines to its card, which
+     fade out as it expands and back in as it comes back, on its move's time
+     and curve, so they are whole the frame it lands (magicLineFade). on its
      way either way (.moving) it stands over the shade, and its strength is
      the move's (magicMove): eased on the same time and curve from what it was
      drawn at to what its own rules give it where it lands, full expanded and
@@ -8244,6 +8252,7 @@ function magicOff(keep){
   magicRiseStop();
   magicRiseSet(1);
   if (!keep) magicMoveStop();
+  magicLineStop();
   MB.line.classList.remove("on");
   if (MB.id === null) return;
   MB.id = null; MB.rev = 0; MB.asked++;
@@ -8491,8 +8500,10 @@ function boxSink(box, off){
 function magicPlace(){
   if (!MB.el || !MB.el.classList.contains("on")) return;
   if (MB.move) return;
+  // expanded, it draws no lines: any it had are fading out (magicLineFade),
+  // which takes them off
+  if (MB.view.big){ if (!MB.lineFade) MB.line.classList.remove("on"); magicPlaceBig(); return; }
   MB.line.classList.remove("on");
-  if (MB.view.big){ magicPlaceBig(); return; }
   const room = magicRoom();
   if (!room){ MB.el.style.visibility = "hidden"; return; }
   const { S, rect, fit, most } = room;
@@ -8540,19 +8551,26 @@ function magicPlaceBig(){
 // stays full. the keys moving while it is on its way take it to its new
 // strength from where it has got to (magicHold). once it lands it is placed
 // as it always is, a picture from its words shown alone (view.solo) giving
-// way to the words as it lands beside the card. with reduced motion it does
-// not travel: it fades in where it now stands, quickly (BIG_FADE_MS)
+// way to the words as it lands beside the card. its lines to the card fade
+// on the same time and curve, from how strongly they were drawn as it set
+// off (lines, magicLineStop): out as it expands and in as it comes back
+// (magicLineFade). with reduced motion it does not travel: it fades in where
+// it now stands, quickly (BIG_FADE_MS), and the lines fade with it
 const BIG_MS = CARD_PICTURE_MS, BIG_EASE = CARD_PICTURE_EASE, BIG_FADE_MS = 160;
-function magicMove(from){
+function magicMove(from, lines){
   const s = MB.el.style;
   if (s.visibility === "hidden") return;
-  if (cardPictureStill(window)){ MB.el.animate([{ opacity: 0, offset: 0 }], { duration: BIG_FADE_MS, easing: "ease" }); return; }
+  if (cardPictureStill(window)){
+    MB.el.animate([{ opacity: 0, offset: 0 }], { duration: BIG_FADE_MS, easing: "ease" });
+    magicLineFade(lines, { duration: BIG_FADE_MS, easing: "ease" });
+    return;
+  }
   if (!from) return;
-  MB.line.classList.remove("on");
   MB.el.classList.add("moving");
+  const time = { duration: BIG_MS * from.part, easing: BIG_EASE };
+  magicLineFade(lines, time);
   // no strength in the last frame: the box's own (held or not, .big)
-  const move = MB.move = MB.el.animate([from.at, { left: s.left, top: s.top, width: s.width, height: s.height }],
-    { duration: BIG_MS * from.part, easing: BIG_EASE });
+  const move = MB.move = MB.el.animate([from.at, { left: s.left, top: s.top, width: s.width, height: s.height }], time);
   move.onfinish = () => {
     if (MB.move !== move) return;
     MB.move = null;
@@ -8576,6 +8594,31 @@ function magicMoveStop(){
   MB.el.classList.remove("moving");
   return at;
 }
+// the lines to the card on the box's way (magicMove), from strength from, on
+// its time: expanding, the lines it had stay where they were drawn and fade
+// out, and are taken off as they reach nothing, so none is left the frame it
+// is expanded; coming back, the lines just drawn at its place beside the card
+// fade in, to whatever the rise gives them, so they are whole the frame it
+// lands
+function magicLineFade(from, time){
+  const line = MB.line;
+  if (MB.view.big){
+    if (!from) return;
+    line.classList.add("on");
+    const fade = MB.lineFade = line.animate([{ opacity: from }, { opacity: 0 }], { ...time, fill: "forwards" });
+    fade.onfinish = () => { if (MB.lineFade === fade){ magicLineStop(); line.classList.remove("on"); } };
+  } else if (line.classList.contains("on")){
+    const fade = MB.lineFade = line.animate([{ opacity: from }, {}], time);
+    fade.onfinish = () => { if (MB.lineFade === fade) MB.lineFade = null; };
+  }
+}
+// how strongly the lines are drawn now, 0 when they are not, however far a
+// fade of theirs has got, which stops there
+function magicLineStop(){
+  const now = MB.line.classList.contains("on") ? +getComputedStyle(MB.line).opacity : 0;
+  if (MB.lineFade){ MB.lineFade.cancel(); MB.lineFade = null; }
+  return now;
+}
 // the green button: the box expanded, nine tenths of the window, as the
 // owner works in it. it grows out of its place beside the card (magicMove)
 // as the shade fades in, risen and in its held look, and the stage stands
@@ -8586,7 +8629,7 @@ function magicBig(from){
   if (!MB.el || !MB.el.classList.contains("on") || MB.view.big) return;
   MB.bigFrom = from && from !== document.body ? from : null;
   MB.bigHeld = MB.el.classList.contains("held");
-  const was = magicMoveStop();
+  const was = magicMoveStop(), lines = magicLineStop();
   magicRiseStop(); magicRiseSet(1);
   MB.el.classList.remove("rising");
   clearTimeout(MB.bigDown);
@@ -8594,7 +8637,7 @@ function magicBig(from){
   document.body.classList.add("mbbig", "mbup");
   queueFatCaret();   // the caret of a field under it goes out (the fat caret)
   magicPlace();
-  magicMove(was);
+  magicMove(was, lines);
 }
 // and back beside its card, shrinking into its place as the shade fades
 // (magicMove), by the button again, Escape, a click on the shade, or the box
@@ -8603,7 +8646,7 @@ function magicBig(from){
 // strength it rests at, held or not, from the first frame
 function magicSmall(){
   if (!MB.el || !MB.view.big) return;
-  const was = magicMoveStop();
+  const was = magicMoveStop(), lines = magicLineStop();
   MB.view.expand(false);
   document.body.classList.remove("mbbig");
   clearTimeout(MB.bigDown);
@@ -8611,7 +8654,7 @@ function magicSmall(){
   MB.bigDown = setTimeout(() => { document.body.classList.remove("mbup"); queueFatCaret(); }, BIG_MS);
   magicPlace();
   magicFocusBack();
-  magicMove(was);
+  magicMove(was, lines);
   if (!MB.move) MB.view.solo(null);
 }
 // the keys back to where they were as the box was expanded. a box that held
