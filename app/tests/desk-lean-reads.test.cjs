@@ -398,6 +398,30 @@ test("a field the board sends again as the page holds it is no change, and one i
   assert.deepEqual(p.problems, []);
 });
 
+test("a reading copied in slices with a pause between them is the same reading, sharing nothing", async () => {
+  const block = html.slice(html.indexOf("// ---- the board's reading, lean"), html.indexOf("// ---- the board's reading ends"));
+  const fetchBoard = async url => { const r = await fetch(board.origin + url); const text = await r.text(); return { json: async () => JSON.parse(text) }; };
+  // a clock that moves a ms each time it is read, so the copy runs out of its
+  // slice every few cards and pauses many times
+  let tick = 0, pauses = 0;
+  const ctx = vm.createContext({ MessageChannel, fetch: fetchBoard, performance: { now: () => ++tick } });
+  vm.runInContext(block + "\nglobalThis.probe = { readState, get held(){ return deskHeld; } };", ctx);
+  const { probe } = ctx;
+  await probe.readState();
+  await post("/title?box=m70", "Changed before a copy in slices");
+  const pause = async () => { pauses++; await new Promise(r => setTimeout(r, 0)); };
+  const sliced = await probe.readState(false, pause);
+  assert.ok(pauses > 50, `the copy paused ${pauses} times`);
+  await sameAsWhole(sliced, "a reading copied in slices");
+  const held = objects(probe.held.reading);
+  for (const o of objects(sliced)) assert.equal(held.has(o), false, "the slices handed on an object of the reading held");
+  assert.equal(JSON.stringify(Object.keys(sliced)), JSON.stringify(Object.keys(probe.held.reading)), "the fields came in another order");
+  v8.setFlagsFromString("--allow-natives-syntax");
+  const fast = new Function("o", "return %HasFastProperties(o)");
+  v8.setFlagsFromString("--no-allow-natives-syntax");
+  assert.ok(sliced.boxes.every(fast), "a card copied in slices is a dictionary object");
+});
+
 test("a lean answer that does not fit is never used: the whole board is read at once", async () => {
   const p = page();
   const first = await p.read();

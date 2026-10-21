@@ -7391,7 +7391,45 @@ async function syncDesktopHistoryAvailability(id){
   setDesktopHistoryAvailability(id, list.length > 0);
 }
 
+// the whole draw at once, for the first reading and the page's own redraws (a
+// click, a key, a tab). it draws over a sliced draw still under way, which then
+// stops where it stands
 function apply(state){
+  drawGen++;
+  const pass = applyPass(state);
+  while (!pass.next().done);
+}
+
+// the timed refresh's draw: the same pass, a few ms at a time in the idle time
+// between the page's frames, so a frame never waits on more than one slice of
+// it (a control+S scroll moves the words from those frames). a draw begun
+// after it, whole or sliced, stops it where it stands, since that one draws
+// everything again. false when it was stopped
+const DRAW_SLICE_MS = 3;
+let drawGen = 0;
+async function applySliced(state){
+  const gen = ++drawGen;
+  const pass = applyPass(state);
+  for (;;){
+    const left = await drawIdle();
+    if (gen !== drawGen) return false;
+    const end = performance.now() + Math.min(DRAW_SLICE_MS, left);
+    let step;
+    do step = pass.next(); while (!step.done && performance.now() < end);
+    if (step.done) return true;
+  }
+}
+// the next stretch of idle time between frames and how long it has, or, where
+// the browser has no idle callback, the next task
+function drawIdle(){
+  if (typeof requestIdleCallback === "function")
+    return new Promise(done => requestIdleCallback(idle => done(Math.max(1, idle.timeRemaining())), { timeout: 200 }));
+  return new Promise(done => setTimeout(() => done(DRAW_SLICE_MS), 0));
+}
+
+// the draw, as a pass that stops after each card and between the parts drawn
+// after them, so apply can run it whole and applySliced a slice at a time
+function* applyPass(state){
   const onBoard = new Set(state.boxes.map(b => b.id));
   composeKeep(onBoard);   // a deleted card's saved line goes with it
   for (const id of Object.keys(els)){    // deleted boxes leave the page
@@ -7422,6 +7460,7 @@ function apply(state){
     const sb = state.boxes.find(x => x.id === selectedId);
     if (!sb || sb.owner !== activeOwner) deselect();
   }
+  yield;
 
   // scroll anchor: whatever you're typing in (else the box under the viewport
   // center — what you're reading) must not move when boxes above fold/expand.
@@ -7445,6 +7484,7 @@ function apply(state){
     if (!els[b.id]){
       makeBox(b, 0, state);
       landFocus();
+      yield;
     }
   }
 
@@ -7569,6 +7609,7 @@ function apply(state){
       if (el.toc.style.display !== tocShow) el.toc.style.display = tocShow;
       writeAge(el, b);
     }
+    yield;
   }
   if (anchorEl){
     const delta = anchorEl.getBoundingClientRect().top - anchorTop;
@@ -7577,6 +7618,7 @@ function apply(state){
     if (delta) window.scrollBy({ top: delta, left: 0, behavior: "instant" });
   }
   applySelection(state);
+  yield;
   // board title comes from state (seeded via seed.json), not from the page
   if (state.title && document.title !== state.title){
     document.title = state.title;
@@ -7598,14 +7640,20 @@ function apply(state){
       .filter(c => c.classList.contains("toc-entry") && c.style.display !== "none").length;
     tocGroups[key].style.display = visible ? "" : "none";
   }
+  yield;
   renderTabs(state);
+  yield;
   renderPages(state);   // the foot of the workspace, and whether the board is on this page at all
   if (draft && draft.screen === "home") renderHome(state);   // new lanes join the landing card live
+  yield;
   if (FOCUS){
     renderWorkspaces(state);
     renderTrio(state);
+    yield;
     renderCarousel(state);
+    yield;
     renderMiniCards(state);
+    yield;
   }
 
   drawListeners(state);
@@ -12710,11 +12758,26 @@ function deskClockOnly(data, base){
 // of the whole reading: the reading held has taken the clock in, and the page
 // has nothing new to draw from it
 const DESK_SAME = Object.freeze({ same: true });
+// the reading held written out and read back a card at a time, in slices of
+// at most DESK_SLICE_MS with pause awaited between them: the same new objects,
+// field for field and in the same order, as the whole copy makes at once
+const DESK_SLICE_MS = 3;
+async function deskCopy(reading, pause){
+  const out = {};
+  for (const k of Object.keys(reading)) deskPut(out, k, k === "boxes" ? [] : JSON.parse(JSON.stringify(reading[k])));
+  let end = performance.now() + DESK_SLICE_MS;
+  for (const b of reading.boxes){
+    if (performance.now() > end){ await pause(); end = performance.now() + DESK_SLICE_MS; }
+    out.boxes.push(JSON.parse(JSON.stringify(b)));
+  }
+  return out;
+}
 // one reading, as the board's state at this moment, new objects for the draw. An
 // answer that is no reading at all (a busy or failed board's {error}) is handed
 // on as it came, as it always was, and the reading held stays held. same says
-// the caller would rather have DESK_SAME for an answer that moved only the clock
-async function readState(same = false){
+// the caller would rather have DESK_SAME for an answer that moved only the clock,
+// and pause, when given, has the copy made in slices with pause between them
+async function readState(same = false, pause = null){
   const base = deskHeld;
   const ask = base && base.epoch !== null ? "/state?since=" + base.rev + "&delta=" + encodeURIComponent(base.epoch) : "/state?since=";
   const data = await (await fetch(ask)).json();
@@ -12735,7 +12798,7 @@ async function readState(same = false){
     held = deskMerge(null, whole);
   }
   deskHeld = held;
-  const out = JSON.parse(JSON.stringify(held.reading));
+  const out = pause ? await deskCopy(held.reading, pause) : JSON.parse(JSON.stringify(held.reading));
   await deskYield();
   return out;
 }
@@ -12766,8 +12829,9 @@ function deskStill(){
 // timed is the 1.2 s timer's own reading. one that finds the board standing
 // still (DESK_SAME) draws only what the clock moves (drawClock) rather than the
 // whole board again, as long as the page holds nothing of its own that waits
-// for the board's word (deskStill). a reading asked for by anything else is
-// drawn whole, as it always was
+// for the board's word (deskStill); one that brings a change is copied and
+// drawn in slices between the page's frames (deskCopy, applySliced). a reading
+// asked for by anything else is drawn whole, as it always was
 async function poll(timed = false){
   noteDoing("poll");
   let state;
@@ -12777,7 +12841,7 @@ async function poll(timed = false){
   // it. The phone's readings carry the same stamp for the same reason
   const asked = Date.now();
   try {
-    state = await readState(timed && deskStill());
+    state = await readState(timed && deskStill(), timed && lastState ? drawIdle : null);
     if (state !== DESK_SAME) state.fetchedAt = asked;
   } catch (e) {
     curtainTrouble();
@@ -12843,10 +12907,19 @@ async function poll(timed = false){
     // a card this page is holding a click for is shown the way it was left, and
     // this reading's own word for it is kept aside to go back to
     holdFlags(state);
-    if (!lastState) build(state);
     drawnAsked = asked;
-    apply(state);
-    lastState = state;
+    if (timed && lastState){
+      // the timed refresh draws in slices between the page's frames, with the
+      // reading already the page's own, so a redraw asked for while it runs
+      // draws this reading and not the one before. a newer reading's draw
+      // that stopped this one does the rest after it, too
+      lastState = state;
+      if (!await applySliced(state) && lastState !== state) return;
+    } else {
+      if (!lastState) build(state);
+      apply(state);
+      lastState = state;
+    }
     magicSync();   // the card on screen's magic box, opened, changed or closed by its agent
     P3_LANE = state.imagePanelLane || "";
     // the mount map decides which lane's reader is on screen, so a change to the
