@@ -13,6 +13,9 @@ folder that have not run on that checkout yet. A step is for a change that a
   add a new one.
 - A step that exits with another status stops the update, is not recorded, and
   runs again on the next `facilitator update`. Later steps wait behind it.
+- An update that runs a step restarts a running board at its end, as one that
+  changes the board's Python or requirements does; an update that changes only
+  pages leaves the board running.
 - Steps run from the checkout folder (the top, holding `app/` and `data/`) with
   no input, so they cannot ask questions. `.sh` steps run under bash, `.py`
   steps under the board's `data/.venv` python. Their output goes straight to

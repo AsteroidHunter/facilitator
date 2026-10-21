@@ -1231,6 +1231,68 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .app-link-status{font:12px var(--sans); color:var(--ink); max-width:240px; padding:6px 10px}
 .app-link-status:empty{display:none}
 
+/* ---- the update's pop-up and progress (updateView in card-logic.js) ---------
+   the Mac board's question when a newer version is out: the settings page's
+   veil (the board's ink at 24%, fading in by its colour) over everything the
+   board draws, the block caret included, and in its middle a box of the
+   board's glass (.qn-glass) with the quick note's text boost behind the words.
+   Yes is the bar's glass pill, the one home's "Open a new folder" wears, and
+   Remind me later the same capsule with no glass, in the sub ink, filled with
+   the list rows' ink shade under the pointer. on Yes the veil frosts: the
+   glass's own blur and saturation over the whole board, under a light white,
+   and the box gives its place to the spinner and the stage's words, centred,
+   with the progress bar under them. the spinner is the cards' own (| / - \ in
+   the board's mono, in the ink), at the words' size */
+.sp-veil.up-veil{display:grid; place-items:center; z-index:100}
+.sp-veil.up-veil.open.frost{background-color:color-mix(in srgb, #fff 42%, transparent);
+  backdrop-filter:blur(15px) saturate(180%); -webkit-backdrop-filter:blur(15px) saturate(180%);
+  transition:background-color .26s ease, backdrop-filter .26s ease, visibility 0s}
+.up-box{position:relative; box-sizing:border-box; width:min(380px, calc(100vw - 32px)); padding:22px 24px 18px;
+  color:var(--ink); --qn-boost:.22;
+  box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06)}
+.up-box::before{content:""; position:absolute; inset:14px; border-radius:6px;
+  background:rgba(255,255,255,var(--qn-boost)); filter:blur(10px); pointer-events:none}
+.up-box:focus{outline:none}
+.up-title, .up-line, .up-row{position:relative}
+.up-title{font:625 17px/1.25 var(--inter); color:var(--ink)}
+.up-line{margin:6px 0 0; font:14px/1.45 var(--sans); color:var(--sub); overflow-wrap:anywhere}
+.up-row{display:flex; justify-content:flex-end; gap:8px; margin-top:20px}
+.up-row button{box-sizing:border-box; height:32px; margin:0; padding:0 14px; border-radius:16px;
+  font:400 14px/17px var(--sans); cursor:pointer; -webkit-user-select:none; user-select:none}
+.up-later{border:none; background:transparent; color:var(--sub); transition:background-color .12s ease-out, color .12s ease-out}
+.up-later:is(:hover, :focus-visible){background:color-mix(in srgb, var(--ink) 6%, transparent); color:var(--ink); outline:none}
+.up-later[hidden]{display:none}
+.up-yes.qn-glass{color:var(--ink); border-radius:16px;
+  box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06)}
+.up-yes.qn-glass:is(:hover, :focus-visible){--qn-tint:.95; --qn-edge:3; outline:none}
+.up-work{display:none; flex-direction:column; align-items:center; gap:14px}
+.up-work:focus{outline:none}
+.up-veil.frost .up-box{display:none}
+.up-veil.frost .up-work{display:flex}
+.up-head{display:flex; align-items:center; gap:10px; font:500 17px/1.25 var(--inter); color:var(--ink)}
+.up-spin::before{content:attr(data-f); display:block; width:17px; font:600 17px/1.25 var(--mono); text-align:center}
+.up-bar{width:240px; height:4px; border-radius:2px; overflow:hidden;
+  background:color-mix(in srgb, var(--ink) 12%, transparent)}
+.up-fill{width:100%; height:100%; border-radius:inherit; background:var(--ink);
+  transform:scaleX(0); transform-origin:0 50%; transition:transform .6s var(--gentle)}
+@media (prefers-reduced-motion: reduce){
+  .sp-veil.up-veil.open.frost, .up-fill{transition-duration:0s}
+}
+
 /* ---- a card's magic box -------------------------------------------------- */
 /* what an agent put beside a card (POST /magic): on the board beside the card
    (index.html says where it stands) and on the phone in the drawer above the

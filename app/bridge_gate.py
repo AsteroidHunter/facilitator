@@ -70,13 +70,15 @@ PAGE_OPENS = frozenset({"/m", "/"})
 # or not: the Spotify sign-in, the explicit browser-window launcher, the yes to
 # feedback mail, the onboarding, its picture and its sample project, filling,
 # reading back and reopening the cards' magic boxes, which only agents on the
-# Mac do, and the Bin, which only the Mac board has. A signed-in phone reads what a box holds and its picture, and closes
+# Mac do, the Bin, which only the Mac board has, and the update, which only the
+# Mac board asks about and starts. A signed-in phone reads what a box holds and its picture, and closes
 # it, as the board does: those three routes pass. The profile is not here: a
 # signed-in phone reads it, and its route refuses a write that did not come from
 # the Mac
 LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
                         "/onboarding", "/onboarding/sample", "/assets/phone_app_on_stand.webp",
-                        "/magic", "/magic/reopen", "/bin", "/bin/restore"})
+                        "/magic", "/magic/reopen", "/bin", "/bin/restore",
+                        "/update", "/update/later"})
 
 
 def _client_class(headers):

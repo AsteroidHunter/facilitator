@@ -53,7 +53,7 @@ To use the mobile version:
 
 ## Updating the Facilitator
 
-Facilitator is still in development and will be constantly updated. To update, run the following on your terminal:
+Facilitator is still in development and will be constantly updated. When a new version is out, the board asks whether to update; say Yes and it downloads the update, restarts if it needs to and reloads itself. To update from the terminal instead, run:
 ```
 facilitator update
 ```
@@ -65,6 +65,7 @@ facilitator update
 - The switch is "Share daily usage counts" in Settings, under Improvements. With it off, nothing leaves your Mac, except feedback you send.
 - Feedback is the one thing sent with words: a message you write in the feedback box in Settings, under Improvements, goes with your name and email only when you press send, after three seconds in which you can cancel.
 - Nothing you type into a card or the magic box is ever sent.
+- When the board starts and once a day, it reads the version number of the newest Facilitator on GitHub. Nothing is sent with that request. "Check for updates" in Settings, under Improvements, turns it off.
 
 ## License
 

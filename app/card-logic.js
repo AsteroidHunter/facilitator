@@ -9132,3 +9132,225 @@ function cardSearch({ ask, lane = null, later = setTimeout, cancel = clearTimeou
   s.halt = () => { halt(); turn++; s.waiting = false; };
   return s;
 }
+
+// ---- the update -------------------------------------------------------------------
+// the Mac board's update (server.py, the update). while the board has found a
+// newer version on GitHub, its readings carry update: {offer, version}, and the
+// board puts this pop-up up in the middle of the window over the settings page's
+// veil (the board's ink at 24%), in the board's glass, asking whether to update:
+// Yes on the bar's glass pill, Remind me later beside it and quieter, which the
+// board keeps down until the next day's look (POST /update/later). Yes starts
+// the update (POST /update): the veil frosts over with the glass's own blur, and
+// in the middle stand the board's spinner and the stage the update has reached,
+// with a progress bar under them, read from GET /update every UPDATE_ASK_MS:
+// Downloading update, Setting up, Restarting. the page reloads once the update
+// is done on a board that kept running, or once a board of another run (another
+// epoch) answers: never on an answer from the board that started the update,
+// which can still answer once while it stops. a refusal or a failure puts the
+// update's own one-line message in the pop-up's place, with Close, and changes
+// nothing. another window whose readings say an update is running shows the
+// same progress and reloads the same way
+const UPDATE_WORDS = { downloading: "Downloading update", "setting-up": "Setting up", restarting: "Restarting" };
+// how far along the bar each stage stands; the last stretch fills as the page reloads
+const UPDATE_FILL = { downloading: .3, "setting-up": .62, restarting: .88 };
+const UPDATE_ASK_MS = 400;
+const UPDATE_QUIET_MS = 90000;   // nothing answering for this long: the board did not come back
+const UPDATE_FILLED_MS = 350;    // the bar's last stretch, shown before the reload
+const UPDATE_LOST = "The board did not come back after the update. Start it with: facilitator run";
+
+// what the progress view does with one answer to GET /update. epoch is the run
+// of the board that started the update (null while it is not known yet, in a
+// window that learned of the update from a reading), answer is null when
+// nothing answered, quietMs how long nothing has. the answer is one of:
+// {do: "reload"}, {do: "fail", message}, {do: "stage", stage, epoch} (epoch: the
+// run to wait on from now), or {do: "wait", stage} while the board is down
+function updateNext(epoch, answer, quietMs){
+  if (!answer || typeof answer !== "object" || typeof answer.epoch !== "string"){
+    if (quietMs >= UPDATE_QUIET_MS) return { do: "fail", message: UPDATE_LOST };
+    // nothing answers while the board restarts, or is stopped to rebuild its
+    // Python: either way the next answer comes from the board starting again
+    return { do: "wait", stage: "restarting" };
+  }
+  if (epoch === null){
+    // the first answer names the run to wait on, when it is still running the
+    // update; one that runs none came after the update ended
+    if (answer.state !== "running") return { do: "reload" };
+    epoch = answer.epoch;
+  }
+  if (answer.epoch !== epoch) return { do: "reload" };
+  if (answer.state === "done") return { do: "reload" };
+  if (answer.state === "failed") return { do: "fail", message: answer.message || "The update did not finish." };
+  if (answer.state !== "running") return { do: "fail", message: "The update did not start." };
+  return { do: "stage", stage: UPDATE_WORDS[answer.stage] ? answer.stage : "downloading", epoch };
+}
+
+// the pop-up and the progress view, built once into host. opts: ask() for one
+// answer to GET /update (null when nothing answered), start() for POST /update
+// ({ok, epoch} or {ok: false, error}), later() for POST /update/later and
+// reload(). see(update, held) is handed each reading's update and whether
+// something else covers the board (the onboarding): it puts the pop-up up for
+// an offer this page has not put away, or the progress view for an update that
+// runs, and does nothing while either is up
+function updateView(host, opts){
+  const veil = h("div", "qn-veil sp-veil up-veil");
+  veil.setAttribute("aria-hidden", "true");
+  const box = h("div", "qn-glass up-box");
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-labelledby", "uptitle");
+  // a press on bare glass leaves focus on the box, so Escape still reaches the
+  // veil, and no button holds the focus when the pop-up comes up: an Enter
+  // typed into a card just then must not start an update
+  box.tabIndex = -1;
+  const title = h("div", "up-title");
+  title.id = "uptitle";
+  const line = h("p", "up-line");
+  const row = h("div", "up-row");
+  const later = h("button", "up-later", "Remind me later");
+  later.type = "button";
+  const yes = h("button", "qn-glass up-yes", "Yes");
+  yes.type = "button";
+  row.append(later, yes);
+  box.append(title, line, row);
+  const work = h("div", "up-work");
+  work.setAttribute("role", "status");
+  work.setAttribute("aria-live", "polite");
+  work.tabIndex = -1;   // the focus while the update runs, so no key reaches the board
+  const head = h("div", "up-head");
+  const spin = h("span", "up-spin");
+  spin.setAttribute("aria-hidden", "true");
+  spin.dataset.f = SPIN_FRAMES[0];
+  const words = h("span", "up-words", UPDATE_WORDS.downloading);
+  head.append(spin, words);
+  const bar = h("div", "up-bar");
+  const fill = h("div", "up-fill");
+  bar.appendChild(fill);
+  work.append(head, bar);
+  veil.append(box, work);
+  host.appendChild(veil);
+
+  // shut, ask (the pop-up), work (the progress view) or told (a message and Close)
+  let mode = "shut", offer = null, epoch = null, heard = 0, timer = 0, spinner = 0, turn = 0, back = null;
+  const putAway = new Set();   // the offers this page was told no more about
+  function show(){
+    back = document.activeElement;
+    veil.classList.add("open");
+    veil.setAttribute("aria-hidden", "false");
+    box.focus({ preventScroll: true });
+  }
+  function shut(){
+    mode = "shut";
+    clearTimeout(timer);
+    clearInterval(spinner);
+    veil.classList.remove("open", "frost");
+    veil.setAttribute("aria-hidden", "true");
+    const to = back;
+    back = null;
+    if (to && to.isConnected && typeof to.focus === "function") to.focus({ preventScroll: true });
+  }
+  function ask(update){
+    mode = "ask";
+    offer = update.offer;
+    title.textContent = "Update Facilitator?";
+    line.textContent = update.offer + " is ready. You have " + (update.version || "an older version") + ".";
+    later.hidden = false;
+    yes.textContent = "Yes";
+    show();
+  }
+  function tell(message){
+    mode = "told";
+    clearTimeout(timer);
+    clearInterval(spinner);
+    if (offer) putAway.add(offer);
+    title.textContent = "The update stopped";
+    line.textContent = message;
+    later.hidden = true;
+    yes.textContent = "Close";
+    veil.classList.remove("frost");
+    if (!veil.classList.contains("open")) show();
+    box.focus({ preventScroll: true });
+  }
+  function stage(name){
+    words.textContent = UPDATE_WORDS[name];
+    fill.style.transform = "scaleX(" + UPDATE_FILL[name] + ")";
+  }
+  // the frosted view, from the first stage; watch() then asks the board
+  function startWork(){
+    mode = "work";
+    epoch = null;
+    stage("downloading");
+    let frame = 0;
+    clearInterval(spinner);
+    spinner = setInterval(() => { spin.dataset.f = SPIN_FRAMES[++frame % SPIN_FRAMES.length]; }, SPIN_STEP_MS);
+    if (!veil.classList.contains("open")) show();
+    veil.classList.add("frost");
+    work.focus({ preventScroll: true });
+  }
+  function watch(){
+    heard = Date.now();
+    tick(++turn);
+  }
+  async function tick(mine){
+    if (mode !== "work" || mine !== turn) return;
+    const answer = await opts.ask();
+    if (mode !== "work" || mine !== turn) return;
+    if (answer && typeof answer.epoch === "string") heard = Date.now();
+    const next = updateNext(epoch, answer, Date.now() - heard);
+    if (next.do === "reload"){
+      // the last stretch of the bar, then the new page
+      fill.style.transform = "scaleX(1)";
+      clearInterval(spinner);
+      setTimeout(() => opts.reload(), UPDATE_FILLED_MS);
+      return;
+    }
+    if (next.do === "fail"){ tell(next.message); return; }
+    if (next.epoch) epoch = next.epoch;
+    stage(next.stage);
+    timer = setTimeout(() => tick(mine), UPDATE_ASK_MS);
+  }
+  // the board is asked only once it has answered the yes, so no answer from
+  // before the update started is read as one about it
+  yes.addEventListener("click", async () => {
+    if (mode === "told"){ shut(); return; }
+    if (mode !== "ask") return;
+    putAway.add(offer);
+    startWork();
+    const started = await opts.start();
+    if (mode !== "work") return;
+    if (!started || !started.ok){
+      tell((started && started.error) || "The board did not start the update.");
+      return;
+    }
+    if (typeof started.epoch === "string") epoch = started.epoch;
+    watch();
+  });
+  later.addEventListener("click", () => {
+    if (mode !== "ask") return;
+    putAway.add(offer);
+    opts.later();
+    shut();
+  });
+  // keys stay in the pop-up: Escape is Remind me later, or Close, and nothing
+  // reaches the board behind it, nor while the update runs
+  veil.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key !== "Escape" || imeKey(e)) return;
+    e.preventDefault();
+    if (mode === "ask") later.click();
+    else if (mode === "told") shut();
+  });
+  // and focus cannot wander onto the board behind it
+  document.addEventListener("focusin", e => {
+    if (mode === "shut" || veil.contains(e.target)) return;
+    (mode === "work" ? work : box).focus({ preventScroll: true });
+  });
+  return {
+    see(update, held){
+      if (mode !== "shut" || held || !update || typeof update !== "object") return;
+      if (update.running){ startWork(); watch(); return; }
+      if (typeof update.offer === "string" && !putAway.has(update.offer)) ask(update);
+    },
+    mode: () => mode,
+    root: veil,
+  };
+}

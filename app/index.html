@@ -4152,6 +4152,11 @@
         <small class="sethelp">We collect basic usage counts and daily token counts to gauge the product's retention rate and its effect on token use. Personal data such as the contents of a card or project names is <em>never</em> collected.</small></label>
       <input type="checkbox" role="switch" id="setusage" checked>
     </div>
+    <div class="setrow">
+      <label class="setlabel" for="setupdates"><span>Check for updates</span>
+        <small class="sethelp">When the board starts and once a day, it looks on GitHub for a newer version of Facilitator and asks before updating.</small></label>
+      <input type="checkbox" role="switch" id="setupdates" checked>
+    </div>
   </div>
   <div data-section="bin" data-label="Bin">
     <p class="setnote binnote">Deleted cards stay here for 30 days, then they are deleted for good.</p>
@@ -12706,6 +12711,11 @@ async function poll(){
   try { onboardingWatch(state); } catch (e) {
     if (typeof reportProblem === "function") reportProblem("error", e);
   }
+  // and whether the update's pop-up, or its progress, goes up, on its own try
+  // for the same reason
+  try { updateWatch(state); } catch (e) {
+    if (typeof reportProblem === "function") reportProblem("error", e);
+  }
   if (seq <= createSeq) return;   // asked before the last new card's answer came in (newCard)
   noteDoing("render");
   try {
@@ -13756,6 +13766,27 @@ function setEditMode(on){
   }
 }
 
+// ---- the update ------------------------------------------------------------
+// the pop-up that asks whether to update and the progress view after a yes
+// (updateView in card-logic.js), put up by the board's readings: update.offer
+// while a newer version waits for a yes, update.running while an update runs,
+// started here or in another window. nothing goes up while the onboarding
+// covers the board
+const updates = updateView(document.body, {
+  ask: () => fetch("/update", { cache: "no-store", signal: AbortSignal.timeout(2000) })
+    .then(r => (r.ok ? r.json() : null)).catch(() => null),
+  // a 409 is an update another window started: this one shows it too
+  start: () => fetch("/update", { method: "POST" })
+    .then(r => r.json().then(answer => ({ ...answer, ok: r.ok || r.status === 409 })))
+    .then(answer => (answer.ok ? answer : { ok: false, error: "The board could not start the update." }))
+    .catch(() => null),
+  later: () => fetch("/update/later", { method: "POST" }).catch(() => {}),
+  reload: () => location.reload(),
+});
+function updateWatch(state){
+  updates.see(state.update, !!state.onboarding || !!onboard.frame);
+}
+
 // ---- settings --------------------------------------------------------------
 // the board's own choices for this browser, on one page over the whole window,
 // opened by the mark on the bar. the page itself is the shared one in
@@ -13771,6 +13802,10 @@ function setEditMode(on){
   // phone's drawer show the same choice
   const usage = document.getElementById("setusage");
   const sharing = () => settingsStore.getItem("usagecounts") !== "0";
+  // whether the board looks for updates and asks about them (the update in
+  // server.py): the board's updatecheck setting, on unless it says "0"
+  const updateCheck = document.getElementById("setupdates");
+  const checking = () => settingsStore.getItem("updatecheck") !== "0";
   // the order of the cards waiting on the reader: the board's waitnewest
   // setting, "1" for newest first and absent for oldest first. the switch is on
   // for newest first, and the line under the name says which is chosen
@@ -13898,6 +13933,7 @@ function setEditMode(on){
       btn.setAttribute("aria-expanded", "true");
       format.checked = ComposeFormat.enabled();
       usage.checked = sharing();
+      updateCheck.checked = checking();
       showWait();
       readProfile();
       readBin();
@@ -13915,6 +13951,11 @@ function setEditMode(on){
   usage.addEventListener("change", () => {
     if (usage.checked) settingsStore.removeItem("usagecounts");
     else settingsStore.setItem("usagecounts", "0");
+  });
+  updateCheck.checked = checking();
+  updateCheck.addEventListener("change", () => {
+    if (updateCheck.checked) settingsStore.removeItem("updatecheck");
+    else settingsStore.setItem("updatecheck", "0");
   });
   showWait();
   wait.addEventListener("change", () => {

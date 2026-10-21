@@ -14,6 +14,7 @@ What leaves the Mac, exactly:
 - Taking the yes back, by clearing the email in Settings, Profile, sends nothing more, and the Mac forgets your email and answers; what PostHog already holds stays there. A later yes sends them all again.
 - With the switch off nothing leaves, the profile included, except a message you write in the feedback box and send.
 - Without the yes, the profile never leaves the Mac, except the first word of your name, which an agent on one of your own servers is given when it joins (see [Agents on your own servers](servers.md)).
+- When the board starts and once a day, while "Check for updates" in Settings, Improvements, is on and only on a folder that can update: one request to GitHub for the app's page on main, read only as far as its version number. Nothing is sent with it, no id and no token. A folder on another branch, or with changes of its own, never makes it.
 - A message from the feedback box in Settings, Improvements: the one thing sent with words. Only when you press send and let the three seconds to cancel pass (text only, at most 5000 characters), as one "feedback sent" event under the install id with your name and email attached to it. It goes whether or not the switch is on, because sending feedback is its own choice, and its words are never written to a log.
 
 ## Who can reach the board
