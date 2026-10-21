@@ -8695,9 +8695,10 @@ function magicView(el, hooks = {}){
   // was laid out at, and hooks.pageHeight(width) answers with a height already
   // known for the page at a width, which the box takes at once (view.want)
   const PAGE_WAIT = 1000;
-  // hooks.tall: the page says its height and the box stays its own size: the
-  // page is laid out that tall, --mb-page on the body (the phone's sheet), and
-  // the box scrolls it as it scrolls words. a page whose height follows its
+  // hooks.tall: the page says its height, the box takes it as it takes words'
+  // (view.want) up to its own most, and the page is laid out that tall,
+  // --mb-page on the body (the phone's sheet), so the box scrolls a taller one
+  // as it scrolls words. a page whose height follows its
   // frame's (a full height in it) would grow for ever: once it has said three
   // heights in a row each the same way past the frame, the frame stays put
   const pageTall = run => {
@@ -8781,7 +8782,8 @@ function magicView(el, hooks = {}){
     } };
   };
   // what the box shows asks for (MagicBox's want), or nothing for a site, or a
-  // page that has not said its height (hooks.sized), which take the whole room. room: the largest box there is room for,
+  // page that has not said its height (hooks.sized, and hooks.tall on the
+  // phone), which take the whole room. room: the largest box there is room for,
   // which a page lays the words out at. scale: screen pixels to the page's own,
   // the board's stage scale. a picture asks for its own size, as many of the
   // page's pixels as it has pixels on screen, so it is never drawn past its
@@ -8809,7 +8811,7 @@ function magicView(el, hooks = {}){
     // or whose height at that width is already known
     if (kind === "html"){
       const run = view.page;
-      if (!hooks.sized || !run) return null;
+      if (!(hooks.sized || hooks.tall) || !run) return null;
       if (!run.height && hooks.pageHeight) run.height = hooks.pageHeight(room.width - edges) || 0;
       return run.height ? { height: run.height + edges + head } : null;
     }
@@ -8831,12 +8833,13 @@ function magicView(el, hooks = {}){
   };
   // the box expanded over the board by its green button, or back at its own
   // size: where it then stands is each page's to say. the button's mark and
-  // words turn with it. an agent's page the board sizes the box to
-  // (hooks.sized) is laid out wider while the box is expanded and says its
-  // height at that width: the height it had said at the box's own width is
-  // kept, and is the box's again as it comes back, until the page says another.
-  // a picture zoomed in it goes back to its fit, carried there as the box
-  // shrinks, and expanded again it opens fitted
+  // words turn with it. an agent's page the box is sized to (hooks.sized, and
+  // hooks.tall on the phone) is laid out wider while the box is expanded and
+  // says its height at that width: the height it had said at the box's own
+  // width is kept, and is the box's again as it comes back, until the page
+  // says another; on the phone the height it was laid out at (--mb-page) comes
+  // back with it. a picture zoomed in it goes back to its fit, carried there
+  // as the box shrinks, and expanded again it opens fitted
   view.big = false;
   view.expand = on => {
     on = !!on;
@@ -8849,9 +8852,14 @@ function magicView(el, hooks = {}){
       grow.setAttribute("aria-label", on ? "Reduce the magic box" : "Expand the magic box");
     }
     const run = view.page;
-    if (!hooks.sized || !run) return;
-    if (on) run.small = run.height;
-    else if (run.small) run.height = run.small;
+    if (!(hooks.sized || hooks.tall) || !run) return;
+    if (on){
+      run.small = run.height;
+      if (hooks.tall) run.laid = view.body.style.getPropertyValue("--mb-page");
+    } else if (run.small){
+      run.height = run.small;
+      if (hooks.tall && run.laid) view.body.style.setProperty("--mb-page", run.laid);
+    }
   };
   // a picture in the words shown alone (img), edge to edge in the body as an
   // image box shows its own (.mbimg), where it zooms the same way; the words

@@ -1297,6 +1297,13 @@
   #mbface .mbbody[data-kind="html"] > .mbcover{display:none}
   #tickets.boxface > #tikhead, #tickets.boxface > #tiklist{display:none}
   #tickets.boxface > #mbface{display:flex; flex:none; align-self:center}
+  /* a page in the box stays laid out at the box's width, unseen and taking no
+     touch, while the drawer wears the list's face, laid over the drawer's top
+     as the swap lays it (below). put away, it would be laid out at no width
+     at all and say its height for that, and the box, which takes the page's
+     own height, would come out at that size and change it on its way */
+  #tickets:not(.boxface, .swapface) > #mbface:has(> .mbbody[data-kind="html"]){display:flex; flex:none; position:absolute;
+    top:0; left:0; right:0; margin:0 auto; visibility:hidden}
   /* while the drawer changes face (drawerSwapFace) both faces are on show and
      each is moved on its own: the list in its place, and the box laid over it
      from the drawer's top, centred, where it hangs when it is out alone */
