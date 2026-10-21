@@ -634,11 +634,11 @@
      the board. the board's face and shadow live only in index.html's inline
      style, so they are copied here rule for rule under the names they have
      there: the card's white face and edge line, corners twice the card's 7px,
-     and a white bar at its top with no line under it. it is drawn at full
-     strength in the shadow a box wears while it is held (.held there), the
-     card's own: nothing here can hold the box, and the faint look a box wears
-     beside the card being worked in, its lighter shadow at 60%, would only
-     wash the photo out.
+     and a white bar at its top with the card bar's line under it. it is
+     drawn at full strength in the shadow a box wears while it is held (.held
+     there), the card's own: nothing here can hold the box, and the faint look
+     a box wears beside the card being worked in, its lighter shadow at 60%,
+     would only wash the photo out.
      left out: the bar's two buttons (nothing here expands or closes the
      box), the rise (a box already open on a card is simply there when the
      card is shown), the lines to the card, the expanded box and its shade,
@@ -648,7 +648,11 @@
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1}
   #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
     box-shadow:var(--shade-raised); opacity:1}
-  #magicbox .mbbar{background:var(--card)}
+  /* the line under its bar is the card bar's own (.topbar, above): an inset
+     shadow of the edge's drawn width in --line along the bar's foot, inside
+     the bar, so it takes nothing from the bar's height and never lies over
+     the photo. the sheet's line, which hangs under the bar, stays off */
+  #magicbox .mbbar{background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
   #magicbox .mbbar::after{display:none}
   #magicbox .mbbody{overflow:hidden}
   /* a click on the photo opens nothing here, so it keeps the plain pointer */
