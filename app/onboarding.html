@@ -634,18 +634,20 @@
      the board. the board's face and shadow live only in index.html's inline
      style, so they are copied here rule for rule under the names they have
      there: the card's white face and edge line, corners twice the card's 7px,
-     and the faint shadow at 60% a box wears while its card is the one worked
-     in, with a white bar at its top and no line under it. left out: the bar's
-     two buttons (nothing here expands or closes the box), the held look and
-     the rise (nothing here is worked in, and a box already open on a card is
-     simply there when the card is shown), the lines to the card, the expanded
-     box and its shade, the lowered card, home and edit mode */
-  body.focus{--shade-lighter:0 3px 14px rgba(60,45,20,.10), 0 1px 2px rgba(60,45,20,.06);
-    --shade-unselected:.6}
+     and a white bar at its top with no line under it. it is drawn at full
+     strength in the shadow a box wears while it is held (.held there), the
+     card's own: nothing here can hold the box, and the faint look a box wears
+     beside the card being worked in, its lighter shadow at 60%, would only
+     wash the photo out.
+     left out: the bar's two buttons (nothing here expands or closes the
+     box), the rise (a box already open on a card is simply there when the
+     card is shown), the lines to the card, the expanded box and its shade,
+     the lowered card, home and edit mode */
+  body.focus{--shade-raised:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
   #magicbox{display:none}
   body.focus #magicbox.on{display:flex; position:fixed; z-index:1}
   #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
-    box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}
+    box-shadow:var(--shade-raised); opacity:1}
   #magicbox .mbbar{background:var(--card)}
   #magicbox .mbbar::after{display:none}
   #magicbox .mbbody{overflow:hidden}

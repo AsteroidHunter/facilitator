@@ -695,16 +695,18 @@ test("101: Phone App holds his words with the photo of the phone app in the boar
   assert.ok(ONBOARDING.includes("const on = cards[at].spec.id === PHOTO_ON;\n    BOX.el.classList.toggle(\"on\", on);"));
   assert.ok(ONBOARDING.includes("    paintTickets();\n    // the photo's box beside its card, and nowhere else\n    placeBox();"));
   assert.ok(ONBOARDING.includes('addEventListener("resize", placeBox);'));
-  // its face and shadow are the board's own rules, the faint look of a box beside the card being worked in
+  // its face is the board's own, at full strength in the shadow of a box the board holds (.held), since nothing here
+  // can hold it and the faint look of a box beside the card being worked in would wash the photo out
   const rule = (sheet, start) => { const at = sheet.indexOf(start); assert.ok(at >= 0, start); return sheet.slice(at, sheet.indexOf("}", at) + 1); };
   for (const start of ["  #magicbox .mbbar{", "  #magicbox .mbbar::after{"])
     assert.equal(rule(ONBOARDING, start), rule(MAC, start));
   assert.ok(ONBOARDING.includes("#magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);\n" +
-    "    box-shadow:var(--shade-lighter); opacity:var(--shade-unselected)}"));
-  assert.ok(MAC.includes(":is(#magicbox, #pipebox){background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);\n" +
-    "    box-shadow:var(--shade-lighter); opacity:var(--shade-unselected);"));
+    "    box-shadow:var(--shade-raised); opacity:1}"));
+  assert.ok(MAC.includes(":is(#magicbox, #pipebox){background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);\n"));
+  assert.ok(MAC.includes(":is(#magicbox, #pipebox).held{box-shadow:var(--shade-raised); opacity:1}"));
   const token = (sheet, name) => new RegExp(`${name}:([^;}]+)`).exec(sheet)[1].trim();
-  for (const name of ["--shade-lighter", "--shade-unselected"]) assert.equal(token(ONBOARDING, name), token(MAC, name), name);
+  assert.equal(token(ONBOARDING, "--shade-raised"), token(MAC, "--shade-raised"));
+  assert.doesNotMatch(ONBOARDING, /--shade-lighter|--shade-unselected/, "the box wears the faint look");
   // a plain lossy WebP, RIFF and one VP8 chunk with nothing after it, so it holds no Exif, XMP or ICC chunk
   const picture = fs.readFileSync(path.join(ROOT, "assets", "phone_app_on_stand.webp"));
   assert.equal(picture.toString("latin1", 0, 4) + picture.toString("latin1", 8, 16), "RIFFWEBPVP8 ");
