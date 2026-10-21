@@ -581,6 +581,10 @@ Endpoints:
                                folder or anything else, is never touched.
                                Answers {ok, path, made}; a 409 when something
                                that is not a folder holds the name. Local only
+  GET  /assets/phone_app_on_stand.webp
+                            -> the onboarding's picture of the phone app, the
+                               first line of its 101: Phone App card. Local
+                               only, like the page that shows it
   The five quick note routes below are OFF in this version
   (QUICK_NOTES_ON is False): each answers 404, the same as an unknown route,
   and /state carries no quicknotes. The notes already stored in state.json
@@ -10090,6 +10094,9 @@ ROUTES = [
     Route("/profile", _endpoint(_post_profile, "text", PROFILE_BODY_MAX), methods=["POST"]),
     Route("/onboarding", _endpoint(_get_onboarding), methods=["GET"]),
     Route("/onboarding/sample", _endpoint(_post_onboarding_sample, "text"), methods=["POST"]),
+    # the onboarding's picture of the phone app, a plain file under assets/
+    # with the no-store every answer carries, as the squid it opens with
+    Route("/assets/phone_app_on_stand.webp", _static("assets/phone_app_on_stand.webp", "image/webp"), methods=["GET"]),
     *([
         Route("/quicknotes", _endpoint(_get_quicknotes), methods=["GET"]),
         Route("/quicknote/new", _state_endpoint(_post_quicknote_new, "raw", MAX_TEXT_BODY, "note too large"), methods=["POST"]),

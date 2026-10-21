@@ -68,14 +68,14 @@ FILE_ROUTES = ("/uploads/", "/laneimg/")
 PAGE_OPENS = frozenset({"/m", "/"})
 # answered only to a page on the Mac itself, never through this gate, signed in
 # or not: the Spotify sign-in, the explicit browser-window launcher, the yes to
-# feedback mail, the onboarding with the sample project it makes, filling,
+# feedback mail, the onboarding, its picture and its sample project, filling,
 # reading back and reopening the cards' magic boxes, which only agents on the
 # Mac do, and the Bin, which only the Mac board has. A signed-in phone reads what a box holds and its picture, and closes
 # it, as the board does: those three routes pass. The profile is not here: a
 # signed-in phone reads it, and its route refuses a write that did not come from
 # the Mac
 LOCAL_ONLY = frozenset({"/spotify/session", "/open-in-browser", "/usage/email",
-                        "/onboarding", "/onboarding/sample",
+                        "/onboarding", "/onboarding/sample", "/assets/phone_app_on_stand.webp",
                         "/magic", "/magic/reopen", "/bin", "/bin/restore"})
 
 

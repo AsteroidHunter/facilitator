@@ -635,10 +635,10 @@
     width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t)}
   .reply .obcross::before{transform:translate(-50%,-50%) rotate(45deg)}
   .reply .obcross::after{transform:translate(-50%,-50%) rotate(-45deg)}
-  /* the phone app picture's slot (PHONE_IMAGE): the card's width at 16 to 9,
-     as the card's pictures (.shot) have their corners */
-  .reply .obpic{display:block; width:100%; aspect-ratio:16 / 9; border-radius:6px; background:rgba(0,0,0,.06)}
-  .reply img.obpic{object-fit:cover}
+  /* the phone app picture (PHONE_IMAGE): the card's width at the picture's
+     own shape, 854 by 949, so none of it is cut, with the corners the card's
+     pictures (.shot) have. grey until the picture has loaded */
+  .reply .obpic{display:block; width:100%; aspect-ratio:854 / 949; border-radius:6px; background:rgba(0,0,0,.06)}
   /* the three stars on the last card, a divider centred in the card's words */
   .reply .obstars{display:block; text-align:center; word-spacing:.6em}
 
@@ -1079,11 +1079,11 @@ for (const pane of document.querySelectorAll(".tikpane")){
   const CLIP_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>';
   const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const MOON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
-  // THE SLOT FOR THE PHONE APP PICTURE (the 101: Phone App card's first line).
-  // for now a plain grey box at the size a picture takes there, the card's width
-  // at 16 to 9. to swap in the picture, make this one line the picture's <img
-  // class="obpic" src="..." alt="...">: .obpic keeps its size and corners
-  const PHONE_IMAGE = '<span class="obpic" aria-hidden="true"></span>';
+  // THE PHONE APP PICTURE (the 101: Phone App card's first line): the phone app
+  // on a phone on its stand (assets/phone_app_on_stand.webp, 854 by 949, served
+  // by server.py), at the card's width in its own shape (.obpic)
+  const PHONE_IMAGE = '<img class="obpic" src="/assets/phone_app_on_stand.webp" ' +
+    'alt="The Facilitator phone app open on a phone on a stand, a keyboard in front of it">';
   // each mark of MARK as it is drawn in a card's words; the cross has no
   // picture of its own on the board, its bars are drawn by the sheet (.obcross)
   const MARKS = {

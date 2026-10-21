@@ -118,6 +118,12 @@ test("a board with no profile puts the onboarding up, and the profile it saves o
   const version = /id="npversion">(v[0-9.]+)</.exec(MAC)[1];
   assert.ok(page.text.includes(`<meta name="facilitator-version" content="${version}">`));
   assert.equal((await board.call("GET", "/")).headers["x-frame-options"], "DENY", "the board itself became frameable");
+  // the picture on 101: Phone App is the file in assets/, served as WebP, and like the page never through the phone's port
+  const picture = await fetch(board.origin + "/assets/phone_app_on_stand.webp");
+  assert.equal(picture.status, 200);
+  assert.equal(picture.headers.get("content-type"), "image/webp");
+  assert.deepEqual(Buffer.from(await picture.arrayBuffer()), fs.readFileSync(path.join(ROOT, "assets", "phone_app_on_stand.webp")));
+  assert.equal((await fetch(`http://127.0.0.1:${board.port + 1}/assets/phone_app_on_stand.webp`)).status, 404);
 
   // the run's first move: the sample project, then its tab as "Open a new folder" makes one
   const made = json(await board.call("POST", "/onboarding/sample", ""));
@@ -634,7 +640,7 @@ test("the cards say what they were given to say, with the board's own marks, on 
   assert.ok(ONBOARDING.includes('list.add("obticketsprep");\n      requestAnimationFrame(() => requestAnimationFrame(() => {'));
 });
 
-test("101: Phone App holds his words and a stub picture slot, and You are all set up, the last card, ends the run in the words it was given", () => {
+test("101: Phone App holds his words and the photo of the phone app, and You are all set up, the last card, ends the run in the words it was given", () => {
   const context = vm.createContext({});
   vm.runInContext(grab("  const key = name =>", "  // the timings.") +
     "\nObject.assign(this, { CARDS, FINISH, PHONE_APP, NEXT, NEXT_PHONE, MARK });", context);
@@ -662,11 +668,20 @@ test("101: Phone App holds his words and a stub picture slot, and You are all se
   // the code block's copy button is wired as the phone page wires it, and a press keeps the focus where it was
   assert.ok(ONBOARDING.includes("if (button) CardMarkdown.copyCodeBlock(button);"));
   assert.ok(ONBOARDING.includes('sections.addEventListener("mousedown", e => { if (e.target.closest?.(".copybtn")) e.preventDefault(); });'));
-  // the picture's slot: one marked line to swap, a plain box until then
-  assert.ok(ONBOARDING.includes("THE SLOT FOR THE PHONE APP PICTURE"), "the slot is not marked");
-  assert.ok(ONBOARDING.includes(`const PHONE_IMAGE = '<span class="obpic" aria-hidden="true"></span>';`));
+  // the picture: the photo of the phone app on its stand, with words for a screen reader
+  assert.ok(ONBOARDING.includes(`const PHONE_IMAGE = '<img class="obpic" src="/assets/phone_app_on_stand.webp" ' +\n` +
+    `    'alt="The Facilitator phone app open on a phone on a stand, a keyboard in front of it">';`));
   assert.ok(ONBOARDING.includes("[MARK.picture]: PHONE_IMAGE,"));
-  assert.match(ONBOARDING, /\.reply \.obpic\{display:block; width:100%; aspect-ratio:16 \/ 9;/);
+  // a plain lossy WebP, RIFF and one VP8 chunk with nothing after it, so it holds no Exif, XMP or ICC chunk
+  const picture = fs.readFileSync(path.join(ROOT, "assets", "phone_app_on_stand.webp"));
+  assert.equal(picture.toString("latin1", 0, 4) + picture.toString("latin1", 8, 16), "RIFFWEBPVP8 ");
+  const size = picture.readUInt32LE(16);
+  assert.equal(20 + size + (size & 1), picture.length, "the file holds a chunk besides the picture");
+  const shape = [picture.readUInt16LE(26) & 0x3fff, picture.readUInt16LE(28) & 0x3fff];
+  assert.deepEqual(shape, [854, 949]);
+  // its slot is the card's width in the file's own shape, so none of it is cut
+  assert.ok(ONBOARDING.includes(`.reply .obpic{display:block; width:100%; aspect-ratio:${shape[0]} / ${shape[1]};`));
+  assert.doesNotMatch(ONBOARDING, /object-fit/, "the picture is fitted to a slot of another shape");
   assert.ok(ONBOARDING.includes("html.replace(/[\\uE001-\\uE006]/g, c => MARKS[c])"));
   assert.equal(NEXT, "Press **control\u00a0+\u00a0shift\u00a0+\u00a0→** to continue!");
   // the last card, in his paragraphs, three stars centred as a divider, and the done key written the way the cards write a key
