@@ -44,7 +44,7 @@ test("the house, magnifier, speaker and squid are glass circles, and the pill a 
   assert.equal(decl(circles, "width"), "32px"); assert.equal(decl(circles, "height"), "32px");
   for (const id of ["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"])
     assert.match(html, new RegExp(`<button id="${id}" class="qn-glass"`), id + " is not glass");
-  const pill = rules("body.focus #projpill, body.focus #npstart.qn-glass");
+  const pill = rules("body.focus #projpill");
   assert.equal(decl(pill, "height"), "32px");
   assert.equal(decl(pill, "border-radius"), "16px", "half its height: a capsule");
   // the lens and its joint are gone with the row of names

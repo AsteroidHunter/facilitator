@@ -3317,9 +3317,8 @@
      glass's own. the pill's list wears the same: with the glass's full stack
      the white first row covered the ring's top row and the dark band drew a
      second line a pixel inside it, so its top edge looked like a second
-     rectangle standing behind the list (20261010). home's folder button
-     (#npstart, which has .qn-glass while home is up) wears it too */
-  body.focus :is(.bar .qn-glass, #projmenu), body.focus.home :is(#nppanel, #npstart).qn-glass{
+     rectangle standing behind the list (20261010) */
+  body.focus :is(.bar .qn-glass, #projmenu){
     box-shadow:
       inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
       inset 0 0 0 1px var(--qn-ring),
@@ -3354,16 +3353,14 @@
      script). it rises over .3s and falls back over .5s, both eased. keep the
      circles' ID specificity here, or their idle .5s transition wins during
      the press too and a quick click barely grows before it lets go */
-  body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
     transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
   /* the pill takes that press with the same few pixels of growth: a scale of
      1.06 is 2px on a 32px circle but 4.5px to 15px of width on a pill as wide
      as its name, which read as a bigger bounce. glassPress sets --press-x, the
      scale across that gives the pill's width the circles' 1.92px, and the
-     height grows by the same 1.92px at 1.06, as theirs does. home's folder
-     button takes the same few pixels across (only while it has the glass: the
-     script presses it then) */
-  body.focus :is(#projpill, #npstart).pressed{transform:scale(var(--press-x, 1.06), 1.06)}
+     height grows by the same 1.92px at 1.06, as theirs does */
+  body.focus #projpill.pressed{transform:scale(var(--press-x, 1.06), 1.06)}
   /* Home stays pressed while the home page is up: the press's whiter face and
      brighter edge, held, with the house in the full ink */
   body.focus.home #homeico{color:var(--ink); --qn-tint:.95; --qn-edge:3}
@@ -3378,13 +3375,11 @@
      bold self, so a reply landing moves nothing. a long name is cut short
      with an ellipsis. a project's own window has no list, so its pill opens
      nothing */
-  body.focus #projpill, body.focus #npstart.qn-glass{flex:none; position:relative; box-sizing:border-box; height:32px; max-width:260px;
+  body.focus #projpill{flex:none; position:relative; box-sizing:border-box; height:32px; max-width:260px;
     margin:0; padding:0 14px; border-radius:16px;
     display:flex; align-items:center;
     font:400 14px/17px var(--sans); color:var(--ink); cursor:pointer; -webkit-user-select:none; user-select:none;
     transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
-  /* home's folder button is this pill with its own gap above, from the list */
-  body.focus #npstart.qn-glass{margin:18px 0 0}
   body.focus #projpill[hidden]{display:none}
   /* on the home page the pill names the project the reader came from, the
      house at the bar's left saying where they are, and a small down chevron
@@ -3622,8 +3617,7 @@
   #nphome{display:flex; flex-direction:column; align-items:center;
     width:min(30rem, 88vw); pointer-events:auto}
   /* on the new tab the landing's three pieces arrive one beat apart on a soft
-     rise; on home they take the page's plain fade instead (see homefade below).
-     the reduced-motion rule above stills them all */
+     rise. the reduced-motion rule above stills them all */
   @keyframes npmelt{from{opacity:0; transform:translateY(6px)}}
   #npbrand, #nppanel, #npstart{animation:npmelt .2s cubic-bezier(.2,.7,.3,1) both}
   #nppanel{animation-delay:.05s}
@@ -3646,8 +3640,7 @@
     font:500 10px/1.1 var(--inter); letter-spacing:.035em;
     color:var(--sub); opacity:.5; white-space:nowrap}
   /* the folders box: embedded, never floating; a white sunken well in the
-     paper, inset shadow only, no outer shadow, corners near square. home
-     dresses it in glass instead (below) */
+     paper, inset shadow only, no outer shadow, corners near square */
   #nppanel{width:100%; margin:20px 0 0; padding:6px;
     border:none; min-height:330px}
   body:not(.home) #nppanel{background:#FFFFFF; border-radius:4px;
@@ -3673,8 +3666,7 @@
      card's corner radius, a thin border in the line colour and the board's ink.
      the border's drawn width is taken out of the padding so the button keeps its
      outer size. hovering or pressing fills it with the fill a project row takes
-     under the pointer. that is the new tab's button: on home it is the project
-     pill's glass pill instead (the bar's glass, above), and takes none of this */
+     under the pointer */
   #npstart{margin:18px 0 0; cursor:pointer}
   body:not(.home) #npstart{font:500 14px var(--inter); color:var(--ink);
     background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
@@ -3722,42 +3714,65 @@
   textarea.dropping, .cffield .cm-scroller.dropping{border-color:var(--accent) !important}
   body.focus .box.sel :is(textarea, .cffield .cm-scroller).dropping{background:var(--accent-soft)}
   /* home: the house at the head of the bar opens the home page, a blank page
-     above every project holding the token panel and nothing else (its own
-     sheet, home-widgets.css). the house is a glass circle at the bar's left
-     end (the bar's glass). while home is up the house stays pressed, in the
-     full ink, the board fades out the way a blank page's does, and choosing
-     any project brings its board back */
+     above every project holding the board's logo, the token panel and the
+     limits box (their own sheet, home-widgets.css) and the list of projects.
+     the house is a glass circle at the bar's left end (the bar's glass). while
+     home is up the house stays pressed, in the full ink, the board fades out
+     the way a blank page's does, and choosing any project brings its board back */
   #homeico{display:none}
-  /* the right half of the page's frame (the rectangle drawn under the bar, inset
-     --app-inset on each side) holds the token box and the limits box as one
-     unit. #homepair is a column as tall as the frame and 35% of its width,
-     centred on the right half's own vertical line, with its two boxes stacked
-     in the middle of its height and --home-gap between them (twice
-     the board's medium gap, --sp-m). the limits box is directly under the
-     token box and as wide, so both share the line, and the pair is centred in
-     the frame however tall the limits box is, following the window. the token
-     box keeps its 35% of the frame's height and gives up height only when the
-     pair would not otherwise fit; the limits box is only as tall as its rows. the
-     column takes no clicks, only the two boxes do. the panel fills the token box and its
-     charts are drawn to the height left for them, scrolling sideways inside
-     it (home-widgets.css) */
+  /* the page's frame (the rectangle drawn under the bar, inset --app-inset on
+     each side) is split in two with nothing drawn between the parts: the list
+     of projects in the narrow part at the right, --home-split of the frame
+     wide (a third), and the logo over the two charts in the wide part at the
+     left. the sizes in both parts are set by homeFit in the script, from the
+     window: each is the owner's own at his full-screen window times the share
+     of it this window is, so the page keeps its look as the window changes.
+     the values here stand until the script has measured. the parts take no
+     clicks; only what stands in them does */
+  #homeside, #homelist{display:none}
+  body.focus.home :is(#homeside, #homelist){display:flex; position:fixed; z-index:5; pointer-events:none;
+    top:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn)); bottom:var(--app-inset)}
+  body.focus.home #homeside{left:var(--app-inset);
+    right:calc(var(--app-inset) + (100vw - 2 * var(--app-inset)) * var(--home-split, .33333));
+    align-items:center; justify-content:center}
+  /* the wide part: one column, the logo cluster, then the token box, then the
+     limits box --home-gap under it. it is laid out at --home-w wide, the token
+     box --home-chart-h tall, and scaled by --home-t about its middle, so the
+     charts' words grow and shrink with the rest; --home-x and --home-y set what
+     it shows (not its boxes' clear edges) on the part's middle both ways. the
+     limits box is only as tall as its rows */
   #homepair{display:none}
-  body.focus.home #homepair{display:flex; flex-direction:column; justify-content:center;
-    position:fixed; z-index:5; pointer-events:none;
-    --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
-    --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
-    --home-b:calc(100vh - var(--app-inset));
+  body.focus.home #homepair{display:flex; flex-direction:column; flex:none; position:relative; pointer-events:none;
     --home-gap:calc(var(--sp-m) * 2);
-    --home-w:calc((var(--home-r) - var(--home-l)) * .35);
-    left:calc(var(--home-l) * .25 + var(--home-r) * .75 - var(--home-w) / 2);
-    top:var(--home-t); width:var(--home-w); height:calc(var(--home-b) - var(--home-t));
-    gap:var(--home-gap)}
+    width:var(--home-w, calc((100vw - 2 * var(--app-inset)) * .35));
+    transform:translate(var(--home-x, 0px), var(--home-y, 0px)) scale(var(--home-t, 1)); transform-origin:50% 50%}
+  /* the phone's logo cluster (#homebrand in m.html) at --home-logo times the
+     phone's own size: the mark left of the word, the version under it. its top
+     margin takes the line's spare room above the word, so the ink is what
+     stands centred, and --home-logo-gap stands under it */
+  #homebrand{flex:none; display:flex; align-items:center; justify-content:center; gap:calc(5px * var(--home-logo, 1));
+    margin:calc(-4px * var(--home-logo, 1)) 0 var(--home-logo-gap, 16px); padding-bottom:calc(11px * var(--home-logo, 1));
+    font:700 calc(36px * var(--home-logo, 1))/1.1 var(--inter); letter-spacing:-.02em; color:var(--ink); white-space:nowrap}
+  #homemark{flex:none; display:block; width:calc(37px * var(--home-logo, 1)); height:calc(29px * var(--home-logo, 1)); object-fit:contain}
+  #homebrandcopy{position:relative; display:inline-block}
+  #homebrandname{display:block}
+  #homeversion{position:absolute; top:calc(100% - 1px * var(--home-logo, 1)); left:calc(1px * var(--home-logo, 1));
+    font:500 calc(10px * var(--home-logo, 1))/1.1 var(--inter); letter-spacing:.035em; color:var(--sub); opacity:.5; white-space:nowrap}
   #home{display:none}
-  body.focus.home #home{display:block; flex:0 1 calc((var(--home-b) - var(--home-t)) * .35);
-    min-height:0; pointer-events:auto}
+  body.focus.home #home{display:block; flex:none; height:var(--home-chart-h, calc((100vh - var(--bar-h)) * .35));
+    pointer-events:auto}
   body.focus.home #homeplot{height:100%; --tk-panel-h:100%}
+  /* the heading is one line that ends in dots if it ever has too little room
+     (home-widgets.css means it to, but there the name is an inline span, which
+     overflow does not clip, so it ran under the switch); homeFit keeps the
+     column wide enough that it never comes to that */
+  body.focus.home #home .tk-name{display:block}
+  /* and as homeFit gives the heading's line its room, the panels' narrower
+     steps for a phone's width (home-widgets.css) are not taken here: the
+     charts keep one look and only their scale changes */
+  body.focus.home :is(#home, #homelimits) .tk-panel{container-type:normal}
   #homelimits{display:none}
-  body.focus.home #homelimits:not([hidden]){display:block; position:relative; flex:none; pointer-events:auto}
+  body.focus.home #homelimits:not([hidden]){display:block; position:relative; flex:none; margin-top:var(--home-gap); pointer-events:auto}
   /* the two stand on the page with no boxes, and one line runs between them,
      drawn from the screenshot on the card (20261013): 1px in the board's line
      colour, reaching 3px past the column on each side, and 39% of the way down
@@ -3765,54 +3780,85 @@
      it goes with the limits, so no line stands under the tokens alone */
   body.focus.home #homelimits:not([hidden])::before{content:""; position:absolute; left:-3px; right:-3px;
     top:calc(var(--home-gap) * -.61); height:1px; background:var(--line); pointer-events:none}
-  /* a thin vertical line at the exact horizontal centre of the same frame, 70%
-     of its height and centred in it, so it touches neither edge. it is drawn in
-     the board's own line colour (the one under the tab names) at its hairline
-     width, takes no clicks and follows the window */
-  #homeline{display:none}
-  body.focus.home #homeline{display:block; position:fixed; z-index:5; pointer-events:none;
-    --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
-    --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
-    --home-b:calc(100vh - var(--app-inset));
-    left:calc((var(--home-l) + var(--home-r)) / 2);
-    top:calc(var(--home-t) * .85 + var(--home-b) * .15);
-    width:var(--edge-drawn); height:calc((var(--home-b) - var(--home-t)) * .7);
-    transform:translateX(-50%); background:var(--line)}
-  /* the left half of the same frame holds the new tab's own picker (#newproj,
-     one set of markup and one builder): a box as wide as the half and as tall as
-     the frame, the stack centred in it by flex both ways, so it follows the
-     window as the two boxes on the right do. the box takes no clicks, only the
-     stack does. a long list scrolls inside its well, which is capped at 56vh
-     as on the new tab and, in a window too short for that, gives up its floor
-     and shrinks, so the stack never runs under the bar or past the bottom */
-  body.focus.home #newproj{display:flex; flex-direction:column; align-items:center;
-    justify-content:center; position:fixed; z-index:5; pointer-events:none;
-    --home-l:var(--app-inset); --home-r:calc(100vw - var(--app-inset));
-    --home-t:calc(var(--app-inset) + var(--bar-h) - 1px - var(--edge-drawn));
-    --home-b:calc(100vh - var(--app-inset));
-    left:var(--home-l); top:var(--home-t);
-    width:calc((var(--home-r) - var(--home-l)) * .5);
-    height:calc(var(--home-b) - var(--home-t))}
-  body.focus.home #nphome{max-width:100%; max-height:100%; pointer-events:auto}
-  body.focus.home #nppanel{display:flex; flex-direction:column;
-    min-height:min(330px, calc(100vh - 300px))}
-  /* on home the list stands in the pill's list's own glass: the page puts
-     .qn-glass on it while home is up (the face, the lighting and the blur),
-     its shadow stack is the one the pill's list wears (the bar's glass,
-     above), and the corner is the list's 14px. the new tab keeps its white well */
-  body.focus.home #nppanel.qn-glass{border-radius:14px}
-  body.focus.home #nprows{flex:0 1 auto; min-height:0}
-  /* every row on home is a way in, so each one takes the pointer and the soft
-     fill the new tab gives a closed project's row */
-  body.focus.home .nprow{cursor:pointer; border-radius:5px}
-  body.focus.home .nprow:hover{background:var(--row-hover)}
+  /* the narrow part: the pill's list (#projmenu, above) without its box, every
+     open project in the same order under the same number, then the line and
+     "+ Open a new folder". its rows are the pill's list's rows at --home-font
+     for their 14px, every other length of theirs scaled with it: the number in
+     the monospace at 14.6 to 14, the 17 to 14 line, the 10 to 14 gap, the 34
+     to 14 of room on the right that the cross stands in. the names stand
+     --home-rows apart in the faint ink of the faint names beside the pill and
+     the numbers a shade fainter; under the pointer the name takes the full ink
+     and the number the sub ink, and a project holding a reply not yet read is
+     in the semibold, as in the pill's list. the names end --home-margin from
+     the frame's right edge, so the row's room for the cross reaches into that
+     margin, and the list is at most 70% of the part's height and centred in
+     it. the rows scroll inside #homerows with no bar, fading over 1.6 names'
+     height at an end with more past it; the line and the folder row stand
+     under it and never move. a name never ends in dots: homeFit gives it the
+     room first, and only in a window too narrow for that does it fade */
+  @property --home-fade-top{syntax:"<length>"; inherits:false; initial-value:0px}
+  @property --home-fade-bot{syntax:"<length>"; inherits:false; initial-value:0px}
+  body.focus.home #homelist{right:var(--app-inset); width:calc((100vw - 2 * var(--app-inset)) * var(--home-split, .33333));
+    flex-direction:column; justify-content:center; align-items:flex-end;
+    --home-font:calc(28px * var(--home-u, 1)); --home-rows:calc(var(--home-font) * .75);
+    --home-margin:calc(172px * var(--home-u, 1)); --home-cross:calc(var(--home-font) * 34 / 14)}
+  #homelistbox{flex:none; display:flex; flex-direction:column; min-height:0; max-height:70%; max-width:100%;
+    margin-right:calc(var(--home-margin) - var(--home-cross)); pointer-events:auto;
+    font:400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)}
+  #homerows{flex:0 1 auto; min-height:0; display:flex; flex-direction:column;
+    overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
+    -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
+    mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
+    transition:--home-fade-top .2s var(--gentle), --home-fade-bot .2s var(--gentle)}
+  #homerows::-webkit-scrollbar{display:none}
+  #homerows.more-up{--home-fade-top:calc(var(--home-font) * 1.6)}
+  #homerows.more-down{--home-fade-bot:calc(var(--home-font) * 1.6)}
+  #homelist .homerow{position:relative; flex:none; display:flex; align-items:baseline; gap:calc(var(--home-font) * 10 / 14);
+    box-sizing:border-box; width:100%; margin:0; padding:calc(var(--home-rows) / 2) var(--home-cross) calc(var(--home-rows) / 2) 0;
+    border:none; border-radius:0; background:none; font:inherit; text-align:left; white-space:nowrap; cursor:pointer;
+    color:color-mix(in srgb, var(--sub) 55%, transparent)}
+  #homelist .homerow:focus-visible{outline:none}
+  #homelist .homenum{flex:none; width:var(--pnum, 1ch); text-align:right;
+    font:400 calc(var(--home-font) * 14.6 / 14)/calc(var(--home-font) * 17 / 14) var(--mono);
+    color:color-mix(in srgb, var(--sub) 40%, transparent); font-variant-numeric:tabular-nums; transition:color .14s}
+  #homelist .homename{flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:clip; transition:color .14s}
+  #homelist .homerow:is(:hover, :focus-visible) .homename{color:var(--ink)}
+  #homelist .homerow:is(:hover, :focus-visible) .homenum{color:var(--sub)}
+  #homelist .homerow.unread .homename{font-weight:600}
+  /* only in a window too narrow for a whole name: its end fades, one name's
+     height long, rather than stopping in dots */
+  #homelist .homename.cut{-webkit-mask-image:linear-gradient(to left, transparent 0, #000 var(--home-font));
+    mask-image:linear-gradient(to left, transparent 0, #000 var(--home-font))}
+  /* the pill's list's cross, at the list's size: on the row under the pointer
+     alone, out of the row's flow so the names never move, pale on the last
+     project, which stays open */
+  #homelist .projx{position:absolute; right:calc(var(--home-font) * 4 / 14); top:50%;
+    width:calc(var(--home-font) * 24 / 14); height:calc(var(--home-font) * 24 / 14); margin-top:calc(var(--home-font) * -12 / 14);
+    border-radius:calc(var(--home-font) * 6 / 14); color:var(--sub); cursor:pointer;
+    opacity:0; visibility:hidden; transition:opacity .16s, color .18s, visibility 0s linear .16s}
+  #homelist .homerow:hover .projx{opacity:1; visibility:visible; transition:opacity .16s, color .18s, visibility 0s}
+  #homelist .projx:hover{color:var(--ink)}
+  #homelist .projx.off{cursor:default}
+  #homelist .homerow:hover .projx.off{opacity:.3}
+  #homelist .projx.off:hover{color:var(--sub)}
+  #homelist .projx::before, #homelist .projx::after{content:""; position:absolute; left:50%; top:50%;
+    width:calc(var(--home-font) * 10 / 14); height:calc(var(--home-font) * 1.4 / 14); background:currentColor; border-radius:1px}
+  #homelist .projx::before{transform:translate(-50%,-50%) rotate(45deg)}
+  #homelist .projx::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  /* a row held and carried: its name in the full ink while the others glide
+     aside on the board's one 220ms curve; carried out of the list it fades,
+     to say that letting go there opens it in a window of its own */
+  #homelistbox.carrying .homerow{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  #homelist .homerow.lifted{z-index:1; transition:none}
+  #homelist .homerow.lifted .homename{color:var(--ink)}
+  #homelist .homerow.tearing{opacity:.45}
+  #homelistsep{flex:none; height:var(--edge); margin:calc(var(--home-font) * 4 / 14) var(--home-cross) calc(var(--home-font) * 4 / 14) 0;
+    background:var(--line)}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
-  /* both halves come in together on one plain fade: the same start, length and
-     curve as the board's own dissolve, with no movement and no stagger, so the
-     landing's three pieces drop their rise here and ride on their half's fade */
+  /* both parts come in together on one plain fade: the same start, length and
+     curve as the board's own dissolve, with no movement and no stagger */
   @keyframes homefade{from{opacity:0}}
-  body.focus.home :is(#newproj, #homepair, #homeline){animation:homefade .18s ease both}
-  body.focus.home :is(#npbrand, #nppanel, #npstart){animation:none}
+  body.focus.home :is(#homeside, #homelist){animation:homefade .18s ease both}
   /* a switch from one project's board to another's crosses on the same fade:
      a still copy of the board being left (boardFadeTake) stands over the live
      stage and fades out while the live stage, already the new project's, fades
@@ -4219,17 +4265,29 @@
   </div>
 </div>
 
-<!-- the home page, opened by the house in the bar: blank but for the token
-     panel, which home-widgets.js builds from the last saved reading on load.
-     Like the landing above it stands outside the stage -->
-<div id="homepair">
-  <section id="home" aria-label="Home"><div id="homeplot"></div></section>
-  <!-- the limits box, directly under the token box and as wide: home-widgets.js
-       draws it from the last kept reading, so it opens at its finished height -->
-  <section id="homelimits" aria-label="Plan limits" hidden></section>
+<!-- the home page, opened by the house in the bar: blank but for the board's
+     logo, the token panel, which home-widgets.js builds from the last saved
+     reading on load, and the list of projects. Like the landing above it stands
+     outside the stage. The wide part: the logo cluster (its mark and version
+     are the landing's, copied in by the script), the token box, and the limits
+     box directly under it and as wide, which home-widgets.js draws from the
+     last kept reading, so it opens at its finished height -->
+<div id="homeside">
+  <div id="homepair">
+    <div id="homebrand"><img id="homemark" alt=""><span id="homebrandcopy"><span id="homebrandname">Facilitator</span><span id="homeversion"></span></span></div>
+    <section id="home" aria-label="Home"><div id="homeplot"></div></section>
+    <section id="homelimits" aria-label="Plan limits" hidden></section>
+  </div>
 </div>
-<!-- the thin line down the middle of the home page's frame, between the two halves -->
-<div id="homeline" aria-hidden="true"></div>
+<!-- the narrow part: every open project, numbered as in the pill's list, then
+     the line and the folder row; the script builds the rows -->
+<nav id="homelist" aria-label="Projects">
+  <div id="homelistbox">
+    <div id="homerows"></div>
+    <div id="homelistsep"></div>
+    <button id="homenew" class="homerow" type="button"><span class="homenum" aria-hidden="true">+</span><span class="homename">Open a new folder</span></button>
+  </div>
+</nav>
 
 <!-- The page switcher remains mounted for its page handlers, though its desktop
      UI is hidden. The menu and deletion confirmation stay with that code. -->
@@ -4725,6 +4783,7 @@ function renderTabs(st){
   const others = owners.some(ow => ow !== activeOwner && laneUnread(st, ow));
   projPill.setAttribute("aria-label", name + (others ? ", unread replies elsewhere" : "") + (LOCKED ? "" : atHome ? ", open project" : ", choose a project"));
   renderProjList(st, owners);
+  renderHomeList(st, owners);
   renderSuggestions(st);
 }
 // the list's rows: the project's number, the name, bold while it holds a reply
@@ -4767,6 +4826,59 @@ function renderProjList(st, owners){
     kill.title = alone ? "the last project stays open" : "close project";
   }
 }
+// the home page's list: the pill's list without its box, built from the same
+// projects in the same paint, so an order, a name, a close or a new project
+// shows in both at once. what a row does is what the pill's list's rows do:
+// a click opens its project, a row held and carried reorders the projects or,
+// carried out of the list, opens in a window of its own, and the cross on the
+// row under the pointer closes it. the names take the bold while a reply is
+// unread, as there
+const homeRows = document.getElementById("homerows");
+const homeListBox = document.getElementById("homelistbox");
+function renderHomeList(st, owners){
+  const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
+  if (homeRows.dataset.sig !== sig){
+    homeRows.dataset.sig = sig;
+    homeRows.textContent = "";
+    homeListBox.style.setProperty("--pnum", String(owners.length).length + "ch");
+    for (const [i, ow] of owners.entries()){
+      const row = h("button", "homerow");
+      row.type = "button";
+      row.dataset.owner = ow;
+      const num = h("span", "homenum", String(i + 1));
+      num.setAttribute("aria-hidden", "true");
+      row.appendChild(num);
+      row.appendChild(h("span", "homename", labelOf(st, ow)));
+      row.appendChild(projCloseMark(ow));
+      homeRows.appendChild(row);
+    }
+    homeFitSoon();
+  }
+  const alone = owners.length < 2;
+  for (const row of homeRows.querySelectorAll(".homerow")){
+    const unread = laneUnread(st, row.dataset.owner);
+    if (row.classList.contains("unread") !== unread){ row.classList.toggle("unread", unread); homeFitSoon(); }
+    const kill = row.querySelector(".projx");
+    kill.classList.toggle("off", alone);
+    kill.title = alone ? "the last project stays open" : "close project";
+  }
+}
+// a click on a home row opens its project, as a row of the pill's list does;
+// the release that ends a carry is not a choice. the folder row opens the
+// board's folder picker, as the pill's list's does
+homeRows.addEventListener("click", e => {
+  const row = e.target.closest?.(".homerow");
+  if (!row || projCarried) return;
+  if (row.dataset.owner) chooseProject(row.dataset.owner);
+});
+document.getElementById("homenew").addEventListener("click", () => pickFolder(homePick));
+// the list fades at an end only while there is more past it
+function homeFades(){
+  const up = homeRows.scrollTop > 1, down = homeRows.scrollTop + homeRows.clientHeight < homeRows.scrollHeight - 1;
+  if (homeRows.classList.contains("more-up") !== up) homeRows.classList.toggle("more-up", up);
+  if (homeRows.classList.contains("more-down") !== down) homeRows.classList.toggle("more-down", down);
+}
+homeRows.addEventListener("scroll", homeFades, { passive: true });
 // the faint names: every open project in one order, those holding a reply not
 // yet read first and then the rest, each group by its most recent activity,
 // the newest first. the bar shows that order without the open project, with
@@ -4917,7 +5029,9 @@ function projCloseMark(ow){
 // a row held down and dragged up or down reorders the projects, as on the
 // phone, and the order goes to the board, so the phone follows on its next
 // poll. dragged out past the list's edge it fades, and let go there it opens
-// in a window of its own, as a tab tugged down out of the bar did
+// in a window of its own, as a tab tugged down out of the bar did. the pill's
+// list and the home page's carry alike: the carry knows which list its rows
+// are in and which box it is pulled out of
 const ROW_PULL = 24;   // px past the list's edge that make a carried row a window of its own
 function endProjCarry(){
   const t = projCarry;
@@ -4925,19 +5039,19 @@ function endProjCarry(){
   projCarry = null;
   for (const el of (t.rows || [])) el.style.transform = "";
   t.el.classList.remove("lifted", "tearing");
-  projMenu.classList.remove("carrying");
+  t.box.classList.remove("carrying");
 }
 // the press has moved: the resting spots are measured once, the held row
 // lifts, and every swap reads against those fixed midpoints
 function liftRow(){
   const t = projCarry;
-  t.rows = [...projList.querySelectorAll(".projrow")];
+  t.rows = [...t.list.querySelectorAll(t.row)];
   t.idx = t.rows.indexOf(t.el);
   if (t.idx < 0){ projCarry = null; return; }   // the list rebuilt under the pointer
   t.rects = t.rows.map(el => el.getBoundingClientRect());
   t.slot = t.idx;
   for (const r of projList.querySelectorAll(".projrow.hot")) r.classList.remove("hot");
-  projMenu.classList.add("carrying");
+  t.box.classList.add("carrying");
   t.el.classList.add("lifted");
 }
 function moveRow(y){
@@ -4985,14 +5099,20 @@ function dropRow(e){
   endProjCarry();
   writeTabs({ order, closed: rec.closed });
   projList.dataset.sig = "";
+  homeRows.dataset.sig = "";
   if (lastState) renderTabs(lastState);
 }
-projList.addEventListener("mousedown", e => {
-  if (e.button !== 0 || LOCKED) return;
-  const el = e.target.closest?.(".projrow");
-  if (!el) return;
-  projCarry = { el, ow: el.dataset.owner, x: e.clientX, y: e.clientY, rects: null, out: false };
-});
+// a press on a project's row, in the pill's list or on home, may become a carry
+function carryFrom(list, box, row){
+  list.addEventListener("mousedown", e => {
+    if (e.button !== 0 || LOCKED) return;
+    const el = e.target.closest?.(row);
+    if (!el) return;
+    projCarry = { el, ow: el.dataset.owner, x: e.clientX, y: e.clientY, rects: null, out: false, list, box, row };
+  });
+}
+carryFrom(projList, projMenu, ".projrow");
+carryFrom(homeRows, homeListBox, ".homerow");
 addEventListener("mousemove", e => {
   const t = projCarry;
   if (!t) return;
@@ -5002,7 +5122,7 @@ addEventListener("mousemove", e => {
     liftRow();
     if (!projCarry) return;
   }
-  const m = projMenu.getBoundingClientRect();
+  const m = t.box.getBoundingClientRect();
   const out = e.clientX < m.left - ROW_PULL || e.clientX > m.right + ROW_PULL ||
     e.clientY < m.top - ROW_PULL || e.clientY > m.bottom + ROW_PULL;
   if (out !== t.out){ t.out = out; t.el.classList.toggle("tearing", out); }
@@ -5037,7 +5157,7 @@ function glassPress(el){
   glassPresses.push(glass);
   return glass;
 }
-for (const btn of ["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"].map(id => document.getElementById(id))){
+for (const btn of ["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"].map(id => document.getElementById(id))){
   const glass = glassPress(btn);
   btn.addEventListener("pointerdown", e => { if (e.button === 0 && btn.classList.contains("qn-glass")) glass.press(); });
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) btn.addEventListener(type, glass.release);
@@ -5097,36 +5217,36 @@ function endDraft(){
   draft = null;
   document.body.classList.remove("choosing");
 }
-// the picker's panel, on the new tab and on the home page alike: every project
-// the board holds as a row by its display name. on the new tab the open
-// projects' rows are plain information (the tab bar owns switching), but a
-// closed project's row is itself the way back: clicking it reopens that tab on
-// the spot, no folder chooser needed. on the home page nothing is seated, so no
-// row is marked, and every row is a way in: an open one shows its board, a
-// closed one reopens its tab
-function renderHome(st, onHome = !draft && homeOpen){
-  if (!st || !(onHome || (draft && draft.screen === "home"))) return;
+// the new tab's picker: every project the board holds as a row by its display
+// name, the one it came from marked. the open projects' rows are plain
+// information (the tab bar owns switching), but a closed project's row is
+// itself the way back: clicking it reopens that tab on the spot, no folder
+// chooser needed. the home page has its own list (renderHomeList)
+function renderHome(st){
+  if (!st || !(draft && draft.screen === "home")) return;
   const box = document.getElementById("nprows");
   const owners = allRowsOf(st);
-  const from = onHome ? "" : draft.from;
-  const sig = owners.map(ow => ow + labelOf(st, ow) + lanePlace(st, ow) + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + from + (onHome ? "|home" : "");
+  const from = draft.from;
+  const sig = owners.map(ow => ow + labelOf(st, ow) + lanePlace(st, ow) + (tabClosed(ow, st) ? "~" : "")).join(",") + "|" + from;
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.textContent = "";
   for (const ow of owners){
     const shut = tabClosed(ow, st);
-    const row = h("div", "nprow" + (!onHome && ow === from ? " sel" : "") + (shut ? " shut" : ""));
+    const row = h("div", "nprow" + (ow === from ? " sel" : "") + (shut ? " shut" : ""));
     row.appendChild(h("span", "npname", labelOf(st, ow)));
     row.appendChild(h("span", "nppath", lanePlace(st, ow)));
-    if (shut) row.title = "click to reopen this project";
-    if (shut || onHome) row.addEventListener("click", () => { if (shut) reopenTab(ow); else setTab(ow); });
+    if (shut){
+      row.title = "click to reopen this project";
+      row.addEventListener("click", () => reopenTab(ow));
+    }
     box.appendChild(row);
   }
 }
-// the house leaves an unfinished new tab behind, back on the tab it came from,
-// and fills the picker's rows for the home page. this runs before the home
-// block's own listener opens the page. it shuts the pill's list too, which a
-// press on the house does already but Command + 0 does not
+// the house leaves an unfinished new tab behind, back on the tab it came from.
+// this runs before the home block's own listener opens the page. it shuts the
+// pill's list too, which a press on the house does already but Command + 0
+// does not
 document.getElementById("homeico").addEventListener("click", () => {
   closeProjMenu();
   if (homeOpen) return;
@@ -5135,17 +5255,16 @@ document.getElementById("homeico").addEventListener("click", () => {
     endDraft();
     if (validActiveOwnerIds.has(back)) activeOwner = back;
   }
-  if (lastState) renderHome(lastState, true);
 });
 // the start button opens the board's own folder picker (folder-picker.js), the
 // panel with its list and column views, and the folder chosen in it then
-// creates the lane the same way the old in-page browser did. the home page
-// asks the same way and ends the same way, on the new project's own board, and
-// so does "Open a new folder" at the foot of the pill's list, from wherever it
-// is. the picker gives the focus back to where it was, or to the pill when the
-// list it was opened from has shut
+// creates the lane the same way the old in-page browser did. "+ Open a new
+// folder" at the foot of the home page's list asks the same way and ends the
+// same way, on the new project's own board, and so does the one at the foot of
+// the pill's list, from wherever it is. the picker gives the focus back to
+// where it was, or to the pill when the list it was opened from has shut
 const homePick = { picking: false }, menuPick = { picking: false };
-document.getElementById("npstart").addEventListener("click", () => pickFolder(draft || (homeOpen ? homePick : null)));
+document.getElementById("npstart").addEventListener("click", () => pickFolder(draft));
 async function pickFolder(slot){
   if (!slot || slot.picking) return;   // one picker at a time
   slot.picking = true;
@@ -5156,7 +5275,7 @@ async function pickFolder(slot){
     if (!await folderPickerBundle()){ projNote("the folder picker needs the server restart"); return; }
     if (!here()) return;
     const r = await FolderPicker.open({ kind: "panel",
-      back: slot === menuPick ? projPill : document.getElementById("npstart") });
+      back: slot === menuPick ? projPill : document.getElementById(slot === homePick ? "homenew" : "npstart") });
     if (!here()) return;   // the page was left while the picker sat open
     if (!r?.path) return;  // closed without a choice: nothing to say
     // the server names the folder and writes its path, so nothing here takes
@@ -5196,9 +5315,149 @@ async function pickFolder(slot){
   }
 }
 
+// ---- the home page's sizes ---------------------------------------------------
+// the owner set the page's look on his full-screen window, 1512 by 982 points
+// (the mock m1336 and his settings from the card "Pre-pub: Home page uplift"),
+// and every size here is his times --home-u, the smaller of this frame's width
+// and height over the frame his window had, so the page keeps that look at any
+// size. his look (HOME_LOOK): the list a third of the frame wide, its names
+// 28px (twice the pill's list's 14px), 21px apart, ending 172px from the
+// frame's right edge; the charts as the board draws them, 35% of the frame
+// wide and the token box 35% tall, 35.1px apart (the board's own gap, twice
+// --sp-m), with the phone's logo cluster at 144% 16px over them, the three
+// together at 111%.
+// a name never ends in dots. where the window is too narrow for the longest
+// name at its size, the list gives way in this order: the margin, down to the
+// room the row's cross stands in; then the names' size, down to the pill's
+// list's own 14px; then the split, the list's part growing up to half the
+// frame; and only past all three does a name fade at its end.
+// the charts' words never stand smaller than the board draws them (scale 1)
+// while the heading's line has room for the heading, the switch and the
+// download button side by side; past that they shrink with the rest, so the
+// three never meet. the group is centred in its part by what it shows
+const HOME_REF = { w: 1512, h: 982 };
+const HOME_LOOK = { split: 1 / 3, font: 28, rows: 21 / 28, margin: 172, inner: 24, fontMin: 14, splitMax: 1 / 2,
+  scale: 1.11, logo: 1.44, logoGap: 16, chartGap: 35.1, chartW: .35, chartH: .35 };
+// what the group shows, which is what is centred: the mark and the words, and
+// each chart's heading, drawing and "Last updated" line, not their boxes' clear
+// edges (the panels' own padding, the logo's room for its version)
+const HOME_INK = ["#homemark", "#homebrandcopy", "#homeversion", "#home .tk-head", "#home .tk-stage", "#home .tk-status",
+  "#homelimits .lm-title", "#homelimits .lm-rows", "#homelimits .tk-status"];
+const homeSide = document.getElementById("homeside");
+const homeListPart = document.getElementById("homelist");
+const homePair = document.getElementById("homepair");
+// the landing's own mark and version, so the version is written in one place
+document.getElementById("homemark").src = document.getElementById("npmark").src;
+document.getElementById("homeversion").textContent = document.getElementById("npversion").textContent;
+// set only when it changes, so a fit that changes nothing lays nothing out again
+function homeSet(el, name, value, unit = "px"){
+  const v = Math.round(value * 1000) / 1000 + unit;
+  if (el.style.getPropertyValue(name) !== v) el.style.setProperty(name, v);
+}
+function homeFit(){
+  if (!homeOpen || !FOCUS) return;
+  const frame = document.getElementById("appframe").getBoundingClientRect();
+  if (!(frame.width > 0 && frame.height > 0)) return;
+  // his frame: his window less the same bar and insets this one has
+  const refW = HOME_REF.w - (innerWidth - frame.width), refH = HOME_REF.h - (innerHeight - frame.height);
+  const u = Math.min(frame.width / refW, frame.height / refH), L = HOME_LOOK;
+
+  // the list, measured at its own size first: the widest row's number, gap
+  // and name, which all grow with the names' size
+  let font = Math.max(L.fontMin, L.font * u), split = L.split;
+  homeSet(homeListPart, "--home-u", u, "");
+  homeSet(homeListPart, "--home-font", font);
+  const num = homeListBox.querySelector(".homenum");
+  let widest = 0;
+  for (const name of homeListBox.querySelectorAll(".homename")){
+    name.classList.remove("cut");
+    widest = Math.max(widest, name.scrollWidth);
+  }
+  // the row less its room for the cross, and the room the part has for it
+  let need = (num ? num.getBoundingClientRect().width : 0) + font * 10 / 14 + widest + 1;
+  const cross = f => f * 34 / 14, inner = L.inner * u;
+  const room = () => split * frame.width - inner;
+  let margin = L.margin * u;
+  // the margin gives way first, down to the cross's room
+  if (need + margin > room()) margin = Math.max(cross(font), room() - need);
+  // then the names' size, which takes the cross's room down with it
+  if (need + margin > room()){
+    const k = Math.max(L.fontMin / font, room() / (need + cross(font)));
+    font *= k; need *= k; margin = cross(font);
+  }
+  // then the split, up to half the frame
+  if (need + margin > room()) split = Math.min(L.splitMax, (need + margin + inner) / frame.width);
+  homeSet(homeListPart, "--home-font", font);
+  homeSet(homeListPart, "--home-rows", font * L.rows);
+  homeSet(homeListPart, "--home-margin", margin);
+  homeSet(homeListPart, "--home-split", split, "");
+  homeSet(homeSide, "--home-split", split, "");
+  // and past all of that a name fades at its end
+  for (const name of homeListBox.querySelectorAll(".homename"))
+    if (name.scrollWidth > name.clientWidth) name.classList.add("cut");
+  homeFades();
+
+  // the group: his sizes times u as drawn on screen, laid out at those over
+  // the scale t its words stand at, never under the board's own while the
+  // heading's line has room
+  const width = L.chartW * refW * L.scale * u, chartH = L.chartH * refH * L.scale * u;
+  let t = Math.max(1, L.scale * u);
+  const head = homePair.querySelector("#home .tk-head");
+  if (head){
+    const panel = getComputedStyle(head.parentElement);
+    const sides = parseFloat(panel.paddingLeft) + parseFloat(panel.paddingRight) +
+      parseFloat(panel.borderLeftWidth) + parseFloat(panel.borderRightWidth);
+    // the heading, the switch and the button, with the row's own gap between them twice over
+    const line = head.querySelector(".tk-name").offsetWidth + head.querySelector(".tk-tools").offsetWidth + sides +
+      2 * parseFloat(getComputedStyle(head).columnGap);
+    if (width / t < line) t = width / line;
+  }
+  homeSet(homePair, "--home-w", width / t);
+  homeSet(homePair, "--home-chart-h", chartH / t);
+  homeSet(homePair, "--home-logo", L.logo * L.scale * u / t, "");
+  homeSet(homePair, "--home-logo-gap", L.logoGap * L.scale * u / t);
+  homeSet(homePair, "--home-gap", L.chartGap * L.scale * u / t);
+  // a window too short or too narrow for the group at that scale takes it
+  // smaller still, with a twentieth of its part clear on every side
+  const part = homeSide.getBoundingClientRect();
+  t = Math.min(t, part.width * .9 / homePair.offsetWidth, part.height * .9 / homePair.offsetHeight);
+  homeSet(homePair, "--home-t", t, "");
+
+  // centred by what it shows
+  homeSet(homePair, "--home-x", 0);
+  homeSet(homePair, "--home-y", 0);
+  const ink = HOME_INK.map(s => document.querySelector(s)?.getBoundingClientRect()).filter(r => r && r.width > 0 && r.height > 0);
+  if (ink.length){
+    const left = Math.min(...ink.map(r => r.left)), right = Math.max(...ink.map(r => r.right));
+    const top = Math.min(...ink.map(r => r.top)), bottom = Math.max(...ink.map(r => r.bottom));
+    homeSet(homePair, "--home-x", (part.left + part.right) / 2 - (left + right) / 2);
+    homeSet(homePair, "--home-y", (part.top + part.bottom) / 2 - (top + bottom) / 2);
+  }
+}
+// fitted on the frame after anything that moves it: the window's size, the
+// faces arriving, the list's names, and the two parts' own sizes, which also
+// change when home opens. that first frame is the start of home's fade, still
+// clear, so the page is never seen unfitted
+let homeFitFrame = 0;
+function homeFitSoon(){
+  cancelAnimationFrame(homeFitFrame);
+  homeFitFrame = requestAnimationFrame(() => { homeFitFrame = 0; homeFit(); });
+}
+window.addEventListener("resize", homeFitSoon);
+if (typeof ResizeObserver === "function"){
+  const watch = new ResizeObserver(homeFitSoon);
+  watch.observe(homePair);
+  watch.observe(homeListPart);
+}
+if (document.fonts){
+  document.fonts.ready.then(homeFitSoon);
+  document.fonts.addEventListener?.("loadingdone", homeFitSoon);
+}
+
 // ---- the home page ---------------------------------------------------------
 // The house at the head of the bar opens it: one blank page above every
-// project, holding the token panel (home-widgets.js) and nothing else. Being on
+// project, holding the board's logo, the token panel and the limits box
+// (home-widgets.js) and the list of projects (renderHomeList). Being on
 // it is this browser's own, like the open tab, so a reload comes back to it.
 // Choosing any project leaves it for that project's board, and so does a new folder.
 // The counts are asked for when home opens and every few minutes while it
@@ -5305,9 +5564,6 @@ function setHome(on){
     else localStorage.removeItem(HOME_KEY);
   } catch (err){}
   document.body.classList.toggle("home", homeOpen);
-  // home's list wears the pill's list's glass; the new tab's well does not
-  document.getElementById("nppanel")?.classList.toggle("qn-glass", homeOpen);
-  document.getElementById("npstart")?.classList.toggle("qn-glass", homeOpen);
   document.getElementById("homeico").setAttribute("aria-pressed", String(homeOpen));
   clearInterval(homeTimer);
   homeTimer = null;
@@ -7333,7 +7589,7 @@ function apply(state){
   }
   renderTabs(state);
   renderPages(state);   // the foot of the workspace, and whether the board is on this page at all
-  if ((draft && draft.screen === "home") || homeOpen) renderHome(state);   // new lanes join the landing card live
+  if (draft && draft.screen === "home") renderHome(state);   // new lanes join the landing card live
   if (FOCUS){
     renderWorkspaces(state);
     renderTrio(state);

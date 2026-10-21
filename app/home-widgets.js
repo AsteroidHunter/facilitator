@@ -720,7 +720,7 @@
     if (e.pointerType !== "mouse" || e.button !== 0) return;
     const box = el.querySelector(".tk-scroll");
     if (!box || !box.contains(e.target) || box.scrollWidth <= box.clientWidth) return;
-    el.tkDrag = { id: e.pointerId, x: e.clientX, left: box.scrollLeft, box, moved: false };
+    el.tkDrag = { id: e.pointerId, x: e.clientX, left: box.scrollLeft, box, moved: false, k: drawnScale(box) };
   }
   // true while a drag has the pointer, so the tip keeps out of its way
   function drag(el, e) {
@@ -736,7 +736,7 @@
       if (lane) lane.classList.add("dragging");
       unhover(el);
     }
-    d.box.scrollLeft = d.left - dx;
+    d.box.scrollLeft = d.left - dx / d.k;   // the chart stays under the pointer at any scale
     return true;
   }
   function letGo(el) {
@@ -778,12 +778,21 @@
     for (const n of el.querySelectorAll(".tk-guide, .tk-dot")) n.setAttribute("visibility", "hidden");
     for (const n of el.querySelectorAll(".tk-day.hot")) n.classList.remove("hot");
   }
+  // x and y are the window's; the tip stands in the element's own pixels,
+  // which are the window's over the scale a page may draw the panel at
   function place(el, tip, html, x, y) {
     tip.innerHTML = html;
     tip.hidden = false;
-    const box = el.getBoundingClientRect(), w = tip.offsetWidth;
-    tip.style.left = Math.max(0, Math.min(x - box.left - w / 2, box.width - w)) + "px";
-    tip.style.top = (y - box.top - tip.offsetHeight - 10) + "px";
+    const box = el.getBoundingClientRect(), k = drawnScale(el), w = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min((x - box.left) / k - w / 2, box.width / k - w)) + "px";
+    tip.style.top = ((y - box.top) / k - tip.offsetHeight - 10) + "px";
+  }
+  // the scale an element is drawn at: its width on screen over its own, and 1
+  // for one with no width to read
+  function drawnScale(el) {
+    if (!(el.offsetWidth > 0)) return 1;
+    const k = el.getBoundingClientRect().width / el.offsetWidth;
+    return Number.isFinite(k) && k > 0 ? k : 1;
   }
   function hover(el, e) {
     const drawn = el.tkModel, tip = el.querySelector(".tk-tip");

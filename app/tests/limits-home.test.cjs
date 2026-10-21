@@ -1,9 +1,10 @@
 // the limits box on the home page: what home-widgets.js draws from the route's
 // answer (run in a small DOM, no browser), the rules the two pages carry for it
 // as text, and where it stands in a real browser: on the board directly under
-// the token panel, as wide as it, the pair centred in the frame's height and on
-// the right half's vertical line, with the thin line down the frame's middle;
-// on the phone directly under the panel. the numbers it keeps in the browser,
+// the token panel, as wide as it, the two under the logo and centred by what
+// they show in the wide part of the home page's frame, with no line between
+// that part and the list's (m1336); on the phone directly under the panel.
+// the numbers it keeps in the browser,
 // its "Last updated" line and the way a bar moves to fresh numbers are held in
 // the small DOM below. the route's answer is replaced in the browser, so one
 // fixture board serves every combination of tools; the route itself is held in
@@ -341,7 +342,7 @@ test("the bars wear the token chart's colours: the line's colour for the fill, t
   assert.equal(declsFor(rules, ".lm-pct")["min-width"], "4ch", "the track does not move when the digits change");
   assert.match(SHEET, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.lm-fill\{transition:none\}/);
   // the pages' own rules for the box carry no colour either, and no violet or accent anywhere near it
-  const mine = rulesOf(styleBlocks(BOARD)).filter(r => r.selectors.some(s => /homelimits|homepair|homeline/.test(s)))
+  const mine = rulesOf(styleBlocks(BOARD)).filter(r => r.selectors.some(s => /homelimits|homepair|homeside/.test(s)))
     .concat(rulesOf(styleBlocks(PHONE)).filter(r => r.selectors.some(s => /homelimits/.test(s))));
   assert.ok(mine.length >= 5);
   for (const r of mine) for (const [k, v] of Object.entries(r.decls))
@@ -373,49 +374,35 @@ test("the title is set like the token panel's heading and takes the grid's whole
   assert.doesNotMatch(PHONE, /\.lm-title/, "the phone takes the shared rule as it is");
 });
 
-test("the board's rules make the token box and the limits box one column, centred, with a named gap", () => {
+test("the board's rules make the logo, the token box and the limits box one column, centred in the wide part, with a named gap", () => {
   const rules = rulesOf(styleBlocks(BOARD));
   assert.equal(declsFor(rules, "#homepair").display, "none", "only on home");
   const pair = declsFor(rules, "body.focus.home #homepair");
   assert.equal(pair.display, "flex");
   assert.equal(pair["flex-direction"], "column");
-  assert.equal(pair["justify-content"], "center", "the pair is centred in the frame's height");
-  assert.equal(pair.position, "fixed");
   assert.equal(pair["pointer-events"], "none");
-  assert.equal(pair["--home-gap"], "calc(var(--sp-m) * 2)", "twice the board's medium gap");
-  assert.equal(pair.gap, "var(--home-gap)");
-  assert.equal(pair["--home-w"], "calc((var(--home-r) - var(--home-l)) * .35)", "the token panel's own width");
-  assert.equal(pair.width, "var(--home-w)");
-  assert.equal(pair.left, "calc(var(--home-l) * .25 + var(--home-r) * .75 - var(--home-w) / 2)",
-               "centred on the right half's vertical line, following the window");
-  assert.equal(pair.top, "var(--home-t)");
-  assert.equal(pair.height, "calc(var(--home-b) - var(--home-t))", "as tall as the frame");
+  assert.equal(pair["--home-gap"], "calc(var(--sp-m) * 2)", "twice the board's medium gap until homeFit has measured");
+  assert.equal(pair.width, "var(--home-w, calc((100vw - 2 * var(--app-inset)) * .35))", "the token panel's own width");
+  assert.equal(pair.transform, "translate(var(--home-x, 0px), var(--home-y, 0px)) scale(var(--home-t, 1))",
+               "scaled about its middle and set on its part's middle by what it shows");
+  const side = declsFor(rules, "body.focus.home #homeside");
+  assert.equal(side["align-items"], "center");
+  assert.equal(side["justify-content"], "center", "centred both ways in the wide part");
   const token = declsFor(rules, "body.focus.home #home");
-  assert.equal(token.flex, "0 1 calc((var(--home-b) - var(--home-t)) * .35)", "its own 35%, giving up height only to fit");
-  assert.equal(token["min-height"], "0");
+  assert.equal(token.flex, "none");
+  assert.match(token.height, /^var\(--home-chart-h, /, "its own 35% of the frame's height, set from the window");
   const mine = declsFor(rules, "body.focus.home #homelimits:not([hidden])");
   assert.equal(declsFor(rules, "#homelimits").display, "none");
   assert.equal(mine.display, "block");
   assert.equal(mine.flex, "none", "as tall as its rows");
-  for (const k of ["position", "left", "top", "width", "transform", "height"]) assert.equal(mine[k], undefined, `no ${k} of its own`);
-  assert.match(BOARD, /<div id="homepair">\s*<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>[\s\S]*?<section id="homelimits" aria-label="Plan limits" hidden><\/section>\s*<\/div>/);
+  assert.equal(mine["margin-top"], "var(--home-gap)");
+  for (const k of ["left", "top", "width", "transform", "height"]) assert.equal(mine[k], undefined, `no ${k} of its own`);
+  assert.match(BOARD, /<div id="homepair">\s*<div id="homebrand">[\s\S]*?<\/div>\s*<section id="home" aria-label="Home"><div id="homeplot"><\/div><\/section>\s*<section id="homelimits" aria-label="Plan limits" hidden><\/section>\s*<\/div>/);
   assert.match(BOARD, /--sp-m:calc\(/, "the gap's name is built on the board's own medium spacing");
 });
 
-test("the board's rule draws a thin line down the middle of the frame, 70% of its height, in the board's line colour", () => {
-  const rules = rulesOf(styleBlocks(BOARD));
-  assert.equal(declsFor(rules, "#homeline").display, "none", "only on home");
-  const line = declsFor(rules, "body.focus.home #homeline");
-  assert.equal(line.position, "fixed");
-  assert.equal(line["pointer-events"], "none", "not interactive");
-  assert.equal(line.left, "calc((var(--home-l) + var(--home-r)) / 2)", "the frame's horizontal centre");
-  assert.equal(line.top, "calc(var(--home-t) * .85 + var(--home-b) * .15)", "15% of the frame down");
-  assert.equal(line.height, "calc((var(--home-b) - var(--home-t)) * .7)", "70% of the frame's height");
-  assert.equal(line.width, "var(--edge-drawn)", "the board's hairline");
-  assert.equal(line.transform, "translateX(-50%)");
-  assert.equal(line.background, "var(--line)", "the colour under Doing, Deferred and Done");
-  for (const v of Object.values(line)) assert.doesNotMatch(v, /--accent/);
-  assert.equal(BOARD.match(/<div id="homeline" aria-hidden="true"><\/div>/g).length, 1);
+test("nothing is drawn between the two parts of the home page, on the board or the phone", () => {
+  assert.doesNotMatch(BOARD, /homeline/, "no line down the frame");
   assert.doesNotMatch(PHONE, /homeline/, "the phone has no centre line");
 });
 
@@ -475,39 +462,55 @@ const measure = page => page.evaluate(() => {
     limits: box.hidden ? null : R(box.querySelector(".tk-panel")),
     holder: R(box),
     frame: document.getElementById("appframe") ? R(document.getElementById("appframe")) : null,
+    side: document.getElementById("homeside") ? R(document.getElementById("homeside")) : null,
+    list: document.getElementById("homelistbox") ? R(document.getElementById("homelistbox")) : null,
     line: document.getElementById("homeline") ? R(document.getElementById("homeline")) : null,
-    gap: parseFloat(getComputedStyle(document.getElementById("homepair") || document.body).rowGap) || 0,
+    // the named gap as drawn: the column is scaled, so its own pixels times that scale
+    scale: document.getElementById("homepair") ? R(document.getElementById("homepair")).width / document.getElementById("homepair").offsetWidth : 1,
+    gap: parseFloat(getComputedStyle(box).marginTop) || 0,
+    u: Number(getComputedStyle(document.getElementById("homelist") || document.body).getPropertyValue("--home-u")) || null,
+    ink: (() => {
+      const rs = ["#homemark", "#homebrandcopy", "#homeversion", "#home .tk-head", "#home .tk-stage", "#home .tk-status",
+        "#homelimits .lm-title", "#homelimits .lm-rows", "#homelimits .tk-status"]
+        .map(s => document.querySelector(s)).filter(Boolean).map(R).filter(r => r.width > 0 && r.height > 0);
+      if (!rs.length) return null;
+      const left = Math.min(...rs.map(r => r.left)), right = Math.max(...rs.map(r => r.right));
+      const top = Math.min(...rs.map(r => r.top)), bottom = Math.max(...rs.map(r => r.bottom));
+      return { left, right, top, bottom };
+    })(),
     rows: [...box.querySelectorAll(".lm-row")].map(row => ({
       name: row.querySelector(".lm-name").textContent, pct: row.querySelector(".lm-pct").textContent,
       fill: row.querySelector(".lm-fill").style.width })),
     text: box.textContent,
   };
 });
-// the pair, the line and the frame, each against the other, within a pixel
+// the column, its part, the list's part and the frame, each against the other.
+// his look at his full-screen window (1512 by 982) is the token box 35% of the
+// frame wide and tall at 111%; every other window has that times u, the
+// smaller of its frame's width and height over his frame's
 function checkBoard(m, where, withLimits) {
   const near = (a, b, label, tol = 1) => assert.ok(Math.abs(a - b) <= tol, `${where}: ${label}: ${a} vs ${b}`);
-  const frameH = m.frame.bottom - m.frame.top, frameW = m.frame.right - m.frame.left;
-  const midX = (m.frame.left + m.frame.right) / 2, midY = (m.frame.top + m.frame.bottom) / 2;
-  near((m.line.left + m.line.right) / 2, midX, "the line at the frame's horizontal centre");
-  near(m.line.height, 0.7 * frameH, "the line 70% of the frame's height");
-  near(m.line.top - m.frame.top, m.frame.bottom - m.line.bottom, "the line's gap to the top and to the bottom");
-  assert.ok(m.line.top - m.frame.top > 10 && m.frame.bottom - m.line.bottom > 10, `${where}: the line touches neither edge`);
-  assert.ok(m.line.width <= 2 && m.line.width > 0, `${where}: a thin line, ${m.line.width}`);
+  assert.equal(m.line, null, `${where}: no line between the parts`);
+  const sideCx = (m.side.left + m.side.right) / 2, sideCy = (m.side.top + m.side.bottom) / 2;
+  near((m.ink.left + m.ink.right) / 2, sideCx, "what the column shows, centred across its part", 2);
+  near((m.ink.top + m.ink.bottom) / 2, sideCy, "and down it", 2);
+  near(m.side.left, m.frame.left, "the wide part at the frame's left edge");
+  assert.ok(m.side.right - m.side.left >= (m.frame.right - m.frame.left) / 2 - 1, `${where}: the wide part at least half the frame`);
   const top = m.token.top, bottom = withLimits ? m.limits.bottom : m.token.bottom;
-  near((top + bottom) / 2, midY, "the pair's centre against the frame's");
-  const rightCx = m.frame.left + 0.75 * frameW;
-  near((m.token.left + m.token.right) / 2, rightCx, "the token panel on the right half's line");
-  near(m.token.width, 0.35 * frameW, "the token panel's width");
-  near(m.token.height, 0.35 * frameH, "the token panel keeps its 35%");
-  assert.ok(m.token.left > midX && m.token.top >= m.frame.top && bottom <= m.frame.bottom, `${where}: inside the right half`);
+  assert.ok(m.token.left >= m.side.left && m.token.right <= m.side.right && top >= m.frame.top && bottom <= m.frame.bottom,
+            `${where}: inside the wide part`);
+  assert.ok(m.list.left > m.token.right, `${where}: clear of the list`);
+  const refW = 1512 - (innerWidthOf(m) - (m.frame.right - m.frame.left));
+  near(m.token.width, 0.35 * refW * 1.11 * m.u, "the token panel's width, his times u", 1.5);
   if (!withLimits) return;
   near((m.limits.left + m.limits.right) / 2, (m.token.left + m.token.right) / 2, "the limits box on the same line");
   near(m.limits.width, m.token.width, "as wide as the token panel");
-  near(m.limits.top - m.token.bottom, m.gap, "the gap between them is the named gap");
-  assert.ok(m.gap > 8 && m.gap < 40, `${where}: the board's medium gap, ${m.gap}`);
+  near(m.limits.top - m.token.bottom, m.gap * m.scale, "the gap between them is the named gap, as drawn");
+  assert.ok(m.gap * m.scale > 8 && m.gap * m.scale < 50, `${where}: about the board's medium gap twice, ${m.gap * m.scale}`);
 }
+const innerWidthOf = m => m.frame.right + m.frame.left;   // the frame is inset alike on both sides
 
-test("on the board the limits box sits under the token panel as one unit, centred in the frame, with the thin line down the middle", async () => {
+test("on the board the limits box sits under the token panel as one unit, centred in the wide part, with no line between the parts", async () => {
   for (const view of MAC) for (const [name, answer] of Object.entries(CASES)) {
     const { context, page } = await fx.openBoard(null, view);
     try {
@@ -524,7 +527,7 @@ test("on the board the limits box sits under the token panel as one unit, centre
   }
 });
 
-test("on the board the gap between the two boxes is twice the board's medium gap", async () => {
+test("on the board the gap between the two boxes is twice the board's medium gap at his look, times u", async () => {
   for (const view of MAC) {
     const { context, page } = await fx.openBoard(null, view);
     try {
@@ -538,9 +541,10 @@ test("on the board the gap between the two boxes is twice the board's medium gap
         probe.remove();
         return h;
       });
-      const gap = m.limits.top - m.token.bottom;
+      // his look is the board's gap at 111%, on his window; this one has it times u
+      const gap = m.limits.top - m.token.bottom, want = 2 * medium * 1.11 * m.u;
       assert.ok(medium > 8, `${view.width}x${view.height}: a medium gap of ${medium}`);
-      assert.ok(Math.abs(gap - 2 * medium) <= 0.5, `${view.width}x${view.height}: ${gap} against ${2 * medium}`);
+      assert.ok(Math.abs(gap - want) <= 0.5, `${view.width}x${view.height}: ${gap} against ${want}`);
     } finally { await context.close(); }
   }
 });
@@ -598,7 +602,7 @@ test("the title reads Usage Limits in the token heading's face, on the board and
   } finally { await context.close(); }
 });
 
-test("on the board the pair and the line follow a resize of the window", async () => {
+test("on the board the column and its part follow a resize of the window", async () => {
   const { context, page } = await fx.openBoard(null, MAC[0]);
   try {
     await openHome(page, BOTH);
@@ -610,30 +614,18 @@ test("on the board the pair and the line follow a resize of the window", async (
   } finally { await context.close(); }
 });
 
-test("the line takes no clicks, and the line and the pair are there only on home", async () => {
+test("the two parts take no clicks of their own, and they are there only on home", async () => {
   const { context, page } = await fx.openBoard(null, MAC[0]);
   try {
     await openHome(page, BOTH);
-    const on = await page.evaluate(() => {
-      const line = document.getElementById("homeline"), s = getComputedStyle(line);
-      const probe = document.createElement("i");
-      probe.style.color = getComputedStyle(document.documentElement).getPropertyValue("--line");
-      document.body.appendChild(probe);
-      const lineColour = getComputedStyle(probe).color;
-      probe.remove();
-      const r = line.getBoundingClientRect();
-      return { display: s.display, events: s.pointerEvents, colour: s.backgroundColor, lineColour, hidden: line.getAttribute("aria-hidden"),
-               hit: document.elementFromPoint(r.left + r.width / 2, (r.top + r.bottom) / 2)?.id || null };
-    });
-    assert.equal(on.display, "block");
-    assert.equal(on.events, "none");
-    assert.equal(on.colour, on.lineColour, "the board's own line colour");
-    assert.equal(on.hidden, "true");
-    assert.notEqual(on.hit, "homeline", "a click through the line reaches what is under it");
-    await page.click("#tabbar .ptab:not(.ptabplus)", { delay: 10 });
+    const on = await page.evaluate(() => ["homeside", "homelist", "homepair"].map(id => {
+      const s = getComputedStyle(document.getElementById(id)); return [s.display, s.pointerEvents]; }));
+    assert.deepEqual(on, [["flex", "none"], ["flex", "none"], ["flex", "none"]]);
+    // a project chosen from home's own list leaves home for its board
+    await page.click("#homerows .homerow .homename", { delay: 10 });
     await page.waitForFunction(() => !document.body.classList.contains("home"));
-    const off = await page.evaluate(() => ["homeline", "homepair"].map(id => getComputedStyle(document.getElementById(id)).display));
-    assert.deepEqual(off, ["none", "none"]);
+    const off = await page.evaluate(() => ["homeside", "homelist", "homepair"].map(id => getComputedStyle(document.getElementById(id)).display));
+    assert.deepEqual(off, ["none", "none", "none"]);
   } finally { await context.close(); }
 });
 
@@ -643,8 +635,13 @@ test("on the board the bars are the chart's colours in the browser's own paint",
     await openHome(page, BOTH);
     const painted = await page.evaluate(() => {
       const bar = document.querySelector("#homelimits .lm-bar"), fill = bar.querySelector(".lm-fill");
+      const probe = document.createElement("i");
+      probe.style.color = "var(--line)";
+      document.body.appendChild(probe);
+      const line = getComputedStyle(probe).color;
+      probe.remove();
       return { track: getComputedStyle(bar).backgroundColor, fill: getComputedStyle(fill).backgroundColor,
-               edge: getComputedStyle(bar).borderTopColor, line: getComputedStyle(document.getElementById("homeline")).backgroundColor };
+               edge: getComputedStyle(bar).borderTopColor, line };
     });
     assert.equal(painted.fill, "rgb(224, 89, 43)", "the daily line's colour");
     assert.equal(painted.track, "rgb(252, 216, 194)", "the heatmap's lightest tint");

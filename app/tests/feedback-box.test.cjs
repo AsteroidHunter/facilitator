@@ -499,10 +499,10 @@ test("the pill takes every rule the speaker and the squid take: glass, size, hov
     "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn){",
     "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn):hover{",
     "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn) svg{",
-    "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart).pressed{",
+    "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill).pressed{",
     "body.focus .bar :is(#chimebtn, #feedbackbtn, #setbtn){margin-left:3px}",
   ]) assert.ok(MAC.includes(rule), `${rule} is not in the Mac page`);
-  assert.ok(MAC.includes('["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"]'), "the press script skips the pill");
+  assert.ok(MAC.includes('["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"]'), "the press script skips the pill");
 });
 
 test("the phone has no bug pill and no sheet: its feedback box stays in Settings", () => {

@@ -681,8 +681,8 @@ test("the magnifier is a glass circle in the bar just left of the speaker, drawn
   // the circles' size, glass, hover and press, and the press script
   assert.match(SHEET, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn\)\{\s*flex:none; position:relative; box-sizing:border-box; width:32px; height:32px;\s*margin:0; padding:0; border-radius:50%;/);
   assert.match(SHEET, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn\):hover\{color:var\(--ink\)\}/);
-  assert.match(SHEET, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart\)\.pressed\{transform:scale\(1\.06\)/);
-  assert.match(HTML, /for \(const btn of \["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"\]/);
+  assert.match(SHEET, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill\)\.pressed\{transform:scale\(1\.06\)/);
+  assert.match(HTML, /for \(const btn of \["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"\]/);
   // the four at the right stand evenly apart, the magnifier starting the run
   assert.equal(ruleOf("body.focus .bar #searchbtn"), "margin-left:auto");
   assert.equal(ruleOf("body.focus .bar :is(#chimebtn, #feedbackbtn, #setbtn)"), "margin-left:3px");

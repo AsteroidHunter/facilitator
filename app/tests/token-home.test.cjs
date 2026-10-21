@@ -612,7 +612,7 @@ test("each chart keeps its own place when the pill switches, and a refresh keeps
   assert.equal(activeLayer(again).querySelector(".tk-scroll").scrollLeft, room);
 });
 
-test("the box stands in the top right quarter, the charts fill it and scroll natively with no bar", () => {
+test("the box stands in the home page's wide part, the charts fill it and scroll natively with no bar", () => {
   const { W } = widgets();
   const css = read("home-widgets.css").replace(/\/\*[\s\S]*?\*\//g, "");
   const rule = sel => {
@@ -669,21 +669,26 @@ test("the box stands in the top right quarter, the charts fill it and scroll nat
   // the phone's home page draws the same line at the same share of its 8px gap,
   // across the panels' own width, clear of the screen's edges
   assert.match(read("m.html"), /#home #homelimits:not\(\[hidden\]\)::before\{content:""; position:absolute; left:0; right:0;\s*top:calc\(8 \* var\(--u\) \* -\.61\); height:1px; background:var\(--line\); pointer-events:none\}/);
-  // the box: 35% of the page's frame (the rectangle under the bar, inset
-  // --app-inset each side) wide and tall, centred on the right half's vertical
-  // line. it is one of two boxes in #homepair, a column the height of the frame
-  // that centres them in it (the pair is held in limits-home.test.cjs); the panel fills it
+  // the box: in the wide part of the page's frame (the rectangle under the bar,
+  // inset --app-inset each side), which is split at --home-split with the list
+  // of projects in the narrow part. one column under the logo, laid out at
+  // --home-w wide with the token box --home-chart-h tall and scaled by
+  // --home-t, which homeFit sets from the window (35% of the frame until it
+  // has); the panel fills the box
+  const parts = /body\.focus\.home :is\(#homeside, #homelist\)\{([^}]*)\}/.exec(HTML)[1];
+  assert.match(parts, /position:fixed;/);
+  assert.match(parts, /top:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\); bottom:var\(--app-inset\)/);
+  const side = /body\.focus\.home #homeside\{([^}]*)\}/.exec(HTML)[1];
+  assert.match(side, /left:var\(--app-inset\);/);
+  assert.match(side, /right:calc\(var\(--app-inset\) \+ \(100vw - 2 \* var\(--app-inset\)\) \* var\(--home-split, \.33333\)\);/);
+  assert.match(side, /align-items:center; justify-content:center/);
   const pair = /body\.focus\.home #homepair\{([^}]*)\}/.exec(HTML)[1];
-  assert.match(pair, /--home-l:var\(--app-inset\); --home-r:calc\(100vw - var\(--app-inset\)\);/);
-  assert.match(pair, /--home-t:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);
-  assert.match(pair, /--home-b:calc\(100vh - var\(--app-inset\)\);/);
-  assert.match(pair, /--home-w:calc\(\(var\(--home-r\) - var\(--home-l\)\) \* \.35\);/);
-  assert.match(pair, /left:calc\(var\(--home-l\) \* \.25 \+ var\(--home-r\) \* \.75 - var\(--home-w\) \/ 2\);/);
-  assert.match(pair, /width:var\(--home-w\);/);
+  assert.match(pair, /width:var\(--home-w, calc\(\(100vw - 2 \* var\(--app-inset\)\) \* \.35\)\);/);
+  assert.match(pair, /transform:translate\(var\(--home-x, 0px\), var\(--home-y, 0px\)\) scale\(var\(--home-t, 1\)\)/);
   const home = /body\.focus\.home #home\{([^}]*)\}/.exec(HTML)[1];
-  assert.match(home, /flex:0 1 calc\(\(var\(--home-b\) - var\(--home-t\)\) \* \.35\);/);
-  assert.match(home, /min-height:0/);
-  assert.doesNotMatch(home, /position|transform|left|top/, "the pair places it");
+  assert.match(home, /flex:none; height:var\(--home-chart-h, /);
+  assert.doesNotMatch(home, /position|transform|left|top/, "the column places it");
+  assert.match(HTML, /const HOME_LOOK = \{[^}]*chartW: \.35, chartH: \.35 \}/, "the box is 35% of his frame both ways");
   // the frame the quarter is taken from is the one the page draws
   const frame = /body\.focus #appframe\{([^}]*)\}/.exec(HTML.replace(/\/\*[\s\S]*?\*\//g, ""))[1];
   assert.match(frame, /top:calc\(var\(--app-inset\) \+ var\(--bar-h\) - 1px - var\(--edge-drawn\)\);/);
@@ -2150,10 +2155,10 @@ test("the overlay's box is only as tall as what it holds, the picture let in fla
   // the row: Share in the middle column, the two circles right against it on its left
   assert.match(rule(".tk-shot-foot"), /display:grid; grid-template-columns:minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
   assert.match(rule(".tk-shot-side"), /justify-content:flex-end/);
-  // the glass: circles as the bar's, Share as home's open a new folder pill
+  // the glass: circles as the bar's, Share as the bar's project pill
   assert.match(css, /\.tk-shot \.qn-glass\.tk-shot-round\{width:32px; padding:0; border-radius:50%; color:var\(--sub\)\}/);
   assert.match(css, /\.tk-shot \.qn-glass\.tk-shot-share\{gap:7px; padding:0 15px 0 13px; border-radius:16px; font:400 14px\/17px var\(--sans\)/);
-  assert.match(HTML, /body\.focus #npstart\.qn-glass\{[^}]*height:32px;[^}]*border-radius:16px;[^}]*font:400 14px\/17px var\(--sans\)/s);
+  assert.match(HTML, /body\.focus #projpill\{[^}]*height:32px;[^}]*border-radius:16px;[^}]*font:400 14px\/17px var\(--sans\)/s);
   assert.match(css, /\.tk-shot-dice\.rolling \.tk-die\{animation:tk-die-roll \.65s/);
   // on a phone the three are centred as one row, at a finger's height
   const phone = /@media \(max-width:600px\)\{([^@]*?)\n\}/.exec(css)[1];

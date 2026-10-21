@@ -22,7 +22,7 @@ function fixture(html, isPhone = false) {
   // the pieces of glass the page's press script walks: the Mac's bar has the magnifier before the speaker
   // and the bug between the speaker and the squid
   const ids = isPhone ? ["homeico", "projpill", "chimebtn", "setbtn"]
-    : ["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"];
+    : ["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"];
   const buttons = Array.from({ length: ids.length }, element);
   const document = { visibilityState: "visible",
     getElementById: id => buttons[ids.indexOf(id)],

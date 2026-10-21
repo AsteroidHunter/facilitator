@@ -90,9 +90,14 @@ function fixture(over = {}) {
   const list = menu.appendChild(make("projlist"));
   menu.appendChild(make("projsep"));
   const fresh = menu.appendChild(make("projnew", "button", "projrow"));
-  body.appendChild(make("npstart", "button"));   // the home page's own folder button
+  body.appendChild(make("npstart", "button"));   // the new tab's own folder button
+  // the home page's list, which the pill's code paints in the same pass
+  const homeBox = body.appendChild(make("homelistbox"));
+  const homeRows = homeBox.appendChild(make("homerows"));
+  const homeNew = homeBox.appendChild(make("homenew", "button", "homerow"));
   ids.projpill.rect = () => box(48, 7, 120, 32);
   menu.rect = () => box(48, 45, 220, 12 + 32 * (list.children.length + 1) + 9);
+  homeBox.rect = () => box(1040, 200, 360, 40 * (homeRows.children.length + 1) + 10);
   const now = Date.now() / 1000, day = 86400;
   const card = (id, owner, extra = {}) => ({ id, owner, bucket: "must", title: id, ball: "you", replies: 0, ts: now - 30 * day, agentTs: 0, ...extra });
   const state = over.state || {
@@ -140,6 +145,7 @@ function fixture(over = {}) {
     setHome(on) { context.homeOpen = !!on; context.renderTabs(state); },
     endDraft() { context.draft = null; },
     projNote(msg) { calls.push("note " + msg); },
+    homeFitSoon() { calls.push("fit"); },   // the home page's sizes, measured in a browser
     poll: async () => { calls.push("poll"); state.boxes.push(card("g1", "garden")); state.tabs.order.push("garden"); context.validActiveOwnerIds.add("garden"); },
   });
   const run = source => vm.runInContext(source, context);
@@ -154,11 +160,17 @@ function fixture(over = {}) {
   context.renderTabs(state);
   const rows = () => list.children;
   const row = ow => rows().find(r => r.dataset.owner === ow);
-  // rows stand edge to edge, 32px each, from 51px down
-  const place = () => rows().forEach((r, i) => { r.rect = () => box(54, 51 + 32 * i, 208, 32); });
+  const homeRow = ow => homeRows.children.find(r => r.dataset.owner === ow);
+  // rows stand edge to edge, 32px each, from 51px down; home's 40px each, from 200px down
+  const place = () => {
+    rows().forEach((r, i) => { r.rect = () => box(54, 51 + 32 * i, 208, 32); });
+    homeRows.children.forEach((r, i) => { r.rect = () => box(1040, 200 + 40 * i, 360, 40); });
+  };
   place();
   const win = (type, extra = {}) => { for (const fn of windowListeners[type] || []) fn({ buttons: 1, button: 0, preventDefault() {}, stopImmediatePropagation() {}, ...extra }); };
-  return { context, state, ids, body, menu, list, fresh, writes, opens, fetches, calls, pickers, store, rows, row, place, win,
+  return { context, state, ids, body, menu, list, fresh, homeBox, homeRows, homeNew, homeRow, writes, opens, fetches, calls, pickers, store, rows, row, place, win,
+    homeNames: () => homeRows.children.map(r => r.dataset.owner),
+    homeNumbers: () => homeRows.children.map(r => r.querySelector(".homenum").textContent),
     get: code => vm.runInContext(code, context),
     open: () => ids.projpill.fire("click"),
     isOpen: () => body.classes.has("projopen"),
@@ -324,10 +336,10 @@ test("the chevron is a small down arrow inside the pill after the name, faded in
   assert.equal(decl(hit, "top"), "0"); assert.equal(decl(hit, "bottom"), "0");
   assert.equal(decl(hit, "right"), "-14px"); assert.ok(parseFloat(decl(hit, "left")) >= -6);
   // the pill's own height, padding, corners and type are as they were, and nothing is purple or a new colour
-  const p = rule(sheet, "body.focus #projpill, body.focus #npstart.qn-glass");
+  const p = rule(sheet, "body.focus #projpill");
   assert.equal(decl(p, "height"), "32px"); assert.equal(decl(p, "padding"), "0 14px");
   assert.equal(decl(p, "border-radius"), "16px"); assert.equal(decl(p, "font"), "400 14px/17px var(--sans)");
-  assert.match(sheet, /body\.focus #projpill, body\.focus #npstart\.qn-glass\{[^}]*display:flex; align-items:center/);
+  assert.match(sheet, /body\.focus #projpill\{[^}]*display:flex; align-items:center/);
   assert.doesNotMatch(off + on + hit, /#[0-9a-f]{3,6}\b|rgb|--accent/i);
 });
 
@@ -345,9 +357,9 @@ test("the round glass Home button is back at the bar's left as it was, pressed w
   assert.equal(decl(rule(sheet, "body.focus :is(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn):hover"), "color"), "var(--ink)");
   assert.equal(parseFloat(decl(rule(sheet, "body.focus #tabrow"), "gap")), 11);
   // the press, and stays pressed while Home is up
-  assert.match(sheet, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill, #npstart\)\.pressed\{transform:scale\(1\.06\)/);
+  assert.match(sheet, /body\.focus :is\(#homeico, #searchbtn, #chimebtn, #feedbackbtn, #setbtn, #projpill\)\.pressed\{transform:scale\(1\.06\)/);
   assert.match(sheet, /body\.focus\.home #homeico\{color:var\(--ink\); --qn-tint:\.95; --qn-edge:3\}/);
-  assert.match(html, /for \(const btn of \["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn", "npstart"\]/);
+  assert.match(html, /for \(const btn of \["homeico", "projpill", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"\]/);
   assert.match(html, /document\.getElementById\("homeico"\)\.setAttribute\("aria-pressed", String\(homeOpen\)\)/);
   // Command + 0 clicks it, and a press on it opens Home
   assert.match(html, /if \(!homeOpen\) document\.getElementById\("homeico"\)\.click\(\)/);
@@ -546,6 +558,87 @@ test("\"Open a new folder\" opens the board's folder picker and lands on the new
   assert.equal(f.context.homeOpen, false); assert.equal(f.store.get("projleft"), "marlow");
 });
 
+// ---- the home page's list (m1336): the pill's list without its box -----------
+test("home's list holds the pill list's projects in its order and numbers, and a carry on either list moves both", () => {
+  const f = fixture({ homeOpen: true });
+  assert.deepEqual(f.homeNames(), f.names());
+  assert.deepEqual(f.homeNumbers(), ["1", "2", "3", "4", "5"]);
+  assert.equal(f.homeBox.style["--pnum"], "1ch", "the number column is as wide as the longest number");
+  // a number, a name and the cross: no path, no box
+  const r = f.homeRow("wayside");
+  assert.deepEqual(r.children.map(c => c.className), ["homenum", "homename", "projx"]);
+  assert.equal(r.querySelector(".homename").textContent, "wayside");
+  assert.equal(r.querySelector(".homenum").attributes["aria-hidden"], "true");
+  // the unread names take the bold in both
+  const unread = rows => rows.filter(x => x.classes.has("unread")).map(x => x.dataset.owner);
+  assert.deepEqual(unread(f.homeRows.children), unread(f.rows()));
+  assert.ok(unread(f.homeRows.children).length > 0);
+  // held on home and carried two rows down, as the pill's list carries
+  const held = f.homeRow("facilitator");
+  held.fire("mousedown", { clientX: 1100, clientY: 220 });
+  f.win("mousemove", { clientX: 1100, clientY: 223 }); assert.equal(held.classes.has("lifted"), false, "under 5px is still a click");
+  f.win("mousemove", { clientX: 1100, clientY: 305 });
+  assert.equal(held.classes.has("lifted"), true); assert.equal(f.homeBox.classes.has("carrying"), true);
+  assert.equal(f.homeRow("moonbase").style.transform, "translateY(-40px)");
+  f.win("mouseup", { clientX: 1100, clientY: 305 }); held.fire("click");
+  assert.deepEqual(f.writes.at(-1).order, ["moonbase", "alder-workshop", "facilitator", "wayside", "marlow"]);
+  assert.equal(f.context.homeOpen, true, "the release is not a choice");
+  assert.equal(f.homeBox.classes.has("carrying"), false);
+  assert.deepEqual(f.homeNames(), ["moonbase", "alder-workshop", "facilitator", "wayside", "marlow"]);
+  assert.deepEqual(f.names(), f.homeNames(), "the pill's list follows");
+  assert.deepEqual(f.homeNumbers(), ["1", "2", "3", "4", "5"], "renumbered");
+  // and carried in the pill's list, home follows
+  f.place();
+  f.row("marlow").fire("mousedown", { clientX: 100, clientY: 195 });
+  f.win("mousemove", { clientX: 100, clientY: 60 }); f.win("mouseup", { clientX: 100, clientY: 60 });
+  assert.deepEqual(f.names(), ["marlow", "moonbase", "alder-workshop", "facilitator", "wayside"]);
+  assert.deepEqual(f.homeNames(), f.names());
+});
+
+test("the cross on a home row closes that project in both lists, and a project that arrives joins both", () => {
+  const f = fixture({ homeOpen: true });
+  const cross = f.homeRow("wayside").querySelector(".projx");
+  assert.equal(cross.attributes["aria-label"], "close project");
+  cross.fire("mousedown"); assert.equal(f.get("projCarry"), null, "the cross started a carry");
+  cross.fire("click");
+  assert.deepEqual(f.writes.at(-1).closed, ["wayside"]);
+  assert.equal(f.homeRow("wayside"), undefined); assert.equal(f.row("wayside"), undefined);
+  assert.equal(f.context.homeOpen, true, "closing a project the pill does not name stays on home");
+  // the last project's cross is pale on home too
+  for (const ow of ["facilitator", "moonbase", "alder-workshop"]) f.context.closeTab(ow);
+  assert.equal(f.homeRow("marlow").querySelector(".projx").classes.has("off"), true);
+  // a new project joins both under the next number
+  const g = fixture({ homeOpen: true });
+  g.state.boxes.push({ id: "g1", owner: "garden", bucket: "must", title: "g1", ball: "you", replies: 0, ts: 0, agentTs: 0 });
+  g.state.tabs.order.push("garden"); g.context.validActiveOwnerIds.add("garden");
+  g.context.renderTabs(g.state);
+  assert.deepEqual(g.homeNames(), g.names()); assert.equal(g.homeNames().at(-1), "garden");
+  assert.equal(g.homeNumbers().at(-1), "6");
+});
+
+test("a click on a home row opens its project, a row carried out opens its own window, and the folder row opens the picker", async () => {
+  const f = fixture({ homeOpen: true });
+  f.homeRow("wayside").querySelector(".homename").fire("click");
+  assert.equal(f.context.activeOwner, "wayside"); assert.equal(f.context.homeOpen, false, "home is left for the project");
+  // carried out past the list's edge it fades, and let go there it opens in a window of its own
+  const t = fixture({ homeOpen: true });
+  const held = t.homeRow("moonbase");
+  held.fire("mousedown", { clientX: 1100, clientY: 260 });
+  t.win("mousemove", { clientX: 1100, clientY: 270 });
+  t.win("mousemove", { clientX: 900, clientY: 270 });
+  assert.equal(held.classes.has("tearing"), true);
+  t.win("mouseup", { clientX: 900, clientY: 270, screenX: 900, screenY: 400 });
+  assert.equal(t.opens.length, 1); assert.equal(t.opens[0][0], "/?project=moonbase");
+  assert.equal(t.writes.length, 0); assert.equal(t.context.homeOpen, true);
+  // "+ Open a new folder" on home: the board's folder picker, the focus going back to it
+  const g = fixture({ homeOpen: true });
+  g.homeNew.fire("click");
+  for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r));
+  assert.equal(g.pickers.length, 1); assert.equal(g.pickers[0].kind, "panel");
+  assert.equal(g.pickers[0].back, g.homeNew, "the focus goes back to the folder row");
+  assert.equal(g.context.activeOwner, "garden"); assert.equal(g.context.homeOpen, false);
+});
+
 test("the house, the pill and the right-hand circles keep their places: no plus, no lens, no row of names", () => {
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
   const order = ["homeico", "projpill", "tabbar", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"].map(id => bar.indexOf('id="' + id + '"'));
@@ -591,10 +684,10 @@ test("the pill is the name and the chevron, and the list's rows have no check ma
 });
 
 test("project names are one step larger, 14px, in the pill, the faint names and the list alike", () => {
-  for (const selector of ["body.focus #projpill, body.focus #npstart.qn-glass", "body.focus #tabbar .psug", "#projmenu .projrow"])
+  for (const selector of ["body.focus #projpill", "body.focus #tabbar .psug", "#projmenu .projrow"])
     assert.equal(decl(rule(sheet, selector), "font"), "400 14px/17px var(--sans)", selector);
   // and the row stays 32px high
-  assert.equal(decl(rule(sheet, "body.focus #projpill, body.focus #npstart.qn-glass"), "height"), "32px");
+  assert.equal(decl(rule(sheet, "body.focus #projpill"), "height"), "32px");
   assert.equal(decl(rule(sheet, "body.focus #tabbar .psug"), "height"), "32px");
 });
 
@@ -623,9 +716,8 @@ test("the open list dims the board exactly as the settings page does, and the di
 });
 
 test("the list's top edge is one line: it wears the bar's rim, not the glass's doubled top", () => {
-  // home's project list wears the same glass and so the same rule (20261013)
-  const head = "body.focus :is(.bar .qn-glass, #projmenu), body.focus.home :is(#nppanel, #npstart).qn-glass{";
-  assert.ok(sheet.includes(head), "the bar, the list and home's list share one stack");
+  const head = "body.focus :is(.bar .qn-glass, #projmenu){";
+  assert.ok(sheet.includes(head), "the bar and the list share one stack");
   const rim = sheet.slice(sheet.indexOf(head));
   const stack = rim.slice(0, rim.indexOf("}"));
   assert.doesNotMatch(stack, /inset 0 1px 0 rgba\(255,255,255/, "the white first row over the ring");
@@ -635,13 +727,19 @@ test("the list's top edge is one line: it wears the bar's rim, not the glass's d
   assert.match(tokens, /\.qn-glass\{\s*border:none;[^}]*inset 0 2px 0 rgba\(0,0,0,\.045\)/);
 });
 
-test("home's project list stands in the pill's list's glass, and the new tab keeps its white well", () => {
-  // the page puts the glass's class on the list while home is up, and only then
-  assert.ok(html.includes('document.getElementById("nppanel")?.classList.toggle("qn-glass", homeOpen);'));
-  // the corner is the pill list's own
-  const menuRound = /body\.focus #projmenu\{[^}]*border-radius:(\d+px)/.exec(sheet)[1];
-  assert.equal(/body\.focus\.home #nppanel\.qn-glass\{border-radius:(\d+px)\}/.exec(sheet)[1], menuRound);
-  // the white sunken well is drawn off home only, so it never covers the glass
+test("home's project list stands on the page with no box, and the new tab keeps its white well", () => {
+  // the pill's list's rows without its glass (m1336): no box, fill, shadow or edge
+  const markup = html.slice(html.indexOf('<nav id="homelist"'), html.indexOf("</nav>", html.indexOf('<nav id="homelist"')));
+  assert.ok(markup.includes('<div id="homerows"></div>'));
+  assert.doesNotMatch(markup, /qn-glass/);
+  for (const selector of ["#homelistbox", "#homelist .homerow"]) {
+    const r = rule(sheet, selector);
+    assert.ok([undefined, "none"].includes(decl(r, "background")), selector + " has a fill");
+    assert.ok([undefined, "none"].includes(decl(r, "border")), selector + " has an edge");
+    assert.equal(decl(r, "box-shadow"), undefined, selector + " has a shadow");
+  }
+  assert.doesNotMatch(html, /getElementById\("(nppanel|npstart)"\)\?\.classList\.toggle\("qn-glass"/, "the new tab's picker takes no glass");
+  // the white sunken well is the new tab's
   assert.match(sheet, /body:not\(\.home\) #nppanel\{background:#FFFFFF; border-radius:4px;\s*box-shadow:inset 0 1px 6px rgba\(60,45,20,\.14\), inset 0 0 0 1px rgba\(60,45,20,\.08\)\}/);
   assert.doesNotMatch(/\n  #nppanel\{([^}]*)\}/.exec(sheet)[1], /background|box-shadow|border-radius/);
 });
@@ -650,7 +748,7 @@ test("home's project list stands in the pill's list's glass, and the new tab kee
 test("glass stands about 10px from glass, and every project name the same distance from the next", () => {
   const sug = rule(sheet, "body.focus #tabbar .psug"), bar = rule(sheet, "body.focus #tabbar");
   assert.equal(decl(sug, "padding"), "0 14px", "the faint names have the pill's room, the whole box clickable");
-  assert.equal(decl(rule(sheet, "body.focus #projpill, body.focus #npstart.qn-glass"), "padding"), "0 14px");
+  assert.equal(decl(rule(sheet, "body.focus #projpill"), "padding"), "0 14px");
   assert.equal(decl(sug, "margin"), "0");
   assert.equal(decl(sug, "text-align"), "left", "a word centred in a wider box draws a wider gap");
   assert.equal(decl(sug, "border"), "none"); assert.equal(decl(sug, "background"), "none", "no glass on a faint name");
