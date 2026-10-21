@@ -360,22 +360,23 @@ test("a project's own window shows its name on a pill that opens nothing, and no
   assert.deepEqual(f.suggestions(), []); f.open(); assert.equal(f.isOpen(), false);
 });
 
-test("the faint names: unread and active in the last 7 days, newest first; the project just left always leads; at most 4", () => {
+test("the faint names: one order, unread first, then by most recent activity; the project just left moves to the front; at most 4", () => {
   const f = fixture(), s = (left, active = "marlow") => [...f.context.suggestedProjects(f.state, active, left)];
-  // moonbase (unread, 2 days); alder-workshop is unread but 10 days old; wayside has nothing unread
-  assert.deepEqual(s(null), ["moonbase"]);
-  assert.deepEqual(f.suggestions(), ["moonbase"]);
-  // the project just left leads, whatever it holds
-  assert.deepEqual(s("wayside"), ["wayside", "moonbase"]);
-  assert.deepEqual(s("moonbase"), ["moonbase"]);
+  // the order: marlow (unread, an hour), moonbase (unread, 2 days), alder-workshop (unread, 10 days),
+  // then facilitator (a minute) and wayside (3 days), which hold nothing unread
+  assert.deepEqual(s(null), ["moonbase", "alder-workshop", "facilitator", "wayside"]);
+  assert.deepEqual(f.suggestions(), ["moonbase", "alder-workshop", "facilitator", "wayside"]);
+  // the project just left moves to the front, whatever it holds, and the rest keep their order
+  assert.deepEqual(s("wayside"), ["wayside", "moonbase", "alder-workshop", "facilitator"]);
+  assert.deepEqual(s("facilitator"), ["facilitator", "moonbase", "alder-workshop", "wayside"]);
+  assert.deepEqual(s("moonbase"), ["moonbase", "alder-workshop", "facilitator", "wayside"]);
   // never the open project, and never a closed one
-  assert.deepEqual(s("marlow", "moonbase"), ["marlow"]);
-  // with moonbase closed nothing unread is recent, so the few: most unread, then most recent
+  assert.deepEqual(s("marlow", "moonbase"), ["marlow", "alder-workshop", "facilitator", "wayside"]);
   f.state.tabs.closed = ["moonbase"];
   assert.deepEqual(s(null), ["alder-workshop", "facilitator", "wayside"]);
   assert.deepEqual(s("moonbase"), ["alder-workshop", "facilitator", "wayside"], "a closed project led, because it was just left");
   f.state.tabs.closed = [];
-  // never more than 4, the newest first
+  // never more than 4, the newest unread first
   const now = Date.now() / 1000;
   for (const [i, ow] of ["p1", "p2", "p3", "p4", "p5"].entries())
     f.state.boxes.push({ id: ow + "c", owner: ow, ball: "you", replies: 1, agentTs: now - 100 * (i + 1), ts: 0 });
@@ -383,21 +384,24 @@ test("the faint names: unread and active in the last 7 days, newest first; the p
   assert.deepEqual(s(null), ["p1", "p2", "p3", "p4"]);
 });
 
-test("with nothing unread lately, the faint names are the 3 with the most unread, then the most recently active", () => {
+test("unread outranks recent activity, how many unread does not count, and a project never active comes last if there is room", () => {
   const now = Date.now() / 1000, day = 86400;
   const c = (id, owner, replies, at) => ({ id, owner, ball: "you", replies, agentTs: at, ts: 0 });
   const state = { projects: [], tabs: { order: ["a", "b", "c", "d", "e"], closed: [] }, boxes: [
     c("a1", "a", 0, now - day), c("b1", "b", 1, now - 20 * day), c("b2", "b", 1, now - 21 * day),
     c("c1", "c", 1, now - 9 * day), c("d1", "d", 0, now - 2 * day), c("e1", "e", 0, 0) ] };
   const f = fixture({ state, activeOwner: "a" });
-  // b has two unread, c one, then d is the most recent; e was never active
-  assert.deepEqual([...f.context.suggestedProjects(state, "a", null)], ["b", "c", "d"]);
-  assert.deepEqual([...f.context.suggestedProjects(state, "a", "e")], ["e", "b", "c", "d"]);
+  // c and b hold unread replies, c the more recent though b holds two; then d; e was never active
+  assert.deepEqual([...f.context.suggestedProjects(state, "a", null)], ["c", "b", "d", "e"]);
+  assert.deepEqual([...f.context.suggestedProjects(state, "a", "e")], ["e", "c", "b", "d"]);
+  // reading c's reply moves it among the read ones, by its activity
+  f.get("seenReplies.c1 = 1");
+  assert.deepEqual([...f.context.suggestedProjects(state, "a", null)], ["b", "d", "c", "e"]);
 });
 
 test("a click on a faint name switches to it: it moves into the pill and the project left appears first beside it", () => {
   const f = fixture();
-  assert.deepEqual(f.suggestions(), ["moonbase"]);
+  assert.deepEqual(f.suggestions(), ["moonbase", "alder-workshop", "facilitator", "wayside"]);
   f.ids.tabbar.children[0].fire("click");
   assert.equal(f.context.activeOwner, "moonbase"); assert.equal(f.pill(), "moonbase");
   assert.equal(f.suggestions()[0], "marlow"); assert.equal(f.store.get("projleft"), "marlow");
@@ -405,6 +409,31 @@ test("a click on a faint name switches to it: it moves into the pill and the pro
   // and back again
   f.ids.tabbar.children[0].fire("click");
   assert.equal(f.pill(), "marlow"); assert.equal(f.suggestions()[0], "moonbase");
+});
+
+test("moving between two projects swaps only the open one and the one just left; the other names stay the same", () => {
+  const f = fixture();
+  // from marlow to facilitator, the third name, and back, twice
+  f.ids.tabbar.children[2].fire("click");
+  assert.equal(f.pill(), "facilitator");
+  assert.deepEqual(f.suggestions(), ["marlow", "moonbase", "alder-workshop", "wayside"]);
+  f.ids.tabbar.children[0].fire("click");
+  assert.equal(f.pill(), "marlow");
+  assert.deepEqual(f.suggestions(), ["facilitator", "moonbase", "alder-workshop", "wayside"]);
+  f.ids.tabbar.children[0].fire("click");
+  assert.deepEqual(f.suggestions(), ["marlow", "moonbase", "alder-workshop", "wayside"]);
+  // and for every pair of projects, with more of them than the bar shows
+  const now = Date.now() / 1000;
+  for (const [i, ow] of ["p1", "p2", "p3"].entries())
+    f.state.boxes.push({ id: ow + "c", owner: ow, ball: "you", replies: 0, ts: now - 7200 * (i + 1), agentTs: 0 });
+  f.state.tabs.order.push("p1", "p2", "p3");
+  const all = f.state.tabs.order, s = (active, left) => [...f.context.suggestedProjects(f.state, active, left)];
+  for (const a of all) for (const b of all) {
+    if (a === b) continue;
+    const onA = s(a, b), onB = s(b, a);
+    assert.equal(onA[0], b); assert.equal(onB[0], a);
+    assert.deepEqual(onA.slice(1), onB.slice(1), a + " and " + b);
+  }
 });
 
 test("the pill opens the list under itself and shuts it; Escape, a press outside and a choice shut it too", () => {

@@ -4767,30 +4767,27 @@ function renderProjList(st, owners){
     kill.title = alone ? "the last project stays open" : "close project";
   }
 }
-// the faint names: open projects holding a reply not yet read that were active
-// in the last SUGGEST_DAYS days, the most recent first. when there are none,
-// the SUGGEST_FEW with the most unread replies and then the most recent
-// activity. the project just left always leads, and never more than
-// SUGGEST_MAX show. a project's activity is the newest message on any of its
-// cards, the reader's or an agent's
-const SUGGEST_MAX = 4, SUGGEST_DAYS = 7, SUGGEST_FEW = 3;
-function laneUnreadCount(st, ow){
-  return st.boxes.filter(b => b.owner === ow && b.id !== "q" && cardState(b) === "yours" &&
-    (seenReplies[b.id] || 0) < (b.replies || 0)).length;
-}
+// the faint names: every open project in one order, those holding a reply not
+// yet read first and then the rest, each group by its most recent activity,
+// the newest first. the bar shows that order without the open project, with
+// the project just left moved to the front, and never more than SUGGEST_MAX.
+// so a switch only swaps the open project and the one just left, and the
+// other names stay as they were. a project's activity is the newest message
+// on any of its cards, the reader's or an agent's; a project with none stands
+// last, in the board's order, and shows if there is room. unread is the same
+// test the names' bold uses (laneUnread)
+const SUGGEST_MAX = 4;
 function laneActiveAt(st, ow){
   let at = 0;
   for (const b of st.boxes) if (b.owner === ow && b.id !== "q") at = Math.max(at, b.ts || 0, b.agentTs || 0);
   return at;
 }
-function suggestedProjects(st, active, left, now = Date.now() / 1000){
-  const lanes = rowsOf(st).filter(ow => ow !== active)
-    .map(ow => ({ ow, unread: laneUnreadCount(st, ow), at: laneActiveAt(st, ow) }));
-  let picked = lanes.filter(p => p.unread && now - p.at <= SUGGEST_DAYS * 86400).sort((a, b) => b.at - a.at);
-  if (!picked.length)
-    picked = lanes.filter(p => p.at).sort((a, b) => b.unread - a.unread || b.at - a.at).slice(0, SUGGEST_FEW);
-  let out = picked.map(p => p.ow);
-  if (left && lanes.some(p => p.ow === left)) out = [left, ...out.filter(ow => ow !== left)];
+function suggestedProjects(st, active, left){
+  const ranked = rowsOf(st)
+    .map(ow => ({ ow, unread: laneUnread(st, ow), at: laneActiveAt(st, ow) }))
+    .sort((a, b) => b.unread - a.unread || b.at - a.at)
+    .map(p => p.ow).filter(ow => ow !== active);
+  const out = left && ranked.includes(left) ? [left, ...ranked.filter(ow => ow !== left)] : ranked;
   return out.slice(0, SUGGEST_MAX);
 }
 function renderSuggestions(st){
