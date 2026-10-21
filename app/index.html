@@ -8188,8 +8188,9 @@ if (MB.el){
   MB.shade.addEventListener("click", () => magicSmall());
   // a press on the cross or the green button leaves the focus where it is: a
   // button the mouse goes down on takes the focus, which would hand the box
-  // the keys (focusin, below) as it is put away or expanded
-  for (const b of [MB.el.querySelector(".mbclose"), MB.grow]) b.addEventListener("mousedown", e => e.preventDefault());
+  // the keys (focusin, below) as it is put away or expanded. so does one on
+  // the dimmed board, which would take them from a page in the box
+  for (const b of [MB.el.querySelector(".mbclose"), MB.grow, MB.shade]) b.addEventListener("mousedown", e => e.preventDefault());
 }
 // the card the box belongs to, or null: the card on screen, on this tab, not
 // done, with an open box. the classes are read rather than the flags, since the
@@ -8579,10 +8580,12 @@ function magicMoveStop(){
 // owner works in it. it grows out of its place beside the card (magicMove)
 // as the shade fades in, risen and in its held look, and the stage stands
 // over the bar until the shade has faded out again (body.mbup). from: what
-// held the focus as it was asked for, which has it again as the box goes back
+// held the focus as it was asked for, which has it again as the box goes back,
+// and whether the box held the keys then (bigHeld), which it does again
 function magicBig(from){
   if (!MB.el || !MB.el.classList.contains("on") || MB.view.big) return;
   MB.bigFrom = from && from !== document.body ? from : null;
+  MB.bigHeld = MB.el.classList.contains("held");
   const was = magicMoveStop();
   magicRiseStop(); magicRiseSet(1);
   MB.el.classList.remove("rising");
@@ -8609,15 +8612,22 @@ function magicSmall(){
   magicMove(was);
   if (!MB.move) MB.view.solo(null);
 }
-// the focus back to what held it as the box was expanded, the typing box with
-// its caret and selection as they were, unless the owner has put it somewhere
-// else on the board meanwhile
+// the keys back to where they were as the box was expanded. a box that held
+// them then keeps them, wherever in it they are, unless the owner has given
+// them back to the card meanwhile. one that did not gives them back: the focus
+// to what held it, the typing box with its caret and selection as they were,
+// unless the owner has put it somewhere else on the board meanwhile, and the
+// box lets go of them if a click in it or the keys handed them over since
 function magicFocusBack(){
-  const back = MB.bigFrom, now = document.activeElement;
-  MB.bigFrom = null;
-  if (!back || !back.isConnected || now === back || (now && now !== document.body && !MB.el.contains(now))) return;
-  if (MB.came && MB.came.ta === back && keysBack(MB.came)) return;
-  back.focus({ preventScroll: true });
+  const back = MB.bigFrom, held = MB.bigHeld, now = document.activeElement;
+  MB.bigFrom = null; MB.bigHeld = false;
+  if (held) return;
+  if (back && back.isConnected && now !== back && (!now || now === document.body || MB.el.contains(now)) &&
+    !(MB.came && MB.came.ta === back && keysBack(MB.came))) back.focus({ preventScroll: true });
+  if (!MB.el.classList.contains("held")) return;
+  const live = document.activeElement;
+  magicHold(false);
+  if (live && MB.el.contains(live)) live.blur();
 }
 // Escape puts the expanded box back, typed on the board or in its page
 // (hooks.escape), unless something over it holds the keys: the project list,
@@ -8768,6 +8778,9 @@ addEventListener("pointerdown", e => {
   // and one on the box's cross or green button leaves the box held or not as
   // it was: the card keeps its look while the box sinks away or expands
   if (into && e.target.closest?.(".mbclose, .mbgrow")) return;
+  // so does one on the dimmed board round the expanded box, which puts it
+  // back held or not as it was expanded (magicFocusBack)
+  if (e.target.closest?.("#mbshade")) return;
   if (into) magicRemember();
   magicHold(into);
 }, true);
