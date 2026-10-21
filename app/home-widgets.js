@@ -33,7 +33,9 @@
 //            the line the day the board was first started. The line starts
 //            on the day use began this year (pictureStart), its total still
 //            the one from January 1, and the install mark is left out when
-//            that day comes before the start. The download button saves the
+//            that day comes before the start, or less than a week before the
+//            last day, where it would stand at the right edge with nothing
+//            after it to show (MARK_AFTER). The download button saves the
 //            chart on show in the Editorial look, named by pictureName. The
 //            Mac saves it as a download, as does a phone whose browser
 //            cannot share a file; then the overlay shows it
@@ -428,6 +430,10 @@
   // along the floor still run through it, and shorter quiet runs are drawn as
   // they are
   const GAP_DAYS = 7;
+  // the day the board was first started is marked once this many days of the
+  // line follow it; before that the mark would stand at the right edge with
+  // nothing after it to show
+  const MARK_AFTER = 7;
   // the days from `from` (January 1 on the screen, pictureStart in a
   // picture), each day's total and the board's 7-day average, and for each
   // day the first day and the number of days its average was taken over. The
@@ -470,8 +476,9 @@
     });
     const months = [];
     shown.forEach((d, i) => { const p = parts(d.date); if (p.d === 1) months.push({ i, label: MONTHS[p.m - 1] }); });
+    const at = installed ? shown.findIndex(d => d.date === installed) : -1;
     return { shown, vals, avg, since, span, gap, runs, months, n,
-             install: installed ? shown.findIndex(d => d.date === installed) : -1,
+             install: at >= 0 && n - 1 - at >= MARK_AFTER ? at : -1,
              total: thisYear(days), first: n ? shown[0].date : null, last: n ? shown[n - 1].date : null };
   }
   // the days of each run between gaps, for drawing a line or band run by run
@@ -2309,7 +2316,7 @@
   window.TokenWidgets = {
     PALETTE, LINE, AVG_LINE, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
     compact, longDay, scale, rolling, niceAxis, geometry, yearWeeks, totalLine, yearStart, fetchDays,
-    useStart, pictureStart, MIN_SILENCE, MIN_SHOWN, GAP_DAYS, seriesOf, spreadOf,
+    useStart, pictureStart, MIN_SILENCE, MIN_SHOWN, GAP_DAYS, MARK_AFTER, seriesOf, spreadOf,
     fullness, calmOf, FULL_DAYS, FULL_EVEN, screenMarks, pictureMarks,
     SHAPES, SHAPE_OF, PIC_SCALE, DICE, LOOK_NAMES, SHOW_NAMES, LOOK, paintLook, pictureCanvas,
     pictureName, pictureCount, PICTURES_KEY, picture, overlay, nextLook, sharePicture, ROLL_MS, SHOT_TITLES,

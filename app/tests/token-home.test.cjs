@@ -1208,7 +1208,7 @@ test("Poster puts the year's total over the title, so it never reads as a day's,
   assert.ok(paintOf(W, "line", 4, huge).texts().includes("1,000B"));
 });
 
-test("the picture's line marks the install day, and leaves the mark out when that day is not among the days shown", () => {
+test("the picture's line marks the install day, and leaves the mark out when that day is not among the days shown or not a week old", () => {
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371);
   const inside = days.at(-100).date;
@@ -1223,6 +1223,15 @@ test("the picture's line marks the install day, and leaves the mark out when tha
   assert.equal(marks(days[3].date), false, "before the days shown (the days fetched ahead of them are not shown)");
   assert.equal(marks("2027-01-01"), false, "after the last day");
   assert.equal(marks(null), false, "a board that has not said");
+  // a board first started less than a week before the last day is not marked
+  // yet: the mark would stand at the right edge with nothing after it
+  assert.equal(W.MARK_AFTER, 7);
+  assert.equal(marks(days.at(-1).date), false, "started today");
+  assert.equal(marks(days.at(-7).date), false, "six days ago");
+  assert.equal(marks(days.at(-8).date), true, "a week ago, a week of the line after it");
+  assert.equal(W.seriesOf(days, W.pictureStart(days), days.at(-5).date).install, -1);
+  for (const pick of [2, 4]) assert.equal(paintOf(W, "line", pick, days, days.at(-3).date).calls.some(c => c[1] === "Facilitator installed"), false,
+                                         `${W.DICE.line[pick].join(" ")} leaves it out too`);
   for (const pick of [0, 1, 2]) assert.equal(paintOf(W, "heatmap", pick, days, inside).calls.some(c => c[1] === "Facilitator installed"), false, "never on the heatmap");
 });
 
