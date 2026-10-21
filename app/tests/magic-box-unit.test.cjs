@@ -1004,8 +1004,12 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   const borders = style.match(/\n  (?::is\(#magicbox, #pipebox\)|#magicbox)[^{]*\{[^}]*\}/g).join("").match(/border(?!-radius)[\w-]*:[^;}]*/g);
   assert.deepEqual(borders, ["border:var(--edge) solid var(--line)",
     "border-color:color-mix(in srgb, var(--line) calc(var(--rise) * 100%), transparent)"]);
-  // the bar is the card's white with no line under it, the cross's seat its white
-  assert.match(style, /\n  #magicbox \.mbbar\{background:var\(--card\)\}/);
+  // the bar is the card's white, the cross's seat its white, with the card bar's
+  // own line along its foot (.topbar's inset shadow, word for word), and the
+  // sheet's line, which hangs under the bar, left off
+  const cardLine = style.match(/\n  body\.focus \.box\.sel \.topbar\{[^}]*?(box-shadow:[^;}]*)/)[1];
+  assert.equal(cardLine, "box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)");
+  assert.match(style, new RegExp("\\n  #magicbox \\.mbbar\\{background:var\\(--card\\); " + cardLine.replace(/[()*-]/g, "\\$&") + "\\}"));
   assert.match(style, /\n  #magicbox \.mbbar::after\{display:none\}/);
   assert.ok(!/#magicbox \.mbclose/.test(style), "the board leaves the cross's red circle to the sheet");
   // its words keep the card answer's inset off the sides, and --mb-lead under the bar
@@ -1043,7 +1047,12 @@ test("the Mac's box has the card's face, edge and shadow; the phone's has no box
   const own = [...sty.matchAll(/([^{}]*)\{([^}]*)\}/g)].filter(m => /box-shadow|border|background/.test(m[2]) && /^\s*(body\.lowered )?#mbface\s*$/.test(m[1]));
   assert.deepEqual(own.map(m => m[1].trim()), ["#mbface", "body.lowered #mbface"], "the phone dresses its box in these two rules");
   assert.ok((own[0][2].match(/border(?!-radius)[\w-]*:/g) || []).length === 1, "one edge");
-  assert.match(sty, /\n  #mbface \.mbbar::after\{display:none\}/, "no line under the bar");
+  // its bar wears the phone card bar's own line, turned to the bar's top since
+  // the bar is at the box's foot, and the sheet's line stays off
+  const phoneLine = sty.match(/\n  \.topbar\{[^}]*?box-shadow:inset 0 calc\(-1 \* (var\(--edge-drawn\))\) 0 (var\(--line\))/);
+  assert.ok(phoneLine, "the phone card bar's line is not where it was");
+  assert.ok(sty.includes("\n  #mbface .mbbar{box-shadow:inset 0 " + phoneLine[1] + " 0 " + phoneLine[2] + "}"), "the bar has not the card bar's line along its top");
+  assert.match(sty, /\n  #mbface \.mbbar::after\{display:none\}/, "the sheet's line is back under the bar");
   // its words keep the card answer's inset off its sides, as the board's do. its bar
   // is at its foot, so the box is the board's turned over and its words are not: the
   // far edge's white (the air and the inset) is over them, the lead under them, and

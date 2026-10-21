@@ -1587,7 +1587,7 @@
      on the board it has a box (the phone's drawer wears none): the card's own
      white face, edge line and shadow, with corners twice the card's 7px (--mb-round, the
      sheet's 14px), with a white bar at its top
-     and no line under it, and its words kept the card answer's inset off its
+     and the card bar's line under it, and its words kept the card answer's inset off its
      sides. the shadow says which of the box and the card is being
      worked in: the one held wears the card's own shadow (--shade-raised, above)
      and the other the faint one (--shade-lighter) at 60% (--shade-unselected),
@@ -1643,7 +1643,13 @@
   body.focus #mbline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
   body.lowered #mbline.on > g{filter:none}
   body.focus:is(.home, .editmode) #mbline.on{display:none}
-  #magicbox .mbbar{background:var(--card)}
+  /* the line under its bar is the card bar's own (.topbar, above): an inset
+     shadow of the edge's drawn width in --line along the bar's foot, inside
+     the bar, so it takes nothing from the bar's height and moves nothing in
+     the box, and never lies over what the box holds, a page or a zoomed
+     picture. the sheet's line, which hangs under the bar, stays off. the box
+     fades as a whole, faint or rising, so the line fades with it */
+  #magicbox .mbbar{background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
   #magicbox .mbbar::after{display:none}
   /* no scrollbar anywhere in the box, its words or a page's frame, which has its
      own rule (MagicBox.pageDoc); the content still scrolls, the words never

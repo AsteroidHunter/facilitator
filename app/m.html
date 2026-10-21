@@ -1246,7 +1246,7 @@
      one the board's box wears while its card is the one being worked in, which
      on the phone is always (the phone has no raised box), so the board's
      deeper one, and the card's own deeper one beside a box, are never worn here.
-     its bar is white with no line over it, and its words keep the card answer's
+     its bar is white with the card bar's line over it, and its words keep the card answer's
      inset off its sides. a lowered card (body.lowered main) leaves its box level
      too. no line runs between the box and the card */
   #mbface{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
@@ -1254,6 +1254,11 @@
   body.lowered #mbface{box-shadow:none}
   #mbface .mbbar::after{display:none}
   #mbface .mbbar{border-radius:0 0 calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge))}
+  /* the line between its bar and what it holds is the card bar's own (.topbar,
+     above), as on the board: an inset shadow of the edge's drawn width in
+     --line inside the bar, along its top since the bar is at the box's foot,
+     taking nothing from the bar's height and never over what the box holds */
+  #mbface .mbbar{box-shadow:inset 0 var(--edge-drawn) 0 var(--line)}
   /* the cross stands half as far again from the box's side and foot as the
      board's does: the whole of its offset from the box's outer edge (--mb-gap
      and the edge line) times 1.5, i.e. --mb-seat from the inside of the line.
