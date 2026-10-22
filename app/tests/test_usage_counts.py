@@ -1477,6 +1477,23 @@ class Server(unittest.TestCase):
         s._settings["values"]["usagecounts"] = "1"
         self.assertTrue(s._usage_sharing())
 
+    def test_a_day_that_ended_while_off_is_not_sent_when_the_switch_goes_on_before_the_next_look(self):
+        # the board was stopped, or the Mac asleep, over midnight with the switch
+        # off, and it is turned on before the first look after
+        s = self.server
+        settings = mock.patch.object(s, "SETTINGS_PATH", self.dir / "settings.json")
+        settings.start()
+        self.addCleanup(settings.stop)
+        (self.dir / "transcript.jsonl").write_text(json.dumps({"ts": at(DAY, 10, 0), "kind": "user", "box": "7"}) + "\n")
+        (self.dir / "usage-counts.json").write_text(json.dumps({"through": BEFORE.isoformat()}))
+        net = self.sender_in_temp()
+        s._usage_sender.today = lambda: AFTER
+        s._settings["values"]["usagecounts"] = "0"
+        status, _ = s._post_settings(s._query({"query_string": b""}), json.dumps({"usagecounts": "1"}))
+        self.assertEqual(status, 200)
+        self.assertTrue(s._usage_sender.look())
+        self.assertEqual(net.days, [], "a day that ended while the switch was off was sent")
+
     def test_the_board_starts_the_sender_on_a_thread_of_its_own_at_boot(self):
         s = self.server
         started = []

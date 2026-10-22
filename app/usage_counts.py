@@ -114,9 +114,9 @@ unlink_email and send_feedback run on a request (POST /profile, POST
 /usage/email and POST /feedback in server.py), and each sends at most one
 message; POST /profile asks link_person not to wait, so its identify goes on
 a thread of its own (identify_soon) and the save never waits on PostHog.
-phone_opened runs on POST /clientlog and sends nothing. No log line ever holds
-an email address, any other answer, a feedback message, an install id or the
-token.
+phone_opened runs on POST /clientlog and switched_on on POST /settings, and
+neither sends anything. No log line ever holds an email address, any other
+answer, a feedback message, an install id or the token.
 
 For tests, FACILITATOR_POSTHOG_ENDPOINT points every send at a local stub. It
 is honoured only for an http address on this Mac (127.0.0.1 or localhost), so
@@ -867,6 +867,17 @@ class Sender:
             self.phone.note(time.time() if now is None else now)
         except OSError as e:
             self.log("usage", what="phone", outcome="unsaved", reason=e.strerror or type(e).__name__)
+
+    def switched_on(self) -> None:
+        """The switch was just turned on: the days through yesterday are marked
+        dealt with, as a look while it was off would have marked them, so a day
+        that ended while it was off is never sent. Sends nothing, and never
+        moves the marker back."""
+        yesterday = self.today() - dt.timedelta(days=1)
+        if self.through is None:
+            self.through = self._read_marker()
+        if self.through is None or self.through < yesterday:
+            self._write_marker(yesterday)
 
     def look(self) -> bool:
         """One look: a saved email PostHog has not been told goes first, then

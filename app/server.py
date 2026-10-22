@@ -8708,6 +8708,11 @@ def _post_settings(q: Query, text: str):
             return 400, {"error": "too many settings"}
         new = {**store, "rev": store["rev"] + 1, "values": values}
         _save_settings(new)
+        # the usage counts switch turned on: the days that ended while it was
+        # off are marked dealt with now, before a look can read it as on
+        if (store["values"].get(USAGE_SETTING) == "0" and values.get(USAGE_SETTING) != "0"
+                and _usage_sender is not None):
+            _usage_sender.switched_on()
         return 200, {"ok": True, **({"seeded": True} if seed else {}), **_settings_answer(new)}
 
 
