@@ -925,6 +925,41 @@
   .qn-glass, #tikhead .tik-page::after{background-color:rgba(255,255,255,.94)}
 }
 
+/* ---- the hover labels (hover-labels.js) ----------------------------------- */
+/* the one label a Mac page shows for the control under the pointer, in place
+   of Chrome's tooltip: a small chip of the glass above (.qn-glass, white at
+   .86 over a 16px blur, with the bar's one line top rim) with a pointer at the
+   control, or under it pointing up where there is no room above. the chip
+   and its pointer are cut from one path, the glass's clip-path, which the
+   script sets, and the hairline ring and the shadow are two svgs drawn along
+   that path, the shadow masked to fall outside it. 11.5px type in Berkeley
+   Mono where it is installed and the board's IBM Plex Mono where it is not,
+   the name in the ink and its key in the sub ink. hidden, it stands 3px short
+   of its place (--from) and rises into it as it fades in, over --in: 160ms,
+   or at once when it follows another label. it fades out over 100ms, and
+   .hl-still holds it still while the script fills it and moves it */
+.hl-tip{position:fixed; left:0; top:0; z-index:2147483646; box-sizing:border-box;
+  white-space:nowrap; pointer-events:none; visibility:hidden;
+  font:400 11.5px/15px "Berkeley Mono", "TX-02", "IBM Plex Mono", monospace;
+  color:var(--ink); font-variant-ligatures:none;
+  opacity:0; transform:var(--from, none);
+  transition:opacity .1s ease-in, transform .1s ease-in, visibility 0s .1s}
+.hl-tip.on{visibility:visible; opacity:1; transform:none;
+  transition:opacity var(--in, .16s) ease-out, transform var(--in, .16s) cubic-bezier(.2,.9,.25,1)}
+.hl-tip.hl-still{transition:none}
+.hl-tip.above{--from:translateY(3px)}
+.hl-tip.below{--from:translateY(-3px)}
+.hl-tip .hl-key{color:var(--sub)}
+.hl-tip .hl-glass{position:absolute; inset:0; --qn-tint:.86; --qn-blur:16px; --qn-edge:2; border-radius:0;
+  box-shadow:none; background-image:var(--qn-light), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,0) 9px)}
+.hl-tip.below .hl-glass{background-image:var(--qn-light),
+  linear-gradient(rgba(255,255,255,0) 6px, rgba(255,255,255,.55) 6px, rgba(255,255,255,0) 15px)}
+.hl-tip .hl-face{position:absolute; left:0; top:0; padding:5px 10px}
+.hl-tip svg{position:absolute; left:0; top:0; overflow:visible}
+@media (prefers-reduced-motion: reduce){
+  .hl-tip.above, .hl-tip.below{--from:none}
+}
+
 /* ---- the settings page --------------------------------------------------- */
 /* the board's own choices, on one page drawn in the quick note's glass, so the
    board is seen blurred through it. the desktop board seats it in a veil of its

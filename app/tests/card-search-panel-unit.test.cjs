@@ -673,7 +673,7 @@ test("the magnifier is a glass circle in the bar just left of the speaker, drawn
   const order = ["homeico", "projpill", "boardname", "searchbtn", "chimebtn", "feedbackbtn", "setbtn"].map(id => BAR.indexOf('id="' + id + '"'));
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), "the bar's order is not house, pill, magnifier, speaker, bug, squid");
   const tag = BAR.slice(order[3], BAR.indexOf("</button>", order[3]));
-  assert.match(tag, /^id="searchbtn" class="qn-glass" type="button" title="Search cards" aria-label="Search cards" aria-haspopup="dialog" aria-expanded="false"/);
+  assert.match(tag, /^id="searchbtn" class="qn-glass" type="button" aria-label="Search cards" data-tip="Search Cards" aria-haspopup="dialog" aria-expanded="false"/);
   // the speaker's and the bug's own drawing: 15px on the 24 unit box, 2 units of stroke, round ends
   const drawn = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
   assert.ok(tag.includes(drawn + '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg>'), "the magnifier is not Lucide's, drawn as the bar draws");

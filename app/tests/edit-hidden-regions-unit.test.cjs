@@ -133,7 +133,9 @@ test("a visible box shows all eight handles and its cross", () => {
   t.frame();
   for (const h of handles) assert.equal(h.hd.style.display, "", "each handle must show for a visible box");
   assert.equal(kill.kill.style.display, "", "the cross must show for a visible box");
-  assert.equal(kill.kill.title, "hide this box on this tab");
+  // the cross is named where it is built (its aria-label and hover label); a
+  // frame writes no tooltip on it
+  assert.equal(kill.kill.title, "");
   assert.equal(t.rafCount(), 1, "trackHandles must re-arm the frame loop");
 });
 

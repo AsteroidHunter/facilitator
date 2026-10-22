@@ -4062,16 +4062,16 @@
 
 <div class="bar">
   <span id="tabrow">
-  <button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
-  <button id="projpill" class="qn-glass" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><span id="projchev" role="button" tabindex="-1" aria-label="Choose a project" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></button>
+  <button id="homeico" class="qn-glass" type="button" aria-label="Home" data-tip="Home (Cmd + 0)" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>
+  <button id="projpill" class="qn-glass" type="button" hidden data-tip="Projects" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu"><span id="projname"></span><span id="projchev" role="button" tabindex="-1" aria-label="Choose a project" aria-haspopup="true" aria-expanded="false" aria-controls="projmenu" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></button>
   <span id="tabbar"></span>
   </span>
   <span id="projnote"></span>
   <span class="name" id="boardname">facilitator</span>
-  <button id="searchbtn" class="qn-glass" type="button" title="Search cards" aria-label="Search cards" aria-haspopup="dialog" aria-expanded="false" aria-controls="searchpanel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg></button>
-  <button id="chimebtn" class="qn-glass" type="button" title="Reply chime on. Click to mute." aria-label="Reply chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
-  <button id="feedbackbtn" class="qn-glass" type="button" title="Share feedback" aria-label="Share feedback" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></button>
-  <button id="setbtn" class="qn-glass" type="button" title="settings" aria-label="settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
+  <button id="searchbtn" class="qn-glass" type="button" aria-label="Search cards" data-tip="Search Cards" aria-haspopup="dialog" aria-expanded="false" aria-controls="searchpanel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg></button>
+  <button id="chimebtn" class="qn-glass" type="button" aria-label="Reply chime" data-tip="Mute Chime" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button>
+  <button id="feedbackbtn" class="qn-glass" type="button" aria-label="Share feedback" data-tip="Share Feedback" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></button>
+  <button id="setbtn" class="qn-glass" type="button" aria-label="settings" data-tip="Settings" aria-haspopup="dialog" aria-expanded="false"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button>
 </div>
 <!-- the pill's list: every open project, which renderTabs draws into
      #projlist, then the folder chooser, over the shade that dims the board -->
@@ -4185,25 +4185,25 @@
   <section id="qchat">
     <div class="paneh">quick chat</div>
     <div id="qmsgs"></div>
-    <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question"></textarea><button id="qsend" title="send">↑</button></div>
+    <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question"></textarea><button id="qsend" aria-label="send" data-tip="Send (Enter)">↑</button></div>
   </section>
 </div>
 
 <div id="rightcol">
   <div id="goalbox" class="trio">
     <span class="trio-text" id="goaltext"></span>
-    <button class="trio-edit" id="goaledit" title="edit goal">✎</button>
+    <button class="trio-edit" id="goaledit" aria-label="edit goal" data-tip="Edit Goal">✎</button>
   </div>
   <div id="taskbox" class="trio">
     <span class="trio-text" id="tasktext"></span>
-    <button class="trio-edit" id="taskstatus" title="cycle status">◐</button>
-    <button class="trio-edit" id="taskedit" title="edit task">✎</button>
+    <button class="trio-edit" id="taskstatus" aria-label="cycle status" data-tip="Cycle Status">◐</button>
+    <button class="trio-edit" id="taskedit" aria-label="edit task" data-tip="Edit Task">✎</button>
   </div>
   <div id="togglstub">toggl clone,<br>but better</div>
 </div>
 
 <div id="chips"></div>
-<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" title="Doing and Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" title="Deferred and Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div><div id="tikfoot"><button id="tiknew" type="button" title="New card" aria-label="New card"></button></div></div>
+<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" data-tip="Doing And Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" data-tip="Deferred And Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div><div id="tikfoot"><button id="tiknew" type="button" aria-label="New card" data-tip="New Card (Cmd + T)"></button></div></div>
 <div id="magic1">magic box 1</div>
 <div id="magic2">magic box 2</div>
 <div id="magic3">magic box 3</div>
@@ -4212,9 +4212,9 @@
      names it and is off the page entirely on every other tab -->
 
 <div id="navpad">
-  <button id="nup" title="previous project row">˄</button>
-  <div><button id="nleft" title="previous card">‹</button><button id="nright" title="next card">›</button></div>
-  <button id="ndown" title="next project row">˅</button>
+  <button id="nup" aria-label="previous project row" data-tip="Previous Row">˄</button>
+  <div><button id="nleft" aria-label="previous card" data-tip="Previous Card (Left)">‹</button><button id="nright" aria-label="next card" data-tip="Next Card (Right)">›</button></div>
+  <button id="ndown" aria-label="next project row" data-tip="Next Row">˅</button>
 </div>
 
 <!-- the card's magic box: what the card's agent put beside it. not a region:
@@ -4225,8 +4225,8 @@
 <div id="mbshade" aria-hidden="true"></div>
 <section id="magicbox" class="magicbox">
   <div class="mbbar">
-    <button type="button" class="mbgrow" aria-label="Expand the magic box"></button>
-    <button type="button" class="mbclose" aria-label="Close the magic box"></button>
+    <button type="button" class="mbgrow" aria-label="Expand the magic box" data-tip="Expand Box"></button>
+    <button type="button" class="mbclose" aria-label="Close the magic box" data-tip="Close Box"></button>
   </div>
   <div class="mbbody"></div>
 </section>
@@ -4315,6 +4315,7 @@
 <script src="/board-settings.js"></script>
 <script src="/mac-phone-view.js"></script>
 <script src="/magic-box.js"></script>
+<script src="/hover-labels.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
 <script src="/home-widgets.js"></script>
@@ -4829,7 +4830,7 @@ function renderProjList(st, owners){
     row.classList.toggle("unread", laneUnread(st, ow));
     const kill = row.querySelector(".projx");
     kill.classList.toggle("off", alone);
-    kill.title = alone ? "the last project stays open" : "close project";
+    kill.dataset.tip = alone ? "Stays Open" : "Close Project";
   }
 }
 // the home page's list: the pill's list without its box, built from the same
@@ -4866,7 +4867,7 @@ function renderHomeList(st, owners){
     if (row.classList.contains("unread") !== unread){ row.classList.toggle("unread", unread); homeFitSoon(); }
     const kill = row.querySelector(".projx");
     kill.classList.toggle("off", alone);
-    kill.title = alone ? "the last project stays open" : "close project";
+    kill.dataset.tip = alone ? "Stays Open" : "Close Project";
   }
   homeFewSet(owners.length < HOME_LIST_FROM);
 }
@@ -5041,7 +5042,7 @@ function projCloseMark(ow){
   const b = h("span", "projx");
   b.setAttribute("role", "button");
   b.setAttribute("aria-label", "close project");
-  b.title = "close project";
+  b.dataset.tip = "Close Project";
   b.addEventListener("mousedown", ev => ev.stopPropagation());
   b.addEventListener("click", ev => {
     ev.preventDefault(); ev.stopPropagation();   // never a switch on the way
@@ -5262,7 +5263,8 @@ function renderHome(st){
     row.appendChild(h("span", "npname", labelOf(st, ow)));
     row.appendChild(h("span", "nppath", lanePlace(st, ow)));
     if (shut){
-      row.title = "click to reopen this project";
+      row.dataset.tip = "Reopen Project";
+      row.setAttribute("aria-description", "click to reopen this project");
       row.addEventListener("click", () => reopenTab(ow));
     }
     box.appendChild(row);
@@ -5925,9 +5927,9 @@ function pageLabel(p, i, total){
 }
 function labelDot(dot, p, i, total){
   const said = pageLabel(p, i, total);
-  if (dot.title === said) return;
-  dot.title = said;
+  if (dot.getAttribute("aria-label") === said) return;
   dot.setAttribute("aria-label", said);
+  dot.dataset.tip = (p.kind === "blank" ? "Blank Page " : "Board Page ") + (i + 1);
 }
 
 function pageDot(p, i, total){
@@ -5983,8 +5985,8 @@ function renderPages(state){
     // button's own box rather than sitting on a font's baseline
     add = h("button", "pageadd");
     add.type = "button";
-    add.title = "New page in this project";
-    add.setAttribute("aria-label", add.title);
+    add.setAttribute("aria-label", "New page in this project");
+    add.dataset.tip = "New Page";
     add.addEventListener("click", addPage);
     pill.appendChild(add);
   }
@@ -6760,7 +6762,8 @@ function build(state){
     bucketRow.appendChild(h("span", null, label));
     if (METAS.includes(key)){   // the plus lives in the left bar: the page shows one box at a time
       const plus = h("button", "tocadd", "＋");
-      plus.title = "new box";
+      plus.setAttribute("aria-label", "new box");
+      plus.dataset.tip = "New Box";
       plus.addEventListener("click", () => {
         const metaOwner = metaOwnerOf(key);
         if (metaOwner) newCard(metaOwner);
@@ -6850,13 +6853,13 @@ function makeBox(b, i, state){
     histctl.setAttribute("aria-label", "reply history");
     const histUp = h("button", "histbtn older");
     histUp.type = "button";
-    histUp.title = "older reply";
     histUp.setAttribute("aria-label", "older reply");
+    histUp.dataset.tip = "Older Reply (Ctrl + Shift + Up)";
     histUp.innerHTML = historyChevronSVG();
     const histDown = h("button", "histbtn newer");
     histDown.type = "button";
-    histDown.title = "newer reply";
     histDown.setAttribute("aria-label", "newer reply");
+    histDown.dataset.tip = "Newer Reply (Ctrl + Shift + Down)";
     histDown.innerHTML = historyChevronSVG();
     const histPos = h("span", "histpos");
     // The marks are set here, before this card has ever been shown, so a card
@@ -6883,7 +6886,7 @@ function makeBox(b, i, state){
     // the remove cross now renders on every card, not just meta boxes, so all cards share one design
     const x = h("button", "xbtn", "×");
     x.setAttribute("aria-label", "done");
-    x.title = "done (an empty card is removed instead)\n" + SECTION_KEY_HINTS.done;
+    x.dataset.tip = SECTION_CHIP_TIPS.done;
     x.addEventListener("click", async e => {
       e.stopPropagation();
       if (chipOff(x)) return;   // a done card: the cross has nothing left to do
@@ -6911,7 +6914,8 @@ function makeBox(b, i, state){
     head.appendChild(wstat);
     // orange archive button: defers the card into the deferred tab (parks it)
     const arc = h("button", "arcbtn");
-    arc.title = "defer to the deferred tab\n" + SECTION_KEY_HINTS.deferred;
+    arc.setAttribute("aria-label", "defer to the deferred tab");
+    arc.dataset.tip = SECTION_CHIP_TIPS.deferred;
     arc.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
     arc.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(arc)) toggleFlag(b.id, "park"); });
     // the chip stands before the cross in the bar, the order the two corners
@@ -6966,7 +6970,7 @@ function makeBox(b, i, state){
     const clip = h("button", "clipbtn");
     clip.type = "button";
     clip.setAttribute("aria-label", "attach a file");
-    clip.title = "attach a file";
+    clip.dataset.tip = "Attach File";
     clip.innerHTML = CLIP_ICON;
     const compose = h("div", "compose");
     const ta = h("textarea");
@@ -6975,6 +6979,7 @@ function makeBox(b, i, state){
     const send = h("button", "sendbtn");
     send.type = "button";
     send.setAttribute("aria-label", "send");
+    send.dataset.tip = "Send (Enter)";
     send.innerHTML = SEND_ICON;
     compose.append(ta, send);
     bottombar.append(clipfile, clip, compose);
@@ -8294,7 +8299,8 @@ function spotBuild(){
   const wrap = h("div", "spwrap");
   const row = h("div", "sprow");
   const cover = h("div", "spcover");
-  cover.title = "double click to save or unsave";
+  cover.setAttribute("aria-label", "double click to save or unsave");
+  cover.dataset.tip = "Save Or Unsave";
   // two layers, so one album cover can dissolve into the next instead of being
   // replaced in a single frame. the src below never fails, so a cover that has
   // not arrived can never show a broken image icon
@@ -9917,8 +9923,8 @@ function chatBuild(){
   const pend = h("div", "c3pending");
   const bar = h("div", "c3bar");
   const attach = h("button", "c3attach", "＋");
-  attach.title = "attach a file";
   attach.setAttribute("aria-label", "attach a file");
+  attach.dataset.tip = "Attach File";
   const file = h("input", "c3file");
   file.type = "file"; file.accept = CardMarkdown.ATTACHMENT_ACCEPT; file.multiple = true;
   const field = h("div", "c3field");
@@ -9931,9 +9937,11 @@ function chatBuild(){
   send.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none">'
     + '<path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#fff" stroke-width="2" '
     + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  send.title = "send";
+  send.setAttribute("aria-label", "send");
+  send.dataset.tip = "Send (Enter)";
   const jump = h("button", "c3jump");
-  jump.title = "back to the newest";
+  jump.setAttribute("aria-label", "back to the newest");
+  jump.dataset.tip = "Newest Message";
   jump.appendChild(h("i", null, "↓"));
   field.append(ta, send);
   bar.append(attach, file, field, jump);
@@ -10314,7 +10322,8 @@ function c3Pick(files){
     const url = URL.createObjectURL(f);
     const wrap = h("div", "c3thumb");
     const x = h("button", "c3thumb-x", "✕");
-    x.title = "take it back out";
+    x.setAttribute("aria-label", "take it back out");
+    x.dataset.tip = "Remove File";
     x.addEventListener("click", () => {
       c3Files = c3Files.filter(g => g !== f);
       c3Tray(); c3Refresh();
@@ -10814,7 +10823,8 @@ function fileNavBuild(mount){
   });
   const nav = h("div", "fnavnav");
   const up = h("button", "fnavup", "‹");
-  up.title = "up one folder";
+  up.setAttribute("aria-label", "up one folder");
+  up.dataset.tip = "Parent Folder";
   up.onclick = () => fileNavUp();
   const crumbs = h("div", "fnavcrumbs");
   nav.append(up, crumbs);
@@ -10822,11 +10832,13 @@ function fileNavBuild(mount){
   fileNavFade(list);
   const bar = h("div", "fnavbar");
   const back = h("button", "fnavback", "‹");
-  back.title = "back to the files";
+  back.setAttribute("aria-label", "back to the files");
+  back.dataset.tip = "Back To Files";
   back.onclick = () => fileNavClose();
   const name = h("span", "fnavname");
   const save = h("button", "fnavsave", "save");
-  save.title = "save this file";
+  save.setAttribute("aria-label", "save this file");
+  save.dataset.tip = "Save File (Cmd + S)";
   save.onclick = () => fileNavSave();
   // the press is the editor's to keep: a button takes the focus on its way
   // down, and the words typed straight after a save then went nowhere
@@ -12067,12 +12079,13 @@ function renderMiniCards(state){
       const sun = sunChip("msun", b.id);
       const dock = dockChip("mdock", b.id);
       const arc = h("button", "marc");
-      arc.title = "defer to the deferred tab\n" + SECTION_KEY_HINTS.deferred;
+      arc.setAttribute("aria-label", "defer to the deferred tab");
+      arc.dataset.tip = SECTION_CHIP_TIPS.deferred;
       arc.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
       arc.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(arc)) toggleFlag(b.id, "park"); });
       const x = h("button", "mx");
       x.setAttribute("aria-label", "done");
-      x.title = "done (an empty card is removed instead)\n" + SECTION_KEY_HINTS.done;
+      x.dataset.tip = SECTION_CHIP_TIPS.done;
       x.addEventListener("click", async e => {
         e.stopPropagation();
         if (chipOff(x)) return;
@@ -12459,8 +12472,8 @@ function binCanMake(){
     const can = h("button", "bincan");
     can.type = "button";
     can.tabIndex = -1;
-    can.title = "Delete (kept in the Bin for 30 days)";
     can.setAttribute("aria-label", "Delete card");
+    can.dataset.tip = "Delete Card";
     can.innerHTML = BIN_ICON;
     can.addEventListener("click", e => {
       e.preventDefault(); e.stopPropagation();
@@ -12626,7 +12639,7 @@ function chimeShowSpeaker(){
   const on = String(!chimeMuted());
   if (btn.getAttribute("aria-pressed") === on) return;
   btn.setAttribute("aria-pressed", on);
-  btn.title = on === "true" ? "Reply chime on. Click to mute." : "Reply chime muted. Click to unmute.";
+  btn.dataset.tip = on === "true" ? "Mute Chime" : "Unmute Chime";
 }
 document.getElementById("chimebtn").addEventListener("click", () => {
   if (chimeMuted()) settingsStore.removeItem(CHIME_MUTED_KEY);
@@ -13628,7 +13641,7 @@ function applyRespNav(){
   respNav.classList.toggle("toright", pane === 0);
   respNav.classList.toggle("toleft", pane === 1);
   respNav.textContent = pane === 0 ? "›" : "‹";   // › or ‹
-  respNav.title = pane === 0 ? "show the right side" : "back to the left side";
+  respNav.dataset.tip = pane === 0 ? "Right Side" : "Left Side";
 }
 
 // The board fits on load, on entering focus, and whenever the WIDTH changes or
@@ -14155,8 +14168,8 @@ function updateWatch(state){
         h("small", "sethelp", (lastState ? labelOf(lastState, c.owner) : c.owner) + ", deleted " + binAgo(c.ts)));
       const restore = h("button", "binrestore");
       restore.type = "button";
-      restore.title = "Restore";
       restore.setAttribute("aria-label", "Restore");
+      restore.dataset.tip = "Restore";
       restore.innerHTML = BIN_RESTORE_ICON;
       restore.addEventListener("click", async () => {
         restore.disabled = true;
@@ -14258,7 +14271,8 @@ function buildHandles(){
     const kill = document.createElement("button");
     kill.className = "rkill";
     kill.dataset.region = regionId(el);
-    kill.title = "hide this box on this tab";
+    kill.setAttribute("aria-label", "hide this box on this tab");
+    kill.dataset.tip = "Hide Box";
     kill.addEventListener("pointerdown", ev => ev.stopPropagation());
     kill.addEventListener("click", ev => {
       ev.preventDefault(); ev.stopPropagation();
@@ -14293,7 +14307,6 @@ function trackHandles(){
     // the box and every control on it leave together and at once.
     if (it.el.classList.contains("region-off")){ it.kill.style.display = "none"; continue; }
     const r = it.el.getBoundingClientRect();
-    it.kill.title = "hide this box on this tab";
     if (!r.width && !r.height){ it.kill.style.display = "none"; continue; }
     it.kill.style.display = "";
     // just outside the top right corner, clear of the corner square. inside it

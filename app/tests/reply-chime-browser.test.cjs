@@ -173,7 +173,8 @@ test("the pencil is gone, the edit code is kept, and the speaker is a glass circ
         speakerStyle: style(document.getElementById("chimebtn")),
         ink: { l: ink.x, t: ink.y, r: ink.x + ink.width, b: ink.y + ink.height },
         label: document.getElementById("chimebtn").getAttribute("aria-label"),
-        title: document.getElementById("chimebtn").title,
+        title: document.getElementById("chimebtn").getAttribute("title"),
+        tip: document.getElementById("chimebtn").dataset.tip,
         pressed: document.getElementById("chimebtn").getAttribute("aria-pressed"),
         editCode: typeof setEditMode };
     });
@@ -218,7 +219,8 @@ test("the pencil is gone, the edit code is kept, and the speaker is a glass circ
       "the speaker's drawing runs past the 24 box: " + JSON.stringify(bar.ink));
     assert.equal(bar.pressed, "true");
     assert.equal(bar.label, "Reply chime");
-    assert.match(bar.title, /chime on.*mute/i);
+    assert.equal(bar.title, null, "the speaker still carries a browser tooltip");
+    assert.equal(bar.tip, "Mute Chime");
     assert.equal(bar.editCode, "function", "the edit mode code was taken out");
 
     // edit mode itself still works when something asks for it
@@ -390,7 +392,7 @@ test("the speaker mutes and unmutes: waves and slash, label and state follow, no
   try {
     const look = () => page.evaluate(() => {
       const b = document.getElementById("chimebtn");
-      return { pressed: b.getAttribute("aria-pressed"), title: b.title,
+      return { pressed: b.getAttribute("aria-pressed"), title: b.getAttribute("title"), tip: b.dataset.tip,
         waves: getComputedStyle(b.querySelector(".chime-waves")).display,
         x: getComputedStyle(b.querySelector(".chime-slash")).display,
         stored: (globalThis.boardSettings || localStorage).getItem("chimemuted"), label: b.getAttribute("aria-label") };
@@ -419,7 +421,8 @@ test("the speaker mutes and unmutes: waves and slash, label and state follow, no
     assert.equal(off.waves, "inline", "the waves went when muted");
     assert.equal(off.x, "inline", "no slash across the speaker when muted");
     assert.equal(off.stored, "1");
-    assert.match(off.title, /muted.*unmute/i);
+    assert.equal(off.title, null);
+    assert.equal(off.tip, "Unmute Chime");
     assert.equal(off.label, "Reply chime");
     await bar("speaker-off");
 
@@ -434,7 +437,8 @@ test("the speaker mutes and unmutes: waves and slash, label and state follow, no
     assert.equal(again.waves, "inline", "the waves did not come back after unmuting");
     assert.equal(again.x, "none", "the slash stayed after unmuting");
     assert.equal(again.stored, null);
-    assert.match(again.title, /chime on.*mute/i);
+    assert.equal(again.title, null);
+    assert.equal(again.tip, "Mute Chime");
 
     await replies(page, garden);
     assert.equal(await rings(page), 1, "an unmuted board stayed silent: the mute held back nothing else");

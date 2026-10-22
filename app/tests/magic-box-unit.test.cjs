@@ -435,9 +435,11 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
     const section = page.slice(page.indexOf(open), page.indexOf("</section>", page.indexOf(open)));
     assert.ok(section.length > 0, open);
     const bar = section.slice(section.indexOf('<div class="mbbar">'), section.indexOf("</div>", section.indexOf('<div class="mbbar">')));
+    // the board's two name themselves in its hover labels too; the phone has no pointer to rest
+    const tips = page === html ? [' data-tip="Expand Box"', ' data-tip="Close Box"'] : ["", ""];
     assert.equal(bar.trim().split("\n").slice(1).map(l => l.trim()).join(""),
-      '<button type="button" class="mbgrow" aria-label="Expand the magic box"></button>' +
-      '<button type="button" class="mbclose" aria-label="Close the magic box"></button>');
+      '<button type="button" class="mbgrow" aria-label="Expand the magic box"' + tips[0] + '></button>' +
+      '<button type="button" class="mbclose" aria-label="Close the magic box"' + tips[1] + '></button>');
     assert.ok(!/mblight/.test(page), "a light is left on the page");
   }
   // its mark is drawn once, by the view both pages share, and it is the card
@@ -2011,7 +2013,10 @@ function expandView(hooks = {}) {
     + logic.slice(logic.indexOf("function magicView("), logic.indexOf("\n}\n", logic.indexOf("function magicView(")) + 3);
   const classes = new Set(), body = { dataset: {}, addEventListener() {}, querySelector: () => null,
     style: { props: {}, setProperty(k, v) { this.props[k] = v; }, getPropertyValue(k) { return this.props[k] || ""; } } };
-  const grow = { innerHTML: "", label: "", setAttribute(k, v) { if (k === "aria-label") grow.label = v; } };
+  const grow = { innerHTML: "", label: "", tip: "", setAttribute(k, v) {
+    if (k === "aria-label") grow.label = v;
+    if (k === "data-tip") grow.tip = v;
+  } };
   const el = { classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
     querySelector: s => s === ".mbbody" ? body : s === ".mbgrow" ? grow : { innerHTML: "" } };
   const ctx = vm.createContext({ getComputedStyle: () => ({ getPropertyValue: () => "0" }), addEventListener() {}, h() {}, MagicBox: {} });
@@ -2036,10 +2041,12 @@ test("the button's mark is the expand mark at the box's size and the reduce mark
   assert.ok(classes.has("big"));
   assert.equal(grow.innerHTML, marks.shrink);
   assert.equal(grow.label, "Reduce the magic box");
+  assert.equal(grow.tip, "Reduce Box (Escape)", "the hover label names the reduce and its key");
   view.expand(false);
   assert.ok(!classes.has("big"));
   assert.equal(grow.innerHTML, marks.grow);
   assert.equal(grow.label, "Expand the magic box");
+  assert.equal(grow.tip, "Expand Box");
 });
 
 test("an agent's page the board sizes the box to keeps the height it said at the box's own width while it is expanded", () => {

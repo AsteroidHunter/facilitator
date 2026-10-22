@@ -52,6 +52,47 @@
         rgba(255,255,255,0) 84%);
     backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
     -webkit-backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat))}
+  /* the hover labels (hover-labels.js) wear the same glass, card-tokens.css's
+     .hl-tip restated here in step with it, on the label's own layers alone */
+  .hl-tip .qn-glass{--qn-ring:#c7c7cc; --qn-sat:180%;
+    --qn-face:rgba(255,255,255,var(--qn-tint));
+    --qn-light:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.075 0 0 0 .0375'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(13px at 0 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
+      radial-gradient(13px at 100% 0, rgba(255,255,255,calc(.60 * var(--qn-edge))), rgba(255,255,255,0)),
+      radial-gradient(11px at 0 100%, rgba(255,255,255,calc(.32 * var(--qn-edge))), rgba(255,255,255,0)),
+      radial-gradient(11px at 100% 100%, rgba(255,255,255,calc(.32 * var(--qn-edge))), rgba(255,255,255,0)),
+      linear-gradient(145deg,
+        rgba(255,255,255,calc(.28 * var(--qn-edge))) 0%,
+        rgba(255,255,255,calc(.11 * var(--qn-edge))) 42%,
+        rgba(255,255,255,0) 84%);
+    border:none; background-color:var(--qn-face);
+    backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat));
+    -webkit-backdrop-filter:blur(var(--qn-blur)) saturate(var(--qn-sat))}
+  .hl-tip{position:fixed; left:0; top:0; z-index:2147483646; box-sizing:border-box;
+    white-space:nowrap; pointer-events:none; visibility:hidden;
+    font:400 11.5px/15px "Berkeley Mono", "TX-02", "IBM Plex Mono", monospace;
+    color:var(--ink); font-variant-ligatures:none;
+    opacity:0; transform:var(--from, none);
+    transition:opacity .1s ease-in, transform .1s ease-in, visibility 0s .1s}
+  .hl-tip.on{visibility:visible; opacity:1; transform:none;
+    transition:opacity var(--in, .16s) ease-out, transform var(--in, .16s) cubic-bezier(.2,.9,.25,1)}
+  .hl-tip.hl-still{transition:none}
+  .hl-tip.above{--from:translateY(3px)}
+  .hl-tip.below{--from:translateY(-3px)}
+  .hl-tip .hl-key{color:var(--sub)}
+  .hl-tip .hl-glass{position:absolute; inset:0; --qn-tint:.86; --qn-blur:16px; --qn-edge:2; border-radius:0;
+    box-shadow:none; background-image:var(--qn-light), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,0) 9px)}
+  .hl-tip.below .hl-glass{background-image:var(--qn-light),
+    linear-gradient(rgba(255,255,255,0) 6px, rgba(255,255,255,.55) 6px, rgba(255,255,255,0) 15px)}
+  .hl-tip .hl-face{position:absolute; left:0; top:0; padding:5px 10px}
+  .hl-tip svg{position:absolute; left:0; top:0; overflow:visible}
+  @media (prefers-reduced-motion: reduce){
+    .hl-tip.above, .hl-tip.below{--from:none}
+  }
+  @media (prefers-reduced-transparency: reduce){
+    .hl-tip .qn-glass{background-color:#fff; backdrop-filter:none; -webkit-backdrop-filter:none}
+  }
   *{box-sizing:border-box}
   /* Every scroller hides its bar and keeps its scroll: wheel, trackpad and touch
      still move the content, and no lane or gutter is drawn for a bar. Written once
@@ -1291,10 +1332,10 @@
   <span id="docmock">sandbox</span>
   <span class="live"><span class="dot" id="dot"></span><span id="livetext">idle</span></span>
   <span class="prog" id="prog"></span>
-  <button id="editbtn" title="edit layout">✎</button>
-  <input type="color" id="bgpick" title="background color (temporary)" value="#F5F4F1">
+  <button id="editbtn" aria-label="edit layout" data-tip="Edit Layout">✎</button>
+  <input type="color" id="bgpick" aria-label="background color (temporary)" data-tip="Background Color" value="#F5F4F1">
   <span id="setwrap">
-    <button id="setbtn" type="button" title="settings" aria-label="settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
+    <button id="setbtn" type="button" aria-label="settings" data-tip="Settings" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-1 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.47-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 8.9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.88 4.6H9a1.6 1.6 0 0 0 1-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47 1z"/></svg></button>
   </span>
 </div>
 
@@ -1324,19 +1365,19 @@
   <section id="qchat">
     <div class="paneh">quick chat</div>
     <div id="qmsgs"></div>
-    <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question"></textarea><button id="qsend" title="send">↑</button></div>
+    <div id="qcompose"><textarea id="qta" rows="1" placeholder="quick question"></textarea><button id="qsend" aria-label="send" data-tip="Send (Enter)">↑</button></div>
   </section>
 </div>
 
 <div id="rightcol">
   <div id="goalbox" class="trio">
     <span class="trio-text" id="goaltext"></span>
-    <button class="trio-edit" id="goaledit" title="edit goal">✎</button>
+    <button class="trio-edit" id="goaledit" aria-label="edit goal" data-tip="Edit Goal">✎</button>
   </div>
   <div id="taskbox" class="trio">
     <span class="trio-text" id="tasktext"></span>
-    <button class="trio-edit" id="taskstatus" title="cycle status">◐</button>
-    <button class="trio-edit" id="taskedit" title="edit task">✎</button>
+    <button class="trio-edit" id="taskstatus" aria-label="cycle status" data-tip="Cycle Status">◐</button>
+    <button class="trio-edit" id="taskedit" aria-label="edit task" data-tip="Edit Task">✎</button>
   </div>
   <div id="togglstub">toggl clone,<br>but better</div>
 </div>
@@ -1351,9 +1392,9 @@
 </div>
 
 <div id="navpad">
-  <button id="nup" title="previous project row">˄</button>
-  <div><button id="nleft" title="previous card">‹</button><button id="nright" title="next card">›</button></div>
-  <button id="ndown" title="next project row">˅</button>
+  <button id="nup" aria-label="previous project row" data-tip="Previous Row">˄</button>
+  <div><button id="nleft" aria-label="previous card" data-tip="Previous Card (Left)">‹</button><button id="nright" aria-label="next card" data-tip="Next Card (Right)">›</button></div>
+  <button id="ndown" aria-label="next project row" data-tip="Next Row">˅</button>
 </div>
 
 <main>
@@ -1420,6 +1461,7 @@
 <script src="/card-markdown.js"></script>
 <script src="/card-report.js"></script>
 <script src="/compose-format.js"></script>
+<script src="/hover-labels.js"></script>
 <script>
 // "Open a new folder" opens the board's own folder picker (folder-picker.js),
 // as the board does. this page loads no card-logic.js, so the two pieces of it
@@ -1650,7 +1692,8 @@ function renderTabs(st){
       // the plus sits past a thin rule and clear air, never inside the last tab
       bar.appendChild(h("span", "tabsep"));
       const plus = h("button", "ptabplus", "+");
-      plus.title = "new project tab";
+      plus.setAttribute("aria-label", "new project tab");
+      plus.dataset.tip = "New Project";
       plus.addEventListener("click", plusClick);
       bar.appendChild(plus);
     }
@@ -1981,7 +2024,8 @@ function build(state){
     bucketRow.appendChild(h("span", null, label));
     if (METAS.includes(key)){   // the plus lives in the left bar: the page shows one box at a time
       const plus = h("button", "tocadd", "＋");
-      plus.title = "new box";
+      plus.setAttribute("aria-label", "new box");
+      plus.dataset.tip = "New Box";
       plus.addEventListener("click", async () => {
         const metaOwner = metaOwnerOf(key);
         if (!metaOwner) return;
@@ -2047,7 +2091,7 @@ function makeBox(b, i, state){
     // the remove cross now renders on every card, not just meta boxes, so all cards share one design
     const x = h("button", "xbtn", "×");
     x.setAttribute("aria-label", "done");
-    x.title = "done (an empty card is removed instead)";
+    x.dataset.tip = "Done";
     x.addEventListener("click", async e => {
       e.stopPropagation();
       // classify against the current server record, never this render's copy
@@ -2075,7 +2119,8 @@ function makeBox(b, i, state){
     head.appendChild(done);
     // orange archive button: defers the card into the deferred tab (parks it)
     const arc = h("button", "arcbtn");
-    arc.title = "defer to the deferred tab";
+    arc.setAttribute("aria-label", "defer to the deferred tab");
+    arc.dataset.tip = "Deferred";
     arc.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
     arc.addEventListener("click", e => { e.stopPropagation(); toggleFlag(b.id, "park"); });
     head.appendChild(arc);
@@ -2940,7 +2985,8 @@ function renderTodos(state){
   for (const t of w.tasks){
     const row = h("div", "todorow " + t.status + (t.id === selectedTask ? " sel" : ""));
     const dot = h("span", "tdot");
-    dot.title = "click to cycle status";
+    dot.setAttribute("aria-label", "click to cycle status");
+    dot.dataset.tip = "Cycle Status";
     dot.addEventListener("click", e => {
       e.stopPropagation();
       const next = { pending: "ongoing", ongoing: "done", done: "pending" }[t.status] || "ongoing";
@@ -2952,7 +2998,8 @@ function renderTodos(state){
       inlineEdit(txt, t.text, v => v && api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id, v));
     });
     const x = h("button", "tdx", "✕");
-    x.title = "remove this to-do";
+    x.setAttribute("aria-label", "remove this to-do");
+    x.dataset.tip = "Remove To-Do";
     x.addEventListener("click", e => {
       e.stopPropagation();
       api("/ws/task?owner=" + activeOwner + "&ws=" + w.id + "&id=" + t.id + "&del=1");

@@ -978,6 +978,14 @@ const SECTION_KEY_HINTS = {
   deferred: "Control + Shift + \\, or \\ when not typing",
   done: "Control + Shift + Backspace or Delete",
 };
+// and each chip's hover label on the Mac pages (hover-labels.js): the
+// section's name and its key, written the way the labels write keys
+const SECTION_CHIP_TIPS = {
+  doing: "Doing (Ctrl + Shift + [)",
+  docked: "Docked (Ctrl + Shift + ])",
+  deferred: "Deferred (Ctrl + Shift + \\)",
+  done: "Done (Ctrl + Shift + Delete)",
+};
 
 // Where the chord may come from: anywhere nothing is being typed, the card's
 // own composer in either shape (its textarea, or the editor that holds it), the
@@ -6446,8 +6454,8 @@ function chipOff(chip){ return !!chip && chip.getAttribute("aria-disabled") === 
 function sunChip(cls, id){
   const sun = h("button", cls);
   sun.type = "button";
-  sun.title = "move to doing\n" + SECTION_KEY_HINTS.doing;
   sun.setAttribute("aria-label", "move to doing");
+  sun.dataset.tip = SECTION_CHIP_TIPS.doing;
   sun.innerHTML = SUN_ICON;
   sun.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(sun)) wakeCard(id); });
   return sun;
@@ -6456,8 +6464,8 @@ function sunChip(cls, id){
 function dockChip(cls, id){
   const dock = h("button", cls);
   dock.type = "button";
-  dock.title = "move to docked\n" + SECTION_KEY_HINTS.docked;
   dock.setAttribute("aria-label", "move to docked");
+  dock.dataset.tip = SECTION_CHIP_TIPS.docked;
   dock.innerHTML = DOCK_ICON;
   dock.addEventListener("click", e => { e.stopPropagation(); if (!chipOff(dock)) setCardDestination(id, "docked"); });
   return dock;
@@ -8993,6 +9001,7 @@ function magicView(el, hooks = {}){
     if (grow){
       grow.innerHTML = on ? MAGIC_SHRINK : MAGIC_GROW;
       grow.setAttribute("aria-label", on ? "Reduce the magic box" : "Expand the magic box");
+      grow.setAttribute("data-tip", on ? "Reduce Box (Escape)" : "Expand Box");
     }
     const run = view.page;
     if (!(hooks.sized || hooks.tall) || !run) return;

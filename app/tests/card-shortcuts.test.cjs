@@ -370,7 +370,7 @@ test("the chord comes from the card's composer, its own title or no field; the k
   for (const target of [t.body, t.button]) assert.equal(editing(target), false);
 });
 
-test("the four chips' tooltips carry the section keys", async () => {
+test("the four chips' hover labels and the phone's tooltips carry the section keys", async () => {
   const source = await readFile(path.join(ROOT, "card-logic.js"), "utf8");
   const context = vm.createContext({ Date, setTimeout, clearTimeout, setInterval, clearInterval });
   vm.runInContext(source, context, { filename: "card-logic.js" });
@@ -379,15 +379,27 @@ test("the four chips' tooltips carry the section keys", async () => {
   assert.equal(hints.docked, "Control + Shift + ], or ] when not typing");
   assert.equal(hints.deferred, "Control + Shift + \\, or \\ when not typing");
   assert.equal(hints.done, "Control + Shift + Backspace or Delete");
-  assert.match(source, /sun\.title = "move to doing\\n" \+ SECTION_KEY_HINTS\.doing;/);
-  for (const page of ["index.html", "m.html"]) {
-    const html = await readFile(path.join(ROOT, page), "utf8");
-    const moons = html.match(/arc\.title = "defer to the deferred tab[^;]*;/g) || [];
-    const crosses = html.match(/x\.title = "done \(an empty card is removed instead\)[^;]*;/g) || [];
-    assert.ok(moons.length >= 1 && crosses.length >= 1, `${page} has no chip tooltips`);
-    for (const line of moons) assert.ok(line.endsWith('\\n" + SECTION_KEY_HINTS.deferred;'), `${page}: ${line}`);
-    for (const line of crosses) assert.ok(line.endsWith('\\n" + SECTION_KEY_HINTS.done;'), `${page}: ${line}`);
-  }
+  // the Mac pages' hover labels: the name, then the key the short way
+  const tips = vm.runInContext("SECTION_CHIP_TIPS", context);
+  assert.equal(tips.doing, "Doing (Ctrl + Shift + [)");
+  assert.equal(tips.docked, "Docked (Ctrl + Shift + ])");
+  assert.equal(tips.deferred, "Deferred (Ctrl + Shift + \\)");
+  assert.equal(tips.done, "Done (Ctrl + Shift + Delete)");
+  assert.match(source, /sun\.dataset\.tip = SECTION_CHIP_TIPS\.doing;/);
+  assert.match(source, /dock\.dataset\.tip = SECTION_CHIP_TIPS\.docked;/);
+  assert.doesNotMatch(source, /\b(sun|dock)\.title = /, "a chip still sets a browser tooltip");
+  const mac = await readFile(path.join(ROOT, "index.html"), "utf8");
+  // the large card's moon and cross, and the small card's
+  assert.equal((mac.match(/\barc\.dataset\.tip = SECTION_CHIP_TIPS\.deferred;/g) || []).length, 2);
+  assert.equal((mac.match(/\bx\.dataset\.tip = SECTION_CHIP_TIPS\.done;/g) || []).length, 2);
+  assert.doesNotMatch(mac, /\b(arc|x)\.title = /, "index.html still sets a chip tooltip");
+  // the phone has no pointer to rest, and keeps its own tooltips as they were
+  const phone = await readFile(path.join(ROOT, "m.html"), "utf8");
+  const moons = phone.match(/arc\.title = "defer to the deferred tab[^;]*;/g) || [];
+  const crosses = phone.match(/x\.title = "done \(an empty card is removed instead\)[^;]*;/g) || [];
+  assert.ok(moons.length >= 1 && crosses.length >= 1, "m.html has no chip tooltips");
+  for (const line of moons) assert.ok(line.endsWith('\\n" + SECTION_KEY_HINTS.deferred;'), `m.html: ${line}`);
+  for (const line of crosses) assert.ok(line.endsWith('\\n" + SECTION_KEY_HINTS.done;'), `m.html: ${line}`);
 });
 
 // ---- control+shift+enter and control+r ----------------------------------------------------

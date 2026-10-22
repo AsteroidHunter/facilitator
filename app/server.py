@@ -300,6 +300,9 @@ Endpoints:
                                framing, while the root and bridge remain unframeable
   GET  /magic-box.js        -> where a card's magic box stands beside the card, and
                                the sealed page an agent's html is shown in
+  GET  /hover-labels.js     -> the glass labels the Mac pages show over a control
+                               the pointer rests on, in place of the browser's
+                               tooltips
   GET  /folder-picker.js, /folder-picker.css -> the board's own folder picker
                                and its sheet, what "Open a new folder" opens on
                                the board, the typed page and the phone page,
@@ -10456,6 +10459,7 @@ ROUTES = [
     Route("/card-logic.js", _static("card-logic.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/mac-phone-view.js", _static("mac-phone-view.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/magic-box.js", _static("magic-box.js", "application/javascript; charset=utf-8"), methods=["GET"]),
+    Route("/hover-labels.js", _static("hover-labels.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/folder-picker.js", _static("folder-picker.js", "application/javascript; charset=utf-8"), methods=["GET"]),
     Route("/folder-picker.css", _static("folder-picker.css", "text/css; charset=utf-8"), methods=["GET"]),
     # the links between cards drawn (graph.js), its sheet's rules and the

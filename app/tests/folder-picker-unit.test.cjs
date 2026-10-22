@@ -250,7 +250,11 @@ test("the drop holds what mock C holds", async () => {
   assert.match(html, /^<div class="fp-titlebar"><span class="fp-title">Open a new folder<\/span><button type="button" class="fp-x"/);
   assert.match(html, /<div class="fp-mh"><button type="button" class="fp-mt fp-on" data-a="place" data-p="this" title="This Mac"><span>This Mac<\/span><\/button><\/div>/);
   assert.match(strip(html), /~ \/ projects/);
-  assert.match(html, /data-a="edit" title="Type a path"/);
+  assert.match(html, /data-a="edit" aria-label="Type a path" data-tip="Type Path"/);
+  // the picker's icons name themselves in the Mac pages' hover labels, never a browser tooltip
+  assert.match(html, /class="fp-x" data-a="cancel" aria-label="Close the folder picker" data-tip="Close \(Escape\)"/);
+  assert.match(html, /data-a="up" aria-label="Up one folder" data-tip="Parent Folder"/);
+  assert.doesNotMatch(html.replace(/ title="This Mac"/, ""), / title="/);
   assert.match(strip(html.slice(html.indexOf("fp-sc"))), /^[^]*?Home Desktop Documents Downloads/);
   assert.match(html, /class="fp-trow" data-a="goto" data-t="\d+">.*?<span class="fp-ttl">website<\/span><span class="fp-tmeta"><span class="fp-tage">2<\/span><span class="fp-teng">Today<\/span>/);
   assert.match(html, /class="fp-plus" data-a="new"/);

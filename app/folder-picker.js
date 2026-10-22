@@ -393,12 +393,14 @@
 
     // ---- drawing --------------------------------------------------------------
     target(path){ this.targets.push(path); return ' data-t="' + (this.targets.length - 1) + '"'; }
-    ib(a, label, k, disabled, extra = ""){
-      return '<button type="button" class="fp-ib" data-a="' + a + '" title="' + label + '" aria-label="' + label + '"' +
+    // tip is the button's hover label on the Mac pages (hover-labels.js): its
+    // name and its key, written the way the labels write keys
+    ib(a, label, tip, k, disabled, extra = ""){
+      return '<button type="button" class="fp-ib" data-a="' + a + '" aria-label="' + label + '" data-tip="' + tip + '"' +
         (disabled ? " disabled" : "") + extra + ">" + mark(k) + "</button>";
     }
     cross(){
-      return '<button type="button" class="fp-x" data-a="cancel" aria-label="Close the folder picker" title="Close">' + CROSS + "</button>";
+      return '<button type="button" class="fp-x" data-a="cancel" aria-label="Close the folder picker" data-tip="Close (Escape)">' + CROSS + "</button>";
     }
     buttons(){
       return '<button type="button" class="fp-btn" data-a="cancel">Cancel</button>' +
@@ -449,10 +451,10 @@
       }
       const view = this.view;
       let h = '<div class="fp-tb">' +
-        this.ib("up", "Back", "left", off || !L.parent) + this.ib("fwd", "Forward", "right", off || !this.fwd.length) +
+        this.ib("up", "Back", "Back (Left)", "left", off || !L.parent) + this.ib("fwd", "Forward", "Forward", "right", off || !this.fwd.length) +
         '<div class="fp-view" role="group" aria-label="View" data-on="' + view + '"><span class="fp-thumb"></span>' +
-          '<button type="button" class="fp-vs' + (view === "list" ? " fp-on" : "") + '" data-a="view" data-v="list" title="as a list" aria-label="as a list" aria-pressed="' + (view === "list") + '">' + mark("list") + "</button>" +
-          '<button type="button" class="fp-vs' + (view === "columns" ? " fp-on" : "") + '" data-a="view" data-v="columns" title="as columns" aria-label="as columns" aria-pressed="' + (view === "columns") + '">' + mark("columns") + "</button></div>" +
+          '<button type="button" class="fp-vs' + (view === "list" ? " fp-on" : "") + '" data-a="view" data-v="list" aria-label="as a list" data-tip="List View" aria-pressed="' + (view === "list") + '">' + mark("list") + "</button>" +
+          '<button type="button" class="fp-vs' + (view === "columns" ? " fp-on" : "") + '" data-a="view" data-v="columns" aria-label="as columns" data-tip="Column View" aria-pressed="' + (view === "columns") + '">' + mark("columns") + "</button></div>" +
         '<div class="fp-locw"><button type="button" class="fp-loc qn-glass" data-a="menu" data-m="loc" aria-haspopup="true" aria-expanded="' + (!!menu) + '"' + (off ? " disabled" : "") + ">" +
           (!L || atTop ? mark("home") : mark("folder", "fp-fi")) + '<span class="fp-nm">' + esc(L ? L.name : home ? home.name : "") + "</span>" + mark("chev", "fp-cv") + "</button>" + menu + "</div>" +
         '<span class="fp-sp"></span>' +
@@ -547,17 +549,17 @@
       h += '<div class="fp-mh">' + this.machines.map(x => '<button type="button" class="fp-mt' + (x.id === this.machineId ? " fp-on" : "") +
         (x.online === false ? " fp-off" : "") + '" data-a="place" data-p="' + esc(x.id) + '" title="' + esc(x.online === false ? x.name + " is offline" : x.name) + '">' +
         (x.id === "this" ? "" : '<span class="fp-dot' + (x.online === false ? " fp-off" : "") + '"></span>') + "<span>" + esc(x.name) + "</span></button>").join("") + "</div>";
-      const upMark = this.ib("up", "Up one folder", "up", off || !L.parent);
+      const upMark = this.ib("up", "Up one folder", "Parent Folder", "up", off || !L.parent);
       if (this.edit && L){
         h += '<div class="fp-nav">' + upMark + '<input class="fp-fld' + (this.typed != null && this.note ? " fp-bad" : "") + '" data-f="path" value="' +
           esc(this.typed != null ? this.typed : L.short) + '" placeholder="Type or paste a path" aria-label="A path to go to" spellcheck="false" autocomplete="off" autocapitalize="off" enterkeyhint="go">' +
-          this.ib("go", "Go", "enter", false) + "</div>";
+          this.ib("go", "Go", "Go (Enter)", "enter", false) + "</div>";
       } else {
         const trail = (L && L.trail) || [], sep = (m && m.sep) || "/";
         h += '<div class="fp-nav">' + upMark + '<div class="fp-crumbs">' + trail.map((t, i) =>
           (i ? '<span class="fp-csep">' + esc(sep) + "</span>" : "") + '<button type="button" class="fp-crumb' + (i === trail.length - 1 ? " fp-last" : "") + '" data-a="goto"' +
           this.target(t.path) + ">" + esc(i === 0 && m && t.path === m.home ? "~" : t.name) + "</button>").join("") +
-          "</div>" + this.ib("edit", "Type a path", "pencil", !L) + "</div>";
+          "</div>" + this.ib("edit", "Type a path", "Type Path", "pencil", !L) + "</div>";
       }
       h += '<div class="fp-sc">' + ((m && m.places) || []).map(p => '<button type="button" class="fp-psug' + (L && p.path === L.path ? " fp-on" : "") +
         '" data-a="goto"' + this.target(p.path) + ">" + esc(p.id === "home" ? "Home" : p.name) + "</button>").join("") + "</div>";
@@ -576,7 +578,7 @@
             mark("folder", "fp-fi") + '<span class="fp-ttl">' + esc(r.name) + "</span>" + meta + "</button>";
           i++;
         }
-        h += '<button type="button" class="fp-plus" data-a="new" title="New folder" aria-label="New folder"' + (off || this.naming ? " disabled" : "") + ">" + PLUS + "<span>New folder</span></button>";
+        h += '<button type="button" class="fp-plus" data-a="new" aria-label="New folder" data-tip="New Folder"' + (off || this.naming ? " disabled" : "") + ">" + PLUS + "<span>New folder</span></button>";
       }
       const unlisted = this.unlisted();
       if (unlisted) h += '<div class="fp-empty">' + esc(unlisted) + "</div>";

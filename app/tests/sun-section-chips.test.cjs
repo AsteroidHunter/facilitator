@@ -225,7 +225,9 @@ for (const [name, make] of [["desktop large card", desktopLarge], ["desktop smal
     board(surface.env.ctx);
     const el = surface.mount(card("deferred"));
     assert.equal(el.sun.tagName, "BUTTON");
-    assert.equal(el.sun.title, "move to doing\nControl + Shift + [, or [ when not typing");
+    // no browser tooltip: the Mac pages' hover label names the section and its key
+    assert.equal(el.sun.title, "");
+    assert.equal(el.sun.dataset.tip, "Doing (Ctrl + Shift + [)");
     assert.equal(el.sun.getAttribute("aria-label"), "move to doing");
     // the same inline svg approach at the same glyph size as the moon beside it
     const size = svg => /viewBox="0 0 24 24" width="9" height="9"/.test(svg);

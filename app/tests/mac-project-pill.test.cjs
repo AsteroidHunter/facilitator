@@ -344,7 +344,7 @@ test("the chevron is a small down arrow inside the pill after the name, faded in
 });
 
 test("the round glass Home button is back at the bar's left as it was, pressed while Home is up, and the list has no Home row", () => {
-  const house = '<button id="homeico" class="qn-glass" type="button" title="Home" aria-label="Home" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>';
+  const house = '<button id="homeico" class="qn-glass" type="button" aria-label="Home" data-tip="Home (Cmd + 0)" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg></button>';
   const bar = html.slice(html.indexOf('<div class="bar">'), html.indexOf("<!-- the pill's list"));
   assert.ok(bar.includes('<span id="tabrow">\n  ' + house + '\n  <button id="projpill"'), "the Home button is the bar's first piece, before the pill");
   assert.doesNotMatch(html, /id="projhome"|id="homesep"|#projhome|#homesep/, "a Home row is left in the list");
@@ -486,6 +486,8 @@ test("resting on a row fades in its cross alone; the cross closes only that proj
   // the cross is out of the row's flow and takes the row's press for itself
   const cross = f.row("wayside").querySelector(".projx");
   assert.equal(cross.attributes["aria-label"], "close project");
+  assert.equal(cross.dataset.tip, "Close Project");
+  assert.equal(cross.title, "", "the cross carries no browser tooltip");
   assert.equal(cross.fire("mousedown").type, "mousedown"); assert.equal(f.get("projCarry"), null, "the cross started a carry");
   cross.fire("click");
   assert.deepEqual(f.writes.at(-1).closed, ["wayside"]); assert.equal(f.context.activeOwner, "marlow", "the cross switched project");
@@ -496,7 +498,7 @@ test("resting on a row fades in its cross alone; the cross closes only that proj
   // the last project stays open, its cross pale
   f.context.closeTab("facilitator"); f.context.closeTab("moonbase");
   const last = f.row("alder-workshop").querySelector(".projx");
-  assert.equal(last.classes.has("off"), true); assert.equal(last.title, "the last project stays open");
+  assert.equal(last.classes.has("off"), true); assert.equal(last.dataset.tip, "Stays Open");
   const before = f.writes.length; last.fire("click"); assert.equal(f.writes.length, before);
 });
 

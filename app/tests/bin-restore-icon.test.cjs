@@ -43,11 +43,12 @@ function drawRows() {
   return { list, fetched };
 }
 
-test("a row has an icon button titled Restore and no text button", () => {
+test("a row has an icon button labelled Restore and no text button", () => {
   const { list } = drawRows();
   const btn = list.children[0].children[1];
   assert.equal(btn.cls, "binrestore");
-  assert.equal(btn.title, "Restore");
+  assert.equal(btn.title, undefined, "no browser tooltip");
+  assert.equal(btn.dataset.tip, "Restore");
   assert.equal(btn.attrs["aria-label"], "Restore");
   assert.match(btn.innerHTML, /<svg/);
   assert.equal(btn.text, undefined);

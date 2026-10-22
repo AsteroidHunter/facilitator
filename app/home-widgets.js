@@ -1773,7 +1773,7 @@
     const cross = el("button", "tk-shot-x");
     cross.type = "button";
     cross.setAttribute("aria-label", "Close");
-    cross.title = "Close";
+    cross.setAttribute("data-tip", "Close (Escape)");
     cross.innerHTML = SHOT_CROSS;
     head.appendChild(title);
     head.appendChild(pill);
@@ -1792,13 +1792,13 @@
     const dice = el("button", "qn-glass tk-shot-round tk-shot-dice");
     dice.type = "button";
     dice.setAttribute("aria-label", "Roll the dice for another look");
-    dice.title = "Another look";
+    dice.setAttribute("data-tip", "Another Look");
     const die = el("span", "tk-die");
     dice.appendChild(die);
     const keeper = el("button", "qn-glass tk-shot-round tk-shot-keep");
     keeper.type = "button";
     keeper.setAttribute("aria-label", "Download this chart");
-    keeper.title = "Download";
+    keeper.setAttribute("data-tip", "Download");
     keeper.innerHTML = SAVE_ICONS;
     keeper.dataset.state = "idle";
     side.appendChild(dice);
@@ -2128,7 +2128,7 @@
     const save = el("button", "tk-save");
     save.type = "button";
     save.setAttribute("aria-label", "Download chart as a picture");
-    save.title = "Download chart";
+    save.setAttribute("data-tip", "Download Chart");
     save.innerHTML = SAVE_ICONS;
     save.dataset.state = "idle";
     const tools = el("div", "tk-tools");

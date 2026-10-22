@@ -67,7 +67,7 @@ test("where Command + T makes nothing, the plus makes nothing", () => {
 test("the plus is the board's plus on no glass, tuned: .9 of 24px, 1.6px lines, 42%", () => {
   const f = board();
   assert.equal(f.plus.innerHTML, f.ctx.PLUS_ICON, "the typing box's plus, as drawn");
-  assert.match(MAC, /<div id="tikfoot"><button id="tiknew" type="button" title="New card" aria-label="New card"><\/button><\/div>/, "a bare button, labelled");
+  assert.match(MAC, /<div id="tikfoot"><button id="tiknew" type="button" aria-label="New card" data-tip="New Card \(Cmd \+ T\)"><\/button><\/div>/, "a bare button, labelled");
   const own = rule(MAC, "  body.focus #tiknew{");
   assert.match(own, /background:transparent;/);
   assert.match(own, /border:1px solid transparent;/);
