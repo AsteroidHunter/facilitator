@@ -1199,19 +1199,19 @@ test("the picture is 3:1 for the heatmap and 2:1 for the line, drawn three times
   });
 });
 
-test("the dice rolls through five line looks, each with the 7-day average, and all three heatmaps", () => {
+test("the dice rolls through six line looks and all three heatmaps, never the three left out", () => {
   const { W } = widgets();
   assert.deepEqual(JSON.parse(JSON.stringify(W.DICE)), {
-    line: [["poster", "average"], ["editorial", "daily"], ["editorial", "average"], ["lab", "daily"], ["lab", "average"]],
+    line: [["poster", "band"], ["editorial", "daily"], ["editorial", "band"], ["lab", "daily"], ["lab", "dots"], ["poster", "dots"]],
     heatmap: [["editorial"], ["lab"], ["poster"]],
   });
   const pairs = W.DICE.line.map(p => p.join(" "));
-  assert.ok(!pairs.includes("poster daily"), "poster daily is left out");
-  assert.equal(new Set(pairs).size, pairs.length, "no look comes twice");
-  assert.deepEqual({ ...W.SHOW_NAMES }, { daily: "daily and 7-day average", average: "7-day average" }, "no median, band or weekly dots");
+  for (const left of ["poster daily", "lab band", "editorial dots"]) assert.ok(!pairs.includes(left), `${left} is left out`);
+  assert.deepEqual({ ...W.SHOW_NAMES }, { daily: "daily and 7-day average", band: "7-day average and band", dots: "weekly dots" });
   // the first of each is what the download saves and the pop-up opens on: the
-  // Poster 7-day average, and the Editorial heatmap as before
-  assert.deepEqual([...W.DICE.line[0]], ["poster", "average"], "the download saves the Poster 7-day average");
+  // Poster 7-day average with its band (20261020), and the Editorial heatmap
+  // as before
+  assert.deepEqual([...W.DICE.line[0]], ["poster", "band"], "the download saves the Poster 7-day average and band");
   assert.deepEqual([...W.DICE.heatmap[0]], ["editorial"], "the heatmap's stays Editorial");
   // each roll turns up another look, every other one before any comes round again
   let seed = 7;
@@ -1238,7 +1238,7 @@ test("Poster puts the year's total over the title, so it never reads as a day's,
   const { W } = widgets();
   const days = daysEnding("2026-09-27", 371, i => (i % 3 ? (i + 1) * 5e6 : 0));
   const total = W.compact(days.slice(W.yearStart(days)).reduce((n, d) => n + d.total, 0));
-  for (const [kind, named] of [["line", "poster average"], ["heatmap", "poster"]]) {
+  for (const [kind, named] of [["line", "poster band"], ["line", "poster dots"], ["heatmap", "poster"]]) {
     const pick = pickOf(W, kind, named);
     const r = paintOf(W, kind, pick, days);
     const at = words => r.calls.find(c => c[0] === "fillText" && c[1] === words);
@@ -1252,7 +1252,7 @@ test("Poster puts the year's total over the title, so it never reads as a day's,
   assert.equal(heat.calls.filter(c => c[0] === "roundRect").length, cells + W.PALETTE.length);
   // big totals stay in billions
   const huge = daysEnding("2026-09-27", 371, i => (i > 120 ? 4e9 : 0));
-  assert.ok(paintOf(W, "line", pickOf(W, "line", "poster average"), huge).texts().includes("1,000B"));
+  assert.ok(paintOf(W, "line", pickOf(W, "line", "poster band"), huge).texts().includes("1,000B"));
 });
 
 test("the picture's line marks the install day, and leaves the mark out when that day is not among the days shown or not a week old", () => {
@@ -1261,11 +1261,12 @@ test("the picture's line marks the install day, and leaves the mark out when tha
   const inside = days.at(-100).date;
   const S = W.seriesOf(days, W.pictureStart(days), inside);
   assert.equal(S.shown[S.install].date, inside, "on that day's own place");
-  for (const named of ["editorial daily", "editorial average", "lab daily", "lab average"]) {
+  for (const named of ["editorial daily", "editorial band", "lab daily", "lab dots"]) {
     const t = [...paintOf(W, "line", pickOf(W, "line", named), days, inside).calls].filter(c => c[0] === "fillText" || c[0] === "strokeText").map(c => c[1]);
     assert.ok(t.includes("Facilitator installed"), `${named} marks it`);
   }
-  assert.ok(paintOf(W, "line", pickOf(W, "line", "poster average"), days, inside).texts().includes("Facilitator installed"), "Poster's tag");
+  for (const named of ["poster band", "poster dots"])
+    assert.ok(paintOf(W, "line", pickOf(W, "line", named), days, inside).texts().includes("Facilitator installed"), `${named}: Poster's tag`);
   const marks = installed => paintOf(W, "line", 0, days, installed).calls.some(c => c[1] === "Facilitator installed");
   assert.equal(marks(days[3].date), false, "before the days shown (the days fetched ahead of them are not shown)");
   assert.equal(marks("2027-01-01"), false, "after the last day");
@@ -1317,7 +1318,7 @@ test("a board first started not long ago keeps its install label inside the pict
     if (look[0] === "lab") assert.ok(label[0].x1 <= 1164, `${named}: Lab's label ends inside the plot`);
     // Poster's note keeps clear of the tag
     if (look[0] === "poster") {
-      const note = words.filter(b => b.s === "Highest 7-day average" || /^[\d.,]+[KMB]? on [A-Z][a-z]{2} \d+$/.test(b.s));
+      const note = words.filter(b => /^(Highest 7-day average|Busiest week)$/.test(b.s) || /^[\d.,]+[KMB]? on [A-Z][a-z]{2} \d+$| median, /.test(b.s));
       assert.equal(note.length, 2, `${named}: the note is there`);
       for (const b of note) assert.ok(!meet(b, label[0]), `${named}: "${b.s}" is clear of the tag`);
     }
@@ -1403,10 +1404,10 @@ test("the line's picture skips an early trial but not a holiday, and always show
   assert.equal(W.useStart([]), 0);
 });
 
-// a canvas context that writes down each path it strokes, with its colour,
-// as the points it was built through
+// a canvas context that writes down each path it strokes or fills, with its
+// colour, as the points it was built through
 function pathed() {
-  const strokes = [];
+  const strokes = [], fills = [];
   let path = [];
   const ctx = new Proxy({}, {
     get: (t, k) => {
@@ -1418,14 +1419,15 @@ function pathed() {
       if (k === "moveTo" || k === "lineTo") return (x, y) => path.push([x, y]);
       if (k === "bezierCurveTo") return (...a) => path.push([a[4], a[5]]);
       if (k === "stroke") return () => strokes.push({ colour: t.strokeStyle, points: path });
+      if (k === "fill") return () => fills.push({ colour: t.fillStyle, points: path });
       return () => {};
     },
     set: (t, k, v) => { t[k] = v; return true; },
   });
-  return { ctx, strokes };
+  return { ctx, strokes, fills };
 }
 
-test("every line picture draws the screen's own 7-day average, day for day, from where use began", () => {
+test("every line picture with a 7-day line draws the screen's own average, day for day, and the band looks keep their 1 sigma range", () => {
   const { W } = widgets();
   // a quiet winter, use from March 2 with a weekly rhythm and a slow climb, a
   // few quiet days that count as 0, and nine days off in August, a gap
@@ -1441,8 +1443,15 @@ test("every line picture draws the screen's own 7-day average, day for day, from
   const drawn = live.filter(p => !p.gap);
   assert.equal(live.length - drawn.length, 9, "the nine days off are the one gap");
   assert.deepEqual([drawn[0].avg, drawn[0].span], [days.find(d => d.date === start).total, 1], "its first day averages that day alone");
+  // the band, its median and its 1 sigma range of the two weeks around each day
+  const S = W.spreadOf(W.seriesOf(days, W.pictureStart(days)));
+  const band = S.band.filter((_, i) => !S.gap[i]);
+  assert.ok(band.some((b, i) => Math.abs(b.mid - drawn[i].avg) > 1e6), "the median is not the 7-day average on these days");
   const floors = { editorial: 484, lab: 474, poster: 528 };
+  const lined = W.DICE.line.filter(([, shows]) => shows !== "dots");
+  assert.deepEqual(Array.from(lined, p => p.join(" ")), ["poster band", "editorial daily", "editorial band", "lab daily"]);
   W.DICE.line.forEach(([look, shows], pick) => {
+    if (shows === "dots") return;
     const named = `${look} ${shows}`;
     const r = pathed();
     W.paintLook(r.ctx, "line", pick, days, "2026-04-14", W.LOOK, null);
@@ -1455,11 +1464,33 @@ test("every line picture draws the screen's own 7-day average, day for day, from
     const xk = (points[end][0] - points[0][0]) / (dayOf(drawn[end]) - dayOf(drawn[0]));
     const high = drawn.reduce((m, p, i) => (p.avg > drawn[m].avg ? i : m), 0);
     const yk = (floors[look] - points[high][1]) / drawn[high].avg;
+    const up = y => (floors[look] - y) / yk;
     drawn.forEach((p, i) => {
       assert.ok(Math.abs(points[i][0] - (points[0][0] + xk * (dayOf(p) - dayOf(drawn[0])))) < 1e-6, `${named}: ${p.date} across`);
-      assert.ok(Math.abs((floors[look] - points[i][1]) / yk - p.avg) < 1e-3, `${named}: ${p.date} is the screen's ${p.avg}`);
+      assert.ok(Math.abs(up(points[i][1]) - p.avg) < 1e-3, `${named}: ${p.date} is the screen's ${p.avg}`);
     });
+    if (shows !== "band") return;
+    // the shaded range under it, run by run: along its top and back along its
+    // bottom, the band's 84.1st and 15.9th percentiles as before
+    const shade = r.fills.filter(f => f.points.length > 2);
+    assert.deepEqual(shade.map(f => f.points.length), Array.from(S.runs, ([a, b]) => 2 * (b - a + 1)), `${named}: the band in each run`);
+    const along = shade.flatMap(f => { const k = f.points.length / 2; return f.points.slice(0, k).map((q, j) => [q, f.points[2 * k - 1 - j]]); });
+    assert.equal(along.length, band.length);
+    along.forEach(([hi, lo], i) => {
+      assert.ok(Math.abs(up(hi[1]) - band[i].hi) < 1e-3, `${named}: ${drawn[i].date}'s top`);
+      assert.ok(Math.abs(up(lo[1]) - band[i].lo) < 1e-3, `${named}: ${drawn[i].date}'s bottom`);
+    });
+    // the key and the high point's note name the 7-day average
+    const said = paintOf(W, "line", pick, days, "2026-04-14").texts().map(t => String(t).trim());
+    assert.ok(said.includes("7-day average") && said.includes("1 sigma range"), `${named}: the key`);
+    assert.ok(!said.some(t => /2-week|median/i.test(t)), `${named}: no median`);
   });
+  // Poster's note: the highest 7-day average and its day
+  const said = paintOf(W, "line", 0, days, "2026-04-14").texts();
+  const top = drawn.reduce((m, p) => (p.avg > m.avg ? p : m));
+  const short = d => `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][+d.slice(5, 7) - 1]} ${+d.slice(8)}`;
+  assert.ok(said.includes("Highest 7-day average"));
+  assert.ok(said.includes(`${W.compact(top.avg)} on ${short(top.date)}`), "the note names the highest 7-day average and its day");
 });
 
 // a canvas context that writes down each fill and stroke with the colour it
@@ -1627,7 +1658,7 @@ async function savingPanel({ share = false, canShare = true, closed = false, nam
   return { W, seen, shot, flush, count };
 }
 
-test("pressing the button saves the chart on show in its first look, the Poster 7-day average for the line, named for the day and the first name, and opens the overlay on it", async () => {
+test("pressing the button saves the chart on show in its first look, the Poster 7-day average and band for the line, named for the day and the first name, and opens the overlay on it", async () => {
   const board = await savingPanel();
   const { seen } = board;
   assert.equal(seen.start, "idle");
@@ -1641,15 +1672,15 @@ test("pressing the button saves the chart on show in its first look, the Poster 
   assert.deepEqual(board.count(), { day: "20261016", count: 1 });
   assert.equal(seen.overlays, 1, "one overlay for the two presses");
   assert.equal(seen.title, "Chart downloaded!");
-  assert.equal(seen.look, "poster-average", "the Poster line, the 7-day average");
-  // the file itself is that look: its key names the 7-day average, and
-  // nothing of a median, a band or the Editorial daily line is in it
+  assert.equal(seen.look, "poster-band", "the Poster line, the 7-day average and its band");
+  // the file itself is that look: its key names the 7-day average and the
+  // band, and nothing of a median or the Editorial daily line is in it
   const saved = seen.painted[0].texts().map(t => String(t).trim());
-  for (const words of ["7-day average", "Token consumption per day", " tokens this year".trim()])
+  for (const words of ["7-day average", "1 sigma range", "Token consumption per day", " tokens this year".trim()])
     assert.ok(saved.includes(words), `the saved picture says ${words}`);
-  assert.ok(!saved.some(t => /median|sigma/i.test(t)), "no median and no band");
+  assert.ok(!saved.some(t => /2-week|median/i.test(t)), "no median");
   assert.ok(!saved.includes("Daily"), "not the Editorial daily line");
-  assert.equal(board.shot.image().alt, "Token consumption per day, line chart, Poster, 7-day average");
+  assert.equal(board.shot.image().alt, "Token consumption per day, line chart, Poster, 7-day average and band");
   assert.equal(board.shot.dice.children[0].dataset.face, "1", "the die shows the first look's number");
   // the overlay's download button saves the chart on show as the day's second file
   board.shot.keep.click();
@@ -1713,8 +1744,8 @@ test("the download marks the install day only once 7 days have passed since it, 
   assert.equal(marked(six.seen.painted[0]), false, "6 days after install: the downloaded picture has no mark");
   assert.equal(marked(seven.seen.painted[0]), true, "7 days after install: it is marked");
   for (const [run, want] of [[six, false], [seven, true]]) {
-    for (let i = 0; i < 4; i++) { run.shot.dice.click(); await run.flush(); }
-    assert.equal(run.seen.painted.length, 5, "the download and the four other line looks");
+    for (let i = 0; i < 5; i++) { run.shot.dice.click(); await run.flush(); }
+    assert.equal(run.seen.painted.length, 6, "the download and the five other line looks");
     run.seen.painted.forEach((r, i) => assert.equal(marked(r), want, `picture ${i}`));
   }
 });
@@ -1756,7 +1787,7 @@ test("the overlay is the board's glass over the settings page's veil: Chart down
   assert.equal(veil.getAttribute("aria-hidden"), "false");
   assert.equal(box.className, "qn-glass tk-shot", "the board's glass");
   assert.equal(box.dataset.kind, "line");
-  assert.equal(box.dataset.look, "poster-average", "it opens on the line's first look, the Poster 7-day average");
+  assert.equal(box.dataset.look, "poster-band", "it opens on the line's first look, the Poster 7-day average and band");
   assert.equal(box.getAttribute("role"), "dialog");
   assert.equal(box.getAttribute("aria-modal"), "true");
   assert.equal(box.tabIndex, -1, "a press on bare glass keeps the focus in the box");
@@ -1786,7 +1817,7 @@ test("the overlay is the board's glass over the settings page's veil: Chart down
   assert.equal(frame.children[1], shot.cover);
   assert.equal(shot.cover.className, "tk-shot-cover");
   assert.equal(shot.cover.getAttribute("aria-hidden"), "true");
-  assert.equal(pic.alt, "Token consumption per day, line chart, Poster, 7-day average");
+  assert.equal(pic.alt, "Token consumption per day, line chart, Poster, 7-day average and band");
   // the dice and the download button in the board's round glass, then Share, a glass pill with the link mark
   assert.deepEqual(foot.children.map(n => n.className), ["tk-shot-side", "qn-glass tk-shot-share", "tk-shot-note"]);
   assert.deepEqual(foot.children[0].children.map(n => n.className),
@@ -1865,7 +1896,7 @@ test("the dice tumbles and swaps in each of the chart's other looks in turn, and
   };
   assert.equal(W.ROLL_MS, 650);
   const lines = [0];
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     const at = await roll();
     assert.equal(at.kind, "line", "the dice keeps to the chart the pill names");
     assert.notEqual(at.pick, lines.at(-1), "every roll changes the look");
@@ -1874,9 +1905,9 @@ test("the dice tumbles and swaps in each of the chart's other looks in turn, and
     assert.equal(shot.dice.children[0].dataset.face, String(at.pick + 1), "and lands on the look's own number");
     lines.push(at.pick);
   }
-  assert.deepEqual([...lines].sort(), [0, 1, 2, 3, 4], "four rolls show all five line looks");
-  assert.ok(!lines.slice(1).includes(0), "from the Poster 7-day average, the four rolls are the other four looks");
-  assert.equal(o.made.length, 4, "each look is made once");
+  assert.deepEqual([...lines].sort(), [0, 1, 2, 3, 4, 5], "five rolls show all six line looks");
+  assert.ok(!lines.slice(1).includes(0), "from the Poster 7-day average and band, the five rolls are the other five looks");
+  assert.equal(o.made.length, 5, "each look is made once");
   // the pill: the heatmap in its first look, Editorial, and the dice then rolls through its three
   shot.kinds.heatmap.click();
   await settle();
@@ -1887,7 +1918,7 @@ test("the dice tumbles and swaps in each of the chart's other looks in turn, and
   const heats = [0];
   for (let i = 0; i < 2; i++) heats.push((await roll()).pick);
   assert.deepEqual([...heats].sort(), [0, 1, 2], "two rolls show all three heatmaps");
-  assert.ok(o.made.every(m => /^(line-[1-4]|heatmap-[0-2])$/.test(m)));
+  assert.ok(o.made.every(m => /^(line-[1-5]|heatmap-[0-2])$/.test(m)));
   // back to the line: its first look, the picture already made
   shot.kinds.line.click();
   await settle();
@@ -2046,7 +2077,7 @@ test("a dice look turned round to comes back as that look, and once its fade is 
   m.finish();
   shot.kinds.line.click();
   await settle();
-  assert.deepEqual({ ...shot.at() }, { kind: "line", pick: 0 }, "a settled switch shows the line's first look, the Poster 7-day average");
+  assert.deepEqual({ ...shot.at() }, { kind: "line", pick: 0 }, "a settled switch shows the line's first look, the Poster 7-day average and band");
 });
 
 test("the dice covers the picture with the paper and a spinner until the next look is drawn, then fades the look in as the cover goes", async () => {
