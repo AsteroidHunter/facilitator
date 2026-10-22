@@ -516,6 +516,20 @@ class OncePerDay(Board):
             self.assertFalse(board.look())
         self.assertEqual(self.net.requests, [], "a day was sent that could not be marked")
 
+    def test_a_clock_once_set_a_year_ahead_does_not_stop_the_days_after_it_is_put_right(self):
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        board = self.sender()
+        self.today = DAY + dt.timedelta(days=366)   # the Mac's date set wrong for one look
+        board.look()
+        self.today = AFTER                          # put right: the marker goes back to yesterday
+        board.look()
+        self.assertEqual(self.through(), DAY.isoformat())
+        self.write_rows([{"ts": at(AFTER, 9, 0), "kind": "user", "box": "7", "text": "next day"}], "a")
+        self.today = AFTER + dt.timedelta(days=1)
+        board.look()
+        self.assertEqual(self.net.days, [AFTER.isoformat()],
+                         "after the clock was put right no day is sent until the wrong date comes round")
+
 
 class SwitchedOff(Board):
     def test_nothing_is_sent_while_the_switch_is_off(self):
@@ -1458,15 +1472,21 @@ class Server(unittest.TestCase):
         self.assertEqual(self.reply_as("gpt")["agent_kind"], "codex")
         self.assertEqual(self.reply_as("astra")["agent_kind"], "codex")
 
+    def test_a_reply_after_a_restart_is_counted_for_the_agent_that_took_the_card(self):
+        # opus took the card before the board restarted, and no /wait has named
+        # the lane's agent since
+        self.server._box("7")["claim_agent"] = "opus"
+        row = self.reply_as(None)
+        self.assertEqual(self.server._box("7")["agent"], "opus")
+        self.assertEqual(row["agent_kind"], "claude")
+
     def test_the_server_and_the_counts_share_one_rule(self):
         for name in ("opus", "Claude Code", "gpt-5", "astra", "codex on opus", "gemini", "", None):
-            self.server._agent_names["facilitator"] = name
-            self.assertEqual(self.server._agent_kind("facilitator"), uc.agent_kind(name), name)
+            self.assertEqual(self.server._agent_kind(name), uc.agent_kind(name), name)
 
     def test_the_server_stores_other_when_agent_names_is_missing(self):
-        self.server._agent_names["facilitator"] = "opus"
         with mock.patch.dict(sys.modules, {"agent_names": None}):
-            self.assertEqual(self.server._agent_kind("facilitator"), "other")
+            self.assertEqual(self.server._agent_kind("opus"), "other")
 
     def test_the_switch_is_a_board_setting_that_is_on_until_set_to_0(self):
         s = self.server
@@ -1476,6 +1496,23 @@ class Server(unittest.TestCase):
         self.assertFalse(s._usage_sharing())
         s._settings["values"]["usagecounts"] = "1"
         self.assertTrue(s._usage_sharing())
+
+    def test_a_day_that_ended_while_off_is_not_sent_when_the_switch_goes_on_before_the_next_look(self):
+        # the board was stopped, or the Mac asleep, over midnight with the switch
+        # off, and it is turned on before the first look after
+        s = self.server
+        settings = mock.patch.object(s, "SETTINGS_PATH", self.dir / "settings.json")
+        settings.start()
+        self.addCleanup(settings.stop)
+        (self.dir / "transcript.jsonl").write_text(json.dumps({"ts": at(DAY, 10, 0), "kind": "user", "box": "7"}) + "\n")
+        (self.dir / "usage-counts.json").write_text(json.dumps({"through": BEFORE.isoformat()}))
+        net = self.sender_in_temp()
+        s._usage_sender.today = lambda: AFTER
+        s._settings["values"]["usagecounts"] = "0"
+        status, _ = s._post_settings(s._query({"query_string": b""}), json.dumps({"usagecounts": "1"}))
+        self.assertEqual(status, 200)
+        self.assertTrue(s._usage_sender.look())
+        self.assertEqual(net.days, [], "a day that ended while the switch was off was sent")
 
     def test_the_board_starts_the_sender_on_a_thread_of_its_own_at_boot(self):
         s = self.server
@@ -1579,6 +1616,39 @@ class Server(unittest.TestCase):
         self.assertIs(type(when), int)
         self.assertEqual(when % 300, 0)
         self.assertEqual(record.stat().st_mode & 0o777, 0o600)
+
+    def test_a_send_that_went_wrong_is_written_down_at_log_level_error(self):
+        # a new install logs errors only (run.config.example.json), and there a
+        # send that failed, was refused or threw must still leave a line
+        s = self.server
+        folder, sender = self.board_of_its_own("error")
+        seen = []
+
+        class Collect(logging.Handler):
+            def emit(self, record):
+                seen.append((record.levelname, record.getMessage(), getattr(record, "fields", {})))
+
+        collect, level = Collect(), s.LOGGER.level
+        s.LOGGER.addHandler(collect)
+        s.LOGGER.setLevel(s.LOG_LEVELS["error"])
+        self.addCleanup(s.LOGGER.setLevel, level)
+        self.addCleanup(s.LOGGER.removeHandler, collect)
+        day = dt.date.today()
+        (folder / "transcript.jsonl").write_text(json.dumps({"ts": at(day, 10, 0), "kind": "user", "box": "7"}) + "\n")
+        (folder / "usage-counts.json").write_text(json.dumps({"through": (day - dt.timedelta(days=1)).isoformat()}))
+        (folder / "usage-baseline.json").write_text(json.dumps({"sent": True}))
+        net = FakeNet()
+        sender.opener, sender.today = net, lambda: day + dt.timedelta(days=1)
+        net.status = 503
+        self.assertFalse(sender.look())                   # PostHog could not take it now
+        net.status = 400
+        sender.look()                                     # PostHog turned it down for good
+        stopping = threading.Event()
+        sender.look = lambda: stopping.set() or 1 / 0     # a look that throws
+        with mock.patch.multiple(uc, FIRST_LOOK=0, RETRY_AFTER=0):
+            sender.run(stopping)
+        self.assertEqual([(lvl, fields["outcome"]) for lvl, kind, fields in seen if kind == "usage"],
+                         [("ERROR", "failed"), ("ERROR", "refused"), ("ERROR", "error")])
 
     def sender_in_temp(self, net=None, sharing=None):
         """The board's sender, as the route will find it, kept in a temporary folder."""

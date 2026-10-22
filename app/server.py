@@ -2281,18 +2281,20 @@ def _heard(ow: str) -> None:
     _lane_heard[ow] = _lane_now()
 
 
-def _agent_kind(owner: str) -> str:
-    """claude, codex or other: which agent the lane's listener said it was on
-    its last /wait, or other when none has said since the start. A reply's
-    transcript row carries this one word, never the name itself, so the daily
-    usage counts (usage_counts.py) can split replies by agent. The word lists
-    are agent_names.py's, the same ones the counts use; a copy of the board
-    without that file, as the tests' fixtures make, stores other."""
+def _agent_kind(name: str) -> str:
+    """claude, codex or other: which agent a name is, given the name the card
+    stores for the one that answered it (_post_reply's answerer), which
+    outlives a restart as the lane's last /wait name does not; other for no
+    name. A reply's transcript row carries this one word, never the name
+    itself, so the daily usage counts (usage_counts.py) can split replies by
+    agent. The word lists are agent_names.py's, the same ones the counts use;
+    a copy of the board without that file, as the tests' fixtures make,
+    stores other."""
     try:
         import agent_names
     except ImportError:
         return "other"
-    return agent_names.agent_kind(_agent_names.get(owner))
+    return agent_names.agent_kind(name)
 
 
 def _agent_class(owner: str) -> str:
@@ -7428,7 +7430,7 @@ def _post_reply(q: Query, text: str):
              reply_short=box["reply_short"],
              reply_variants_version=REPLY_VARIANTS_VERSION,
              reply_id=box["reply_id"], reply_ts=now,
-             answered=box["answered"], agent_kind=_agent_kind(ow))
+             answered=box["answered"], agent_kind=_agent_kind(answerer))
         _save()
         _notify()
         return 200, {"ok": True}
@@ -8708,6 +8710,11 @@ def _post_settings(q: Query, text: str):
             return 400, {"error": "too many settings"}
         new = {**store, "rev": store["rev"] + 1, "values": values}
         _save_settings(new)
+        # the usage counts switch turned on: the days that ended while it was
+        # off are marked dealt with now, before a look can read it as on
+        if (store["values"].get(USAGE_SETTING) == "0" and values.get(USAGE_SETTING) != "0"
+                and _usage_sender is not None):
+            _usage_sender.switched_on()
         return 200, {"ok": True, **({"seeded": True} if seed else {}), **_settings_answer(new)}
 
 
@@ -8783,8 +8790,13 @@ def _start_usage_counts() -> None:
     def token_tally():
         return _ledger().tally()
 
+    def usage_log(kind, **fields):
+        # sent and forgotten are the usual run of things; any other outcome
+        # went wrong, and a board logging errors only must write it down too
+        (_info if fields.get("outcome") in ("sent", "forgotten") else _error)(kind, **fields)
+
     sender = usage_counts.Sender(transcript=TRANSCRIPT_PATH, marker=USAGE_MARKER,
-                                 index_html=HERE / "index.html", sharing=_usage_sharing, log=_info,
+                                 index_html=HERE / "index.html", sharing=_usage_sharing, log=usage_log,
                                  install_file=USAGE_INSTALL, phone_file=USAGE_PHONE,
                                  tokens=token_tally if (HERE / "tokens.py").is_file() else None,
                                  installed=_installed_day, baseline_file=USAGE_BASELINE)
