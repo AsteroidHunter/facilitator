@@ -3794,10 +3794,11 @@
      the logo's word and the folder row's ink end level with the last "Last
      updated" line under the charts: between those edges stands the projects'
      full room. the room is as tall as its rows, one for each project, until
-     it fills the full room; the line and the folder row stand right under
-     it. the list stands centred between its top and foot, so its ink has the
-     same middle as the logo and the charts' and grows from there both ways,
-     reaching both edges once the room is full. its rows are the pill's
+     it holds ten of them (--home-room-max) or fills the full room, whichever
+     comes first; the line and the folder row stand right under it. the list
+     stands centred between its top and foot, so its ink has the same middle
+     as the logo and the charts' and grows from there both ways, reaching
+     both edges once the full room is full. its rows are the pill's
      list's rows at --home-font for their 14px, every other length of theirs
      scaled with it: the number in the monospace at 14.6 to 14, the 17 to 14
      line, the 10 to 14 gap, the 34 to 14 of room on the right that the cross
@@ -3821,7 +3822,7 @@
   #homelistbox{flex:0 1 auto; display:flex; flex-direction:column; min-height:0; max-width:100%;
     margin:var(--home-list-top, 0px) calc(var(--home-margin) - var(--home-cross)) var(--home-list-foot, 0px) 0; pointer-events:auto;
     font:400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)}
-  #homerows{flex:0 1 auto; min-height:0; display:flex; flex-direction:column;
+  #homerows{flex:0 1 auto; min-height:0; max-height:var(--home-room-max, none); display:flex; flex-direction:column;
     overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
     -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
     mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
@@ -5362,10 +5363,12 @@ async function pickFolder(slot){
 // the list's ink, from its first name to the foot of "+ Open a new folder", is
 // centred on the middle of the logo's ink top and the last "Last updated"
 // line's ink foot; once the projects fill the room between those, the two
-// parts share their top and bottom edges as drawn
+// parts share their top and bottom edges as drawn. the projects' room never
+// holds more than HOME_ROWS_MAX rows, so a taller window shows no more names
 const HOME_REF = { w: 1512, h: 982 };
 const HOME_LOOK = { split: 1 / 3, font: 28, rows: 21 / 28, margin: 172, inner: 24, fontMin: 14, splitMax: 1 / 2,
   scale: 1.11, logo: 1.44, logoGap: 16, chartGap: 35.1, chartW: .35, chartH: .35 };
+const HOME_ROWS_MAX = 10;
 // what the group shows, which is what is centred: the mark and the words, and
 // each chart's heading, drawing and "Last updated" line, not their boxes' clear
 // edges (the panels' own padding, the logo's room for its version)
@@ -5502,6 +5505,11 @@ function homeFit(){
   const first = folder && homeRows.getBoundingClientRect().top + folder.top - homeNewName.parentElement.getBoundingClientRect().top;
   if (headAt != null && folder) homeSet(homeListPart, "--home-list-top", Math.max(0, headAt - (first - box.top) - list.top));
   if (footAt != null && folder) homeSet(homeListPart, "--home-list-foot", Math.max(0, list.bottom - footAt - (box.bottom - folder.bottom)));
+  // and the room is never taller than ten rows at their own pitch, read off a
+  // row (its two faces' baselines make it a little taller than its line and
+  // gaps), rounded up so ten stand whole with no fade under them
+  const row = homeRows.querySelector(".homerow");
+  if (row) homeSet(homeListPart, "--home-room-max", Math.ceil(row.getBoundingClientRect().height * HOME_ROWS_MAX * 1000) / 1000);
   homeFades();
 }
 // fitted on the frame after anything that moves it: the window's size, the

@@ -747,7 +747,7 @@ test("home's project list stands on the page with no box, and the new tab keeps 
   assert.doesNotMatch(/\n  #nppanel\{([^}]*)\}/.exec(sheet)[1], /background|box-shadow|border-radius/);
 });
 
-test("home's list holds its projects, a line and the folder row with no heading, its room grows with the projects up to the room the logo and the limits leave, and it stands centred on their middle", () => {
+test("home's list holds its projects, a line and the folder row with no heading, its room grows with the projects up to ten rows or the room the logo and the limits leave, and it stands centred on their middle", () => {
   // the rows, the line and the folder row, in that order, and no heading or
   // line over the rows
   const markup = html.slice(html.indexOf('<nav id="homelist"'), html.indexOf("</nav>", html.indexOf('<nav id="homelist"')));
@@ -767,20 +767,20 @@ test("home's list holds its projects, a line and the folder row with no heading,
   assert.equal(decl(lines, "background"), "var(--line)");
   // 3.35 to 14 of the names' size clear above and below it
   assert.equal(decl(lines, "margin"), "calc(var(--home-font) * 3.35 / 14) var(--home-cross) calc(var(--home-font) * 3.35 / 14) 0");
-  // the box is as tall as what it holds, not capped, and centred between the
-  // top and foot homeFit sets, which it fills once the room is full; the rows
-  // take their own height, with no floor, and shrink to the room left between
-  // the two, where they scroll
+  // the box is as tall as what it holds, not capped itself, and centred
+  // between the top and foot homeFit sets, which it fills once the room is
+  // full; the rows take their own height, with no floor, up to ten of them,
+  // and shrink to the room left between the two, where they scroll
   const box = rule(sheet, "#homelistbox"), rows = rule(sheet, "#homerows");
   assert.equal(decl(box, "flex"), "0 1 auto");
   assert.equal(decl(box, "min-height"), "0");
   assert.match(decl(box, "margin"), /^var\(--home-list-top, 0px\) .* var\(--home-list-foot, 0px\) 0$/);
-  assert.equal(decl(box, "max-height"), undefined, "no cap on the list's height");
+  assert.equal(decl(box, "max-height"), undefined, "the box itself is not capped");
   assert.equal(decl(rule(sheet, "body.focus.home #homelist"), "flex-direction"), "column");
   assert.equal(decl(rule(sheet, "body.focus.home #homelist"), "justify-content"), "center", "the list is centred up and down");
   assert.equal(decl(rows, "flex"), "0 1 auto");
   assert.equal(decl(rows, "min-height"), "0", "no floor under the rows' own height");
-  assert.equal(decl(rows, "max-height"), undefined, "the foot is the only cap");
+  assert.equal(decl(rows, "max-height"), "var(--home-room-max, none)", "the rows' room capped at what homeFit sets");
   assert.equal(decl(rows, "overflow-y"), "auto");
   for (const id of ["#homelistsep", "#homelist .homerow"])
     assert.equal(decl(rule(sheet, id), "flex"), "none", id + " keeps its height");
@@ -796,6 +796,13 @@ test("home's list holds its projects, a line and the folder row with no heading,
   assert.match(fit, /const first = folder && homeRows\.getBoundingClientRect\(\)\.top \+ folder\.top - homeNewName\.parentElement\.getBoundingClientRect\(\)\.top;/);
   assert.match(fit, /homeSet\(homeListPart, "--home-list-top", Math\.max\(0, headAt - \(first - box\.top\) - list\.top\)\)/);
   assert.match(fit, /homeSet\(homeListPart, "--home-list-foot", Math\.max\(0, list\.bottom - footAt - \(box\.bottom - folder\.bottom\)\)\)/);
+  // the cap is ten rows at a row's own height as laid out, rounded up to the
+  // thousandth, so exactly ten stand whole with no fade, and a taller window
+  // shows no more of them
+  assert.match(html, /\nconst HOME_ROWS_MAX = 10;\n/);
+  assert.match(fit, /const row = homeRows\.querySelector\("\.homerow"\);/);
+  assert.match(fit, /if \(row\) homeSet\(homeListPart, "--home-room-max", Math\.ceil\(row\.getBoundingClientRect\(\)\.height \* HOME_ROWS_MAX \* 1000\) \/ 1000\);/);
+  assert.equal(html.match(/--home-room-max/g).length, 3, "set in homeFit, read by #homerows, named in the sheet's note");
   // and nothing sets a floor under the room
   assert.doesNotMatch(html, /--home-room-min/);
 });
