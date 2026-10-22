@@ -344,6 +344,84 @@ test("the reading is handed on a task later, by scheduler.yield where the browse
   assert.equal(posted, 0);
 });
 
+test("a timed reading of a board standing still is DESK_SAME, and any change is a whole copy", async () => {
+  const block = html.slice(html.indexOf("// ---- the board's reading, lean"), html.indexOf("// ---- the board's reading ends"));
+  const fetchBoard = async url => { const r = await fetch(board.origin + url); const text = await r.text(); return { json: async () => JSON.parse(text) }; };
+  const ctx = vm.createContext({ MessageChannel, fetch: fetchBoard });
+  vm.runInContext(block + "\nglobalThis.probe = { readState, DESK_SAME, get held(){ return deskHeld; } };", ctx);
+  const { probe } = ctx;
+  // the first reading is whole, asked to say so or not
+  const first = await probe.readState(true);
+  assert.ok(Array.isArray(first.boxes) && first.boxes.length > 0);
+  // an agent the tests above had listening is still going quiet on the board,
+  // which is a change; once that has settled only the clock moves
+  let still = null;
+  for (let n = 0; n < 20 && still !== probe.DESK_SAME; n++){
+    await new Promise(r => setTimeout(r, 300));
+    still = await probe.readState(true);
+    if (still !== probe.DESK_SAME) await sameAsWhole(still, "a timed reading while the board settled");
+  }
+  // nothing but the clock moved: no copy, and the reading held took the clock in
+  const nowWas = probe.held.reading.now;
+  await new Promise(r => setTimeout(r, 1100));
+  assert.equal(await probe.readState(true), probe.DESK_SAME);
+  assert.ok(probe.held.reading.now > nowWas, "the reading held did not take the new clock in");
+  await sameAsWhole(await probe.readState(), "the copy after a reading that moved only the clock");
+  // a reading not asked to say so is a copy even then
+  const plain = await probe.readState();
+  assert.ok(Array.isArray(plain.boxes));
+  // a changed card, and a changed field that is not the clock, are copies
+  await post("/title?box=m60", "Changed before a timed reading");
+  const card = await probe.readState(true);
+  assert.notEqual(card, probe.DESK_SAME, "a changed card was taken for the clock");
+  await sameAsWhole(card, "a timed reading after a changed card");
+  await post("/settings", JSON.stringify({ bgcolor: "#203040" }));
+  const field = await probe.readState(true);
+  assert.notEqual(field, probe.DESK_SAME, "a changed setting was taken for the clock");
+  await sameAsWhole(field, "a timed reading after a changed setting");
+});
+
+test("a field the board sends again as the page holds it is no change, and one it sends changed is", async () => {
+  const p = page();
+  await p.read();
+  const held = p.probe.held;
+  // an agent's liveness that moved without the revision is sent on every
+  // reading after; sent again as it stands, the board is standing still
+  const answer = agents => ({ delta: held.rev, epoch: held.epoch, rev: held.rev, count: held.order.length, boxes: [],
+    set: { now: held.reading.now + 1, listenerGap: held.reading.listenerGap, agents } });
+  p.serve(() => answer(JSON.parse(JSON.stringify(held.reading.agents))));
+  assert.equal((await p.probe.readState(true)).same, true, "a field sent again unchanged was taken for a change");
+  p.serve(() => answer({ ...JSON.parse(JSON.stringify(held.reading.agents)), facilitator: { name: "invented", alive: true, offrecord: false } }));
+  const changed = await p.probe.readState(true);
+  assert.notEqual(changed.same, true, "a changed field was taken for the clock");
+  assert.equal(changed.agents.facilitator.name, "invented");
+  assert.deepEqual(p.problems, []);
+});
+
+test("a reading copied in slices with a pause between them is the same reading, sharing nothing", async () => {
+  const block = html.slice(html.indexOf("// ---- the board's reading, lean"), html.indexOf("// ---- the board's reading ends"));
+  const fetchBoard = async url => { const r = await fetch(board.origin + url); const text = await r.text(); return { json: async () => JSON.parse(text) }; };
+  // a clock that moves a ms each time it is read, so the copy runs out of its
+  // slice every few cards and pauses many times
+  let tick = 0, pauses = 0;
+  const ctx = vm.createContext({ MessageChannel, fetch: fetchBoard, performance: { now: () => ++tick } });
+  vm.runInContext(block + "\nglobalThis.probe = { readState, get held(){ return deskHeld; } };", ctx);
+  const { probe } = ctx;
+  await probe.readState();
+  await post("/title?box=m70", "Changed before a copy in slices");
+  const pause = async () => { pauses++; await new Promise(r => setTimeout(r, 0)); };
+  const sliced = await probe.readState(false, pause);
+  assert.ok(pauses > 50, `the copy paused ${pauses} times`);
+  await sameAsWhole(sliced, "a reading copied in slices");
+  const held = objects(probe.held.reading);
+  for (const o of objects(sliced)) assert.equal(held.has(o), false, "the slices handed on an object of the reading held");
+  assert.equal(JSON.stringify(Object.keys(sliced)), JSON.stringify(Object.keys(probe.held.reading)), "the fields came in another order");
+  v8.setFlagsFromString("--allow-natives-syntax");
+  const fast = new Function("o", "return %HasFastProperties(o)");
+  v8.setFlagsFromString("--no-allow-natives-syntax");
+  assert.ok(sliced.boxes.every(fast), "a card copied in slices is a dictionary object");
+});
+
 test("a lean answer that does not fit is never used: the whole board is read at once", async () => {
   const p = page();
   const first = await p.read();

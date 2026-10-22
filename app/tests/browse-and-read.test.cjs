@@ -1036,7 +1036,7 @@ test("every composer is wired to the read rule after its formatter, on every sur
 
 test("every surface asks the arrival rule for the card it is using, after the counts came in", () => {
   // the large card: selected, not browsed, on the board's poll after seenSync
-  const poll = between(HTML.desktop, "async function poll(){", "\n// the card whose response");
+  const poll = between(HTML.desktop, "async function poll(timed = false){", "\n// the card whose response");
   assert.ok(poll.indexOf("seenSync(state);") < poll.indexOf("apply(state);"), "the board draws before it takes the counts in");
   const apply = between(HTML.desktop, "function apply(state){", "\n// ---- the clock");
   assert.match(apply, /\n    readOnArrival\(el, b, b\.id === selectedId && !browsing\);\n/);

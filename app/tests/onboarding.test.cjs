@@ -946,7 +946,8 @@ test("the board lays the onboarding over itself while the server says so, and ta
   assert.match(gate, /if \(tabClosed\(project\)\) reopenTab\(project\);\s*else setTab\(project\);/);
   assert.ok(gate.includes('if (!frame.contentDocument?.getElementById("obstage")){ onboard.failed = true; away(); }'),
             "a frame without the onboarding would wall the board off");
-  const reading = MAC.slice(MAC.indexOf("async function poll(){"), MAC.indexOf("if (seq <= createSeq) return;"));
+  const reading = MAC.slice(MAC.indexOf("async function poll(timed = false){"), MAC.indexOf("if (seq <= createSeq) return;"));
+  assert.ok(reading.startsWith("async function poll("), "the board's reading was not found");
   assert.match(reading, /try \{ onboardingWatch\(state\); \} catch \(e\) \{/,
                "a reading of the board never asks whether the onboarding is needed");
   assert.match(MAC, /#onboard\{position:fixed; inset:0;[^}]*z-index:2147483647;[^}]*transition:opacity \.18s ease\}/);

@@ -418,6 +418,95 @@ test("a stalled frame moves at most one clamped step", async () => {
   assert.ok(Math.abs(f.view.scrollTop - 1000 - 7.5) < 1e-6);
 });
 
+// ---- the glide ---------------------------------------------------------------------
+// a response laid out on the page (an element: nodeType 1) has its content moved
+// by the compositor between frames; the worlds above are not elements, as an
+// agent's page in its frame is not, and move by their frames alone
+const glides = f => [f.a.el.answwrap, f.a.el.reply].map(part => part.animations.filter(run => !run.cancelled));
+const glideAt = (run, i) => parseFloat(run.frames[i].translate.split(" ")[1]);
+
+test("the compositor is handed the curve ahead from the press and from each frame, from nothing", async () => {
+  const f = await setup({ scrollHeight: 100000, scrollTop: 0 });
+  f.view.nodeType = 1;
+  f.press();
+  let live = glides(f);
+  assert.deepEqual(live.map(l => l.length), [1, 1], "the press did not start a glide on both parts");
+  const first = live[1][0];
+  assert.equal(first.options.duration, 250);
+  assert.equal(first.options.fill, "forwards");
+  assert.equal(first.startTime, 0);
+  assert.equal(first.frames.length, 31);
+  assert.equal(first.frames[0].translate, "0 0px");
+  assert.equal(first.frames[0].offset, 0);
+  assert.equal(first.frames[30].offset, 1);
+  // the curve ahead, the content going up as the scroll goes down
+  for (const [i, frame] of first.frames.entries()) near(glideAt(first, i), -f.held(i * 250 / 30), `keyframe ${i}`);
+  assert.deepEqual(live[0][0].frames, first.frames, "the answered box and the answer glide apart");
+  f.time.run(5);
+  near(f.view.scrollTop, f.held(100));
+  live = glides(f);
+  assert.deepEqual(live.map(l => l.length), [1, 1], "an old glide was left running");
+  assert.equal(live[1][0].startTime, 100);
+  assert.equal(live[1][0].frames[0].translate, "0 0px", "a frame the page drew is not drawn at nothing");
+  near(glideAt(live[1][0], 30), -(f.held(350) - f.held(100)));
+});
+
+test("a frame the page was kept from drawing costs the words no motion, and the glide never passes the end", async () => {
+  const f = await setup({ scrollHeight: 100000, scrollTop: 0 });
+  f.view.nodeType = 1;
+  f.press();
+  f.time.run(5);
+  // 200 ms with no frame: the words glided on, so the next frame stands where
+  // the curve is rather than one clamped step on
+  f.time.run(1, 200);
+  near(f.view.scrollTop, f.held(300));
+  // longer than the glide: the words wait at its end, and the frame takes up from there
+  f.time.run(1, 400);
+  near(f.view.scrollTop, f.held(550));
+  const end = await setup({ scrollTop: 1590 });
+  end.view.nodeType = 1;
+  end.press();
+  const first = glides(end)[1][0];
+  assert.ok(first.frames.every((frame, i) => glideAt(first, i) >= -10 - 1e-9), "the glide ran past the end");
+  near(glideAt(first, 30), -10);
+});
+
+test("a motion that ends or is let go between frames goes on from where the glide has carried the words", async () => {
+  const f = await setup({ scrollHeight: 100000, scrollTop: 0 });
+  f.view.nodeType = 1;
+  f.press();
+  f.time.run(5);
+  // another key 120 ms after the last frame: the scroll lands where the words stand
+  f.time.elapse(120);
+  f.fire("keydown", chord(null, { key: "x", ctrlKey: false }));
+  near(f.view.scrollTop, f.held(220));
+  assert.deepEqual(glides(f).map(l => l.length), [0, 0], "a glide outlived the motion");
+  assert.equal(f.time.pending(), 0);
+
+  const g = await setup({ scrollHeight: 100000, scrollTop: 0 });
+  g.view.nodeType = 1;
+  g.press();
+  g.time.run(5);
+  // let go 40 ms after the last frame: the ease starts there, at that speed
+  g.time.elapse(40);
+  g.release("S");
+  const letGo = g.view.scrollTop;
+  near(letGo, g.held(140));
+  const ease = glides(g)[1];
+  assert.equal(ease.length, 1);
+  assert.equal(ease[0].startTime, 140);
+  const steps = [];
+  let last = letGo;
+  while (g.time.pending() && steps.length < 100){
+    g.time.run(1);
+    steps.push(g.view.scrollTop - last);
+    last = g.view.scrollTop;
+  }
+  assert.ok(steps.every(s => s >= 0), "it went backwards");
+  assertEased(last - letGo, g.speed(140), "let go between frames");
+  assert.deepEqual(glides(g).map(l => l.length), [0, 0], "a glide outlived the ease");
+});
+
 test("the motion stops at either end and still takes the chord there", async () => {
   const end = await setup({ scrollTop: 1596 });
   end.press(); end.time.run(10);

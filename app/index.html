@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="focus">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -448,8 +448,12 @@
      is enough for that: the body itself does not clip, because everything in it
      but the bar is fixed, so its box ends at the bar's foot, and a body that
      clipped cut the bar's glass shadows off along that line, which read as the
-     workspace's edge still running under the bar (20261010) */
-  html:has(body.focus){overflow:hidden}
+     workspace's edge still running under the bar (20261010).
+     the root carries focus in the markup, as the body does, rather than asking
+     html:has(body.focus): with that rule every node written anywhere on the
+     page sent the browser back to restyle from the root, a few ms each time on
+     a board of a thousand cards */
+  html.focus{overflow:hidden}
   /* scrolls stop dead at the edges: no rubber band, no chained bounce, in
      the page or in any scrolling region (reply, card body, composer, list) */
   html, body{overscroll-behavior:none}
@@ -7094,7 +7098,7 @@ function makeBox(b, i, state){
     */
 
     els[b.id] = { box, reply, replyview, meta, metaNote, histctl, histPos, histUp, histDown,
-                  ta, send, wstat, toc: entry, sec,
+                  ta, send, wstat, toc: entry, tage: entry.querySelector(".tage"), sec,
                   titleEl, tocTitle: entry.querySelector(".ttitle"), sun, dock, arc, x,
                   topbar, cardSpin, branch, bname, wtpick, wtmenu, hasWt: false, hasHistory,
                   historyVersion: null,
@@ -7428,7 +7432,45 @@ async function syncDesktopHistoryAvailability(id){
   setDesktopHistoryAvailability(id, list.length > 0);
 }
 
+// the whole draw at once, for the first reading and the page's own redraws (a
+// click, a key, a tab). it draws over a sliced draw still under way, which then
+// stops where it stands
 function apply(state){
+  drawGen++;
+  const pass = applyPass(state);
+  while (!pass.next().done);
+}
+
+// the timed refresh's draw: the same pass, a few ms at a time in the idle time
+// between the page's frames, so a frame never waits on more than one slice of
+// it (a control+S scroll moves the words from those frames). a draw begun
+// after it, whole or sliced, stops it where it stands, since that one draws
+// everything again. false when it was stopped
+const DRAW_SLICE_MS = 3;
+let drawGen = 0;
+async function applySliced(state){
+  const gen = ++drawGen;
+  const pass = applyPass(state);
+  for (;;){
+    const left = await drawIdle();
+    if (gen !== drawGen) return false;
+    const end = performance.now() + Math.min(DRAW_SLICE_MS, left);
+    let step;
+    do step = pass.next(); while (!step.done && performance.now() < end);
+    if (step.done) return true;
+  }
+}
+// the next stretch of idle time between frames and how long it has, or, where
+// the browser has no idle callback, the next task
+function drawIdle(){
+  if (typeof requestIdleCallback === "function")
+    return new Promise(done => requestIdleCallback(idle => done(Math.max(1, idle.timeRemaining())), { timeout: 200 }));
+  return new Promise(done => setTimeout(() => done(DRAW_SLICE_MS), 0));
+}
+
+// the draw, as a pass that stops after each card and between the parts drawn
+// after them, so apply can run it whole and applySliced a slice at a time
+function* applyPass(state){
   const onBoard = new Set(state.boxes.map(b => b.id));
   composeKeep(onBoard);   // a deleted card's saved line goes with it
   for (const id of Object.keys(els)){    // deleted boxes leave the page
@@ -7459,6 +7501,7 @@ function apply(state){
     const sb = state.boxes.find(x => x.id === selectedId);
     if (!sb || sb.owner !== activeOwner) deselect();
   }
+  yield;
 
   // scroll anchor: whatever you're typing in (else the box under the viewport
   // center — what you're reading) must not move when boxes above fold/expand.
@@ -7482,6 +7525,7 @@ function apply(state){
     if (!els[b.id]){
       makeBox(b, 0, state);
       landFocus();
+      yield;
     }
   }
 
@@ -7596,13 +7640,17 @@ function apply(state){
     if (el.toc){
       // quirk kept: pending queues the entry even when the ball sits with you;
       // otherwise yours (or a new card whose ball is with you) paints t-you,
-      // all off the one state
-      el.toc.className = "toc-entry " + (
+      // all off the one state. each is written only when it reads differently,
+      // so a pass that brings the same card writes nothing to its entry
+      const tocClass = "toc-entry " + (
         cs === "done" ? "t-done" : cs === "parked" ? "t-later" : cs === "working" ? "t-writing" : b.pending > 0 ? "t-queued" :
         (cs === "yours" || (cs === "new" && b.ball === "you")) ? "t-you" : "") + (FOCUS && b.id === selectedId ? " t-sel" : "");
-      el.toc.style.display = (FOCUS && b.owner !== activeOwner) ? "none" : "";
-      el.toc.querySelector(".tage").textContent = age(b.ts);
+      if (el.toc.className !== tocClass) el.toc.className = tocClass;
+      const tocShow = (FOCUS && b.owner !== activeOwner) ? "none" : "";
+      if (el.toc.style.display !== tocShow) el.toc.style.display = tocShow;
+      writeAge(el, b);
     }
+    yield;
   }
   if (anchorEl){
     const delta = anchorEl.getBoundingClientRect().top - anchorTop;
@@ -7611,6 +7659,7 @@ function apply(state){
     if (delta) window.scrollBy({ top: delta, left: 0, behavior: "instant" });
   }
   applySelection(state);
+  yield;
   // board title comes from state (seeded via seed.json), not from the page
   if (state.title && document.title !== state.title){
     document.title = state.title;
@@ -7632,18 +7681,33 @@ function apply(state){
       .filter(c => c.classList.contains("toc-entry") && c.style.display !== "none").length;
     tocGroups[key].style.display = visible ? "" : "none";
   }
+  yield;
   renderTabs(state);
+  yield;
   renderPages(state);   // the foot of the workspace, and whether the board is on this page at all
   if (draft && draft.screen === "home") renderHome(state);   // new lanes join the landing card live
+  yield;
   if (FOCUS){
     renderWorkspaces(state);
     renderTrio(state);
+    yield;
     renderCarousel(state);
+    yield;
     renderMiniCards(state);
+    yield;
   }
 
-  // listener presence, per agent: each is either long-polling (listening),
-  // composing a claimed reply (busy), or recently between the two. Otherwise: offline.
+  drawListeners(state);
+  // the board's own word while Tailscale Serve is held: what is off and why
+  const phoneOff = typeof state.phoneOff === "string" ? state.phoneOff : "";
+  document.body.classList.toggle("phoneoff", !!phoneOff);
+  const phoneLine = document.getElementById("phoneoff");
+  if (phoneLine.textContent !== phoneOff) phoneLine.textContent = phoneOff;
+}
+
+// listener presence, per agent: each is either long-polling (listening),
+// composing a claimed reply (busy), or recently between the two. Otherwise: offline.
+function drawListeners(state){
   const offOwners = Object.keys(state.listening || NAME).filter(ow =>
     (state.everListened || {})[ow] &&
     !state.listening[ow] && !state.busy[ow] && state.listenerGap[ow] > 300);
@@ -7655,11 +7719,37 @@ function apply(state){
       ". Messages still queue safely; replies resume when that terminal side wakes.";
     // the bar's own status line went with the strip; the banner below says it
   }
-  // the board's own word while Tailscale Serve is held: what is off and why
-  const phoneOff = typeof state.phoneOff === "string" ? state.phoneOff : "";
-  document.body.classList.toggle("phoneoff", !!phoneOff);
-  const phoneLine = document.getElementById("phoneoff");
-  if (phoneLine.textContent !== phoneOff) phoneLine.textContent = phoneOff;
+}
+
+// a card's age in the outline, written only when it reads differently: a
+// thousand cards written every 1.2 s with the same words cost a whole pass
+function writeAge(el, b){
+  const text = age(b.ts);
+  if (el.tageText === text) return;
+  el.tageText = text;
+  el.tage.textContent = text;
+}
+
+// what the clock alone moves, for a timed reading that found the board
+// standing still (poll): each card's age in the outline and each row's in the
+// list (the ones paintTicketPane keeps; a working row's spinner has its own
+// clock), each written only where it now reads differently, and the line that
+// names a lane whose agent has gone quiet
+function drawClock(state){
+  const cards = new Map();
+  for (const b of state.boxes){
+    cards.set(b.id, b);
+    const el = els[b.id];
+    if (el && el.tage) writeAge(el, b);
+  }
+  for (const pane of document.querySelectorAll("#tiksheet .tikpane")){
+    for (const row of pane.ages || []){
+      const b = cards.get(row.id);
+      const text = b ? shortAge(ticketTs(b)) : row.text;
+      if (row.text !== text){ row.text = text; row.span.textContent = text; }
+    }
+  }
+  drawListeners(state);
 }
 
 // ---- the clock: day, time, date, plain text, upper left -------------------
@@ -12187,6 +12277,9 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     for (const prev of kept) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
     pane.textContent = "";
   }
+  // each row's age as drawn, which a reading that brings only the clock moves
+  // on in place (drawClock); a working row shows its spinner instead
+  const ages = [];
   for (const [i, b] of pool.entries()){
     const s = queueState(b);   // working covers claimed and a worker's job behind it
     // quirks kept: a claimed done row still pulses, and an untouched row
@@ -12208,7 +12301,10 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     const ttl = h("div", "ttl", b.title);
     inner.appendChild(ttl);
     const meta = h("div", "tmeta");
-    meta.appendChild(h("span", "tage", busy ? spinGlyph(b.id, b) : shortAge(ticketTs(b))));
+    const ageText = busy ? null : shortAge(ticketTs(b));
+    const ageSpan = h("span", "tage", busy ? spinGlyph(b.id, b) : ageText);
+    meta.appendChild(ageSpan);
+    if (!busy) ages.push({ span: ageSpan, id: b.id, text: ageText });
     // the tag is the agent whose reply landed on the card; a card no agent
     // has answered shows the lane's live agent
     const ag = state.agents?.[b.owner];
@@ -12227,6 +12323,7 @@ function paintTicketPane(pane, pool, view, state, laneSig){
     old.textContent = "";
     for (const part of [...r.children]) old.appendChild(part);
   }
+  pane.ages = ages;
   if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "docked" ? "no docked chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
   pane.scrollTop = keepScroll;   // a rebuild must not throw away where the reader had scrolled
   // surviving rows glide to their new spots, the 220ms rise of the sister
@@ -12685,16 +12782,53 @@ function deskYield(){
     ch.port2.postMessage(0);
   });
 }
+// a lean answer that brings no card and no field but the two that move while
+// the board stands still, its clock (now) and how long each lane's agent has
+// been quiet (listenerGap), or a field it sends again just as the page holds
+// it: a field that changed after the revision the page names without moving
+// it (an agent coming or going) is sent again on every reading until the next
+// change moves the revision
+const DESK_CLOCK = ["now", "listenerGap"];
+function deskClockOnly(data, base){
+  return data.delta != null && Array.isArray(data.boxes) && !data.boxes.length &&
+    !(Array.isArray(data.gone) && data.gone.length) && !Array.isArray(data.ids) && !Array.isArray(data.keys) &&
+    !!data.set && Object.keys(data.set).every(k => DESK_CLOCK.includes(k) ||
+      (!!base && JSON.stringify(data.set[k]) === JSON.stringify(base.reading[k])));
+}
+// what readState hands on, when asked to, for such an answer instead of a copy
+// of the whole reading: the reading held has taken the clock in, and the page
+// has nothing new to draw from it
+const DESK_SAME = Object.freeze({ same: true });
+// the reading held written out and read back a card at a time, in slices of
+// at most DESK_SLICE_MS with pause awaited between them: the same new objects,
+// field for field and in the same order, as the whole copy makes at once
+const DESK_SLICE_MS = 3;
+async function deskCopy(reading, pause){
+  const out = {};
+  for (const k of Object.keys(reading)) deskPut(out, k, k === "boxes" ? [] : JSON.parse(JSON.stringify(reading[k])));
+  let end = performance.now() + DESK_SLICE_MS;
+  for (const b of reading.boxes){
+    if (performance.now() > end){ await pause(); end = performance.now() + DESK_SLICE_MS; }
+    out.boxes.push(JSON.parse(JSON.stringify(b)));
+  }
+  return out;
+}
 // one reading, as the board's state at this moment, new objects for the draw. An
 // answer that is no reading at all (a busy or failed board's {error}) is handed
-// on as it came, as it always was, and the reading held stays held
-async function readState(){
+// on as it came, as it always was, and the reading held stays held. same says
+// the caller would rather have DESK_SAME for an answer that moved only the clock,
+// and pause, when given, has the copy made in slices with pause between them
+async function readState(same = false, pause = null){
   const base = deskHeld;
   const ask = base && base.epoch !== null ? "/state?since=" + base.rev + "&delta=" + encodeURIComponent(base.epoch) : "/state?since=";
   const data = await (await fetch(ask)).json();
   if (data === null || typeof data !== "object" || (data.delta == null && !Array.isArray(data.boxes))) return data;
   let held = null;
   try { held = deskMerge(base, data); } catch (e) { held = null; }
+  if (held && same && deskClockOnly(data, base)){
+    deskHeld = held;
+    return DESK_SAME;
+  }
   if (!held){
     // a lean answer that does not fit what is held, which the board's own
     // check should make impossible: written down, and the whole board read now
@@ -12705,7 +12839,7 @@ async function readState(){
     held = deskMerge(null, whole);
   }
   deskHeld = held;
-  const out = JSON.parse(JSON.stringify(held.reading));
+  const out = pause ? await deskCopy(held.reading, pause) : JSON.parse(JSON.stringify(held.reading));
   await deskYield();
   return out;
 }
@@ -12714,6 +12848,17 @@ async function readState(){
 let pollFails = 0;
 let pollSeq = 0;     // the readings asked for so far
 let createSeq = 0;   // the newest of them when the last new card's answer came in
+let drawnAsked = 0;  // when the reading the page last drew whole was asked for
+// whether a timed reading that finds the board standing still may skip the
+// whole draw: the page has drawn a reading, and holds nothing of its own that
+// only a draw of the board's word lets go of (a seen mark, a flag's tap, a card
+// put in the Bin, the bar's order still held at the last draw, a second Enter's
+// window, the onboarding); while one stands, every reading is drawn whole
+function deskStill(){
+  return !!lastState && !onboard.frame && !enterAgain && !binGone.size &&
+    !Object.keys(seenHeld).length && !Object.keys(flagHolds).length &&
+    !(tabsHeld && tabsHeld.until > drawnAsked);
+}
 // the fetch and the render each get their own try. One try around both is
 // what told the reader the server was unreachable when a card had failed to draw:
 // three throws from anywhere in the render path raised pollFails to three and
@@ -12721,7 +12866,14 @@ let createSeq = 0;   // the newest of them when the last new card's answer came 
 // keeps its wording and its three strikes and now means what it says; a render
 // that fails is reported and the board keeps polling, because one card that
 // will not draw should not stop the rest.
-async function poll(){
+//
+// timed is the 1.2 s timer's own reading. one that finds the board standing
+// still (DESK_SAME) draws only what the clock moves (drawClock) rather than the
+// whole board again, as long as the page holds nothing of its own that waits
+// for the board's word (deskStill); one that brings a change is copied and
+// drawn in slices between the page's frames (deskCopy, applySliced). a reading
+// asked for by anything else is drawn whole, as it always was
+async function poll(timed = false){
   noteDoing("poll");
   let state;
   const seq = ++pollSeq;
@@ -12730,8 +12882,8 @@ async function poll(){
   // it. The phone's readings carry the same stamp for the same reason
   const asked = Date.now();
   try {
-    state = await readState();
-    state.fetchedAt = asked;
+    state = await readState(timed && deskStill(), timed && lastState ? drawIdle : null);
+    if (state !== DESK_SAME) state.fetchedAt = asked;
   } catch (e) {
     curtainTrouble();
     if (++pollFails >= 3){   // the server itself, distinct from listener-offline
@@ -12746,6 +12898,21 @@ async function poll(){
   // the board has answered: it is asked once about each message held on a card
   // that did not get through, so one that landed after all is not left as failed
   for (const el of [...Object.values(els), ...Object.values(miniEls)]) if (el.sentHeld && el.sentHeld.length) sentAskHeld(el);
+  // the board stood still: the watches below read the reading held, which has
+  // taken the new clock in, and only what the clock moves is drawn
+  if (state === DESK_SAME){
+    const clock = { ...deskHeld.reading, fetchedAt: asked };
+    try { onboardingWatch(clock); } catch (e) {
+      if (typeof reportProblem === "function") reportProblem("error", e);
+    }
+    try { updateWatch(clock); } catch (e) {
+      if (typeof reportProblem === "function") reportProblem("error", e);
+    }
+    try { chimeWatch(clock); drawClock(clock); } catch (e) {
+      if (typeof reportProblem === "function") reportProblem("render", e);
+    }
+    return;
+  }
   // whether the onboarding is needed, on every reading and on its own try, so
   // nothing in the draw below can keep it from going up
   try { onboardingWatch(state); } catch (e) {
@@ -12781,9 +12948,22 @@ async function poll(){
     // a card this page is holding a click for is shown the way it was left, and
     // this reading's own word for it is kept aside to go back to
     holdFlags(state);
-    if (!lastState) build(state);
-    apply(state);
-    lastState = state;
+    drawnAsked = asked;
+    if (timed && lastState){
+      // the timed refresh draws in slices between the page's frames, with the
+      // reading already the page's own, so a redraw asked for while it runs
+      // draws this reading and not the one before. a newer reading's draw
+      // that stopped this one does the rest after it, too
+      lastState = state;
+      if (!await applySliced(state) && lastState !== state) return;
+      // and what is left of the poll (the magic box, the reader's layout, the
+      // caret) in idle time of its own, apart from the draw's last slice
+      await drawIdle();
+    } else {
+      if (!lastState) build(state);
+      apply(state);
+      lastState = state;
+    }
     magicSync();   // the card on screen's magic box, opened, changed or closed by its agent
     P3_LANE = state.imagePanelLane || "";
     // the mount map decides which lane's reader is on screen, so a change to the
@@ -15256,8 +15436,10 @@ seedHiddenOnce();
 applySavedLayout();
 // the timed refresh waits out a panel's run or a page turn (cardsMoving in
 // card-logic.js): the tick that lands inside one is skipped, and the next one
-// catches up. a refresh asked for by a send or a click still goes at once
-poll(); setInterval(() => { if (!cardsMoving()) poll(); }, 1200);
+// catches up. a refresh asked for by a send or a click still goes at once.
+// a timed one that finds the board standing still draws only what the clock
+// moves (poll's timed)
+poll(); setInterval(() => { if (!cardsMoving()) poll(true); }, 1200);
 
 // ---- the board's worker --------------------------------------------------------
 // The worker keeps nothing at all, and sw.js says why it is here: Chrome asked

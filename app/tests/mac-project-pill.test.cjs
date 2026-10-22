@@ -662,7 +662,10 @@ const rule = (text, selector) => {
 const decl = (block, property) => (block.match(new RegExp("(?:^|[;\\s])" + property + ":([^;]+)")) || [])[1]?.trim();
 
 test("nothing below the bar clips its glass's shadows: only the root keeps the page from scrolling", () => {
-  assert.match(sheet, /html:has\(body\.focus\)\{overflow:hidden\}/);
+  assert.match(sheet, /html\.focus\{overflow:hidden\}/);
+  assert.match(html, /<html lang="en" class="focus">/, "the root does not carry focus from the first paint");
+  assert.match(html, /<body class="focus">/);
+  assert.doesNotMatch(sheet, /:has\(body\.focus\)/, "the root asks the whole page again on every write");
   assert.doesNotMatch(sheet, /body\.focus\s*(,[^{]*)?\{[^}]*overflow:\s*(hidden|clip)/, "the body clips the bar's shadows at its foot again");
   assert.doesNotMatch(sheet, /body\.focus \.bar\{[^}]*overflow/);
 });
