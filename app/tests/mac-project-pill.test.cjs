@@ -744,7 +744,7 @@ test("home's project list stands on the page with no box, and the new tab keeps 
   assert.doesNotMatch(/\n  #nppanel\{([^}]*)\}/.exec(sheet)[1], /background|box-shadow|border-radius/);
 });
 
-test("home's list has a heading and a line over its projects, and its room is set by the logo and the limits, not by the number of projects", () => {
+test("home's list has a heading and a line over its projects, and its room grows with the projects up to the room the logo and the limits leave", () => {
   // "Projects", its line, the rows, the line and the folder row, in that order
   const markup = html.slice(html.indexOf('<nav id="homelist"'), html.indexOf("</nav>", html.indexOf('<nav id="homelist"')));
   const order = ['<div id="homehead" aria-hidden="true">Projects</div>', '<div id="homeheadsep"></div>', '<div id="homerows"></div>',
@@ -778,14 +778,22 @@ test("home's list has a heading and a line over its projects, and its room is se
   // the same room above and below both, 3.35 to 14 of the names' size, so
   // nine names stand whole between them at the larger windows too
   assert.equal(decl(lines, "margin"), "calc(var(--home-font) * 3.35 / 14) var(--home-cross) calc(var(--home-font) * 3.35 / 14) 0");
-  // the box fills its part between the top and foot homeFit sets, no longer
-  // capped or centred, and the rows take the room between the lines from its top
-  const box = rule(sheet, "#homelistbox");
-  assert.equal(decl(box, "flex"), "1 1 0");
+  // the box starts at the top homeFit sets and is as tall as what it holds, up
+  // to the foot homeFit sets, not capped or centred; the rows take their own
+  // height from its top, never under the floor homeFit sets, and shrink to
+  // the room left at the foot, where they scroll
+  const box = rule(sheet, "#homelistbox"), rows = rule(sheet, "#homerows");
+  assert.equal(decl(box, "flex"), "0 1 auto");
+  assert.equal(decl(box, "min-height"), "0");
   assert.match(decl(box, "margin"), /^var\(--home-list-top, 0px\) .* var\(--home-list-foot, 0px\) 0$/);
   assert.equal(decl(box, "max-height"), undefined, "no cap on the list's height");
   assert.equal(decl(rule(sheet, "body.focus.home #homelist"), "justify-content"), undefined, "the list is not centred");
-  assert.equal(decl(rule(sheet, "#homerows"), "flex"), "1 1 0");
+  assert.equal(decl(rows, "flex"), "0 1 auto");
+  assert.equal(decl(rows, "min-height"), "var(--home-room-min, 0px)");
+  assert.equal(decl(rows, "max-height"), undefined, "the foot is the only cap");
+  assert.equal(decl(rows, "overflow-y"), "auto");
+  for (const id of ["#homehead", "#homeheadsep, #homelistsep", "#homelist .homerow"])
+    assert.equal(decl(rule(sheet, id), "flex"), "none", id + " keeps its height");
   // homeFit sets the top from the logo's word and the foot from the last "Last updated" line, both as drawn
   const fit = between("function homeFit(){", "// fitted on the frame");
   assert.match(fit, /homeSet\(homeListPart, "--home-t", t, ""\)/);
@@ -793,6 +801,13 @@ test("home's list has a heading and a line over its projects, and its room is se
   assert.match(fit, /homePair\.querySelectorAll\("\.tk-updated, \.lm-updated"\)\]\.map\(el => homeInk\(el, t\)\)\.filter\(Boolean\)\.pop\(\)/);
   assert.match(fit, /homeSet\(homeListPart, "--home-list-top", /);
   assert.match(fit, /homeSet\(homeListPart, "--home-list-foot", /);
+  // and the floor: four rows of the list's own pitch, or the full room
+  // between those edges when that is less, read in the same layout as the
+  // heading and the folder row
+  assert.match(fit, /pitch = homeListBox\.querySelector\("\.homerow"\)\.getBoundingClientRect\(\)\.height/);
+  assert.match(fit, /const full = footAt - headAt - \(folder\.bottom - heading\.top - held\);/);
+  assert.match(fit, /homeSet\(homeListPart, "--home-room-min", Math\.max\(0, Math\.min\(full, 4 \* pitch\)\)\)/);
+  assert.ok(fit.indexOf("const held = ") < fit.indexOf('"--home-list-top"'), "the rows are measured before the top and foot move");
 });
 
 // ---- rounds 3 and 4 (20261010): spacing, numbers and weights ------------------

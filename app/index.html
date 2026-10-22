@@ -3791,38 +3791,42 @@
      scale --home-t in the line colour, with 3.35 to 14 of the names' size
      clear above and below each: the least that leaves nine names whole
      between them at 1440 by 900, 1512 by 982 and 1920 by 1080, a pixel
-     spare. homeFit sets the list's top and foot so the heading's ink starts
-     level with the logo's word and the folder row's ink ends level with the
-     last "Last updated" line under the charts: the projects' room between
-     the two lines is set by those edges, whatever the number of projects.
-     its rows are the pill's list's rows at --home-font for their 14px, every
-     other length of theirs scaled with it: the number in
-     the monospace at 14.6 to 14, the 17 to 14 line, the 10 to 14 gap, the 34
+     spare. homeFit sets the list's top so the heading's ink starts level
+     with the logo's word, and its foot where the folder row's ink would end
+     level with the last "Last updated" line under the charts: between those
+     edges the two lines hold the projects' full room. the room is four rows
+     tall for up to four projects and a row taller for each project after
+     that, until it fills the full room; the bottom line and the folder row
+     stand right under it, so they move down as it grows. its rows are the
+     pill's list's rows at --home-font for their 14px, every other length of
+     theirs scaled with it: the number in the monospace at 14.6 to 14, the 17
+     to 14 line, the 10 to 14 gap, the 34
      to 14 of room on the right that the cross stands in. the names stand
      --home-rows apart in the faint ink of the faint names beside the pill and
      the numbers a shade fainter; under the pointer the name takes the full ink
      and the number the sub ink, and a project holding a reply not yet read is
      in the semibold, as in the pill's list. the names end --home-margin from
      the frame's right edge, so the row's room for the cross reaches into that
-     margin. the names start at the top of their room and scroll inside
-     #homerows past its foot with no bar, fading over 1.6 names' height at an
-     end with more past it, inside the two lines; the heading, the lines and
-     the folder row never move. a name never ends in dots: homeFit gives it
-     the room first, and only in a window too narrow for that does it fade */
+     margin. the names start at the top of their room and, once it is full,
+     scroll inside #homerows past its foot with no bar, fading over 1.6
+     names' height at an end with more past it, inside the two lines; the
+     scroll moves neither the heading, the lines nor the folder row. a name
+     never ends in dots: homeFit gives it the room first, and only in a
+     window too narrow for that does it fade */
   @property --home-fade-top{syntax:"<length>"; inherits:false; initial-value:0px}
   @property --home-fade-bot{syntax:"<length>"; inherits:false; initial-value:0px}
   body.focus.home #homelist{right:var(--app-inset); width:calc((100vw - 2 * var(--app-inset)) * var(--home-split, .33333));
     flex-direction:column; align-items:flex-end;
     --home-font:calc(28px * var(--home-u, 1)); --home-rows:calc(var(--home-font) * .75);
     --home-margin:calc(172px * var(--home-u, 1)); --home-cross:calc(var(--home-font) * 34 / 14)}
-  #homelistbox{flex:1 1 0; display:flex; flex-direction:column; min-height:0; max-width:100%;
+  #homelistbox{flex:0 1 auto; display:flex; flex-direction:column; min-height:0; max-width:100%;
     margin:var(--home-list-top, 0px) calc(var(--home-margin) - var(--home-cross)) var(--home-list-foot, 0px) 0; pointer-events:auto;
     font:400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)}
   #homehead{flex:none; font-weight:600; color:color-mix(in srgb, var(--sub) 55%, transparent);
     white-space:nowrap; cursor:default}
   #homehead::before{content:""; display:inline-block; width:var(--pnum, 1ch); margin-right:calc(var(--home-font) * 10 / 14);
     font:400 calc(var(--home-font) * 14.6 / 14) var(--mono)}
-  #homerows{flex:1 1 0; min-height:0; display:flex; flex-direction:column;
+  #homerows{flex:0 1 auto; min-height:var(--home-room-min, 0px); display:flex; flex-direction:column;
     overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
     -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
     mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
@@ -5465,8 +5469,18 @@ function homeFit(){
   const headAt = word?.top ?? shown?.top, footAt = updated?.bottom ?? shown?.bottom;
   const box = homeListBox.getBoundingClientRect(), list = homeListPart.getBoundingClientRect();
   const heading = homeInk(homeHead, 1), folder = homeInk(homeNewName, 1);
+  const held = homeRows.getBoundingClientRect().height, pitch = homeListBox.querySelector(".homerow").getBoundingClientRect().height;
   if (headAt != null && heading) homeSet(homeListPart, "--home-list-top", Math.max(0, headAt - (heading.top - box.top) - list.top));
   if (footAt != null && folder) homeSet(homeListPart, "--home-list-foot", Math.max(0, list.bottom - footAt - (box.bottom - folder.bottom)));
+  // the projects' room is their rows' own height, never under four rows: the
+  // box is as tall as what it holds, up to the foot just set, and past that
+  // the rows scroll. the full room is what those edges leave once the
+  // heading, the lines and the folder row have theirs; a window too short
+  // for four rows gets the full room
+  if (headAt != null && footAt != null && heading && folder){
+    const full = footAt - headAt - (folder.bottom - heading.top - held);
+    homeSet(homeListPart, "--home-room-min", Math.max(0, Math.min(full, 4 * pitch)));
+  }
   homeFades();
 }
 // fitted on the frame after anything that moves it: the window's size, the
