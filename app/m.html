@@ -1229,18 +1229,18 @@
      its lengths are the page's own, scaled as the card's are. its bar stands
      at its foot, not its top as on the board: it comes after what the box
      holds (the markup below), so the cross is at the box's bottom right
-     corner, --mb-gap in from the side and the bottom edge as the board's is
-     from the side and the top, and what the box shows starts at its top. the
-     box is turned over and its words are not: the white the board keeps at
-     its far edge (--mb-air, and --mb-inset over the words) is at the top
-     here, and the lead (--mb-lead, 6px as on the board) stands between the
-     words' last line and the bar. the view (magicView, card-logic.js) reads
-     the bar's side off the markup: the fuzz that counts only words gone
-     under the bar is at the foot, and the top has the ticket list's plain one */
+     corner, as far in from the side as from the bottom edge and the line, as
+     the board's is from the side, the top and the line, and what the box
+     shows starts at its top. the box is turned over and its words are not:
+     the white the board keeps at its far edge (--mb-air, and --mb-inset over
+     the words) is at the top here, and the lead (--mb-lead, 6px as on the
+     board) stands between the words' last line and the bar. the view
+     (magicView, card-logic.js) reads the bar's side off the markup: the fuzz
+     that counts only words gone under the bar is at the foot, and the top
+     has the ticket list's plain one */
   #mbface{display:none; --mb-inset:calc(16 * var(--u));
     --mb-x:calc(17 * var(--u)); --mb-gap:calc(6.5 * var(--u)); --mb-air:calc(8 * var(--u)); --mb-fade:calc(22 * var(--u));
-    --mb-lead:calc(6 * var(--u)); --mb-round:calc(14 * var(--u));
-    --mb-seat:calc(1.5 * var(--mb-gap) + .5 * var(--edge))}
+    --mb-lead:calc(6 * var(--u)); --mb-round:calc(14 * var(--u))}
   /* the box is dressed as the board's is (#magicbox, index.html): the card's
      white face, its edge line and corners twice the card's 7px (--mb-round), and its shadow, here the faint
      one the board's box wears while its card is the one being worked in, which
@@ -1259,13 +1259,12 @@
      --line inside the bar, along its top since the bar is at the box's foot,
      taking nothing from the bar's height and never over what the box holds */
   #mbface .mbbar{box-shadow:inset 0 var(--edge-drawn) 0 var(--line)}
-  /* the cross stands half as far again from the box's side and foot as the
-     board's does: the whole of its offset from the box's outer edge (--mb-gap
-     and the edge line) times 1.5, i.e. --mb-seat from the inside of the line.
-     the bar keeps its height, and the cross rises within it. the green button
-     that expands the box is its mirror at the bottom left corner */
-  #mbface .mbbar{padding:0 var(--mb-seat)}
-  #mbface :is(.mbclose, .mbgrow){top:calc(var(--mb-gap) - var(--mb-seat))}
+  /* with the line along its top, the bar pads out the line's width there in
+     place of the sheet's at its foot, so the cross is centred in the white
+     under the line and stands as far from it as from the box's foot and side
+     (the sheet's side padding). the green button that expands the box is its
+     mirror at the bottom left corner */
+  #mbface .mbbar{padding:var(--edge-drawn) calc(var(--mb-gap) - var(--edge-drawn) / 2) 0}
   /* expanded (phoneMagicBig), the box stands in the browser's top layer, over
      everything on the page whatever moves or clips the drawer it lives in,
      with nothing of it moved, so a page in it keeps running as it was:
