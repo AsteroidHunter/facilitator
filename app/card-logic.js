@@ -3788,6 +3788,9 @@ function stackAnswered(panel, batch){
     }
     for (const state of ANSWERED_STATES) msg.classList.toggle(state, m.state === state);
     msg.classList.toggle("undelivered", sentUndelivered(m));
+    // a message an agent sent for the reader wears the robot before its first
+    // word (card-tokens.css), here and in the panel over the answer alike
+    msg.classList.toggle("agent", sentBy(m) === "agent");
     if (m.op) msg.dataset.op = m.op;
     else delete msg.dataset.op;
     const kind = m.badge || "";
@@ -4593,11 +4596,13 @@ function newOpId(){
 }
 // the panel's list, out of the board's reading of a card: what a note has
 // already taken toward the answer to come, which is read, then the queued
-// messages, each where it stands
+// messages, each where it stands and, for one an agent sent for the reader,
+// by whom (pendingBy)
 function sentFrom(b){
   const noted = ((b && b.notedTexts) || []).map(text => ({ text, stage: "read" }));
   const texts = (b && b.pendingTexts) || [], states = (b && b.pendingStates) || [];
-  return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "" })));
+  const by = (b && b.pendingBy) || [];
+  return noted.concat(texts.map((text, i) => ({ text, stage: states[i] || "", ...(by[i] ? { by: by[i] } : {}) })));
 }
 // the mark's own motion, which the sheet draws (card-tokens.css): a word comes
 // in over the send's run (--answ-come), and one giving way to another goes out
@@ -4710,10 +4715,16 @@ function sentRows(panel){
   const stack = panel.querySelector(".answstack");
   return stack ? [...stack.children] : [];
 }
-// where a message stands, the owner's three places: not delivered yet, and the
-// two words a mark says. a board too old to say leaves it nowhere, which is a
-// place of its own
-function sentState(m){ return m.stage === "local" ? "local" : SENT_TAGS[m.stage] || ""; }
+// who sent a message: "agent" for one an agent sent for the reader (by=agent on
+// /send), and "" for the reader's own, which is every message a board without
+// the field reports
+function sentBy(m){ return m && m.by === "agent" ? "agent" : ""; }
+// where a message stands, one of three places: not delivered yet, and the two
+// words a mark says. a board too old to say leaves it nowhere, which is a
+// place of its own. an agent's message stands apart from the reader's own in
+// each of them, so the two never become one bubble and each keeps its robot or
+// its lack of one
+function sentState(m){ return (m.stage === "local" ? "local" : SENT_TAGS[m.stage] || "") + (sentBy(m) ? " by agent" : ""); }
 // and where a bubble stands: where its newest message does
 function sentStands(shown){ return shown && shown.length ? sentState(shown[shown.length - 1]) : null; }
 
@@ -4756,7 +4767,24 @@ function sentGroups(before, shown, own){
     if (!groups.length || groups[groups.length - 1].id !== id) groups.push({ id, msgs:[] });
     groups[groups.length - 1].msgs.push(m);
   });
-  return groups;
+  // a message an agent sent and one of the reader's own never share a bubble,
+  // even one matched by its words or landing between two of a bubble's
+  // messages: where a group changes hands the rest of it takes a new bubble,
+  // and a standing bubble's id is given out once
+  const out = [], used = new Set();
+  for (const group of groups){
+    let run = null;
+    for (const m of group.msgs){
+      if (!run || sentBy(m) !== sentBy(run.msgs[run.msgs.length - 1])){
+        const id = !run && !used.has(group.id) ? group.id : fresh++;
+        used.add(id);
+        run = { id, msgs:[] };
+        out.push(run);
+      }
+      run.msgs.push(m);
+    }
+  }
+  return out;
 }
 
 // a new bubble: the answered panel, telling its room, and asking for the next
@@ -4778,9 +4806,9 @@ function sentDropPanel(panel){
 // the messages this page sent that did not get through (el.sentHeld) stand in
 // the seat after what the board has, since a reading of the board knows
 // nothing of them. what a run of messages is drawn from: the words, and the
-// state, the badge and the stage of each
+// state, the badge, the stage and the sender of each
 function sentKeyOf(msgs){
-  return JSON.stringify(msgs.map(m => [answeredText(m), m.op || "", m.state || "", m.badge || "", m.stage || ""]));
+  return JSON.stringify(msgs.map(m => [answeredText(m), m.op || "", m.state || "", m.badge || "", m.stage || "", sentBy(m)]));
 }
 function syncSent(el, batch, arrive){
   if (!el || !el.sentwrap) return;

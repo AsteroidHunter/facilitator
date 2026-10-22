@@ -4180,3 +4180,76 @@ test("a merge lands at once under a reading that changes its messages, or when t
   assert.ok(t.el.sentMerge === null, "the seat taken away left the fall going");
   assert.equal(t.el.sentwrap.children.length, 0, "the merge left its layer or ground in the seat");
 });
+
+// ---- the messages an agent sent for the reader ---------------------------------------
+// a message sent with by=agent on /send is an agent's (a voice or text
+// assistant's), and the board says so beside it: pendingBy on a reading, by on
+// a batch's message. its row wears .agent, which the sheet draws as a small
+// robot before its first word; the reader's own rows wear nothing, the word
+// under a bubble stays plain, and the two kinds never share a bubble
+test("a message an agent sent wears the robot in a bubble of its own, over the answer and in the history, and the reader's own wear none", async () => {
+  const { context, run } = sandbox();
+  const el = fullCard("c1");
+  const reading = {
+    pendingTexts: ["Invented typed first.", "Invented sent by the assistant.", "Invented sent by the assistant again.", "Invented typed last."],
+    pendingStates: ["sent", "sent", "sent", "sent"], pendingBy: [null, "agent", "agent", null],
+  };
+  el.sentItems = context.sentFrom(reading);
+  context.syncSent(el, el.sentItems);
+  const bubbles = Array.from(context.sentPanels(el));
+  assert.deepEqual(bubbles.map(panel => blocks(panel).map(b => b.cls)),
+    [["answmsg cardmd"], ["answmsg cardmd agent", "answmsg cardmd agent"], ["answmsg cardmd"]],
+    "an agent's message shares a bubble with the reader's, or a row does not say who sent it");
+  assert.deepEqual(bubbles.map(panel => panel.dataset.mark), ["Delivered", "Delivered", "Delivered"],
+    "a bubble's word is not its own plain Delivered");
+  assert.ok(bubbles.every(panel => panel.className.split(" ").every(name => name !== "agent")),
+    "the mark went on the bubble rather than on the message");
+  // a board without the field reads every message as the reader's
+  const older = fullCard("c2");
+  older.sentItems = context.sentFrom({ pendingTexts: reading.pendingTexts, pendingStates: reading.pendingStates });
+  context.syncSent(older, older.sentItems);
+  assert.ok(context.sentPanels(older).every(panel => blocks(panel).every(b => b.cls === "answmsg cardmd")));
+
+  // the panel over the answer holds both kinds, each message marked on its own
+  const batch = [
+    { text: "Invented typed.", ts: 1760000000 },
+    { text: "Invented sent by the assistant.", ts: 1760000010, by: "agent", agent: "voice-assistant" },
+    { text: "Invented typed again.", ts: 1760000020 },
+  ];
+  const live = liveBox(batch);
+  context.syncAnswered(el, context.liveAnswered(live));
+  assert.deepEqual(blocks(el.answ).map(b => b.cls), ["answmsg cardmd", "answmsg cardmd agent", "answmsg cardmd"]);
+
+  // and an older page of the history carries its own batch's marks
+  el.reply.dataset.raw = "The invented live answer.";
+  context.els = { c1: el };
+  context.selectedId = "c1";
+  context.lastState = { boxes: [live] };
+  const pages = [{ id: "reply-first", ts: 1750000000, answered: [
+    { text: "Invented sent by a text assistant.", ts: 1749999980, by: "agent", agent: "text-assistant" },
+    { text: "Invented typed before the first answer.", ts: 1749999990 },
+  ] }];
+  run(`histCache.c1 = Promise.resolve(Object.assign(["The invented first answer."], { meta: ${JSON.stringify(pages)} }))`);
+  await context.histStep("c1", 1);
+  assert.equal(el.answId, "reply-first");
+  assert.deepEqual(blocks(el.answ).map(b => b.cls), ["answmsg cardmd agent", "answmsg cardmd"]);
+  await context.histStep("c1", -1);
+  assert.deepEqual(blocks(el.answ).map(b => b.cls), ["answmsg cardmd", "answmsg cardmd agent", "answmsg cardmd"],
+    "back on the live answer, a row kept the older page's mark");
+});
+
+test("the sheet draws the robot before an agent's message's first word, at the drawing's size, and nothing on the reader's", () => {
+  const rule = TOKENS.match(/\.answmsg\.agent > :first-child::before\{([^}]*)\}/);
+  assert.ok(rule, "the sheet draws nothing before an agent's message");
+  const body = rule[1];
+  // 12px, 6px from the first word and 2px under its baseline at the large card's 15px type
+  assert.match(body, /width:calc\(12em \/ 15\); height:calc\(12em \/ 15\)/);
+  assert.match(body, /margin-right:calc\(6em \/ 15\); vertical-align:calc\(-2em \/ 15\)/);
+  assert.match(body, /display:inline-block/);
+  // the robot line icon in the board's soft grey ink
+  assert.match(body, /viewBox='0 0 24 24'/);
+  assert.match(body, /stroke='%2375695A' stroke-width='2\.2' stroke-linecap='round' stroke-linejoin='round'/);
+  assert.match(body, /%3Crect x='4\.5' y='7' width='15' height='12\.5' rx='3\.2'\/%3E/);
+  // the mark is the message's alone: no rule marks a bubble or its word
+  assert.doesNotMatch(TOKENS.replace(/\/\*[\s\S]*?\*\//g, ""), /\.answered[^{,]*\.agent|\.agent[^{,]*::after/);
+});
