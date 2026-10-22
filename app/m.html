@@ -1297,6 +1297,13 @@
   #mbface .mbbody[data-kind="html"] > .mbcover{display:none}
   #tickets.boxface > #tikhead, #tickets.boxface > #tiklist{display:none}
   #tickets.boxface > #mbface{display:flex; flex:none; align-self:center}
+  /* a page in the box stays laid out at the box's width, unseen and taking no
+     touch, while the drawer wears the list's face, laid over the drawer's top
+     as the swap lays it (below). put away, it would be laid out at no width
+     at all and say its height for that, and the box, which takes the page's
+     own height, would come out at that size and change it on its way */
+  #tickets:not(.boxface, .swapface) > #mbface:has(> .mbbody[data-kind="html"]){display:flex; flex:none; position:absolute;
+    top:0; left:0; right:0; margin:0 auto; visibility:hidden}
   /* while the drawer changes face (drawerSwapFace) both faces are on show and
      each is moved on its own: the list in its place, and the box laid over it
      from the drawer's top, centred, where it hangs when it is out alone */
@@ -8316,32 +8323,48 @@ function phoneMagicHeld(){
   if (out === tickets && tickets.classList.contains("boxface")) return;
   drawerKey(null, true);
 }
-// the box at its own size in the drawer: the drawer's width and height are the
-// room it is fitted to, its height no more than leaves the gap under it equal
-// to the gap over it with the card at its lowest (phoneMagicCap, below), so
-// longer words scroll inside it under its fade; a picture still on its way
-// keeps it hidden. a box held for its size comes out once it is fitted
+// the box at its own size in the drawer, as on the board: the drawer's width
+// and height are the room it is fitted to, its height no more than leaves the
+// gap under it equal to the gap over it with the card at its lowest
+// (phoneMagicCap, below, from the box's top edge, which stands level with the
+// section names' pill), so longer words scroll inside it under its fade. it
+// ends where what it shows ends: a picture in its own shape, words and a page
+// at their own height, with none of the box's white over or under them, and
+// the card comes up under it (listSlack). a picture still on its way keeps it
+// hidden. a box held for its size comes out once it is fitted
 let phoneMagicCap = () => Infinity;
-// how far the box's top edge stands over the first mark of the card list (the
-// section names' pill, below): the box grows upward by it, so what it shows is
-// fitted to its height less that and the foot stays where it was
-let phoneMagicRaise = () => 0;
 // a box on its way between the drawer and its expanded place (phoneMagicMove)
 // is fitted once it lands, so nothing is measured off it as it moves
 function phoneMagicFit(){
   if (PB.move) return;
   if (PB.view.big){ phoneMagicPlaceBig(); return; }
-  const cap = phoneMagicCap(), raise = phoneMagicRaise();
-  const room = { width: tickets.clientWidth, height: Math.min(tickets.clientHeight, cap) - raise };
+  const cap = phoneMagicCap();
+  const room = { width: tickets.clientWidth, height: Math.min(tickets.clientHeight, cap) };
   if (!room.width || !(room.height > 0)) return;
   PB.cap = cap;
-  const at = MagicBox.fit(room, PB.view.want(room));
-  Object.assign(PB.el.style, { width: at.width + "px", height: at.height + raise + "px",
+  const want = PB.view.want(room), frame = phoneMagicFrame(want);
+  const at = frame ? MagicBox.fit({ width: room.width - frame.across, height: room.height }, frame.want) : MagicBox.fit(room, want);
+  Object.assign(PB.el.style, { width: at.width + (frame ? frame.across : 0) + "px", height: at.height + "px",
     visibility: PB.view.waiting() ? "hidden" : "" });
   if (tickets.classList.contains("boxface")) fitList();
   if (PB.held) phoneMagicHeld();
 }
 addEventListener("resize", () => phoneMagicFit());
+// a picture's own size against the box's frame as it is drawn: its edge lines
+// across, and down its edge lines and its bar, which stand in for the head,
+// each at the fraction of a pixel it is drawn at, so the picture meets the
+// edges and the bar's line with none of the box's white between on the sides
+// its shape reaches. none while the box is put away, with no bar to read
+function phoneMagicFrame(want){
+  const natural = PB.view.natural;
+  if (!want || !(want.width > 0) || !natural) return null;
+  const bar = parseFloat(getComputedStyle(PB.view.bar).height);
+  if (!(bar > 0)) return null;
+  const box = getComputedStyle(PB.el), body = getComputedStyle(PB.view.body), px = (s, name) => parseFloat(s[name]) || 0;
+  const down = px(box, "borderTopWidth") + px(box, "borderBottomWidth") + px(body, "marginTop") + px(body, "marginBottom");
+  return { across: px(box, "borderLeftWidth") + px(box, "borderRightWidth"),
+    want: { width: natural[0], height: natural[1], head: bar + down } };
+}
 // how far down the box reaches, from the box's top: its own foot, the bottom
 // edge it is drawn with, whatever it holds. the box has an edge line, so the
 // white it keeps under its words is drawn and the card may not stand over it
@@ -8891,7 +8914,6 @@ function drawerSwapFirstFrame(playing){
     finally { fitting = false; held = null; }
   };
   phoneMagicCap = () => place().most;
-  phoneMagicRaise = boxRaise;
   listSlack = () => {
     const box = tickets.classList.contains("boxface"), at = reading().slack;
     return at !== null ? at : box ? Math.max(0, tickets.clientHeight - phoneMagicFoot() + listAir()) : listSpare();

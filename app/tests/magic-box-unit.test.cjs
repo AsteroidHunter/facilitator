@@ -291,9 +291,10 @@ test("the page hands the box the workspace's own edges, the fit's clearance and 
   assert.match(view, /const own = new Image\(\);[\s\S]{0,200}view\.natural = \[own\.naturalWidth, own\.naturalHeight\];/);
   assert.match(html, /MB\.view = magicView\(MB\.el, \{ placed: \(\) => magicPlace\(\), openSite: magicOpenSite, sized: true,/);
   // an agent's page asks for the height it said, on the board that asks for it
-  // (the phone's drawer does not), or a height already known for it at the
-  // box's width, and is kept hidden a moment while it says it
-  assert.match(want, /if \(!hooks\.sized \|\| !run\) return null;\s*if \(!run\.height && hooks\.pageHeight\) run\.height = hooks\.pageHeight\(room\.width - edges\) \|\| 0;\s*return run\.height \? \{ height: run\.height \+ edges \+ head \} : null;/);
+  // and in the phone's drawer, which lays the page out that tall (tall), or a
+  // height already known for it at the box's width, and on the board is kept
+  // hidden a moment while it says it
+  assert.match(want, /if \(!\(hooks\.sized \|\| hooks\.tall\) \|\| !run\) return null;\s*if \(!run\.height && hooks\.pageHeight\) run\.height = hooks\.pageHeight\(room\.width - edges\) \|\| 0;\s*return run\.height \? \{ height: run\.height \+ edges \+ head \} : null;/);
   assert.ok(!/PB\.view = magicView\([^)]*sized/.test(read("m.html")), "the phone asks a page its height");
   assert.match(read("m.html"), /PB\.view = magicView\(PB\.el, \{ placed: \(\) => phoneMagicFit\(\),/);
 });
@@ -2008,14 +2009,15 @@ function expandView(hooks = {}) {
   const logic = read("card-logic.js");
   const src = logic.slice(logic.indexOf("const MAGIC_CROSS = "), logic.indexOf("// a site's name as the site gives it"))
     + logic.slice(logic.indexOf("function magicView("), logic.indexOf("\n}\n", logic.indexOf("function magicView(")) + 3);
-  const classes = new Set(), body = { dataset: {}, style: { setProperty() {} }, addEventListener() {}, querySelector: () => null };
+  const classes = new Set(), body = { dataset: {}, addEventListener() {}, querySelector: () => null,
+    style: { props: {}, setProperty(k, v) { this.props[k] = v; }, getPropertyValue(k) { return this.props[k] || ""; } } };
   const grow = { innerHTML: "", label: "", setAttribute(k, v) { if (k === "aria-label") grow.label = v; } };
   const el = { classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
     querySelector: s => s === ".mbbody" ? body : s === ".mbgrow" ? grow : { innerHTML: "" } };
   const ctx = vm.createContext({ getComputedStyle: () => ({ getPropertyValue: () => "0" }), addEventListener() {}, h() {}, MagicBox: {} });
   vm.runInContext(src, ctx);
   const view = ctx.magicView(el, hooks);
-  return { view, grow, classes, marks: { grow: vm.runInContext("MAGIC_GROW", ctx), shrink: vm.runInContext("MAGIC_SHRINK", ctx) } };
+  return { view, body, grow, classes, marks: { grow: vm.runInContext("MAGIC_GROW", ctx), shrink: vm.runInContext("MAGIC_SHRINK", ctx) } };
 }
 
 test("the button's mark is the expand mark at the box's size and the reduce mark while it is expanded", () => {
@@ -2049,11 +2051,14 @@ test("an agent's page the board sizes the box to keeps the height it said at the
   assert.equal(view.page.height, 640, "the box comes back at the height it had");
   // and a page is never waited for while the box is expanded, whose size is not the page's
   assert.match(read("card-logic.js"), /if \(hooks\.sized && !view\.big && run && view\.body\.dataset\.kind === "html" && !run\.height/);
-  // the phone lays its page out as tall as the page says, at any width, so nothing is kept there
-  const phone = expandView({ tall: true }).view;
+  // the phone's box takes the page's own height too, so it is kept there as well, and
+  // the height the page is laid out at (--mb-page) comes back with it
+  const { view: phone, body } = expandView({ tall: true });
   phone.page = { height: 640 };
-  phone.expand(true); phone.page.height = 300; phone.expand(false);
-  assert.equal(phone.page.height, 300);
+  body.style.setProperty("--mb-page", "640px");
+  phone.expand(true); phone.page.height = 300; body.style.setProperty("--mb-page", "300px"); phone.expand(false);
+  assert.equal(phone.page.height, 640, "the phone's box comes back at the height it had");
+  assert.equal(body.style.getPropertyValue("--mb-page"), "640px", "and the page is laid out that tall again");
 });
 
 test("Escape typed in an agent's page is said to the board, unless the page answered it itself", () => {
