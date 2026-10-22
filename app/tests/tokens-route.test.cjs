@@ -539,22 +539,27 @@ test("the answer names the day of the transcript's first stamped row, for the ch
   assert.equal((await b.days(1)).installed, null);
 });
 
-// ---- the day the charts start on --------------------------------------------------------
-test("the answer names run.config.json's charts_start, read fresh, and null for anything that is not a calendar day", async () => {
+test("run.config.json's installed_on, read fresh, names the install day in place of the transcript's, and nothing else changes", async () => {
   const b = await board();
   const config = path.join(dataOf(b.dir), "run.config.json");
+  put(path.join(dataOf(b.dir), "transcript.jsonl"), [JSON.stringify({ ts: Date.UTC(2026, 7, 3, 12) / 1000, kind: "user", box: "b1", text: "the first" })]);
+  put(path.join(b.home, ".claude", "projects", "p", "s.jsonl"), [claude("m1", day(1) + "T12:00:00Z", [1, 2, 3, 4])]);
   await b.start();
-  assert.equal((await b.days(1)).start, null, "no config");
-  fs.writeFileSync(config, JSON.stringify({ charts_start: "2026-03-09" }));
-  const answer = await b.days(2);
-  assert.equal(answer.start, "2026-03-09", "taken without a restart");
-  assert.equal(answer.days.length, 2, "the rest of the answer is as it was");
-  for (const bad of ["", "2026-3-9", "2026-02-30", "March 9", " 2026-03-09", 20260309, null, ["2026-03-09"]]) {
-    fs.writeFileSync(config, JSON.stringify({ charts_start: bad }));
-    assert.equal((await b.days(1)).start, null, JSON.stringify(bad));
+  const unset = await b.days(3);
+  assert.equal(unset.installed, "2026-08-03", "unset: the transcript's first day");
+  fs.writeFileSync(config, JSON.stringify({ installed_on: "2026-08-12" }));
+  const set = await b.days(3);
+  assert.equal(set.installed, "2026-08-12", "taken without a restart");
+  assert.deepEqual({ ...set, installed: null }, { ...unset, installed: null }, "the days and totals are as they were");
+  // anything but a calendar day up to today leaves the transcript's day
+  for (const bad of ["", "2026-8-12", "2026-02-30", "August 12", " 2026-08-12", day(-1), 20260812, null, ["2026-08-12"]]) {
+    fs.writeFileSync(config, JSON.stringify({ installed_on: bad }));
+    assert.equal((await b.days(1)).installed, "2026-08-03", JSON.stringify(bad));
   }
+  fs.writeFileSync(config, JSON.stringify({ installed_on: day(0) }));
+  assert.equal((await b.days(1)).installed, day(0), "today counts");
   fs.writeFileSync(config, "{not json");
-  assert.equal((await b.days(1)).start, null, "a file that cannot be read");
+  assert.equal((await b.days(1)).installed, "2026-08-03", "a file that cannot be read");
   fs.unlinkSync(config);
-  assert.equal((await b.days(1)).start, null, "taken away");
+  assert.equal((await b.days(1)).installed, "2026-08-03", "taken away");
 });
