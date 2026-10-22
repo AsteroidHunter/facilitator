@@ -82,7 +82,7 @@ Endpoints:
                                could still be sending means it never landed; a
                                much later query cannot tell a never-landed id
                                from one whose receipt has since aged out
-  POST /send?box=ID[&via=mini|voice][&op=OP] -> body = the human's message text (plain text).
+  POST /send?box=ID[&via=mini|voice][&by=agent[&agent=NAME]][&op=OP] -> body = the human's message text (plain text).
                                via states where it was typed: mini is the small
                                card in the corner, voice is words spoken through
                                the voice layer (app/voice), whose reply is read
@@ -92,6 +92,18 @@ Endpoints:
                                value and any older caller land exactly as before.
                                A card sent a voice message is never held for
                                typing (see /wait).
+                               by states who sent it, apart from how: by=agent
+                               is an agent that put the message on the card for
+                               the reader (a voice or text assistant), and agent
+                               is its name, cut to 24 characters. Only the
+                               literal "agent" is stored (as the message's by
+                               field, with agent beside it when named), and a
+                               message without it is the reader's own, which is
+                               every message stored before the field. It rides
+                               with the message to /wait and /fresh
+                               (message_by, message_agent), the answered batch,
+                               the transcript row, /thread and the pages
+                               (pendingBy), whose bubble shows a small robot.
                                Sending to a docked or parked card brings it back to
                                Doing in the same saved update. op is an
                                operation id the caller minted before its first
@@ -688,7 +700,8 @@ Endpoints:
                                Confirmation follows a successful log write/flush
   GET  /thread?box=ID&n=N   -> last N user/agent/note messages of a box from the
                                transcript (read by the quick chat panel and the
-                               page view's own stepper)
+                               page view's own stepper); a user message an agent
+                               sent for the reader carries by and agent
   GET  /history?box=ID      -> {"replies": [...]}: one card's older final
                                replies, oldest first, without the one the card
                                is showing and without its progress notes, at
@@ -885,11 +898,13 @@ Endpoints:
                                landed on that card after the claim, handed over
                                and folded into the claim, so the one reply
                                covers them and nothing is delivered twice.
-                               Answers {box, messages, message_via}, with
+                               Answers {box, messages, message_via, message_by,
+                               message_agent}, with
                                message_via in the same shape /wait uses: one
                                entry per handed-over message in the same order,
                                "mini" for a small card message, "voice" for a
-                               spoken one and null for a big card one. A mini
+                               spoken one and null for a big card one, and
+                               message_by and message_agent as /wait has them. A mini
                                message handed over here
                                becomes the newest message the claim covers, so
                                it is the one that decides /reply's 100 word cap,
@@ -901,20 +916,26 @@ Endpoints:
                                then leaves those messages queued for /wait. A
                                card sent a voice message is never held, so its
                                new messages come at once;
-                               {"messages": [], "message_via": []} when nothing
-                               new or no card held
+                               {"messages": [], "message_via": [], "message_by":
+                               [], "message_agent": []} when nothing new or no
+                               card held
   GET  /wait?owner=O&timeout=S[&agent=NAME] -> agent long-poll; claims the oldest
                                queued box owned by O (facilitator or a project
                                lane; defaults to facilitator) + its pending
                                messages. agent= states the caller's name; the card
                                rows' little tag shows the lane's live name or
                                offline, never a stored guess. A claim answers
-                               {box, title, messages, message_via, queued_after,
-                               ack}: messages stays a list of plain strings and
+                               {box, title, messages, message_via, message_by,
+                               message_agent, queued_after, ack}: messages stays
+                               a list of plain strings and
                                message_via runs beside it, one entry per message
                                in the same order, "mini" for a small card message,
                                "voice" for a spoken one (its reply is read aloud)
-                               and null for a big card one. Also returns
+                               and null for a big card one. message_by and
+                               message_agent run beside it the same way: "agent"
+                               and the sending agent's name (null when it gave
+                               none) for a message an agent sent for the reader
+                               (/send by=agent), null for the reader's own. Also returns
                                {"idle":true} on timeout.
                                A card is not handed out until 7 seconds after
                                the reader's last change in its typing box or
@@ -2786,7 +2807,8 @@ def _row_reply_full(event: dict, legacy: bool) -> str:
 
 def _answered_out(value) -> list | None:
     """One answered batch as a client reads it: the words and the send time of
-    each message that reply was given, in the order they were sent.
+    each message that reply was given, in the order they were sent, and by and
+    agent on a message an agent sent for the reader (_sender).
 
     None is the honest answer for a reply the board recorded nothing for, and an
     empty list is a reply that was handed nothing. Those are different facts and
@@ -2800,7 +2822,7 @@ def _answered_out(value) -> list | None:
             continue
         ts = rec.get("ts", 0)
         out.append({"text": rec.get("text", ""),
-                    "ts": ts if isinstance(ts, (int, float)) else 0})
+                    "ts": ts if isinstance(ts, (int, float)) else 0, **_sender(rec)})
     return out
 
 
@@ -3991,11 +4013,25 @@ def _release_claim(b: dict, for_answer: bool = False) -> str:
     return ow
 
 
+def _sender(m: dict) -> dict:
+    """Who sent a message, when it was not the reader: by and the agent's name
+    as /send stored them, for every place the message is carried on to. The
+    reader's own messages, and any record from before the field, give nothing,
+    so they keep reading as the reader's."""
+    if m.get("by") not in SEND_BYS:
+        return {}
+    out = {"by": m["by"]}
+    if isinstance(m.get("agent"), str) and m["agent"]:
+        out["agent"] = m["agent"]
+    return out
+
+
 def _handed_record(m: dict) -> dict:
     """One handed-over message, in the shape the answered box draws it."""
     rec = {"mid": m.get("mid"), "text": m.get("text", ""), "ts": m.get("ts", 0)}
     if m.get("via"):
         rec["via"] = m["via"]
+    rec.update(_sender(m))
     return rec
 
 
@@ -4685,6 +4721,9 @@ def _phone_box(b: dict) -> dict:
         # the operation id each queued message was sent under, or null for a
         # message that came without one: the phone matches its own rows by it
         "pendingOps": [m.get("op") for m in b["pending"]],
+        # "agent" for each queued message an agent sent for the reader, null
+        # for the reader's own: the bubble holding it carries the robot
+        "pendingBy": [_sender(m).get("by") for m in b["pending"]],
         # where each queued message stands with the agent, and what a saved
         # note has already taken toward the answer still to come (_pending_states)
         "pendingStates": _pending_states(b),
@@ -4918,6 +4957,10 @@ def _ui_state() -> dict:
                 # entries queued before times were recorded, which the
                 # page shows unstamped
                 "pendingStamps": [m.get("ts", 0) for m in b["pending"]],
+                # who sent each, matching pendingTexts one to one: "agent" for
+                # a message an agent sent for the reader, null for the reader's
+                # own. the bubble holding an agent's message carries the robot
+                "pendingBy": [_sender(m).get("by") for m in b["pending"]],
                 # where each queued message stands with the agent, one entry per
                 # pendingTexts entry: sent or delivered, and the messages a
                 # saved note has already taken toward the answer still to come,
@@ -5320,7 +5363,7 @@ def _get_fresh(q: Query, _):
         fbid = _state["busy"].get(owner)
         fbox = _box(fbid) if fbid else None
         if fbox is None:
-            return 200, {"messages": [], "message_via": []}
+            return 200, {"messages": [], "message_via": [], "message_by": [], "message_agent": []}
         have = set(_state["claimed"][owner])
         # the typing hold covers a held card too: while the reader is still at
         # it, nothing new is handed over, so a reply before the hold runs out
@@ -5340,9 +5383,13 @@ def _get_fresh(q: Query, _):
         # "mini" for the small card, "voice" for a spoken message, null for
         # the big one. A mini message that lands mid-work becomes the newest
         # claimed one and brings /reply's 100 word cap with it, so an agent
-        # that never sees the marker gets its reply refused out of nowhere
+        # that never sees the marker gets its reply refused out of nowhere.
+        # message_by and message_agent say which came from an agent sending
+        # for the reader, as /wait says it
         return 200, *_snapshot({"box": fbid, "messages": [m["text"] for m in fresh],
-                                "message_via": [m.get("via") for m in fresh]})
+                                "message_via": [m.get("via") for m in fresh],
+                                "message_by": [_sender(m).get("by") for m in fresh],
+                                "message_agent": [_sender(m).get("agent") for m in fresh]})
 
 
 def _get_thread(q: Query, _):
@@ -5376,6 +5423,9 @@ def _get_thread(q: Query, _):
                             continue
                         seen_ops.add((e["kind"], op))
                     item = {"kind": e["kind"], "text": e.get("text", ""), "ts": e.get("ts", 0)}
+                    if e["kind"] == "user":
+                        # a message an agent sent for the reader says so here too
+                        item.update(_sender(e))
                     if e.get("kind") in ("agent", "note"):
                         # Only rows physically before the persisted schema
                         # marker get legacy compatibility. Timestamps never
@@ -6461,6 +6511,12 @@ def _wait_poll(owner: str):
                     # inside it because agent loops elsewhere read
                     # messages as plain strings
                     "message_via": [m.get("via") for m in box["pending"]],
+                    # who sent each one, in the same shape: "agent" and the
+                    # agent's name (or null when it gave none) for a message
+                    # an agent sent for the reader, null and null for the
+                    # reader's own. how it arrived stays message_via's
+                    "message_by": [_sender(m).get("by") for m in box["pending"]],
+                    "message_agent": [_sender(m).get("agent") for m in box["pending"]],
                     "queued_after": sum(1 for i in _state["inbox"]
                                         if (_box(i) or {}).get("owner", "facilitator") == owner),
                     # the receipt this hand-off has to come back with
@@ -7245,16 +7301,24 @@ def _post_navsave(q: Query, raw: bytes):
 
 # the via values /send keeps on a message: the small card, and the voice layer
 SEND_VIAS = ("mini", "voice")
+# the by values /send keeps on a message: an agent that sent it for the reader
+SEND_BYS = ("agent",)
 
 
 def _post_send(q: Query, text: str):
     bid = q.one("box")
     via = q.one("via") if q.one("via") in SEND_VIAS else ""
+    by = q.one("by") if q.one("by") in SEND_BYS else ""
+    # the sending agent's own name, cut as /wait cuts agent=, and kept only
+    # beside by: a name alone says nothing about who sent the message
+    agent = q.one("agent").strip()[:24] if by else ""
     op = q.one("op")
     if op and not _op_id_ok(op):
         return 400, {"error": "bad operation id"}
     with _lock:
-        fp = _fingerprint("send", bid, via, text) if op else ""
+        # the sender joins the payload only when there is one, so the reader's
+        # own sends keep the fingerprint their receipts were committed under
+        fp = _fingerprint("send", bid, via, text, *((by, agent) if by else ())) if op else ""
         if op:
             # the receipt is read before the box is even looked at: a message
             # that landed on a card since closed still landed
@@ -7273,6 +7337,14 @@ def _post_send(q: Query, text: str):
         # any older sender) stores exactly what it always did
         if via:
             msg["via"] = via
+        # who sent it, separate from where: by=agent is an agent that put the
+        # message on the card for the reader (a voice or text assistant), with
+        # its name in agent when it gave one. the reader's own messages carry
+        # neither, so every message stored before the field reads as theirs
+        if by:
+            msg["by"] = by
+            if agent:
+                msg["agent"] = agent
         if op:
             msg["op"] = op
         box["pending"].append(msg)
@@ -7304,7 +7376,7 @@ def _post_send(q: Query, text: str):
         # installed, so a save that failed and rolled the message back leaves
         # no row for a message the board never durably had
         _log("user", bid, text, log_fields={"op": op} if INCIDENT_OP.fullmatch(op) else None,
-             **({"op": op} if op else {}))
+             **({"op": op} if op else {}), **_sender(msg))
         _save()
         # a send is one more change: the reader may be sending a word at a
         # time, so the card goes out TYPING_HOLD after the last key or send.
