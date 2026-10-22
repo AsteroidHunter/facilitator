@@ -3788,12 +3788,15 @@
      room as wide as the number column and the gap after it, the column in the
      numbers' own face, so it follows the names with ten projects or more.
      both lines are the group's line between the charts, 1px at the group's
-     scale --home-t in the line colour. homeFit sets the list's top and foot so
-     the heading's ink starts level with the logo's word and the folder row's
-     ink ends level with the last "Last updated" line under the charts: the
-     projects' room between the two lines is set by those edges, whatever the
-     number of projects. its rows are the pill's list's rows at --home-font
-     for their 14px, every other length of theirs scaled with it: the number in
+     scale --home-t in the line colour, with 3.35 to 14 of the names' size
+     clear above and below each: the least that leaves nine names whole
+     between them at 1440 by 900, 1512 by 982 and 1920 by 1080, a pixel
+     spare. homeFit sets the list's top and foot so the heading's ink starts
+     level with the logo's word and the folder row's ink ends level with the
+     last "Last updated" line under the charts: the projects' room between
+     the two lines is set by those edges, whatever the number of projects.
+     its rows are the pill's list's rows at --home-font for their 14px, every
+     other length of theirs scaled with it: the number in
      the monospace at 14.6 to 14, the 17 to 14 line, the 10 to 14 gap, the 34
      to 14 of room on the right that the cross stands in. the names stand
      --home-rows apart in the faint ink of the faint names beside the pill and
@@ -3867,7 +3870,7 @@
   #homelist .homerow.lifted .homename{color:var(--ink)}
   #homelist .homerow.tearing{opacity:.45}
   #homeheadsep, #homelistsep{flex:none; height:calc(1px * var(--home-t, 1));
-    margin:calc(var(--home-font) * 4 / 14) var(--home-cross) calc(var(--home-font) * 4 / 14) 0; background:var(--line)}
+    margin:calc(var(--home-font) * 3.35 / 14) var(--home-cross) calc(var(--home-font) * 3.35 / 14) 0; background:var(--line)}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
   /* both parts come in together on one plain fade: the same start, length and
      curve as the board's own dissolve, with no movement and no stagger */

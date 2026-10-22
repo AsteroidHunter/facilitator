@@ -775,6 +775,9 @@ test("home's list has a heading and a line over its projects, and its room is se
   const lines = rule(sheet, "#homeheadsep, #homelistsep");
   assert.equal(decl(lines, "height"), "calc(1px * var(--home-t, 1))");
   assert.equal(decl(lines, "background"), "var(--line)");
+  // the same room above and below both, 3.35 to 14 of the names' size, so
+  // nine names stand whole between them at the larger windows too
+  assert.equal(decl(lines, "margin"), "calc(var(--home-font) * 3.35 / 14) var(--home-cross) calc(var(--home-font) * 3.35 / 14) 0");
   // the box fills its part between the top and foot homeFit sets, no longer
   // capped or centred, and the rows take the room between the lines from its top
   const box = rule(sheet, "#homelistbox");
