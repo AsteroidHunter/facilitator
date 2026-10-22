@@ -538,3 +538,23 @@ test("the answer names the day of the transcript's first stamped row, for the ch
   await b.start();
   assert.equal((await b.days(1)).installed, null);
 });
+
+// ---- the day the charts start on --------------------------------------------------------
+test("the answer names run.config.json's charts_start, read fresh, and null for anything that is not a calendar day", async () => {
+  const b = await board();
+  const config = path.join(dataOf(b.dir), "run.config.json");
+  await b.start();
+  assert.equal((await b.days(1)).start, null, "no config");
+  fs.writeFileSync(config, JSON.stringify({ charts_start: "2026-03-09" }));
+  const answer = await b.days(2);
+  assert.equal(answer.start, "2026-03-09", "taken without a restart");
+  assert.equal(answer.days.length, 2, "the rest of the answer is as it was");
+  for (const bad of ["", "2026-3-9", "2026-02-30", "March 9", " 2026-03-09", 20260309, null, ["2026-03-09"]]) {
+    fs.writeFileSync(config, JSON.stringify({ charts_start: bad }));
+    assert.equal((await b.days(1)).start, null, JSON.stringify(bad));
+  }
+  fs.writeFileSync(config, "{not json");
+  assert.equal((await b.days(1)).start, null, "a file that cannot be read");
+  fs.unlinkSync(config);
+  assert.equal((await b.days(1)).start, null, "taken away");
+});

@@ -63,6 +63,16 @@
 //            scrollbar, like every scroller on the board. Each chart keeps its
 //            own place while the page is open, and one left at its latest end
 //            stays there as new days arrive or the window is resized
+//   start    an install can start every chart on a later day of the year than
+//            January 1: charts_start in run.config.json, a day written
+//            2026-03-09, which the route answers as "start" (chartStart). The
+//            heatmap and the line on the screen and every picture then begin
+//            on that day, the line's picture too when use began before it,
+//            and the heatmap's colours are scaled from the days it shows. The
+//            totals and their words stay this year's, and the install mark is
+//            drawn only when its day is among the days shown. No day, one
+//            that is not a calendar day, or one outside this year so far
+//            leaves every chart as it was
 //   limits   a second, shorter panel of the same make: one row for each plan
 //            window GET /limits has a number for, Claude 5-hour, Claude
 //            weekly, Codex 5-hour, Codex weekly, each a name, a bar and the
@@ -231,6 +241,22 @@
     const at = days.findIndex(d => d.date >= first);
     return at < 0 ? 0 : at;
   }
+  // the day the install starts its charts on (the route's "start"): its place
+  // in the reading, or -1, which leaves every chart as it was, for no day, one
+  // that is not a calendar day, and one outside this year so far
+  function setStart(days, start) {
+    if (!days.length || typeof start !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return -1;
+    const p = parts(start);
+    if (new Date(Date.UTC(p.y, p.m - 1, p.d)).toISOString().slice(0, 10) !== start) return -1;
+    const last = days[days.length - 1].date;
+    if (start < last.slice(0, 4) + "-01-01" || start > last) return -1;
+    return days.findIndex(d => d.date >= start);
+  }
+  // where the charts start: the day set (setStart), else January 1
+  function chartStart(days, start = null) {
+    const at = setStart(days, start);
+    return at < 0 ? yearStart(days) : at;
+  }
   // where use began in a run of days: the first day with any use, skipping
   // each early stretch followed by a silence of MIN_SILENCE days or more when
   // that silence and the days after it are each longer than the stretch, so a
@@ -253,10 +279,12 @@
     }
     return Math.max(0, Math.min(start, n - MIN_SHOWN));
   }
-  // where the line's picture starts: January 1, or the day use began this
-  // year when that is later. The days before it stay in the reading, for its
-  // first average
-  function pictureStart(days) {
+  // where the line's picture starts: the day set (setStart), else January 1,
+  // or the day use began this year when that is later. The days before it
+  // stay in the reading, for its first average
+  function pictureStart(days, start = null) {
+    const at = setStart(days, start);
+    if (at >= 0) return at;
     const from = yearStart(days);
     return from + useStart(days.slice(from));
   }
@@ -303,7 +331,7 @@
   // as wide as its seven rows and the month names let it be in that height,
   // a square that less its gap; the rows and names sit in the middle of any
   // height left over. The line is as wide as the heatmap and as tall as the
-  // view. Both hold the weeks from January 1 to the last day (yearWeeks)
+  // view. Both hold the weeks from their first day to the last (yearWeeks)
   function geometry(h, weeks = WEEKS) {
     const height = Math.max(1, Math.round(Number(h) > 0 ? Number(h) : VIEW_H));
     const step = Math.max(MIN_STEP, Math.floor((height - TOP - 2) / 7));
@@ -313,21 +341,23 @@
     return { height: Math.max(height, TOP + rows), width: LEFT + weeks * step - gap, left: LEFT,
              step, gap, cell, rows, top, radius: step >= 20 ? 3 : 2, weeks };
   }
-  // the week columns this year's days take, Sunday on top: the one January 1
-  // falls in to the one the last day falls in
-  function yearWeeks(days) {
-    const from = yearStart(days), n = days.length - from;
+  // the week columns the days shown take, Sunday on top: the one the charts'
+  // first day (chartStart) falls in to the one the last day falls in
+  function yearWeeks(days, start = null) {
+    const from = chartStart(days, start), n = days.length - from;
     if (n <= 0) return 1;
     return Math.floor((parts(days[from].date).weekday + n - 1) / 7) + 1;
   }
 
   // ---- the heatmap ---------------------------------------------------------
-  function heatmapModel(days, h) {
-    const weeks = yearWeeks(days), geo = geometry(h, weeks);
-    const year = days.slice(yearStart(days));
-    const sc = scale(year.map(d => d.total));
-    const lead = year.length ? parts(year[0].date).weekday : 0;
-    const cells = year.map((d, i) => {
+  // the days from the charts' first day, coloured on a scale of those days;
+  // the total is this year's whichever day that is
+  function heatmapModel(days, h, start = null) {
+    const weeks = yearWeeks(days, start), geo = geometry(h, weeks);
+    const shown = days.slice(chartStart(days, start));
+    const sc = scale(shown.map(d => d.total));
+    const lead = shown.length ? parts(shown[0].date).weekday : 0;
+    const cells = shown.map((d, i) => {
       const col = Math.floor((lead + i) / 7), row = (lead + i) % 7;
       return { i, date: d.date, total: d.total, col, row, level: sc.level(d.total),
                fill: sc.colour(d.total), x: geo.left + col * geo.step, y: geo.top + row * geo.step };
@@ -341,7 +371,7 @@
     }
     if (cells.length && (!months.length || months[0].col >= 3) && parts(cells[0].date).d !== 1)
       months.unshift({ col: 0, label: MONTHS[parts(cells[0].date).m - 1] });
-    return { cells, months, weeks, cuts: sc.cuts, geo, total: sum(year) };
+    return { cells, months, weeks, cuts: sc.cuts, geo, total: thisYear(days) };
   }
   // the chart as drawn, at the view's height. The day names are drawn apart
   // (heatPin) into the same place, where they stay while the chart scrolls
@@ -375,11 +405,11 @@
       ? `<b>${esc(compact(cell.total))} tokens that day</b><span>${esc(longDay(cell.date))}</span>`
       : `<b>No tokens that day</b><span>${esc(longDay(cell.date))}</span>`;
   }
-  function drawHeatmap(el, days, spot) {
+  function drawHeatmap(el, days, spot, start = null) {
     const foot = `<div class="tk-foot"><span class="tk-sum">${totalLine(thisYear(days))}</span>` +
       `${legendHtml()}</div>`;
     const h = viewHeight(el, foot);
-    const model = heatmapModel(days, h);
+    const model = heatmapModel(days, h, start);
     el.tkModel = { kind: "heatmap", model };
     el.innerHTML = viewHtml(heatmapSvg(model), heatPin(model), LEFT) + foot + TIP;
     seat(el, spot);
@@ -470,7 +500,7 @@
     });
     return { avg, since, span, gap };
   }
-  // the days from `from` (January 1 on the screen, pictureStart in a
+  // the days from `from` (chartStart on the screen, pictureStart in a
   // picture), each day's total and the board's 7-day average (averageOf),
   // and the runs of days between the gaps that the lines are drawn in. The
   // average and the gaps are taken from January 1 whichever day the days
@@ -556,12 +586,12 @@
   }
 
   // ---- the line on the screen ---------------------------------------------------
-  // the Editorial look at the view's height, from January 1, as wide as the
-  // heatmap of the same days
-  function lineModel(days, h) {
-    const geo = geometry(h, yearWeeks(days)), pad = PAD;
+  // the Editorial look at the view's height, from the charts' first day
+  // (chartStart), as wide as the heatmap of the same days
+  function lineModel(days, h, start = null) {
+    const geo = geometry(h, yearWeeks(days, start)), pad = PAD;
     const LW = geo.width, LH = geo.height;
-    const S = seriesOf(days);
+    const S = seriesOf(days, chartStart(days, start));
     const axis = niceAxis(Math.max(0, ...S.vals, ...S.avg));
     const top = axis.top;
     const w = LW - pad.left - pad.right, ht = LH - pad.top - pad.bottom;
@@ -651,12 +681,12 @@
            `<span class="tk-row">${swatch(false, marks)}Daily<em>${esc(compact(p.total))}</em></span>` +
            (p.gap ? "" : `<span class="tk-row">${swatch(true)}${p.span}-day average<em>${esc(compact(p.avg))}</em></span>`);
   }
-  function drawLine(el, days, spot) {
-    const marks = screenMarks(calmOf(seriesOf(days).vals));
+  function drawLine(el, days, spot, start = null) {
+    const marks = screenMarks(calmOf(seriesOf(days, chartStart(days, start)).vals));
     const foot = `<div class="tk-foot"><span class="tk-sum">${totalLine(thisYear(days))}</span>` +
       `<span class="tk-legend">${swatch(false, marks)}Daily${swatch(true)}7-day average</span></div>`;
     const h = viewHeight(el, foot);
-    const model = lineModel(days, h);
+    const model = lineModel(days, h, start);
     el.tkModel = { kind: "line", model };
     el.innerHTML = viewHtml(lineSvg(model), linePin(model), PAD.left) + foot + TIP;
     seat(el, spot);
@@ -851,8 +881,9 @@
   // 1200 x 600, 2:1, and drawn at three times that so the words stay crisp on
   // a phone's screen. It is drawn on a canvas for the whole of the chart at
   // once, never the part the lane has scrolled to, the heatmap from January 1
-  // and the line from the day use began this year (pictureStart), its total
-  // still the year's. Each picture is one of the looks of the chart looks mock
+  // and the line from the day use began this year (pictureStart), or both
+  // from the day the install set (chartStart), the total still the year's.
+  // Each picture is one of the looks of the chart looks mock
   // (20261020) the dice can pick (DICE): the Editorial, Lab and Poster
   // heatmaps, and five line pictures, each a look and one of the two things
   // a line can show: the days and their 7-day average, or the 7-day average
@@ -921,22 +952,23 @@
     const need = reach / (1 - (labelBottom - top) / (base - top));
     return need >= axis.top ? niceAxis(need) : axis;
   }
-  // the heatmap's days, January 1 to the last day, one column per week with
-  // Sunday on top as the screen draws it, coloured by the board's own scale.
-  // The columns share the width from left to right, so the squares are as
+  // the heatmap's days, from `from` (chartStart) to the last day, one column
+  // per week with Sunday on top as the screen draws it, coloured by the
+  // board's own scale over those days, the total still this year's. The
+  // columns share the width from left to right, so the squares are as
   // large as the weeks allow, and never so large that the seven rows pass
   // maxStep a row, so early in a year the weeks stand from the left
-  function yearHeat(days, left, right, gap, maxStep = Infinity) {
-    const year = days.slice(yearStart(days));
-    const sc = scale(year.map(d => d.total));
-    const lead = year.length ? parts(year[0].date).weekday : 0;
-    const weeks = Math.floor((lead + year.length - 1) / 7) + 1;
+  function yearHeat(days, from, left, right, gap, maxStep = Infinity) {
+    const shown = days.slice(from);
+    const sc = scale(shown.map(d => d.total));
+    const lead = shown.length ? parts(shown[0].date).weekday : 0;
+    const weeks = Math.floor((lead + shown.length - 1) / 7) + 1;
     const step = Math.min((right - left + gap) / weeks, maxStep), cell = step - gap;
-    const cells = year.map((d, i) => ({ date: d.date, total: d.total, fill: sc.colour(d.total),
-                                        col: Math.floor((lead + i) / 7), row: (lead + i) % 7 }));
+    const cells = shown.map((d, i) => ({ date: d.date, total: d.total, fill: sc.colour(d.total),
+                                         col: Math.floor((lead + i) / 7), row: (lead + i) % 7 }));
     const months = cells.filter(c => parts(c.date).d === 1).map(c => ({ col: c.col, label: MONTHS[parts(c.date).m - 1] }));
-    return { cells, months, weeks, left, step, cell, rows: 7 * step - gap, cuts: sc.cuts, total: sum(year),
-             first: year.length ? year[0].date : null, last: year.length ? year[year.length - 1].date : null };
+    return { cells, months, weeks, left, step, cell, rows: 7 * step - gap, cuts: sc.cuts, total: thisYear(days),
+             first: shown.length ? shown[0].date : null, last: shown.length ? shown[shown.length - 1].date : null };
   }
   // where a heatmap's rows start: the block of month names and seven rows set
   // in the middle of the room between two heights, and the largest row step
@@ -954,7 +986,8 @@
   // ---- the three looks ------------------------------------------------------
   // painting on ctx in the board's inks and faces (face), with the squid
   // (logo) and the daily marks at a calm. Each look paints a line picture,
-  // line(S, shows), from a series (seriesOf), and a heatmap, heat(days)
+  // line(S, shows), from a series (seriesOf), and a heatmap, heat(days, from),
+  // from the charts' first day (chartStart)
   function looks(ctx, face, logo, calm = 0) {
     const INK = face.ink, SUB = face.sub, PAPER = face.paper;
     const SANS = face.sans, INTER = face.inter, MONO = face.mono || LOOK.mono;
@@ -1130,11 +1163,11 @@
         total(S.total, L, 562, 17);
         put(spanWords(S), R, 562, SUB, F(400, 15), "right");
       },
-      heat(days) {
+      heat(days, from) {
         const W = 1200, L = 40, R = 1160;
         ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, 400);
         this.head(L, R);
-        const h = yearHeat(days, L + 44, R, 5, heatStep(108, 336, 5)), top = heatTop(h, 108, 336);
+        const h = yearHeat(days, from, L + 44, R, 5, heatStep(108, 336, 5)), top = heatTop(h, 108, 336);
         put(`${longDate(h.first)} to ${longDate(h.last)}, ${parts(h.last).y}`, L, 101, SUB, F(400, 17));
         for (const mo of h.months) put(mo.label, h.left + mo.col * h.step, top - 12, SUB, F(400, 14));
         for (const [row, name] of [[1, "Mon"], [3, "Wed"], [5, "Fri"]]) put(name, L, top + row * h.step + h.cell / 2 + 5, SUB, F(400, 14));
@@ -1248,11 +1281,11 @@
         total(S.total, L, 564, 16);
         put(`${S.n} days, ${shortDate(S.first)} to ${shortDate(S.last)}, ${parts(S.last).y}`, R, 564, SUB, F(400, 13, MONO), "right");
       },
-      heat(days) {
+      heat(days, from) {
         const W = 1200, L = 36, R = 1164;
         ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, 400);
         this.head(L, R);
-        const h = yearHeat(days, L + 40, R, 3, heatStep(98, 326, 3)), top = heatTop(h, 98, 326);
+        const h = yearHeat(days, from, L + 40, R, 3, heatStep(98, 326, 3)), top = heatTop(h, 98, 326);
         put(`${shortDate(h.first)} to ${shortDate(h.last)}, ${parts(h.last).y}`, L, 87, SUB, F(400, 13.5, MONO));
         for (const mo of h.months) put(mo.label, h.left + mo.col * h.step, top - 10, SUB, F(400, 13, MONO));
         for (const [row, name] of [[1, "Mon"], [3, "Wed"], [5, "Fri"]]) put(name, L, top + row * h.step + h.cell / 2 + 4.5, SUB, F(400, 13, MONO));
@@ -1404,10 +1437,10 @@
         return S.vals.map((v, i) => [g.xAt(i), g.yAt(S.avg[i])]);
       },
       // the heatmap's days are squares, as in the other two looks
-      heat(days) {
+      heat(days, from) {
         const W = 1200, L = 44, R = 1156;
         ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, 400);
-        const h = yearHeat(days, L + 42, R, 5, heatStep(160, 380, 5)), top = heatTop(h, 160, 380);
+        const h = yearHeat(days, from, L + 42, R, 5, heatStep(160, 380, 5)), top = heatTop(h, 160, 380);
         this.head(h.total, L, R);
         for (const mo of h.months) put(mo.label, h.left + mo.col * h.step, top - 12, SUB, F(500, 14));
         for (const [row, name] of [[1, "Mon"], [3, "Wed"], [5, "Fri"]]) put(name, L, top + row * h.step + h.cell / 2 + 5, SUB, F(400, 14));
@@ -1418,12 +1451,13 @@
     return { editorial, lab, poster };
   }
   // one picture of a chart, DICE[kind][pick], painted on ctx at its laid out
-  // size: a heatmap of this year's days, or a line from where use began.
-  // calm is for tests and the proof frames; a picture works its own out
-  function paintLook(ctx, kind, pick, days, installed, face = LOOK, logo = null, calm) {
+  // size: a heatmap of this year's days, or a line from where use began, or
+  // either from the day the install set (start). calm is for tests and the
+  // proof frames; a picture works its own out
+  function paintLook(ctx, kind, pick, days, installed, face = LOOK, logo = null, calm, start = null) {
     const [look, shows] = DICE[kind][pick];
-    if (kind === "heatmap") return looks(ctx, face, logo)[look].heat(days);
-    const S = seriesOf(days, pictureStart(days), installed);
+    if (kind === "heatmap") return looks(ctx, face, logo)[look].heat(days, chartStart(days, start));
+    const S = seriesOf(days, pictureStart(days, start), installed);
     looks(ctx, face, logo, calm == null ? calmOf(S.vals) : calm)[look].line(S, shows);
   }
 
@@ -1484,14 +1518,14 @@
              inter: `"${INTER_EXPORT}", ` + get("--inter", LOOK.inter) };
   }
   // the canvas a picture is painted on, at three times its laid out size
-  function pictureCanvas(doc, kind, pick, days, installed, look, logo, calm) {
+  function pictureCanvas(doc, kind, pick, days, installed, look, logo, calm, start = null) {
     const [width, height] = SHAPES[SHAPE_OF[kind]];
     const canvas = doc.createElement("canvas");
     canvas.width = width * PIC_SCALE;
     canvas.height = height * PIC_SCALE;
     const ctx = canvas.getContext("2d");
     ctx.scale(PIC_SCALE, PIC_SCALE);
-    paintLook(ctx, kind, pick, days, installed, look, logo, calm);
+    paintLook(ctx, kind, pick, days, installed, look, logo, calm, start);
     return canvas;
   }
   function pictureBlob(canvas) {
@@ -1558,10 +1592,10 @@
     return "downloaded";
   }
   // the PNG of one look of a chart, DICE[kind][pick]; calm is for tests
-  async function picture({ doc, kind, pick = 0, days, installed, look, calm }) {
+  async function picture({ doc, kind, pick = 0, days, installed, start = null, look, calm }) {
     const face = look || lookOf(doc.documentElement);
     const [logo] = await Promise.all([loadLogo(), loadFaces(doc, face)]);
-    return pictureBlob(pictureCanvas(doc, kind, pick, days, installed, face, logo, calm));
+    return pictureBlob(pictureCanvas(doc, kind, pick, days, installed, face, logo, calm, start));
   }
 
   // ---- the picture's overlay -----------------------------------------------
@@ -2064,7 +2098,7 @@
       if (destroyed) return;
       const layer = layers[view];
       if (data && data.days.some(day => day.total > 0))
-        (view === "line" ? drawLine : drawHeatmap)(layer, data.days, spots[view]);
+        (view === "line" ? drawLine : drawHeatmap)(layer, data.days, spots[view], data.start);
       else {
         layer.textContent = "";
         layer.tkModel = null;
@@ -2146,8 +2180,8 @@
       saving = true;
       if (doneTimer != null) { cancel(doneTimer); doneTimer = null; }
       mark("busy");
-      const began = clock(), kind = view, days = data.days, installed = data.installed;
-      const make = (k, pick) => picture({ doc, kind: k, pick, days, installed, look: lookOf(box) });
+      const began = clock(), kind = view, days = data.days, installed = data.installed, start = data.start;
+      const make = (k, pick) => picture({ doc, kind: k, pick, days, installed, start, look: lookOf(box) });
       return Promise.resolve().then(profile).catch(() => null).then(name => { first = name || null; })
         .then(() => make(kind, 0))
         .then(blob => {
@@ -2363,7 +2397,7 @@
 
   window.TokenWidgets = {
     PALETTE, LINE, AVG_LINE, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
-    compact, longDay, scale, rolling, niceAxis, geometry, yearWeeks, totalLine, yearStart, fetchDays,
+    compact, longDay, scale, rolling, niceAxis, geometry, yearWeeks, totalLine, yearStart, chartStart, fetchDays,
     useStart, pictureStart, MIN_SILENCE, MIN_SHOWN, GAP_DAYS, MARK_AFTER, averageOf, seriesOf,
     fullness, calmOf, FULL_DAYS, FULL_EVEN, screenMarks, pictureMarks,
     SHAPES, SHAPE_OF, PIC_SCALE, DICE, LOOK_NAMES, SHOW_NAMES, LOOK, lookOf, paintLook, pictureCanvas,

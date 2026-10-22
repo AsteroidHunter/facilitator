@@ -810,7 +810,10 @@ Endpoints:
                                kinds, each tool's share, and whether each
                                tool's log folder was found, and "installed",
                                the day the board first wrote to its
-                               transcript (null before that). The counts come
+                               transcript (null before that), and "start",
+                               run.config.json's charts_start, the day the
+                               charts start on (null when unset or not a
+                               YYYY-MM-DD calendar day). The counts come
                                from the logs Claude Code and Codex already write under
                                the home folder by tokens.py beside this file,
                                which says what counts; run.config.json's
@@ -5636,7 +5639,27 @@ def _get_tokens_daily(q: Query, _):
     days = q.one("days", "365")
     if not re.fullmatch(r"[0-9]{1,4}", days) or not 1 <= int(days) <= TOKENS_MAX_DAYS:
         return 400, {"error": f"days must be a whole number from 1 to {TOKENS_MAX_DAYS}"}
-    return 200, {**_ledger().daily(int(days)), "installed": _installed_day()}
+    return 200, {**_ledger().daily(int(days)), "installed": _installed_day(), "start": _charts_start()}
+
+
+def _charts_start():
+    """The day every home chart starts on instead of January 1, read fresh
+    from run.config.json (machine-local, gitignored) under `charts_start`, so
+    a page reload takes a change. Only a calendar day written YYYY-MM-DD
+    counts; a missing key, a missing file or anything else is None, which
+    leaves the charts as they were."""
+    try:
+        cfg = json.loads((DATA / "run.config.json").read_text())
+    except Exception:
+        return None
+    value = cfg.get("charts_start") if isinstance(cfg, dict) else None
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        return None
+    try:
+        time.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return value
 
 
 def _installed_day():

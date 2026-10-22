@@ -864,6 +864,64 @@ test("the line and the heatmap both run from January 1 to today; the foot words 
   assert.ok(late > early);
 });
 
+// a reading with use from April 6, far busier before June 17 than after it
+const START = "2026-06-17";
+const startDays = () => daysEnding("2026-09-27", 371).map((d, k) => ({ ...d,
+  total: d.date < "2026-04-06" ? 0 : d.date < START ? 4e9 : (k % 5 ? (k % 7 + 1) * 1e6 : 0) }));
+const yearTotal = days => days.filter(d => d.date >= "2026-01-01").reduce((s, d) => s + d.total, 0);
+
+test("a start day the install sets starts both charts on the screen on it, and the totals stay the year's", async () => {
+  const { W } = widgets();
+  const days = startDays(), shown = days.filter(d => d.date >= START);
+  assert.equal(days[W.chartStart(days, START)].date, START);
+  // the heatmap: fewer weeks, from the day set, on a scale of the days it shows
+  const heat = W.heatmapModel(days, undefined, START), plain = W.heatmapModel(days);
+  assert.equal(heat.cells.length, shown.length);
+  assert.equal(heat.cells[0].date, START);
+  assert.equal(heat.cells[0].row, weekday(START));
+  assert.equal(heat.cells.at(-1).date, "2026-09-27");
+  assert.equal(heat.weeks, Math.floor((weekday(START) + shown.length - 1) / 7) + 1);
+  assert.equal(W.yearWeeks(days, START), heat.weeks);
+  assert.ok(heat.weeks < plain.weeks);
+  assert.deepEqual([...heat.months.map(m => m.label)], ["Jul", "Aug", "Sep"]);
+  assert.deepEqual([...heat.cuts], [...W.scale(shown.map(d => d.total)).cuts], "the scale is the days shown");
+  assert.equal(Math.max(...heat.cells.map(c => c.level)), W.PALETTE.length - 1, "the busiest day shown is the deepest");
+  assert.ok(plain.cells.filter(c => c.date >= START).every(c => c.level < 3), "where the busy spring sets the scale, those days are pale");
+  // the line: from the day set, as wide as the heatmap, each day's average
+  // the one the line from January 1 draws, the first a whole week's
+  const line = W.lineModel(days, undefined, START), flat = W.lineModel(days);
+  assert.equal(line.points.length, shown.length);
+  assert.equal(line.points[0].date, START);
+  assert.equal(line.width, heat.geo.width);
+  assert.deepEqual([line.points[0].span, line.points[0].from], [7, "2026-06-11"]);
+  assert.deepEqual(line.points.map(p => [p.date, p.avg, p.span, p.gap]),
+                   flat.points.filter(p => p.date >= START).map(p => [p.date, p.avg, p.span, p.gap]));
+  // the totals and their words are this year's, as with nothing set
+  const words = `<b>${W.compact(yearTotal(days))}</b> tokens this year`;
+  assert.equal(heat.total, yearTotal(days));
+  assert.match(W.heatmapSvg(heat), new RegExp(`aria-label="${W.compact(yearTotal(days))} tokens this year, one square per day"`));
+  const footOf = (draw, start) => { const el = new El("div", makeDocument()); draw(el, days, undefined, start); return /<span class="tk-sum">(.*?)<\/span>/.exec(el.innerHTML)[1]; };
+  for (const draw of [W.drawHeatmap, W.drawLine]) {
+    assert.equal(footOf(draw, START), words);
+    assert.equal(footOf(draw, null), words);
+  }
+  // nothing set, or a day that is not a calendar day of this year so far,
+  // leaves both charts as they were
+  for (const bad of [undefined, null, "", "2026-6-17", "2026-02-30", "June 17", 20260617, "2025-11-03", "2026-12-01"]) {
+    assert.equal(W.chartStart(days, bad), W.yearStart(days), String(bad));
+    assert.equal(JSON.stringify(W.heatmapModel(days, undefined, bad)), JSON.stringify(plain), String(bad));
+    assert.equal(JSON.stringify(W.lineModel(days, undefined, bad)), JSON.stringify(flat), String(bad));
+  }
+  // the panel draws from the route's "start", and from January 1 without one
+  for (const [view, first] of [["heatmap", m => m.cells[0].date], ["line", m => m.points[0].date]])
+    for (const [start, day] of [[START, START], [null, "2026-01-01"], [undefined, "2026-01-01"], ["2026-02-30", "2026-01-01"]]) {
+      const root = new El("div", makeDocument());
+      const p = W.panel(root, { load: async () => ({ days, start }), store: makeStore({ "home.chart": view }), cacheStore: makeStore() });
+      await p.refresh();
+      assert.equal(first(activeLayer(root).tkModel.model), day, `${view}, start ${start}`);
+    }
+});
+
 test("the panel's line foot gives this year's total and no tool names", async () => {
   const { W } = widgets();
   const doc = makeDocument();
@@ -1164,9 +1222,9 @@ function recording() {
   const texts = () => calls.filter(c => c[0] === "fillText").map(c => c[1]);
   return { ctx, calls, texts };
 }
-const paintOf = (W, kind, pick, days, installed = null, calm) => {
+const paintOf = (W, kind, pick, days, installed = null, calm, start) => {
   const r = recording();
-  W.paintLook(r.ctx, kind, pick, days, installed, W.LOOK, null, calm);
+  W.paintLook(r.ctx, kind, pick, days, installed, W.LOOK, null, calm, start);
   return r;
 };
 // a look's place among the dice's, by its name: pickOf(W, "line", "poster band")
@@ -1403,6 +1461,50 @@ test("the line's picture skips an early trial but not a holiday, and always show
   assert.equal(W.useStart([]), 0);
 });
 
+test("a start day the install sets starts every picture on it, the line too when use began before it, and marks the install day only inside", () => {
+  const { W } = widgets();
+  const days = startDays(), shown = days.filter(d => d.date >= START), total = W.compact(yearTotal(days));
+  // the line starts on the day set, though use began on April 6
+  assert.equal(days[W.pictureStart(days)].date, "2026-04-06", "with nothing set, where use began");
+  assert.equal(days[W.pictureStart(days, START)].date, START);
+  assert.equal(days[W.pictureStart(days, "2026-01-01")].date, "2026-01-01", "a day set before use began starts there too");
+  const S = W.seriesOf(days, W.pictureStart(days, START), "2026-07-20");
+  assert.deepEqual([S.first, S.last, S.n, S.total], [START, "2026-09-27", shown.length, yearTotal(days)]);
+  assert.equal(S.shown[S.install].date, "2026-07-20", "an install day among the days shown is marked");
+  assert.equal(W.seriesOf(days, W.pictureStart(days, START), "2026-05-04").install, -1, "one before the start is not");
+  const MONTH = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/;
+  const marked = r => r.calls.some(c => (c[0] === "fillText" || c[0] === "strokeText") && c[1] === "Facilitator installed");
+  W.DICE.line.forEach((look, pick) => {
+    const named = look.join(" "), t = paintOf(W, "line", pick, days, null, undefined, START).texts();
+    assert.deepEqual(t.filter(s => MONTH.test(s)), ["Jul", "Aug", "Sep"], `${named}: the months from the day set`);
+    assert.ok(t.includes(total) && t.includes(" tokens this year"), `${named}: this year's total`);
+    assert.equal(marked(paintOf(W, "line", pick, days, "2026-07-20", undefined, START)), true, `${named}: an install day inside`);
+    assert.equal(marked(paintOf(W, "line", pick, days, "2026-05-04", undefined, START)), false, `${named}: none before the start`);
+  });
+  const editorial = paintOf(W, "line", pickOf(W, "line", "editorial daily"), days, null, undefined, START).texts();
+  assert.ok(editorial.includes("June 17 to September 27, 2026"));
+  const lab = paintOf(W, "line", pickOf(W, "line", "lab daily"), days, null, undefined, START).texts();
+  assert.ok(lab.includes(`${shown.length} days, Jun 17 to Sep 27, 2026`));
+  // every heatmap from the day set, with this year's total, never the install mark
+  const squares = { editorial: shown.length + W.PALETTE.length, lab: shown.length, poster: shown.length + W.PALETTE.length };
+  const span = { editorial: "June 17 to September 27, 2026", lab: "Jun 17 to Sep 27, 2026" };
+  W.DICE.heatmap.forEach(([look], pick) => {
+    const r = paintOf(W, "heatmap", pick, days, "2026-07-20", undefined, START), t = r.texts();
+    assert.equal(r.calls.filter(c => c[0] === "roundRect").length, squares[look], `${look}: a square for each day shown`);
+    assert.ok(t.includes(total) && t.includes(" tokens this year"), `${look}: this year's total`);
+    if (span[look]) assert.ok(t.includes(span[look]), `${look}: ${span[look]}`);
+    assert.equal(marked(r), false);
+  });
+  // nothing set, or a day that is not a calendar day of this year so far,
+  // paints every look as before
+  for (const bad of [null, "", "2026-02-30", "2025-11-03", "2026-12-01"]) {
+    assert.equal(W.pictureStart(days, bad), W.pictureStart(days), String(bad));
+    for (const kind of ["line", "heatmap"]) W.DICE[kind].forEach((look, pick) =>
+      assert.equal(JSON.stringify(paintOf(W, kind, pick, days, "2026-07-20", undefined, bad).calls),
+                   JSON.stringify(paintOf(W, kind, pick, days, "2026-07-20").calls), `${kind} ${look.join(" ")}, start ${bad}`));
+  }
+});
+
 // a canvas context that writes down each path it strokes, with its colour,
 // as the points it was built through
 function pathed() {
@@ -1574,7 +1676,7 @@ test("a picture's file is facilitator_, the day as eight figures and the first n
 
 // a panel with a reading, a page that records what it downloads and shares,
 // timers fired by hand, and a profile that names Robin
-async function savingPanel({ share = false, canShare = true, closed = false, name = "Robin Example", view = "line", installedAgo = 99 } = {}) {
+async function savingPanel({ share = false, canShare = true, closed = false, name = "Robin Example", view = "line", installedAgo = 99, start } = {}) {
   class FakeFile { constructor(parts, n, opts) { this.name = n; this.type = opts.type; } }
   const days = daysEnding("2026-09-27", 371);
   const { W } = widgets({ File: FakeFile, setTimeout: () => 0, URL: { createObjectURL: () => "blob:x", revokeObjectURL() {} } });
@@ -1604,7 +1706,7 @@ async function savingPanel({ share = false, canShare = true, closed = false, nam
   const flush = async () => { for (let i = 0; i < 10; i++) await settle(); const next = queue.splice(0); next.forEach(([fn]) => fn()); for (let i = 0; i < 10; i++) await settle(); return next.map(([, ms]) => ms); };
   const cacheStore = makeStore();
   const root = new El("div", doc);
-  const p = W.panel(root, { load: async () => ({ days, installed: days.at(-1 - installedAgo).date }), store: makeStore({ "home.chart": view }),
+  const p = W.panel(root, { load: async () => ({ days, installed: days.at(-1 - installedAgo).date, start }), store: makeStore({ "home.chart": view }),
     cacheStore, share, now: () => new Date(2026, 9, 16, 12).getTime(),
     profile: async () => { seen.asked++; if (name instanceof Error) throw name; return name; },
     later: (fn, ms) => { queue.push([fn, ms]); return queue.length; }, cancel: () => {} });
@@ -1717,6 +1819,23 @@ test("the download marks the install day only once 7 days have passed since it, 
     assert.equal(run.seen.painted.length, 5, "the download and the four other line looks");
     run.seen.painted.forEach((r, i) => assert.equal(marked(r), want, `picture ${i}`));
   }
+});
+
+test("the download starts its picture on the day the route says the install set, and on the usual day without one", async () => {
+  // savingPanel's days end on September 27 with use from January 1, and the
+  // install day is June 20
+  const MONTH = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/;
+  const marked = r => r.calls.some(c => (c[0] === "fillText" || c[0] === "strokeText") && c[1] === "Facilitator installed");
+  const set = (await savingPanel({ start: "2026-07-08" })).seen.painted[0];
+  assert.deepEqual(set.texts().filter(s => MONTH.test(s)), ["Aug", "Sep"], "the Poster line from July 8");
+  assert.equal(marked(set), false, "the install day comes before it, so it is not marked");
+  const unset = (await savingPanel({ start: null })).seen.painted[0];
+  assert.equal(unset.texts().filter(s => MONTH.test(s))[0], "Jan");
+  assert.equal(marked(unset), true);
+  const heat = (await savingPanel({ view: "heatmap", start: "2026-07-08" })).seen.painted[0].texts();
+  assert.ok(heat.includes("July 8 to September 27, 2026"));
+  const plain = (await savingPanel({ view: "heatmap" })).seen.painted[0].texts();
+  assert.ok(plain.includes("January 1 to September 27, 2026"));
 });
 
 // ---- the picture's overlay -----------------------------------------------------------
