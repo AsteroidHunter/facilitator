@@ -204,22 +204,15 @@ def codex_call(day, command):
 # the log counted before [1, 2, 30, 4]; the Codex lane thread 1000 in, 800 of
 # it cached, 30 out, and the other one 400 in, 100 cached, 10 out
 EXPECTED_TOKENS = {
-    "tokens_claude": 4978,
     "tokens_claude_input": 23,
     "tokens_claude_cache_write": 352,
     "tokens_claude_cache_read": 4530,
     "tokens_claude_output": 73,
-    "tokens_codex": 1440,
     "tokens_codex_input": 500,
-    "tokens_codex_cache_write": 0,
     "tokens_codex_cache_read": 900,
     "tokens_codex_output": 40,
-    "tokens_board": 5405,
     "tokens_board_new": 605,
-    "tokens_off_board": 976,
     "tokens_off_board_new": 376,
-    "tokens_board_unknown": 37,
-    "tokens_board_unknown_new": 7,
 }
 
 
@@ -1211,9 +1204,9 @@ class Tokens(TokenBoard):
         for name, value in day["properties"].items():
             if name.startswith(("tokens_", "days_")):
                 self.assertIs(type(value), int, name)
-        props = day["properties"]
-        self.assertEqual(props["tokens_board"] + props["tokens_off_board"] + props["tokens_board_unknown"],
-                         props["tokens_claude"] + props["tokens_codex"], "the shares do not split the same tokens")
+        spent = uc.token_counts([DAY], self.counter.tally())[DAY]
+        self.assertEqual(spent["tokens_board"] + spent["tokens_off_board"] + spent["tokens_board_unknown"],
+                         spent["tokens_claude"] + spent["tokens_codex"], "the shares do not split the same tokens")
 
     def test_a_day_of_tokens_alone_is_sent_with_zeros_for_the_board_and_a_day_of_neither_is_not(self):
         self.assertEqual(set(uc.NOT_USED), set(EXPECTED))
@@ -1224,9 +1217,9 @@ class Tokens(TokenBoard):
         self.assertEqual(self.net.days, [AFTER.isoformat()], "a day nobody and no agent used was sent")
         props = self.sent("daily_usage")[0]["properties"]
         self.assertEqual({k: props[k] for k in EXPECTED}, uc.NOT_USED)
-        self.assertEqual((props["tokens_claude"], props["tokens_claude_cache_read"], props["tokens_off_board"],
-                          props["tokens_off_board_new"], props["tokens_codex"], props["days_since_install"]),
-                         (70, 60, 70, 10, 0, 11))
+        self.assertEqual((props["tokens_claude_input"], props["tokens_claude_cache_read"], props["tokens_claude_output"],
+                          props["tokens_off_board_new"], props["tokens_codex_input"], props["days_since_install"]),
+                         (3, 60, 7, 10, 0, 11))
         self.assertEqual(self.through(), (AFTER + dt.timedelta(days=1)).isoformat())
 
     def test_a_long_time_away_sends_at_most_the_last_week_of_token_days(self):

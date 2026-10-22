@@ -20,15 +20,16 @@ board's token counter, and nothing else:
                      from their own logs on this Mac by the counter the home
                      page's token chart uses (TokenLedger.tally), which the
                      server hands in. Only counts come from it: each tool's
-                     total and its four kinds (tokens_claude,
-                     tokens_claude_input, tokens_claude_cache_write,
-                     tokens_claude_cache_read, tokens_claude_output, and the
-                     same for codex), and the day's tokens by board share,
-                     all of them and without cache re-reads (tokens_board and
-                     tokens_board_new for sessions that ran the board's wait
-                     helper, tokens_off_board and tokens_off_board_new for the
-                     rest, tokens_board_unknown and tokens_board_unknown_new
-                     for logs counted before the counter kept that answer).
+                     four kinds (tokens_claude_input,
+                     tokens_claude_cache_write, tokens_claude_cache_read,
+                     tokens_claude_output, and the same for codex without
+                     its cache writes, which Codex does not report), and the
+                     day's tokens without cache re-reads by board share
+                     (tokens_board_new for sessions that ran the board's wait
+                     helper, tokens_off_board_new for the rest). The other
+                     numbers worked out from it (UNSENT_TOKENS) are never
+                     sent; each tool's total among them still says whether a
+                     day of tokens alone goes.
 
 Each day's message also carries days_since_install: the days from the
 board's first day, the day of the transcript's first stamped row (handed in by
@@ -151,6 +152,11 @@ BASELINE_WEEKS = 8        # the most weeks before the board's first day the base
 TOKEN_TOOLS = ("claude", "codex")
 TOKEN_SHARES = ("board", "off_board", "board_unknown")
 TOKEN_KINDS = ("input", "cache_write", "cache_read", "output")
+# the token numbers worked out but left out of the day's message: the tools'
+# totals (still what says a day of tokens alone goes), codex's cache writes
+# (always zero), the shares' totals and board_unknown's new tokens
+UNSENT_TOKENS = frozenset(("tokens_claude", "tokens_codex", "tokens_codex_cache_write", "tokens_board",
+                           "tokens_off_board", "tokens_board_unknown", "tokens_board_unknown_new"))
 FEEDBACK_EVENT = "feedback sent"
 FEEDBACK_MAX = 5000       # the most characters one feedback message may hold
 SETTING = "usagecounts"   # the board setting: "0" is off; missing or anything else is on
@@ -384,7 +390,8 @@ def token_counts(days: list[dt.date], tally) -> dict:
     """{day: token numbers} for each of these days, out of the token counter's
     tally (tokens.TokenLedger.tally): each tool's total and four kinds, then
     the day's tokens by board share, all of them and the new ones (all but
-    cache re-reads). A day the logs hold nothing for is zeros."""
+    cache re-reads). A day the logs hold nothing for is zeros. The day's
+    message leaves out UNSENT_TOKENS."""
     out = {}
     for day in days:
         fields = {}
@@ -930,7 +937,8 @@ class Sender:
             # marked first, so a board stopped mid-send never sends this day again
             if not self._write_marker(day):
                 return False
-            fields = {**counts.get(day, NOT_USED), **day_tokens}
+            fields = {**counts.get(day, NOT_USED),
+                      **{name: n for name, n in day_tokens.items() if name not in UNSENT_TOKENS}}
             if first_day is not None:
                 fields["days_since_install"] = (day - first_day).days
             body = payload(day, fields, version, system, rec["install_id"], rec["email"] is not None)
