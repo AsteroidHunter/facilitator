@@ -13797,6 +13797,8 @@ const HAD_LEGACY_LAYOUT = !!settingsStore.getItem(LAYOUT_SYNC);
 function syncLayoutsOnce(){
   if (!dragEnabled || settingsStore.getItem(LAYOUT_SYNC)) return;
   settingsStore.setItem(LAYOUT_SYNC, "1");
+  settingsStore.setItem(VISIBILITY_MIGRATION, "1");
+  settingsStore.setItem(PLAYER_VISIBILITY_MIGRATION, "1");
   const lanes = new Set();
   for (let i = 0; i < settingsStore.length; i++){
     const m = /^(?:pos|size)\.([^.]+)\./.exec(settingsStore.key(i) || "");
