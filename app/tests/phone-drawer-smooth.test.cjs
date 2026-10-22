@@ -73,7 +73,7 @@ function fixture({ reduced = false } = {}) {
     };
     return el;
   }
-  for (const id of ["page", "pane", "tickets", "tikwin", "settings", "scrim", "setpage", "setsrc", "tikbtn", "setbtn", "tik-page-back", "tik-page"]) nodes[id] = element(id);
+  for (const id of ["page", "pane", "tickets", "tikwin", "settings", "scrim", "setpage", "setsrc", "tikbtn", "tikadd", "setbtn", "tik-page-back", "tik-page"]) nodes[id] = element(id);
   nodes.tickets.dataset.side = "left";
   nodes.settings.dataset.side = "right";
   Object.assign(body, element("body"), { clientHeight: 800 });

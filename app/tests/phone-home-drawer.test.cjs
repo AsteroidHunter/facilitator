@@ -43,7 +43,7 @@ function element(id) {
 
 function fixture() {
   const nodes = Object.fromEntries(["page", "pane", "tickets", "tikwin", "settings", "scrim", "setpage", "setsrc",
-    "tikbtn", "setbtn", "homeico", "cards", "tiksheet"].map(id => [id, element(id)]));
+    "tikbtn", "tikadd", "setbtn", "homeico", "cards", "tiksheet"].map(id => [id, element(id)]));
   nodes.tickets.dataset.side = "left";
   nodes.settings.dataset.side = "right";
   nodes.tiksheet.querySelector = () => element("section");
@@ -117,6 +117,50 @@ test("the ticket button cannot open a project's list on Home", () => {
   assert.equal(f.nodes.tikbtn.attributes["aria-disabled"], "true");
   f.run("setHome(false)");
   assert.equal(f.nodes.tikbtn.attributes["aria-disabled"], "false");
+});
+
+test("the plus is switched off on Home with the ticket and makes no card there", () => {
+  const f = fixture();
+  f.run(between("function createCard(){", "// older replies:"));
+  Object.assign(f.context, { validOwners: new Set(["project"]), pendingCreate: () => null,
+    mintOp: () => { f.calls.push("mint"); return { id: "op" }; }, catchTitle: () => f.calls.push("catch-title"),
+    createDiagnostics: { clear() {}, set() {} }, drawCreatePending() {}, runOps() {} });
+  f.home(); f.calls.length = 0;
+  assert.equal(f.nodes.tikadd.attributes["aria-disabled"], "true");
+  f.run("createCard()");
+  // command+t is the plus's key; Home's own key table has no entry for it
+  f.window.fire("keydown", { target: f.document.body, key: "t", code: "KeyT", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false });
+  assert.deepEqual(f.calls, [], "neither the press nor its key makes a card on Home");
+  f.run("setHome(false)");
+  assert.equal(f.nodes.tikadd.attributes["aria-disabled"], "false");
+  f.run("createCard()");
+  assert.deepEqual(f.calls, ["mint", "catch-title"], "a project's plus still makes a card");
+});
+
+test("a load straight onto Home draws the two buttons off with no fade, and a switch eases them", () => {
+  const watch = f => {
+    const seen = [];
+    for (const id of ["tikbtn", "tikadd"]) {
+      const node = f.nodes[id], set = node.setAttribute;
+      node.setAttribute = function (name, value) { seen.push([id, value, this.style.transition]); set.call(this, name, value); };
+    }
+    return seen;
+  };
+  const load = fixture(), loaded = watch(load);
+  load.stored.set("homeopen", "1"); load.document.fire("DOMContentLoaded");
+  assert.deepEqual(loaded, [["tikbtn", "true", "none"], ["tikadd", "true", "none"]], "the load's change is made with transitions held");
+  for (const id of ["tikbtn", "tikadd"]) assert.equal(load.nodes[id].style.transition, "", id + " gets its transitions back");
+  const swap = fixture(), swapped = watch(swap);
+  swap.home(); swap.run("setHome(false)");
+  assert.deepEqual(swapped, [["tikbtn", "true", undefined], ["tikadd", "true", undefined],
+    ["tikbtn", "false", undefined], ["tikadd", "false", undefined]], "a switch leaves the sheet's own transition to ease");
+});
+
+test("the row draws a switched off button in the board's off fade, eased on its own clock", () => {
+  const css = between("<style>", "</style>").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(/#dock \.dockbtn\[aria-disabled="true"\]\{opacity:var\(--chipoff\); cursor:default\}/.test(css));
+  const row = css.match(/#dock \.dockbtn\{[^}]*\}/)[0];
+  assert.match(row, /opacity \.5s var\(--gentle\)/, "the fade runs on the row's .5s and the board's gentle curve");
 });
 
 for (const kind of ["touch", "mouse"]) {

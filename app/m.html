@@ -391,8 +391,11 @@
     border-radius:calc(var(--dock-h) / 2); color:var(--ink); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
-    transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle);
+    transition:transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle), opacity .5s var(--gentle);
   }
+  /* home has no cards to list or make, so the ticket and the plus stand there
+     in the board's off fade, eased in and out on the row's own clock */
+  #dock .dockbtn[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
   /* the top rim is one line, as on the settings page (card-tokens.css). the
      glass's own stack draws a white highlight on the first row and a faint dark
      band two rows deep, which on these small faces read as two lines along the
@@ -3483,10 +3486,11 @@ function handOffTitleCatch(el){
 // one press, one card. a press while the card is still being made is the same
 // press: it wakes the try rather than minting another card, and the plus
 // breathes until the board answers. once the card is there the next press is
-// a deliberate second card
+// a deliberate second card. home has no project to make it in, so there the
+// press, the key and any click on the switched off plus make nothing
 function createCard(){
   const trace = tracePhone("begin", "create");
-  if (!validOwners.has(activeOwner)){ endPhoneTrace(trace); return; }
+  if (homeOpen || !validOwners.has(activeOwner)){ endPhoneTrace(trace); return; }
   if (pendingCreate()){ catchTitle(); wakeOps(); endPhoneTrace(trace); return; }
   const op = mintOp("create", { owner: activeOwner });
   if (!op){ drawerNote("No card can be made while fifty messages are still unconfirmed on this phone"); endPhoneTrace(trace, { outcome: "failed" }); return; }
@@ -4013,6 +4017,7 @@ function glassPress(btn){
   let since = 0, timer = 0;
   return {
     press(){
+      if (btn.getAttribute("aria-disabled") === "true") return;   // a button switched off shows no press
       clearTimeout(timer); since = performance.now();
       btn.style.setProperty("--press-x", String(1 + PRESS_GROW * btn.offsetHeight / btn.offsetWidth));   // only the capsule's rule reads it
       btn.classList.add("pressed");
@@ -4370,8 +4375,14 @@ document.addEventListener("DOMContentLoaded", () => {
   brandStart();
   homeMake();
   try { wanted = !!localStorage.getItem(HOME_KEY); } catch (err){}
-  if (wanted && !wantBox) setHome(true);
-  else (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(homeWarm);
+  if (wanted && !wantBox){
+    // a load straight onto home draws the ticket and the plus off from the
+    // start: their fade is held while home is put back, so nothing eases
+    const row = ["tikbtn", "tikadd"].map(id => document.getElementById(id));
+    for (const btn of row) btn.style.transition = "none";
+    setHome(true);
+    for (const btn of row){ getComputedStyle(btn).opacity; btn.style.transition = ""; }
+  } else (window.requestIdleCallback || (fn => setTimeout(fn, 300)))(homeWarm);
 });
 
 // ---- the card list, the desktop's ticket box ----------------------------------------
@@ -4618,8 +4629,11 @@ function settleTicketDrawer(){
       tickets.classList.add("drawer-settled");
   }, () => {});   // a cancelled opening never enables its arrows
 }
+// the ticket and the plus are switched off on home together, and said to be
+// so; the row's sheet eases them there and back
 function syncMenuAvailability(){
-  document.getElementById("tikbtn").setAttribute("aria-disabled", String(!menuAvailable(tickets)));
+  const off = String(!menuAvailable(tickets));
+  for (const id of ["tikbtn", "tikadd"]) document.getElementById(id).setAttribute("aria-disabled", off);
   for (const panel of menus){
     if (menuAvailable(panel)) continue;
     cancelMenuDrag(panel);

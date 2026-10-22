@@ -330,7 +330,7 @@ test('the arrow is a native-free square of --bar-sq with a mark-sized triangle t
 });
 
 function drawer() {
-  const nodes = Object.fromEntries(['page', 'pane', 'tickets', 'tikwin', 'settings', 'scrim', 'tikbtn', 'setbtn', 'setpage', 'setsrc', 'tik-page', 'tik-page-back'].map(id => [id, element()]));
+  const nodes = Object.fromEntries(['page', 'pane', 'tickets', 'tikwin', 'settings', 'scrim', 'tikbtn', 'tikadd', 'setbtn', 'setpage', 'setsrc', 'tik-page', 'tik-page-back'].map(id => [id, element()]));
   nodes.tickets.dataset.side = 'left'; nodes.settings.dataset.side = 'right';
   const document = element(); document.body = element(); document.documentElement = element();
   document.getElementById = id => nodes[id];
