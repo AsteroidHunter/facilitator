@@ -17,7 +17,7 @@ From the agent conversation that owns your lane, repeat the current two-call pro
     curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=claude"
     curl -sS -X POST "http://127.0.0.1:$PORT/ack?owner=facilitator&token=<the ack field>"
 
-`agent=` names you; a card you answer shows that name on its ticket. `/wait` returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, or `{"idle": true}` on timeout.
+`agent=` names you; a card you answer shows that name on its ticket. `/wait` returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, or `{"idle": true}` on timeout. Beside `messages`, `message_by` says which ones an agent sent for the person (see Sending for the person).
 
 The `ack` token is the receipt for the card you were just handed, and confirming it is part of claiming, not an extra. A hand-off is provisional until you confirm it, because the answer can die on the wire: your own kill timer fires, the connection drops, and the server thinks it delivered a card nobody ever saw. Confirm it the moment the claim lands, before you start reading or working. A card nobody confirms goes back to the front of its lane's queue after 90 seconds and its colour falls back to the queued grey, so nothing sits green with nobody on it. Confirming twice is fine; the second call answers the same `{"ok": true}`.
 
@@ -33,6 +33,17 @@ After reading the separate `/fresh` result as described below, answer with a com
 - Before going idle, and between the steps of any follow-up work, check whether anything is waiting on your lane: `GET /unread?owner=YOURLANE` answers `{"queued": N, "claimed": M}`, messages still waiting plus messages in the claim you hold. It reads only, so it is safe from a hook. Claim waiting cards before going on, and while workers run, listen with a short `timeout` so you can check on them between rounds. Paste this as a Stop hook command and go back to the loop instead of idling whenever `queued` is above zero:
 
       curl -s "http://127.0.0.1:$PORT/unread?owner=facilitator"
+
+## Sending for the person
+
+An agent that puts a message on a card for the person, such as a voice or text assistant, sends it with `POST /send` and marks it as its own with `by=agent` and its name in `agent=`:
+
+    curl -sS -X POST --data-binary @message.txt "http://127.0.0.1:$PORT/send?box=ID&by=agent&agent=voice-assistant"
+
+- The board stores `"by": "agent"` and `"agent": NAME` (24 characters at most) on the message. A message without `by` is the person's own, and so is every message stored before the field existed. `agent=` without `by=agent` is ignored.
+- `by` says who sent the message; `via` still says how it arrived. A voice assistant's own message is `via=voice&by=agent`; the person's spoken words are `via=voice` alone.
+- The lane's agent sees it in `/wait` and `/fresh`: `message_by` runs beside `messages`, one entry per message, `"agent"` for a message an agent sent and null for the person's own, and `message_agent` gives the sender's name the same way. The answered messages, the transcript and `/thread` keep both fields.
+- On the Mac board and the phone, the message's bubble shows a small robot before its first word, and it never joins a bubble of the person's own messages.
 
 ## From a server
 

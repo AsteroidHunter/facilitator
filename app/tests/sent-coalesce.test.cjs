@@ -81,6 +81,47 @@ test("a bubble once joined stays one whatever its messages do next, and keeps it
   assert.deepEqual(plain(context.sentGroups(three, [m("b", "sent"), m("c", "sent")], null)).map(g => g.id), [1]);
 });
 
+// a message an agent sent for the reader (by=agent on /send) is marked with a
+// robot on its own row, so it never shares a bubble with the reader's own
+const bot = (text, stage) => ({ text, stage, by: "agent" });
+
+test("a message an agent sent stands apart from the reader's own in every place, and a reading says which is which", () => {
+  const { context } = load();
+  assert.equal(context.sentBy(bot("a", "sent")), "agent");
+  assert.equal(context.sentBy(m("a", "sent")), "");
+  assert.equal(context.sentBy({ text: "a", by: "someone" }), "", "a sender the board does not keep was taken for an agent");
+  assert.notEqual(context.sentState(bot("a", "sent")), context.sentState(m("a", "sent")));
+  assert.equal(context.sentState(m("a", "sent")), "Delivered", "the reader's own message moved place");
+  assert.notEqual(context.sentStands([bot("a", "read")]), context.sentStands([m("b", "read")]),
+    "an agent's bubble and the reader's stand in one place, so they would merge");
+  assert.notEqual(context.sentKeyOf([bot("a", "sent")]), context.sentKeyOf([m("a", "sent")]),
+    "a message changing hands would not be drawn again");
+  // the board's reading: pendingBy one to one with the words, and none at all from an older board
+  assert.deepEqual(plain(context.sentFrom({ pendingTexts: ["a", "b"], pendingStates: ["sent", "delivered"], pendingBy: [null, "agent"] })),
+    [m("a", "sent"), bot("b", "delivered")]);
+  assert.deepEqual(plain(context.sentFrom({ pendingTexts: ["a"], pendingStates: ["sent"] })), [m("a", "sent")]);
+});
+
+test("an agent's messages and the reader's never share a bubble, however they arrive", () => {
+  const { context } = load();
+  // a first draw: runs standing in one place are one bubble only while one hand sent them
+  const shown = [m("a", "sent"), bot("b", "sent"), bot("c", "sent"), m("d", "sent"), m("e", "sent")];
+  assert.deepEqual(words(context.sentGroups([], shown, null)), [["a"], ["b", "c"], ["d", "e"]]);
+  // a reading's new message from an agent does not join the reader's bubble standing where it stands
+  assert.deepEqual(words(context.sentGroups([[m("a", "sent")]], [m("a", "sent"), bot("b", "sent")], null)), [["a"], ["b"]]);
+  assert.deepEqual(words(context.sentGroups([[bot("a", "sent")]], [bot("a", "sent"), m("b", "sent")], null)), [["a"], ["b"]]);
+  // nor the other way round, and two of an agent's join as the reader's do
+  assert.deepEqual(words(context.sentGroups([[bot("a", "sent")]], [bot("a", "sent"), bot("b", "sent")], null)), [["a", "b"]]);
+  // one landing between two of a bubble's messages splits it rather than joining it,
+  // and the standing bubble's id is given out once
+  const between = context.sentGroups([[m("a", "sent"), m("c", "sent")]], [m("a", "sent"), bot("b", "sent"), m("c", "sent")], null);
+  assert.deepEqual(words(between), [["a"], ["b"], ["c"]]);
+  const ids = plain(between).map(g => g.id);
+  assert.equal(ids[0], 0, "the standing bubble was not kept for the messages before the split");
+  assert.equal(new Set(ids).size, ids.length, "two bubbles were given one id");
+  assert.ok(ids.slice(1).every(id => id >= 1), "a bubble after the split took a standing bubble's id");
+});
+
 test("the merge keeps the owner's order: the word goes out, and the earlier bubble falls the moment it is gone", () => {
   const { run } = load();
   // the word under the earlier bubble goes out more gently than a word giving

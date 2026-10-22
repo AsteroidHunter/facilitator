@@ -540,6 +540,21 @@
   margin-top:calc(var(--answ-line) / 2);
   padding-top:calc(var(--answ-line) / 2);
 }
+/* a message an agent sent for the reader (by=agent on /send, card-logic.js
+   gives its row .agent) carries a small robot before its first word, standing
+   on the words' baseline like a glyph, and the words move over by its room.
+   the reader's own messages carry none, and the word under the bubble stays
+   plain. a line icon drawn the way the board's other marks are, in a 24 unit
+   box with round caps and joins, in --sub (#75695A). its size, its room and
+   its drop are the drawing's 12, 6 and 2px at the large card's 15px type,
+   written in the words' own type so the phone and the small card carry it at
+   their size */
+.answmsg.agent > :first-child::before{
+  content:""; display:inline-block; width:calc(12em / 15); height:calc(12em / 15);
+  margin-right:calc(6em / 15); vertical-align:calc(-2em / 15);
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2375695A' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.6V7M2.3 11.6v3.4M21.7 11.6v3.4'/%3E%3Crect x='4.5' y='7' width='15' height='12.5' rx='3.2'/%3E%3Cg fill='%2375695A' stroke='none'%3E%3Ccircle cx='12' cy='2.6' r='1.6'/%3E%3Ccircle cx='9.3' cy='13.2' r='1.55'/%3E%3Ccircle cx='14.7' cy='13.2' r='1.55'/%3E%3C/g%3E%3C/svg%3E") no-repeat center / 100% 100%;
+  pointer-events:none;
+}
 /* the strip at the foot of a long batch, the grey the arrow stands in: its own
    height, taller than the panel's air, with the arrow centred in it so it has
    the same clear room over it as under it. it stands at the foot both ways, cut

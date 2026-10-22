@@ -190,7 +190,7 @@ test("an agent holding the card gets its new messages from /fresh only 7 seconds
   const last = await send("7", "and a second");
   // right after: the held card is named, and nothing new is handed over
   assert.deepEqual((await get("/fresh?owner=facilitator")).body,
-    { box: "7", messages: [], message_via: [] });
+    { box: "7", messages: [], message_via: [], message_by: [], message_agent: [] });
   assert.deepEqual((await get("/unread?owner=facilitator")).body, { queued: 2, claimed: 1 });
   assert.deepEqual((await card("7")).pendingStates, ["delivered", "sent", "sent"]);
 
@@ -280,8 +280,9 @@ test("an agent holding the voice card gets a second spoken message from /fresh a
   const spoken = await speak("9", "a second thing said while the agent works");
   const fresh = (await get("/fresh?owner=facilitator")).body;
   const took = Date.now() - spoken;
+  // spoken by the reader, not sent by an agent for them
   assert.deepEqual(fresh, { box: "9", messages: ["a second thing said while the agent works"],
-                            message_via: ["voice"] });
+                            message_via: ["voice"], message_by: [null], message_agent: [null] });
   t.diagnostic(`/fresh had it ${took} ms after the send began`);
   assert.ok(took < LATE_MS, `/fresh had it ${took} ms after the send began`);
   assert.deepEqual((await get("/unread?owner=facilitator")).body, { queued: 0, claimed: 2 });
