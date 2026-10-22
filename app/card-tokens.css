@@ -1350,11 +1350,12 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    puts it after what the box holds and turns the far edge's white over */
 .magicbox{display:flex; flex-direction:column; overflow:hidden;
   /* its own lengths, in the board's pixels; the phone gives them in its own
-     (m.html). --mb-x is the cross's seat and --mb-gap the space round it,
-     the same at the box's edge and at its side: the bar, --mb-bar, is the seat
-     and that gap over and under it, so the cross's middle stands as far from
-     the box's edge as from its side, and the seat stands clear of the line.
-     still shorter than the card's own bar.
+     (m.html). --mb-x is the cross's seat and --mb-gap the space round it: the
+     bar, --mb-bar, is the seat and that gap over and under it, still shorter
+     than the card's own bar. the line takes --edge-drawn of that height, so
+     the white about the seat is --mb-gap less half the line on every side
+     (the bar's padding, below), the same at the box's edge, at the line and
+     at the box's side.
      --mb-air is the space the box keeps between what it holds and its far
      edge, and --mb-fade the depth of the fuzz, the ticket list's own 22px.
      --mb-lead is the space over the words' first line, from the bar's foot
@@ -1378,12 +1379,16 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
    what the box holds, as that one runs across the tickets' own sides. at
    the bar's right, one cross puts the box away: the card bar's own kind of
    mark (MAGIC_CROSS, card-logic.js) at the card bar's mark size, in a
-   round seat, --mb-gap in from the box's side as it is from the box's edge
-   and from the line. the seat is a small circle of soft red with the mark
-   at its middle, the ink it always had; the pointer over it, and a press,
-   shade it with the one press shade. a finger's tap reaches past it */
+   round seat. the bar pads out the line's own width on the line's side, so
+   the seat is centred in the white the line leaves, and pads its sides by
+   the white over and under the seat, so the seat stands as far in from the
+   box's side as from the box's edge and from the line. the seat is a small
+   circle of soft red with the mark at its middle, the ink it always had; the
+   pointer over it, and a press, shade it with the one press shade. a
+   finger's tap reaches past it */
 .magicbox .mbbar{flex:none; position:relative; display:flex; align-items:center; justify-content:flex-end;
-  height:var(--mb-bar); padding:0 var(--mb-gap); border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
+  height:var(--mb-bar); padding:0 calc(var(--mb-gap) - var(--edge-drawn) / 2) var(--edge-drawn);
+  border-radius:calc(var(--mb-round) - var(--edge)) calc(var(--mb-round) - var(--edge)) 0 0}
 .magicbox .mbbar::after{content:""; position:absolute; pointer-events:none;
   left:0; right:0; bottom:0; height:0;
   border-top:var(--edge) solid var(--line)}
@@ -1392,7 +1397,6 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
   background:var(--mb-pink); color:#1e1e1e; cursor:pointer}
 .magicbox .mbclose:hover, .magicbox .mbclose:active{background:color-mix(in srgb, #000 var(--press), var(--mb-pink))}
 .magicbox .mbclose:focus-visible{outline:2px solid var(--line); outline-offset:1px}
-.magicbox .mbclose svg{width:var(--bar-mark); height:var(--bar-mark)}
 .magicbox .mbclose::after{content:""; position:absolute; inset:-8px}
 /* at the bar's other end, the cross turned over: one green button that
    expands the box over the dimmed board and puts it back (view.expand,
@@ -1407,8 +1411,15 @@ html.app-link-policy .cardmd video, html.app-link-policy .cardmd audio{-webkit-t
 .magicbox .mbgrow[hidden]{display:none}
 .magicbox .mbgrow:hover, .magicbox .mbgrow:active{background:color-mix(in srgb, #000 var(--press), var(--mb-green))}
 .magicbox .mbgrow:focus-visible{outline:2px solid var(--line); outline-offset:1px}
-.magicbox .mbgrow svg{width:var(--bar-mark); height:var(--bar-mark)}
 .magicbox .mbgrow::after{content:""; position:absolute; inset:-8px}
+/* each mark's svg covers its whole seat, its padding bringing the drawing in
+   to --bar-mark at the middle, so the circle and the mark are laid out in
+   the one box and snapped together. the svg is a layer of its own (the
+   transform): safari starts an inline svg at a whole css pixel, which put
+   the mark up to half a css pixel off its circle, and starts a layer at a
+   whole device pixel, as it does the circle */
+.magicbox :is(.mbclose, .mbgrow) svg{position:absolute; inset:0; box-sizing:border-box; width:100%; height:100%;
+  padding:calc((var(--mb-x) - var(--bar-mark)) / 2); transform:translate(0)}
 /* what it holds stops short of the far edge by --mb-air, so nothing runs to
    it; a picture is the exception, which fills its box to the edge in its own
    shape. words that scroll dissolve at both ends of their scroll as

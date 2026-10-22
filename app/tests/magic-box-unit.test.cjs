@@ -369,15 +369,16 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   const on = html.slice(html.indexOf("  body.focus :is(#magicbox, #pipebox).on{"), html.indexOf("}", html.indexOf("  body.focus :is(#magicbox, #pipebox).on{")));
   assert.match(on, /display:flex; position:fixed; z-index:1; --mb-inset:calc\(var\(--pad-x\)\*2\/3\)/);
   assert.ok(!/#magicbox[^{]*\.floating|\.magicbox[^{]*\.floating/.test(html), "a floating box is left");
-  // the bar: nothing of its own, the cross's seat with the same gap over and
-  // under it as at the box's side, so the cross's middle stands as far from
-  // the box's edge as from its side, and the seat clear of the line by that gap
+  // the bar: nothing of its own, the cross's seat centred in the white the
+  // line leaves, the line's width padded out on the line's side, and the
+  // sides padded by the white over and under the seat, so the seat stands as
+  // far from the box's side as from its edge and from the line
   const bar = sheet.match(/\.magicbox \.mbbar\{([^}]*)\}/)[1];
   assert.match(bar, /position:relative/);
   assert.match(bar, /justify-content:flex-end/);
   assert.match(bar, /align-items:center/);
   assert.match(bar, /height:var\(--mb-bar\)/);
-  assert.match(bar, /padding:0 var\(--mb-gap\)/);
+  assert.match(bar, /padding:0 calc\(var\(--mb-gap\) - var\(--edge-drawn\) \/ 2\) var\(--edge-drawn\);/);
   assert.ok(!/background|box-shadow|border(?!-radius)/.test(bar), "the bar paints something of its own");
   assert.match(bar, /border-radius:calc\(var\(--mb-round\) - var\(--edge\)\) calc\(var\(--mb-round\) - var\(--edge\)\) 0 0/, "the bar keeps inside the box's rounder top corners");
   assert.match(box, /--mb-bar:calc\(var\(--mb-x\) \+ 2 \* var\(--mb-gap\)\);/);
@@ -392,14 +393,17 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
     assert.ok(g >= 5, where + ": the seat stands closer than 5px to the box's edges and the line");
     assert.ok(height < 34, where + ": the box's bar is no shorter than the card's");
     assert.ok(x >= 10 + 2 * 3, where + ": the seat leaves under 3px about the 10px mark");
+    // at each drawn width of the line, the white beside the seat (the side
+    // padding) is the white over and under it (the bar less the line and the seat, halved)
+    for (const line of [1, 0.5, 2 / 3])
+      assert.ok(Math.abs((g - line / 2) - (height - line - x) / 2) < 1e-9, where + ": the seat is not as far from the side as from the edge and the line");
   }
-  // the phone's cross stands half as far again from the box's side and foot, in the page's own
-  // units, with the bar's height as it was, and the expand button as far from the other side;
-  // the board's cross is left where it is
-  assert.match(own, /--mb-seat:calc\(1\.5 \* var\(--mb-gap\) \+ \.5 \* var\(--edge\)\)/);
-  assert.match(phone, /#mbface \.mbbar\{padding:0 var\(--mb-seat\)\}/);
-  assert.match(phone, /#mbface :is\(\.mbclose, \.mbgrow\)\{top:calc\(var\(--mb-gap\) - var\(--mb-seat\)\)\}/);
-  assert.ok(!/--mb-seat/.test(sheet + html), "the board's cross is moved");
+  // the phone's line runs along the bar's top, so the bar pads out its width
+  // there in place of the foot, with the sheet's sides; nothing moves the
+  // seat off the middle of that white, on either page
+  assert.match(phone, /#mbface \.mbbar\{padding:var\(--edge-drawn\) calc\(var\(--mb-gap\) - var\(--edge-drawn\) \/ 2\) 0\}/);
+  assert.ok(!/--mb-seat/.test(sheet + html + phone), "a seat of the phone's own is left");
+  assert.ok(!/\.mb(close|grow)\)?\{[^}]*\btop:/.test(sheet + html + phone), "a seat is moved off the middle of the bar");
   // the line: the ticket list's under its section names, word for word, in
   // each page (#tikhead::after): the card's hairline as a top edge of no
   // height, across the whole width, taking no touch
@@ -444,9 +448,11 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   }
   // its mark is drawn once, by the view both pages share, and it is the card
   // bar's own cross (.xbtn): two bars --bar-mark long and --cross-weight of
-  // that thick, round ends, at 45 degrees. the svg is --bar-mark square on a 10
-  // grid, so its stroke is 10 * 1.2 / 9 thick and each stroke's centre line is
-  // the bar's length less that thickness, laid at 45 degrees about the middle
+  // that thick, round ends, at 45 degrees. the svg draws a --bar-mark square
+  // on a 10 grid, so its stroke is 10 * 1.2 / 9 thick and each stroke's centre
+  // line is the bar's length less that thickness, laid at 45 degrees about the
+  // middle. the svg covers the whole seat, padded in to that square, as its
+  // own layer, so the mark and its circle are placed and snapped as one box
   const cross = logic.match(/const MAGIC_CROSS = ('[^;]*);/)[1];
   assert.match(cross, /viewBox="0 0 10 10"/);
   assert.match(cross, /stroke-linecap="round"/);
@@ -455,7 +461,8 @@ test("the shared sheet's box has no frame, face or shadow: a short bar parted fr
   assert.ok(Math.abs((5 - reach) - half) < 1e-3, "the cross is not as long as the card's");
   assert.match(cross, new RegExp("M" + reach + " " + reach + "L" + (10 - reach) + " " + (10 - reach) + "M" + (10 - reach) + " " + reach + "L" + reach + " " + (10 - reach)));
   assert.match(logic, /const cross = el\.querySelector\("\.mbclose"\);\s*if \(cross\) cross\.innerHTML = MAGIC_CROSS;/);
-  assert.match(sheet, /\.magicbox \.mbclose svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
+  assert.match(sheet, /\n\.magicbox :is\(\.mbclose, \.mbgrow\) svg\{position:absolute; inset:0; box-sizing:border-box; width:100%; height:100%;\s+padding:calc\(\(var\(--mb-x\) - var\(--bar-mark\)\) \/ 2\); transform:translate\(0\)\}/);
+  assert.ok(!/\.magicbox \.mb(close|grow) svg\{/.test(sheet), "a mark keeps an svg of --bar-mark inside its seat");
   for (const page of [html, phone]) assert.match(page, /width:var\(--bar-mark\); height:var\(--cross-t\); background:#1e1e1e;/);
   const seat = sheet.match(/\.magicbox \.mbclose\{([^}]*)\}/)[1];
   assert.match(seat, /width:var\(--mb-x\); height:var\(--mb-x\); padding:0; border:none; border-radius:50%;/);
@@ -1990,7 +1997,7 @@ test("the green button mirrors the cross at the bar's other end: its seat, ink, 
   assert.match(grow, /margin-right:auto/, "it stands at the bar's left, and the cross stays at its right");
   assert.match(sheet, /\.magicbox \.mbgrow:hover, \.magicbox \.mbgrow:active\{background:color-mix\(in srgb, #000 var\(--press\), var\(--mb-green\)\)\}/);
   assert.match(sheet, /\.magicbox \.mbgrow:focus-visible\{outline:2px solid var\(--line\); outline-offset:1px\}/);
-  assert.match(sheet, /\.magicbox \.mbgrow svg\{width:var\(--bar-mark\); height:var\(--bar-mark\)\}/);
+  assert.match(sheet, /\.magicbox :is\(\.mbclose, \.mbgrow\) svg\{/, "its mark is not drawn as the cross's is");
   assert.match(sheet, /\.magicbox \.mbgrow::after\{content:""; position:absolute; inset:-8px\}/);
   // the bar itself is as it was: the cross at its right
   assert.match(sheet.match(/\.magicbox \.mbbar\{([^}]*)\}/)[1], /justify-content:flex-end/);
@@ -2000,10 +2007,11 @@ test("the green button mirrors the cross at the bar's other end: its seat, ink, 
   assert.ok(g > r + 40 && g > b + 30, "green");
   assert.ok((Math.max(r, g, b) + Math.min(r, g, b)) / 2 / 255 > 0.6, "pastel, as light as the cross's soft red");
   assert.ok(!/432BFF/i.test(sheet), "never the accent purple");
-  // on the phone it is the cross's mirror at the bottom left corner
+  // on the phone it is the cross's mirror at the bottom left corner, the
+  // bar's sides padded alike and nothing moving either seat on its own
   const phone = read("m.html");
-  assert.match(phone, /#mbface \.mbbar\{padding:0 var\(--mb-seat\)\}/);
-  assert.match(phone, /#mbface :is\(\.mbclose, \.mbgrow\)\{top:calc\(var\(--mb-gap\) - var\(--mb-seat\)\)\}/);
+  assert.match(phone, /#mbface \.mbbar\{padding:var\(--edge-drawn\) calc\(var\(--mb-gap\) - var\(--edge-drawn\) \/ 2\) 0\}/);
+  assert.ok(!/#mbface[^{]*\.mb(close|grow)[^{]*\{/.test(phone), "the phone moves a seat of its own");
 });
 
 // the shared view, its marks and its expand, on stand-ins
