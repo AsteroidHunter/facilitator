@@ -750,11 +750,26 @@ test("home's list has a heading and a line over its projects, and its room is se
   const order = ['<div id="homehead" aria-hidden="true">Projects</div>', '<div id="homeheadsep"></div>', '<div id="homerows"></div>',
     '<div id="homelistsep"></div>', '<button id="homenew"'].map(s => markup.indexOf(s));
   assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), "heading, line, rows, line, folder row: " + order);
-  // the heading in the charts' headings' face, size and ink, at the group's scale
-  const widgets = readFileSync(path.join(root, "home-widgets.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-  for (const title of ["tk-name", "lm-title"])
-    assert.match(widgets, new RegExp("\\n\\." + title + "\\{[^}]*font:600 calc\\(14 \\* var\\(--u, 1px\\)\\)/18px var\\(--sans\\); color:var\\(--ink\\)"), title);
-  assert.match(rule(sheet, "#homehead"), /font:600 calc\(14px \* var\(--home-t, 1\)\)\/calc\(18px \* var\(--home-t, 1\)\) var\(--sans\); color:var\(--ink\)/);
+  // the heading in the names' own face and size, the box's, which the rows
+  // take too, in the semibold and the names' grey at rest
+  const head = rule(sheet, "#homehead"), row = rule(sheet, "#homelist .homerow"), num = rule(sheet, "#homelist .homenum");
+  assert.equal(decl(rule(sheet, "#homelistbox"), "font"), "400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)");
+  assert.equal(decl(row, "font"), "inherit");
+  assert.equal(decl(head, "font"), undefined, "the heading sets no face or size of its own");
+  assert.equal(decl(head, "font-size"), undefined);
+  assert.equal(decl(head, "font-weight"), "600");
+  assert.equal(decl(head, "color"), "color-mix(in srgb, var(--sub) 55%, transparent)");
+  assert.equal(decl(head, "color"), decl(row, "color"), "the names' grey");
+  // it starts where the names do: before it, a room as wide as the number
+  // column, in the numbers' face, and the row's gap after it
+  const before = rule(sheet, "#homehead::before");
+  assert.equal(decl(before, "display"), "inline-block");
+  assert.equal(decl(before, "width"), "var(--pnum, 1ch)");
+  assert.equal(decl(before, "width"), decl(num, "width"));
+  assert.equal(decl(before, "margin-right"), decl(row, "gap"));
+  assert.equal(decl(before, "font"), "400 calc(var(--home-font) * 14.6 / 14) var(--mono)");
+  assert.ok(decl(num, "font").startsWith("400 calc(var(--home-font) * 14.6 / 14)/") && decl(num, "font").endsWith(" var(--mono)"),
+    "the number column's face: " + decl(num, "font"));
   // both lines the charts' line, 1px of the line colour at the group's scale
   assert.match(sheet, /#homelimits:not\(\[hidden\]\)::before\{[^}]*height:1px; background:var\(--line\)/);
   const lines = rule(sheet, "#homeheadsep, #homelistsep");

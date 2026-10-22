@@ -3783,9 +3783,12 @@
   /* the narrow part: "Projects" and a line under it, then the pill's list
      (#projmenu, above) without its box, every open project in the same order
      under the same number, then the line and "+ Open a new folder". the
-     heading is the charts' headings' face, size and ink at the group's scale
-     --home-t, and both lines are the group's line between the charts, 1px at
-     that scale in the line colour. homeFit sets the list's top and foot so
+     heading is the names' own face, size and faint ink, in the semibold so it
+     reads as a heading, and starts where the names do: before it stands a
+     room as wide as the number column and the gap after it, the column in the
+     numbers' own face, so it follows the names with ten projects or more.
+     both lines are the group's line between the charts, 1px at the group's
+     scale --home-t in the line colour. homeFit sets the list's top and foot so
      the heading's ink starts level with the logo's word and the folder row's
      ink ends level with the last "Last updated" line under the charts: the
      projects' room between the two lines is set by those edges, whatever the
@@ -3812,8 +3815,10 @@
   #homelistbox{flex:1 1 0; display:flex; flex-direction:column; min-height:0; max-width:100%;
     margin:var(--home-list-top, 0px) calc(var(--home-margin) - var(--home-cross)) var(--home-list-foot, 0px) 0; pointer-events:auto;
     font:400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)}
-  #homehead{flex:none; font:600 calc(14px * var(--home-t, 1))/calc(18px * var(--home-t, 1)) var(--sans); color:var(--ink);
+  #homehead{flex:none; font-weight:600; color:color-mix(in srgb, var(--sub) 55%, transparent);
     white-space:nowrap; cursor:default}
+  #homehead::before{content:""; display:inline-block; width:var(--pnum, 1ch); margin-right:calc(var(--home-font) * 10 / 14);
+    font:400 calc(var(--home-font) * 14.6 / 14) var(--mono)}
   #homerows{flex:1 1 0; min-height:0; display:flex; flex-direction:column;
     overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
     -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
@@ -5324,8 +5329,8 @@ async function pickFolder(slot){
 // while the heading's line has room for the heading, the switch and the
 // download button side by side; past that they shrink with the rest, so the
 // three never meet. the group is centred in its part by what it shows.
-// the list's "Projects" stands at the charts' headings' size, the top of its
-// ink level with the top of the logo's, and the foot of "+ Open a new folder"
+// the list's "Projects" stands at the names' size, the top of its ink level
+// with the top of the logo's, and the foot of "+ Open a new folder"
 // level with the foot of the last "Last updated" line, so the two parts share
 // their top and bottom edges as drawn; the projects take the room between
 const HOME_REF = { w: 1512, h: 982 };
@@ -5446,8 +5451,8 @@ function homeFit(){
     shown = { top: top + dy, bottom: bottom + dy };
   }
 
-  // the list's heading at the group's scale, the top of its ink level with
-  // the top of the logo's word, and the foot of the folder row's ink level
+  // the list's lines at the group's scale, the top of the heading's ink level
+  // with the top of the logo's word, and the foot of the folder row's ink level
   // with the foot of the last "Last updated" line under the charts (before
   // either is drawn, with what the group shows). the word stands taller than
   // the mark beside it, at every scale, as the two grow together
