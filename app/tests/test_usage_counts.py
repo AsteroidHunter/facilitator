@@ -1458,15 +1458,21 @@ class Server(unittest.TestCase):
         self.assertEqual(self.reply_as("gpt")["agent_kind"], "codex")
         self.assertEqual(self.reply_as("astra")["agent_kind"], "codex")
 
+    def test_a_reply_after_a_restart_is_counted_for_the_agent_that_took_the_card(self):
+        # opus took the card before the board restarted, and no /wait has named
+        # the lane's agent since
+        self.server._box("7")["claim_agent"] = "opus"
+        row = self.reply_as(None)
+        self.assertEqual(self.server._box("7")["agent"], "opus")
+        self.assertEqual(row["agent_kind"], "claude")
+
     def test_the_server_and_the_counts_share_one_rule(self):
         for name in ("opus", "Claude Code", "gpt-5", "astra", "codex on opus", "gemini", "", None):
-            self.server._agent_names["facilitator"] = name
-            self.assertEqual(self.server._agent_kind("facilitator"), uc.agent_kind(name), name)
+            self.assertEqual(self.server._agent_kind(name), uc.agent_kind(name), name)
 
     def test_the_server_stores_other_when_agent_names_is_missing(self):
-        self.server._agent_names["facilitator"] = "opus"
         with mock.patch.dict(sys.modules, {"agent_names": None}):
-            self.assertEqual(self.server._agent_kind("facilitator"), "other")
+            self.assertEqual(self.server._agent_kind("opus"), "other")
 
     def test_the_switch_is_a_board_setting_that_is_on_until_set_to_0(self):
         s = self.server
