@@ -36,9 +36,9 @@
 //            that day comes before the start, or less than a week before the
 //            last day, where it would stand at the right edge with nothing
 //            after it to show (MARK_AFTER). Every picture is on pure white.
-//            Every line picture draws the screen's own 7-day average.
+//            A 7-day average in a picture is the screen's own (averageOf).
 //            The download button saves the chart on show in its first look,
-//            the Poster 7-day average for the line and the Editorial
+//            the Poster 7-day average and band for the line and the Editorial
 //            heatmap, named by pictureName. The Mac saves it as a download,
 //            as does a phone whose browser cannot share a file; then the
 //            overlay shows it
@@ -459,7 +459,7 @@
   }
   // ---- the days a line shows -----------------------------------------------
   // a run of this many days or more with no tokens is left as a gap in every
-  // line: no line is drawn across it and no mark inside it. The dates
+  // line: no line or band is drawn across it and no mark inside it. The dates
   // along the floor still run through it, and shorter quiet runs are drawn as
   // they are
   const GAP_DAYS = 7;
@@ -525,7 +525,7 @@
              install: at >= 0 && n - 1 - at >= MARK_AFTER ? at : -1,
              total: thisYear(days), first: n ? shown[0].date : null, last: n ? shown[n - 1].date : null };
   }
-  // the days of each run between gaps, for drawing a line run by run
+  // the days of each run between gaps, for drawing a line or band run by run
   const runDays = S => S.runs.map(([a, b]) => Array.from({ length: b - a + 1 }, (_, k) => a + k));
 
   // ---- how full a year is ----------------------------------------------------
@@ -885,14 +885,14 @@
   // from the day the install set (chartStart), the total still the year's.
   // Each picture is one of the looks of the chart looks mock
   // (20261020) the dice can pick (DICE): the Editorial, Lab and Poster
-  // heatmaps, and five line pictures, each a look and one of the two things
-  // a line can show: the days and their 7-day average, or the 7-day average
-  // alone, in every one the screen's own (seriesOf). The words use the
-  // board's own faces (the sheet's --sans and --mono, and Inter for the name
-  // at the top right and the repo link under it, which the file carries
-  // itself so it is set the same with or without the network) and its inks,
-  // and every look carries the squid, the name, the link, and on the line the
-  // day the board was first started
+  // heatmaps, and six line pictures, each a look and one of the three things
+  // a line can show: the days and their 7-day average, the 7-day average over
+  // the 1 sigma range of the two weeks around each day, or each week's median
+  // as a dot. The words use the board's own faces (the sheet's --sans and
+  // --mono, and Inter for the name at the top right and the repo link under
+  // it, which the file carries itself so it is set the same with or without
+  // the network) and its inks, and every look carries the squid, the name,
+  // the link, and on the line the day the board was first started
   const SHAPES = { "3:1": [1200, 400], "2:1": [1200, 600] };
   const SHAPE_OF = { heatmap: "3:1", line: "2:1" };
   const PIC_SCALE = 3;
@@ -909,37 +909,95 @@
                  mono: '"IBM Plex Mono", ui-monospace, monospace' };
   // what the dice rolls through, by chart, each a look and what the line
   // shows. The first of each is the one the download button saves and the
-  // pop-up opens on: the Poster 7-day average for the line, the Editorial
-  // heatmap
+  // pop-up opens on: the Poster 7-day average with its band for the line
+  // (20261020), the Editorial heatmap
   const DICE = {
-    line: [["poster", "average"], ["editorial", "daily"], ["editorial", "average"], ["lab", "daily"],
-           ["lab", "average"]],
+    line: [["poster", "band"], ["editorial", "daily"], ["editorial", "band"], ["lab", "daily"],
+           ["lab", "dots"], ["poster", "dots"]],
     heatmap: [["editorial"], ["lab"], ["poster"]],
   };
   const LOOK_NAMES = { editorial: "Editorial", lab: "Lab", poster: "Poster" };
-  const SHOW_NAMES = { daily: "daily and 7-day average", average: "7-day average" };
+  const SHOW_NAMES = { daily: "daily and 7-day average", band: "7-day average and band", dots: "weekly dots" };
 
   // ---- what a line picture shows -----------------------------------------------
-  // the highest count drawn at each day, as [day, count]: the day and its
-  // 7-day average, or the average alone
+  // the band and the weekly dots run from the 15.9th to the 84.1st
+  // percentile, one sigma either side of the median for a normal spread. The
+  // band's days are weighted by a bell curve around each day, sigma 3.5
+  // days, so 95% of the weight is within a week either side and a spike fades
+  // in and out of the band instead of switching it like a 14-day box does
+  const SIGMA = 3.5, REACH = Math.ceil(3 * SIGMA), LO_Q = 0.159, HI_Q = 0.841, BIN = 7;
+  // percentiles of days that each count for a weight: each day stands at the
+  // middle of its share of the total weight, and a percentile between two
+  // days is read off the straight line between them
+  function weighted(pairs) {
+    pairs.sort((a, b) => a.v - b.v);
+    const total = pairs.reduce((s, p) => s + p.w, 0);
+    let c = 0;
+    const at = pairs.map(p => { const m = (c + p.w / 2) / total; c += p.w; return m; });
+    const q = p => {
+      if (p <= at[0]) return pairs[0].v;
+      for (let k = 1; k < at.length; k++)
+        if (p <= at[k]) return pairs[k - 1].v + (pairs[k].v - pairs[k - 1].v) * (p - at[k - 1]) / (at[k] - at[k - 1]);
+      return pairs[pairs.length - 1].v;
+    };
+    return { lo: q(LO_Q), mid: q(0.5), hi: q(HI_Q) };
+  }
+  // a series (seriesOf) with a median and the 1 sigma range of the two weeks
+  // around each day, and 7-day bins counted back from the last day, each with
+  // its median and its 1 sigma range. The band's window and the bins leave
+  // gap days out, so they do not dive at a gap's edge. A bin's dot stands in
+  // the middle of its days outside gaps; a bin cut by a gap keeps its dot
+  // only with 4 or more days outside it, so no dot is a median of a day or
+  // two, and a bin wholly in a gap has none. The 7-day blocks themselves are
+  // kept for the ticks
+  function spreadOf(S) {
+    const { vals, gap } = S;
+    const pct = list => { const s = [...list].sort((a, b) => a - b); return { lo: quantile(s, LO_Q), mid: quantile(s, 0.5), hi: quantile(s, HI_Q) }; };
+    S.band = vals.map((_, i) => {
+      const pairs = [];
+      for (let j = Math.max(0, i - REACH); j <= Math.min(vals.length - 1, i + REACH); j++)
+        if (!gap[j]) pairs.push({ v: vals[j], w: Math.exp(-0.5 * ((j - i) / SIGMA) ** 2) });
+      return pairs.length && !gap[i] ? weighted(pairs) : { lo: 0, mid: 0, hi: 0 };
+    });
+    S.bins = []; S.blocks = [];
+    for (let end = vals.length; end > 0; end -= BIN) {
+      const a = Math.max(0, end - BIN), use = [];
+      for (let k = a; k < end; k++) if (!gap[k]) use.push(k);
+      S.blocks.unshift(a);
+      const cut = use.length < end - a;
+      if (use.length && (!cut || use.length >= 4))
+        S.bins.unshift({ a, b: end - 1, u0: use[0], u1: use[use.length - 1], at: (use[0] + use[use.length - 1]) / 2,
+                         ...pct(use.map(k => vals[k])) });
+    }
+    return S;
+  }
+  // the highest count drawn at each day or bin, as [day, count]: the day and
+  // its 7-day average, the band's top and the 7-day average over it, or a
+  // bin's top
   function highsOf(S, c) {
-    return S.vals.map((v, i) => [i, c === "daily" ? Math.max(v, S.avg[i]) : S.avg[i]]);
+    if (c === "dots") return S.bins.map(b => [b.at, b.hi]);
+    return S.vals.map((v, i) => [i, Math.max(c === "daily" ? v : S.band[i].hi, S.avg[i])]);
   }
   // the highest value a content draws, for its axis
   function peakOf(S, c) {
     if (c === "daily") return Math.max(0, ...S.vals);
-    return Math.max(0, ...S.avg);
+    if (c === "band") return Math.max(0, ...S.band.map(b => b.hi), ...S.avg);
+    return Math.max(0, ...S.bins.map(b => b.hi));
   }
   const LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const longDate = date => { const p = parts(date); return `${LONG[p.m - 1]} ${p.d}`; };
   const shortDate = date => { const p = parts(date); return `${MONTHS[p.m - 1]} ${p.d}`; };
+  // two days, short: "Oct 6 to 12", or "Sep 29 to Oct 5" across a month
+  const shortRange = (a, b) => (parts(a).m === parts(b).m ? `${shortDate(a)} to ${parts(b).d}` : `${shortDate(a)} to ${shortDate(b)}`);
   const spanWords = S => `${longDate(S.first)} to ${longDate(S.last)}, ${parts(S.last).y}`;
-  // the content's own high point, for a note: the busiest day, or the
-  // highest 7-day average
+  // the content's own high point, for a note: the busiest day, the highest
+  // 7-day average, the bin with the highest median
   function highOf(S, c) {
     if (c === "daily") { const i = S.vals.indexOf(Math.max(...S.vals)); return { i, v: S.vals[i], words: ["Busiest day", `${compact(S.vals[i])} on ${shortDate(S.shown[i].date)}`] }; }
-    const i = S.avg.indexOf(Math.max(...S.avg));
-    return { i, v: S.avg[i], words: ["Highest 7-day average", `${compact(S.avg[i])} on ${shortDate(S.shown[i].date)}`] };
+    if (c === "band") { const i = S.avg.indexOf(Math.max(...S.avg)); return { i, v: S.avg[i], words: ["Highest 7-day average", `${compact(S.avg[i])} on ${shortDate(S.shown[i].date)}`] }; }
+    if (!S.bins.length) return { i: 0, v: 0, words: ["", ""] };
+    const b = S.bins.reduce((p, q) => (q.mid > p.mid ? q : p));
+    return { i: b.at, v: b.mid, words: ["Busiest week", `${compact(b.mid)} median, ${shortRange(S.shown[b.u0].date, S.shown[b.u1].date)}`] };
   }
   const xMap = (x0, x1, i0, i1) => i => (i1 > i0 ? x0 + (i - i0) * (x1 - x0) / (i1 - i0) : (x0 + x1) / 2);
   // an axis with room for a label at the top of a chart: `highs` are [day,
@@ -986,8 +1044,8 @@
   // ---- the three looks ------------------------------------------------------
   // painting on ctx in the board's inks and faces (face), with the squid
   // (logo) and the daily marks at a calm. Each look paints a line picture,
-  // line(S, shows), from a series (seriesOf), and a heatmap, heat(days, from),
-  // from the charts' first day (chartStart)
+  // line(S, shows), from a series with its spread, and a heatmap, heat(days,
+  // from), from the charts' first day (chartStart)
   function looks(ctx, face, logo, calm = 0) {
     const INK = face.ink, SUB = face.sub, PAPER = face.paper;
     const SANS = face.sans, INTER = face.inter, MONO = face.mono || LOOK.mono;
@@ -1095,13 +1153,14 @@
       keys: {
         col: () => ({ w: 20, draw: (x, y) => { ctx.fillStyle = rgba(SOFT, M.col); ctx.beginPath(); ctx.roundRect(x + 5, y - 13, 7, 15, [2, 2, 0, 0]); ctx.fill(); } }),
         line: width => ({ w: 32, draw: (x, y) => stroked(() => { ctx.moveTo(x + 5, y - 5); ctx.lineTo(x + 27, y - 5); }, DEEP, width, null) }),
+        band: () => ({ w: 32, draw: (x, y) => { ctx.fillStyle = rgba(LIGHT, 0.8); ctx.beginPath(); ctx.roundRect(x + 5, y - 12, 22, 14, 3); ctx.fill(); } }),
         gap: () => ({ w: 26, draw: () => {} }),
       },
       // the key under the title: each mark, then its short name
       keyRow(c) {
         const k = this.keys;
         if (c === "daily") return [k.col(), "Daily", k.gap(), k.line(M.colLine), "7-day average"];
-        return [k.line(3), "7-day average"];
+        return [k.line(3), "7-day average", k.gap(), k.band(), "1 sigma range"];
       },
       // the content itself: g has xAt, yAt, base and the day step
       draw(S, c, g) {
@@ -1116,6 +1175,12 @@
           }
           for (const idx of runs) stroked(() => curve(idx.map(i => [g.xAt(i), g.yAt(S.avg[i])])), DEEP, M.colLine, PAPER, M.colLine + 3);
         } else {
+          for (const idx of runs) {
+            ctx.beginPath();
+            curve(idx.map(i => [g.xAt(i), g.yAt(S.band[i].hi)]));
+            curve(idx.map(i => [g.xAt(i), g.yAt(S.band[i].lo)]), { move: false, back: true });
+            ctx.closePath(); ctx.fillStyle = rgba(LIGHT, 0.8); ctx.fill();
+          }
           for (const idx of runs) stroked(() => curve(idx.map(i => [g.xAt(i), g.yAt(S.avg[i])])), DEEP, 3, PAPER, 6);
         }
       },
@@ -1190,19 +1255,34 @@
         if (c === "daily") {
           ctx.fillStyle = rgba(MID, M.dotAlpha);
           for (const idx of runs) for (const i of idx) { ctx.beginPath(); ctx.arc(g.xAt(i), g.yAt(S.vals[i]), M.dot, 0, 7); ctx.fill(); }
+          for (const idx of runs) stroked(() => straight(idx.map(i => [g.xAt(i), g.yAt(S.avg[i])])), DEEP, M.dotLine, null);
+        } else {
+          ctx.strokeStyle = DEEP; ctx.lineWidth = 1.5; ctx.lineCap = "butt";
+          for (const b of S.bins) {
+            const x = g.xAt(b.at), y1 = g.yAt(b.hi), y0 = g.yAt(b.lo);
+            ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1);
+            ctx.moveTo(x - 4.5, y0); ctx.lineTo(x + 4.5, y0); ctx.moveTo(x - 4.5, y1); ctx.lineTo(x + 4.5, y1); ctx.stroke();
+          }
+          for (const b of S.bins) {
+            ctx.beginPath(); ctx.arc(g.xAt(b.at), g.yAt(b.mid), 4.2, 0, 7);
+            ctx.fillStyle = DEEP; ctx.fill(); ctx.lineWidth = 1.4; ctx.strokeStyle = PAPER; ctx.stroke();
+          }
         }
-        for (const idx of runs) stroked(() => straight(idx.map(i => [g.xAt(i), g.yAt(S.avg[i])])), DEEP, M.dotLine, null);
       },
       // the highest thing drawn at each place across, for the legend to keep clear of
       highs(S, c, g) {
-        return S.vals.map((v, i) => [g.xAt(i), c === "daily" ? Math.max(v, S.avg[i]) : S.avg[i]]);
+        if (c === "dots") return S.bins.map(b => [g.xAt(b.at), b.hi]);
+        return S.vals.map((v, i) => [g.xAt(i), Math.max(v, S.avg[i])]);
       },
       legend(c) {
         const dot = (x, y, r, fill) => { ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = fill; ctx.fill(); };
         const ln = (x, y, colour, w) => { ctx.strokeStyle = colour; ctx.lineWidth = w; ctx.lineCap = "butt"; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 24, y); ctx.stroke(); };
-        const average = [(x, y) => ln(x, y, DEEP, M.dotLine), "7-day average"];
-        if (c === "daily") return [[(x, y) => { for (const dx of [6, 12, 18]) dot(x + dx, y, M.dot, rgba(MID, M.dotAlpha)); }, "Daily"], average];
-        return [average];
+        if (c === "daily") return [[(x, y) => { for (const dx of [6, 12, 18]) dot(x + dx, y, M.dot, rgba(MID, M.dotAlpha)); }, "Daily"],
+                                   [(x, y) => ln(x, y, DEEP, M.dotLine), "7-day average"]];
+        return [[(x, y) => dot(x + 12, y, 4.2, DEEP), "Weekly median"],
+                [(x, y) => { ctx.strokeStyle = DEEP; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x + 12, y - 8); ctx.lineTo(x + 12, y + 8);
+                             ctx.moveTo(x + 7.5, y - 8); ctx.lineTo(x + 16.5, y - 8); ctx.moveTo(x + 7.5, y + 8); ctx.lineTo(x + 16.5, y + 8); ctx.stroke(); },
+                 "1 sigma range"]];
       },
       head(L, R) {
         const titleFont = F(600, 26);
@@ -1255,8 +1335,7 @@
           if (t + axis.step / 2 <= axis.top) { ctx.moveTo(fx0, half); ctx.lineTo(fx0 + 3.5, half); }
         }
         for (const m of S.months) { const x = Math.round(g.xAt(m.i)) + 0.5; ctx.moveTo(x, floor); ctx.lineTo(x, floor - 7); }
-        // a short tick between each week, counted back from the last day
-        for (let a = S.n - 7; a > 0; a -= 7) { const x = Math.round(g.xAt(a - 0.5)) + 0.5; ctx.moveTo(x, floor); ctx.lineTo(x, floor - 3.5); }
+        for (const a of S.blocks) if (a > 0) { const x = Math.round(g.xAt(a - 0.5)) + 0.5; ctx.moveTo(x, floor); ctx.lineTo(x, floor - 3.5); }
         ctx.stroke();
         // the install day
         if (S.install >= 0) {
@@ -1308,15 +1387,48 @@
 
     // ---- Poster: the year's total as the headline, the title under it in
     // the deep colour over the chart, so the total never reads as a day's,
-    // the 7-day average as a deep line, a tag on the install day, notes on a
-    // quiet start and the high point, and no foot
+    // the band and the bars shaded light to deep by height the way the
+    // heatmap is, a tag on the install day, notes on a quiet start and the
+    // high point, and no foot
     const poster = {
-      draw(S, c, g) {
-        for (const idx of runDays(S)) stroked(() => curve(idx.map(i => [g.xAt(i), g.yAt(S.avg[i])])), DEEP, 3, PAPER, 6);
+      shade(top, base, alpha = 1) {
+        const g = ctx.createLinearGradient(0, top, 0, base);
+        g.addColorStop(0, rgba(DEEP, alpha)); g.addColorStop(0.38, rgba(MID, alpha));
+        g.addColorStop(0.72, rgba(SOFT, alpha)); g.addColorStop(1, rgba(PALE, alpha));
+        return g;
       },
-      keys() {
+      draw(S, c, g) {
+        const runs = runDays(S), fill = this.shade(g.top, g.base);
+        if (c === "band") {
+          ctx.save(); ctx.globalAlpha = 0.8;
+          for (const idx of runs) {
+            ctx.beginPath();
+            curve(idx.map(i => [g.xAt(i), g.yAt(S.band[i].hi)]));
+            curve(idx.map(i => [g.xAt(i), g.yAt(S.band[i].lo)]), { move: false, back: true });
+            ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+          }
+          ctx.restore();
+          for (const idx of runs) stroked(() => curve(idx.map(i => [g.xAt(i), g.yAt(S.avg[i])])), DEEP, 3, PAPER, 6);
+        } else {
+          const w = 18;
+          for (const b of S.bins) {
+            const x = g.xAt(b.at), y1 = g.yAt(b.hi) - w / 2, y0 = g.yAt(b.lo) + w / 2;
+            ctx.fillStyle = fill; ctx.beginPath();
+            ctx.roundRect(x - w / 2, y1, w, Math.min(y0, g.base) - y1, [w / 2, w / 2, y0 > g.base ? 2 : w / 2, y0 > g.base ? 2 : w / 2]); ctx.fill();
+          }
+          for (const b of S.bins) {
+            ctx.beginPath(); ctx.arc(g.xAt(b.at), g.yAt(b.mid), 5.5, 0, 7);
+            ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = DEEP; ctx.stroke();
+          }
+        }
+      },
+      keys(c) {
         const line = { w: 30, draw: (x, y) => stroked(() => { ctx.moveTo(x, y - 5); ctx.lineTo(x + 22, y - 5); }, DEEP, 3, null) };
-        return [line, "7-day average"];
+        const band = { w: 30, draw: (x, y) => { ctx.save(); ctx.globalAlpha = 0.8; ctx.fillStyle = this.shade(y - 14, y + 2); ctx.beginPath(); ctx.roundRect(x, y - 13, 22, 15, 3); ctx.fill(); ctx.restore(); } };
+        const ring = { w: 16, draw: (x, y) => { ctx.beginPath(); ctx.arc(x + 7, y - 5, 5, 0, 7); ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 2.6; ctx.strokeStyle = DEEP; ctx.stroke(); } };
+        const capsule = { w: 16, draw: (x, y) => { ctx.fillStyle = this.shade(y - 18, y + 4); ctx.beginPath(); ctx.roundRect(x + 1, y - 17, 12, 24, 6); ctx.fill(); } };
+        if (c === "band") return [line, "7-day average", "      ", band, "1 sigma range"];
+        return [ring, "Weekly median", "      ", capsule, "1 sigma range"];
       },
       // the headline: the year's total, large, then "tokens this year", and
       // under it the title in the deep colour; the squid, the name and the
@@ -1335,7 +1447,7 @@
         const W = 1200, H = 600, L = 44, R = 1156;
         ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
         this.head(S.total, L, R);
-        run(this.keys().map((it, i) => (typeof it === "string" && i ? " " + it : it)), L, 186, SUB, F(400, 15));
+        run(this.keys(c).map((it, i) => (typeof it === "string" && i ? " " + it : it)), L, 186, SUB, F(400, 15));
 
         const top = 226, base = 528, x0 = L, x1 = R - 40;
         const xAt = xMap(x0, x1, 0, S.n - 1);
@@ -1371,7 +1483,7 @@
           return { g, hx, box, spot: spots.find(sp => clear(box(sp))),
                    first: spots.find(sp => inside(box(sp)) && offTag(box(sp))) || spots.find(sp => inside(box(sp))) || spots[0] };
         };
-        // a high point of zero (a year with no use) has no note
+        // a high point of zero (no use, or weeks whose median day is a day off) has no note
         const noted = hi.v > 0;
         // the tag itself keeps clear of the data under it first
         let axis = niceAxis(peakOf(S, c));
@@ -1434,7 +1546,8 @@
       },
       // the top of what is drawn at each place across, for the notes to keep clear of
       tops(S, c, g) {
-        return S.vals.map((v, i) => [g.xAt(i), g.yAt(S.avg[i])]);
+        if (c === "dots") return S.bins.flatMap(b => [[g.xAt(b.at) - 9, g.yAt(b.hi) - 9], [g.xAt(b.at) + 9, g.yAt(b.hi) - 9]]);
+        return S.vals.map((v, i) => [g.xAt(i), g.yAt(Math.max(S.band[i].hi, S.avg[i]))]);
       },
       // the heatmap's days are squares, as in the other two looks
       heat(days, from) {
@@ -1457,7 +1570,7 @@
   function paintLook(ctx, kind, pick, days, installed, face = LOOK, logo = null, calm, start = null) {
     const [look, shows] = DICE[kind][pick];
     if (kind === "heatmap") return looks(ctx, face, logo)[look].heat(days, chartStart(days, start));
-    const S = seriesOf(days, pictureStart(days, start), installed);
+    const S = spreadOf(seriesOf(days, pictureStart(days, start), installed));
     looks(ctx, face, logo, calm == null ? calmOf(S.vals) : calm)[look].line(S, shows);
   }
 
@@ -2398,7 +2511,7 @@
   window.TokenWidgets = {
     PALETTE, LINE, AVG_LINE, YEAR, WEEKS, FETCH_DAYS, VIEW_H, MIN_STEP,
     compact, longDay, scale, rolling, niceAxis, geometry, yearWeeks, totalLine, yearStart, chartStart, fetchDays,
-    useStart, pictureStart, MIN_SILENCE, MIN_SHOWN, GAP_DAYS, MARK_AFTER, averageOf, seriesOf,
+    useStart, pictureStart, MIN_SILENCE, MIN_SHOWN, GAP_DAYS, MARK_AFTER, averageOf, seriesOf, spreadOf,
     fullness, calmOf, FULL_DAYS, FULL_EVEN, screenMarks, pictureMarks,
     SHAPES, SHAPE_OF, PIC_SCALE, DICE, LOOK_NAMES, SHOW_NAMES, LOOK, lookOf, paintLook, pictureCanvas,
     pictureName, pictureCount, PICTURES_KEY, picture, overlay, nextLook, sharePicture, ROLL_MS, SHOT_TITLES,
