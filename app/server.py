@@ -8783,8 +8783,13 @@ def _start_usage_counts() -> None:
     def token_tally():
         return _ledger().tally()
 
+    def usage_log(kind, **fields):
+        # sent and forgotten are the usual run of things; any other outcome
+        # went wrong, and a board logging errors only must write it down too
+        (_info if fields.get("outcome") in ("sent", "forgotten") else _error)(kind, **fields)
+
     sender = usage_counts.Sender(transcript=TRANSCRIPT_PATH, marker=USAGE_MARKER,
-                                 index_html=HERE / "index.html", sharing=_usage_sharing, log=_info,
+                                 index_html=HERE / "index.html", sharing=_usage_sharing, log=usage_log,
                                  install_file=USAGE_INSTALL, phone_file=USAGE_PHONE,
                                  tokens=token_tally if (HERE / "tokens.py").is_file() else None,
                                  installed=_installed_day, baseline_file=USAGE_BASELINE)

@@ -1580,6 +1580,39 @@ class Server(unittest.TestCase):
         self.assertEqual(when % 300, 0)
         self.assertEqual(record.stat().st_mode & 0o777, 0o600)
 
+    def test_a_send_that_went_wrong_is_written_down_at_log_level_error(self):
+        # a new install logs errors only (run.config.example.json), and there a
+        # send that failed, was refused or threw must still leave a line
+        s = self.server
+        folder, sender = self.board_of_its_own("error")
+        seen = []
+
+        class Collect(logging.Handler):
+            def emit(self, record):
+                seen.append((record.levelname, record.getMessage(), getattr(record, "fields", {})))
+
+        collect, level = Collect(), s.LOGGER.level
+        s.LOGGER.addHandler(collect)
+        s.LOGGER.setLevel(s.LOG_LEVELS["error"])
+        self.addCleanup(s.LOGGER.setLevel, level)
+        self.addCleanup(s.LOGGER.removeHandler, collect)
+        day = dt.date.today()
+        (folder / "transcript.jsonl").write_text(json.dumps({"ts": at(day, 10, 0), "kind": "user", "box": "7"}) + "\n")
+        (folder / "usage-counts.json").write_text(json.dumps({"through": (day - dt.timedelta(days=1)).isoformat()}))
+        (folder / "usage-baseline.json").write_text(json.dumps({"sent": True}))
+        net = FakeNet()
+        sender.opener, sender.today = net, lambda: day + dt.timedelta(days=1)
+        net.status = 503
+        self.assertFalse(sender.look())                   # PostHog could not take it now
+        net.status = 400
+        sender.look()                                     # PostHog turned it down for good
+        stopping = threading.Event()
+        sender.look = lambda: stopping.set() or 1 / 0     # a look that throws
+        with mock.patch.multiple(uc, FIRST_LOOK=0, RETRY_AFTER=0):
+            sender.run(stopping)
+        self.assertEqual([(lvl, fields["outcome"]) for lvl, kind, fields in seen if kind == "usage"],
+                         [("ERROR", "failed"), ("ERROR", "refused"), ("ERROR", "error")])
+
     def sender_in_temp(self, net=None, sharing=None):
         """The board's sender, as the route will find it, kept in a temporary folder."""
         s = self.server

@@ -668,7 +668,7 @@ class Sender:
     sharing() is read before every send. tokens() is the token counter's
     tally and installed() the board's first day (YYYY-MM-DD, or None while
     there is none); without tokens no token numbers and no baseline go.
-    log(kind, **fields) is the board's own INFO line; every outside call
+    log(kind, **fields) is the board's own log line; every outside call
     (the clock, the network, a fresh id) can be handed in for the tests."""
 
     def __init__(self, *, transcript: Path, marker: Path, index_html: Path,
