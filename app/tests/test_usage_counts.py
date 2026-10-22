@@ -516,6 +516,20 @@ class OncePerDay(Board):
             self.assertFalse(board.look())
         self.assertEqual(self.net.requests, [], "a day was sent that could not be marked")
 
+    def test_a_clock_once_set_a_year_ahead_does_not_stop_the_days_after_it_is_put_right(self):
+        self.marker.write_text(json.dumps({"through": BEFORE.isoformat()}))
+        board = self.sender()
+        self.today = DAY + dt.timedelta(days=366)   # the Mac's date set wrong for one look
+        board.look()
+        self.today = AFTER                          # put right: the marker goes back to yesterday
+        board.look()
+        self.assertEqual(self.through(), DAY.isoformat())
+        self.write_rows([{"ts": at(AFTER, 9, 0), "kind": "user", "box": "7", "text": "next day"}], "a")
+        self.today = AFTER + dt.timedelta(days=1)
+        board.look()
+        self.assertEqual(self.net.days, [AFTER.isoformat()],
+                         "after the clock was put right no day is sent until the wrong date comes round")
+
 
 class SwitchedOff(Board):
     def test_nothing_is_sent_while_the_switch_is_off(self):

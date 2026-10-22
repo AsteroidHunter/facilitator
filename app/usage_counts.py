@@ -898,6 +898,11 @@ class Sender:
             # the baseline), and nothing is sent now
             self._write_marker(yesterday)
             return True
+        if self.through > yesterday + dt.timedelta(days=2):
+            # more than a day ahead of the clock: written while the clock was
+            # wrong, it goes back to yesterday, or no day would be sent until
+            # that date came round
+            self._write_marker(yesterday)
         if self.through >= yesterday:
             return True
         if not self.sharing():
