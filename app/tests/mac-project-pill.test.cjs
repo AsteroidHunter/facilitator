@@ -961,3 +961,52 @@ test("the magnifier, the speaker, the bug and the squid stand the house's gap to
   assert.ok(bar.lastIndexOf('id="chimebtn"') > bar.lastIndexOf('id="searchbtn"'));
   assert.equal(decl(rule(sheet, "body.focus .bar #searchbtn"), "margin-left"), "auto");
 });
+
+// ---- the onboarding's sample project ---------------------------------------------
+// a board holding the sample project the onboarding made (sample on its record):
+// it has an unread reply, a folder and a place in the board's saved order, and
+// still no list names it
+function sampleBoard({ mark = true, others = ["orchard", "quarry", "rookery"] } = {}) {
+  const now = Date.now() / 1000;
+  const card = (id, owner, extra = {}) => ({ id, owner, bucket: "must", title: id, ball: "you", replies: 0, ts: now - 60, agentTs: 0, ...extra });
+  const lane = ow => ({ id: ow, name: ow, dir: "/Users/me/" + ow, ...(mark && ow === "facilitator-sample" ? { sample: true } : {}) });
+  const all = ["facilitator-sample", ...others];
+  return {
+    boxes: [card("s1", "facilitator-sample", { replies: 1, agentTs: now - 30 }), ...others.map((ow, i) => card("o" + i, ow))],
+    projects: all.map(lane), pwds: Object.fromEntries(all.map(ow => [ow, "/Users/me/" + ow])),
+    tabs: { order: all, closed: [] },
+  };
+}
+
+test("the onboarding's sample project is in no list: not the pill's, Home's or the faint names, and its reply bolds nothing", () => {
+  for (const homeOpen of [false, true]) {
+    const f = fixture({ state: sampleBoard(), activeOwner: "orchard", homeOpen });
+    assert.deepEqual(f.names(), ["orchard", "quarry", "rookery"]);
+    assert.deepEqual(f.homeNames(), ["orchard", "quarry", "rookery"]);
+    assert.deepEqual(f.homeNumbers(), ["1", "2", "3"], "the sample still takes a number");
+    assert.deepEqual(f.suggestions(), ["quarry", "rookery"]);
+    assert.equal(f.pill(), "orchard");
+    assert.doesNotMatch(f.ids.projpill.attributes["aria-label"], /unread replies elsewhere/, "the sample's reply counted");
+    assert.equal(f.body.classes.has("homefew"), false, "three projects and the sample are not four");
+  }
+  // one project beside the sample is the last one open, its cross pale
+  const one = fixture({ state: sampleBoard({ others: ["orchard"] }), activeOwner: "orchard" });
+  assert.deepEqual(one.names(), ["orchard"]);
+  assert.equal(one.row("orchard").querySelector(".projx").dataset.tip, "Stays Open");
+  // the same board without the mark lists it as any project, first in the saved order
+  const plain = fixture({ state: sampleBoard({ mark: false }), activeOwner: "orchard" });
+  assert.deepEqual(plain.names(), ["facilitator-sample", "orchard", "quarry", "rookery"]);
+  assert.deepEqual(plain.homeNames(), ["facilitator-sample", "orchard", "quarry", "rookery"]);
+  assert.equal(plain.suggestions()[0], "facilitator-sample");
+});
+
+test("a board whose saved project was the sample opens on Home once, and a board without the sample as it did", () => {
+  for (const [left, home] of [[true, true], [false, false]]) {
+    const f = fixture({ state: sampleBoard(), activeOwner: "orchard" });
+    f.context.homeChecked = false; f.context.sampleLeft = left;
+    f.context.renderTabs(f.state);
+    assert.equal(f.context.homeOpen, home);
+    f.context.homeOpen = false; f.context.renderTabs(f.state);
+    assert.equal(f.context.homeOpen, false, "home was put up again on a later paint");
+  }
+});
