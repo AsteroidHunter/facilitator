@@ -801,7 +801,7 @@ test("home's box holds the projects or the words for none with the folder row un
   assert.equal(decl(empty, "position"), "absolute");
   assert.equal(decl(empty, "left"), "var(--home-pad)");
   assert.equal(decl(empty, "font"), "inherit");
-  assert.equal(decl(empty, "color"), decl(rule(sheet, "#homelist .homerow"), "color"), "the names' faint ink");
+  assert.equal(decl(empty, "color"), "color-mix(in srgb, var(--sub) 14%, transparent)", "the words for none are fainter than the names");
   const folder = rule(sheet, "#homelist #homenew");
   assert.equal(decl(folder, "padding-left"), "var(--home-pad)");
   assert.equal(decl(folder, "padding-right"), "0");
