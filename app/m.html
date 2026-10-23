@@ -2052,6 +2052,8 @@ for (const type of ["gesturestart", "gesturechange"])
 <script src="/home-widgets.js"></script>
 <script src="/m-splash.js"></script>
 <script>
+// sounds from the box pages play through silent mode (iOS 17 and later)
+try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (_) {}
 // THE PAGE DOES NOT START WITHOUT ITS CODE, AND DOES NOT SIT ON THE GLOBE
 // WITHOUT IT. The three shared files named below are what the rest of this
 // script is written in (the others are only used when a feature is opened, or
