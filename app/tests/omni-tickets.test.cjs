@@ -46,6 +46,12 @@ async function api(route, options = {}){
 const post = (route, body = "") => api(route, { method: "POST", body });
 const state = async () => (await api("/state")).body;
 const lane = (snapshot, owner) => snapshot.boxes.filter(box => box.owner === owner);
+const FIRST_REPLY = "To start working on this project, connect an agent to it. The agent runs in your " +
+  "terminal and answers every card in this project.\n\n" +
+  "1. Open the project's folder in the terminal\n" +
+  "2. Start Claude Code or Codex\n" +
+  "3. Type `/facilitator onboard` in Claude Code, or `$facilitator onboard` in Codex\n\n" +
+  "Once done, start interacting with the agent via the Facilitator!";
 
 before(async () => {
   outer = await realpath(await mkdtemp(path.join(tmpdir(), "facilitator-omni-")));
@@ -128,6 +134,12 @@ test("creation, rename, lane scope, replay and project defaults share one contra
     assert.equal(boxes.length, 1, `${owner} did not start with exactly one card`);
     assert.equal(boxes[0].title, "Omni Ticket #1");
     assert.match(boxes[0].id, /^m\d+$/, "default Omni card lost the normal id contract");
+    // the steps to connect an agent are its starting reply, which no agent wrote
+    assert.equal(boxes[0].replyFull, FIRST_REPLY);
+    assert.equal(boxes[0].replyShort, FIRST_REPLY);
+    assert.equal(boxes[0].replies, 0);
+    assert.equal(boxes[0].agentTs, 0);
+    assert.equal(boxes[0].state, "new");
   }
 
   const alphaSecond = await post("/create?owner=" + alpha.body.id + "&op=alpha-omni-0002", "OMNI");
@@ -135,6 +147,10 @@ test("creation, rename, lane scope, replay and project defaults share one contra
   snapshot = await state();
   assert.deepEqual(lane(snapshot, alpha.body.id).map(box => box.title).sort(),
     ["Omni Ticket #1", "Omni Ticket #2"]);
+  assert.equal(snapshot.boxes.find(box => box.id === alphaSecond.body.id).replyFull, "",
+    "a later Omni card took the starting reply");
+  assert.equal(snapshot.boxes.find(box => box.id === burst[0].body.id).replyFull, "",
+    "an Omni card in an existing lane took the starting reply");
   assert.deepEqual(lane(snapshot, beta.body.id).map(box => box.title), ["Omni Ticket #1"]);
 
   await stopServer();
@@ -151,6 +167,7 @@ test("creation, rename, lane scope, replay and project defaults share one contra
   assert.equal(lane(snapshot, beta.body.id).length, 1, "restart changed another project lane");
   assert.equal(lane(snapshot, alphaTwin.body.id).length, 1,
     "restart duplicated the repeated project's initial card");
+  assert.equal(lane(snapshot, beta.body.id)[0].replyFull, FIRST_REPLY, "restart changed the starting reply");
 });
 
 test("the product asset routes return the exact optimized artwork bytes", async () => {
