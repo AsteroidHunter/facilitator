@@ -168,9 +168,11 @@ Endpoints:
                                the home directory): creates a new project lane
                                whose owner id is a slug of N, stores {id, name,
                                dir} in state.json so restarts keep it, and
-                               returns the id; the lane starts with Omni Ticket #1;
-                               a taken id walks numbered suffixes (-2, -3) until
-                               free; empty names and bad folders are refused (400),
+                               returns the id; the lane starts with Omni Ticket #1,
+                               holding the steps to connect an agent as its
+                               starting reply (FIRST_OMNI_REPLY); a taken id
+                               walks numbered suffixes (-2, -3) until free;
+                               empty names and bad folders are refused (400),
                                and so is a body past 4096 bytes, unread
   POST /mkdir?path=P&name=N[&machine=M] -> makes the folder N inside the folder
                                P for the folder picker and answers {ok, name,
@@ -8041,8 +8043,10 @@ def _entered_title(owner: str, text: str) -> str:
     return title
 
 
-def _create_box_record(owner: str, title: str) -> dict:
-    """Install one ordinary data-contract card; callers save and notify."""
+def _create_box_record(owner: str, title: str, reply: str = "") -> dict:
+    """Install one ordinary data-contract card; callers save and notify.
+    reply is a starting reply, kept the way a seeded card's context is
+    (_seed_state): the card shows it, and no agent has answered it."""
     # the card's number is made here: m plus the counter, and the pages show the
     # figure after the m (ticketNum in card-logic.js). quick notes attach by that
     # figure, so a change to the numbering has to be carried into the quick note
@@ -8059,8 +8063,8 @@ def _create_box_record(owner: str, title: str) -> dict:
     ws0 = (_state.get("workspaces", {}).get(owner) or [{}])[0].get("id")
     now = time.time()
     made = {
-        "id": bid_new, "bucket": "meta", "title": title, "reply": "",
-        "reply_full": "", "reply_short": "",
+        "id": bid_new, "bucket": "meta", "title": title, "reply": reply,
+        "reply_full": reply, "reply_short": reply,
         "pending": [], "done": False, "docked": False, "parked": False, "replies": 0,
         "full_replies": 0, "reply_kind": "",
         "state": "new", "flag": False,
@@ -8148,6 +8152,17 @@ def _post_project_route(q: Query, text: str):
                               {"server": machine, "dir": found["path"], "git": found.get("git")})
 
 
+# the starting reply on a new project's Omni Ticket #1, shown as markdown like
+# any reply. only _post_project gives it; Omni cards made later start empty
+FIRST_OMNI_REPLY = (
+    "To start working on this project, connect an agent to it. The agent runs in your "
+    "terminal and answers every card in this project.\n\n"
+    "1. Open the project's folder in the terminal\n"
+    "2. Start Claude Code or Codex\n"
+    "3. Type `/facilitator onboard` in Claude Code, or `$facilitator onboard` in Codex\n\n"
+    "Once done, start interacting with the agent via the Facilitator!")
+
+
 def _post_project(q: Query, text: str, found: dict | None = None):
     # a new project lane from the page's plus tab: slug the name,
     # store {id, name, dir} so restarts keep it, give the lane its
@@ -8204,10 +8219,11 @@ def _post_project(q: Query, text: str, found: dict | None = None):
         # project that predates the switcher
         _state.setdefault("pages", {})[slug] = [_page_record("pg1", "board")]
         # A newly added project begins with one ordinary-contract card whose
-        # canonical title gives it the Omni presentation. This happens only in
-        # this creation transaction, never in migration, so restart and old
+        # canonical title gives it the Omni presentation, and whose starting
+        # reply says how to connect an agent. This happens only in this
+        # creation transaction, never in migration, so restart and old
         # projects cannot gain duplicates or be backfilled.
-        _create_box_record(slug, "Omni Ticket #1")
+        _create_box_record(slug, "Omni Ticket #1", FIRST_OMNI_REPLY)
         # the line says a project was added and how many there are now, and
         # nothing of it: the lane's id is its name, and the folder's own name
         # is the account's name when the folder is the home folder
