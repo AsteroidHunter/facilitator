@@ -133,8 +133,7 @@ function placed(m, why) {
   near(m.part.right, m.frame.right, `${why}: the list's part at the frame's right edge`);
   near(m.side.left, m.frame.left, `${why}: the wide part at its left edge`);
   near(m.side.right, m.part.left, `${why}: the two parts meet`);
-  assert.ok(m.part.width >= m.frame.width / 3 - 1 && m.part.width <= m.frame.width / 2 + 1,
-    `${why}: the list's part a third of the frame (up to half only for a name too long for a third), ${m.part.width}`);
+  near(m.part.width, m.frame.width / 3, `${why}: the list's part a third of the frame, whatever the names`);
   near(m.ink.cx, m.side.cx, `${why}: the logo and charts centred across their part`, 2);
   near(m.ink.cy, m.side.cy, `${why}: and down it`, 2);
   assert.ok(m.list.left >= m.part.left - 0.5 && m.list.right <= m.part.right + 0.5, `${why}: the list in its part`);

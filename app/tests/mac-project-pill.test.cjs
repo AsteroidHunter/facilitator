@@ -806,9 +806,9 @@ test("home's box holds the projects or the words for none with the folder row un
   assert.equal(decl(folder, "padding-left"), "var(--home-pad)");
   assert.equal(decl(folder, "padding-right"), "0");
   // the sizes at the reference window, the same in the sheet's defaults and the fit
-  assert.match(html, /box: 318, boxRight: 151, pad: 34 \/ 28,/);
-  assert.equal(decl(part, "--home-box-w"), "calc(318px * var(--home-u, 1))");
-  assert.equal(decl(part, "--home-box-right"), "calc(151px * var(--home-u, 1))");
+  assert.match(html, /box: 350, boxRight: 135, pad: 34 \/ 28,/);
+  assert.equal(decl(part, "--home-box-w"), "calc(350px * var(--home-u, 1))");
+  assert.equal(decl(part, "--home-box-right"), "calc(135px * var(--home-u, 1))");
   assert.equal(decl(part, "--home-pad"), "calc(var(--home-font) * 34 / 28)");
   // homeFit sets the box's top at the top of the logo's word and its foot
   // where the folder row's ink ends level with the last "Last updated" line
@@ -819,6 +819,25 @@ test("home's box holds the projects or the words for none with the folder row un
   assert.match(fit, /homeSet\(homeListPart, "--home-list-foot", Math\.max\(0, list\.bottom - footAt - \(box\.bottom - folder\.bottom\)\)\)/);
   assert.match(fit, /homeSet\(homeListPart, "--home-box-w", boxW\)/);
   assert.match(fit, /homeSet\(homeListPart, "--home-box-right", boxRight\)/);
+});
+
+test("home's box keeps one width and its names one size whatever the names are, and a name too long for it fades at its end", () => {
+  // the box, the names and the split come from the window alone
+  const fit = between("function homeFit(){", "// fitted on the frame");
+  assert.match(fit, /const font = Math\.max\(L\.fontMin, L\.font \* u\), split = L\.split;/);
+  assert.match(fit, /const boxW = L\.box \* u, boxRight = L\.boxRight \* u;/);
+  assert.match(html, /const HOME_LOOK = \{ split: 1 \/ 3, /);
+  // nothing measures the names to widen the box, shrink the names or move the split
+  assert.doesNotMatch(fit, /scrollWidth \+|widest|need|room\(\)|splitMax|L\.inner/, "no name moves the box");
+  assert.doesNotMatch(html, /splitMax/);
+  // a name wider than its room is cut there and fades, never in dots
+  assert.match(fit, /name\.classList\.toggle\("cut", name\.scrollWidth > name\.clientWidth\)/);
+  const name = rule(sheet, "#homelist .homename"), cut = rule(sheet, "#homelist .homename.cut");
+  assert.equal(decl(name, "overflow"), "hidden");
+  assert.equal(decl(name, "text-overflow"), "clip", "no dots");
+  assert.equal(decl(name, "min-width"), "0", "a long name gives way inside its row");
+  assert.equal(decl(cut, "mask-image"), "linear-gradient(to left, transparent 0, #000 var(--home-font))");
+  assert.equal(decl(cut, "-webkit-mask-image"), decl(cut, "mask-image"));
 });
 
 test("home's box shows at every count from none up, says so when there is none, and the logo and charts never move with the count", () => {

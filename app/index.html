@@ -3796,7 +3796,7 @@
      charts never move for it. homeFit sets its top level with the top of
      the logo's word, and its foot where the folder row's ink ends level with
      the last "Last updated" line under the charts. at the reference window
-     the box is 318px wide (21% of the window), its right edge 151px in from
+     the box is 350px wide (23% of the window), its right edge 135px in from
      the frame's right edge and its corners 32px round, each times --home-u.
      its rows are the pill's list's rows at --home-font for their 14px, every
      other length of theirs scaled with it: the number in the monospace at
@@ -3813,12 +3813,12 @@
      scrolled and --downband how far they still can, each capped at 1.6
      names' height (homeFades), so an edge with nothing past it stays at full
      ink and a list that fits wears no fade. the scroll never moves the
-     folder row. a name never ends in dots: homeFit gives it the room first,
-     and only in a window too narrow for that does it fade */
+     folder row. a name too long for the box never widens it or shrinks the
+     names: its end fades, never in dots */
   body.focus.home #homelist{right:var(--app-inset); width:calc((100vw - 2 * var(--app-inset)) * var(--home-split, .33333));
     flex-direction:column; align-items:flex-end;
     --home-font:calc(28px * var(--home-u, 1)); --home-rows:calc(var(--home-font) * .75);
-    --home-box-w:calc(318px * var(--home-u, 1)); --home-box-right:calc(151px * var(--home-u, 1));
+    --home-box-w:calc(350px * var(--home-u, 1)); --home-box-right:calc(135px * var(--home-u, 1));
     --home-round:calc(32px * var(--home-u, 1)); --home-pad:calc(var(--home-font) * 34 / 28);
     --home-cross:calc(var(--home-font) * 34 / 14)}
   #homelistbox{flex:1 1 auto; display:flex; flex-direction:column; min-height:0; width:var(--home-box-w); max-width:100%;
@@ -3865,8 +3865,8 @@
   #homelist .homerow:is(:hover, :focus-visible) .homename{color:var(--ink)}
   #homelist .homerow:is(:hover, :focus-visible) .homenum{color:var(--sub)}
   #homelist .homerow.unread .homename{font-weight:600}
-  /* only in a window too narrow for a whole name: its end fades, one name's
-     height long, rather than stopping in dots */
+  /* a name too long for the box: its end fades, one name's height long,
+     rather than stopping in dots */
   #homelist .homename.cut{-webkit-mask-image:linear-gradient(to left, transparent 0, #000 var(--home-font));
     mask-image:linear-gradient(to left, transparent 0, #000 var(--home-font))}
   /* the pill's list's cross, at the list's size: on the row under the pointer
@@ -5354,17 +5354,15 @@ async function pickFolder(slot){
 // every size here is that look's times --home-u, the smaller of this frame's
 // width and height over the frame that window had, so the page keeps the look
 // at any size. the look (HOME_LOOK): the list's part a third of the frame
-// wide, holding the glass box 318px wide with its right edge 151px in from the
+// wide, holding the glass box 350px wide with its right edge 135px in from the
 // frame's right edge, and in it names 28px (twice the pill's list's 14px), 21px
 // apart; the charts as the board draws them, 35% of the frame wide and the
 // token box 35% tall, 35.1px apart (the board's own gap, twice --sp-m), with
 // the phone's logo cluster at 144% 16px over them, the three together at 111%.
-// a name never ends in dots. where the box is too narrow for the longest name
-// at its size, it widens to it, into the margin at its right down to the clear
-// strip that also stands at the part's left; past that the names' size gives
-// way, down to the pill's list's own 14px; then the split, the list's part
-// growing up to half the frame; and only past all three does a name fade at
-// its end.
+// the names never stand under the pill's list's own 14px, in the smallest
+// window. the box, the names and the split keep those sizes whatever the names
+// are, so the logo and the charts never move for a name: a name too long for
+// the box is cut where its row ends with a soft fade, never with dots.
 // the charts' words never stand smaller than the board draws them (scale 1)
 // while the heading's line has room for the heading, the switch and the
 // download button side by side; past that they shrink with the rest, so the
@@ -5373,8 +5371,8 @@ async function pickFolder(slot){
 // "+ Open a new folder" with the last "Last updated" line's, so the two parts
 // share their top and bottom edges as drawn, whatever the count
 const HOME_REF = { w: 1512, h: 982 };
-const HOME_LOOK = { split: 1 / 3, font: 28, rows: 21 / 28, box: 318, boxRight: 151, pad: 34 / 28, inner: 24, fontMin: 14,
-  splitMax: 1 / 2, scale: 1.11, logo: 1.44, logoGap: 16, chartGap: 35.1, chartW: .35, chartH: .35 };
+const HOME_LOOK = { split: 1 / 3, font: 28, rows: 21 / 28, box: 350, boxRight: 135, pad: 34 / 28, fontMin: 14,
+  scale: 1.11, logo: 1.44, logoGap: 16, chartGap: 35.1, chartW: .35, chartH: .35 };
 // what the group shows, which is what is centred: the mark and the words, and
 // each chart's heading, drawing and "Last updated" line, not their boxes' clear
 // edges (the panels' own padding, the logo's room for its version)
@@ -5416,33 +5414,12 @@ function homeFit(){
   const refW = HOME_REF.w - (innerWidth - frame.width), refH = HOME_REF.h - (innerHeight - frame.height);
   const u = Math.min(frame.width / refW, frame.height / refH), L = HOME_LOOK;
 
-  // the box, measured at its own size first: its widest row, which is the
-  // room before the number, the number, the gap and the name, and after a
-  // project's name the room its cross stands in, all growing with the
-  // names' size
-  let font = Math.max(L.fontMin, L.font * u), split = L.split;
+  // the box and its names at the look's sizes, whatever the names are, so
+  // the split and the charts never move for a name; a name too long for the
+  // box fades at its end
+  const font = Math.max(L.fontMin, L.font * u), split = L.split;
+  const boxW = L.box * u, boxRight = L.boxRight * u;
   homeSet(homeListPart, "--home-u", u, "");
-  homeSet(homeListPart, "--home-font", font);
-  const num = homeListBox.querySelector(".homenum");
-  let widest = 0;
-  for (const name of homeListBox.querySelectorAll(".homename")){
-    name.classList.remove("cut");
-    widest = Math.max(widest, name.scrollWidth + (name.parentElement.id === "homenew" ? 0 : font * 34 / 14));
-  }
-  let need = font * L.pad + (num ? num.getBoundingClientRect().width : 0) + font * 10 / 14 + widest + 1;
-  const inner = L.inner * u;
-  const room = () => split * frame.width - inner;
-  let boxW = Math.max(L.box * u, need), boxRight = L.boxRight * u;
-  // the box widens into the margin at its right first, down to the clear strip
-  if (boxW + boxRight > room()) boxRight = Math.max(inner, room() - boxW);
-  // then the names' size, which takes every length in the box down with it
-  if (boxW + boxRight > room()){
-    const k = Math.max(L.fontMin / font, (room() - boxRight) / need);
-    font *= k; need *= k; boxW = Math.max(L.box * u, need);
-  }
-  // then the split, up to half the frame
-  if (boxW + boxRight > room()) split = Math.min(L.splitMax, (boxW + boxRight + inner) / frame.width);
-  boxW = Math.min(boxW, room() - boxRight);
   homeSet(homeListPart, "--home-font", font);
   homeSet(homeListPart, "--home-rows", font * L.rows);
   homeSet(homeListPart, "--home-box-w", boxW);
@@ -5450,9 +5427,8 @@ function homeFit(){
   homeSet(homeListPart, "--home-split", split, "");
   homeSet(homeSide, "--home-split", split, "");
   homeFadeDepth = Math.round(font * 1.6);
-  // and past all of that a name fades at its end
   for (const name of homeListBox.querySelectorAll(".homename"))
-    if (name.scrollWidth > name.clientWidth) name.classList.add("cut");
+    name.classList.toggle("cut", name.scrollWidth > name.clientWidth);
 
   // the group: the look's sizes times u as drawn on screen, laid out at those over
   // the scale t its words stand at, never under the board's own while the
