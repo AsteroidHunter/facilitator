@@ -60,7 +60,7 @@ An agent can also run on one of the owner's own servers, paired with the board b
 ## Replies
 
 - 100 to 150 words or fewer. Plain conversational tone: no coined shorthand, no unexplained jargon; a term either gets defined by what it concretely does or gets dropped. Paragraph breaks and short lists over walls of text. Depth comes from choosing what to say, not from length.
-- When explaining how something would work, name the actual mechanism first, the request, setting, file or check, with a one-line example. Never write that software asks, says or decides.
+- Never write that software asks, says or decides.
 - Choose whatever form answers the question most clearly: a sentence or two, a short paragraph, or a list when the content really is a set of separate items. Do not default to any one form. Open with the line that matters most (what was done, what changed or what is needed from the person) in bold, then break the rest into short paragraphs or a list, whichever reads clearest. Never send a single block of text with no emphasis.
 - No em dashes, in titles or in replies. Banned.
 - Every reply fully self-contained. The card opens on the latest reply and older ones sit behind its history arrows, so a short follow-up hides a longer answer. Restate rather than reference, and name another card by its title, never by its id or a reply's time. A late reply, such as a worker's result, opens with one line naming the question it answers, and results from parallel workers go out as one reply.
