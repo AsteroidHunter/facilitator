@@ -1,6 +1,6 @@
 // The home page's frame split a third and two thirds with nothing drawn
 // between the parts (m1336): the list of open projects in the narrow part at
-// the right, the pill's list without its box, and the logo over the token box
+// the right, the pill's list's rows in a glass box, and the logo over the token box
 // and the limits box centred in the wide part. "+ Open a new folder" at the
 // list's foot does what the new tab's start button does. The new tab keeps its
 // own picker, as it was.
@@ -499,10 +499,14 @@ test("a long list scrolls inside home's list between soft ends, the folder row s
       assert.ok(m.rowNames.length >= 19, why);
       assert.ok(m.well.scroll > m.well.client, `${why}: the list scrolls inside itself`);
       placed(m, why);
-      const room = await page.evaluate(() => ["homeheadsep", "homerows", "homelistsep"].map(id => {
+      const room = await page.evaluate(() => ["homeglass", "homerows", "homenew"].map(id => {
         const r = document.getElementById(id).getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; }));
-      assert.ok(room[0].bottom <= room[1].top + 0.5 && room[1].bottom <= room[2].top + 0.5, `${why}: the rows scroll between the two lines`);
-      assert.equal(await page.evaluate(() => document.getElementById("homerows").className), "more-down", `${why}: at the top only the foot fades`);
+      assert.ok(room[1].top >= room[0].top - 0.5 && room[1].bottom <= room[0].bottom + 0.5, `${why}: the rows scroll inside the glass box`);
+      assert.ok(room[2].top >= room[0].bottom, `${why}: the folder row stands under the box`);
+      const bands = () => page.evaluate(() => { const s = document.getElementById("homerows").style;
+        return [s.getPropertyValue("--upband"), s.getPropertyValue("--downband")]; });
+      const [up, down] = await bands();
+      assert.ok(up === "0px" && parseFloat(down) > 0, `${why}: at the top only the foot fades, ${up} ${down}`);
       // the last row can be reached by scrolling the list, not the page, and the folder row does not move
       await page.evaluate(() => { const b = document.getElementById("homerows"); b.scrollTop = b.scrollHeight; });
       await sleep(300);
@@ -511,7 +515,8 @@ test("a long list scrolls inside home's list between soft ends, the folder row s
         const r = [...document.querySelectorAll("#homerows .homerow")].pop().getBoundingClientRect(); return r.bottom <= b.bottom + 1 && r.top >= b.top; });
       assert.equal(last, true, `${why}: the last row comes into view`);
       assert.deepEqual([after.folder.left, after.folder.top], [m.folder.left, m.folder.top], `${why}: + Open a new folder stays put`);
-      assert.equal(await page.evaluate(() => document.getElementById("homerows").className), "more-up", `${why}: at the end only the head fades`);
+      const [upEnd, downEnd] = await bands();
+      assert.ok(parseFloat(upEnd) > 0 && downEnd === "0px", `${why}: at the end only the head fades, ${upEnd} ${downEnd}`);
     } finally { await context.close(); }
   }
 });

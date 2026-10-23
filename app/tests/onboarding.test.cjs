@@ -799,7 +799,7 @@ test("the last card shows the board's speaker, bug and squid buttons, the speake
   assert.equal(rule("#obbar #obbug, #obbar #obset"), "#obbar #obbug, #obbar #obset{margin-left:3px");
   // the board's bar glass: the same shadow stack
   const stack = css => css.slice(css.indexOf("box-shadow:")).split("}")[0].replace(/\s+/g, " ").trim();
-  const boardGlass = MAC.slice(MAC.indexOf("body.focus :is(.bar .qn-glass, #projmenu)"));
+  const boardGlass = MAC.slice(MAC.indexOf("body.focus :is(.bar .qn-glass, #projmenu, #homeglass)"));
   assert.equal(stack(rule("#obbar .qn-glass")), stack(boardGlass));
   // shown on FIN only (the last card), gently, and kept through its done so the corner is never empty while the board opens
   assert.ok(ONBOARDING.includes('document.body.classList.toggle("obfin", !!card.spec.closing);'));
