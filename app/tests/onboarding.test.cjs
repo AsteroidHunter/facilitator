@@ -577,8 +577,11 @@ test("the cards say what they were given to say, with the board's own marks, on 
   const say = id => CARDS.find(c => c.id === id).say;
   // the Welcome card: the lockup is the header, the word in a regular title's font (as it was in the
   // card's words before it moved), then the greeting as plain words, the blurb and the key, all to the left
-  assert.equal(HI, "Hi there \u{1F44B}");
-  assert.equal(context.WELCOME, context.BLURB + "\n\nPress **→** to continue.");
+  assert.equal(HI, "Hi there!");
+  assert.equal(context.BLURB,
+    "Facilitator is an opinionated and minimalist interface for interacting with claude or codex on the terminal.\n\n" +
+    "Facilitator's UI is designed to help you ship more by atomizing your builds and orchestrating several subagents.");
+  assert.equal(context.WELCOME, context.BLURB + "\n\nPress **→** to begin onboarding.");
   assert.ok(ONBOARDING.includes('el.titleEl.innerHTML = \'<span class="obbrand">'), "the lockup is not the header");
   assert.ok(ONBOARDING.includes('el.reply.dataset.raw = HI + "\\n\\n" + WELCOME;'));
   assert.ok(ONBOARDING.includes('el.reply.innerHTML = \'<div class="obwelcome">\' + fmt(el.reply.dataset.raw) + "</div>";'));
@@ -617,7 +620,7 @@ test("the cards say what they were given to say, with the board's own marks, on 
   // the first word of one that starts a list item. nothing on it lights on its own
   const hotkeys = CARDS.find(c => c.id === "hotkeys");
   const nb = s => s.replace(/ /g, "\u00a0");
-  assert.equal(hotkeys.say, "The Facilitator <3 hotkeys!\n\n" +
+  assert.equal(hotkeys.say, "The Facilitator \u2665\uFE0E hotkeys!\n\n" +
     "Pro-tip: hover your cursor over the bolded hotkeys\n\n" +
     "Here are some basic hotkeys:\n" +
     "- **←** and **→** switches cards\n" +
@@ -626,10 +629,14 @@ test("the cards say what they were given to say, with the board's own marks, on 
     "- **" + nb("Command + T") + "** creates a new card\n" +
     "- Holding **" + nb("control + S") + "** scrolls the agent's answer down, or **" + nb("double tap S") +
     "** and hold it to scroll up\n" +
-    "- **" + nb("Control + shift + [") + "**, **]**, **\\\\** and **delete** move the card to Doing, Docked, Deferred or Done, respectively");
+    "- To organize cards:\n" +
+    `  - ${MARK.sun} Doing: **` + nb("Control + shift + [") + "**\n" +
+    `  - ${MARK.dock} Docked: **` + nb("Control + shift + ]") + "**\n" +
+    `  - ${MARK.moon} Deferred: **` + nb("Control + shift + \\\\") + "**\n" +
+    `  - ${MARK.cross} Done: **` + nb("Control + shift + delete") + "**");
   assert.equal(hotkeys.lights, undefined, "101: Hotkeys lights its keys on its own");
   assert.doesNotMatch(ONBOARDING, /spec\.lights|LIGHTS_FROM_MS|HEART_ICON|MARK\.heart/);
-  assert.doesNotMatch(say("hotkeys"), /❤|♥|\u{1F496}|\u{1F49C}/u, "the heart is an emoji");
+  assert.doesNotMatch(say("hotkeys"), /\u2764|\uFE0F|<3/u, "the heart is the red emoji or a <3");
   // the keyboard at .7 of the hotkey map's, so it clears the ticket list, with the card's foot on the line
   // between its number row and its top letter row, so every letter shows
   assert.match(ONBOARDING, /--kb-scale:\.7; --kb-h:calc\(336px \* var\(--kb-scale\)\);\s*--kb-under:calc\(var\(--kb-h\) \* 96 \/ 336\);/);
@@ -660,7 +667,7 @@ test("101: Phone App holds his words with the photo of the phone app in the boar
     "The Facilitator comes with a phone companion app!\n\n" +
     "The phone app is also hotkey-enabled and works as well as the mac version with a small keyboard, " +
     "allowing you to get work done even when you don't have your laptop!\n\n" +
-    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**. " +
+    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**.\n\n" +
     "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes. " +
     "Just run the following on the terminal:\n\n" +
     "```\nfacilitator bridge setup\n```");
@@ -820,7 +827,7 @@ test("the way to change an answer is said once, on the last page, under the answ
     grab("  const key = name =>", "  // the timings."),
     "const profile = { name: 'Ada', email: 'ada@example.org', work: 'Research', timeZone: null };",
     grab("  function pageRaw(card, i){", "  // every card's words were written"),
-    "this.pageRaw = pageRaw; this.BACK_LINE = BACK_LINE;",
+    "this.pageRaw = pageRaw; this.BACK_LINE = BACK_LINE; this.MARK = MARK;",
   ].join("\n"), context);
   const back = "To change any of the previous answers, press **control + shift + ↑**";
   assert.equal(context.BACK_LINE, back);
@@ -831,7 +838,9 @@ test("the way to change an answer is said once, on the last page, under the answ
   const last = pages.at(-1);
   assert.equal(last.split(back).length, 2, "the last page does not say it exactly once");
   assert.ok(last.indexOf("Here is what you told us:") < last.indexOf(back), "the line is not under the answers");
-  assert.ok(last.endsWith(back + "\n\nPress **control + shift + →** to continue!"));
+  // the key to go on stands under the last card's three stars
+  assert.ok(last.endsWith(back + "\n\n" + context.MARK.stars + "\n\n" +
+    "If the entered information looks correct, press **control\u00a0+\u00a0shift\u00a0+\u00a0→** to continue!"));
 });
 
 // the page's own moves between cards, run in a vm with the page around them stubbed
