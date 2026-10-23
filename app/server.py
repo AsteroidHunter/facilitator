@@ -8157,6 +8157,7 @@ def _post_project_route(q: Query, text: str):
 FIRST_OMNI_REPLY = (
     "To start working on this project, connect an agent to it. The agent runs in your "
     "terminal and answers every card in this project.\n\n"
+    "To connect:\n\n"
     "1. Open the project's folder in the terminal\n"
     "2. Start Claude Code or Codex\n"
     "3. Type `/facilitator onboard` in Claude Code, or `$facilitator onboard` in Codex\n\n"
