@@ -24,8 +24,8 @@ const ANSWER = "answer: ";
 const PASSWORDS = [["App password (input hidden): ", PASSWORD + "\n"], ["Confirm app password (input hidden): ", PASSWORD + "\n"]];
 // the sandbox has no Chrome Local State, so graphics acceleration is on (Chrome's default)
 const CHROME_ON = "5. Chrome graphics\n──────────────────\n\n✓ Chrome graphics acceleration is on.\n\n";
-const CLOSING = "✦ Facilitator is installed!\n\nNext steps:\n\n1. Start the board: facilitator run\n"
-  + "2. Complete the quick onboarding to start using the Facilitator!";
+const CLOSING = "✦ Facilitator is ready!\n\nNext steps:\n\n1. Open a new terminal window\n2. Start the board: facilitator run\n"
+  + "3. Complete the quick onboarding to start using the Facilitator!";
 
 async function using(options, body) {
   const f = await sandbox(options);
@@ -249,7 +249,7 @@ function assertPlainExit(stopped, after) {
   assert.match(stopped.text, new RegExp(`${literal(after)}(\\n\\^C|\\^C)?\\n${literal(EXITING)}\\n$`), stopped.text.slice(-300));
   assert.equal(stopped.text.split(EXITING).length, 2, "the sentence was not printed exactly once:\n" + stopped.text);
   assert.doesNotMatch(stopped.text, /Traceback|KeyboardInterrupt|File "|\.py"/, "a traceback was printed:\n" + stopped.text);
-  assert.doesNotMatch(stopped.text, /command and agent skill installed|Facilitator is installed/);
+  assert.doesNotMatch(stopped.text, /command and agent skill installed|Facilitator is ready/);
 }
 
 test("Ctrl+C at the first app password prompt exits with one plain sentence and no traceback", async () => {
@@ -321,8 +321,8 @@ test("a second run on an installed copy keeps the password and the config and ma
     assert.match(second.text, /✓ Environment found in \.venv \(Python 3\.14\)\.\n/);
     assert.match(second.text, /✓ run\.config\.json found\.\n✓ seed\.json found\./);
     assert.match(second.text, /4\.2 App password\n────────────────\n\n✓ Existing app password kept\. Use it to sign in on your phone\.\n\n/);
-    assert.doesNotMatch(second.text, /App password \(input hidden\)|Open a new terminal/);
-    assert.match(second.text, /\n✓ facilitator command and agent skill installed\n\n✦ Facilitator is installed!/);
+    assert.doesNotMatch(second.text, /App password \(input hidden\)|Open a new terminal to use facilitator/);
+    assert.match(second.text, /\n✓ facilitator command and agent skill installed\n\n✦ Facilitator is ready!/);
     assert.equal(await fs.readFile(path.join(f.data, "run.config.json"), "utf8"), edited, "the config was rewritten");
     assert.ok(!(await f.calls()).slice(before).some(line => line.startsWith("uv venv")), "the environment was made again");
     assert.equal((await fs.readFile(path.join(f.home, ".zshrc"), "utf8").catch(() => "")).split("# >>> Facilitator installer >>>").length - 1, 1);
@@ -514,13 +514,11 @@ test("a file already on the facilitator command's name stops the run in plain li
   });
 });
 
-test("the help text describes the new flow, and the script has no Claude limits step and no em dash", async () => {
+test("the help text is short, and the script has no Claude limits step and no em dash", async () => {
   await using({}, async f => {
     const { code, text } = await f.terminal([], ["--help"]);
     assert.equal(code, 0, text);
-    assert.ok(text.includes("usage: ./install.sh [--dev]\n\nCheck for Claude Code or Codex and Chrome, set up a private Python\n"), text);
-    assert.match(text, /phone client \(Tailscale and\nan app password\)/);
-    assert.match(text, /--dev also installs the packages only the tests need/);
+    assert.equal(text, "usage: ./install.sh [--dev]\n\nInstalls Facilitator on this Mac.\n\n  --dev   also install what the test suite needs (needs node and npm)\n");
     assert.doesNotMatch(text, /limits/i);
     assert.deepEqual(await f.calls(), []);
     await assertNothingChanged(f);
@@ -570,6 +568,6 @@ test("--dev without node stops with the reason before the environment is made", 
     assert.ok(text.includes("⚠ --dev needs node and npm, and they were not found.\n  Install Node.js, then run ./install.sh --dev again.\n"), text);
     assert.equal(await f.has(path.join(f.data, ".venv")), false);
     assert.equal(await f.has(path.join(f.app, "tests", "node_modules")), false);
-    assert.ok(!text.includes("Facilitator is installed"), text);
+    assert.ok(!text.includes("Facilitator is ready"), text);
   });
 });

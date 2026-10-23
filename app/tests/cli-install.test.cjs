@@ -417,7 +417,7 @@ test("install takes --dev and nothing else", async () => {
   const help = await run(dir, stubs() + "\n" + snapshot("cli.cmd_install(['install', '--help'])"));
   assert.equal(help.exit, null);
   assert.match(help.out, /^usage: \.\/install\.sh \[--dev\]\n/);
-  assert.match(help.out, /--dev also installs the packages only the tests need[^]*tests\/package-lock\.json[^]*npm ci/);
+  assert.equal(help.out, "usage: ./install.sh [--dev]\n\nInstalls Facilitator on this Mac.\n\n  --dev   also install what the test suite needs (needs node and npm)\n");
   assert.doesNotMatch(help.out, /when node is present/);
   assert.equal(help.calls.length, 0);
 });

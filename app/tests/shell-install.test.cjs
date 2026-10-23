@@ -352,11 +352,11 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     assert.match(first.text, /⊘ Skipped the phone client: there is no interactive terminal\./);
     assert.doesNotMatch(first.text, /Claude limits|facilitator password set/);
     await assert.rejects(fs.lstat(path.join(f.home, '.claude', 'settings.json')), { code: 'ENOENT' });
-    assert.match(first.text, /✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator\.\n\n✦ Facilitator is installed!\n\nNext steps:\n\n1\. Start the board: facilitator run\n2\. Complete the quick onboarding to start using the Facilitator!\n\n$/);
+    assert.match(first.text, /✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator\.\n\n✦ Facilitator is ready!\n\nNext steps:\n\n1\. Open a new terminal window\n2\. Start the board: facilitator run\n3\. Complete the quick onboarding to start using the Facilitator!\n\n$/);
     const second = await f.piped();
     assert.equal(second.code, 0, second.text);
-    assert.match(second.text, /✓ facilitator command and agent skill installed\n\n✦ Facilitator is installed!/);
-    assert.doesNotMatch(second.text, /Open a new terminal/);
+    assert.match(second.text, /✓ facilitator command and agent skill installed\n\n✦ Facilitator is ready!/);
+    assert.doesNotMatch(second.text, /Open a new terminal to use facilitator/);
     const terminal = await f.terminal([['phone client? (y / n) ', 'n']], [], { color: true });
     assert.equal(terminal.code, 0, terminal.text);
     assert.match(terminal.text, /\x1b\[38;2;190;55;30m█/, 'terminal banner lacks the reddish-orange gradient');

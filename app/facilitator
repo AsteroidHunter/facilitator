@@ -2787,21 +2787,9 @@ INSTALL_ARTIFACTS = (".venv", "tests/node_modules", "node_modules", "package.jso
                      "package-lock.json", "run.config.json", "seed.json")
 INSTALL_HELP = """usage: ./install.sh [--dev]
 
-Check that Claude Code or Codex and Chrome are here, then make this checkout
-runnable: find or install uv (0.9.0 or newer; uv's own installer is fetched
-for one exact release and run only when it matches its fingerprint), build
-the private data/.venv on a
-Python 3.14 that uv manages, rebuilding a .venv that is missing, broken or on
-another Python (a board running on the old one is stopped first), and sync
-requirements, and write data/run.config.json and data/seed.json from
-the examples when they are missing. In an interactive terminal it asks about
-the phone client (Tailscale, then an app password). It ends by registering
-the facilitator command and the shared agent skill. Safe to run again; a
-second run changes nothing.
---dev also installs the packages only the tests need, into
-app/tests/node_modules, from app/tests/package-lock.json with npm ci and
-without running any package's scripts. It needs node and npm; without --dev
-they are not used."""
+Installs Facilitator on this Mac.
+
+  --dev   also install what the test suite needs (needs node and npm)"""
 UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
 
 Remove what install made: data/.venv, app/tests/node_modules, generated

@@ -34,7 +34,7 @@ const mobileApp = text => {
   return text.slice(from, to);
 };
 const nothingElse = text => assert.doesNotMatch(text,
-  /Claude Code|Codex|Chrome|3\. Python|uv |Board settings|command and agent skill|Facilitator is installed|Next steps/,
+  /Claude Code|Codex|Chrome|3\. Python|uv |Board settings|command and agent skill|Facilitator is ready|Next steps/,
   "a part of the installer other than the phone step ran:\n" + text);
 
 async function assertOnlyPhoneStep(f, before) {

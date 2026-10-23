@@ -23,11 +23,8 @@ HELD_LINES=10         # how many of a failed step's own last lines are shown; ke
 DEV_FLAG=''
 if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
   printf 'usage: ./install.sh [--dev]\n\n'
-  printf 'Check for Claude Code or Codex and Chrome, set up a private Python\n'
-  printf 'environment for this checkout, offer the phone client (Tailscale and\n'
-  printf 'an app password), and register the command and shared agent skill.\n'
-  printf -- '--dev also installs the packages only the tests need, locked to the\n'
-  printf 'versions in app/tests/package-lock.json; it needs node and npm.\n'
+  printf 'Installs Facilitator on this Mac.\n\n'
+  printf '  --dev   also install what the test suite needs (needs node and npm)\n'
   exit 0
 elif [ "$#" -eq 1 ] && [ "$1" = "--dev" ]; then
   DEV_FLAG=1
@@ -310,7 +307,8 @@ else
   exit 1
 fi
 
-printf '\n%s✦%s Facilitator is installed!\n\n' "$GREEN" "$RESET"
+printf '\n%s✦%s Facilitator is ready!\n\n' "$GREEN" "$RESET"
 printf '%sNext steps:%s\n\n' "$BOLD" "$RESET"
-printf '%s1.%s Start the board: facilitator run\n' "$BOLD" "$RESET"
-printf '%s2.%s Complete the quick onboarding to start using the Facilitator!\n\n' "$BOLD" "$RESET"
+printf '%s1.%s Open a new terminal window\n' "$BOLD" "$RESET"
+printf '%s2.%s Start the board: facilitator run\n' "$BOLD" "$RESET"
+printf '%s3.%s Complete the quick onboarding to start using the Facilitator!\n\n' "$BOLD" "$RESET"
