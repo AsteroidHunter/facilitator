@@ -9,7 +9,7 @@ description: Join and operate a local Facilitator board lane when asked to onboa
 
 From that session directory, run `python3 "$HOME/.agents/skills/facilitator/scripts/onboard.py" inspect` for either host. Set the tool's working directory to the session's starting directory if it has since changed. Pass the user's `--board` or `--path` option unchanged. Its JSON result names the lane, port, and absolute `runbook` path, and carries the person's first name in `name` when their profile holds one. Read that runbook for the shared board protocol and operating rules; it is the maintained source of those rules. This skill only supplies the joining procedure.
 
-- `ready`: join the named lane now. Keep listening in **this conversation**, including when the queue is empty. Do not launch a separate agent, daemon, hook, server, or another listener to do it.
+- `ready`: join the named lane now. Keep listening in **this conversation**. Do not launch a separate agent, daemon, hook, server, or another listener to do it.
 - `down`, `different_board`, or `different_server`: report the board condition. Do not start or replace the server.
 - `ambiguous`, `project_unknown`, or `path_missing`: ask which project or path to use. Do not guess a lane.
 - `listener_present` or `claim_held`: avoid a second listener. If this conversation already holds the claim, finish it; otherwise report the occupied lane and let the existing listener work.
