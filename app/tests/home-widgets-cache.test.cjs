@@ -195,7 +195,7 @@ for (const kind of ['panel', 'limits']) {
       now += 120000; await widget.refresh();
       assert.equal(store.values.get(key), before); assert.equal(spin(host).hidden, true);
       assert.notEqual(note(host).textContent, 'Last updated: now');
-      if (kind === 'panel') assert.equal(active(host).tkModel.model.total, 71); else assert.match(host.textContent, /71%/);
+      if (kind === 'panel') assert.equal(active(host).tkModel.model.points[0].total, 71); else assert.match(host.textContent, /71%/);
     }
   });
 
@@ -214,25 +214,25 @@ for (const kind of ['panel', 'limits']) {
     const { W, root } = harness({ store: blocked }); const host = root();
     const widget = W[kind](host, { now: () => 1000000, load: async () => kind === 'panel' ? tokens(71) : limits(71) });
     await widget.refresh(); const next = root(); W[kind](next, { now: () => 1000000 });
-    if (kind === 'panel') assert.equal(active(next).tkModel.model.total, 71); else assert.match(next.textContent, /71%/);
+    if (kind === 'panel') assert.equal(active(next).tkModel.model.points[0].total, 71); else assert.match(next.textContent, /71%/);
     const denied = harness({ storageDenied: true }); assert.doesNotThrow(() => denied.W[kind](denied.root()));
   });
 }
 
 test('switches crossfade two persistent layers without hiding the outgoing chart or accepting its pointer events', async () => {
   const { W, root } = harness(); const host = root(); const widget = W.panel(host, { load: async () => tokens(20) });
-  await widget.refresh(); const heat = active(host), height = structuralHeight(host);
-  widget.show('line'); const line = active(host);
+  await widget.refresh(); const line = active(host), height = structuralHeight(host);
+  widget.show('heatmap'); const heat = active(host);
   assert.notStrictEqual(line, heat); assert.equal(host.querySelectorAll('.tk-layer').length, 2);
   assert.match(heat.innerHTML, /tk-heat/); assert.match(line.innerHTML, /tk-line/);
-  assert.equal(heat.hidden, false); assert.equal(heat.inert, true); assert.equal(heat.getAttribute('aria-hidden'), 'true');
-  assert.equal(line.inert, false); assert.equal(line.getAttribute('aria-hidden'), 'false');
+  assert.equal(line.hidden, false); assert.equal(line.inert, true); assert.equal(line.getAttribute('aria-hidden'), 'true');
+  assert.equal(heat.inert, false); assert.equal(heat.getAttribute('aria-hidden'), 'false');
   assert.match(CSS, /\.tk-layer\{[^}]*transition:opacity\s+\.22s var\(--gentle\)/);
   assert.match(CSS, /\.tk-layer\{[^}]*position:absolute;[^}]*opacity:0; pointer-events:none/s);
   assert.match(CSS, /\.tk-layer\.on\{opacity:1; pointer-events:auto\}/);
   assert.match(CSS, /prefers-reduced-motion: reduce\)\{ \.tk-layer\{transition:none\}/);
-  widget.show('heatmap'); assert.strictEqual(active(host), heat); assert.equal(structuralHeight(host), height);
   widget.show('line'); assert.strictEqual(active(host), line); assert.equal(structuralHeight(host), height);
+  widget.show('heatmap'); assert.strictEqual(active(host), heat); assert.equal(structuralHeight(host), height);
 });
 
 test('usage polling retains a spinner between renewal attempts, preserves stale rows on empty response, and cancels cleanly', async () => {
@@ -255,7 +255,7 @@ test('usage polling retains a spinner between renewal attempts, preserves stale 
 
 test('token teardown disconnects resize and document listeners and ignores a late answer', async () => {
   const { W, root, doc, observers } = harness(); const host = root(); let answer = tokens(20);
-  const widget = W.panel(host, { load: async () => answer }); await widget.refresh(); widget.show('line');
+  const widget = W.panel(host, { load: async () => answer }); await widget.refresh(); widget.show('heatmap'); widget.show('line');
   assert.equal(doc.listeners.pointerdown.size, 2);
   const delayed = pending(); answer = delayed.promise; const work = widget.refresh(); widget.destroy();
   assert.equal(doc.listeners.pointerdown.size, 0); assert.equal(observers[0].disconnected, true);

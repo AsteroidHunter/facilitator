@@ -592,23 +592,23 @@ test("each chart keeps its own place when the pill switches, and a refresh keeps
   const view = () => activeLayer(stage).querySelector(".tk-scroll");
   const room = W.geometry(W.VIEW_H, W.yearWeeks(data.days)).width - 540;
   await p.refresh();
-  assert.equal(view().scrollLeft, room, "the heatmap opens on its latest weeks");
+  assert.equal(view().scrollLeft, room, "the line opens on its latest weeks");
   scrollTo(view(), 100);
-  line.click();
-  assert.match(activeLayer(stage).innerHTML, /class="tk-line"/);
-  assert.equal(view().scrollLeft, room, "the line opens on its own latest weeks, not where the heatmap was");
-  scrollTo(view(), 10);
   heat.click();
-  assert.equal(view().scrollLeft, 100, "the heatmap is back where it was left");
+  assert.match(activeLayer(stage).innerHTML, /class="tk-heat"/);
+  assert.equal(view().scrollLeft, room, "the heatmap opens on its own latest weeks, not where the line was");
+  scrollTo(view(), 10);
   line.click();
-  assert.equal(view().scrollLeft, 10, "and so is the line");
+  assert.equal(view().scrollLeft, 100, "the line is back where it was left");
+  heat.click();
+  assert.equal(view().scrollLeft, 10, "and so is the heatmap");
   await p.refresh();
-  assert.equal(view().scrollLeft, 10, "a refresh redraws the line where it stood");
+  assert.equal(view().scrollLeft, 10, "a refresh redraws the heatmap where it stood");
   // a new panel, as after a reload, opens on the latest weeks again
   const again = new El("div", doc);
   const q = W.panel(again, { load: async () => data, store });
   await q.refresh();
-  assert.equal(q.view(), "line");
+  assert.equal(q.view(), "heatmap");
   assert.equal(activeLayer(again).querySelector(".tk-scroll").scrollLeft, room);
 });
 
@@ -910,22 +910,22 @@ test("one pill switches the panel between the two charts and the choice is remem
   assert.deepEqual([thumb.tagName, thumb.className, thumb.textContent], ["SPAN", "tk-thumb", ""]);
   assert.deepEqual(opts.map(b => [b.tagName, b.type, b.dataset.view, b.textContent]),
                    [["BUTTON", "button", "heatmap", "Heatmap"], ["BUTTON", "button", "line", "Line"]]);
-  assert.equal(pills[0].dataset.on, "heatmap");
+  assert.equal(pills[0].dataset.on, "line", "opens on the line when no chart was chosen");
   const stage = walk(box).find(n => n.className === "tk-stage");
   const asking = p.refresh();
   assert.match(stage.textContent, /Counting tokens/);
   await asking;
   const pressed = () => opts.map(b => b.getAttribute("aria-pressed"));
-  assert.deepEqual(pressed(), ["true", "false"]);
-  assert.ok(opts[0].classList.contains("on") && !opts[1].classList.contains("on"));
-  assert.match(activeLayer(stage).innerHTML, /class="tk-heat"/);
-  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 270, "January 1 to September 27");
-  assert.match(activeLayer(stage).innerHTML, /tokens this year/);
-
-  opts[1].click();
   assert.deepEqual(pressed(), ["false", "true"]);
   assert.ok(!opts[0].classList.contains("on") && opts[1].classList.contains("on"));
-  assert.equal(pills[0].dataset.on, "line", "the seat is sent to the line");
+  assert.match(activeLayer(stage).innerHTML, /class="tk-line"/);
+  assert.doesNotMatch(activeLayer(stage).innerHTML, /class="tk-heat"/);
+  assert.match(activeLayer(stage).innerHTML, /tokens this year/);
+
+  opts[0].click();
+  assert.deepEqual(pressed(), ["true", "false"]);
+  assert.ok(opts[0].classList.contains("on") && !opts[1].classList.contains("on"));
+  assert.equal(pills[0].dataset.on, "heatmap", "the seat is sent to the heatmap");
   // the seat is the pill's white; the names sit over it, one width each, and
   // it slides one name's width and the gap between them on the board's curve,
   // with no slide where motion is reduced
@@ -936,21 +936,21 @@ test("one pill switches the panel between the two charts and the choice is remem
   assert.match(sheet, /@media \(prefers-reduced-motion: reduce\)\{ \.tk-thumb\{transition:none\} \}/);
   assert.match(sheet, /\.tk-opt\{position:relative; z-index:1;[^}]*background:transparent;/);
   assert.match(sheet, /\.tk-opt\.on\{color:var\(--ink\)\}/, "the name shown has no fill of its own; the seat is under it");
-  assert.match(activeLayer(stage).innerHTML, /class="tk-line"/);
-  assert.doesNotMatch(activeLayer(stage).innerHTML, /class="tk-heat"/);
-  assert.equal(store.getItem("home.chart"), "line");
-  assert.equal(p.view(), "line");
+  assert.match(activeLayer(stage).innerHTML, /class="tk-heat"/);
+  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 270, "January 1 to September 27");
+  assert.equal(store.getItem("home.chart"), "heatmap");
+  assert.equal(p.view(), "heatmap");
 
   // a second panel in the same browser opens on the chart last chosen
   const again = W.panel(new El("div", doc), { load: async () => data, store });
   await again.refresh();
-  assert.equal(again.view(), "line");
+  assert.equal(again.view(), "heatmap");
 
-  opts[0].click();
-  assert.match(activeLayer(stage).innerHTML, /class="tk-heat"/);
-  assert.equal(store.getItem("home.chart"), "heatmap");
+  opts[1].click();
+  assert.match(activeLayer(stage).innerHTML, /class="tk-line"/);
+  assert.equal(store.getItem("home.chart"), "line");
   p.show("pie");
-  assert.equal(p.view(), "heatmap", "an unknown chart changes nothing");
+  assert.equal(p.view(), "line", "an unknown chart changes nothing");
 });
 
 test("the panel says so when the counts cannot be read or no logs were found", async () => {
@@ -1068,7 +1068,7 @@ test("the house opens its prepared widgets and a project tab leaves it", async (
   const panel = h.byId.homeplot.children[0];
   assert.equal(panel.className, "tk-panel");
   const stage = walk(panel).find(n => n.className === "tk-stage");
-  assert.equal((activeLayer(stage).innerHTML.match(/class="tk-day"/g) || []).length, 270);
+  assert.match(activeLayer(stage).innerHTML, /class="tk-line"/);
   assert.equal([...h.timers.values()].filter(t => t.ms === 5 * 60 * 1000).length, 1, "asks again every five minutes");
 
   // the house is a place: pressing it again changes nothing

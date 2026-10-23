@@ -2106,8 +2106,8 @@
   // one rectangle: a heading and the pill on top, the chart under them. load
   // answers the route's reading; the default asks the board for it
   function readView(store) {
-    try { const v = store && store.getItem(VIEW_KEY); return VIEWS.some(([k]) => k === v) ? v : "heatmap"; }
-    catch (err) { return "heatmap"; }
+    try { const v = store && store.getItem(VIEW_KEY); return VIEWS.some(([k]) => k === v) ? v : "line"; }
+    catch (err) { return "line"; }
   }
   function panel(root, opts = {}) {
     const doc = root.ownerDocument || document;
