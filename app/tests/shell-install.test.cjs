@@ -185,11 +185,22 @@ test('a preexisting command and edited profile block remain untouched', async ()
   } finally { await f.clean(); }
 });
 
-test('an existing Facilitator bin on PATH needs no profile change', async () => {
+test('installing again in the window an uninstall ran in puts the block back for a new window', async () => {
   const f = await fixture();
   try {
-    await integration(f, 'install', { ...f.env, PATH: `${f.home}/.local/share/facilitator/bin:${f.env.PATH}` });
-    await assert.rejects(fs.lstat(path.join(f.home, '.zshrc')), { code: 'ENOENT' });
+    const rc = path.join(f.home, '.zshrc');
+    await fs.writeFile(rc, 'export OTHER=kept\n');
+    await integration(f, 'install');
+    await integration(f, 'uninstall');
+    assert.equal(await fs.readFile(rc, 'utf8'), 'export OTHER=kept\n');
+    // that window still has the folder on PATH from the block uninstall took out
+    const stale = { ...f.env, PATH: `${f.home}/.local/share/facilitator/bin:${f.env.PATH}` };
+    const result = await integration(f, 'install', stale);
+    assert.match(result.stdout, /Open a new terminal to use facilitator\./);
+    assert.match(await fs.readFile(rc, 'utf8'), /# >>> Facilitator installer >>>/);
+    const window = await exec('zsh', ['-lic', 'command -v facilitator'],
+      { env: { HOME: f.home, SHELL: '/bin/zsh', TERM: 'xterm-256color', PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } });
+    assert.equal(window.stdout.trim(), path.join(f.home, '.local/share/facilitator/bin/facilitator'));
   } finally { await f.clean(); }
 });
 
