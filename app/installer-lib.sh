@@ -47,6 +47,16 @@ banner() {
   printf '%*s%s\n' $(( ${#BANNER_ROWS[0]} - 9 )) '' 'installer'
 }
 
+# about: what Facilitator is, in the two short paragraphs under the banner.
+about() {
+  printf '\n'
+  say 'Facilitator is an opinionated and minimalist interface for'
+  say 'interacting with claude or codex on the terminal.'
+  printf '\n'
+  say "Facilitator's UI is designed to help you ship more by atomizing your"
+  say 'builds and orchestrating several subagents.'
+}
+
 # True right after a section title: its blank line is already printed, so a
 # stop message does not add a second one.
 FRESH=0
@@ -175,5 +185,6 @@ mobile_app() {
 bridge_setup() {
   EXIT_NAME='bridge setup'
   banner
+  about
   mobile_app
 }
