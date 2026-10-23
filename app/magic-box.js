@@ -135,6 +135,25 @@
     "const win = window.focus;" +
     "Object.defineProperty(window, 'focus', { value: function focus() { if (asked()) return win.call(window); } });" +
     "})();";
+  // nor may the page zoom the whole board. the Mac board stops a pinch and
+  // command with = + - or 0 on its own page (installMacZoomGuard and
+  // chromeShortcutBlocked in index.html), and the phone stops Safari's pinch
+  // (m.html), but neither reaches into a frame: once the page is clicked in
+  // the keys go to the page, and a pinch over it is the page's. Run
+  // ahead of anything the agent wrote, this stops the same in the page: on the
+  // Mac a wheel with control, which is how Chrome sends a pinch, and command
+  // with = + - or 0 read as the board reads them (cardCommandKey); everywhere
+  // Safari's pinch. Only the browser's zoom is stopped, so the page's own
+  // listeners still hear each of them
+  const ZOOM_GUARD = "(() => {" +
+    "const stop = e => { if (e.cancelable) e.preventDefault(); };" +
+    "for (const t of ['gesturestart', 'gesturechange']) addEventListener(t, stop, { capture: true, passive: false });" +
+    "if (!/^Mac/.test(navigator.platform) && !(navigator.userAgentData && navigator.userAgentData.platform === 'macOS')) return;" +
+    "addEventListener('wheel', e => { if (e.ctrlKey) stop(e); }, { capture: true, passive: false });" +
+    "addEventListener('keydown', e => { const raw = (e.key || '').toLowerCase(), code = { Equal: '=', Minus: '-', Digit0: '0' }[e.code];" +
+    "const k = code && (!raw || raw === 'dead' || raw === 'unidentified' || (raw.length === 1 && !/[ -~]/.test(raw))) ? code : raw;" +
+    "if (e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && (e.shiftKey ? k === '+' || k === '=' : ['+', '=', '-', '0'].includes(k))) stop(e); }, true);" +
+    "})();";
   // the page's own height, for a board that sizes the box to it: how far down
   // its words and pictures reach, with the body's own white under them, which
   // does not grow with the frame, so a box made shorter to fit it measures the
@@ -235,12 +254,12 @@
     const hello = word ? '<script>addEventListener("load", () => parent.postMessage(' + W + ', "*"))' +
       (told ? ';(() => { const W = ' + W + '; ' + told + ' })()' : "") + '</script>' : "";
     return '<!doctype html><meta http-equiv="Content-Security-Policy" content="' + PAGE_POLICY + '">' +
-      '<meta name="referrer" content="no-referrer">' + (sized ? CALM : tall ? TAPS : "") + '<script>' + KEYS_GUARD + '</script>' + hello +
+      '<meta name="referrer" content="no-referrer">' + (sized ? CALM : tall ? TAPS : "") + '<script>' + KEYS_GUARD + ZOOM_GUARD + '</script>' + hello +
       String(html == null ? "" : html);
   }
   // a website runs as itself, on its own origin, which is never the board's;
   // its frame is credentialless, so the owner's cookies, storage and saved
   // passwords stay out of it, and it may not open windows or move the board
   const SITE_SANDBOX = "allow-scripts allow-same-origin allow-forms";
-  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, pageDoc, SITE_SANDBOX };
+  root.MagicBox = { TALL, WIDE, SHAPE, GAP, place, fit: fitRoom, BIG, grow, PAGE_SANDBOX, PAGE_POLICY, KEYS_GUARD, ZOOM_GUARD, pageDoc, SITE_SANDBOX };
 })(globalThis);
