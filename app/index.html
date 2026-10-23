@@ -11653,8 +11653,13 @@ async function fileNavPoll(){
   // the chat lane's tab
   const mount = FILENAV_MOUNTS[activeOwner];
   // the panel's own box arrives before the build asks for it and leaves after
-  // the teardown below has let go of it
-  fileNavBoxes();
+  // the teardown below has let go of it. a box put on the page here takes this
+  // tab's layout at once, since only applySavedLayout puts a box away or in its
+  // saved place: built bare, it stood at its starting place even on a tab that
+  // had put it away. a tab switch made while the board's crossfade still
+  // stands leaves the box for this poll, because the fading copy carries a
+  // magic box 4 of its own and fileNavBoxes takes that for the tab's box
+  if (fileNavBoxes()) applySavedLayout();
   // the panel is taken down when its box is not this tab's box, and also when
   // the box is the same but the tab is not the one it was drawn for: lanes past
   // the second share the one navigator-only box, so a switch between two of them

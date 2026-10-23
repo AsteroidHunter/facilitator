@@ -183,3 +183,35 @@ test("the configured-reader default does not depend on a show key (fresh storage
   assert.equal(m.regionHidden(C, READER_BOX), false,
     "a fresh board must show the configured reader without a planted show key");
 });
+
+// ---- a box the poll builds takes the tab's layout ----------------------------
+
+// the real fileNavPoll, run with everything it calls stood in for, records the
+// order of the calls. only applySavedLayout puts a box away or in its saved
+// place, so a box the poll itself puts on the page must have the layout applied
+// before the panel is built into it, or a tab that put its reader away sees it
+// back at its starting place
+async function pollCalls(boxMoved) {
+  const POLL = fnSource("async function fileNavPoll()");
+  const calls = [];
+  const run = new Function("calls", "boxMoved", `
+    let ownerReady = true, activeOwner = ${JSON.stringify(C)}, fileNavHome = null, fileNavFor = null;
+    const FILENAV_MOUNTS = { ${JSON.stringify(C)}: { box: ${JSON.stringify(READER_BOX)}, stub: "magic box 4" } };
+    function fileNavBoxes(){ calls.push("boxes"); return boxMoved; }
+    function applySavedLayout(){ calls.push("layout"); }
+    function fileNavOff(){ calls.push("off"); }
+    function fileNavBuild(){ calls.push("build"); return null; }
+    ${POLL}
+    return fileNavPoll();
+  `);
+  await run(calls, boxMoved);
+  return calls;
+}
+
+test("a reader box the poll puts on the page takes the tab's layout before the panel is built", async () => {
+  assert.deepEqual(await pollCalls(true), ["boxes", "layout", "build"]);
+});
+
+test("a poll that leaves the boxes as they were does not lay the tab out again", async () => {
+  assert.deepEqual(await pollCalls(false), ["boxes", "build"]);
+});
