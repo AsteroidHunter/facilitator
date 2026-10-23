@@ -1171,6 +1171,58 @@ test("an agent's page cannot focus anything until the owner has just clicked or 
   assert.deepEqual(calls, ["field", "drawing", "window"], "taken right after the owner's own click or key");
 });
 
+test("an agent's page clicked into cannot zoom the whole board: a pinch or command with = - 0 in it is stopped as on the board", () => {
+  const { ZOOM_GUARD, pageDoc } = api();
+  for (const doc of [pageDoc("<p>x</p>"), pageDoc("<p>x</p>", "w", true), pageDoc("<p>x</p>", "w", false, true)])
+    assert.ok(doc.indexOf(ZOOM_GUARD) > 0 && doc.indexOf(ZOOM_GUARD) < doc.indexOf("<p>x</p>"), "it runs before anything the agent wrote");
+  // the page on a Mac or a phone: its window's listeners, and an event fired at them
+  const page = platform => {
+    const on = {};
+    vm.runInContext(ZOOM_GUARD, vm.createContext({ navigator: { platform },
+      addEventListener: (type, fn, opts) => { (on[type] = on[type] || []).push({ fn, opts }); } }));
+    const fire = (type, e = {}) => {
+      const ev = { cancelable: true, defaultPrevented: false, stopped: false, ...e,
+        preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; } };
+      for (const l of on[type] || []) l.fn(ev);
+      assert.equal(ev.stopped, false, "the page's own listeners still hear it");
+      return ev.defaultPrevented;
+    };
+    return { on, fire };
+  };
+  const mac = page("MacIntel");
+  for (const type of ["wheel", "keydown", "gesturestart", "gesturechange"]) {
+    const { opts } = mac.on[type][0];
+    assert.ok(opts === true || (opts.capture && opts.passive === false), type + " is heard first and can be cancelled");
+  }
+  assert.equal(mac.fire("wheel", { ctrlKey: true }), true, "a pinch, as Chrome sends it, or control and the wheel");
+  assert.equal(mac.fire("wheel", { ctrlKey: true, cancelable: false }), false, "one that cannot be cancelled is left alone");
+  assert.equal(mac.fire("wheel", {}), false, "the wheel alone still scrolls the page");
+  assert.equal(mac.fire("wheel", { metaKey: true }), false, "command and the wheel are left as the board leaves them");
+  assert.equal(mac.fire("gesturestart"), true, "Safari's pinch");
+  assert.equal(mac.fire("gesturechange"), true);
+  // the keys read as the board's own page reads them (chromeShortcutBlocked)
+  const html = read("index.html"), logic = read("card-logic.js");
+  const start = html.indexOf("function chromeShortcutBlocked(e){");
+  const board = vm.createContext({});
+  vm.runInContext(logic.slice(logic.indexOf("function cardCommandKey(e){"), logic.indexOf("function cardCreateShortcut(e){")) +
+    html.slice(start, html.indexOf("\n}\n", start) + 3), board);
+  const keys = [["=", "Equal"], ["+", "Equal"], ["-", "Minus"], ["_", "Minus"], ["0", "Digit0"], ["Dead", "Equal"], ["à", "Digit0"], ["a", "KeyA"]];
+  let stopped = 0;
+  for (const [key, code] of keys) for (let held = 0; held < 32; held++) {
+    const e = { key, code, metaKey: !!(held & 1), ctrlKey: !!(held & 2), altKey: !!(held & 4), shiftKey: !!(held & 8),
+      isComposing: !!(held & 16), composedPath: () => [] };
+    const zoom = key !== "a" && vm.runInContext("chromeShortcutBlocked", board)(e);
+    assert.equal(mac.fire("keydown", e), zoom, JSON.stringify(e));
+    if (zoom) stopped++;
+  }
+  assert.ok(stopped >= 6, "command with = + - 0, and shift with = and +");
+  // the phone's page stops Safari's pinch and no key or wheel (m.html), so the page does the same
+  const phone = page("iPhone");
+  assert.equal(phone.fire("gesturestart"), true);
+  assert.equal(phone.fire("gesturechange"), true);
+  assert.ok(!phone.on.wheel && !phone.on.keydown);
+});
+
 test("an agent's page gets the sealing policy first, before anything it wrote", () => {
   const { pageDoc, PAGE_POLICY, PAGE_SANDBOX, SITE_SANDBOX } = api();
   const doc = pageDoc('<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src *"><script>1</script>');
