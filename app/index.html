@@ -3321,8 +3321,9 @@
      glass's own. the pill's list wears the same: with the glass's full stack
      the white first row covered the ring's top row and the dark band drew a
      second line a pixel inside it, so its top edge looked like a second
-     rectangle standing behind the list (20261010) */
-  body.focus :is(.bar .qn-glass, #projmenu){
+     rectangle standing behind the list (20261010). home's box of projects
+     (#homeglass) wears the same stack, as the update pop-up does */
+  body.focus :is(.bar .qn-glass, #projmenu, #homeglass){
     box-shadow:
       inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
       inset 0 0 0 1px var(--qn-ring),
@@ -3785,51 +3786,73 @@
      it goes with the limits, so no line stands under the tokens alone */
   body.focus.home #homelimits:not([hidden])::before{content:""; position:absolute; left:-3px; right:-3px;
     top:calc(var(--home-gap) * -.61); height:1px; background:var(--line); pointer-events:none}
-  /* the narrow part: the pill's list (#projmenu, above) without its box,
-     every open project in the same order under the same number, then a line
-     and "+ Open a new folder". the line is the group's line between the
-     charts, 1px at the group's scale --home-t in the line colour, with 3.35
-     to 14 of the names' size clear above and below it. homeFit sets the
-     list's top and foot where the first name's ink would start level with
-     the logo's word and the folder row's ink end level with the last "Last
-     updated" line under the charts: between those edges stands the projects'
-     full room. the room is as tall as its rows, one for each project, until
-     it holds ten of them (--home-room-max) or fills the full room, whichever
-     comes first; the line and the folder row stand right under it. the list
-     stands centred between its top and foot, so its ink has the same middle
-     as the logo and the charts' and grows from there both ways, reaching
-     both edges once the full room is full. its rows are the pill's
-     list's rows at --home-font for their 14px, every other length of theirs
-     scaled with it: the number in the monospace at 14.6 to 14, the 17 to 14
-     line, the 10 to 14 gap, the 34 to 14 of room on the right that the cross
-     stands in. the names stand --home-rows apart in the faint ink of the
-     faint names beside the pill and the numbers a shade fainter; under the
-     pointer the name takes the full ink and the number the sub ink, and a
-     project holding a reply not yet read is in the semibold, as in the
-     pill's list. the names end --home-margin from the frame's right edge, so
-     the row's room for the cross reaches into that margin. the names start
-     at the top of their room and, once it is full, scroll inside #homerows
-     past its foot with no bar, fading over 1.6 names' height at an end with
-     more past it, above the line; the scroll moves neither the line nor the
+  /* the narrow part: a rounded box of the board's glass (.qn-glass, with the
+     bar's one line top rim, as the update pop-up wears it) holding the pill's
+     list (#projmenu, above) without its own box: every open project in the
+     same order under the same number, or, with none open, "No active
+     projects just yet ..." at its top left in the names' faint ink and size.
+     "+ Open a new folder" stands under the box. the box stands at every
+     count, as tall with one project as with thirty, so the logo and the
+     charts never move for it. homeFit sets its top level with the top of
+     the logo's word, and its foot where the folder row's ink ends level with
+     the last "Last updated" line under the charts. at the reference window
+     the box is 318px wide (21% of the window), its right edge 151px in from
+     the frame's right edge and its corners 32px round, each times --home-u.
+     its rows are the pill's list's rows at --home-font for their 14px, every
+     other length of theirs scaled with it: the number in the monospace at
+     14.6 to 14, the 17 to 14 line, the 10 to 14 gap, the 34 to 14 of room on
+     the right that the cross stands in. the names stand --home-rows apart in
+     the faint ink of the faint names beside the pill and the numbers a shade
+     fainter; under the pointer the name takes the full ink and the number
+     the sub ink, and a project holding a reply not yet read is in the
+     semibold, as in the pill's list. the numbers' column, the empty words
+     and the folder row's plus start --home-pad in from the box's left edge,
+     and the first line's ink stands that far down from its top. the rows
+     scroll inside the box with no bar and fade at its top and bottom edges
+     under the ticket list's ramp (.tikpane): --upband is how far they have
+     scrolled and --downband how far they still can, each capped at 1.6
+     names' height (homeFades), so an edge with nothing past it stays at full
+     ink and a list that fits wears no fade. the scroll never moves the
      folder row. a name never ends in dots: homeFit gives it the room first,
      and only in a window too narrow for that does it fade */
-  @property --home-fade-top{syntax:"<length>"; inherits:false; initial-value:0px}
-  @property --home-fade-bot{syntax:"<length>"; inherits:false; initial-value:0px}
   body.focus.home #homelist{right:var(--app-inset); width:calc((100vw - 2 * var(--app-inset)) * var(--home-split, .33333));
-    flex-direction:column; justify-content:center; align-items:flex-end;
+    flex-direction:column; align-items:flex-end;
     --home-font:calc(28px * var(--home-u, 1)); --home-rows:calc(var(--home-font) * .75);
-    --home-margin:calc(172px * var(--home-u, 1)); --home-cross:calc(var(--home-font) * 34 / 14)}
-  #homelistbox{flex:0 1 auto; display:flex; flex-direction:column; min-height:0; max-width:100%;
-    margin:var(--home-list-top, 0px) calc(var(--home-margin) - var(--home-cross)) var(--home-list-foot, 0px) 0; pointer-events:auto;
+    --home-box-w:calc(318px * var(--home-u, 1)); --home-box-right:calc(151px * var(--home-u, 1));
+    --home-round:calc(32px * var(--home-u, 1)); --home-pad:calc(var(--home-font) * 34 / 28);
+    --home-cross:calc(var(--home-font) * 34 / 14)}
+  #homelistbox{flex:1 1 auto; display:flex; flex-direction:column; min-height:0; width:var(--home-box-w); max-width:100%;
+    margin:var(--home-list-top, 0px) var(--home-box-right) var(--home-list-foot, 0px) 0; pointer-events:auto;
     font:400 var(--home-font)/calc(var(--home-font) * 17 / 14) var(--sans)}
-  #homerows{flex:0 1 auto; min-height:0; max-height:var(--home-room-max, none); display:flex; flex-direction:column;
+  #homeglass{position:relative; flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+    border-radius:var(--home-round); overflow:hidden}
+  /* .28 of the names' size is how far the cap's top stands under the top of
+     their 17 to 14 line in the board's sans */
+  #homerows{flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+    padding:calc(var(--home-pad) - var(--home-rows) / 2 - var(--home-font) * .28) 0 calc(var(--home-pad) - var(--home-rows) / 2 - var(--home-font) * .28) var(--home-pad);
     overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none;
-    -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
-    mask-image:linear-gradient(to bottom, transparent 0, #000 var(--home-fade-top), #000 calc(100% - var(--home-fade-bot)), transparent 100%);
-    transition:--home-fade-top .2s var(--gentle), --home-fade-bot .2s var(--gentle)}
+    scroll-padding-block:calc(var(--home-font) * 1.6);
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px),
+      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+      rgba(0,0,0,0) 100%);
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px),
+      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+      rgba(0,0,0,0) 100%)}
   #homerows::-webkit-scrollbar{display:none}
-  #homerows.more-up{--home-fade-top:calc(var(--home-font) * 1.6)}
-  #homerows.more-down{--home-fade-bot:calc(var(--home-font) * 1.6)}
+  #homeempty{position:absolute; left:var(--home-pad); right:var(--home-pad); top:calc(var(--home-pad) - var(--home-font) * .28);
+    margin:0; font:inherit; color:color-mix(in srgb, var(--sub) 55%, transparent); cursor:default}
   #homelist .homerow{position:relative; flex:none; display:flex; align-items:baseline; gap:calc(var(--home-font) * 10 / 14);
     box-sizing:border-box; width:100%; margin:0; padding:calc(var(--home-rows) / 2) var(--home-cross) calc(var(--home-rows) / 2) 0;
     border:none; border-radius:0; background:none; font:inherit; text-align:left; white-space:nowrap; cursor:pointer;
@@ -3865,24 +3888,14 @@
   /* a row held and carried: its name in the full ink while the others glide
      aside on the board's one 220ms curve; carried out of the list it fades,
      to say that letting go there opens it in a window of its own */
-  #homelistbox.carrying .homerow{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
+  #homeglass.carrying .homerow{transition:transform 220ms cubic-bezier(0.25, 1, 0.5, 1)}
   #homelist .homerow.lifted{z-index:1; transition:none}
   #homelist .homerow.lifted .homename{color:var(--ink)}
   #homelist .homerow.tearing{opacity:.45}
-  #homelistsep{flex:none; height:calc(1px * var(--home-t, 1));
-    margin:calc(var(--home-font) * 3.35 / 14) var(--home-cross) calc(var(--home-font) * 3.35 / 14) 0; background:var(--line)}
-  /* under three open projects (homefew) the list is not shown: it stands
-     clear and takes no click and no key (the script makes it inert with the
-     class), and the wide part is moved right by half the list's part, so the
-     logo and the charts stand centred on the whole frame at their own size.
-     only while the count crosses three with home up (homeglide, for the
-     length of the glide) do the two change on a curve: the part glides on
-     the board's gentle one as the list fades with it, half a second each; a
-     load or a resize places them at once */
-  body.focus.home.homefew #homeside{translate:calc((100vw - 2 * var(--app-inset)) * var(--home-split, .33333) / 2) 0}
-  body.focus.home.homefew #homelistbox{opacity:0; pointer-events:none}
-  body.focus.home.homeglide #homeside{transition:translate .5s var(--gentle)}
-  body.focus.home.homeglide #homelistbox{transition:opacity .5s var(--gentle)}
+  /* the folder row under the box: its plus in the numbers' column and its
+     words where the names start, the top of its ink about 27px under the
+     box at the reference window, and no room held for a cross it never has */
+  #homelist #homenew{margin-top:calc(var(--home-font) * .3); padding-left:var(--home-pad); padding-right:0}
   body.focus.home #stage{visibility:hidden; opacity:0; pointer-events:none}
   /* both parts come in together on one plain fade: the same start, length and
      curve as the board's own dissolve, with no movement and no stagger */
@@ -4285,12 +4298,15 @@
     <section id="homelimits" aria-label="Plan limits" hidden></section>
   </div>
 </div>
-<!-- the narrow part: every open project, numbered as in the pill's list, then
-     the line and the folder row; the script builds the rows -->
+<!-- the narrow part: the glass box of every open project, numbered as in the
+     pill's list, or the words for none, then the folder row under it; the
+     script builds the rows -->
 <nav id="homelist" aria-label="Projects">
   <div id="homelistbox">
-    <div id="homerows"></div>
-    <div id="homelistsep"></div>
+    <div id="homeglass" class="qn-glass">
+      <div id="homerows"></div>
+      <p id="homeempty" hidden>No active projects just yet ...</p>
+    </div>
     <button id="homenew" class="homerow" type="button"><span class="homenum" aria-hidden="true">+</span><span class="homename">Open a new folder</span></button>
   </div>
 </nav>
@@ -4833,15 +4849,17 @@ function renderProjList(st, owners){
     kill.dataset.tip = alone ? "Stays Open" : "Close Project";
   }
 }
-// the home page's list: the pill's list without its box, built from the same
-// projects in the same paint, so an order, a name, a close or a new project
-// shows in both at once. what a row does is what the pill's list's rows do:
-// a click opens its project, a row held and carried reorders the projects or,
-// carried out of the list, opens in a window of its own, and the cross on the
-// row under the pointer closes it. the names take the bold while a reply is
-// unread, as there
+// the home page's list: the pill's list's rows in home's glass box, built from
+// the same projects in the same paint, so an order, a name, a close or a new
+// project shows in both at once. what a row does is what the pill's list's
+// rows do: a click opens its project, a row held and carried reorders the
+// projects or, carried out of the box, opens in a window of its own, and the
+// cross on the row under the pointer closes it. the names take the bold while
+// a reply is unread, as there. with no project open the box says so
 const homeRows = document.getElementById("homerows");
 const homeListBox = document.getElementById("homelistbox");
+const homeGlass = document.getElementById("homeglass");
+const homeEmpty = document.getElementById("homeempty");
 function renderHomeList(st, owners){
   const sig = owners.map(ow => ow + ":" + labelOf(st, ow)).join(",");
   if (homeRows.dataset.sig !== sig){
@@ -4869,26 +4887,8 @@ function renderHomeList(st, owners){
     kill.classList.toggle("off", alone);
     kill.dataset.tip = alone ? "Stays Open" : "Close Project";
   }
-  homeFewSet(owners.length < HOME_LIST_FROM);
+  homeEmpty.hidden = owners.length > 0;
 }
-// the list shows from three open projects; under that it stands clear and
-// inert, and the logo and charts stand on the page's middle (homefew in the
-// sheet). a count that crosses three while home is up glides the two there
-// (homeglide, for the length of the glide); the first count after a load, any
-// while home is not up, and a resize place them at once
-const HOME_LIST_FROM = 3;
-let homeFew = null, homeGlideTimer = 0;
-function homeFewSet(few){
-  if (few === homeFew) return;
-  const glide = homeFew !== null && homeOpen;
-  homeFew = few;
-  clearTimeout(homeGlideTimer);
-  document.body.classList.toggle("homeglide", glide);
-  document.body.classList.toggle("homefew", few);
-  homeListBox.inert = few;
-  if (glide) homeGlideTimer = setTimeout(() => document.body.classList.remove("homeglide"), 600);
-}
-addEventListener("resize", () => document.body.classList.remove("homeglide"));
 // a click on a home row opens its project, as a row of the pill's list does;
 // the release that ends a carry is not a choice. the folder row opens the
 // board's folder picker, as the pill's list's does
@@ -4898,11 +4898,17 @@ homeRows.addEventListener("click", e => {
   if (row.dataset.owner) chooseProject(row.dataset.owner);
 });
 document.getElementById("homenew").addEventListener("click", () => pickFolder(homePick));
-// the list fades at an end only while there is more past it
+// the rows fade at the box's top and bottom edges as the ticket list's sections
+// do (tickBands): how far they have scrolled, --upband, and how far they still
+// can, --downband, in whole pixels and capped at homeFadeDepth, the ramp's
+// depth, which homeFit sets to 1.6 names' height. an end with nothing past it
+// wears no band, and a number is only written when it changes
+let homeFadeDepth = 0;
 function homeFades(){
-  const up = homeRows.scrollTop > 1, down = homeRows.scrollTop + homeRows.clientHeight < homeRows.scrollHeight - 1;
-  if (homeRows.classList.contains("more-up") !== up) homeRows.classList.toggle("more-up", up);
-  if (homeRows.classList.contains("more-down") !== down) homeRows.classList.toggle("more-down", down);
+  const up = Math.min(Math.round(homeRows.scrollTop), homeFadeDepth);
+  const down = Math.min(Math.max(0, Math.round(homeRows.scrollHeight - homeRows.clientHeight - homeRows.scrollTop)), homeFadeDepth);
+  if (up !== homeRows._up){ homeRows._up = up; homeRows.style.setProperty("--upband", up + "px"); }
+  if (down !== homeRows._down){ homeRows._down = down; homeRows.style.setProperty("--downband", down + "px"); }
 }
 homeRows.addEventListener("scroll", homeFades, { passive: true });
 // the faint names: every open project in one order, those holding a reply not
@@ -5138,7 +5144,7 @@ function carryFrom(list, box, row){
   });
 }
 carryFrom(projList, projMenu, ".projrow");
-carryFrom(homeRows, homeListBox, ".homerow");
+carryFrom(homeRows, homeGlass, ".homerow");
 addEventListener("mousemove", e => {
   const t = projCarry;
   if (!t) return;
@@ -5343,34 +5349,31 @@ async function pickFolder(slot){
 }
 
 // ---- the home page's sizes ---------------------------------------------------
-// the owner set the page's look on his full-screen window, 1512 by 982 points
-// (the mock m1336 and his settings from the card "Pre-pub: Home page uplift"),
-// and every size here is his times --home-u, the smaller of this frame's width
-// and height over the frame his window had, so the page keeps that look at any
-// size. his look (HOME_LOOK): the list a third of the frame wide, its names
-// 28px (twice the pill's list's 14px), 21px apart, ending 172px from the
-// frame's right edge; the charts as the board draws them, 35% of the frame
-// wide and the token box 35% tall, 35.1px apart (the board's own gap, twice
-// --sp-m), with the phone's logo cluster at 144% 16px over them, the three
-// together at 111%.
-// a name never ends in dots. where the window is too narrow for the longest
-// name at its size, the list gives way in this order: the margin, down to the
-// room the row's cross stands in; then the names' size, down to the pill's
-// list's own 14px; then the split, the list's part growing up to half the
-// frame; and only past all three does a name fade at its end.
+// the page's look was set at a full-screen window of 1512 by 982 points, and
+// every size here is that look's times --home-u, the smaller of this frame's
+// width and height over the frame that window had, so the page keeps the look
+// at any size. the look (HOME_LOOK): the list's part a third of the frame
+// wide, holding the glass box 318px wide with its right edge 151px in from the
+// frame's right edge, and in it names 28px (twice the pill's list's 14px), 21px
+// apart; the charts as the board draws them, 35% of the frame wide and the
+// token box 35% tall, 35.1px apart (the board's own gap, twice --sp-m), with
+// the phone's logo cluster at 144% 16px over them, the three together at 111%.
+// a name never ends in dots. where the box is too narrow for the longest name
+// at its size, it widens to it, into the margin at its right down to the clear
+// strip that also stands at the part's left; past that the names' size gives
+// way, down to the pill's list's own 14px; then the split, the list's part
+// growing up to half the frame; and only past all three does a name fade at
+// its end.
 // the charts' words never stand smaller than the board draws them (scale 1)
 // while the heading's line has room for the heading, the switch and the
 // download button side by side; past that they shrink with the rest, so the
 // three never meet. the group is centred in its part by what it shows.
-// the list's ink, from its first name to the foot of "+ Open a new folder", is
-// centred on the middle of the logo's ink top and the last "Last updated"
-// line's ink foot; once the projects fill the room between those, the two
-// parts share their top and bottom edges as drawn. the projects' room never
-// holds more than HOME_ROWS_MAX rows, so a taller window shows no more names
+// the box's top stands level with the top of the logo's word and the foot of
+// "+ Open a new folder" with the last "Last updated" line's, so the two parts
+// share their top and bottom edges as drawn, whatever the count
 const HOME_REF = { w: 1512, h: 982 };
-const HOME_LOOK = { split: 1 / 3, font: 28, rows: 21 / 28, margin: 172, inner: 24, fontMin: 14, splitMax: 1 / 2,
-  scale: 1.11, logo: 1.44, logoGap: 16, chartGap: 35.1, chartW: .35, chartH: .35 };
-const HOME_ROWS_MAX = 10;
+const HOME_LOOK = { split: 1 / 3, font: 28, rows: 21 / 28, box: 318, boxRight: 151, pad: 34 / 28, inner: 24, fontMin: 14,
+  splitMax: 1 / 2, scale: 1.11, logo: 1.44, logoGap: 16, chartGap: 35.1, chartW: .35, chartH: .35 };
 // what the group shows, which is what is centred: the mark and the words, and
 // each chart's heading, drawing and "Last updated" line, not their boxes' clear
 // edges (the panels' own padding, the logo's room for its version)
@@ -5408,12 +5411,14 @@ function homeFit(){
   if (!homeOpen || !FOCUS) return;
   const frame = document.getElementById("appframe").getBoundingClientRect();
   if (!(frame.width > 0 && frame.height > 0)) return;
-  // his frame: his window less the same bar and insets this one has
+  // the reference frame: the reference window less the same bar and insets this one has
   const refW = HOME_REF.w - (innerWidth - frame.width), refH = HOME_REF.h - (innerHeight - frame.height);
   const u = Math.min(frame.width / refW, frame.height / refH), L = HOME_LOOK;
 
-  // the list, measured at its own size first: the widest row's number, gap
-  // and name, which all grow with the names' size
+  // the box, measured at its own size first: its widest row, which is the
+  // room before the number, the number, the gap and the name, and after a
+  // project's name the room its cross stands in, all growing with the
+  // names' size
   let font = Math.max(L.fontMin, L.font * u), split = L.split;
   homeSet(homeListPart, "--home-u", u, "");
   homeSet(homeListPart, "--home-font", font);
@@ -5421,32 +5426,34 @@ function homeFit(){
   let widest = 0;
   for (const name of homeListBox.querySelectorAll(".homename")){
     name.classList.remove("cut");
-    widest = Math.max(widest, name.scrollWidth);
+    widest = Math.max(widest, name.scrollWidth + (name.parentElement.id === "homenew" ? 0 : font * 34 / 14));
   }
-  // the row less its room for the cross, and the room the part has for it
-  let need = (num ? num.getBoundingClientRect().width : 0) + font * 10 / 14 + widest + 1;
-  const cross = f => f * 34 / 14, inner = L.inner * u;
+  let need = font * L.pad + (num ? num.getBoundingClientRect().width : 0) + font * 10 / 14 + widest + 1;
+  const inner = L.inner * u;
   const room = () => split * frame.width - inner;
-  let margin = L.margin * u;
-  // the margin gives way first, down to the cross's room
-  if (need + margin > room()) margin = Math.max(cross(font), room() - need);
-  // then the names' size, which takes the cross's room down with it
-  if (need + margin > room()){
-    const k = Math.max(L.fontMin / font, room() / (need + cross(font)));
-    font *= k; need *= k; margin = cross(font);
+  let boxW = Math.max(L.box * u, need), boxRight = L.boxRight * u;
+  // the box widens into the margin at its right first, down to the clear strip
+  if (boxW + boxRight > room()) boxRight = Math.max(inner, room() - boxW);
+  // then the names' size, which takes every length in the box down with it
+  if (boxW + boxRight > room()){
+    const k = Math.max(L.fontMin / font, (room() - boxRight) / need);
+    font *= k; need *= k; boxW = Math.max(L.box * u, need);
   }
   // then the split, up to half the frame
-  if (need + margin > room()) split = Math.min(L.splitMax, (need + margin + inner) / frame.width);
+  if (boxW + boxRight > room()) split = Math.min(L.splitMax, (boxW + boxRight + inner) / frame.width);
+  boxW = Math.min(boxW, room() - boxRight);
   homeSet(homeListPart, "--home-font", font);
   homeSet(homeListPart, "--home-rows", font * L.rows);
-  homeSet(homeListPart, "--home-margin", margin);
+  homeSet(homeListPart, "--home-box-w", boxW);
+  homeSet(homeListPart, "--home-box-right", boxRight);
   homeSet(homeListPart, "--home-split", split, "");
   homeSet(homeSide, "--home-split", split, "");
+  homeFadeDepth = Math.round(font * 1.6);
   // and past all of that a name fades at its end
   for (const name of homeListBox.querySelectorAll(".homename"))
     if (name.scrollWidth > name.clientWidth) name.classList.add("cut");
 
-  // the group: his sizes times u as drawn on screen, laid out at those over
+  // the group: the look's sizes times u as drawn on screen, laid out at those over
   // the scale t its words stand at, never under the board's own while the
   // heading's line has room
   const width = L.chartW * refW * L.scale * u, chartH = L.chartH * refH * L.scale * u;
@@ -5486,32 +5493,19 @@ function homeFit(){
     shown = { top: top + dy, bottom: bottom + dy };
   }
 
-  // the list's line at the group's scale, and its top and foot where the
-  // first name's ink would start level with the top of the logo's word, and
-  // the folder row's ink end level with the foot of the last "Last updated"
+  // the glass box's top level with the top of the logo's word, and the
+  // folder row's ink ending level with the foot of the last "Last updated"
   // line under the charts (before either is drawn, with what the group
-  // shows). the box is as tall as what it holds, the projects' room their
-  // rows' own height, and stands centred between the two, so a shorter list's
-  // ink has the same middle as theirs; past the room they leave, the rows
-  // scroll. the word stands taller than the mark beside it, at every scale,
-  // as the two grow together. the first name's ink is taken to start as far
-  // down its row as the folder row's does down its own, in the same face and
-  // size, so the list stands still whatever letters lead it and however far
-  // the rows are scrolled
-  homeSet(homeListPart, "--home-t", t, "");
+  // shows). the box takes all the height between, at every count, and past
+  // it the rows scroll. the word stands taller than the mark beside it, at
+  // every scale, as the two grow together
   const word = homeInk(document.getElementById("homebrandname"), t);
   const updated = [...homePair.querySelectorAll(".tk-updated, .lm-updated")].map(el => homeInk(el, t)).filter(Boolean).pop();
   const headAt = word?.top ?? shown?.top, footAt = updated?.bottom ?? shown?.bottom;
   const box = homeListBox.getBoundingClientRect(), list = homeListPart.getBoundingClientRect();
   const folder = homeInk(homeNewName, 1);
-  const first = folder && homeRows.getBoundingClientRect().top + folder.top - homeNewName.parentElement.getBoundingClientRect().top;
-  if (headAt != null && folder) homeSet(homeListPart, "--home-list-top", Math.max(0, headAt - (first - box.top) - list.top));
+  if (headAt != null) homeSet(homeListPart, "--home-list-top", Math.max(0, headAt - list.top));
   if (footAt != null && folder) homeSet(homeListPart, "--home-list-foot", Math.max(0, list.bottom - footAt - (box.bottom - folder.bottom)));
-  // and the room is never taller than ten rows at their own pitch, read off a
-  // row (its two faces' baselines make it a little taller than its line and
-  // gaps), rounded up so ten stand whole with no fade under them
-  const row = homeRows.querySelector(".homerow");
-  if (row) homeSet(homeListPart, "--home-room-max", Math.ceil(row.getBoundingClientRect().height * HOME_ROWS_MAX * 1000) / 1000);
   homeFades();
 }
 // fitted on the frame after anything that moves it: the window's size, the
