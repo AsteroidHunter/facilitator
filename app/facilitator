@@ -117,7 +117,7 @@
   facilitator uninstall [--keep-attachments | --remove-attachments]
       remove what install made: the .venv, app/tests/node_modules and the
       generated config files, owned shell command, owned agent-skill links, and
-      any Claude Code status line entry an older install added. Keeps the
+      the Claude Code status line entry install added. Keeps the
       board's data in data/ (state.json, transcript.jsonl, settings.json, logs,
       bridge credentials, vapid-key.pem and the backups).
       After its banner it asks whether to keep the card
@@ -2793,8 +2793,8 @@ Installs Facilitator on this Mac.
 UNINSTALL_HELP = """usage: facilitator uninstall [--keep-attachments | --remove-attachments]
 
 Remove what install made: data/.venv, app/tests/node_modules, generated
-config, owned command and agent-skill links, and any Claude Code status line
-entry an older install added. Keeps the board's data in data/ and the bridge
+config, owned command and agent-skill links, and the Claude Code status line
+entry install added. Keeps the board's data in data/ and the bridge
 credentials. Never removes this folder or stops a running server.
 Card attachments are asked about after the banner and kept unless the
 answer is a clear no; with no terminal they are kept.

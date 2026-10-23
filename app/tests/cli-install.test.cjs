@@ -956,7 +956,7 @@ test("uninstall removes owned skill links but keeps another personal skill", asy
 // the record, moved into data/ with the rest, is still this checkout's own
 for (const [where, script] of [["the checkout's top, before app/", dir => path.join(dir, "..", "claude-statusline.py")],
                                ["app/", dir => path.join(dir, "claude-statusline.py")]]) {
-  test(`uninstall takes back a Claude limits entry an older install added, its script at ${where}`, async () => {
+  test(`uninstall takes back a Claude limits entry, even with its script at ${where}`, async () => {
     const dir = await freshClone();
     const home = path.join(dir, "home");
     await mkdir(home);
@@ -966,7 +966,8 @@ for (const [where, script] of [["the checkout's top, before app/", dir => path.j
     const first = await run(dir, setup, env);
     assert.equal(first.exit, null, first.out);
     const settings = path.join(home, ".claude", "settings.json");
-    await assert.rejects(lstat(settings), { code: "ENOENT" }, "install must not add the entry any more");
+    assert.equal(JSON.parse(await readFile(settings, "utf8")).statusLine.command, `python3 ${path.join(dir, "claude-statusline.py")}`,
+      "install adds the entry");
 
     const older = require("./fixtures/older-statusline-installs.json")["made from nothing"];
     const fill = text => text.split("@SCRIPT@").join(script(dir)).split("@SETTINGS@").join(settings);

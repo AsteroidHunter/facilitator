@@ -361,9 +361,10 @@ test('./install.sh sets up a fake checkout and exposes the real CLI command', as
     }
     assert.doesNotMatch(first.text, /\n\n\n/, 'two blank lines in a row');
     assert.match(first.text, /⊘ Skipped the phone client: there is no interactive terminal\./);
-    assert.doesNotMatch(first.text, /Claude limits|facilitator password set/);
-    await assert.rejects(fs.lstat(path.join(f.home, '.claude', 'settings.json')), { code: 'ENOENT' });
-    assert.match(first.text, /✓ facilitator command and agent skill installed\nOpen a new terminal to use facilitator\.\n\n✦ Facilitator is ready!\n\nNext steps:\n\n1\. Open a new terminal window\n2\. Start the board: facilitator run\n3\. Complete the quick onboarding to start using the Facilitator!\n\n$/);
+    assert.doesNotMatch(first.text, /facilitator password set/);
+    const settings = path.join(f.home, '.claude', 'settings.json');
+    assert.equal(JSON.parse(await fs.readFile(settings, 'utf8')).statusLine.type, 'command');
+    assert.match(first.text, /✓ facilitator command and agent skill installed\n✓ Claude limits added to .*settings\.json\.\nOpen a new terminal to use facilitator\.\n\n✦ Facilitator is ready!\n\nNext steps:\n\n1\. Open a new terminal window\n2\. Start the board: facilitator run\n3\. Complete the quick onboarding to start using the Facilitator!\n\n$/);
     const second = await f.piped();
     assert.equal(second.code, 0, second.text);
     assert.match(second.text, /✓ facilitator command and agent skill installed\n\n✦ Facilitator is ready!/);
