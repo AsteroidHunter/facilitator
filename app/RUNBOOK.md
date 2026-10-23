@@ -34,6 +34,8 @@ After reading the separate `/fresh` result as described below, answer with a com
 
       curl -s "http://127.0.0.1:$PORT/unread?owner=facilitator"
 
+- Stop polling after 90 minutes of zero activity on the board: every `/wait` in that time came back idle, nothing reached your lane, and none of your work is running.
+
 ## Sending for the person
 
 An agent that puts a message on a card for the person, such as a voice or text assistant, sends it with `POST /send` and marks it as its own with `by=agent` and its name in `agent=`:
