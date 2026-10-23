@@ -14,10 +14,10 @@ When someone asks how to install, set up or use Facilitator, read `docs/README.m
 
 From the agent conversation that owns your lane, repeat the current two-call production protocol. The installed `facilitator` skill resolves the lane and its `scripts/onboard.py wait` helper makes both calls for each claim. In every command here, `$PORT` is the board's port: the `port` that `scripts/onboard.py inspect` reports, which is the `port` in `run.config.json` (8877 unless `facilitator run` has moved the board to another pair). Read it fresh rather than remembering it, since a board that moved stays on its new port, and set it once in your shell (`PORT=8877`, say) or write the number in:
 
-    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=claude"
+    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=opus"
     curl -sS -X POST "http://127.0.0.1:$PORT/ack?owner=facilitator&token=<the ack field>"
 
-`agent=` names you; a card you answer shows that name on its ticket. `/wait` returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, or `{"idle": true}` on timeout. Beside `messages`, `message_by` says which ones an agent sent for the person (see Sending for the person).
+`agent=` names you; a card you answer shows that name on its ticket. Name yourself by your model's short family name in lowercase, without the version number: `opus` for Opus 5.5, `sonnet` for Sonnet 5.5, `haiku` for Haiku 4.5, `astra` for Astra, and the same for any other model. Never use the name of the tool or host you run in, such as `claude`, `claude-code` or `codex`. `/wait` returns `{"box": id, "title": ..., "messages": [...], "queued_after": n, "ack": token}` on a claim, or `{"idle": true}` on timeout. Beside `messages`, `message_by` says which ones an agent sent for the person (see Sending for the person).
 
 The `ack` token is the receipt for the card you were just handed, and confirming it is part of claiming, not an extra. A hand-off is provisional until you confirm it, because the answer can die on the wire: your own kill timer fires, the connection drops, and the server thinks it delivered a card nobody ever saw. Confirm it the moment the claim lands, before you start reading or working. A card nobody confirms goes back to the front of its lane's queue after 90 seconds and its colour falls back to the queued grey, so nothing sits green with nobody on it. Confirming twice is fine; the second call answers the same `{"ok": true}`.
 
@@ -110,7 +110,7 @@ Omni cards are the one exception: never rename an Omni card. An Omni card is the
 
 Link cards only when the person asks you to, and never on your own: do not link cards because they look related, continue, split from, depend on or answer one another. When the person does ask, link them by id, from that one to the other. A link may join cards of different lanes:
 
-    curl -sS -X POST "http://127.0.0.1:$PORT/link?from=ID&to=OTHER&agent=claude"
+    curl -sS -X POST "http://127.0.0.1:$PORT/link?from=ID&to=OTHER&agent=opus"
 
 `agent=` names you, as on `/wait`. The board keeps when each link was made and by whom, and keeps one link however often it is made. `GET /links?box=ID` answers `links`, the cards a card links to, and `backlinks`, the cards linking to it, each with its id, current title, section, time and agent; `POST /unlink?from=ID&to=OTHER` takes one away. `GET /links/all` answers every link on the board at once: `links`, oldest first, each `{from, to, ts, agent}`, and `cards`, every card at either end of one, each with the fields `/props` gives it (see Card properties). Links outlast renames and section moves and go when either card is deleted for good. The Mac board has no button for them in its top bar for now; still name the other card by its title in replies.
 
@@ -118,9 +118,9 @@ Link cards only when the person asks you to, and never on your own: do not link 
 
 When you start work for a card on a git branch, set the card's branch, and its status in a few words on where that work stands; change the status as the work moves, and when the work is merged or dropped, clear both with an empty value:
 
-    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=BRANCH&status=building&agent=claude"
-    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&status=waiting+on+review&agent=claude"
-    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=&status=&agent=claude"
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=BRANCH&status=building&agent=opus"
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&status=waiting+on+review&agent=opus"
+    curl -sS -X POST "http://127.0.0.1:$PORT/props?box=ID&branch=&status=&agent=opus"
 
 `agent=` names you, as on `/link`. Each is one line of free text, up to 200 characters (write a space as `+`), kept with when it was set and by whom; setting the value it already has changes nothing. The status is your own word and is not the card's section or colour. `GET /props?box=ID` answers the card's `id` (it never changes; the board shows `m12` as 12), `title`, `owner` (its lane), `section`, `made`, `changed`, `branch` and `status`. `made` and `changed` are kept on the card in `state.json` and move with every row the board writes about it to `transcript.jsonl`: the time of its create row and of its newest row, so a message, a reply, a rename, a move or a link counts as a change and reading a card does not. A card saved before the board kept them was given both once from the transcript; they no longer depend on it. Times are seconds since 1970, as on `/links`. The branch and the status outlast renames and restarts, wait in the Bin with the card and go when it is deleted for good. The board does not show any of this.
 
@@ -160,7 +160,7 @@ Green is checked, not trusted: a raised flag stays green while your lane is in t
 
 Two agents share one board. Every box carries an owner tag: `facilitator` (discussion about this tool, served by this repo's agent) or a project lane such as `example` (the project under discussion, served by its own agent). `/wait?owner=...` claims only that owner's boxes, and each owner has its own busy slot and listener-presence tracking, so the two agents never block or steal from each other. An ownerless `/wait` defaults to facilitator. The server always registers the `facilitator` owner, so that default answers on a board whose `lanes` list is empty, but nothing is drawn for it until a card or a project gives it a tab: a fresh install's `run.config.example.json` has `"lanes": []` and `"navigator_lanes": []`, so it starts with no lanes, and the onboarding then opens the board on a `facilitator-sample` project in the home folder holding one Omni Ticket #1, whose starting reply gives the steps to connect an agent. The two loops, side by side:
 
-    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=claude"
-    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=example&timeout=420&agent=claude"
+    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=facilitator&timeout=420&agent=opus"
+    curl --max-time 430 -sS "http://127.0.0.1:$PORT/wait?owner=example&timeout=420&agent=opus"
 
 Each lane confirms its own claims against its own owner: `POST /ack?owner=facilitator&token=...` and `POST /ack?owner=example&token=...`. A token belongs to one lane's claim and is refused (409) anywhere else.
