@@ -485,7 +485,10 @@ Endpoints:
                                page uses until a bgcolor is saved. While the
                                profile is not complete (GET /profile) it ends
                                with globalThis.BOARD_ONBOARDING=true, which the
-                               board reads to put the onboarding up
+                               board reads to put the onboarding up, after
+                               globalThis.BOARD_STARTUP_SOUND=true while the
+                               first run's startup sound has not come yet
+                               (POST /startup-sound)
   GET  /settings            -> {rev, values}: the same settings, for a page
                                whose /state says settingsRev has moved
   POST /settings[?seed=1]   -> body = {"<key>": "<value>" or null, ...}: sets
@@ -623,6 +626,15 @@ Endpoints:
                                Answers {ok, path, made, id}; a 409 when
                                something that is not a folder holds the name.
                                Local only
+  POST /startup-sound       -> body = page or mac: the first run's startup
+                               sound is starting, played by the page itself or,
+                               for mac, by this Mac with afplay
+                               (assets/startup-sound.wav). Plays and keeps its
+                               note in data/startup-sound.json only while the
+                               profile is not complete and no note is kept, so
+                               it comes once on a board; otherwise {ok,
+                               played: false}. Answers {ok, played, by}. Local
+                               only, and a 403 unless Origin is the page's own
   GET  /assets/phone_app_on_stand.webp
                             -> the onboarding's picture of the phone app, the
                                first line of its 101: Phone App card. Local
@@ -8802,8 +8814,11 @@ def _get_board_settings_js(q: Query, _):
     if BACKGROUND_DEFAULT:
         lead += "globalThis.BOARD_BGCOLOR_DEFAULT=" + json.dumps(BACKGROUND_DEFAULT) + ";"
     # whether the board still has to put the onboarding up, and nothing of the
-    # profile itself: a board somebody has been through it on gets no word here
+    # profile itself: a board somebody has been through it on gets no word here.
+    # its first run's startup sound is still to come while no note says it came
     if _profile_needed():
+        if _startup_sound_due():
+            lead += "globalThis.BOARD_STARTUP_SOUND=true;"
         lead += "globalThis.BOARD_ONBOARDING=true;"
     return _packed(q, lead.encode() + p.read_bytes(), "application/javascript; charset=utf-8")
 
@@ -9354,6 +9369,58 @@ def _post_onboarding_sample(q: Query, _):
     if status != 200:
         return status, lane
     return 200, {"ok": True, "path": path, "made": made, "id": lane["id"]}
+
+
+# ---- the startup sound --------------------------------------------------------------
+# The first run's sound, which the Mac board starts as its startup globe
+# crosses to the onboarding (introSound in index.html), once on a board. A page
+# may not sound before any click or key in Chrome as facilitator run opens it
+# (Chrome's autoplay policy), so the page says which of the two plays it: the
+# page itself, its own Web Audio context running ("page"), or the Mac ("mac"),
+# which plays STARTUP_SOUND, the same sound rendered offline from the page's
+# code, with afplay. Either way the note it leaves in data/ is the board's word
+# that the sound came, and it never comes again: /board-settings.js says it is
+# still to come only while the onboarding is still to do and there is no note.
+STARTUP_SOUND = HERE / "assets" / "startup-sound.wav"
+STARTUP_SOUND_NOTE = DATA / "startup-sound.json"
+AFPLAY = "/usr/bin/afplay"
+_startup_sound_lock = threading.Lock()
+
+
+def _startup_sound_due() -> bool:
+    return not os.path.lexists(STARTUP_SOUND_NOTE)
+
+
+def _post_startup_sound(q: Query, text: str):
+    if not q.local:
+        return 404, {"error": "not found"}
+    if not q.same_origin:
+        return 403, {"error": "origin refused"}
+    if text not in ("page", "mac"):
+        return 400, {"error": "say page or mac"}
+    with _startup_sound_lock:
+        # only on the first run, and only once
+        if not _profile_needed() or not _startup_sound_due():
+            return 200, {"ok": True, "played": False}
+        if text == "mac":
+            if sys.platform != "darwin" or not STARTUP_SOUND.is_file():
+                return 501, {"error": "the Mac cannot play the startup sound here"}
+            try:
+                proc = subprocess.Popen([AFPLAY, str(STARTUP_SOUND)], stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        start_new_session=True)
+            except OSError as e:
+                _error("startupsound", reason=e.strerror or type(e).__name__)
+                return 500, {"error": "the startup sound could not be played"}
+            threading.Thread(target=proc.wait, name="startup-sound", daemon=True).start()
+        try:
+            fd = os.open(STARTUP_SOUND_NOTE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps({"played": time.strftime("%Y-%m-%dT%H:%M:%S"), "by": text}) + "\n")
+        except OSError as e:
+            _error("startupsound", step="note", reason=e.strerror or type(e).__name__)
+    _info("startupsound", by=text)
+    return 200, {"ok": True, "played": True, "by": text}
 
 
 # ---- the update -------------------------------------------------------------------
@@ -10727,6 +10794,7 @@ ROUTES = [
     Route("/profile", _endpoint(_post_profile, "text", PROFILE_BODY_MAX), methods=["POST"]),
     Route("/onboarding", _endpoint(_get_onboarding), methods=["GET"]),
     Route("/onboarding/sample", _endpoint(_post_onboarding_sample, "text"), methods=["POST"]),
+    Route("/startup-sound", _endpoint(_post_startup_sound, "text", 64), methods=["POST"]),
     # the onboarding's picture of the phone app, a plain file under assets/
     # with the no-store every answer carries, as the squid it opens with
     Route("/assets/phone_app_on_stand.webp", _static("assets/phone_app_on_stand.webp", "image/webp"), methods=["GET"]),

@@ -717,9 +717,13 @@
 
   /* once the closing card is done, the card goes the way the board's own
      views come and go, a plain fade (.18s ease, as #stage and homefade), and
-     the board takes the frame away the same way, onto the board itself */
+     the board takes the frame away the same way, onto the board itself. in
+     the board's frame (obleft) the card and the list stay as they are and
+     the board's startup globe comes over them on that same .18s ease
+     (leaveOnboarding in index.html) */
   body.focus main{transition:box-shadow .2s, opacity .18s ease}
   body.obdone main{opacity:0; pointer-events:none}
+  body.obleft main{pointer-events:none}
 
   /* from the onboarding card on (obboard) the card stands where the board's
      stage puts it, and from 101: Tickets on (obtickets) the board's ticket list
@@ -1895,7 +1899,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
   }
   // the last card closed: the answers are saved as the profile, again if they
   // were, and the card goes, the ticket list
-  // with it. the board then takes the frame away onto its home page.
+  // with it, or in the board's frame both stay for the board's globe to come
+  // over. the board then takes the frame away onto its home page.
   // every answer is needed, so the key with one missing goes to the first
   // question not answered, which is the onboarding card's newest page, since a
   // page comes only with the answer before it: the first question is called
@@ -1921,7 +1926,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     if (!saved){ printReply(cards[at].el); return; }
     finished = true;
     unlight();
-    document.body.classList.add("obdone");
+    document.body.classList.add(parent !== window ? "obleft" : "obdone");
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     caretQueue();
     if (parent !== window) parent.postMessage({ onboarding: "done" }, location.origin);
