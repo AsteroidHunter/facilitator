@@ -43,7 +43,10 @@ cd facilitator
 3. Open a project on the facilitator, press `command + T` to open a new card, and start shipping!
 
 ### Mobile version
-![The Facilitator board open on a phone, standing on a table next to a keyboard](docs/images/facilitator_20261022_social_1.jpg)
+
+<p align="center">
+  <img src="docs/images/facilitator_20261022_social_1.jpg" width="50%">
+</p>
 
 The Facilitator comes with a mobile version. The mobile version is fun to use when paired with an external keyboard. 
 
