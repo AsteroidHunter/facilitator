@@ -560,16 +560,16 @@
   /* the Welcome card: the product's own lockup, the mark beside the word and
      the version under it (the new-project landing's #npbrand in index.html),
      is the card's header, at the left where the other cards have their titles.
-     it is drawn in ems off the title's own font, so the word is a regular
-     card title's size, and keeps the room under it that its version hangs
-     into. at the top of the card's text, where the other cards' words start,
-     stand the greeting, the blurb and the key, in the card's own words, to
-     the left */
+     it is drawn in ems off the title's own font, the word a tenth bigger
+     than a regular card title, so mark, word, version and the room under it
+     that its version hangs into all grow together. at the top of the card's
+     text, where the other cards' words start, stand the greeting, the blurb
+     and the key, in the card's own words, to the left */
   #box-welcome .reply{flex:1 0 auto; display:flex; flex-direction:column; justify-content:flex-start;
     padding-right:calc(var(--pad-x)*2/3)}
   .obwelcome{display:flex; flex-direction:column; align-items:flex-start; text-align:left}
   .obbrand{display:flex; width:max-content; align-items:center; gap:.214em; margin:0 0 .4em;
-    font:inherit; letter-spacing:-.02em; color:var(--ink)}
+    font:inherit; letter-spacing:-.02em; font-size:1.1em; color:var(--ink)}
   /* the squid is wider than the one before it, so its box keeps the old width
      (917 / 1126) and the word stays where it was; the whole picture stands
      centred in the box, its squid .786em tall as before */
@@ -1020,15 +1020,19 @@ for (const pane of document.querySelectorAll(".tikpane")){
   // in lower case, but for the first word of one that starts a sentence or a
   // list item, and a letter key is a capital
   const key = name => "**" + name.replace(/ /g, "\u00a0") + "**";
-  const HI = "Hi there 👋";
-  const BLURB = "Facilitator helps you ship more by making it easier to interact with and orchestrate subagents.";
-  const WELCOME = BLURB + "\n\nPress " + key("→") + " to continue.";
+  const HI = "Hi there!";
+  const BLURB = "Facilitator is an opinionated and minimalist interface for interacting with claude or codex on the terminal.\n\n" +
+    "Facilitator's UI is designed to help you ship more by atomizing your builds and orchestrating several subagents.";
+  const WELCOME = BLURB + "\n\nPress " + key("→") + " to begin onboarding.";
   const TAB_HINT = "Press " + key("tab") + " to answer.";
   const TAB_HINT_PLAIN = "Press tab to answer";
   // the way back to an earlier question, once, on the last page, under the
   // answers it would change
   const BACK_LINE = "To change any of the previous answers, press " + key("control + shift + ↑");
   const NEXT = "Press " + key("control + shift + →") + " to continue!";
+  // the last page's key to go on, set off from the answers above it by the
+  // last card's three stars
+  const NEXT_KEPT = "If the entered information looks correct, press " + key("control + shift + →") + " to continue!";
   // the phone card's key to go on, with the full stop it was given
   const NEXT_PHONE = "Press " + key("control + shift + →") + " to continue.";
   // the FIN card's key to end the run
@@ -1063,7 +1067,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
     "The Facilitator comes with a phone companion app!\n\n" +
     "The phone app is also hotkey-enabled and works as well as the mac version with a small keyboard, " +
     "allowing you to get work done even when you don't have your laptop!\n\n" +
-    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**. " +
+    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**.\n\n" +
     "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes. " +
     "Just run the following on the terminal:\n\n" +
     "```\nfacilitator bridge setup\n```";
@@ -1092,7 +1096,8 @@ for (const pane of document.querySelectorAll(".tikpane")){
            "- " + MARK.cross + " Done: Tasks that are complete\n\n" +
            "Bonus: after you iterate on a project for a while, tickets/cards act as a knowledge base for your projects." },
     { id: "hotkeys", title: "101: Hotkeys",
-      say: "The Facilitator <3 hotkeys!\n\n" +
+      // the heart in the text's own black: the text-style heart, never the red emoji
+      say: "The Facilitator \u2665\uFE0E hotkeys!\n\n" +
            "Pro-tip: hover your cursor over the bolded hotkeys\n\n" +
            "Here are some basic hotkeys:\n" +
            "- " + key("←") + " and " + key("→") + " switches cards\n" +
@@ -1101,9 +1106,12 @@ for (const pane of document.querySelectorAll(".tikpane")){
            "- " + key("Command + T") + " creates a new card\n" +
            "- Holding " + key("control + S") + " scrolls the agent's answer down, or " + key("double tap S") +
            " and hold it to scroll up\n" +
+           "- To organize cards:\n" +
+           "  - " + MARK.sun + " Doing: " + key("Control + shift + [") + "\n" +
+           "  - " + MARK.dock + " Docked: " + key("Control + shift + ]") + "\n" +
            // the backslash is doubled so the markdown keeps it
-           "- " + key("Control + shift + [") + ", " + key("]") + ", " + key("\\\\") + " and " + key("delete") +
-           " move the card to Doing, Docked, Deferred or Done, respectively" },
+           "  - " + MARK.moon + " Deferred: " + key("Control + shift + \\\\") + "\n" +
+           "  - " + MARK.cross + " Done: " + key("Control + shift + delete") },
     { id: "phone", title: "101: Phone App", next: NEXT_PHONE, say: PHONE_APP },
     { id: "fin", title: "You are all set up", closing: true,
       say: "Thank you for trying out the facilitator!\n\n" +
@@ -1519,7 +1527,7 @@ for (const pane of document.querySelectorAll(".tikpane")){
       parts.push(q.ask, q.note, card.askingAt === i && card.asking);
       // the Tab hint only while the first question is the newest page; stepped back to, the caret is in the box
       if (!i && HINT === "reply" && card.pages.length === 1) parts.push(TAB_HINT);
-    } else parts.push(keptRaw(), BACK_LINE, NEXT);
+    } else parts.push(keptRaw(), BACK_LINE, MARK.stars, NEXT_KEPT);
     return parts.filter(Boolean).join("\n\n");
   }
   function keptRaw(){
@@ -1828,11 +1836,20 @@ for (const pane of document.querySelectorAll(".tikpane")){
   }
   function stepHistory(card, dir){
     if (!card.spec.questions || card.spec.id !== selectedId) return;
-    histStep(card.spec.id, dir);
+    histStep(card.spec.id, dir).then(() => liveMarks(card.el));
   }
   function leaveHistory(){
     if (!hist) return;
+    const el = els[hist.id];
     histExit(hist.id);
+    liveMarks(el);
+  }
+  // the way back to the live page (histExit in card-logic.js) draws it with
+  // the board's fmt, which leaves the board's marks as their own characters,
+  // so the last page's three stars are drawn again
+  function liveMarks(el){
+    if (!el || el.box.classList.contains("histview") || !/[\uE001-\uE005]/.test(el.reply.textContent)) return;
+    el.reply.innerHTML = withMarks(el.reply.innerHTML);
   }
   // an answer sent from an older page brings the card back to the newest one:
   // the step back ends where it stands, with the older page still drawn, so the
