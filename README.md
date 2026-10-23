@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Facilitator" src="tools/readme-header/facilitator-header.svg" width="460">
+  <img alt="Facilitator" src="app/tools/readme-header/facilitator-header.svg" width="460">
 </p>
 
 ## About 
@@ -13,6 +13,8 @@ Facilitator is a natural language development environment. It is an interface bu
 4. Hotkeys make it easy to triage tasks; you can quickly defer features and bugs that should be dealt with later
 5. After iterating a bit on a project using the Facilitator, the cards serve as that project's knowledge bank, owned by you, and easily queryable by agents
 
+![The Facilitator board with notes pointing to the cards, the task drawer, the triage buttons and the free space](docs/images/facilitator_20261022_social_3.png)
+
 Facilitator is meant to complement your existing development workflow. **To make the best of the Facilitator**:
 - Atomize your asks
 - Learn the hotkeys
@@ -24,7 +26,7 @@ Facilitator is meant to complement your existing development workflow. **To make
 **Pre-requisites**:
 - Claude Code or Codex
 - Google Chrome
-- macOS 11 or later (the installer sets up its own Python 3.14 for the board; your own Python is not changed)
+- macOS 11 or later
 
 Installing the Facilitator is easy:
 ```
@@ -41,6 +43,8 @@ cd facilitator
 3. Open a project on the facilitator, press `command + T` to open a new card, and start shipping!
 
 ### Mobile version
+![The Facilitator board open on a phone, standing on a table next to a keyboard](docs/images/facilitator_20261022_social_1.jpg)
+
 The Facilitator comes with a mobile version. The mobile version is fun to use when paired with an external keyboard. 
 
 If you have an always on machine (or like to leave your laptop running), you can access your project on the Facilitator and direct agents as long as you have **Tailscale**. 
@@ -53,20 +57,19 @@ To use the mobile version:
 
 ## Updating the Facilitator
 
-Facilitator is still in development and will be constantly updated. To update, run the following on your terminal:
+Facilitator is still in development and will be constantly updated. When a new version is out, the board asks whether to update; say Yes and it downloads the update, restarts if it needs to and reloads itself. To update from the terminal instead, run:
 ```
 facilitator update
 ```
 
-## What leaves your Mac
+## Bonus
 
-- Once a day, counts about the day before: messages sent, cards made and closed, projects added, agent replies and phone app openings, with the app version and the main macOS version number, under a random id made for your install. Never a word you typed, a card title, a folder or a path.
-- Your profile (the email you give when you set up, your name, what you use Facilitator for, your main agent and your time zone) goes only after you have given an email, and only while the daily counts switch is on.
-- The switch is "Share daily usage counts" in Settings, under Improvements. With it off, nothing leaves your Mac.
-- Nothing you type into a card or the magic box is ever sent.
+The Facilitator's home page charts how many tokens your Claude Code and Codex sessions use each day, read from their session logs on your Mac. Press the download button on the chart to save a shareable picture of your year, like this one:
+
+![A chart of tokens used per day this year, with the Facilitator logo](docs/images/facilitator_20261022_social_2.png)
 
 ## License
 
 This project is released under the [Facilitator License 1.0.0](LICENSE.md). Contributions are accepted under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The bundled CodeMirror editor (`cm-markdown.js`) is included under its own MIT license; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The bundled CodeMirror editor (`app/cm-markdown.js`) is included under its own MIT license, and the bundled d3-force (`app/graph-force.js`) under its own ISC license; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

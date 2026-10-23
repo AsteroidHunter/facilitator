@@ -1,0 +1,2372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome to Facilitator</title>
+<link rel="icon" href="data:,">
+<!-- the server writes the board's version in here (#npversion in index.html) -->
+<meta name="facilitator-version" content="">
+<!-- Facilitator's first run, as a run of real cards: Welcome, one onboarding
+     card whose questions (the name, the email, the work) come
+     one after another as its replies, three short 101 cards, a Bonus card about
+     the phone and a last card, FIN. Each reply is
+     a page of the onboarding card's history and knows the field it asks for,
+     so a step back with Control + Shift + up and a send there changes that
+     answer. A faint keyboard behind the card's foot comes in with the first
+     answer and lights the keys the onboarding card's last page names, and the
+     keys a key name on a card stands for while the pointer is over it. The Mac board
+     lays this page over itself in a frame of its own while the board has no
+     complete profile (GET /profile in server.py), so nobody uses the board
+     before going through it. The card's look and motion are the board's own,
+     loaded from the board: the shared sheet, the markdown, the card logic and
+     the magic box's placing, so a change to the bubbles, the send motion, the
+     page turn, the reply history, the ticket list's sections or where a magic
+     box stands shows here too. What index.html
+     keeps inline, and so cannot be loaded, is copied below, each piece under
+     the name it has there. The card is the board's own size, 518.4 by 766.08,
+     the board's 1440 by 900 design at full size, its top where it stands
+     centred on the empty paper, and cut from the bottom by 10 to 20 percent
+     so the keyboard under it shows (#obkeys below).
+     From 101: Tickets on, the board's ticket list stands beside it, one
+     ticket per card, where the board's stage puts the two. On 101: Phone App
+     the board's magic box stands on the card's other side with the photo of
+     the phone app in it (#magicbox below). An answer is
+     replied to the moment its send's flight lands, with no Delivered, Read or
+     working stage between. ?hint=title, ?hint=box or ?hint=bar puts the Tab
+     hint elsewhere (the default is ?hint=reply).
+     The answers stay in this page until the last card is marked done; then
+     they are saved as the profile (POST /profile), the frame goes and the
+     board opens on the sample project this page opened at its start
+     (POST /onboarding/sample, then POST /project as "Open a new folder" does).
+     Every question is needed: Enter with the box empty keeps the question and
+     asks for its answer in one short line, and so does an email with no @ or
+     no dot after it. The cards after the onboarding card open only once every
+     question is answered: a move there before that stays on the onboarding
+     card and asks for the answer missing. What leaves the Mac is the board's to say,
+     behind the "Share daily usage counts" switch in Settings (docs/privacy.md,
+     Usage counts). -->
+<script src="/card-markdown.js"></script>
+<script src="/card-logic.js"></script>
+<script src="/magic-box.js"></script>
+<script src="/hover-labels.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+<style>
+  /* ---- copied from index.html's own sheet -------------------------------
+     the focused card's frame lives only in index.html's inline style, so it is
+     copied here rule for rule, each group under what it is there. left out:
+     every rule for other parts of the board, the formatted composer (.cffield,
+     not loaded here) and the board's tinted button fills, which the focused
+     card's own rules override anyway. card-tokens.css is loaded right after
+     this sheet, the order index.html has */
+
+  /* the page */
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font:15px/1.55 var(--sans);
+    background-image:radial-gradient(circle at 18% -4%, #FCFCFB 0%, rgba(252,252,251,0) 52%);
+  }
+  body, button{-webkit-user-select:none; user-select:none}
+  .reply, .mreply, .answmsg, .cm-content, input, textarea,
+  [contenteditable=""], [contenteditable="true" i], [contenteditable="plaintext-only" i]{
+    -webkit-user-select:text; user-select:text;
+  }
+  ::selection{background:#000; color:#fff}
+
+  /* the squid mark, cut to the squid's own bounds */
+  .squidmark{display:block; height:20px; aspect-ratio:2103 / 2046; overflow:hidden; flex:none}
+  .squidmark img{display:block; width:108.95%; max-width:none; height:auto; margin:-5.83% 0 0 -4.48%}
+
+  /* the chips' base */
+  .xbtn{flex:none; font:14px var(--mono); color:var(--sub); background:none; border:none;
+    cursor:pointer; padding:0 4px; line-height:1; transition:color .2s}
+  .xbtn:hover{color:var(--must)}
+  .arcbtn, .sunbtn, .dockbtn{flex:none; display:inline-flex; align-items:center; justify-content:center;
+    color:#000; background:none; border:none; cursor:pointer; padding:0}
+
+  /* the card */
+  .box{
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+    margin:0 0 14px; overflow:hidden;
+    transition:border-color .35s, background .45s, box-shadow .25s;
+    animation:rise .45s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes rise{from{opacity:0; transform:translateY(6px)}}
+  .box:focus-within{border-color:var(--line); box-shadow:0 2px 14px rgba(60,45,20,.05)}
+  .head{display:flex; align-items:center; gap:10px; padding:12px 14px 0; cursor:default}
+  .title{font:625 17.5px/1.25 var(--inter); flex:1; min-width:0}
+  .title[contenteditable]{outline:none}
+  .title:empty::before{content:"Card Name"; color:var(--bubble-fill, #F3F3F3)}
+  .body{padding:8px 14px 13px}
+  .reply{color:var(--ink)}
+  .reply p{margin:0 0 9px}
+  .reply p:last-child, .reply ul:last-child, .reply ol:last-child{margin-bottom:0}
+  .reply ul, .reply ol{margin:0 0 9px; padding-left:20px}
+  .reply li{margin:3px 0}
+  .meta{font:11.5px var(--mono); color:var(--sub); margin-top:9px; min-height:15px; display:flex; gap:6px; align-items:center}
+  .compose{display:flex; gap:8px; margin-top:9px; align-items:flex-end}
+  textarea{
+    flex:1; resize:none; font:14.5px/1.45 var(--sans); color:var(--ink);
+    background:var(--paper); border:var(--edge) solid var(--line); border-radius:9px;
+    padding:8px 11px; min-height:38px; max-height:170px; outline:none; transition:border-color .2s;
+  }
+
+  /* an older reply, while it shows, dims a little */
+  .box.histview .replyview{opacity:.8}
+
+  /* the block caret's two layers, and the send square's base */
+  #fatcaret, #fatcaretlift{display:none; position:fixed;
+    pointer-events:none; z-index:99}
+  #fatcaret{background:var(--card); mix-blend-mode:difference}
+  #fatcaretlift{background:var(--ink); mix-blend-mode:color-dodge}
+  #fatcaret.on, #fatcaretlift.on{display:block}
+  .fc-hide{caret-color:transparent}
+  textarea::placeholder{color:#B4AA99}
+  .sendbtn{
+    flex:none; font:600 13px var(--sans); color:#fff;
+    border:none; border-radius:9px; padding:9px 16px; cursor:pointer;
+    transition:transform .12s, opacity .2s;
+  }
+  .sendbtn:disabled{opacity:.35; cursor:default; transform:none}
+
+  /* the board's corners, motion and scroll rules */
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important} }
+  .box, textarea, .sendbtn{border-radius:4px !important}
+  .sendbtn{border:none !important}
+  html:has(body.focus), body.focus{overflow:hidden}
+  html, body{overscroll-behavior:none}
+  #tiklist, .tikpane, #tickets, .box .body, .box .replyview, textarea{overscroll-behavior:none}
+
+  /* the design size every measure on the card is a share of. the
+     board scales its whole stage down to fit the window and never above 1:1,
+     so in a window that holds the board the card is drawn at exactly this size.
+     this page draws the card at its design size and shortens it on a short
+     window instead, because the page turn lays its pictures in window pixels
+     and a scaled card would put them off by the scale */
+  body.focus{
+    --bar-h:41px;
+    --cw:1440px; --ch:900px;
+    --ox:0px; --oy:0px;
+    --tik-x:calc(var(--ox) + var(--cw)*0.028);     --tik-w:calc(var(--cw)*0.252);
+    --tik-y:0.192;   --tik-h:0.5696;
+    --frame-x:calc(var(--ox) + var(--cw)*0.32);    --frame-w:calc(var(--cw)*0.36);
+    --frame-y:0.0576; --frame-h:0.8512;
+    --pad-x:calc(var(--cw)*0.016);  --pad-y:0.008;
+    --sp-xs:calc(var(--ch)*0.005);  --sp-s:calc(var(--ch)*0.0095);
+    --sp-m:calc(var(--ch)*0.0195);  --sp-x:calc(var(--cw)*0.0085);
+    --grid:calc(var(--cw)*0.008);
+  }
+
+  /* the card's frame. index.html seats it at its place on the stage
+     (left:--frame-x, top:--frame-y); here it stands alone in the middle */
+  body.focus main{
+    max-width:none; margin:0; overflow:hidden;
+    position:relative;
+    width:min(var(--frame-w), calc(100vw - 32px));
+    height:min(calc(var(--ch)*var(--frame-h)), calc(100vh - 32px));
+    border:var(--edge) solid var(--line); background:#fff; border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+    transition:box-shadow .2s;
+    padding:calc(var(--ch)*0.022) var(--pad-x);
+    display:flex; flex-direction:column; align-items:stretch;
+  }
+  body.focus #sections{width:100%; max-width:100%; flex:1; display:flex; flex-direction:column; min-height:0}
+  body.focus .box{display:none}
+  body.focus .box.sel{
+    display:flex; flex-direction:column; flex:1; min-height:0;
+    background:transparent !important; border:none !important; box-shadow:none !important;
+    animation:none; margin:0; overflow:visible;
+  }
+  body.focus .box.sel{position:static; animation:none}
+
+  /* the card's own top bar */
+  :root{
+    --bar-sq:24px;
+    --bar-gap-hist:4px; --bar-gap-chips:6px; --bar-lead:2px; --bar-tail:5px;
+    --histpos-room:2px; --pathline-h:15px;
+  }
+  .topbar{display:none}
+  body.focus .box.sel .topbar{
+    --hist-cell:var(--bar-sq);
+    display:grid; align-items:center; flex:none; position:relative;
+    grid-template-columns:minmax(0, 1fr) repeat(4, var(--bar-sq));
+    grid-template-rows:minmax(0, 1fr);
+    grid-template-areas:"hist sun dock moon cross";
+    column-gap:var(--bar-gap-chips);
+    height:var(--cardbar-h);
+    margin:calc(var(--ch)*-0.022) calc(var(--pad-x)*-1)
+           calc(var(--ch)*0.022 + var(--pathline-h) - var(--cardbar-h));
+    padding:0 var(--bar-tail) 0 var(--pad-x);
+    background:var(--card);
+    box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
+  }
+
+  /* the reply history's two arrows and its count */
+  body.focus .box.sel .histctl{
+    grid-area:hist; justify-self:start; min-width:0;
+    display:flex; align-items:center; gap:var(--bar-gap-hist); padding-left:var(--bar-lead);
+    font:11.5px var(--mono); color:var(--sub); white-space:nowrap;
+    visibility:hidden; opacity:0; transform:scale(.5); transform-origin:left center;
+    pointer-events:none;
+    transition:opacity .26s var(--gentle), transform .26s var(--gentle),
+               visibility 0s linear .26s;
+  }
+  body.focus .box.sel.hashist .histctl{
+    visibility:visible; opacity:1; transform:scale(1); pointer-events:auto;
+    transition:opacity .26s var(--gentle), transform .26s var(--gentle), visibility 0s;
+  }
+  body.focus .box.sel .histbtn{
+    flex:none; width:var(--hist-cell); height:var(--hist-cell); padding:0; border:none; border-radius:var(--sq);
+    background:var(--card); color:var(--ink); display:grid; place-items:center; cursor:pointer;
+  }
+  body.focus .box.sel .histbtn:hover,
+  body.focus .box.sel .histbtn:active{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus .box.sel .histbtn:disabled{opacity:.28; cursor:default}
+  body.focus .box.sel .histbtn.older .histchev{transform:rotate(0deg)}
+  body.focus .box.sel .histbtn.newer .histchev{transform:rotate(180deg)}
+  body.focus .box.sel .histchev{display:block; flex:none; width:var(--hist-glyph-w); height:var(--hist-glyph-h)}
+  body.focus .box.sel .histpos{margin-left:var(--histpos-room)}
+  body.focus .box.sel .histpos:empty{display:none}
+
+  /* the four chips */
+  body.focus .box.sel .xbtn{
+    grid-area:cross; position:relative; top:auto; right:auto; left:auto;
+    width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
+    background:var(--card); font-size:0; padding:0; border:none;
+  }
+  body.focus .box.sel .xbtn::before, body.focus .box.sel .xbtn::after{
+    content:""; position:absolute; left:50%; top:50%;
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t);
+  }
+  body.focus .box.sel .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
+  body.focus .box.sel .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  body.focus .box.sel .xbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus .box.sel .arcbtn, body.focus .box.sel .sunbtn, body.focus .box.sel .dockbtn{
+    position:relative; top:auto; right:auto;
+    width:var(--bar-sq); height:var(--bar-sq); border-radius:var(--sq);
+    background:var(--card); color:#000; border:none; padding:0;
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  body.focus .box.sel .sunbtn{grid-area:sun}
+  body.focus .box.sel .dockbtn{grid-area:dock}
+  body.focus .box.sel .arcbtn{grid-area:moon}
+  body.focus .box.sel :is(.arcbtn, .sunbtn, .dockbtn) svg{width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--bar-mark) * var(--chip-scale))}
+  body.focus .box.sel .arcbtn:hover, body.focus .box.sel .sunbtn:hover, body.focus .box.sel .dockbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus .box.sel :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]{opacity:var(--chipoff); cursor:default}
+  body.focus .box.sel :is(.sunbtn, .dockbtn, .arcbtn, .xbtn)[aria-disabled="true"]:hover{background:var(--card)}
+  body.focus .box.sel .num{display:none}
+
+  /* the title, its air, the body and the answer */
+  body.focus .box.sel .title{
+    order:10; flex:0 0 100%; min-width:0; white-space:normal;
+    font:625 30px/1.25 var(--inter); margin-top:0;
+    padding-left:calc(var(--pad-x)*2/3); padding-right:calc(var(--pad-x)*2/3);
+  }
+  body.focus .box.sel .wstat{display:none}
+  body.focus .box.sel{--titleair:calc(var(--pad-x)*2/3)}
+  body.focus .box.sel .head{
+    padding:var(--titleair) 0 0; flex-wrap:wrap; row-gap:var(--sp-xs); flex:none;
+  }
+  body.focus .box.sel .body{
+    display:flex !important; flex-direction:column; flex:1 1 0; min-height:0;
+    overflow:hidden; position:relative;
+    padding:var(--titleair) 0 0;
+  }
+  body.focus .box.sel .replyview{
+    display:flex; flex-direction:column;
+    flex:1 1 auto; min-height:0; overflow-y:auto;
+    margin-bottom:var(--replyair);
+    overflow-anchor:none;
+  }
+  body.focus .box.sel .reply{
+    flex:none;
+    font-size:18px; line-height:1.55;
+    padding-left:calc(var(--pad-x)*2/3);
+    padding-right:calc(var(--pad-x)*5/3 - var(--sbar));
+  }
+
+  /* the answer's fades and its run-out */
+  body.focus .box.sel{--replyfade:22px; --replyair:3.5px}
+  body.focus .box.sel .replyview{
+    -webkit-mask-image:
+      linear-gradient(to bottom,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+        rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+        rgba(0,0,0,1) var(--upband, 0px),
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px))),
+      linear-gradient(to right,
+        rgba(0,0,0,1) calc(var(--boxleft) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(var(--boxleft) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(var(--boxleft) - var(--replyfade)*.38),
+        rgba(0,0,0,0) var(--boxleft),
+        rgba(0,0,0,1) calc(var(--boxleft) + var(--replyfade)*.25)),
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
+    mask-image:
+      linear-gradient(to bottom,
+        rgba(0,0,0,0) 0,
+        rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+        rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+        rgba(0,0,0,1) var(--upband, 0px),
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(100% - var(--boxband, 0px) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(100% - var(--boxband, 0px) - var(--replyfade)*.38),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px))),
+      linear-gradient(to right,
+        rgba(0,0,0,1) calc(var(--boxleft) - var(--replyfade)),
+        rgba(0,0,0,.80) calc(var(--boxleft) - var(--replyfade)*.72),
+        rgba(0,0,0,.35) calc(var(--boxleft) - var(--replyfade)*.38),
+        rgba(0,0,0,0) var(--boxleft),
+        rgba(0,0,0,1) calc(var(--boxleft) + var(--replyfade)*.25)),
+      linear-gradient(to bottom,
+        rgba(0,0,0,1) calc(100% - var(--boxband, 0px)),
+        rgba(0,0,0,0) calc(100% - var(--boxband, 0px)));
+    mask-composite:intersect, add, add;
+  }
+  body.focus .box.sel .replyview::after{content:""; flex:none; height:calc(var(--answ-slack, 0px) + var(--boxband, 0px) + var(--replyfade, 0px))}
+
+  /* the two panels' seats and measures */
+  body.focus .box.sel .sentwrap{
+    display:flex; flex-direction:column; flex:none;
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);
+    background:var(--card);
+  }
+  body.focus .box.sel .sentwrap:empty{display:none}
+  body.focus .box.sel{
+    --boxleft:calc(var(--pad-x)*2/3);
+    --pend-cap:calc(var(--ch)*var(--frame-h)/2);
+    --under-bar:calc(1px + var(--row-min) + var(--sp-s));
+    --sent-cap:calc(var(--pend-cap) - var(--under-bar) - var(--answ-pad-y) - var(--answ-strip) - var(--sp-s));
+  }
+  body.focus .box.sel .pendwrap{
+    position:absolute; left:0; right:0; bottom:0;
+    display:flex; flex-direction:column; pointer-events:auto;
+  }
+  body.focus .box.sel .answwrap{
+    display:flex; flex-direction:column; flex:none;
+    padding:0 calc(var(--pad-x)*5/3 - var(--sbar)) var(--sp-s) calc(var(--pad-x)*2/3);
+  }
+  body.focus .box.sel .answwrap:empty{display:none}
+  body.focus .box.sel{
+    --answ-font:400 15px/20px var(--inter); --answ-line:20px;
+    --answ-pad-y:18px; --answ-pad-x:18px; --answ-round:18px;
+    --answ-strip:36px;
+  }
+
+  /* the bar, the row and the row's head fade */
+  body.focus .box.sel .bottombar{
+    display:flex; align-items:flex-end; gap:var(--sp-s); flex:none;
+    margin:0 calc(var(--pad-x)*2/3) 0 calc(var(--pad-x)*2/3);
+    border-top:var(--edge) solid var(--line);
+    background:var(--card);
+  }
+  body.focus .box.sel .compose{
+    flex:1 1 auto; min-width:0; gap:var(--sp-x); align-items:flex-end;
+    background:none; border:none; border-radius:0; box-shadow:none;
+    padding:0; margin:0;
+  }
+  body.focus .box.sel textarea{
+    background:transparent; border:none !important; box-shadow:none;
+    padding:var(--sp-s) 4px; margin:0 calc(-4px - var(--sbar)) 0 -4px;
+    font-size:17px; line-height:1.5;
+    max-height:calc(var(--ch)*0.28); overflow-y:auto; min-height:var(--row-min);
+  }
+  body.focus .box.sel textarea.upfade{
+    --upair:clamp(0px, calc(var(--upband, 0px) - var(--replyfade)), var(--replyair));
+    --upramp:min(var(--upband, 0px), var(--replyfade));
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,0) var(--upair),
+      rgba(0,0,0,.35) calc(var(--upair) + var(--upramp)*.38),
+      rgba(0,0,0,.80) calc(var(--upair) + var(--upramp)*.72),
+      rgba(0,0,0,1) calc(var(--upair) + var(--upramp)));
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,0) var(--upair),
+      rgba(0,0,0,.35) calc(var(--upair) + var(--upramp)*.38),
+      rgba(0,0,0,.80) calc(var(--upair) + var(--upramp)*.72),
+      rgba(0,0,0,1) calc(var(--upair) + var(--upramp)));
+  }
+
+  /* the send square, the plus, its picker and the note line */
+  body.focus .box.sel .sendbtn{
+    flex:none; width:28px; height:28px; min-height:0; padding:0; border:none;
+    background:var(--card); color:#000;
+    display:grid; place-items:center; line-height:1; cursor:pointer;
+    opacity:0; transform:scale(.5); pointer-events:none;
+    transition:opacity .26s var(--gentle), transform .26s var(--gentle);
+  }
+  body.focus .box.sel .sendbtn.show{opacity:1; transform:scale(1); pointer-events:auto}
+  body.focus .box.sel .sendbtn:hover{background:color-mix(in srgb, #000 var(--press), var(--card))}
+  body.focus .box.sel .sendbtn:active{transform:scale(1)}
+  body.focus .box.sel .clipbtn{
+    flex:none; width:28px; height:var(--row-min); padding:0; border:none;
+    background:none; border-radius:var(--sq);
+    display:grid; place-items:center; line-height:1; cursor:pointer;
+    color:var(--ink);
+    position:relative; isolation:isolate;
+    transition:transform .11s var(--gentle);
+  }
+  body.focus .box.sel .clipbtn::before{
+    content:""; position:absolute; z-index:-1;
+    left:0; right:0; top:50%; aspect-ratio:1; transform:translateY(-50%);
+    border-radius:var(--sq); border:var(--edge) solid var(--line);
+    background:color-mix(in srgb, #000 var(--press), var(--paper));
+    box-shadow:var(--sunk-deep);
+    opacity:0;
+    transition:opacity .11s var(--gentle);
+  }
+  body.focus .box.sel .clipbtn:active{transform:translateY(1px)}
+  body.focus .box.sel .clipbtn:active::before{opacity:1}
+  body.focus .box.sel .meta{
+    margin:0 calc(var(--pad-x)*2/3); min-height:0; background:var(--card);
+  }
+
+  /* ---- the ticket list, copied the same way ------------------------------
+     left out: the row's search match (it wears --accent-soft), the
+     working ticket's shimmer (no ticket here ever works), the
+     past-capacity rules (a class nothing here sets) and the row
+     parts the renderer no longer draws (.tnum, .tt, .ta) */
+
+  /* the project tab's type and spacing, which the section names
+     reuse. the seated tab's notches are struck on the names by
+     #tikhead .tvb.on::before below, so they are left out too */
+  .ptab{
+    font:500 13px/16px var(--sans); color:var(--sub);
+    background:transparent; border:var(--edge) solid transparent; border-bottom:none;
+    border-radius:7px 7px 0 0; cursor:pointer; user-select:none;
+    position:relative; top:1px;
+    height:38px; padding:calc(1px - var(--edge-drawn)) 16px 5px;
+    --seat:var(--paper);
+    transition:padding-right 180ms cubic-bezier(0.25, 1, 0.5, 1);
+  }
+  .ptab:hover{color:var(--ink)}
+  .ptab.on{color:var(--ink); background:var(--seat); border-color:var(--line)}
+
+  /* the ticket holder, two names above the list */
+  body.focus #tickets{
+    --line-gap:6px;
+    --tik-inset-l:calc(0.7vw + var(--edge-drawn)); --tik-inset-r:calc(0.6vw + var(--edge-drawn));
+    position:fixed; left:var(--tik-x); width:var(--tik-w);
+    top:calc(var(--oy) + var(--ch)*var(--tik-y));
+    height:calc(var(--ch)*var(--tik-h));
+    background:transparent; border:none; border-radius:0; box-shadow:none;
+    display:flex; flex-direction:column; overflow:visible; gap:calc(var(--line-gap) + 1px);
+  }
+  /* the names' row, and the line under it */
+  #tikhead{position:relative; flex:none; display:flex; align-items:flex-end; gap:4px; padding:6px 0 0; border-bottom:none}
+  #tikhead::after{
+    content:""; position:absolute; pointer-events:none;
+    top:calc(100% + var(--line-gap));
+    left:0; right:0; height:0;
+    border-top:var(--edge) solid var(--line);
+  }
+  /* the names, the selected one by weight and ink, and the dip on a press */
+  #tikhead .tvb{flex:1; --seat:var(--card); height:auto; top:0; padding:6px 0 5px;
+    font-size:14px; border:1px solid transparent}
+  #tikhead .tvb{
+    border-radius:7px;
+    box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+    transition:color .18s, box-shadow .16s ease-out;
+  }
+  #tikhead .tvb.on{color:var(--ink); font-weight:700; background:transparent}
+  #tikhead .tvb:active, #tikhead .tvb.pressed{
+    box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+    transition:color .18s, box-shadow .08s ease-in;
+  }
+  #tikhead .tvb.on::before, #tikhead .tvb.on::after{display:none}
+  /* the list, the sheet of four sections, and each section with its
+     own scroll and its top and foot fades */
+  #tiklist{--listfade:22px; --list-air:7px; --list-side:20px;
+    position:relative; flex:1; min-height:0; overflow:clip;
+    display:flex; flex-direction:column;
+    margin:0 calc(var(--list-side)*-1) calc(var(--list-air)*-1)}
+  #tiksheet{flex:1; min-height:0; display:flex; flex-direction:row; will-change:transform}
+  .tikpane{flex:0 0 100%; min-width:0; height:100%; overflow-y:auto; overflow-x:hidden;
+    display:flex; flex-direction:column; gap:calc(var(--ch)*0.007);
+    padding:calc(var(--edge-drawn) + var(--ch)*0.012)
+            calc(var(--list-side) + var(--tik-inset-r))
+            calc(var(--list-air) + var(--edge-drawn) + var(--ch)*0.012)
+            calc(var(--list-side) + var(--tik-inset-l));
+    scroll-padding-block:var(--listfade);
+    -webkit-mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px),
+      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+      rgba(0,0,0,0) 100%);
+    mask-image:linear-gradient(to bottom,
+      rgba(0,0,0,0) 0,
+      rgba(0,0,0,.35) calc(var(--upband, 0px)*.38),
+      rgba(0,0,0,.80) calc(var(--upband, 0px)*.72),
+      rgba(0,0,0,1) var(--upband, 0px),
+      rgba(0,0,0,1) calc(100% - var(--downband, 0px)),
+      rgba(0,0,0,.80) calc(100% - var(--downband, 0px)*.72),
+      rgba(0,0,0,.35) calc(100% - var(--downband, 0px)*.38),
+      rgba(0,0,0,0) 100%)}
+  /* the ticket, its title and its age, and the fills of its states */
+  .trow{
+    position:relative; flex:none; height:calc(var(--ch)*0.072);
+    border:var(--edge) solid var(--line); border-radius:5px; background:#fff;
+    box-shadow:0 1px 4px rgba(60,45,20,.05);
+    display:flex; flex-direction:column;
+    cursor:pointer; overflow:hidden;
+    transition:border-color .3s, background-color .3s;
+  }
+  .trow:hover{border-color:var(--line)}
+  .trowin{display:flex; align-items:center; gap:var(--sp-x); height:100%;
+    padding:0 var(--sp-x)}
+  .trow.seen .ttl{color:#847A6B}
+  .ttl{flex:1; min-width:0; font:500 17px/1.3 var(--sans); color:var(--ink);
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+  .tmeta{flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:2px}
+  .tmeta .tage{font:600 12.5px var(--mono); color:var(--sub); font-variant-numeric:tabular-nums;
+    min-height:16px}
+  .tmeta .teng{font:400 10.5px var(--mono); color:#B4AA99}
+  .tempty{font:italic 12.5px var(--sans); color:#B4AA99; padding:8px 12px}
+  .trow.working{background:#F3FFF0; border-color:var(--line)}
+  .trow.yours{background:#FFFBEB; border-color:var(--line)}
+  .trow.queuedc{background:#F7F7F7; border-color:var(--line)}
+  .trow.donec{opacity:.55}
+  /* the ticket of the card on show rises off the list */
+  .trow.on{
+    border-color:var(--line);
+    transform:translateY(-1px); z-index:1;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+  }
+</style>
+<link rel="stylesheet" href="/card-tokens.css">
+<style>
+  /* ---- this page's own ---------------------------------------------------- */
+  /* the onboarding stands on white paper, whatever paper the board has */
+  body{background:#fff}
+
+  /* nothing on the paper but the card, in the middle of the window */
+  #obstage{position:fixed; inset:0; display:grid; place-items:center}
+
+  /* the Welcome card: the product's own lockup, the mark beside the word and
+     the version under it (the new-project landing's #npbrand in index.html),
+     is the card's header, at the left where the other cards have their titles.
+     it is drawn in ems off the title's own font, the word a tenth bigger
+     than a regular card title, so mark, word, version and the room under it
+     that its version hangs into all grow together. at the top of the card's
+     text, where the other cards' words start, stand the greeting, the blurb
+     and the key, in the card's own words, to the left */
+  #box-welcome .reply{flex:1 0 auto; display:flex; flex-direction:column; justify-content:flex-start;
+    padding-right:calc(var(--pad-x)*2/3)}
+  .obwelcome{display:flex; flex-direction:column; align-items:flex-start; text-align:left}
+  .obbrand{display:flex; width:max-content; align-items:center; gap:.214em; margin:0 0 .4em;
+    font:inherit; letter-spacing:-.02em; font-size:1.1em; color:var(--ink)}
+  /* the squid is wider than the one before it, so its box keeps the old width
+     (917 / 1126) and the word stays where it was; the whole picture stands
+     centred in the box, its squid .786em tall as before */
+  .obbrand .squidmark{height:.786em; aspect-ratio:917 / 1126; overflow:visible; position:relative}
+  .obbrand .squidmark img{position:absolute; left:50%; top:50%; width:auto; height:111.99%; margin:0;
+    transform:translate(-50%, -50%)}
+  .obbrandcopy{position:relative; display:inline-block}
+  .obbrandname{display:block}
+  .obversion{position:absolute; top:calc(100% - .036em); left:.036em;
+    font:500 .357em/1.1 var(--inter); letter-spacing:.035em;
+    color:var(--sub); opacity:.5; white-space:nowrap}
+
+  /* the keyboard behind the onboarding card's foot: the hotkey map's keyboard
+     (facilitator-mocks/mock-hotkey-map-20261008.html), drawn at its own size and
+     shown at --kb-scale of it, keys, gaps, legends and corners together, every
+     key faint, centred under the card. at .7 its left edge stays clear of the
+     ticket list beside the card. the onboarding cards keep the board's
+     card width and the top the board's full height card has, centred in the
+     window (--card-h and --card-top, body.focus main above, which the ticket
+     list is read from too), and are cut from the bottom so the card's foot
+     stands on the line between the keyboard's number row and its top letter
+     row (Q to P): the keyboard's function row and number row, 96 of its 336,
+     stand under the card (--kb-under), and every letter stays in view. the cut
+     is what puts the keyboard's foot --kb-foot above the window's bottom, held
+     between 10 and 20 percent of the card's full height: on a window tall
+     enough to need less than 10 percent the keyboard stands higher than that,
+     and on one short enough to need more than 20 percent it stands lower */
+  body.focus{
+    --kb-scale:.7; --kb-h:calc(336px * var(--kb-scale));
+    --kb-under:calc(var(--kb-h) * 96 / 336); --kb-foot:12px;
+    --card-h:min(calc(var(--ch)*var(--frame-h)), calc(100vh - 32px));
+    --card-top:calc((100vh - var(--card-h)) / 2);
+    --ob-cut:clamp(calc(var(--ch)*var(--frame-h)*.1),
+                   calc(var(--card-top) + var(--card-h) - (100vh - var(--kb-foot) - var(--kb-h) + var(--kb-under))),
+                   calc(var(--ch)*var(--frame-h)*.2));
+    --ob-h:calc(var(--card-h) - var(--ob-cut));
+    --card-mid:50vw;
+  }
+  #obstage{align-items:start}
+  body.focus main{height:var(--ob-h); margin-top:var(--card-top)}
+  #obkeys{position:fixed; pointer-events:none;
+    left:var(--card-mid); transform:translateX(-50%) scale(var(--kb-scale)); transform-origin:top center;
+    top:calc(var(--card-top) + var(--ob-h) - var(--kb-under));
+    opacity:0; transition:opacity var(--keys-in, .4s) ease}
+  #obkeys.on{opacity:1}
+  #obkeys .obkey{position:absolute; border-radius:7px; font-family:var(--sans);
+    background:rgba(28,40,60,.05); color:rgba(28,40,60,.32);
+    transition:background-color var(--lit-ms, .6s) ease, color var(--lit-ms, .6s) ease}
+  #obkeys .obkey.lit{background:#1E63C4; color:#fff}
+  #obkeys .c{position:absolute; inset:0; display:flex; align-items:center; justify-content:center}
+  #obkeys .letter{font:500 15px/1 var(--sans)}
+  #obkeys .fk{font:500 10px/1 var(--mono); letter-spacing:.02em}
+  #obkeys .word{position:absolute; bottom:8px; font:400 10.5px/1 var(--sans); letter-spacing:.01em}
+  #obkeys .word.l{left:9px} #obkeys .word.r{right:9px}
+  #obkeys .sym{position:absolute; top:8px; font:13px/1 -apple-system, var(--sans)}
+  #obkeys .sym.l{left:9px} #obkeys .sym.r{right:9px}
+  #obkeys svg{display:block}
+
+  /* ---- the magic box, copied from index.html's own sheet -------------------
+     the box beside 101: Phone App that holds the photo of the phone app is the
+     board's magic box: its look is the shared sheet's (.magicbox and .mbimg,
+     card-tokens.css) and where it stands is magic-box.js's, both loaded from
+     the board. the board's face and shadow live only in index.html's inline
+     style, so they are copied here rule for rule under the names they have
+     there: the card's white face and edge line, corners twice the card's 7px,
+     and a white bar at its top with the card bar's line under it. it is
+     drawn at full strength in the shadow a box wears while it is held (.held
+     there), the card's own: nothing here can hold the box, and the faint look
+     a box wears beside the card being worked in, its lighter shadow at 60%,
+     would only wash the photo out. its two lines to the card are the board's
+     too (#mbline below).
+     left out: the bar's two buttons (nothing here expands or closes the
+     box), the rise (a box already open on a card is simply there when the
+     card is shown), the lines' fade as the box moves (it never moves here),
+     the expanded box and its shade, the lowered card, home and edit mode */
+  body.focus{--shade-raised:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10)}
+  #magicbox{display:none}
+  body.focus #magicbox.on{display:flex; position:fixed; z-index:1}
+  #magicbox{background:var(--card); border:var(--edge) solid var(--line); border-radius:var(--mb-round);
+    box-shadow:var(--shade-raised); opacity:1}
+  /* the line under its bar is the card bar's own (.topbar, above): an inset
+     shadow of the edge's drawn width in --line along the bar's foot, inside
+     the bar, so it takes nothing from the bar's height and never lies over
+     the photo. the sheet's line, which hangs under the bar, stays off */
+  #magicbox .mbbar{background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line)}
+  #magicbox .mbbar::after{display:none}
+  #magicbox .mbbody{overflow:hidden}
+  /* the two lines that tie the box to its card, as the owner chose them in the
+     connector mock (magicLine): the card's own edge colour, dashed, 4/3 px,
+     straight across the gap from the card's right edge to the box's left
+     edge, and no further. they lie beneath the card and the box (#mbline,
+     before the card, under the box's z-index), and wear the card's own
+     shadow, its two layers at the strength a filter gives them (a filter's
+     blur is the spread of the blur a box-shadow asks for, so half of it).
+     the shadow is on the group inside the svg, not on the svg, so it is
+     painted once with the lines (m1216). they come and go with the box */
+  #mbline{display:none}
+  body.focus #mbline.on{display:block; position:fixed; left:0; top:0; width:1px; height:1px;
+    overflow:visible; pointer-events:none; z-index:0}
+  body.focus #mbline.on > g{filter:drop-shadow(0 2px 9px rgba(60,45,20,.18)) drop-shadow(0 1px 1.5px rgba(60,45,20,.10))}
+  /* a click on the photo opens nothing here, so it keeps the plain pointer */
+  #magicbox .mbimg{cursor:default}
+
+  /* the board's own marks in a card's words (MARKS below): the sun, the cloud
+     and the moon at the size the card's top bar draws them, and the cross drawn
+     the way the top bar draws its own, two bars --bar-mark long and --cross-t
+     thick. each stands on the line's baseline in a box the mark's size, which
+     puts its middle at the middle of the capitals */
+  .reply .obmark{position:relative; display:inline-block; vertical-align:baseline; color:#000;
+    width:calc(var(--bar-mark) * var(--chip-scale)); height:calc(var(--bar-mark) * var(--chip-scale))}
+  .reply .obmark svg{display:block; width:100%; height:100%}
+  .reply .obcross::before, .reply .obcross::after{content:""; position:absolute; left:50%; top:50%;
+    width:var(--bar-mark); height:var(--cross-t); background:#1e1e1e; border-radius:var(--cross-t)}
+  .reply .obcross::before{transform:translate(-50%,-50%) rotate(45deg)}
+  .reply .obcross::after{transform:translate(-50%,-50%) rotate(-45deg)}
+  /* the three stars on the last card, a divider centred in the card's words */
+  .reply .obstars{display:block; text-align:center; word-spacing:.6em}
+
+  /* the other places the Tab hint can stand (?hint=), each shown only while
+     the card's question is unanswered (obwait). the ghost after the title's
+     last letter is laid out of the flow at the spot the words end, so it can
+     never wrap the title or move the card, and it starts 24px on, clear of the
+     block caret, which stands half the title's 30px wide. its top is the
+     line's top, so it is dropped to the middle of the title's 37.5px line.
+     it stands while the title holds the caret, which the title's own focus
+     and blur mark on the card (obintitle), since :focus only matches while
+     the browser's window is the one in front */
+  .hint-title .box.obwait.obintitle .title::after{content:"Tab to answer";
+    position:absolute; margin:12px 0 0 24px; font:400 13px/13px var(--inter); letter-spacing:0;
+    color:var(--sub); opacity:.75; white-space:nowrap; pointer-events:none}
+  /* where the question's last line leaves no room for it before the card's
+     edge (seatGhost below), it stands under that line instead, at the words'
+     own left edge, in the title's air above the answer */
+  .hint-title .box.obghostdown.obwait.obintitle .title::after{
+    left:calc(var(--pad-x)*5/3); margin:40px 0 0 0}
+  .obbarhint{grid-area:hist; justify-self:start; min-width:0; padding-left:var(--bar-lead);
+    font:11.5px var(--mono); color:var(--sub); white-space:nowrap; overflow:hidden}
+  /* a hint called back to (a key typed into the question) prints in again, the
+     way a new answer prints */
+  .obnudge:not(.title), .hint-title .box.obwait.obintitle .title.obnudge::after{
+    animation:cardprint var(--print-move) var(--gentle) backwards}
+
+  /* the chips can be taken off the onboarding cards (SHOW_CHIPS below) */
+  body.focus .box.sel .topbar.obbare > :is(.sunbtn, .dockbtn, .arcbtn, .xbtn, .cardspin){visibility:hidden}
+
+  /* once the closing card is done, the card goes the way the board's own
+     views come and go, a plain fade (.18s ease, as #stage and homefade), and
+     the board takes the frame away the same way, onto the board itself */
+  body.focus main{transition:box-shadow .2s, opacity .18s ease}
+  body.obdone main{opacity:0; pointer-events:none}
+
+  /* from the onboarding card on (obboard) the card stands where the board's
+     stage puts it, and from 101: Tickets on (obtickets) the board's ticket list
+     stands beside it, the two in their places: the list at --tik-x
+     and --tik-y, the card at --frame-x, as copied above. index.html keeps --ox
+     and --oy at 0 and moves its whole stage with fitStage's transform; this
+     page has no stage, so it writes the stage's place into them. across, it is
+     fitStage's own place at full size in index.html: centred in a window
+     1440 wide or more, where the card stands exactly where it stood alone, and
+     against the window's left edge in a narrower one. down, the card stays
+     centred as on the Welcome card, which is where the board's stage, centred
+     under its bar, puts it (this page has no bar), and the stage's top is read
+     back from the card's */
+  body.focus{
+    --ox:max(0px, calc((100vw - var(--cw)) / 2));
+    --oy:calc(var(--card-top) - var(--ch)*var(--frame-y));
+  }
+  body.obboard #obstage{justify-items:start}
+  body.obboard main{margin-left:var(--frame-x)}
+  body.obboard{--card-mid:calc(var(--frame-x) + min(var(--frame-w), 100vw - 32px) / 2)}
+  /* the list stays hidden until 101: Tickets, the card about it, first comes
+     on screen, then phases in gently over .9s and stays, back on the earlier
+     cards too. a list never drawn until then would spend the fade's first
+     frames on its first drawing and show up most of the way in, so it is laid
+     out and drawn at no strength first, on its own layer, for two frames
+     (obticketsprep, set by show below), and fades from there. at the end it
+     goes on the board's own dissolve, the stage's .18s ease on strength and
+     visibility (#stage in index.html, and homefade, which brings the board in
+     from the home page) */
+  body.focus #tickets{transition:opacity .18s ease, visibility .18s ease}
+  body.focus.obticketsprep #tickets{visibility:visible; opacity:0; pointer-events:none; transition:none; will-change:opacity}
+  body.focus.obtickets:not(.obdone) #tickets{transition:opacity .9s ease, visibility 0s}
+  body.focus:not(.obtickets):not(.obticketsprep) #tickets, body.obdone #tickets{visibility:hidden; opacity:0; pointer-events:none}
+
+  /* the board's three top-right buttons on FIN (obfin, set by show below): the
+     speaker, the bug and the settings squid, drawn as the board's bar draws them,
+     in the same place, size, glass and spacing, so the board's own bar takes
+     over from them when the frame goes, with nothing moving. the board's bar is
+     covered by this page while the onboarding is up, so they are drawn here.
+     the speaker and the squid are greyed and cannot be pressed; the bug stays at
+     full strength. they come in gently with FIN and go with the frame (not with
+     the card's done), so the corner is never empty while the board opens.
+     the numbers are index.html's: the bar's inset from the window, its 40px
+     height with 1px above and 6px below and a clear 1px bottom row (the
+     circles stand on the whole pixel), 8px between pieces and 3px more before
+     the bug and the squid, 32px circles */
+  #obbar{position:fixed; top:var(--app-inset); right:var(--app-inset); height:40px; padding:1px 0 6px;
+    border-bottom:1px solid transparent; display:flex; align-items:center; gap:8px;
+    opacity:0; visibility:hidden; pointer-events:none; transition:opacity .18s ease, visibility 0s .18s}
+  body.obfin #obbar{opacity:1; visibility:visible; pointer-events:auto; transition:opacity .9s ease, visibility 0s}
+  #obbar button{flex:none; position:relative; width:32px; height:32px; margin:0; padding:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; color:var(--sub); cursor:pointer}
+  #obbar #obbug, #obbar #obset{margin-left:3px}
+  #obbar button:not(:disabled):hover{color:var(--ink)}
+  #obbar button:disabled{opacity:.4; cursor:default}
+  #obbar svg{display:block; flex:none}
+  #obbar .chime-slash, #obbar .chime-gap{display:none}
+  /* the bar's glass: no white first row and no dark band, so the grey ring is
+     the top edge (index.html, the bar's glass) */
+  #obbar .qn-glass{
+    box-shadow:
+      inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+      inset 0 0 0 1px var(--qn-ring),
+      inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+      inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+      0 1px 2px -1px rgba(0,0,0,.18),
+      0 1px 3px rgba(0,0,0,.07),
+      0 8px 20px rgba(0,0,0,.06)}
+</style>
+</head>
+<body class="focus">
+<!-- the magic box beside 101: Phone App, as index.html has it, filled with the
+     photo of the phone app below (PHONE_IMAGE); its bar has no buttons, since
+     nothing here expands or closes it -->
+<section id="magicbox" class="magicbox">
+  <div class="mbbar"></div>
+  <div class="mbbody" data-kind="image"></div>
+</section>
+<!-- the lines from the card to its magic box, two dashed lines beneath the
+     card and the box: before the card on the page, so it is drawn over them -->
+<svg id="mbline" aria-hidden="true"></svg>
+<div id="obstage"><main><div id="sections"></div></main></div>
+<!-- the ticket list, as index.html has it -->
+<div id="tickets"><div id="tikhead"><div id="tiknames"><div id="tiklabels"><div class="tikpair"><button id="tv-todo" class="ptab tvb on">Doing</button><button id="tv-docked" class="ptab tvb" type="button">Docked</button></div><div class="tikpair"><button id="tv-deferred" inert aria-hidden="true" class="ptab tvb">Deferred</button><button id="tv-done" inert aria-hidden="true" class="ptab tvb">Done</button></div></div></div><button id="tik-page-back" class="qn-glass tik-page back" type="button" aria-label="show Doing and Docked" data-tip="Doing And Docked" aria-disabled="true" tabindex="-1"></button><button id="tik-page" class="qn-glass tik-page" type="button" aria-label="show Deferred and Done" data-tip="Deferred And Done"></button></div><div id="tiklist"><div id="tiksheet"><div class="tikpane" data-view="todo"></div><div class="tikpane" data-view="docked"></div><div class="tikpane" data-view="deferred"></div><div class="tikpane" data-view="done"></div></div></div></div>
+<!-- the board's three top-right buttons, as its bar has them (index.html .bar), for the
+     last card. the speaker and the squid are greyed. the bug opens the Share Feedback
+     sheet (feedbackOverlay below), which works because the profile is saved once the
+     summary card is passed: until it is saved the board's feedback box is greyed and
+     POST /feedback refuses -->
+<div id="obbar"><button id="obchime" class="qn-glass" type="button" disabled aria-label="Reply chime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><defs><mask id="chimegap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path class="chime-gap" d="M3 3 21 21" stroke="#000" stroke-width="5"/></mask></defs><g mask="url(#chimegap)"><path d="M12 3.5 6.5 8.5H2.5v7h4l5.5 5z"/><g class="chime-waves"><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19.2 5.2a9.6 9.6 0 0 1 0 13.6"/></g></g><path class="chime-slash" d="M3 3 21 21"/></svg></button><button id="obbug" class="qn-glass" type="button" tabindex="-1" aria-label="Share feedback" data-tip="Share Feedback"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></button><button id="obset" class="qn-glass" type="button" disabled aria-label="settings"><span class="squidmark" aria-hidden="true"><img src="/m-splash-squid.png" alt="" draggable="false"></span></button></div>
+<!-- the Share Feedback row, as the board's Settings has it (index.html .fbrow). feedbackOverlay
+     lifts it into its sheet while the bug's sheet is open and sets it back after -->
+<div id="obfb" hidden><div class="sp-pane"><div class="setrow fbrow">
+  <label class="setlabel" for="fbta"><span>Share Feedback</span>
+    <small class="sethelp">Encountered bugs? Have feature requests or questions? Please tell us how we can improve.</small></label>
+  <div class="fbbox" id="fbbox" data-state="locked">
+    <textarea id="fbta" class="fbta" maxlength="5000" autocomplete="off" aria-describedby="fbnote" disabled></textarea>
+    <button id="fbsend" class="fbsend" type="button" aria-label="Send feedback" disabled>
+      <svg class="fbarrow" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg class="fbcross" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <svg class="fbring" viewBox="0 0 38 38" aria-hidden="true"><circle class="fbtrack" cx="19" cy="19" r="17.5" pathLength="100"/><circle class="fbprog" cx="19" cy="19" r="17.5" pathLength="100"/></svg>
+    </button>
+  </div>
+  <small id="fbnote" class="sethelp" role="status" aria-live="polite"></small>
+</div></div></div>
+<script>
+// ---- what card-logic.js reads off the page it runs in -----------------------
+// the board's names for its state, its selected card and its cards, as
+// index.html has them. the state is the board's reading of each card cut down
+// to what card-logic.js asks of it here: the reply on show and the messages it
+// answered, which is what the way back from an older reply reads (histExit),
+// and whether the card is working, which the spinner's clock reads. each also
+// carries what the ticket list reads of a card (its lane, title, whose turn
+// it is, its replies and when the last came), set below
+let lastState = { boxes: [] };
+let selectedId = null;
+const els = {};
+// the project on show and the task picked by its dot (activeOwner and selectedTask in index.html).
+// the onboarding is a lane of its own, and no task is picked
+let activeOwner = "onboarding";
+let selectedTask = null;
+// the board's way to show and select a card (select in index.html); here it
+// is the onboarding's own move, set below. a click on a ticket comes here
+let select = () => {};
+// the formatted composer (compose-format.js) is not loaded: it fetches its
+// editor from the board's server root, which a file page has not got, and the
+// board keeps it off unless it is turned on. the row is the plain textarea, and
+// these two answers are all card-logic.js asks the formatter about it
+const ComposeFormat = { focused: ta => document.activeElement === ta, fieldOf: () => null };
+
+// ---- copied from index.html, where these live inline ------------------------
+// boxHasSelection
+function boxHasSelection(el){
+  const sel = getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  for (let i = 0; i < sel.rangeCount; i++){
+    const r = sel.getRangeAt(i);
+    if (!r.collapsed && r.intersectsNode(el)) return true;
+  }
+  return false;
+}
+// boxBand and watchBand: the band the answer's foot fade is cut to, under the sent panel and the row
+function boxBand(reply, wrap, skip = 0){
+  const clear = parseFloat(getComputedStyle(reply).marginBottom) || 0;
+  const b = reply.getBoundingClientRect().bottom -
+            (wrap.getBoundingClientRect().top + skip - clear);
+  return Math.max(0, Math.round(b));
+}
+function watchBand(el){
+  const write = () => {
+    const band = sentBand(el, boxBand(el.replyview, el.pendwrap));
+    if (band === el.bandAt) return;
+    el.bandAt = band;
+    el.box.style.setProperty("--boxband", band + "px");
+  };
+  el.bandWrite = write;
+  if (window.ResizeObserver){
+    const ro = new ResizeObserver(write);
+    ro.observe(el.pendwrap);
+    ro.observe(el.replyview);
+    if (el.replyview.parentElement) ro.observe(el.replyview.parentElement);
+  }
+  write();
+}
+// riseBand and watchRise: the fade at the head of a scroller, as far as it has scrolled
+function riseBand(node){
+  if (!node._fade || node._air == null){
+    const cs = getComputedStyle(node);
+    const fade = parseFloat(cs.getPropertyValue("--replyfade")) || 0;
+    if (fade){
+      node._fade = fade;
+      node._air = node.tagName === "TEXTAREA" ? parseFloat(cs.getPropertyValue("--replyair")) || 0 : 0;
+    }
+  }
+  const up = Math.min(Math.round(node.scrollTop), (node._fade || 0) + (node._air || 0));
+  if (up === node._up) return;
+  node._up = up;
+  node.style.setProperty("--upband", up + "px");
+  node.classList.toggle("upfade", up > 0);
+}
+function watchRise(node){
+  node.addEventListener("scroll", () => riseBand(node), { passive: true });
+  riseBand(node);
+}
+// sentMarkAct: the arrow and the cross on a send that did not get through. nothing
+// sent here can fail to get through, so neither is ever drawn
+function sentMarkAct(){}
+// the reply history's chevron
+const CHEV_PATH = '<path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+function historyChevronSVG(){
+  return '<svg class="histchev" width="11" height="7" viewBox="0 0 11 7"' +
+         ' fill="none" aria-hidden="true">' + CHEV_PATH + "</svg>";
+}
+// paintTicketPane: one section of the ticket list, drawn when its signature
+// changes, its rows' classes read off the card's one state (queueState and
+// cardState in card-logic.js) and what the reader has read of it (seenReplies)
+function paintTicketPane(pane, pool, view, state, laneSig){
+  const sig = view + "|" + laneSig + "|" +
+              pool.map(b => b.id + b.ball + (b.writing ? "w" : "") + (b.bg ? "g" : "") + (b.done ? "d" : "") + b.pending +
+                      ((seenReplies[b.id] || 0) >= (b.replies || 0) ? "r" : "") +
+                      (b.id === selectedId ? "!" : "") + (b.task || "") + b.title +
+                      (testReady(b) ? "T" : "") +
+                      Math.floor((Date.now() / 1000 - (b.agentTs || 0)) / 60) + (b.agent || "")).join(",") +
+              "|" + selectedTask;
+  if (pane.dataset.sig === sig) return;
+  pane.dataset.sig = sig;
+  const selectedBefore = pane.querySelector(".trow.on")?.dataset.id;
+  const keepScroll = pane.scrollTop;
+  const oldPos = {};
+  for (const prev of pane.children) if (prev.dataset && prev.dataset.id) oldPos[prev.dataset.id] = prev.getBoundingClientRect().top;
+  pane.textContent = "";
+  for (const b of pool){
+    const s = queueState(b);
+    const busy = s === "working" || (s === "done" && cardState({ ...b, done: false, parked: false, state: null }) === "working");
+    const read = seenReplies[b.id] || 0;
+    const isYours = s === "yours" || (s === "new" && b.ball === "you");
+    const isMatch = selectedTask && b.task === selectedTask;
+    const isTest = testReady(b);
+    const r = h("div", "trow" + (b.id === selectedId ? " on" : "") + (busy ? " working" : "") +
+                (s === "yours" && read >= (b.replies || 0) ? " seen" : "") +
+                (isYours ? " yours" : "") +
+                (s === "queued" || (s === "new" && b.ball !== "you") ? " queuedc" : "") +
+                (s === "done" ? " donec" : "") +
+                (isMatch ? " match" : "") +
+                (isTest ? " testc" : ""));
+    const inner = h("div", "trowin");
+    const omni = appendOmniRowArt(r, inner, b);
+    const ttl = h("div", "ttl", b.title);
+    inner.appendChild(ttl);
+    const meta = h("div", "tmeta");
+    meta.appendChild(h("span", "tage", busy ? spinGlyph(b.id, b) : shortAge(b.agentTs)));
+    const ag = state.agents?.[b.owner];
+    meta.appendChild(h("span", "teng", b.agent || (ag ? (ag.alive ? ag.name : "offline") : "")));
+    inner.appendChild(meta);
+    r.appendChild(inner);
+    r.dataset.id = b.id;
+    r.addEventListener("click", e => { if (isTest && onFold(r, e)) unfoldTicket(b.id); else select(b.id); });
+    pane.appendChild(r);
+  }
+  if (!pool.length) pane.appendChild(h("div", "tempty", view === "done" ? "no done chats yet" : view === "docked" ? "no docked chats yet" : view === "deferred" ? "no deferred chats yet" : "no open chats here"));
+  pane.scrollTop = keepScroll;
+  // surviving rows glide to their new spots, instead of teleporting on a re-sort
+  for (const row of pane.children){
+    const was = row.dataset && oldPos[row.dataset.id];
+    if (was == null) continue;
+    const dy = was - row.getBoundingClientRect().top;
+    if (Math.abs(dy) < 2) continue;
+    row.style.transition = "none";
+    row.style.transform = "translateY(" + dy + "px)";
+    void row.offsetHeight;
+    row.style.transition = "transform 220ms cubic-bezier(0.25, 1, 0.5, 1)";
+    row.style.transform = "";
+    row.addEventListener("transitionend", () => { row.style.transition = ""; }, { once: true });
+  }
+  // reveal a newly selected row only in the section on show
+  if (selectedBefore !== selectedId && view === curView())
+    pane.querySelector(".trow.on")?.scrollIntoView({ block: "nearest" });
+}
+// tickBands: each section's top and foot fade, as deep as it can still scroll
+function tickBands(pane){
+  if (!pane._fade) pane._fade = parseFloat(getComputedStyle(pane).getPropertyValue("--listfade")) || 0;
+  const up = Math.min(Math.round(pane.scrollTop), pane._fade);
+  const down = Math.min(Math.max(0, Math.round(pane.scrollHeight - pane.clientHeight - pane.scrollTop)), pane._fade);
+  if (up !== pane._up){ pane._up = up; pane.style.setProperty("--upband", up + "px"); }
+  if (down !== pane._down){ pane._down = down; pane.style.setProperty("--downband", down + "px"); }
+}
+for (const pane of document.querySelectorAll(".tikpane")){
+  const read = () => tickBands(pane);
+  pane.addEventListener("scroll", read, { passive: true });
+  new MutationObserver(read).observe(pane, { childList: true });
+  if (window.ResizeObserver) new ResizeObserver(read).observe(pane);
+  read();
+}
+
+// ---- the onboarding ------------------------------------------------------------
+(() => {
+  // the knobs
+  // the board's own version (#npversion in index.html), which the server writes in
+  const VERSION = document.querySelector('meta[name="facilitator-version"]')?.content || "";
+  const LOGO = "/m-splash-squid.png";
+  // where the Tab hint stands: the card's answer (reply), a ghost after the
+  // title's last letter (title), the empty reply box (box) or the top bar (bar)
+  const HINT_SPOTS = ["reply", "title", "box", "bar"];
+  const asked = new URLSearchParams(location.search).get("hint") || (/hint=(\w+)/.exec(location.hash) || [])[1];
+  const HINT = HINT_SPOTS.includes(asked) ? asked : "reply";
+  // the four chips a card in Doing wears, drawn; only the last card's cross
+  // is wired, to the done it makes on the board
+  const SHOW_CHIPS = true;
+  // the card from which on the board's ticket list stands beside the card
+  const BOARD_FROM = "onboard";
+  // the card the ticket list first fades in on, and stays from
+  const LIST_FROM = "tickets";
+  // the card the magic box with the photo of the phone app stands beside
+  const PHOTO_ON = "phone";
+
+  // the words. a key's name is bold wherever a card names one; its words are
+  // held together, so a key is never broken over two lines. a key's names are
+  // in lower case, but for the first word of one that starts a sentence or a
+  // list item, and a letter key is a capital
+  const key = name => "**" + name.replace(/ /g, "\u00a0") + "**";
+  const HI = "Hi there!";
+  const BLURB = "Facilitator is an opinionated and minimalist interface for interacting with claude or codex on the terminal.\n\n" +
+    "Facilitator's UI is designed to help you ship more by atomizing your builds and orchestrating several subagents.";
+  const WELCOME = BLURB + "\n\nPress " + key("→") + " to begin onboarding.";
+  const TAB_HINT = "Press " + key("tab") + " to answer.";
+  const TAB_HINT_PLAIN = "Press tab to answer";
+  // the way back to an earlier question, once, on the last page, under the
+  // answers it would change
+  const BACK_LINE = "To change any of the previous answers, press " + key("control + shift + ↑");
+  const NEXT = "Press " + key("control + shift + →") + " to continue!";
+  // the last page's key to go on, set off from the answers above it by the
+  // last card's three stars
+  const NEXT_KEPT = "If the entered information looks correct, press " + key("control + shift + →") + " to continue!";
+  // the phone card's key to go on, with the full stop it was given
+  const NEXT_PHONE = "Press " + key("control + shift + →") + " to continue.";
+  // the FIN card's key to end the run
+  const FINISH = "Press " + key("control + shift + backspace") + " to mark this card done and open your board.";
+  // a question may give choices, listed in its note: a number or a choice's own
+  // words pick one, and what anyone types that is not one of them is kept as
+  // typed. none does now: each answer is the person's own words
+  const numbered = list => list.map((one, i) => (i + 1) + ". " + one).join("\n");
+  // the onboarding card's questions, one reply of the card each, in order.
+  // field is where the answer is kept and noun what a correction calls it.
+  // every question is needed: empty is the line an empty send is asked again
+  // with. check, where a question has one, gives the line that a send is asked
+  // again with (an empty box included), or nothing when the send is good
+  const NAME_EMPTY = "Please enter your name to go on.";
+  const EMAIL_EMPTY = "Please enter your email to go on.";
+  const WORK_EMPTY = "Please say what you will use Facilitator for to go on.";
+  const EMAIL_BAD = "That does not look like an email. Please try name@example.com.";
+  const emailProblem = text => !text ? EMAIL_EMPTY : address(said(text)) ? "" : EMAIL_BAD;
+  const QUESTIONS = [
+    { field: "name", ask: "What should we call you?", noun: "name", empty: NAME_EMPTY },
+    { field: "email", ask: "What's your email?", noun: "email", empty: EMAIL_EMPTY, check: emailProblem },
+    { field: "work", ask: "What will you mostly use Facilitator for?", noun: "answer", empty: WORK_EMPTY },
+  ];
+  // the board's marks a card's words can hold, each written as a character of
+  // its own that render below swaps for the mark: the four section chips of the
+  // card's top bar, Doing's sun, Docked's cloud, Deferred's moon and Done's
+  // cross, and the last card's three stars
+  const MARK = { sun: "\uE001", dock: "\uE002", moon: "\uE003", cross: "\uE004", stars: "\uE005" };
+  // the words of the 101: Phone App card, as they were given. the picture of
+  // the phone app stands beside them, in the magic box (PHONE_IMAGE below)
+  const PHONE_APP =
+    "The Facilitator comes with a phone companion app!\n\n" +
+    "The phone app is also hotkey-enabled and works as well as the mac version with a small keyboard, " +
+    "allowing you to get work done even when you don't have your laptop!\n\n" +
+    "Currently, the phone app connects to your Facilitator board on the laptop via **Tailscale**.\n\n" +
+    "Once Tailscale is installed on your Mac and iPhone, setting up the phone app should take <5 minutes. " +
+    "Just run the following on the terminal:\n\n" +
+    "```\nfacilitator bridge setup\n```";
+  // the cards: the Welcome, the one onboarding card, the four 101 cards and the
+  // last card, You are all set up, whose done ends the run
+  const CARDS = [
+    { id: "welcome", title: "Welcome!" },
+    { id: "onboard", title: "Let's onboard you onto the Facilitator!", questions: QUESTIONS },
+    { id: "cards", title: "101: Atomizing asks",
+      say: "The only \"rule\" to make the best of the Facilitator is *atomize your asks.*\n\n" +
+           "If you are building *n* features or solving *n* bugs or planning a spec with *n* phases, " +
+           "put them on *n* different cards!\n\n" +
+           "The claude or codex agent connected to a project acts as an *orchestrator*. It assigns different " +
+           "tasks to different subagents, which speeds up implementation. The orchestrator also retains a lot " +
+           "more context about a build session than a single agent ever could." },
+    { id: "tickets", title: "101: Tickets",
+      say: "Cards are shown as a list of tickets on the left side.\n\n" +
+           "Standard tickets have three states:\n\n" +
+           "- Yellow: Awaiting your input\n" +
+           "- Grey: Queued\n" +
+           "- Green: Actively working\n\n" +
+           "And tickets can be put in four buckets:\n\n" +
+           "- " + MARK.sun + " Doing: Tasks you are actively working on\n" +
+           "- " + MARK.dock + " Docked: Tasks that you will pick up very soon\n" +
+           "- " + MARK.moon + " Deferred: Tasks for some later coding sprint\n" +
+           "- " + MARK.cross + " Done: Tasks that are complete\n\n" +
+           "Bonus: after you iterate on a project for a while, tickets/cards act as a knowledge base for your projects." },
+    { id: "hotkeys", title: "101: Hotkeys",
+      // the heart in the text's own black: the text-style heart, never the red emoji
+      say: "The Facilitator \u2665\uFE0E hotkeys!\n\n" +
+           "Pro-tip: hover your cursor over the bolded hotkeys\n\n" +
+           "Here are some basic hotkeys:\n" +
+           "- " + key("←") + " and " + key("→") + " switches cards\n" +
+           "- " + key("Control + shift + ←/→") + " switches cards when your cursor is in the compose box\n" +
+           "- " + key("Shift + enter") + " add a new line\n" +
+           "- " + key("Command + T") + " creates a new card\n" +
+           "- Holding " + key("control + S") + " scrolls the agent's answer down, or " + key("double tap S") +
+           " and hold it to scroll up\n" +
+           "- To organize cards:\n" +
+           "  - " + MARK.sun + " Doing: " + key("Control + shift + [") + "\n" +
+           "  - " + MARK.dock + " Docked: " + key("Control + shift + ]") + "\n" +
+           // the backslash is doubled so the markdown keeps it
+           "  - " + MARK.moon + " Deferred: " + key("Control + shift + \\\\") + "\n" +
+           "  - " + MARK.cross + " Done: " + key("Control + shift + delete") },
+    { id: "phone", title: "101: Phone App", next: NEXT_PHONE, say: PHONE_APP },
+    { id: "fin", title: "You are all set up", closing: true,
+      say: "Thank you for trying out the facilitator!\n\n" +
+           "If you encounter bugs or have feedback, please use the bug button on the top-right corner.\n\n" +
+           "Your ideas could be instrumental in shaping this product!\n\n" +
+           MARK.stars },
+  ];
+
+  // the timings. the keyboard fades in over the first answer's whole way in,
+  // the send's flight and then the page turn to the next question
+  // (SENT_FLIGHT_MS and TURN_GLIDE_MS in card-logic.js), so the two end together.
+  // the last page's keys light once its turn has landed and a breath more. a
+  // light fades in, holds and fades out; a key the pointer lights comes in sooner
+  const KEYS_IN_MS = SENT_FLIGHT_MS + TURN_GLIDE_MS;
+  const KEYS_LATE_MS = 400;   // the keyboard on a 101 card reached before any answer
+  const LANDED_WAIT_MS = TURN_GLIDE_MS + 200;
+  const LIGHT = { inMs: 600, holdMs: 1500, outMs: 700 };
+  const LIGHT_SHORT = { inMs: 400, holdMs: 1000, outMs: 400 };
+  const LIGHTS_GAP_MS = 200;    // between the last page's two chords
+
+  // the answers, held in this page until the summary card is passed, when they
+  // are saved as the board's profile (and again when the last card is marked
+  // done). the time zone is not asked:
+  // it is read off the machine the page runs on, and shown on the last page
+  const profile = { name: null, email: null, work: null, timeZone: null };
+  try { profile.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (e) {}
+  window.onboardingProfile = profile;
+
+  // the marks the board draws on its chips and in its bar (index.html's CLIP_ICON,
+  // SEND_ICON and moon; the sun and the cloud are card-logic.js's own)
+  const CLIP_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>';
+  const SEND_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const MOON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+  // THE PHONE APP PICTURE (in the magic box beside 101: Phone App): the phone
+  // app on a phone on its stand (assets/phone_app_on_stand.webp, 854 by 949,
+  // served by server.py), filling the box in its own shape as the board's
+  // picture in a box does (.mbimg)
+  const PHONE_IMAGE = '<img class="mbimg" src="/assets/phone_app_on_stand.webp" ' +
+    'alt="The Facilitator phone app open on a phone on a stand, a keyboard in front of it">';
+  // each mark of MARK as it is drawn in a card's words; the cross has no
+  // picture of its own on the board, its bars are drawn by the sheet (.obcross)
+  const MARKS = {
+    [MARK.sun]: '<span role="img" class="obmark" aria-label="sun">' + SUN_ICON + "</span>",
+    [MARK.dock]: '<span role="img" class="obmark" aria-label="sun with cloud">' + DOCK_ICON + "</span>",
+    [MARK.moon]: '<span role="img" class="obmark" aria-label="moon">' + MOON_ICON + "</span>",
+    [MARK.cross]: '<span role="img" class="obmark obcross" aria-label="cross"></span>',
+    [MARK.stars]: '<span class="obstars" role="separator">* * *</span>',
+  };
+  const withMarks = html => html.replace(/[\uE001-\uE005]/g, c => MARKS[c]);
+
+  document.body.classList.add("hint-" + HINT);
+  // the board's own paper, read off the board this page is laid over, for what
+  // is drawn in it (the page itself stands on white); opened on its own the
+  // page keeps the sheet's
+  try {
+    const paper = parent !== window && parent.getComputedStyle(parent.document.body).getPropertyValue("--paper").trim();
+    if (paper) document.body.style.setProperty("--paper", paper);
+  } catch (e) {}
+  const sections = document.getElementById("sections");
+  let caretQueue = () => {};
+
+  // ---- the keyboard ---------------------------------------------------------------
+  // the hotkey map's keyboard (facilitator-mocks/mock-hotkey-map-20261008.html),
+  // drawn the way it draws it: its layout rows, one legend a key, the shifted
+  // characters left off. a key that comes twice is told apart by its side,
+  // the right one named with -r (shift-r), so a light picks the left one
+  const KB_U = 60, KB_FN = 36, KB_GAP = 8, KB_HALF = 4;
+  const KB_ROWS = [
+    { fn: true, keys: [{ k: "esc", w: 1.5, word: "esc", a: "l" }, ...[...Array(12)].map((_, i) => ({ k: "f" + (i + 1), fk: "F" + (i + 1) })), { k: "touchid" }] },
+    { keys: [..."`1234567890-=".split("").map(c => ({ k: c, main: c })), { k: "delete", w: 1.5, word: "delete", a: "r" }] },
+    { keys: [{ k: "tab", w: 1.5, word: "tab", a: "l" }, ..."QWERTYUIOP".split("").map(c => ({ k: c.toLowerCase(), letter: c })),
+             { k: "[", main: "[" }, { k: "]", main: "]" }, { k: "\\", main: "\\" }] },
+    { keys: [{ k: "caps", w: 1.75, word: "caps lock", a: "l" }, ..."ASDFGHJKL".split("").map(c => ({ k: c.toLowerCase(), letter: c })),
+             { k: ";", main: ";" }, { k: "'", main: "'" }, { k: "return", w: 1.75, word: "return", a: "r" }] },
+    { keys: [{ k: "shift", w: 2.25, word: "shift", a: "l" }, ..."ZXCVBNM".split("").map(c => ({ k: c.toLowerCase(), letter: c })),
+             { k: ",", main: "," }, { k: ".", main: "." }, { k: "/", main: "/" }, { k: "shift", w: 2.25, word: "shift", a: "r" }] },
+    { keys: [{ k: "fn", sym: "fn", a: "r" }, { k: "ctrl", sym: "⌃", word: "control", a: "r" }, { k: "opt", sym: "⌥", word: "option", a: "r" },
+             { k: "cmd", w: 1.25, sym: "⌘", word: "command", a: "r" }, { k: "space", w: 5 },
+             { k: "cmd", w: 1.25, sym: "⌘", word: "command", a: "l" }, { k: "opt", sym: "⌥", word: "option", a: "l" },
+             { k: "left", arrow: "left", half: "bottom" }, { k: "up", arrow: "up", half: "top" },
+             { k: "down", arrow: "down", half: "bottom", sameColumn: true }, { k: "right", arrow: "right", half: "bottom" }] },
+  ];
+  const ARROW = { left: "M7 1 L1 5 L7 9 Z", right: "M1 1 L7 5 L1 9 Z", up: "M1 7 L5 1 L9 7 Z", down: "M1 1 L5 7 L9 1 Z" };
+  const arrowSvg = (dir, size) => {
+    const wide = dir === "up" || dir === "down";
+    const w = wide ? 10 : 8, ht = wide ? 8 : 10;
+    return '<svg width="' + w * size / 8 + '" height="' + ht * size / 8 + '" viewBox="0 0 ' + w + " " + ht +
+           '"><path d="' + ARROW[dir] + '" fill="currentColor"/></svg>';
+  };
+  const keyboard = h("div");
+  keyboard.id = "obkeys";
+  keyboard.setAttribute("aria-hidden", "true");
+  {
+    const seen = new Set();
+    let y = 0;
+    for (const row of KB_ROWS){
+      const rh = row.fn ? KB_FN : KB_U;
+      let x = 0, colX = 0;
+      for (const k of row.keys){
+        const w = k.w || 1;
+        const kx = k.sameColumn ? colX : x;
+        if (!k.sameColumn){ colX = x; x += w; }
+        let top = y + KB_GAP / 2, height = rh - KB_GAP;
+        if (k.half === "top") height = rh / 2 - KB_GAP / 2 - KB_HALF / 2;
+        if (k.half === "bottom"){ top = y + rh / 2 + KB_HALF / 2; height = rh / 2 - KB_GAP / 2 - KB_HALF / 2; }
+        const one = h("div", "obkey");
+        one.dataset.k = seen.has(k.k) ? k.k + "-r" : k.k;
+        seen.add(k.k);
+        Object.assign(one.style, { left: kx * KB_U + KB_GAP / 2 + "px", top: top + "px",
+                                   width: w * KB_U - KB_GAP + "px", height: height + "px" });
+        const legend = k.arrow ? '<span class="c">' + arrowSvg(k.arrow, 7) + "</span>" :
+                       k.fk ? '<span class="c fk">' + k.fk + "</span>" :
+                       k.main || k.letter ? '<span class="c letter">' + (k.main || k.letter).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]) + "</span>" : "";
+        one.innerHTML = legend + (k.sym ? '<span class="sym ' + k.a + '">' + k.sym + "</span>" : "") +
+                        (k.word ? '<span class="word ' + k.a + '">' + k.word + "</span>" : "");
+        keyboard.appendChild(one);
+      }
+      y += rh;
+    }
+    keyboard.style.width = Math.max(...KB_ROWS.map(r => r.keys.filter(k => !k.sameColumn).reduce((a, k) => a + (k.w || 1), 0))) * KB_U + "px";
+    keyboard.style.height = y + "px";
+    document.body.insertBefore(keyboard, document.getElementById("obstage"));
+  }
+  // the keyboard comes in once and then stays, on every card after
+  function showKeys(ms){
+    if (keyboard.classList.contains("on")) return;
+    keyboard.style.setProperty("--keys-in", ms + "ms");
+    keyboard.classList.add("on");
+  }
+  // the lights, and every wait that leads to one, are kept so a move to
+  // another card can call them all off
+  let lightTimers = [];
+  function later(fn, ms){ lightTimers.push(setTimeout(fn, ms)); }
+  function setLit(names, on, ms){
+    for (const name of names){
+      // escaped, so the backslash key's name does not end the selector's string
+      const one = keyboard.querySelector('.obkey[data-k="' + CSS.escape(name) + '"]');
+      // a key the pointer is lighting stays lit when a chord's light goes
+      if (!one || (!on && hovered.includes(name))) continue;
+      one.style.setProperty("--lit-ms", ms + "ms");
+      one.classList.toggle("lit", on);
+    }
+  }
+  // a chord lights after delay and goes out after its hold; it answers when it is out
+  function pulse(names, t, delay = 0){
+    later(() => setLit(names, true, t.inMs), delay);
+    later(() => setLit(names, false, t.outMs), delay + t.inMs + t.holdMs);
+    return delay + t.inMs + t.holdMs + t.outMs;
+  }
+  // a light called off fades out
+  function unlight(){
+    for (const t of lightTimers) clearTimeout(t);
+    lightTimers = [];
+    hovered = [];
+    for (const one of keyboard.querySelectorAll(".obkey.lit")){
+      one.style.setProperty("--lit-ms", LIGHT.outMs + "ms");
+      one.classList.remove("lit");
+    }
+  }
+  // a key's name on a card (the only words there in bold) lights its keys
+  // while the pointer is over it, the way a chord lights, and lets them fade
+  // when the pointer goes. a lone key written after "and" or a comma just after
+  // a chord, as in "Control + Shift + ← and →" or in
+  // "Control + Shift + [, ], \ and Delete", is that chord with its last key
+  // changed, so it lights with the chord's other keys. two keys written as
+  // one, as in "Control + shift + ←/→", both light. "double tap S" is the chord
+  // written before it with that key tapped twice, as in "Holding control + S
+  // scrolls ... down, or double tap S and hold it", so it lights that chord
+  const KEY_NAMES = { control: "ctrl", shift: "shift", command: "cmd", option: "opt",
+                      "←": "left", "→": "right", "↑": "up", "↓": "down",
+                      enter: "return", backspace: "delete", delete: "delete", tab: "tab", escape: "esc" };
+  const keysOf = text => text.replace(/\u00a0/g, " ").split(/[+/]/).map(part => part.trim().toLowerCase())
+                             .map(part => KEY_NAMES[part] || (/^[a-z0-9[\]\\]$/.test(part) ? part : null));
+  const TAPPED = /^double tap /i;
+  function chipKeys(chip){
+    const text = chip.textContent.replace(/\u00a0/g, " ");
+    const keys = keysOf(text.replace(TAPPED, ""));
+    if (!keys.every(Boolean)) return [];
+    if (TAPPED.test(text)){
+      for (let at = chip.previousSibling; at; at = at.previousSibling){
+        if (at.nodeName !== "B") continue;
+        const chord = keysOf(at.textContent);
+        if (chord.every(Boolean) && chord[chord.length - 1] === keys[keys.length - 1]) return chord;
+      }
+      return keys;
+    }
+    let at = chip;
+    while (keys.length === 1){
+      const between = at.previousSibling, chord = between && between.previousSibling;
+      if (!(between && between.nodeType === 3 && (between.data === " and " || between.data === ", ") &&
+            chord && chord.nodeName === "B")) break;
+      const lead = keysOf(chord.textContent);
+      if (!lead.every(Boolean)) break;
+      if (lead.length > 1) return [...lead.slice(0, -1), ...keys];
+      at = chord;
+    }
+    return keys;
+  }
+  let hovered = [];
+  function hoverKeys(names){
+    const gone = hovered.filter(name => !names.includes(name));
+    hovered = names;
+    setLit(gone, false, LIGHT.outMs);
+    setLit(names, true, LIGHT_SHORT.inMs);
+  }
+  sections.addEventListener("pointerover", e => {
+    const chip = e.target.closest && e.target.closest(".reply b");
+    hoverKeys(chip ? chipKeys(chip) : []);
+  });
+  sections.addEventListener("pointerleave", () => hoverKeys([]));
+
+  // ---- the magic box beside 101: Phone App -----------------------------------
+  // the board's magic box beside the card (#magicbox in index.html), with the
+  // photo of the phone app in it. it stands only beside its card (PHOTO_ON),
+  // and comes and goes with that card at once, as a box already open on a card
+  // does when the board shows that card. it stands where the board stands one
+  // (magicPlace and magicRoom there): MagicBox.place beside the card's own
+  // rectangle, in the room right of the card out to the inner edge of the
+  // board's app frame (#appframe, --app-inset in from the window and an edge
+  // line), at least FRAME_CLEAR from either, and no further from the card than
+  // MagicBox.GAP of its width. this page draws the board at its full size, so
+  // the stage's scale is 1 and its pixels are the window's. the photo asks for
+  // its own size with the bar as its head, as the board's view asks for a
+  // picture (view.want in card-logic.js), and the box takes its shape. a window
+  // with too little room beside the card for the board's box does not show it
+  // (MagicBox.place's shown) and shows it again once the room is back, and the
+  // photo still on its way keeps it hidden, as on the board. its two lines to
+  // the card are drawn each time it is placed and shown, and taken off
+  // whenever it is not, as magicPlace does
+  const FRAME_CLEAR = 16;   // index.html's
+  const BOX = { el: document.getElementById("magicbox"), line: document.getElementById("mbline") };
+  BOX.bar = BOX.el.querySelector(".mbbar");
+  BOX.body = BOX.el.querySelector(".mbbody");
+  BOX.body.innerHTML = PHONE_IMAGE;
+  BOX.photo = BOX.body.querySelector("img");
+  function placeBox(){
+    const on = cards[at].spec.id === PHOTO_ON;
+    BOX.el.classList.toggle("on", on);
+    BOX.line.classList.remove("on");
+    if (!on) return;
+    const r = document.querySelector("main").getBoundingClientRect();
+    const rect = { left: r.left, top: r.top, width: r.width, height: r.height };
+    const edge = parseFloat(getComputedStyle(BOX.el).borderRightWidth) || 0;
+    const inset = parseFloat(getComputedStyle(document.body).getPropertyValue("--app-inset")) || 0;
+    const fit = { scale: 1, tx: 0, right: innerWidth - inset - edge, clear: FRAME_CLEAR };
+    const photo = BOX.photo, edges = BOX.el.offsetWidth - BOX.el.clientWidth;
+    if (!photo.complete || !photo.naturalWidth || !MagicBox.place(rect, fit).shown){
+      BOX.el.style.visibility = "hidden";
+      return;
+    }
+    const seat = MagicBox.place(rect, fit, { width: photo.naturalWidth + edges, height: photo.naturalHeight + edges,
+                                             head: BOX.bar.offsetHeight });
+    Object.assign(BOX.el.style, { left: seat.left + "px", top: seat.top + "px", width: seat.width + "px",
+                                  height: seat.height + "px", visibility: "" });
+    // shown: its lines to the card
+    magicLine(rect, seat);
+  }
+  BOX.photo.addEventListener("load", placeBox);
+  addEventListener("resize", placeBox);
+  // copied from index.html, where these live inline: the lines from the card
+  // to its box, the ones every box draws, as the owner chose them in the
+  // connector mock (m1237, mock-box-connector-20261013.html: Two lines,
+  // Dashed, n = 52). two level dashed lines across the gap, with no tabs, each
+  // from the card's right edge to the box's left edge and no further:
+  //   the first sits a share of the box's height down from its top and the
+  //     second the same share up from its foot: the mock's n of 52 on its box
+  //     488 high, so the two keep the same look on a box of any size and never
+  //     meet
+  //   each is dashes 6 long with gaps of 4, 4/3 wide, with flat ends, in the
+  //     card's edge colour, counted from the box's edge, so a whole dash ends
+  //     exactly at it
+  // a gap narrower than 8 px gives null, and no line is drawn
+  const TWO = { gap: 8, share: 52 / 488, width: 4 / 3, dash: 6, space: 4 };
+  function magicTwo(card, box){
+    const cr = card.left + card.width;
+    if (box.left - cr < TWO.gap) return null;
+    const n = box.height * TWO.share;
+    const ys = [box.top + n, box.top + box.height - n];
+    return { ys, from: cr, to: box.left };
+  }
+  function magicLine(card, box){
+    const two = magicTwo(card, box);
+    if (!two) return;
+    // the card's own edge colour, read off the card, so the lines are always it
+    const ink = getComputedStyle(document.querySelector("main")).borderTopColor;
+    // each path starts at the box's edge, where its dashes are counted from. both
+    // are one group, which wears the shadow (#mbline.on > g)
+    BOX.line.innerHTML = '<g>' + two.ys.map(y => '<path d="M' + two.to.toFixed(2) + ' ' + y.toFixed(2) + 'L' +
+      two.from.toFixed(2) + ' ' + y.toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + TWO.width +
+      '" stroke-linecap="butt" stroke-dasharray="' + TWO.dash + ' ' + TWO.space + '"/>').join("") + '</g>';
+    BOX.line.classList.add("on");
+  }
+
+  // ---- one card, built the way makeBox builds one (in index.html) ------
+  function makeCard(spec){
+    const box = h("article", "box");
+    box.id = "box-" + spec.id;   // the spinner reads its card's id after "box-"
+    const topbar = h("div", "topbar");
+    if (!SHOW_CHIPS) topbar.classList.add("obbare");
+    const barHint = h("span", "obbarhint");
+    // the reply history (in index.html): hidden until the card has an
+    // older reply to step back to
+    const histctl = h("div", "histctl");
+    histctl.setAttribute("role", "group");
+    histctl.setAttribute("aria-label", "reply history");
+    histctl.setAttribute("aria-hidden", "true");
+    const histUp = h("button", "histbtn older");
+    histUp.type = "button";
+    histUp.setAttribute("aria-label", "older reply");
+    histUp.dataset.tip = "Older Reply (Ctrl + Shift + Up)";
+    histUp.innerHTML = historyChevronSVG();
+    const histDown = h("button", "histbtn newer");
+    histDown.type = "button";
+    histDown.setAttribute("aria-label", "newer reply");
+    histDown.dataset.tip = "Newer Reply (Ctrl + Shift + Down)";
+    histDown.innerHTML = historyChevronSVG();
+    const histPos = h("span", "histpos");
+    histUp.disabled = histDown.disabled = true;
+    histUp.tabIndex = histDown.tabIndex = -1;
+    histctl.append(histUp, histDown, histPos);
+    const sun = h("button", "sunbtn");
+    sun.innerHTML = SUN_ICON;
+    sun.setAttribute("aria-disabled", "true");   // the chip of the section the card stands in
+    const dock = h("button", "dockbtn");
+    dock.innerHTML = DOCK_ICON;
+    const cardSpin = makeCardSpinner();
+    const arc = h("button", "arcbtn");
+    arc.innerHTML = MOON_ICON;
+    const x = h("button", "xbtn", "×");
+    x.setAttribute("aria-label", "done");
+    for (const chip of [sun, dock, arc, x]){ chip.type = "button"; chip.tabIndex = -1; }
+    topbar.append(histctl, barHint, sun, dock, cardSpin, arc, x);
+    box.appendChild(topbar);
+
+    const head = h("div", "head");
+    const titleEl = h("span", "title", spec.title);
+    head.appendChild(titleEl);
+    box.appendChild(head);
+
+    const body = h("div", "body");
+    const replyview = h("div", "replyview");
+    const reply = h("div", "reply cardmd");
+    const answwrap = h("div", "answwrap");
+    const meta = h("div", "meta");
+    const metaNote = h("span");
+    meta.append(metaNote);
+    const pendwrap = h("div", "pendwrap");
+    const sentwrap = h("div", "sentwrap");
+    const bottombar = h("div", "bottombar");
+    const clip = h("button", "clipbtn");
+    clip.type = "button";
+    clip.tabIndex = -1;
+    clip.setAttribute("aria-label", "attach a file");
+    clip.innerHTML = CLIP_ICON;
+    const compose = h("div", "compose");
+    const ta = h("textarea");
+    ta.rows = 1;
+    const send = h("button", "sendbtn");
+    send.type = "button";
+    send.tabIndex = -1;
+    send.setAttribute("aria-label", "send");
+    send.innerHTML = SEND_ICON;
+    compose.append(ta, send);
+    bottombar.append(clip, compose);
+    pendwrap.append(meta, sentwrap, bottombar);
+    replyview.append(answwrap, reply);
+    body.append(replyview, pendwrap);
+    box.appendChild(body);
+    sections.appendChild(box);
+
+    const el = { box, topbar, barHint, titleEl, reply, replyview, meta, metaNote,
+                 histctl, histPos, histUp, histDown, hasHistory: false,
+                 answwrap, answ: null, answId: null,
+                 sentwrap, sent: null, sentKey: "", sentItems: [],
+                 pendwrap, bottombar, clip, ta, send, sun, dock, arc, x, cardSpin };
+    // the row's own autosize and the send square's seat, as the board's tick
+    el.tick = () => {
+      if (!ta.offsetParent || !ta.clientHeight) return;
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+      seatSquare(ta, send);
+      send.classList.toggle("show", ta.value.trim().length > 0);
+      riseBand(ta);
+    };
+    el.sentRoom = () => { if (el.bandWrite) el.bandWrite(); };
+    els[spec.id] = el;
+    watchBand(el);
+    watchRise(replyview);
+    watchRise(ta);
+    watchReading(el);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(el.tick);
+    return el;
+  }
+
+  // a reply is the card's markdown, with the board's marks in it drawn
+  function render(el, raw){
+    el.reply.dataset.raw = raw;
+    el.reply.innerHTML = withMarks(fmt(raw));
+  }
+
+  // ---- the onboarding card's pages ------------------------------------------------
+  // each reply of the onboarding card is a page of its history, and each page
+  // knows the field its question fills (null on the last page, which asks
+  // nothing). a page is its head, which says what the answer before it was,
+  // and the question; the last page is what was kept and the keys. the pages
+  // are drawn from the answers as they stand, so a page stepped back to says
+  // the answer as it is now
+  function pageRaw(card, i){
+    const page = card.pages[i], q = QUESTIONS[i];
+    const parts = [page.head];
+    if (q){
+      // the line a refused send is asked again with, on the page it was sent from
+      parts.push(q.ask, q.note, card.askingAt === i && card.asking);
+      // the Tab hint only while the first question is the newest page; stepped back to, the caret is in the box
+      if (!i && HINT === "reply" && card.pages.length === 1) parts.push(TAB_HINT);
+    } else parts.push(keptRaw(), BACK_LINE, MARK.stars, NEXT_KEPT);
+    return parts.filter(Boolean).join("\n\n");
+  }
+  function keptRaw(){
+    const rows = [["Name", profile.name], ["Email", profile.email], ["Work", profile.work]];
+    const list = rows.map(([k, v]) => "- " + k + ": " + (v == null ? "not answered" : plain(v)));
+    if (profile.timeZone) list.push("- Time zone: " + plain(profile.timeZone));
+    return "Here is what you told us:\n\n" + list.join("\n");
+  }
+
+  // every card's words were written when the run began: each is an agent's
+  // reply waiting on the reader
+  const RUN_BEGAN = Date.now() / 1000;
+  const cards = CARDS.map(spec => {
+    const card = { spec, el: makeCard(spec), pending: [], replyTimer: 0, held: null, replies: 0, pages: [], asking: null, askingAt: null };
+    const el = card.el;
+    lastState.boxes.push({ id: spec.id, replyKind: "agent", replyId: null, answered: null, writing: false,
+                           owner: activeOwner, title: spec.title, ball: "you", replies: 1, pending: 0,
+                           agentTs: RUN_BEGAN, ts: RUN_BEGAN });
+    if (spec.questions){
+      // the first question is the card's first page
+      card.pages.push({ field: QUESTIONS[0].field, head: null, meta: null });
+      el.box.classList.add("obwait");
+      render(el, pageRaw(card, 0));
+      wireQuestion(card);
+      return card;
+    }
+    // the other cards ask nothing, so their reply boxes take nothing
+    el.ta.disabled = true;
+    el.ta.tabIndex = -1;
+    if (spec.say){
+      render(el, [spec.say, spec.closing ? FINISH : spec.next || NEXT].join("\n\n"));
+      // the cross on the last card (FIN) marks it done, as Control + Shift + Backspace does
+      if (spec.closing) el.x.addEventListener("click", finish);
+      return card;
+    }
+    // the Welcome card: the lockup is its header, in the title's place, and
+    // its words are the greeting, the blurb and the key
+    el.titleEl.innerHTML = '<span class="obbrand"><span class="squidmark"><img src="' + LOGO + '" alt=""></span>' +
+      '<span class="obbrandcopy"><span class="obbrandname">Facilitator</span>' +
+      '<span class="obversion">' + VERSION + "</span></span></span>";
+    el.reply.dataset.raw = HI + "\n\n" + WELCOME;
+    el.reply.innerHTML = '<div class="obwelcome">' + fmt(el.reply.dataset.raw) + "</div>";
+    return card;
+  });
+  const onboard = cards.find(c => c.spec.questions);
+  let at = 0, finished = false;
+  const boxOf = card => lastState.boxes.find(b => b.id === card.spec.id);
+
+  // ---- the onboarding card's question ----------------------------------------------
+  function wireQuestion(card){
+    const el = card.el, t = el.titleEl, ta = el.ta;
+    // the title holds the caret the way the board's title does while it is
+    // being named (editTitle in card-logic.js), but the title is not the
+    // reader's to change: whatever is typed into it is refused, and the hint
+    // is called back to instead
+    t.setAttribute("contenteditable", "plaintext-only");
+    t.spellcheck = false;
+    t.addEventListener("focus", () => el.box.classList.add("obintitle"));
+    t.addEventListener("blur", () => el.box.classList.remove("obintitle"));
+    t.addEventListener("beforeinput", e => { e.preventDefault(); nudge(card); });
+    t.addEventListener("paste", e => e.preventDefault());
+    t.addEventListener("drop", e => e.preventDefault());
+    // a composition (an accented letter, a non latin keyboard) cannot be refused before
+    // it lands, so it is taken back after
+    t.addEventListener("input", () => {
+      if (t.textContent === card.spec.title) return;
+      t.textContent = card.spec.title;
+      caretToTitleEnd(t);
+    });
+    // Enter and Escape take the caret to the reply box, as they do from the
+    // board's title, and go no further
+    t.addEventListener("keydown", e => {
+      if ((e.key === "Enter" && !e.altKey) || e.key === "Escape"){
+        e.preventDefault();
+        e.stopPropagation();
+        ta.focus();
+      }
+    });
+    ta.addEventListener("input", () => { el.tick(); noteTyping(ta); });
+    // Enter sends and Shift + Enter is a new line. Control + Shift + Enter
+    // with the box empty only moves (composerEnter in index.html); with words
+    // in it, it sends them and stays, since the card that has waited longest is
+    // this one while it has questions left. Control + Enter alone is the system's
+    ta.addEventListener("keydown", e => {
+      const now = controlShiftEnter(e);
+      if (e.key !== "Enter" || (e.shiftKey && !now) || e.altKey || e.isComposing || bareControlEnter(e)) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      if (now && !ta.value.trim()){ advance(); return; }
+      sendFrom(card);
+    });
+    for (const node of [el.send, el.clip])
+      node.addEventListener("pointerdown", e => { if (document.activeElement === ta) e.preventDefault(); });
+    el.send.addEventListener("click", () => sendFrom(card));
+    el.histUp.addEventListener("click", () => stepHistory(card, 1));
+    el.histDown.addEventListener("click", () => stepHistory(card, -1));
+    ta.addEventListener("focus", () => paintHint(card));
+    ta.addEventListener("blur", () => paintHint(card));
+    paintHint(card);
+  }
+
+  // the ghost after the title (?hint=title) needs 24px and its own width
+  // after the last letter; a last line that leaves less sends it under the line
+  const ghostPen = document.createElement("canvas").getContext("2d");
+  function seatGhost(card){
+    if (HINT !== "title" || !card.spec.questions) return;
+    const t = card.el.titleEl, text = t.firstChild;
+    if (!text || text.nodeType !== 3 || !text.length || !t.getClientRects().length) return;
+    const rg = document.createRange();
+    rg.setStart(text, text.length - 1);
+    rg.setEnd(text, text.length);
+    const end = [...rg.getClientRects()].pop();
+    if (!end) return;
+    const cs = getComputedStyle(t);
+    ghostPen.font = "400 13px " + getComputedStyle(document.body).getPropertyValue("--inter");
+    const room = t.getBoundingClientRect().right - parseFloat(cs.paddingRight) - end.right;
+    card.el.box.classList.toggle("obghostdown", room < 24 + ghostPen.measureText("Tab to answer").width);
+  }
+
+  // the Tab hint stands while the first question is unanswered, wherever it stands
+  function waiting(card){ return !!card.spec.questions && card.pages.length === 1 && profile.name == null; }
+  function paintHint(card){
+    const el = card.el, wait = waiting(card);
+    el.box.classList.toggle("obwait", wait);
+    if (HINT === "box") el.ta.placeholder = wait && document.activeElement !== el.ta ? TAB_HINT_PLAIN + " here" : "";
+    if (HINT === "bar") el.barHint.textContent = wait ? TAB_HINT_PLAIN : "";
+  }
+  function nudge(card){
+    const el = card.el;
+    if (HINT === "reply" || !waiting(card)){ printReply(el); return; }
+    const node = HINT === "title" ? el.titleEl : HINT === "box" ? el.ta : el.barHint;
+    node.classList.remove("obnudge");
+    void node.offsetWidth;   // a nudge still going starts again
+    node.classList.add("obnudge");
+    clearTimeout(node.nudgeTimer);
+    node.nudgeTimer = setTimeout(() => node.classList.remove("obnudge"), PRINT_MS + 60);
+  }
+
+  // what the reader typed, as the reply says it back: one line, no closing
+  // stop of its own, and every character the card's markdown would read as
+  // markup escaped (card-markdown.js renderInline)
+  function said(text){
+    const line = text.replace(/\s+/g, " ").trim();
+    return line.replace(/[\s.]+$/, "") || line;
+  }
+  function plain(text){ return String(text).replace(/[\\`*_[\]{}()#+\-.!~|]/g, "\\$&"); }
+
+  // the answer a message gives: on a choice, a number or the choice's own
+  // words (or its first word) pick it. anything else is kept as it was typed,
+  // so nothing is refused
+  function readAnswer(q, text){
+    const line = said(text), low = line.toLowerCase();
+    if (q.choices){
+      const n = /^#?(\d+)$/.exec(line);
+      if (n && +n[1] >= 1 && +n[1] <= q.choices.length) return q.choices[+n[1] - 1];
+      const hit = q.choices.find(c => c.toLowerCase() === low) ||
+                  q.choices.find(c => c.toLowerCase().split(" ")[0] === low);
+      if (hit) return hit;
+    }
+    return line;
+  }
+
+  // ---- sending, and the answer ---------------------------------------------------
+  // the page of the card's history on show: the newest, or the one stepped
+  // back to with Control + Shift + ↑
+  function pageOnShow(card){
+    return hist && hist.id === card.spec.id ? card.pages.length - 1 - hist.step : card.pages.length - 1;
+  }
+  function sendFrom(card){
+    const el = card.el;
+    const page = card.pages[pageOnShow(card)];
+    const text = el.ta.value.trim();
+    // the last page asks nothing: a send there calls its lines back instead
+    if (!page.field){ printReply(el); return false; }
+    const q = QUESTIONS.find(one => one.field === page.field);
+    if (!text && card.pending.length) return false;
+    // a send the question will not take, an empty one on every question, keeps
+    // the question and asks again
+    const problem = !text ? q.empty : q.check ? q.check(text) : "";
+    if (problem){
+      card.asking = problem;
+      card.askingAt = pageOnShow(card);
+      render(el, pageRaw(card, card.askingAt));
+      printReply(el);
+      return false;
+    }
+    // the first answer brings the keyboard in, over its flight and the turn
+    if (card.pages.length === 1) showKeys(KEYS_IN_MS);
+    // the board's own order (doSend in index.html): the flight is armed off the
+    // row before the row is emptied, the message comes into the sent panel at
+    // the press, faded, and the flight plays once it has its seat there
+    const motion = armSentMotion(el);
+    el.ta.value = "";
+    el.tick();
+    const item = sentLaunch(el, text, "");
+    motion?.play();
+    el.metaNote.textContent = "";
+    caretQueue();
+    // the message answers the question on show as it is sent
+    item.field = page.field;
+    card.pending.push(item);
+    // nothing stands between the send and its answer: no Delivered, no Read
+    // and no working spinner. the send ends the typing, so the two quiet
+    // seconds the board leaves after the last key (TYPE_QUIET_MS in
+    // card-logic.js) do not hold the answer back
+    el.ta.typedAt = 0;
+    answerOnLanding(card);
+    return true;
+  }
+  // the answer comes the moment the send's flight has landed (SENT_FLIGHT_MS,
+  // 650ms). the board holds a new answer while a bubble is in flight
+  // (turnHolding), and an answer drawn sooner would take the bubble the flight
+  // is landing on away and cut the flight short. it comes once, after the last
+  // of a run of sends, and answers them all
+  function answerOnLanding(card){
+    const el = card.el;
+    cancelAnimationFrame(card.replyTimer);
+    const look = () => {
+      card.replyTimer = 0;
+      if (el.sentMotions && el.sentMotions.size){ card.replyTimer = requestAnimationFrame(look); return; }
+      const batch = card.pending.splice(0);
+      if (batch.length) answer(card, batch, batch[batch.length - 1].field);
+    };
+    look();
+  }
+
+  // the newest message is the answer to the question that was on show when it
+  // was sent. an answer to the newest question moves the card on to the next
+  // page. an answer sent from an older page replaces that answer, and the card
+  // comes back to the newest page, saying what changed; the page after the
+  // corrected question says the new answer from then on
+  function answer(card, batch, field){
+    for (const m of batch) sentSettled(card.el);   // each message is the board's as it is answered
+    const qi = QUESTIONS.findIndex(q => q.field === field), q = QUESTIONS[qi];
+    card.asking = card.askingAt = null;
+    const value = readAnswer(q, batch[batch.length - 1].text);
+    profile[field] = value;
+    paintHint(card);
+    const words = plain(value);
+    const gotIt = "Got it, " + words + ".";
+    const meta = { id: card.spec.id + "." + (++card.replies), answered: batch.map(m => ({ text: m.text })) };
+    const live = card.pages.length - 1;
+    let after = null;
+    if (qi === live){
+      const next = QUESTIONS[qi + 1];
+      card.pages.push({ field: next ? next.field : null, head: gotIt, meta });
+      // the last page lights its two keys in turn once its turn has landed:
+      // the way back to an answer, then the next card
+      if (!next) after = () => later(() => {
+        const t = pulse(["ctrl", "shift", "up"], LIGHT);
+        later(() => pulse(["ctrl", "shift", "right"], LIGHT), t + LIGHTS_GAP_MS);
+      }, LANDED_WAIT_MS);
+    } else {
+      const next = card.pages[qi + 1];
+      if (qi + 1 < live) Object.assign(next, { head: gotIt, meta: { id: next.meta.id, answered: meta.answered } });
+      Object.assign(card.pages[live], { head: "Changed your " + q.noun + " to " + words + ".", meta });
+    }
+    dropHistory(card);
+    land(card, { id: card.spec.id, replyKind: "agent", replyId: meta.id, answered: meta.answered, after });
+  }
+  // the board's pass over a card whose answer has changed (apply in
+  // index.html): the turn is begun before anything of the new page is drawn,
+  // the new page is drawn under it, and then it glides
+  function land(card, b){
+    const el = card.el;
+    const turn = turnBegin(el, b);
+    if (turn === TURN_HELD){ card.held = b; return; }
+    card.held = null;
+    keepHistory(card);
+    render(el, pageRaw(card, card.pages.length - 1));
+    if (!turn) headOnSwap(el, b);
+    el.sentItems = [];
+    syncSent(el, el.sentItems);
+    syncAnswered(el, { id: b.replyId, answered: b.answered });
+    // the ticket: one more reply, just now, and read, since it answers what
+    // the reader has just written
+    const box = boxOf(card), now = Date.now() / 1000;
+    Object.assign(box, { replyId: b.replyId, answered: b.answered, replies: box.replies + 1, agentTs: now, ts: now });
+    seenReplies[card.spec.id] = box.replies;
+    if (b.after) b.after();
+    turnGo(el, turn);
+    caretQueue();
+    paintTickets();
+  }
+  // a new answer held back while the reader was busy with the card is drawn
+  // once they have let it be (turnHold in card-logic.js)
+  turnAgain = () => { for (const card of cards) if (card.held) land(card, card.held); };
+
+  // ---- the reply history --------------------------------------------------------
+  // the board asks itself for a card's older replies (histList in
+  // card-logic.js); here they are the card's own pages, handed to the same
+  // cache histStep reads, and the arrows come and go as the board's do
+  // (setDesktopHistoryAvailability in index.html)
+  function keepHistory(card){
+    const el = card.el, older = card.pages.slice(0, -1);
+    const list = older.map((p, i) => pageRaw(card, i));
+    list.meta = older.map(p => p.meta || {});
+    histCache[card.spec.id] = Promise.resolve(list);
+    const has = list.length > 0;
+    if (el.hasHistory === has) return;
+    el.hasHistory = has;
+    el.box.classList.toggle("hashist", has);
+    el.histctl.setAttribute("aria-hidden", has ? "false" : "true");
+    el.histUp.disabled = !has;
+    el.histDown.disabled = true;
+  }
+  function stepHistory(card, dir){
+    if (!card.spec.questions || card.spec.id !== selectedId) return;
+    histStep(card.spec.id, dir).then(() => liveMarks(card.el));
+  }
+  function leaveHistory(){
+    if (!hist) return;
+    const el = els[hist.id];
+    histExit(hist.id);
+    liveMarks(el);
+  }
+  // the way back to the live page (histExit in card-logic.js) draws it with
+  // the board's fmt, which leaves the board's marks as their own characters,
+  // so the last page's three stars are drawn again
+  function liveMarks(el){
+    if (!el || el.box.classList.contains("histview") || !/[\uE001-\uE005]/.test(el.reply.textContent)) return;
+    el.reply.innerHTML = withMarks(el.reply.innerHTML);
+  }
+  // an answer sent from an older page brings the card back to the newest one:
+  // the step back ends where it stands, with the older page still drawn, so the
+  // turn pictures the page the answer was sent from
+  function dropHistory(card){
+    if (!hist || hist.id !== card.spec.id) return;
+    hist = null;
+    const el = card.el;
+    el.box.classList.remove("histview");
+    el.histPos.textContent = "";
+    el.histUp.disabled = false;
+    el.histDown.disabled = true;
+  }
+
+  // ---- the end: the profile, and the board ------------------------------------
+  // the run opens the sample project as its project at the start: the folder
+  // made the first time it is missing (POST /onboarding/sample), then its tab,
+  // found where it is already the board's or made the way the home page's
+  // "Open a new folder" makes one. the board lands on that tab at the end
+  const projectReady = (async () => {
+    try {
+      const made = await (await fetch("/onboarding/sample", { method: "POST" })).json();
+      if (!made || !made.path) return null;
+      const st = await (await fetch("/state")).json();
+      const open = Object.entries(st.pwds || {}).find(([, dir]) => dir === made.path);
+      if (open) return open[0];
+      const name = made.path.split("/").filter(Boolean).pop();
+      const px = await fetch("/project?name=" + encodeURIComponent(name), { method: "POST", body: made.path });
+      const pr = await px.json().catch(() => null);
+      return px.ok && pr && pr.id ? pr.id : null;
+    } catch (e) {
+      return null;
+    }
+  })();
+  // the same rule as the board's (clean_email in usage_counts.py): the email
+  // question takes only an address, and the save carries no email, with no yes,
+  // for anything else
+  const ADDRESS = /^[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+$/;
+  const address = text => text && text.length <= 254 && ADDRESS.test(text) ? text : null;
+  // the answers saved as the board's profile (POST /profile), an email given
+  // being the yes to feedback mail. whether the board kept them
+  async function saveProfile(){
+    const email = address(profile.email);
+    const body = { name: profile.name.slice(0, 200), email, emailYes: email != null,
+                   work: profile.work && profile.work.slice(0, 2000), timeZone: profile.timeZone };
+    try { return (await fetch("/profile", { method: "POST", body: JSON.stringify(body) })).ok; } catch (e) { return false; }
+  }
+  // the summary card passed (any move to a card after the onboarding card, which
+  // is allowed only with every answer given): the answers are saved then, so the
+  // bug button on the last card has a name and an email to send feedback with.
+  // the board is told, so it does not take the frame away at the first reading
+  // that says no profile is missing. passed again after an answer is changed,
+  // they are saved again
+  async function keepProfile(){
+    if (QUESTIONS.find(q => !profile[q.field]) || !await saveProfile()) return;
+    feedback.setReady(true);
+    if (parent !== window) parent.postMessage({ onboarding: "saved" }, location.origin);
+  }
+  // the last card closed: the answers are saved as the profile, again if they
+  // were, and the card goes, the ticket list
+  // with it. the board then takes the frame away onto the sample project.
+  // every answer is needed, so the key with one missing goes to the first
+  // question not answered, which is the onboarding card's newest page, since a
+  // page comes only with the answer before it: the first question is called
+  // back to, and any other asks for its answer as an empty send does. a save
+  // that does not land calls the key back, to be pressed again
+  let saving = false;
+  async function finish(){
+    if (finished || saving) return;
+    const missing = QUESTIONS.find(q => !profile[q.field]);
+    if (missing){
+      show(cards.indexOf(onboard));
+      leaveHistory();
+      if (missing === QUESTIONS[0]){ nudge(onboard); return; }
+      onboard.asking = missing.empty;
+      onboard.askingAt = onboard.pages.length - 1;
+      render(onboard.el, pageRaw(onboard, onboard.askingAt));
+      printReply(onboard.el);
+      return;
+    }
+    saving = true;
+    const saved = await saveProfile();
+    saving = false;
+    if (!saved){ printReply(cards[at].el); return; }
+    finished = true;
+    unlight();
+    document.body.classList.add("obdone");
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    caretQueue();
+    const project = await projectReady;
+    if (parent !== window) parent.postMessage({ onboarding: "done", project }, location.origin);
+    else setTimeout(() => location.replace("/"), 180);
+  }
+
+  // ---- moving between cards -----------------------------------------------------
+  function show(i){
+    const card = cards[i], el = card.el;
+    if (hist && hist.id !== card.spec.id) leaveHistory();
+    if (card !== cards[at]) unlight();
+    if (cards[at] === onboard && i > cards.indexOf(onboard)) keepProfile();
+    at = i;
+    selectedId = card.spec.id;
+    for (const c of cards) c.el.box.classList.toggle("sel", c === card);
+    document.body.classList.toggle("obfin", !!card.spec.closing);
+    // from the onboarding card on, the card stands at its place on the board;
+    // the ticket list fades in beside it once 101: Tickets is first shown, and
+    // stays: drawn at no strength for two frames, then faded in (obticketsprep
+    // in the sheet). the card's own ticket is lifted
+    document.body.classList.toggle("obboard", i >= cards.findIndex(c => c.spec.id === BOARD_FROM));
+    const list = document.body.classList;
+    if (card.spec.id === LIST_FROM && !list.contains("obtickets") && !list.contains("obticketsprep")){
+      list.add("obticketsprep");
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        list.add("obtickets");
+        list.remove("obticketsprep");
+      }));
+    }
+    paintTickets();
+    // the photo's box beside its card, and nowhere else
+    placeBox();
+    openAtHead(el);
+    el.tick();
+    if (el.bandWrite) el.bandWrite();
+    seatGhost(card);
+    // a 101 card reached before any answer still stands over the keyboard
+    if (i > cards.indexOf(onboard)) showKeys(KEYS_LATE_MS);
+    // where the caret lands: nowhere on the cards that ask nothing, so the
+    // plain arrows are free; at the end of the title while the first question
+    // is unanswered; in the reply box after, where the reader left it
+    if (!card.spec.questions){
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    } else if (waiting(card) && !card.pending.length) caretToTitleEnd(el.titleEl);
+    else el.ta.focus({ preventScroll: true });
+    caretQueue();
+  }
+  function caretToTitleEnd(t){
+    t.focus({ preventScroll: true });
+    const range = document.createRange();
+    range.selectNodeContents(t);
+    range.collapse(false);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  // the cards past the onboarding card open only once every question is
+  // answered. a move there before that, by any key or click, stays on the
+  // onboarding card, and its newest page, the first question not answered,
+  // asks for its answer as an empty send does. while an answer is still on its
+  // way in, the move is only held back: that answer may be the last one
+  function blocked(i){
+    const missing = QUESTIONS.find(q => !profile[q.field]);
+    if (i <= cards.indexOf(onboard) || !missing) return false;
+    if (cards[at] !== onboard) show(cards.indexOf(onboard));
+    if (onboard.pending.length) return true;
+    leaveHistory();
+    onboard.asking = missing.empty;
+    onboard.askingAt = onboard.pages.length - 1;
+    render(onboard.el, pageRaw(onboard, onboard.askingAt));
+    printReply(onboard.el);
+    return true;
+  }
+  // a step either way, but not past the onboarding card with a question
+  // unanswered. past the last card there is no card, and its key is called
+  // back to instead. once done there is nowhere to go: the board is opening
+  function go(step){
+    if (finished) return;
+    const next = at + step;
+    if (next < 0) return;
+    if (next >= cards.length){ printReply(cards[at].el); return; }
+    if (blocked(next)) return;
+    show(next);
+  }
+  // Control + Shift + Enter: the card that has waited longest for the reader
+  // (jumpNextYellow in card-logic.js): the onboarding card while it has
+  // questions left, and then the last card
+  function advance(){
+    if (finished) return;
+    const from = cards[at];
+    const left = onboard.pages.length <= QUESTIONS.length;
+    const target = left && from !== onboard ? onboard : cards.find(c => c.spec.closing);
+    if (target !== from) show(cards.indexOf(target));
+  }
+
+  // ---- the ticket list ------------------------------------------------------------
+  // one ticket per card, drawn by the board's own renderer (paintTicketPane
+  // above) the way the board's renderCarousel in index.html draws
+  // its four sections. every card stands in Doing. the board orders Doing by
+  // whose turn has waited longest (poolOf in card-logic.js), which would sink
+  // an answered card below the rest; here the tickets keep the cards' order
+  function paintTickets(){
+    const sheet = document.getElementById("tiksheet");
+    paintViewTabs();
+    for (const name of TICKET_VIEWS){
+      const pane = sheet.querySelector('.tikpane[data-view="' + name + '"]');
+      if (pane) paintTicketPane(pane, lastState.boxes.filter(b => viewFilterFor(b, name)), name, lastState, "");
+    }
+    if (tikTravelIntent == null && tikShownView !== curView()) moveTicketSheet(curView(), false);
+  }
+  // a click on a ticket shows its card, as the board's select does
+  select = id => {
+    const i = cards.findIndex(c => c.spec.id === id);
+    if (i >= 0 && !finished && !blocked(i)) show(i);
+  };
+  // the onboarding always opens on Doing, whatever section this browser last
+  // chose for a lane of this name
+  ticketViews[activeOwner] = TICKET_VIEWS[0];
+  // the section names and the triangles, wired as the board wires them
+  // (in index.html): a name slides its section into the list, a
+  // triangle slides the names, and every name dips while it is pressed
+  {
+    const setView = v => {
+      if (!setTicketViewOf(activeOwner, v)) return;
+      chooseTicketNames(v);
+      paintViewTabs();
+      tikTravelIntent = v;
+      paintTickets();
+      tikTravelIntent = null;
+      moveTicketSheet(v, true);
+    };
+    document.getElementById("tv-todo").addEventListener("click", () => setView("todo"));
+    document.getElementById("tv-docked").addEventListener("click", () => setView("docked"));
+    document.getElementById("tik-page-back").addEventListener("click", () => slideTicketNames(0));
+    document.getElementById("tik-page").addEventListener("click", () => slideTicketNames(1));
+    document.getElementById("tv-deferred").addEventListener("click", () => setView("deferred"));
+    document.getElementById("tv-done").addEventListener("click", () => setView("done"));
+    const PRESS_MIN = 80;
+    for (const name of document.querySelectorAll("#tikhead .tvb")){
+      let since = 0, timer = 0;
+      const press = () => {
+        clearTimeout(timer);
+        since = performance.now();
+        name.classList.add("pressed");
+      };
+      const release = () => {
+        if (!name.classList.contains("pressed")) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => name.classList.remove("pressed"), Math.max(0, since + PRESS_MIN - performance.now()));
+      };
+      name.addEventListener("pointerdown", press);
+      for (const type of ["pointerup", "pointercancel", "pointerleave", "blur"]) name.addEventListener(type, release);
+      name.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) press(); });
+      name.addEventListener("keyup", e => { if (e.key === "Enter" || e.key === " ") release(); });
+    }
+  }
+  // a ticket's age is redrawn when its minute turns, as the board's readings
+  // redraw it; the signature leaves every other pass untouched
+  setInterval(paintTickets, 10000);
+
+  // the done chord, Control + Shift + Backspace or Delete, is the page's on
+  // every card, in every field, held or not and once the run is done: a key
+  // the page leaves alone goes on to Chrome's own shortcuts. Command + Shift +
+  // Backspace, Chrome's Delete browsing data on the Mac, is kept the same way,
+  // as the board keeps it (chromeShortcutBlocked in index.html), and only
+  // kept: it marks nothing done. taken on the way down, before the feedback
+  // sheet stops its keys; the last card still reads the done chord below,
+  // since a cancelled chord still counts
+  addEventListener("keydown", e => {
+    if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && sectionChordOf(e) === "done") e.preventDefault();
+    if (e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey && cardCommandKey(e) === "backspace") e.preventDefault();
+  }, true);
+
+  // the keys, read by the board's own table (cardShortcut in card-logic.js)
+  // and answered as the board answers them (boardShortcutActions in
+  // index.html): Control + Shift + an arrow from anywhere, a plain arrow,
+  // Enter and Control + Shift + Enter only where nothing is being typed, Escape out
+  // of the reply box, Control + Shift + ↑ and ↓ through the onboarding card's
+  // pages, and the done chord on the last card. Tab goes between the
+  // title and the reply box
+  document.addEventListener("keydown", e => {
+    const card = cards[at], el = card.el;
+    const key = cardShortcut(e);
+    const typing = cardShortcutEditing(e.target);
+    switch (key && key.action){
+      case "navigate":
+        e.preventDefault(); go(key.value); return;
+      case "plainNavigate":
+        if (typing) break;
+        e.preventDefault(); go(key.value); return;
+      case "history":
+        e.preventDefault();
+        if (!finished) stepHistory(card, key.value);
+        return;
+      case "escape":
+        if (typing) e.target.blur();
+        return;
+      case "enter":
+        if (typing || finished || !card.spec.questions) break;
+        if (e.target.closest && e.target.closest("button, a, select, summary, [role], [tabindex]")) break;
+        e.preventDefault();
+        el.ta.focus({ preventScroll: true });
+        return;
+      case "advance":
+        if (typing) break;
+        e.preventDefault();
+        if (!e.repeat) advance();
+        return;
+      case "sectionChord":
+        if (key.value !== "done" || !card.spec.closing || finished) break;
+        e.preventDefault();
+        finish();
+        return;
+    }
+    if (e.key === "Tab" && !e.metaKey && !e.ctrlKey && !e.altKey){
+      e.preventDefault();
+      if (!card.spec.questions || finished) return;
+      if (document.activeElement === el.ta) caretToTitleEnd(el.titleEl);
+      else el.ta.focus({ preventScroll: true });
+    }
+  });
+
+  // the feedback box, as the board's page has it (index.html): alive once the
+  // profile is saved with its name and email (keepProfile, when the summary
+  // card is passed), and the bug on the last card opens the same sheet the
+  // board's bug opens. a press on the bug must not take the page's keys away: it
+  // keeps the focus where it was, so Control + Shift + Backspace still marks the
+  // last card done
+  const feedback = feedbackBox({ box: document.getElementById("fbbox"), ta: document.getElementById("fbta"),
+    send: document.getElementById("fbsend"), note: document.getElementById("fbnote") }, {
+    send: text => fetch("/feedback", { method: "POST", body: JSON.stringify({ message: text }) })
+      .then(r => r.ok, () => false),
+    enter: e => e.key === "Enter" && (!e.shiftKey || controlShiftEnter(e)) && !e.altKey && !e.isComposing &&
+      !bareControlEnter(e),
+    moved: () => caretQueue(),
+  });
+  const feedbackSheet = feedbackOverlay(document.body, document.getElementById("fbbox").closest(".fbrow"), {});
+  document.getElementById("obbug").addEventListener("click", () => feedbackSheet.open());
+  document.getElementById("obbug").addEventListener("mousedown", e => e.preventDefault());
+
+  // the copy button on a card's code block (the command on 101: Phone App),
+  // wired as the phone page wires it (m.html); a press keeps the focus where it was
+  sections.addEventListener("click", e => {
+    const button = e.target.closest?.(".copybtn");
+    if (button) CardMarkdown.copyCodeBlock(button);
+  });
+  sections.addEventListener("mousedown", e => { if (e.target.closest?.(".copybtn")) e.preventDefault(); });
+
+  // ---- the block caret, cut down from index.html's fat caret ------
+  // the board draws a terminal block over the caret in every field it types in.
+  // that code is inline in index.html; this is the part two fields need: the
+  // title, where the block stands cap high on the baseline, and the reply box,
+  // where it stands 1.1em tall across the line. half an em wide at the end of
+  // the words, and the letter's own width over a letter
+  {
+    const bar = h("div");
+    bar.id = "fatcaret";
+    const lift = h("div");
+    lift.id = "fatcaretlift";
+    document.body.append(bar, lift);
+    const cells = [bar, lift];
+    const hide = () => { for (const cell of cells) cell.classList.remove("on"); };
+    const mirror = h("div");
+    mirror.style.cssText = "position:fixed; top:0; left:-9999px; visibility:hidden; pointer-events:none";
+    document.body.appendChild(mirror);
+
+    // per font: asc is the inline box's top to the baseline, read in the dom;
+    // the cell above and below the baseline and the cap height from the canvas
+    const mcache = new Map();
+    const mctx = document.createElement("canvas").getContext("2d");
+    function fmetrics(cs){
+      const key = cs.fontStyle + "|" + cs.fontWeight + "|" + cs.fontSize + "|" + cs.fontFamily;
+      let m = mcache.get(key);
+      if (m) return m;
+      const d = h("div");
+      d.style.cssText = "position:fixed; left:-9999px; top:0; visibility:hidden; line-height:normal";
+      d.style.fontFamily = cs.fontFamily; d.style.fontSize = cs.fontSize;
+      d.style.fontWeight = cs.fontWeight; d.style.fontStyle = cs.fontStyle;
+      const w = h("span", null, "H");
+      const p = h("span");
+      p.style.cssText = "display:inline-block; width:0; height:0";
+      d.append(w, p);
+      document.body.appendChild(d);
+      const wr = w.getBoundingClientRect();
+      m = { asc: p.getBoundingClientRect().bottom - wr.top };
+      d.remove();
+      let fbA = NaN, fbD = NaN, capH = NaN;
+      try {
+        mctx.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+        const tm = mctx.measureText("H");
+        fbA = tm.fontBoundingBoxAscent; fbD = tm.fontBoundingBoxDescent;
+        capH = tm.actualBoundingBoxAscent;
+      } catch (e) {}
+      if (fbA > 0 && fbD >= 0){ m.fbA = fbA; m.fbD = fbD; }
+      else { m.fbA = m.asc; m.fbD = parseFloat(cs.fontSize) * 1.18 - m.asc; }
+      m.capH = capH > 0 ? capH : parseFloat(cs.fontSize) * 0.7;
+      if (!document.fonts || document.fonts.status === "loaded") mcache.set(key, m);
+      return m;
+    }
+    // the width of the letter after the caret, or nothing at the end of a line
+    function advanceOf(node, at){
+      if (!node || node.nodeType !== 3 || at >= node.length) return null;
+      const code = node.data.codePointAt(at);
+      if (code === 10) return null;
+      const rg = document.createRange();
+      rg.setStart(node, at);
+      rg.setEnd(node, at + (code > 0xFFFF ? 2 : 1));
+      const rects = [...rg.getClientRects()].filter(r => r.width > 0 && r.height > 0);
+      return rects.length === 1 ? rects[0].width : null;
+    }
+    // the reply box: a mirror of its text up to the caret, laid out as it is
+    function fieldCaret(el){
+      if (el.selectionStart == null) return null;
+      const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+      for (const p of ["fontFamily","fontSize","fontWeight","fontStyle","fontStretch",
+                       "fontKerning","fontFeatureSettings","fontVariationSettings",
+                       "lineHeight","letterSpacing","wordSpacing","textTransform","textIndent",
+                       "tabSize","paddingTop","paddingRight","paddingBottom","paddingLeft",
+                       "borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth"])
+        mirror.style[p] = cs[p];
+      mirror.style.borderStyle = "solid";
+      mirror.style.borderColor = "transparent";
+      mirror.style.boxSizing = "border-box";
+      mirror.style.width = parseFloat(cs.width) + "px";
+      mirror.style.whiteSpace = "pre-wrap";
+      mirror.style.wordWrap = "break-word";
+      const typed = el.value.slice(0, el.selectionStart), rest = el.value.slice(el.selectionStart);
+      mirror.textContent = typed;
+      const mr = mirror.getBoundingClientRect();
+      let kr, width = null;
+      if (!rest && /\S$/.test(typed)){
+        // at the end of a word a marker would weld onto it and wrap; the last
+        // letter's right edge is the spot
+        const rg = document.createRange();
+        rg.setStart(mirror.firstChild, typed.length - 1);
+        rg.setEnd(mirror.firstChild, typed.length);
+        const rr = rg.getClientRects()[0] || rg.getBoundingClientRect();
+        kr = { left: rr.right, top: rr.top };
+      } else {
+        const mark = h("span", null, rest || ".");
+        mirror.appendChild(mark);
+        kr = mark.getClientRects()[0] || mark.getBoundingClientRect();
+        if (rest) width = advanceOf(mark.firstChild, 0);
+      }
+      const m = fmetrics(cs);
+      return { x: r.left + kr.left - mr.left - el.scrollLeft,
+               base: r.top + kr.top - mr.top - el.scrollTop + m.asc,
+               fs: parseFloat(cs.fontSize), fbA: m.fbA, fbD: m.fbD, width, clip: r, title: false };
+    }
+    // the title: the caret's own spot, or the last letter's right edge where
+    // the browser gives a caret at the end of the words no box
+    function titleCaret(el){
+      const sel = getSelection();
+      if (!sel.rangeCount) return null;
+      const rg = sel.getRangeAt(0);
+      if (!el.contains(rg.startContainer)) return null;
+      const cs = getComputedStyle(el), m = fmetrics(cs);
+      const rr = [...rg.getClientRects()].find(q => q.height > 0);
+      let x = rr ? rr.left : null, top = rr ? rr.top : null;
+      const text = el.firstChild;
+      if (x == null && text && text.nodeType === 3 && text.length){
+        const end = document.createRange();
+        end.setStart(text, text.length - 1);
+        end.setEnd(text, text.length);
+        const q = [...end.getClientRects()].pop();
+        if (q){ x = q.right; top = q.top; }
+      }
+      if (x == null) return null;
+      return { x, base: top + m.asc, fs: parseFloat(cs.fontSize), capH: m.capH, fbA: m.fbA, fbD: m.fbD,
+               width: advanceOf(rg.startContainer, rg.startOffset), clip: el.getBoundingClientRect(), title: true };
+    }
+
+    let cur = null, raf = 0;
+    function place(){
+      raf = 0;
+      if (!cur || !cur.isConnected || !cur.getClientRects().length){ hide(); return; }
+      const field = cur.tagName === "TEXTAREA";
+      const collapsed = field ? cur.selectionStart === cur.selectionEnd : getSelection().isCollapsed;
+      if (!collapsed){ hide(); return; }   // a selection marks its own spot
+      const c = field ? fieldCaret(cur) : titleCaret(cur);
+      if (!c){ hide(); return; }
+      const bw = c.width > 0 ? c.width : c.fs * 0.5;
+      let bh, y;
+      if (c.title){ bh = c.capH + 1; y = c.base - bh; }
+      else { bh = c.fs * 1.1; y = c.base - c.fbA + (c.fbA + c.fbD - bh) / 2; }
+      if (y + bh < c.clip.top - 1 || y > c.clip.bottom + 1){ hide(); return; }
+      for (const cell of cells){
+        cell.style.left = c.x + "px";
+        cell.style.top = y + "px";
+        cell.style.width = bw + "px";
+        cell.style.height = bh + "px";
+        cell.classList.add("on");
+      }
+    }
+    const queue = () => { if (!raf) raf = requestAnimationFrame(place); };
+    caretQueue = queue;
+    document.addEventListener("focusin", e => {
+      const target = e.target;
+      const el = target && target.tagName === "TEXTAREA" ? target :
+        (target && target.closest ? target.closest("[contenteditable]") : null);
+      if (cur && cur !== el) cur.classList.remove("fc-hide");
+      cur = el;
+      if (cur) cur.classList.add("fc-hide");
+      queue();
+    });
+    document.addEventListener("focusout", () => {
+      if (cur) cur.classList.remove("fc-hide");
+      cur = null;
+      queue();
+    });
+    document.addEventListener("selectionchange", queue);
+    document.addEventListener("input", queue, true);
+    document.addEventListener("keyup", queue, true);
+    document.addEventListener("scroll", queue, true);
+    addEventListener("resize", queue);
+    // the row moves when the sent panel over it comes and goes
+    if (window.ResizeObserver){
+      const ro = new ResizeObserver(queue);
+      for (const card of cards) ro.observe(card.el.pendwrap);
+    }
+    if (document.fonts && document.fonts.addEventListener)
+      document.fonts.addEventListener("loadingdone", queue);
+  }
+
+  const refit = () => seatGhost(cards[at]);
+  addEventListener("resize", refit);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
+  show(0);
+})();
+</script>
+</body>
+</html>

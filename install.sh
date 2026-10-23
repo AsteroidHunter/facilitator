@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 # Install this checkout and expose the facilitator command.
 set -euo pipefail
-REPO="$(cd "$(dirname "$0")" && pwd)"
+# the checkout this script is in; the program is in app/ inside it, and what
+# the board writes goes into data/ beside that
+CLONE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$CLONE/app"
 
 CLAUDE_URL='https://code.claude.com/docs/en/overview'
 CODEX_URL='https://developers.openai.com/codex/cli'
 CHROME_URL='https://www.google.com/chrome/'
 # uv's own installer, locked to one release and run only when what comes back
 # has exactly this fingerprint; keep both in step with UV_PIN and
-# UV_INSTALL_SHA256 in facilitator.
+# UV_INSTALL_SHA256 in app/facilitator.
 UV_PIN='0.12.22'
 UV_INSTALL_URL="https://astral.sh/uv/$UV_PIN/install.sh"
 UV_INSTALL_SHA256='58488ae8dbd0773134c92c85e901430e33f99d975bd7f929d26aa9ab0c2f9390'
-MIN_PYTHON='3.9'      # runs the setup and the command; keep in step with MIN_PYTHON in facilitator
-MANAGED_PYTHON='3.14' # the Python .venv is built on; keep in step with APP_PYTHON in facilitator
-UV_MIN='0.9.0'        # the first uv that installs Python 3.14.0; keep in step with UV_MIN in facilitator
+MIN_PYTHON='3.9'      # runs the setup and the command; keep in step with MIN_PYTHON in app/facilitator
+MANAGED_PYTHON='3.14' # the Python data/.venv is built on; keep in step with APP_PYTHON in app/facilitator
+UV_MIN='0.9.0'        # the first uv that installs Python 3.14.0; keep in step with UV_MIN in app/facilitator
+HELD_LINES=10         # how many of a failed step's own last lines are shown; keep in step with app/facilitator
 
 DEV_FLAG=''
 if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
   printf 'usage: ./install.sh [--dev]\n\n'
-  printf 'Check for Claude Code or Codex and Chrome, set up a private Python\n'
-  printf 'environment for this checkout, offer the phone client (Tailscale and\n'
-  printf 'an app password), and register the command and shared agent skill.\n'
-  printf -- '--dev also installs the packages only the tests need, locked to the\n'
-  printf 'versions in tests/package-lock.json; it needs node and npm.\n'
+  printf 'Installs Facilitator on this Mac.\n\n'
+  printf '  --dev   also install what the test suite needs (needs node and npm)\n'
   exit 0
 elif [ "$#" -eq 1 ] && [ "$1" = "--dev" ]; then
   DEV_FLAG=1
@@ -59,6 +60,23 @@ stop_plain() {
     printf '%s\n' "$line" >&2
   done
   exit 1
+}
+
+# held <who> <output>: the output a failed step held back, cut to its last
+# HELD_LINES lines with colour codes, progress redraws and blank lines taken
+# out, put in HELD as lines for stop to show under the headline: one naming
+# whose they are, then each one indented. HELD is empty when it printed nothing.
+held() {
+  local line
+  HELD=()
+  while IFS= read -r line; do
+    HELD+=("  $line")
+  done < <(printf '%s\n' "$2" \
+    | LC_ALL=C sed -e $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' -e $'s/\r$//' -e $'s/.*\r//' -e '/^[[:space:]]*$/d' \
+    | tail -n "$HELD_LINES")
+  if [ "${#HELD[@]}" -gt 0 ]; then
+    HELD=("Last lines from $1:" "${HELD[@]}")
+  fi
 }
 
 # Chrome is looked up by asking macOS, never by reading the Applications
@@ -115,47 +133,45 @@ sha256_of() {
   fi
 }
 
-# Install uv, with Homebrew when it is there and otherwise with uv's own
-# installer for exactly UV_PIN, told not to touch any shell profile. That
-# installer runs only when the file that came back has UV_INSTALL_SHA256. It
-# checks what it downloads against the fingerprints it carries only when a
+# Install uv with uv's own installer from astral.sh, the only way this setup
+# installs it, for exactly UV_PIN and told not to touch any shell profile.
+# That installer runs only when the file that came back has UV_INSTALL_SHA256.
+# It checks what it downloads against the fingerprints it carries only when a
 # sha256sum command exists, and macOS has shasum instead, so one is put first
-# on PATH for it.
+# on PATH for it. Under Rosetta it asks the Mac, not uname, and installs the
+# uv built for Apple silicon.
 install_uv() {
   local dir file got out status=0
-  if command -v brew >/dev/null 2>&1; then
-    say 'uv is not installed. Installing it with Homebrew.'
-    brew install uv || stop 'Homebrew could not install uv.' 'Install uv yourself, then run ./install.sh again.'
-  else
-    command -v curl >/dev/null 2>&1 || stop 'curl is needed to fetch the uv installer.' 'Install uv yourself, then run ./install.sh again.'
-    if ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
-      stop 'Cannot check what the uv installer downloads: neither sha256sum nor shasum is here.' 'Nothing was run. Install uv yourself, then run ./install.sh again.'
-    fi
-    say 'uv is not installed. Installing it with the astral.sh installer'
-    say 'into your home.'
-    dir="$(mktemp -d)" || stop 'Could not make a folder for the uv installer.' 'Install uv yourself, then run ./install.sh again.'
-    file="$dir/install.sh"
-    if ! curl --proto '=https' --tlsv1.2 -LsSf "$UV_INSTALL_URL" -o "$file" || [ ! -s "$file" ]; then
-      rm -rf "$dir"
-      stop 'Could not download the uv installer.' 'Install uv yourself, then run ./install.sh again.'
-    fi
-    got="$(sha256_of "$file")" || got=''
-    if [ "$got" != "$UV_INSTALL_SHA256" ]; then
-      rm -rf "$dir"
-      stop 'The uv installer from astral.sh is not the one this checkout expects.' 'Nothing was run. Install uv yourself, then run ./install.sh again.'
-    fi
-    mkdir "$dir/bin"
-    if ! command -v sha256sum >/dev/null 2>&1; then
-      printf '#!/bin/sh\nexec %q -a 256 "$@"\n' "$(command -v shasum)" > "$dir/bin/sha256sum"
-      chmod +x "$dir/bin/sha256sum"
-    fi
-    # its own progress lines are held back and shown only if it fails
-    out="$(PATH="$dir/bin:$PATH" INSTALLER_NO_MODIFY_PATH=1 sh "$file" 2>&1)" || status=$?
+  command -v curl >/dev/null 2>&1 || stop 'curl is needed to fetch the uv installer.' 'Install uv yourself, then run ./install.sh again.'
+  if ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
+    stop 'Cannot check what the uv installer downloads: neither sha256sum nor shasum is here.' 'Nothing was run. Install uv yourself, then run ./install.sh again.'
+  fi
+  say 'uv is not installed. Installing it with the astral.sh installer'
+  say 'into your home.'
+  dir="$(mktemp -d 2>/dev/null)" || stop 'Could not make a folder for the uv installer.' 'Install uv yourself, then run ./install.sh again.'
+  file="$dir/install.sh"
+  # curl's own error is held back and shown only if it fails
+  if ! out="$(curl --proto '=https' --tlsv1.2 -LsSf "$UV_INSTALL_URL" -o "$file" 2>&1)" || [ ! -s "$file" ]; then
     rm -rf "$dir"
-    if [ "$status" -ne 0 ]; then
-      printf '%s\n' "$out" >&2
-      stop 'The uv installer did not finish.' 'Install uv yourself, then run ./install.sh again.'
-    fi
+    held curl "$out"
+    stop 'Could not download the uv installer.' ${HELD[@]+"${HELD[@]}"} 'Check the internet connection, then run ./install.sh again.'
+  fi
+  got="$(sha256_of "$file")" || got=''
+  if [ "$got" != "$UV_INSTALL_SHA256" ]; then
+    rm -rf "$dir"
+    stop 'The uv installer from astral.sh is not the one this checkout expects.' 'Nothing was run. Install uv yourself, then run ./install.sh again.'
+  fi
+  mkdir "$dir/bin"
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    printf '#!/bin/sh\nexec %q -a 256 "$@"\n' "$(command -v shasum)" > "$dir/bin/sha256sum"
+    chmod +x "$dir/bin/sha256sum"
+  fi
+  # its own progress lines are held back and shown only if it fails
+  out="$(PATH="$dir/bin:$PATH" UV_NO_MODIFY_PATH=1 sh "$file" 2>&1)" || status=$?
+  rm -rf "$dir"
+  if [ "$status" -ne 0 ]; then
+    held 'the uv installer' "$out"
+    stop 'The uv installer did not finish.' ${HELD[@]+"${HELD[@]}"} 'Install uv yourself, then run ./install.sh again.'
   fi
 }
 
@@ -190,18 +206,19 @@ bootstrap_python() {
   if ! uv_new_enough "$uv"; then
     local which="uv $UV_VERSION"
     [ -n "$UV_VERSION" ] || which="The uv at $uv, whose version could not be read,"
-    stop "$which is too old to install Python $MANAGED_PYTHON: upgrade it to $UV_MIN or newer (brew upgrade uv, or uv self update), then run ./install.sh again."
+    stop "$which is too old to install Python $MANAGED_PYTHON: upgrade it to $UV_MIN or newer (uv self update), then run ./install.sh again."
   fi
-  if [ "$found" -eq 0 ]; then ok 'uv installed.'; fi
-  say "Installing Python $MANAGED_PYTHON with uv."
+  if [ "$found" -eq 0 ]; then
+    ok 'uv installed.'
+    export FACILITATOR_UV_REPORTED=1
+  fi
   # uv's own progress lines are held back and shown only if it fails
   if ! out="$("$uv" python install --no-bin "$MANAGED_PYTHON" 2>&1)"; then
-    printf '%s\n' "$out" >&2
-    stop 'uv could not install Python.' 'See the output above, then run ./install.sh again.'
+    held uv "$out"
+    stop 'uv could not install Python.' ${HELD[@]+"${HELD[@]}"} 'See the output above, then run ./install.sh again.'
   fi
-  PY="$("$uv" python find --managed-python "$MANAGED_PYTHON")" || PY=''
-  [ -n "$PY" ] && [ -x "$PY" ] || stop 'uv installed Python but it was not found.' 'See the output above, then run ./install.sh again.'
-  ok "Python $MANAGED_PYTHON installed."
+  PY="$("$uv" python find --managed-python "$MANAGED_PYTHON" 2>/dev/null)" || PY=''
+  [ -n "$PY" ] && [ -x "$PY" ] || stop 'uv installed Python but it was not found.' 'Run ./install.sh again.'
 }
 
 # Fails, and says so, before anything is changed, when the command or a skill
@@ -239,6 +256,16 @@ fi
 section '2. Chrome'
 if chrome_known; then
   ok 'Chrome found.'
+elif [ "$(uname -s)" != Darwin ]; then
+  # the board runs on a Mac. A server where agents run needs nothing from
+  # this setup: pairing puts the skill there
+  stop_plain 'This setup is for the Mac the board runs on.' \
+    '' \
+    'On a server where your agents run, nothing needs installing here.' \
+    'On your Mac, run: facilitator remote pair' \
+    'then run the line it prints here, on this server.' \
+    '' \
+    'Nothing was changed.'
 else
   stop_plain 'Chrome was not found.' \
     '' \
@@ -280,7 +307,8 @@ else
   exit 1
 fi
 
-printf '\n%s✦%s Facilitator is installed!\n\n' "$GREEN" "$RESET"
+printf '\n%s✦%s Facilitator is ready!\n\n' "$GREEN" "$RESET"
 printf '%sNext steps:%s\n\n' "$BOLD" "$RESET"
-printf '%s1.%s Start the board: facilitator run\n' "$BOLD" "$RESET"
-printf '%s2.%s Complete the quick onboarding to start using the Facilitator!\n\n' "$BOLD" "$RESET"
+printf '%s1.%s Open a new terminal window\n' "$BOLD" "$RESET"
+printf '%s2.%s Start the board: facilitator run\n' "$BOLD" "$RESET"
+printf '%s3.%s Complete the quick onboarding to start using the Facilitator!\n\n' "$BOLD" "$RESET"

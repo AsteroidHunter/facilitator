@@ -1,0 +1,351 @@
+/* The home page's widgets (home-widgets.js): the token panel, its pill and its
+   two charts. Drawn from the board's own colours and faces in card-tokens.css,
+   so a page loads this sheet after that one. Nothing here reaches outside
+   .tk-panel but the picture's overlay (.tk-shot-veil, at the foot), which
+   covers the page, so the panel can be set down on any page that loads both. */
+
+/* the panel: no box, its words and chart standing on the page itself, as in
+   the screenshot on the card (20261013). its edge is kept but drawn clear, so nothing
+   inside moves from where the box held it. it is a column: the heading,
+   then the chart's view, then its foot. set down in a box with a height of
+   its own the panel fills it and the view takes whatever the heading and the
+   foot leave. Its fallback height reserves the same phone space before any
+   data arrives; the board supplies --tk-panel-h from its own sized container.
+   --tk-ground is what the panel stands on, the page's own colour, which the
+   pinned axis names and the fades at the chart's sides are painted in */
+.tk-panel{
+  --tk-view-h:calc(200 * var(--u, 1px)); --tk-ground:var(--paper);
+  box-sizing:border-box; height:var(--tk-panel-h, calc(330 * var(--u, 1px))); display:flex; flex-direction:column;
+  border:var(--edge) solid transparent;
+  padding:calc(16 * var(--u, 1px)) calc(20 * var(--u, 1px)) calc(14 * var(--u, 1px)); color:var(--ink); font:400 calc(12 * var(--u, 1px))/16px var(--sans);
+}
+.tk-head{flex:none; display:flex; align-items:center; justify-content:space-between; gap:var(--tk-gap, calc(12 * var(--u, 1px))); margin-bottom:calc(14 * var(--u, 1px))}
+.tk-title{min-width:0}
+/* the heading is one line however narrow its panel: the row's other parts
+   are given their room first (see the panel's width steps below), and a
+   heading that still has too little ends in dots rather than wrapping */
+.tk-name{font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+/* the pill: the page switcher's small rounded rectangle on the paper, holding
+   two names of one width. the one showing sits on a white seat the way the
+   open project tab does, and the seat slides under the other name when that
+   one is pressed, on the board's own curve; a press sinks the name with the
+   ticket names' own shade */
+.tk-pill{flex:none; position:relative; display:inline-grid; grid-template-columns:1fr 1fr;
+  gap:calc(2 * var(--u, 1px)); padding:calc(2 * var(--u, 1px)); border-radius:calc(7 * var(--u, 1px));
+  background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+  border:var(--edge) solid var(--line)}
+.tk-thumb{position:absolute; top:calc(2 * var(--u, 1px)); bottom:calc(2 * var(--u, 1px)); left:calc(2 * var(--u, 1px)); width:calc((100% - 6 * var(--u, 1px)) / 2);
+  border-radius:calc(5 * var(--u, 1px)); background:var(--card); box-shadow:0 1px 2px rgba(60,45,20,.14);
+  transition:transform .28s var(--gentle); pointer-events:none}
+.tk-pill[data-on="line"] .tk-thumb{transform:translateX(calc(100% + 2 * var(--u, 1px)))}
+.tk-opt{position:relative; z-index:1; font:500 calc(12 * var(--u, 1px))/16px var(--sans); color:var(--sub); background:transparent;
+  border:none; border-radius:calc(5 * var(--u, 1px)); padding:calc(3 * var(--u, 1px)) calc(11 * var(--u, 1px)); cursor:pointer;
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:color .18s, box-shadow .16s ease-out}
+.tk-opt:hover{color:var(--ink)}
+.tk-opt.on{color:var(--ink)}
+.tk-opt:active{
+  box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:color .18s, box-shadow .08s ease-in}
+.tk-opt:focus-visible{outline:1.5px solid #E0592B; outline-offset:1px}
+@media (prefers-reduced-motion: reduce){ .tk-thumb{transition:none} }
+
+/* the download button: the pill's own face, border and corners, a square as
+   tall as the pill (the row stretches it) with Lucide's download arrow in the
+   muted ink. It shares one box with the pill, which never breaks, so the
+   two stay on the heading's line whatever the width */
+.tk-tools{flex:none; display:flex; align-items:stretch; gap:calc(6 * var(--u, 1px))}
+.tk-save{flex:none; box-sizing:border-box; width:calc(27 * var(--u, 1px)); padding:0; display:inline-flex; align-items:center; justify-content:center;
+  border-radius:calc(7 * var(--u, 1px)); background:color-mix(in srgb, var(--paper) 92%, #fff 8%);
+  border:var(--edge) solid var(--line); color:var(--sub); cursor:pointer;
+  box-shadow:inset 0 0 0 rgba(60,45,20,0), inset 0 0 0 rgba(60,45,20,0);
+  transition:color .18s, box-shadow .16s ease-out}
+/* the three icons stand one on another in the same place and size, and the
+   one the button's state names fades in as the others fade out */
+.tk-save{position:relative}
+.tk-ico{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  opacity:0; transition:opacity .22s var(--gentle); pointer-events:none}
+.tk-ico svg{display:block; width:calc(14 * var(--u, 1px)); height:calc(14 * var(--u, 1px))}
+.tk-save[data-state="idle"] .tk-ico.down, .tk-save[data-state="busy"] .tk-ico.spin,
+.tk-save[data-state="done"] .tk-ico.done{opacity:1}
+.tk-ico.spin svg{animation:tk-save-turn .9s linear infinite}
+.tk-ico.done{color:var(--green)}
+@keyframes tk-save-turn{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){ .tk-ico{transition:none} .tk-ico.spin svg{animation-duration:2.4s} }
+.tk-save:hover{color:var(--ink)}
+.tk-save:active{
+  box-shadow:inset 0 1.8px 4.2px rgba(60,45,20,.132), inset 0 .6px 1.2px rgba(60,45,20,.084);
+  transition:color .18s, box-shadow .08s ease-in}
+.tk-save:focus-visible{outline:1.5px solid #E0592B; outline-offset:1px}
+.tk-save:disabled{opacity:.4; cursor:default}
+
+/* the heading row at the widths a phone gives it. The panel is a container,
+   and its own width, not the window's, decides how the row is spaced: the
+   heading (14px, 178px of it), the pill and the button all fit on the one
+   line from 373px of panel up. Below that the gaps and the pill's side
+   padding give way first (a phone 430 wide), and below 355px, a phone 375
+   wide, the pill's names and the heading come down a size as well. The
+   limits box's title follows the heading, so the two stay one face */
+.tk-panel{container:tkpanel / inline-size}
+@container tkpanel (max-width: 373px){
+  .tk-head{--tk-gap:calc(8 * var(--u, 1px))}
+  .tk-tools{gap:calc(4 * var(--u, 1px))}
+  .tk-opt{padding-left:calc(8 * var(--u, 1px)); padding-right:calc(8 * var(--u, 1px))}
+}
+@container tkpanel (max-width: 355px){
+  .tk-head{--tk-gap:calc(6 * var(--u, 1px))}
+  .tk-tools{gap:calc(3 * var(--u, 1px))}
+  .tk-opt{padding-left:calc(5 * var(--u, 1px)); padding-right:calc(5 * var(--u, 1px)); font-size:calc(11 * var(--u, 1px))}
+  .tk-name, .lm-title{font-size:calc(12 * var(--u, 1px))}
+  /* the heading used to take two lines here, 9.2px more than one, and the
+     chart under it keeps the place and the height that gave it */
+  .tk-head{margin-bottom:calc(23.2 * var(--u, 1px))}
+}
+
+/* the charts are drawn to the view's height (home-widgets.js) and never
+   stretched or squeezed to it. the lane is the view's whole height, so the
+   pointer anywhere over the chart reaches it, and a view narrower than the
+   chart scrolls it sideways, with no bar (the board's own rule in
+   card-tokens.css). overscroll stays in the lane, so a swipe past either end
+   never pages the window back. the mouse can drag it, and the chart's names
+   are never picked up as text on the way */
+.tk-stage{position:relative; flex:1 1 auto; min-height:0; display:flex; flex-direction:column}
+/* Two permanent layers share the same stage. Opacity changes cannot alter
+   its height; the outgoing drawing remains visible through the crossfade. */
+.tk-layer{position:absolute; inset:0; min-height:0; display:flex; flex-direction:column;
+  opacity:0; pointer-events:none; transition:opacity .22s var(--gentle)}
+.tk-layer.on{opacity:1; pointer-events:auto}
+@media (prefers-reduced-motion: reduce){ .tk-layer{transition:none} }
+.tk-view{flex:1 1 var(--tk-view-h); height:var(--tk-view-h); min-height:0}
+.tk-lane{position:relative; width:100%; height:100%}
+.tk-scroll{height:100%; overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain}
+.tk-lane.more-left .tk-scroll, .tk-lane.more-right .tk-scroll{cursor:grab}
+.tk-lane.dragging .tk-scroll{cursor:grabbing}
+.tk-chart{width:max-content; user-select:none; -webkit-user-select:none}
+.tk-chart svg{display:block; overflow:visible}
+/* the axis names stay over the lane's left edge while the chart passes under
+   them, on the page's own colour; the pointer goes through to the lane. the
+   colour reaches 2px past the lane's edge, and the fade starts 1px inside the
+   names' own edge, so a panel set down between pixels shows no sliver of the
+   chart at either edge */
+.tk-pin{position:absolute; left:0; top:0; bottom:0; background:var(--tk-ground); pointer-events:none;
+  box-shadow:-2px 0 0 var(--tk-ground)}
+.tk-pin svg{display:block; overflow:visible}
+/* a soft 24px fade on each side that has more to see: right of the pinned
+   names once the chart has moved under them, and at the right edge until the
+   latest end is in view */
+.tk-pin::after, .tk-lane::after{content:""; position:absolute; top:0; bottom:0; width:calc(24 * var(--u, 1px));
+  pointer-events:none; opacity:0}
+.tk-pin::after{left:calc(100% - 1px); background:linear-gradient(to right, var(--tk-ground), transparent)}
+.tk-lane::after{right:0; background:linear-gradient(to left, var(--tk-ground), transparent)}
+.tk-lane.more-left .tk-pin::after, .tk-lane.more-right::after{opacity:1}
+/* both charts' names at the panel's own 12px, read without leaning in */
+.tk-axis{font:400 12px var(--sans); fill:var(--sub)}
+.tk-day{stroke:rgba(60,45,20,.05); stroke-width:.6px}
+.tk-day.hot{stroke:var(--ink); stroke-width:1.2px}
+/* the line, in the picture's Editorial look: light gridlines at each count,
+   the floor and the month ticks a shade stronger, the days' columns light
+   and the 7-day line deep over them, ringed in the ground's colour so it
+   stands off the columns it crosses (its widths come with the drawing) */
+.tk-grid{stroke:#E4DED5; stroke-width:1px}
+.tk-base, .tk-tick{stroke:#B9B1A5; stroke-width:1px}
+.tk-avg, .tk-ring{stroke-linecap:round; stroke-linejoin:round}
+.tk-ring{stroke:var(--tk-ground)}
+.tk-guide{stroke:var(--line); stroke-width:1px}
+/* neither the words on the left nor the legend on the right ever break: where
+   both will not fit across, the legend drops to a row of its own, at the right */
+.tk-foot{flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:calc(2 * var(--u, 1px)) calc(12 * var(--u, 1px));
+  margin-top:calc(10 * var(--u, 1px)); color:var(--sub)}
+.tk-sum{white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis}
+.tk-sum b{color:var(--ink); font-weight:600}
+.tk-legend{display:inline-flex; align-items:center; gap:calc(3 * var(--u, 1px)); margin-left:auto; white-space:nowrap}
+/* the heatmap's seven swatches, small enough to stay beside the total on a phone */
+.tk-legend i{display:inline-block; width:calc(8 * var(--u, 1px)); height:calc(8 * var(--u, 1px)); border-radius:calc(2 * var(--u, 1px));
+  box-shadow:inset 0 0 0 .6px rgba(60,45,20,.05)}
+.tk-legend i:first-of-type{margin-left:calc(5 * var(--u, 1px))}
+.tk-legend i:last-of-type{margin-right:calc(5 * var(--u, 1px))}
+.tk-key{display:block; flex:none}
+.tk-legend .tk-key ~ .tk-key{margin-left:calc(10 * var(--u, 1px))}
+
+/* on the board, where a mouse or trackpad hovers, the panel is a box of a set
+   size and the chart is what it is for, so the padding, the gaps around the
+   heading row and the foot and the pill's own padding are cut down to what
+   they hold and the chart's view takes the rest. a phone, which does not
+   hover, keeps the roomier sizes above for a finger */
+@media (hover: hover) and (pointer: fine){
+  .tk-panel{padding:10px 14px 9px}
+  .tk-head{margin-bottom:6px}
+  .lm-title{padding-top:4px}   /* the pill centres the token heading 4px lower in its row */
+  .tk-opt{padding:2px 10px}
+  .tk-save{width:25px}
+  .tk-foot{margin-top:6px}
+}
+
+/* the hover tip: ink on the paper, never in the pointer's way */
+.tk-tip{position:absolute; z-index:2; pointer-events:none; white-space:nowrap;
+  display:flex; flex-direction:column; padding:6px 9px; border-radius:5px;
+  background:var(--ink); color:#FFFFFF; font:400 11px/15px var(--sans);
+  box-shadow:0 2px 8px rgba(33,29,23,.22)}
+.tk-tip[hidden]{display:none}
+/* the headline a size up from the lines under it, so it reads first and the
+   rest reads as detail; the line's rows set each number to the right of its
+   line's stroke and name */
+.tk-tip b{font-weight:600; font-size:12px; line-height:16px}
+.tk-tip span{color:rgba(255,255,255,.72)}
+.tk-tip .tk-row{display:flex; align-items:center; gap:4px; margin-top:2px}
+.tk-tip .tk-row em{font-style:normal; font-weight:600; color:#FFFFFF; margin-left:auto; padding-left:14px}
+
+/* Loading, empty and failure messages occupy the chart's reserved stage. */
+.tk-wait{flex:1 1 auto; display:flex; align-items:center; justify-content:center;
+  min-height:0; color:var(--sub); text-align:center}
+/* The footer always occupies one line. The card spinner follows the timestamp
+   without moving its left edge and takes no space while idle. */
+.tk-status{flex:none; display:flex; align-items:center; gap:calc(6 * var(--u, 1px));
+  min-height:14px; margin-top:calc(8 * var(--u, 1px)); color:var(--sub)}
+.tk-refresh{flex:none; display:inline-flex; width:var(--cardspin-s, 11px); height:var(--cardspin-s, 11px)}
+.tk-refresh[hidden]{display:none}
+.tk-refresh.on::before{animation:tk-refresh-turn .8s steps(4) infinite}
+@keyframes tk-refresh-turn{to{transform:rotate(180deg)}}
+.tk-updated, .lm-updated{font:400 calc(11 * var(--u, 1px))/14px var(--sans); color:var(--sub); white-space:nowrap}
+.tk-updated:empty, .lm-updated:empty{display:none}
+@media (prefers-reduced-motion: reduce){ .tk-refresh.on::before{animation:none} }
+
+/* The box is only as tall as its heading, the rows it has and its timestamp,
+   with a small gap under the heading, so there is no empty room above the rows.
+   The page draws the last kept reading when it makes the box, so the box opens
+   at its finished height and changes height only when the number of rows does.
+   A loading or empty message takes one row, never more than the rows would. */
+.lm-box{height:auto}
+.lm-rows{flex:none; display:grid; margin-top:calc(7 * var(--u, 1px));
+  grid-template-columns:max-content minmax(0, 1fr) max-content; grid-auto-rows:16px;
+  align-items:center; column-gap:calc(10 * var(--u, 1px)); row-gap:calc(7 * var(--u, 1px))}
+.lm-rows > .tk-wait{display:block; grid-column:1 / -1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.lm-title{flex:none; font:600 calc(14 * var(--u, 1px))/18px var(--sans); color:var(--ink)}
+.lm-row{display:contents}
+.lm-name{color:var(--ink); white-space:nowrap}
+.lm-bar{display:block; box-sizing:border-box; height:calc(8 * var(--u, 1px)); border-radius:calc(4 * var(--u, 1px)); overflow:hidden;
+  border:var(--edge) solid var(--line)}
+.lm-fill{display:block; height:100%; transition:width .7s var(--gentle)}
+.lm-pct{min-width:4ch; color:var(--ink); font-weight:600; text-align:right; font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){ .lm-fill{transition:none} }
+
+/* ---- the picture's overlay ---------------------------------------------------
+   the picture just made, over the whole page: the settings page's veil
+   (.qn-veil.sp-veil in card-tokens.css, the board's ink at 24%, fading in and
+   out by its colour) with a box of the board's glass (.qn-glass, the project
+   list's) in its middle. the box is --shot-w wide and only as tall as what it
+   holds: the head row, the picture and the row of buttons, --shot-m apart
+   and --shot-m from the glass's edge, with no other room above or below. the
+   picture fills the width less --shot-m each side, 2:1 for the line and 3:1
+   for the heatmap, so only the height changes between them. a window too
+   short for the full width gets a narrower box, never nearer than 48px to an
+   edge */
+.tk-shot-veil, .tk-shot-veil.open{display:grid; place-items:center; padding:0}
+.tk-shot{--shot-w:min(960px, calc(100vw - 96px), calc((100vh - 196px) * 2)); --shot-m:14px;
+  position:relative; box-sizing:border-box; display:flex; flex-direction:column; gap:var(--shot-m);
+  width:var(--shot-w); padding:var(--shot-m); border-radius:14px; outline:none;
+  color:var(--ink); font:400 13px/18px var(--sans);
+  opacity:0; transform:translateY(4px) scale(.98);
+  transition:opacity .2s ease-out, transform .26s var(--gentle)}
+.tk-shot-veil.open .tk-shot{opacity:1; transform:none}
+/* the head row: "Chart downloaded!", set like the panel's heading, and at the
+   right the panel's own heatmap or line pill, then the magic box's cross: a
+   round seat of soft red with the card bar's mark, shaded with the one press
+   shade, its tap reaching past it */
+.tk-shot-head{flex:none; display:flex; align-items:center; gap:10px; min-height:26px}
+.tk-shot-title{flex:1; min-width:0; font:600 14px/18px var(--sans); color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tk-shot-kinds{flex:none}
+.tk-shot-x{--shot-pink:#FF7A72; position:relative; flex:none; display:grid; place-items:center;
+  width:17px; height:17px; padding:0; border:none; border-radius:50%;
+  background:var(--shot-pink); color:#1e1e1e; cursor:pointer}
+.tk-shot-x:hover, .tk-shot-x:active{background:color-mix(in srgb, #000 var(--press), var(--shot-pink))}
+.tk-shot-x:focus-visible{outline:2px solid var(--line); outline-offset:1px}
+.tk-shot-x svg{display:block; width:10px; height:10px}
+.tk-shot-x::after{content:""; position:absolute; inset:-8px}
+/* the picture: its own shape before it has loaded, so the box never jumps,
+   on white like every picture (home-widgets.js), so no band of the page's
+   paper shows beside one while the frame glides, let into the glass the way
+   the new tab's folder well is let into the paper (#nppanel in index.html): the 7px
+   corners of things let into the card, an inner shade and hairline over its
+   edge, and no shadow under it.
+   each picture keeps its own shape and stands over the frame's middle, so as
+   the frame's height glides from one chart's to the other's (home-widgets.js)
+   the pictures stay where they are and its edges pass over them; the one on
+   its way out (.going) lies over the one coming in while it fades */
+.tk-shot-frame{flex:none; position:relative; display:flex; flex-direction:column; justify-content:center;
+  border-radius:7px; overflow:hidden; background:#fff}
+.tk-shot-frame::after{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  box-shadow:inset 0 1px 6px rgba(60,45,20,.14), inset 0 0 0 1px rgba(60,45,20,.08)}
+.tk-shot-pic{flex:none; display:block; box-sizing:border-box; width:100%; height:auto; aspect-ratio:2 / 1}
+.tk-shot-pic[data-kind="heatmap"]{aspect-ratio:3 / 1}
+.tk-shot-pic.going{position:absolute; left:0; top:50%; transform:translateY(-50%); pointer-events:none}
+/* the dice's cover while the next look is drawn: the picture's own white over
+   it, softly blurred, with the download button's spinner, a size up, in its
+   middle. it fades in and out from home-widgets.js */
+.tk-shot-cover{position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; opacity:0;
+  background:color-mix(in srgb, #fff 55%, transparent);
+  -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px)}
+.tk-shot-cover.on{opacity:1}
+.tk-shot-cover svg{display:block; width:20px; height:20px; color:var(--sub); animation:tk-save-turn .9s linear infinite}
+/* the row under it: Share, the one the picture is made for, in the middle of
+   the row, the dice and the download button to its left, and what went
+   wrong, if anything, to its right in the muted ink. all three are the
+   board's glass, with its ring, its shadow and its press (glassPress in
+   index.html): the circles the bar's (#homeico), in the muted ink and the
+   full ink under a pointer, and Share the bar's project pill (#projpill),
+   with Lucide's link before its name */
+.tk-shot-foot{flex:none; display:grid; grid-template-columns:minmax(0, 1fr) auto minmax(0, 1fr); align-items:center; gap:10px}
+.tk-shot-side{display:flex; justify-content:flex-end; gap:10px}
+.tk-shot-note{min-width:0; font:400 12px/16px var(--sans); color:var(--sub)}
+.tk-shot .qn-glass:is(.tk-shot-round, .tk-shot-share){position:relative; box-sizing:border-box; height:32px; margin:0;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; -webkit-user-select:none; user-select:none;
+  box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,calc(.45 * var(--qn-edge))),
+    inset 0 0 0 1px var(--qn-ring),
+    inset 0 0 2px rgba(255,255,255,calc(.35 * var(--qn-edge))),
+    inset 0 12px 12px -6px rgba(255,255,255,calc(.55 * var(--qn-edge))),
+    0 1px 2px -1px rgba(0,0,0,.18),
+    0 1px 3px rgba(0,0,0,.07),
+    0 8px 20px rgba(0,0,0,.06);
+  transition:color .18s, transform .5s var(--gentle), --qn-tint .5s var(--gentle), --qn-edge .5s var(--gentle)}
+.tk-shot .qn-glass.tk-shot-round{width:32px; padding:0; border-radius:50%; color:var(--sub)}
+.tk-shot .qn-glass.tk-shot-round:hover{color:var(--ink)}
+.tk-shot .qn-glass.tk-shot-share{gap:7px; padding:0 15px 0 13px; border-radius:16px; font:400 14px/17px var(--sans); color:var(--ink); white-space:nowrap}
+.tk-shot-share svg{display:block; flex:none; width:15px; height:15px}
+.tk-shot .qn-glass:is(.tk-shot-round, .tk-shot-share).pressed{transform:scale(1.06); --qn-tint:.95; --qn-edge:3;
+  transition:color .18s, transform .3s cubic-bezier(.22,.7,.3,1), --qn-tint .3s cubic-bezier(.22,.7,.3,1), --qn-edge .3s cubic-bezier(.22,.7,.3,1)}
+.tk-shot .qn-glass.tk-shot-share.pressed{transform:scale(var(--press-x, 1.06), 1.06)}
+.tk-shot :is(.tk-shot-round, .tk-shot-share):focus-visible{outline:1.5px solid #E0592B; outline-offset:2px}
+.tk-shot-share[data-busy="1"]{cursor:progress}
+/* the download button's three marks, the panel's own (.tk-ico), a size up */
+.tk-shot-keep .tk-ico svg{width:16px; height:16px}
+.tk-shot-keep[data-state="idle"] .tk-ico.down, .tk-shot-keep[data-state="busy"] .tk-ico.spin,
+.tk-shot-keep[data-state="done"] .tk-ico.done{opacity:1}
+/* the die: a face of pips that tumbles in its circle as it rolls, twice
+   round, shrinking a little as it goes and settling as it lands */
+.tk-die{display:flex}
+.tk-die svg{display:block}
+.tk-shot-dice.rolling .tk-die{animation:tk-die-roll .65s cubic-bezier(.3,.7,.35,1)}
+@keyframes tk-die-roll{
+  0%{transform:rotate(0deg) scale(1)}
+  35%{transform:rotate(250deg) scale(.8)}
+  70%{transform:rotate(560deg) scale(.9)}
+  100%{transform:rotate(720deg) scale(1)}
+}
+/* a phone, or a window as narrow: the box nearly the screen's width, the
+   buttons at a finger's height, the three of them centred as a row (Share
+   alone in the middle left the narrow row leaning left), and what went
+   wrong on a line of its own under them */
+@media (max-width:600px){
+  .tk-shot{--shot-w:calc(100vw - 24px); --shot-m:12px}
+  .tk-shot-head{gap:8px}
+  .tk-shot-foot{display:flex; flex-wrap:wrap; justify-content:center}
+  .tk-shot .qn-glass:is(.tk-shot-round, .tk-shot-share){height:44px}
+  .tk-shot .qn-glass.tk-shot-round{width:44px}
+  .tk-shot .qn-glass.tk-shot-share{border-radius:22px; padding:0 20px 0 18px; font-size:15px}
+  .tk-shot-note{flex-basis:100%; text-align:center}
+  .tk-shot-note:empty{display:none}
+}
+@media (prefers-reduced-motion: reduce){ .tk-shot{transition:none; transform:none} .tk-shot-dice.rolling .tk-die{animation:none}
+  .tk-shot-cover svg{animation-duration:2.4s} }

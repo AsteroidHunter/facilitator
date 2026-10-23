@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Facilitator">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="/m-manifest.json">
+<link rel="apple-touch-icon" href="/m-icon-180.png">
+<link rel="icon" href="/m-icon-192.png">
+<title>facilitator</title>
+<style>
+  :root{
+    --paper:#F5F4F1; --card:#FFFFFF; --ink:#211D17; --sub:#75695A;
+    /* the app's edge grey, restated since this page loads no app sheet */
+    --line:#CACACA; --must:#A8442A; --must-bg:#F7EAE4;
+    --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,sans-serif;
+    --inter:"Inter",-apple-system,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+    --sq:4px;
+    /* the edge's asked width and the width chrome draws for it, the same pair
+       and the same reasons as the app's card-tokens.css */
+    --edge:.8px; --edge-drawn:1px;
+    font-family:var(--sans); color:var(--ink); background:var(--card);
+  }
+  @media (min-resolution:2dppx){:root{--edge-drawn:.5px}}
+  @media (min-resolution:3dppx){:root{--edge-drawn:calc(2px / 3)}}
+  *{box-sizing:border-box}
+  /* the installed app runs full screen, under the clock and over the home
+     bar (the status bar meta above; an icon keeps whatever this page said when
+     it was added). so the page's own margin is added to the safe area on all
+     four sides, as the board page does, and both cards stay clear of them */
+  body{
+    margin:0; min-height:100svh; display:flex; flex-direction:column;
+    align-items:center; justify-content:safe center;
+    padding:calc(22px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px))
+            calc(22px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
+  }
+  button,input{font:inherit}
+  .gate{width:min(90%,306px); text-align:center}
+
+  /* ---- the badge above the card: transparent squid, name, version --------- */
+  .identity{display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:26px}
+  .identity img{width:64px; height:64px; object-fit:contain}
+  .identity-copy{text-align:left; display:flex; flex-direction:column; line-height:1.18}
+  .name{font:650 22px/1.1 var(--inter)}
+  .version{font:12px/1.4 var(--mono); color:var(--sub); margin-top:4px}
+
+  /* the staged reveal: the identity fades in together, then the card and each
+     step and the footer in turn, one every four tenths of a second */
+  .identity img,.name,.version,.card,.browser-link{opacity:0; transition:opacity .36s ease}
+  .identity img.shown,.name.shown,.version.shown,.card.shown,.browser-link.shown{opacity:1}
+
+  /* ---- the card: the same outline, top bar and foot the app draws --------- */
+  .card{
+    background:var(--card); border:var(--edge) solid var(--line); border-radius:7px;
+    box-shadow:0 2px 18px rgba(60,45,20,.18), 0 1px 3px rgba(60,45,20,.10);
+    text-align:left; overflow:hidden;
+  }
+  /* the top bar: the reply history arrows on the left, the defer moon and the
+     close cross on the right, over the hairline the app's bar wears. visual
+     only here, so it takes no taps */
+  .topbar{
+    display:flex; align-items:center; gap:9px; height:34px; padding:0 8px 0 14px;
+    background:var(--card); box-shadow:inset 0 calc(-1 * var(--edge-drawn)) 0 var(--line);
+    pointer-events:none;
+  }
+  .histctl{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:0; color:var(--sub)}
+  .histbtn{
+    flex:none; width:28px; height:28px; display:grid; place-items:center;
+    color:var(--ink);
+  }
+  .histbtn.newer svg{transform:rotate(180deg)}
+  .chev{display:block}
+  .arcbtn, .xbtn{
+    flex:none; width:28px; height:28px; position:relative; color:#000;
+    display:inline-flex; align-items:center; justify-content:center;
+  }
+  .xbtn::before, .xbtn::after{
+    content:""; position:absolute; left:50%; top:50%;
+    width:11px; height:1.3px; background:#1e1e1e; border-radius:1px;
+  }
+  .xbtn::before{transform:translate(-50%,-50%) rotate(45deg)}
+  .xbtn::after{transform:translate(-50%,-50%) rotate(-45deg)}
+
+  .body{padding:14px 24px}
+  /* the steps as ordinary card prose: a plain ordered list at the card's own
+     indent, the marker one space off its text, bold and the small glyphs kept */
+  .reply{font:17px/1.5 var(--sans); color:var(--ink)}
+  .steps{margin:0; padding-left:22px; list-style:decimal}
+  .steps strong{font-weight:650}
+  .steps svg{
+    width:1em; height:1em; vertical-align:-.14em; fill:none; stroke:currentColor;
+    stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;
+  }
+  .step{
+    margin:0 0 10px; visibility:hidden; opacity:0;
+    transform:translateY(4px); transition:opacity .32s ease, transform .32s ease;
+  }
+  .step:last-child{margin-bottom:0}
+  .step.shown{visibility:visible; opacity:1; transform:none}
+
+  /* ---- the foot: the plus, the typing row, the send square ---------------- */
+  /* greyed, faded and inert: it shows the app's composer without offering one */
+  .bottombar{
+    display:flex; align-items:center; gap:8px; margin:9px 0 0; padding-top:5px;
+    border-top:var(--edge) solid var(--line); opacity:.5; pointer-events:none; user-select:none;
+  }
+  .clipbtn{flex:none; width:28px; height:26px; display:grid; place-items:center; color:var(--ink)}
+  .compose{flex:1 1 auto; min-width:0; display:flex; gap:10px; align-items:center}
+  .ta-mock{
+    flex:1; min-width:0; min-height:26px; display:flex; align-items:center;
+    padding:4px; font:17px/1.5 var(--sans); color:#B4AA99;
+  }
+  .sendbtn{flex:none; width:28px; height:26px; display:grid; place-items:center; color:#000}
+
+  /* ---- the footer line, verbatim, with the orange-red link ---------------- */
+  /* the sentence sits on its own line; the link below it is a block, so its
+     words break inside its own measure into two centred lines. that gives the
+     three-line conical shape and never a lone word on the last line. the link
+     is normal weight and carries its colour as the affordance, no underline */
+  .browser-link{font:400 .85rem/1.4 var(--sans); margin:18px auto 0; text-align:center}
+  .browser-link a{display:block; max-width:13.5rem; margin:0 auto; color:var(--must); text-decoration:none; cursor:pointer}
+
+  /* ---- the sign-in face: unchanged behaviour and layout ------------------- */
+  body.login{
+    display:grid; place-items:center; justify-content:normal;
+    padding:calc(24px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px))
+            calc(24px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
+  }
+  body.login .gate{width:min(100%,385px); margin:auto; transform:translateY(-12px)}
+  body.login .identity{margin-bottom:28px}
+  body.login .identity img{width:62px; height:62px}
+  .login-face{display:none}
+  .login-face .card{
+    padding-bottom:20px; border-color:var(--line); border-radius:8px;
+    box-shadow:0 9px 30px #211d170d;
+  }
+  .card-heading{font:625 16px/1.3 var(--inter); padding:15px 18px; border-bottom:var(--edge) solid var(--line)}
+  .login-copy{padding:18px 18px 8px; margin:0; font-size:15px}
+  .password{display:block; width:calc(100% - 36px); margin:8px 18px 12px; padding:11px 12px;
+    border:var(--edge) solid var(--line); border-radius:6px; background:#fff; color:var(--ink); font-size:16px}
+  .password:focus{outline:2px solid var(--must); outline-offset:1px}
+  .connect{margin-left:18px; padding:9px 17px; border:0; border-radius:5px; background:var(--must); color:#fff; cursor:pointer}
+  .connect:disabled{opacity:.55}
+  .note{min-height:18px; margin:10px 18px 0; color:var(--must); font-size:13px}
+  .login-face.bad .password{border-color:var(--must); background:var(--must-bg)}
+  .login-face.good .password{border-color:#2f6b3c; background:#edf4e8}
+  body.login .install-face{display:none}
+  body.login .login-face{display:block}
+  body.login .identity img,body.login .name,body.login .version,body.login .card{opacity:1}
+
+  /* ---- the keyboard: the card comes up only as far as it has to ----------- */
+  /* left alone, the phone pans the whole page to put the focused box in the
+     middle of the strip above the keyboard, which pushes the lockup under the
+     clock and leaves a wide gap under the card. the pan is the phone's own
+     motion, run with the keyboard's, and taking it back mid-flight jolts the
+     page, so it is left to run and the script hands back what it overshoots:
+     the card ends just clear of the keyboard's toolbar, and the lockup only as
+     high as the room under the status bar allows. transforms only, so nothing
+     is laid out again under the keyboard. they move on the keyboard's own clock
+     and curve, the board page's --kb-anim */
+  body.login .identity,body.login .login-face{transition:transform .22s cubic-bezier(.45,0,.55,1)}
+  body.login.kb .identity{transform:translateY(var(--kb-lockup, 0px))}
+  body.login.kb .login-face{transform:translateY(var(--kb-card, 0px))}
+  body.login.kb-measure .identity,body.login.kb-measure .login-face{transform:none; transition:none}
+
+  @media (prefers-reduced-motion:reduce){
+    .identity img,.name,.version,.card,.browser-link,.step{transition:none; transform:none}
+    body.login .identity,body.login .login-face{transition:none}
+  }
+</style>
+</head>
+<body>
+<main class="gate">
+  <div class="identity"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAADWUlEQVR42u3dMXLCMBCGUZ+IE+cQuR2lQ0WdMUba/fcVX5tY0r4Z4oA5zp/HIU3NJggACQAJAAkACQAJAAkACQAJAAkATei8GACKGeYRCAyI4QdAAAAgAAAQAAAIAAAEAAAy0ADI0AMgAAAQAAAIAAAEAAACAAAB0BmBAQMAAAEAgAw3AAIAAAEAgAAAQAAAIAAAEAAACAAAZNABEAAACID2CAwnAAAIAAAEAAACAAABEP/FGAAAAAEAAABgOAEAQAAAIAMOgAAAQAAAIAAAEAAACAAABAAAAgAAARCDwPAadgAEwJS3PwMAAAAAAAAAAAAAAAAAAAgAAAQAAN8/dAAAKDVvAAAAAAAAAAAAAHXOCwBDDgAAAAAAAAAAAAAAAAAAAAAAd/8n8LUFV6owoAuuGwAAagJYdN0AAAAAAAAkA0j+G6wcgHJIAIi+wQAAAAAAAAAAAAAAwN5PhJUGcD5/33UD8OF1VwUQ95FIAL4M4D/XDgAAUQBuuG4AAAAAAAAAAAAAAADofPvLH8HrAETcDgfgvtuJ026DApAGwD/CAAAAAAAmAfCRSAAAAAAAAAAAAAAAAAAAAAA8q0cjngEFgAAAQAAAIAAAEAAACAAABAAAAgAAAQCBxgKY+NWoBjLnLAAAAICdAE4AAAAAAAAAMOhwAAAAAAAAAAAAAAAAAAAAAGD4IdgyewZFo2EDIAAA+GgT736psfPaALCJAABgEwEAwCYCAIBbjQBE36IFAAAAAAAAAAAAAGAcgB1rXP3znBMAADgnAAAAYMtzgdI3NQHAMXH4VwFILwXAyGwCAABo6cuC1b/TOQIwGgAEAAAgAAAQAAAIAAAEAAACAAAAPLSq4aDZn2AA3rdujwBwuPYIAIdrjwBwuPYIAIdrjwBwuPaoOgBPIQOg1T47GAAAcDAAAOBgAADAwQAAQIWD6XDnKeHuWdc7fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw/LlAEx7x4XlCACx945h1AgCAdQIAgHUC4PW/tQKQOxTWDoAhsHYADIG1A2AIrB0AQ2DtABgCawfAEFg7AIbA2gEwBNYOgCGwdgAMgbUDEDII1g6ABIAEgASABIAEgASABIAEgASA1KY/DmL89z3hrD8AAAAASUVORK5CYII=" decoding="async" alt=""><div class="identity-copy"><span class="name">Facilitator</span><span class="version">__FACILITATOR_VERSION__</span></div></div>
+  <section class="install-face" aria-label="Install Facilitator">
+    <article class="card">
+      <div class="topbar" aria-hidden="true">
+        <div class="histctl">
+          <span class="histbtn older"><svg class="chev" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true"><path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="histbtn newer"><svg class="chev" width="11" height="7" viewBox="0 0 11 7" fill="none" aria-hidden="true"><path d="M1 5.5 5.5 1.5 10 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </div>
+        <span class="arcbtn"><svg viewBox="0 0 24 24" width="10.8" height="10.8" fill="currentColor" stroke="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></span>
+        <span class="xbtn"></span>
+      </div>
+      <div class="body">
+        <div class="reply cardmd">
+          <ol class="steps">
+            <li class="step">Tap ••• in Safari's toolbar</li>
+            <li class="step">Click <strong>Share</strong> <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6.6 8.2H4.6a2.1 2.1 0 0 0-2.1 2.1v6.1a2.1 2.1 0 0 0 2.1 2.1h10.8a2.1 2.1 0 0 0 2.1-2.1v-6.1a2.1 2.1 0 0 0-2.1-2.1h-2"/><path d="M10 12.6V2.3m-3.3 3.2L10 2.2l3.3 3.3"/></svg></li>
+            <li class="step">Open <strong>View More</strong></li>
+            <li class="step">Tap <strong>Add to Home Screen</strong> <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3.6"/><path d="M10 6.3v7.4m-3.7-3.7h7.4"/></svg></li>
+            <li class="step">Once added, use it like any other app!</li>
+          </ol>
+        </div>
+        <div class="bottombar" aria-hidden="true">
+          <span class="clipbtn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></span>
+          <div class="compose"><span class="ta-mock"></span><span class="sendbtn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 11.5V3.5M3.6 6.9 7 3.5l3.4 3.4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+        </div>
+      </div>
+    </article>
+    <p class="browser-link">Or, if you prefer an inferior interface, <a href="#" id="use-browser">click here to use it within this browser's tab window</a></p>
+  </section>
+  <section class="login-face" aria-label="Sign in to Facilitator">
+    <form class="card" id="login-form"><div class="card-heading">Sign in to Facilitator</div>
+      <p class="login-copy">Your app password please?</p>
+      <input class="password" id="password" type="password" autocomplete="current-password" aria-label="App password" required>
+      <button class="connect" type="submit">Connect</button>
+      <p class="note" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+</main>
+<script src="/m-splash.js"></script>
+<script>
+  // the launch picture first, before the steps begin. iOS copies the one this
+  // page carries into the icon when it is added and never asks again, so it has
+  // to be in place before anyone reaches Add to Home Screen. it paints nothing
+  // off iOS, and a painter that did not arrive costs the picture and nothing else
+  if (typeof installStartupImage === "function") installStartupImage(SPLASH_LOGO);
+  const installed = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const showLogin = () => { document.body.classList.add('login'); document.getElementById('password').focus(); };
+  if (installed) showLogin();
+  else {
+    const img = document.querySelector('.identity img');
+    const gap = 400;
+    let started = false;
+    const run = () => {
+      if (started) return; started = true;
+      // the identity fades in together, gated on the logo above so the group
+      // never appears before its own image has decoded
+      ['.identity img','.name','.version'].forEach(sel => document.querySelector(sel)?.classList.add('shown'));
+      const steps = document.querySelectorAll('.step');
+      if (reduced) {
+        document.querySelector('.install-face .card')?.classList.add('shown');
+        steps.forEach(row => row.classList.add('shown'));
+        document.querySelector('.browser-link')?.classList.add('shown');
+        return;
+      }
+      setTimeout(() => document.querySelector('.install-face .card')?.classList.add('shown'), gap);
+      steps.forEach((row,i) => setTimeout(() => row.classList.add('shown'), gap*2 + i*gap));
+      setTimeout(() => document.querySelector('.browser-link')?.classList.add('shown'), gap*2 + steps.length*gap);
+    };
+    // the logo is inlined, so it is ready almost at once; reveal the identity
+    // only once it has loaded (and decoded, where the browser offers that
+    // signal) so the group never fades in before its own image. load and error
+    // events and a short cap are fallbacks, so a missing image can never leave
+    // the page blank
+    if (img && img.complete && img.naturalWidth > 0) run();
+    else if (img) {
+      img.addEventListener('load', run, {once:true});
+      img.addEventListener('error', run, {once:true});
+      if (img.decode) img.decode().then(run, run);
+    } else run();
+    setTimeout(run, 600);
+  }
+  document.getElementById('use-browser').addEventListener('click', event => { event.preventDefault(); showLogin(); });
+
+  // ---- the keyboard ----------------------------------------------------------
+  // the page's floor is the small viewport's height, which the keyboard does
+  // not change, and what the visual viewport lacks of it while the password box
+  // is focused is the keyboard and its toolbar. the installed app focuses the box
+  // as it opens, so the full height cannot be learned from an unfocused frame as
+  // the board page learns it. the card's foot is kept the card's own inner
+  // padding above that edge. the lockup rises with the card only into the room
+  // it has under the status bar; past that the gap between the two closes, down
+  // to a small one, and only past that does the lockup give way. the phone's pan
+  // is read as where the page's box stands against the visible strip's top, and
+  // each lift is that pan less the rise it was meant to be
+  const KB_GAP = 18;          // the card's own inner padding (.login-copy, .password)
+  const LOCKUP_MARGIN = 8;    // the least room kept between the lockup and the safe area's top
+  const LOCKUP_GAP_MIN = 10;  // the least gap kept between the lockup and the card
+  const SETTLE_MS = 250;      // the viewport can stop moving without a last event: read it once more
+  let keyboardUp = false, applied = '', settleTimer = null, natural = null;
+  // the lockup's and the card's places in the page's box with no lift, read once
+  // as the keyboard arrives (and again at a new width) with the lifts and their
+  // motion off for the one read: WebKit's computed transform in the middle of a
+  // transition is not the one painted, so a place read through a lift drifts
+  function measure(body){
+    body.classList.add('kb-measure');
+    const origin = body.getBoundingClientRect().top;
+    const lockup = document.querySelector('.identity').getBoundingClientRect();
+    const card = document.getElementById('login-form').getBoundingClientRect();
+    body.classList.remove('kb-measure');
+    return { width: window.innerWidth, lockupTop: lockup.top - origin, lockupBottom: lockup.bottom - origin,
+             cardTop: card.top - origin, cardBottom: card.bottom - origin };
+  }
+  function placeForKeyboard(){
+    const vv = window.visualViewport, body = document.body;
+    if (!vv || !body.classList.contains('login')) return;
+    const atRest = Math.abs(vv.scale - 1) <= .01;
+    const focused = document.activeElement === document.getElementById('password');
+    const up = focused && atRest && parseFloat(getComputedStyle(body).minHeight) - vv.height > 1;   // the 100svh
+    if (!up){
+      if (!keyboardUp) return;
+      keyboardUp = false; applied = ''; natural = null;
+      body.classList.remove('kb');
+      for (const name of ['--kb-lockup', '--kb-card']) body.style.removeProperty(name);
+      return;
+    }
+    keyboardUp = true;
+    if (!natural || natural.width !== window.innerWidth) natural = measure(body);
+    body.classList.add('kb');
+    // the safe area's top: the page's own 24px taken off the body's top padding
+    const floor = parseFloat(getComputedStyle(body).paddingTop) - 24 + LOCKUP_MARGIN;
+    const need = Math.max(0, natural.cardBottom + KB_GAP - vv.height);
+    const lift = Math.min(need, Math.max(0, natural.lockupTop - floor));
+    const squeeze = Math.min(need - lift, Math.max(0, natural.cardTop - natural.lockupBottom - LOCKUP_GAP_MIN));
+    // how far the phone has panned the page: the box's top against the visible strip's
+    const pan = Math.max(0, vv.pageTop - window.scrollY - body.getBoundingClientRect().top);
+    const now = [Math.round(pan), Math.round(vv.height), Math.round(need - squeeze), Math.round(need)].join();
+    if (now === applied) return;
+    applied = now;
+    body.style.setProperty('--kb-lockup', Math.round(pan - need + squeeze) + 'px');
+    body.style.setProperty('--kb-card', Math.round(pan - need) + 'px');
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(placeForKeyboard, SETTLE_MS);
+  }
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', placeForKeyboard);
+    window.visualViewport.addEventListener('scroll', placeForKeyboard);
+  }
+  window.addEventListener('resize', placeForKeyboard);
+  window.addEventListener('scroll', placeForKeyboard, { passive: true });
+  document.addEventListener('focusin', placeForKeyboard);
+  document.addEventListener('focusout', () => requestAnimationFrame(placeForKeyboard));
+  document.getElementById('login-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const face = document.querySelector('.login-face');
+    const field = document.getElementById('password');
+    const button = document.querySelector('.connect');
+    const note = document.querySelector('.note');
+    button.disabled = true; note.textContent = ''; face.classList.remove('bad','good');
+    try {
+      const response = await fetch('/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:field.value}),cache:'no-store'});
+      const answer = await response.json();
+      if (!response.ok) { face.classList.add('bad'); note.textContent = answer.error || 'Could not sign in.'; return; }
+      face.classList.add('good'); note.textContent = 'Connected';
+      setTimeout(() => location.replace('/m'), 250);
+    } catch (_) { note.textContent = 'The bridge is not answering. Try again.'; }
+    finally { button.disabled = false; }
+  });
+</script>
+</body>
+</html>
