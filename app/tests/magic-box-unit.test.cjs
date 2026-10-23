@@ -2042,52 +2042,34 @@ test("a site that will not be framed stays a square when expanded on the Mac, as
   assert.match(read("m.html"), /MagicBox\.grow\(\{ left: 0, top: 0, width: innerWidth, height: innerHeight \}, MagicBox\.BIG\.phone,\s*false,/);
 });
 
-test("expanded on the phone, the box is the whole screen: square corners, no edge or shadow, what it holds down to the screen's foot under its buttons, which stand where they stood", () => {
+test("expanded on the phone, the box is the whole screen: square corners, no edge or shadow, its buttons where they stood, eased there with it", () => {
   const page = read("m.html"), sty = code(page.slice(0, page.indexOf("</style>")));
-  // nothing of it is eased through a number of its own that its parts read
-  assert.doesNotMatch(page, /--mb-full/);
-  // landed (.full): square corners, no edge line and no shadow
-  assert.match(sty, /\n  #mbface\.full\{border:0; border-radius:0; box-shadow:none\}/);
+  // how far it has got, a number the move eases and the box's parts read
+  assert.match(sty, /@property --mb-full\{syntax:"<number>"; inherits:true; initial-value:0\}/);
+  assert.match(sty, /\n  #mbface\.big\{--mb-full:1; box-shadow:none\}/);
+  // its corners (the bar's and the body's follow --mb-round) and its edge go to nothing on the way
+  assert.match(sty, /\n  #mbface:is\(\.big, \.moving\)\{--mb-round:calc\(14 \* var\(--u\) \* \(1 - var\(--mb-full\)\)\); border-width:calc\(var\(--edge\) \* \(1 - var\(--mb-full\)\)\)\}/);
   // the drawer's own corner is the one it comes back to
   assert.match(sty, /#mbface\{display:none;[^}]*--mb-round:calc\(14 \* var\(--u\)\)/);
-  // the bar draws nothing there, stands in from the screen's sides and foot to where its buttons
-  // stood at 95% of the screen, and takes no touch but its buttons'
-  const bar = sty.match(/\n  #mbface\.full \.mbbar\{([^}]*)\}/);
-  assert.ok(bar, "the landed bar has a rule of its own");
-  assert.equal(bar[1].replace(/\s+/g, " "),
-    "position:absolute; left:var(--mb-big-l); right:var(--mb-big-r); bottom:var(--mb-big-b); background:none; box-shadow:none; pointer-events:none");
-  assert.match(sty, /\n  #mbface\.full \.mbbar > \*\{pointer-events:auto\}/);
-  // with the bar out of the way, what it holds runs to the screen's foot: words, a page and a site
-  // start under the status bar, and a picture fills the box to its top
-  assert.match(sty, /\n  #mbface\.full \.mbbody\{margin-top:calc\(env\(safe-area-inset-top, 0px\) \+ var\(--mb-air\)\)\}/);
-  assert.match(sty, /\n  #mbface\.full \.mbbody:is\(\[data-kind="html"\], \[data-kind="url"\]\):has\(> \.mbframe\)\{margin-top:env\(safe-area-inset-top, 0px\)\}/);
-  assert.match(sty, /\n  #mbface\.full \.mbbody:is\(\[data-kind="image"\], \.alone\)\{margin-top:0\}/);
-  // words keep room under their last line to scroll it up clear of the buttons, and a page taller
-  // than the box is laid out that much taller, so the room is its own paper
-  assert.match(sty, /\n  #mbface\.full \.mbtext::after\{content:""; display:block; height:calc\(var\(--mb-big-b\) \+ var\(--mb-bar\)\)\}/);
-  assert.match(sty, /\n  #mbface\.full \.mbbody\[data-kind="html"\] > \.mbframe\{height:max\(100%, calc\(var\(--mb-page, 0px\) \+ var\(--mb-big-b\) \+ var\(--mb-bar\)\)\)\}/);
-  // the words run off the screen's foot with no fuzz there, the top one kept
-  const fuzz = sty.match(/\n  #mbface\.full \.mbbody:is\(\[data-kind="text"\], \[data-kind="markdown"\]\):not\(\.alone\)\{([^}]*)\}/);
-  assert.ok(fuzz && /var\(--upband, 0px\)/.test(fuzz[1]) && !/--downband/.test(fuzz[1]));
-  // each button sits on a seat of the board's glass, under its circle and over what the box holds,
-  // which comes in with the move out and goes with the move back
-  assert.match(sty, /\n  #mbface:is\(\.big, \.moving\) \.mbbar\{z-index:0; background:var\(--card\)\}/);
-  const seat = sty.match(/\n  #mbface:is\(\.big, \.moving\) :is\(\.mbgrow, \.mbclose\)::before\{([^}]*)\}/)[1].replace(/\s+/g, " ");
-  for (const part of ['content:""', "position:absolute", "z-index:-1", "pointer-events:none", "inset:calc(-1 * var(--mb-gap))",
-    "border-radius:50%", "background:rgba(255,255,255,.77)", "backdrop-filter:blur(15px) saturate(180%)",
-    "-webkit-backdrop-filter:blur(15px) saturate(180%)", "animation:mbseaton .3s cubic-bezier(0.25, 1, 0.5, 1) both"])
-    assert.ok(seat.includes(part), part);
-  assert.match(read("card-tokens.css"), /\.qn-glass\{--qn-ring:#c7c7cc;\s*--qn-blur:15px; --qn-sat:180%; --qn-tint:\.77;/, "the glass's own numbers");
-  assert.match(sty, /\n  #mbface\.moving :is\(\.mbgrow, \.mbclose\)::before\{animation-name:mbseatoff\}/);
-  assert.match(sty, /@keyframes mbseaton\{from\{opacity:0\}\}/);
-  assert.match(sty, /@keyframes mbseatoff\{to\{opacity:0\}\}/);
-  // landed, it is placed on the whole screen, and its buttons' insets are read off where the 95% box stood
+  // the bar pads out from the screen's sides and foot to where its buttons stood, and grows by the foot's share
+  const bar = sty.match(/\n  #mbface:is\(\.big, \.moving\) \.mbbar\{([^}]*)\}/);
+  assert.ok(bar, "the expanded bar has no rule of its own");
+  const decl = bar[1].replace(/\s+/g, " ");
+  assert.match(decl, /^height:calc\(var\(--mb-bar\) \+ var\(--mb-big-b, 0px\) \* var\(--mb-full\)\);/);
+  assert.match(decl, /padding:var\(--edge-drawn\) calc\(var\(--mb-gap\) - var\(--edge-drawn\) \/ 2 \+ var\(--mb-big-r, 0px\) \* var\(--mb-full\)\) calc\(var\(--mb-big-b, 0px\) \* var\(--mb-full\)\) calc\(var\(--mb-gap\) - var\(--edge-drawn\) \/ 2 \+ var\(--mb-big-l, 0px\) \* var\(--mb-full\)\)$/);
+  // words, a page and a site start under the status bar; a picture fills to the top
+  assert.match(sty, /\n  #mbface:is\(\.big, \.moving\) \.mbbody\{margin-top:calc\(var\(--mb-air\) \+ env\(safe-area-inset-top, 0px\) \* var\(--mb-full\)\)\}/);
+  assert.match(sty, /\n  #mbface:is\(\.big, \.moving\) \.mbbody:is\(\[data-kind="html"\], \[data-kind="url"\]\):has\(> \.mbframe\)\{margin-top:calc\(env\(safe-area-inset-top, 0px\) \* var\(--mb-full\)\)\}/);
+  assert.match(sty, /\n  #mbface:is\(\.big, \.moving\) \.mbbody:is\(\[data-kind="image"\], \.alone\)\{margin-top:0\}/);
+  // the box is placed on the whole screen, and its buttons' insets read off where the 95% box stood
   const place = page.match(/function phoneMagicPlaceBig\(\)\{[\s\S]*?\n\}/)[0];
-  assert.match(page, /border-top:var\(--edge\) solid transparent/);
+  assert.match(place, /border-top:var\(--edge\) solid transparent/);
   assert.match(place, /left: "0px", top: "0px", width: innerWidth \+ "px", height: innerHeight \+ "px"/);
   for (const side of ["l", "r", "b"]) assert.ok(place.includes('s.setProperty("--mb-big-' + side + '", '), side);
+  // the move sets off from how far it had got
+  assert.match(page, /"--mb-full": getComputedStyle\(PB\.el\)\.getPropertyValue\("--mb-full"\) \}, part: cardPictureTurn\(PB\.move\)/);
   // the Mac's box is left as it was
-  assert.ok(!/--mb-big-|mbseat/.test(read("index.html") + read("card-tokens.css") + read("magic-box.js")));
+  assert.ok(!/--mb-full|--mb-big-/.test(read("index.html") + read("card-tokens.css") + read("magic-box.js")));
 });
 
 test("the green button mirrors the cross at the bar's other end: its seat, ink, shade, outline and reach, in a soft green", () => {
@@ -2112,14 +2094,10 @@ test("the green button mirrors the cross at the bar's other end: its seat, ink, 
   assert.ok((Math.max(r, g, b) + Math.min(r, g, b)) / 2 / 255 > 0.6, "pastel, as light as the cross's soft red");
   assert.ok(!/432BFF/i.test(sheet), "never the accent purple");
   // on the phone it is the cross's mirror at the bottom left corner, the
-  // bar's sides padded alike and nothing moving either seat on its own. the
-  // phone's only rules for the two are the glass each sits on while the box
-  // is expanded or on its way, behind the button
+  // bar's sides padded alike and nothing moving either seat on its own
   const phone = read("m.html");
   assert.match(phone, /#mbface \.mbbar\{padding:var\(--edge-drawn\) calc\(var\(--mb-gap\) - var\(--edge-drawn\) \/ 2\) 0\}/);
-  const own = phone.match(/#mbface[^{]*\.mb(close|grow)[^{]*\{/g) || [];
-  assert.ok(own.length > 0 && own.every(s => /^#mbface(:is\(\.big, \.moving\)|\.moving) :is\(\.mbgrow, \.mbclose\)::before\{$/.test(s)),
-    "the phone moves a seat of its own: " + own.join(" "));
+  assert.ok(!/#mbface[^{]*\.mb(close|grow)[^{]*\{/.test(phone), "the phone moves a seat of its own");
 });
 
 // the shared view, its marks and its expand, on stand-ins
@@ -2785,8 +2763,6 @@ test("on the phone the button lifts the box into the top layer over a shade, to 
     showPopover() { el.up = true; order.push(name + " up"); }, hidePopover() { el.up = false; order.push(name + " down"); },
     matches: s => s === ":popover-open" && el.up, getAnimations: () => [], animate() {} });
   popover(box, "box");
-  const boxClasses = new Set();
-  box.classList = { add: c => boxClasses.add(c), remove: c => boxClasses.delete(c), contains: c => boxClasses.has(c) };
   // the shade, and the probe of the safe areas, which wears the box's edge line at the width it is drawn at
   let shade = null;
   ctx.document.createElement = () => {
@@ -2808,7 +2784,6 @@ test("on the phone the button lifts the box into the top layer over a shade, to 
   assert.equal(box.attrs.popover, "manual");
   const px = v => parseFloat(v);
   assert.deepEqual([box.style.left, box.style.top, box.style.width, box.style.height], ["0px", "0px", "402px", "874px"], "the whole screen");
-  assert.ok(boxClasses.has("full"), "with reduced motion it does not travel, and is the whole screen at once");
   // its buttons stand where the box's own corners stood at 95% of the screen across, under the
   // notch and over the home bar, the edge line it no longer draws counted in
   assert.ok(close(px(box.style["--mb-big-l"]), 402 * .025 + .5) && close(px(box.style["--mb-big-r"]), 402 * .025 + .5), "95% of the screen across");
@@ -2837,7 +2812,6 @@ test("on the phone the button lifts the box into the top layer over a shade, to 
   assert.equal(box.up, false);
   assert.equal(box.attrs.popover, undefined);
   assert.equal(box.style.left, "");
-  assert.ok(!boxClasses.has("full"));
   timers.splice(0).forEach(f => f());
   assert.equal(shade.up, false);
   for (const fn of box.on.touchstart) fn({ stopPropagation: () => stopped++ });
@@ -3030,7 +3004,7 @@ test("on the Mac the keys moving while the box is on its way take it to its new 
   assert.equal(classes.has("held"), false);
 });
 
-test("on the phone the box zooms out of its place in the drawer and back into it as a picture does, in the top layer both ways, nothing in it laid out again on the way but its size", () => {
+test("on the phone the box zooms out of its place in the drawer and back into it as a picture does, in the top layer both ways", () => {
   const { ctx, PB, box, body, anims } = phoneBoxScript(read("m.html"));
   const boxClasses = new Set(), timers = [];
   const popover = el => Object.assign(el, { attrs: {}, up: false,
@@ -3038,7 +3012,6 @@ test("on the phone the box zooms out of its place in the drawer and back into it
     showPopover() { el.up = true; }, hidePopover() { el.up = false; }, matches: s => s === ":popover-open" && el.up });
   popover(box);
   box.classList = { add: c => boxClasses.add(c), remove: c => boxClasses.delete(c), contains: c => boxClasses.has(c) };
-  box.style.getPropertyValue = function (name) { return this[name] || ""; };
   // in the drawer the box stands where the drawer lays it out; up in the top layer, where its style puts it
   const px = v => parseFloat(v);
   let mid = null;
@@ -3048,73 +3021,35 @@ test("on the phone the box zooms out of its place in the drawer and back into it
     return box.up ? { left: px(s.left), top: px(s.top), width: px(s.width), height: px(s.height) }
       : { left: 28, top: 140, width: px(s.width), height: px(s.height) };
   };
-  // the probe of the safe areas: the status bar 47 tall, the home bar 34, the edge line drawn half a pixel wide
-  ctx.document.createElement = () => popover({ style: { borderTopWidth: "0.5px" }, addEventListener() {}, getAnimations: () => [], animate() {},
-    getBoundingClientRect: () => ({ left: 0, top: 47, width: 402, height: 874 - 47 - 34 }) });
+  ctx.document.createElement = () => popover({ style: {}, addEventListener() {}, getAnimations: () => [], animate() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 402, height: 874 }) });
   Object.assign(ctx, { innerHeight: 874, window: {}, cardPictureStill: () => false, cardPictureShown: null, imeKey: () => false,
     clearTimeout() {}, setTimeout: fn => timers.push(fn) });
   const { BIG, grow } = api();
   Object.assign(ctx.MagicBox, { BIG, grow });
-  // its bar, 30 tall, and what it holds: words, or a picture (which starts at the box's top)
-  let picture = false;
-  Object.assign(PB.view, { big: false, expand(on) { this.big = !!on; }, bar: { getBoundingClientRect: () => ({ height: 30 }) } });
+  Object.assign(PB.view, { big: false, expand(on) { this.big = !!on; } });
   body.querySelector = s => s === ".mbaway" ? null : { getBoundingClientRect: () => ({ bottom: 81 }), style: { paddingBottom: "16px" } };
-  body.matches = s => picture && s === '[data-kind="image"], .alone';
-  // what it holds and its two buttons, each moved on its own as the box goes
-  const part = name => (keys, opts) => {
-    const a = { part: name, keys, opts, cancelled: false, cancel() { a.cancelled = true; } };
-    anims.push(a);
-    return a;
-  };
-  const grows = vm.runInContext("PB_GROW", ctx), cross = vm.runInContext("PB_CROSS", ctx);
-  Object.assign(grows, { style: {}, animate: part("grow") });
-  Object.assign(cross, { style: {}, animate: part("cross") });
-  Object.assign(body, { style: {}, animate: part("body") });
-  // the box's own corner and edge line: the drawer's, or wherever a move caught on its way had got to
+  // how far it has got to the whole screen (--mb-full): what the box's own rules give it, in the
+  // drawer or expanded, or wherever a move caught on its way had got to
   ctx.getComputedStyle = el => el !== box ? el.style
-    : { ...box.style, borderTopLeftRadius: mid ? "6px" : "14px", borderTopColor: mid ? "rgba(0, 0, 0, 0.5)" : "rgb(0, 0, 0)" };
-  const of = name => anims.filter(a => a.part === name);
-  const moves = () => of("box");
+    : { ...box.style, getPropertyValue: n => n === "--mb-full" ? (mid ? "0.4" : PB.view.big ? "1" : "0") : "" };
+  const moves = () => anims.filter(a => a.part === "box");
   const keys = i => flat(moves()[i].keys), opts = i => flat(moves()[i].opts);
   const rect = s => ({ left: s.left, top: s.top, width: s.width, height: s.height });
-  const timing = { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)", fill: "forwards" };
   ctx.phoneMagicFit();
-  const inDrawer = { left: "28px", top: "140px", width: box.style.width, height: box.style.height, borderRadius: "14px", borderColor: "rgb(0, 0, 0)" };
+  const inDrawer = { left: "28px", top: "140px", width: box.style.width, height: box.style.height };
   ctx.phoneMagicBig(null);
-  // on its way it is laid out inside as in the drawer, and its last frame is the whole screen: its
-  // edge line just past the screen's edges, its bar just past its foot, its corners square and its
-  // edge line clear
-  const travel = { left: "-0.5px", top: "-0.5px", width: "403px", height: 874 + 30 + 1 + "px", borderRadius: "0px", borderColor: "transparent" };
-  assert.deepEqual(rect(box.style), rect(travel), "it stands where its move ends");
-  assert.ok(!boxClasses.has("full"), "and lands on the whole screen only once its move is done");
-  assert.deepEqual(keys(0), [inDrawer, travel], "out of its place in the drawer: its rectangle, corner and edge line only");
-  assert.deepEqual(opts(0), timing);
+  const big = rect(box.style);
+  assert.deepEqual(big, { left: "0px", top: "0px", width: "402px", height: "874px" }, "the whole screen");
+  assert.deepEqual(keys(0), [{ ...inDrawer, "--mb-full": "0" }, big], "out of its place in the drawer to the whole screen, its corners, edge and buttons with it");
+  assert.deepEqual(opts(0), { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
   assert.ok(box.up && PB.move === moves()[0]);
-  // the words carried down by the status bar's height, to where they start once it has landed, and
-  // the buttons from the bar's ends to where they stood at 95% of the screen (10.55 in from each side,
-  // and the home bar and the bar's own height up), each on its own left and top, on the same time
-  const up = -(34 + 0.5 + 30);
-  assert.deepEqual(flat(of("body")[0].keys), [{ top: "0px" }, { top: "47px" }]);
-  for (const [name, side] of [["grow", 1], ["cross", -1]]) {
-    const [from, to] = flat(of(name)[0].keys);
-    assert.deepEqual(from, { left: "0px", top: "0px" }, name);
-    assert.ok(close(px(to.left), side * (402 * .025 + .5)) && close(px(to.top), up), name + " " + JSON.stringify(to));
-    assert.deepEqual(flat(of(name)[0].opts), timing, name);
-  }
-  assert.deepEqual(flat(of("body")[0].opts), timing);
-  // landed: the whole screen, and nothing held at its last frame any more
   moves()[0].onfinish();
-  assert.ok(!PB.move && boxClasses.has("full"));
-  assert.deepEqual(rect(box.style), { left: "0px", top: "0px", width: "402px", height: "874px" }, "the whole screen");
-  for (const name of ["box", "body", "grow", "cross"]) assert.ok(of(name)[0].cancelled, name);
-  // back: from the move out's last frame, which draws the same as the landed box, lifted over the
-  // shade again where it stands in the drawer, and carried there
+  assert.ok(!PB.move);
+  // back: lifted over the shade again where it stands in the drawer, and carried there
   ctx.phoneMagicSmall(true);
-  assert.ok(!boxClasses.has("full"));
-  assert.deepEqual(keys(1), [travel, inDrawer], "from the whole screen back into its own place in the drawer");
-  assert.deepEqual(opts(1), timing);
-  assert.deepEqual(flat(of("body")[1].keys), [{ top: "47px" }, { top: "0px" }]);
-  assert.deepEqual(flat(of("grow")[1].keys)[1], { left: "0px", top: "0px" });
+  assert.deepEqual(keys(1), [{ ...big, "--mb-full": "1" }, inDrawer], "from the expanded place back into its own in the drawer");
+  assert.deepEqual(opts(1), { duration: 300, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
   assert.ok(box.up && box.attrs.popover === "manual" && boxClasses.has("moving"), "up over the shade on its way");
   // the drawer keeps the foot the box lands with, whatever the moving box measures
   box.offsetHeight = 400;
@@ -3122,41 +3057,30 @@ test("on the phone the box zooms out of its place in the drawer and back into it
   box.offsetHeight = 89;
   moves()[1].onfinish();
   assert.ok(!box.up && box.attrs.popover === undefined && !boxClasses.has("moving") && box.style.left === "", "landed in the drawer");
-  // a picture starts at the box's top: nothing of it is carried down
-  picture = true;
-  ctx.phoneMagicBig(null);
-  assert.deepEqual(flat(of("body")[2].keys), [{ top: "0px" }, { top: "0px" }]);
-  moves()[2].onfinish();
-  picture = false;
   // turned round on its way back, it lands and sets off again from where it had got to, in the
   // time it had spent, as the picture does
+  ctx.phoneMagicBig(null);
+  moves()[2].onfinish();
   ctx.phoneMagicSmall(true);
   mid = { left: 20, top: 80, width: 360, height: 500 };
   Object.assign(moves()[3], { playState: "running", currentTime: 150 });
-  Object.assign(body.style, { top: "20px" });
-  Object.assign(grows.style, { left: "4px", top: "-30px" });
   ctx.phoneMagicBig(null);
   mid = null;
-  for (const name of ["box", "body", "grow", "cross"]) assert.ok(of(name)[3].cancelled, name);
-  assert.deepEqual(keys(4), [{ left: "20px", top: "80px", width: "360px", height: "500px", borderRadius: "6px", borderColor: "rgba(0, 0, 0, 0.5)" }, travel]);
-  assert.deepEqual(flat(of("body")[4].keys)[0], { top: "20px" });
-  assert.deepEqual(flat(of("grow")[4].keys)[0], { left: "4px", top: "-30px" });
+  assert.ok(moves()[3].cancelled);
+  assert.deepEqual(keys(4), [{ left: "20px", top: "80px", width: "360px", height: "500px", "--mb-full": "0.4" }, big]);
   assert.equal(opts(4).duration, 150);
+  // no move's last frame says how far it has got: that is left to the box's own rules where it lands
+  for (const i of [0, 1, 4]) assert.ok(!("--mb-full" in keys(i)[1]));
   moves()[4].onfinish();
   // the drawer setting out to go back lands a box still on its way at once
   ctx.phoneMagicSmall(true);
   ctx.runMenu(ctx.tickets, 0);
-  assert.ok(moves()[5].cancelled && of("grow")[5].cancelled && !PB.move && !box.up && !boxClasses.has("moving"));
-  // with reduced motion it does not travel: it is the whole screen at once and fades in, quickly
+  assert.ok(moves()[5].cancelled && !PB.move && !box.up && !boxClasses.has("moving"));
+  // with reduced motion it does not travel: it fades in where it now stands, quickly
   ctx.cardPictureStill = () => true;
   ctx.phoneMagicBig(null);
-  assert.ok(boxClasses.has("full"));
-  assert.deepEqual(rect(box.style), { left: "0px", top: "0px", width: "402px", height: "874px" });
   assert.deepEqual(keys(6), [{ opacity: 0 }, { opacity: 1 }]);
   assert.deepEqual(opts(6), { duration: 160, easing: "ease" });
-  // on its way nothing is moved on a layer of its own, and nothing but the box's size is laid out again
-  const move = read("m.html").match(/function phoneMagicMove\(from\)\{[\s\S]*?\n\}/)[0] + read("m.html").match(/function phoneMagicTravel\(\)\{[\s\S]*?\n\}/)[0];
-  assert.doesNotMatch(move, /transform|padding|margin|--mb-full/);
   // the button, Escape and the shade glide it back; the drawer, its keys and the box going put it back at once
   const page = read("m.html");
   assert.match(page, /escape: \(\) => \{ if \(!cardPictureShown\) phoneMagicSmall\(true\); \},/);
